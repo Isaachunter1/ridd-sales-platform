@@ -443,6 +443,16 @@ const ADMIN_ROLES   = ['admin', 'admin_rep'];
 const SELLER_ROLES  = ['rep', 'admin_rep'];
 const isAdminRole   = (r) => ADMIN_ROLES.includes(r);
 const isSellerRole  = (r) => SELLER_ROLES.includes(r);
+// Human-readable label for any role enum value, used wherever we render a
+// role to the UI. Keeps the Users table, the editor dropdown, and the
+// profile menu in sync without scattering string-cases.
+const ROLE_LABEL = {
+  rep:        'Rep',
+  admin_rep:  'Admin + Sales',
+  admin:      'Admin',
+  auditor:    'Auditor',
+};
+const roleLabel = (r) => ROLE_LABEL[r] || r || '';
 
 // ──────────────────────────────────────────────────────────────────────────
 // Demo state persistence — keep sales/competitions alive across page reloads
@@ -1737,8 +1747,8 @@ function mountApp() {
       style: { borderColor: 'var(--border)' },
     },
       el('div', { class: 'text-[11px] font-medium', style: { color: 'var(--text-muted)' } }, state.profile.full_name),
-      el('div', { class: 'text-[10px] capitalize', style: { color: 'var(--text-subtle)' } },
-        state.profile.role + (isAdmin ? '' : ' · ' + (state.offices.find(o => o.id === state.profile.office_id)?.name || 'no office'))),
+      el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
+        roleLabel(state.profile.role) + (isAdmin ? '' : ' · ' + (state.offices.find(o => o.id === state.profile.office_id)?.name || 'no office'))),
       el('button', {
         class: 'mt-2 mb-1 text-xs transition hover:underline',
         style: { color: 'var(--text-muted)' },
@@ -3995,7 +4005,7 @@ function openRepProfileModal(repId) {
         el('div', { class: 'text-xs text-muted- mt-0.5' },
           // Role gets capitalized for display; the email stays in its
           // canonical lowercase so it doesn't render as "Pere@Riddpest.Com".
-          el('span', { class: 'capitalize' }, profile.role || ''),
+          el('span', {}, roleLabel(profile.role)),
           (profile.email ? ' · ' + (profile.email || '').toLowerCase() : ''),
         ),
       ),
@@ -15228,8 +15238,9 @@ function adminReps() {
                   ),
                 ),
                 el('td', { class: 'px-3 py-3 text-muted-' }, p.email || '—'),
-                el('td', { class: 'px-3 py-3 capitalize' }, p.role),
-                el('td', { class: 'px-3 py-3 text-right tabular-nums' }, fmt.usd0(p.annual_revenue_goal || 0)),
+                el('td', { class: 'px-3 py-3' }, roleLabel(p.role)),
+                el('td', { class: 'px-3 py-3 text-right tabular-nums' },
+                  isSellerRole(p.role) ? fmt.usd0(p.annual_revenue_goal || 0) : el('span', { class: 'text-muted-' }, '—')),
                 el('td', { class: 'px-3 py-3 text-center' },
                   el('span', {
                     class: 'chip',
@@ -15280,13 +15291,21 @@ function openUserEditor(existing = null) {
       const bumpRaw = data.commission_override?.trim();
       const bumpPct = bumpRaw === '' || bumpRaw == null ? 0 : parseFloat(bumpRaw);
       const totalRate = BASE_COMMISSION + (bumpPct / 100);
+      // Annual goal only applies to sellers (rep / admin_rep). Non-sellers
+      // (admin / auditor) get 0 — the column is NOT NULL, and 0 is treated
+      // as "no goal" by the leaderboard rendering.
+      const seller = isSellerRole(data.role);
+      const goalParsed = parseFloat(data.annual_revenue_goal);
+      const annualGoal = !seller ? 0
+        : Number.isFinite(goalParsed) ? goalParsed
+        : (existing?.annual_revenue_goal ?? 250000);
       const payload = {
         full_name: data.full_name,
         email: data.email,
         role: data.role,
         initials: data.initials || null,
         avatar_url: modal.avatar_url || null,
-        annual_revenue_goal: parseFloat(data.annual_revenue_goal) || 250000,
+        annual_revenue_goal: annualGoal,
         is_active: modal.is_active,
         // Round to 4 decimal places to avoid float noise (0.07+0.005=0.074999...)
         upfront_commission_rate: Math.round(totalRate * 10000) / 10000,
