@@ -909,12 +909,22 @@ async function boot() {
   const { data: { session } } = await supabase.auth.getSession();
   state.session = session;
 
-  supabase.auth.onAuthStateChange((_event, session) => {
+  // If the user landed here from a password-reset email, the URL fragment
+  // carries `type=recovery` — show the "set new password" screen instead of
+  // dropping them into the app.
+  const recoveryNow = location.hash.includes('type=recovery');
+
+  supabase.auth.onAuthStateChange((event, session) => {
     state.session = session;
+    if (event === 'PASSWORD_RECOVERY') { mountAuth({ mode: 'recover' }); return; }
     if (session) loadAndRender();
     else mountAuth();
   });
 
+  if (recoveryNow) {
+    mountAuth({ mode: 'recover' });
+    return;
+  }
   if (!session) {
     mountAuth();
     return;
@@ -1223,9 +1233,27 @@ async function loadAndRender() {
 // Data loaders
 // ──────────────────────────────────────────────────────────────────────────
 async function loadProfile() {
-  const uid = state.session.user.id;
-  const { data, error } = await supabase.from('profiles').select('*').eq('id', uid).single();
+  const uid  = state.session.user.id;
+  const user = state.session.user;
+  // maybeSingle() returns null instead of throwing when no row matches —
+  // lets us self-heal an orphaned auth.users row by inserting a profile
+  // (e.g. when the schema was reset after the auth user was already created,
+  // or when the dashboard 'Add user' flow updated an existing row instead of
+  // inserting and so the on_auth_user_created trigger never fired).
+  let { data, error } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
   if (error) throw error;
+  if (!data) {
+    const fullName = user.user_metadata?.full_name
+      || user.user_metadata?.name
+      || (user.email ? user.email.split('@')[0] : 'User');
+    const { data: created, error: insertErr } = await supabase
+      .from('profiles')
+      .insert({ id: uid, email: user.email, full_name: fullName, role: 'rep' })
+      .select('*')
+      .single();
+    if (insertErr) throw insertErr;
+    data = created;
+  }
   // Enforce login deactivation: an admin flipping a user inactive in the
   // Users tab should bounce that user out at next page load. Historical
   // sales stay attached to their profile — only the session is killed.
@@ -1321,32 +1349,42 @@ function mountError(err) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// AUTH (login / signup)
+// AUTH (login / forgot password / set new password)
 // ──────────────────────────────────────────────────────────────────────────
-function mountAuth() {
+// Sign-up is intentionally absent: accounts are created when an admin invites
+// a rep (Admin → Users → Add). The invite email contains a magic link that
+// creates the auth row on first click; the rep can later set a password via
+// "Forgot password?" → email reset link.
+function mountAuth(opts = {}) {
+  const initialMode = opts.mode || 'login'; // 'login' | 'forgot' | 'recover'
   const form = el('form', {
     class: 'card p-6 w-full max-w-sm flex flex-col gap-3',
     onsubmit: async (e) => {
       e.preventDefault();
-      const email    = form.email.value.trim();
-      const password = form.password.value;
-      const fullName = form.fullName?.value.trim();
+      const email    = form.email?.value?.trim();
+      const password = form.password?.value;
       const mode     = form.dataset.mode;
 
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<span class="spinner"></span>';
       try {
-        if (mode === 'signup') {
-          const { error } = await supabase.auth.signUp({
-            email, password, options: { data: { full_name: fullName } },
-          });
-          if (error) throw error;
-          toast('Account created — check your email to confirm, then sign in.', 'success');
-          form.dataset.mode = 'login';
-          renderMode();
-        } else {
+        if (mode === 'login') {
           const { error } = await supabase.auth.signInWithPassword({ email, password });
           if (error) throw error;
+        } else if (mode === 'forgot') {
+          const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: window.location.origin,
+          });
+          if (error) throw error;
+          toast('Reset link sent — check your email.', 'success');
+          form.dataset.mode = 'login';
+          renderMode();
+        } else if (mode === 'recover') {
+          const { error } = await supabase.auth.updateUser({ password });
+          if (error) throw error;
+          toast('Password updated — signing you in.', 'success');
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+          loadAndRender();
         }
       } catch (err) {
         toast(err.message || 'Auth failed', 'error');
@@ -1357,36 +1395,55 @@ function mountAuth() {
     },
   });
 
-  form.dataset.mode = 'login';
+  form.dataset.mode = initialMode;
 
-  const heading      = el('h1', { class: 'text-xl font-semibold' });
-  const subheading   = el('p', { class: 'text-battle-2 text-sm mb-2' });
-  const nameField    = el('label', { class: 'block text-sm' },
-    el('span', { class: 'text-battle-2 block mb-1' }, 'Full name'),
-    el('input', { name: 'fullName', class: 'w-full rounded-lg border px-3 py-2', placeholder: 'Isaac Hunter' }));
-  const emailField   = el('label', { class: 'block text-sm' },
+  const heading    = el('h1', { class: 'text-xl font-semibold' });
+  const subheading = el('p', { class: 'text-battle-2 text-sm mb-2' });
+  const emailField = el('label', { class: 'block text-sm' },
     el('span', { class: 'text-battle-2 block mb-1' }, 'Email'),
     el('input', { name: 'email', type: 'email', required: true, class: 'w-full rounded-lg border px-3 py-2', placeholder: 'you@ridd.com' }));
-  const passField    = el('label', { class: 'block text-sm' },
+  const passField  = el('label', { class: 'block text-sm' },
     el('span', { class: 'text-battle-2 block mb-1' }, 'Password'),
     el('input', { name: 'password', type: 'password', required: true, minlength: 6, class: 'w-full rounded-lg border px-3 py-2', placeholder: '••••••••' }));
-  const submitBtn    = el('button', { type: 'submit', class: 'w-full rounded-lg bg-lime hover:bg-lime-600 text-eerie font-semibold py-2.5 transition' });
-  const toggle       = el('button', { type: 'button', class: 'text-xs text-battle-2 hover:text-lime transition',
-    onclick: () => { form.dataset.mode = form.dataset.mode === 'login' ? 'signup' : 'login'; renderMode(); } });
+  const submitBtn  = el('button', { type: 'submit', class: 'w-full rounded-lg bg-lime hover:bg-lime-600 text-eerie font-semibold py-2.5 transition' });
+  const forgotBtn  = el('button', { type: 'button', class: 'text-xs text-battle-2 hover:text-lime transition',
+    onclick: () => { form.dataset.mode = form.dataset.mode === 'login' ? 'forgot' : 'login'; renderMode(); } });
 
   function renderMode() {
-    const isLogin = form.dataset.mode === 'login';
-    heading.textContent    = isLogin ? 'Sign in' : 'Create account';
-    subheading.textContent = isLogin ? 'RIDD Sales Platform' : 'Join your team on RIDD Sales Platform';
-    nameField.style.display = isLogin ? 'none' : 'block';
-    submitBtn.textContent  = isLogin ? 'Sign in' : 'Create account';
-    toggle.textContent     = isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in';
+    const mode = form.dataset.mode;
+    if (mode === 'login') {
+      heading.textContent    = 'Sign in';
+      subheading.textContent = 'RIDD Sales Platform';
+      emailField.style.display = 'block';
+      passField.style.display  = 'block';
+      passField.querySelector('input').required = true;
+      submitBtn.textContent = 'Sign in';
+      forgotBtn.textContent = 'Forgot password?';
+      forgotBtn.style.display = '';
+    } else if (mode === 'forgot') {
+      heading.textContent    = 'Reset password';
+      subheading.textContent = 'Enter your email and we’ll send you a reset link.';
+      emailField.style.display = 'block';
+      passField.style.display  = 'none';
+      passField.querySelector('input').required = false;
+      submitBtn.textContent = 'Send reset link';
+      forgotBtn.textContent = 'Back to sign in';
+      forgotBtn.style.display = '';
+    } else if (mode === 'recover') {
+      heading.textContent    = 'Set a new password';
+      subheading.textContent = 'Enter the password you’d like to use from now on.';
+      emailField.style.display = 'none';
+      passField.style.display  = 'block';
+      passField.querySelector('input').required = true;
+      submitBtn.textContent = 'Update password';
+      forgotBtn.style.display = 'none';
+    }
   }
 
   form.append(
     el('div', { class: 'text-lime text-3xl font-black tracking-tight' }, CFG.COMPANY_NAME),
     el('div', { class: 'text-[10px] text-battleship tracking-[.22em] mb-2' }, CFG.COMPANY_TAGLINE),
-    heading, subheading, nameField, emailField, passField, submitBtn, toggle,
+    heading, subheading, emailField, passField, submitBtn, forgotBtn,
   );
   renderMode();
 
@@ -15256,9 +15313,41 @@ function openUserEditor(existing = null) {
           const { error } = await supabase.from('profiles').update(payload).eq('id', existing.id);
           if (error) throw error;
         } else {
-          const { error } = await supabase.from('pending_invites').insert({ ...payload, created_by: state.profile.id });
-          if (error) throw error;
-          toast('Invite created — user can now sign up with ' + payload.email, 'success');
+          // pending_invites only stores the columns handle_new_user() copies.
+          // commission rate, close rate target, is_active, slack_user_id all
+          // live on profiles and the admin can edit them after the rep
+          // first signs in.
+          const invitePayload = {
+            email: payload.email,
+            full_name: payload.full_name,
+            role: payload.role,
+            office_id: payload.office_id ?? null,
+            initials: payload.initials ?? null,
+            avatar_url: payload.avatar_url ?? null,
+            annual_revenue_goal: payload.annual_revenue_goal ?? null,
+            created_by: state.profile.id,
+          };
+          const { error: insertErr } = await supabase
+            .from('pending_invites')
+            .upsert(invitePayload, { onConflict: 'email' });
+          if (insertErr) throw insertErr;
+          // Email a magic link that creates the auth user on first click.
+          // shouldCreateUser:true is the default but set explicitly so this
+          // stays correct if Supabase changes the default.
+          const { error: otpErr } = await supabase.auth.signInWithOtp({
+            email: payload.email,
+            options: {
+              shouldCreateUser: true,
+              emailRedirectTo: window.location.origin,
+              data: { full_name: payload.full_name },
+            },
+          });
+          if (otpErr) {
+            // Roll back the invite so a retry doesn't double-up.
+            await supabase.from('pending_invites').delete().eq('email', payload.email);
+            throw otpErr;
+          }
+          toast('Invite emailed to ' + payload.email, 'success');
         }
         await loadData();
         overlay.remove();
