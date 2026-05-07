@@ -26,9 +26,14 @@ drop type if exists public.user_role cascade;
 -- ============================================================================
 -- 1. ENUMS
 -- ============================================================================
--- Auditors can review status / assign audit / set backend lock, but they
--- don't sell — they're excluded from the leaderboard and can't log sales.
-create type public.user_role as enum ('rep', 'admin', 'auditor');
+-- Roles:
+--   rep         — sells; appears on leaderboard; sees only own data.
+--   admin_rep   — sells AND has admin powers (audit, see all sales, manage
+--                 reps/competitions). On the leaderboard.
+--   admin       — admin powers only; does NOT sell, NOT on leaderboard.
+--   auditor     — can review/audit/set lock but cannot create or delete
+--                 sales; hidden from the leaderboard.
+create type public.user_role as enum ('rep', 'admin_rep', 'admin', 'auditor');
 -- Statuses from RIDD SALES sheet column M validation
 create type public.audit_status as enum (
   'pending',
@@ -224,7 +229,7 @@ create or replace function public.is_admin()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.profiles
-    where id = auth.uid() and role = 'admin'
+    where id = auth.uid() and role in ('admin', 'admin_rep')
   );
 $$;
 
@@ -232,7 +237,7 @@ create or replace function public.is_admin_or_auditor()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.profiles
-    where id = auth.uid() and role in ('admin', 'auditor')
+    where id = auth.uid() and role in ('admin', 'admin_rep', 'auditor')
   );
 $$;
 
@@ -509,7 +514,7 @@ create or replace function public.is_admin()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.profiles
-    where id = auth.uid() and role = 'admin'
+    where id = auth.uid() and role in ('admin', 'admin_rep')
   );
 $$;
 
@@ -521,7 +526,7 @@ create or replace function public.is_admin_or_auditor()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.profiles
-    where id = auth.uid() and role in ('admin', 'auditor')
+    where id = auth.uid() and role in ('admin', 'admin_rep', 'auditor')
   );
 $$;
 
@@ -622,7 +627,7 @@ rep_stats as (
   left join public.offices o on o.id = p.office_id
   left join approved a on a.rep_id = p.id
   -- Auditors don't sell — keep them off the leaderboard.
-  where p.role <> 'auditor'
+  where p.role in ('rep', 'admin_rep')   -- only sellers on the leaderboard
   group by p.id, p.full_name, p.email, p.avatar_url, p.initials, o.name, p.role
 )
 select
@@ -637,9 +642,10 @@ from rep_stats;
 grant select on public.leaderboard to authenticated;
 
 -- ============================================================================
--- 10. SEED: an example admin bootstrap helper
--- After creating your first auth user via the app, run:
---   select public.promote_to_admin('you@example.com');
+-- 10. SEED: admin bootstrap helpers
+-- After creating your first auth user via the app, run ONE of:
+--   select public.promote_to_admin('you@example.com');      -- admin only (no sales)
+--   select public.promote_to_admin_rep('you@example.com');  -- admin + sales
 -- ============================================================================
 create or replace function public.promote_to_admin(email text)
 returns void language plpgsql security definer set search_path = public as $$
@@ -651,6 +657,21 @@ begin
     raise exception 'No auth user found with email %', email;
   end if;
   update public.profiles set role = 'admin' where id = target_id;
+end;
+$$;
+
+-- Use this for owners / managers who also sell. Same admin powers, plus they
+-- show on the leaderboard, get a Pay tab, and can log sales.
+create or replace function public.promote_to_admin_rep(email text)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  target_id uuid;
+begin
+  select id into target_id from auth.users where auth.users.email = promote_to_admin_rep.email;
+  if target_id is null then
+    raise exception 'No auth user found with email %', email;
+  end if;
+  update public.profiles set role = 'admin_rep' where id = target_id;
 end;
 $$;
 
@@ -723,7 +744,7 @@ create or replace function public.is_admin_or_auditor()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.profiles
-    where id = auth.uid() and role in ('admin', 'auditor')
+    where id = auth.uid() and role in ('admin', 'admin_rep', 'auditor')
   );
 $$;
 
@@ -769,7 +790,7 @@ rep_stats as (
   from public.profiles p
   left join public.offices o on o.id = p.office_id
   left join approved a on a.rep_id = p.id
-  where p.role <> 'auditor'
+  where p.role in ('rep', 'admin_rep')   -- only sellers on the leaderboard
   group by p.id, p.full_name, p.email, p.avatar_url, p.initials, o.name, p.role
 )
 select

@@ -10,6 +10,14 @@ const supabase = hasConfig
   ? createClient(CFG.SUPABASE_URL, CFG.SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: true, autoRefreshToken: true } })
   : null;
 
+// Role helpers — keep "has admin powers" and "is a seller" consistent across
+// the codebase. `admin_rep` is an admin who also sells (on leaderboard, has a
+// Pay tab); `admin` is admin-only (not on leaderboard, no sales).
+const ADMIN_ROLES   = ['admin', 'admin_rep'];
+const SELLER_ROLES  = ['rep', 'admin_rep'];
+const isAdminRole   = (r) => ADMIN_ROLES.includes(r);
+const isSellerRole  = (r) => SELLER_ROLES.includes(r);
+
 // ──────────────────────────────────────────────────────────────────────────
 // Demo state persistence — keep sales/competitions alive across page reloads
 // so you can log a sale → audit → stage → process without losing your work
@@ -222,12 +230,22 @@ async function boot() {
   const { data: { session } } = await supabase.auth.getSession();
   state.session = session;
 
-  supabase.auth.onAuthStateChange((_event, session) => {
+  // If the user landed here from a password-reset email, the URL fragment
+  // carries `type=recovery` (Supabase auto-creates a temporary session).
+  // Show the "set new password" screen instead of dropping them into the app.
+  const recoveryNow = location.hash.includes('type=recovery');
+
+  supabase.auth.onAuthStateChange((event, session) => {
     state.session = session;
+    if (event === 'PASSWORD_RECOVERY') { mountAuth({ mode: 'recover' }); return; }
     if (session) loadAndRender();
     else mountAuth();
   });
 
+  if (recoveryNow) {
+    mountAuth({ mode: 'recover' });
+    return;
+  }
   if (!session) {
     mountAuth();
     return;
@@ -369,7 +387,7 @@ function loadDemoData() {
   ];
   // Avatars default to null — initials show until an admin uploads a photo.
   state.profile = {
-    id: 'demo-1', full_name: 'Isaac Hunter', email: 'isaac@ridd.com', role: 'admin', office_id: 3, initials: 'IH',
+    id: 'demo-1', full_name: 'Isaac Hunter', email: 'isaac@ridd.com', role: 'admin_rep', office_id: 3, initials: 'IH',
     avatar_url: null,
     upfront_commission_rate: 0.07, below_min_commission_rate: 0.035, close_rate_target: 0.60,
     annual_revenue_goal: 750000,
@@ -523,7 +541,7 @@ async function loadLookups() {
 }
 
 async function loadData() {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const salesQuery = supabase.from('sales').select('*').order('sold_date', { ascending: false });
 
   const [mySales, comps, rules, progress, leaderboard] = await Promise.all([
@@ -593,32 +611,44 @@ function mountError(err) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// AUTH (login / signup)
+// AUTH (login / forgot password / set new password)
 // ──────────────────────────────────────────────────────────────────────────
-function mountAuth() {
+// Sign-up is intentionally absent: accounts are created when an admin invites
+// a rep (Admin → Reps → Invite). The invite email contains a magic link that
+// creates the auth row on first click; the rep can later set a password via
+// "Forgot password?" → email reset link.
+function mountAuth(opts = {}) {
+  const initialMode = opts.mode || 'login'; // 'login' | 'forgot' | 'recover'
   const form = el('form', {
     class: 'card p-6 w-full max-w-sm flex flex-col gap-3',
     onsubmit: async (e) => {
       e.preventDefault();
-      const email    = form.email.value.trim();
-      const password = form.password.value;
-      const fullName = form.fullName?.value.trim();
+      const email    = form.email?.value?.trim();
+      const password = form.password?.value;
       const mode     = form.dataset.mode;
 
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<span class="spinner"></span>';
       try {
-        if (mode === 'signup') {
-          const { error } = await supabase.auth.signUp({
-            email, password, options: { data: { full_name: fullName } },
-          });
-          if (error) throw error;
-          toast('Account created — check your email to confirm, then sign in.', 'success');
-          form.dataset.mode = 'login';
-          renderMode();
-        } else {
+        if (mode === 'login') {
           const { error } = await supabase.auth.signInWithPassword({ email, password });
           if (error) throw error;
+        } else if (mode === 'forgot') {
+          const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: window.location.origin,
+          });
+          if (error) throw error;
+          toast('Reset link sent — check your email.', 'success');
+          form.dataset.mode = 'login';
+          renderMode();
+        } else if (mode === 'recover') {
+          const { error } = await supabase.auth.updateUser({ password });
+          if (error) throw error;
+          toast('Password updated — signing you in.', 'success');
+          // Strip the recovery hash so a refresh doesn't re-trigger this view,
+          // then let onAuthStateChange route us into the app.
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+          loadAndRender();
         }
       } catch (err) {
         toast(err.message || 'Auth failed', 'error');
@@ -629,36 +659,55 @@ function mountAuth() {
     },
   });
 
-  form.dataset.mode = 'login';
+  form.dataset.mode = initialMode;
 
-  const heading      = el('h1', { class: 'text-xl font-semibold' });
-  const subheading   = el('p', { class: 'text-battle-2 text-sm mb-2' });
-  const nameField    = el('label', { class: 'block text-sm' },
-    el('span', { class: 'text-battle-2 block mb-1' }, 'Full name'),
-    el('input', { name: 'fullName', class: 'w-full rounded-lg border px-3 py-2', placeholder: 'Isaac Hunter' }));
-  const emailField   = el('label', { class: 'block text-sm' },
+  const heading    = el('h1', { class: 'text-xl font-semibold' });
+  const subheading = el('p', { class: 'text-battle-2 text-sm mb-2' });
+  const emailField = el('label', { class: 'block text-sm' },
     el('span', { class: 'text-battle-2 block mb-1' }, 'Email'),
     el('input', { name: 'email', type: 'email', required: true, class: 'w-full rounded-lg border px-3 py-2', placeholder: 'you@ridd.com' }));
-  const passField    = el('label', { class: 'block text-sm' },
+  const passField  = el('label', { class: 'block text-sm' },
     el('span', { class: 'text-battle-2 block mb-1' }, 'Password'),
     el('input', { name: 'password', type: 'password', required: true, minlength: 6, class: 'w-full rounded-lg border px-3 py-2', placeholder: '••••••••' }));
-  const submitBtn    = el('button', { type: 'submit', class: 'w-full rounded-lg bg-lime hover:bg-lime-600 text-eerie font-semibold py-2.5 transition' });
-  const toggle       = el('button', { type: 'button', class: 'text-xs text-battle-2 hover:text-lime transition',
-    onclick: () => { form.dataset.mode = form.dataset.mode === 'login' ? 'signup' : 'login'; renderMode(); } });
+  const submitBtn  = el('button', { type: 'submit', class: 'w-full rounded-lg bg-lime hover:bg-lime-600 text-eerie font-semibold py-2.5 transition' });
+  const forgotBtn  = el('button', { type: 'button', class: 'text-xs text-battle-2 hover:text-lime transition',
+    onclick: () => { form.dataset.mode = form.dataset.mode === 'login' ? 'forgot' : 'login'; renderMode(); } });
 
   function renderMode() {
-    const isLogin = form.dataset.mode === 'login';
-    heading.textContent    = isLogin ? 'Sign in' : 'Create account';
-    subheading.textContent = isLogin ? 'RIDD Sales Platform' : 'Join your team on RIDD Sales Platform';
-    nameField.style.display = isLogin ? 'none' : 'block';
-    submitBtn.textContent  = isLogin ? 'Sign in' : 'Create account';
-    toggle.textContent     = isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in';
+    const mode = form.dataset.mode;
+    if (mode === 'login') {
+      heading.textContent    = 'Sign in';
+      subheading.textContent = 'RIDD Sales Platform';
+      emailField.style.display = 'block';
+      passField.style.display  = 'block';
+      passField.querySelector('input').required = true;
+      submitBtn.textContent = 'Sign in';
+      forgotBtn.textContent = 'Forgot password?';
+      forgotBtn.style.display = '';
+    } else if (mode === 'forgot') {
+      heading.textContent    = 'Reset password';
+      subheading.textContent = 'Enter your email and we’ll send you a reset link.';
+      emailField.style.display = 'block';
+      passField.style.display  = 'none';
+      passField.querySelector('input').required = false;
+      submitBtn.textContent = 'Send reset link';
+      forgotBtn.textContent = 'Back to sign in';
+      forgotBtn.style.display = '';
+    } else if (mode === 'recover') {
+      heading.textContent    = 'Set a new password';
+      subheading.textContent = 'Enter the password you’d like to use from now on.';
+      emailField.style.display = 'none';
+      passField.style.display  = 'block';
+      passField.querySelector('input').required = true;
+      submitBtn.textContent = 'Update password';
+      forgotBtn.style.display = 'none';
+    }
   }
 
   form.append(
     el('div', { class: 'text-lime text-3xl font-black tracking-tight' }, CFG.COMPANY_NAME),
     el('div', { class: 'text-[10px] text-battleship tracking-[.22em] mb-2' }, CFG.COMPANY_TAGLINE),
-    heading, subheading, nameField, emailField, passField, submitBtn, toggle,
+    heading, subheading, emailField, passField, submitBtn, forgotBtn,
   );
   renderMode();
 
@@ -728,7 +777,7 @@ function buildSearchBar() {
         const q = input.value.trim().toLowerCase();
         results.innerHTML = '';
         if (q.length < 2) { results.style.display = 'none'; return; }
-        const source = state.profile?.role === 'admin' ? state.allSales : state.mySales;
+        const source = isAdminRole(state.profile?.role) ? state.allSales : state.mySales;
         const matches = source.filter(s =>
           (s.customer_name||'').toLowerCase().includes(q) ||
           (s.customer_number||'').toLowerCase().includes(q) ||
@@ -785,8 +834,8 @@ function mobileBottomNav() {
         iconGrid(20), el('span', {}, 'More'));
       const popover = el('div', { class: 'more-popover card', style: { display: 'none' } },
         ...[['competitions','Competitions',iconTrophy],['hall_of_fame','Hall of Fame',iconCrown],
-            ...(state.profile?.role==='admin' ? [['indicators','Indicators',iconChart]] : []),
-            ...(state.profile?.role==='admin' ? [['admin','Settings',iconGear]] : [])
+            ...(isAdminRole(state.profile?.role) ? [['indicators','Indicators',iconChart]] : []),
+            ...(isAdminRole(state.profile?.role) ? [['admin','Settings',iconGear]] : [])
         ].map(([k,label,iconFn]) => el('button', {
           class: 'flex items-center gap-3 w-full px-4 py-2.5 text-sm',
           style: state.view === k ? { color: 'var(--accent)', fontWeight: '600' } : { color: 'var(--text)' },
@@ -845,7 +894,7 @@ function microGoalWidget() {
 }
 
 function mountApp() {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
 
   // ── Single-column layout. The grid icon in the header is the nav menu. ──
   const shell = el('div', { class: 'min-h-screen flex flex-col' });
@@ -1018,7 +1067,7 @@ function mountApp() {
 // VIEW: DASHBOARD — "SALES WAR ROOM" (matches mockup)
 // ──────────────────────────────────────────────────────────────────────────
 function viewDashboard() {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const range = getDateRange(state.dashDateRange);
   // Scope: admin sees all reps, rep sees own
   const salesScope = isAdmin ? state.allSales : state.mySales;
@@ -1311,7 +1360,7 @@ function rangeLabel(range) {
 
 // Admin sees company-wide; rep sees their own (rolled up from profile target)
 function getGoalForContext() {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   if (isAdmin) return state.companyGoal;
   const repGoal = Number(state.profile.annual_revenue_goal || 0);
   return { amount: repGoal > 0 ? repGoal : 250000, period: 'year' };
@@ -2017,7 +2066,7 @@ function idFromName(list, name) { return list.find(x => x.name === name)?.id; }
 //   Admin: sees every rep's pending sales + inline audit dropdown per row
 // ──────────────────────────────────────────────────────────────────────────
 function viewSales() {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const source  = isAdmin ? state.allSales : state.mySales;
   // Include: pending, below_min, nsf, AND audited-but-not-staged sales so admin can stage them
   const pending = source.filter(s => {
@@ -2239,7 +2288,7 @@ function openRepBreakdownModal() {
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const goal = getGoalForContext();
   const yearStart = new Date(new Date().getFullYear(), 0, 1);
 
@@ -2306,7 +2355,7 @@ function openRepBreakdownModal() {
 // SALES LOG MODAL — matches the mockup exactly
 // ──────────────────────────────────────────────────────────────────────────
 function openNewSaleModal(defaultRepId) {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const profiles = state.allProfiles.length ? state.allProfiles : [state.profile];
   // State captured inside the modal (for live footer + checkbox fields that aren't form-bound)
   const modalState = {
@@ -2771,7 +2820,7 @@ function viewPay() {
   const period  = periods.find(p => p.id === state.payPeriodId) || periods[0];
   const nowPid  = currentPayPeriodId(today.getFullYear());
 
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const repId   = state.profile.id;
 
   // Scope sales to this rep and this period (by sold_date)
@@ -3122,7 +3171,7 @@ function viewCompetitions() {
   if (active.length === 0 && upcoming.length === 0) {
     container.append(el('div', { class: 'card p-10 text-center' },
       el('div', { class: 'text-battle-2 text-sm mb-2' }, 'No competitions yet.'),
-      state.profile.role === 'admin' && el('button', {
+      isAdminRole(state.profile.role) && el('button', {
         class: 'mt-2 px-4 py-2 rounded-xl bg-lime text-eerie font-semibold',
         onclick: () => { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); },
       }, 'Create one \u2192'),
@@ -5720,9 +5769,41 @@ function openUserEditor(existing = null) {
           const { error } = await supabase.from('profiles').update(payload).eq('id', existing.id);
           if (error) throw error;
         } else {
-          const { error } = await supabase.from('pending_invites').insert({ ...payload, created_by: state.profile.id });
-          if (error) throw error;
-          toast('Invite created — user can now sign up with ' + payload.email, 'success');
+          // 1) Stash the invite payload so handle_new_user() can merge it into
+          //    the profile when the rep clicks the magic link and signs in.
+          //    pending_invites only stores the fields handle_new_user copies —
+          //    commission_rate / close_rate_target / is_active live on profiles
+          //    and the admin can edit them after the rep first signs in.
+          const invitePayload = {
+            email: payload.email,
+            full_name: payload.full_name,
+            role: payload.role,
+            initials: payload.initials,
+            avatar_url: payload.avatar_url,
+            annual_revenue_goal: payload.annual_revenue_goal,
+            created_by: state.profile.id,
+          };
+          const { error: insertErr } = await supabase
+            .from('pending_invites')
+            .upsert(invitePayload, { onConflict: 'email' });
+          if (insertErr) throw insertErr;
+          // 2) Email a magic link that creates the auth user on first click.
+          //    `shouldCreateUser: true` is the default, but we set it explicitly
+          //    so this stays correct if Supabase ever flips the default.
+          const { error: otpErr } = await supabase.auth.signInWithOtp({
+            email: payload.email,
+            options: {
+              shouldCreateUser: true,
+              emailRedirectTo: window.location.origin,
+              data: { full_name: payload.full_name },
+            },
+          });
+          if (otpErr) {
+            // Roll back the pending invite so a retry doesn't double-up.
+            await supabase.from('pending_invites').delete().eq('email', payload.email);
+            throw otpErr;
+          }
+          toast('Invite emailed to ' + payload.email, 'success');
         }
         await loadData();
         overlay.remove();
@@ -5847,8 +5928,10 @@ function openUserEditor(existing = null) {
       inp('password', { type: 'password', placeholder: 'Leave blank to keep current', autocomplete: 'new-password' }),
     ),
     mk('User Role', el('select', { name: 'role', class: 'w-full rounded-lg border px-3 py-2 text-sm' },
-      el('option', { value: 'rep', selected: (existing?.role || 'rep') === 'rep' }, 'Rep'),
-      el('option', { value: 'admin', selected: existing?.role === 'admin' }, 'Admin'),
+      el('option', { value: 'rep',       selected: (existing?.role || 'rep') === 'rep' },     'Rep'),
+      el('option', { value: 'admin_rep', selected: existing?.role === 'admin_rep' },          'Admin + Sales'),
+      el('option', { value: 'admin',     selected: existing?.role === 'admin' },              'Admin (no sales)'),
+      el('option', { value: 'auditor',   selected: existing?.role === 'auditor' },            'Auditor'),
     )),
     el('div', { class: 'grid grid-cols-2 gap-3' },
       el('label', { class: 'block text-sm' },
@@ -5940,10 +6023,10 @@ async function recomputeAllProgress() {
   try {
     // Need EVERY rep's sales for full leaderboard eval, not just mine.
     // If I'm not an admin I can only see my own, so I only compute my own progress.
-    const scope = state.profile.role === 'admin' ? state.allSales : state.mySales;
+    const scope = isAdminRole(state.profile.role) ? state.allSales : state.mySales;
     const salesByRep = groupBy(scope, s => s.rep_id);
     const repIds = Object.keys(salesByRep);
-    if (state.profile.role !== 'admin' && !repIds.includes(state.profile.id)) repIds.push(state.profile.id);
+    if (!isAdminRole(state.profile.role) && !repIds.includes(state.profile.id)) repIds.push(state.profile.id);
 
     const rows = [];
     for (const comp of state.competitions) {
