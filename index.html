@@ -460,6 +460,57 @@ const roleLabel = (r) => ROLE_LABEL[r] || r || '';
 // every time the code updates. Passing ?demo&reset clears storage.
 // ──────────────────────────────────────────────────────────────────────────
 const DEMO_STORAGE_KEY = 'ridd-demo-data-v1';
+// Indicator CSV state is persisted to its OWN localStorage key so it
+// survives a refresh in production (not just demo mode). The whole point
+// of uploading a CSV every week is to compare to last week's snapshot —
+// dropping it on refresh defeats the feature.
+const INDICATORS_STORAGE_KEY = 'ridd-indicators-v1';
+
+const INDICATOR_PERSIST_FIELDS = [
+  'indicatorsData',
+  '_indicatorRawSales',
+  '_indicatorRawHeaders',
+  '_indicatorSnapshots',
+  'indicatorsUploadedAt',
+  'indicatorsFileName',
+  '_indicatorRepChart',
+  '_indicatorRepTeam',
+  '_indicatorRepTier',
+  '_indicatorTeams',
+  '_indicatorExcludedTeams',
+  '_indicatorTeamColors',
+  '_indicatorTrendScope',
+  '_indicatorRepActive',
+  'indicatorsGroupBy',
+  'indicatorsRangePreset',
+  'indicatorsCustomStart',
+  'indicatorsCustomEnd',
+  '_indicatorChartDrill',
+];
+
+function saveIndicatorState() {
+  try {
+    const payload = {};
+    for (const k of INDICATOR_PERSIST_FIELDS) payload[k] = state[k];
+    payload.savedAt = new Date().toISOString();
+    localStorage.setItem(INDICATORS_STORAGE_KEY, JSON.stringify(payload));
+  } catch (err) {
+    console.warn('[ridd] failed to save indicator state', err);
+  }
+}
+
+function loadIndicatorState() {
+  try {
+    const raw = localStorage.getItem(INDICATORS_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    for (const k of INDICATOR_PERSIST_FIELDS) {
+      if (parsed[k] !== undefined) state[k] = parsed[k];
+    }
+  } catch (err) {
+    console.warn('[ridd] failed to load indicator state', err);
+  }
+}
 
 function loadPersistedDemoState() {
   try {
@@ -483,27 +534,11 @@ function loadPersistedDemoState() {
     if (parsed.appSettings) state.appSettings = parsed.appSettings;
     if (Array.isArray(parsed.auditLog)) state.auditLog = parsed.auditLog;
     if (parsed.notifLastSeen) state.notifLastSeen = parsed.notifLastSeen;
-    if (Array.isArray(parsed.indicatorsData)) state.indicatorsData = parsed.indicatorsData;
-    if (Array.isArray(parsed._indicatorRawSales)) {
-      // Re-hydrate Date objects on raw sales (lost in JSON serialization)
-      state._indicatorRawSales = parsed._indicatorRawSales;
-    }
-    if (Array.isArray(parsed._indicatorRawHeaders)) state._indicatorRawHeaders = parsed._indicatorRawHeaders;
-    if (Array.isArray(parsed._indicatorSnapshots)) state._indicatorSnapshots = parsed._indicatorSnapshots;
-    if (parsed.indicatorsUploadedAt) state.indicatorsUploadedAt = parsed.indicatorsUploadedAt;
-    if (parsed.indicatorsFileName) state.indicatorsFileName = parsed.indicatorsFileName;
+    // Indicator CSV state is loaded separately by loadIndicatorState() at boot
+    // (always runs, even outside DEMO). Don't double-load it here or a stale
+    // demo-mode snapshot could overwrite the production CSV upload.
     if (parsed.backendReportUploadedAt) state.backendReportUploadedAt = parsed.backendReportUploadedAt;
     if (parsed.backendReportFileName) state.backendReportFileName = parsed.backendReportFileName;
-    if (parsed._indicatorRepChart) state._indicatorRepChart = parsed._indicatorRepChart;
-    if (parsed._indicatorRepTeam && typeof parsed._indicatorRepTeam === 'object') state._indicatorRepTeam = parsed._indicatorRepTeam;
-    if (parsed._indicatorRepTier && typeof parsed._indicatorRepTier === 'object') state._indicatorRepTier = parsed._indicatorRepTier;
-    if (Array.isArray(parsed._indicatorTeams)) state._indicatorTeams = parsed._indicatorTeams;
-    if (Array.isArray(parsed._indicatorExcludedTeams)) state._indicatorExcludedTeams = parsed._indicatorExcludedTeams;
-    if (parsed._indicatorTeamColors && typeof parsed._indicatorTeamColors === 'object') state._indicatorTeamColors = parsed._indicatorTeamColors;
-    if (parsed._indicatorTrendScope && typeof parsed._indicatorTrendScope === 'object') state._indicatorTrendScope = parsed._indicatorTrendScope;
-    if (parsed._indicatorRepActive && typeof parsed._indicatorRepActive === 'object') state._indicatorRepActive = parsed._indicatorRepActive;
-    if (parsed.indicatorsGroupBy === 'branch' || parsed.indicatorsGroupBy === 'teams') state.indicatorsGroupBy = parsed.indicatorsGroupBy;
-    if (parsed._indicatorChartDrill && typeof parsed._indicatorChartDrill === 'object') state._indicatorChartDrill = parsed._indicatorChartDrill;
     // Calendar v2: the schedule is fully user-built. Only keep persisted
     // shifts if the save was made by the v2 code (calendarReset marker). Older
     // snapshots had preset 7–3/9–5/8–4 slots seeded for you — we drop them so
@@ -524,6 +559,9 @@ function loadPersistedDemoState() {
 }
 
 function saveDemoData() {
+  // Indicator CSV uploads should persist in production too (not just demo).
+  // Keep them in their own localStorage key so this isn't gated by DEMO.
+  saveIndicatorState();
   if (!DEMO) return;
   try {
     const data = {
@@ -535,24 +573,8 @@ function saveDemoData() {
       allProfiles:  state.allProfiles,
       auditLog:      state.auditLog,
       notifLastSeen: state.notifLastSeen,
-      indicatorsData:state.indicatorsData,
-      _indicatorRawSales: state._indicatorRawSales,
-      _indicatorRawHeaders: state._indicatorRawHeaders,
-      _indicatorSnapshots: state._indicatorSnapshots,
-      indicatorsUploadedAt: state.indicatorsUploadedAt,
-      indicatorsFileName: state.indicatorsFileName,
       backendReportUploadedAt: state.backendReportUploadedAt,
       backendReportFileName: state.backendReportFileName,
-      _indicatorRepChart: state._indicatorRepChart,
-      _indicatorRepTeam: state._indicatorRepTeam,
-      _indicatorRepTier: state._indicatorRepTier,
-      _indicatorTeams: state._indicatorTeams,
-      _indicatorExcludedTeams: state._indicatorExcludedTeams,
-      _indicatorTeamColors: state._indicatorTeamColors,
-      _indicatorTrendScope: state._indicatorTrendScope,
-      _indicatorRepActive: state._indicatorRepActive,
-      indicatorsGroupBy: state.indicatorsGroupBy,
-      _indicatorChartDrill: state._indicatorChartDrill,
       companyGoal:   state.companyGoal,
       appSettings:   state.appSettings,
       shifts:           state.shifts,
@@ -899,6 +921,12 @@ async function boot() {
     if (location.hash === '#history') state._salesQueueFilter = 'history';
     return v;
   };
+
+  // Always rehydrate the indicator CSV upload (state.indicatorsData,
+  // raw sales, snapshots, etc.) regardless of demo mode. Without this,
+  // a refresh wiped every uploaded CSV in production — which broke
+  // week-over-week comparisons between uploads.
+  loadIndicatorState();
 
   if (DEMO) {
     loadDemoData();
@@ -10379,35 +10407,6 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { key: 'office',     label: 'Office',   align: 'left',  defaultDir: 'asc',  cell: r => el('td', { class: 'px-2 py-2 text-muted-' }, (r.office || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ')) },
     { key: 'count',      label: 'Sales',    align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.int(r.count)) },
     { key: 'revenue',    label: 'Revenue',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums font-semibold' }, fmt.usd0(r.revenue)) },
-    // Sorted by `bestDayTime` (the date timestamp) so clicking the header
-    // surfaces reps whose biggest day was MOST RECENT, not just biggest in
-    // dollar terms — useful for flagging reps on a hot streak.
-    { key: 'bestDayTime', label: 'Best Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
-        r.bestDay > 0
-          ? el('div', {},
-              el('div', { class: 'font-semibold' }, fmt.usd0(r.bestDay)),
-              el('div', { class: 'text-[10px] text-muted-' }, r.bestDayDate || ''),
-            )
-          : '—',
-      ) },
-    { key: 'bestWeekTime', label: 'Best Week', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
-        r.bestWeek > 0
-          ? el('div', {},
-              el('div', { class: 'font-semibold' }, fmt.usd0(r.bestWeek)),
-              el('div', { class: 'text-[10px] text-muted-' }, r.bestWeekStart || ''),
-            )
-          : '—',
-      ) },
-    { key: 'bestMonthTime', label: 'Best Month', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
-        r.bestMonth > 0
-          ? el('div', {},
-              el('div', { class: 'font-semibold' }, fmt.usd0(r.bestMonth)),
-              el('div', { class: 'text-[10px] text-muted-' }, r.bestMonthKey
-                ? new Date(r.bestMonthKey + '-01').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-                : ''),
-            )
-          : '—',
-      ) },
     // 12-week revenue sparkline with WoW slope. Sort key = trendSlope so
     // clicking surfaces reps with the biggest week-over-week jump (or drop).
     { key: 'trendSlope', label: 'WoW Trend', align: 'left', defaultDir: 'desc', cell: r => {
@@ -10432,7 +10431,37 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { key: 'myPct',      label: 'MY %',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.myPct * 100).toFixed(1) + '%') },
     { key: 'autoPayPct', label: 'Auto Pay %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%') },
     { key: 'cancels',    label: 'Cancels',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.cancels > 0 ? fmt.int(r.cancels) : '—') },
-    { key: 'cancelPct',  label: 'Cancel %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums', style: r.cancelPct > 0.1 ? { color: '#DC2626', fontWeight: '600' } : {} }, r.cancelPct > 0 ? (r.cancelPct * 100).toFixed(1) + '%' : '—') },
+    { key: 'cancelPct',  label: 'Cancel %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', style: r.cancelPct > 0.1 ? { color: '#DC2626', fontWeight: '600' } : {} }, r.cancelPct > 0 ? (r.cancelPct * 100).toFixed(1) + '%' : '—') },
+    // ─── Records: Best Day / Week / Month moved to the end of the row so
+    // they don't push the regular metrics off-screen. Sort dir 'date' picks
+    // the rep whose biggest record happened MOST RECENTLY; 'amount' picks
+    // the biggest dollar record. Toggle by re-clicking the header.
+    { key: 'bestDayTime', label: 'Best Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
+        r.bestDay > 0
+          ? el('div', {},
+              el('div', { class: 'font-semibold' }, fmt.usd0(r.bestDay)),
+              el('div', { class: 'text-[10px] text-muted-' }, r.bestDayDate || ''),
+            )
+          : '—',
+      ) },
+    { key: 'bestWeekTime', label: 'Best Week', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
+        r.bestWeek > 0
+          ? el('div', {},
+              el('div', { class: 'font-semibold' }, fmt.usd0(r.bestWeek)),
+              el('div', { class: 'text-[10px] text-muted-' }, r.bestWeekStart || ''),
+            )
+          : '—',
+      ) },
+    { key: 'bestMonthTime', label: 'Best Month', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums whitespace-nowrap' },
+        r.bestMonth > 0
+          ? el('div', {},
+              el('div', { class: 'font-semibold' }, fmt.usd0(r.bestMonth)),
+              el('div', { class: 'text-[10px] text-muted-' }, r.bestMonthKey
+                ? new Date(r.bestMonthKey + '-01').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                : ''),
+            )
+          : '—',
+      ) },
   ];
 
   // Apply office + team + tier filters
