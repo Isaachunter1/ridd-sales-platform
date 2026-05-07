@@ -521,10 +521,25 @@ async function loadAndRender() {
 // Data loaders
 // ──────────────────────────────────────────────────────────────────────────
 async function loadProfile() {
-  const uid = state.session.user.id;
-  const { data, error } = await supabase.from('profiles').select('*').eq('id', uid).single();
+  const uid   = state.session.user.id;
+  const user  = state.session.user;
+  // maybeSingle() returns null instead of throwing when no row matches —
+  // lets us self-heal an orphaned auth.users row by inserting a profile
+  // (e.g. when the schema was reset after the auth user was already created).
+  const { data, error } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
   if (error) throw error;
-  state.profile = data;
+  if (data) { state.profile = data; return; }
+
+  const fullName = user.user_metadata?.full_name
+    || user.user_metadata?.name
+    || (user.email ? user.email.split('@')[0] : 'User');
+  const { data: created, error: insertErr } = await supabase
+    .from('profiles')
+    .insert({ id: uid, email: user.email, full_name: fullName, role: 'rep' })
+    .select('*')
+    .single();
+  if (insertErr) throw insertErr;
+  state.profile = created;
 }
 
 async function loadLookups() {
