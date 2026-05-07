@@ -464,15 +464,14 @@ const DEMO_STORAGE_KEY = 'ridd-demo-data-v1';
 // survives a refresh in production (not just demo mode). The whole point
 // of uploading a CSV every week is to compare to last week's snapshot —
 // dropping it on refresh defeats the feature.
-const INDICATORS_STORAGE_KEY = 'ridd-indicators-v1';
+const INDICATORS_STORAGE_KEY          = 'ridd-indicators-v1';            // legacy combined key (read-only fallback)
+const INDICATORS_SETTINGS_STORAGE_KEY = 'ridd-indicators-settings-v1';   // small config — teams, exclusions, prefs
+const INDICATORS_DATA_STORAGE_KEY     = 'ridd-indicators-data-v1';       // bulk — raw CSV rows, raw sales, snapshots
 
-const INDICATOR_PERSIST_FIELDS = [
-  'indicatorsData',
-  '_indicatorRawSales',
-  '_indicatorRawHeaders',
-  '_indicatorSnapshots',
-  'indicatorsUploadedAt',
-  'indicatorsFileName',
+// Small-payload settings: teams, rep tags, view prefs. Save separately from
+// the bulk CSV so a quota failure on the big payload doesn't take team-list
+// edits down with it.
+const INDICATOR_SETTINGS_FIELDS = [
   '_indicatorRepChart',
   '_indicatorRepTeam',
   '_indicatorRepTier',
@@ -486,30 +485,67 @@ const INDICATOR_PERSIST_FIELDS = [
   'indicatorsCustomStart',
   'indicatorsCustomEnd',
   '_indicatorChartDrill',
+  'indicatorsUploadedAt',
+  'indicatorsFileName',
+  '_indicatorRawHeaders',
 ];
 
+// Bulk-payload fields: large arrays uploaded via CSV. These can fail quota.
+const INDICATOR_DATA_FIELDS = [
+  'indicatorsData',
+  '_indicatorRawSales',
+  '_indicatorSnapshots',
+];
+
+const INDICATOR_PERSIST_FIELDS = [...INDICATOR_SETTINGS_FIELDS, ...INDICATOR_DATA_FIELDS];
+
+// Track quota warnings so the toast doesn't fire on every keystroke.
+let _indicatorDataSaveWarned = false;
+
 function saveIndicatorState() {
+  // Settings ALWAYS save first, with their own try/catch, so a quota failure
+  // on the bulk CSV save can't roll back team/rep edits. Without this split,
+  // adding a team while the data payload was over quota silently dropped the
+  // team on the next refresh.
   try {
-    const payload = {};
-    for (const k of INDICATOR_PERSIST_FIELDS) payload[k] = state[k];
-    payload.savedAt = new Date().toISOString();
-    localStorage.setItem(INDICATORS_STORAGE_KEY, JSON.stringify(payload));
+    const settings = { savedAt: new Date().toISOString() };
+    for (const k of INDICATOR_SETTINGS_FIELDS) settings[k] = state[k];
+    localStorage.setItem(INDICATORS_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
   } catch (err) {
-    console.warn('[ridd] failed to save indicator state', err);
+    console.warn('[ridd] failed to save indicator settings', err);
+    if (typeof toast === 'function') toast('Could not save team/rep settings — localStorage may be full', 'error');
+  }
+  try {
+    const data = { savedAt: new Date().toISOString() };
+    for (const k of INDICATOR_DATA_FIELDS) data[k] = state[k];
+    localStorage.setItem(INDICATORS_DATA_STORAGE_KEY, JSON.stringify(data));
+    _indicatorDataSaveWarned = false;
+  } catch (err) {
+    console.warn('[ridd] failed to save indicator data', err);
+    if (!_indicatorDataSaveWarned && typeof toast === 'function') {
+      toast('CSV upload too large to cache locally — will reload from server next refresh', 'warn');
+      _indicatorDataSaveWarned = true;
+    }
   }
 }
 
 function loadIndicatorState() {
-  try {
-    const raw = localStorage.getItem(INDICATORS_STORAGE_KEY);
+  // Read the new split keys first; fall back to the legacy combined key if a
+  // user is loading from a state written before the split.
+  const apply = (raw) => {
     if (!raw) return;
-    const parsed = JSON.parse(raw);
-    for (const k of INDICATOR_PERSIST_FIELDS) {
-      if (parsed[k] !== undefined) state[k] = parsed[k];
+    try {
+      const parsed = JSON.parse(raw);
+      for (const k of INDICATOR_PERSIST_FIELDS) {
+        if (parsed[k] !== undefined) state[k] = parsed[k];
+      }
+    } catch (err) {
+      console.warn('[ridd] failed to parse indicator state', err);
     }
-  } catch (err) {
-    console.warn('[ridd] failed to load indicator state', err);
-  }
+  };
+  apply(localStorage.getItem(INDICATORS_STORAGE_KEY));        // legacy combined
+  apply(localStorage.getItem(INDICATORS_DATA_STORAGE_KEY));   // bulk (overrides legacy data fields)
+  apply(localStorage.getItem(INDICATORS_SETTINGS_STORAGE_KEY)); // settings (overrides legacy settings fields)
 }
 
 function loadPersistedDemoState() {
@@ -3630,7 +3666,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     }
     if (maxCell === 0) {
       return el('div', { class: 'rounded-lg border p-4 mb-5', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-3' }, 'Day × Hour Heatmap'),
+        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-3' }, 'Heatmap'),
         el('div', { class: 'text-xs text-muted- italic py-6 text-center' }, 'No timestamped sales yet.'),
       );
     }
@@ -3646,54 +3682,56 @@ function openIndicatorRepCard(rep, allReps = []) {
       }
     }
 
-    const cellSize = 22; // px
+    // Grid columns: a fixed-width day-label column + one fr per hour so the
+    // heatmap fills the card. Cell height is bounded so a wide grid doesn't
+    // turn into giant squares — a 28-44px range keeps it scannable on both
+    // narrow modals and full-width layouts.
+    const gridCols = '36px repeat(' + hourCols.length + ', minmax(0, 1fr))';
     return el('div', { class: 'rounded-lg border p-4 mb-5', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
       el('div', { class: 'flex items-center justify-between mb-3 flex-wrap gap-2' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Day × Hour Heatmap · Sales Count'),
+        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Heatmap'),
         el('div', { class: 'text-[10px] text-muted-' }, 'Hottest: ',
           el('span', { style: { color: 'var(--text)', fontWeight: '600' } },
             dayLabels[hotDow] + ' ' + _fmtHourLabel(hotHour) + ' · ' + tr.dayHourCount[hotDow][hotHour] + ' sale' + (tr.dayHourCount[hotDow][hotHour] === 1 ? '' : 's')),
         ),
       ),
-      el('div', { class: 'overflow-x-auto' },
-        el('div', { class: 'inline-block' },
-          // Header row: empty corner + hour labels
-          el('div', { class: 'flex' },
-            el('div', { style: { width: '36px' } }),
-            ...hourCols.map(h => el('div', {
-              class: 'text-[9px] text-muted- font-semibold text-center',
-              style: { width: cellSize + 'px' },
-            }, _fmtHourLabel(h))),
-          ),
-          // Day rows
-          ...dayLabels.map((dayLabel, dow) => el('div', { class: 'flex items-center mt-0.5' },
-            el('div', { class: 'text-[9px] text-muted- font-semibold pr-2 text-right', style: { width: '36px' } }, dayLabel),
-            ...hourCols.map(h => {
-              const count = tr.dayHourCount[dow][h];
-              const rev = tr.dayHourRev[dow][h];
-              const intensity = maxCell > 0 ? count / maxCell : 0;
-              const isHot = (dow === hotDow && h === hotHour);
-              const cell = el('div', {
-                class: 'rounded transition cursor-help',
-                style: {
-                  width: (cellSize - 2) + 'px',
-                  height: (cellSize - 2) + 'px',
-                  margin: '1px',
-                  background: count > 0
-                    ? 'rgba(141,198,63,' + (0.12 + intensity * 0.85).toFixed(3) + ')'
-                    : 'var(--border)',
-                  outline: isHot ? '2px solid var(--accent)' : 'none',
-                  outlineOffset: '-1px',
-                },
-              });
-              attachTooltip(cell, {
-                title: dayLabel + ' ' + _fmtHourLabel(h) + (isHot ? ' · Hottest' : ''),
-                desc: count + ' sale' + (count === 1 ? '' : 's') + (count > 0 ? ' · ' + fmt.usd0(rev) : ''),
-              });
-              return cell;
-            }),
-          )),
+      el('div', { class: 'w-full' },
+        // Header row: empty corner + hour labels (same grid template as body
+        // rows so labels line up with their column on every viewport width).
+        el('div', { style: { display: 'grid', gridTemplateColumns: gridCols, gap: '2px' } },
+          el('div', {}),
+          ...hourCols.map(h => el('div', {
+            class: 'text-[9px] text-muted- font-semibold text-center',
+          }, _fmtHourLabel(h))),
         ),
+        // Day rows
+        ...dayLabels.map((dayLabel, dow) => el('div', {
+          style: { display: 'grid', gridTemplateColumns: gridCols, gap: '2px', marginTop: '2px', alignItems: 'center' },
+        },
+          el('div', { class: 'text-[9px] text-muted- font-semibold pr-2 text-right' }, dayLabel),
+          ...hourCols.map(h => {
+            const count = tr.dayHourCount[dow][h];
+            const rev = tr.dayHourRev[dow][h];
+            const intensity = maxCell > 0 ? count / maxCell : 0;
+            const isHot = (dow === hotDow && h === hotHour);
+            const cell = el('div', {
+              class: 'rounded transition cursor-help',
+              style: {
+                height: 'clamp(22px, 4vw, 44px)',
+                background: count > 0
+                  ? 'rgba(141,198,63,' + (0.12 + intensity * 0.85).toFixed(3) + ')'
+                  : 'var(--border)',
+                outline: isHot ? '2px solid var(--accent)' : 'none',
+                outlineOffset: '-1px',
+              },
+            });
+            attachTooltip(cell, {
+              title: dayLabel + ' ' + _fmtHourLabel(h) + (isHot ? ' · Hottest' : ''),
+              desc: count + ' sale' + (count === 1 ? '' : 's') + (count > 0 ? ' · ' + fmt.usd0(rev) : ''),
+            });
+            return cell;
+          }),
+        )),
       ),
       // Legend
       el('div', { class: 'flex items-center gap-2 mt-3 text-[10px] text-muted-' },
@@ -7981,6 +8019,11 @@ function chartBucketsGrainLabel(buckets) {
   return k === 'day' ? 'days' : k === 'month' ? 'months' : 'weeks';
 }
 
+// Reps W/ A Sale is intentionally NOT in this list — branch size isn't a
+// signal of selling effectiveness, so it doesn't appear as a column in the
+// branch table, the rankings matrix, the trend metric dropdown, or the
+// Power Ranking points. The `reps` count is still computed on each
+// branchData row for use as the denominator of PRA.
 const INDICATOR_METRICS = [
   { key: 'sold_accounts',  label: 'Sold Accounts',    fmt: v => fmt.int(v) },
   { key: 'revenue',        label: 'D2D Revenue',      fmt: v => fmt.usd0(v) },
@@ -7989,7 +8032,6 @@ const INDICATOR_METRICS = [
   { key: 'pra',            label: 'PRA',              fmt: v => fmt.usd(v) },
   { key: 'multi_year_pct', label: 'Multi Year %',     fmt: v => (v * 100).toFixed(1) + '%' },
   { key: 'auto_pay_pct',   label: 'Auto Pay %',       fmt: v => (v * 100).toFixed(1) + '%' },
-  { key: 'reps',           label: 'Reps W/ A Sale',   fmt: v => fmt.int(v) },
 ];
 
 // ── Rep-team assignment helpers ──────────────────────────────────────────
@@ -9374,12 +9416,12 @@ function viewIndicators() {
     // YTD week list when in Weekly mode (so the full season trend is visible
     // even though the table is showing one week).
     el('div', { class: 'flex flex-col gap-4' },
+      el('div', {},
+        indicatorChart('Branch Power Ranking', isRange ? data : allData, branches, '_power_ranking', isRange ? weeks : allWeeks, true),
+      ),
       el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4' },
         indicatorChart('Weekly PRA',     isRange ? data : allData, branches, 'pra',             isRange ? weeks : allWeeks),
         indicatorChart('Weekly Revenue', isRange ? data : allData, branches, 'revenue',         isRange ? weeks : allWeeks),
-      ),
-      el('div', {},
-        indicatorChart('Branch Power Ranking', isRange ? data : allData, branches, '_power_ranking', isRange ? weeks : allWeeks, true),
       ),
     ),
 
@@ -10347,24 +10389,28 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   }
 
   // X-axis buckets — picks daily/weekly/monthly resolution based on the
-  // selected range. Range mode flows through getChartBuckets; Weekly mode
-  // (single-week selector) collapses to one weekly bucket so the chart still
-  // renders a single dot/bar at the chosen week.
+  // selected range. Range mode flows through getChartBuckets. Weekly mode
+  // shows the FULL season as weekly buckets (mirrors the Branch Power Ranking
+  // chart) — the table's week selector picks the focus week, but the trend
+  // chart's job is to show movement over time, so collapsing to a single
+  // bucket made it useless.
   const weeksFromSales = [...new Set(rawSales.map(s => s.week))].sort((a, b) => a - b);
   let chartBuckets;
   if (isRange && rangeBounds) {
     chartBuckets = getChartBuckets(rangeBounds, weeksFromSales, allDataUnfiltered || data);
   } else {
-    const w = currentWeek;
-    const row = (allDataUnfiltered || data || []).find(r => r.week === w);
-    chartBuckets = [{
-      kind: 'week',
-      key: 'wk-' + w,
-      label: row?.date ? ('Wk ' + w + '\n' + row.date) : 'Wk ' + w,
-      week: w,
-      match: (s) => s.week === w,
-      cumThrough: (s) => s.week <= w,
-    }];
+    const indicatorRows = allDataUnfiltered || data || [];
+    chartBuckets = weeksFromSales.map(w => {
+      const row = indicatorRows.find(r => r.week === w);
+      return {
+        kind: 'week',
+        key: 'wk-' + w,
+        label: row?.date ? ('Wk ' + w + '\n' + row.date) : 'Wk ' + w,
+        week: w,
+        match: (s) => s.week === w,
+        cumThrough: (s) => s.week <= w,
+      };
+    });
   }
 
   sections.push(repTrendChartCard({
@@ -10464,10 +10510,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       ) },
   ];
 
-  // Apply office + team + tier filters
+  // Apply office + team + tier + name-search filters
   const officeFilter = state._indicatorRepOffice;
   const teamFilter   = state._indicatorRepTeamFilter;
   const tierFilter   = state._indicatorRepTierFilter;
+  const nameSearch   = (state._indicatorRepNameSearch || '').trim().toLowerCase();
   const filteredReps = allReps.filter(r => {
     if (officeFilter && r.office !== officeFilter) return false;
     if (teamFilter) {
@@ -10478,6 +10525,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       if (tierFilter === '__unassigned__') { if (r.tier) return false; }
       else if (r.tier !== tierFilter) return false;
     }
+    if (nameSearch && !(r.name || '').toLowerCase().includes(nameSearch)) return false;
     return true;
   });
 
@@ -10526,6 +10574,29 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               : filteredReps.length + ' of ' + allReps.length + ' reps'),
         ),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          // Search by rep name. mountApp() replaces the full DOM so we capture
+          // the cursor position pre-render and restore it on the next frame so
+          // typing doesn't drop the user back to the start of the field.
+          el('input', {
+            id: 'rep-leaderboard-search',
+            type: 'text',
+            placeholder: 'Search rep…',
+            value: nameSearch,
+            class: 'rounded-lg border px-3 py-1.5 text-xs',
+            style: { borderColor: 'var(--border-2)', minWidth: '160px' },
+            oninput: (e) => {
+              const cursor = e.target.selectionStart;
+              state._indicatorRepNameSearch = e.target.value;
+              mountApp();
+              requestAnimationFrame(() => {
+                const next = document.getElementById('rep-leaderboard-search');
+                if (next) {
+                  next.focus();
+                  try { next.setSelectionRange(cursor, cursor); } catch (_) {}
+                }
+              });
+            },
+          }),
           // Tier quick-filter pills (replaces the previous dropdown)
           (() => {
             const hasUnassigned = allReps.some(r => !r.tier);
@@ -12826,19 +12897,24 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
     const datasets = branchesForChart.map(branch => {
       const values = weeks.map(w => {
         if (isRanking) {
+          // Each plotted point ranks branches on JUST that week's numbers, so
+          // the latest point on the line agrees with the weekly Power Ranking
+          // table — including mid-week swaps that a season-to-date cumulative
+          // view would bury under prior weeks of data.
           const weekData = {};
           branches.forEach(b => {
-            const bRows = data.filter(r => r.branch === b && r.week <= w);
+            const bRows = data.filter(r => r.branch === b && r.week === w);
             const sold = bRows.reduce((a, r) => a + r.sold_accounts, 0);
             const rev = bRows.reduce((a, r) => a + r.revenue, 0);
             const multi = bRows.reduce((a, r) => a + r.multi_years, 0);
-            // Same union-of-unique-reps treatment as the table view
+            // Reps W/ A Sale for this single week — counted from raw sales
+            // when available so it matches the table's single-week reps logic.
             let reps;
             const raw = state._indicatorRawSales;
             if (Array.isArray(raw) && raw.length) {
-              reps = new Set(raw.filter(s => s.office === b && s.week <= w).map(s => s.rep).filter(Boolean)).size;
+              reps = new Set(raw.filter(s => s.office === b && s.week === w).map(s => s.rep).filter(Boolean)).size;
             } else {
-              reps = Math.max(...bRows.map(r => r.reps));
+              reps = bRows[0]?.reps || 0;
             }
             reps = Math.max(1, reps); // avoid divide-by-zero for PRA
             const twelve = bRows.reduce((a, r) => a + (r.twelve_month || 0), 0);
