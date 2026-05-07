@@ -7848,6 +7848,111 @@ function isInIndicatorRange(row, bounds) {
   return iso >= bounds.start && iso <= bounds.end;
 }
 
+// Convert the raw-sales `dateSold` string (e.g. "5/3/26 9:14 AM" or "5/3/2026")
+// into an ISO YYYY-MM-DD so chart buckets can compare consistently.
+function dateSoldToIso(dateSold) {
+  const head = (dateSold || '').split(' ')[0].trim();
+  const parts = head.split('/');
+  if (parts.length !== 3) return '';
+  let [m, d, y] = parts.map(Number);
+  if (!Number.isFinite(m) || !Number.isFinite(d) || !Number.isFinite(y)) return '';
+  if (y < 100) y += 2000;
+  return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+
+// Build the x-axis buckets for the Indicators charts based on the selected
+// range. Auto-picks granularity so a short range gets daily detail and a long
+// one rolls up to month bars.
+//
+//   Range span        Granularity   Bucket count examples
+//   ─────────────────────────────────────────────────────
+//   ≤ 31 days         day           7   (this week)  ·  31  (this month)
+//   ≤ 180 days        week          12-26
+//   > 180 days        month         12  (this year)
+//
+// Each bucket has:
+//   key         — unique id used for chart labels
+//   label       — human-readable, used on the x-axis
+//   match(s)    — predicate filtering raw sales into this bucket (per-bucket value)
+//   cumThrough(s)— predicate for cumulative metrics (every sale up to bucket end)
+//   week        — fallback week number for CSV-only data (only set on weekly buckets)
+function getChartBuckets(rangeBounds, allWeeks, indicatorsData) {
+  const startIso = rangeBounds.start;
+  const endIso   = rangeBounds.end;
+  const startD = new Date(startIso + 'T00:00:00');
+  const endD   = new Date(endIso   + 'T00:00:00');
+  const dayMs  = 86400000;
+  const days   = Math.max(1, Math.round((endD - startD) / dayMs) + 1);
+
+  const isoOf = (d) => d.toISOString().slice(0, 10);
+  const fmtDayLabel = (d) => d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+
+  if (days <= 31) {
+    // Daily buckets
+    const buckets = [];
+    for (let cur = new Date(startD); cur <= endD; cur.setDate(cur.getDate() + 1)) {
+      const iso = isoOf(cur);
+      const label = fmtDayLabel(cur);
+      buckets.push({
+        kind: 'day',
+        key: iso,
+        label,
+        startIso: iso,
+        endIso: iso,
+        match: (s) => dateSoldToIso(s.dateSold) === iso,
+        cumThrough: (s) => dateSoldToIso(s.dateSold) <= iso,
+      });
+    }
+    return buckets;
+  }
+
+  if (days <= 180) {
+    // Weekly buckets — reuse the indicator CSV's week numbering so labels can
+    // include the original "5/3-5/9" date hint when present.
+    return (allWeeks || []).map(w => {
+      const row = (indicatorsData || []).find(r => r.week === w);
+      const label = row?.date ? ('Wk ' + w + '\n' + row.date) : 'Wk ' + w;
+      return {
+        kind: 'week',
+        key: 'wk-' + w,
+        label,
+        week: w,
+        match: (s) => s.week === w,
+        cumThrough: (s) => s.week <= w,
+      };
+    });
+  }
+
+  // Monthly buckets
+  const buckets = [];
+  const cursor = new Date(startD.getFullYear(), startD.getMonth(), 1);
+  const endMonth = new Date(endD.getFullYear(), endD.getMonth(), 1);
+  while (cursor <= endMonth) {
+    const yyyy = cursor.getFullYear();
+    const mm = String(cursor.getMonth() + 1).padStart(2, '0');
+    const monthKey = `${yyyy}-${mm}`;
+    const label = cursor.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    buckets.push({
+      kind: 'month',
+      key: monthKey,
+      label,
+      monthKey,
+      match: (s) => dateSoldToIso(s.dateSold).slice(0, 7) === monthKey,
+      cumThrough: (s) => dateSoldToIso(s.dateSold).slice(0, 7) <= monthKey,
+    });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return buckets;
+}
+
+// One short word describing each bucket kind, used in subtitle text
+// ("12 reps · 7 days" instead of "12 reps · 7 weeks" when daily-bucketed).
+function chartBucketsGrainLabel(buckets) {
+  if (!buckets || !buckets.length) return 'periods';
+  const k = buckets[0].kind;
+  return k === 'day' ? 'days' : k === 'month' ? 'months' : 'weeks';
+}
+
 const INDICATOR_METRICS = [
   { key: 'sold_accounts',  label: 'Sold Accounts',    fmt: v => fmt.int(v) },
   { key: 'revenue',        label: 'D2D Revenue',      fmt: v => fmt.usd0(v) },
@@ -9253,7 +9358,7 @@ function viewIndicators() {
     // ════════════════════════════════════════════════════════════════
     // REP-LEVEL ANALYTICS (computed from raw sales if available)
     // ════════════════════════════════════════════════════════════════
-    ...indicatorRepSections(data, isRange, currentWeek, (() => {
+    ...indicatorRepSections(data, isRange, currentWeek, isRange ? rangeBounds : null, allWeeks, allData, (() => {
       // Build a compact "what window am I looking at" label so screenshot-
       // friendly cards (Top 5 Avg Pest Initial, Raffle Tickets) can show it.
       if (isRange) {
@@ -9271,7 +9376,7 @@ function viewIndicators() {
 }
 
 // ── Rep-level sections for Indicators tab ──
-function indicatorRepSections(data, isRange, currentWeek, windowLabel) {
+function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksUnfiltered, allDataUnfiltered, windowLabel) {
   // We need the raw sales data — stored alongside aggregated rows
   const allRawSales = state._indicatorRawSales;
   // Match the range filter the rest of the page uses. In Range mode we keep
@@ -10213,15 +10318,33 @@ function indicatorRepSections(data, isRange, currentWeek, windowLabel) {
     repsToChart = repChartCfg.selected.filter(n => repMap[n]); // drop names that are no longer present
   }
 
-  // Weeks shown on the chart x-axis (in scope of the date range)
-  const chartWeeks = [...new Set(rawSales.map(s => s.week))].sort((a, b) => a - b);
+  // X-axis buckets — picks daily/weekly/monthly resolution based on the
+  // selected range. Range mode flows through getChartBuckets; Weekly mode
+  // (single-week selector) collapses to one weekly bucket so the chart still
+  // renders a single dot/bar at the chosen week.
+  const weeksFromSales = [...new Set(rawSales.map(s => s.week))].sort((a, b) => a - b);
+  let chartBuckets;
+  if (isRange && rangeBounds) {
+    chartBuckets = getChartBuckets(rangeBounds, weeksFromSales, allDataUnfiltered || data);
+  } else {
+    const w = currentWeek;
+    const row = (allDataUnfiltered || data || []).find(r => r.week === w);
+    chartBuckets = [{
+      kind: 'week',
+      key: 'wk-' + w,
+      label: row?.date ? ('Wk ' + w + '\n' + row.date) : 'Wk ' + w,
+      week: w,
+      match: (s) => s.week === w,
+      cumThrough: (s) => s.week <= w,
+    }];
+  }
 
   sections.push(repTrendChartCard({
     repsToChart,
     repMap,
     allReps,
     rawSales,
-    chartWeeks,
+    chartBuckets,
     cfg: repChartCfg,
   }));
 
@@ -11629,7 +11752,7 @@ const REP_TREND_PALETTE = [
 ];
 function repTrendColor(idx) { return REP_TREND_PALETTE[idx % REP_TREND_PALETTE.length]; }
 
-function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartWeeks, cfg }) {
+function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBuckets, cfg }) {
   const canvasId = 'chart-rep-trend';
   const canvasWrap = el('div', { style: { position: 'relative', height: '320px', width: '100%' } });
   const canvas = el('canvas', { id: canvasId });
@@ -11704,11 +11827,13 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartWeeks,
     : cfg.mode === 'branch' ? 'branch'
     : 'rep';
   const groupNounPlural = groupNoun === 'branch' ? 'branches' : groupNoun + 's';
+  const grainLabel = chartBucketsGrainLabel(chartBuckets);
+  const grainOne = grainLabel === 'days' ? 'day' : grainLabel === 'months' ? 'month' : 'week';
   const subtitleText = groups.length === 0
     ? (cfg.mode === 'custom' ? 'No reps picked yet — choose some below'
       : 'Nothing to chart yet')
     : (cfg.mode === 'rep' ? 'Top ' : '') + groups.length + ' ' + (groups.length === 1 ? groupNoun : groupNounPlural)
-      + ' · ' + chartWeeks.length + ' week' + (chartWeeks.length === 1 ? '' : 's');
+      + ' · ' + chartBuckets.length + ' ' + (chartBuckets.length === 1 ? grainOne : grainLabel);
 
   // Header: title + mode pills + metric dropdown
   const header = el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
@@ -11829,16 +11954,16 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartWeeks,
       const REP_AVG_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
       // Same metric semantics for any group with a `.sales` array — works
       // identically for one rep, a team's combined sales, or a branch's.
-      const valueFor = (group, w) => {
+      const valueFor = (group, bucket) => {
         if (cfg.metric === 'revenue') {
-          const sales = group.sales.filter(s => s.week === w);
+          const sales = group.sales.filter(bucket.match);
           return sales.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
         }
         if (cfg.metric === 'count') {
-          return group.sales.filter(s => s.week === w).length;
+          return group.sales.filter(bucket.match).length;
         }
-        // Cumulative metrics: include every sale up through the current week
-        const through = group.sales.filter(s => s.week <= w);
+        // Cumulative metrics: include every sale up through the current bucket
+        const through = group.sales.filter(bucket.cumThrough);
         if (through.length === 0) return 0;
         if (cfg.metric === 'avg_pest') {
           const eligible = through.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
@@ -11851,14 +11976,14 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartWeeks,
           const total  = twelve + multi;
           return total > 0 ? multi / total : 0;
         }
-        // acv (cumulative): total revenue / total sales through this week
+        // acv (cumulative): total revenue / total sales through this bucket
         const rev = through.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
         return rev / through.length;
       };
 
       const datasets = groups.map(g => ({
         label: g.name,
-        data: chartWeeks.map(w => valueFor(g, w)),
+        data: chartBuckets.map(b => valueFor(g, b)),
         borderColor: g.color,
         backgroundColor: 'transparent',
         tension: 0.3,
@@ -11877,11 +12002,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartWeeks,
       const gridColor = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
       const tickColor = isDark ? 'rgba(255,255,255,.5)' : 'rgba(0,0,0,.5)';
 
-      const labels = chartWeeks.map(w => {
-        // Try to grab the date label from any indicator row at this week
-        const row = (state.indicatorsData || []).find(r => r.week === w);
-        return row?.date ? ('Wk ' + w + '\n' + row.date) : 'Wk ' + w;
-      });
+      const labels = chartBuckets.map(b => b.label);
 
       _chartInstances[canvasId] = new Chart(cvs.getContext('2d'), {
         type: 'line',
@@ -11914,8 +12035,11 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartWeeks,
                 state._indicatorRepDrillDown = clicked;
               }
             }
-            const week = chartWeeks[hit[0].index];
-            if (week != null) state._indicatorRepChartWeek = week;
+            const clickedBucket = chartBuckets[hit[0].index];
+            // Only set _indicatorRepChartWeek when the bucket maps cleanly to
+            // a CSV week — daily/monthly buckets don't drive the verification
+            // table's per-week filter.
+            if (clickedBucket?.week != null) state._indicatorRepChartWeek = clickedBucket.week;
             mountApp();
           },
           onHover: (e, els) => {
@@ -12174,14 +12298,14 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartWeeks,
   const drillRep = drillRepName && repMap[drillRepName] ? repMap[drillRepName] : null;
   let drillPanel;
   if (drillRep) {
-    drillPanel = repDrillPanel(drillRep, chartWeeks);
+    drillPanel = repDrillPanel(drillRep, chartBuckets);
   } else {
     if (!state._indicatorTrendScope) state._indicatorTrendScope = { type: 'company' };
     // Scope panel renders standalone — no rep overlay. Reps' numbers are
     // dwarfed by company totals on a shared axis, so a side-by-side line
     // visually shrinks the rep's pattern. Selected reps are still plotted
     // on the upper trend chart; this panel just shows the scope.
-    drillPanel = scopeDrillPanel(state._indicatorTrendScope, rawSales || [], chartWeeks);
+    drillPanel = scopeDrillPanel(state._indicatorTrendScope, rawSales || [], chartBuckets);
   }
 
   // Footer hint — adapts to mode. The hint disappears in custom mode with
@@ -12216,7 +12340,7 @@ function _hexToRgba(hex, alpha) {
 // Per-week values for the small-multiples grid (Revenue, Sales, ACV, Avg Pest,
 // MY %). Reused by both the per-rep drill panel and the scope (Company /
 // Branch / Team) panel — anything with a list of sales can plot against this.
-function buildTrendMiniGrid(sales, chartWeeks, idPrefix, accentColor, overlay) {
+function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay) {
   const REP_AVG_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
   const metrics = [
     { id: 'revenue',   label: 'Revenue',          isCurrency: true,  format: v => '$' + (Math.abs(v) >= 1000 ? Math.round(v/1000) + 'K' : v) },
@@ -12229,35 +12353,31 @@ function buildTrendMiniGrid(sales, chartWeeks, idPrefix, accentColor, overlay) {
   const lineColor = accentColor || 'var(--accent)';
   const fillColor = accentColor ? _hexToRgba(accentColor, 0.15) : 'rgba(141,198,63,.15)';
 
-  // Take a sales array → metric value for a given week. Now sales-set is a
+  // Take a sales array → metric value for a given bucket. Now sales-set is a
   // parameter so the overlay (when present) can compute against a different
-  // population (e.g. just one rep's sales) on the same week boundaries.
-  const valueAt = (metricId, w, srcSales) => {
-    const weekSales = (srcSales || []).filter(s => s.week === w);
-    if (weekSales.length === 0) return 0;
-    if (metricId === 'revenue') return weekSales.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
-    if (metricId === 'count')   return weekSales.length;
+  // population (e.g. just one rep's sales) on the same bucket boundaries.
+  const valueAt = (metricId, bucket, srcSales) => {
+    const bucketSales = (srcSales || []).filter(bucket.match);
+    if (bucketSales.length === 0) return 0;
+    if (metricId === 'revenue') return bucketSales.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
+    if (metricId === 'count')   return bucketSales.length;
     if (metricId === 'avg_pest') {
-      const eligible = weekSales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
+      const eligible = bucketSales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
       if (eligible.length === 0) return 0;
       return eligible.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / eligible.length;
     }
     if (metricId === 'my_pct') {
-      const twelve = weekSales.filter(s => Number(s.contract) === 12).length;
-      const multi  = weekSales.filter(s => Number(s.contract) > 12).length;
+      const twelve = bucketSales.filter(s => Number(s.contract) === 12).length;
+      const multi  = bucketSales.filter(s => Number(s.contract) > 12).length;
       const total  = twelve + multi;
       return total > 0 ? multi / total : 0;
     }
     // acv
-    const rev = weekSales.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
-    return weekSales.length > 0 ? rev / weekSales.length : 0;
+    const rev = bucketSales.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
+    return bucketSales.length > 0 ? rev / bucketSales.length : 0;
   };
-  const valueFor = (metricId, w) => valueAt(metricId, w, sales);
 
-  const labels = chartWeeks.map(w => {
-    const row = (state.indicatorsData || []).find(r => r.week === w);
-    return row?.date ? ('Wk ' + w + '\n' + row.date) : 'Wk ' + w;
-  });
+  const labels = chartBuckets.map(b => b.label);
 
   const buildMini = (metric) => {
     const id = idPrefix + '-' + metric.id;
@@ -12277,7 +12397,7 @@ function buildTrendMiniGrid(sales, chartWeeks, idPrefix, accentColor, overlay) {
       const tickColor = isDark ? 'rgba(255,255,255,.5)' : 'rgba(0,0,0,.5)';
       const datasets = [{
         label: metric.label,
-        data: chartWeeks.map(w => valueAt(metric.id, w, sales)),
+        data: chartBuckets.map(b => valueAt(metric.id, b, sales)),
         borderColor: lineColor,
         backgroundColor: fillColor,
         fill: true,
@@ -12293,7 +12413,7 @@ function buildTrendMiniGrid(sales, chartWeeks, idPrefix, accentColor, overlay) {
       if (overlay) {
         datasets.push({
           label: overlay.label,
-          data: chartWeeks.map(w => valueAt(metric.id, w, overlay.sales)),
+          data: chartBuckets.map(b => valueAt(metric.id, b, overlay.sales)),
           borderColor: overlay.color,
           backgroundColor: 'transparent',
           fill: false,
@@ -12362,7 +12482,7 @@ function buildTrendMiniGrid(sales, chartWeeks, idPrefix, accentColor, overlay) {
 }
 
 // Mini per-metric trend charts for one rep, rendered as small multiples.
-function repDrillPanel(rep, chartWeeks) {
+function repDrillPanel(rep, chartBuckets) {
   const team = getRepTeam(rep.name);
   const accent = team ? getTeamColor(team) : null;
   const idPrefix = 'chart-rep-drill-' + rep.name.replace(/\s+/g, '-');
@@ -12380,7 +12500,7 @@ function repDrillPanel(rep, chartWeeks) {
         onclick: () => { state._indicatorRepDrillDown = null; mountApp(); },
       }, 'Close'),
     ),
-    buildTrendMiniGrid(rep.sales, chartWeeks, idPrefix, accent),
+    buildTrendMiniGrid(rep.sales, chartBuckets, idPrefix, accent),
   );
 }
 
@@ -12389,7 +12509,7 @@ function repDrillPanel(rep, chartWeeks) {
 // a single Team. Scope persists across reloads. Per the project rule,
 // excluded-team reps are dropped ONLY when the scope is 'team' — branch and
 // company views show every rep regardless of team-exclusion status.
-function scopeDrillPanel(scope, allScopedSales, chartWeeks, compareRep) {
+function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep) {
   // Available branches and teams for the picker
   const branches = [...new Set((allScopedSales || []).map(s => s.office).filter(Boolean))].sort();
   const teams = distinctTeams().filter(t => !isTeamExcluded(t));
@@ -12548,7 +12668,7 @@ function scopeDrillPanel(scope, allScopedSales, chartWeeks, compareRep) {
       ),
       scopeSelector,
     ),
-    buildTrendMiniGrid(scopedSales, chartWeeks, idPrefix, scopeColor,
+    buildTrendMiniGrid(scopedSales, chartBuckets, idPrefix, scopeColor,
       // When a single rep is "selected" on the upper trend chart, overlay
       // their per-week numbers (dashed line) on top of the scope's solid
       // line so the user can compare the rep's trend to company / branch /
