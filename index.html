@@ -436,6 +436,14 @@ const supabase = hasConfig
   ? createClient(CFG.SUPABASE_URL, CFG.SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: true, autoRefreshToken: true } })
   : null;
 
+// Role helpers — keep "has admin powers" and "is a seller" consistent across
+// the codebase. `admin_rep` is an admin who also sells (on leaderboard, has a
+// Pay tab); `admin` is admin-only (not on leaderboard, no sales).
+const ADMIN_ROLES   = ['admin', 'admin_rep'];
+const SELLER_ROLES  = ['rep', 'admin_rep'];
+const isAdminRole   = (r) => ADMIN_ROLES.includes(r);
+const isSellerRole  = (r) => SELLER_ROLES.includes(r);
+
 // ──────────────────────────────────────────────────────────────────────────
 // Demo state persistence — keep sales/competitions alive across page reloads
 // so you can log a sale → audit → stage → process without losing your work
@@ -852,6 +860,9 @@ const state = {
 };
 // Debug: expose state for console inspection (remove before prod)
 window.__RIDD = state;
+// Newer debug hook used by the deploy verifier — exposes the role helpers
+// alongside state so we can confirm a deploy actually shipped.
+window.__ridd = { get state() { return state; }, isAdminRole, ADMIN_ROLES, SELLER_ROLES };
 
 function applyTheme(theme) {
   state.theme = theme;
@@ -1240,7 +1251,7 @@ async function loadLookups() {
 }
 
 async function loadData() {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const salesQuery = supabase.from('sales').select('*').order('sold_date', { ascending: false });
 
   const [mySales, comps, rules, progress, leaderboard] = await Promise.all([
@@ -1482,7 +1493,7 @@ function buildSearchBar() {
         const q = input.value.trim().toLowerCase();
         results.innerHTML = '';
         if (q.length < 2) { results.style.display = 'none'; return; }
-        const source = state.profile?.role === 'admin' ? state.allSales : state.mySales;
+        const source = isAdminRole(state.profile?.role) ? state.allSales : state.mySales;
         const matches = source.filter(s =>
           (s.customer_name||'').toLowerCase().includes(q) ||
           (s.customer_number||'').toLowerCase().includes(q) ||
@@ -1545,8 +1556,8 @@ function mobileBottomNav() {
         iconGrid(20), el('span', {}, 'More'));
       const popover = el('div', { class: 'more-popover card', style: { display: 'none' } },
         ...[['competitions','Competitions',iconTrophy],['hall_of_fame','Hall of Fame',iconCrown],
-            ...(state.profile?.role==='admin' ? [['indicators','Indicators',iconChart]] : []),
-            ...(state.profile?.role==='admin' ? [['admin','Settings',iconGear]] : [])
+            ...(isAdminRole(state.profile?.role) ? [['indicators','Indicators',iconChart]] : []),
+            ...(isAdminRole(state.profile?.role) ? [['admin','Settings',iconGear]] : [])
         ].map(([k,label,iconFn]) => el('button', {
           class: 'flex items-center gap-3 w-full px-4 py-2.5 text-sm',
           style: state.view === k ? { color: 'var(--accent)', fontWeight: '600' } : { color: 'var(--text)' },
@@ -1605,7 +1616,7 @@ function microGoalWidget() {
 }
 
 function mountApp() {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
 
   // ── Single-column layout. The grid icon in the header is the nav menu. ──
   const shell = el('div', { class: 'min-h-screen flex flex-col' });
@@ -1801,7 +1812,7 @@ function mountApp() {
 // VIEW: DASHBOARD — "SALES WAR ROOM" (matches mockup)
 // ──────────────────────────────────────────────────────────────────────────
 function viewDashboard() {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const range = getDateRange(state.dashDateRange);
   // Scope: admin sees all reps, rep sees own
   const salesScope = isAdmin ? state.allSales : state.mySales;
@@ -2086,7 +2097,7 @@ function rangeLabel(range) {
 
 // Admin sees company-wide; rep sees their own (rolled up from profile target)
 function getGoalForContext() {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   if (isAdmin) return state.companyGoal;
   const repGoal = Number(state.profile.annual_revenue_goal || 0);
   return { amount: repGoal > 0 ? repGoal : 250000, period: 'year' };
@@ -4266,7 +4277,7 @@ function idFromName(list, name) { return list.find(x => x.name === name)?.id; }
 //   Admin: sees every rep's pending sales + inline audit dropdown per row
 // ──────────────────────────────────────────────────────────────────────────
 function viewSales() {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const source  = isAdmin ? state.allSales : state.mySales;
   // The Sales tab is the active queue — anything that still needs admin/auditor
   // attention OR is in flight to payroll. A sale falls off only when payroll
@@ -4402,7 +4413,7 @@ function viewSales() {
   // when on the Pending Backend Lock pill (admin/auditor only). On hover the
   // button title shows the last-uploaded filename + time. Clear link appears
   // beside it when a report is loaded.
-  const canUpload = queueFilter === 'backend' && (state.profile?.role === 'admin' || state.profile?.role === 'auditor');
+  const canUpload = queueFilter === 'backend' && (isAdminRole(state.profile?.role) || state.profile?.role === 'auditor');
   const uploadGroup = canUpload ? (() => {
     const fileInput = el('input', {
       type: 'file', accept: '.csv,.txt', style: { display: 'none' },
@@ -4683,7 +4694,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
 function statusSelect(saleId) {
   const sale = state.allSales.find(x => x.id === saleId) || state.mySales.find(x => x.id === saleId);
   const role = state.profile?.role;
-  const canAudit = role === 'admin' || role === 'auditor';
+  const canAudit = isAdminRole(role) || role === 'auditor';
   const current = sale?.audit_status || 'pending';
   if (!canAudit) return statusChip(current);
   return el('select', {
@@ -4709,8 +4720,8 @@ function statusSelect(saleId) {
 // dropdown of admins + auditors; everyone else sees the name read-only.
 function auditorSelect(saleId) {
   const sale = state.allSales.find(x => x.id === saleId) || state.mySales.find(x => x.id === saleId);
-  const isAdmin = state.profile?.role === 'admin';
-  const auditors = (state.allProfiles || []).filter(p => p.role === 'admin' || p.role === 'auditor');
+  const isAdmin = isAdminRole(state.profile?.role);
+  const auditors = (state.allProfiles || []).filter(p => isAdminRole(p.role) || p.role === 'auditor');
   const currentId = sale?.audited_by || '';
   const current = auditors.find(p => p.id === currentId);
   if (!isAdmin) {
@@ -4758,8 +4769,8 @@ function assignAuditor(saleId, auditorId) {
 // pick from the same admin/auditor pool; everyone else sees read-only text.
 function auditor2Select(saleId) {
   const sale = state.allSales.find(x => x.id === saleId) || state.mySales.find(x => x.id === saleId);
-  const isAdmin = state.profile?.role === 'admin';
-  const auditors = (state.allProfiles || []).filter(p => p.role === 'admin' || p.role === 'auditor');
+  const isAdmin = isAdminRole(state.profile?.role);
+  const auditors = (state.allProfiles || []).filter(p => isAdminRole(p.role) || p.role === 'auditor');
   const currentId = sale?.audit_2_by || '';
   const current = auditors.find(p => p.id === currentId);
   if (!isAdmin) {
@@ -4821,7 +4832,7 @@ function lockStatusChip(status) {
 function lockStatusSelect(saleId) {
   const sale = state.allSales.find(x => x.id === saleId) || state.mySales.find(x => x.id === saleId);
   const role = state.profile?.role;
-  const canAudit = role === 'admin' || role === 'auditor';
+  const canAudit = isAdminRole(role) || role === 'auditor';
   const current = sale?.lock_status || 'pending';
   if (!canAudit) return lockStatusChip(current);
   return el('select', {
@@ -4891,7 +4902,7 @@ function openRepBreakdownModal() {
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const goal = getGoalForContext();
   const yearStart = new Date(new Date().getFullYear(), 0, 1);
 
@@ -4958,7 +4969,7 @@ function openRepBreakdownModal() {
 // SALES LOG MODAL — matches the mockup exactly
 // ──────────────────────────────────────────────────────────────────────────
 function openNewSaleModal(defaultRepId, existingSale = null) {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const profiles = state.allProfiles.length ? state.allProfiles : [state.profile];
   const isEdit = !!existingSale;
   // State captured inside the modal (for live footer + checkbox fields that aren't form-bound).
@@ -5495,7 +5506,7 @@ function viewPay() {
   const period  = periods.find(p => p.id === state.payPeriodId) || periods[0];
   const nowPid  = currentPayPeriodId(today.getFullYear());
 
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   // Admins can spot-check any rep's pay stub without logging in as them.
   // `state.payViewRepId` is the override; default is self. Non-admins are
   // always pinned to themselves.
@@ -6221,7 +6232,7 @@ function viewCompetitions() {
   if (active.length === 0 && upcoming.length === 0) {
     container.append(el('div', { class: 'card p-10 text-center' },
       el('div', { class: 'text-battle-2 text-sm mb-2' }, 'No competitions yet.'),
-      state.profile.role === 'admin' && el('button', {
+      isAdminRole(state.profile.role) && el('button', {
         class: 'mt-2 px-4 py-2 rounded-xl bg-lime text-eerie font-semibold',
         onclick: () => { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); },
       }, 'Create one \u2192'),
@@ -6408,7 +6419,7 @@ function repInitials(rep) {
 function viewCalendar() {
   const me = state.profile;
   const meId = me.id;
-  const isAdmin = me.role === 'admin';
+  const isAdmin = isAdminRole(me.role);
   const reps = state.allProfiles.length ? state.allProfiles : [me];
   const repById = Object.fromEntries(reps.map(r => [r.id, r]));
 
@@ -6564,7 +6575,7 @@ function layoutSlots(slots) {
 }
 
 function renderWeekGrid(anchor, today, meId, repById) {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(anchor); d.setDate(anchor.getDate() + i); return d; });
   const todayIso = isoDate(today);
@@ -6733,7 +6744,7 @@ function renderWeekGrid(anchor, today, meId, repById) {
 }
 
 function renderMonthGrid(anchor, today, meId, repById) {
-  const isAdmin = state.profile.role === 'admin';
+  const isAdmin = isAdminRole(state.profile.role);
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const lastDay = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate();
   const startPad = first.getDay();
@@ -6850,7 +6861,7 @@ function resolveSwap(requestId, decision) {
 
 // ── Create-shift modal: pick days, times, reps, then fan out assignments ──
 function openNewShiftModal(defaultIso, opts = {}) {
-  if (state.profile.role !== 'admin') return;
+  if (!isAdminRole(state.profile.role)) return;
   const allReps = state.allProfiles.length ? state.allProfiles : [state.profile];
   const reps = allReps.filter(r => r.is_active !== false); // hide inactive from assignable list
   const overlay = el('div', { class: 'modal-overlay' });
@@ -7161,7 +7172,7 @@ function openSlotModal(iso, slotId) {
     const allReps    = state.allProfiles.length ? state.allProfiles : [state.profile];
     const activeReps = allReps.filter(r => r.is_active !== false);
     const meId = state.profile.id;
-    const isAdmin = state.profile.role === 'admin';
+    const isAdmin = isAdminRole(state.profile.role);
     const repById = Object.fromEntries(allReps.map(r => [r.id, r]));
     const assigns = assignmentsForSlot(iso, slotId);
     const dateLabel = new Date(iso + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
@@ -15373,14 +15384,14 @@ function openUserEditor(existing = null) {
     ),
     (() => {
       const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-3 py-2 text-sm' },
-        el('option', { value: 'rep', selected: (existing?.role || 'rep') === 'rep' }, 'Rep'),
-        el('option', { value: 'auditor', selected: existing?.role === 'auditor' }, 'Auditor'),
-        el('option', { value: 'admin', selected: existing?.role === 'admin' }, 'Admin'),
+        el('option', { value: 'rep',       selected: (existing?.role || 'rep') === 'rep' },  'Rep'),
+        el('option', { value: 'admin_rep', selected: existing?.role === 'admin_rep' },       'Admin + Sales'),
+        el('option', { value: 'admin',     selected: existing?.role === 'admin' },           'Admin (no sales)'),
+        el('option', { value: 'auditor',   selected: existing?.role === 'auditor' },         'Auditor'),
       );
-      // Rep-only fields — auditors don't sell or carry commission/goals, so
-      // hide Commission Bump and Annual Revenue Goal when the selected role
-      // is 'auditor'. Admins keep everything since an admin may also be a
-      // producing rep.
+      // Seller-only fields — only 'rep' and 'admin_rep' sell, so hide
+      // Commission Bump and Annual Revenue Goal for 'admin' (no-sales)
+      // and 'auditor'.
       // Close Rate moved to the Pay tab → Backend Pay section so admins can
       // update it inline each quarter alongside the bonus it gates.
       const commissionRow = el('label', { class: 'block text-sm' },
@@ -15415,9 +15426,9 @@ function openUserEditor(existing = null) {
       const initialsRow = mk('Initials', inp('initials', { maxlength: 4, value: existing?.initials || '' }));
 
       const applyRoleVisibility = () => {
-        const isAuditor = roleSelect.value === 'auditor';
-        commissionRow.style.display = isAuditor ? 'none' : '';
-        annualGoalRow.style.display = isAuditor ? 'none' : '';
+        const seller = isSellerRole(roleSelect.value);
+        commissionRow.style.display = seller ? '' : 'none';
+        annualGoalRow.style.display = seller ? '' : 'none';
       };
       roleSelect.addEventListener('change', applyRoleVisibility);
       // Apply once on first render so existing auditors open with the fields hidden.
@@ -15542,10 +15553,10 @@ async function recomputeAllProgress() {
   try {
     // Need EVERY rep's sales for full leaderboard eval, not just mine.
     // If I'm not an admin I can only see my own, so I only compute my own progress.
-    const scope = state.profile.role === 'admin' ? state.allSales : state.mySales;
+    const scope = isAdminRole(state.profile.role) ? state.allSales : state.mySales;
     const salesByRep = groupBy(scope, s => s.rep_id);
     const repIds = Object.keys(salesByRep);
-    if (state.profile.role !== 'admin' && !repIds.includes(state.profile.id)) repIds.push(state.profile.id);
+    if (!isAdminRole(state.profile.role) && !repIds.includes(state.profile.id)) repIds.push(state.profile.id);
 
     const rows = [];
     for (const comp of state.competitions) {
