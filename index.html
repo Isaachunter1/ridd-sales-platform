@@ -1281,13 +1281,18 @@ async function loadLookups() {
 async function loadData() {
   const isAdmin = isAdminRole(state.profile.role);
   const salesQuery = supabase.from('sales').select('*').order('sold_date', { ascending: false });
+  // Admins see every rep on the Users tab and need names + avatars across the
+  // sales/queue tables. Reps can only read their own profile per RLS, so for
+  // them this select returns just one row — same as state.profile.
+  const profilesQuery = supabase.from('profiles').select('*').order('full_name');
 
-  const [mySales, comps, rules, progress, leaderboard] = await Promise.all([
+  const [mySales, comps, rules, progress, leaderboard, profiles] = await Promise.all([
     isAdmin ? salesQuery : supabase.from('sales').select('*').eq('rep_id', state.profile.id).order('sold_date', { ascending: false }),
     supabase.from('competitions').select('*').order('start_date', { ascending: false }),
     supabase.from('competition_rules').select('*'),
     supabase.from('competition_progress').select('*'),
     supabase.from('leaderboard').select('*'),
+    profilesQuery,
   ]);
 
   state.mySales      = mySales.data || [];
@@ -1296,6 +1301,11 @@ async function loadData() {
   state.compRules    = rules.data || [];
   state.compProgress = progress.data || [];
   state.leaderboard  = leaderboard.data || [];
+  state.allProfiles  = profiles.data || [];
+  // Re-sync state.profile from the fresh row so changes saved by openUserEditor
+  // (or by another admin editing this user) are reflected without a sign-out.
+  const me = state.allProfiles.find(p => p.id === state.profile?.id);
+  if (me) state.profile = me;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
