@@ -542,6 +542,13 @@ async function loadProfile() {
   state.profile = created;
 }
 
+// Debug aid — expose runtime state so it can be inspected from DevTools
+// without needing to re-bundle. Safe to leave in: only the publishable key
+// is reachable through this, which is already public.
+if (typeof window !== 'undefined') {
+  window.__ridd = { get state() { return state; }, isAdminRole, ADMIN_ROLES };
+}
+
 async function loadLookups() {
   const [offices, serviceTypes, sources, contractTypes] = await Promise.all([
     supabase.from('offices').select('*').order('name'),
