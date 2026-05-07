@@ -32,6 +32,7 @@ create type public.user_role as enum ('rep', 'admin', 'auditor');
 -- Statuses from RIDD SALES sheet column M validation
 create type public.audit_status as enum (
   'pending',
+  'approved',
   'serviced',
   'cancelled',
   'below_minimums',
@@ -215,6 +216,25 @@ create table public.profiles (
   slack_user_id text,                  -- used by Slack notifications when wired
   created_at timestamptz not null default now()
 );
+
+-- Helper functions defined early so policies below can reference them.
+-- (The same `create or replace function` calls appear later for clarity, but
+-- they're harmless re-runs when this script is executed top-to-bottom.)
+create or replace function public.is_admin()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'admin'
+  );
+$$;
+
+create or replace function public.is_admin_or_auditor()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role in ('admin', 'auditor')
+  );
+$$;
 
 -- ── Pending invites: admin pre-creates users before they sign up ──
 create table public.pending_invites (
