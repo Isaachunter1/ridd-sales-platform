@@ -1,0 +1,221 @@
+<!doctype html>
+<html data-theme="dark" lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pay Mockup 4 — Unified Stub</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root[data-theme="dark"] {
+    --bg:#1D1D1D; --card:#262626; --card-2:#2a2a2a; --border:#2f2f2f; --border-2:#3a3a3a;
+    --text:#F3F3F3; --text-muted:#8e8f80; --text-subtle:#6B7280;
+    --accent:#8DC63F; --accent-text:#1D1D1D; --gold:#A78256; --teal:#0EA5E9;
+  }
+  body { background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, sans-serif; }
+  .stub      { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .sec-bar   { display:flex; align-items:center; justify-content: space-between; gap: 12px; padding: 12px 18px;
+               background: #000; color: #fff; }
+  .sec-bar.upfront { border-left: 4px solid var(--accent); }
+  .sec-bar.backend { border-left: 4px solid var(--teal); }
+  .sec-bar.revenue { border-left: 4px solid var(--text-muted); }
+  .sec-lbl   { font-size: 11px; letter-spacing: .18em; font-weight: 800; }
+  .sec-sub   { font-size: 10px; letter-spacing: .08em; opacity: .6; font-style: italic; }
+  .row       { display:flex; justify-content: space-between; align-items: center; padding: 10px 18px;
+               border-top: 1px solid var(--border-2); font-size: 13px; }
+  .row .lbl  { letter-spacing: .04em; font-weight: 500; text-transform: uppercase; font-size: 11px; }
+  .row .val  { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .row .val.dim { color: var(--text-muted); font-weight: 500; }
+  .row.gold  { background: var(--gold); color: #1D1D1D; }
+  .row.lime  { background: var(--accent); color: var(--accent-text); }
+  .row.teal  { background: var(--teal);   color: #FFFFFF; }
+  .row.total { font-size: 14px; }
+  .row.total .lbl, .row.total .val { font-weight: 800; }
+  .row.subtle { background: var(--card-2); }
+  .subband   { padding: 6px 18px; font-size: 9px; letter-spacing: .22em; font-weight: 700;
+               color: var(--text-subtle); background: var(--card-2); border-top: 1px solid var(--border-2);
+               text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
+  .subband .hint { font-style: italic; opacity: .8; letter-spacing: .04em; text-transform: none; font-weight: 500; }
+  /* "Estimate" treatment — outlined teal instead of filled, to signal that
+     the running quarter total isn't paid yet. Period subtotal stays solid. */
+  .row.teal-outline {
+    background: transparent; color: var(--teal);
+    box-shadow: inset 0 0 0 1px var(--teal); border-top-color: transparent;
+  }
+  .row.teal-outline.total .lbl, .row.teal-outline.total .val { font-weight: 800; }
+  .runbtn    { padding: 6px 12px; font-size: 11px; letter-spacing: .08em; font-weight: 700; border-radius: 8px; cursor: pointer;
+               border: 1px solid currentColor; background: transparent; color: var(--accent); }
+  .runbtn.teal { color: var(--teal); }
+  .runbtn:hover{ background: rgba(255,255,255,.06); }
+  select     { background: var(--card); border: 1px solid var(--border-2); border-radius: 10px; color: var(--text);
+               padding: 6px 12px; font-size: 13px; }
+  .nav-back  { color: var(--text-muted); font-size: 12px; }
+  .nav-back:hover { color: var(--accent); }
+  .topcards  { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .topcard   { border-radius: 14px; padding: 18px 20px; }
+  .topcard .lbl { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; opacity: .8; font-weight: 700; }
+  .topcard .num { font-size: 30px; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .topcard .sub { font-size: 11px; opacity: .8; margin-top: 4px; }
+</style>
+</head>
+<body class="min-h-screen">
+<script src="./_data.js"></script>
+
+<div class="max-w-[760px] mx-auto p-6 flex flex-col gap-4">
+
+  <div class="flex items-center justify-between text-xs">
+    <a href="../index.html?demo#pay" class="nav-back">← back to app</a>
+    <span class="text-[10px] uppercase tracking-widest" style="color: var(--text-subtle)">Mockup 4 · Unified Stub</span>
+  </div>
+
+  <!-- Header: name + year/period + (mockup-only) rep-type preview toggle.
+       In the real app rep_type lives on the profile and is set in admin Users. -->
+  <div class="flex items-center justify-between flex-wrap gap-3">
+    <h1 class="text-lg font-bold" id="hdr-name"></h1>
+    <div class="flex items-center gap-2">
+      <select id="rep-type" title="Mockup-only — set in admin Users for real">
+        <option value="sales_rep">Sales Rep</option>
+        <option value="loyalty_rep">Loyalty Rep</option>
+      </select>
+      <select><option id="opt-y"></option></select>
+      <select><option id="opt-p"></option></select>
+    </div>
+  </div>
+
+  <!-- Two top totals: this period upfront + quarter-to-date backend -->
+  <div class="topcards">
+    <div class="topcard" style="background: var(--accent); color: var(--accent-text)">
+      <div class="lbl">Upfront — This Period</div>
+      <div class="num" id="t-upfront"></div>
+      <div class="sub">paid biweekly</div>
+    </div>
+    <div class="topcard" style="background: var(--teal); color: #FFFFFF">
+      <div class="lbl">Backend — Quarter to Date</div>
+      <div class="num" id="t-backend"></div>
+      <div class="sub" id="t-backend-sub"></div>
+    </div>
+  </div>
+
+  <!-- Three rounded cards, one per section, with a clear gap between each
+       so the breaks read as distinct chapters of the stub rather than one
+       continuous list. Section header bar stays at the top of each card. -->
+  <div class="flex flex-col gap-3">
+
+    <!-- REVENUE: informational, helps reps see what's eligible for lock -->
+    <div class="stub">
+      <div class="sec-bar revenue">
+        <div>
+          <div class="sec-lbl">REVENUE</div>
+          <div class="sec-sub">what's stacking toward backend-lock eligibility</div>
+        </div>
+      </div>
+      <div id="sec-rev"></div>
+    </div>
+
+    <!-- UPFRONT PAY: gets paid this period -->
+    <div class="stub">
+      <div class="sec-bar upfront">
+        <div>
+          <div class="sec-lbl">UPFRONT PAY</div>
+          <div class="sec-sub">paid this pay period</div>
+        </div>
+        <button class="runbtn" id="btn-period">RUN PAY PERIOD →</button>
+      </div>
+      <div id="sec-upfront"></div>
+    </div>
+
+    <!-- BACKEND PAY: estimated this period + running quarter total -->
+    <div class="stub">
+      <div class="sec-bar backend">
+        <div>
+          <div class="sec-lbl">BACKEND PAY</div>
+          <div class="sec-sub">estimate now, paid at quarter end</div>
+        </div>
+        <button class="runbtn teal" id="btn-backend">RUN BACKEND →</button>
+      </div>
+      <div id="sec-backend"></div>
+    </div>
+
+  </div>
+
+  <p class="text-xs" style="color: var(--text-subtle)">
+    The two RUN buttons are admin-only. Pay Period runs every two weeks; Backend runs once per quarter.
+  </p>
+</div>
+
+<script>
+const m = window.MOCK;
+document.getElementById('hdr-name').textContent  = m.rep + ' — Pay';
+document.getElementById('opt-y').textContent     = m.year;
+document.getElementById('opt-p').textContent     = m.periodLabel + ' (Current)';
+
+function row(host, lbl, val, opts = {}) {
+  const r = document.createElement('div');
+  r.className = 'row ' + (opts.cls || '');
+  r.innerHTML = `<span class="lbl">${lbl}</span><span class="val ${opts.dim ? 'dim' : ''}">${window.fmt$(val)}</span>`;
+  host.appendChild(r);
+}
+
+function subband(host, label, hint) {
+  const b = document.createElement('div');
+  b.className = 'subband';
+  b.innerHTML = `<span>${label}</span>` + (hint ? `<span class="hint">${hint}</span>` : '');
+  host.appendChild(b);
+}
+
+function render() {
+  const repType = document.getElementById('rep-type').value;
+  const isLoyalty = repType === 'loyalty_rep';
+
+  // Total Upfront Pay = sum of every visible row in the Upfront section.
+  // Loyalty reps see Loyalty Pay + Loyalty Royalty; Sales reps see Golden
+  // Phone. Other Pay applies to both. Sales Pay is universal.
+  const upfrontTotal = m.salesPay
+    + (isLoyalty ? m.loyaltyPay : 0)
+    + (isLoyalty ? m.loyaltyRoyalty : m.goldenPhone)
+    + m.otherPay;
+
+  document.getElementById('t-upfront').textContent = window.fmt$(upfrontTotal);
+  document.getElementById('t-backend').textContent = window.fmt$(m.quarterlyBackend);
+  document.getElementById('t-backend-sub').textContent = 'this period: ' + window.fmt$(m.payPeriodBackend);
+
+  // Revenue — informational, what's stacking toward eligibility.
+  const rev = document.getElementById('sec-rev'); rev.innerHTML = '';
+  row(rev, 'Total Revenue (period)', m.totalRevenue);
+  row(rev, 'Quarterly Revenue', m.quarterlyRevenue, { dim: true });
+  row(rev, 'Pending Revenue', m.pendingRevenue, { dim: true });
+
+  // Upfront Pay — biweekly run. Rows depend on rep type.
+  const up = document.getElementById('sec-upfront'); up.innerHTML = '';
+  row(up, 'Sales Pay', m.salesPay);
+  if (isLoyalty) row(up, 'Loyalty Pay', m.loyaltyPay);
+  row(up,
+      isLoyalty ? 'Loyalty Royalty' : 'Golden Phone',
+      isLoyalty ? m.loyaltyRoyalty  : m.goldenPhone,
+      { cls: 'gold' });
+  row(up, 'Other Pay', m.otherPay, { dim: true });
+  row(up, 'Total Upfront Pay', upfrontTotal, { cls: 'lime total' });
+
+  // Backend Pay — split into two sub-blocks so the rep can tell at a glance
+  // what THIS period contributes (locked-in for the period) vs. what's still
+  // running and accumulating across the quarter (estimate, not yet paid).
+  const bk = document.getElementById('sec-backend'); bk.innerHTML = '';
+  subband(bk, 'This Pay Period', 'period contribution → locked');
+  row(bk, 'Multi-Year Pay', m.multiYearPay);
+  row(bk, 'Close Rate % Pay', m.closeRatePay);
+  row(bk, 'Renewal Pay', m.renewalPay, { dim: true });
+  row(bk, 'Pay Period Backend Pay', m.payPeriodBackend, { cls: 'teal total' });
+
+  subband(bk, 'Quarter Running', 'estimate · paid at quarter end');
+  row(bk, 'Pending Backend Pay', m.pendingBackend, { dim: true });
+  row(bk, 'Quarterly Backend Pay', m.quarterlyBackend, { cls: 'teal-outline total' });
+}
+
+document.getElementById('rep-type').value = m.repType;
+document.getElementById('rep-type').addEventListener('change', render);
+render();
+
+document.getElementById('btn-period').onclick  = () => alert('(mock) Run pay period payroll for ' + m.periodLabel + '.');
+document.getElementById('btn-backend').onclick = () => alert('(mock) Run backend payroll — this is the quarter-end run.');
+</script>
+</body>
+</html>

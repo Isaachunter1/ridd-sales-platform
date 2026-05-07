@@ -17,6 +17,8 @@ drop table if exists public.pending_invites cascade;
 drop table if exists public.app_settings cascade;
 drop table if exists public.profiles cascade;
 drop type if exists public.audit_status cascade;
+drop type if exists public.lock_status cascade;
+drop type if exists public.rep_type cascade;
 drop type if exists public.competition_category cascade;
 drop type if exists public.competition_type cascade;
 drop type if exists public.user_role cascade;
@@ -24,7 +26,9 @@ drop type if exists public.user_role cascade;
 -- ============================================================================
 -- 1. ENUMS
 -- ============================================================================
-create type public.user_role as enum ('rep', 'admin');
+-- Auditors can review status / assign audit / set backend lock, but they
+-- don't sell — they're excluded from the leaderboard and can't log sales.
+create type public.user_role as enum ('rep', 'admin', 'auditor');
 -- Statuses from RIDD SALES sheet column M validation
 create type public.audit_status as enum (
   'pending',
@@ -35,6 +39,12 @@ create type public.audit_status as enum (
   'not_payable',
   'reschedule'
 );
+-- Backend-lock decision once a sale's been paid upfront and the quarterly
+-- review window passes. Lock = commission stays. Chargeback = clawback.
+create type public.lock_status as enum ('pending', 'lock', 'chargeback');
+-- Determines which Upfront Pay rows show on the Pay tab. Sales reps see
+-- Golden Phone; Loyalty reps see Loyalty Pay + Loyalty Royalty.
+create type public.rep_type as enum ('sales_rep', 'loyalty_rep');
 create type public.competition_category as enum ('inside_sales', 'loyalty');
 create type public.competition_type as enum ('royalty', 'bingo');
 
@@ -194,6 +204,15 @@ create table public.profiles (
   below_min_commission_rate numeric(5,4) not null default 0.0350, -- 3.50%
   close_rate_target numeric(5,4) not null default 0.6000,  -- 60.00%
   annual_revenue_goal numeric(12,2) not null default 250000,
+  -- Pay-tab personalization
+  rep_type public.rep_type not null default 'sales_rep',
+  golden_phone_amount    numeric(10,2) not null default 0,  -- Sales reps: prior-year competition royalty
+  loyalty_royalty_amount numeric(10,2) not null default 0,  -- Loyalty reps: ongoing royalty payment
+  loyalty_pay_amount     numeric(10,2) not null default 0,  -- Loyalty reps: per-period loyalty pay
+  other_pay_amount       numeric(10,2) not null default 0,  -- Generic manual additive (bonus, draw, etc.)
+  -- Operational flags used by app
+  is_active boolean not null default true,
+  slack_user_id text,                  -- used by Slack notifications when wired
   created_at timestamptz not null default now()
 );
 
@@ -332,9 +351,28 @@ create table public.sales (
   bill_date date,                                      -- legacy, kept for compatibility
   paid_in_full boolean not null default false,        -- no hold on backend, full commission paid upfront
   is_commercial boolean not null default false,       -- commercial property flag
+  -- Stage 1: upfront audit
   audit_status public.audit_status not null default 'pending',
   audited_by uuid references public.profiles(id),
   audited_at timestamptz,
+  -- Stage 2: payroll staging + processing (biweekly upfront pay)
+  staged_for_payroll boolean not null default false,
+  staged_at timestamptz,
+  payroll_processed_at timestamptz,
+  payroll_period_id integer,
+  -- Stage 3: backend lock review (quarterly) + payroll
+  lock_status public.lock_status not null default 'pending',
+  audit_2_by uuid references public.profiles(id),
+  audit_2_at timestamptz,
+  backend_audited_at timestamptz,
+  backend_payroll_processed_at timestamptz,
+  backend_payroll_period_id integer,
+  -- Enriched data from the backend report upload (xlookup'd by customer_number)
+  subscriptions integer,
+  appointments_completed integer,
+  aging integer,
+  subscription_type text,
+  backend_report_uploaded_at timestamptz,
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -342,8 +380,11 @@ create table public.sales (
 
 create index sales_rep_idx on public.sales(rep_id);
 create index sales_status_idx on public.sales(audit_status);
+create index sales_lock_status_idx on public.sales(lock_status);
 create index sales_sold_date_idx on public.sales(sold_date);
 create index sales_office_idx on public.sales(office_id);
+create index sales_payroll_idx on public.sales(payroll_processed_at) where payroll_processed_at is not null;
+create index sales_backend_payroll_idx on public.sales(backend_payroll_processed_at) where backend_payroll_processed_at is not null;
 
 create or replace function public.touch_updated_at()
 returns trigger language plpgsql as $$
@@ -389,8 +430,10 @@ create table public.competition_rules (
   -- The metric to aggregate
   metric text not null,                -- 'count' | 'sum_revenue' | 'sum_initial' | 'sum_monthly' | 'avg_initial' | 'close_rate' | 'saves_count'
 
-  -- Aggregation window
-  window text not null,                -- 'day' | 'week' | 'month' | 'competition'
+  -- Aggregation window. `window` is a reserved keyword in Postgres so the
+  -- identifier is quoted in DDL. PostgREST quotes it automatically when the
+  -- JS client sends `.select('window')` etc., so app code stays unchanged.
+  "window" text not null,              -- 'day' | 'week' | 'month' | 'competition'
 
   -- Comparison
   operator text not null,              -- '>' | '>=' | '<' | '<=' | '=' | '!='
@@ -450,6 +493,18 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
+-- Helper: is current user an admin OR auditor?
+-- Auditors can review status, assign audit, set the backend lock, run backend
+-- payroll, and upload the backend report — but they can't create or delete
+-- sales, and they're hidden from the sales leaderboard.
+create or replace function public.is_admin_or_auditor()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role in ('admin', 'auditor')
+  );
+$$;
+
 -- ---------- profiles ----------
 create policy "profiles: self read" on public.profiles
   for select using (id = auth.uid() or public.is_admin());
@@ -470,7 +525,7 @@ create policy "sales: self insert" on public.sales
 create policy "sales: self update pending" on public.sales
   for update using (
     (rep_id = auth.uid() and audit_status = 'pending')
-    or public.is_admin()
+    or public.is_admin_or_auditor()
   );
 
 create policy "sales: admin delete" on public.sales
@@ -531,7 +586,12 @@ rep_stats as (
     coalesce(sum(a.revenue_amount), 0) as approved_revenue,
     coalesce(sum(a.initial_amount), 0) as total_initial,
     coalesce(sum(a.monthly_amount * a.contract_months), 0) as total_recurring,
-    coalesce(sum(a.initial_amount + a.monthly_amount * 12), 0) as total_acv,
+    -- ACV: PPS = num_services × amount/service (no initial); else initial +
+    -- monthly × 11 (initial covers month 1, then 11 monthly billings).
+    coalesce(sum(case
+      when a.pay_per_service then coalesce(a.num_services, 0) * a.monthly_amount
+      else a.initial_amount + a.monthly_amount * 11
+    end), 0) as total_acv,
     -- MY%:  count(12mo) / count(12 + 18 + 24 mo)
     count(a.id) filter (where a.contract_months = 12) as cnt_12,
     count(a.id) filter (where a.contract_months in (12,18,24)) as cnt_12_18_24,
@@ -541,6 +601,8 @@ rep_stats as (
   from public.profiles p
   left join public.offices o on o.id = p.office_id
   left join approved a on a.rep_id = p.id
+  -- Auditors don't sell — keep them off the leaderboard.
+  where p.role <> 'auditor'
   group by p.id, p.full_name, p.email, p.avatar_url, p.initials, o.name, p.role
 )
 select
@@ -574,3 +636,128 @@ $$;
 
 -- Done. After running this, come back to the app and sign up for the first
 -- account; then run:  select public.promote_to_admin('your-email@domain.com');
+
+-- ============================================================================
+-- 11. UPGRADE PATH (idempotent)
+-- ----------------------------------------------------------------------------
+-- If you already deployed an older version of this schema and don't want to
+-- wipe data, run JUST this block. Everything below uses `if not exists` /
+-- `add value if not exists` / `create or replace` so it's safe to re-run.
+-- ============================================================================
+
+-- 11a. Extend user_role with 'auditor' (PG 9.6+)
+do $$ begin
+  begin
+    alter type public.user_role add value if not exists 'auditor';
+  exception when duplicate_object then null;
+  end;
+end $$;
+
+-- 11b. New enums (no-op if they already exist)
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'lock_status') then
+    create type public.lock_status as enum ('pending', 'lock', 'chargeback');
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'rep_type') then
+    create type public.rep_type as enum ('sales_rep', 'loyalty_rep');
+  end if;
+end $$;
+
+-- 11c. Profile additions
+alter table public.profiles
+  add column if not exists rep_type public.rep_type not null default 'sales_rep',
+  add column if not exists golden_phone_amount    numeric(10,2) not null default 0,
+  add column if not exists loyalty_royalty_amount numeric(10,2) not null default 0,
+  add column if not exists loyalty_pay_amount     numeric(10,2) not null default 0,
+  add column if not exists other_pay_amount       numeric(10,2) not null default 0,
+  add column if not exists is_active boolean not null default true,
+  add column if not exists slack_user_id text;
+
+-- 11d. Sales additions — staged/payroll, backend lock, second audit, report
+alter table public.sales
+  add column if not exists staged_for_payroll boolean not null default false,
+  add column if not exists staged_at timestamptz,
+  add column if not exists payroll_processed_at timestamptz,
+  add column if not exists payroll_period_id integer,
+  add column if not exists lock_status public.lock_status not null default 'pending',
+  add column if not exists audit_2_by uuid references public.profiles(id),
+  add column if not exists audit_2_at timestamptz,
+  add column if not exists backend_audited_at timestamptz,
+  add column if not exists backend_payroll_processed_at timestamptz,
+  add column if not exists backend_payroll_period_id integer,
+  add column if not exists subscriptions integer,
+  add column if not exists appointments_completed integer,
+  add column if not exists aging integer,
+  add column if not exists subscription_type text,
+  add column if not exists backend_report_uploaded_at timestamptz;
+
+-- 11e. New indexes
+create index if not exists sales_lock_status_idx on public.sales(lock_status);
+create index if not exists sales_payroll_idx on public.sales(payroll_processed_at) where payroll_processed_at is not null;
+create index if not exists sales_backend_payroll_idx on public.sales(backend_payroll_processed_at) where backend_payroll_processed_at is not null;
+
+-- 11f. Helper function (`create or replace` is always safe)
+create or replace function public.is_admin_or_auditor()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role in ('admin', 'auditor')
+  );
+$$;
+
+-- 11g. Refresh sales update policy so auditors can update audit/lock fields
+drop policy if exists "sales: self update pending" on public.sales;
+create policy "sales: self update pending" on public.sales
+  for update using (
+    (rep_id = auth.uid() and audit_status = 'pending')
+    or public.is_admin_or_auditor()
+  );
+
+-- 11h. Refresh the leaderboard view (new ACV math + auditor exclusion).
+-- `create or replace view` won't change the column list, so drop first when
+-- the column shape changes. The shape is identical here, so this is a no-op
+-- structurally — we just want the new SELECT body.
+create or replace view public.leaderboard as
+with approved as (
+  select * from public.sales
+  where audit_status in ('approved','serviced')
+    and sold_date >= date_trunc('month', current_date)
+),
+rep_stats as (
+  select
+    p.id as rep_id,
+    p.full_name,
+    p.email,
+    p.avatar_url,
+    p.initials,
+    o.name as office,
+    p.role,
+    count(a.id) as approved_sales,
+    coalesce(sum(a.revenue_amount), 0) as approved_revenue,
+    coalesce(sum(a.initial_amount), 0) as total_initial,
+    coalesce(sum(a.monthly_amount * a.contract_months), 0) as total_recurring,
+    coalesce(sum(case
+      when a.pay_per_service then coalesce(a.num_services, 0) * a.monthly_amount
+      else a.initial_amount + a.monthly_amount * 11
+    end), 0) as total_acv,
+    count(a.id) filter (where a.contract_months = 12) as cnt_12,
+    count(a.id) filter (where a.contract_months in (12,18,24)) as cnt_12_18_24,
+    count(a.id) filter (where coalesce(a.contract_months, 0) <= 1) as cnt_one_time,
+    (select count(*) from public.sales where audit_status = 'pending' and rep_id = p.id) as pending_sales
+  from public.profiles p
+  left join public.offices o on o.id = p.office_id
+  left join approved a on a.rep_id = p.id
+  where p.role <> 'auditor'
+  group by p.id, p.full_name, p.email, p.avatar_url, p.initials, o.name, p.role
+)
+select
+  *,
+  case when cnt_12_18_24 > 0 then (cnt_12::numeric / cnt_12_18_24) else 0 end as my_pct,
+  case when (cnt_12_18_24 + cnt_one_time) > 0
+    then (cnt_12_18_24::numeric / (cnt_12_18_24 + cnt_one_time)) else 0 end as rec_mix_pct,
+  date_trunc('month', current_date) as as_of_month
+from rep_stats;
+
+grant select on public.leaderboard to authenticated;

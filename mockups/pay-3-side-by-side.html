@@ -1,0 +1,135 @@
+<!doctype html>
+<html data-theme="dark" lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pay Mockup 3 — Side-by-Side Stubs</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root[data-theme="dark"] {
+    --bg:#1D1D1D; --card:#262626; --card-2:#2a2a2a; --border:#2f2f2f; --border-2:#3a3a3a;
+    --text:#F3F3F3; --text-muted:#8e8f80; --text-subtle:#6B7280;
+    --accent:#8DC63F; --accent-text:#1D1D1D; --gold:#A78256; --teal:#0EA5E9;
+  }
+  body { background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, sans-serif; }
+  .stub      { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .stub-hdr  { background: #000; color: #fff; padding: 12px 14px; font-size: 11px; letter-spacing: .15em; font-weight: 700;
+               display: flex; align-items: center; justify-content: space-between; }
+  .stub-tag  { font-size: 9px; letter-spacing: .25em; padding: 3px 8px; border-radius: 999px; font-weight: 800; }
+  .band      { background: #111; color: #fff; padding: 8px 14px; font-size: 10px; letter-spacing: .15em; font-weight: 700; }
+  .row       { display:flex; justify-content: space-between; align-items: center; padding: 9px 14px;
+               border-top: 1px solid var(--border-2); font-size: 12.5px; }
+  .lbl       { letter-spacing: .03em; font-weight: 500; text-transform: uppercase; font-size: 11px; }
+  .val       { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .row.gold  { background: var(--gold); color: #1D1D1D; }
+  .row.lime  { background: var(--accent); color: var(--accent-text); }
+  .row.lime.total .lbl, .row.lime.total .val { font-weight: 800; }
+  select     { background: var(--card); border: 1px solid var(--border-2); border-radius: 8px; color: var(--text);
+               padding: 6px 12px; font-size: 13px; }
+  .nav-back  { color: var(--text-muted); font-size: 12px; }
+  .nav-back:hover { color: var(--accent); }
+  .grand-bar { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px;
+               display:flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .grand-bar .num { font-size: 26px; font-weight: 900; font-variant-numeric: tabular-nums; }
+  .grand-bar .lbl { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--text-muted); }
+</style>
+</head>
+<body class="min-h-screen">
+<script src="./_data.js"></script>
+
+<div class="max-w-[1100px] mx-auto p-6 flex flex-col gap-4">
+
+  <div class="flex items-center justify-between text-xs">
+    <a href="../index.html?demo#pay" class="nav-back">← back to app</a>
+    <span class="text-[10px] uppercase tracking-widest" style="color: var(--text-subtle)">Mockup 3 · Side-by-Side</span>
+  </div>
+
+  <div class="flex items-center justify-between flex-wrap gap-3">
+    <h1 class="text-lg font-bold" id="hdr-name"></h1>
+    <div class="flex items-center gap-2">
+      <select><option id="opt-y"></option></select>
+      <select><option id="opt-p"></option></select>
+    </div>
+  </div>
+
+  <!-- Grand totals at the top so the rep sees the bottom line first -->
+  <div class="grand-bar">
+    <div>
+      <div class="lbl">Pay Period Total</div>
+      <div class="num" style="color: var(--accent)" id="grand-period"></div>
+    </div>
+    <div class="text-right">
+      <div class="lbl">Backend Period Total</div>
+      <div class="num" style="color: var(--teal)" id="grand-backend"></div>
+    </div>
+  </div>
+
+  <!-- Two stubs in parallel -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="stub">
+      <div class="stub-hdr">
+        <span>PAY PERIOD</span>
+        <span class="stub-tag" style="background: var(--accent); color: var(--accent-text)">REGULAR</span>
+      </div>
+      <div id="stub-period"></div>
+    </div>
+    <div class="stub">
+      <div class="stub-hdr">
+        <span>BACKEND PAY PERIOD</span>
+        <span class="stub-tag" style="background: var(--teal); color: #fff">QUARTER-END</span>
+      </div>
+      <div id="stub-backend"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const m = window.MOCK;
+document.getElementById('hdr-name').textContent = m.rep + ' — Pay';
+document.getElementById('opt-y').textContent = m.year;
+document.getElementById('opt-p').textContent = m.periodLabel + ' (Current)';
+
+function band(label) {
+  const b = document.createElement('div'); b.className = 'band'; b.textContent = label; return b;
+}
+function row(lbl, val, cls = '') {
+  const r = document.createElement('div'); r.className = 'row ' + cls;
+  r.innerHTML = `<span class="lbl">${lbl}</span><span class="val">${window.fmt$(val)}</span>`;
+  return r;
+}
+
+function buildStub(host, mode) {
+  host.innerHTML = '';
+  host.appendChild(band('REVENUE'));
+  host.appendChild(row('Total Revenue', m.totalRevenue));
+  host.appendChild(row('Quarterly Revenue', m.quarterlyRevenue));
+
+  host.appendChild(band('BACKEND'));
+  host.appendChild(row('Multi-Year Pay', m.multiYearPay));
+  host.appendChild(row('Close Rate % Pay', m.closeRatePay));
+  host.appendChild(row('Renewal Pay', m.renewalPay));
+  host.appendChild(row('Pay Period Backend Pay', m.payPeriodBackend));
+  host.appendChild(row('Quarterly Backend Pay', m.quarterlyBackend));
+  if (mode === 'backend') {
+    host.appendChild(row('Pending Backend Pay', m.pendingBackend));
+    host.appendChild(row('Post-Service Cancels', m.postServiceCancels));
+  }
+
+  host.appendChild(band('PAY'));
+  host.appendChild(row('Golden Phone', m.goldenPhone, 'gold'));
+  if (mode === 'backend') {
+    host.appendChild(row('Quota Pay', m.quotaPay));
+    host.appendChild(row('Loyalty Pay', m.loyaltyPay));
+  }
+  host.appendChild(row('Sales Pay', m.salesPay, 'lime'));
+  const total = mode === 'backend' ? (m.salesPay + m.payPeriodBackend) : m.totalPay;
+  host.appendChild(row('Total Pay', total, 'lime total'));
+}
+
+buildStub(document.getElementById('stub-period'),  'period');
+buildStub(document.getElementById('stub-backend'), 'backend');
+document.getElementById('grand-period').textContent  = window.fmt$(m.totalPay);
+document.getElementById('grand-backend').textContent = window.fmt$(m.salesPay + m.payPeriodBackend);
+</script>
+</body>
+</html>

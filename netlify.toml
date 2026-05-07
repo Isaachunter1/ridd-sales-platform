@@ -20,6 +20,11 @@
     Cache-Control = "public, max-age=0, must-revalidate"
 
 [[redirects]]
+  from = "/api/slack-paystub"
+  to   = "/.netlify/functions/slack-paystub"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

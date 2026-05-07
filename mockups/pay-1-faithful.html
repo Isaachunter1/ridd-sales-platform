@@ -1,0 +1,127 @@
+<!doctype html>
+<html data-theme="dark" lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pay Mockup 1 — Faithful Stub</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root[data-theme="dark"] {
+    --bg:#1D1D1D; --card:#262626; --card-2:#2a2a2a; --border:#2f2f2f; --border-2:#3a3a3a;
+    --text:#F3F3F3; --text-muted:#8e8f80; --text-subtle:#6B7280;
+    --accent:#8DC63F; --accent-text:#1D1D1D; --gold:#A78256;
+  }
+  body { background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, sans-serif; }
+  .stub      { background: var(--card); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .band      { background: #000; color: #fff; padding: 10px 14px; font-size: 11px; letter-spacing: .15em; font-weight: 700; }
+  .row       { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px;
+               border-top: 1px solid var(--border-2); font-size: 13px; }
+  .row .lbl  { letter-spacing: .04em; font-weight: 500; text-transform: uppercase; }
+  .row .val  { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .row.gold  { background: var(--gold); color: #1D1D1D; }
+  .row.lime  { background: var(--accent); color: var(--accent-text); }
+  .row.lime.total .lbl, .row.lime.total .val { font-weight: 800; }
+  .pill-grp  { display: inline-flex; border: 1px solid var(--border-2); border-radius: 8px; overflow: hidden; }
+  .pill      { padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; background: transparent; color: var(--text); border: none; }
+  .pill.on   { background: var(--accent); color: var(--accent-text); }
+  select     { background: var(--card); border: 1px solid var(--border-2); border-radius: 8px; color: var(--text);
+               padding: 6px 12px; font-size: 13px; }
+  .nav-back  { color: var(--text-muted); font-size: 12px; }
+  .nav-back:hover { color: var(--accent); }
+</style>
+</head>
+<body class="min-h-screen">
+<script src="./_data.js"></script>
+
+<div class="max-w-[420px] mx-auto p-6 flex flex-col gap-4">
+
+  <div class="flex items-center justify-between text-xs">
+    <a href="../index.html?demo#pay" class="nav-back">← back to app</a>
+    <span class="text-[10px] uppercase tracking-widest" style="color: var(--text-subtle)">Mockup 1 · Faithful Stub</span>
+  </div>
+
+  <!-- Header: name + period + stub mode -->
+  <div class="flex items-center justify-between flex-wrap gap-2">
+    <h1 class="text-base font-bold" id="hdr-name"></h1>
+  </div>
+  <div class="flex items-center gap-2 flex-wrap">
+    <select><option id="opt-y"></option></select>
+    <select><option id="opt-p"></option></select>
+    <div class="pill-grp">
+      <button class="pill on" data-mode="period">Pay Period</button>
+      <button class="pill"    data-mode="backend">Backend Pay Period</button>
+    </div>
+  </div>
+
+  <!-- Stub: closely matches the spreadsheet template -->
+  <div class="stub" id="stub"></div>
+
+</div>
+
+<script>
+const m = window.MOCK;
+document.getElementById('hdr-name').textContent = m.rep + ' — Pay';
+document.getElementById('opt-y').textContent = m.year;
+document.getElementById('opt-p').textContent = m.periodLabel + ' (Current)';
+
+const stub = document.getElementById('stub');
+function row(lbl, val, cls = '') {
+  const r = document.createElement('div');
+  r.className = 'row ' + cls;
+  r.innerHTML = `<span class="lbl">${lbl}</span><span class="val">${window.fmt$(val)}</span>`;
+  return r;
+}
+function band(label) {
+  const b = document.createElement('div');
+  b.className = 'band';
+  b.textContent = label;
+  return b;
+}
+
+function render(mode) {
+  stub.innerHTML = '';
+  // Title band — neutral row that mirrors the screenshot's header strip
+  const title = document.createElement('div');
+  title.className = 'band';
+  title.style.background = '#000';
+  title.style.borderBottom = '4px solid var(--accent)';
+  title.textContent = (mode === 'backend' ? 'BACKEND PAY PERIOD TEMPLATE' : 'PAY PERIOD TEMPLATE');
+  stub.appendChild(title);
+
+  // ── REVENUE
+  stub.appendChild(band('REVENUE'));
+  stub.appendChild(row('Total Revenue', m.totalRevenue));
+  stub.appendChild(row('Quarterly Revenue', m.quarterlyRevenue));
+
+  // ── BACKEND
+  stub.appendChild(band('BACKEND'));
+  stub.appendChild(row('Multi-Year Pay', m.multiYearPay));
+  stub.appendChild(row('Close Rate % Pay', m.closeRatePay));
+  stub.appendChild(row('Renewal Pay', m.renewalPay));
+  stub.appendChild(row('Pay Period Backend Pay', m.payPeriodBackend));
+  stub.appendChild(row('Quarterly Backend Pay', m.quarterlyBackend));
+  if (mode === 'backend') {
+    stub.appendChild(row('Pending Backend Pay', m.pendingBackend));
+    stub.appendChild(row('Post-Service Cancels', m.postServiceCancels));
+  }
+
+  // ── PAY
+  stub.appendChild(band('PAY'));
+  stub.appendChild(row('Golden Phone', m.goldenPhone, 'gold'));
+  if (mode === 'backend') {
+    stub.appendChild(row('Quota Pay', m.quotaPay));
+    stub.appendChild(row('Loyalty Pay', m.loyaltyPay));
+  }
+  stub.appendChild(row('Sales Pay', m.salesPay, 'lime'));
+  const total = mode === 'backend' ? (m.salesPay + m.payPeriodBackend) : m.totalPay;
+  stub.appendChild(row('Total Pay', total, 'lime total'));
+}
+render('period');
+document.querySelectorAll('.pill').forEach(p => p.addEventListener('click', () => {
+  document.querySelectorAll('.pill').forEach(x => x.classList.remove('on'));
+  p.classList.add('on');
+  render(p.dataset.mode);
+}));
+</script>
+</body>
+</html>

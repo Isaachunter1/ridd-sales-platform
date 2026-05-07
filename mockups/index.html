@@ -1,0 +1,67 @@
+<!doctype html>
+<html data-theme="dark" lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pay Tab Mockups</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --bg:#1D1D1D; --card:#262626; --border:#2f2f2f; --text:#F3F3F3; --text-muted:#8e8f80; --accent:#8DC63F; --accent-text:#1D1D1D; }
+  body { background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, sans-serif; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 24px; }
+  .card a { color: var(--accent); font-weight: 700; }
+  .card a:hover { text-decoration: underline; }
+  .num { font-size: 32px; font-weight: 900; line-height: 1; color: var(--accent); }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-[640px] mx-auto p-6 flex flex-col gap-4">
+  <h1 class="text-2xl font-bold mt-4">Pay Tab Mockups</h1>
+  <p class="text-sm" style="color: var(--text-muted)">Same sample data in three layouts. Click into each, compare, then tell me which direction to take into the real app.</p>
+
+  <div class="card flex items-start gap-4">
+    <div class="num">1</div>
+    <div class="flex-1">
+      <a href="./pay-1-faithful.html">Faithful Stub →</a>
+      <p class="text-sm mt-1" style="color: var(--text-muted)">
+        Closely matches the spreadsheet template image you sent. Black REVENUE / BACKEND / PAY bands, single-column rows, gold/yellow-green highlight rows. Stub-mode toggle at the top swaps the rows in place.
+      </p>
+    </div>
+  </div>
+
+  <div class="card flex items-start gap-4">
+    <div class="num">2</div>
+    <div class="flex-1">
+      <a href="./pay-2-cards.html">Card Sections →</a>
+      <p class="text-sm mt-1" style="color: var(--text-muted)">
+        Big total-pay hero up top, then REVENUE / BACKEND / PAY split into three side-by-side cards with colored accent bars. More breathable, more app-native, less spreadsheet.
+      </p>
+    </div>
+  </div>
+
+  <div class="card flex items-start gap-4">
+    <div class="num">3</div>
+    <div class="flex-1">
+      <a href="./pay-3-side-by-side.html">Side-by-Side Stubs →</a>
+      <p class="text-sm mt-1" style="color: var(--text-muted)">
+        Both the Pay Period stub and the Backend Pay Period stub on screen at once. Grand totals on top, two stubs underneath. No toggle — see them in parallel.
+      </p>
+    </div>
+  </div>
+
+  <div class="card flex items-start gap-4" style="border-color: var(--accent)">
+    <div class="num">4</div>
+    <div class="flex-1">
+      <a href="./pay-4-unified.html">Unified Stub →</a>
+      <p class="text-sm mt-1" style="color: var(--text-muted)">
+        One stub, three sections (Revenue / Upfront Pay / Backend Pay). Each pay section has its own Run Payroll button — biweekly for Upfront, quarterly for Backend. Adds a Pending Revenue running line. No mode toggle.
+      </p>
+    </div>
+  </div>
+
+  <p class="text-xs mt-2" style="color: var(--text-muted)">
+    Sample data lives in <code>_data.js</code> — tweak there once and all three reload with the same numbers.
+  </p>
+</div>
+</body>
+</html>
