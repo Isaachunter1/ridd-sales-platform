@@ -12858,9 +12858,13 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
           });
           // Golf scoring — sum of per-metric ranks, lower = better. Matches table.
           // Ties: higher D2D Revenue → higher Avg Pest Initial.
+          // Reps W/ A Sale is intentionally EXCLUDED here, mirroring the
+          // Power Ranking table — more reps doesn't make a branch a better
+          // seller, just a bigger one. Including it here was making the
+          // trend chart disagree with the table on the leader.
           const pts = {};
           branches.forEach(b => pts[b] = 0);
-          INDICATOR_METRICS.forEach(m => {
+          INDICATOR_METRICS.filter(m => m.key !== 'reps').forEach(m => {
             const sorted = branches.slice().sort((a, b) => (weekData[b]?.[m.key] || 0) - (weekData[a]?.[m.key] || 0));
             sorted.forEach((b, i) => { pts[b] += i + 1; });
           });
