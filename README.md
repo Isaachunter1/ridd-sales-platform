@@ -4,7 +4,7 @@ A single-file web app for RIDD Pest Control sales reps to log sales, watch their
 
 ## Stack
 
-- **Frontend:** `index.html` + `app.js` — vanilla ES modules, no build step, no installs
+- **Frontend:** `index.html` (single-file app — shell, palette, and all logic inlined) — vanilla ES modules, no build step, no installs
 - **Styling:** Tailwind via CDN with a custom RIDD palette
 - **Backend:** Supabase (Auth, Postgres, Row Level Security)
 - **Hosting:** Netlify (static site)
@@ -109,8 +109,7 @@ The `netlify.toml` in this repo already handles headers and caching.
 
 ```
 ridd-sales-platform/
-├── index.html          # App shell, palette, config block
-├── app.js              # All application logic (auth, views, rule engine)
+├── index.html          # App shell, palette, config, and all application logic
 ├── schema.sql          # Supabase migration (tables + RLS + seed + helpers)
 ├── netlify.toml        # Netlify deploy config
 ├── .gitignore

@@ -1492,6 +1492,13 @@ function mountAuth(opts = {}) {
   const submitBtn  = el('button', { type: 'submit', class: 'w-full rounded-lg bg-lime hover:bg-lime-600 text-eerie font-semibold py-2.5 transition' });
   const forgotBtn  = el('button', { type: 'button', class: 'text-xs text-battle-2 hover:text-lime transition',
     onclick: () => { form.dataset.mode = form.dataset.mode === 'login' ? 'forgot' : 'login'; renderMode(); } });
+  // Onboarding hint for invited reps. Accounts are admin-created; reps land
+  // here via a magic-link email. Without this, a confused rep types whatever
+  // password into the login form and gets back a bare "Invalid credentials".
+  const inviteHint = el('p', {
+    class: 'text-[10px] text-battle-2 text-center mt-1',
+    style: { lineHeight: '1.5' },
+  }, 'New here? An admin must invite you first — open the magic link in your email to set your password.');
 
   function renderMode() {
     const mode = form.dataset.mode;
@@ -1504,6 +1511,7 @@ function mountAuth(opts = {}) {
       submitBtn.textContent = 'Sign in';
       forgotBtn.textContent = 'Forgot password?';
       forgotBtn.style.display = '';
+      inviteHint.style.display = 'block';
     } else if (mode === 'forgot') {
       heading.textContent    = 'Reset password';
       subheading.textContent = 'Enter your email and we’ll send you a reset link.';
@@ -1513,6 +1521,7 @@ function mountAuth(opts = {}) {
       submitBtn.textContent = 'Send reset link';
       forgotBtn.textContent = 'Back to sign in';
       forgotBtn.style.display = '';
+      inviteHint.style.display = 'none';
     } else if (mode === 'recover') {
       heading.textContent    = 'Set a new password';
       subheading.textContent = 'Enter the password you’d like to use from now on.';
@@ -1521,13 +1530,14 @@ function mountAuth(opts = {}) {
       passField.querySelector('input').required = true;
       submitBtn.textContent = 'Update password';
       forgotBtn.style.display = 'none';
+      inviteHint.style.display = 'none';
     }
   }
 
   form.append(
     el('div', { class: 'text-lime text-3xl font-black tracking-tight' }, CFG.COMPANY_NAME),
     el('div', { class: 'text-[10px] text-battleship tracking-[.22em] mb-2' }, CFG.COMPANY_TAGLINE),
-    heading, subheading, emailField, passField, submitBtn, forgotBtn,
+    heading, subheading, emailField, passField, submitBtn, forgotBtn, inviteHint,
   );
   renderMode();
 
@@ -1680,12 +1690,19 @@ function buildSearchBar() {
 }
 
 function mobileBottomNav() {
+  const isAdmin = isAdminRole(state.profile?.role);
+  // Slot 4 is role-aware: reps see Competitions (live bingo + leaderboards
+  // they check between sales), admins see Calendar (they manage scheduling).
+  // The other view stays reachable through the More popover.
   const items = [
     ['dashboard', 'Dashboard', iconDashboard],
     ['sales', 'Sales', iconSales],
     ['pay', 'Pay', iconPay],
-    ['calendar', 'Calendar', iconCalendar],
+    isAdmin
+      ? ['calendar', 'Calendar', iconCalendar]
+      : ['competitions', 'Competitions', iconTrophy],
   ];
+  const slotKeys = new Set(items.map(([k]) => k));
   const nav = el('nav', { class: 'mobile-nav' },
     ...items.map(([k, label, iconFn]) => el('button', {
       'data-active': state.view === k,
@@ -1693,12 +1710,15 @@ function mobileBottomNav() {
     }, iconFn(20), el('span', {}, label))),
     // "More" button
     (() => {
-      const moreBtn = el('button', { 'data-active': ['competitions','hall_of_fame','admin'].includes(state.view) },
+      const moreBtn = el('button', { 'data-active': !slotKeys.has(state.view) },
         iconGrid(20), el('span', {}, 'More'));
       const popover = el('div', { class: 'more-popover card', style: { display: 'none' } },
-        ...[['competitions','Competitions',iconTrophy],['hall_of_fame','Hall of Fame',iconCrown],
-            ...(isAdminRole(state.profile?.role) ? [['indicators','Indicators',iconChart]] : []),
-            ...(isAdminRole(state.profile?.role) ? [['admin','Settings',iconGear]] : [])
+        ...[
+          // Surface whichever of (Competitions, Calendar) isn't already in slot 4.
+          ...(isAdmin ? [['competitions','Competitions',iconTrophy]] : [['calendar', 'Calendar', iconCalendar]]),
+          ['hall_of_fame','Hall of Fame',iconCrown],
+          ...(isAdmin ? [['indicators','Indicators',iconChart]] : []),
+          ...(isAdmin ? [['admin','Settings',iconGear]] : [])
         ].map(([k,label,iconFn]) => el('button', {
           class: 'flex items-center gap-3 w-full px-4 py-2.5 text-sm',
           style: state.view === k ? { color: 'var(--accent)', fontWeight: '600' } : { color: 'var(--text)' },
@@ -5348,6 +5368,18 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
     },
   });
 
+  // "Save & start another" toggle. When checked, submitting keeps the modal
+  // open and resets the form so the rep can immediately log the next sale —
+  // useful for entering a backlog. Hidden in edit mode (you only edit one).
+  const addAnotherInput = el('input', { type: 'checkbox', class: 'accent-lime w-4 h-4' });
+  const addAnotherToggle = isEdit ? null : el('label', {
+    class: 'flex items-center gap-2 text-xs cursor-pointer select-none mt-4',
+    style: { color: 'var(--text-muted)' },
+  },
+    addAnotherInput,
+    el('span', {}, 'Save and start another sale after this one'),
+  );
+
   const form = el('form', {
     class: 'p-6 overflow-y-auto flex-1',
     onsubmit: async (e) => {
@@ -5438,6 +5470,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
           notifySaleLogged(row);
           toast('Sale logged', 'success');
           saveDemoData();
+          if (addAnotherInput.checked) { resetFormForAnother(); return; }
           overlay.remove();
           mountApp();
           return;
@@ -5448,6 +5481,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
         notifySaleLogged(saleRow);
         toast('Sale logged — awaiting audit', 'success');
         await loadData();
+        if (addAnotherInput.checked) { resetFormForAnother(); return; }
         overlay.remove();
         mountApp();
       } catch (err) {
@@ -5513,6 +5547,8 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
       el('textarea', { name: 'notes', class: 'w-full rounded-lg border px-3 py-2.5 text-sm', rows: 2, placeholder: 'Optional...' }),
       { fullWidth: true },
     ),
+
+    addAnotherToggle,
   );
 
   // ── FOOTER (sticky dark bar with live ACV + Projected Commission) ──
@@ -5602,6 +5638,35 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
     submitBtn.disabled = !ok;
     submitBtn.style.opacity = ok ? '1' : '.45';
     submitBtn.style.cursor  = ok ? 'pointer' : 'not-allowed';
+  }
+
+  // Reset the form in-place so the rep can immediately log another sale
+  // without re-opening the modal. Keeps the rep (modalState.rep_id) and the
+  // "add another" toggle, clears everything else.
+  function resetFormForAnother() {
+    const keepAddAnother = addAnotherInput.checked;
+    form.reset();
+    addAnotherInput.checked = keepAddAnother;
+    // form.reset clears explicit value attrs too, so restore the date defaults
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const soldEl = form.querySelector('input[name="sold_date"]');
+    const commEl = form.querySelector('input[name="commission_date"]');
+    if (soldEl) soldEl.value = todayStr;
+    if (commEl) commEl.value = todayStr;
+    // Sync the shadow state that lives outside form data
+    modalState.paid_in_full = false;
+    modalState.is_commercial = false;
+    modalState.pay_per_service = false;
+    pps.checked = false;
+    // Rebuild the dependent UI (service options + recurring/PPS host)
+    rebuildServiceOptions();
+    renderRecurringHost();
+    updateFooter();
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '';
+    submitBtn.append(el('span', {}, 'Log Sale'));
+    checkValidity();
+    setTimeout(() => form.querySelector('input[name="customer_name"]')?.focus(), 0);
   }
 
   rebuildServiceOptions();
