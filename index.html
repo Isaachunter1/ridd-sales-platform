@@ -4665,28 +4665,95 @@ function viewSales() {
                   ? 'No cancelled sales.'
                   : 'All caught up \u2014 no sales waiting for upfront audit.')
             : 'Nothing pending. Log a sale with the + New Sale button.')
-      : salesTable(filtered, { isAdmin, sortKey, sortDir,
-          // Pending Backend Lock surfaces the second-pass review controls
-          // (Audit 2 + Lock dropdown) plus any enriched columns from an
-          // uploaded backend report so admins can decide row-by-row.
-          showBackend: queueFilter === 'backend',
-          showReportCols: queueFilter === 'backend' && filtered.some(s => s.backend_report_uploaded_at),
-          // Tint already-decided rows so they recede behind the rows still
-          // needing a decision. Only applies on Pending Backend Lock.
-          rowStyle: queueFilter === 'backend'
-            ? (s) => lockOf(s) !== 'pending' ? { opacity: '.55', background: 'var(--bg-subtle)' } : null
-            : null,
-          onSort: (key) => {
-          if (state._salesSort.key === key) {
-            state._salesSort.dir = state._salesSort.dir === 'asc' ? 'desc' : 'asc';
-          } else {
-            // Numeric / date columns default to descending (largest/newest first);
-            // text columns default to ascending (A→Z).
-            const NUMERIC = new Set(['initial_amount', 'monthly_amount', 'revenue_amount', 'sold_date', 'commission_date', 'created_at']);
-            state._salesSort = { key, dir: NUMERIC.has(key) ? 'desc' : 'asc' };
-          }
-          mountApp();
-        } }),
+      : el('div', {},
+          // Mobile: card list (hidden on sm+). Tapping a card opens the same
+          // edit modal as clicking a desktop row, so the rep can fix details
+          // or admins can audit on a phone without horizontal-scrolling a
+          // 13-column table.
+          salesCardsMobile(filtered, { isAdmin, queueFilter }),
+          el('div', { class: 'hidden sm:block' },
+            salesTable(filtered, { isAdmin, sortKey, sortDir,
+              // Pending Backend Lock surfaces the second-pass review controls
+              // (Audit 2 + Lock dropdown) plus any enriched columns from an
+              // uploaded backend report so admins can decide row-by-row.
+              showBackend: queueFilter === 'backend',
+              showReportCols: queueFilter === 'backend' && filtered.some(s => s.backend_report_uploaded_at),
+              // Tint already-decided rows so they recede behind the rows still
+              // needing a decision. Only applies on Pending Backend Lock.
+              rowStyle: queueFilter === 'backend'
+                ? (s) => lockOf(s) !== 'pending' ? { opacity: '.55', background: 'var(--bg-subtle)' } : null
+                : null,
+              onSort: (key) => {
+                if (state._salesSort.key === key) {
+                  state._salesSort.dir = state._salesSort.dir === 'asc' ? 'desc' : 'asc';
+                } else {
+                  // Numeric / date columns default to descending (largest/newest first);
+                  // text columns default to ascending (A→Z).
+                  const NUMERIC = new Set(['initial_amount', 'monthly_amount', 'revenue_amount', 'sold_date', 'commission_date', 'created_at']);
+                  state._salesSort = { key, dir: NUMERIC.has(key) ? 'desc' : 'asc' };
+                }
+                mountApp();
+              },
+            }),
+          ),
+        ),
+  );
+}
+
+// Mobile-only card list. Mirrors salesTable for phones: each sale is a tap-
+// target that opens the same edit modal as a desktop row. Admins also get the
+// status + auditor dropdowns inline so they can audit on a phone. We keep this
+// deliberately spare — no sort headers, no filter chips, no horizontal scroll.
+function salesCardsMobile(rows, { isAdmin = false, queueFilter = 'upfront' } = {}) {
+  return el('div', { class: 'flex flex-col gap-2 sm:hidden' },
+    ...rows.map(s => {
+      const rep = state.allProfiles.find(p => p.id === s.rep_id) || state.profile;
+      const repFirst = (rep?.full_name || '').split(' ')[0];
+      const ctName = contractTypeLabelForSale(s);
+      const noteTxt = s.notes || '';
+      return el('div', {
+        class: 'card p-4 transition active:brightness-95',
+        onclick: (e) => {
+          if (e.target.closest('select, button, input, textarea, a')) return;
+          openNewSaleModal(null, s);
+        },
+      },
+        // Top row: customer + status chip
+        el('div', { class: 'flex items-start justify-between gap-3 mb-1' },
+          el('div', { class: 'min-w-0 flex-1' },
+            el('div', { class: 'font-semibold text-sm truncate', title: s.customer_name }, s.customer_name),
+            el('div', { class: 'text-[11px] text-muted- mt-0.5' },
+              [
+                s.customer_number ? '#' + s.customer_number : null,
+                fmt.dateShort(s.sold_date),
+              ].filter(Boolean).join(' · '),
+            ),
+          ),
+          statusChip(s.audit_status),
+        ),
+        // Middle row: rep (admin only) · contract · revenue
+        el('div', { class: 'flex items-center justify-between gap-3 mt-2 text-[12px]' },
+          el('div', { class: 'flex items-center gap-2 min-w-0' },
+            isAdmin && avatarNode(rep?.avatar_url, rep?.initials, 'w-5 h-5 text-[8px]'),
+            isAdmin && el('span', { class: 'text-[11px] font-medium truncate' }, repFirst),
+            el('span', { class: 'text-muted- whitespace-nowrap' }, ctName),
+          ),
+          el('span', { class: 'tabular-nums font-bold whitespace-nowrap' }, fmt.usd(s.revenue_amount)),
+        ),
+        // Optional note preview
+        noteTxt && el('div', {
+          class: 'mt-2 text-[11px] italic text-muted- line-clamp-2',
+          style: { display: '-webkit-box', WebkitLineClamp: '2', WebkitBoxOrient: 'vertical', overflow: 'hidden' },
+        }, noteTxt),
+        // Admin-only inline audit controls. On Backend Lock queue, surface the
+        // second-pass dropdowns instead so the reviewer can decide right here.
+        isAdmin && el('div', { class: 'flex items-center gap-2 mt-3 flex-wrap' },
+          queueFilter === 'backend'
+            ? [auditor2Select(s.id), lockStatusSelect(s.id)]
+            : [statusSelect(s.id), auditorSelect(s.id)],
+        ),
+      );
+    }),
   );
 }
 
@@ -5455,20 +5522,25 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
   const footerStatus= el('div', { class: 'text-base font-bold text-smoke' }, 'Pending');
   const submitBtn   = el('button', {
     type: 'submit',
-    class: 'fab',
-    style: { position: 'static', padding: '12px 24px' },
+    class: 'fab w-full sm:w-auto',
+    style: { position: 'static', padding: '14px 24px' },
   },
     el('span', {}, isEdit ? 'Save Changes' : 'Log Sale'),
   );
 
+  // Footer is horizontal on desktop (4 stats + button), but on mobile the stats
+  // collapse into a 2×2 grid above a full-width button — keeps the modal usable
+  // on a phone where reps actually log sales.
   const footer = el('div', {
-    class: 'px-6 py-4 grid grid-cols-[1fr_1fr_1.3fr_.7fr_auto] gap-4 items-center border-t border-',
+    class: 'px-4 sm:px-6 py-4 border-t border- flex flex-col sm:grid sm:grid-cols-[1fr_1fr_1.3fr_.7fr_auto] sm:items-center gap-3 sm:gap-4',
     style: { background: 'var(--header-bg)', color: 'var(--header-text)' },
   },
-    footerBlock('REP', footerRep),
-    footerBlock('ACV', footerAcv),
-    footerBlock('PROJECTED COMMISSION', footerComm),
-    footerBlock('STATUS', footerStatus),
+    el('div', { class: 'grid grid-cols-2 gap-3 sm:contents' },
+      footerBlock('REP', footerRep),
+      footerBlock('ACV', footerAcv),
+      footerBlock('PROJECTED COMMISSION', footerComm),
+      footerBlock('STATUS', footerStatus),
+    ),
     submitBtn,
   );
 
