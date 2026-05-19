@@ -802,3 +802,33 @@ select
 from rep_stats;
 
 grant select on public.leaderboard to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- Indicator config — admin-managed teams, tiers, and rep overrides for
+-- the Indicators tab. Lives on the server (not localStorage) so any admin
+-- on any device sees the same setup. Single-row table; the whole config
+-- loads/saves as one row. Mirrors the in-memory shape of state._indicator*
+-- 1:1 so the app code maps it without marshaling. JSONB lets logo data
+-- URLs live alongside the rest of the config.
+-- ─────────────────────────────────────────────────────────────────────────
+create table if not exists public.indicator_config (
+  id            int primary key default 1,
+  teams         jsonb default '[]'::jsonb,   -- ['Team A','Team B']
+  team_colors   jsonb default '{}'::jsonb,   -- { 'Team A': '#FF0000' }
+  team_logos    jsonb default '{}'::jsonb,   -- { 'Team A': 'data:image/...' }
+  team_excluded jsonb default '[]'::jsonb,   -- ['Team A'] excluded from rep-level metrics
+  rep_teams     jsonb default '{}'::jsonb,   -- { 'Sam Hunter': 'Team A' }
+  rep_tiers     jsonb default '{}'::jsonb,   -- { 'Sam Hunter': 'Setter' }
+  rep_active    jsonb default '{}'::jsonb,   -- { 'Sam Hunter': false } only stores explicit false overrides
+  updated_at    timestamptz default now(),
+  updated_by    uuid references auth.users(id),
+  constraint indicator_config_single_row check (id = 1)
+);
+insert into public.indicator_config (id) values (1) on conflict (id) do nothing;
+
+alter table public.indicator_config enable row level security;
+create policy "indicator_config: read all" on public.indicator_config
+  for select using (true);
+create policy "indicator_config: admin write" on public.indicator_config
+  for all using (public.is_admin()) with check (public.is_admin());
+grant select on public.indicator_config to authenticated;

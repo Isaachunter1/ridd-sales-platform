@@ -515,6 +515,11 @@ function saveIndicatorState() {
     console.warn('[ridd] failed to save indicator settings', err);
     if (typeof toast === 'function') toast('Could not save team/rep settings — localStorage may be full', 'error');
   }
+  // Settings also mirror up to Supabase (production only) so any admin on
+  // any device sees the same teams/tiers/rep overrides. Fire-and-forget —
+  // localStorage already has the fresh value, so the UI doesn't wait on
+  // the round-trip and a network failure doesn't roll back the local save.
+  saveIndicatorConfigToSupabase().catch(err => console.warn('[ridd] indicator config sync failed', err));
   try {
     const data = { savedAt: new Date().toISOString() };
     for (const k of INDICATOR_DATA_FIELDS) data[k] = state[k];
@@ -546,6 +551,82 @@ function loadIndicatorState() {
   apply(localStorage.getItem(INDICATORS_STORAGE_KEY));        // legacy combined
   apply(localStorage.getItem(INDICATORS_DATA_STORAGE_KEY));   // bulk (overrides legacy data fields)
   apply(localStorage.getItem(INDICATORS_SETTINGS_STORAGE_KEY)); // settings (overrides legacy settings fields)
+}
+
+// ── Supabase-backed indicator config (teams, tiers, rep overrides) ──────
+// localStorage worked but was per-browser, per-device — admins re-doing the
+// setup every refresh / new machine / cleared cache. This pair pushes the
+// same fields up to public.indicator_config (single row, RLS: admin write)
+// so any admin on any device sees the same teams.
+// Demo mode keeps the localStorage path only — no Supabase round-trip,
+// no auth state to lean on.
+async function loadIndicatorConfigFromSupabase() {
+  if (DEMO || !state.profile) return;
+  try {
+    const { data, error } = await supabase
+      .from('indicator_config').select('*').eq('id', 1).maybeSingle();
+    if (error) { console.warn('[ridd] indicator_config select failed', error); return; }
+    // Server is the source of truth in production. Empty arrays / objects
+    // from the server intentionally overwrite local values so a "reset"
+    // from another admin shows up here too.
+    const hasServerData = data && (
+      (Array.isArray(data.teams) && data.teams.length > 0) ||
+      Object.keys(data.rep_teams || {}).length > 0 ||
+      Object.keys(data.rep_tiers || {}).length > 0
+    );
+    if (hasServerData) {
+      state._indicatorTeams         = Array.isArray(data.teams) ? data.teams : (state._indicatorTeams || []);
+      state._indicatorTeamColors    = data.team_colors   && typeof data.team_colors   === 'object' ? data.team_colors   : (state._indicatorTeamColors || {});
+      state._indicatorTeamLogos     = data.team_logos    && typeof data.team_logos    === 'object' ? data.team_logos    : (state._indicatorTeamLogos || {});
+      state._indicatorExcludedTeams = Array.isArray(data.team_excluded) ? data.team_excluded : (state._indicatorExcludedTeams || []);
+      state._indicatorRepTeam       = data.rep_teams     && typeof data.rep_teams     === 'object' ? data.rep_teams     : (state._indicatorRepTeam || {});
+      state._indicatorRepTier       = data.rep_tiers     && typeof data.rep_tiers     === 'object' ? data.rep_tiers     : (state._indicatorRepTier || {});
+      state._indicatorRepActive     = data.rep_active    && typeof data.rep_active    === 'object' ? data.rep_active    : (state._indicatorRepActive || {});
+      return;
+    }
+    // Server row is empty (fresh install). If THIS browser has team data
+    // in localStorage, mirror it up — one-time migration so the user
+    // doesn't lose what they already configured locally.
+    const localHasData =
+      (state._indicatorTeams || []).length > 0 ||
+      Object.keys(state._indicatorRepTeam || {}).length > 0 ||
+      Object.keys(state._indicatorRepTier || {}).length > 0;
+    if (localHasData && isAdminRole(state.profile.role)) {
+      console.info('[ridd] migrating indicator config from localStorage → Supabase');
+      await saveIndicatorConfigToSupabase();
+    }
+  } catch (err) {
+    console.warn('[ridd] indicator config load threw', err);
+  }
+}
+
+// Push the in-memory state up to Supabase. Always also writes localStorage
+// (via the caller — saveIndicatorState — so localStorage stays a fast
+// local cache). Fire-and-forget pattern means UI never blocks waiting on
+// the network; failures surface as a toast and a console warning.
+async function saveIndicatorConfigToSupabase() {
+  if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
+  const payload = {
+    id: 1,
+    teams:         state._indicatorTeams || [],
+    team_colors:   state._indicatorTeamColors || {},
+    team_logos:    state._indicatorTeamLogos || {},
+    team_excluded: state._indicatorExcludedTeams || [],
+    rep_teams:     state._indicatorRepTeam || {},
+    rep_tiers:     state._indicatorRepTier || {},
+    rep_active:    state._indicatorRepActive || {},
+    updated_at:    new Date().toISOString(),
+    updated_by:    state.profile?.id || null,
+  };
+  try {
+    const { error } = await supabase.from('indicator_config').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.warn('[ridd] indicator_config upsert failed', error);
+      if (typeof toast === 'function') toast('Saved locally — server sync failed (' + (error.message || 'unknown') + ')', 'error');
+    }
+  } catch (err) {
+    console.warn('[ridd] indicator_config save threw', err);
+  }
 }
 
 function loadPersistedDemoState() {
@@ -1368,6 +1449,11 @@ async function loadData() {
     supabase.from('leaderboard').select('*'),
     profilesQuery,
   ]);
+  // Indicator teams/tiers live on the server now (public.indicator_config).
+  // Pulled outside the Promise.all so it isn't gated by the first-load
+  // critical path — it can finish on its own. localStorage already
+  // populated state at boot, so the UI is never blank waiting on this.
+  loadIndicatorConfigFromSupabase().catch(err => console.warn('[ridd] indicator config load skipped', err));
 
   state.mySales      = mySales.data || [];
   state.allSales     = isAdmin ? (mySales.data || []) : [];
