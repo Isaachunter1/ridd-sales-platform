@@ -73,6 +73,9 @@ create table public.sources (
   id bigserial primary key,
   name text not null unique,
   is_renewal boolean not null default false,
+  -- Admins can hide a source from the new-sale dropdown without deleting
+  -- it, so historical sales referencing it keep rendering the name.
+  is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
 
