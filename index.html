@@ -459,6 +459,29 @@ function authEmailRedirectUrl() {
   return here;
 }
 
+// Bridge to the admin-set-password Netlify Function. Updating ANOTHER
+// user's password requires the Supabase service-role key, which can't
+// safely live in the browser — so the function holds it and verifies
+// the caller's session JWT belongs to an admin before doing anything.
+// Throws on any non-2xx so the call-site's try/catch surfaces the
+// error as a toast.
+async function callAdminSetPassword(payload) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const jwt = session?.access_token;
+  if (!jwt) throw new Error('Not signed in — cannot set a password');
+  const res = await fetch('/api/admin-set-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization:  'Bearer ' + jwt,
+    },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || ('admin-set-password returned ' + res.status));
+  return body;
+}
+
 // Role helpers — keep "has admin powers" and "is a seller" consistent across
 // the codebase. `admin_rep` is an admin who also sells (on leaderboard, has a
 // Pay tab); `admin` is admin-only (not on leaderboard, no sales).
@@ -1217,25 +1240,47 @@ async function boot() {
     mountConfigMissing();
     return;
   }
-  const { data: { session } } = await supabase.auth.getSession();
-  state.session = session;
+  // Capture the URL synchronously BEFORE `supabase.auth.getSession()`
+  // gets a chance to consume the fragment. The SDK strips recovery
+  // tokens out of `location.hash` once it processes them, so any later
+  // check would miss it.
+  //
+  //   Legacy implicit flow: `#access_token=...&type=recovery&...`
+  //   Modern PKCE flow:     `?code=...` (no `type=recovery` hint in URL —
+  //                         we rely on the PASSWORD_RECOVERY auth event
+  //                         registered below to catch this case)
+  const recoveryFromUrl = (location.hash || '').includes('type=recovery');
 
-  // If the user landed here from a password-reset email, the URL fragment
-  // carries `type=recovery` — show the "set new password" screen instead of
-  // dropping them into the app.
-  const recoveryNow = location.hash.includes('type=recovery');
+  // Track whether we've shown the recovery form so a follow-up
+  // SIGNED_IN event (Supabase fires both during PKCE recovery) doesn't
+  // bounce the user out of the password-update screen back into the app.
+  let recoveryShown = false;
+  const showRecovery = () => {
+    if (recoveryShown) return;
+    recoveryShown = true;
+    mountAuth({ mode: 'recover' });
+  };
 
+  // Listener is registered BEFORE `getSession()` so PASSWORD_RECOVERY
+  // events that fire during the SDK's initial URL-detection are caught.
+  // Previous version registered after the await and missed the event
+  // entirely — that's why reset links just dropped users into the app.
   supabase.auth.onAuthStateChange((event, session) => {
     state.session = session;
-    if (event === 'PASSWORD_RECOVERY') { mountAuth({ mode: 'recover' }); return; }
+    if (event === 'PASSWORD_RECOVERY') { showRecovery(); return; }
+    if (recoveryShown) return; // stay on the recovery form
     if (session) loadAndRender();
     else mountAuth();
   });
 
-  if (recoveryNow) {
-    mountAuth({ mode: 'recover' });
+  if (recoveryFromUrl) {
+    showRecovery();
     return;
   }
+
+  const { data: { session } } = await supabase.auth.getSession();
+  state.session = session;
+  if (recoveryShown) return;
   if (!session) {
     mountAuth();
     return;
@@ -1969,9 +2014,12 @@ function mobileBottomNav() {
         ...[
           // Surface whichever of (Competitions, Calendar) isn't already in slot 4.
           ...(isAdmin ? [['competitions','Competitions',iconTrophy]] : [['calendar', 'Calendar', iconCalendar]]),
+          // Scorecards sits right after Calendar in the desktop nav;
+          // this popover mirrors that ordering so the two surfaces feel
+          // identical.
+          ...(isAdmin ? [['scorecards','Scorecards',iconClipboard]] : []),
           ['hall_of_fame','Hall of Fame',iconCrown],
           ...(isAdmin ? [['indicators','Indicators',iconChart]] : []),
-          ...(isAdmin ? [['scorecards','Scorecards',iconClipboard]] : []),
           ...(isAdmin ? [['admin','Settings',iconGear]] : [])
         ].map(([k,label,iconFn]) => el('button', {
           class: 'flex items-center gap-3 w-full px-4 py-2.5 text-sm',
@@ -2042,9 +2090,10 @@ function mountApp() {
     ['sales',        'Sales',        iconSales()],
     ['pay',          'Pay',          iconPay()],
     ['calendar',     'Calendar',     iconCalendar()],
+    ...(isAdmin ? [['scorecards',    'Scorecards',    iconClipboard()]] : []),
     ['competitions', 'Competitions', iconTrophy()],
     ['hall_of_fame', 'Hall of Fame', iconCrown()],
-    ...(isAdmin ? [['indicators',   'Indicators',   iconChart()]] : []),
+    ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
   ];
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
@@ -21180,6 +21229,15 @@ function openUserEditor(existing = null) {
         other_pay_amount:       existing?.other_pay_amount ?? 0,
       };
 
+      // Password field is admin-set: leave blank to keep existing /
+      // skip during invite. Treat short strings as a typo rather than a
+      // valid password so we don't silently set "abc" as someone's pw.
+      const newPassword = (data.password || '').trim();
+      if (newPassword && newPassword.length < 8) {
+        toast('Password must be at least 8 characters (leave blank to skip).', 'error');
+        return;
+      }
+
       if (DEMO) {
         if (existing) {
           Object.assign(existing, payload);
@@ -21188,7 +21246,11 @@ function openUserEditor(existing = null) {
           const newId = 'demo-' + (state.allProfiles.length + 1);
           state.allProfiles.push({ id: newId, ...payload });
         }
-        toast('Saved', 'success');
+        if (newPassword) {
+          toast('Saved · password "' + newPassword + '" would be set in production', 'info');
+        } else {
+          toast('Saved', 'success');
+        }
         saveDemoData();
         overlay.remove();
         mountApp();
@@ -21199,7 +21261,34 @@ function openUserEditor(existing = null) {
         if (existing) {
           const { error } = await supabase.from('profiles').update(payload).eq('id', existing.id);
           if (error) throw error;
+          // Apply the password via the admin function if one was typed.
+          // Profile fields persisted above; this just sets auth.users.password.
+          if (newPassword) {
+            await callAdminSetPassword({ mode: 'update', user_id: existing.id, password: newPassword });
+            toast('Saved · password updated', 'success');
+          } else {
+            toast('Saved', 'success');
+          }
+        } else if (newPassword) {
+          // Admin set a password on a NEW user — skip the magic-link
+          // flow entirely and create the auth user with the password
+          // directly. handle_new_user() picks up the pending_invites
+          // row via the function, so the profiles row appears the same
+          // way it would after a magic-link signup.
+          await callAdminSetPassword({
+            mode:                'create',
+            email:               payload.email,
+            password:            newPassword,
+            full_name:           payload.full_name,
+            role:                payload.role,
+            office_id:           payload.office_id ?? null,
+            initials:            payload.initials ?? null,
+            avatar_url:          payload.avatar_url ?? null,
+            annual_revenue_goal: payload.annual_revenue_goal ?? null,
+          });
+          toast('Created · ' + payload.email + ' can sign in with that password', 'success');
         } else {
+          // Standard magic-link invite (no password set).
           // pending_invites only stores the columns handle_new_user() copies.
           // commission rate, close rate target, is_active, slack_user_id all
           // live on profiles and the admin can edit them after the rep
@@ -21354,9 +21443,17 @@ function openUserEditor(existing = null) {
     el('label', { class: 'block text-sm' },
       el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- block mb-1.5 font-semibold' },
         'Password ',
-        el('span', { class: 'normal-case text-muted- font-normal tracking-normal text-[10px]' }, '— leave blank to keep existing'),
+        el('span', { class: 'normal-case text-muted- font-normal tracking-normal text-[10px]' },
+          existing
+            ? '— type a new one to overwrite, or leave blank to keep current'
+            : '— optional; if set, the rep can sign in immediately with email + password'),
       ),
-      inp('password', { type: 'password', placeholder: 'Leave blank to keep current', autocomplete: 'new-password' }),
+      inp('password', {
+        type: 'password',
+        placeholder: existing ? 'Leave blank to keep current' : 'Set an initial password (≥ 8 chars)',
+        autocomplete: 'new-password',
+        minlength: '8',
+      }),
     ),
     (() => {
       const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-3 py-2 text-sm' },
@@ -21502,10 +21599,111 @@ function openUserEditor(existing = null) {
     },
   }, 'Remove User') : null;
 
+  // ── Send Password Reset — fires Supabase's recovery-email flow.
+  // Different from Resend Invite: that gets a passwordless sign-in link
+  // (good for first login); this lands the rep on a page where they
+  // pick a new password themselves. Useful for "I forgot mine and the
+  // Forgot Password link on the sign-in screen isn't working for me."
+  const resetBtn = existing ? el('button', {
+    type: 'button',
+    class: 'px-4 py-2 rounded-lg text-xs font-semibold border transition hover:brightness-95',
+    style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+    onclick: async (e) => {
+      const btn = e.currentTarget;
+      if (!existing.email) {
+        toast('No email on file for this user.', 'error');
+        return;
+      }
+      if (!confirm('Email ' + existing.email + ' a password-reset link?')) return;
+      if (DEMO) {
+        toast('Demo mode — would email a password reset link to ' + existing.email, 'info');
+        return;
+      }
+      btn.disabled = true;
+      const original = btn.textContent;
+      btn.textContent = 'Sending…';
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(existing.email, {
+          redirectTo: authEmailRedirectUrl(),
+        });
+        if (error) throw error;
+        toast('Reset link sent to ' + existing.email, 'success');
+      } catch (err) {
+        toast(err.message || 'Could not send reset link', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    },
+  }, '🔑 Send Reset Link') : null;
+
+  // ── Resend Invite — generates a fresh magic-link email for an
+  // existing user. Useful when the original invite expired, the
+  // first email went to spam, or the link's `redirect_to` was baked
+  // against an old Supabase Site URL config and now lands on a dead
+  // host. shouldCreateUser is true so the same call works whether the
+  // user already has an auth row or only a pending_invites row. Demo
+  // mode shows the button (so the admin can see + test the placement)
+  // but short-circuits to a toast instead of a real Supabase call.
+  const resendBtn = existing ? el('button', {
+    type: 'button',
+    class: 'px-4 py-2 rounded-lg text-xs font-semibold border transition hover:brightness-95',
+    style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
+    onclick: async (e) => {
+      const btn = e.currentTarget;
+      if (!existing.email) {
+        toast('No email on file for this user.', 'error');
+        return;
+      }
+      if (!confirm('Send a new sign-in email to ' + existing.email + '?')) return;
+      if (DEMO) {
+        toast('Demo mode — would resend invite to ' + existing.email + ' in production', 'info');
+        return;
+      }
+      btn.disabled = true;
+      const originalText = btn.textContent;
+      btn.textContent = 'Sending…';
+      try {
+        // Refresh the pending_invites row so handle_new_user() has
+        // up-to-date columns to copy if this is still a first-time
+        // signup. Safe no-op if the user already exists in profiles.
+        await supabase.from('pending_invites').upsert({
+          email:               existing.email,
+          full_name:           existing.full_name,
+          role:                existing.role,
+          office_id:           existing.office_id ?? null,
+          initials:            existing.initials ?? null,
+          avatar_url:          existing.avatar_url ?? null,
+          annual_revenue_goal: existing.annual_revenue_goal ?? null,
+          created_by:          state.profile.id,
+        }, { onConflict: 'email' });
+        const { error: otpErr } = await supabase.auth.signInWithOtp({
+          email: existing.email,
+          options: {
+            shouldCreateUser: true,
+            emailRedirectTo: authEmailRedirectUrl(),
+            data: { full_name: existing.full_name },
+          },
+        });
+        if (otpErr) throw otpErr;
+        toast('Invite re-sent to ' + existing.email, 'success');
+      } catch (err) {
+        // Supabase rate-limits OTPs per email — surface the message
+        // verbatim so the admin sees "Email rate limit exceeded" etc.
+        toast(err.message || 'Could not resend invite', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    },
+  }, '↻ Resend Invite') : null;
+
   const footer = el('div', { class: 'px-6 py-4 border-t flex items-center justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
-    el('div', { class: 'flex gap-2' },
+    el('div', { class: 'flex gap-2 flex-wrap' },
       el('button', { type: 'submit', class: 'px-5 py-2 rounded-lg font-semibold text-sm', style: { background: '#1D1D1D', color: '#F3F3F3' } }, 'Save'),
       el('button', { type: 'button', class: 'px-5 py-2 rounded-lg font-semibold text-sm border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => overlay.remove() }, 'Cancel'),
+      resendBtn,
+      resetBtn,
     ),
     el('div', { class: 'flex items-center gap-3' },
       activeToggle,

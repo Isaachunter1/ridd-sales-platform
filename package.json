@@ -1,0 +1,11 @@
+{
+  "name": "ridd-sales-platform",
+  "private": true,
+  "description": "RIDD Sales Platform — static site + Netlify Functions for admin-only privileged calls (Slack DM relay, admin password set).",
+  "scripts": {
+    "//build": "Netlify just serves index.html — no build step needed."
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  }
+}

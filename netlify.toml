@@ -25,6 +25,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/admin-set-password"
+  to   = "/.netlify/functions/admin-set-password"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
