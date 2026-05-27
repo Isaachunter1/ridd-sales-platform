@@ -1,6 +1,18 @@
 [build]
   publish = "."
 
+[build.environment]
+  # Netlify's deploy-artifact secret scanner matches env var VALUES
+  # against built files and fails the deploy if it finds one. Two of
+  # our Supabase env vars (URL + anon publishable key) are *designed*
+  # to be public — they ship in window.RIDD_CONFIG and run in every
+  # rep's browser, with row-level security on the database side as
+  # the actual access control. Whitelist them so the scanner stops
+  # flagging legitimate public values, but leave SUPABASE_SERVICE_ROLE_KEY
+  # off this list so the scanner still catches it if it ever leaks into
+  # a built file (it should only live in the Netlify Functions runtime).
+  SECRETS_SCAN_OMIT_KEYS = "SUPABASE_URL,SUPABASE_ANON_KEY"
+
 [[headers]]
   for = "/*"
   [headers.values]
