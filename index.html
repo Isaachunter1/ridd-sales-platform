@@ -1636,14 +1636,24 @@ async function loadLookups() {
 
 async function loadData() {
   const isAdmin = isAdminRole(state.profile.role);
+  // Always fetch every sales row visible to the current user. RLS
+  // decides what's returned: admins get everything; reps get whatever
+  // the `sales` SELECT policy allows. The Dashboard wants the full
+  // company picture for every role (reps included), so the rep-only
+  // .eq('rep_id', …) filter was removed — `state.mySales` is now
+  // derived from `state.allSales` client-side instead of a second
+  // round-trip. If your Supabase RLS only lets reps see their own
+  // rows, the Dashboard will quietly show just their own data; loosen
+  // the SELECT policy on `sales` to let authenticated users read all
+  // rows if you want the full company view.
   const salesQuery = supabase.from('sales').select('*').order('sold_date', { ascending: false });
   // Admins see every rep on the Users tab and need names + avatars across the
   // sales/queue tables. Reps can only read their own profile per RLS, so for
   // them this select returns just one row — same as state.profile.
   const profilesQuery = supabase.from('profiles').select('*').order('full_name');
 
-  const [mySales, comps, rules, progress, leaderboard, profiles] = await Promise.all([
-    isAdmin ? salesQuery : supabase.from('sales').select('*').eq('rep_id', state.profile.id).order('sold_date', { ascending: false }),
+  const [salesRes, comps, rules, progress, leaderboard, profiles] = await Promise.all([
+    salesQuery,
     supabase.from('competitions').select('*').order('start_date', { ascending: false }),
     supabase.from('competition_rules').select('*'),
     supabase.from('competition_progress').select('*'),
@@ -1661,8 +1671,11 @@ async function loadData() {
   // populated state.companyLogo for instant first render.
   loadCompanyLogo().catch(err => console.warn('[ridd] company logo load skipped', err));
 
-  state.mySales      = mySales.data || [];
-  state.allSales     = isAdmin ? (mySales.data || []) : [];
+  state.allSales     = salesRes.data || [];
+  // Derive mySales client-side from the company-wide set so reps only
+  // see their own rows on the Sales tab + Pay tab, while the Dashboard
+  // still has access to allSales for the company view.
+  state.mySales      = state.allSales.filter(s => s.rep_id === state.profile.id);
   state.competitions = comps.data || [];
   state.compRules    = rules.data || [];
   state.compProgress = progress.data || [];
@@ -2014,10 +2027,11 @@ function mobileBottomNav() {
         ...[
           // Surface whichever of (Competitions, Calendar) isn't already in slot 4.
           ...(isAdmin ? [['competitions','Competitions',iconTrophy]] : [['calendar', 'Calendar', iconCalendar]]),
-          // Scorecards sits right after Calendar in the desktop nav;
-          // this popover mirrors that ordering so the two surfaces feel
-          // identical.
-          ...(isAdmin ? [['scorecards','Scorecards',iconClipboard]] : []),
+          // Scorecards is visible to every user — admins see the
+          // full roster, reps see only their own card (viewScorecards
+          // handles the scoping). Indicators stays admin-only since
+          // it's leadership-only data.
+          ['scorecards','Scorecards',iconClipboard],
           ['hall_of_fame','Hall of Fame',iconCrown],
           ...(isAdmin ? [['indicators','Indicators',iconChart]] : []),
           ...(isAdmin ? [['admin','Settings',iconGear]] : [])
@@ -2090,7 +2104,7 @@ function mountApp() {
     ['sales',        'Sales',        iconSales()],
     ['pay',          'Pay',          iconPay()],
     ['calendar',     'Calendar',     iconCalendar()],
-    ...(isAdmin ? [['scorecards',    'Scorecards',    iconClipboard()]] : []),
+    ['scorecards',   'Scorecards',   iconClipboard()],
     ['competitions', 'Competitions', iconTrophy()],
     ['hall_of_fame', 'Hall of Fame', iconCrown()],
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
@@ -2305,8 +2319,14 @@ function mountApp() {
 function viewDashboard() {
   const isAdmin = isAdminRole(state.profile.role);
   const range = getDateRange(state.dashDateRange);
-  // Scope: admin sees all reps, rep sees own
-  const salesScope = isAdmin ? state.allSales : state.mySales;
+  // Scope: company-wide for everyone. Dashboard is a leaderboard /
+  // "what's the room doing" view, not a personal scoreboard — reps
+  // see the full set the same way admins do. (Sales tab + Pay tab
+  // still scope to state.mySales so reps can't see other reps' deal
+  // detail.) Requires Supabase RLS on `sales` to permit SELECT for
+  // all authenticated users; if it doesn't, this falls back gracefully
+  // to whatever rows the rep CAN read.
+  const salesScope = state.allSales;
   const windowSales = salesScope.filter(s => {
     const d = new Date(s.sold_date + 'T00:00');
     return d >= range.start && d <= range.end;
@@ -18268,10 +18288,15 @@ function viewScorecards() {
   // sign into the app get scored, since the scorecard is a manager's
   // monthly review of THIS user. Anyone you don't want to see should be
   // flipped to inactive in the user editor.
-  const profiles = (state.allProfiles || []).filter(p => p && p.is_active !== false);
-  const roster = profiles
-    .slice()
-    .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+  //
+  // Reps only see their OWN card — same data, same modal, just scoped
+  // to one row. They can read scores their manager has set and the
+  // coaching notes, but the template editor is admin-only (gated below).
+  const isAdmin = isAdminRole(state.profile?.role);
+  const allProfiles = (state.allProfiles || []).filter(p => p && p.is_active !== false);
+  const roster = isAdmin
+    ? allProfiles.slice().sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+    : allProfiles.filter(p => p.id === state.profile?.id);
 
   // ── Header strip ──────────────────────────────────────────────────
   const container = el('div', { class: 'flex flex-col gap-4' });
@@ -18292,7 +18317,11 @@ function viewScorecards() {
       },
         ...periodOpts.map(p => el('option', { value: p.key, selected: p.key === period }, p.label)),
       ),
-      el('button', {
+      // Template editor — admin-only. The template defines the
+      // metrics + weights + attendance penalties every scorecard uses,
+      // so reps shouldn't be able to retune the formula their own
+      // manager scores them on.
+      isAdmin && el('button', {
         class: 'rounded-lg px-3 py-1.5 text-xs font-bold border transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Edit template metrics, weights, and attendance penalties',
