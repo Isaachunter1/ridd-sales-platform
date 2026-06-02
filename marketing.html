@@ -77,10 +77,7 @@ thead th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(
   </div>
   <div id="liveErr"></div>
 
-  <div class="section">Key metrics <span id="spendSrc" class="dash" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
-  <div class="cards" id="kpis"></div>
-
-  <div class="section">Three legs of the business — by source <a id="mapToggle">⚙ Map sources</a></div>
+  <div class="section">Three legs of the business — by source <span id="spendSrc" class="dash" style="font-weight:400;text-transform:none;letter-spacing:0"></span> <a id="mapToggle">⚙ Map sources</a></div>
   <div id="mapPanel"></div>
   <div style="overflow-x:auto"><table id="legtable"><thead><tr><th>Leg / Source</th><th>Acct&nbsp;Sold</th><th>Acct&nbsp;Serviced</th><th>Rev&nbsp;Sold</th><th>Rev&nbsp;Serviced</th><th>Weighted&nbsp;ACV</th><th>SUB&nbsp;ACV</th><th>Spend</th><th>CAC</th><th>ROAS</th></tr></thead><tbody></tbody></table></div>
   <div class="flag" id="googleFlag"></div>
@@ -194,27 +191,7 @@ function render(per,spend){
   const qb=qbSpendRange(curFrom,curTo);
   const adSpend=spend.meta+spend.goog;
   let paidSold=0; MAP.forEach(s=>{ if(s.paid) paidSold+=per[s.name].n; });
-  // KPIs
-  const isRev=IS.arv;
-  const UP=legAgg['Upsells']||{arv:0,n:0}, REN=legAgg['Renewals']||{arv:0,n:0};
-  const cac= paidSold? qb/paidSold : NaN;
-  const roas= qb? isRev/qb : NaN;
-  const wacv= IS.n? IS.cv/IS.n : NaN;
-  const cpj= IS.n? qb/IS.n : NaN;
-  const K=[
-    ['Total Spend',fmt0(qb),'All marketing expense from QuickBooks (real money out) in range. Meta+Google portion (Windsor): '+fmt0(adSpend),'QuickBooks marketing'],
-    ['Inside Sales Revenue',fmt0(isRev),'Rev Sold (annual recurring value) of Inside Sales accounts sold in range. Inside Sales leg only — EXCLUDES Renewals and Upsells, which are their own cards.',fmtN(IS.n)+' IS accounts sold'],
-    ['Upsell Revenue',fmt0(UP.arv),'Rev Sold — annual recurring value of Upsell accounts sold in range',fmtN(UP.n)+' upsells sold'],
-    ['Renewal Revenue',fmt0(REN.arv),'Rev Sold — annual recurring value of Renewal accounts in range',fmtN(REN.n)+' renewals'],
-    ['CAC',fmt0(cac),'QuickBooks marketing spend ÷ paid-attributed accounts sold',fmtN(paidSold)+' paid-attributed sold'],
-    ['ROAS',fmtX(roas),'Inside Sales Rev Sold ÷ QuickBooks marketing spend (first-year)','1yr revenue basis'],
-    ['Weighted ACV',fmt0(wacv),'Total contract value ÷ accounts sold (Inside Sales)','per account sold'],
-    ['Cost / Job',fmt0(cpj),'Marketing spend ÷ Inside Sales accounts sold in range',fmtN(IS.n)+' jobs sold']
-  ];
-  document.getElementById('kpis').innerHTML=K.map(k=>`
-    <div class="card"><div class="lab">${k[0]}<span class="q" title="${k[2]}">?</span></div>
-    <div class="val">${k[1]}</div><div class="sub2">${k[3]}</div></div>`).join('');
-
+  // (KPI cards removed — the tables below carry these metrics per leg/source/market)
   // leg table with source drill-down — Acct Sold | Acct Serviced | Rev Sold | Rev Serviced | Weighted ACV | SUB ACV | Spend | CAC | ROAS
   const cell=v=>v==null?'<td><span class="dash">—</span></td>':'<td>'+v+'</td>';
   const tb=document.querySelector('#legtable tbody'); let html='';
