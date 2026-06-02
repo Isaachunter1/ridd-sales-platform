@@ -290,17 +290,23 @@ async function fetchLeads(){
 }
 function renderConversion(per){
   if(!GHLLEADS) return;
-  const leads={};
+  // Reconcile GHL sources to FieldRoutes source names; only compare channels both systems track.
+  const FOLD={'Organic Search':'Website','Direct':'Website'};
+  const MATCHED=new Set(['Facebook','Google Ads','Google Local Services','Angi','Pest Net','DoLead','Baton','Service Direct','Click-To-Buy','Website','Referral','Yelp','eLocal','Sellify','6 Brothers']);
+  const leads={}; let otherLeads=0;
   for(const ym in GHLLEADS.byMonth){ const p=ym.split('-').map(Number);
     const start=ym+'-01', end=ym+'-'+String(new Date(p[0],p[1],0).getDate()).padStart(2,'0');
-    if(start<=curTo && end>=curFrom){ const m=GHLLEADS.byMonth[ym]; for(const c in m) leads[c]=(leads[c]||0)+m[c]; } }
-  const sold={}; MAP.forEach(s=>{ if(s.leg==='Inside Sales') sold[s.name]=(sold[s.name]||0)+per[s.name].n; });
+    if(start<=curTo && end>=curFrom){ const m=GHLLEADS.byMonth[ym];
+      for(const c in m){ const k=FOLD[c]||c; if(MATCHED.has(k)) leads[k]=(leads[k]||0)+m[c]; else otherLeads+=m[c]; } } }
+  const sold={}; MAP.forEach(s=>{ if(s.leg==='Inside Sales' && MATCHED.has(s.name)) sold[s.name]=(sold[s.name]||0)+per[s.name].n; });
   const chans=[...new Set([...Object.keys(leads),...Object.keys(sold)])].sort((a,b)=>(leads[b]||0)-(leads[a]||0));
   let html='';
   chans.forEach(c=>{ const l=leads[c]||0, sd=sold[c]||0; const cv=l?(sd/l*100):null;
-    html+=`<tr><td>${c}</td><td>${fmtN(l)}</td><td>${fmtN(sd)}</td><td>${l?cv.toFixed(0)+'%':'<span class=dash>—</span>'}</td></tr>`; });
+    const flag=(cv!=null&&cv>120)?' <span class="pill warn">tag mismatch</span>':'';
+    html+=`<tr><td>${c}${flag}</td><td>${fmtN(l)}</td><td>${fmtN(sd)}</td><td>${l?Math.round(cv)+'%':'<span class=dash>—</span>'}</td></tr>`; });
+  if(otherLeads>0) html+=`<tr><td>Other inbound (unmatched)</td><td>${fmtN(otherLeads)}</td><td><span class=dash>—</span></td><td><span class=dash>—</span></td></tr>`;
   document.querySelector('#convtable tbody').innerHTML=html;
-  document.getElementById('convNote').innerHTML=`Leads monthly from GoHighLevel (recent ~${GHLLEADS.total.toLocaleString()} leads${GHLLEADS.partial?', rolling window':''}). “Unknown” = leads with a broken source tag in GHL.`;
+  document.getElementById('convNote').innerHTML=`GHL leads vs FieldRoutes sold, matched per channel (recent ~${GHLLEADS.total.toLocaleString()} leads${GHLLEADS.partial?', rolling window':''}). FieldRoutes “Inside Sale” (a catch-all with no granular lead source) is excluded — its true sources live in GHL, so tightening FieldRoutes tagging sharpens these rates. “Other inbound” = phone/unknown/etc. leads with no FieldRoutes match.`;
 }
 function renderMarkets(f,t){
   const qbB=RAW.qbBranch||{}, isoM=RAW.isSoldByOfficeMonth||{}, o2b=RAW.officeToBranch||{}, order=RAW.branchOrder||[];
