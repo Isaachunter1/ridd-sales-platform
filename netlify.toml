@@ -16,7 +16,9 @@
 [[headers]]
   for = "/*"
   [headers.values]
-    X-Frame-Options = "DENY"
+    # SAMEORIGIN (not DENY) so the in-app Marketing tab can iframe /marketing.html.
+    # Still blocks cross-site framing / clickjacking from other origins.
+    X-Frame-Options = "SAMEORIGIN"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "geolocation=(), microphone=(), camera=()"
@@ -39,6 +41,16 @@
 [[redirects]]
   from = "/api/admin-set-password"
   to   = "/.netlify/functions/admin-set-password"
+  status = 200
+
+[[redirects]]
+  from = "/api/marketing-spend"
+  to   = "/.netlify/functions/marketing-spend"
+  status = 200
+
+[[redirects]]
+  from = "/api/ghl-leads"
+  to   = "/.netlify/functions/ghl-leads"
   status = 200
 
 [[redirects]]
