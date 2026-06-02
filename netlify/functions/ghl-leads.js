@@ -36,6 +36,19 @@ function ym(dateStr) {
   const d = new Date(dateStr);
   return isNaN(d) ? null : d.toISOString().slice(0, 7);
 }
+function pickSource(c) {
+  let s = c.source;
+  if (s && typeof s === 'object') s = s.name || s.value || s.source || null;
+  if (!s) {
+    const a = c.attributionSource || c.lastAttributionSource;
+    if (a && typeof a === 'object') {
+      s = a.utmSource || a.sessionSource || a.medium || a.referrer
+        || (a.gclid ? 'Google Ads' : a.fbclid ? 'Facebook' : null) || a.url || null;
+    } else if (typeof a === 'string') s = a;
+  }
+  s = (s == null ? 'Unknown' : ('' + s)).trim();
+  return s || 'Unknown';
+}
 async function fetchJSON(url, opts) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), FETCH_MS);
@@ -82,7 +95,7 @@ exports.handler = async () => {
     for (const c of contacts) {
       const added = c.dateAdded || c.dateUpdated || c.createdAt;
       if (added && new Date(added).getTime() < cutoff) { reachedCutoff = true; continue; }
-      const src = ((c.source || c.attributionSource || 'Unknown') + '').trim() || 'Unknown';
+      const src = pickSource(c);
       leadsBySource[src] = (leadsBySource[src] || 0) + 1;
       total++;
       const m = added && ym(added);
