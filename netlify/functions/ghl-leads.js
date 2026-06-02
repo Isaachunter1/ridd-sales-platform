@@ -28,16 +28,27 @@ const BASE = 'https://services.leadconnectorhq.com';
 const VERSION = '2021-07-28';
 const LOOKBACK_DAYS = 365;
 const PAGE_LIMIT = 100;
-const MAX_PAGES = 100;       // hard cap
-const DEADLINE_MS = 22000;   // stop before Netlify's 30s limit and return partial
+const MAX_PAGES = 60;        // hard cap
+const DEADLINE_MS = 18000;   // overall budget; return partial well before Netlify's 30s
+const FETCH_MS = 8000;       // hard per-request abort so one hung call can't run to 30s
 
 function ym(dateStr) {
   const d = new Date(dateStr);
   return isNaN(d) ? null : d.toISOString().slice(0, 7);
 }
+async function fetchJSON(url, opts) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), FETCH_MS);
+  try {
+    const r = await fetch(url, { ...opts, signal: ac.signal });
+    const text = await r.text();
+    let json; try { json = JSON.parse(text); } catch { json = null; }
+    return { ok: r.ok, status: r.status, json, text };
+  } finally { clearTimeout(timer); }
+}
 
-// Uses the GHL search endpoint sorted by dateAdded DESC so we walk newest->oldest
-// and can stop as soon as we pass the lookback window — avoids paging every contact.
+// Walks GHL contacts newest->oldest via the search endpoint, hard per-request and
+// overall time bounds, and always returns 200 with whatever it gathered (+ diagnostics).
 exports.handler = async () => {
   const token = process.env.GHL_PRIVATE_TOKEN;
   const locationId = process.env.GHL_LOCATION_ID;
@@ -50,47 +61,45 @@ exports.handler = async () => {
 
   const leadsBySource = {};
   const bySourceMonth = {};
-  let total = 0, pages = 0, partial = false, sampleKeys = null;
+  let total = 0, pages = 0, partial = false, sampleKeys = null, note = null;
   let searchAfter = null, reachedCutoff = false;
 
-  try {
-    for (let page = 0; page < MAX_PAGES; page++) {
-      if (Date.now() - started > DEADLINE_MS) { partial = true; break; }
-      const body = { locationId, pageLimit: PAGE_LIMIT, sort: [{ field: 'dateAdded', direction: 'desc' }] };
-      if (searchAfter) body.searchAfter = searchAfter;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    if (Date.now() - started > DEADLINE_MS) { partial = true; note = 'time budget reached'; break; }
+    const body = { locationId, pageLimit: PAGE_LIMIT, sort: [{ field: 'dateAdded', direction: 'desc' }] };
+    if (searchAfter) body.searchAfter = searchAfter;
 
-      const r = await fetch(`${BASE}/contacts/search`, { method: 'POST', headers, body: JSON.stringify(body) });
-      if (!r.ok) throw new Error(`GHL contacts/search ${r.status}: ${(await r.text()).slice(0, 180)}`);
-      const j = await r.json();
-      const contacts = j.contacts || j.data || [];
-      if (contacts.length === 0) break;
-      if (!sampleKeys) sampleKeys = Object.keys(contacts[0]); // shape probe for next iteration
-      pages++;
+    let res;
+    try { res = await fetchJSON(`${BASE}/contacts/search`, { method: 'POST', headers, body: JSON.stringify(body) }); }
+    catch (e) { partial = true; note = 'request aborted/failed: ' + String(e.name || e.message || e); break; }
+    if (!res.ok) { note = `contacts/search ${res.status}: ${(res.text || '').slice(0, 200)}`; break; }
 
-      for (const c of contacts) {
-        const added = c.dateAdded || c.dateUpdated || c.createdAt;
-        if (added && new Date(added).getTime() < cutoff) { reachedCutoff = true; continue; }
-        const src = ((c.source || c.attributionSource || 'Unknown') + '').trim() || 'Unknown';
-        leadsBySource[src] = (leadsBySource[src] || 0) + 1;
-        total++;
-        const m = added && ym(added);
-        if (m) { (bySourceMonth[m] = bySourceMonth[m] || {}); bySourceMonth[m][src] = (bySourceMonth[m][src] || 0) + 1; }
-      }
+    const contacts = (res.json && (res.json.contacts || res.json.data)) || [];
+    if (contacts.length === 0) break;
+    if (!sampleKeys) sampleKeys = Object.keys(contacts[0]); // shape probe
+    pages++;
 
-      if (reachedCutoff) break;                       // walked past lookback window
-      const last = contacts[contacts.length - 1];
-      const next = last && (last.searchAfter || j.searchAfter);
-      if (!next || (searchAfter && JSON.stringify(next) === JSON.stringify(searchAfter))) break; // no/stalled cursor
-      searchAfter = next;
-      if (contacts.length < PAGE_LIMIT) break;
+    for (const c of contacts) {
+      const added = c.dateAdded || c.dateUpdated || c.createdAt;
+      if (added && new Date(added).getTime() < cutoff) { reachedCutoff = true; continue; }
+      const src = ((c.source || c.attributionSource || 'Unknown') + '').trim() || 'Unknown';
+      leadsBySource[src] = (leadsBySource[src] || 0) + 1;
+      total++;
+      const m = added && ym(added);
+      if (m) { (bySourceMonth[m] = bySourceMonth[m] || {}); bySourceMonth[m][src] = (bySourceMonth[m][src] || 0) + 1; }
     }
 
-    return {
-      statusCode: 200,
-      headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' },
-      body: JSON.stringify({ leadsBySource, bySourceMonth, total, pages, partial, sampleKeys, pulledAt: new Date().toISOString() }),
-    };
-  } catch (err) {
-    return { statusCode: 502, body: JSON.stringify({ error: String(err.message || err), pages, total }) };
+    if (reachedCutoff) break;
+    const last = contacts[contacts.length - 1];
+    const next = last && (last.searchAfter || (res.json && res.json.searchAfter));
+    if (!next || (searchAfter && JSON.stringify(next) === JSON.stringify(searchAfter))) break;
+    searchAfter = next;
+    if (contacts.length < PAGE_LIMIT) break;
   }
+
+  return {
+    statusCode: 200,
+    headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=1800' },
+    body: JSON.stringify({ leadsBySource, bySourceMonth, total, pages, partial, note, sampleKeys, pulledAt: new Date().toISOString() }),
+  };
 };
