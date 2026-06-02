@@ -12,6 +12,10 @@
 <!-- ───────────────────────── STYLES ───────────────────────── -->
 <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<!-- Leaflet powers the Geographic tab's state choropleth map. Lazy-used
+     by the Reporting tab only; deferred so it doesn't block first paint. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<script defer src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   // RIDD palette as Tailwind tokens
   tailwind.config = {
@@ -279,9 +283,10 @@
   }
   .fab:hover { background: var(--accent-hover); transform: translateY(-1px); }
 
-  /* Modal overlay */
+  /* Modal overlay — z-index must beat Leaflet's controls (max 1000) so
+     the Reporting tab's drill modals don't get drawn under the map. */
   .modal-overlay {
-    position: fixed; inset: 0; z-index: 50;
+    position: fixed; inset: 0; z-index: 2000;
     background: rgba(0,0,0,.55);
     display: flex; align-items: flex-start; justify-content: center;
     padding: 24px; overflow-y: auto;
@@ -754,6 +759,56 @@ async function saveCompanyLogo(dataUrl) {
   } catch (err) { console.warn('[ridd] company_logo save threw', err); }
 }
 
+// ── Reporting tab loaders ────────────────────────────────────────────────
+// Two-tier load: metadata (uploads list + service config) loads on app
+// boot so the Reporting tab can render instantly. Subscription rows are
+// lazy-loaded on demand when an upload is selected — those can be tens
+// of thousands of rows and shouldn't block first paint.
+async function loadReportingMetadata() {
+  if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
+  try {
+    const [uploadsRes, configRes] = await Promise.all([
+      supabase.from('reporting_uploads').select('*').order('uploaded_at', { ascending: false }),
+      supabase.from('reporting_service_config').select('*').order('service_name'),
+    ]);
+    if (uploadsRes.error) { console.warn('[ridd] reporting_uploads load failed', uploadsRes.error); }
+    if (configRes.error)  { console.warn('[ridd] reporting_service_config load failed', configRes.error); }
+    state.reportingUploads       = uploadsRes.data || [];
+    state.reportingServiceConfig = configRes.data || [];
+    // Default the active snapshot to the most recent upload.
+    if (!state.reportingActiveUploadId && state.reportingUploads.length) {
+      state.reportingActiveUploadId = state.reportingUploads[0].id;
+    }
+  } catch (err) {
+    console.warn('[ridd] reporting metadata load threw', err);
+  }
+}
+
+async function loadReportingSubscriptions(uploadId) {
+  if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return [];
+  if (!uploadId) return [];
+  // Supabase's PostgREST caps payloads at 1000 rows by default. A full
+  // company snapshot is typically much larger, so we page through with
+  // explicit ranges until the server returns fewer than CHUNK rows.
+  const CHUNK = 1000;
+  const all = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from('reporting_subscriptions')
+      .select('*')
+      .eq('upload_id', uploadId)
+      .order('id', { ascending: true })
+      .range(from, from + CHUNK - 1);
+    if (error) { console.warn('[ridd] reporting_subscriptions page load failed', error); break; }
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < CHUNK) break;
+    from += CHUNK;
+  }
+  return all;
+}
+
 function loadPersistedDemoState() {
   try {
     const raw = localStorage.getItem(DEMO_STORAGE_KEY);
@@ -798,6 +853,12 @@ function loadPersistedDemoState() {
     // Sources are seeded by loadDemoData(); persisted edits (add/hide) win
     // over the defaults so admin changes survive a refresh.
     if (Array.isArray(parsed.sources) && parsed.sources.length) state.sources = parsed.sources;
+    // Reporting tab — restore metadata + config. Subscription rows aren't
+    // persisted (too big for localStorage), so we keep the active-upload
+    // pointer but expect a re-upload before charts have data again.
+    if (Array.isArray(parsed.reportingUploads))       state.reportingUploads       = parsed.reportingUploads;
+    if (Array.isArray(parsed.reportingServiceConfig)) state.reportingServiceConfig = parsed.reportingServiceConfig;
+    if (parsed.reportingActiveUploadId)               state.reportingActiveUploadId = parsed.reportingActiveUploadId;
   } catch (err) {
     console.warn('[ridd] failed to load demo state', err);
   }
@@ -839,6 +900,12 @@ function saveDemoData() {
     importMappings:   state.importMappings,
     importHistory:    cappedImport,
     sources:          state.sources,
+    // Reporting tab — only metadata + config persist (rows are too big
+    // for localStorage). On reload, the active snapshot's row count is
+    // restored but the rows themselves need a re-upload to appear.
+    reportingUploads:        state.reportingUploads,
+    reportingServiceConfig:  state.reportingServiceConfig,
+    reportingActiveUploadId: state.reportingActiveUploadId,
     savedAt: new Date().toISOString(),
     ...overrides,
   });
@@ -1171,6 +1238,28 @@ const state = {
   calendarView: 'week',        // 'week' | 'month'
   calendarAnchor: null,        // ISO 'YYYY-MM-DD' — first day of the currently-viewed week/month window
   calendarDepartment: 'inside_sales', // 'inside_sales' | 'loyalty' — scopes the calendar to a department
+  // Reporting tab — admin-only, populated by loadReportingMetadata()
+  reportingUploads: [],            // [{ id, uploaded_at, uploaded_by, filename, row_count, notes }]
+  reportingServiceConfig: [],      // [{ service_name, category, is_recurring, is_hidden }]
+  reportingActiveUploadId: null,   // currently-selected snapshot
+  reportingSubscriptions: [],      // rows for the active snapshot (lazy-loaded)
+  reportingSubscriptionsLoadedFor: null, // upload_id whose rows are in reportingSubscriptions
+  reportingSubTab: 'overview',     // 'overview' | 'config' | 'uploads'
+  reportingOffice: 'all',          // office_name filter for Overview ('all' = no filter)
+  reportingCompareMode: false,     // when true, Overview splits into A vs B
+  reportingCompareOffice: 'all',   // second office for compare mode
+  reportingDateRange: 'all',       // 'all' | 'ytd' | 'last_12_months' | 'last_year' | 'custom'
+  reportingDateStart: '',          // ISO yyyy-mm-dd (only used when range='custom')
+  reportingDateEnd: '',            // ISO yyyy-mm-dd (only used when range='custom')
+  reportingWaterfallMode: 'subscription', // 'subscription' | 'arv' | 'contract' | 'rep'
+  reportingGeoMetric: 'acv',       // 'acv' | 'customers' | 'attrition' — drives map + table emphasis
+  reportingZipSort: 'subs',        // sort column for the ZIP table on Geographic tab
+  reportingZipSortDir: 'desc',     // 'asc' | 'desc'
+  reportingMapLevel: 'country',    // 'country' | 'state' — drives which choropleth renders
+  reportingMapState: null,         // state code (e.g., 'UT') when drilled into a state
+  reportingHighlightedZip: null,   // ZIP code the map should zoom to + highlight (set by table-row click)
+  reportingDrillBy: 'zip',         // 'zip' | 'county' — within-state breakdown granularity
+  reportingHighlightedCounty: null,// normalized county name the map should zoom to + highlight
 };
 // Debug: expose state for console inspection (remove before prod)
 window.__RIDD = state;
@@ -1670,6 +1759,11 @@ async function loadData() {
   // and on every rep's view. Fire-and-forget — localStorage already
   // populated state.companyLogo for instant first render.
   loadCompanyLogo().catch(err => console.warn('[ridd] company logo load skipped', err));
+  // Reporting tab metadata — admin-only, fire-and-forget. The Reporting
+  // tab lazy-loads the heavy subscription rows on demand once the user
+  // actually visits the tab, so this just primes the uploads list +
+  // service config (both small).
+  loadReportingMetadata().catch(err => console.warn('[ridd] reporting metadata load skipped', err));
 
   state.allSales     = salesRes.data || [];
   // Derive mySales client-side from the company-wide set so reps only
@@ -1866,12 +1960,14 @@ const TAB_TITLES = {
   hall_of_fame: 'HALL OF FAME',
   indicators:   'INDICATORS',
   scorecards:   'SCORECARDS',
+  reporting:    'REPORTING',
+  marketing:    'MARKETING',
   admin:        'SETTINGS',
 };
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#scorecards':'scorecards', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -2108,6 +2204,8 @@ function mountApp() {
     ['competitions', 'Competitions', iconTrophy()],
     ['hall_of_fame', 'Hall of Fame', iconCrown()],
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
+    ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
+    ...(isAdmin ? [['marketing',     'Marketing',     iconChart()]]     : []),
   ];
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
@@ -2294,6 +2392,8 @@ function mountApp() {
     hall_of_fame: viewHallOfFame,
     indicators:   viewIndicators,
     scorecards:   viewScorecards,
+    reporting:    viewReporting,
+    marketing:    viewMarketing,
     admin:        viewAdmin,
   }[state.view];
   const node = view();
@@ -2302,7 +2402,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'calendar', 'scorecards']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'calendar', 'scorecards', 'reporting', 'marketing']);
   document.querySelector('.fab')?.remove();
   if (!FAB_HIDDEN_VIEWS.has(state.view)) {
     const fab = el('button', { class: 'fab', onclick: () => openNewSaleModal() },
@@ -18921,6 +19021,2669 @@ function openScorecardTemplateModal() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// VIEW: REPORTING — company-wide metrics from CSV snapshot uploads
+// ──────────────────────────────────────────────────────────────────────────
+// Admin-only. Each CSV upload is an "all-time" snapshot — uploads are
+// appended (not merged) so admins can compare metrics across snapshot
+// dates. Service-type config (is_recurring, is_hidden, category) is
+// global because the same service means the same thing across snapshots.
+//
+// Backed by three Supabase tables (see reporting_schema.sql):
+//   reporting_uploads          — snapshot metadata
+//   reporting_subscriptions    — subscription rows tied to a snapshot
+//   reporting_service_config   — global per-service config
+
+// Header-based CSV parser for the all-time subscription export. Tolerant
+// of column reordering and minor header variations (it does case-insensitive
+// exact match first, then substring match). Throws if Customer ID or
+// Subscription is missing — without those a row can't be tied to a customer
+// or grouped by service.
+function parseReportingCsv(text) {
+  function parseLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { inQuotes = !inQuotes; }
+      else if (c === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+      else { current += c; }
+    }
+    result.push(current.trim());
+    return result;
+  }
+  const lines = text.replace(/^﻿/, '').replace(/\r\n/g, '\n').trim().split('\n').filter(l => l.trim());
+  if (lines.length < 2) throw new Error('CSV has no data rows');
+
+  const headers = parseLine(lines[0]).map(h => h.toLowerCase().trim());
+  const find = (...names) => {
+    for (const n of names) {
+      const i = headers.findIndex(h => h === n.toLowerCase());
+      if (i >= 0) return i;
+    }
+    for (const n of names) {
+      const i = headers.findIndex(h => h.includes(n.toLowerCase()));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+
+  const cols = {
+    customer_id:                      find('customer id', 'cust id', 'account id'),
+    last_name:                        find('last name'),
+    first_name:                       find('first name'),
+    annual_recurring_value:           find('annual recurring value', 'arr', 'annual recurring'),
+    sold_by_id:                       find('sold by id'),
+    sold_by:                          find('sold by'),
+    sold_by_type:                     find('sold by type'),
+    subscription_completed_services:  find('subscription completed services', 'completed services'),
+    county:                           find('county'),
+    subscription:                     find('subscription'),
+    subscription_cancellation_reason: find('subscription cancellation reason', 'cancellation reason', 'cancel reason'),
+    subscription_date_canceled:       find('subscription date canceled', 'date canceled', 'cancel date'),
+    subscription_status:              find('subscription status', 'status'),
+    initial_service:                  find('initial service'),
+    subscription_source:              find('subscription source'),
+    country:                          find('country'),
+    state:                            find('state'),
+    zip_code:                         find('zip code', 'zip'),
+    days_past_due:                    find('days past due'),
+    office_name:                      find('office name', 'office'),
+    agreement_length:                 find('agreement length'),
+    subscription_contract_value:      find('subscription contract value', 'contract value'),
+    initial_price:                    find('initial price'),
+    recurring_frequency:              find('recurring frequency', 'frequency'),
+  };
+  if (cols.customer_id < 0) throw new Error('Missing required column: Customer ID');
+  if (cols.subscription < 0) throw new Error('Missing required column: Subscription');
+
+  // Accept MM/DD/YY, MM/DD/YYYY, YYYY-MM-DD. Returns ISO yyyy-mm-dd or null.
+  // 2-digit years split at 1970: 70-99 → 19xx, 00-69 → 20xx.
+  const parseDate = (s) => {
+    const v = String(s || '').trim();
+    if (!v) return null;
+    let m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+    m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (m) {
+      let y = m[3];
+      if (y.length === 2) y = (Number(y) >= 70 ? '19' : '20') + y;
+      return y + '-' + m[1].padStart(2, '0') + '-' + m[2].padStart(2, '0');
+    }
+    return null;
+  };
+  const parseNumOrNull = (s) => {
+    const v = String(s == null ? '' : s).replace(/[$%]/g, '').replace(/,/g, '').trim();
+    if (!v) return null;
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const parseIntOrNull = (s) => {
+    const n = parseNumOrNull(s);
+    return n == null ? null : Math.trunc(n);
+  };
+  const textOrNull = (s) => {
+    const v = String(s == null ? '' : s).trim();
+    return v ? v : null;
+  };
+  const pick = (row, idx) => (idx >= 0 ? row[idx] : '');
+
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const r = parseLine(lines[i]);
+    if (r.every(c => !c)) continue;
+    rows.push({
+      customer_id:                      textOrNull(pick(r, cols.customer_id)),
+      last_name:                        textOrNull(pick(r, cols.last_name)),
+      first_name:                       textOrNull(pick(r, cols.first_name)),
+      annual_recurring_value:           parseNumOrNull(pick(r, cols.annual_recurring_value)),
+      sold_by_id:                       textOrNull(pick(r, cols.sold_by_id)),
+      sold_by:                          textOrNull(pick(r, cols.sold_by)),
+      sold_by_type:                     textOrNull(pick(r, cols.sold_by_type)),
+      subscription_completed_services:  parseIntOrNull(pick(r, cols.subscription_completed_services)),
+      county:                           textOrNull(pick(r, cols.county)),
+      subscription:                     textOrNull(pick(r, cols.subscription)),
+      subscription_cancellation_reason: textOrNull(pick(r, cols.subscription_cancellation_reason)),
+      subscription_date_canceled:       parseDate(pick(r, cols.subscription_date_canceled)),
+      subscription_status:              textOrNull(pick(r, cols.subscription_status)),
+      initial_service:                  parseDate(pick(r, cols.initial_service)),
+      subscription_source:              textOrNull(pick(r, cols.subscription_source)),
+      country:                          textOrNull(pick(r, cols.country)),
+      state:                            textOrNull(pick(r, cols.state)),
+      zip_code:                         textOrNull(pick(r, cols.zip_code)),
+      days_past_due:                    parseIntOrNull(pick(r, cols.days_past_due)),
+      office_name:                      textOrNull(pick(r, cols.office_name)),
+      agreement_length:                 parseIntOrNull(pick(r, cols.agreement_length)),
+      subscription_contract_value:      parseNumOrNull(pick(r, cols.subscription_contract_value)),
+      initial_price:                    parseNumOrNull(pick(r, cols.initial_price)),
+      recurring_frequency:              textOrNull(pick(r, cols.recurring_frequency)),
+    });
+  }
+  return rows;
+}
+
+// Upload a new snapshot. Creates a reporting_uploads row, batch-inserts
+// the subscription rows tied to it, seeds any new service names into
+// reporting_service_config (defaulting to non-recurring so the admin
+// reviews them), then reloads metadata + sets the new upload as active.
+async function uploadReportingCsv(file) {
+  if (!file) return;
+  if (!DEMO && !isAdminRole(state.profile?.role)) { toast('Admins only', 'error'); return; }
+
+  let rows;
+  try {
+    const text = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = (e) => res(e.target.result);
+      r.onerror = () => rej(new Error('File read failed'));
+      r.readAsText(file);
+    });
+    rows = parseReportingCsv(text);
+  } catch (err) {
+    toast('CSV parse error: ' + err.message, 'error');
+    return;
+  }
+  if (rows.length === 0) { toast('No rows found in CSV', 'warn'); return; }
+
+  toast('Uploading ' + rows.length.toLocaleString() + ' rows…', 'info');
+
+  // DEMO mode: state-only, no Supabase. Subscription rows live in
+  // memory for the session — refresh wipes them. Metadata + config
+  // persist via saveDemoData so the snapshot list survives reload
+  // (you'll just need to re-upload to see the rows again).
+  if (DEMO) {
+    const uploadId = (crypto.randomUUID && crypto.randomUUID()) || ('demo-' + Date.now());
+    const upload = {
+      id: uploadId,
+      uploaded_at: new Date().toISOString(),
+      uploaded_by: state.profile?.id || null,
+      filename: file.name || '',
+      row_count: rows.length,
+      notes: null,
+    };
+    state.reportingUploads = [upload, ...(state.reportingUploads || [])];
+    state.reportingSubscriptions = rows;
+    state.reportingActiveUploadId = uploadId;
+    state.reportingSubscriptionsLoadedFor = uploadId;
+
+    // Seed any new service names into the config table so they appear
+    // in Service Types with default (non-recurring, non-hidden) flags.
+    const knownNames = new Set((state.reportingServiceConfig || []).map(c => c.service_name));
+    for (const r of rows) {
+      if (r.subscription && !knownNames.has(r.subscription)) {
+        state.reportingServiceConfig.push({
+          service_name: r.subscription,
+          category: null,
+          is_recurring: false,
+          is_hidden: false,
+        });
+        knownNames.add(r.subscription);
+      }
+    }
+    saveDemoData();
+    toast('Uploaded ' + rows.length.toLocaleString() + ' rows (demo mode — rows are session-only)', 'success');
+    mountApp();
+    return;
+  }
+
+  // 1. Snapshot envelope.
+  const { data: upload, error: uploadErr } = await supabase
+    .from('reporting_uploads')
+    .insert({
+      filename:    file.name || '',
+      row_count:   rows.length,
+      uploaded_by: state.profile?.id || null,
+    })
+    .select()
+    .single();
+  if (uploadErr) { toast('Upload failed: ' + uploadErr.message, 'error'); return; }
+
+  // 2. Chunked inserts. PostgREST chokes on huge payloads, so we send
+  //    500 at a time. If any chunk fails we delete the envelope so we
+  //    don't leave a half-loaded snapshot behind.
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK).map(r => ({ ...r, upload_id: upload.id }));
+    const { error } = await supabase.from('reporting_subscriptions').insert(chunk);
+    if (error) {
+      await supabase.from('reporting_uploads').delete().eq('id', upload.id);
+      toast('Upload failed at row ' + (i + 1) + ': ' + error.message, 'error');
+      return;
+    }
+  }
+
+  // 3. Seed any new service names so the Service Type Configuration
+  //    tab shows them with default flags. Existing rows are left alone
+  //    (no upsert overwrite) so prior admin choices aren't reset.
+  const knownNames = new Set((state.reportingServiceConfig || []).map(c => c.service_name));
+  const newNames = new Set();
+  for (const r of rows) {
+    if (r.subscription && !knownNames.has(r.subscription)) newNames.add(r.subscription);
+  }
+  if (newNames.size > 0) {
+    const seedRows = [...newNames].map(name => ({
+      service_name: name, is_recurring: false, is_hidden: false,
+      updated_by: state.profile?.id || null,
+    }));
+    const { error: seedErr } = await supabase
+      .from('reporting_service_config')
+      .insert(seedRows);
+    if (seedErr) console.warn('[ridd] service config seed failed', seedErr);
+  }
+
+  // 4. Reload metadata, point at new snapshot, drop cached rows so the
+  //    Reporting view lazy-loads them on next render.
+  await loadReportingMetadata();
+  state.reportingActiveUploadId = upload.id;
+  state.reportingSubscriptions = [];
+  state.reportingSubscriptionsLoadedFor = null;
+  toast('Uploaded ' + rows.length.toLocaleString() + ' rows', 'success');
+  mountApp();
+}
+
+// Color palette for the Reporting tab's pies / doughnuts. Ordered so the
+// first slice (which is usually the largest) lands on RIDD's brand lime.
+// Cycled when there are more slices than colors.
+const REPORTING_PALETTE = [
+  '#8DC63F', // RIDD lime
+  '#1D4D4F', // dark teal
+  '#F0AC1E', // gold
+  '#3B82F6', // blue
+  '#DC2626', // red
+  '#9333EA', // purple
+  '#14B8A6', // teal
+  '#F97316', // orange
+  '#84CC16', // green
+  '#EC4899', // pink
+  '#06B6D4', // cyan
+  '#6B7280', // gray
+];
+
+// Filters + flag helpers used by every chart. Centralized so the rules
+// (hide hidden services, exclude 3-day RORs from churn, etc.) live in
+// one place and can't drift between charts.
+function reportingFilters() {
+  const cfgByName = new Map((state.reportingServiceConfig || []).map(c => [c.service_name, c]));
+  const isHidden    = (r) => !!cfgByName.get(r.subscription)?.is_hidden;
+  // ARV > 0 is the column-level source of truth for recurring-ness;
+  // the config flag is a manual override for services with $0 ARV
+  // that the admin still wants to count as recurring.
+  const isRecurring = (r) => {
+    if ((Number(r.annual_recurring_value) || 0) > 0) return true;
+    return !!cfgByName.get(r.subscription)?.is_recurring;
+  };
+  // Active = currently in service. Both the status field and the cancel
+  // date have to agree — a row with status=Active but a cancel date is
+  // a frozen/lapsed sub, not active.
+  const isActive = (r) => {
+    const s = (r.subscription_status || '').toLowerCase();
+    return s === 'active' && !r.subscription_date_canceled;
+  };
+  // Cancellation: any canceled recurring sub. Non-recurring (one-time)
+  // cancels are excluded — they're not real attrition. 3-day RORs are
+  // INCLUDED for now per the latest spec.
+  const isRealCancel = (r) => {
+    if (!r.subscription_date_canceled) return false;
+    if (!isRecurring(r)) return false;
+    return true;
+  };
+  const all = state.reportingSubscriptions || [];
+  const visible = all.filter(r => !isHidden(r));
+  const recurring = visible.filter(isRecurring);
+  return { all, visible, recurring, cfgByName, isHidden, isRecurring, isActive, isRealCancel };
+}
+
+// Group rows by key, summing a value. Returns [{ label, value }] sorted desc.
+function reportingGroupSum(rows, keyFn, valueFn) {
+  const map = new Map();
+  for (const r of rows) {
+    const k = keyFn(r);
+    if (k == null || k === '') continue;
+    map.set(k, (map.get(k) || 0) + (Number(valueFn(r)) || 0));
+  }
+  return [...map.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+}
+function reportingGroupCount(rows, keyFn) {
+  return reportingGroupSum(rows, keyFn, () => 1);
+}
+
+// Like reportingGroupSum but returns the mean per group instead of the
+// total. Used by ACV by Service — slice "size" is the avg contract value
+// per sub for that service, not the total. Empty groups are dropped.
+function reportingGroupAvg(rows, keyFn, valueFn) {
+  const groups = new Map();
+  for (const r of rows) {
+    const k = keyFn(r);
+    if (k == null || k === '') continue;
+    const v = Number(valueFn(r)) || 0;
+    if (!groups.has(k)) groups.set(k, { sum: 0, count: 0 });
+    const g = groups.get(k);
+    g.sum += v;
+    g.count += 1;
+  }
+  return [...groups.entries()]
+    .map(([label, { sum, count }]) => ({ label, value: count > 0 ? sum / count : 0 }))
+    .sort((a, b) => b.value - a.value);
+}
+
+// Bucket a days_past_due value into one of five named tiers. Returns
+// 'Current' for null / 0 / negative inputs and rolls everything over
+// 90 days into a single tail bucket.
+function reportingAgingBucket(days) {
+  const d = Number(days) || 0;
+  if (d <= 0)  return 'Current';
+  if (d <= 30) return '1–30 days';
+  if (d <= 60) return '31–60 days';
+  if (d <= 90) return '61–90 days';
+  return '90+ days';
+}
+const REPORTING_AGING_ORDER = ['Current', '1–30 days', '31–60 days', '61–90 days', '90+ days'];
+
+// Customer tenure bucket from initial_service date — years between then
+// and today. Returns 'Unknown' for missing / unparseable dates so the
+// chart can still surface them as a separate slice instead of dropping.
+function reportingTenureBucket(initialService, today = new Date()) {
+  if (!initialService) return 'Unknown';
+  const start = new Date(initialService + 'T00:00');
+  if (Number.isNaN(start.getTime())) return 'Unknown';
+  const years = (today - start) / (365.25 * 86400000);
+  if (years < 1) return '<1 year';
+  if (years < 2) return '1–2 years';
+  if (years < 3) return '2–3 years';
+  if (years < 4) return '3–4 years';
+  return '4+ years';
+}
+const REPORTING_TENURE_ORDER = ['<1 year', '1–2 years', '2–3 years', '3–4 years', '4+ years', 'Unknown'];
+
+// Doughnut chart card — title, chart, total, top-N legend with a rolled-up
+// "Other" row for the long tail. `key` must be stable across renders so the
+// Chart.js instance can be cleanly destroyed before re-creation. When
+// `colorMap` is provided (compare mode), labels look up colors there so
+// the same service is the same color across both offices' pies.
+function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline, top = 6, officeLabel, colorMap, overrideTotal, hidePercent, preserveOrder, onSliceClick }) {
+  const id = 'rpt-pie-' + key;
+  const formatter = formatValue || ((n) => Number(n).toLocaleString());
+  // `preserveOrder` keeps the caller's order (used for aging buckets so
+  // Current → 90+ stays in time order rather than reshuffling by $).
+  const filtered = slices.filter(s => s.value > 0);
+  const sorted = preserveOrder ? filtered : [...filtered].sort((a, b) => b.value - a.value);
+  // `overrideTotal` lets the caller display a different bottom-line
+  // total than the slice sum (used for ACV — slices are per-service
+  // averages, total is the weighted overall average across all subs).
+  const sliceSum = sorted.reduce((s, x) => s + x.value, 0);
+  const overall = overrideTotal != null ? overrideTotal : sliceSum;
+  const colorFor = (label, idx) => colorMap?.[label] || REPORTING_PALETTE[idx % REPORTING_PALETTE.length];
+
+  const cvsWrap = el('div', { style: { position: 'relative', height: '220px', width: '100%' } });
+  const cvs = el('canvas', { id });
+  cvsWrap.append(cvs);
+
+  // Defer Chart.js construction until the canvas is in the DOM. 50ms
+  // matches the indicator charts' pattern; long enough for layout to
+  // settle, short enough that the UI doesn't feel laggy.
+  setTimeout(() => {
+    if (typeof Chart === 'undefined') return;
+    const cvsEl = document.getElementById(id);
+    if (!cvsEl) return;
+    if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
+    const isDark = state.theme === 'dark';
+    _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: sorted.map(s => s.label),
+        datasets: [{
+          data: sorted.map(s => s.value),
+          backgroundColor: sorted.map((s, i) => colorFor(s.label, i)),
+          borderWidth: 1,
+          borderColor: isDark ? '#1d1d1d' : '#fff',
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '58%',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1D1D1D', bodyFont: { size: 11 }, padding: 8, cornerRadius: 6,
+            callbacks: {
+              // For non-additive metrics (like ACV averages) the percent
+              // share is misleading, so hidePercent suppresses it. For
+              // additive metrics we use the SLICE SUM as the denominator
+              // so percentages add up to 100 regardless of overrideTotal.
+              label: (ctx) => hidePercent
+                ? ctx.label + ': ' + formatter(ctx.parsed)
+                : ctx.label + ': ' + formatter(ctx.parsed) +
+                    ' (' + ((ctx.parsed / Math.max(sliceSum, 1)) * 100).toFixed(1) + '%)',
+            },
+          },
+        },
+        // Slice click → drill down. The cursor flips to pointer on hover
+        // when the chart is clickable so the affordance is discoverable.
+        onClick: onSliceClick ? (evt, elements) => {
+          if (!elements.length) return;
+          const slice = sorted[elements[0].index];
+          if (slice) onSliceClick(slice.label, slice.value);
+        } : undefined,
+        onHover: onSliceClick ? (e, elements) => {
+          if (e?.native?.target) e.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+        } : undefined,
+      },
+    });
+  }, 50);
+
+  const topSlices  = sorted.slice(0, top);
+  const otherCount = Math.max(0, sorted.length - top);
+  const otherTotal = sorted.slice(top).reduce((s, x) => s + x.value, 0);
+
+  return el('div', { class: 'card p-4 flex flex-col gap-3' },
+    el('div', {},
+      officeLabel && el('div', {
+        class: 'text-[9px] uppercase tracking-widest font-bold mb-1',
+        style: { color: 'var(--accent)' },
+      }, officeLabel),
+      el('div', { class: 'text-sm font-bold' }, title),
+      subline && el('div', { class: 'text-[10px] text-muted- mt-0.5' }, subline),
+    ),
+    sorted.length === 0
+      ? el('div', { class: 'p-8 text-center text-xs text-muted-' }, 'No data')
+      : el('div', { class: 'flex flex-col gap-3' },
+          cvsWrap,
+          el('div', { class: 'flex items-baseline justify-between gap-2 pt-1 border-t', style: { borderColor: 'var(--border)' } },
+            el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-2', style: { color: 'var(--text-subtle)' } }, totalLabel || 'Total'),
+            el('div', { class: 'text-lg font-bold tabular-nums pt-2' }, formatter(overall)),
+          ),
+          el('div', { class: 'flex flex-col gap-1.5 text-xs' },
+            ...topSlices.map((s, i) => el('div', { class: 'flex items-center gap-2' },
+              el('div', { style: { width: '8px', height: '8px', borderRadius: '2px', background: colorFor(s.label, i), flexShrink: '0' } }),
+              el('div', { class: 'flex-1 truncate', style: { color: 'var(--text)' } }, s.label),
+              el('div', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, formatter(s.value)),
+            )),
+            otherCount > 0 && el('div', { class: 'flex items-center gap-2' },
+              el('div', { style: { width: '8px', height: '8px', borderRadius: '2px', background: 'var(--text-subtle)', flexShrink: '0' } }),
+              el('div', { class: 'flex-1', style: { color: 'var(--text-muted)' } }, 'Other (' + otherCount + ')'),
+              el('div', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, formatter(otherTotal)),
+            ),
+          ),
+        ),
+  );
+}
+
+// Drill-down modal — opens when a chart slice is clicked. Shows every
+// row that contributed to that slice, sorted by contract value desc by
+// default. Columns are chosen to be useful across every chart type
+// (customer + office for identity, ARV + contract $ for revenue, past
+// due + cancel info for risk). The modal closes on background click,
+// the × button, or Escape.
+function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  const closeKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeKey); } };
+  document.addEventListener('keydown', closeKey);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) { overlay.remove(); document.removeEventListener('keydown', closeKey); }
+  });
+
+  const sorted = [...rows].sort((a, b) =>
+    (Number(b.subscription_contract_value) || 0) - (Number(a.subscription_contract_value) || 0));
+  const totalContract = sorted.reduce((s, r) => s + (Number(r.subscription_contract_value) || 0), 0);
+  const totalArv      = sorted.reduce((s, r) => s + (Number(r.annual_recurring_value) || 0), 0);
+  const formatter = formatValue || fmt.usd0;
+
+  // Customer "Last, First" with a graceful fall-back to ID if names are missing.
+  const customerName = (r) => {
+    const last = (r.last_name || '').trim();
+    const first = (r.first_name || '').trim();
+    if (last && first) return last + ', ' + first;
+    return last || first || r.customer_id || '—';
+  };
+  const fmtDate = (d) => d ? new Date(d + 'T00:00').toLocaleDateString() : '—';
+
+  const card = el('div', {
+    class: 'card w-full max-w-6xl my-8 overflow-hidden flex flex-col',
+    style: { maxHeight: 'calc(100vh - 64px)' },
+  },
+    el('div', { class: 'flex items-start justify-between p-6 pb-3' },
+      el('div', {},
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, chartTitle),
+        el('h2', { class: 'text-xl font-bold mt-0.5' }, sliceLabel),
+        el('div', { class: 'text-xs text-muted- mt-1' },
+          sorted.length.toLocaleString() + ' row' + (sorted.length === 1 ? '' : 's') +
+          ' · ' + formatter(totalContract) + ' contract' +
+          (totalArv > 0 ? ' · ' + formatter(totalArv) + ' ARV' : '')),
+      ),
+      el('button', {
+        class: 'text-2xl leading-none',
+        style: { color: 'var(--text-muted)' },
+        onclick: () => { overlay.remove(); document.removeEventListener('keydown', closeKey); },
+      }, '×'),
+    ),
+    sorted.length === 0
+      ? el('div', { class: 'p-12 text-center text-sm text-muted-' }, 'No rows in this slice.')
+      : el('div', { class: 'overflow-auto flex-1', style: { borderTop: '1px solid var(--border)' } },
+          el('table', { class: 'w-full text-xs' },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+              el('tr', {},
+                el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Customer'),
+                el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Office'),
+                el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Subscription'),
+                el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Status'),
+                el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'ARV'),
+                el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Contract $'),
+                el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Initial Service'),
+                el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Past Due'),
+                el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Canceled'),
+              ),
+            ),
+            el('tbody', {},
+              ...sorted.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+                el('td', { class: 'px-3 py-2' },
+                  el('div', { class: 'font-medium' }, customerName(r)),
+                  r.customer_id && el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + r.customer_id),
+                ),
+                el('td', { class: 'px-3 py-2' }, r.office_name || '—'),
+                el('td', { class: 'px-3 py-2' }, r.subscription || '—'),
+                el('td', { class: 'px-3 py-2' }, r.subscription_status || '—'),
+                el('td', { class: 'px-3 py-2 text-right tabular-nums' },
+                  r.annual_recurring_value != null ? '$' + Math.round(r.annual_recurring_value).toLocaleString() : '—'),
+                el('td', { class: 'px-3 py-2 text-right tabular-nums' },
+                  r.subscription_contract_value != null ? '$' + Math.round(r.subscription_contract_value).toLocaleString() : '—'),
+                el('td', { class: 'px-3 py-2' }, fmtDate(r.initial_service)),
+                el('td', {
+                  class: 'px-3 py-2 text-right tabular-nums',
+                  style: { color: (Number(r.days_past_due) || 0) > 0 ? '#DC2626' : 'var(--text-muted)' },
+                }, r.days_past_due ? r.days_past_due + 'd' : '—'),
+                el('td', { class: 'px-3 py-2' },
+                  r.subscription_date_canceled
+                    ? el('div', {},
+                        el('div', {}, fmtDate(r.subscription_date_canceled)),
+                        r.subscription_cancellation_reason && el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, r.subscription_cancellation_reason),
+                      )
+                    : '—',
+                ),
+              )),
+            ),
+          ),
+        ),
+  );
+
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
+// Filter visible subs to a single office. 'all' means no filter.
+function reportingFilterByOffice(rows, office) {
+  if (!office || office === 'all') return rows;
+  return rows.filter(r => (r.office_name || '') === office);
+}
+
+// Resolve a date-range preset into { start, end } ISO yyyy-mm-dd bounds.
+// `null` ends mean "open" on that side. Custom mode falls back to the
+// explicit start/end values from state.
+function reportingDateBounds(preset, customStart, customEnd) {
+  const today = new Date();
+  const iso = (d) => d.toISOString().slice(0, 10);
+  if (preset === 'ytd') {
+    return { start: today.getFullYear() + '-01-01', end: iso(today) };
+  }
+  if (preset === 'last_12_months') {
+    const d = new Date(today); d.setFullYear(d.getFullYear() - 1);
+    return { start: iso(d), end: iso(today) };
+  }
+  if (preset === 'last_year') {
+    const y = today.getFullYear() - 1;
+    return { start: y + '-01-01', end: y + '-12-31' };
+  }
+  if (preset === 'custom') {
+    return { start: customStart || null, end: customEnd || null };
+  }
+  return { start: null, end: null };
+}
+
+// Filter subs by initial_service date. Both bounds are inclusive. null
+// bounds mean "open" on that side. Rows missing initial_service are
+// dropped whenever any bound is set (they can't be placed in time).
+function reportingFilterByDate(rows, start, end) {
+  if (!start && !end) return rows;
+  return rows.filter(r => {
+    if (!r.initial_service) return false;
+    if (start && r.initial_service < start) return false;
+    if (end   && r.initial_service > end)   return false;
+    return true;
+  });
+}
+
+// Pretty label for the active date-range preset. Used in chart sublines
+// and the comparison table header so the reader knows the time scope.
+function reportingDateRangeLabel(preset, start, end) {
+  if (preset === 'all' || !preset) return 'All time';
+  if (preset === 'ytd')            return 'Year to date';
+  if (preset === 'last_12_months') return 'Last 12 months';
+  if (preset === 'last_year')      return 'Last year';
+  if (preset === 'custom') {
+    if (start && end) return start + ' → ' + end;
+    if (start)        return 'From ' + start;
+    if (end)          return 'Through ' + end;
+    return 'Custom range';
+  }
+  return 'All time';
+}
+
+// Distinct office names from a row set, sorted alphabetically. Used to
+// populate the office picker(s) in the filter bar.
+function reportingOfficeList(rows) {
+  return [...new Set((rows || []).map(r => r.office_name).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+}
+
+// Compute every chart's slice data + summary stats for a given row scope.
+// Pulling this into a helper means single-mode and compare-mode call the
+// exact same code path — no risk of one going stale relative to the other.
+function reportingChartData(scopeRows, serviceConfig) {
+  const cfgByName = new Map((serviceConfig || []).map(c => [c.service_name, c]));
+  // A sub is "recurring" if it has an annual recurring value > 0 OR the
+  // service is manually marked recurring in config. The CSV's
+  // `annual_recurring_value` column is the source of truth — one-time
+  // services have $0 there, recurring services have an annual figure.
+  // The config flag is a manual override for edge cases.
+  const isRecurring = (r) => {
+    if ((Number(r.annual_recurring_value) || 0) > 0) return true;
+    return !!cfgByName.get(r.subscription)?.is_recurring;
+  };
+  const isActive = (r) => {
+    const s = (r.subscription_status || '').toLowerCase();
+    return s === 'active' && !r.subscription_date_canceled;
+  };
+  // Cancellation: any canceled recurring sub. Non-recurring (one-time)
+  // cancels are excluded — they're not real attrition. 3-day RORs are
+  // INCLUDED for now per the latest spec; we can re-add the 3-day
+  // filter later by comparing initial_service to the cancel date.
+  const isRealCancel = (r) => {
+    if (!r.subscription_date_canceled) return false;
+    if (!isRecurring(r)) return false;
+    return true;
+  };
+
+  // Serviced: subs that have received at least one service. Since the
+  // current CSV export only includes serviced accounts, this generally
+  // matches the full row set — kept as its own filter so it stays
+  // accurate if a future upload starts including pre-service rows.
+  const isServiced = (r) => (Number(r.subscription_completed_services) || 0) > 0;
+
+  const recurringRows   = scopeRows.filter(isRecurring);
+  const activeRecurring = recurringRows.filter(isActive);
+  const activeSubs      = scopeRows.filter(isActive);
+  const realCancels     = scopeRows.filter(isRealCancel);
+  const servicedRows    = scopeRows.filter(isServiced);
+  // Past due = any sub with days_past_due > 0, regardless of status.
+  const pastDueRows     = scopeRows.filter(r => (Number(r.days_past_due) || 0) > 0);
+  const pastDueAmount   = pastDueRows.reduce((sum, r) => sum + (Number(r.subscription_contract_value) || 0), 0);
+  const totalAR         = scopeRows.reduce((sum, r) => sum + (Number(r.subscription_contract_value) || 0), 0);
+  const pastDuePct      = totalAR > 0 ? (pastDueAmount / totalAR) * 100 : 0;
+  // Weighted average contract value across the entire scope — used as
+  // the bottom-line total on the ACV pie since summing per-service
+  // averages doesn't produce a meaningful overall number.
+  const weightedAvgACV  = scopeRows.length > 0 ? totalAR / scopeRows.length : 0;
+
+  // Customer "recurring vs other" split — a customer counts as recurring
+  // if any of their active subs is on a recurring service.
+  const customerMap = new Map();
+  for (const r of scopeRows) {
+    if (!r.customer_id) continue;
+    if (!customerMap.has(r.customer_id)) customerMap.set(r.customer_id, { recurring: false, active: false });
+    const m = customerMap.get(r.customer_id);
+    if (isActive(r)) m.active = true;
+    if (isActive(r) && isRecurring(r)) m.recurring = true;
+  }
+  let recurringCustomers = 0, otherActiveCustomers = 0;
+  // Track which customer IDs land in each bucket so the Active Customers
+  // chart can drill into the underlying rows.
+  const recurringCustIds   = new Set();
+  const otherActiveCustIds = new Set();
+  for (const [cid, v] of customerMap.entries()) {
+    if (!v.active) continue;
+    if (v.recurring) { recurringCustomers++;    recurringCustIds.add(cid); }
+    else             { otherActiveCustomers++;  otherActiveCustIds.add(cid); }
+  }
+
+  const activeArr = activeRecurring.reduce((s, r) => s + (Number(r.annual_recurring_value) || 0), 0);
+  const cancelRate = scopeRows.length > 0
+    ? ((realCancels.length / scopeRows.length) * 100)
+    : 0;
+
+  // Receivables aging slices in stable bucket order (Current → 90+).
+  // Empty buckets are kept at value 0 so the pie filters them out but
+  // the legend order stays predictable across snapshots.
+  const agingTotals = new Map(REPORTING_AGING_ORDER.map(k => [k, 0]));
+  for (const r of scopeRows) {
+    const bucket = reportingAgingBucket(r.days_past_due);
+    agingTotals.set(bucket, (agingTotals.get(bucket) || 0) + (Number(r.subscription_contract_value) || 0));
+  }
+  const receivablesSlices = REPORTING_AGING_ORDER.map(k => ({ label: k, value: agingTotals.get(k) || 0 }));
+
+  // Customer tenure: count subs per tenure bucket. Stable order so the
+  // legend reads <1yr → 4+yr → Unknown across every snapshot.
+  const today = new Date();
+  const tenureCounts = new Map(REPORTING_TENURE_ORDER.map(k => [k, 0]));
+  for (const r of scopeRows) {
+    const bucket = reportingTenureBucket(r.initial_service, today);
+    tenureCounts.set(bucket, (tenureCounts.get(bucket) || 0) + 1);
+  }
+  const tenureSlices = REPORTING_TENURE_ORDER.map(k => ({ label: k, value: tenureCounts.get(k) || 0 }));
+
+  // Agreement length mix: subs grouped by agreement_length (months),
+  // ordered by months ascending (12 → 18 → 24 → 36 → …). Zero/null
+  // lengths are dropped — they don't represent a real contract term.
+  const agreementMap = new Map();
+  for (const r of scopeRows) {
+    const months = Number(r.agreement_length) || 0;
+    if (months <= 0) continue;
+    agreementMap.set(months, (agreementMap.get(months) || 0) + 1);
+  }
+  const agreementSlices = [...agreementMap.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([months, count]) => ({ label: months + ' mo', value: count }));
+
+  return {
+    stats: {
+      subs:             scopeRows.length,
+      recurring:        recurringRows.length,
+      activeRecurring:  activeRecurring.length,
+      activeArr,
+      uniqueCustomers:  new Set(scopeRows.map(r => r.customer_id).filter(Boolean)).size,
+      distinctServices: new Set(scopeRows.map(r => r.subscription).filter(Boolean)).size,
+      realCancels:      realCancels.length,
+      cancelRate,
+      pastDueAmount,
+      pastDuePct,
+      pastDueCount:     pastDueRows.length,
+      totalAR,
+      weightedAvgACV,
+    },
+    slices: {
+      rarr:        reportingGroupSum(activeRecurring, r => r.subscription,                r => r.annual_recurring_value),
+      rarrOffice:  reportingGroupSum(activeRecurring, r => r.office_name || 'Unspecified', r => r.annual_recurring_value),
+      customers:   [
+        { label: 'Recurring customers', value: recurringCustomers },
+        { label: 'Other active',        value: otherActiveCustomers },
+      ],
+      activeSubs:  reportingGroupCount(activeSubs, r => r.subscription),
+      serviced:    reportingGroupSum(servicedRows,  r => r.subscription, r => r.subscription_contract_value),
+      aging:       receivablesSlices,
+      pastDueOffice: reportingGroupSum(pastDueRows, r => r.office_name || 'Unspecified', r => r.subscription_contract_value),
+      tenure:      tenureSlices,
+      agreement:   agreementSlices,
+      cancels:     reportingGroupCount(realCancels, r => r.subscription_cancellation_reason || 'Unspecified'),
+      sources:     reportingGroupCount(scopeRows,   r => r.subscription_source || 'Unspecified'),
+    },
+    // Per-chart drill spec: given a slice label, source.filter(r => key(r) === label)
+    // returns every row that contributed to that slice. Used by the drill
+    // modal so a user can click into any wedge and see the underlying subs.
+    drill: {
+      rarr:          { source: activeRecurring, key: r => r.subscription },
+      rarrOffice:    { source: activeRecurring, key: r => r.office_name || 'Unspecified' },
+      customers:     {
+        source: scopeRows.filter(r => r.customer_id && (recurringCustIds.has(r.customer_id) || otherActiveCustIds.has(r.customer_id))),
+        key: r => recurringCustIds.has(r.customer_id) ? 'Recurring customers' : 'Other active',
+      },
+      activeSubs:    { source: activeSubs,    key: r => r.subscription },
+      serviced:      { source: servicedRows,  key: r => r.subscription },
+      aging:         { source: scopeRows,     key: r => reportingAgingBucket(r.days_past_due) },
+      pastDueOffice: { source: pastDueRows,   key: r => r.office_name || 'Unspecified' },
+      tenure:        { source: scopeRows,     key: r => reportingTenureBucket(r.initial_service, today) },
+      agreement:     { source: scopeRows.filter(r => (Number(r.agreement_length) || 0) > 0), key: r => (Number(r.agreement_length) || 0) + ' mo' },
+      cancels:       { source: realCancels,   key: r => r.subscription_cancellation_reason || 'Unspecified' },
+      sources:       { source: scopeRows,     key: r => r.subscription_source || 'Unspecified' },
+    },
+  };
+}
+
+// Build a stable label-to-color map from the union of two slice sets.
+// Used in compare mode so "Pest 4" is the same color in both offices'
+// pies. Labels are ordered by combined value so the dominant service
+// always lands on the first palette color.
+function reportingColorMap(slicesA, slicesB) {
+  const totals = new Map();
+  for (const s of slicesA) totals.set(s.label, (totals.get(s.label) || 0) + s.value);
+  for (const s of slicesB) totals.set(s.label, (totals.get(s.label) || 0) + s.value);
+  const ordered = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([label]) => label);
+  const map = {};
+  ordered.forEach((label, i) => { map[label] = REPORTING_PALETTE[i % REPORTING_PALETTE.length]; });
+  return map;
+}
+
+function viewMarketing() {
+  if (!isAdminRole(state.profile?.role)) {
+    return el('div', { class: 'card p-6 text-center text-sm text-muted-' }, 'Marketing is an admin-only tab.');
+  }
+  // Embeds the standalone marketing pulse page (marketing.html) so it stays a
+  // single source of truth. Ad spend is served by /api/marketing-spend; bookings
+  // & revenue come from the latest FieldRoutes CSV snapshot baked into that page.
+  const wrap = el('div', { class: 'w-full' });
+  const frame = el('iframe', {
+    src: '/marketing.html',
+    title: 'Marketing Pulse',
+    style: {
+      width: '100%',
+      height: 'calc(100vh - 150px)',
+      minHeight: '600px',
+      border: '0',
+      borderRadius: '12px',
+      background: 'var(--card)',
+    },
+  });
+  wrap.append(frame);
+  return wrap;
+}
+
+function viewReporting() {
+  if (!isAdminRole(state.profile?.role)) {
+    return el('div', { class: 'card p-6 text-center text-sm text-muted-' }, 'Reporting is an admin-only tab.');
+  }
+  if (!state.reportingSubTab) state.reportingSubTab = 'overview';
+
+  // Lazy-load subscription rows for the active snapshot on first visit.
+  // Re-checks on each render in case the user just switched snapshots.
+  const activeId = state.reportingActiveUploadId;
+  if (activeId && state.reportingSubscriptionsLoadedFor !== activeId) {
+    loadReportingSubscriptions(activeId).then(rows => {
+      // Snapshot may have changed under us while the request was in flight.
+      if (state.reportingActiveUploadId !== activeId) return;
+      state.reportingSubscriptions = rows;
+      state.reportingSubscriptionsLoadedFor = activeId;
+      mountApp();
+    });
+  }
+
+  return el('div', { class: 'flex flex-col gap-4' },
+    reportingTopBar(),
+    reportingSubTabs(),
+    state.reportingSubTab === 'config'     ? reportingServiceConfigPanel() :
+    state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
+    state.reportingSubTab === 'geographic' ? reportingGeographic() :
+    state.reportingSubTab === 'reps'       ? reportingRepPerformance() :
+    state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
+                                              reportingOverview(),
+  );
+}
+
+function reportingTopBar() {
+  const uploads = state.reportingUploads || [];
+  const activeId = state.reportingActiveUploadId;
+  const active = uploads.find(u => u.id === activeId);
+
+  const fileInput = el('input', {
+    type: 'file', accept: '.csv,.txt', style: { display: 'none' },
+    onchange: (e) => {
+      const f = e.target.files[0];
+      if (f) uploadReportingCsv(f);
+      e.target.value = '';
+    },
+  });
+  const uploadBtn = el('button', {
+    class: 'rounded-xl px-4 py-2 text-sm font-bold transition hover:brightness-95',
+    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    onclick: () => fileInput.click(),
+  }, fileInput, '📁 Upload Snapshot CSV');
+
+  const picker = uploads.length > 0 ? el('select', {
+    class: 'rounded-lg border px-3 py-2 text-sm cursor-pointer',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+    onchange: (e) => {
+      state.reportingActiveUploadId = e.target.value;
+      state.reportingSubscriptions = [];
+      state.reportingSubscriptionsLoadedFor = null;
+      mountApp();
+    },
+  },
+    ...uploads.map(u => el('option', {
+      value: u.id,
+      selected: u.id === activeId,
+    }, formatSnapshotLabel(u))),
+  ) : el('div');
+
+  const meta = active
+    ? el('div', { class: 'text-xs text-muted-' },
+        (active.row_count || 0).toLocaleString() + ' rows · uploaded ' + timeAgo(active.uploaded_at))
+    : el('div', { class: 'text-xs text-muted-' }, 'No snapshots yet — upload a CSV to begin.');
+
+  return el('div', { class: 'card p-4 flex items-center justify-between gap-4 flex-wrap' },
+    el('div', { class: 'flex flex-col gap-1' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Active Snapshot'),
+      meta,
+    ),
+    el('div', { class: 'flex items-center gap-3 flex-wrap' },
+      picker,
+      uploadBtn,
+    ),
+  );
+}
+
+function formatSnapshotLabel(u) {
+  const dt = u.uploaded_at ? new Date(u.uploaded_at) : null;
+  const date = dt ? dt.toLocaleDateString() : '';
+  const name = u.filename || 'snapshot';
+  return date + ' — ' + name + ' (' + (u.row_count || 0).toLocaleString() + ' rows)';
+}
+
+function reportingSubTabs() {
+  const tabs = [
+    ['overview',   'Overview'],
+    ['geographic', 'Geographic'],
+    ['reps',       'Rep Performance'],
+    ['waterfall',  'Waterfall Attrition'],
+    ['config',     'Configurations'],
+    ['uploads',    'Uploads'],
+  ];
+  return el('div', { class: 'flex items-center gap-1 border-b', style: { borderColor: 'var(--border)' } },
+    ...tabs.map(([k, label]) => {
+      const active = state.reportingSubTab === k;
+      return el('button', {
+        class: 'px-4 py-2.5 text-sm font-semibold transition',
+        style: {
+          borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+          color: active ? 'var(--text)' : 'var(--text-muted)',
+          marginBottom: '-1px',
+        },
+        onclick: () => { state.reportingSubTab = k; mountApp(); },
+      }, label);
+    }),
+  );
+}
+
+// Common "do we have data to show" gate. Returns either an early-return
+// node OR null when the caller has data to render. Centralizes the three
+// snapshot states (none / loading / DEMO-rows-missing) so every data
+// sub-tab handles them the same way.
+function reportingDataGate() {
+  const activeId = state.reportingActiveUploadId;
+  if (!activeId) {
+    return el('div', { class: 'card p-12 text-center text-sm text-muted-' },
+      'No snapshot loaded. Upload a CSV above to get started.');
+  }
+  if (state.reportingSubscriptionsLoadedFor !== activeId) {
+    return el('div', { class: 'card p-12 text-center text-sm text-muted-' }, 'Loading snapshot…');
+  }
+  if (DEMO && (state.reportingSubscriptions || []).length === 0) {
+    return el('div', { class: 'card p-12 text-center flex flex-col gap-2' },
+      el('div', { class: 'text-sm font-semibold' }, 'Snapshot metadata restored, but rows aren’t persisted in demo mode.'),
+      el('div', { class: 'text-xs text-muted-' }, 'Re-upload the CSV to populate the Overview and charts. (Configurations did persist.)'),
+    );
+  }
+  return null;
+}
+
+// Compute the active filter scope — office + date + compare state — and
+// the row sets each panel needs. Shared across every data sub-tab so
+// they all filter the same way.
+function reportingScope() {
+  const { visible } = reportingFilters();
+  // Office list built from ALL dates so changing the time filter doesn't
+  // make offices disappear from the picker (would be jarring if the
+  // user lost their selection).
+  const offices = reportingOfficeList(visible);
+  const office  = state.reportingOffice || 'all';
+  const inCompare = !!state.reportingCompareMode;
+  const compareOffice = state.reportingCompareOffice || 'all';
+  const datePreset = state.reportingDateRange || 'all';
+  const { start: dateStart, end: dateEnd } = reportingDateBounds(
+    datePreset, state.reportingDateStart, state.reportingDateEnd,
+  );
+  const inDate = reportingFilterByDate(visible, dateStart, dateEnd);
+  const dateLabel = reportingDateRangeLabel(datePreset, dateStart, dateEnd);
+  // Time filter applies before office filter.
+  const scopeA = reportingFilterByOffice(inDate, office);
+  const scopeB = inCompare ? reportingFilterByOffice(inDate, compareOffice) : null;
+  return {
+    visible, offices, office, compareOffice, inCompare,
+    datePreset, dateStart, dateEnd, dateLabel, inDate,
+    scopeA, scopeB,
+    officeLabel: (o) => o === 'all' ? 'All Offices' : o,
+  };
+}
+
+// Render the shared filter bar (office picker(s) + time range + compare
+// toggle + active-filter summary). Every data sub-tab calls this so
+// filter UX is consistent.
+function reportingFilterBar(scope) {
+  const { offices, office, compareOffice, inCompare, datePreset, dateStart, dateEnd, dateLabel, inDate } = scope;
+
+  const officePicker = (selected, onChange, hint) => {
+    const sel = el('select', {
+      class: 'rounded-lg border px-3 py-2 text-sm cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', minWidth: '180px' },
+      onchange: (e) => onChange(e.target.value),
+    },
+      el('option', { value: 'all', selected: selected === 'all' }, 'All Offices'),
+      ...offices.map(o => el('option', { value: o, selected: selected === o }, o)),
+    );
+    return el('div', { class: 'flex flex-col gap-1' },
+      hint && el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, hint),
+      sel,
+    );
+  };
+
+  const compareBtn = el('button', {
+    class: 'rounded-lg px-3 py-2 text-xs font-bold transition hover:brightness-95 self-end',
+    style: inCompare
+      ? { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border)' }
+      : { background: 'var(--accent)', color: 'var(--accent-text)' },
+    onclick: () => {
+      state.reportingCompareMode = !inCompare;
+      // Default the B picker to a different office than A on first open
+      // so the comparison is meaningful out of the gate.
+      if (!inCompare && state.reportingCompareOffice === office) {
+        state.reportingCompareOffice = offices.find(o => o !== office) || 'all';
+      }
+      mountApp();
+    },
+  }, inCompare ? '✕ Exit compare' : '⇄ Compare offices');
+
+  const datePresets = [
+    ['all',             'All time'],
+    ['ytd',             'Year to date'],
+    ['last_12_months',  'Last 12 months'],
+    ['last_year',       'Last year'],
+    ['custom',          'Custom range…'],
+  ];
+  const datePicker = el('div', { class: 'flex flex-col gap-1' },
+    el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Time range'),
+    el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      el('select', {
+        class: 'rounded-lg border px-3 py-2 text-sm cursor-pointer',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', minWidth: '170px' },
+        onchange: (e) => {
+          state.reportingDateRange = e.target.value;
+          // Default custom inputs to the previously-resolved bounds so
+          // the user starts from a sensible position instead of blank.
+          if (e.target.value === 'custom') {
+            if (!state.reportingDateStart) state.reportingDateStart = dateStart || '';
+            if (!state.reportingDateEnd)   state.reportingDateEnd   = dateEnd   || '';
+          }
+          mountApp();
+        },
+      },
+        ...datePresets.map(([v, label]) => el('option', { value: v, selected: datePreset === v }, label)),
+      ),
+      datePreset === 'custom' && el('input', {
+        type: 'date',
+        class: 'rounded-lg border px-2 py-2 text-sm',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+        value: state.reportingDateStart || '',
+        onchange: (e) => { state.reportingDateStart = e.target.value; mountApp(); },
+      }),
+      datePreset === 'custom' && el('span', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, '→'),
+      datePreset === 'custom' && el('input', {
+        type: 'date',
+        class: 'rounded-lg border px-2 py-2 text-sm',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+        value: state.reportingDateEnd || '',
+        onchange: (e) => { state.reportingDateEnd = e.target.value; mountApp(); },
+      }),
+    ),
+  );
+
+  const filterSummary = el('div', {
+    class: 'text-[11px] mt-1 flex items-center gap-2 flex-wrap',
+    style: { color: 'var(--text-muted)' },
+  },
+    el('span', { class: 'font-semibold' }, dateLabel),
+    el('span', {}, '·'),
+    el('span', {}, inDate.length.toLocaleString() + ' subs in window'),
+    (dateStart || dateEnd) && el('button', {
+      class: 'underline ml-1 text-[11px]',
+      style: { color: 'var(--accent)', background: 'transparent', border: 'none', cursor: 'pointer' },
+      onclick: () => {
+        state.reportingDateRange = 'all';
+        state.reportingDateStart = '';
+        state.reportingDateEnd   = '';
+        mountApp();
+      },
+    }, 'Clear time filter'),
+  );
+
+  return el('div', { class: 'card p-4 flex flex-col gap-2' },
+    el('div', { class: 'flex items-end gap-3 flex-wrap' },
+      officePicker(office, (v) => { state.reportingOffice = v; mountApp(); }, inCompare ? 'Office A' : 'Office'),
+      inCompare && el('div', { class: 'text-sm font-bold self-end pb-2', style: { color: 'var(--text-muted)' } }, 'vs'),
+      inCompare && officePicker(compareOffice, (v) => { state.reportingCompareOffice = v; mountApp(); }, 'Office B'),
+      datePicker,
+      compareBtn,
+    ),
+    filterSummary,
+  );
+}
+
+function reportingOverview() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+
+  const scope = reportingScope();
+  const { office, compareOffice, inCompare, scopeA, scopeB, officeLabel } = scope;
+  const dataA = reportingChartData(scopeA, state.reportingServiceConfig || []);
+  const dataB = inCompare ? reportingChartData(scopeB, state.reportingServiceConfig || []) : null;
+  const filterBar = reportingFilterBar(scope);
+
+  // ── Stat tiles (single mode) or comparison table (compare mode) ─────
+  const statTile = (label, value, sub) => el('div', { class: 'card p-4 flex-1', style: { minWidth: '180px' } },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+    el('div', { class: 'text-2xl font-bold mt-1 tabular-nums' }, value),
+    sub && el('div', { class: 'text-[11px] text-muted- mt-1' }, sub),
+  );
+
+  // Comparison row — same label on both sides plus a "diff" column. The
+  // diff is signed % change from A to B so the reader can see at a glance
+  // which office is leading on each metric.
+  const diffPct = (a, b) => {
+    if (!a) return b ? '+∞' : '0%';
+    const d = ((b - a) / a) * 100;
+    return (d >= 0 ? '+' : '') + d.toFixed(1) + '%';
+  };
+  const diffColor = (a, b, higherIsBetter = true) => {
+    if (a === b) return 'var(--text-muted)';
+    const better = higherIsBetter ? (b > a) : (b < a);
+    return better ? '#16a34a' : '#dc2626';
+  };
+  const compareRow = (label, valA, valB, formatter, higherIsBetter = true, sub) => el('div', {
+    class: 'grid items-center py-2.5 px-4 text-sm border-t',
+    style: { borderColor: 'var(--border)', gridTemplateColumns: '1.4fr 1fr 1fr 0.8fr' },
+  },
+    el('div', { class: 'font-medium' },
+      el('div', {}, label),
+      sub && el('div', { class: 'text-[10px] text-muted-' }, sub),
+    ),
+    el('div', { class: 'tabular-nums text-right' }, formatter(valA)),
+    el('div', { class: 'tabular-nums text-right' }, formatter(valB)),
+    el('div', { class: 'tabular-nums text-right font-bold', style: { color: diffColor(valA, valB, higherIsBetter) } }, diffPct(valA, valB)),
+  );
+
+  const statsBlock = inCompare
+    ? el('div', { class: 'card overflow-hidden' },
+        el('div', {
+          class: 'grid items-center px-4 py-2 text-[10px] uppercase tracking-widest font-semibold',
+          style: { background: 'var(--card-2)', color: 'var(--text-muted)', gridTemplateColumns: '1.4fr 1fr 1fr 0.8fr' },
+        },
+          el('div', {}, 'Metric'),
+          el('div', { class: 'text-right' }, officeLabel(office)),
+          el('div', { class: 'text-right' }, officeLabel(compareOffice)),
+          el('div', { class: 'text-right' }, 'Δ'),
+        ),
+        compareRow('Subscriptions',     dataA.stats.subs,            dataB.stats.subs,            (n) => n.toLocaleString()),
+        compareRow('Active Recurring',  dataA.stats.activeRecurring, dataB.stats.activeRecurring, (n) => n.toLocaleString()),
+        compareRow('Active ARV',        dataA.stats.activeArr,       dataB.stats.activeArr,       (n) => '$' + Math.round(n).toLocaleString()),
+        compareRow('Unique Customers',  dataA.stats.uniqueCustomers, dataB.stats.uniqueCustomers, (n) => n.toLocaleString()),
+        // For cancellations, lower is better — flip the color logic so
+        // the lower-cancellation office reads as the winner (green).
+        compareRow('Cancellations',     dataA.stats.realCancels,     dataB.stats.realCancels,     (n) => n.toLocaleString(), false, 'Recurring subs only'),
+        compareRow('Cancellation Rate', dataA.stats.cancelRate,      dataB.stats.cancelRate,      (n) => n.toFixed(2) + '%', false),
+      )
+    : el('div', { class: 'flex flex-wrap gap-3' },
+        statTile('Subscriptions',     dataA.stats.subs.toLocaleString(),            dataA.stats.recurring.toLocaleString() + ' marked recurring'),
+        statTile('Active Recurring',  dataA.stats.activeRecurring.toLocaleString(), 'currently in service'),
+        statTile('Active ARV',        '$' + Math.round(dataA.stats.activeArr).toLocaleString(), 'from active recurring subs'),
+        statTile('Unique Customers',  dataA.stats.uniqueCustomers.toLocaleString(), dataA.stats.distinctServices + ' distinct services'),
+        statTile('Cancellations',     dataA.stats.realCancels.toLocaleString(),     dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only'),
+      );
+
+  // ── Charts ──────────────────────────────────────────────────────────
+  // In compare mode, build a shared color map per chart so the same
+  // service is the same color in both offices' pies. Outside compare
+  // mode the cards fall back to palette-by-index.
+  const colorMaps = inCompare ? {
+    rarr:          reportingColorMap(dataA.slices.rarr,          dataB.slices.rarr),
+    rarrOffice:    reportingColorMap(dataA.slices.rarrOffice,    dataB.slices.rarrOffice),
+    customers:     reportingColorMap(dataA.slices.customers,     dataB.slices.customers),
+    activeSubs:    reportingColorMap(dataA.slices.activeSubs,    dataB.slices.activeSubs),
+    serviced:      reportingColorMap(dataA.slices.serviced,      dataB.slices.serviced),
+    aging:         reportingColorMap(dataA.slices.aging,         dataB.slices.aging),
+    pastDueOffice: reportingColorMap(dataA.slices.pastDueOffice, dataB.slices.pastDueOffice),
+    tenure:        reportingColorMap(dataA.slices.tenure,        dataB.slices.tenure),
+    agreement:     reportingColorMap(dataA.slices.agreement,     dataB.slices.agreement),
+    cancels:       reportingColorMap(dataA.slices.cancels,       dataB.slices.cancels),
+    sources:       reportingColorMap(dataA.slices.sources,       dataB.slices.sources),
+  } : {};
+
+  // Each chart definition fired through both offices when in compare mode.
+  const chartDefs = [
+    { id: 'rarr',       title: 'Recurring Annual Value by Service', subline: 'Sum of Annual Recurring Value · active subs',           totalLabel: 'Active ARV',          formatValue: fmt.usd0, sliceKey: 'rarr' },
+    { id: 'rarrOffice', title: 'Recurring Annual Value by Office',  subline: 'Sum of Annual Recurring Value · active subs',           totalLabel: 'Active ARV',          formatValue: fmt.usd0, sliceKey: 'rarrOffice' },
+    { id: 'customers',  title: 'Active Customers',         subline: 'Distinct customers with at least one active sub',       totalLabel: 'Active customers',    sliceKey: 'customers' },
+    { id: 'activesubs', title: 'Active Subscriptions',     subline: 'Currently in service · by subscription type',           totalLabel: 'Active subs',         sliceKey: 'activeSubs' },
+    { id: 'serviced',   title: 'Serviced Revenue',         subline: 'Contract value · subs that received an initial service', totalLabel: 'Serviced revenue',    formatValue: fmt.usd0, sliceKey: 'serviced' },
+    { id: 'aging',      title: 'Receivables Aging',        subline: (d) => 'Contract value by days past due · ' + d.stats.subs.toLocaleString() + ' subs',                                                          totalLabel: 'Total contract $',     formatValue: fmt.usd0, sliceKey: 'aging', preserveOrder: true },
+    { id: 'pastdue',    title: 'Past Due Revenue by Office', subline: (d) => '$' + Math.round(d.stats.pastDueAmount).toLocaleString() + ' past due · ' + d.stats.pastDuePct.toFixed(1) + '% of book',               totalLabel: 'Past due $',           formatValue: fmt.usd0, sliceKey: 'pastDueOffice' },
+    { id: 'tenure',     title: 'Customer Tenure',          subline: 'Subs by years since initial service',                    totalLabel: 'Subs',                sliceKey: 'tenure',    preserveOrder: true },
+    { id: 'agreement',  title: 'Agreement Length Mix',     subline: 'Distribution by contract length (months)',               totalLabel: 'Subs w/ term',        sliceKey: 'agreement', preserveOrder: true },
+    { id: 'cancels',    title: 'Cancellation Reasons',     subline: 'All canceled recurring subs',                            totalLabel: 'Cancellations',       sliceKey: 'cancels' },
+    { id: 'sources',    title: 'Subscription Sources',     subline: 'Distribution of every visible subscription',             totalLabel: 'Subscriptions',       sliceKey: 'sources' },
+  ];
+
+  const makeCard = (def, data, side) => reportingPieCard({
+    key:         def.id + '-' + side,
+    title:       def.title,
+    // Subline may be a function for data-aware text (e.g., aging shows
+    // total sub count, past-due shows the past-due rate).
+    subline:     typeof def.subline === 'function' ? def.subline(data) : def.subline,
+    totalLabel:  def.totalLabel,
+    formatValue: def.formatValue,
+    slices:      data.slices[def.sliceKey],
+    officeLabel: inCompare ? officeLabel(side === 'a' ? office : compareOffice) : null,
+    colorMap:    inCompare ? colorMaps[def.sliceKey] : undefined,
+    preserveOrder: !!def.preserveOrder,
+    onSliceClick: (sliceLabel) => {
+      const drill = data.drill?.[def.sliceKey];
+      if (!drill) return;
+      const drillRows = drill.source.filter(r => drill.key(r) === sliceLabel);
+      // In compare mode, suffix the chart title with which office's rows
+      // these are so the modal makes sense out of context.
+      const chartTitle = inCompare
+        ? def.title + ' · ' + officeLabel(side === 'a' ? office : compareOffice)
+        : def.title;
+      openReportingDrillModal({
+        chartTitle,
+        sliceLabel,
+        rows: drillRows,
+        formatValue: def.formatValue,
+      });
+    },
+  });
+
+  const chartGrid = inCompare
+    ? el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } },
+        ...chartDefs.flatMap(def => [makeCard(def, dataA, 'a'), makeCard(def, dataB, 'b')]),
+      )
+    : el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' } },
+        ...chartDefs.map(def => makeCard(def, dataA, 'a')),
+      );
+
+  return el('div', { class: 'flex flex-col gap-4' },
+    filterBar,
+    statsBlock,
+    chartGrid,
+  );
+}
+
+function reportingServiceConfigPanel() {
+  // Union of every service name that appears in the config table OR
+  // the currently-loaded snapshot, so a freshly-discovered service
+  // (still being seeded server-side) shows up immediately.
+  const cfg = state.reportingServiceConfig || [];
+  const subs = state.reportingSubscriptions || [];
+  const cfgByName = new Map(cfg.map(c => [c.service_name, c]));
+  const fromData = new Set(subs.map(r => r.subscription).filter(Boolean));
+  const allNames = new Set([...cfgByName.keys(), ...fromData]);
+  const list = [...allNames].sort((a, b) => a.localeCompare(b)).map(name =>
+    cfgByName.get(name) || { service_name: name, category: '', is_recurring: false, is_hidden: false }
+  );
+
+  const updateConfig = async (name, patch) => {
+    const existing = cfgByName.get(name) || { service_name: name, category: null, is_recurring: false, is_hidden: false };
+    const next = { ...existing, ...patch, updated_by: state.profile?.id || null };
+    // Optimistic local update so toggles feel instant.
+    const idx = cfg.findIndex(c => c.service_name === name);
+    if (idx >= 0) cfg[idx] = next; else cfg.push(next);
+    if (DEMO) { saveDemoData(); return; }
+    const { error } = await supabase
+      .from('reporting_service_config')
+      .upsert(next, { onConflict: 'service_name' });
+    if (error) {
+      toast('Save failed: ' + error.message, 'error');
+      // Revert local on failure so the UI doesn't lie.
+      if (idx >= 0) cfg[idx] = existing;
+      else cfg.splice(cfg.length - 1, 1);
+      mountApp();
+    }
+  };
+
+  return el('div', { class: 'card p-4' },
+    el('div', { class: 'mb-4' },
+      el('h2', { class: 'text-lg font-bold' }, 'Service Type Configuration'),
+      el('p', { class: 'text-xs text-muted- mt-1' },
+        'Mark service types as recurring so churn, ARR, and retention only count subscriptions that should count. ' +
+        'Hidden services drop out of charts entirely.'),
+    ),
+    list.length === 0
+      ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Service types appear here after you upload a snapshot.')
+      : el('div', { class: 'overflow-hidden rounded-lg border', style: { borderColor: 'var(--border)' } },
+          el('table', { class: 'w-full text-sm' },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+              el('tr', {},
+                el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Service Type'),
+                el('th', { class: 'text-left px-2 py-2.5 font-semibold' }, 'Category'),
+                el('th', { class: 'text-center px-2 py-2.5 font-semibold', style: { width: '110px' } }, 'Recurring'),
+                el('th', { class: 'text-center pr-4 pl-2 py-2.5 font-semibold', style: { width: '110px' } }, 'Hidden'),
+              ),
+            ),
+            el('tbody', {},
+              ...list.map(c => {
+                const hiddenTag = c.is_hidden && el('span', {
+                  class: 'ml-2 inline-block text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-semibold',
+                  style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
+                }, 'Hidden');
+                const recCheckbox = el('input', {
+                  type: 'checkbox', class: 'accent-lime cursor-pointer',
+                  checked: !!c.is_recurring,
+                  onchange: (e) => updateConfig(c.service_name, { is_recurring: !!e.target.checked }),
+                });
+                const hidCheckbox = el('input', {
+                  type: 'checkbox', class: 'accent-lime cursor-pointer',
+                  checked: !!c.is_hidden,
+                  onchange: (e) => {
+                    updateConfig(c.service_name, { is_hidden: !!e.target.checked });
+                    mountApp();
+                  },
+                });
+                const catInput = el('input', {
+                  type: 'text', placeholder: '—',
+                  class: 'rounded border px-2 py-1 text-xs w-full',
+                  style: { borderColor: 'var(--border-2)', background: 'transparent', color: 'var(--text)' },
+                  value: c.category || '',
+                  onblur: (e) => {
+                    const v = e.target.value.trim();
+                    if ((c.category || '') !== v) updateConfig(c.service_name, { category: v || null });
+                  },
+                });
+                return el('tr', {
+                  class: 'border-t',
+                  style: { borderColor: 'var(--border)', opacity: c.is_hidden ? '0.55' : '1' },
+                },
+                  el('td', { class: 'pl-4 pr-2 py-2 font-medium' },
+                    el('span', {}, c.service_name),
+                    hiddenTag,
+                  ),
+                  el('td', { class: 'px-2 py-2' }, catInput),
+                  el('td', { class: 'px-2 py-2 text-center' }, recCheckbox),
+                  el('td', { class: 'pr-4 pl-2 py-2 text-center' }, hidCheckbox),
+                );
+              }),
+            ),
+          ),
+        ),
+  );
+}
+
+function reportingUploadsPanel() {
+  const uploads = state.reportingUploads || [];
+  return el('div', { class: 'card p-4' },
+    el('h2', { class: 'text-lg font-bold mb-1' }, 'Uploads'),
+    el('p', { class: 'text-xs text-muted- mb-4' },
+      'Each row is an all-time data snapshot. Pick the active snapshot from the dropdown at the top. ' +
+      'Delete removes the snapshot and all its rows.'),
+    uploads.length === 0
+      ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No uploads yet.')
+      : el('div', { class: 'overflow-hidden rounded-lg border', style: { borderColor: 'var(--border)' } },
+          el('table', { class: 'w-full text-sm' },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+              el('tr', {},
+                el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Filename'),
+                el('th', { class: 'text-left px-2 py-2.5 font-semibold' }, 'Uploaded'),
+                el('th', { class: 'text-right px-2 py-2.5 font-semibold' }, 'Rows'),
+                el('th', { class: 'text-right pr-4 pl-2 py-2.5 font-semibold', style: { width: '120px' } }, ''),
+              ),
+            ),
+            el('tbody', {},
+              ...uploads.map(u => {
+                const isActive = u.id === state.reportingActiveUploadId;
+                return el('tr', {
+                  class: 'border-t',
+                  style: { borderColor: 'var(--border)', background: isActive ? 'rgba(141,198,63,.08)' : 'transparent' },
+                },
+                  el('td', { class: 'pl-4 pr-2 py-2.5' },
+                    el('div', { class: 'font-medium' }, u.filename || '(no filename)'),
+                    isActive && el('div', {
+                      class: 'text-[10px] uppercase tracking-wider font-semibold mt-0.5',
+                      style: { color: 'var(--accent)' },
+                    }, 'Active'),
+                  ),
+                  el('td', { class: 'px-2 py-2.5 text-xs text-muted-' },
+                    u.uploaded_at ? new Date(u.uploaded_at).toLocaleString() : ''),
+                  el('td', { class: 'px-2 py-2.5 text-right tabular-nums' },
+                    (u.row_count || 0).toLocaleString()),
+                  el('td', { class: 'pr-4 pl-2 py-2.5 text-right' },
+                    el('button', {
+                      class: 'text-xs px-2.5 py-1.5 rounded-lg font-semibold transition hover:brightness-95',
+                      style: { color: '#DC2626', border: '1px solid var(--border)', background: 'transparent' },
+                      onclick: async (e) => {
+                        if (!confirm('Delete this snapshot and all its rows? This can’t be undone.')) return;
+                        e.currentTarget.disabled = true;
+                        if (DEMO) {
+                          state.reportingUploads = (state.reportingUploads || []).filter(x => x.id !== u.id);
+                          if (isActive) {
+                            state.reportingActiveUploadId = state.reportingUploads[0]?.id || null;
+                            state.reportingSubscriptions = [];
+                            state.reportingSubscriptionsLoadedFor = null;
+                          }
+                          saveDemoData();
+                          mountApp();
+                          toast('Snapshot deleted', 'success');
+                          return;
+                        }
+                        const { error } = await supabase.from('reporting_uploads').delete().eq('id', u.id);
+                        if (error) { toast('Delete failed: ' + error.message, 'error'); return; }
+                        if (isActive) {
+                          state.reportingActiveUploadId = null;
+                          state.reportingSubscriptions = [];
+                          state.reportingSubscriptionsLoadedFor = null;
+                        }
+                        await loadReportingMetadata();
+                        mountApp();
+                        toast('Snapshot deleted', 'success');
+                      },
+                    }, 'Delete'),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ),
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// REPORTING — Geographic Distribution sub-tab
+// ──────────────────────────────────────────────────────────────────────────
+// Leaflet state-level choropleth + sortable ZIP-level table. The map's
+// active metric toggles between ACV, Customer count, and Attrition rate.
+// Zip-level attrition only counts ZIPs with 10+ subs so a single cancel
+// in a tiny ZIP doesn't read as "100% attrition".
+
+// Two-letter state code lookup. The GeoJSON we use exposes full state
+// names; CSV rows use 2-letter codes. This bridges the two so the map
+// can color each polygon by the matching state's aggregate.
+const REPORTING_STATE_NAME_TO_CODE = {
+  'Alabama':'AL','Alaska':'AK','Arizona':'AZ','Arkansas':'AR','California':'CA','Colorado':'CO',
+  'Connecticut':'CT','Delaware':'DE','District of Columbia':'DC','Florida':'FL','Georgia':'GA',
+  'Hawaii':'HI','Idaho':'ID','Illinois':'IL','Indiana':'IN','Iowa':'IA','Kansas':'KS',
+  'Kentucky':'KY','Louisiana':'LA','Maine':'ME','Maryland':'MD','Massachusetts':'MA',
+  'Michigan':'MI','Minnesota':'MN','Mississippi':'MS','Missouri':'MO','Montana':'MT',
+  'Nebraska':'NE','Nevada':'NV','New Hampshire':'NH','New Jersey':'NJ','New Mexico':'NM',
+  'New York':'NY','North Carolina':'NC','North Dakota':'ND','Ohio':'OH','Oklahoma':'OK',
+  'Oregon':'OR','Pennsylvania':'PA','Rhode Island':'RI','South Carolina':'SC',
+  'South Dakota':'SD','Tennessee':'TN','Texas':'TX','Utah':'UT','Vermont':'VT',
+  'Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY',
+  'Puerto Rico':'PR',
+};
+
+// Reverse lookup: 2-letter code → full state name. Needed to build the
+// OpenDataDE ZIP GeoJSON URL (per-state files keyed on lowercase name).
+const REPORTING_STATE_CODE_TO_NAME = Object.fromEntries(
+  Object.entries(REPORTING_STATE_NAME_TO_CODE).map(([n, c]) => [c, n])
+);
+
+// 2-letter state code → 2-digit state FIPS. The national counties GeoJSON
+// (plotly geojson-counties-fips) tags every county polygon with its state
+// FIPS in properties.STATE, so we filter that big file down to one state's
+// counties by matching this code.
+const REPORTING_STATE_CODE_TO_FIPS = {
+  AL:'01', AK:'02', AZ:'04', AR:'05', CA:'06', CO:'08', CT:'09', DE:'10',
+  DC:'11', FL:'12', GA:'13', HI:'15', ID:'16', IL:'17', IN:'18', IA:'19',
+  KS:'20', KY:'21', LA:'22', ME:'23', MD:'24', MA:'25', MI:'26', MN:'27',
+  MS:'28', MO:'29', MT:'30', NE:'31', NV:'32', NH:'33', NJ:'34', NM:'35',
+  NY:'36', NC:'37', ND:'38', OH:'39', OK:'40', OR:'41', PA:'42', RI:'44',
+  SC:'45', SD:'46', TN:'47', TX:'48', UT:'49', VT:'50', VA:'51', WA:'53',
+  WV:'54', WI:'55', WY:'56', PR:'72',
+};
+
+// OpenDataDE publishes per-state ZCTA boundaries via this pattern:
+//   xx_state_name_zip_codes_geo.min.json
+// e.g. ut_utah_zip_codes_geo.min.json, ga_georgia_zip_codes_geo.min.json
+// Files are ~1-5MB each, lazy-loaded on first drill into each state.
+function reportingStateZipUrl(code) {
+  const name = REPORTING_STATE_CODE_TO_NAME[code];
+  if (!name) return null;
+  const slug = name.toLowerCase().replace(/ /g, '_');
+  // jsdelivr blocks this repo with 403 (size-based limit). Falling back
+  // to raw.githubusercontent.com — slower edge but unblocked.
+  return 'https://raw.githubusercontent.com/OpenDataDE/State-zip-code-GeoJSON/master/'
+    + code.toLowerCase() + '_' + slug + '_zip_codes_geo.min.json';
+}
+
+// Lazy-load a single state's ZIP boundaries. Cached on window so
+// re-renders (metric toggle, filter changes) don't re-fetch the same
+// 1-5MB payload.
+async function loadReportingZipGeo(stateCode) {
+  if (!stateCode) return null;
+  window._reportingZipGeoCache = window._reportingZipGeoCache || {};
+  if (window._reportingZipGeoCache[stateCode]) return window._reportingZipGeoCache[stateCode];
+  const url = reportingStateZipUrl(stateCode);
+  if (!url) return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const geo = await res.json();
+    window._reportingZipGeoCache[stateCode] = geo;
+    return geo;
+  } catch (e) {
+    console.warn('[ridd] zip GeoJSON load failed for ' + stateCode, e);
+    return null;
+  }
+}
+
+// Normalize a county name so CSV values match GeoJSON polygon names. The
+// data may carry "Salt Lake County" while the boundary file calls it
+// "Salt Lake"; punctuation and spacing also vary ("St. Louis" / "St Louis",
+// "DeKalb" / "De Kalb"). We strip the trailing descriptor word, then drop
+// everything that isn't a letter or digit so the two sides line up.
+function reportingNormCounty(name) {
+  let s = String(name == null ? '' : name).toLowerCase().trim();
+  s = s.replace(/\s+(county|parish|borough|census area|city and borough|municipality|municipio)\s*$/,'');
+  s = s.replace(/[^a-z0-9]/g, '');
+  return s;
+}
+
+// Lazy-load the national US counties boundary file (one ~3MB payload keyed
+// on 5-digit FIPS). Cached on window so drilling between states or toggling
+// the metric doesn't re-fetch. We load the whole country once and filter to
+// the active state in initReportingCountyMap rather than per-state files —
+// there's no reliable per-state county GeoJSON CDN the way there is for ZIPs.
+async function loadReportingCountyGeo() {
+  if (window._reportingCountyGeo) return window._reportingCountyGeo;
+  try {
+    const res = await fetch('https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const geo = await res.json();
+    window._reportingCountyGeo = geo;
+    return geo;
+  } catch (e) {
+    console.warn('[ridd] county GeoJSON load failed', e);
+    return null;
+  }
+}
+
+// Render a state-level ZIP choropleth. Same color logic as the country
+// map but bounded to the state's zips. Click any zip → drill modal.
+// When `highlightZip` is set, the map zooms to that zip's polygon and
+// renders it with a red border so a table-row click is mirrored in the map.
+function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, metricLabel, fmtMetric, onZipClick, highlightZip) {
+  if (typeof L === 'undefined') return;
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  if (container._leafletMap) {
+    try { container._leafletMap.remove(); } catch {}
+    container._leafletMap = null;
+  }
+  // Loading state until GeoJSON arrives.
+  container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:12px;">Loading ZIP boundaries…</div>';
+
+  const map = L.map(container, {
+    zoom: 6,
+    zoomControl: true,
+    // Scroll-wheel zoom on at state level — the user has drilled in
+    // specifically to look at zip detail, so scroll-to-zoom is what
+    // they want. (Country view keeps it off to avoid hijacking page
+    // scroll when the user is just navigating past the map.)
+    scrollWheelZoom: true,
+  });
+  container._leafletMap = map;
+  L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap, © CartoDB',
+    maxZoom: 14,
+  }).addTo(map);
+
+  // Build a quick ZIP→aggregate lookup for the state's data.
+  const byZip = new Map();
+  for (const z of zipsInState) byZip.set(String(z.zip), z);
+
+  loadReportingZipGeo(stateCode).then(geo => {
+    if (!geo) {
+      container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;gap:6px;"><div>ZIP boundary data unavailable for this state.</div><div style="font-size:11px;">Fall back to the table below for ZIP-level breakdowns.</div></div>';
+      return;
+    }
+
+    // Quintile scale across just this state's zips so the color spread
+    // is meaningful inside the state (one big zip doesn't dominate).
+    const zipMetricFor = (z) => {
+      if (!z) return null;
+      if (metricKey === 'acv')        return z.avgContract;
+      if (metricKey === 'revenue')    return z.arv;
+      if (metricKey === 'customers')  return z.customers;
+      if (metricKey === 'attrition')  return z.attritionEligible ? z.cancelRate : null;
+      return 0;
+    };
+    const colorFor = reportingQuantileScale(zipsInState.map(zipMetricFor), metricKey);
+
+    // Track the highlighted polygon so we can pop it visually and zoom
+    // to it after the geo layer is laid down.
+    let highlightedPolygon = null;
+    const normalizedTarget = highlightZip ? String(highlightZip).padStart(5, '0') : null;
+
+    const layer = L.geoJSON(geo, {
+      style: (feature) => {
+        // OpenDataDE uses ZCTA5CE10 as the 5-digit zip property name.
+        const zip = String(feature.properties.ZCTA5CE10 || feature.properties.zip || '').padStart(5, '0');
+        const z = byZip.get(zip) || byZip.get(zip.replace(/^0+/, ''));
+        const isHighlight = normalizedTarget && zip === normalizedTarget;
+        const v = zipMetricFor(z);
+        return {
+          fillColor: colorFor(v),
+          fillOpacity: isHighlight ? 0.95 : (z ? 0.85 : 0.15),
+          color: isHighlight ? '#DC2626' : '#6B7280',
+          weight: isHighlight ? 3 : 0.4,
+        };
+      },
+      onEachFeature: (feature, layerObj) => {
+        const zip = String(feature.properties.ZCTA5CE10 || feature.properties.zip || '').padStart(5, '0');
+        const z = byZip.get(zip) || byZip.get(zip.replace(/^0+/, ''));
+        const isHighlight = normalizedTarget && zip === normalizedTarget;
+        if (isHighlight) highlightedPolygon = layerObj;
+        if (!z) {
+          layerObj.bindTooltip('ZIP ' + zip + '<br><i>No data in current filter</i>', { sticky: true });
+          return;
+        }
+        const v = zipMetricFor(z);
+        const display = v == null ? '< 10 subs' : fmtMetric(v);
+        const tooltipHtml = '<b>ZIP ' + zip + '</b><br>'
+          + metricLabel + ': ' + display + '<br>'
+          + z.subs + ' subs · ' + z.customers + ' customers';
+        layerObj.bindTooltip(tooltipHtml, { sticky: true });
+        layerObj.on('click', () => onZipClick(z));
+        // Mouseover / mouseout reset to the default border. Skip the
+        // reset for the highlighted polygon so the red ring stays
+        // visible even after the user mouses over it.
+        layerObj.on('mouseover', (e) => {
+          if (!isHighlight) e.target.setStyle({ weight: 2, color: '#1d1d1d' });
+        });
+        layerObj.on('mouseout',  (e) => {
+          if (!isHighlight) e.target.setStyle({ weight: 0.4, color: '#6B7280' });
+        });
+      },
+    }).addTo(map);
+    if (highlightedPolygon) {
+      try {
+        map.fitBounds(highlightedPolygon.getBounds(), { padding: [60, 60], maxZoom: 12 });
+        highlightedPolygon.bringToFront();
+        highlightedPolygon.openTooltip();
+      } catch {}
+    } else {
+      try { map.fitBounds(layer.getBounds(), { padding: [20, 20] }); } catch {}
+    }
+  });
+}
+
+// Render a state-level COUNTY choropleth — the county-mode sibling of
+// initReportingZipMap. Same color logic and drill behavior; the only real
+// difference is the boundary source (one national file filtered to this
+// state by FIPS) and that polygons match data by normalized county name
+// rather than ZIP code. When `highlightCounty` is set, that county's
+// polygon gets a red ring and the map zooms to it.
+function initReportingCountyMap(containerId, stateCode, countiesInState, metricKey, metricLabel, fmtMetric, onCountyClick, highlightCounty) {
+  if (typeof L === 'undefined') return;
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  if (container._leafletMap) {
+    try { container._leafletMap.remove(); } catch {}
+    container._leafletMap = null;
+  }
+  container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:12px;">Loading county boundaries…</div>';
+
+  const map = L.map(container, {
+    zoom: 6,
+    zoomControl: true,
+    scrollWheelZoom: true,
+  });
+  container._leafletMap = map;
+  L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap, © CartoDB',
+    maxZoom: 14,
+  }).addTo(map);
+
+  // Normalized county name → aggregate, for this state only.
+  const byCounty = new Map();
+  for (const c of countiesInState) byCounty.set(reportingNormCounty(c.county), c);
+
+  const stateFips = REPORTING_STATE_CODE_TO_FIPS[stateCode];
+
+  loadReportingCountyGeo().then(geo => {
+    if (!geo || !geo.features) {
+      container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;gap:6px;"><div>County boundary data unavailable.</div><div style="font-size:11px;">Fall back to the table below for county-level breakdowns.</div></div>';
+      return;
+    }
+
+    // Filter the national file down to this state's counties so the layer
+    // is small and name collisions across states can't happen.
+    const featureState = (f) => (f.properties && f.properties.STATE) || String(f.id || '').slice(0, 2);
+    const stateFeatures = stateFips
+      ? geo.features.filter(f => featureState(f) === stateFips)
+      : geo.features;
+    const fc = { type: 'FeatureCollection', features: stateFeatures };
+
+    const countyMetricFor = (c) => {
+      if (!c) return null;
+      if (metricKey === 'acv')        return c.avgContract;
+      if (metricKey === 'revenue')    return c.arv;
+      if (metricKey === 'customers')  return c.customers;
+      if (metricKey === 'attrition')  return c.attritionEligible ? c.cancelRate : null;
+      return 0;
+    };
+    const colorFor = reportingQuantileScale(countiesInState.map(countyMetricFor), metricKey);
+
+    let highlightedPolygon = null;
+    const normalizedTarget = highlightCounty ? reportingNormCounty(highlightCounty) : null;
+
+    const layer = L.geoJSON(fc, {
+      style: (feature) => {
+        const c = byCounty.get(reportingNormCounty(feature.properties.NAME));
+        const isHighlight = normalizedTarget && reportingNormCounty(feature.properties.NAME) === normalizedTarget;
+        const v = countyMetricFor(c);
+        return {
+          fillColor: colorFor(v),
+          fillOpacity: isHighlight ? 0.95 : (c ? 0.85 : 0.15),
+          color: isHighlight ? '#DC2626' : '#6B7280',
+          weight: isHighlight ? 3 : 0.4,
+        };
+      },
+      onEachFeature: (feature, layerObj) => {
+        const name = feature.properties.NAME || 'County';
+        const norm = reportingNormCounty(name);
+        const c = byCounty.get(norm);
+        const isHighlight = normalizedTarget && norm === normalizedTarget;
+        if (isHighlight) highlightedPolygon = layerObj;
+        if (!c) {
+          layerObj.bindTooltip('<b>' + name + ' County</b><br><i>No data in current filter</i>', { sticky: true });
+          return;
+        }
+        const v = countyMetricFor(c);
+        const display = v == null ? '< 10 subs' : fmtMetric(v);
+        const tooltipHtml = '<b>' + name + ' County</b><br>'
+          + metricLabel + ': ' + display + '<br>'
+          + c.subs + ' subs · ' + c.customers + ' customers';
+        layerObj.bindTooltip(tooltipHtml, { sticky: true });
+        layerObj.on('click', () => onCountyClick(c));
+        layerObj.on('mouseover', (e) => {
+          if (!isHighlight) e.target.setStyle({ weight: 2, color: '#1d1d1d' });
+        });
+        layerObj.on('mouseout',  (e) => {
+          if (!isHighlight) e.target.setStyle({ weight: 0.4, color: '#6B7280' });
+        });
+      },
+    }).addTo(map);
+    if (highlightedPolygon) {
+      try {
+        map.fitBounds(highlightedPolygon.getBounds(), { padding: [60, 60], maxZoom: 11 });
+        highlightedPolygon.bringToFront();
+        highlightedPolygon.openTooltip();
+      } catch {}
+    } else {
+      try { map.fitBounds(layer.getBounds(), { padding: [20, 20] }); } catch {}
+    }
+  });
+}
+
+// Lazy-load US state boundaries GeoJSON from a public CDN. Cached on the
+// window so subsequent renders don't re-fetch. Returns null on failure
+// so the map can fall back to "data unavailable" messaging.
+async function loadReportingStatesGeo() {
+  if (window._reportingStatesGeo) return window._reportingStatesGeo;
+  try {
+    const res = await fetch('https://cdn.jsdelivr.net/gh/PublicaMundi/MappingAPI@master/data/geojson/us-states.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const geo = await res.json();
+    window._reportingStatesGeo = geo;
+    return geo;
+  } catch (e) {
+    console.warn('[ridd] state GeoJSON load failed', e);
+    return null;
+  }
+}
+
+// Aggregate scope rows into per-state and per-zip records. Both are
+// computed in one pass so the metric toggle can switch instantly without
+// recomputing the raw aggregates.
+function reportingGeoAggregate(rows) {
+  const ATTRITION_MIN_SUBS = 10;
+
+  const seed = () => ({
+    subs: 0,
+    customers: new Set(),
+    contract: 0,
+    arv: 0,
+    cancellations: 0,
+    active: 0,
+    rows: [],
+    state: null,
+  });
+
+  const byState = new Map();
+  // ZIP buckets are keyed on state+zip so two customers in different
+  // states that share a zip code (or both have an empty zip that would
+  // collapse to 'Unknown') don't get merged into a single bucket where
+  // the first state wins.
+  const byZip   = new Map();
+  // County buckets are likewise keyed on state+county — county names are
+  // not unique across states (every state has a Washington County).
+  const byCounty = new Map();
+  for (const r of rows) {
+    const st     = r.state    || 'Unknown';
+    const zip    = r.zip_code || 'Unknown';
+    const county = r.county   || 'Unknown';
+    const zipKey    = st + '|' + zip;
+    const countyKey = st + '|' + county;
+    if (!byState.has(st))           byState.set(st, seed());
+    if (!byZip.has(zipKey))         byZip.set(zipKey, seed());
+    if (!byCounty.has(countyKey))   byCounty.set(countyKey, seed());
+    for (const m of [byState.get(st), byZip.get(zipKey), byCounty.get(countyKey)]) {
+      m.subs += 1;
+      if (r.customer_id) m.customers.add(r.customer_id);
+      m.contract += Number(r.subscription_contract_value) || 0;
+      m.arv      += Number(r.annual_recurring_value) || 0;
+      if (r.subscription_date_canceled) m.cancellations += 1;
+      // Active = currently in service: status says active AND no cancel
+      // date (matches isActive() in reportingFilters).
+      if ((r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled) m.active += 1;
+      m.rows.push(r);
+    }
+    // Stamp the bucket's display state + zip on first sight (constant
+    // across all members of the bucket).
+    const zb = byZip.get(zipKey);
+    if (!zb.state) zb.state = st;
+    if (!zb.zip)   zb.zip = zip;
+    const cb = byCounty.get(countyKey);
+    if (!cb.state)  cb.state = st;
+    if (!cb.county) cb.county = county;
+  }
+
+  const finalize = (m) => ({
+    subs: m.subs,
+    customers: m.customers.size,
+    contract: m.contract,
+    arv: m.arv,
+    cancellations: m.cancellations,
+    active: m.active,
+    avgContract: m.subs > 0 ? m.contract / m.subs : 0,
+    cancelRate:  m.subs > 0 ? m.cancellations / m.subs : 0,
+    rows: m.rows,
+  });
+
+  const states = {};
+  for (const [k, v] of byState.entries()) states[k] = finalize(v);
+
+  const zips = [];
+  for (const m of byZip.values()) {
+    const f = finalize(m);
+    // m.zip is the original CSV zip_code value (or 'Unknown' fallback)
+    // — NOT the state|zip bucket key we built above for grouping.
+    zips.push({ zip: m.zip, state: m.state, ...f, attritionEligible: f.subs >= ATTRITION_MIN_SUBS });
+  }
+
+  const counties = [];
+  for (const m of byCounty.values()) {
+    const f = finalize(m);
+    counties.push({ county: m.county, state: m.state, ...f, attritionEligible: f.subs >= ATTRITION_MIN_SUBS });
+  }
+
+  return { states, zips, counties, attritionMinSubs: ATTRITION_MIN_SUBS };
+}
+
+// Build a 5-bin quantile color scale that's resilient to outliers.
+//
+// Linear v/max scaling is fragile: one dominant state (or one giant ZIP)
+// pushes everyone else to the lightest color and you lose the spread.
+// Here we:
+//   1. Cap the scale at the 95th percentile of non-zero values so a few
+//      extreme outliers don't compress the rest of the data.
+//   2. Bin values into 5 equal-population buckets WITHIN that capped
+//      range, giving each tier a distinct color step.
+//
+// Returns a function value → CSS color. Attrition gets a red palette
+// (higher = worse); other metrics get the brand green (higher = more
+// activity).
+function reportingQuantileScale(values, metricKey) {
+  const NO_DATA = '#F3F4F6';
+  const palette = metricKey === 'attrition'
+    ? ['rgba(220,38,38,0.18)', 'rgba(220,38,38,0.36)', 'rgba(220,38,38,0.56)', 'rgba(220,38,38,0.76)', 'rgba(220,38,38,0.95)']
+    : ['rgba(141,198,63,0.22)', 'rgba(141,198,63,0.42)', 'rgba(141,198,63,0.62)', 'rgba(141,198,63,0.80)', 'rgba(141,198,63,0.95)'];
+
+  const sorted = (values || [])
+    .filter(v => v != null && Number.isFinite(v) && v > 0)
+    .sort((a, b) => a - b);
+
+  if (sorted.length === 0) return (v) => NO_DATA;
+
+  // p95 cap: largest value at or below the 95th percentile. With fewer
+  // than 20 data points, just use the actual max so we don't pretend
+  // there's outlier-clipping happening when there isn't.
+  const cap = sorted.length >= 20
+    ? sorted[Math.floor(sorted.length * 0.95)]
+    : sorted[sorted.length - 1];
+
+  // Quintile boundaries computed across the in-range subset only.
+  const inRange = sorted.filter(v => v <= cap);
+  const N = 5;
+  const thresholds = [];
+  for (let i = 1; i < N; i++) {
+    const idx = Math.min(inRange.length - 1, Math.floor(inRange.length * (i / N)));
+    thresholds.push(inRange[idx]);
+  }
+
+  return (v) => {
+    if (v == null || !Number.isFinite(v) || v <= 0) return NO_DATA;
+    if (v >= cap) return palette[N - 1]; // outliers all share the top color
+    for (let i = 0; i < thresholds.length; i++) {
+      if (v <= thresholds[i]) return palette[i];
+    }
+    return palette[N - 1];
+  };
+}
+
+// Render the Leaflet choropleth into the given container. Destroys any
+// previous instance so the map re-paints cleanly when the metric or
+// scope changes.
+function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMetric, onStateClick) {
+  if (typeof L === 'undefined') return; // Leaflet still loading; we'll re-init on next render
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  // Tear down any prior map instance bound to this DOM element. Leaflet
+  // hangs on to the container otherwise and the next init throws.
+  if (container._leafletMap) {
+    try { container._leafletMap.remove(); } catch {}
+    container._leafletMap = null;
+  }
+
+  const map = L.map(container, {
+    center: [37.8, -96],
+    zoom: 4,
+    zoomControl: true,
+    scrollWheelZoom: false, // avoid hijacking page scroll
+  });
+  container._leafletMap = map;
+
+  L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap, © CartoDB',
+    maxZoom: 10,
+  }).addTo(map);
+
+  loadReportingStatesGeo().then(geo => {
+    if (!geo) return;
+
+    // Quintile color scale across every state's metric value. The scale
+    // caps at the 95th percentile so a single outlier state doesn't
+    // wash out the spread for everyone else.
+    const metricFor = (s) => {
+      if (!s) return null;
+      if (metricKey === 'acv')        return s.avgContract;
+      if (metricKey === 'revenue')    return s.arv;
+      if (metricKey === 'customers')  return s.customers;
+      if (metricKey === 'attrition')  return s.subs >= 10 ? s.cancelRate : null;
+      return 0;
+    };
+    const allValues = Object.keys(states).map(code => metricFor(states[code]));
+    const colorFor = reportingQuantileScale(allValues, metricKey);
+
+    L.geoJSON(geo, {
+      style: (feature) => {
+        const name = feature.properties.name;
+        const code = REPORTING_STATE_NAME_TO_CODE[name];
+        const s = code ? states[code] : null;
+        const v = metricFor(s);
+        return {
+          fillColor: colorFor(v),
+          fillOpacity: 0.85,
+          color: '#6B7280',
+          weight: 0.8,
+        };
+      },
+      onEachFeature: (feature, layer) => {
+        const name = feature.properties.name;
+        const code = REPORTING_STATE_NAME_TO_CODE[name];
+        const s = code ? states[code] : null;
+        const v = metricFor(s);
+        const display = v == null ? 'No data' : fmtMetric(v);
+        const subsLine = s ? '<br>' + s.subs.toLocaleString() + ' subs · ' + s.customers.toLocaleString() + ' customers' : '';
+        layer.bindTooltip('<b>' + name + '</b><br>' + metricLabel + ': ' + display + subsLine, { sticky: true });
+        layer.on('click', () => {
+          if (s && onStateClick) onStateClick(code, name);
+        });
+        layer.on('mouseover', (e) => e.target.setStyle({ weight: 2, color: '#1d1d1d' }));
+        layer.on('mouseout',  (e) => e.target.setStyle({ weight: 0.8, color: '#6B7280' }));
+      },
+    }).addTo(map);
+  });
+}
+
+// Export the current Geographic breakdown as a CSV — the rows match exactly
+// what the breakdown table shows (active office/date filter + sort order),
+// so at the default country view this is the full company-wide list of ZIPs
+// with an account count per ZIP, ready to hand to a lead provider. `kind` is
+// 'zip' | 'county'; `scopeTag` labels the file ('all' at country level, the
+// state code when drilled in).
+function exportReportingGeoCsv(items, kind, scopeTag) {
+  if (!items || !items.length) { toast('Nothing to export', 'warn'); return; }
+  const firstCol = kind === 'county' ? 'county' : 'zip';
+  const headers = [firstCol, 'state', 'accounts', 'subscriptions', 'avg_contract_value', 'total_arv', 'active_subscriptions', 'cancellations', 'attrition_pct'];
+  const lines = [headers.join(',')];
+  for (const it of items) {
+    lines.push([
+      csvEsc(kind === 'county' ? (it.county || 'Unknown') : it.zip),
+      csvEsc(it.state || ''),
+      it.customers,
+      it.subs,
+      Math.round(it.avgContract),
+      Math.round(it.arv),
+      it.active,
+      it.cancellations,
+      // Mirror the table: attrition is only meaningful with 10+ subs, so
+      // leave it blank below the floor rather than print a noisy rate.
+      it.attritionEligible ? (it.cancelRate * 100).toFixed(1) : '',
+    ].join(','));
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const date = new Date().toISOString().slice(0, 10);
+  const a = el('a', { href: url, download: 'ridd-accounts-by-' + firstCol + '-' + scopeTag + '-' + date + '.csv' });
+  document.body.append(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  toast('Exported ' + items.length.toLocaleString() + ' ' + (kind === 'county' ? 'counties' : 'ZIPs'), 'success');
+}
+
+function reportingGeographic() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+  const scope = reportingScope();
+  const { scopeA, inCompare, office, officeLabel } = scope;
+  const filterBar = reportingFilterBar(scope);
+
+  // Geographic tab ignores compare-mode for now (a single map is hard
+  // enough to read). Show a hint if the user is in compare mode.
+  const compareNotice = inCompare ? el('div', {
+    class: 'card p-3 text-xs',
+    style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
+  }, 'Compare mode is paused on the map — showing data for Office A (' + officeLabel(office) + ') only. Exit compare to use the office filter normally.') : null;
+
+  const agg = reportingGeoAggregate(scopeA);
+
+  // Metric toggle — drives map color + table emphasis.
+  const metricKey = state.reportingGeoMetric || 'acv';
+  const metrics = [
+    { key: 'acv',          label: 'ACV',            fmt: (v) => '$' + Math.round(v).toLocaleString() },
+    { key: 'revenue',      label: 'Revenue',        fmt: (v) => '$' + Math.round(v).toLocaleString() },
+    { key: 'customers',    label: 'Customers',      fmt: (v) => Math.round(v).toLocaleString() },
+    { key: 'attrition',    label: 'Attrition Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
+  ];
+  const activeMetric = metrics.find(m => m.key === metricKey) || metrics[0];
+
+  const metricToggle = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Map metric'),
+    ...metrics.map(m => {
+      const active = m.key === metricKey;
+      return el('button', {
+        class: 'px-3 py-1.5 rounded-lg text-xs font-semibold transition hover:brightness-95',
+        style: active
+          ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+          : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
+        onclick: () => { state.reportingGeoMetric = m.key; mountApp(); },
+      }, m.label);
+    }),
+    el('div', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } },
+      metricKey === 'attrition' ? 'Attrition uses 10+ sub floor per ZIP' : ''),
+  );
+
+  // Map container. A stable ID lets initReportingGeoMap tear down the
+  // previous Leaflet instance before rebuilding on re-render.
+  const mapId = 'reporting-geo-map';
+  const mapEl = el('div', {
+    id: mapId,
+    style: { width: '100%', height: '500px', borderRadius: '12px', overflow: 'hidden' },
+  });
+
+  const mapLevel = state.reportingMapLevel || 'country';
+  const drilledState = state.reportingMapState;
+  const drilledStateName = drilledState ? REPORTING_STATE_CODE_TO_NAME[drilledState] : null;
+  // Within-state breakdown granularity. Only meaningful once drilled into a
+  // state — the country view is always the state choropleth, so we pin it to
+  // 'zip' there to keep the table in its original all-ZIPs form.
+  const drillBy = (mapLevel === 'state' && drilledState) ? (state.reportingDrillBy || 'zip') : 'zip';
+
+  // Country-level click → drill into that state. State-level click on a
+  // ZIP polygon → open the per-customer drill modal.
+  const onStateClick = (code) => {
+    state.reportingMapLevel = 'state';
+    state.reportingMapState = code;
+    // Drop any stale highlight from a prior state so the new map
+    // fits the whole state instead of an irrelevant ZIP.
+    state.reportingHighlightedZip = null;
+    mountApp();
+  };
+  const onZipClick = (z) => {
+    openReportingDrillModal({
+      chartTitle: 'ZIP ' + z.zip + ' · ' + (z.state || ''),
+      sliceLabel: z.zip,
+      rows: z.rows,
+      formatValue: fmt.usd0,
+    });
+  };
+  const onCountyClick = (c) => {
+    openReportingDrillModal({
+      chartTitle: (c.county || 'Unknown') + ' County · ' + (c.state || ''),
+      sliceLabel: c.county || 'Unknown',
+      rows: c.rows,
+      formatValue: fmt.usd0,
+    });
+  };
+
+  // Defer map init so the canvas is in the DOM. Re-tries every 200ms
+  // (up to 1s) in case Leaflet's deferred script hasn't loaded yet.
+  let attempt = 0;
+  const tryInit = () => {
+    if (typeof L === 'undefined') {
+      if (attempt++ < 10) setTimeout(tryInit, 200);
+      return;
+    }
+    if (mapLevel === 'state' && drilledState) {
+      if (drillBy === 'county') {
+        const countiesInState = agg.counties.filter(c => c.state === drilledState);
+        initReportingCountyMap(
+          mapId, drilledState, countiesInState,
+          metricKey, activeMetric.label, activeMetric.fmt,
+          onCountyClick,
+          state.reportingHighlightedCounty,
+        );
+      } else {
+        const zipsInState = agg.zips.filter(z => z.state === drilledState);
+        initReportingZipMap(
+          mapId, drilledState, zipsInState,
+          metricKey, activeMetric.label, activeMetric.fmt,
+          onZipClick,
+          state.reportingHighlightedZip,
+        );
+      }
+    } else {
+      initReportingGeoMap(mapId, agg.states, metricKey, activeMetric.label, activeMetric.fmt, onStateClick);
+    }
+  };
+  setTimeout(tryInit, 50);
+
+  // Breadcrumb / back button — only visible when drilled into a state.
+  // Also includes a "View all customers" shortcut so the user can pull
+  // up the per-customer drill modal without first finding the right ZIP
+  // on the map. Especially useful for states with only 1-2 subs where
+  // the zip-level map is overkill.
+  const stateSubsForBreadcrumb = mapLevel === 'state' && drilledState
+    ? scopeA.filter(r => (r.state || '') === drilledState)
+    : [];
+  const zipsInDrilledState = mapLevel === 'state' && drilledState
+    ? agg.zips.filter(z => z.state === drilledState)
+    : [];
+  const countiesInDrilledState = mapLevel === 'state' && drilledState
+    ? agg.counties.filter(c => c.state === drilledState)
+    : [];
+
+  // Segmented By ZIP / By County toggle — only sensible once drilled into a
+  // state, where it swaps both the map and the breakdown table below.
+  const drillToggle = el('div', {
+    class: 'flex items-center gap-0.5 rounded-lg p-0.5',
+    style: { background: 'var(--card-2)', border: '1px solid var(--border)' },
+  },
+    ...[['zip', 'By ZIP'], ['county', 'By County']].map(([key, label]) => {
+      const active = drillBy === key;
+      return el('button', {
+        class: 'px-3 py-1 rounded-md text-xs font-semibold transition hover:brightness-95',
+        style: active
+          ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+          : { background: 'transparent', color: 'var(--text-muted)' },
+        onclick: () => {
+          if ((state.reportingDrillBy || 'zip') === key) return;
+          state.reportingDrillBy = key;
+          // Drop both highlights so the freshly shown map fits the whole
+          // state instead of zooming to a stale selection from the other mode.
+          state.reportingHighlightedZip = null;
+          state.reportingHighlightedCounty = null;
+          mountApp();
+        },
+      }, label);
+    }),
+  );
+
+  const breadcrumbUnitCount = drillBy === 'county' ? countiesInDrilledState.length : zipsInDrilledState.length;
+  const breadcrumbUnitLabel = drillBy === 'county'
+    ? (breadcrumbUnitCount === 1 ? ' county' : ' counties')
+    : (' ZIP' + (breadcrumbUnitCount === 1 ? '' : 's'));
+  const breadcrumb = mapLevel === 'state' && drilledState
+    ? el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' },
+        el('button', {
+          class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          onclick: () => {
+            state.reportingMapLevel = 'country';
+            state.reportingMapState = null;
+            state.reportingHighlightedZip = null;
+            state.reportingHighlightedCounty = null;
+            mountApp();
+          },
+        }, '← Back to USA'),
+        el('div', { class: 'text-xs flex-1', style: { color: 'var(--text-muted)', minWidth: '160px' } },
+          el('span', { style: { color: 'var(--text-subtle)' } }, 'Viewing '),
+          el('span', { class: 'font-semibold', style: { color: 'var(--text)' } }, drilledStateName || drilledState),
+          el('span', { style: { color: 'var(--text-subtle)' } },
+            ' · ' + breadcrumbUnitCount.toLocaleString() + breadcrumbUnitLabel
+            + ' · ' + stateSubsForBreadcrumb.length.toLocaleString() + ' sub'
+            + (stateSubsForBreadcrumb.length === 1 ? '' : 's')),
+        ),
+        drillToggle,
+        stateSubsForBreadcrumb.length > 0 && el('button', {
+          class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+          style: { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border)' },
+          onclick: () => openReportingDrillModal({
+            chartTitle: drilledStateName || drilledState,
+            sliceLabel: 'All customers',
+            rows: stateSubsForBreadcrumb,
+            formatValue: fmt.usd0,
+          }),
+        }, 'View all ' + stateSubsForBreadcrumb.length.toLocaleString() + ' sub'
+           + (stateSubsForBreadcrumb.length === 1 ? '' : 's')),
+      )
+    : null;
+
+  // ── Breakdown table ─────────────────────────────────────────────────
+  // Mode-aware: county rows when drilled into a state with By County
+  // selected, otherwise ZIP rows. Scoped to the drilled state at state
+  // level so the table and map agree on what's being shown.
+  const breakdown = drillBy === 'county'
+    ? {
+        labelCol: 'County', labelKey: 'county',
+        title: 'County-level breakdown', nounPlural: 'counties',
+        items: countiesInDrilledState,
+        cellLabel: (it) => it.county || 'Unknown',
+        drillTitle: (it) => (it.county || 'Unknown') + ' County · ' + (it.state || ''),
+        applyHighlight: (it) => {
+          state.reportingDrillBy = 'county';
+          state.reportingHighlightedCounty = it.county;
+          state.reportingHighlightedZip = null;
+        },
+      }
+    : {
+        labelCol: 'ZIP', labelKey: 'zip',
+        title: 'ZIP-level breakdown', nounPlural: 'ZIPs',
+        items: (mapLevel === 'state' && drilledState) ? zipsInDrilledState : agg.zips,
+        cellLabel: (it) => it.zip,
+        drillTitle: (it) => 'ZIP ' + it.zip + ' · ' + (it.state || ''),
+        applyHighlight: (it) => {
+          state.reportingDrillBy = 'zip';
+          state.reportingHighlightedZip = it.zip;
+          state.reportingHighlightedCounty = null;
+        },
+      };
+
+  let sortKey = state.reportingZipSort || 'subs';
+  const sortDir = state.reportingZipSortDir || 'desc';
+  // If the active sort column is the *other* mode's label column, fall back
+  // to subs — sorting county rows by a missing 'zip' field (or vice versa)
+  // would silently render an unsorted table.
+  if ((sortKey === 'zip' || sortKey === 'county') && sortKey !== breakdown.labelKey) sortKey = 'subs';
+  const sortedItems = [...breakdown.items].sort((a, b) => {
+    const av = a[sortKey];
+    const bv = b[sortKey];
+    if (av === bv) return 0;
+    return (sortDir === 'asc' ? 1 : -1) * (av < bv ? -1 : 1);
+  });
+
+  const tableHeader = (label, key, alignRight) => {
+    const isActive = sortKey === key;
+    return el('th', {
+      class: 'px-3 py-2 font-semibold cursor-pointer select-none' + (alignRight ? ' text-right' : ' text-left'),
+      style: { background: 'var(--card-2)' },
+      onclick: () => {
+        if (state.reportingZipSort === key) {
+          state.reportingZipSortDir = state.reportingZipSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          state.reportingZipSort = key;
+          state.reportingZipSortDir = 'desc';
+        }
+        mountApp();
+      },
+    }, label + (isActive ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''));
+  };
+
+  const fmtPctTable = (z) => {
+    if (!z.attritionEligible) {
+      return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '< 10 subs');
+    }
+    return el('span', {}, (z.cancelRate * 100).toFixed(1) + '%');
+  };
+
+  const exportScopeTag = (mapLevel === 'state' && drilledState) ? drilledState : 'all';
+  const breakdownTable = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'p-4 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'min-w-0' },
+        el('h2', { class: 'text-lg font-bold' }, breakdown.title),
+        el('p', { class: 'text-xs text-muted- mt-0.5' },
+          sortedItems.length.toLocaleString() + ' distinct ' + breakdown.nounPlural + ' · click a column to sort · click a row to drill into its subs'),
+      ),
+      el('button', {
+        class: 'shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        title: 'Download these ' + breakdown.nounPlural + ' as a CSV (account counts per ' + (breakdown.labelKey === 'county' ? 'county' : 'ZIP') + ')',
+        onclick: () => exportReportingGeoCsv(sortedItems, breakdown.labelKey, exportScopeTag),
+      }, '⬇ Export CSV'),
+    ),
+    el('div', { class: 'overflow-x-auto', style: { maxHeight: '500px' } },
+      el('table', { class: 'w-full text-xs' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+          el('tr', {},
+            tableHeader(breakdown.labelCol, breakdown.labelKey),
+            tableHeader('State',       'state'),
+            tableHeader('Customers',   'customers',  true),
+            tableHeader('Subs',        'subs',       true),
+            tableHeader('ACV',         'avgContract', true),
+            tableHeader('Total ARV',   'arv',         true),
+            tableHeader('Cancels',     'cancellations', true),
+            tableHeader('Attrition %', 'cancelRate',  true),
+          ),
+        ),
+        el('tbody', {},
+          ...sortedItems.map(it => el('tr', {
+            class: 'border-t cursor-pointer hover:brightness-95 transition tabular-nums',
+            style: { borderColor: 'var(--border)' },
+            // Row click does three things in order:
+            //   1. Drill the map to the row's state (if not already)
+            //   2. Highlight that row's polygon (ZIP or county) + zoom to it
+            //   3. Open the customer drill modal
+            // Re-renders the tab before opening the modal so the map
+            // updates underneath are visible when the user closes it.
+            onclick: () => {
+              if (it.state) {
+                state.reportingMapLevel = 'state';
+                state.reportingMapState = it.state;
+              }
+              breakdown.applyHighlight(it);
+              mountApp();
+              openReportingDrillModal({
+                chartTitle: breakdown.drillTitle(it),
+                sliceLabel: breakdown.cellLabel(it),
+                rows: it.rows,
+                formatValue: fmt.usd0,
+              });
+            },
+          },
+            el('td', { class: 'px-3 py-2 font-semibold' }, breakdown.cellLabel(it)),
+            el('td', { class: 'px-3 py-2' }, it.state || '—'),
+            el('td', { class: 'px-3 py-2 text-right' }, it.customers.toLocaleString()),
+            el('td', { class: 'px-3 py-2 text-right' }, it.subs.toLocaleString()),
+            el('td', { class: 'px-3 py-2 text-right' }, '$' + Math.round(it.avgContract).toLocaleString()),
+            el('td', { class: 'px-3 py-2 text-right' }, '$' + Math.round(it.arv).toLocaleString()),
+            el('td', { class: 'px-3 py-2 text-right' }, it.cancellations.toLocaleString()),
+            el('td', { class: 'px-3 py-2 text-right' }, fmtPctTable(it)),
+          )),
+        ),
+      ),
+    ),
+  );
+
+  return el('div', { class: 'flex flex-col gap-4' },
+    filterBar,
+    compareNotice,
+    metricToggle,
+    breadcrumb,
+    el('div', { class: 'card overflow-hidden' }, mapEl),
+    breakdownTable,
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// REPORTING — Rep Performance sub-tab
+// ──────────────────────────────────────────────────────────────────────────
+// Top-rep leaderboard with sub count, ARV, contract value, avg contract,
+// plus pies for Revenue by Rep Type and Subs by Rep. Each row in the
+// table opens a drill modal scoped to that rep.
+function reportingRepPerformance() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+  const scope = reportingScope();
+  const { scopeA, scopeB, inCompare, office, compareOffice, officeLabel } = scope;
+  const filterBar = reportingFilterBar(scope);
+
+  const compute = (rows) => {
+    const repMap = new Map();
+    for (const r of rows) {
+      const rep = r.sold_by || 'Unknown';
+      if (!repMap.has(rep)) repMap.set(rep, { name: rep, type: r.sold_by_type || '', offices: new Set(), subs: 0, activeSubs: 0, arv: 0, activeArv: 0, contract: 0 });
+      const m = repMap.get(rep);
+      if (r.office_name) m.offices.add(r.office_name);
+      m.subs += 1;
+      const arv = Number(r.annual_recurring_value) || 0;
+      m.arv += arv;
+      m.contract += Number(r.subscription_contract_value) || 0;
+      const isActive = (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
+      if (isActive) { m.activeSubs += 1; m.activeArv += arv; }
+    }
+    const reps = [...repMap.values()].sort((a, b) => b.arv - a.arv);
+    return { reps };
+  };
+
+  const dataA = compute(scopeA);
+  const dataB = inCompare ? compute(scopeB) : null;
+
+  const buildLeaderboard = (data, source, side) => {
+    const top = data.reps.slice(0, 20);
+    const sideLabel = inCompare ? officeLabel(side === 'a' ? office : compareOffice) : null;
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'p-4 border-b', style: { borderColor: 'var(--border)' } },
+        sideLabel && el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--accent)' } }, sideLabel),
+        el('h2', { class: 'text-lg font-bold' }, 'Top Reps by ARV'),
+        el('p', { class: 'text-xs text-muted- mt-0.5' }, 'Click a row to see that rep’s subs'),
+      ),
+      el('div', { class: 'overflow-x-auto' },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+            el('tr', {},
+              el('th', { class: 'text-left px-3 py-2 font-semibold w-8' }, '#'),
+              el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Rep'),
+              el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Type'),
+              el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Office'),
+              el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Subs Serviced'),
+              el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Subs Active'),
+              el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Rev Serviced'),
+              el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Rev Active'),
+              el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'ACV'),
+            ),
+          ),
+          el('tbody', {},
+            ...top.map((r, i) => el('tr', {
+              class: 'border-t cursor-pointer hover:brightness-95 transition',
+              style: { borderColor: 'var(--border)' },
+              onclick: () => openReportingDrillModal({
+                chartTitle: inCompare ? 'Rep Performance · ' + (sideLabel || '') : 'Rep Performance',
+                sliceLabel: r.name,
+                rows: source.filter(row => (row.sold_by || 'Unknown') === r.name),
+                formatValue: fmt.usd0,
+              }),
+            },
+              el('td', { class: 'px-3 py-2 text-muted- tabular-nums' }, '#' + (i + 1)),
+              el('td', { class: 'px-3 py-2 font-medium' }, r.name),
+              el('td', { class: 'px-3 py-2 text-muted-' }, r.type || '—'),
+              el('td', { class: 'px-3 py-2 text-muted-' }, [...r.offices].join(', ') || '—'),
+              el('td', { class: 'px-3 py-2 text-right tabular-nums' }, r.subs.toLocaleString()),
+              el('td', { class: 'px-3 py-2 text-right tabular-nums' }, r.activeSubs.toLocaleString()),
+              el('td', { class: 'px-3 py-2 text-right tabular-nums font-semibold' }, '$' + Math.round(r.arv).toLocaleString()),
+              el('td', { class: 'px-3 py-2 text-right tabular-nums' }, '$' + Math.round(r.activeArv).toLocaleString()),
+              el('td', { class: 'px-3 py-2 text-right tabular-nums' }, '$' + Math.round(r.subs ? r.contract / r.subs : 0).toLocaleString()),
+            )),
+          ),
+        ),
+      ),
+    );
+  };
+
+  const leaderboards = inCompare
+    ? el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } },
+        buildLeaderboard(dataA, scopeA, 'a'),
+        buildLeaderboard(dataB, scopeB, 'b'))
+    : buildLeaderboard(dataA, scopeA, 'a');
+
+  return el('div', { class: 'flex flex-col gap-4' }, filterBar, leaderboards);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// REPORTING — Waterfall Attrition sub-tab
+// ──────────────────────────────────────────────────────────────────────────
+// Cohort retention matrix. Rows depend on mode (initial-service year /
+// agreement-length tier / rep), columns are calendar years from the
+// earliest sold sub to today, cells are count or ARV of cohort still
+// active at year-end. Cells are color-coded by retention % so trends
+// pop visually.
+function buildReportingWaterfall(rows, mode) {
+  const today = new Date();
+  const initYears = rows
+    .map(r => r.initial_service ? new Date(r.initial_service + 'T00:00').getFullYear() : null)
+    .filter(y => y && !Number.isNaN(y));
+  if (initYears.length === 0) return { rowDefs: [], years: [] };
+  const minYear = Math.min(...initYears);
+  const maxYear = today.getFullYear();
+  const years = [];
+  for (let y = minYear; y <= maxYear; y++) years.push(y);
+
+  // Determine row dimension based on mode.
+  let rowIds = [];
+  let rowFilter = () => () => false;
+  if (mode === 'subscription' || mode === 'arv') {
+    rowIds = [...new Set(initYears)].sort((a, b) => a - b);
+    rowFilter = (id) => (r) => r.initial_service
+      && new Date(r.initial_service + 'T00:00').getFullYear() === id;
+  } else if (mode === 'contract') {
+    const lens = new Set();
+    for (const r of rows) {
+      const n = Number(r.agreement_length) || 0;
+      if (n > 0) lens.add(n);
+    }
+    rowIds = [...lens].sort((a, b) => a - b);
+    rowFilter = (id) => (r) => (Number(r.agreement_length) || 0) === id;
+  } else if (mode === 'rep') {
+    const repCounts = new Map();
+    for (const r of rows) {
+      const rep = r.sold_by;
+      if (!rep) continue;
+      repCounts.set(rep, (repCounts.get(rep) || 0) + 1);
+    }
+    rowIds = [...repCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([rep]) => rep);
+    rowFilter = (id) => (r) => r.sold_by === id;
+  }
+
+  // Cell value: count or sum of ARV of rows in this row's bucket that
+  // were sold on/before yearEnd AND not canceled before yearEnd.
+  const cellAggregate = mode === 'arv'
+    ? (rs) => rs.reduce((s, r) => s + (Number(r.annual_recurring_value) || 0), 0)
+    : (rs) => rs.length;
+
+  const rowDefs = rowIds.map(id => {
+    const rowRows = rows.filter(rowFilter(id));
+    const total = cellAggregate(rowRows);
+    const byYear = {};
+    for (const y of years) {
+      const yearEnd = y + '-12-31';
+      const active = rowRows.filter(r =>
+        r.initial_service && r.initial_service <= yearEnd
+        && (!r.subscription_date_canceled || r.subscription_date_canceled > yearEnd)
+      );
+      byYear[y] = cellAggregate(active);
+    }
+    return { id, total, byYear, rowRows };
+  });
+
+  return { rowDefs, years };
+}
+
+function reportingWaterfall() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+  const scope = reportingScope();
+  const { scopeA, scopeB, inCompare, office, compareOffice, officeLabel } = scope;
+  const filterBar = reportingFilterBar(scope);
+
+  if (!state.reportingWaterfallMode) state.reportingWaterfallMode = 'subscription';
+  const mode = state.reportingWaterfallMode;
+
+  const modes = [
+    ['subscription',    'Subscription'],
+    ['arv',             'ARV ($)'],
+    ['contract',        'Contract Length'],
+    ['rep',             'Rep'],
+  ];
+
+  const modeBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Group rows by'),
+    ...modes.map(([k, label]) => {
+      const active = mode === k;
+      return el('button', {
+        class: 'px-3 py-1.5 rounded-lg text-xs font-semibold transition hover:brightness-95',
+        style: active
+          ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+          : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
+        onclick: () => { state.reportingWaterfallMode = k; mountApp(); },
+      }, label);
+    }),
+  );
+
+  // Cell color = retention % vs cohort total. Green → red gradient.
+  // For Subscription/ARV (cohort) we compare each cell to that row's
+  // total; for Contract Length / Rep modes the row total isn't a true
+  // starting cohort, so we compare to the row's max cell instead.
+  const cellColor = (rowDef, value) => {
+    const baseline = (mode === 'subscription' || mode === 'arv')
+      ? rowDef.total
+      : Math.max(...Object.values(rowDef.byYear));
+    if (!baseline) return 'transparent';
+    const pct = value / baseline;
+    const hue = Math.max(0, Math.min(120, pct * 120));
+    return `hsl(${hue}, 70%, 88%)`;
+  };
+
+  const fmtCell = (v, isTotal) => {
+    if (mode === 'arv') return v > 0 ? '$' + Math.round(v).toLocaleString() : (isTotal ? '$0' : '');
+    return v > 0 ? v.toLocaleString() : (isTotal ? '0' : '');
+  };
+
+  const renderMatrix = (data, sideLabel) => {
+    if (data.rowDefs.length === 0) {
+      return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'No data for this mode.');
+    }
+    const rowLabel = (id) => {
+      if (mode === 'subscription' || mode === 'arv') return String(id);
+      if (mode === 'contract') return id + ' mo';
+      return id; // rep name
+    };
+    return el('div', { class: 'card overflow-hidden flex flex-col' },
+      sideLabel && el('div', { class: 'px-4 py-2 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--accent)', borderBottom: '1px solid var(--border)' } }, sideLabel),
+      el('div', { class: 'overflow-auto' },
+        el('table', { class: 'w-full text-xs tabular-nums' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+            el('tr', {},
+              el('th', { class: 'text-left px-3 py-2 font-semibold sticky left-0', style: { background: 'var(--card-2)' } },
+                mode === 'subscription' || mode === 'arv' ? 'Cohort Year' :
+                mode === 'contract' ? 'Contract Length' : 'Rep'),
+              el('th', { class: 'text-right px-2 py-2 font-semibold' }, mode === 'arv' ? 'Total ARV' : 'Total'),
+              ...data.years.map(y => el('th', { class: 'text-right px-2 py-2 font-semibold' }, String(y))),
+            ),
+          ),
+          el('tbody', {},
+            ...data.rowDefs.map(row => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+              el('td', { class: 'text-left px-3 py-2 font-semibold sticky left-0', style: { background: 'var(--card)' } }, rowLabel(row.id)),
+              el('td', { class: 'text-right px-2 py-2 font-bold' }, fmtCell(row.total, true)),
+              ...data.years.map(y => {
+                const v = row.byYear[y] || 0;
+                return el('td', {
+                  class: 'text-right px-2 py-2',
+                  style: { background: cellColor(row, v) },
+                }, fmtCell(v));
+              }),
+            )),
+          ),
+        ),
+      ),
+    );
+  };
+
+  const waterfallA = buildReportingWaterfall(scopeA, mode);
+  const waterfallB = inCompare ? buildReportingWaterfall(scopeB, mode) : null;
+
+  const body = inCompare
+    ? el('div', { class: 'flex flex-col gap-4' },
+        renderMatrix(waterfallA, officeLabel(office)),
+        renderMatrix(waterfallB, officeLabel(compareOffice)))
+    : renderMatrix(waterfallA);
+
+  return el('div', { class: 'flex flex-col gap-4' }, filterBar, modeBar, body);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // VIEW: ADMIN — audit queue, competitions editor
 // ──────────────────────────────────────────────────────────────────────────
 function viewAdmin() {
@@ -21963,6 +24726,7 @@ function iconHistory()   { return svg('<path d="M3 12a9 9 0 1 0 9-9 9.74 9.74 0 
 function iconShield()    { return svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'); }
 function iconCrown()     { return svg('<path d="M2 20h20l-2-10-5 3-5-8-5 8-5-3 2 10z"/><path d="M6 20v0"/><path d="M18 20v0"/>'); }
 function iconChart(s)    { return svg('<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>', s || 20); }
+function iconPie(s)      { return svg('<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>', s || 20); }
 function iconClipboard(s){ return svg('<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6"/><path d="M9 16h4"/>', s || 20); }
 function iconNote(s)     { return svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>', s || 16); }
 function iconGrid(s)     { return svg('<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>', s || 20); }
