@@ -87,6 +87,9 @@ thead th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(
   <div class="section">By market <span id="allocNote" class="dash" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
   <div style="overflow-x:auto"><table id="markettable"><thead><tr><th>Market</th><th>Marketing&nbsp;Spend</th><th>IS&nbsp;Acct&nbsp;Sold</th><th>Rev&nbsp;Sold</th><th>CAC</th><th>ROAS</th></tr></thead><tbody></tbody></table></div>
 
+  <div class="section" id="convSection" style="display:none">Lead → sold conversion (GoHighLevel) <span id="convNote" class="dash" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
+  <div id="convWrap" style="display:none;overflow-x:auto"><table id="convtable"><thead><tr><th>Channel</th><th>Leads&nbsp;(GHL)</th><th>Accounts&nbsp;Sold</th><th>Lead→Sold</th></tr></thead><tbody></tbody></table></div>
+
   <div class="section">Marketing spend vs Inside Sales revenue</div>
   <div class="chartbox"><canvas id="trend"></canvas></div>
   <div class="note" id="trendNote"></div>
@@ -240,11 +243,64 @@ function render(per,spend){
     `<b>Google attribution watch:</b> ${fmt0(spend.goog)} Google spend in range vs only ${fmtN(gAd.n)} customers tagged “Google Ads.” Google-driven customers are landing under “Website” / “Google Local Services” — remap or fix tagging to read true Google CAC.`;
   // by-market table
   renderMarkets(curFrom,curTo);
+  // lead -> sold conversion (GoHighLevel)
+  renderConversion(per);
   // chart: marketing spend vs inside sales revenue
   drawTrend(qbDailyInRange(curFrom,curTo), insideSalesDailyRev(curFrom,curTo));
   // spend source label
   document.getElementById('spendSrc').textContent = '· Total Spend = QuickBooks marketing'+(spend.live?' · channel split live from Windsor':'');
   document.getElementById('dot').style.background = spend.live? 'var(--green)':'var(--gray)';
+}
+// ---------- GoHighLevel leads (repo only; fetch fails silently in the artifact) ----------
+let GHLLEADS=null; // {ym:{canonicalSource:count}}
+function canonSource(raw){
+  const s=(raw||'').toString().trim(); const L=s.toLowerCase();
+  if(s==='[object Object]'||!s) return 'Unknown';
+  if(/google ads|paid search/.test(L)) return 'Google Ads';
+  if(/local services/.test(L)) return 'Google Local Services';
+  if(/gravitate|paid social|\bfb\b|facebook|\$39 fb|social media/.test(L)) return 'Facebook';
+  if(/angi/.test(L)) return 'Angi';
+  if(/pest ?net/.test(L)) return 'Pest Net';
+  if(/dolead/.test(L)) return 'DoLead';
+  if(/baton/.test(L)) return 'Baton';
+  if(/service direct/.test(L)) return 'Service Direct';
+  if(/click-to-buy|clicki/.test(L)) return 'Click-To-Buy';
+  if(/bing/.test(L)) return 'Bing';
+  if(/organic/.test(L)) return 'Organic Search';
+  if(/referral/.test(L)) return 'Referral';
+  if(/ridd form|crm workflow/.test(L)) return 'Website';
+  if(/direct traffic/.test(L)) return 'Direct';
+  if(/main office number|phone|call/.test(L)) return 'Phone';
+  if(/^sales/.test(L)) return 'Inside Sale';
+  if(/third party/.test(L)) return 'Third Party';
+  return s;
+}
+async function fetchLeads(){
+  try{
+    const r=await fetch('/api/ghl-leads',{headers:{accept:'application/json'}});
+    if(!r.ok) return; const j=await r.json(); if(!j||!j.bySourceMonth) return;
+    const norm={};
+    for(const ym in j.bySourceMonth){ const m=j.bySourceMonth[ym]; norm[ym]={};
+      for(const raw in m){ const c=canonSource(raw); norm[ym][c]=(norm[ym][c]||0)+m[raw]; } }
+    GHLLEADS={byMonth:norm, total:j.total, partial:j.partial};
+    document.getElementById('convSection').style.display='';
+    document.getElementById('convWrap').style.display='';
+    refresh();
+  }catch(e){/* artifact / offline: leave conversion section hidden */}
+}
+function renderConversion(per){
+  if(!GHLLEADS) return;
+  const leads={};
+  for(const ym in GHLLEADS.byMonth){ const p=ym.split('-').map(Number);
+    const start=ym+'-01', end=ym+'-'+String(new Date(p[0],p[1],0).getDate()).padStart(2,'0');
+    if(start<=curTo && end>=curFrom){ const m=GHLLEADS.byMonth[ym]; for(const c in m) leads[c]=(leads[c]||0)+m[c]; } }
+  const sold={}; MAP.forEach(s=>{ if(s.leg==='Inside Sales') sold[s.name]=(sold[s.name]||0)+per[s.name].n; });
+  const chans=[...new Set([...Object.keys(leads),...Object.keys(sold)])].sort((a,b)=>(leads[b]||0)-(leads[a]||0));
+  let html='';
+  chans.forEach(c=>{ const l=leads[c]||0, sd=sold[c]||0; const cv=l?(sd/l*100):null;
+    html+=`<tr><td>${c}</td><td>${fmtN(l)}</td><td>${fmtN(sd)}</td><td>${l?cv.toFixed(0)+'%':'<span class=dash>—</span>'}</td></tr>`; });
+  document.querySelector('#convtable tbody').innerHTML=html;
+  document.getElementById('convNote').innerHTML=`Leads monthly from GoHighLevel (recent ~${GHLLEADS.total.toLocaleString()} leads${GHLLEADS.partial?', rolling window':''}). “Unknown” = leads with a broken source tag in GHL.`;
 }
 function renderMarkets(f,t){
   const qbB=RAW.qbBranch||{}, isoM=RAW.isSoldByOfficeMonth||{}, o2b=RAW.officeToBranch||{}, order=RAW.branchOrder||[];
@@ -354,6 +410,7 @@ document.getElementById('to').onchange=e=>{curTo=e.target.value;document.querySe
 buildMapPanel();
 [curFrom,curTo]=preset('ytd');
 (async()=>{try{const r=await fetch('/api/marketing-spend',{headers:{accept:'application/json'}});if(r.ok){const j=await r.json();if(j&&j.spendDaily){Object.assign(RAW.spendDaily,j.spendDaily);LIVEFETCH=true;}}}catch(e){}refresh();})();
+fetchLeads();
 </script>
 </body>
 </html>
