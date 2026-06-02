@@ -49,6 +49,7 @@ thead th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(
 /* mapping panel */
 #mapPanel{display:none;border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--smoke);margin-top:8px}
 #mapPanel.show{display:block}
+#ghlMapPanel{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--smoke);margin-top:8px;max-height:420px;overflow-y:auto}
 .maprow{display:grid;grid-template-columns:1.6fr 1.1fr auto auto;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px}
 .maprow select{font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:7px;background:var(--white)}
 .maprow .cnt{font-size:11px;color:var(--gray);text-align:right}
@@ -87,8 +88,10 @@ thead th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(
   <div class="section">By market <span id="allocNote" class="dash" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
   <div style="overflow-x:auto"><table id="markettable"><thead><tr><th>Market</th><th>Marketing&nbsp;Spend</th><th>IS&nbsp;Acct&nbsp;Sold</th><th>Rev&nbsp;Sold</th><th>CAC</th><th>ROAS</th></tr></thead><tbody></tbody></table></div>
 
-  <div class="section" id="convSection" style="display:none">Lead → sold conversion (GoHighLevel) <span id="convNote" class="dash" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
+  <div class="section" id="convSection" style="display:none">Lead → sold conversion (GoHighLevel) <a id="ghlMapToggle" style="display:none">⚙ Map GHL → CRM sources</a></div>
+  <div id="ghlMapPanel" style="display:none"></div>
   <div id="convWrap" style="display:none;overflow-x:auto"><table id="convtable"><thead><tr><th>Channel</th><th>Leads&nbsp;(GHL)</th><th>Accounts&nbsp;Sold</th><th>Lead→Sold</th></tr></thead><tbody></tbody></table></div>
+  <div class="note" id="convNote" style="display:none"></div>
 
   <div class="section">Marketing spend vs Inside Sales revenue</div>
   <div class="chartbox"><canvas id="trend"></canvas></div>
@@ -200,7 +203,7 @@ function render(per,spend){
   const cpj= IS.n? qb/IS.n : NaN;
   const K=[
     ['Total Spend',fmt0(qb),'All marketing expense from QuickBooks (real money out) in range. Meta+Google portion (Windsor): '+fmt0(adSpend),'QuickBooks marketing'],
-    ['Inside Sales Revenue',fmt0(isRev),'Rev Sold — annual recurring value of Inside Sales accounts sold in range (Inside Sales leg only)',fmtN(IS.n)+' IS accounts sold'],
+    ['Inside Sales Revenue',fmt0(isRev),'Rev Sold (annual recurring value) of Inside Sales accounts sold in range. Inside Sales leg only — EXCLUDES Renewals and Upsells, which are their own cards.',fmtN(IS.n)+' IS accounts sold'],
     ['Upsell Revenue',fmt0(UP.arv),'Rev Sold — annual recurring value of Upsell accounts sold in range',fmtN(UP.n)+' upsells sold'],
     ['Renewal Revenue',fmt0(REN.arv),'Rev Sold — annual recurring value of Renewal accounts in range',fmtN(REN.n)+' renewals'],
     ['CAC',fmt0(cac),'QuickBooks marketing spend ÷ paid-attributed accounts sold',fmtN(paidSold)+' paid-attributed sold'],
@@ -251,8 +254,10 @@ function render(per,spend){
   document.getElementById('spendSrc').textContent = '· Total Spend = QuickBooks marketing'+(spend.live?' · channel split live from Windsor':'');
   document.getElementById('dot').style.background = spend.live? 'var(--green)':'var(--gray)';
 }
-// ---------- GoHighLevel leads (repo only; fetch fails silently in the artifact) ----------
-let GHLLEADS=null; // {ym:{canonicalSource:count}}
+// ---------- GoHighLevel leads + editable GHL→CRM source map (repo only) ----------
+let GHLLEADS=null;            // {byMonth:{ym:{rawSource:count}}, total, partial}
+let GHLMAP={};                // {rawSource: FieldRoutesSourceName | '(ignore)'}
+const GHLMAPKEY='ridd_ghl_map_v1';
 function canonSource(raw){
   const s=(raw||'').toString().trim(); const L=s.toLowerCase();
   if(s==='[object Object]'||!s) return 'Unknown';
@@ -265,49 +270,71 @@ function canonSource(raw){
   if(/baton/.test(L)) return 'Baton';
   if(/service direct/.test(L)) return 'Service Direct';
   if(/click-to-buy|clicki/.test(L)) return 'Click-To-Buy';
-  if(/bing/.test(L)) return 'Bing';
-  if(/organic/.test(L)) return 'Organic Search';
+  if(/organic|direct traffic/.test(L)) return 'Website';
   if(/referral/.test(L)) return 'Referral';
   if(/ridd form|crm workflow/.test(L)) return 'Website';
-  if(/direct traffic/.test(L)) return 'Direct';
-  if(/main office number|phone|call/.test(L)) return 'Phone';
-  if(/^sales/.test(L)) return 'Inside Sale';
-  if(/third party/.test(L)) return 'Third Party';
   return s;
 }
+function defaultGhlTarget(raw){
+  const ok=new Set(RAW.sources.filter(s=>s.leg==='Inside Sales').map(s=>s.name));
+  const c=canonSource(raw); return ok.has(c)? c : '(ignore)';
+}
+function allRawSources(){ const s=new Set(); if(GHLLEADS) for(const ym in GHLLEADS.byMonth) for(const r in GHLLEADS.byMonth[ym]) s.add(r); return [...s]; }
+function rawCounts(){ const c={}; if(GHLLEADS) for(const ym in GHLLEADS.byMonth) for(const r in GHLLEADS.byMonth[ym]) c[r]=(c[r]||0)+GHLLEADS.byMonth[ym][r]; return c; }
+function loadGhlMap(){ let saved={}; try{saved=JSON.parse(localStorage.getItem(GHLMAPKEY)||'{}')}catch(e){}
+  const m={}; allRawSources().forEach(raw=>{ m[raw]=(saved[raw]!=null)? saved[raw] : defaultGhlTarget(raw); }); return m; }
+function saveGhlMap(){ try{localStorage.setItem(GHLMAPKEY,JSON.stringify(GHLMAP))}catch(e){} }
 async function fetchLeads(){
   try{
     const r=await fetch('/api/ghl-leads',{headers:{accept:'application/json'}});
     if(!r.ok) return; const j=await r.json(); if(!j||!j.bySourceMonth) return;
-    const norm={};
-    for(const ym in j.bySourceMonth){ const m=j.bySourceMonth[ym]; norm[ym]={};
-      for(const raw in m){ const c=canonSource(raw); norm[ym][c]=(norm[ym][c]||0)+m[raw]; } }
-    GHLLEADS={byMonth:norm, total:j.total, partial:j.partial};
+    GHLLEADS={byMonth:j.bySourceMonth, total:j.total, partial:j.partial};
+    GHLMAP=loadGhlMap();
     document.getElementById('convSection').style.display='';
     document.getElementById('convWrap').style.display='';
+    document.getElementById('convNote').style.display='';
+    document.getElementById('ghlMapToggle').style.display='';
+    buildGhlMapPanel();
     refresh();
   }catch(e){/* artifact / offline: leave conversion section hidden */}
 }
 function renderConversion(per){
-  if(!GHLLEADS) return;
-  // Reconcile GHL sources to FieldRoutes source names; only compare channels both systems track.
-  const FOLD={'Organic Search':'Website','Direct':'Website'};
-  const MATCHED=new Set(['Facebook','Google Ads','Google Local Services','Angi','Pest Net','DoLead','Baton','Service Direct','Click-To-Buy','Website','Referral','Yelp','eLocal','Sellify','6 Brothers']);
-  const leads={}; let otherLeads=0;
+  if(!GHLLEADS||!GHLMAP) return;
+  const leads={}; let unmatched=0;
   for(const ym in GHLLEADS.byMonth){ const p=ym.split('-').map(Number);
     const start=ym+'-01', end=ym+'-'+String(new Date(p[0],p[1],0).getDate()).padStart(2,'0');
     if(start<=curTo && end>=curFrom){ const m=GHLLEADS.byMonth[ym];
-      for(const c in m){ const k=FOLD[c]||c; if(MATCHED.has(k)) leads[k]=(leads[k]||0)+m[c]; else otherLeads+=m[c]; } } }
-  const sold={}; MAP.forEach(s=>{ if(s.leg==='Inside Sales' && MATCHED.has(s.name)) sold[s.name]=(sold[s.name]||0)+per[s.name].n; });
-  const chans=[...new Set([...Object.keys(leads),...Object.keys(sold)])].sort((a,b)=>(leads[b]||0)-(leads[a]||0));
+      for(const raw in m){ const tgt=GHLMAP[raw]||'(ignore)'; if(tgt!=='(ignore)') leads[tgt]=(leads[tgt]||0)+m[raw]; else unmatched+=m[raw]; } } }
+  const sold={}; MAP.forEach(s=>{ if(s.leg==='Inside Sales') sold[s.name]=(sold[s.name]||0)+per[s.name].n; });
+  const chans=Object.keys(leads).sort((a,b)=>leads[b]-leads[a]);
   let html='';
   chans.forEach(c=>{ const l=leads[c]||0, sd=sold[c]||0; const cv=l?(sd/l*100):null;
-    const flag=(cv!=null&&cv>120)?' <span class="pill warn">tag mismatch</span>':'';
+    const flag=(cv!=null&&cv>120)?' <span class="pill warn">check mapping</span>':'';
     html+=`<tr><td>${c}${flag}</td><td>${fmtN(l)}</td><td>${fmtN(sd)}</td><td>${l?Math.round(cv)+'%':'<span class=dash>—</span>'}</td></tr>`; });
-  if(otherLeads>0) html+=`<tr><td>Other inbound (unmatched)</td><td>${fmtN(otherLeads)}</td><td><span class=dash>—</span></td><td><span class=dash>—</span></td></tr>`;
+  if(unmatched>0) html+=`<tr><td>Ignored / unmatched</td><td>${fmtN(unmatched)}</td><td><span class=dash>—</span></td><td><span class=dash>—</span></td></tr>`;
   document.querySelector('#convtable tbody').innerHTML=html;
-  document.getElementById('convNote').innerHTML=`GHL leads vs FieldRoutes sold, matched per channel (recent ~${GHLLEADS.total.toLocaleString()} leads${GHLLEADS.partial?', rolling window':''}). FieldRoutes “Inside Sale” (a catch-all with no granular lead source) is excluded — its true sources live in GHL, so tightening FieldRoutes tagging sharpens these rates. “Other inbound” = phone/unknown/etc. leads with no FieldRoutes match.`;
+  document.getElementById('convNote').innerHTML=`GHL leads mapped to CRM sources, vs FieldRoutes sold (recent ~${GHLLEADS.total.toLocaleString()} leads${GHLLEADS.partial?', rolling window':''}). Use “⚙ Map GHL → CRM sources” to fix any source; “Ignored / unmatched” are sources you set to ignore.`;
 }
+function buildGhlMapPanel(){
+  const counts=rawCounts();
+  const isNames=RAW.sources.filter(s=>s.leg==='Inside Sales').map(s=>s.name).sort();
+  const opts=['(ignore)',...isNames];
+  const rows=allRawSources().sort((a,b)=>(counts[b]||0)-(counts[a]||0)).map(raw=>{
+    const cur=GHLMAP[raw]||'(ignore)';
+    const label=(raw==='[object Object]')?'⚠ broken tag':raw;
+    return `<div class="maprow"><div title="${raw.replace(/"/g,'&quot;')}">${label}</div>
+     <select data-raw="${encodeURIComponent(raw)}" class="ghlsel">${opts.map(o=>`<option ${o===cur?'selected':''}>${o}</option>`).join('')}</select>
+     <div></div><div class="cnt">${fmtN(counts[raw]||0)} leads</div></div>`;}).join('');
+  document.getElementById('ghlMapPanel').innerHTML=
+    `<div style="font-size:12px;color:var(--gray);margin-bottom:8px">Map each GoHighLevel source to its CRM (FieldRoutes) source. Saved to this browser; recomputes instantly.</div>${rows}
+     <div class="mapbtns"><button class="save" id="ghlSave">Save &amp; apply</button><button id="ghlReset">Reset to defaults</button></div>`;
+  document.getElementById('ghlSave').onclick=()=>{
+    document.querySelectorAll('.ghlsel').forEach(sel=>{ GHLMAP[decodeURIComponent(sel.dataset.raw)]=sel.value; });
+    saveGhlMap(); refresh();
+  };
+  document.getElementById('ghlReset').onclick=()=>{ try{localStorage.removeItem(GHLMAPKEY)}catch(e){} GHLMAP=loadGhlMap(); buildGhlMapPanel(); refresh(); };
+}
+document.getElementById('ghlMapToggle').onclick=()=>{ const p=document.getElementById('ghlMapPanel'); p.style.display=(p.style.display==='none')?'':'none'; };
 function renderMarkets(f,t){
   const qbB=RAW.qbBranch||{}, isoM=RAW.isSoldByOfficeMonth||{}, o2b=RAW.officeToBranch||{}, order=RAW.branchOrder||[];
   // months overlapping the range
