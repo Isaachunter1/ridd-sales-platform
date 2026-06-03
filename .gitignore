@@ -21,3 +21,7 @@ dist/
 
 # Local Claude tooling (launch.json etc.) — not part of the deploy
 .claude/
+
+# Customer account-level drill-down data — LOCAL ONLY, never deploy (PII)
+accounts.json
+marketing-demo.html
