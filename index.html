@@ -787,26 +787,55 @@ async function loadReportingMetadata() {
 async function loadReportingSubscriptions(uploadId) {
   if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return [];
   if (!uploadId) return [];
-  // Supabase's PostgREST caps payloads at 1000 rows by default. A full
-  // company snapshot is typically much larger, so we page through with
-  // explicit ranges until the server returns fewer than CHUNK rows.
+  // PostgREST caps each response at 1000 rows, so a 58k-row snapshot needs
+  // ~58 pages. Fetching them one-at-a-time (sequential await) is the reason
+  // the tab took forever. Instead we read the total count once, then fan the
+  // page requests out in parallel (capped concurrency so we don't hammer the
+  // connection), which cuts load time roughly to (pages / CONCURRENCY).
   const CHUNK = 1000;
-  const all = [];
-  let from = 0;
-  for (;;) {
+  const CONCURRENCY = 8;
+  const page = async (from) => {
     const { data, error } = await supabase
       .from('reporting_subscriptions')
       .select('*')
       .eq('upload_id', uploadId)
       .order('id', { ascending: true })
       .range(from, from + CHUNK - 1);
-    if (error) { console.warn('[ridd] reporting_subscriptions page load failed', error); break; }
-    if (!data || data.length === 0) break;
-    all.push(...data);
-    if (data.length < CHUNK) break;
-    from += CHUNK;
+    if (error) { console.warn('[ridd] reporting_subscriptions page load failed', error); return []; }
+    return data || [];
+  };
+
+  // Count probe (cheap HEAD request) tells us how many pages to fan out.
+  const { count, error: countErr } = await supabase
+    .from('reporting_subscriptions')
+    .select('id', { count: 'exact', head: true })
+    .eq('upload_id', uploadId);
+
+  // Fallback: if the count probe fails, page sequentially like before.
+  if (countErr || count == null) {
+    const all = [];
+    for (let from = 0; ; from += CHUNK) {
+      const data = await page(from);
+      all.push(...data);
+      if (data.length < CHUNK) break;
+    }
+    return all;
   }
-  return all;
+
+  const pages = Math.ceil(count / CHUNK);
+  const results = new Array(pages);
+  let nextPage = 0;
+  const worker = async () => {
+    for (;;) {
+      const p = nextPage++;
+      if (p >= pages) return;
+      results[p] = await page(p * CHUNK);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, pages) }, worker),
+  );
+  return results.flat();
 }
 
 function loadPersistedDemoState() {
