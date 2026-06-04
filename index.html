@@ -19941,7 +19941,7 @@ function viewMarketing() {
   // & revenue come from the latest FieldRoutes CSV snapshot baked into that page.
   const wrap = el('div', { class: 'w-full' });
   const frame = el('iframe', {
-    src: '/marketing.html',
+    src: '/marketing.html?theme=' + (state.theme || 'light'),
     title: 'Marketing Pulse',
     style: {
       width: '100%',
@@ -20493,8 +20493,8 @@ function reportingUploadsPanel() {
   return el('div', { class: 'card p-4' },
     el('h2', { class: 'text-lg font-bold mb-1' }, 'Uploads'),
     el('p', { class: 'text-xs text-muted- mb-4' },
-      'Each row is an all-time data snapshot. Pick the active snapshot from the dropdown at the top. ' +
-      'Delete removes the snapshot and all its rows.'),
+      'Each row is an all-time data snapshot, shared across everyone on the account. Click any row to load that snapshot ' +
+      '(or pick it from the dropdown at the top). Delete removes the snapshot and all its rows.'),
     uploads.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No uploads yet.')
       : el('div', { class: 'overflow-hidden rounded-lg border', style: { borderColor: 'var(--border)' } },
@@ -20511,8 +20511,17 @@ function reportingUploadsPanel() {
               ...uploads.map(u => {
                 const isActive = u.id === state.reportingActiveUploadId;
                 return el('tr', {
-                  class: 'border-t',
+                  class: 'border-t cursor-pointer hover:brightness-95 transition',
                   style: { borderColor: 'var(--border)', background: isActive ? 'rgba(141,198,63,.08)' : 'transparent' },
+                  title: isActive ? 'This snapshot is currently loaded' : 'Click to load this snapshot',
+                  onclick: () => {
+                    if (u.id === state.reportingActiveUploadId) return;
+                    state.reportingActiveUploadId = u.id;
+                    state.reportingSubscriptions = [];
+                    state.reportingSubscriptionsLoadedFor = null;
+                    mountApp();
+                    toast('Loading snapshot: ' + (u.filename || u.id), 'info');
+                  },
                 },
                   el('td', { class: 'pl-4 pr-2 py-2.5' },
                     el('div', { class: 'font-medium' }, u.filename || '(no filename)'),
@@ -20530,6 +20539,7 @@ function reportingUploadsPanel() {
                       class: 'text-xs px-2.5 py-1.5 rounded-lg font-semibold transition hover:brightness-95',
                       style: { color: '#DC2626', border: '1px solid var(--border)', background: 'transparent' },
                       onclick: async (e) => {
+                        e.stopPropagation();
                         if (!confirm('Delete this snapshot and all its rows? This can’t be undone.')) return;
                         e.currentTarget.disabled = true;
                         if (DEMO) {
