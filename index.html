@@ -20756,7 +20756,7 @@ function drawReportingServiceBoundary(map, zipGeo, serviceZips) {
   } catch (e) { console.warn('[ridd] service-area overlay failed', e); }
 }
 
-function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, metricLabel, fmtMetric, onZipClick, highlightZip, serviceZips) {
+function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, metricLabel, fmtMetric, onZipClick, highlightZip, serviceZips, svcColorMap) {
   if (typeof L === 'undefined') return;
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -20796,6 +20796,7 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
     // is meaningful inside the state (one big zip doesn't dominate).
     const zipMetricFor = (z) => {
       if (!z) return null;
+      if (metricKey === 'service')    return reportingDomService(z.rows);
       if (metricKey === 'acv')        return z.avgContract;
       if (metricKey === 'revenue')    return z.arv;
       if (metricKey === 'customers')  return z.customers;
@@ -20803,7 +20804,9 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
       if (metricKey === 'attrition')  return z.attritionEligible ? z.cancelRate : null;
       return 0;
     };
-    const colorFor = reportingQuantileScale(zipsInState.map(zipMetricFor), metricKey);
+    const colorFor = metricKey === 'service'
+      ? (name) => (svcColorMap && svcColorMap.get(name)) || REPORTING_SVC_OTHER
+      : reportingQuantileScale(zipsInState.map(zipMetricFor), metricKey);
 
     // Track the highlighted polygon so we can pop it visually and zoom
     // to it after the geo layer is laid down.
@@ -20871,7 +20874,7 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
 // state by FIPS) and that polygons match data by normalized county name
 // rather than ZIP code. When `highlightCounty` is set, that county's
 // polygon gets a red ring and the map zooms to it.
-function initReportingCountyMap(containerId, stateCode, countiesInState, metricKey, metricLabel, fmtMetric, onCountyClick, highlightCounty, serviceZips) {
+function initReportingCountyMap(containerId, stateCode, countiesInState, metricKey, metricLabel, fmtMetric, onCountyClick, highlightCounty, serviceZips, svcColorMap) {
   if (typeof L === 'undefined') return;
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -20914,6 +20917,7 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
 
     const countyMetricFor = (c) => {
       if (!c) return null;
+      if (metricKey === 'service')    return reportingDomService(c.rows);
       if (metricKey === 'acv')        return c.avgContract;
       if (metricKey === 'revenue')    return c.arv;
       if (metricKey === 'customers')  return c.customers;
@@ -20921,7 +20925,9 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
       if (metricKey === 'attrition')  return c.attritionEligible ? c.cancelRate : null;
       return 0;
     };
-    const colorFor = reportingQuantileScale(countiesInState.map(countyMetricFor), metricKey);
+    const colorFor = metricKey === 'service'
+      ? (name) => (svcColorMap && svcColorMap.get(name)) || REPORTING_SVC_OTHER
+      : reportingQuantileScale(countiesInState.map(countyMetricFor), metricKey);
 
     let highlightedPolygon = null;
     const normalizedTarget = highlightCounty ? reportingNormCounty(highlightCounty) : null;
@@ -21008,6 +21014,16 @@ async function loadReportingStatesGeo() {
 const RIDD_SERVICE_AREAS = {
   'Atlanta': ['30004','30008','30009','30011','30014','30016','30017','30019','30022','30024','30025','30028','30030','30032','30033','30034','30035','30038','30039','30040','30041','30043','30044','30045','30046','30047','30052','30054','30058','30060','30062','30064','30066','30067','30068','30075','30076','30078','30080','30082','30083','30084','30087','30088','30092','30093','30094','30096','30097','30101','30102','30103','30104','30106','30107','30108','30110','30114','30115','30116','30117','30120','30121','30122','30126','30127','30132','30134','30135','30137','30141','30143','30144','30145','30152','30153','30157','30168','30171','30178','30179','30180','30183','30184','30185','30187','30188','30189','30213','30238','30263','30268','30273','30274','30277','30281','30291','30294','30305','30306','30307','30308','30309','30310','30311','30314','30315','30316','30317','30318','30319','30324','30327','30328','30329','30331','30336','30337','30338','30339','30342','30344','30345','30349','30350','30354','30501','30504','30506','30507','30517','30518','30519','30542','30543','30548','30549','30554','30566','30567','30575','30620','30655','30656','30666','30680','33619'],
 };
+
+// Most common service among a set of subscription rows — drives the
+// "Top Service" categorical map metric.
+function reportingDomService(rows) {
+  if (!rows || !rows.length) return null;
+  const c = {}; let best = null, bn = 0;
+  for (const r of rows) { const s = r.subscription || 'Unknown'; c[s] = (c[s] || 0) + 1; if (c[s] > bn) { bn = c[s]; best = s; } }
+  return best;
+}
+const REPORTING_SVC_OTHER = '#9aa0a6';
 
 function reportingGeoAggregate(rows) {
   const ATTRITION_MIN_SUBS = 10;
@@ -21148,7 +21164,7 @@ function reportingQuantileScale(values, metricKey) {
 // Render the Leaflet choropleth into the given container. Destroys any
 // previous instance so the map re-paints cleanly when the metric or
 // scope changes.
-function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMetric, onStateClick) {
+function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMetric, onStateClick, svcColorMap) {
   if (typeof L === 'undefined') return; // Leaflet still loading; we'll re-init on next render
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -21181,6 +21197,7 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
     // wash out the spread for everyone else.
     const metricFor = (s) => {
       if (!s) return null;
+      if (metricKey === 'service')    return reportingDomService(s.rows);
       if (metricKey === 'acv')        return s.avgContract;
       if (metricKey === 'revenue')    return s.arv;
       if (metricKey === 'customers')  return s.customers;
@@ -21188,7 +21205,9 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
       return 0;
     };
     const allValues = Object.keys(states).map(code => metricFor(states[code]));
-    const colorFor = reportingQuantileScale(allValues, metricKey);
+    const colorFor = metricKey === 'service'
+      ? (name) => (svcColorMap && svcColorMap.get(name)) || REPORTING_SVC_OTHER
+      : reportingQuantileScale(allValues, metricKey);
 
     L.geoJSON(geo, {
       style: (feature) => {
@@ -21270,15 +21289,15 @@ function reportingGeographic() {
     style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
   }, 'Compare mode is paused on the map — showing data for Office A (' + officeLabel(office) + ') only. Exit compare to use the office filter normally.') : null;
 
-  // Service-type filter — scopes the entire geographic view (map + breakdown
-  // table) to one service so its count (Subs), attrition (Cancels) and
-  // attrition rate (Attrition %) read per ZIP & county. 'all' = every service.
-  const geoService = state.reportingGeoService || 'all';
+  const agg = reportingGeoAggregate(scopeA);
+
+  // "Top Service" map metric — colors each area by its most common service.
+  // Top 15 services (by volume) get distinct colors + a legend; everything
+  // else rolls into a gray "Other".
   const svcCounts = {};
   for (const r of scopeA) { const k = r.subscription || 'Unknown'; svcCounts[k] = (svcCounts[k] || 0) + 1; }
-  const svcOptions = Object.keys(svcCounts).sort((a, b) => svcCounts[b] - svcCounts[a]);
-  const geoRows = geoService === 'all' ? scopeA : scopeA.filter(r => (r.subscription || 'Unknown') === geoService);
-  const agg = reportingGeoAggregate(geoRows);
+  const svcTop = Object.keys(svcCounts).sort((a, b) => svcCounts[b] - svcCounts[a]).slice(0, 15);
+  const svcColorMap = new Map(svcTop.map((s, i) => [s, REPORTING_PALETTE[i % REPORTING_PALETTE.length]]));
 
   // Service-area boundary (RIDD_SERVICE_AREAS) for the selected office. Drawn in
   // red on the ZIP map; the banner counts how many subs fall outside the line.
@@ -21316,24 +21335,11 @@ function reportingGeographic() {
     { key: 'customers',       label: 'Customers',      fmt: (v) => Math.round(v).toLocaleString() },
     { key: 'attrition_count', label: 'Attrition #',    fmt: (v) => Math.round(v).toLocaleString() },
     { key: 'attrition',       label: 'Attrition Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
+    { key: 'service',         label: 'Top Service',    fmt: (v) => v || '—' },
   ];
   const activeMetric = metrics.find(m => m.key === metricKey) || metrics[0];
 
-  // Service-type picker — sorted by volume, with counts, so the busiest
-  // services are easy to grab.
-  const geoServiceSelect = el('select', {
-    class: 'rounded-lg px-2.5 py-1.5 text-xs font-medium cursor-pointer',
-    style: { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border)', maxWidth: '260px' },
-    onchange: (e) => { state.reportingGeoService = e.target.value; mountApp(); },
-  },
-    el('option', { value: 'all', selected: geoService === 'all' }, 'All service types'),
-    ...svcOptions.map(s => el('option', { value: s, selected: geoService === s }, s + ' (' + svcCounts[s].toLocaleString() + ')')),
-  );
-
   const metricToggle = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Service'),
-    geoServiceSelect,
-    el('div', { class: 'self-stretch', style: { width: '1px', background: 'var(--border)' } }),
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Map metric'),
     ...metrics.map(m => {
       const active = m.key === metricKey;
@@ -21346,8 +21352,20 @@ function reportingGeographic() {
       }, m.label);
     }),
     el('div', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } },
-      metricKey === 'attrition' ? 'Attrition uses 10+ sub floor per ZIP' : ''),
+      metricKey === 'attrition' ? 'Attrition uses 10+ sub floor per ZIP'
+        : (metricKey === 'service' ? 'Each area colored by its most common service' : '')),
   );
+
+  // Legend for the Top Service metric — top 15 services + their colors.
+  const svcLegend = metricKey === 'service' ? el('div', { class: 'card p-3 flex items-center gap-x-4 gap-y-1.5 flex-wrap text-xs' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mr-1', style: { color: 'var(--text-subtle)' } }, 'Top services'),
+    ...svcTop.map(s => el('div', { class: 'flex items-center gap-1.5' },
+      el('span', { style: { display: 'inline-block', width: '11px', height: '11px', borderRadius: '2px', background: svcColorMap.get(s) } }),
+      el('span', {}, s + ' (' + svcCounts[s].toLocaleString() + ')'))),
+    el('div', { class: 'flex items-center gap-1.5' },
+      el('span', { style: { display: 'inline-block', width: '11px', height: '11px', borderRadius: '2px', background: '#9aa0a6' } }),
+      el('span', {}, 'Other')),
+  ) : null;
 
   // Map container. A stable ID lets initReportingGeoMap tear down the
   // previous Leaflet instance before rebuilding on re-render.
@@ -21409,6 +21427,7 @@ function reportingGeographic() {
           onCountyClick,
           state.reportingHighlightedCounty,
           svcAreaZips,
+          svcColorMap,
         );
       } else {
         const zipsInState = agg.zips.filter(z => z.state === drilledState);
@@ -21418,10 +21437,11 @@ function reportingGeographic() {
           onZipClick,
           state.reportingHighlightedZip,
           svcAreaZips,
+          svcColorMap,
         );
       }
     } else {
-      initReportingGeoMap(mapId, agg.states, metricKey, activeMetric.label, activeMetric.fmt, onStateClick);
+      initReportingGeoMap(mapId, agg.states, metricKey, activeMetric.label, activeMetric.fmt, onStateClick, svcColorMap);
     }
   };
   setTimeout(tryInit, 50);
@@ -21647,6 +21667,7 @@ function reportingGeographic() {
     compareNotice,
     svcOutBanner,
     metricToggle,
+    svcLegend,
     breadcrumb,
     el('div', { class: 'card overflow-hidden' }, mapEl),
     breakdownTable,
