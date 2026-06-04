@@ -4,9 +4,14 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>RIDD Marketing Pulse</title>
+<script>document.documentElement.setAttribute('data-theme',(new URLSearchParams(location.search).get('theme')==='dark')?'dark':'light');</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
 <style>
 :root{color-scheme:light;--white:#FFFFFF;--smoke:#F3F3F3;--black:#1D1D1D;--green:#8DC63F;--gray:#757667;--line:#E4E4E0;--good:#2E7D32;--bad:#C62828;}
+:root[data-theme="dark"]{color-scheme:dark;--white:#141410;--smoke:#1F1F1A;--black:#ECECE4;--gray:#9A9A8A;--line:#33332B;--good:#7FBF6A;--bad:#E58B8B;}
+:root[data-theme="dark"] .legrow,:root[data-theme="dark"] .totrow,:root[data-theme="dark"] #txntable tr.ovr td.ovrcell{background:#23271B}
+:root[data-theme="dark"] .pill.win{background:#16314a;color:#9ccbf0}
+:root[data-theme="dark"] .err{background:#3a1f1c;color:#f0a89e;border-color:#5a2f2a}
 *{box-sizing:border-box}
 body{margin:0;background:var(--white);color:var(--black);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.45}
 .wrap{max-width:1080px;margin:0 auto;padding:20px}
@@ -531,11 +536,13 @@ function drawTrend(spendMap, revByDay){
   Object.keys(revByDay).forEach(ds=>{const k=key(ds);rv[k]=(rv[k]||0)+revByDay[ds];});
   const labels=[...new Set([...Object.keys(sp),...Object.keys(rv)])].sort();
   document.getElementById('trendNote').textContent=`Bucketed by ${mode}. Bars = marketing spend on actual QuickBooks transaction dates · line = Inside Sales Rev Sold.`;
+  const DK=document.documentElement.getAttribute('data-theme')==='dark';
+  const txtCol=DK?'#C9C9BE':'#555', gridCol=DK?'rgba(255,255,255,.08)':'rgba(0,0,0,.06)', barCol=DK?'#E6E6DC':'#1D1D1D';
   chart=new Chart(document.getElementById('trend'),{data:{labels,datasets:[
-    {type:'bar',label:'Marketing spend',data:labels.map(k=>sp[k]||0),backgroundColor:'#1D1D1D',order:2},
+    {type:'bar',label:'Marketing spend',data:labels.map(k=>sp[k]||0),backgroundColor:barCol,order:2},
     {type:'line',label:'Inside Sales revenue (Rev Sold)',data:labels.map(k=>rv[k]||0),borderColor:'#8DC63F',backgroundColor:'#8DC63F',borderWidth:2,tension:.3,fill:false,pointRadius:2,order:1}
-  ]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},
-    scales:{y:{beginAtZero:true,ticks:{callback:v=>'$'+(v>=1000?(v/1000)+'k':v)}}}}});
+  ]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:txtCol}}},
+    scales:{x:{ticks:{color:txtCol},grid:{color:gridCol}},y:{beginAtZero:true,ticks:{color:txtCol,callback:v=>'$'+(v>=1000?(v/1000)+'k':v)},grid:{color:gridCol}}}}});
 }
 
 // ---------- mapping panel ----------
