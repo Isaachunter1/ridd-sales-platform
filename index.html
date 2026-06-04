@@ -794,30 +794,37 @@ async function loadReportingSubscriptions(uploadId) {
   // the tab took forever. Instead we read the total count once, then fan the
   // page requests out in parallel (capped concurrency so we don't hammer the
   // connection), which cuts load time roughly to (pages / CONCURRENCY).
-  const CHUNK = 1000;
-  const CONCURRENCY = 8;
-  const page = async (from) => {
-    const { data, error } = await supabase
-      .from('reporting_subscriptions')
-      .select('*')
-      .eq('upload_id', uploadId)
-      .order('id', { ascending: true })
-      .range(from, from + CHUNK - 1);
-    if (error) { console.warn('[ridd] reporting_subscriptions page load failed', error); return []; }
-    return data || [];
+  // Page in parallel, but gently (4 at a time) and with RETRIES. Firing 8+
+  // requests at once made Supabase reject/timeout most of them; each failed
+  // page silently returned empty, so a 77k-row snapshot loaded only ~19k.
+  // Retrying each page with backoff means no page is ever silently dropped.
+  const CHUNK = 1000, CONCURRENCY = 4, MAX_TRIES = 5;
+  const fetchPage = async (from) => {
+    for (let t = 0; t < MAX_TRIES; t++) {
+      const { data, error } = await supabase
+        .from('reporting_subscriptions')
+        .select('*')
+        .eq('upload_id', uploadId)
+        .order('id', { ascending: true })
+        .range(from, from + CHUNK - 1);
+      if (!error) return data || [];
+      await new Promise(r => setTimeout(r, 250 * (t + 1))); // backoff, then retry
+    }
+    console.warn('[ridd] reporting page at offset', from, 'failed after retries');
+    return [];
   };
 
-  // Count probe (cheap HEAD request) tells us how many pages to fan out.
+  // Count probe tells us how many pages to fan out.
   const { count, error: countErr } = await supabase
     .from('reporting_subscriptions')
     .select('id', { count: 'exact', head: true })
     .eq('upload_id', uploadId);
 
-  // Fallback: if the count probe fails, page sequentially like before.
+  // Fallback: if the count probe fails, page sequentially.
   if (countErr || count == null) {
     const all = [];
     for (let from = 0; ; from += CHUNK) {
-      const data = await page(from);
+      const data = await fetchPage(from);
       all.push(...data);
       if (data.length < CHUNK) break;
     }
@@ -831,13 +838,15 @@ async function loadReportingSubscriptions(uploadId) {
     for (;;) {
       const p = nextPage++;
       if (p >= pages) return;
-      results[p] = await page(p * CHUNK);
+      results[p] = await fetchPage(p * CHUNK);
     }
   };
-  await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, pages) }, worker),
-  );
-  return results.flat();
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pages) }, worker));
+  const loaded = results.flat();
+  if (loaded.length < count) {
+    console.warn('[ridd] reporting load incomplete:', loaded.length, 'of', count);
+  }
+  return loaded;
 }
 
 function loadPersistedDemoState() {
