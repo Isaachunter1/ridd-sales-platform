@@ -16,6 +16,8 @@
      by the Reporting tab only; deferred so it doesn't block first paint. -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
 <script defer src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Turf dissolves service-area ZIPs into the red boundary on the Geographic map. -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
 <script>
   // RIDD palette as Tailwind tokens
   tailwind.config = {
@@ -20678,7 +20680,7 @@ async function loadReportingCountyGeo() {
 // map but bounded to the state's zips. Click any zip → drill modal.
 // When `highlightZip` is set, the map zooms to that zip's polygon and
 // renders it with a red border so a table-row click is mirrored in the map.
-function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, metricLabel, fmtMetric, onZipClick, highlightZip) {
+function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, metricLabel, fmtMetric, onZipClick, highlightZip, serviceZips) {
   if (typeof L === 'undefined') return;
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -20721,6 +20723,7 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
       if (metricKey === 'acv')        return z.avgContract;
       if (metricKey === 'revenue')    return z.arv;
       if (metricKey === 'customers')  return z.customers;
+      if (metricKey === 'attrition_count') return z.cancellations;
       if (metricKey === 'attrition')  return z.attritionEligible ? z.cancelRate : null;
       return 0;
     };
@@ -20781,6 +20784,35 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
     } else {
       try { map.fitBounds(layer.getBounds(), { padding: [20, 20] }); } catch {}
     }
+
+    // Service-area boundary overlay — dissolve the office's service ZIPs into a
+    // single region, fill interior gaps (everything inside is serviced), drop
+    // detached islands, and trace the outer edge in red over the choropleth so
+    // customers inside vs outside the line are visible at a glance.
+    if (serviceZips && serviceZips.size && typeof turf !== 'undefined') {
+      try {
+        let merged = null;
+        geo.features.forEach(f => {
+          const zip = String(f.properties.ZCTA5CE10 || f.properties.zip || '').padStart(5, '0');
+          if (!serviceZips.has(zip)) return;
+          let sf; try { sf = turf.simplify(f, { tolerance: 0.004, highQuality: false }); } catch { sf = f; }
+          if (!merged) { merged = sf; return; }
+          try { merged = turf.union(merged, sf) || merged; } catch {}
+        });
+        if (merged) {
+          const parts = merged.geometry.type === 'MultiPolygon'
+            ? merged.geometry.coordinates.map(c => turf.polygon([c[0]]))
+            : [turf.polygon([merged.geometry.coordinates[0]])];
+          const withA = parts.map(p => ({ p, a: turf.area(p) }));
+          const maxA = Math.max(...withA.map(x => x.a));
+          const keep = withA.filter(x => x.a >= 0.08 * maxA).map(x => x.p);
+          L.geoJSON({ type: 'FeatureCollection', features: keep }, {
+            interactive: false,
+            style: { color: '#e11d2e', weight: 3.5, opacity: 0.95, fill: false },
+          }).addTo(map);
+        }
+      } catch (e) { console.warn('[ridd] service-area overlay failed', e); }
+    }
   });
 }
 
@@ -20836,6 +20868,7 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
       if (metricKey === 'acv')        return c.avgContract;
       if (metricKey === 'revenue')    return c.arv;
       if (metricKey === 'customers')  return c.customers;
+      if (metricKey === 'attrition_count') return c.cancellations;
       if (metricKey === 'attrition')  return c.attritionEligible ? c.cancelRate : null;
       return 0;
     };
@@ -20913,6 +20946,14 @@ async function loadReportingStatesGeo() {
 // Aggregate scope rows into per-state and per-zip records. Both are
 // computed in one pass so the metric toggle can switch instantly without
 // recomputing the raw aggregates.
+// Service-area definitions by office — the ZIPs each branch services. Drawn as
+// a red boundary on the Geographic ZIP map (dissolved + island-pruned client
+// side). Refine in the standalone tool (geo/atlanta_service_area.html) and
+// paste the exported ZIP list here per branch.
+const RIDD_SERVICE_AREAS = {
+  'Atlanta': ['30004','30008','30009','30011','30014','30016','30017','30019','30022','30024','30025','30028','30030','30032','30033','30034','30035','30038','30039','30040','30041','30043','30044','30045','30046','30047','30052','30054','30058','30060','30062','30064','30066','30067','30068','30075','30076','30078','30080','30082','30083','30084','30087','30088','30092','30093','30094','30096','30097','30101','30102','30103','30104','30106','30107','30108','30110','30114','30115','30116','30117','30120','30121','30122','30126','30127','30132','30134','30135','30137','30141','30143','30144','30145','30152','30153','30157','30168','30171','30178','30179','30180','30183','30184','30185','30187','30188','30189','30213','30238','30263','30268','30273','30274','30277','30281','30291','30294','30305','30306','30307','30308','30309','30310','30311','30314','30315','30316','30317','30318','30319','30324','30327','30328','30329','30331','30336','30337','30338','30339','30342','30344','30345','30349','30350','30354','30501','30504','30506','30507','30517','30518','30519','30542','30543','30548','30549','30554','30566','30567','30575','30620','30655','30656','30666','30680','33619'],
+};
+
 function reportingGeoAggregate(rows) {
   const ATTRITION_MIN_SUBS = 10;
 
@@ -21174,19 +21215,70 @@ function reportingGeographic() {
     style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
   }, 'Compare mode is paused on the map — showing data for Office A (' + officeLabel(office) + ') only. Exit compare to use the office filter normally.') : null;
 
-  const agg = reportingGeoAggregate(scopeA);
+  // Service-type filter — scopes the entire geographic view (map + breakdown
+  // table) to one service so its count (Subs), attrition (Cancels) and
+  // attrition rate (Attrition %) read per ZIP & county. 'all' = every service.
+  const geoService = state.reportingGeoService || 'all';
+  const svcCounts = {};
+  for (const r of scopeA) { const k = r.subscription || 'Unknown'; svcCounts[k] = (svcCounts[k] || 0) + 1; }
+  const svcOptions = Object.keys(svcCounts).sort((a, b) => svcCounts[b] - svcCounts[a]);
+  const geoRows = geoService === 'all' ? scopeA : scopeA.filter(r => (r.subscription || 'Unknown') === geoService);
+  const agg = reportingGeoAggregate(geoRows);
+
+  // Service-area boundary (RIDD_SERVICE_AREAS) for the selected office. Drawn in
+  // red on the ZIP map; the banner counts how many subs fall outside the line.
+  const svcAreaZips = (() => {
+    const names = office === 'all' ? Object.keys(RIDD_SERVICE_AREAS) : (RIDD_SERVICE_AREAS[office] ? [office] : []);
+    const s = new Set();
+    names.forEach(n => (RIDD_SERVICE_AREAS[n] || []).forEach(z => s.add(String(z).padStart(5, '0'))));
+    return s;
+  })();
+  let svcOutBanner = null;
+  if (svcAreaZips.size) {
+    const redLine = el('span', { style: { display: 'inline-block', width: '22px', borderTop: '3px solid #e11d2e' } });
+    if (office !== 'all' && RIDD_SERVICE_AREAS[office]) {
+      let inN = 0, outN = 0;
+      for (const r of scopeA) { (svcAreaZips.has(String(r.zip_code || '').slice(0, 5)) ? inN++ : outN++); }
+      const tot = inN + outN;
+      svcOutBanner = el('div', { class: 'card p-3 text-xs flex items-center gap-2 flex-wrap' },
+        redLine,
+        el('span', {}, office + ' service-area line in red — drill into the state to see it. '),
+        el('b', {}, outN.toLocaleString() + ' of ' + tot.toLocaleString() + ' subs (' + (tot ? Math.round(100 * outN / tot) : 0) + '%) sit OUTSIDE the line.'),
+      );
+    } else {
+      svcOutBanner = el('div', { class: 'card p-3 text-xs flex items-center gap-2 flex-wrap' },
+        redLine,
+        el('span', {}, 'Service-area lines shown in red on the ZIP map. Pick a branch in the office filter to see its out-of-area customer count.'),
+      );
+    }
+  }
 
   // Metric toggle — drives map color + table emphasis.
   const metricKey = state.reportingGeoMetric || 'acv';
   const metrics = [
-    { key: 'acv',          label: 'ACV',            fmt: (v) => '$' + Math.round(v).toLocaleString() },
-    { key: 'revenue',      label: 'Revenue',        fmt: (v) => '$' + Math.round(v).toLocaleString() },
-    { key: 'customers',    label: 'Customers',      fmt: (v) => Math.round(v).toLocaleString() },
-    { key: 'attrition',    label: 'Attrition Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
+    { key: 'acv',             label: 'ACV',            fmt: (v) => '$' + Math.round(v).toLocaleString() },
+    { key: 'revenue',         label: 'Revenue',        fmt: (v) => '$' + Math.round(v).toLocaleString() },
+    { key: 'customers',       label: 'Customers',      fmt: (v) => Math.round(v).toLocaleString() },
+    { key: 'attrition_count', label: 'Attrition #',    fmt: (v) => Math.round(v).toLocaleString() },
+    { key: 'attrition',       label: 'Attrition Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
   ];
   const activeMetric = metrics.find(m => m.key === metricKey) || metrics[0];
 
+  // Service-type picker — sorted by volume, with counts, so the busiest
+  // services are easy to grab.
+  const geoServiceSelect = el('select', {
+    class: 'rounded-lg px-2.5 py-1.5 text-xs font-medium cursor-pointer',
+    style: { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border)', maxWidth: '260px' },
+    onchange: (e) => { state.reportingGeoService = e.target.value; mountApp(); },
+  },
+    el('option', { value: 'all', selected: geoService === 'all' }, 'All service types'),
+    ...svcOptions.map(s => el('option', { value: s, selected: geoService === s }, s + ' (' + svcCounts[s].toLocaleString() + ')')),
+  );
+
   const metricToggle = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Service'),
+    geoServiceSelect,
+    el('div', { class: 'self-stretch', style: { width: '1px', background: 'var(--border)' } }),
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Map metric'),
     ...metrics.map(m => {
       const active = m.key === metricKey;
@@ -21269,6 +21361,7 @@ function reportingGeographic() {
           metricKey, activeMetric.label, activeMetric.fmt,
           onZipClick,
           state.reportingHighlightedZip,
+          svcAreaZips,
         );
       }
     } else {
@@ -21496,6 +21589,7 @@ function reportingGeographic() {
   return el('div', { class: 'flex flex-col gap-4' },
     filterBar,
     compareNotice,
+    svcOutBanner,
     metricToggle,
     breadcrumb,
     el('div', { class: 'card overflow-hidden' }, mapEl),
