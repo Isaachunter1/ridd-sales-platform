@@ -20045,7 +20045,7 @@ function reportingTopBar() {
     class: 'rounded-xl px-4 py-2 text-sm font-bold transition hover:brightness-95',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     onclick: () => fileInput.click(),
-  }, fileInput, '📁 Upload Snapshot CSV');
+  }, fileInput, '📁 CSV Upload');
 
   // Total subscription count in the active snapshot — always the full row
   // count, independent of any date/office filters elsewhere.
@@ -20058,11 +20058,11 @@ function reportingTopBar() {
   // Uploads + Configurations live behind a gear menu now (the snapshot dropdown
   // was redundant with the Uploads tab's clickable snapshot list).
   const settingsBtn = el('button', {
-    class: 'rounded-lg px-3 py-2 text-sm font-medium transition hover:brightness-95 border',
+    class: 'rounded-lg px-2.5 py-2 text-base leading-none transition hover:brightness-95 border',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text-muted)' },
     title: 'Uploads & Configurations',
     onclick: () => { state.reportingSettingsOpen = !state.reportingSettingsOpen; mountApp(); },
-  }, '⚙ Settings');
+  }, '⚙');
   const settingsMenu = state.reportingSettingsOpen ? el('div', {
     class: 'card',
     style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '50', minWidth: '190px', padding: '6px', boxShadow: 'var(--shadow-lg)' },
@@ -20079,7 +20079,7 @@ function reportingTopBar() {
       el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Active Snapshot'),
       meta,
     ),
-    el('div', { class: 'flex flex-col items-end gap-2' },
+    el('div', { class: 'flex items-center gap-2' },
       uploadBtn,
       el('div', { style: { position: 'relative' } }, settingsBtn, settingsMenu),
     ),
