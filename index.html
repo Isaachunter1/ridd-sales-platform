@@ -20728,6 +20728,34 @@ async function loadReportingCountyGeo() {
 // map but bounded to the state's zips. Click any zip → drill modal.
 // When `highlightZip` is set, the map zooms to that zip's polygon and
 // renders it with a red border so a table-row click is mirrored in the map.
+// Dissolve the office's service ZIPs into one region (fill interior gaps, drop
+// detached islands) and trace the outer edge in red over a Leaflet map. Shared
+// by the ZIP map and the County map so the boundary shows in both drill modes.
+function drawReportingServiceBoundary(map, zipGeo, serviceZips) {
+  if (!serviceZips || !serviceZips.size || typeof turf === 'undefined' || !zipGeo) return;
+  try {
+    let merged = null;
+    zipGeo.features.forEach(f => {
+      const zip = String(f.properties.ZCTA5CE10 || f.properties.zip || '').padStart(5, '0');
+      if (!serviceZips.has(zip)) return;
+      let sf; try { sf = turf.simplify(f, { tolerance: 0.004, highQuality: false }); } catch { sf = f; }
+      if (!merged) { merged = sf; return; }
+      try { merged = turf.union(merged, sf) || merged; } catch {}
+    });
+    if (!merged) return;
+    const parts = merged.geometry.type === 'MultiPolygon'
+      ? merged.geometry.coordinates.map(c => turf.polygon([c[0]]))
+      : [turf.polygon([merged.geometry.coordinates[0]])];
+    const withA = parts.map(p => ({ p, a: turf.area(p) }));
+    const maxA = Math.max(...withA.map(x => x.a));
+    const keep = withA.filter(x => x.a >= 0.08 * maxA).map(x => x.p);
+    L.geoJSON({ type: 'FeatureCollection', features: keep }, {
+      interactive: false,
+      style: { color: '#e11d2e', weight: 3.5, opacity: 0.95, fill: false },
+    }).addTo(map);
+  } catch (e) { console.warn('[ridd] service-area overlay failed', e); }
+}
+
 function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, metricLabel, fmtMetric, onZipClick, highlightZip, serviceZips) {
   if (typeof L === 'undefined') return;
   const container = document.getElementById(containerId);
@@ -20833,34 +20861,7 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
       try { map.fitBounds(layer.getBounds(), { padding: [20, 20] }); } catch {}
     }
 
-    // Service-area boundary overlay — dissolve the office's service ZIPs into a
-    // single region, fill interior gaps (everything inside is serviced), drop
-    // detached islands, and trace the outer edge in red over the choropleth so
-    // customers inside vs outside the line are visible at a glance.
-    if (serviceZips && serviceZips.size && typeof turf !== 'undefined') {
-      try {
-        let merged = null;
-        geo.features.forEach(f => {
-          const zip = String(f.properties.ZCTA5CE10 || f.properties.zip || '').padStart(5, '0');
-          if (!serviceZips.has(zip)) return;
-          let sf; try { sf = turf.simplify(f, { tolerance: 0.004, highQuality: false }); } catch { sf = f; }
-          if (!merged) { merged = sf; return; }
-          try { merged = turf.union(merged, sf) || merged; } catch {}
-        });
-        if (merged) {
-          const parts = merged.geometry.type === 'MultiPolygon'
-            ? merged.geometry.coordinates.map(c => turf.polygon([c[0]]))
-            : [turf.polygon([merged.geometry.coordinates[0]])];
-          const withA = parts.map(p => ({ p, a: turf.area(p) }));
-          const maxA = Math.max(...withA.map(x => x.a));
-          const keep = withA.filter(x => x.a >= 0.08 * maxA).map(x => x.p);
-          L.geoJSON({ type: 'FeatureCollection', features: keep }, {
-            interactive: false,
-            style: { color: '#e11d2e', weight: 3.5, opacity: 0.95, fill: false },
-          }).addTo(map);
-        }
-      } catch (e) { console.warn('[ridd] service-area overlay failed', e); }
-    }
+    drawReportingServiceBoundary(map, geo, serviceZips);
   });
 }
 
@@ -20870,7 +20871,7 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
 // state by FIPS) and that polygons match data by normalized county name
 // rather than ZIP code. When `highlightCounty` is set, that county's
 // polygon gets a red ring and the map zooms to it.
-function initReportingCountyMap(containerId, stateCode, countiesInState, metricKey, metricLabel, fmtMetric, onCountyClick, highlightCounty) {
+function initReportingCountyMap(containerId, stateCode, countiesInState, metricKey, metricLabel, fmtMetric, onCountyClick, highlightCounty, serviceZips) {
   if (typeof L === 'undefined') return;
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -20970,6 +20971,12 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
       } catch {}
     } else {
       try { map.fitBounds(layer.getBounds(), { padding: [20, 20] }); } catch {}
+    }
+
+    // Same zip-based service boundary, overlaid on the county view. Needs the
+    // ZIP geometry (counties don't carry it), so we pull the state's ZIP geo.
+    if (serviceZips && serviceZips.size) {
+      loadReportingZipGeo(stateCode).then(zipGeo => drawReportingServiceBoundary(map, zipGeo, serviceZips));
     }
   });
 }
@@ -21401,6 +21408,7 @@ function reportingGeographic() {
           metricKey, activeMetric.label, activeMetric.fmt,
           onCountyClick,
           state.reportingHighlightedCounty,
+          svcAreaZips,
         );
       } else {
         const zipsInState = agg.zips.filter(z => z.state === drilledState);
