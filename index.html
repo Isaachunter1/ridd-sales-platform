@@ -19206,13 +19206,11 @@ function parseReportingCsv(text) {
   for (let i = 1; i < lines.length; i++) {
     const r = parseLine(lines[i]);
     if (r.every(c => !c)) continue;
-    // Reporting tab tracks ONLY customers who have received an initial
-    // service. Skip sold-but-not-started rows (Initial Service blank or
-    // "Initial Not Completed") so the dataset is serviced-only regardless
-    // of which FieldRoutes export is uploaded — matches the original
-    // serviced-only report even when the full superset CSV is used.
+    // Keep ALL subscription rows (don't drop not-yet-serviced ones) so the
+    // headline metrics — Active Subscriptions, Recurring ARR, Active Customers
+    // — count every active sub, matching FieldRoutes' own "Active" status.
+    // (Serviced-specific views can still filter on completed services.)
     const initialService = parseDate(pick(r, cols.initial_service));
-    if (!initialService) continue;
     rows.push({
       customer_id:                      textOrNull(pick(r, cols.customer_id)),
       last_name:                        textOrNull(pick(r, cols.last_name)),
@@ -20049,35 +20047,41 @@ function reportingTopBar() {
     onclick: () => fileInput.click(),
   }, fileInput, '📁 Upload Snapshot CSV');
 
-  const picker = uploads.length > 0 ? el('select', {
-    class: 'rounded-lg border px-3 py-2 text-sm cursor-pointer',
-    style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
-    onchange: (e) => {
-      state.reportingActiveUploadId = e.target.value;
-      state.reportingSubscriptions = [];
-      state.reportingSubscriptionsLoadedFor = null;
-      mountApp();
-    },
-  },
-    ...uploads.map(u => el('option', {
-      value: u.id,
-      selected: u.id === activeId,
-    }, formatSnapshotLabel(u))),
-  ) : el('div');
-
+  // Total subscription count in the active snapshot — always the full row
+  // count, independent of any date/office filters elsewhere.
   const meta = active
     ? el('div', { class: 'text-xs text-muted-' },
-        (active.row_count || 0).toLocaleString() + ' rows · uploaded ' + timeAgo(active.uploaded_at))
+        el('b', { style: { color: 'var(--text)' } }, (active.row_count || 0).toLocaleString() + ' total subscriptions'),
+        ' · uploaded ' + timeAgo(active.uploaded_at))
     : el('div', { class: 'text-xs text-muted-' }, 'No snapshots yet — upload a CSV to begin.');
+
+  // Uploads + Configurations live behind a gear menu now (the snapshot dropdown
+  // was redundant with the Uploads tab's clickable snapshot list).
+  const settingsBtn = el('button', {
+    class: 'rounded-lg px-3 py-2 text-sm font-medium transition hover:brightness-95 border',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text-muted)' },
+    title: 'Uploads & Configurations',
+    onclick: () => { state.reportingSettingsOpen = !state.reportingSettingsOpen; mountApp(); },
+  }, '⚙ Settings');
+  const settingsMenu = state.reportingSettingsOpen ? el('div', {
+    class: 'card',
+    style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '50', minWidth: '190px', padding: '6px', boxShadow: 'var(--shadow-lg)' },
+  },
+    ...[['uploads', '📁 Uploads'], ['config', '⚙ Configurations']].map(([k, label]) => el('button', {
+      class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition hover:brightness-95',
+      style: { background: state.reportingSubTab === k ? 'var(--card-2)' : 'transparent', color: 'var(--text)' },
+      onclick: () => { state.reportingSubTab = k; state.reportingSettingsOpen = false; mountApp(); },
+    }, label)),
+  ) : null;
 
   return el('div', { class: 'card p-4 flex items-center justify-between gap-4 flex-wrap' },
     el('div', { class: 'flex flex-col gap-1' },
       el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Active Snapshot'),
       meta,
     ),
-    el('div', { class: 'flex items-center gap-3 flex-wrap' },
-      picker,
+    el('div', { class: 'flex flex-col items-end gap-2' },
       uploadBtn,
+      el('div', { style: { position: 'relative' } }, settingsBtn, settingsMenu),
     ),
   );
 }
@@ -20096,8 +20100,6 @@ function reportingSubTabs() {
     ['reps',       'Rep Performance'],
     ['waterfall',  'Waterfall Attrition'],
     ['marketing',  'Marketing'],
-    ['config',     'Configurations'],
-    ['uploads',    'Uploads'],
   ];
   return el('div', { class: 'flex items-center gap-1 border-b', style: { borderColor: 'var(--border)' } },
     ...tabs.map(([k, label]) => {
