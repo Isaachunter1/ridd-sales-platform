@@ -15852,6 +15852,8 @@ function buildTeamReportNode(teamName, ctx) {
     const multi   = repSales.filter(s => Number(s.contract) > 12).length;
     const autoPay = repSales.filter(s => s.autoPay && s.autoPay !== 'No').length;
     const cancels = repSales.filter(_isReportableCancel).length;
+    const rors    = repSales.filter(_is3DayROR).length;
+    const sns     = repSales.filter(_isSoldNotStarted).length;
     const pestEligible = repSales.filter(s => !PEST_EXCLUDE_RE.test(s.subscription || ''));
     return {
       name,
@@ -15864,6 +15866,8 @@ function buildTeamReportNode(teamName, ctx) {
       myPct:      (twelve + multi) > 0 ? multi / (twelve + multi) : 0,
       autoPayPct: count > 0 ? autoPay / count : 0,
       cancels,
+      rors,
+      sns,
       cancelPct:  count > 0 ? cancels / count : 0,
     };
   });
@@ -16096,16 +16100,18 @@ function buildTeamReportNode(teamName, ctx) {
     // Explicit column widths so the wide metric set lays out cleanly
     // inside the 736px content area of the PDF page.
     el('colgroup', {},
-      el('col', { style: { width: '28px' } }),   // #
-      el('col', { style: { width: '160px' } }),  // Rep
-      el('col', { style: { width: '60px' } }),   // Tier
-      el('col', { style: { width: '50px' } }),   // Sold
-      el('col', { style: { width: '80px' } }),   // Revenue
-      el('col', { style: { width: '60px' } }),   // ACV
-      el('col', { style: { width: '70px' } }),   // Avg Pest
-      el('col', { style: { width: '50px' } }),   // MY %
-      el('col', { style: { width: '50px' } }),   // AP %
-      el('col', { style: { width: '50px' } }),   // Cancel
+      el('col', { style: { width: '26px' } }),   // #
+      el('col', { style: { width: '138px' } }),  // Rep
+      el('col', { style: { width: '50px' } }),   // Tier
+      el('col', { style: { width: '44px' } }),   // Sold
+      el('col', { style: { width: '72px' } }),   // Revenue
+      el('col', { style: { width: '54px' } }),   // ACV
+      el('col', { style: { width: '58px' } }),   // Avg Pest
+      el('col', { style: { width: '44px' } }),   // MY %
+      el('col', { style: { width: '44px' } }),   // AP %
+      el('col', { style: { width: '44px' } }),   // Cancel
+      el('col', { style: { width: '48px' } }),   // 3-Day ROR
+      el('col', { style: { width: '56px' } }),   // Sold Not Started
     ),
     el('thead', {},
       el('tr', { style: { background: '#1D1D1D', color: '#fff' } },
@@ -16119,11 +16125,13 @@ function buildTeamReportNode(teamName, ctx) {
         th('MY %', 'right'),
         th('AP %', 'right'),
         th('Cncl', 'right'),
+        th('3d ROR', 'right'),
+        th('Not Strt', 'right'),
       ),
     ),
     el('tbody', {},
       teamRepsFull.length === 0
-        ? el('tr', {}, el('td', { colspan: 10, style: { padding: '14px', textAlign: 'center', color: '#888', fontStyle: 'italic', fontSize: '11px' } }, 'No reps on this team'))
+        ? el('tr', {}, el('td', { colspan: 12, style: { padding: '14px', textAlign: 'center', color: '#888', fontStyle: 'italic', fontSize: '11px' } }, 'No reps on this team'))
         : teamRepsFull.map((r, i) => {
             const tierLabel = r.tier === 'rookie' ? 'Rookie' : r.tier === 'vet' ? 'Vet' : '—';
             const tierColor = r.tier === 'rookie' ? '#0EA5E9' : r.tier === 'vet' ? '#5F8A1F' : '#999';
@@ -16141,6 +16149,10 @@ function buildTeamReportNode(teamName, ctx) {
               td(r.sold    > 0 ? (r.autoPayPct * 100).toFixed(0) + '%' : '—', 'right'),
               td(r.cancels > 0 ? fmt.int(r.cancels) : '—', 'right',
                 { style: { color: r.cancels > 0 ? '#DC2626' : '#1D1D1D', fontWeight: r.cancels > 0 ? '700' : '400' } }),
+              td(r.rors > 0 ? fmt.int(r.rors) : '—', 'right',
+                { style: { color: r.rors > 0 ? '#D97706' : '#1D1D1D', fontWeight: r.rors > 0 ? '700' : '400' } }),
+              td(r.sns > 0 ? fmt.int(r.sns) : '—', 'right',
+                { style: { color: r.sns > 0 ? '#D97706' : '#1D1D1D', fontWeight: r.sns > 0 ? '700' : '400' } }),
             );
           }),
     ),
@@ -16160,7 +16172,7 @@ function buildTeamReportNode(teamName, ctx) {
 
   // Cohort section is conditional — skip both header + grid when no
   // tagged reps in the window so we don't ship an empty box.
-  const children = [header, title, powerBanner, stats, scorecardHeader, scorecard];
+  const children = [header, title, stats, scorecardHeader, scorecard];
   if (cohortHeader && cohort) children.push(cohortHeader, cohort);
   children.push(repsHeader, repsTable, footer);
   wrap.append(...children);
@@ -16199,25 +16211,20 @@ async function downloadTeamPdf(teamName, ctx) {
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
     const margin = 18; // 0.25" at 72dpi
-    const imgW = pageW - margin * 2;
-    const imgH = (canvas.height * imgW) / canvas.width;
+    // The report is authored as a single letter page (816×1056). Scale the
+    // capture to fit one page so nothing — especially the footer — gets
+    // sliced across a page seam. If a tall team pushes it over, it shrinks
+    // to fit rather than spilling a near-empty second page.
+    const usableW = pageW - margin * 2;
     const usableH = pageH - margin * 2;
-    // Multi-page output: paint the full image at a negative y-offset on
-    // each successive page so each page renders a different vertical
-    // slice. Standard html2canvas → jsPDF pagination pattern.
-    if (imgH <= usableH) {
-      pdf.addImage(imgData, 'PNG', margin, margin, imgW, imgH);
-    } else {
-      let pageNum = 0;
-      let heightLeft = imgH;
-      while (heightLeft > 0) {
-        if (pageNum > 0) pdf.addPage();
-        const y = margin - pageNum * usableH;
-        pdf.addImage(imgData, 'PNG', margin, y, imgW, imgH);
-        heightLeft -= usableH;
-        pageNum++;
-      }
+    let imgW = usableW;
+    let imgH = (canvas.height * imgW) / canvas.width;
+    if (imgH > usableH) {
+      imgH = usableH;
+      imgW = (canvas.width * imgH) / canvas.height;
     }
+    const x = margin + (usableW - imgW) / 2; // center if narrowed to fit height
+    pdf.addImage(imgData, 'PNG', x, margin, imgW, imgH);
     const safeName = teamName.replace(/[^a-zA-Z0-9_-]+/g, '_');
     pdf.save('RIDD-' + safeName + '-' + new Date().toISOString().slice(0, 10) + '.pdf');
     toast('Downloaded ' + teamName + ' report', 'success');
@@ -19132,6 +19139,13 @@ function parseReportingCsv(text) {
   for (let i = 1; i < lines.length; i++) {
     const r = parseLine(lines[i]);
     if (r.every(c => !c)) continue;
+    // Reporting tab tracks ONLY customers who have received an initial
+    // service. Skip sold-but-not-started rows (Initial Service blank or
+    // "Initial Not Completed") so the dataset is serviced-only regardless
+    // of which FieldRoutes export is uploaded — matches the original
+    // serviced-only report even when the full superset CSV is used.
+    const initialService = parseDate(pick(r, cols.initial_service));
+    if (!initialService) continue;
     rows.push({
       customer_id:                      textOrNull(pick(r, cols.customer_id)),
       last_name:                        textOrNull(pick(r, cols.last_name)),
@@ -19146,7 +19160,7 @@ function parseReportingCsv(text) {
       subscription_cancellation_reason: textOrNull(pick(r, cols.subscription_cancellation_reason)),
       subscription_date_canceled:       parseDate(pick(r, cols.subscription_date_canceled)),
       subscription_status:              textOrNull(pick(r, cols.subscription_status)),
-      initial_service:                  parseDate(pick(r, cols.initial_service)),
+      initial_service:                  initialService,
       subscription_source:              textOrNull(pick(r, cols.subscription_source)),
       country:                          textOrNull(pick(r, cols.country)),
       state:                            textOrNull(pick(r, cols.state)),
