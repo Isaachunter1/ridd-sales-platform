@@ -2234,7 +2234,6 @@ function mountApp() {
     ['hall_of_fame', 'Hall of Fame', iconCrown()],
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
-    ...(isAdmin ? [['marketing',     'Marketing',     iconChart()]]     : []),
   ];
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
@@ -3010,6 +3009,34 @@ function _parseIndicatorDay(s) {
   return new Date(y, m - 1, d);
 }
 
+// ── Department classification (Indicators) ──────────────────────────────
+// Splits sales into three departments off the Source column:
+//   D2D    — Source "Door to Door"
+//   Techs  — Source "Upsell - Service Pro" / "Upsell - Termite Pro"
+//   Office — everything else (inside sales, web, renewals, etc.)
+const _IND_TECH_SOURCES = new Set(['upsell - service pro', 'upsell - termite pro']);
+function _indicatorDeptOf(s) {
+  const src = (s && s.source ? String(s.source) : '').trim().toLowerCase();
+  if (src === 'door to door') return 'd2d';
+  if (_IND_TECH_SOURCES.has(src)) return 'techs';
+  return 'office';
+}
+const INDICATOR_DEPTS = [
+  ['all',    'All'],
+  ['d2d',    'Door to Door'],
+  ['office', 'Office Staff'],
+  ['techs',  'Techs'],
+];
+// The department-scoped raw sales — every on-screen indicators metric reads
+// through this so the toggle re-runs the whole dashboard. Roster, PDF
+// exports and scorecard periods intentionally use the full set instead.
+function indicatorSales() {
+  const dept = state.indicatorDept || 'all';
+  const all = state._indicatorRawSales || [];
+  if (dept === 'all') return all;
+  return all.filter(s => _indicatorDeptOf(s) === dept);
+}
+
 // "MM/DD/YY HH:MM AM/PM" → { hour: 0-23, minute: 0-59 } | null
 function _parseIndicatorTime(s) {
   const str = (s.dateSold || '').trim();
@@ -3080,7 +3107,7 @@ const CARD_SCOPE_PRESETS = [
 ];
 function getCardScopeBounds(preset) {
   if (!preset || preset === 'all') return null;
-  const rawSales = state._indicatorRawSales || [];
+  const rawSales = indicatorSales();
   let latest = null;
   for (const s of rawSales) {
     const d = _parseIndicatorDay(s);
@@ -3170,7 +3197,7 @@ function computeCoachFlags() {
   const RECENT_WINDOW_DAYS     = 14;
   const PEST_EXCLUDE_RE        = /sentricon|german\s*roach|interior\s*flea/i;
 
-  const rawSales = state._indicatorRawSales || [];
+  const rawSales = indicatorSales();
   if (rawSales.length === 0) return [];
 
   // Find the dataset's most recent sale date (anchors WoW + days-since)
@@ -3363,7 +3390,7 @@ function computeCoachFlags() {
 // Open the Coach Mode panel as a modal overlay. Triggered by the top-bar
 // icon; clicking a rep opens that rep's full player card.
 function openCoachModeModal() {
-  const rawSales = state._indicatorRawSales || [];
+  const rawSales = indicatorSales();
   const flagged = computeCoachFlags();
   const allReps = _buildAllRepsFromRawSales(rawSales);
   const repByName = Object.fromEntries(allReps.map(r => [r.name, r]));
@@ -3781,7 +3808,7 @@ function bestPRADayRecord(sales, minReps = 1, byMetric = 'revenue') {
 // notifications. We strip any sales arrays so the snapshot stays compact
 // for localStorage.
 function captureIndicatorSnapshot() {
-  const rawSales = state._indicatorRawSales || [];
+  const rawSales = indicatorSales();
   if (rawSales.length === 0) return;
   const byRep = {};
   for (const s of rawSales) {
@@ -3889,7 +3916,7 @@ function detectRecordBreaks(prior, current) {
 // records). Returns null if there's nothing useful to show; otherwise
 // the openImportInsightsModal renderer expects this exact shape.
 function computeImportInsights() {
-  const rawSales = state._indicatorRawSales || [];
+  const rawSales = indicatorSales();
   if (rawSales.length === 0) return null;
 
   // Anchor everything to the latest sale date in the dataset so the
@@ -10337,7 +10364,7 @@ function openManageTeamsModal() {
   let searchRenderTimer = null;
 
   const render = () => {
-    const rawSales = state._indicatorRawSales || [];
+    const rawSales = indicatorSales();
     // Union three sources so the Manage Teams list isn't gated by who
     // happens to be in the most recent CSV upload: (1) every rep with raw
     // sales rows, (2) every rep already assigned to a team, (3) every rep
@@ -11105,13 +11132,13 @@ function viewIndicators() {
 
   let allData;
   if (groupBy === 'teams') {
-    allData = aggregateByTeam(state._indicatorRawSales, state.indicatorsData);
+    allData = aggregateByTeam(indicatorSales(), state.indicatorsData);
   } else if (rawSalesAvailable) {
     // Re-aggregate from raw sales (rather than using the pre-computed
     // state.indicatorsData) so that Excluded reps drop out of EVERY branch
     // metric — table, charts, ranking. Pre-aggregated CSVs without raw sales
     // can't apply the exclusion (no rep info per row), so they fall back.
-    allData = aggregateByBranch(state._indicatorRawSales, state.indicatorsData);
+    allData = aggregateByBranch(indicatorSales(), state.indicatorsData);
   } else {
     allData = state.indicatorsData;
   }
@@ -11153,7 +11180,7 @@ function viewIndicators() {
     // Range: union across every week in window. Single-week: just that week.
     // Falls back to MAX of weekly counts if raw sales aren't available (pre-agg CSV).
     let reps;
-    const raw = state._indicatorRawSales;
+    const raw = indicatorSales();
     if (Array.isArray(raw) && raw.length) {
       // Group key matching: branch view compares against s.office; team view
       // compares against the rep's team (the previous code only matched office,
@@ -11359,6 +11386,14 @@ function viewIndicators() {
           el('div', { class: 'max-w-[1400px] mx-auto px-4 sm:px-6' },
             el('div', { class: 'flex flex-col gap-2' },
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
+        // Department toggle (D2D / Office / Techs) — derived from sale Source,
+        // re-runs every metric below for the selected group.
+        el('div', { class: 'pill-tabs', title: 'Filter by department (from sale Source)' },
+          ...INDICATOR_DEPTS.map(([k, label]) => el('button', {
+            'data-active': (state.indicatorDept || 'all') === k,
+            onclick: () => { state.indicatorDept = k; mountApp(); },
+          }, label)),
+        ),
         // Branch / Teams group toggle
         el('div', { class: 'pill-tabs', title: rawSalesAvailable ? '' : 'Teams mode requires a raw-sales CSV upload' },
           el('button', {
@@ -11980,8 +12015,9 @@ function viewIndicators() {
 
 // ── Rep-level sections for Indicators tab ──
 function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksUnfiltered, allDataUnfiltered, windowLabel) {
-  // We need the raw sales data — stored alongside aggregated rows
-  const allRawSales = state._indicatorRawSales;
+  // We need the raw sales data — stored alongside aggregated rows.
+  // Department-scoped so the rep leaderboard matches the toggle selection.
+  const allRawSales = indicatorSales();
   // Match the range filter the rest of the page uses. In Range mode we keep
   // only sales whose week falls inside the filtered indicator data; in Weekly
   // mode the leaderboard stays YTD (because the user may want comparison).
@@ -17843,7 +17879,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
             // Reps W/ A Sale for this single week — counted from raw sales
             // when available so it matches the table's single-week reps logic.
             let reps;
-            const raw = state._indicatorRawSales;
+            const raw = indicatorSales();
             if (Array.isArray(raw) && raw.length) {
               reps = new Set(raw.filter(s => s.office === b && s.week === w).map(s => s.rep).filter(Boolean)).size;
             } else {
@@ -19937,9 +19973,14 @@ function viewReporting() {
     });
   }
 
+  // Marketing has its own data source (marketing.html), so it doesn't use the
+  // reporting snapshot top bar — only the sub-tab nav above it.
+  const isMarketing = state.reportingSubTab === 'marketing';
+
   return el('div', { class: 'flex flex-col gap-4' },
-    reportingTopBar(),
+    isMarketing ? null : reportingTopBar(),
     reportingSubTabs(),
+    isMarketing                            ? viewMarketing() :
     state.reportingSubTab === 'config'     ? reportingServiceConfigPanel() :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
@@ -20014,6 +20055,7 @@ function reportingSubTabs() {
     ['geographic', 'Geographic'],
     ['reps',       'Rep Performance'],
     ['waterfall',  'Waterfall Attrition'],
+    ['marketing',  'Marketing'],
     ['config',     'Configurations'],
     ['uploads',    'Uploads'],
   ];
