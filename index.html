@@ -21599,13 +21599,21 @@ function reportingGeographic() {
     style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
   }, 'Compare mode is paused on the map — showing data for Office A (' + officeLabel(office) + ') only. Exit compare to use the office filter normally.') : null;
 
-  const agg = reportingGeoAggregate(scopeA);
+  // Geographic tab shows the TRUE subscription footprint only:
+  //   1. serviced — received an initial service, and
+  //   2. recurring — real subscriptions (ARV > 0, or manually marked
+  //      recurring in Configurations). One-time service types are excluded.
+  // Other reporting tabs keep the full dataset.
+  const geoCfgByName = new Map((state.reportingServiceConfig || []).map(c => [c.service_name, c]));
+  const geoIsRecurring = (r) => ((Number(r.annual_recurring_value) || 0) > 0) || !!geoCfgByName.get(r.subscription)?.is_recurring;
+  const scopeServiced = scopeA.filter(r => !!r.initial_service && geoIsRecurring(r));
+  const agg = reportingGeoAggregate(scopeServiced);
 
   // "Top Service" map metric — colors each area by its most common service.
   // Top 15 services (by volume) get distinct colors + a legend; everything
   // else rolls into a gray "Other".
   const svcCounts = {};
-  for (const r of scopeA) { const k = r.subscription || 'Unknown'; svcCounts[k] = (svcCounts[k] || 0) + 1; }
+  for (const r of scopeServiced) { const k = r.subscription || 'Unknown'; svcCounts[k] = (svcCounts[k] || 0) + 1; }
   const svcTop = Object.keys(svcCounts).sort((a, b) => svcCounts[b] - svcCounts[a]).slice(0, 15);
   const svcColorMap = new Map(svcTop.map((s, i) => [s, REPORTING_PALETTE[i % REPORTING_PALETTE.length]]));
 
@@ -21622,7 +21630,7 @@ function reportingGeographic() {
     const redLine = el('span', { style: { display: 'inline-block', width: '22px', borderTop: '3px solid #e11d2e' } });
     if (office !== 'all' && RIDD_SERVICE_AREAS[office]) {
       let inN = 0, outN = 0;
-      for (const r of scopeA) { (svcAreaZips.has(String(r.zip_code || '').slice(0, 5)) ? inN++ : outN++); }
+      for (const r of scopeServiced) { (svcAreaZips.has(String(r.zip_code || '').slice(0, 5)) ? inN++ : outN++); }
       const tot = inN + outN;
       svcOutBanner = el('div', { class: 'card p-3 text-xs flex items-center gap-2 flex-wrap' },
         redLine,
@@ -21762,7 +21770,7 @@ function reportingGeographic() {
   // on the map. Especially useful for states with only 1-2 subs where
   // the zip-level map is overkill.
   const stateSubsForBreadcrumb = mapLevel === 'state' && drilledState
-    ? scopeA.filter(r => (r.state || '') === drilledState)
+    ? scopeServiced.filter(r => (r.state || '') === drilledState)
     : [];
   const zipsInDrilledState = mapLevel === 'state' && drilledState
     ? agg.zips.filter(z => z.state === drilledState)
@@ -21972,8 +21980,13 @@ function reportingGeographic() {
     ),
   );
 
+  const scopeNote = el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
+    'Map shows true subscriptions only: serviced + recurring (one-time services excluded) — '
+    + scopeServiced.length.toLocaleString() + ' of ' + scopeA.length.toLocaleString() + ' subs in scope.');
+
   return el('div', { class: 'flex flex-col gap-4' },
     filterBar,
+    scopeNote,
     compareNotice,
     svcOutBanner,
     metricToggle,
