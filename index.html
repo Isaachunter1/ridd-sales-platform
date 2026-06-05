@@ -11241,7 +11241,7 @@ function viewIndicators() {
         el('div', { class: 'text-4xl mb-3' }, '📊'),
         el('h2', { class: 'text-lg font-bold mb-2' }, 'Upload CSV to get started'),
         el('p', { class: 'text-sm text-muted- mb-4 max-w-md mx-auto' },
-          'Upload the D2D Indicators CSV with columns: Week, Date, Branch, Sold Accounts, Weekly Sold Revenue, Avg. Initial, Auto Pay %, Appruv %, Multi-Years, Reps W/ a Sale'),
+          'Upload the Indicators CSV with columns: Week, Date, Branch, Sold Accounts, Weekly Sold Revenue, Avg. Initial, Auto Pay %, Appruv %, Multi-Years, Reps W/ a Sale'),
         csvUploadButton(),
       ),
     );
@@ -11711,12 +11711,12 @@ function viewIndicators() {
         // Title block — scrolls with the rest of the page below the fixed bar.
         el('div', {},
           el('h1', { class: 'text-lg font-bold' }, (() => {
-            if (!isRange) return 'D2D INDICATORS';
+            if (!isRange) return 'INDICATORS';
             const presetLabel = (INDICATOR_RANGE_PRESETS.find(p => p.id === state.indicatorsRangePreset) || {}).label || 'Range';
             if (state.indicatorsRangePreset === 'custom') {
-              return `D2D INDICATORS — ${rangeBounds.start} to ${rangeBounds.end}`;
+              return `INDICATORS — ${rangeBounds.start} to ${rangeBounds.end}`;
             }
-            return `D2D INDICATORS — ${presetLabel}`;
+            return `INDICATORS — ${presetLabel}`;
           })()),
           !isRange && dateLabel && el('div', { class: 'text-xs text-muted-' }, dateLabel),
           isRange && el('div', { class: 'text-xs text-muted-' },
