@@ -3076,7 +3076,11 @@ const INDICATOR_DEPTS = [
 // exports and scorecard periods intentionally use the full set instead.
 function indicatorSales() {
   const dept = state.indicatorDept || 'all';
-  const all = state._indicatorRawSales || [];
+  let all = state._indicatorRawSales || [];
+  // Comps mode — competition exclusions. OFF (default): branch level shows
+  // everything, no exclusions at any level. ON: comp rules apply — currently
+  // reps on excluded teams (Manage Teams); extend here as comp rules grow.
+  if (state.indicatorsComps) all = all.filter(s => !isRepExcluded(s.rep));
   if (dept === 'all') return all;
   return all.filter(s => _indicatorDeptOf(s) === dept);
 }
@@ -11519,6 +11523,14 @@ function viewIndicators() {
             onclick: () => { state.indicatorDept = k; mountApp(); },
           }, label)),
         ),
+        // Comps toggle — competition mode. OFF = every sale counts, zero
+        // exclusions. ON = comp exclusions apply to every number below.
+        el('div', { class: 'pill-tabs', title: 'Competition mode — applies comp exclusions to every number below' },
+          el('button', {
+            'data-active': !!state.indicatorsComps,
+            onclick: () => { state.indicatorsComps = !state.indicatorsComps; mountApp(); },
+          }, '🏆 Comps'),
+        ),
         // Branch / Teams group toggle
         el('div', { class: 'pill-tabs', title: rawSalesAvailable ? '' : 'Teams mode requires a raw-sales CSV upload' },
           el('button', {
@@ -11631,10 +11643,10 @@ function viewIndicators() {
                 out.push(['RIDD Indicators — ' + (groupBy === 'teams' ? 'Teams' : 'Branch') + ' table']);
                 out.push(['Pulled', new Date().toLocaleString()]);
                 out.push([]);
-                out.push([groupBy === 'teams' ? 'Team' : 'Branch', 'Sold Accounts', 'Revenue', 'Avg Initial', 'ACV', 'PRA', 'Multi-Year %', 'Auto-Pay %', 'Reps']);
+                out.push([groupBy === 'teams' ? 'Team' : 'Branch', 'Revenue', 'Avg Initial', 'ACV', 'PRA', 'Multi-Year %', 'Auto-Pay %', 'Reps']);
                 branches.forEach(b => {
                   const d = branchData[b]; if (!d) return;
-                  out.push([b, d.sold_accounts, Math.round(d.revenue), d.avg_initial.toFixed(2), d.acv.toFixed(2), d.pra.toFixed(2),
+                  out.push([b, Math.round(d.revenue), d.avg_initial.toFixed(2), d.acv.toFixed(2), d.pra.toFixed(2),
                     (d.multi_year_pct * 100).toFixed(1) + '%', (d.auto_pay_pct * 100).toFixed(1) + '%', d.reps]);
                 });
                 const blob = new Blob([out.map(r => r.map(esc).join(',')).join('\n')], { type: 'text/csv' });
