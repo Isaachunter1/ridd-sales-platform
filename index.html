@@ -11607,7 +11607,7 @@ function viewIndicators() {
               style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
               title: 'Import a sales CSV or export the current table',
               onclick: () => { state.indicatorsCsvMenu = !state.indicatorsCsvMenu; mountApp(); },
-            }, '📁 CSV'),
+            }, '⬆⬇ CSV'),
             menu,
             hiddenImport,
           );
@@ -25012,14 +25012,15 @@ function openUserEditor(existing = null) {
         grid,
       );
 
-      // Auditors don't get a pay stub — hide the whole section. Wired via the
-      // role select that lives in the IIFE above.
+      // Auditors and Admin (no sales) don't get a pay stub — neither sells,
+      // so Rep Type / Golden Phone are irrelevant. Hide the whole section.
+      // Wired via the role select that lives in the IIFE above.
       setTimeout(() => {
         applyRepTypeVisibility();
         const roleSel = form.querySelector('select[name="role"]');
         if (!roleSel) return;
         const checkRole = () => {
-          section.style.display = roleSel.value === 'auditor' ? 'none' : '';
+          section.style.display = (roleSel.value === 'auditor' || roleSel.value === 'admin') ? 'none' : '';
         };
         roleSel.addEventListener('change', checkRole);
         checkRole();
