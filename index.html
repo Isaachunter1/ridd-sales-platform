@@ -20489,11 +20489,11 @@ function reportingOverview() {
   // Each headline card pops (accent top bar, big number) and the related
   // donut sits directly beneath it so column = metric.
   const COLUMN_CARDS = [
-    { label: 'Customers Active',        value: dataA.stats.uniqueCustomers.toLocaleString(),               sub: dataA.stats.distinctServices + ' distinct services',                 chartId: 'customers'  },
-    { label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartId: 'sources'    },
-    { label: 'Subscriptions Active',    value: dataA.stats.activeRecurring.toLocaleString(),               sub: 'currently in service',                                              chartId: 'activesubs' },
-    { label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartId: 'rarr'       },
-    { label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartId: 'cancels'    },
+    { label: 'Customers Active',        value: dataA.stats.uniqueCustomers.toLocaleString(),               sub: dataA.stats.distinctServices + ' distinct services',                 chartIds: ['customers'] },
+    { label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartIds: ['sources', 'agreement'] },
+    { label: 'Subscriptions Active',    value: dataA.stats.activeRecurring.toLocaleString(),               sub: 'currently in service',                                              chartIds: ['activesubs'] },
+    { label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice'] },
+    { label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging', 'pastdue'] },
   ];
   const popTile = (t) => el('div', {
     class: 'card p-4',
@@ -20507,12 +20507,12 @@ function reportingOverview() {
     t.sub && el('div', { class: 'text-[11px] text-muted- mt-1' }, t.sub),
   );
   const defById = Object.fromEntries(chartDefs.map(d => [d.id, d]));
-  const usedChartIds = new Set(COLUMN_CARDS.map(c => c.chartId));
+  const usedChartIds = new Set(COLUMN_CARDS.flatMap(c => c.chartIds));
   const columnsBlock = inCompare ? null : el('div', { class: 'overflow-x-auto' },
-    el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(5, minmax(235px, 1fr))', minWidth: '1230px' } },
+    el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(5, minmax(235px, 1fr))', minWidth: '1230px', alignItems: 'start' } },
       ...COLUMN_CARDS.map(c => el('div', { class: 'flex flex-col gap-4' },
         popTile(c),
-        defById[c.chartId] ? makeCard(defById[c.chartId], dataA, 'a') : null,
+        ...c.chartIds.map(id => defById[id] ? makeCard(defById[id], dataA, 'a') : null),
       )),
     ));
 
