@@ -3076,7 +3076,10 @@ const INDICATOR_DEPTS = [
 // exports and scorecard periods intentionally use the full set instead.
 function indicatorSales() {
   const dept = state.indicatorDept || 'all';
-  const all = state._indicatorRawSales || [];
+  let all = state._indicatorRawSales || [];
+  // Optional toggle: drop reps on excluded teams (set in Manage Teams — e.g.
+  // termite techs) so the branch-level view matches the team-level exclusions.
+  if (state.indicatorsHideExcluded) all = all.filter(s => !isRepExcluded(s.rep));
   if (dept === 'all') return all;
   return all.filter(s => _indicatorDeptOf(s) === dept);
 }
@@ -11438,6 +11441,34 @@ function viewIndicators() {
             onclick: () => { state.indicatorDept = k; mountApp(); },
           }, label)),
         ),
+        // Hide-excluded toggle — applies the Manage Teams exclusions (e.g.
+        // termite techs) at the branch level too.
+        el('div', { class: 'pill-tabs', title: 'Remove reps on excluded teams (set in Manage Teams) from every number below' },
+          el('button', {
+            'data-active': !!state.indicatorsHideExcluded,
+            onclick: () => { state.indicatorsHideExcluded = !state.indicatorsHideExcluded; mountApp(); },
+          }, '🚫 Hide excluded teams'),
+        ),
+        // Export the current by-branch/team table as a CSV (opens straight
+        // in Google Sheets via File → Import, or drag-drop).
+        el('button', {
+          class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          title: 'Download the table below as CSV for Google Sheets',
+          onclick: () => {
+            const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+            const out = [[groupBy === 'teams' ? 'Team' : 'Branch', 'Sold Accounts', 'Revenue', 'Avg Initial', 'ACV', 'PRA', 'Multi-Year %', 'Auto-Pay %', 'Reps']];
+            branches.forEach(b => {
+              const d = branchData[b]; if (!d) return;
+              out.push([b, d.sold_accounts, Math.round(d.revenue), d.avg_initial.toFixed(2), d.acv.toFixed(2), d.pra.toFixed(2),
+                (d.multi_year_pct * 100).toFixed(1) + '%', (d.auto_pay_pct * 100).toFixed(1) + '%', d.reps]);
+            });
+            const blob = new Blob([out.map(r => r.map(esc).join(',')).join('\n')], { type: 'text/csv' });
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+            a.download = 'ridd-indicators-' + (groupBy === 'teams' ? 'teams' : 'branch') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+            a.click();
+          },
+        }, '⬇ Export CSV'),
         // Branch / Teams group toggle
         el('div', { class: 'pill-tabs', title: rawSalesAvailable ? '' : 'Teams mode requires a raw-sales CSV upload' },
           el('button', {
