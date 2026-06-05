@@ -11569,33 +11569,6 @@ function viewIndicators() {
             }, label);
           }),
         ),
-        // Comps switch — competition mode. OFF = every sale counts, zero
-        // exclusions. ON = comp exclusions apply to every number below.
-        (() => {
-          const on = !!state.indicatorsComps;
-          return el('div', {
-            class: 'flex items-center gap-2 cursor-pointer select-none',
-            style: { width: 'fit-content' },
-            title: 'Competition mode — applies comp exclusions to every number below',
-            onclick: (e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              state.indicatorsComps = !state.indicatorsComps;
-              const sx = window.scrollX, sy = window.scrollY;
-              setTimeout(() => {
-                mountApp();
-                requestAnimationFrame(() => window.scrollTo(sx, sy));
-              }, 0);
-            },
-          },
-            el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, 'Comps:'),
-            el('div', {
-              style: { width: '38px', height: '22px', borderRadius: '11px', background: on ? '#34C759' : 'var(--border-2)', position: 'relative', flex: 'none' },
-            },
-              el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)' } }),
-            ),
-          );
-        })(),
         // Branch / Teams group toggle
         el('div', { class: 'pill-tabs', title: rawSalesAvailable ? '' : 'Teams mode requires a raw-sales CSV upload' },
           el('button', {
@@ -11658,7 +11631,7 @@ function viewIndicators() {
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: () => openManageTeamsModal(),
           title: 'Manage teams — assign reps, pick a color, toggle Exclude from metrics',
-        }, '👥 Manage Teams'),
+        }, '👥'),
         // PDF reports — one per team (Teams mode) or one per branch
         // (Branch mode). buildTeamReportNode dispatches its grouping on
         // ctx.groupMode below; in Branch mode it aggregates by s.office,
@@ -11751,7 +11724,10 @@ function viewIndicators() {
         // height since position:fixed takes it out of normal flow.
         el('div', { style: { height: barHeight + 'px' } }),
         // Title block — scrolls with the rest of the page below the fixed bar.
-        el('div', {},
+        // Flex row: title/dates on the left, Comps switch bottom-right so it
+        // sits directly above the table's RIDD column.
+        el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
+          el('div', {},
           el('h1', { class: 'text-lg font-bold' }, (() => {
             if (!isRange) return 'INDICATORS';
             const presetLabel = (INDICATOR_RANGE_PRESETS.find(p => p.id === state.indicatorsRangePreset) || {}).label || 'Range';
@@ -11772,6 +11748,34 @@ function viewIndicators() {
               })),
             state.indicatorsFileName ? ' · ' + state.indicatorsFileName : '',
           ),
+          ), // close left column of the title row
+          // Comps switch — competition mode. OFF = every sale counts, zero
+          // exclusions. ON = comp exclusions apply to every number below.
+          (() => {
+            const on = !!state.indicatorsComps;
+            return el('div', {
+              class: 'flex items-center gap-2 cursor-pointer select-none mb-0.5',
+              style: { width: 'fit-content' },
+              title: 'Competition mode — applies comp exclusions to every number below',
+              onclick: (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                state.indicatorsComps = !state.indicatorsComps;
+                const sx = window.scrollX, sy = window.scrollY;
+                setTimeout(() => {
+                  mountApp();
+                  requestAnimationFrame(() => window.scrollTo(sx, sy));
+                }, 0);
+              },
+            },
+              el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, 'Comps:'),
+              el('div', {
+                style: { width: '38px', height: '22px', borderRadius: '11px', background: on ? '#34C759' : 'var(--border-2)', position: 'relative', flex: 'none' },
+              },
+                el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)' } }),
+              ),
+            );
+          })(),
         ),
       );
     })(),
