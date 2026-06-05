@@ -10023,6 +10023,20 @@ const INDICATOR_METRICS = [
   { key: 'auto_pay_pct',   label: 'Auto Pay %',       fmt: v => (v * 100).toFixed(1) + '%' },
 ];
 
+// How each Power-Ranking-table row is calculated — shown as a hover/tap
+// explainer on the row label instead of click-to-sort.
+const INDICATOR_METRIC_HELP = {
+  sold_accounts:  'Count of sales in the selected window — every row in the sales report counts as one sold account.',
+  revenue:        'Sum of Contract Value across all sales in the window.',
+  avg_initial:    'Average Initial Service Price across sales in the window — excludes Sentricon, German Roach, and Interior Flea jobs.',
+  acv:            'Average Contract Value = Revenue ÷ Sold Accounts.',
+  pra:            'Per-Rep Average = Revenue ÷ Reps W/ A Sale.',
+  multi_year_pct: 'Multi-year contracts (18 & 24 month) ÷ all term contracts (12 + 18 + 24 month).',
+  auto_pay_pct:   'Sales with auto-pay on file ÷ Sold Accounts (sales-weighted).',
+  reps:           'Unique reps who logged at least one sale in this window. Context only — not scored for Power Rank, and the denominator for PRA.',
+  _points:        'Each branch is ranked 1–N on every scored metric above; Power Rank totals those ranks. Lowest total = #1.',
+};
+
 // ── Rep-team assignment helpers ──────────────────────────────────────────
 // Each rep can be assigned to a team string. Any team whose name is in
 // state._indicatorExcludedTeams is dropped from every rep-level metric
@@ -11658,18 +11672,17 @@ function viewIndicators() {
               ...INDICATOR_METRICS.map(m => {
                 const isSorting = sort.key === m.key;
                 return el('tr', { class: 'border-t border-' + (isSorting ? ' font-bold' : '') },
-                  el('td', {
-                    class: 'px-3 py-2 font-semibold text-xs sticky left-0 cursor-pointer select-none hover:underline',
-                    style: { background: 'var(--card)', zIndex: 1, color: isSorting ? 'var(--accent)' : '' },
-                    onclick: () => {
-                      if (sort.key === m.key) { sort.asc = !sort.asc; }
-                      else { sort.key = m.key; sort.asc = false; }
-                      mountApp();
+                  (() => {
+                    const cell = el('td', {
+                      class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
+                      style: { background: 'var(--card)', zIndex: 1, cursor: 'help', color: isSorting ? 'var(--accent)' : '' },
                     },
-                  },
-                    indicatorMetricLabel(m),
-                    isSorting ? (sort.asc ? ' ↑' : ' ↓') : '',
-                  ),
+                      indicatorMetricLabel(m),
+                      isSorting ? (sort.asc ? ' ↑' : ' ↓') : '',
+                    );
+                    attachExplainer(cell, { title: indicatorMetricLabel(m), desc: INDICATOR_METRIC_HELP[m.key] || '' });
+                    return cell;
+                  })(),
                   ...sortedBranches.map(b => el('td', { class: 'px-3 py-2 text-center tabular-nums' },
                     branchData[b] ? m.fmt(branchData[b][m.key]) : '—',
                   )),
@@ -11687,19 +11700,17 @@ function viewIndicators() {
                 const isSortingReps = sort.key === 'reps';
                 const totalReps = activeBranches.reduce((a, b) => a + (branchData[b]?.reps || 0), 0);
                 return el('tr', { class: 'border-t border-' + (isSortingReps ? ' font-bold' : '') },
-                  el('td', {
-                    class: 'px-3 py-2 font-semibold text-xs sticky left-0 cursor-pointer select-none hover:underline',
-                    style: { background: 'var(--card)', zIndex: 1, color: isSortingReps ? 'var(--accent)' : '' },
-                    title: 'Unique reps who logged at least one sale in this window (not scored for Power Rank).',
-                    onclick: () => {
-                      if (sort.key === 'reps') { sort.asc = !sort.asc; }
-                      else { sort.key = 'reps'; sort.asc = false; }
-                      mountApp();
+                  (() => {
+                    const cell = el('td', {
+                      class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
+                      style: { background: 'var(--card)', zIndex: 1, cursor: 'help', color: isSortingReps ? 'var(--accent)' : '' },
                     },
-                  },
-                    'Reps W/ A Sale',
-                    isSortingReps ? (sort.asc ? ' ↑' : ' ↓') : '',
-                  ),
+                      'Reps W/ A Sale',
+                      isSortingReps ? (sort.asc ? ' ↑' : ' ↓') : '',
+                    );
+                    attachExplainer(cell, { title: 'Reps W/ A Sale', desc: INDICATOR_METRIC_HELP.reps });
+                    return cell;
+                  })(),
                   ...sortedBranches.map(b => el('td', { class: 'px-3 py-2 text-center tabular-nums' },
                     branchData[b] ? fmt.int(branchData[b].reps || 0) : '—',
                   )),
@@ -11713,19 +11724,17 @@ function viewIndicators() {
                 const rankByBranch = {};
                 powerRanking.forEach((b, i) => { rankByBranch[b] = i + 1; });
                 return el('tr', { class: 'border-t-2', style: { borderColor: 'var(--accent)' } },
-                  el('td', {
-                    class: 'px-3 py-2 font-bold text-xs sticky left-0 cursor-pointer select-none hover:underline',
-                    style: { background: 'var(--card)', zIndex: 1, color: sort.key === '_points' ? 'var(--accent)' : '' },
-                    onclick: () => {
-                      if (sort.key === '_points') { sort.asc = !sort.asc; }
-                      else { sort.key = '_points'; sort.asc = true; } // best (rank 1) shows first
-                      mountApp();
+                  (() => {
+                    const cell = el('td', {
+                      class: 'px-3 py-2 font-bold text-xs sticky left-0 select-none',
+                      style: { background: 'var(--card)', zIndex: 1, cursor: 'help', color: sort.key === '_points' ? 'var(--accent)' : '' },
                     },
-                    title: 'Sorted by overall Power Ranking (lower rank = better)',
-                  },
-                    'Power Rank',
-                    sort.key === '_points' ? (sort.asc ? ' ↑' : ' ↓') : '',
-                  ),
+                      'Power Rank',
+                      sort.key === '_points' ? (sort.asc ? ' ↑' : ' ↓') : '',
+                    );
+                    attachExplainer(cell, { title: 'Power Rank', desc: INDICATOR_METRIC_HELP._points });
+                    return cell;
+                  })(),
                   ...sortedBranches.map(b => el('td', {
                     class: 'px-3 py-2 text-center tabular-nums font-black text-base',
                     style: rankByBranch[b] === 1 ? { color: 'var(--accent)' } : {},
