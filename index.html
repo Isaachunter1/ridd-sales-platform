@@ -565,6 +565,29 @@ const INDICATOR_PERSIST_FIELDS = [...INDICATOR_SETTINGS_FIELDS, ...INDICATOR_DAT
 // Track quota warnings so the toast doesn't fire on every keystroke.
 let _indicatorDataSaveWarned = false;
 
+// Compressed fallback store for the bulk indicator data. The raw-sales array
+// outgrew the ~5MB localStorage quota as plain JSON; gzip + base64 is ~8×
+// smaller and keeps raw sales (teams mode, dept toggle, exact-day ranges,
+// header colors) alive across refreshes.
+const INDICATORS_DATA_GZ_KEY = 'ridd-indicators-data-gz-v1';
+let _indSaveSeq = 0;
+async function _storeIndicatorDataCompressed(json) {
+  const seq = ++_indSaveSeq;
+  try {
+    if (typeof CompressionStream === 'undefined') return;
+    const blob = await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    let bin = ''; const STEP = 0x8000;
+    for (let i = 0; i < buf.length; i += STEP) bin += String.fromCharCode.apply(null, buf.subarray(i, i + STEP));
+    const b64 = btoa(bin);
+    if (seq !== _indSaveSeq) return; // a newer save superseded this one
+    localStorage.setItem(INDICATORS_DATA_GZ_KEY, b64);
+    _indicatorDataSaveWarned = false;
+  } catch (e) {
+    console.warn('[ridd] compressed indicator save failed', e);
+  }
+}
+
 function saveIndicatorState() {
   // Settings ALWAYS save first, with their own try/catch, so a quota failure
   // on the bulk CSV save can't roll back team/rep edits. Without this split,
@@ -611,8 +634,17 @@ function saveIndicatorState() {
     if (Array.isArray(data._indicatorSnapshots) && data._indicatorSnapshots.length > 6) {
       data._indicatorSnapshots = data._indicatorSnapshots.slice(-6);
     }
-    localStorage.setItem(INDICATORS_DATA_STORAGE_KEY, JSON.stringify(data));
-    _indicatorDataSaveWarned = false;
+    const json = JSON.stringify(data);
+    try {
+      localStorage.setItem(INDICATORS_DATA_STORAGE_KEY, json);
+      localStorage.removeItem(INDICATORS_DATA_GZ_KEY);
+      _indicatorDataSaveWarned = false;
+    } catch (plainErr) {
+      // Plain JSON is over quota — persist the full payload compressed in
+      // the background (≈8× smaller) so nothing is lost across refreshes.
+      _storeIndicatorDataCompressed(json);
+      throw plainErr; // still run the slim sync fallback below
+    }
   } catch (err) {
     // Over quota. Retry WITHOUT the bulk raw-sales array so aggregates,
     // snapshots and prefs still persist — and log quietly instead of
@@ -655,6 +687,25 @@ function loadIndicatorState() {
   apply(localStorage.getItem(INDICATORS_STORAGE_KEY));        // legacy combined
   apply(localStorage.getItem(INDICATORS_DATA_STORAGE_KEY));   // bulk (overrides legacy data fields)
   apply(localStorage.getItem(INDICATORS_SETTINGS_STORAGE_KEY)); // settings (overrides legacy settings fields)
+
+  // Compressed bulk cache (written when plain JSON exceeded the quota).
+  // Decompression is async, so the page may paint once without raw sales
+  // and re-mount the moment they're back.
+  const gz = localStorage.getItem(INDICATORS_DATA_GZ_KEY);
+  if (gz && typeof DecompressionStream !== 'undefined') {
+    (async () => {
+      try {
+        const bin = atob(gz);
+        const buf = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+        const text = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+        apply(text);
+        if (state.profile && typeof mountApp === 'function') mountApp();
+      } catch (e) {
+        console.warn('[ridd] compressed indicator cache unreadable', e);
+      }
+    })();
+  }
 }
 
 // ── Supabase-backed indicator config (teams, tiers, rep overrides) ──────
@@ -11275,6 +11326,10 @@ function viewIndicators() {
   const rawSalesAvailable = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
   const wantTeams = state.indicatorsGroupBy === 'teams';
   const groupBy = wantTeams && rawSalesAvailable ? 'teams' : 'branch';
+  // If teams mode can't run (no raw sales cached), heal the stale state so
+  // labels + header colors render in branch form instead of a half-teams
+  // hybrid (team colors painted onto branch columns).
+  if (wantTeams && !rawSalesAvailable) state.indicatorsGroupBy = 'branch';
 
   let allData;
   if (groupBy === 'teams') {
