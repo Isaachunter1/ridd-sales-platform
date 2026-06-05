@@ -11476,26 +11476,6 @@ function viewIndicators() {
             onclick: () => { state.indicatorDept = k; mountApp(); },
           }, label)),
         ),
-        // Export the current by-branch/team table as a CSV (opens straight
-        // in Google Sheets via File → Import, or drag-drop).
-        el('button', {
-          class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-          title: 'Download the table below as CSV for Google Sheets',
-          onclick: () => {
-            const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-            const out = [[groupBy === 'teams' ? 'Team' : 'Branch', 'Sold Accounts', 'Revenue', 'Avg Initial', 'ACV', 'PRA', 'Multi-Year %', 'Auto-Pay %', 'Reps']];
-            branches.forEach(b => {
-              const d = branchData[b]; if (!d) return;
-              out.push([b, d.sold_accounts, Math.round(d.revenue), d.avg_initial.toFixed(2), d.acv.toFixed(2), d.pra.toFixed(2),
-                (d.multi_year_pct * 100).toFixed(1) + '%', (d.auto_pay_pct * 100).toFixed(1) + '%', d.reps]);
-            });
-            const blob = new Blob([out.map(r => r.map(esc).join(',')).join('\n')], { type: 'text/csv' });
-            const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-            a.download = 'ridd-indicators-' + (groupBy === 'teams' ? 'teams' : 'branch') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
-            a.click();
-          },
-        }, '⬇ Export CSV'),
         // Branch / Teams group toggle
         el('div', { class: 'pill-tabs', title: rawSalesAvailable ? '' : 'Teams mode requires a raw-sales CSV upload' },
           el('button', {
@@ -11585,8 +11565,53 @@ function viewIndicators() {
             ? 'Download a PDF report per team (current timeframe)'
             : 'Download a PDF report per branch (current timeframe)',
         }, '📄 Reports'),
-        // Re-upload
-        csvUploadButton('sm'),
+        // CSV menu — import a fresh sales report or export the current
+        // by-branch/team table (with a pulled-at timestamp up top).
+        (() => {
+          const hiddenImport = csvUploadButton('sm');
+          hiddenImport.style.display = 'none';
+          let menu = null;
+          if (state.indicatorsCsvMenu) {
+            const opt = (label, fn) => el('button', {
+              class: 'w-full text-left px-3 py-2 rounded-lg text-xs font-semibold transition hover:brightness-95',
+              style: { color: 'var(--text)' },
+              onclick: (e) => { e.stopPropagation(); state.indicatorsCsvMenu = false; if (menu) menu.style.display = 'none'; fn(); },
+            }, label);
+            menu = el('div', {
+              class: 'card',
+              style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '50', minWidth: '170px', padding: '6px', boxShadow: 'var(--shadow-lg)' },
+            },
+              opt('⬆ Import CSV…', () => hiddenImport.click()),
+              opt('⬇ Export CSV', () => {
+                const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+                const out = [];
+                out.push(['RIDD Indicators — ' + (groupBy === 'teams' ? 'Teams' : 'Branch') + ' table']);
+                out.push(['Pulled', new Date().toLocaleString()]);
+                out.push([]);
+                out.push([groupBy === 'teams' ? 'Team' : 'Branch', 'Sold Accounts', 'Revenue', 'Avg Initial', 'ACV', 'PRA', 'Multi-Year %', 'Auto-Pay %', 'Reps']);
+                branches.forEach(b => {
+                  const d = branchData[b]; if (!d) return;
+                  out.push([b, d.sold_accounts, Math.round(d.revenue), d.avg_initial.toFixed(2), d.acv.toFixed(2), d.pra.toFixed(2),
+                    (d.multi_year_pct * 100).toFixed(1) + '%', (d.auto_pay_pct * 100).toFixed(1) + '%', d.reps]);
+                });
+                const blob = new Blob([out.map(r => r.map(esc).join(',')).join('\n')], { type: 'text/csv' });
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+                a.download = 'ridd-indicators-' + (groupBy === 'teams' ? 'teams' : 'branch') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+                a.click();
+              }),
+            );
+          }
+          return el('div', { style: { position: 'relative' } },
+            el('button', {
+              class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
+              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+              title: 'Import a sales CSV or export the current table',
+              onclick: () => { state.indicatorsCsvMenu = !state.indicatorsCsvMenu; mountApp(); },
+            }, '📁 CSV'),
+            menu,
+            hiddenImport,
+          );
+        })(),
         ),
         // Custom date pickers — own row inside the sticky filter bar's
         // flex-col, only visible when Custom is selected.
