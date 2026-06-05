@@ -239,7 +239,8 @@
   }
   .ridd-tooltip.show { opacity: 1; transform: translateY(0); }
   .ridd-tooltip strong { color: #8DC63F; display: block; font-size: 11px; margin-bottom: 2px; }
-  .ridd-tooltip .desc { color: rgba(243,243,243,.82); font-size: 11px; }
+  .ridd-tooltip .desc { color: rgba(243,243,243,.82); font-size: 11px; white-space: pre-line; }
+  .ridd-tooltip.wide { max-width: 340px; }
   .ridd-tooltip::after {
     content: '';
     position: absolute;
@@ -5370,13 +5371,15 @@ function attachTooltip(target, { title, desc }) {
 function attachExplainer(target, opts) {
   attachTooltip(target, opts);
   // Stamp show-time so a mobile tap (which fires mouseenter + click together)
-  // doesn't immediately toggle the tip back off.
-  target.addEventListener('mouseenter', () => { ensureTooltipEl()._shownAt = Date.now(); });
+  // doesn't immediately toggle the tip back off. Explainers also widen the
+  // shared tooltip so multi-line calculation breakdowns stay readable.
+  target.addEventListener('mouseenter', () => { const t = ensureTooltipEl(); t.classList.add('wide'); t._shownAt = Date.now(); });
+  target.addEventListener('mouseleave', () => { ensureTooltipEl().classList.remove('wide'); });
   target.addEventListener('click', (e) => {
     e.stopPropagation();
     const tip = ensureTooltipEl();
     if (tip.classList.contains('show') && Date.now() - (tip._shownAt || 0) > 400) {
-      tip.classList.remove('show');
+      tip.classList.remove('show', 'wide');
     } else {
       target.dispatchEvent(new Event('mouseenter'));
       tip._shownAt = Date.now();
@@ -5384,7 +5387,7 @@ function attachExplainer(target, opts) {
   });
   if (!window._explainerDismissBound) {
     window._explainerDismissBound = true;
-    document.addEventListener('click', () => { if (_tooltipEl) _tooltipEl.classList.remove('show'); });
+    document.addEventListener('click', () => { if (_tooltipEl) _tooltipEl.classList.remove('show', 'wide'); });
   }
 }
 
@@ -10032,19 +10035,50 @@ const INDICATOR_METRICS = [
   { key: 'auto_pay_pct',   label: 'Auto Pay %',       fmt: v => (v * 100).toFixed(1) + '%' },
 ];
 
-// How each Power-Ranking-table row is calculated — shown as a hover/tap
-// explainer on the row label instead of click-to-sort.
-const INDICATOR_METRIC_HELP = {
-  sold_accounts:  'Count of sales in the selected window — every row in the sales report counts as one sold account.',
-  revenue:        'Sum of Contract Value across all sales in the window.',
-  avg_initial:    'Average Initial Service Price across sales in the window — excludes Sentricon, German Roach, and Interior Flea jobs.',
-  acv:            'Average Contract Value = Revenue ÷ Sold Accounts.',
-  pra:            'Per-Rep Average = Revenue ÷ Reps W/ A Sale.',
-  multi_year_pct: 'Multi-year contracts (18 & 24 month) ÷ all term contracts (12 + 18 + 24 month).',
-  auto_pay_pct:   'Sales with auto-pay on file ÷ Sold Accounts (sales-weighted).',
-  reps:           'Unique reps who logged at least one sale in this window. Context only — not scored for Power Rank, and the denominator for PRA.',
-  _points:        'Each branch is ranked 1–N on every scored metric above; Power Rank totals those ranks. Lowest total = #1.',
-};
+// EXACT calculation breakdown for each Power-Ranking-table row, built live
+// from the CURRENT toggles so it always states every filter and exclusion in
+// force. These popups are the source of truth for comps — keep them in
+// lockstep with the aggregation code (aggregateRawSalesByGroup + the
+// range-mode day-precision path in viewIndicators).
+function indicatorMetricHelp(key) {
+  const teamsMode = state.indicatorsGroupBy === 'teams';
+  const dept = state.indicatorDept || 'all';
+  const comps = !!state.indicatorsComps;
+  const isRange = state.indicatorsView === 'range';
+  const excluded = (typeof getExcludedTeams === 'function' ? (getExcludedTeams() || []) : []);
+  const exList = excluded.length ? excluded.join(', ') : 'none currently marked excluded';
+
+  const scope = [];
+  scope.push(isRange
+    ? 'Window: sales whose Date Sold falls inside the selected range — start and end days both included.'
+    : 'Window: sales in the selected week (Sun–Sat).');
+  if (dept === 'd2d')    scope.push('Department = Door to Door: ONLY sales with Source exactly "Door to Door".');
+  if (dept === 'office') scope.push('Department = Office Staff: ONLY sales whose Source is anything EXCEPT "Door to Door", "Upsell - Service Pro", "Upsell - Termite Pro".');
+  if (dept === 'techs')  scope.push('Department = Techs: ONLY sales with Source "Upsell - Service Pro" or "Upsell - Termite Pro".');
+  if (dept === 'all')    scope.push('Department = All: every Source counts.');
+  scope.push(comps
+    ? 'COMPS ON: reps on excluded teams are removed (' + exList + ').'
+    : 'Comps OFF: no comp exclusions.');
+  scope.push(teamsMode
+    ? 'Teams mode: reps on excluded teams are ALWAYS removed (' + exList + '); reps with no team assignment group under "Unassigned".'
+    : 'Branch mode: grouped by office; no team-based exclusions beyond the toggles above.');
+  scope.push('Sales with a blank rep name are never counted.');
+
+  const F = {
+    sold_accounts:  'COUNT of in-scope sales — every row of the sales report is one sold account. No other filters.',
+    revenue:        'SUM of Contract Value across in-scope sales. Every subscription type counts — nothing excluded.',
+    avg_initial:    teamsMode
+      ? 'MEAN of Initial Service Price across in-scope sales, EXCLUDING any subscription whose name contains "Sentricon", "German Roach", or "Interior Flea" (teams view only).'
+      : 'MEAN of Initial Service Price across ALL in-scope sales — branch view applies NO subscription-type exclusions.',
+    acv:            'Revenue ÷ Sold Accounts (each exactly as defined on its own row, same scope).',
+    pra:            'Revenue ÷ Reps W/ A Sale (each exactly as defined on its own row, same scope).',
+    multi_year_pct: 'COUNT(contract LONGER than 12 months) ÷ [COUNT(contract = 12 months) + COUNT(contract longer than 12)]. Sales with any other term (0, blank, month-to-month) are excluded from BOTH numerator and denominator.',
+    auto_pay_pct:   'COUNT(Auto-Pay field set and not "No") ÷ Sold Accounts.',
+    reps:           'COUNT of unique rep names with at least one in-scope sale. Context only — NOT scored for Power Rank; used as the denominator for PRA.',
+    _points:        'Each group is ranked 1–N on the 7 scored rows (Sold Accounts, Revenue, Avg Initial, ACV, PRA, Multi-Year %, Auto-Pay %). Power Rank = SUM of those 7 ranks; lowest total = #1. Reps W/ A Sale is NOT scored. Ties keep their summed totals.',
+  };
+  return (F[key] || '') + '\n\nWHICH SALES COUNT:\n• ' + scope.join('\n• ');
+}
 
 // ── Rep-team assignment helpers ──────────────────────────────────────────
 // Each rep can be assigned to a team string. Any team whose name is in
@@ -11698,17 +11732,26 @@ function viewIndicators() {
           ),
           // Comps switch — competition mode. OFF = every sale counts, zero
           // exclusions. ON = comp exclusions apply to every number below.
+          // Plain div (not <label>) + deferred re-render: re-rendering the
+          // whole app synchronously mid-click-dispatch caused bad flicker.
           (() => {
             const on = !!state.indicatorsComps;
-            return el('label', { class: 'flex items-center gap-2 mt-1.5 cursor-pointer select-none', style: { width: 'fit-content' } },
+            return el('div', {
+              class: 'flex items-center gap-2 mt-1.5 cursor-pointer select-none',
+              style: { width: 'fit-content' },
+              title: 'Competition mode — applies comp exclusions to every number below',
+              onclick: (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                state.indicatorsComps = !state.indicatorsComps;
+                setTimeout(mountApp, 0);
+              },
+            },
               el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--text-muted)' } }, 'Comps:'),
               el('div', {
-                role: 'switch', 'aria-checked': on ? 'true' : 'false',
-                title: 'Competition mode — applies comp exclusions to every number below',
-                style: { width: '38px', height: '22px', borderRadius: '11px', background: on ? '#34C759' : 'var(--border-2)', position: 'relative', transition: 'background .15s', flex: 'none' },
-                onclick: () => { state.indicatorsComps = !state.indicatorsComps; mountApp(); },
+                style: { width: '38px', height: '22px', borderRadius: '11px', background: on ? '#34C759' : 'var(--border-2)', position: 'relative', flex: 'none' },
               },
-                el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .15s' } }),
+                el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)' } }),
               ),
             );
           })(),
@@ -11768,7 +11811,7 @@ function viewIndicators() {
                       indicatorMetricLabel(m),
                       isSorting ? (sort.asc ? ' ↑' : ' ↓') : '',
                     );
-                    attachExplainer(cell, { title: indicatorMetricLabel(m), desc: INDICATOR_METRIC_HELP[m.key] || '' });
+                    attachExplainer(cell, { title: indicatorMetricLabel(m), desc: indicatorMetricHelp(m.key) });
                     return cell;
                   })(),
                   ...sortedBranches.map(b => el('td', { class: 'px-3 py-2 text-center tabular-nums' },
@@ -11796,7 +11839,7 @@ function viewIndicators() {
                       'Reps W/ A Sale',
                       isSortingReps ? (sort.asc ? ' ↑' : ' ↓') : '',
                     );
-                    attachExplainer(cell, { title: 'Reps W/ A Sale', desc: INDICATOR_METRIC_HELP.reps });
+                    attachExplainer(cell, { title: 'Reps W/ A Sale', desc: indicatorMetricHelp('reps') });
                     return cell;
                   })(),
                   ...sortedBranches.map(b => el('td', { class: 'px-3 py-2 text-center tabular-nums' },
@@ -11820,7 +11863,7 @@ function viewIndicators() {
                       'Power Rank',
                       sort.key === '_points' ? (sort.asc ? ' ↑' : ' ↓') : '',
                     );
-                    attachExplainer(cell, { title: 'Power Rank', desc: INDICATOR_METRIC_HELP._points });
+                    attachExplainer(cell, { title: 'Power Rank', desc: indicatorMetricHelp('_points') });
                     return cell;
                   })(),
                   ...sortedBranches.map(b => el('td', {
