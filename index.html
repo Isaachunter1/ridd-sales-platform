@@ -606,12 +606,33 @@ function saveIndicatorState() {
         data[k] = state[k];
       }
     }
+    // Snapshot history grows with every import — keep only the last few
+    // locally so it can't crowd the raw sales out of the quota.
+    if (Array.isArray(data._indicatorSnapshots) && data._indicatorSnapshots.length > 6) {
+      data._indicatorSnapshots = data._indicatorSnapshots.slice(-6);
+    }
     localStorage.setItem(INDICATORS_DATA_STORAGE_KEY, JSON.stringify(data));
     _indicatorDataSaveWarned = false;
   } catch (err) {
-    console.warn('[ridd] failed to save indicator data', err);
-    if (!_indicatorDataSaveWarned && typeof toast === 'function') {
-      toast('CSV upload too large to cache locally — will reload from server next refresh', 'warn');
+    // Over quota. Retry WITHOUT the bulk raw-sales array so aggregates,
+    // snapshots and prefs still persist — and log quietly instead of
+    // nagging with a toast on every save/page load. Raw sales come back
+    // with the next CSV import.
+    try {
+      const slim = { savedAt: new Date().toISOString() };
+      for (const k of INDICATOR_DATA_FIELDS) {
+        if (k === '_indicatorRawSales') continue;
+        slim[k] = state[k];
+      }
+      if (Array.isArray(slim._indicatorSnapshots) && slim._indicatorSnapshots.length > 6) {
+        slim._indicatorSnapshots = slim._indicatorSnapshots.slice(-6);
+      }
+      localStorage.setItem(INDICATORS_DATA_STORAGE_KEY, JSON.stringify(slim));
+    } catch (err2) {
+      console.warn('[ridd] slim indicator save also failed', err2);
+    }
+    if (!_indicatorDataSaveWarned) {
+      console.warn('[ridd] indicator raw sales too large for localStorage — cached without raw rows; re-import the CSV after a refresh for rep-level detail', err);
       _indicatorDataSaveWarned = true;
     }
   }
