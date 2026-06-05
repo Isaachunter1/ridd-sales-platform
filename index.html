@@ -820,25 +820,36 @@ async function loadReportingSubscriptions(uploadId) {
     .select('id', { count: 'exact', head: true })
     .eq('upload_id', uploadId);
 
-  // Fallback: if the count probe fails, page sequentially.
+  // Fallback: if the count probe fails, page sequentially (progress measured
+  // against the snapshot's known row_count from metadata when available).
   if (countErr || count == null) {
+    const metaTotal = (((state.reportingUploads || []).find(u => u.id === uploadId)) || {}).row_count || null;
     const all = [];
     for (let from = 0; ; from += CHUNK) {
       const data = await fetchPage(from);
       all.push(...data);
+      reportingUploadProgress(
+        metaTotal ? Math.min(99, Math.round(100 * all.length / metaTotal)) : 50,
+        'Loading snapshot… ' + all.length.toLocaleString() + (metaTotal ? ' / ' + metaTotal.toLocaleString() : '') + ' rows');
       if (data.length < CHUNK) break;
     }
+    reportingUploadProgress(null);
     return all;
   }
 
   const pages = Math.ceil(count / CHUNK);
   const results = new Array(pages);
-  let nextPage = 0;
+  let nextPage = 0, loadedRows = 0;
+  reportingUploadProgress(0, 'Loading snapshot… 0 / ' + count.toLocaleString() + ' rows');
   const worker = async () => {
     for (;;) {
       const p = nextPage++;
       if (p >= pages) return;
       results[p] = await fetchPage(p * CHUNK);
+      loadedRows += results[p].length;
+      reportingUploadProgress(
+        Math.min(99, Math.round(100 * loadedRows / Math.max(1, count))),
+        'Loading snapshot… ' + loadedRows.toLocaleString() + ' / ' + count.toLocaleString() + ' rows');
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pages) }, worker));
@@ -846,6 +857,7 @@ async function loadReportingSubscriptions(uploadId) {
   if (loaded.length < count) {
     console.warn('[ridd] reporting load incomplete:', loaded.length, 'of', count);
   }
+  reportingUploadProgress(null);
   return loaded;
 }
 
