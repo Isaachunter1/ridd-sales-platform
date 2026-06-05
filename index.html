@@ -789,6 +789,27 @@ async function loadReportingMetadata() {
 async function loadReportingSubscriptions(uploadId) {
   if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return [];
   if (!uploadId) return [];
+
+  // FAST PATH — snapshot stored as one gzipped object in Storage: a single
+  // download instead of ~78 paged queries (and nothing to silently drop).
+  const metaU = (state.reportingUploads || []).find(u => u.id === uploadId);
+  if (metaU && metaU.storage_path) {
+    try {
+      reportingUploadProgress(15, 'Downloading snapshot…');
+      const { data: blob, error: dlErr } = await supabase.storage.from('reporting').download(metaU.storage_path);
+      if (!dlErr && blob) {
+        reportingUploadProgress(75, 'Unpacking…');
+        const text = (metaU.storage_path.endsWith('.gz') && typeof DecompressionStream !== 'undefined')
+          ? await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text()
+          : await blob.text();
+        const rows = JSON.parse(text);
+        reportingUploadProgress(null);
+        return rows;
+      }
+      console.warn('[ridd] storage download failed — falling back to paged load', dlErr);
+    } catch (e) { console.warn('[ridd] storage load failed — falling back to paged load', e); }
+    reportingUploadProgress(null);
+  }
   // PostgREST caps each response at 1000 rows, so a 58k-row snapshot needs
   // ~58 pages. Fetching them one-at-a-time (sequential await) is the reason
   // the tab took forever. Instead we read the total count once, then fan the
@@ -19349,17 +19370,43 @@ async function uploadReportingCsv(file) {
     return;
   }
 
-  // 1. Snapshot envelope.
-  const { data: upload, error: uploadErr } = await supabase
-    .from('reporting_uploads')
-    .insert({
-      filename:    file.name || '',
-      row_count:   rows.length,
-      uploaded_by: state.profile?.id || null,
-    })
-    .select()
-    .single();
-  if (uploadErr) { toast('Upload failed: ' + uploadErr.message, 'error'); return; }
+  // 1. FAST PATH — gzip the parsed rows and store them as ONE object in
+  //    Supabase Storage (single PUT, seconds) instead of ~78 row-inserts.
+  //    Falls back to the legacy chunked inserts if the bucket / column
+  //    isn't set up yet (run reporting_storage.sql).
+  let storagePath = null;
+  try {
+    if (typeof CompressionStream !== 'undefined') {
+      reportingUploadProgress(8, 'Compressing ' + rows.length.toLocaleString() + ' rows…');
+      const gz = new CompressionStream('gzip');
+      const blob = await new Response(new Blob([JSON.stringify(rows)]).stream().pipeThrough(gz)).blob();
+      const path = 'snapshots/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.json.gz';
+      reportingUploadProgress(20, 'Uploading snapshot (' + (blob.size / 1048576).toFixed(1) + ' MB)…');
+      const { error: stErr } = await supabase.storage.from('reporting').upload(path, blob, { contentType: 'application/gzip' });
+      if (!stErr) storagePath = path;
+      else console.warn('[ridd] storage upload unavailable — falling back to row inserts', stErr);
+    }
+  } catch (e) { console.warn('[ridd] storage fast path failed — falling back to row inserts', e); }
+
+  // 2. Snapshot envelope (carries storage_path when the fast path worked).
+  const envelope = {
+    filename:    file.name || '',
+    row_count:   rows.length,
+    uploaded_by: state.profile?.id || null,
+  };
+  if (storagePath) envelope.storage_path = storagePath;
+  let { data: upload, error: uploadErr } = await supabase
+    .from('reporting_uploads').insert(envelope).select().single();
+  if (uploadErr && storagePath) {
+    // storage_path column may not exist yet — retry as a legacy upload.
+    console.warn('[ridd] envelope insert with storage_path failed — retrying legacy', uploadErr);
+    storagePath = null; delete envelope.storage_path;
+    ({ data: upload, error: uploadErr } = await supabase
+      .from('reporting_uploads').insert(envelope).select().single());
+  }
+  if (uploadErr) { reportingUploadProgress(null); toast('Upload failed: ' + uploadErr.message, 'error'); return; }
+  if (storagePath) reportingUploadProgress(92, 'Finishing up…');
+  if (!storagePath) {
 
   // 2. Chunked inserts, run in parallel with a capped concurrency + a live
   //    progress bar. Sequential single-file inserts were the slow part; firing
@@ -19392,6 +19439,7 @@ async function uploadReportingCsv(file) {
     return;
   }
   reportingUploadProgress(100, 'Finishing up…');
+  } // end legacy row-insert path
 
   // 3. Seed any new service names so the Service Type Configuration
   //    tab shows them with default flags. Existing rows are left alone
@@ -20853,6 +20901,9 @@ function reportingUploadsPanel() {
                         }
                         const { error } = await supabase.from('reporting_uploads').delete().eq('id', u.id);
                         if (error) { toast('Delete failed: ' + error.message, 'error'); return; }
+                        if (u.storage_path) {
+                          try { await supabase.storage.from('reporting').remove([u.storage_path]); } catch {}
+                        }
                         if (isActive) {
                           state.reportingActiveUploadId = null;
                           state.reportingSubscriptions = [];
