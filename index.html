@@ -11744,7 +11744,15 @@ function viewIndicators() {
                 e.preventDefault();
                 e.stopPropagation();
                 state.indicatorsComps = !state.indicatorsComps;
-                setTimeout(mountApp, 0);
+                // Re-render after the click finishes, then pin the window
+                // scroll back exactly where it was — a sync re-render mid
+                // click let the browser's scroll offsets land in a rebuilt
+                // layout (big gap up top + content shifted left).
+                const sx = window.scrollX, sy = window.scrollY;
+                setTimeout(() => {
+                  mountApp();
+                  requestAnimationFrame(() => window.scrollTo(sx, sy));
+                }, 0);
               },
             },
               el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--text-muted)' } }, 'Comps:'),
