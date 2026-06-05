@@ -9898,7 +9898,12 @@ function indicatorWeekStartIso(row) {
 function isInIndicatorRange(row, bounds) {
   const iso = indicatorWeekStartIso(row);
   if (!iso) return true; // unknown — keep, don't silently drop
-  return iso >= bounds.start && iso <= bounds.end;
+  // Match weeks that OVERLAP the range (a week spans iso .. iso+6 days).
+  // Anchor-only matching made short mid-week ranges (e.g. 6/1–6/3) match
+  // nothing, because the containing week starts on the prior Sunday.
+  const we = new Date(iso + 'T00:00:00'); we.setDate(we.getDate() + 6);
+  const weekEndIso = we.toISOString().slice(0, 10);
+  return iso <= bounds.end && weekEndIso >= bounds.start;
 }
 
 // Convert the raw-sales `dateSold` string (e.g. "5/3/26 9:14 AM" or "5/3/2026")
@@ -11247,9 +11252,47 @@ function viewIndicators() {
     : allWeeks;
   const currentWeek = state.indicatorsWeek === -1 ? allWeeks[allWeeks.length - 1] : state.indicatorsWeek;
 
-  // Aggregate data
+  // Aggregate data. Range mode with raw sales aggregates by EXACT sale date —
+  // so a custom competition window like 6/1–6/3 counts only those days, not
+  // the whole containing week. Weekly mode + pre-aggregated CSVs keep the
+  // weekly-row math.
+  const rangeStartD = isRange ? new Date(rangeBounds.start + 'T00:00:00') : null;
+  const rangeEndD   = isRange ? new Date(rangeBounds.end   + 'T23:59:59') : null;
   const branchData = {};
   branches.forEach(b => {
+    if (isRange && rawSalesAvailable) {
+      const groupKeyOf = groupBy === 'teams'
+        ? (s) => (getRepTeam(s.rep) || 'Unassigned')
+        : (s) => s.office || 'Unknown';
+      const ss = indicatorSales().filter(s => {
+        if (!s.rep) return false;
+        if (groupBy === 'teams' && isRepExcluded(s.rep)) return false;
+        if (groupKeyOf(s) !== b) return false;
+        const d = _parseIndicatorDay(s);
+        return d && d >= rangeStartD && d <= rangeEndD;
+      });
+      if (!ss.length) { branchData[b] = null; return; }
+      const count = ss.length;
+      const rev = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
+      const pest = groupBy === 'teams' ? ss.filter(s => !TEAM_PEST_EXCLUDE.test(s.subscription || '')) : ss;
+      const avgInit = pest.length > 0 ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
+      const multi = ss.filter(s => Number(s.contract) > 12).length;
+      const twelve = ss.filter(s => Number(s.contract) === 12).length;
+      const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
+      const reps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
+      branchData[b] = {
+        sold_accounts: count,
+        revenue: rev,
+        avg_initial: avgInit,
+        avg_initial_count: pest.length,
+        acv: count > 0 ? rev / count : 0,
+        pra: reps > 0 ? rev / reps : 0,
+        multi_year_pct: (twelve + multi) > 0 ? multi / (twelve + multi) : 0,
+        auto_pay_pct: count > 0 ? autoPayCount / count : 0,
+        reps,
+      };
+      return;
+    }
     const rows = isRange
       ? data.filter(r => r.branch === b)
       : allData.filter(r => r.branch === b && r.week === currentWeek);
@@ -12155,8 +12198,17 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // Page-level filter (team exclusion + week scope). Cancel Analysis
   // reads this version (rawSalesAll) directly so it can still surface
   // 3-day RORs and Sold-Not-Started rows in its breakdown.
+  // Range mode scopes by EXACT sale date (matches the power-ranking table's
+  // day-precision), not by containing week.
+  const repRangeStart = (isRange && rangeBounds) ? new Date(rangeBounds.start + 'T00:00:00') : null;
+  const repRangeEnd   = (isRange && rangeBounds) ? new Date(rangeBounds.end   + 'T23:59:59') : null;
+  const inRepScope = (s) => {
+    if (!isRange || !rangeBounds) return true;
+    const d = _parseIndicatorDay(s);
+    return d && d >= repRangeStart && d <= repRangeEnd;
+  };
   const rawSalesAll = (allRawSales || []).filter(s =>
-    (!applyExclusion || !isRepExcluded(s.rep)) && (!weeksInScope || weeksInScope.has(s.week)));
+    (!applyExclusion || !isRepExcluded(s.rep)) && inRepScope(s));
   // Default for every other consumer. RORs / Sold-Not-Started are
   // dropped because they aren't real production — the leaderboard,
   // records, D2D comp, PDF reports, sub-mix, and rep drill-downs all
