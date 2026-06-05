@@ -19167,6 +19167,8 @@ function parseReportingCsv(text) {
     customer_id:                      find('customer id', 'cust id', 'account id'),
     last_name:                        find('last name'),
     first_name:                       find('first name'),
+    sold_date:                        find('sold date', 'date sold'),
+    customer_auto_pay:                find('customer auto pay', 'auto pay'),
     annual_recurring_value:           find('annual recurring value', 'arr', 'annual recurring'),
     sold_by_id:                       find('sold by id'),
     sold_by:                          find('sold by'),
@@ -19236,6 +19238,8 @@ function parseReportingCsv(text) {
       customer_id:                      textOrNull(pick(r, cols.customer_id)),
       last_name:                        textOrNull(pick(r, cols.last_name)),
       first_name:                       textOrNull(pick(r, cols.first_name)),
+      sold_date:                        parseDate(pick(r, cols.sold_date)),
+      customer_auto_pay:                textOrNull(pick(r, cols.customer_auto_pay)),
       annual_recurring_value:           parseNumOrNull(pick(r, cols.annual_recurring_value)),
       sold_by_id:                       textOrNull(pick(r, cols.sold_by_id)),
       sold_by:                          textOrNull(pick(r, cols.sold_by)),
@@ -20042,6 +20046,7 @@ function viewReporting() {
     isMarketing ? null : reportingTopBar(),
     reportingSubTabs(),
     isMarketing                            ? viewMarketing() :
+    state.reportingSubTab === 'is'         ? reportingInsideSales() :
     state.reportingSubTab === 'config'     ? reportingServiceConfigPanel() :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
@@ -20119,6 +20124,7 @@ function formatSnapshotLabel(u) {
 function reportingSubTabs() {
   const tabs = [
     ['overview',   'Overview'],
+    ['is',         'Inside Sales'],
     ['geographic', 'Geographic'],
     ['reps',       'Rep Performance'],
     ['waterfall',  'Waterfall Attrition'],
@@ -20366,13 +20372,7 @@ function reportingOverview() {
         compareRow('Cancellations',     dataA.stats.realCancels,     dataB.stats.realCancels,     (n) => n.toLocaleString(), false, 'Recurring subs only'),
         compareRow('Cancellation Rate', dataA.stats.cancelRate,      dataB.stats.cancelRate,      (n) => n.toFixed(2) + '%', false),
       )
-    : el('div', { class: 'flex flex-wrap gap-3' },
-        statTile('Subscriptions',     dataA.stats.subs.toLocaleString(),            dataA.stats.recurring.toLocaleString() + ' marked recurring'),
-        statTile('Active Recurring',  dataA.stats.activeRecurring.toLocaleString(), 'currently in service'),
-        statTile('Active ARV',        '$' + Math.round(dataA.stats.activeArr).toLocaleString(), 'from active recurring subs'),
-        statTile('Unique Customers',  dataA.stats.uniqueCustomers.toLocaleString(), dataA.stats.distinctServices + ' distinct services'),
-        statTile('Cancellations',     dataA.stats.realCancels.toLocaleString(),     dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only'),
-      );
+    : null; // single mode renders the popped column-header cards below
 
   // ── Charts ──────────────────────────────────────────────────────────
   // In compare mode, build a shared color map per chart so the same
@@ -20437,17 +20437,49 @@ function reportingOverview() {
     },
   });
 
+  // ── Column-header cards + aligned donuts (single mode) ───────────────
+  // Each headline card pops (accent top bar, big number) and the related
+  // donut sits directly beneath it so column = metric.
+  const COLUMN_CARDS = [
+    { label: 'Customers Active',        value: dataA.stats.uniqueCustomers.toLocaleString(),               sub: dataA.stats.distinctServices + ' distinct services',                 chartId: 'customers'  },
+    { label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartId: 'sources'    },
+    { label: 'Subscriptions Active',    value: dataA.stats.activeRecurring.toLocaleString(),               sub: 'currently in service',                                              chartId: 'activesubs' },
+    { label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartId: 'rarr'       },
+    { label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartId: 'cancels'    },
+  ];
+  const popTile = (t) => el('div', {
+    class: 'card p-4',
+    style: {
+      borderTop: '3px solid var(--accent)',
+      background: 'linear-gradient(180deg, rgba(141,198,63,.10), transparent 60%), var(--card)',
+    },
+  },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-muted)' } }, t.label),
+    el('div', { class: 'text-3xl font-black mt-1 tabular-nums' }, t.value),
+    t.sub && el('div', { class: 'text-[11px] text-muted- mt-1' }, t.sub),
+  );
+  const defById = Object.fromEntries(chartDefs.map(d => [d.id, d]));
+  const usedChartIds = new Set(COLUMN_CARDS.map(c => c.chartId));
+  const columnsBlock = inCompare ? null : el('div', { class: 'overflow-x-auto' },
+    el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(5, minmax(235px, 1fr))', minWidth: '1230px' } },
+      ...COLUMN_CARDS.map(c => el('div', { class: 'flex flex-col gap-4' },
+        popTile(c),
+        defById[c.chartId] ? makeCard(defById[c.chartId], dataA, 'a') : null,
+      )),
+    ));
+
   const chartGrid = inCompare
     ? el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } },
         ...chartDefs.flatMap(def => [makeCard(def, dataA, 'a'), makeCard(def, dataB, 'b')]),
       )
     : el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' } },
-        ...chartDefs.map(def => makeCard(def, dataA, 'a')),
+        ...chartDefs.filter(def => !usedChartIds.has(def.id)).map(def => makeCard(def, dataA, 'a')),
       );
 
   return el('div', { class: 'flex flex-col gap-4' },
     filterBar,
     statsBlock,
+    columnsBlock,
     chartGrid,
   );
 }
@@ -20548,6 +20580,208 @@ function reportingServiceConfigPanel() {
             ),
           ),
         ),
+  );
+}
+
+// ── Inside Sales (MO) — income-statement style monthly P&L ──────────────
+// Revenue + channel spend + subs sold are auto-computed (snapshot rows by
+// sold_date + is-spend.json from the marketing pipeline). Projections, wages,
+// incentives and call counts are hand-entered cells saved to Supabase
+// (reporting_is_manual) so they're shared across every login.
+const IS_SOURCES = new Set(['6 Brothers','Angi','Baton','Click-To-Buy','DoLead','Facebook','Google Ads','Google Local Services','Inside Sale','Miscellaneous','Pest Net','Referral','Sellify','Service Direct','Unknown Source','Website','Yelp','eLocal']);
+const IS_UPSELL_SOURCES = new Set(['Upsell - Service Pro','Upsell - Termite Pro']);
+const IS_MANUAL_FIELDS = ['projected_revenue','projected_ad_spend','projected_wages','wages','incentive_costs','total_calls','qualified_calls'];
+
+async function loadIsManual() {
+  if (DEMO) { state.reportingIsManual = state.reportingIsManual || {}; return; }
+  const { data, error } = await supabase.from('reporting_is_manual').select('*');
+  if (error) { console.warn('[ridd] reporting_is_manual load failed (run inside_sales_schema.sql?)', error); state.reportingIsManual = {}; return; }
+  const m = {}; (data || []).forEach(r => { m[r.period] = r; });
+  state.reportingIsManual = m;
+}
+async function saveIsManual(period, field, value) {
+  if (!state.reportingIsManual) state.reportingIsManual = {};
+  const cur = state.reportingIsManual[period] || { period };
+  cur[field] = (value === '' || value == null) ? null : Number(value);
+  state.reportingIsManual[period] = cur;
+  if (DEMO) return;
+  const payload = { period };
+  IS_MANUAL_FIELDS.forEach(f => { if (cur[f] !== undefined) payload[f] = cur[f]; });
+  payload.updated_by = state.profile?.id || null;
+  const { error } = await supabase.from('reporting_is_manual').upsert(payload, { onConflict: 'period' });
+  if (error) toast('Save failed: ' + error.message + ' (run inside_sales_schema.sql?)', 'error');
+}
+
+function reportingInsideSales() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+  // Lazy loads: manual cells + monthly channel spend (emitted by the marketing build).
+  if (state.reportingIsManual == null && !state._isManualLoading) {
+    state._isManualLoading = true;
+    loadIsManual().then(() => { state._isManualLoading = false; mountApp(); });
+  }
+  if (state.reportingIsSpend == null && !state._isSpendLoading) {
+    state._isSpendLoading = true;
+    fetch('/is-spend.json').then(r => r.ok ? r.json() : {}).then(j => { state.reportingIsSpend = j || {}; mountApp(); })
+      .catch(() => { state.reportingIsSpend = {}; mountApp(); });
+  }
+  const MAN = state.reportingIsManual || {};
+  const SP  = state.reportingIsSpend  || {};
+  const rowsAll = state.reportingSubscriptions || [];
+
+  const nowY = new Date().getFullYear();
+  const months = Array.from({ length: 12 }, (_, i) => nowY + '-' + String(i + 1).padStart(2, '0'));
+  const Y2 = String(nowY - 2), Y1 = String(nowY - 1), YTD = String(nowY);
+  const periods = [Y2, Y1, ...months, YTD];
+  const MONTH_LBL = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const colLabel = (p) => p === YTD ? (nowY + ' YTD') : (p.length === 4 ? p : MONTH_LBL[Number(p.slice(5)) - 1] + ' ' + p.slice(0, 4));
+
+  // ── Auto aggregates from the snapshot (sold_date + committed-sold filter) ──
+  const agg = {};
+  const A = (p) => agg[p] || (agg[p] = { newRev: 0, newRevSvc: 0, upsell: 0, sold: 0, cv: 0 });
+  let anySoldDate = false;
+  for (const r of rowsAll) {
+    const sd = r.sold_date; if (!sd) continue;
+    anySoldDate = true;
+    const src = (r.subscription_source || '').trim();
+    const isIS = IS_SOURCES.has(src), isUp = IS_UPSELL_SOURCES.has(src);
+    if (!isIS && !isUp) continue;
+    if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue; // committed sold
+    const arv = Number(r.annual_recurring_value) || 0;
+    const cv  = Number(r.subscription_contract_value) || 0;
+    for (const p of [sd.slice(0, 4), sd.slice(0, 7)]) {
+      const a = A(p);
+      if (isIS) { a.newRev += arv; a.sold += 1; a.cv += cv; if (r.initial_service) a.newRevSvc += arv; }
+      else      { a.upsell += arv; }
+    }
+  }
+  const G = (p) => agg[p] || { newRev: 0, newRevSvc: 0, upsell: 0, sold: 0, cv: 0 };
+
+  // ── Channel spend (is-spend.json: {ym: {channel: amt}}) ──
+  const chTotals = {};
+  for (const ym in SP) for (const ch in SP[ym]) chTotals[ch] = (chTotals[ch] || 0) + SP[ym][ch];
+  const channels = Object.keys(chTotals).sort((a, b) => chTotals[b] - chTotals[a]);
+  const spendAt = (ch, p) => { let s = 0; for (const ym in SP) { if (ym.startsWith(p)) s += SP[ym][ch] || 0; } return s; };
+  const mktAt = (p) => channels.reduce((s, c) => s + spendAt(c, p), 0);
+
+  // ── Manual cells (months + prior-year totals editable; YTD = sum of months) ──
+  const manAt = (p, f) => {
+    if (p === YTD) { let s = null; for (const m of months) { const v = MAN[m]?.[f]; if (v != null) { s = (s || 0) + Number(v); } } return s; }
+    const v = MAN[p]?.[f]; return v == null ? null : Number(v);
+  };
+
+  // ── Formatting + color coding ──
+  const usd = (v) => v == null ? '—' : '$' + Math.round(v).toLocaleString();
+  const num = (v) => v == null ? '—' : Math.round(v).toLocaleString();
+  const pct = (v) => v == null ? '—' : (v * 100).toFixed(1) + '%';
+  const x2  = (v) => v == null ? '—' : v.toFixed(2);
+  const GOOD = 'rgba(141,198,63,.18)', BAD = 'rgba(220,38,38,.14)';
+  const shade = (v, goodIf, badIf) => v == null ? '' : (goodIf(v) ? GOOD : (badIf(v) ? BAD : ''));
+
+  const td = (content, bg, opts = {}) => el('td', {
+    class: 'px-2.5 py-1.5 text-right tabular-nums whitespace-nowrap text-xs' + (opts.bold ? ' font-bold' : ''),
+    style: { background: bg || 'transparent', borderLeft: '1px solid var(--border)' },
+  }, content);
+  const inputCell = (p, field) => {
+    const v = MAN[p]?.[field];
+    return el('td', { class: 'px-1 py-0.5 text-right', style: { borderLeft: '1px solid var(--border)' } },
+      el('input', {
+        type: 'number', value: v == null ? '' : v, placeholder: '—',
+        class: 'w-20 text-right text-xs rounded border px-1 py-0.5',
+        style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
+        onchange: (e) => { saveIsManual(p, field, e.target.value).then(() => mountApp()); },
+      }));
+  };
+  const labelTd = (label, opts = {}) => el('td', {
+    class: 'px-3 py-1.5 text-xs whitespace-nowrap sticky left-0' + (opts.bold ? ' font-bold' : '') + (opts.indent ? ' pl-6' : ''),
+    style: { background: opts.section ? 'var(--card-2)' : 'var(--card)', color: opts.muted ? 'var(--text-muted)' : 'var(--text)', zIndex: 1 },
+  }, label);
+  const tr = (...cells) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...cells);
+  const sectionRow = (label) => el('tr', {},
+    el('td', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest font-bold sticky left-0', style: { background: 'var(--card-2)', color: 'var(--text-subtle)', zIndex: 1 } }, label),
+    ...periods.map(() => el('td', { style: { background: 'var(--card-2)' } })));
+
+  const autoRow = (label, valFn, fmt, shadeFn, opts = {}) => tr(
+    labelTd(label, opts),
+    ...periods.map(p => { const v = valFn(p); return td(fmt(v), shadeFn ? shadeFn(v, p) : '', opts); }));
+  const manualRow = (label, field) => tr(
+    labelTd(label, { indent: false }),
+    ...periods.map(p => p === YTD
+      ? td(usdOrNum(field, manAt(p, field)), '', { bold: false })
+      : inputCell(p, field)));
+  const usdOrNum = (field, v) => (field === 'total_calls' || field === 'qualified_calls') ? num(v) : usd(v);
+
+  // Derived helpers per period
+  const revAt   = (p) => G(p).newRev + G(p).upsell;
+  const wagesAt = (p) => manAt(p, 'wages');
+  const incAt   = (p) => manAt(p, 'incentive_costs');
+  const totalSpendAt = (p) => mktAt(p) + (wagesAt(p) || 0) + (incAt(p) || 0);
+  const prevMonth = (p) => { if (p.length !== 7) return null; const i = months.indexOf(p); return i > 0 ? months[i - 1] : null; };
+
+  const header = el('thead', { class: 'sticky top-0', style: { zIndex: 2 } }, el('tr', {},
+    el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-widest sticky left-0', style: { background: '#1D1D1D', color: '#fff', zIndex: 3 } }, 'Inside Sales (MO)'),
+    ...periods.map(p => el('th', {
+      class: 'px-2.5 py-2 text-right text-[10px] uppercase tracking-wider whitespace-nowrap' + (p.length === 4 ? ' font-black' : ' font-semibold'),
+      style: { background: '#1D1D1D', color: p.length === 4 ? 'var(--accent)' : '#fff' },
+    }, colLabel(p)))));
+
+  const body = el('tbody', {},
+    sectionRow('Projected'),
+    manualRow('Projected Revenue',  'projected_revenue'),
+    manualRow('Projected Ad Spend', 'projected_ad_spend'),
+    manualRow('Projected Wages',    'projected_wages'),
+    autoRow('Projected Total Spend', p => {
+      const a = manAt(p, 'projected_ad_spend'), w = manAt(p, 'projected_wages');
+      return (a == null && w == null) ? null : (a || 0) + (w || 0);
+    }, usd, null, { bold: true }),
+
+    sectionRow('Revenue (auto · sold date · payment on file)'),
+    autoRow('Serviced New Revenue', p => G(p).newRevSvc, usd, null, { indent: true }),
+    autoRow('New Revenue (Sold)',   p => G(p).newRev,    usd, null),
+    autoRow('Upsell Revenue',       p => G(p).upsell,    usd, null),
+    autoRow('TOTAL IS REVENUE',     p => revAt(p),       usd, null, { bold: true }),
+
+    sectionRow('Marketing Spend (auto · QuickBooks + Windsor)'),
+    ...channels.map(ch => autoRow(ch, p => spendAt(ch, p) || null, usd, null, { indent: true, muted: true })),
+    autoRow('ACTUAL MARKETING SPEND', p => mktAt(p), usd, null, { bold: true }),
+
+    sectionRow('Payroll & Calls (manual)'),
+    manualRow('Wages',           'wages'),
+    manualRow('Incentive Costs', 'incentive_costs'),
+    manualRow('Total Calls',     'total_calls'),
+    manualRow('Qualified Calls (Lace)', 'qualified_calls'),
+    autoRow('TOTAL SPEND', p => totalSpendAt(p) || null, usd, null, { bold: true }),
+
+    sectionRow('Stats'),
+    autoRow('Blended ROAS', p => { const m = mktAt(p); return m > 0 ? revAt(p) / m : null; }, x2,
+      (v) => shade(v, x => x >= 3, x => x < 2), { bold: true }),
+    autoRow('MoM Revenue Change', p => { const pm = prevMonth(p); if (!pm) return null; const a = revAt(pm); return a > 0 ? (revAt(p) - a) / a : null; }, pct,
+      (v) => shade(v, x => x > 0, x => x < -0.1)),
+    autoRow('% Marketing of IS Revenue', p => { const r = revAt(p); return r > 0 ? mktAt(p) / r : null; }, pct,
+      (v) => shade(v, x => x <= 0.30, x => x > 0.40)),
+    autoRow('% Wages of IS Revenue', p => { const r = revAt(p), w = wagesAt(p); return (r > 0 && w != null) ? w / r : null; }, pct,
+      (v) => shade(v, x => x <= 0.25, x => x > 0.40)),
+    autoRow('% Incentives of IS Revenue', p => { const r = revAt(p), i = incAt(p); return (r > 0 && i != null) ? i / r : null; }, pct, null),
+    autoRow('Subscriptions Sold (#)', p => G(p).sold || null, num, null),
+    autoRow('Close Rate (sold / qualified calls)', p => { const q = manAt(p, 'qualified_calls'); return q > 0 ? G(p).sold / q : null; }, pct,
+      (v) => shade(v, x => x >= 0.20, x => x < 0.12)),
+    autoRow('Weighted ACV', p => { const a = G(p); return a.sold > 0 ? a.cv / a.sold : null; }, usd, null),
+    autoRow('Wages per Job', p => { const w = wagesAt(p), a = G(p); return (w != null && a.sold > 0) ? w / a.sold : null; }, usd, null),
+    autoRow('Cost per Lead (calls)', p => { const c = manAt(p, 'total_calls'); return c > 0 ? mktAt(p) / c : null; }, usd, null),
+    autoRow('Cost per Qualified Lead (Lace)', p => { const q = manAt(p, 'qualified_calls'); return q > 0 ? mktAt(p) / q : null; }, usd, null),
+    autoRow('Cost per Job', p => { const a = G(p); return a.sold > 0 ? mktAt(p) / a.sold : null; }, usd,
+      (v) => shade(v, x => x <= 350, x => x > 500)),
+  );
+
+  const needsSchema = rowsAll.length > 0 && !anySoldDate;
+  return el('div', { class: 'flex flex-col gap-3' },
+    needsSchema && el('div', { class: 'card p-3 text-xs', style: { background: 'var(--card-2)' } },
+      '⚠ No Sold Date on this snapshot yet. Run inside_sales_schema.sql in Supabase, then re-upload the Customer Report — revenue rows fill in from there.'),
+    el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'overflow-x-auto', style: { maxHeight: '78vh' } },
+        el('table', { class: 'w-full', style: { borderCollapse: 'collapse', minWidth: '1400px' } }, header, body))),
+    el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
+      'Auto rows compute from the active snapshot (Inside Sales sources, sold date, payment on file) and the marketing spend feed. White input cells are hand-entered and shared with every admin. Green/red shading uses default thresholds — tell me if you want them tuned.'),
   );
 }
 
