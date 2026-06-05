@@ -10024,7 +10024,7 @@ function chartBucketsGrainLabel(buckets) {
 // count is also the denominator of PRA.
 const INDICATOR_METRICS = [
   { key: 'sold_accounts',  label: 'Sold Accounts',    fmt: v => fmt.int(v) },
-  { key: 'revenue',        label: 'D2D Revenue',      fmt: v => fmt.usd0(v) },
+  { key: 'revenue',        label: 'Revenue',          fmt: v => fmt.usd0(v) },
   { key: 'avg_initial',    label: 'Avg Pest Initial',   fmt: v => fmt.usd(v) },
   { key: 'acv',            label: 'ACV',              fmt: v => fmt.usd(v) },
   { key: 'pra',            label: 'PRA',              fmt: v => fmt.usd(v) },
@@ -11523,14 +11523,6 @@ function viewIndicators() {
             onclick: () => { state.indicatorDept = k; mountApp(); },
           }, label)),
         ),
-        // Comps toggle — competition mode. OFF = every sale counts, zero
-        // exclusions. ON = comp exclusions apply to every number below.
-        el('div', { class: 'pill-tabs', title: 'Competition mode — applies comp exclusions to every number below' },
-          el('button', {
-            'data-active': !!state.indicatorsComps,
-            onclick: () => { state.indicatorsComps = !state.indicatorsComps; mountApp(); },
-          }, '🏆 Comps'),
-        ),
         // Branch / Teams group toggle
         el('div', { class: 'pill-tabs', title: rawSalesAvailable ? '' : 'Teams mode requires a raw-sales CSV upload' },
           el('button', {
@@ -11704,6 +11696,22 @@ function viewIndicators() {
               })),
             state.indicatorsFileName ? ' · ' + state.indicatorsFileName : '',
           ),
+          // Comps switch — competition mode. OFF = every sale counts, zero
+          // exclusions. ON = comp exclusions apply to every number below.
+          (() => {
+            const on = !!state.indicatorsComps;
+            return el('label', { class: 'flex items-center gap-2 mt-1.5 cursor-pointer select-none', style: { width: 'fit-content' } },
+              el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--text-muted)' } }, 'Comps:'),
+              el('div', {
+                role: 'switch', 'aria-checked': on ? 'true' : 'false',
+                title: 'Competition mode — applies comp exclusions to every number below',
+                style: { width: '38px', height: '22px', borderRadius: '11px', background: on ? '#34C759' : 'var(--border-2)', position: 'relative', transition: 'background .15s', flex: 'none' },
+                onclick: () => { state.indicatorsComps = !state.indicatorsComps; mountApp(); },
+              },
+                el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .15s' } }),
+              ),
+            );
+          })(),
         ),
       );
     })(),
