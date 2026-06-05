@@ -588,6 +588,58 @@ async function _storeIndicatorDataCompressed(json) {
   }
 }
 
+// ── Shared indicators dataset (Supabase Storage) ─────────────────────────
+// localStorage is per-browser, so one admin's upload was invisible to every
+// other admin. Each import now also pushes the dataset (gzipped) to the
+// shared `reporting` bucket at a fixed path, and the Indicators tab pulls
+// the newest copy for whoever is looking — uploads persist across users.
+const INDICATORS_CLOUD_PATH = 'indicators/latest.json.gz';
+async function syncIndicatorsToCloud() {
+  if (DEMO || typeof CompressionStream === 'undefined') return;
+  try {
+    const payload = {
+      uploadedAt: state.indicatorsUploadedAt,
+      fileName:   state.indicatorsFileName || '',
+      indicatorsData: state.indicatorsData || [],
+      rawSales: (state._indicatorRawSales || []).map(s => {
+        if (!s || !s._rawRow) return s;
+        const { _rawRow, ...rest } = s; return rest;
+      }),
+    };
+    const blob = await new Response(new Blob([JSON.stringify(payload)]).stream()
+      .pipeThrough(new CompressionStream('gzip'))).blob();
+    const { error } = await supabase.storage.from('reporting')
+      .upload(INDICATORS_CLOUD_PATH, blob, { contentType: 'application/gzip', upsert: true });
+    if (error) console.warn('[ridd] indicators cloud sync failed (run reporting_storage.sql?)', error);
+  } catch (e) { console.warn('[ridd] indicators cloud sync failed', e); }
+}
+
+let _indCloudCheckedAt = 0;
+async function refreshIndicatorsFromCloud(force) {
+  if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
+  if (typeof DecompressionStream === 'undefined') return;
+  if (!force && Date.now() - _indCloudCheckedAt < 120000) return; // ≤1 check / 2 min
+  _indCloudCheckedAt = Date.now();
+  try {
+    const { data: blob, error } = await supabase.storage.from('reporting').download(INDICATORS_CLOUD_PATH);
+    if (error || !blob) return; // nothing shared yet
+    const text = await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    const payload = JSON.parse(text);
+    if (!payload || !Array.isArray(payload.indicatorsData)) return;
+    const remoteAt = payload.uploadedAt ? new Date(payload.uploadedAt).getTime() : 0;
+    const localAt  = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt).getTime() : 0;
+    if (!remoteAt || remoteAt <= localAt) return; // local copy is current
+    state.indicatorsData       = payload.indicatorsData;
+    state._indicatorRawSales   = payload.rawSales || [];
+    state.indicatorsUploadedAt = payload.uploadedAt;
+    state.indicatorsFileName   = payload.fileName || '';
+    state.indicatorsWeek = -1;
+    saveDemoData();
+    toast('Indicators refreshed — pulled the latest upload (' + (payload.fileName || 'CSV') + ')', 'success');
+    mountApp();
+  } catch (e) { console.warn('[ridd] indicators cloud refresh failed', e); }
+}
+
 function saveIndicatorState() {
   // Settings ALWAYS save first, with their own try/catch, so a quota failure
   // on the bulk CSV save can't roll back team/rep edits. Without this split,
@@ -11292,6 +11344,9 @@ function openManageTeamsModal() {
 function viewIndicators() {
   if (!state.indicatorsData) state.indicatorsData = null;
   if (!state.indicatorsView) state.indicatorsView = 'weekly';
+  // Pull the newest shared upload (any admin's) — throttled to one check
+  // every 2 minutes; re-renders automatically if something fresher exists.
+  refreshIndicatorsFromCloud();
   // Migration: legacy 'cumulative' becomes the new YTD-default 'range' mode
   if (state.indicatorsView === 'cumulative') state.indicatorsView = 'range';
   // Migrate old preset ids (ytd / since_mar1 / 90d / 60d / 30d) to the new
@@ -15128,6 +15183,8 @@ function csvUploadButton(size) {
           state.indicatorsCustomEnd    = '';
           captureIndicatorSnapshot();
           saveDemoData();
+          // Share this upload with every other admin (fire-and-forget).
+          syncIndicatorsToCloud();
           toast('CSV loaded — ' + state.indicatorsData.length + ' rows', 'success');
           mountApp();
           // Compute + surface a high-level "what changed in this upload"
