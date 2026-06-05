@@ -11550,13 +11550,52 @@ function viewIndicators() {
             el('div', { class: 'flex flex-col gap-2' },
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
         // Department toggle (D2D / Office / Techs) — derived from sale Source,
-        // re-runs every metric below for the selected group.
+        // re-runs every metric below for the selected group. Teams are a
+        // Door-to-Door concept (office staff & techs have no teams), so in
+        // Teams mode every department except D2D is locked out.
         el('div', { class: 'pill-tabs', title: 'Filter by department (from sale Source)' },
-          ...INDICATOR_DEPTS.map(([k, label]) => el('button', {
-            'data-active': (state.indicatorDept || 'all') === k,
-            onclick: () => { state.indicatorDept = k; mountApp(); },
-          }, label)),
+          ...INDICATOR_DEPTS.map(([k, label]) => {
+            const lockedByTeams = groupBy === 'teams' && k !== 'd2d';
+            return el('button', {
+              'data-active': (state.indicatorDept || 'all') === k,
+              disabled: lockedByTeams,
+              style: lockedByTeams ? { opacity: '0.4', cursor: 'not-allowed' } : {},
+              title: lockedByTeams ? 'Teams are Door-to-Door only — switch to Branch to view ' + label : '',
+              onclick: () => {
+                if (lockedByTeams) return;
+                state.indicatorDept = k;
+                mountApp();
+              },
+            }, label);
+          }),
         ),
+        // Comps switch — competition mode. OFF = every sale counts, zero
+        // exclusions. ON = comp exclusions apply to every number below.
+        (() => {
+          const on = !!state.indicatorsComps;
+          return el('div', {
+            class: 'flex items-center gap-2 cursor-pointer select-none',
+            style: { width: 'fit-content' },
+            title: 'Competition mode — applies comp exclusions to every number below',
+            onclick: (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              state.indicatorsComps = !state.indicatorsComps;
+              const sx = window.scrollX, sy = window.scrollY;
+              setTimeout(() => {
+                mountApp();
+                requestAnimationFrame(() => window.scrollTo(sx, sy));
+              }, 0);
+            },
+          },
+            el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, 'Comps:'),
+            el('div', {
+              style: { width: '38px', height: '22px', borderRadius: '11px', background: on ? '#34C759' : 'var(--border-2)', position: 'relative', flex: 'none' },
+            },
+              el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)' } }),
+            ),
+          );
+        })(),
         // Branch / Teams group toggle
         el('div', { class: 'pill-tabs', title: rawSalesAvailable ? '' : 'Teams mode requires a raw-sales CSV upload' },
           el('button', {
@@ -11573,6 +11612,9 @@ function viewIndicators() {
                 return;
               }
               state.indicatorsGroupBy = 'teams';
+              // Teams are Door-to-Door only — office staff & techs have no
+              // teams, so lock the department to D2D while in Teams mode.
+              state.indicatorDept = 'd2d';
               saveDemoData();
               mountApp();
             },
@@ -11645,7 +11687,7 @@ function viewIndicators() {
           title: groupBy === 'teams'
             ? 'Download a PDF report per team (current timeframe)'
             : 'Download a PDF report per branch (current timeframe)',
-        }, '📄 Reports'),
+        }, '📄'),
         // CSV menu — import a fresh sales report or export the current
         // by-branch/team table (with a pulled-at timestamp up top).
         (() => {
@@ -11730,39 +11772,6 @@ function viewIndicators() {
               })),
             state.indicatorsFileName ? ' · ' + state.indicatorsFileName : '',
           ),
-          // Comps switch — competition mode. OFF = every sale counts, zero
-          // exclusions. ON = comp exclusions apply to every number below.
-          // Plain div (not <label>) + deferred re-render: re-rendering the
-          // whole app synchronously mid-click-dispatch caused bad flicker.
-          (() => {
-            const on = !!state.indicatorsComps;
-            return el('div', {
-              class: 'flex items-center gap-2 mt-1.5 cursor-pointer select-none',
-              style: { width: 'fit-content' },
-              title: 'Competition mode — applies comp exclusions to every number below',
-              onclick: (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                state.indicatorsComps = !state.indicatorsComps;
-                // Re-render after the click finishes, then pin the window
-                // scroll back exactly where it was — a sync re-render mid
-                // click let the browser's scroll offsets land in a rebuilt
-                // layout (big gap up top + content shifted left).
-                const sx = window.scrollX, sy = window.scrollY;
-                setTimeout(() => {
-                  mountApp();
-                  requestAnimationFrame(() => window.scrollTo(sx, sy));
-                }, 0);
-              },
-            },
-              el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--text-muted)' } }, 'Comps:'),
-              el('div', {
-                style: { width: '38px', height: '22px', borderRadius: '11px', background: on ? '#34C759' : 'var(--border-2)', position: 'relative', flex: 'none' },
-              },
-                el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)' } }),
-              ),
-            );
-          })(),
         ),
       );
     })(),
