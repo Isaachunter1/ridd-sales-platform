@@ -2066,6 +2066,14 @@ function mountAuth(opts = {}) {
           form.dataset.mode = 'login';
           renderMode();
         } else if (mode === 'recover') {
+          // The reset link must have established a recovery session. If it
+          // expired / was already used / opened in a different browser,
+          // there's no session and updateUser would fail — surface a clear
+          // message instead of the button silently doing nothing.
+          const { data: { session: recSession } } = await supabase.auth.getSession();
+          if (!recSession) {
+            throw new Error('This reset link has expired or was already used. Request a new one, or ask an admin to set your password directly.');
+          }
           const { error } = await supabase.auth.updateUser({ password });
           if (error) throw error;
           toast('Password updated — signing you in.', 'success');
@@ -25184,7 +25192,7 @@ function openUserEditor(existing = null) {
         'Password ',
         el('span', { class: 'normal-case text-muted- font-normal tracking-normal text-[10px]' },
           existing
-            ? '— type a new one to overwrite, or leave blank to keep current'
+            ? '— reset it here: type a new password + Save, then tell the user. Takes effect immediately, no email needed. Leave blank to keep current.'
             : '— optional; if set, the rep can sign in immediately with email + password'),
       ),
       inp('password', {
