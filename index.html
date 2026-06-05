@@ -3076,10 +3076,7 @@ const INDICATOR_DEPTS = [
 // exports and scorecard periods intentionally use the full set instead.
 function indicatorSales() {
   const dept = state.indicatorDept || 'all';
-  let all = state._indicatorRawSales || [];
-  // Optional toggle: drop reps on excluded teams (set in Manage Teams — e.g.
-  // termite techs) so the branch-level view matches the team-level exclusions.
-  if (state.indicatorsHideExcluded) all = all.filter(s => !isRepExcluded(s.rep));
+  const all = state._indicatorRawSales || [];
   if (dept === 'all') return all;
   return all.filter(s => _indicatorDeptOf(s) === dept);
 }
@@ -5361,6 +5358,30 @@ function attachTooltip(target, { title, desc }) {
   target.addEventListener('mouseleave', hideTip);
   target.addEventListener('focus', showTip);
   target.addEventListener('blur', hideTip);
+}
+
+// Hover (desktop) + tap-to-toggle (mobile) explainer. Same floating tooltip
+// as attachTooltip, but a click/tap pins it open and tapping anywhere else
+// dismisses — so touch users can read the calculation breakdowns too.
+function attachExplainer(target, opts) {
+  attachTooltip(target, opts);
+  // Stamp show-time so a mobile tap (which fires mouseenter + click together)
+  // doesn't immediately toggle the tip back off.
+  target.addEventListener('mouseenter', () => { ensureTooltipEl()._shownAt = Date.now(); });
+  target.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const tip = ensureTooltipEl();
+    if (tip.classList.contains('show') && Date.now() - (tip._shownAt || 0) > 400) {
+      tip.classList.remove('show');
+    } else {
+      target.dispatchEvent(new Event('mouseenter'));
+      tip._shownAt = Date.now();
+    }
+  });
+  if (!window._explainerDismissBound) {
+    window._explainerDismissBound = true;
+    document.addEventListener('click', () => { if (_tooltipEl) _tooltipEl.classList.remove('show'); });
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -11440,14 +11461,6 @@ function viewIndicators() {
             'data-active': (state.indicatorDept || 'all') === k,
             onclick: () => { state.indicatorDept = k; mountApp(); },
           }, label)),
-        ),
-        // Hide-excluded toggle — applies the Manage Teams exclusions (e.g.
-        // termite techs) at the branch level too.
-        el('div', { class: 'pill-tabs', title: 'Remove reps on excluded teams (set in Manage Teams) from every number below' },
-          el('button', {
-            'data-active': !!state.indicatorsHideExcluded,
-            onclick: () => { state.indicatorsHideExcluded = !state.indicatorsHideExcluded; mountApp(); },
-          }, '🚫 Hide excluded teams'),
         ),
         // Export the current by-branch/team table as a CSV (opens straight
         // in Google Sheets via File → Import, or drag-drop).
