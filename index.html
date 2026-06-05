@@ -11557,9 +11557,25 @@ function viewIndicators() {
     (() => {
       const isCustom = isRange && state.indicatorsRangePreset === 'custom';
       const barHeight = isCustom ? 100 : 56;
+      // The hardcoded heights above are only an initial guess — the toolbar
+      // WRAPS to extra rows at narrower widths / different toggle states, so
+      // after mount we measure the real bar height and size the spacer to
+      // match. Without this, toggling tabs left a mismatched gap or let
+      // content slide under the bar.
+      const syncBarSpacer = () => {
+        const bar = document.getElementById('indFixedBar');
+        const sp  = document.getElementById('indBarSpacer');
+        if (bar && sp) sp.style.height = bar.getBoundingClientRect().height + 'px';
+      };
+      setTimeout(syncBarSpacer, 0);
+      if (!window._indBarResizeBound) {
+        window._indBarResizeBound = true;
+        window.addEventListener('resize', () => { try { syncBarSpacer(); } catch {} });
+      }
       return el('div', {},
         // The fixed bar itself (out of flow)
         el('div', {
+          id: 'indFixedBar',
           style: {
             position: 'fixed', top: '60px', left: '0', right: '0', zIndex: 15,
             background: 'var(--bg)',
@@ -11743,7 +11759,7 @@ function viewIndicators() {
           ), // close fixed bar
         // Reserve vertical space below the page header equal to the bar's
         // height since position:fixed takes it out of normal flow.
-        el('div', { style: { height: barHeight + 'px' } }),
+        el('div', { id: 'indBarSpacer', style: { height: barHeight + 'px' } }),
         // Title block — scrolls with the rest of the page below the fixed bar.
         // Flex row: title/dates on the left, Comps switch bottom-right so it
         // sits directly above the table's RIDD column.
