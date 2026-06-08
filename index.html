@@ -10454,13 +10454,17 @@ function springCleaningCompute(sales, branchList) {
     else excluded.push(s);
   }
 
+  // Standings count BOTH passed-audit AND pending accounts — we assume a
+  // pending account will pass until it's flagged Failed Audit. (Excluded =
+  // failed audit or Last Resort, which never count.)
+  const scored = counting.concat(pending);
   const seed = (office) => ({ office, revenue: 0, reps: new Set(), n: 0, pestSum: 0, pestCnt: 0, cvSum: 0, cnt24: 0, cntAuto: 0 });
   const byBranch = new Map();
   const branches = (branchList && branchList.length)
     ? branchList.slice()
-    : [...new Set(counting.map(s => s.office).filter(Boolean))];
+    : [...new Set(scored.map(s => s.office).filter(Boolean))];
   branches.forEach(b => byBranch.set(b, seed(b)));
-  for (const s of counting) {
+  for (const s of scored) {
     const b = s.office || 'UNKNOWN';
     if (!byBranch.has(b)) { byBranch.set(b, seed(b)); branches.push(b); }
     const m = byBranch.get(b);
@@ -10526,7 +10530,7 @@ function springCleaningCompute(sales, branchList) {
     avgInitial: pending.length ? sumInit(pending) / pending.length : 0,
   };
 
-  return { ranked, counting, pending, excluded, excludedSummary, pendingSummary, categories: CATS };
+  return { ranked, scored, counting, pending, excluded, excludedSummary, pendingSummary, categories: CATS };
 }
 
 // Spring Cleaning scoreboard card — golf-scored branch standings for the
@@ -10558,7 +10562,7 @@ function indicatorSpringCleaningBoard(sales, branchList) {
         el('div', { style: { color: '#DC2626' } },
           '⚠ ' + excludedSummary.count.toLocaleString() + ' not counting · ' + usd(excludedSummary.revenue) + ' excluded'),
         el('div', { style: { color: '#D97706' } },
-          '⏳ ' + pendingSummary.count.toLocaleString() + ' pending audit · ' + usd(pendingSummary.revenue) + ' still out there'),
+          '⏳ ' + pendingSummary.count.toLocaleString() + ' pending audit · ' + usd(pendingSummary.revenue) + ' included (assumed passing)'),
       ),
     ),
     el('div', { class: 'overflow-x-auto' },
@@ -10587,7 +10591,7 @@ function indicatorSpringCleaningBoard(sales, branchList) {
     (excludedSummary.count > 0 || pendingSummary.count > 0) && el('div', { class: 'p-2.5 text-[11px]', style: { color: 'var(--text-muted)', borderTop: '1px solid var(--border)' } },
       'Excluded: ' + excludedSummary.lastResort.toLocaleString() + ' Last Resort (<$99), '
         + excludedSummary.failedAudit.toLocaleString() + ' failed audit. '
-        + 'Pending: ' + pendingSummary.count.toLocaleString() + ' awaiting audit (' + usd(pendingSummary.revenue) + '). '
+        + 'Pending (counted, assumed passing): ' + pendingSummary.count.toLocaleString() + ' (' + usd(pendingSummary.revenue) + '). '
         + 'Full lists are in the .xlsx export (Excluded + Pending sheets).'),
   );
 }
@@ -12221,7 +12225,8 @@ function viewIndicators() {
                     // Sheet 1 — Standings + excluded summary
                     const st = [];
                     st.push(['Spring Cleaning — Standings']);
-                    st.push(['Scope', winLabel]);
+                    st.push(['Scope', winLabel + ' · Door-to-Door only']);
+                    st.push(['Note', 'Standings include passed-audit + pending (assumed passing). Excluded = Failed Audit + Last Resort (<$99).']);
                     st.push(['Pulled', new Date().toLocaleString()]);
                     st.push([]);
                     st.push(['Branch', 'Reps', 'Accounts', 'Revenue', 'Avg Pest Init', 'PRA', 'ACV', '24+ Mo %', 'Autopay %', 'Total Pts', 'Place', 'Bugs']);
