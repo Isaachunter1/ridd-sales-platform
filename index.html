@@ -21302,9 +21302,11 @@ function reportingServiceConfigPanel() {
             ),
             el('tbody', {},
               ...list.map(c => {
-                const hiddenTag = c.is_hidden && el('span', {
+                // 'Hidden' tag is always built; we toggle its visibility in
+                // place so a click updates instantly without a full re-render.
+                const hiddenTag = el('span', {
                   class: 'ml-2 inline-block text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-semibold',
-                  style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
+                  style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)', display: c.is_hidden ? 'inline-block' : 'none' },
                 }, 'Hidden');
                 // Lifecycle select drives BOTH recurring math and hygiene flags.
                 //   Auto      → infer from revenue (recurring if it carries ARV)
@@ -21323,18 +21325,25 @@ function reportingServiceConfigPanel() {
                   el('option', { value: 'onetime',   selected: setLc === 'onetime' },   'One-time'),
                   el('option', { value: 'retired',   selected: setLc === 'retired' },   'Retired'),
                 );
-                const hidCheckbox = el('input', {
-                  type: 'checkbox', class: 'accent-lime w-4 h-4 cursor-pointer',
-                  checked: !!c.is_hidden,
-                  onchange: (e) => {
-                    updateConfig(c.service_name, { is_hidden: !!e.target.checked });
-                    mountApp();
-                  },
-                });
-                return el('tr', {
+                const row = el('tr', {
                   class: 'border-t',
                   style: { borderColor: 'var(--border)', opacity: c.is_hidden ? '0.55' : '1' },
-                },
+                });
+                const hidCheckbox = el('input', {
+                  type: 'checkbox', class: 'accent-lime w-4 h-4 cursor-pointer',
+                  // Update IN PLACE — don't rebuild the whole app, which was
+                  // tearing the just-clicked checkbox down before the check
+                  // could render. The browser checks the box natively; we just
+                  // persist + reflect the hidden styling on the row.
+                  onchange: (e) => {
+                    const v = !!e.target.checked;
+                    updateConfig(c.service_name, { is_hidden: v });
+                    row.style.opacity = v ? '0.55' : '1';
+                    hiddenTag.style.display = v ? 'inline-block' : 'none';
+                  },
+                });
+                hidCheckbox.checked = !!c.is_hidden;
+                row.append(
                   el('td', { class: 'pl-4 pr-2 py-2 font-medium' },
                     el('span', {}, c.service_name),
                     hiddenTag,
@@ -21342,6 +21351,7 @@ function reportingServiceConfigPanel() {
                   el('td', { class: 'px-2 py-2 text-center whitespace-nowrap' }, lcSelect),
                   el('td', { class: 'pr-4 pl-2 py-2 text-center' }, hidCheckbox),
                 );
+                return row;
               }),
             ),
           ),
