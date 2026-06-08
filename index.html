@@ -20000,19 +20000,43 @@ const REPORTING_PALETTE = [
   '#6B7280', // gray
 ];
 
+// SERVICE-LEVEL recurring resolver — the single source of truth for whether
+// a subscription's SERVICE TYPE counts as recurring. Decision per service:
+//   • config.recurring_override === true / false  → admin's explicit choice
+//   • otherwise                                    → data guess: recurring if
+//     ANY row of that service in the snapshot has Annual Recurring Value > 0
+// Computed across the WHOLE snapshot (not the office-filtered scope) so the
+// answer is stable no matter which office filter is applied. Returns a
+// Map<serviceName, boolean>. The Configurations tab writes recurring_override.
+function reportingServiceRecurringMap() {
+  const cfg = state.reportingServiceConfig || [];
+  const ovByName = new Map(cfg.map(c => [c.service_name, c.recurring_override]));
+  const arvAny = new Map(); // service → does any row have ARV > 0?
+  for (const r of (state.reportingSubscriptions || [])) {
+    const n = r.subscription; if (!n) continue;
+    if (!arvAny.has(n)) arvAny.set(n, false);
+    if ((Number(r.annual_recurring_value) || 0) > 0) arvAny.set(n, true);
+  }
+  const names = new Set([...ovByName.keys(), ...arvAny.keys()]);
+  const map = new Map();
+  for (const n of names) {
+    const ov = ovByName.get(n);
+    map.set(n, (ov === true || ov === false) ? ov : !!arvAny.get(n));
+  }
+  return map;
+}
+
 // Filters + flag helpers used by every chart. Centralized so the rules
 // (hide hidden services, exclude 3-day RORs from churn, etc.) live in
 // one place and can't drift between charts.
 function reportingFilters() {
   const cfgByName = new Map((state.reportingServiceConfig || []).map(c => [c.service_name, c]));
   const isHidden    = (r) => !!cfgByName.get(r.subscription)?.is_hidden;
-  // ARV > 0 is the column-level source of truth for recurring-ness;
-  // the config flag is a manual override for services with $0 ARV
-  // that the admin still wants to count as recurring.
-  const isRecurring = (r) => {
-    if ((Number(r.annual_recurring_value) || 0) > 0) return true;
-    return !!cfgByName.get(r.subscription)?.is_recurring;
-  };
+  // Recurring is decided per SERVICE TYPE (admin override, else ARV data
+  // guess) — see reportingServiceRecurringMap. This means even a $0-ARV
+  // row (e.g. a frozen month) of a recurring service still counts recurring.
+  const recurringByName = reportingServiceRecurringMap();
+  const isRecurring = (r) => !!recurringByName.get(r.subscription);
   // Active = currently in service. Both the status field and the cancel
   // date have to agree — a row with status=Active but a cancel date is
   // a frozen/lapsed sub, not active.
@@ -20381,15 +20405,12 @@ function reportingOfficeList(rows) {
 // exact same code path — no risk of one going stale relative to the other.
 function reportingChartData(scopeRows, serviceConfig) {
   const cfgByName = new Map((serviceConfig || []).map(c => [c.service_name, c]));
-  // A sub is "recurring" if it has an annual recurring value > 0 OR the
-  // service is manually marked recurring in config. The CSV's
-  // `annual_recurring_value` column is the source of truth — one-time
-  // services have $0 there, recurring services have an annual figure.
-  // The config flag is a manual override for edge cases.
-  const isRecurring = (r) => {
-    if ((Number(r.annual_recurring_value) || 0) > 0) return true;
-    return !!cfgByName.get(r.subscription)?.is_recurring;
-  };
+  // Recurring is decided per SERVICE TYPE (admin override in Configurations,
+  // else "any row of this service has ARV > 0"). See
+  // reportingServiceRecurringMap — this is why a frozen recurring sub still
+  // classifies as recurring instead of falling into "Other active".
+  const recurringByName = reportingServiceRecurringMap();
+  const isRecurring = (r) => !!recurringByName.get(r.subscription);
   const isActive = (r) => {
     const s = (r.subscription_status || '').toLowerCase();
     return s === 'active' && !r.subscription_date_canceled;
@@ -20448,7 +20469,12 @@ function reportingChartData(scopeRows, serviceConfig) {
     if (!customerMap.has(r.customer_id)) customerMap.set(r.customer_id, { recurring: false, active: false });
     const m = customerMap.get(r.customer_id);
     if (isActive(r)) m.active = true;
-    if (isActive(r) && isRecurring(r)) m.recurring = true;
+    // A customer counts as "recurring" if they hold ANY recurring sub —
+    // active OR frozen. Without this, someone with an active one-time sub
+    // and a frozen recurring package was mislabeled "Other active" even
+    // though they're clearly a recurring customer. "Other active" should
+    // only be customers whose subs are ALL one-time / non-recurring.
+    if (isRecurring(r)) m.recurring = true;
   }
   let recurringCustomers = 0, otherActiveCustomers = 0;
   // Track which customer IDs land in each bucket so the Active Customers
@@ -21129,17 +21155,33 @@ function reportingServiceConfigPanel() {
   const list = [...allNames].sort((a, b) => a.localeCompare(b)).map(name =>
     cfgByName.get(name) || { service_name: name, category: '', is_recurring: false, is_hidden: false }
   );
+  // Effective recurring state per service (override if set, else ARV guess)
+  // and the raw ARV guess, so we can show whether a row is auto or pinned.
+  const recurringMap = reportingServiceRecurringMap();
+  const arvAny = new Map();
+  for (const r of subs) {
+    const n = r.subscription; if (!n) continue;
+    if (!arvAny.has(n)) arvAny.set(n, false);
+    if ((Number(r.annual_recurring_value) || 0) > 0) arvAny.set(n, true);
+  }
 
   const updateConfig = async (name, patch) => {
-    const existing = cfgByName.get(name) || { service_name: name, category: null, is_recurring: false, is_hidden: false };
+    const existing = cfgByName.get(name) || { service_name: name, category: null, is_recurring: false, is_hidden: false, recurring_override: null };
     const next = { ...existing, ...patch, updated_by: state.profile?.id || null };
     // Optimistic local update so toggles feel instant.
     const idx = cfg.findIndex(c => c.service_name === name);
     if (idx >= 0) cfg[idx] = next; else cfg.push(next);
     if (DEMO) { saveDemoData(); return; }
+    // Don't send recurring_override unless it's actually been set — keeps
+    // hidden/category saves working even before reporting_recurring_override.sql
+    // adds the column. (A null send would 400 on a missing column.)
+    const payload = { ...next };
+    if (payload.recurring_override == null && !('recurring_override' in patch)) {
+      delete payload.recurring_override;
+    }
     const { error } = await supabase
       .from('reporting_service_config')
-      .upsert(next, { onConflict: 'service_name' });
+      .upsert(payload, { onConflict: 'service_name' });
     if (error) {
       toast('Save failed: ' + error.message, 'error');
       // Revert local on failure so the UI doesn't lie.
@@ -21153,8 +21195,9 @@ function reportingServiceConfigPanel() {
     el('div', { class: 'mb-4' },
       el('h2', { class: 'text-lg font-bold' }, 'Service Type Configuration'),
       el('p', { class: 'text-xs text-muted- mt-1' },
-        'Mark service types as recurring so churn, ARR, and retention only count subscriptions that should count. ' +
-        'Hidden services drop out of charts entirely.'),
+        'Recurring is auto-detected from revenue data (a service counts as recurring if it carries Annual Recurring Value). ' +
+        'Check or uncheck to override that guess — overridden rows read "pinned," auto-detected ones read "auto." ' +
+        'This drives churn, ARR, retention, and the Active-Customers split everywhere. Hidden services drop out of charts entirely.'),
     ),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Service types appear here after you upload a snapshot.')
@@ -21174,11 +21217,22 @@ function reportingServiceConfigPanel() {
                   class: 'ml-2 inline-block text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-semibold',
                   style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
                 }, 'Hidden');
+                const effectiveRec = !!recurringMap.get(c.service_name);
+                const pinned = c.recurring_override === true || c.recurring_override === false;
                 const recCheckbox = el('input', {
                   type: 'checkbox', class: 'accent-lime cursor-pointer',
-                  checked: !!c.is_recurring,
-                  onchange: (e) => updateConfig(c.service_name, { is_recurring: !!e.target.checked }),
+                  checked: effectiveRec,
+                  onchange: (e) => { updateConfig(c.service_name, { recurring_override: !!e.target.checked }); mountApp(); },
                 });
+                // Tiny tag: "auto" when following the ARV data guess, "pinned"
+                // when the admin has explicitly checked/unchecked it.
+                const recTag = el('span', {
+                  class: 'ml-1.5 inline-block text-[9px] uppercase tracking-wider align-middle',
+                  style: { color: 'var(--text-muted)' },
+                  title: pinned
+                    ? 'Manually set — overrides the revenue-based guess'
+                    : 'Auto from data (recurring if this service has any Annual Recurring Value)',
+                }, pinned ? 'pinned' : 'auto');
                 const hidCheckbox = el('input', {
                   type: 'checkbox', class: 'accent-lime cursor-pointer',
                   checked: !!c.is_hidden,
@@ -21206,7 +21260,7 @@ function reportingServiceConfigPanel() {
                     hiddenTag,
                   ),
                   el('td', { class: 'px-2 py-2' }, catInput),
-                  el('td', { class: 'px-2 py-2 text-center' }, recCheckbox),
+                  el('td', { class: 'px-2 py-2 text-center whitespace-nowrap' }, recCheckbox, recTag),
                   el('td', { class: 'pr-4 pl-2 py-2 text-center' }, hidCheckbox),
                 );
               }),
@@ -22189,8 +22243,8 @@ function reportingGeographic() {
   //   2. recurring — real subscriptions (ARV > 0, or manually marked
   //      recurring in Configurations). One-time service types are excluded.
   // Other reporting tabs keep the full dataset.
-  const geoCfgByName = new Map((state.reportingServiceConfig || []).map(c => [c.service_name, c]));
-  const geoIsRecurring = (r) => ((Number(r.annual_recurring_value) || 0) > 0) || !!geoCfgByName.get(r.subscription)?.is_recurring;
+  const geoRecurringByName = reportingServiceRecurringMap();
+  const geoIsRecurring = (r) => !!geoRecurringByName.get(r.subscription);
   const scopeServiced = scopeA.filter(r => !!r.initial_service && geoIsRecurring(r));
   const agg = reportingGeoAggregate(scopeServiced);
 
