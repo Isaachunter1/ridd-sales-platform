@@ -19863,17 +19863,34 @@ async function uploadReportingCsv(file) {
   //    If any chunk fails we delete the envelope so we don't leave a
   //    half-loaded snapshot behind.
   const CHUNK = 1000, CONCURRENCY = 6;
+  // Columns the DB may not have yet (added by inside_sales_schema.sql). If an
+  // insert errors because they're missing, we strip them and keep going so the
+  // upload NEVER hard-fails on a not-yet-run migration. Inside Sales sold-date
+  // data just won't populate until that migration is run.
+  const OPTIONAL_COLS = ['customer_auto_pay', 'sold_date'];
+  const stripOptional = (r) => { const c = { ...r }; OPTIONAL_COLS.forEach(k => delete c[k]); return c; };
+  let strip = false, strippedAny = false;
   const chunks = [];
   for (let i = 0; i < rows.length; i += CHUNK) {
     chunks.push(rows.slice(i, i + CHUNK).map(r => ({ ...r, upload_id: upload.id })));
   }
+  const missingColErr = (e) => /could not find|schema cache|column .* does not exist/i.test(e?.message || '');
+  const insertChunk = async (chunk) => {
+    const payload = strip ? chunk.map(stripOptional) : chunk;
+    let { error } = await supabase.from('reporting_subscriptions').insert(payload);
+    if (error && !strip && missingColErr(error)) {
+      strip = true; strippedAny = true;
+      ({ error } = await supabase.from('reporting_subscriptions').insert(chunk.map(stripOptional)));
+    }
+    return error;
+  };
   let done = 0, failed = null, nextChunk = 0;
   reportingUploadProgress(0, 'Uploading ' + rows.length.toLocaleString() + ' rows…');
   const insertWorker = async () => {
     for (;;) {
       const idx = nextChunk++;
       if (idx >= chunks.length || failed) return;
-      const { error } = await supabase.from('reporting_subscriptions').insert(chunks[idx]);
+      const error = await insertChunk(chunks[idx]);
       if (error) { failed = error; return; }
       done += chunks[idx].length;
       reportingUploadProgress(Math.round(100 * done / rows.length),
@@ -19888,6 +19905,9 @@ async function uploadReportingCsv(file) {
     return;
   }
   reportingUploadProgress(100, 'Finishing up…');
+  if (strippedAny) {
+    setTimeout(() => toast('Uploaded — but Sold Date / Auto Pay weren\'t stored (run inside_sales_schema.sql for the Inside Sales tab).', 'warn'), 800);
+  }
   } // end legacy row-insert path
 
   // 3. Seed any new service names so the Service Type Configuration
