@@ -536,6 +536,8 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_indicatorRepTier',
   '_indicatorTeams',
   '_indicatorExcludedTeams',
+  '_indicatorCompetitions',
+  '_indicatorActiveCompId',
   '_indicatorTeamColors',
   '_indicatorTrendScope',
   '_indicatorRepActive',
@@ -791,6 +793,10 @@ async function loadIndicatorConfigFromSupabase() {
       state._indicatorTeamColors    = data.team_colors   && typeof data.team_colors   === 'object' ? data.team_colors   : (state._indicatorTeamColors || {});
       state._indicatorTeamLogos     = data.team_logos    && typeof data.team_logos    === 'object' ? data.team_logos    : (state._indicatorTeamLogos || {});
       state._indicatorExcludedTeams = Array.isArray(data.team_excluded) ? data.team_excluded : (state._indicatorExcludedTeams || []);
+      if (data.competitions && typeof data.competitions === 'object') {
+        if (Array.isArray(data.competitions.list)) state._indicatorCompetitions = data.competitions.list;
+        if (data.competitions.active)              state._indicatorActiveCompId = data.competitions.active;
+      }
       state._indicatorRepTeam       = data.rep_teams     && typeof data.rep_teams     === 'object' ? data.rep_teams     : (state._indicatorRepTeam || {});
       state._indicatorRepTier       = data.rep_tiers     && typeof data.rep_tiers     === 'object' ? data.rep_tiers     : (state._indicatorRepTier || {});
       state._indicatorRepActive     = data.rep_active    && typeof data.rep_active    === 'object' ? data.rep_active    : (state._indicatorRepActive || {});
@@ -825,6 +831,7 @@ async function saveIndicatorConfigToSupabase() {
     team_colors:   state._indicatorTeamColors || {},
     team_logos:    state._indicatorTeamLogos || {},
     team_excluded: state._indicatorExcludedTeams || [],
+    competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [] },
     rep_teams:     state._indicatorRepTeam || {},
     rep_tiers:     state._indicatorRepTier || {},
     rep_active:    state._indicatorRepActive || {},
@@ -10328,14 +10335,49 @@ function setRepTeam(repName, team) {
   else       state._indicatorRepTeam[repName] = team;
   saveDemoData();
 }
-// Lazily seeded with the legacy "Excluded" team so reps already assigned
-// there stay hidden after upgrade — first read on a fresh state will populate
-// the field with ['Excluded'].
-function getExcludedTeams() {
-  if (!Array.isArray(state._indicatorExcludedTeams)) {
-    state._indicatorExcludedTeams = [REP_EXCLUDED_TEAM];
+// ── Competitions ──────────────────────────────────────────────────────────
+// Comps run year-round and reuse the same metrics, so exclusions are scoped
+// PER COMPETITION rather than globally. Each competition has its own list of
+// excluded teams; the active competition's list is what drives every number
+// while Comps mode is on. Seeded with Top Gun + Spring Cleaning, inheriting
+// any legacy global exclusions so nothing that was hidden becomes visible.
+const DEFAULT_COMPETITIONS = [
+  { id: 'top_gun',        name: 'Top Gun' },
+  { id: 'spring_cleaning', name: 'Spring Cleaning' },
+];
+function getIndicatorCompetitions() {
+  if (!Array.isArray(state._indicatorCompetitions) || state._indicatorCompetitions.length === 0) {
+    const legacy = Array.isArray(state._indicatorExcludedTeams) && state._indicatorExcludedTeams.length
+      ? state._indicatorExcludedTeams.slice()
+      : [REP_EXCLUDED_TEAM];
+    state._indicatorCompetitions = DEFAULT_COMPETITIONS.map(c => ({ ...c, excludedTeams: legacy.slice() }));
   }
-  return state._indicatorExcludedTeams;
+  // Defensive: every competition must carry an excludedTeams array.
+  state._indicatorCompetitions.forEach(c => { if (!Array.isArray(c.excludedTeams)) c.excludedTeams = [REP_EXCLUDED_TEAM]; });
+  return state._indicatorCompetitions;
+}
+function getActiveCompId() {
+  const comps = getIndicatorCompetitions();
+  if (!state._indicatorActiveCompId || !comps.some(c => c.id === state._indicatorActiveCompId)) {
+    state._indicatorActiveCompId = comps[0].id;
+  }
+  return state._indicatorActiveCompId;
+}
+function setActiveCompId(id) {
+  if (getIndicatorCompetitions().some(c => c.id === id)) {
+    state._indicatorActiveCompId = id;
+    saveDemoData();
+  }
+}
+function getActiveComp() {
+  const comps = getIndicatorCompetitions();
+  return comps.find(c => c.id === getActiveCompId()) || comps[0];
+}
+
+// Excluded-team helpers now operate on the ACTIVE competition's list, so all
+// existing call sites become competition-aware through this single chokepoint.
+function getExcludedTeams() {
+  return getActiveComp().excludedTeams;
 }
 function isTeamExcluded(teamName) {
   if (!teamName) return false;
@@ -10672,10 +10714,12 @@ function removeTeam(name) {
   // Unassign any rep currently on that team
   const map = state._indicatorRepTeam || {};
   Object.keys(map).forEach(r => { if (map[r] === name) delete map[r]; });
-  // Drop from the excluded list too — no orphaned exclusion entries
+  // Drop from the excluded list too — no orphaned exclusion entries.
   if (Array.isArray(state._indicatorExcludedTeams)) {
     state._indicatorExcludedTeams = state._indicatorExcludedTeams.filter(t => t !== name);
   }
+  // And from every competition's exclusion list.
+  getIndicatorCompetitions().forEach(c => { c.excludedTeams = c.excludedTeams.filter(t => t !== name); });
   saveDemoData();
 }
 function renameTeam(oldName, newNameRaw) {
@@ -10695,10 +10739,12 @@ function renameTeam(oldName, newNameRaw) {
   // Carry the rename into the modal's active filter so the filter doesn't break
   if (state._indicatorManageTeamFilter === oldName) state._indicatorManageTeamFilter = newName;
   if (state._indicatorRepTeamFilter === oldName)   state._indicatorRepTeamFilter   = newName;
-  // Carry the rename into the excluded-teams list so the exclusion follows
+  // Carry the rename into the excluded-teams list so the exclusion follows.
   if (Array.isArray(state._indicatorExcludedTeams)) {
     state._indicatorExcludedTeams = state._indicatorExcludedTeams.map(t => t === oldName ? newName : t);
   }
+  // And into every competition's exclusion list.
+  getIndicatorCompetitions().forEach(c => { c.excludedTeams = c.excludedTeams.map(t => t === oldName ? newName : t); });
   saveDemoData();
   return { ok: true };
 }
@@ -12033,41 +12079,65 @@ function viewIndicators() {
       );
     })(),
 
-    // ── Comps configuration panel — only while Comps is ON. Shows exactly
-    // which teams are being excluded from the competition and lets you toggle
-    // each one live, so the D2D comp scope is transparent and editable. ──
+    // ── Competition selector — only while Comps is ON. Pick which competition
+    // you're viewing; each one carries its own team exclusions, configured via
+    // the ⚙ toggle. The active competition's exclusions drive every number. ──
     (state.indicatorsComps ? (() => {
+      const comps = getIndicatorCompetitions();
+      const activeId = getActiveCompId();
+      const active = getActiveComp();
       const teams = distinctTeams();
       const repTeam = state._indicatorRepTeam || {};
       const counts = {};
       for (const t of Object.values(repTeam)) { if (t) counts[t] = (counts[t] || 0) + 1; }
-      const excludedTeams = teams.filter(isTeamExcluded);
+      const excludedNames = teams.filter(isTeamExcluded);
+      const configOpen = !!state._indicatorCompConfigOpen;
       const liveRerender = () => {
         const sx = window.scrollX, sy = window.scrollY;
         setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0);
       };
       return el('div', { class: 'card p-3 flex flex-col gap-2', style: { borderLeft: '3px solid #34C759' } },
-        el('div', { class: 'flex items-baseline justify-between gap-2 flex-wrap' },
-          el('div', { class: 'text-xs font-bold' }, '🏆 Comps configuration'),
-          el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
-            excludedTeams.length
-              ? excludedTeams.length + ' team' + (excludedTeams.length === 1 ? '' : 's') + ' excluded from every number below'
-              : 'No teams excluded — every team counts'),
-        ),
-        el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
-          'Click a team to include (✓ green) or exclude (✕ struck) it from the competition. Updates live.'),
-        el('div', { class: 'flex flex-wrap gap-1.5 pt-0.5' },
-          ...teams.map(t => {
-            const excluded = isTeamExcluded(t);
+        // Selector row: competition pills + configure toggle.
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, '🏆 Competition'),
+          ...comps.map(c => {
+            const on = c.id === activeId;
             return el('button', {
-              class: 'text-[11px] font-semibold rounded-full px-2.5 py-1 border transition cursor-pointer whitespace-nowrap',
-              style: excluded
-                ? { background: 'transparent', color: 'var(--text-subtle)', borderColor: 'var(--border-2)', textDecoration: 'line-through' }
-                : { background: 'rgba(52,199,89,0.14)', color: 'var(--text)', borderColor: '#34C759' },
-              title: excluded ? 'Excluded from comps — click to include' : 'Counts in comps — click to exclude',
-              onclick: () => { setTeamExcluded(t, !excluded); liveRerender(); },
-            }, (excluded ? '✕ ' : '✓ ') + t + (counts[t] ? ' (' + counts[t] + ')' : ''));
+              class: 'text-xs font-bold rounded-full px-3 py-1 border transition cursor-pointer whitespace-nowrap',
+              style: on
+                ? { background: '#34C759', color: '#06310f', borderColor: '#34C759' }
+                : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+              onclick: () => { setActiveCompId(c.id); liveRerender(); },
+            }, c.name);
           }),
+          el('button', {
+            class: 'ml-auto text-[11px] font-semibold rounded-lg px-2.5 py-1 border transition cursor-pointer',
+            style: { background: configOpen ? 'var(--card-2)' : 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+            onclick: () => { state._indicatorCompConfigOpen = !configOpen; liveRerender(); },
+          }, configOpen ? '⚙ Done' : '⚙ Configure'),
+        ),
+        // Summary line for the active competition.
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
+          active.name + ': ' + (excludedNames.length
+            ? excludedNames.length + ' team' + (excludedNames.length === 1 ? '' : 's') + ' excluded — ' + excludedNames.join(', ')
+            : 'no teams excluded — every team counts')),
+        // Editable per-competition exclusions (only when ⚙ Configure is open).
+        configOpen && el('div', { class: 'flex flex-col gap-1.5 pt-1 border-t', style: { borderColor: 'var(--border)' } },
+          el('div', { class: 'text-[11px] pt-1', style: { color: 'var(--text-subtle)' } },
+            'Click a team to include (✓ green) or exclude (✕ struck) it from ' + active.name + '. Updates live.'),
+          el('div', { class: 'flex flex-wrap gap-1.5' },
+            ...teams.map(t => {
+              const excluded = isTeamExcluded(t);
+              return el('button', {
+                class: 'text-[11px] font-semibold rounded-full px-2.5 py-1 border transition cursor-pointer whitespace-nowrap',
+                style: excluded
+                  ? { background: 'transparent', color: 'var(--text-subtle)', borderColor: 'var(--border-2)', textDecoration: 'line-through' }
+                  : { background: 'rgba(52,199,89,0.14)', color: 'var(--text)', borderColor: '#34C759' },
+                title: excluded ? 'Excluded — click to include' : 'Counts — click to exclude',
+                onclick: () => { setTeamExcluded(t, !excluded); liveRerender(); },
+              }, (excluded ? '✕ ' : '✓ ') + t + (counts[t] ? ' (' + counts[t] + ')' : ''));
+            }),
+          ),
         ),
       );
     })() : null),
