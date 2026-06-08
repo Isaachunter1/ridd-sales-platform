@@ -899,14 +899,17 @@ async function saveCompanyLogo(dataUrl) {
 async function loadReportingMetadata() {
   if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
   try {
-    const [uploadsRes, configRes] = await Promise.all([
+    const [uploadsRes, configRes, cancelCfgRes] = await Promise.all([
       supabase.from('reporting_uploads').select('*').order('uploaded_at', { ascending: false }),
       supabase.from('reporting_service_config').select('*').order('service_name'),
+      supabase.from('reporting_cancel_config').select('*').order('reason'),
     ]);
     if (uploadsRes.error) { console.warn('[ridd] reporting_uploads load failed', uploadsRes.error); }
     if (configRes.error)  { console.warn('[ridd] reporting_service_config load failed', configRes.error); }
+    if (cancelCfgRes && cancelCfgRes.error) { console.warn('[ridd] reporting_cancel_config load failed (run reporting_cancel_config.sql)', cancelCfgRes.error); }
     state.reportingUploads       = uploadsRes.data || [];
     state.reportingServiceConfig = configRes.data || [];
+    state.reportingCancelConfig  = (cancelCfgRes && cancelCfgRes.data) || [];
     // Default the active snapshot to the most recent upload.
     if (!state.reportingActiveUploadId && state.reportingUploads.length) {
       state.reportingActiveUploadId = state.reportingUploads[0].id;
@@ -1142,6 +1145,7 @@ function loadPersistedDemoState() {
     // pointer but expect a re-upload before charts have data again.
     if (Array.isArray(parsed.reportingUploads))       state.reportingUploads       = parsed.reportingUploads;
     if (Array.isArray(parsed.reportingServiceConfig)) state.reportingServiceConfig = parsed.reportingServiceConfig;
+    if (Array.isArray(parsed.reportingCancelConfig))  state.reportingCancelConfig  = parsed.reportingCancelConfig;
     if (parsed.reportingActiveUploadId)               state.reportingActiveUploadId = parsed.reportingActiveUploadId;
   } catch (err) {
     console.warn('[ridd] failed to load demo state', err);
@@ -1189,6 +1193,7 @@ function saveDemoData() {
     // restored but the rows themselves need a re-upload to appear.
     reportingUploads:        state.reportingUploads,
     reportingServiceConfig:  state.reportingServiceConfig,
+    reportingCancelConfig:   state.reportingCancelConfig,
     reportingActiveUploadId: state.reportingActiveUploadId,
     savedAt: new Date().toISOString(),
     ...overrides,
@@ -1524,7 +1529,8 @@ const state = {
   calendarDepartment: 'inside_sales', // 'inside_sales' | 'loyalty' — scopes the calendar to a department
   // Reporting tab — admin-only, populated by loadReportingMetadata()
   reportingUploads: [],            // [{ id, uploaded_at, uploaded_by, filename, row_count, notes }]
-  reportingServiceConfig: [],      // [{ service_name, category, is_recurring, is_hidden }]
+  reportingServiceConfig: [],      // [{ service_name, category, is_recurring, is_hidden, lifecycle }]
+  reportingCancelConfig: [],       // [{ reason, counts_attrition }] — attrition exclusions
   reportingActiveUploadId: null,   // currently-selected snapshot
   reportingSubscriptions: [],      // rows for the active snapshot (lazy-loaded)
   reportingSubscriptionsLoadedFor: null, // upload_id whose rows are in reportingSubscriptions
@@ -20070,6 +20076,18 @@ function reportingFlaggedActive(rows, isActive) {
   return out;
 }
 
+// Cancellation reasons the admin has marked as NOT counting toward attrition
+// (Configurations tab). A canceled sub whose reason is in this set is excluded
+// from churn everywhere — Overview cancel count/rate AND the Geographic map.
+// Null/blank reason normalizes to 'Unspecified' to match the donut grouping.
+function reportingExcludedCancelReasons() {
+  const cfg = state.reportingCancelConfig || [];
+  return new Set(cfg.filter(c => c.counts_attrition === false).map(c => c.reason));
+}
+function reportingCancelReasonOf(r) {
+  return r.subscription_cancellation_reason || 'Unspecified';
+}
+
 // Filters + flag helpers used by every chart. Centralized so the rules
 // (hide hidden services, exclude 3-day RORs from churn, etc.) live in
 // one place and can't drift between charts.
@@ -20088,12 +20106,14 @@ function reportingFilters() {
     const s = (r.subscription_status || '').toLowerCase();
     return s === 'active' && !r.subscription_date_canceled;
   };
-  // Cancellation: any canceled recurring sub. Non-recurring (one-time)
-  // cancels are excluded — they're not real attrition. 3-day RORs are
-  // INCLUDED for now per the latest spec.
+  // Cancellation: any canceled recurring sub, UNLESS its reason is config-
+  // excluded from attrition (Configurations tab). Non-recurring (one-time)
+  // cancels are excluded too — they're not real attrition.
+  const excludedReasons = reportingExcludedCancelReasons();
   const isRealCancel = (r) => {
     if (!r.subscription_date_canceled) return false;
     if (!isRecurring(r)) return false;
+    if (excludedReasons.has(reportingCancelReasonOf(r))) return false;
     return true;
   };
   const all = state.reportingSubscriptions || [];
@@ -20472,13 +20492,14 @@ function reportingChartData(scopeRows, serviceConfig) {
     const s = (r.subscription_status || '').toLowerCase();
     return s === 'active' && !r.subscription_date_canceled;
   };
-  // Cancellation: any canceled recurring sub. Non-recurring (one-time)
-  // cancels are excluded — they're not real attrition. 3-day RORs are
-  // INCLUDED for now per the latest spec; we can re-add the 3-day
-  // filter later by comparing initial_service to the cancel date.
+  // Cancellation: any canceled recurring sub, UNLESS its reason is config-
+  // excluded from attrition (Configurations tab). Non-recurring (one-time)
+  // cancels are excluded too — they're not real attrition.
+  const excludedReasons = reportingExcludedCancelReasons();
   const isRealCancel = (r) => {
     if (!r.subscription_date_canceled) return false;
     if (!isRecurring(r)) return false;
+    if (excludedReasons.has(reportingCancelReasonOf(r))) return false;
     return true;
   };
 
@@ -20720,7 +20741,7 @@ function viewReporting() {
     reportingSubTabs(),
     isMarketing                            ? viewMarketing() :
     state.reportingSubTab === 'is'         ? reportingInsideSales() :
-    state.reportingSubTab === 'config'     ? reportingServiceConfigPanel() :
+    state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingServiceConfigPanel(), reportingCancelConfigPanel()) :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'reps'       ? reportingRepPerformance() :
@@ -21365,6 +21386,97 @@ function reportingServiceConfigPanel() {
                   ),
                   el('td', { class: 'px-2 py-2 text-center whitespace-nowrap' }, lcSelect),
                   el('td', { class: 'pr-4 pl-2 py-2 text-center' }, hidPill),
+                );
+                return row;
+              }),
+            ),
+          ),
+        ),
+  );
+}
+
+// Configurations · Cancellation Reasons — pick which reasons count toward
+// attrition. An excluded reason drops out of churn EVERYWHERE: Overview
+// cancel count + rate AND the Geographic attrition map. Reasons are read live
+// from the snapshot's canceled subs; toggles persist to reporting_cancel_config.
+function reportingCancelConfigPanel() {
+  const cfg  = state.reportingCancelConfig || [];
+  const subs = state.reportingSubscriptions || [];
+  const cfgByReason = new Map(cfg.map(c => [c.reason, c]));
+
+  // Count canceled subs per reason (volume context) from the snapshot.
+  const counts = new Map();
+  for (const r of subs) {
+    if (!r.subscription_date_canceled) continue;
+    const reason = reportingCancelReasonOf(r);
+    counts.set(reason, (counts.get(reason) || 0) + 1);
+  }
+  const allReasons = new Set([...cfgByReason.keys(), ...counts.keys()]);
+  const list = [...allReasons].sort((a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b));
+
+  const updateCancelConfig = async (reason, patch) => {
+    const existing = cfgByReason.get(reason) || { reason, counts_attrition: true };
+    const next = { ...existing, ...patch, updated_by: state.profile?.id || null };
+    const idx = cfg.findIndex(c => c.reason === reason);
+    if (idx >= 0) cfg[idx] = next; else cfg.push(next);
+    if (DEMO) { saveDemoData(); return; }
+    const { error } = await supabase
+      .from('reporting_cancel_config')
+      .upsert(next, { onConflict: 'reason' });
+    if (error) {
+      toast('Save failed: ' + error.message, 'error');
+      if (idx >= 0) cfg[idx] = existing; else cfg.splice(cfg.length - 1, 1);
+      mountApp();
+    }
+  };
+
+  return el('div', { class: 'card p-4' },
+    el('div', { class: 'mb-4' },
+      el('h2', { class: 'text-lg font-bold' }, 'Cancellation Reasons'),
+      el('p', { class: 'text-xs text-muted- mt-1' },
+        'Choose which cancellation reasons count as real attrition. Excluded reasons (e.g. duplicates, moved/relocated, paperwork churn) ' +
+        'drop out of churn everywhere — the Overview cancel count + rate AND the Geographic attrition map. Counts shown are canceled subs in the current snapshot.'),
+    ),
+    list.length === 0
+      ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Cancellation reasons appear here once a snapshot has canceled subscriptions.')
+      : el('div', { class: 'overflow-hidden rounded-lg border', style: { borderColor: 'var(--border)' } },
+          el('table', { class: 'w-full text-sm' },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+              el('tr', {},
+                el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Cancellation Reason'),
+                el('th', { class: 'text-right px-2 py-2.5 font-semibold', style: { width: '90px' } }, 'Cancels'),
+                el('th', { class: 'text-center pr-4 pl-2 py-2.5 font-semibold', style: { width: '150px' } }, 'Attrition'),
+              ),
+            ),
+            el('tbody', {},
+              ...list.map(reason => {
+                const c = cfgByReason.get(reason) || { reason, counts_attrition: true };
+                const excluded0 = c.counts_attrition === false;
+                const row = el('tr', {
+                  class: 'border-t',
+                  style: { borderColor: 'var(--border)', opacity: excluded0 ? '0.6' : '1' },
+                });
+                const pill = el('button', {
+                  class: 'text-[11px] font-bold rounded-full px-3 py-1 border cursor-pointer transition whitespace-nowrap',
+                });
+                const paint = (excluded) => {
+                  pill.textContent = excluded ? '✕ Excluded' : '✓ Counts';
+                  Object.assign(pill.style, excluded
+                    ? { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' }
+                    : { background: 'var(--accent)', color: '#16321a', borderColor: 'var(--accent)' });
+                };
+                paint(excluded0);
+                pill.onclick = () => {
+                  const nowExcluded = !(c.counts_attrition === false);
+                  c.counts_attrition = !nowExcluded;       // true = counts, false = excluded
+                  updateCancelConfig(reason, { counts_attrition: !nowExcluded });
+                  paint(nowExcluded);
+                  row.style.opacity = nowExcluded ? '0.6' : '1';
+                };
+                row.append(
+                  el('td', { class: 'pl-4 pr-2 py-2 font-medium' }, reason),
+                  el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, (counts.get(reason) || 0).toLocaleString()),
+                  el('td', { class: 'pr-4 pl-2 py-2 text-center' }, pill),
                 );
                 return row;
               }),
@@ -22080,6 +22192,9 @@ const REPORTING_SVC_OTHER = '#9aa0a6';
 
 function reportingGeoAggregate(rows) {
   const ATTRITION_MIN_SUBS = 10;
+  // Same attrition exclusions as the Overview tab — reasons the admin marked
+  // "don't count toward attrition" in Configurations are not counted here.
+  const excludedReasons = reportingExcludedCancelReasons();
 
   const seed = () => ({
     subs: 0,
@@ -22115,7 +22230,7 @@ function reportingGeoAggregate(rows) {
       if (r.customer_id) m.customers.add(r.customer_id);
       m.contract += Number(r.subscription_contract_value) || 0;
       m.arv      += Number(r.annual_recurring_value) || 0;
-      if (r.subscription_date_canceled) m.cancellations += 1;
+      if (r.subscription_date_canceled && !excludedReasons.has(reportingCancelReasonOf(r))) m.cancellations += 1;
       // Active = currently in service: status says active AND no cancel
       // date (matches isActive() in reportingFilters).
       if ((r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled) m.active += 1;
