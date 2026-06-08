@@ -21320,9 +21320,9 @@ function reportingServiceConfigPanel() {
     ),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Service types appear here after you upload a snapshot.')
-      : el('div', { class: 'overflow-hidden rounded-lg border', style: { borderColor: 'var(--border)' } },
+      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '440px', overflowY: 'auto' } },
           el('table', { class: 'w-full text-sm' },
-            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
               el('tr', {},
                 el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Service Type'),
                 el('th', { class: 'text-center px-2 py-2.5 font-semibold', style: { width: '130px' } }, 'Lifecycle'),
@@ -21439,9 +21439,9 @@ function reportingCancelConfigPanel() {
     ),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Cancellation reasons appear here once a snapshot has canceled subscriptions.')
-      : el('div', { class: 'overflow-hidden rounded-lg border', style: { borderColor: 'var(--border)' } },
+      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '440px', overflowY: 'auto' } },
           el('table', { class: 'w-full text-sm' },
-            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
               el('tr', {},
                 el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Cancellation Reason'),
                 el('th', { class: 'text-right px-2 py-2.5 font-semibold', style: { width: '90px' } }, 'Cancels'),
@@ -21697,9 +21697,9 @@ function reportingUploadsPanel() {
       '(or pick it from the dropdown at the top). Delete removes the snapshot and all its rows.'),
     uploads.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No uploads yet.')
-      : el('div', { class: 'overflow-hidden rounded-lg border', style: { borderColor: 'var(--border)' } },
+      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '440px', overflowY: 'auto' } },
           el('table', { class: 'w-full text-sm' },
-            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
               el('tr', {},
                 el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Filename'),
                 el('th', { class: 'text-left px-2 py-2.5 font-semibold' }, 'Uploaded'),
