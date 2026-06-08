@@ -21325,12 +21325,15 @@ function reportingServiceConfigPanel() {
                 );
                 const hidCheckbox = el('input', {
                   type: 'checkbox', class: 'accent-lime cursor-pointer',
-                  checked: !!c.is_hidden,
+                  style: { width: '16px', height: '16px' },
                   onchange: (e) => {
                     updateConfig(c.service_name, { is_hidden: !!e.target.checked });
                     mountApp();
                   },
                 });
+                // Set the PROPERTY (not just the attribute) so the checkmark
+                // reliably renders checked after a re-render.
+                hidCheckbox.checked = !!c.is_hidden;
                 return el('tr', {
                   class: 'border-t',
                   style: { borderColor: 'var(--border)', opacity: c.is_hidden ? '0.55' : '1' },
