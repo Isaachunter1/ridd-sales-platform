@@ -20411,8 +20411,21 @@ function reportingChartData(scopeRows, serviceConfig) {
   const isServiced = (r) => (Number(r.subscription_completed_services) || 0) > 0;
 
   const recurringRows   = scopeRows.filter(isRecurring);
-  // One-time = NOT recurring (ARV $0 and not flagged recurring in Config).
-  const oneTimeRows     = scopeRows.filter(r => !isRecurring(r));
+  // One-time = an actual one-time SERVICE TYPE, not merely any $0-ARV row.
+  // RIDD's one-time services are all named "One Time <something>" in the
+  // Subscription column (8 of them: One Time Pest Control, German Roach,
+  // Interior Flea, Rodent, Mosquito, Termite Inspection, Fire Ant, Vehicle
+  // Infestation). Matching the "One Time" prefix auto-includes any future
+  // ones and excludes "Initial" rows of recurring plans / internal services.
+  // To hand-pin instead, fill ONE_TIME_SERVICES below and it takes priority.
+  const ONE_TIME_SERVICES = [/* 'Exclusion', */];
+  const otSet = new Set(ONE_TIME_SERVICES.map(s => s.toLowerCase()));
+  const isOneTimeService = (r) => {
+    const name = (r.subscription || '').trim().toLowerCase();
+    if (otSet.size) return otSet.has(name);
+    return name.startsWith('one time') || name.startsWith('one-time');
+  };
+  const oneTimeRows     = scopeRows.filter(isOneTimeService);
   const activeRecurring = recurringRows.filter(isActive);
   const activeSubs      = scopeRows.filter(isActive);
   const realCancels     = scopeRows.filter(isRealCancel);
