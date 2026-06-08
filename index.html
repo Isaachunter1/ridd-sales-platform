@@ -12033,6 +12033,45 @@ function viewIndicators() {
       );
     })(),
 
+    // ── Comps configuration panel — only while Comps is ON. Shows exactly
+    // which teams are being excluded from the competition and lets you toggle
+    // each one live, so the D2D comp scope is transparent and editable. ──
+    (state.indicatorsComps ? (() => {
+      const teams = distinctTeams();
+      const repTeam = state._indicatorRepTeam || {};
+      const counts = {};
+      for (const t of Object.values(repTeam)) { if (t) counts[t] = (counts[t] || 0) + 1; }
+      const excludedTeams = teams.filter(isTeamExcluded);
+      const liveRerender = () => {
+        const sx = window.scrollX, sy = window.scrollY;
+        setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0);
+      };
+      return el('div', { class: 'card p-3 flex flex-col gap-2', style: { borderLeft: '3px solid #34C759' } },
+        el('div', { class: 'flex items-baseline justify-between gap-2 flex-wrap' },
+          el('div', { class: 'text-xs font-bold' }, '🏆 Comps configuration'),
+          el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
+            excludedTeams.length
+              ? excludedTeams.length + ' team' + (excludedTeams.length === 1 ? '' : 's') + ' excluded from every number below'
+              : 'No teams excluded — every team counts'),
+        ),
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
+          'Click a team to include (✓ green) or exclude (✕ struck) it from the competition. Updates live.'),
+        el('div', { class: 'flex flex-wrap gap-1.5 pt-0.5' },
+          ...teams.map(t => {
+            const excluded = isTeamExcluded(t);
+            return el('button', {
+              class: 'text-[11px] font-semibold rounded-full px-2.5 py-1 border transition cursor-pointer whitespace-nowrap',
+              style: excluded
+                ? { background: 'transparent', color: 'var(--text-subtle)', borderColor: 'var(--border-2)', textDecoration: 'line-through' }
+                : { background: 'rgba(52,199,89,0.14)', color: 'var(--text)', borderColor: '#34C759' },
+              title: excluded ? 'Excluded from comps — click to include' : 'Counts in comps — click to exclude',
+              onclick: () => { setTeamExcluded(t, !excluded); liveRerender(); },
+            }, (excluded ? '✕ ' : '✓ ') + t + (counts[t] ? ' (' + counts[t] + ')' : ''));
+          }),
+        ),
+      );
+    })() : null),
+
     // ── Main metrics table (click metric name to sort branches) ──
     (() => {
       // Sort state: which metric is sorting the columns, and direction
