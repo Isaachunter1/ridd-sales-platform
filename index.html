@@ -12000,22 +12000,76 @@ function viewIndicators() {
               style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '50', minWidth: '170px', padding: '6px', boxShadow: 'var(--shadow-lg)' },
             },
               opt('⬆ Import CSV…', () => hiddenImport.click()),
-              opt('⬇ Export CSV', () => {
+              opt(state.indicatorsComps ? '⬇ Export Competition (.xlsx)' : '⬇ Export CSV', async () => {
+                const groupLabel = groupBy === 'teams' ? 'Team' : 'Branch';
+
+                // ── COMPS ON → competition-specific 2-sheet workbook ──
+                // Sheet 1 = metrics that matter (already computed under the
+                // active competition's exclusions). Sheet 2 = every account
+                // attributed to the competition (excluded teams removed).
+                if (state.indicatorsComps) {
+                  try { await loadXlsxLibOnce(); } catch { toast('Could not load Excel library — check your connection', 'error'); return; }
+                  const XLSX = window.XLSX;
+                  if (!XLSX) { toast('Excel library missing after load', 'error'); return; }
+                  const comp = getActiveComp();
+                  const winLabel = isRange
+                    ? (rangeBounds ? rangeBounds.start + ' → ' + rangeBounds.end : 'Range')
+                    : ('Wk ' + currentWeek);
+                  const excludedList = distinctTeams().filter(isTeamExcluded);
+
+                  // Sheet 1 — Metrics
+                  const m = [];
+                  m.push(['RIDD Indicators — ' + comp.name]);
+                  m.push(['Scope', groupLabel + ' · ' + winLabel]);
+                  m.push(['Excluded teams', excludedList.length ? excludedList.join(', ') : 'none']);
+                  m.push(['Pulled', new Date().toLocaleString()]);
+                  m.push([]);
+                  m.push([groupLabel, 'Revenue', 'Avg Initial', 'ACV', 'PRA', 'Multi-Year %', 'Auto-Pay %', 'Reps']);
+                  branches.forEach(b => {
+                    const d = branchData[b]; if (!d) return;
+                    m.push([b, Math.round(d.revenue), +d.avg_initial.toFixed(2), +d.acv.toFixed(2), +d.pra.toFixed(2),
+                      +(d.multi_year_pct * 100).toFixed(1), +(d.auto_pay_pct * 100).toFixed(1), d.reps]);
+                  });
+
+                  // Sheet 2 — Accounts attributed to the competition
+                  const weeksInScope = isRange ? new Set(data.map(r => r.week)) : new Set([currentWeek]);
+                  const accounts = (state._indicatorRawSales || []).filter(s =>
+                    weeksInScope.has(s.week) && !isRepExcluded(s.rep));
+                  const numOrBlank = (v) => { const n = Number(v); return Number.isFinite(n) ? n : ''; };
+                  const a = [];
+                  a.push(['Rep', 'Team', 'Office', 'Customer', 'Customer ID', 'Date Sold', 'Week',
+                    'Subscription', 'Source', 'Status', 'Initial Price', 'Contract Value', 'Contract Months', 'Auto Pay']);
+                  accounts.forEach(s => a.push([
+                    s.rep || '', getRepTeam(s.rep) || '', s.office || '', s.customer || '', s.customerId || '',
+                    s.dateSold || '', s.week || '', s.subscription || '', s.source || '', s.status || '',
+                    numOrBlank(s.initialPrice), numOrBlank(s.contractValue), numOrBlank(s.contract), s.autoPay || '',
+                  ]));
+
+                  const wb = XLSX.utils.book_new();
+                  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(m), 'Metrics');
+                  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(a), 'Accounts');
+                  const safe = comp.name.replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
+                  XLSX.writeFile(wb, 'RIDD-' + safe + '-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+                  toast('Exported ' + comp.name + ' — ' + accounts.length.toLocaleString() + ' accounts', 'success');
+                  return;
+                }
+
+                // ── COMPS OFF → plain table CSV ──
                 const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
                 const out = [];
-                out.push(['RIDD Indicators — ' + (groupBy === 'teams' ? 'Teams' : 'Branch') + ' table']);
+                out.push(['RIDD Indicators — ' + groupLabel + ' table']);
                 out.push(['Pulled', new Date().toLocaleString()]);
                 out.push([]);
-                out.push([groupBy === 'teams' ? 'Team' : 'Branch', 'Revenue', 'Avg Initial', 'ACV', 'PRA', 'Multi-Year %', 'Auto-Pay %', 'Reps']);
+                out.push([groupLabel, 'Revenue', 'Avg Initial', 'ACV', 'PRA', 'Multi-Year %', 'Auto-Pay %', 'Reps']);
                 branches.forEach(b => {
                   const d = branchData[b]; if (!d) return;
                   out.push([b, Math.round(d.revenue), d.avg_initial.toFixed(2), d.acv.toFixed(2), d.pra.toFixed(2),
                     (d.multi_year_pct * 100).toFixed(1) + '%', (d.auto_pay_pct * 100).toFixed(1) + '%', d.reps]);
                 });
                 const blob = new Blob([out.map(r => r.map(esc).join(',')).join('\n')], { type: 'text/csv' });
-                const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-                a.download = 'ridd-indicators-' + (groupBy === 'teams' ? 'teams' : 'branch') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
-                a.click();
+                const a2 = document.createElement('a'); a2.href = URL.createObjectURL(blob);
+                a2.download = 'ridd-indicators-' + (groupBy === 'teams' ? 'teams' : 'branch') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+                a2.click();
               }),
             );
           }
