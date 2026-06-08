@@ -899,17 +899,20 @@ async function saveCompanyLogo(dataUrl) {
 async function loadReportingMetadata() {
   if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
   try {
-    const [uploadsRes, configRes, cancelCfgRes] = await Promise.all([
+    const [uploadsRes, configRes, cancelCfgRes, sourceCfgRes] = await Promise.all([
       supabase.from('reporting_uploads').select('*').order('uploaded_at', { ascending: false }),
       supabase.from('reporting_service_config').select('*').order('service_name'),
       supabase.from('reporting_cancel_config').select('*').order('reason'),
+      supabase.from('reporting_source_config').select('*').order('source'),
     ]);
     if (uploadsRes.error) { console.warn('[ridd] reporting_uploads load failed', uploadsRes.error); }
     if (configRes.error)  { console.warn('[ridd] reporting_service_config load failed', configRes.error); }
     if (cancelCfgRes && cancelCfgRes.error) { console.warn('[ridd] reporting_cancel_config load failed (run reporting_cancel_config.sql)', cancelCfgRes.error); }
+    if (sourceCfgRes && sourceCfgRes.error) { console.warn('[ridd] reporting_source_config load failed (run reporting_source_config.sql)', sourceCfgRes.error); }
     state.reportingUploads       = uploadsRes.data || [];
     state.reportingServiceConfig = configRes.data || [];
     state.reportingCancelConfig  = (cancelCfgRes && cancelCfgRes.data) || [];
+    state.reportingSourceConfig  = (sourceCfgRes && sourceCfgRes.data) || [];
     // Default the active snapshot to the most recent upload.
     if (!state.reportingActiveUploadId && state.reportingUploads.length) {
       state.reportingActiveUploadId = state.reportingUploads[0].id;
@@ -1146,6 +1149,7 @@ function loadPersistedDemoState() {
     if (Array.isArray(parsed.reportingUploads))       state.reportingUploads       = parsed.reportingUploads;
     if (Array.isArray(parsed.reportingServiceConfig)) state.reportingServiceConfig = parsed.reportingServiceConfig;
     if (Array.isArray(parsed.reportingCancelConfig))  state.reportingCancelConfig  = parsed.reportingCancelConfig;
+    if (Array.isArray(parsed.reportingSourceConfig))  state.reportingSourceConfig  = parsed.reportingSourceConfig;
     if (parsed.reportingActiveUploadId)               state.reportingActiveUploadId = parsed.reportingActiveUploadId;
   } catch (err) {
     console.warn('[ridd] failed to load demo state', err);
@@ -1194,6 +1198,7 @@ function saveDemoData() {
     reportingUploads:        state.reportingUploads,
     reportingServiceConfig:  state.reportingServiceConfig,
     reportingCancelConfig:   state.reportingCancelConfig,
+    reportingSourceConfig:   state.reportingSourceConfig,
     reportingActiveUploadId: state.reportingActiveUploadId,
     savedAt: new Date().toISOString(),
     ...overrides,
@@ -1531,6 +1536,7 @@ const state = {
   reportingUploads: [],            // [{ id, uploaded_at, uploaded_by, filename, row_count, notes }]
   reportingServiceConfig: [],      // [{ service_name, category, is_recurring, is_hidden, lifecycle }]
   reportingCancelConfig: [],       // [{ reason, counts_attrition }] — attrition exclusions
+  reportingSourceConfig: [],       // [{ source, included }] — sources excluded from all reporting
   reportingActiveUploadId: null,   // currently-selected snapshot
   reportingSubscriptions: [],      // rows for the active snapshot (lazy-loaded)
   reportingSubscriptionsLoadedFor: null, // upload_id whose rows are in reportingSubscriptions
@@ -20088,6 +20094,19 @@ function reportingCancelReasonOf(r) {
   return r.subscription_cancellation_reason || 'Unspecified';
 }
 
+// Lead sources the admin marked as NOT counting (Configurations tab). Subs
+// from an excluded source (e.g. Miscellaneous) drop out of ALL snapshot-based
+// reporting — they're filtered at the shared `visible` set so Overview,
+// Geographic, Rep Performance and Waterfall all inherit it, and Inside Sales
+// skips them too. Null/blank source normalizes to 'Unspecified'.
+function reportingExcludedSources() {
+  const cfg = state.reportingSourceConfig || [];
+  return new Set(cfg.filter(c => c.included === false).map(c => c.source));
+}
+function reportingSourceOf(r) {
+  return (r.subscription_source || '').trim() || 'Unspecified';
+}
+
 // Filters + flag helpers used by every chart. Centralized so the rules
 // (hide hidden services, exclude 3-day RORs from churn, etc.) live in
 // one place and can't drift between charts.
@@ -20117,7 +20136,11 @@ function reportingFilters() {
     return true;
   };
   const all = state.reportingSubscriptions || [];
-  const visible = all.filter(r => !isHidden(r));
+  // `visible` is the master set every snapshot-based tab reads from. It drops
+  // Hidden service types AND subs from excluded lead sources (Configurations),
+  // so a source like Miscellaneous falls out of all reporting at once.
+  const excludedSources = reportingExcludedSources();
+  const visible = all.filter(r => !isHidden(r) && !excludedSources.has(reportingSourceOf(r)));
   const recurring = visible.filter(isRecurring);
   return { all, visible, recurring, cfgByName, isHidden, isRecurring, isActive, isRealCancel };
 }
@@ -20741,7 +20764,7 @@ function viewReporting() {
     reportingSubTabs(),
     isMarketing                            ? viewMarketing() :
     state.reportingSubTab === 'is'         ? reportingInsideSales() :
-    state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingServiceConfigPanel(), reportingCancelConfigPanel()) :
+    state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()) :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'reps'       ? reportingRepPerformance() :
@@ -21486,6 +21509,98 @@ function reportingCancelConfigPanel() {
   );
 }
 
+// Configurations · Lead Sources — exclude sources from ALL snapshot-based
+// reporting (Overview, Geographic, Rep Performance, Waterfall, Inside Sales).
+// e.g. Miscellaneous. Excluded sources are filtered at the shared `visible`
+// set so every tab drops them at once. Toggles persist to
+// reporting_source_config. (Marketing tab uses a separate data source and is
+// unaffected.)
+function reportingSourceConfigPanel() {
+  const cfg  = state.reportingSourceConfig || [];
+  const subs = state.reportingSubscriptions || [];
+  const cfgBySource = new Map(cfg.map(c => [c.source, c]));
+
+  const counts = new Map();
+  for (const r of subs) {
+    const src = reportingSourceOf(r);
+    counts.set(src, (counts.get(src) || 0) + 1);
+  }
+  const allSources = new Set([...cfgBySource.keys(), ...counts.keys()]);
+  const list = [...allSources].sort((a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b));
+
+  const updateSourceConfig = async (source, patch) => {
+    const existing = cfgBySource.get(source) || { source, included: true };
+    const next = { ...existing, ...patch, updated_by: state.profile?.id || null };
+    const idx = cfg.findIndex(c => c.source === source);
+    if (idx >= 0) cfg[idx] = next; else cfg.push(next);
+    if (DEMO) { saveDemoData(); return; }
+    const { error } = await supabase
+      .from('reporting_source_config')
+      .upsert(next, { onConflict: 'source' });
+    if (error) {
+      toast('Save failed: ' + error.message, 'error');
+      if (idx >= 0) cfg[idx] = existing; else cfg.splice(cfg.length - 1, 1);
+      mountApp();
+    }
+  };
+
+  return el('div', { class: 'card p-4' },
+    el('div', { class: 'mb-4' },
+      el('h2', { class: 'text-lg font-bold' }, 'Lead Sources'),
+      el('p', { class: 'text-xs text-muted- mt-1' },
+        'Exclude lead sources from all snapshot reporting (Overview, Geographic, Rep Performance, Waterfall, Inside Sales). ' +
+        'Excluded sources — e.g. Miscellaneous — drop out everywhere at once. Counts shown are total subs per source in the current snapshot. ' +
+        'The Marketing tab pulls from a separate data source and is unaffected.'),
+    ),
+    list.length === 0
+      ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Lead sources appear here after you upload a snapshot.')
+      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '440px', overflowY: 'auto' } },
+          el('table', { class: 'w-full text-sm' },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
+              el('tr', {},
+                el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Lead Source'),
+                el('th', { class: 'text-right px-2 py-2.5 font-semibold', style: { width: '90px' } }, 'Subs'),
+                el('th', { class: 'text-center pr-4 pl-2 py-2.5 font-semibold', style: { width: '150px' } }, 'In Reporting'),
+              ),
+            ),
+            el('tbody', {},
+              ...list.map(source => {
+                const c = cfgBySource.get(source) || { source, included: true };
+                const excluded0 = c.included === false;
+                const row = el('tr', {
+                  class: 'border-t',
+                  style: { borderColor: 'var(--border)', opacity: excluded0 ? '0.6' : '1' },
+                });
+                const pill = el('button', {
+                  class: 'text-[11px] font-bold rounded-full px-3 py-1 border cursor-pointer transition whitespace-nowrap',
+                });
+                const paint = (excluded) => {
+                  pill.textContent = excluded ? '✕ Excluded' : '✓ Included';
+                  Object.assign(pill.style, excluded
+                    ? { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' }
+                    : { background: 'var(--accent)', color: '#16321a', borderColor: 'var(--accent)' });
+                };
+                paint(excluded0);
+                pill.onclick = () => {
+                  const nowExcluded = !(c.included === false);
+                  c.included = !nowExcluded;            // true = included, false = excluded
+                  updateSourceConfig(source, { included: !nowExcluded });
+                  paint(nowExcluded);
+                  row.style.opacity = nowExcluded ? '0.6' : '1';
+                };
+                row.append(
+                  el('td', { class: 'pl-4 pr-2 py-2 font-medium' }, source),
+                  el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, (counts.get(source) || 0).toLocaleString()),
+                  el('td', { class: 'pr-4 pl-2 py-2 text-center' }, pill),
+                );
+                return row;
+              }),
+            ),
+          ),
+        ),
+  );
+}
+
 // ── Inside Sales (MO) — income-statement style monthly P&L ──────────────
 // Revenue + channel spend + subs sold are auto-computed (snapshot rows by
 // sold_date + is-spend.json from the marketing pipeline). Projections, wages,
@@ -21542,11 +21657,13 @@ function reportingInsideSales() {
   // ── Auto aggregates from the snapshot (sold_date + committed-sold filter) ──
   const agg = {};
   const A = (p) => agg[p] || (agg[p] = { newRev: 0, newRevSvc: 0, upsell: 0, sold: 0, cv: 0 });
+  const isExcludedSource = reportingExcludedSources();
   let anySoldDate = false;
   for (const r of rowsAll) {
     const sd = r.sold_date; if (!sd) continue;
     anySoldDate = true;
     const src = (r.subscription_source || '').trim();
+    if (isExcludedSource.has(src || 'Unspecified')) continue; // Configurations exclusion
     const isIS = IS_SOURCES.has(src), isUp = IS_UPSELL_SOURCES.has(src);
     if (!isIS && !isUp) continue;
     if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue; // committed sold
@@ -21965,8 +22082,8 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
       if (metricKey === 'acv')        return z.avgContract;
       if (metricKey === 'revenue')    return z.arv;
       if (metricKey === 'customers')  return z.customers;
-      if (metricKey === 'attrition_count') return z.cancellations;
       if (metricKey === 'attrition')  return z.attritionEligible ? z.cancelRate : null;
+      if (metricKey === 'retention')  return z.attritionEligible ? (1 - z.cancelRate) : null;
       return 0;
     };
     const colorFor = metricKey === 'service'
@@ -22086,8 +22203,8 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
       if (metricKey === 'acv')        return c.avgContract;
       if (metricKey === 'revenue')    return c.arv;
       if (metricKey === 'customers')  return c.customers;
-      if (metricKey === 'attrition_count') return c.cancellations;
       if (metricKey === 'attrition')  return c.attritionEligible ? c.cancelRate : null;
+      if (metricKey === 'retention')  return c.attritionEligible ? (1 - c.cancelRate) : null;
       return 0;
     };
     const colorFor = metricKey === 'service'
@@ -22370,6 +22487,7 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
       if (metricKey === 'revenue')    return s.arv;
       if (metricKey === 'customers')  return s.customers;
       if (metricKey === 'attrition')  return s.subs >= 10 ? s.cancelRate : null;
+      if (metricKey === 'retention')  return s.subs >= 10 ? (1 - s.cancelRate) : null;
       return 0;
     };
     const allValues = Object.keys(states).map(code => metricFor(states[code]));
@@ -22417,12 +22535,20 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
 function exportReportingGeoCsv(items, kind, scopeTag) {
   if (!items || !items.length) { toast('Nothing to export', 'warn'); return; }
   const firstCol = kind === 'county' ? 'county' : 'zip';
-  const headers = [firstCol, 'state', 'accounts', 'subscriptions', 'avg_contract_value', 'total_arv', 'active_subscriptions', 'cancellations', 'attrition_pct'];
+  const headers = [firstCol, 'state', 'offices', 'accounts', 'subscriptions', 'avg_contract_value', 'total_arv', 'active_subscriptions', 'cancellations', 'attrition_pct'];
   const lines = [headers.join(',')];
   for (const it of items) {
+    // Distinct office names contributing to this ZIP/county, in volume order.
+    const offCounts = new Map();
+    for (const r of (it.rows || [])) {
+      const o = r.office_name; if (!o) continue;
+      offCounts.set(o, (offCounts.get(o) || 0) + 1);
+    }
+    const offices = [...offCounts.entries()].sort((a, b) => b[1] - a[1]).map(([o]) => o).join('; ');
     lines.push([
       csvEsc(kind === 'county' ? (it.county || 'Unknown') : it.zip),
       csvEsc(it.state || ''),
+      csvEsc(offices),
       it.customers,
       it.subs,
       Math.round(it.avgContract),
@@ -22509,10 +22635,11 @@ function reportingGeographic() {
     { key: 'acv',             label: 'ACV',            fmt: (v) => '$' + Math.round(v).toLocaleString() },
     { key: 'revenue',         label: 'Revenue',        fmt: (v) => '$' + Math.round(v).toLocaleString() },
     { key: 'customers',       label: 'Customers',      fmt: (v) => Math.round(v).toLocaleString() },
-    { key: 'attrition_count', label: 'Attrition #',    fmt: (v) => Math.round(v).toLocaleString() },
     { key: 'attrition',       label: 'Attrition Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
+    { key: 'retention',       label: 'Retention Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
     { key: 'service',         label: 'Top Service',    fmt: (v) => v || '—' },
   ];
+  const isRetention = metricKey === 'retention';
   const activeMetric = metrics.find(m => m.key === metricKey) || metrics[0];
 
   const metricToggle = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
@@ -22528,7 +22655,8 @@ function reportingGeographic() {
       }, m.label);
     }),
     el('div', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } },
-      metricKey === 'attrition' ? 'Attrition uses 10+ sub floor per ZIP'
+      (metricKey === 'attrition' || metricKey === 'retention') ? 'Uses 10+ sub floor per area · darker = '
+          + (isRetention ? 'better retention' : 'higher attrition')
         : (metricKey === 'service' ? 'Each area colored by its most common service' : '')),
   );
 
@@ -22767,7 +22895,8 @@ function reportingGeographic() {
     if (!z.attritionEligible) {
       return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '< 10 subs');
     }
-    return el('span', {}, (z.cancelRate * 100).toFixed(1) + '%');
+    const v = isRetention ? (1 - z.cancelRate) : z.cancelRate;
+    return el('span', {}, (v * 100).toFixed(1) + '%');
   };
 
   const exportScopeTag = (mapLevel === 'state' && drilledState) ? drilledState : 'all';
@@ -22796,7 +22925,7 @@ function reportingGeographic() {
             tableHeader('ACV',         'avgContract', true),
             tableHeader('Total ARV',   'arv',         true),
             tableHeader('Cancels',     'cancellations', true),
-            tableHeader('Attrition %', 'cancelRate',  true),
+            tableHeader(isRetention ? 'Retention %' : 'Attrition %', 'cancelRate',  true),
           ),
         ),
         el('tbody', {},
