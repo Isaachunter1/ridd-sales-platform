@@ -20762,6 +20762,7 @@ function viewReporting() {
   return el('div', { class: 'flex flex-col gap-4' },
     isMarketing ? null : reportingTopBar(),
     reportingSubTabs(),
+    reportingMethodologyBar(),
     isMarketing                            ? viewMarketing() :
     state.reportingSubTab === 'is'         ? reportingInsideSales() :
     state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()) :
@@ -20771,6 +20772,120 @@ function viewReporting() {
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
                                               reportingOverview(),
   );
+}
+
+// The active snapshot's metadata row (filename / date / row count), or null.
+function reportingActiveSnapshotMeta() {
+  return (state.reportingUploads || []).find(x => x.id === state.reportingActiveUploadId) || null;
+}
+
+// Thin "how reporting is calculated" bar shown on every report sub-tab, plus a
+// Details popup. Both read the live config so the disclaimer is always honest
+// about what's being excluded/how recurring + attrition are defined.
+function reportingMethodologyBar() {
+  const tab = state.reportingSubTab;
+  if (tab === 'config' || tab === 'uploads') return null; // settings, not a report
+
+  if (tab === 'marketing') {
+    return el('div', { class: 'card p-2.5 text-[11px] flex items-center gap-2', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+      el('span', { class: 'font-semibold', style: { color: 'var(--text)' } }, 'ⓘ'),
+      el('span', {}, 'Marketing pulls from a separate data source (ad platforms + spend) and is NOT affected by the snapshot Configurations (lifecycle, hidden, excluded sources/cancel reasons).'),
+    );
+  }
+
+  const u = reportingActiveSnapshotMeta();
+  const svc = state.reportingServiceConfig || [];
+  const hidden  = svc.filter(c => c.is_hidden).length;
+  const srcExcl = (state.reportingSourceConfig || []).filter(c => c.included === false).length;
+  const reaExcl = (state.reportingCancelConfig || []).filter(c => c.counts_attrition === false).length;
+
+  const chip = (txt) => el('span', {
+    class: 'px-1.5 py-0.5 rounded text-[10px] font-semibold',
+    style: { background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-muted)' },
+  }, txt);
+
+  return el('div', { class: 'card p-2.5 flex items-center gap-x-2.5 gap-y-1 flex-wrap text-[11px]', style: { background: 'var(--card-2)' } },
+    el('span', { class: 'font-bold', style: { color: 'var(--text)' } }, '📊 How this is calculated'),
+    u && el('span', { style: { color: 'var(--text-muted)' } },
+      'Snapshot: ' + (u.filename || 'upload') + ' · ' + (u.row_count || 0).toLocaleString() + ' subs'),
+    chip('Recurring = Lifecycle config'),
+    chip(hidden + ' hidden'),
+    chip(srcExcl + ' source' + (srcExcl === 1 ? '' : 's') + ' excluded'),
+    chip(reaExcl + ' cancel reason' + (reaExcl === 1 ? '' : 's') + ' excluded'),
+    el('button', {
+      class: 'ml-auto rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+      style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+      onclick: () => openReportingMethodologyModal(tab),
+    }, 'Details →'),
+  );
+}
+
+function openReportingMethodologyModal(tab) {
+  const u   = reportingActiveSnapshotMeta();
+  const svc = state.reportingServiceConfig || [];
+  const lc  = reportingServiceLifecycleMap();
+  const hidden   = svc.filter(c => c.is_hidden).map(c => c.service_name).sort();
+  const retired  = [...lc.entries()].filter(([, v]) => v === 'retired').map(([n]) => n).sort();
+  const srcExcl  = (state.reportingSourceConfig || []).filter(c => c.included === false).map(c => c.source).sort();
+  const reaExcl  = (state.reportingCancelConfig || []).filter(c => c.counts_attrition === false).map(c => c.reason).sort();
+
+  const overlay = el('div', { class: 'modal-overlay' });
+  const closeKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeKey); } };
+  document.addEventListener('keydown', closeKey);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) { overlay.remove(); document.removeEventListener('keydown', closeKey); } });
+
+  const list = (arr) => arr.length
+    ? el('span', { style: { color: 'var(--text)' } }, arr.join(', '))
+    : el('span', { style: { color: 'var(--text-subtle)' } }, 'none');
+
+  const section = (title, ...body) => el('div', { class: 'mb-3' },
+    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--accent)' } }, title),
+    el('div', { class: 'text-[13px] leading-relaxed', style: { color: 'var(--text-muted)' } }, ...body),
+  );
+
+  const tabNotes = {
+    overview:   'Headline cards + donuts cover every visible sub in scope. Active = status Active with no cancel date. ARR sums Annual Recurring Value over active recurring subs.',
+    geographic: 'Map + table use serviced + recurring subs only (one-time excluded). Attrition/Retention need 10+ subs in an area before a rate is shown. Retention = 1 − attrition.',
+    reps:       'Per-rep counts use every visible sub in scope (sold_by). Active and ARV use the same Active + recurring rules as Overview.',
+    waterfall:  'Cohort retention counts recurring subs only, grouped by initial-service year. A cancellation with an excluded reason is treated as retained (not churn).',
+    is:         'Inside Sales is a sold-date P&L: new revenue is committed-sold (auto-pay) subs by the month sold. It honors excluded Sources but, being sold-revenue, not the lifecycle/hidden/cancel rules.',
+  };
+
+  const card = el('div', {
+    class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col',
+    style: { maxHeight: 'calc(100vh - 64px)' },
+  },
+    el('div', { class: 'flex items-start justify-between p-6 pb-3' },
+      el('div', {},
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Reporting Methodology'),
+        el('h2', { class: 'text-xl font-bold mt-0.5' }, 'How this report is calculated'),
+      ),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => { overlay.remove(); document.removeEventListener('keydown', closeKey); } }, '×'),
+    ),
+    el('div', { class: 'overflow-auto px-6 pb-6', style: { borderTop: '1px solid var(--border)' } },
+      el('div', { class: 'pt-4' },
+        section('Data source',
+          u ? ('All numbers come from your active snapshot — ' + (u.filename || 'upload') + ', ' + (u.row_count || 0).toLocaleString()
+                + ' subscriptions' + (u.uploaded_at ? ', uploaded ' + new Date(u.uploaded_at).toLocaleDateString() : '') + '.')
+            : 'No active snapshot loaded.'),
+        section('Recurring vs one-time',
+          'Decided per service by its Lifecycle in Configurations. Recurring counts toward ARR, churn and retention; One-time and Retired do not. "Auto" infers recurring from revenue (any Annual Recurring Value > $0).'),
+        section('Active & attrition',
+          'Active = status Active with no cancellation date. A cancellation counts as attrition only if the sub is recurring AND its reason is not excluded below. (Excluded reasons are real cancels that you\'ve decided aren\'t true churn.)'),
+        section('Excluded from all reporting',
+          el('div', {}, 'Hidden services (', list(hidden), ')'),
+          el('div', { class: 'mt-0.5' }, 'Excluded sources (', list(srcExcl), ')')),
+        section('Excluded from attrition only',
+          el('div', {}, 'Cancel reasons (', list(reaExcl), ')'),
+          el('div', { class: 'mt-0.5' }, 'Retired services flagged for cleanup (', list(retired), ')')),
+        tabNotes[tab] && section('This tab', tabNotes[tab]),
+        el('div', { class: 'text-[11px] mt-2', style: { color: 'var(--text-subtle)' } },
+          'Change any of these in the Configurations sub-tab.'),
+      ),
+    ),
+  );
+  overlay.append(card);
+  document.body.append(overlay);
 }
 
 function reportingTopBar() {
@@ -23088,6 +23203,19 @@ function reportingRepPerformance() {
 // pop visually.
 function buildReportingWaterfall(rows, mode) {
   const today = new Date();
+  // Consistency with Overview + Geographic attrition: cohort retention counts
+  // RECURRING subs only (one-time subs don't "retain"), and a cancellation
+  // whose reason is config-excluded from attrition is treated as NOT churn —
+  // the sub stays retained in the cohort. _effCancel is the effective cancel
+  // date (null when there's no real-attrition cancel).
+  const recurringByName = reportingServiceRecurringMap();
+  const excludedReasons = reportingExcludedCancelReasons();
+  rows = rows.filter(r => !!recurringByName.get(r.subscription)).map(r => {
+    const realCancel = r.subscription_date_canceled
+      && !excludedReasons.has(reportingCancelReasonOf(r))
+      ? r.subscription_date_canceled : null;
+    return { ...r, _effCancel: realCancel };
+  });
   const initYears = rows
     .map(r => r.initial_service ? new Date(r.initial_service + 'T00:00').getFullYear() : null)
     .filter(y => y && !Number.isNaN(y));
@@ -23137,7 +23265,7 @@ function buildReportingWaterfall(rows, mode) {
       const yearEnd = y + '-12-31';
       const active = rowRows.filter(r =>
         r.initial_service && r.initial_service <= yearEnd
-        && (!r.subscription_date_canceled || r.subscription_date_canceled > yearEnd)
+        && (!r._effCancel || r._effCancel > yearEnd)
       );
       byYear[y] = cellAggregate(active);
     }
