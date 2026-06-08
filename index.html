@@ -21063,9 +21063,9 @@ function reportingOverview() {
   };
   const COLUMN_CARDS = [
     { key: 'customers', label: 'Customers Active',        value: dataA.stats.uniqueCustomers.toLocaleString(),               sub: dataA.stats.distinctServices + ' distinct services',                 chartIds: ['customers', 'tenure'] },
-    { key: 'subs',      label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartIds: ['sources', 'agreement', 'onetimeSubs', 'onetimeRev'] },
+    { key: 'subs',      label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartIds: ['sources', 'agreement', 'onetimeSubs'] },
     { key: 'active',    label: 'Subscriptions Active',    value: dataA.stats.activeRecurring.toLocaleString(),               sub: 'currently in service',                                              chartIds: ['activesubs'] },
-    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice', 'serviced'] },
+    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice', 'serviced', 'onetimeRev'] },
     { key: 'cancels',   label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging', 'pastdue'] },
   ];
   // "Other active" customers = active customers whose active subs are all
