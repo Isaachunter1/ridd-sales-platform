@@ -10412,6 +10412,11 @@ function isSpringCleaningComp(comp) {
 // Returns per-branch metrics + category places + total points + overall place
 // + bugs, plus the excluded set and an excluded-metrics summary.
 const SC_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
+// The Flags column can hold several flags at once; match the exact audit
+// tokens so unrelated flags (or words like "compass"/"failed payment") can't
+// trip the audit gate.
+const SC_PASS_RE = /passed\s*audit/i;
+const SC_FAIL_RE = /failed\s*audit/i;
 function springCleaningHasPayment(s) {
   const v = String(s.autoPay || '').trim().toLowerCase();
   return v !== '' && v !== 'no' && v !== 'none' && v !== '0' && v !== 'n' && v !== 'false';
@@ -10423,22 +10428,26 @@ function springCleaningHasPayment(s) {
 //   'counting' — clears the floor AND is flagged pass
 function springCleaningStatus(s) {
   if ((Number(s.initialPrice) || 0) < 99) return 'excluded';
-  if (/pass/i.test(s.customerFlags || '')) return 'counting';
-  if (/fail/i.test(s.customerFlags || '')) return 'excluded';
+  if (SC_PASS_RE.test(s.customerFlags || '')) return 'counting';
+  if (SC_FAIL_RE.test(s.customerFlags || '')) return 'excluded';
   return 'pending';
 }
 function springCleaningReason(s) {
   if ((Number(s.initialPrice) || 0) < 99) return 'Last Resort (<$99 initial)';
-  if (/fail/i.test(s.customerFlags || '')) return 'Failed audit';
-  if (!/pass/i.test(s.customerFlags || '')) return 'Awaiting audit';
+  if (SC_FAIL_RE.test(s.customerFlags || '')) return 'Failed audit';
+  if (!SC_PASS_RE.test(s.customerFlags || '')) return 'Awaiting audit';
   return '';
 }
 function springCleaningCounts(s) {
   return springCleaningStatus(s) === 'counting';
 }
 function springCleaningCompute(sales, branchList) {
+  // Spring Cleaning is a DOOR-TO-DOOR competition — only sales sourced
+  // "Door to Door" participate at all. Office/Techs sales are out entirely
+  // (they don't even land in pending/excluded).
+  const d2dSales = sales.filter(s => _indicatorDeptOf(s) === 'd2d');
   const counting = [], pending = [], excluded = [];
-  for (const s of sales) {
+  for (const s of d2dSales) {
     const st = springCleaningStatus(s);
     if (st === 'counting') counting.push(s);
     else if (st === 'pending') pending.push(s);
@@ -10509,7 +10518,7 @@ function springCleaningCompute(sales, branchList) {
     revenue: sumRev(excluded),
     avgInitial: excluded.length ? sumInit(excluded) / excluded.length : 0,
     lastResort:  excluded.filter(s => (Number(s.initialPrice) || 0) < 99).length,
-    failedAudit: excluded.filter(s => (Number(s.initialPrice) || 0) >= 99 && /fail/i.test(s.customerFlags || '')).length,
+    failedAudit: excluded.filter(s => (Number(s.initialPrice) || 0) >= 99 && SC_FAIL_RE.test(s.customerFlags || '')).length,
   };
   const pendingSummary = {
     count: pending.length,
@@ -12449,9 +12458,9 @@ function viewIndicators() {
     (state.indicatorsComps && isSpringCleaningComp() ? (() => {
       const weeksInScope = isRange ? new Set(data.map(r => r.week)) : new Set([currentWeek]);
       const windowed = (state._indicatorRawSales || []).filter(s => weeksInScope.has(s.week));
-      // Spring Cleaning is always branch (office) level, regardless of the
-      // app's Branch/Teams toggle.
-      const offices = [...new Set(windowed.map(s => s.office).filter(Boolean))];
+      // Spring Cleaning is always branch (office) level and D2D-only, regardless
+      // of the app's Branch/Teams toggle.
+      const offices = [...new Set(windowed.filter(s => _indicatorDeptOf(s) === 'd2d').map(s => s.office).filter(Boolean))];
       return indicatorSpringCleaningBoard(windowed, offices);
     })() : null),
 
