@@ -19875,22 +19875,36 @@ async function uploadReportingCsv(file) {
     chunks.push(rows.slice(i, i + CHUNK).map(r => ({ ...r, upload_id: upload.id })));
   }
   const missingColErr = (e) => /could not find|schema cache|column .* does not exist/i.test(e?.message || '');
-  const insertChunk = async (chunk) => {
-    const payload = strip ? chunk.map(stripOptional) : chunk;
-    let { error } = await supabase.from('reporting_subscriptions').insert(payload);
-    if (error && !strip && missingColErr(error)) {
-      strip = true; strippedAny = true;
-      ({ error } = await supabase.from('reporting_subscriptions').insert(chunk.map(stripOptional)));
-    }
-    return error;
-  };
   let done = 0, failed = null, nextChunk = 0;
   reportingUploadProgress(0, 'Uploading ' + rows.length.toLocaleString() + ' rows…');
+
+  // PROBE: insert the first chunk by itself to settle the strip decision
+  // BEFORE parallelizing — otherwise parallel chunks can fail on the missing
+  // column before the strip flag flips (that race was the recurring failure).
+  {
+    const c0 = chunks[0] || [];
+    let { error } = await supabase.from('reporting_subscriptions').insert(c0);
+    if (error && missingColErr(error)) {
+      strip = true; strippedAny = true;
+      ({ error } = await supabase.from('reporting_subscriptions').insert(c0.map(stripOptional)));
+    }
+    if (error) {
+      await supabase.from('reporting_uploads').delete().eq('id', upload.id);
+      reportingUploadProgress(null);
+      toast('Upload failed: ' + error.message, 'error');
+      return;
+    }
+    done += c0.length; nextChunk = 1;
+    reportingUploadProgress(Math.round(100 * done / rows.length),
+      'Uploading ' + done.toLocaleString() + ' / ' + rows.length.toLocaleString() + ' rows…');
+  }
+
   const insertWorker = async () => {
     for (;;) {
       const idx = nextChunk++;
       if (idx >= chunks.length || failed) return;
-      const error = await insertChunk(chunks[idx]);
+      const payload = strip ? chunks[idx].map(stripOptional) : chunks[idx];
+      const { error } = await supabase.from('reporting_subscriptions').insert(payload);
       if (error) { failed = error; return; }
       done += chunks[idx].length;
       reportingUploadProgress(Math.round(100 * done / rows.length),
