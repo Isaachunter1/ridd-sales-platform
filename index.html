@@ -1041,10 +1041,14 @@ async function loadReportingSubscriptions(uploadId) {
 
   const pages = Math.ceil(count / CHUNK);
   const results = new Array(pages);
-  let nextPage = 0, loadedRows = 0;
+  let nextPage = 0, loadedRows = 0, aborted = false;
   reportingUploadProgress(0, 'Loading snapshot… 0 / ' + count.toLocaleString() + ' rows');
   const worker = async () => {
     for (;;) {
+      // Bail if a newer snapshot became active mid-load (e.g. a fresh upload
+      // landed) — no point finishing a slow paged load whose result will be
+      // thrown away, and it keeps a stale progress bar on screen.
+      if (state.reportingActiveUploadId !== uploadId) { aborted = true; return; }
       const p = nextPage++;
       if (p >= pages) return;
       results[p] = await fetchPage(p * CHUNK);
@@ -1055,6 +1059,10 @@ async function loadReportingSubscriptions(uploadId) {
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pages) }, worker));
+  if (aborted) {                       // superseded by a newer snapshot
+    reportingUploadProgress(null);     // clear the leftover progress bar
+    return null;                       // caller's guard ignores a null result
+  }
   const loaded = results.flat();
   if (loaded.length < count) {
     console.warn('[ridd] reporting load incomplete:', loaded.length, 'of', count);
@@ -19862,7 +19870,10 @@ async function uploadReportingCsv(file) {
   //    several chunks at once cuts the wait to roughly (chunks / CONCURRENCY).
   //    If any chunk fails we delete the envelope so we don't leave a
   //    half-loaded snapshot behind.
-  const CHUNK = 1000, CONCURRENCY = 6;
+  // Smaller batches (250) so each INSERT finishes well under Supabase's
+  // per-statement timeout — 1000-row inserts against an indexed table were
+  // tripping "canceling statement due to statement timeout".
+  const CHUNK = 250, CONCURRENCY = 6;
   // Columns the DB may not have yet (added by inside_sales_schema.sql). If an
   // insert errors because they're missing, we strip them and keep going so the
   // upload NEVER hard-fails on a not-yet-run migration. Inside Sales sold-date
@@ -19875,6 +19886,20 @@ async function uploadReportingCsv(file) {
     chunks.push(rows.slice(i, i + CHUNK).map(r => ({ ...r, upload_id: upload.id })));
   }
   const missingColErr = (e) => /could not find|schema cache|column .* does not exist/i.test(e?.message || '');
+  const transientErr  = (e) => /timeout|timed out|temporarily|too many|503|fetch|network/i.test(e?.message || '');
+  // Insert with backoff retry on transient errors (statement timeouts spike
+  // under concurrent load — a short wait + retry clears them).
+  const insertWithRetry = async (payload) => {
+    let last = null;
+    for (let t = 0; t < 4; t++) {
+      const { error } = await supabase.from('reporting_subscriptions').insert(payload);
+      if (!error) return null;
+      last = error;
+      if (!transientErr(error)) return error;
+      await new Promise(r => setTimeout(r, 500 * (t + 1)));
+    }
+    return last;
+  };
   let done = 0, failed = null, nextChunk = 0;
   reportingUploadProgress(0, 'Uploading ' + rows.length.toLocaleString() + ' rows…');
 
@@ -19883,10 +19908,10 @@ async function uploadReportingCsv(file) {
   // column before the strip flag flips (that race was the recurring failure).
   {
     const c0 = chunks[0] || [];
-    let { error } = await supabase.from('reporting_subscriptions').insert(c0);
+    let error = await insertWithRetry(c0);
     if (error && missingColErr(error)) {
       strip = true; strippedAny = true;
-      ({ error } = await supabase.from('reporting_subscriptions').insert(c0.map(stripOptional)));
+      error = await insertWithRetry(c0.map(stripOptional));
     }
     if (error) {
       await supabase.from('reporting_uploads').delete().eq('id', upload.id);
@@ -19904,7 +19929,7 @@ async function uploadReportingCsv(file) {
       const idx = nextChunk++;
       if (idx >= chunks.length || failed) return;
       const payload = strip ? chunks[idx].map(stripOptional) : chunks[idx];
-      const { error } = await supabase.from('reporting_subscriptions').insert(payload);
+      const error = await insertWithRetry(payload);
       if (error) { failed = error; return; }
       done += chunks[idx].length;
       reportingUploadProgress(Math.round(100 * done / rows.length),
@@ -20570,6 +20595,7 @@ function viewReporting() {
     loadReportingSubscriptions(activeId).then(rows => {
       // Snapshot may have changed under us while the request was in flight.
       if (state.reportingActiveUploadId !== activeId) return;
+      if (rows == null) return;        // aborted/superseded load — keep what we have
       state.reportingSubscriptions = rows;
       state.reportingSubscriptionsLoadedFor = activeId;
       mountApp();
