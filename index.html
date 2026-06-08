@@ -20864,24 +20864,76 @@ function reportingOverview() {
   // ── Column-header cards + aligned donuts (single mode) ───────────────
   // Each headline card pops (accent top bar, big number) and the related
   // donut sits directly beneath it so column = metric.
+  // EXACT calculation breakdowns for the headline cards — these are the
+  // source of truth, so they spell out every filter (lockstep with
+  // reportingFilters(): isActive / isRecurring / isRealCancel).
+  const scopeNote = (office === 'all'
+    ? 'Scope: all offices'
+    : 'Scope: ' + officeLabel(office) + ' office only')
+    + (dataA.stats.subs != null ? '. Hidden service types (Configurations tab) are always excluded.' : '');
+  const CARD_HELP = {
+    customers: 'Distinct Customer IDs that have AT LEAST ONE active subscription. A customer with 3 active subs counts once; a customer whose subs are all Frozen/cancelled is not counted.\n\n' + scopeNote,
+    subs:      'COUNT of every visible subscription row in the snapshot — Active AND Frozen, recurring AND one-time. "Marked recurring" = those with Annual Recurring Value > $0 (or manually flagged recurring in Configurations).\n\n' + scopeNote,
+    active:    'COUNT of subscriptions that are BOTH:\n• Status = "Active" (exactly), AND\n• have NO cancellation date (a date there means frozen/lapsed),\nAND are recurring (ARV > $0 or flagged recurring). Frozen subs are excluded.\n\n' + scopeNote,
+    arr:       'SUM of Annual Recurring Value across the Active recurring subscriptions above (same Active + recurring filter). Frozen and one-time subs contribute $0.\n\n' + scopeNote,
+    cancels:   'COUNT of subscriptions that have a cancellation date AND are recurring (one-time cancels are NOT counted — they\'re not real attrition; 3-day RORs ARE counted). Rate = these ÷ all visible subs in scope.\n\n' + scopeNote,
+  };
   const COLUMN_CARDS = [
-    { label: 'Customers Active',        value: dataA.stats.uniqueCustomers.toLocaleString(),               sub: dataA.stats.distinctServices + ' distinct services',                 chartIds: ['customers', 'tenure'] },
-    { label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartIds: ['sources', 'agreement'] },
-    { label: 'Subscriptions Active',    value: dataA.stats.activeRecurring.toLocaleString(),               sub: 'currently in service',                                              chartIds: ['activesubs'] },
-    { label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice', 'serviced'] },
-    { label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging', 'pastdue'] },
+    { key: 'customers', label: 'Customers Active',        value: dataA.stats.uniqueCustomers.toLocaleString(),               sub: dataA.stats.distinctServices + ' distinct services',                 chartIds: ['customers', 'tenure'] },
+    { key: 'subs',      label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartIds: ['sources', 'agreement'] },
+    { key: 'active',    label: 'Subscriptions Active',    value: dataA.stats.activeRecurring.toLocaleString(),               sub: 'currently in service',                                              chartIds: ['activesubs'] },
+    { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice', 'serviced'] },
+    { key: 'cancels',   label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging', 'pastdue'] },
   ];
-  const popTile = (t) => el('div', {
-    class: 'card p-4',
-    style: {
-      borderTop: '3px solid var(--accent)',
-      background: 'linear-gradient(180deg, rgba(141,198,63,.10), transparent 60%), var(--card)',
+  // "Other active" customers = active customers whose active subs are all
+  // non-recurring (one-time). Surfaced so the user can click in + fix any
+  // service that should actually be marked recurring.
+  const otherActiveRows = (dataA.drill && dataA.drill.customers)
+    ? dataA.drill.customers.source.filter(r => dataA.drill.customers.key(r) === 'Other active')
+    : [];
+
+  const popTile = (t) => {
+    const help = CARD_HELP[t.key];
+    // The ⓘ badge carries the hover/tap calculation explainer; keeping it
+    // separate from the card body so a card-level click (drill) and the
+    // explainer don't fight each other.
+    const info = help ? (() => {
+      const b = el('span', {
+        class: 'inline-flex items-center justify-center rounded-full text-[9px] font-bold ml-1',
+        style: { width: '13px', height: '13px', background: 'var(--card-2)', color: 'var(--text-muted)', cursor: 'help', verticalAlign: 'middle' },
+      }, 'ⓘ');
+      attachExplainer(b, { title: t.label, desc: help });
+      return b;
+    })() : null;
+    const clickable = !!t.onClick;
+    return el('div', {
+      class: 'card p-4' + (clickable ? ' cursor-pointer hover:brightness-95 transition' : ''),
+      style: {
+        borderTop: '3px solid var(--accent)',
+        background: 'linear-gradient(180deg, rgba(141,198,63,.10), transparent 60%), var(--card)',
+      },
+      title: clickable ? t.clickTitle || '' : '',
+      onclick: clickable ? (e) => { if (e.target.closest('span[style*="cursor: help"]')) return; t.onClick(); } : undefined,
     },
-  },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-muted)' } }, t.label),
-    el('div', { class: 'text-3xl font-black mt-1 tabular-nums' }, t.value),
-    t.sub && el('div', { class: 'text-[11px] text-muted- mt-1' }, t.sub),
-  );
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold flex items-center', style: { color: 'var(--text-muted)' } }, t.label, info),
+      el('div', { class: 'text-3xl font-black mt-1 tabular-nums' }, t.value),
+      t.sub && el('div', { class: 'text-[11px] text-muted- mt-1' }, t.sub),
+      clickable && el('div', { class: 'text-[10px] mt-1 font-semibold', style: { color: 'var(--accent)' } }, t.clickLabel || 'Click to inspect →'),
+    );
+  };
+  // Make Customers Active drillable into its "Other active" group.
+  const cardCust = COLUMN_CARDS.find(c => c.key === 'customers');
+  const otherActiveCount = (((dataA.slices && dataA.slices.customers) || []).find(s => s.label === 'Other active') || {}).value || 0;
+  if (cardCust && otherActiveRows.length) {
+    cardCust.onClick = () => openReportingDrillModal({
+      chartTitle: 'Other Active Customers',
+      sliceLabel: otherActiveCount.toLocaleString() + ' active customers with NO recurring subscription',
+      rows: otherActiveRows,
+      formatValue: fmt.usd0,
+    });
+    cardCust.clickLabel = otherActiveCount.toLocaleString() + ' "Other active" — click to inspect →';
+    cardCust.clickTitle = 'See the active customers whose subs are all one-time / non-recurring';
+  }
   const defById = Object.fromEntries(chartDefs.map(d => [d.id, d]));
   const usedChartIds = new Set(COLUMN_CARDS.flatMap(c => c.chartIds));
   const columnsBlock = inCompare ? null : el('div', { class: 'overflow-x-auto' },
