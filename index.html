@@ -20008,22 +20008,66 @@ const REPORTING_PALETTE = [
 // Computed across the WHOLE snapshot (not the office-filtered scope) so the
 // answer is stable no matter which office filter is applied. Returns a
 // Map<serviceName, boolean>. The Configurations tab writes recurring_override.
-function reportingServiceRecurringMap() {
+// Per-service LIFECYCLE — the master classification that drives both the
+// recurring math and the data-hygiene flags. One of:
+//   'recurring' — ongoing service; being Active is expected.
+//   'onetime'   — closes after it's serviced; Active + already-serviced is stale.
+//   'retired'   — discontinued service; ANY Active sub is a flag.
+// Resolution order per service:
+//   1. config.lifecycle  ('recurring' | 'onetime' | 'retired')   — admin's choice
+//   2. config.recurring_override (true → recurring, false → onetime) — legacy
+//   3. data guess: recurring if any row has ARV > 0, else onetime  — 'auto'
+function reportingServiceLifecycleMap() {
   const cfg = state.reportingServiceConfig || [];
-  const ovByName = new Map(cfg.map(c => [c.service_name, c.recurring_override]));
+  const byName = new Map(cfg.map(c => [c.service_name, c]));
   const arvAny = new Map(); // service → does any row have ARV > 0?
   for (const r of (state.reportingSubscriptions || [])) {
     const n = r.subscription; if (!n) continue;
     if (!arvAny.has(n)) arvAny.set(n, false);
     if ((Number(r.annual_recurring_value) || 0) > 0) arvAny.set(n, true);
   }
-  const names = new Set([...ovByName.keys(), ...arvAny.keys()]);
+  const names = new Set([...byName.keys(), ...arvAny.keys()]);
   const map = new Map();
+  const VALID = new Set(['recurring', 'onetime', 'retired']);
   for (const n of names) {
-    const ov = ovByName.get(n);
-    map.set(n, (ov === true || ov === false) ? ov : !!arvAny.get(n));
+    const c = byName.get(n) || {};
+    let lc;
+    if (VALID.has(c.lifecycle)) lc = c.lifecycle;
+    else if (c.recurring_override === true)  lc = 'recurring';
+    else if (c.recurring_override === false) lc = 'onetime';
+    else lc = arvAny.get(n) ? 'recurring' : 'onetime';  // auto from data
+    map.set(n, lc);
   }
   return map;
+}
+
+// Recurring view of the lifecycle map (recurring iff lifecycle === 'recurring').
+function reportingServiceRecurringMap() {
+  const lc = reportingServiceLifecycleMap();
+  const map = new Map();
+  for (const [n, v] of lc) map.set(n, v === 'recurring');
+  return map;
+}
+
+// Given the active-test, return the ACTIVE subs that data-hygiene says are
+// probably stale and should be closed, each stamped with a _flagReason:
+//   • retired service, still Active                → "Retired service"
+//   • one-time service, Active AND already serviced → "One-time already serviced"
+// A one-time sub that's Active but NOT yet serviced (completed = 0) is left
+// alone — that's a legit sold-not-started subscription.
+function reportingFlaggedActive(rows, isActive) {
+  const lc = reportingServiceLifecycleMap();
+  const out = [];
+  for (const r of rows) {
+    if (!isActive(r)) continue;
+    const kind = lc.get(r.subscription);
+    const completed = Number(r.subscription_completed_services) || 0;
+    let reason = null;
+    if (kind === 'retired') reason = 'Retired service — should be closed';
+    else if (kind === 'onetime' && completed >= 1) reason = 'One-time already serviced (' + completed + ') — should be closed';
+    if (reason) out.push({ ...r, _flagReason: reason });
+  }
+  return out;
 }
 
 // Filters + flag helpers used by every chart. Centralized so the rules
@@ -20125,7 +20169,7 @@ const REPORTING_TENURE_ORDER = ['<1 year', '1–2 years', '2–3 years', '3–4 
 // Chart.js instance can be cleanly destroyed before re-creation. When
 // `colorMap` is provided (compare mode), labels look up colors there so
 // the same service is the same color across both offices' pies.
-function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline, top = 6, officeLabel, colorMap, overrideTotal, hidePercent, preserveOrder, onSliceClick }) {
+function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline, top = 6, officeLabel, colorMap, overrideTotal, hidePercent, preserveOrder, onSliceClick, footerAction }) {
   const id = 'rpt-pie-' + key;
   const formatter = formatValue || ((n) => Number(n).toLocaleString());
   // `preserveOrder` keeps the caller's order (used for aging buckets so
@@ -20230,6 +20274,11 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
               el('div', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, formatter(otherTotal)),
             ),
           ),
+          footerAction && el('div', {
+            class: 'text-[11px] font-semibold cursor-pointer pt-1 mt-1 border-t hover:brightness-110 transition',
+            style: { color: 'var(--accent)', borderColor: 'var(--border)' },
+            onclick: footerAction.onClick,
+          }, footerAction.label),
         ),
   );
 }
@@ -20250,6 +20299,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
 
   const sorted = [...rows].sort((a, b) =>
     (Number(b.subscription_contract_value) || 0) - (Number(a.subscription_contract_value) || 0));
+  const hasFlags = sorted.some(r => r._flagReason);
   const totalContract = sorted.reduce((s, r) => s + (Number(r.subscription_contract_value) || 0), 0);
   const totalArv      = sorted.reduce((s, r) => s + (Number(r.annual_recurring_value) || 0), 0);
   const formatter = formatValue || fmt.usd0;
@@ -20292,6 +20342,8 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
                 el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Office'),
                 el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Subscription'),
                 el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Status'),
+                hasFlags && el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Svcs'),
+                hasFlags && el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Flag'),
                 el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'ARV'),
                 el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Contract $'),
                 el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Initial Service'),
@@ -20308,6 +20360,11 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
                 el('td', { class: 'px-3 py-2' }, r.office_name || '—'),
                 el('td', { class: 'px-3 py-2' }, r.subscription || '—'),
                 el('td', { class: 'px-3 py-2' }, r.subscription_status || '—'),
+                hasFlags && el('td', { class: 'px-3 py-2 text-right tabular-nums' }, String(Number(r.subscription_completed_services) || 0)),
+                hasFlags && el('td', { class: 'px-3 py-2' },
+                  r._flagReason
+                    ? el('span', { class: 'text-[11px] font-semibold', style: { color: '#DC2626' } }, r._flagReason)
+                    : '—'),
                 el('td', { class: 'px-3 py-2 text-right tabular-nums' },
                   r.annual_recurring_value != null ? '$' + Math.round(r.annual_recurring_value).toLocaleString() : '—'),
                 el('td', { class: 'px-3 py-2 text-right tabular-nums' },
@@ -20579,6 +20636,13 @@ function reportingChartData(scopeRows, serviceConfig) {
       sources:       { source: scopeRows,     key: r => r.subscription_source || 'Unspecified' },
       onetimeSubs:   { source: oneTimeRows,   key: r => r.subscription || 'Unspecified' },
       onetimeRev:    { source: oneTimeRows,   key: r => r.subscription || 'Unspecified' },
+      // Every ACTIVE one-time sub in one bucket (single synthetic slice) so
+      // the One-Time Subscriptions card can offer a "show all active" inspect
+      // link for flagging mis-categorized or stale one-time subscriptions.
+      onetimeActive: { source: oneTimeRows.filter(isActive), key: () => 'Active one-time' },
+      // Data-hygiene: active subs that probably should be closed (config-driven
+      // lifecycle rules). Each row carries _flagReason.
+      flaggedActive: { source: reportingFlaggedActive(scopeRows, isActive), key: () => 'Should be closed' },
     },
   };
 }
@@ -21010,7 +21074,27 @@ function reportingOverview() {
     { id: 'agreement',  title: 'Agreement Length Mix',     subline: 'Distribution by contract length (months)',               totalLabel: 'Subs w/ term',        sliceKey: 'agreement', preserveOrder: true },
     { id: 'cancels',    title: 'Cancellation Reasons',     subline: 'All canceled recurring subs',                            totalLabel: 'Cancellations',       sliceKey: 'cancels' },
     { id: 'sources',    title: 'Subscription Sources',     subline: 'Distribution of every visible subscription',             totalLabel: 'Subscriptions',       sliceKey: 'sources' },
-    { id: 'onetimeSubs', title: 'One-Time Subscriptions',  subline: 'Non-recurring subs by service type',                    totalLabel: 'One-time subs',       sliceKey: 'onetimeSubs' },
+    { id: 'onetimeSubs', title: 'One-Time Subscriptions',  subline: 'Non-recurring subs by service type',                    totalLabel: 'One-time subs',       sliceKey: 'onetimeSubs',
+      // Inspect link → active subs that data-hygiene flags as "should be
+      // closed" (config-driven lifecycle rules in the Configurations tab).
+      footer: (d) => {
+        const flagged = (d.drill?.flaggedActive?.source) || [];
+        if (!flagged.length) {
+          return {
+            label: '✓ No active subs flagged for cleanup',
+            onClick: () => toast('No active subscriptions are flagged. Set service Lifecycle in Configurations to add rules.', 'info'),
+          };
+        }
+        return {
+          label: '⚑ ' + flagged.length.toLocaleString() + ' active subs likely should be closed →',
+          onClick: () => openReportingDrillModal({
+            chartTitle: 'Flagged — Should Be Closed',
+            sliceLabel: flagged.length.toLocaleString() + ' active subs flagged by lifecycle rules',
+            rows: flagged,
+            formatValue: fmt.usd0,
+          }),
+        };
+      } },
     { id: 'onetimeRev',  title: 'One-Time Revenue',        subline: 'Contract value of non-recurring subs · by service',     totalLabel: 'One-time revenue',    formatValue: fmt.usd0, sliceKey: 'onetimeRev' },
   ];
 
@@ -21026,6 +21110,8 @@ function reportingOverview() {
     officeLabel: inCompare ? officeLabel(side === 'a' ? office : compareOffice) : null,
     colorMap:    inCompare ? colorMaps[def.sliceKey] : undefined,
     preserveOrder: !!def.preserveOrder,
+    // Optional bottom-of-card inspect link (e.g. "show all active one-time").
+    footerAction: typeof def.footer === 'function' ? def.footer(data) : undefined,
     onSliceClick: (sliceLabel) => {
       const drill = data.drill?.[def.sliceKey];
       if (!drill) return;
@@ -21155,9 +21241,10 @@ function reportingServiceConfigPanel() {
   const list = [...allNames].sort((a, b) => a.localeCompare(b)).map(name =>
     cfgByName.get(name) || { service_name: name, category: '', is_recurring: false, is_hidden: false }
   );
-  // Effective recurring state per service (override if set, else ARV guess)
-  // and the raw ARV guess, so we can show whether a row is auto or pinned.
+  // Effective lifecycle/recurring state per service so the select can show
+  // what "Auto" currently resolves to.
   const recurringMap = reportingServiceRecurringMap();
+  const lifecycleMap = reportingServiceLifecycleMap();
   const arvAny = new Map();
   for (const r of subs) {
     const n = r.subscription; if (!n) continue;
@@ -21179,6 +21266,9 @@ function reportingServiceConfigPanel() {
     if (payload.recurring_override == null && !('recurring_override' in patch)) {
       delete payload.recurring_override;
     }
+    if (payload.lifecycle == null && !('lifecycle' in patch)) {
+      delete payload.lifecycle;
+    }
     const { error } = await supabase
       .from('reporting_service_config')
       .upsert(payload, { onConflict: 'service_name' });
@@ -21195,9 +21285,9 @@ function reportingServiceConfigPanel() {
     el('div', { class: 'mb-4' },
       el('h2', { class: 'text-lg font-bold' }, 'Service Type Configuration'),
       el('p', { class: 'text-xs text-muted- mt-1' },
-        'Recurring is auto-detected from revenue data (a service counts as recurring if it carries Annual Recurring Value). ' +
-        'Check or uncheck to override that guess — overridden rows read "pinned," auto-detected ones read "auto." ' +
-        'This drives churn, ARR, retention, and the Active-Customers split everywhere. Hidden services drop out of charts entirely.'),
+        'Set each service\'s Lifecycle: Recurring (ongoing — active is fine), One-time (flags active subs that have already been serviced), ' +
+        'or Retired (flags any active sub — discontinued service). Auto infers from revenue (recurring if it carries Annual Recurring Value). ' +
+        'Lifecycle drives churn, ARR, retention, the Active-Customers split, and the "should be closed" flags on the Subscriptions card. Hidden services drop out of charts entirely.'),
     ),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Service types appear here after you upload a snapshot.')
@@ -21207,7 +21297,7 @@ function reportingServiceConfigPanel() {
               el('tr', {},
                 el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Service Type'),
                 el('th', { class: 'text-left px-2 py-2.5 font-semibold' }, 'Category'),
-                el('th', { class: 'text-center px-2 py-2.5 font-semibold', style: { width: '110px' } }, 'Recurring'),
+                el('th', { class: 'text-center px-2 py-2.5 font-semibold', style: { width: '130px' } }, 'Lifecycle'),
                 el('th', { class: 'text-center pr-4 pl-2 py-2.5 font-semibold', style: { width: '110px' } }, 'Hidden'),
               ),
             ),
@@ -21217,22 +21307,23 @@ function reportingServiceConfigPanel() {
                   class: 'ml-2 inline-block text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-semibold',
                   style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
                 }, 'Hidden');
-                const effectiveRec = !!recurringMap.get(c.service_name);
-                const pinned = c.recurring_override === true || c.recurring_override === false;
-                const recCheckbox = el('input', {
-                  type: 'checkbox', class: 'accent-lime cursor-pointer',
-                  checked: effectiveRec,
-                  onchange: (e) => { updateConfig(c.service_name, { recurring_override: !!e.target.checked }); mountApp(); },
-                });
-                // Tiny tag: "auto" when following the ARV data guess, "pinned"
-                // when the admin has explicitly checked/unchecked it.
-                const recTag = el('span', {
-                  class: 'ml-1.5 inline-block text-[9px] uppercase tracking-wider align-middle',
-                  style: { color: 'var(--text-muted)' },
-                  title: pinned
-                    ? 'Manually set — overrides the revenue-based guess'
-                    : 'Auto from data (recurring if this service has any Annual Recurring Value)',
-                }, pinned ? 'pinned' : 'auto');
+                // Lifecycle select drives BOTH recurring math and hygiene flags.
+                //   Auto      → infer from revenue (recurring if it carries ARV)
+                //   Recurring → ongoing; active is expected
+                //   One-time  → flag active subs that have already been serviced
+                //   Retired   → flag ANY active sub (discontinued service)
+                const setLc = String(c.lifecycle || '');
+                const effLc = lifecycleMap.get(c.service_name) || (arvAny.get(c.service_name) ? 'recurring' : 'onetime');
+                const lcSelect = el('select', {
+                  class: 'rounded border px-1.5 py-1 text-xs cursor-pointer',
+                  style: { borderColor: 'var(--border-2)', background: 'transparent', color: 'var(--text)' },
+                  onchange: (e) => { updateConfig(c.service_name, { lifecycle: e.target.value || null }); mountApp(); },
+                },
+                  el('option', { value: '',          selected: setLc === '' },         'Auto (' + effLc + ')'),
+                  el('option', { value: 'recurring', selected: setLc === 'recurring' }, 'Recurring'),
+                  el('option', { value: 'onetime',   selected: setLc === 'onetime' },   'One-time'),
+                  el('option', { value: 'retired',   selected: setLc === 'retired' },   'Retired'),
+                );
                 const hidCheckbox = el('input', {
                   type: 'checkbox', class: 'accent-lime cursor-pointer',
                   checked: !!c.is_hidden,
@@ -21260,7 +21351,7 @@ function reportingServiceConfigPanel() {
                     hiddenTag,
                   ),
                   el('td', { class: 'px-2 py-2' }, catInput),
-                  el('td', { class: 'px-2 py-2 text-center whitespace-nowrap' }, recCheckbox, recTag),
+                  el('td', { class: 'px-2 py-2 text-center whitespace-nowrap' }, lcSelect),
                   el('td', { class: 'pr-4 pl-2 py-2 text-center' }, hidCheckbox),
                 );
               }),

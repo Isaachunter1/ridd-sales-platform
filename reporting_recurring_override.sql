@@ -1,23 +1,39 @@
 -- ────────────────────────────────────────────────────────────────────────
--- SERVICE RECURRING OVERRIDE
+-- SERVICE LIFECYCLE + RECURRING OVERRIDE
 --
--- Adds a tri-state override so the Configurations tab can pin a service as
--- recurring or non-recurring, independent of the revenue-based guess:
+-- Adds per-service config columns the Configurations tab uses to tell the
+-- dashboard what each service should count as and when an active sub is stale:
 --
---   recurring_override = NULL   → follow the data (recurring if the service
---                                 has any Annual Recurring Value)  [default]
---   recurring_override = true   → force recurring
---   recurring_override = false  → force non-recurring
+--   lifecycle text   → 'recurring' (ongoing, active is fine)
+--                      'onetime'   (flag active subs already serviced)
+--                      'retired'   (flag ANY active sub — discontinued)
+--                      NULL        (Auto — infer from revenue/ARV)
 --
--- Any service previously hand-marked recurring (is_recurring = true) is
--- preserved as an explicit override so existing choices don't reset.
+--   recurring_override boolean → legacy override, still honored:
+--                      true → recurring, false → one-time, NULL → auto
+--
 -- Re-runnable.
 -- ────────────────────────────────────────────────────────────────────────
 
 alter table public.reporting_service_config
   add column if not exists recurring_override boolean;
 
-update public.reporting_service_config
-   set recurring_override = true
- where is_recurring = true
-   and recurring_override is null;
+alter table public.reporting_service_config
+  add column if not exists lifecycle text;
+
+-- Preserve any service previously hand-marked recurring. Guarded so it's a
+-- no-op if your schema never had an is_recurring column (avoids a hard error).
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public'
+       and table_name   = 'reporting_service_config'
+       and column_name  = 'is_recurring'
+  ) then
+    update public.reporting_service_config
+       set recurring_override = true
+     where is_recurring = true
+       and recurring_override is null;
+  end if;
+end $$;
