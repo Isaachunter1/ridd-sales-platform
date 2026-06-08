@@ -10373,6 +10373,29 @@ function getActiveComp() {
   const comps = getIndicatorCompetitions();
   return comps.find(c => c.id === getActiveCompId()) || comps[0];
 }
+function addCompetition(name) {
+  const nm = (name || '').trim();
+  if (!nm) return null;
+  const comps = getIndicatorCompetitions();
+  const id = 'comp_' + Date.now().toString(36);
+  comps.push({ id, name: nm, excludedTeams: [REP_EXCLUDED_TEAM] });
+  state._indicatorActiveCompId = id;   // jump to the new one
+  saveDemoData();
+  return id;
+}
+function renameCompetition(id, name) {
+  const nm = (name || '').trim();
+  if (!nm) return;
+  const c = getIndicatorCompetitions().find(x => x.id === id);
+  if (c) { c.name = nm; saveDemoData(); }
+}
+function deleteCompetition(id) {
+  const comps = getIndicatorCompetitions();
+  if (comps.length <= 1) return;       // always keep at least one
+  state._indicatorCompetitions = comps.filter(c => c.id !== id);
+  if (state._indicatorActiveCompId === id) state._indicatorActiveCompId = state._indicatorCompetitions[0].id;
+  saveDemoData();
+}
 
 // Excluded-team helpers now operate on the ACTIVE competition's list, so all
 // existing call sites become competition-aware through this single chokepoint.
@@ -12080,65 +12103,52 @@ function viewIndicators() {
     })(),
 
     // ── Competition selector — only while Comps is ON. Pick which competition
-    // you're viewing; each one carries its own team exclusions, configured via
-    // the ⚙ toggle. The active competition's exclusions drive every number. ──
+    // you're viewing; rules for each are wired in code. "+ Add" creates a new
+    // one. The active competition's rules drive every number below. ──
     (state.indicatorsComps ? (() => {
       const comps = getIndicatorCompetitions();
       const activeId = getActiveCompId();
-      const active = getActiveComp();
-      const teams = distinctTeams();
-      const repTeam = state._indicatorRepTeam || {};
-      const counts = {};
-      for (const t of Object.values(repTeam)) { if (t) counts[t] = (counts[t] || 0) + 1; }
-      const excludedNames = teams.filter(isTeamExcluded);
-      const configOpen = !!state._indicatorCompConfigOpen;
       const liveRerender = () => {
         const sx = window.scrollX, sy = window.scrollY;
         setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0);
       };
-      return el('div', { class: 'card p-3 flex flex-col gap-2', style: { borderLeft: '3px solid #34C759' } },
-        // Selector row: competition pills + configure toggle.
-        el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, '🏆 Competition'),
-          ...comps.map(c => {
-            const on = c.id === activeId;
-            return el('button', {
-              class: 'text-xs font-bold rounded-full px-3 py-1 border transition cursor-pointer whitespace-nowrap',
-              style: on
-                ? { background: '#34C759', color: '#06310f', borderColor: '#34C759' }
-                : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
-              onclick: () => { setActiveCompId(c.id); liveRerender(); },
-            }, c.name);
-          }),
-          el('button', {
-            class: 'ml-auto text-[11px] font-semibold rounded-lg px-2.5 py-1 border transition cursor-pointer',
-            style: { background: configOpen ? 'var(--card-2)' : 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
-            onclick: () => { state._indicatorCompConfigOpen = !configOpen; liveRerender(); },
-          }, configOpen ? '⚙ Done' : '⚙ Configure'),
-        ),
-        // Summary line for the active competition.
-        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
-          active.name + ': ' + (excludedNames.length
-            ? excludedNames.length + ' team' + (excludedNames.length === 1 ? '' : 's') + ' excluded — ' + excludedNames.join(', ')
-            : 'no teams excluded — every team counts')),
-        // Editable per-competition exclusions (only when ⚙ Configure is open).
-        configOpen && el('div', { class: 'flex flex-col gap-1.5 pt-1 border-t', style: { borderColor: 'var(--border)' } },
-          el('div', { class: 'text-[11px] pt-1', style: { color: 'var(--text-subtle)' } },
-            'Click a team to include (✓ green) or exclude (✕ struck) it from ' + active.name + '. Updates live.'),
-          el('div', { class: 'flex flex-wrap gap-1.5' },
-            ...teams.map(t => {
-              const excluded = isTeamExcluded(t);
-              return el('button', {
-                class: 'text-[11px] font-semibold rounded-full px-2.5 py-1 border transition cursor-pointer whitespace-nowrap',
-                style: excluded
-                  ? { background: 'transparent', color: 'var(--text-subtle)', borderColor: 'var(--border-2)', textDecoration: 'line-through' }
-                  : { background: 'rgba(52,199,89,0.14)', color: 'var(--text)', borderColor: '#34C759' },
-                title: excluded ? 'Excluded — click to include' : 'Counts — click to exclude',
-                onclick: () => { setTeamExcluded(t, !excluded); liveRerender(); },
-              }, (excluded ? '✕ ' : '✓ ') + t + (counts[t] ? ' (' + counts[t] + ')' : ''));
-            }),
-          ),
-        ),
+      return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid #34C759' } },
+        el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, '🏆 Competition'),
+        ...comps.map(c => {
+          const on = c.id === activeId;
+          return el('button', {
+            class: 'text-xs font-bold rounded-full px-3 py-1 border transition cursor-pointer whitespace-nowrap',
+            style: on
+              ? { background: '#34C759', color: '#06310f', borderColor: '#34C759' }
+              : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+            onclick: () => { setActiveCompId(c.id); liveRerender(); },
+          }, c.name);
+        }),
+        // "+ Add" → inline name input, or the add button.
+        state._indicatorAddingComp
+          ? (() => {
+              const input = el('input', {
+                type: 'text', placeholder: 'Competition name…',
+                class: 'rounded border px-2 py-1 text-xs',
+                style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+              });
+              const save = () => { const v = input.value.trim(); if (v) { addCompetition(v); } state._indicatorAddingComp = false; liveRerender(); };
+              input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') save();
+                if (e.key === 'Escape') { state._indicatorAddingComp = false; liveRerender(); }
+              });
+              setTimeout(() => input.focus(), 0);
+              return el('span', { class: 'flex items-center gap-1' },
+                input,
+                el('button', { class: 'text-[11px] font-bold rounded px-2 py-1 cursor-pointer', style: { background: '#34C759', color: '#06310f' }, onclick: save }, 'Save'),
+                el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => { state._indicatorAddingComp = false; liveRerender(); } }, 'Cancel'),
+              );
+            })()
+          : el('button', {
+              class: 'text-xs font-bold rounded-full px-3 py-1 border border-dashed cursor-pointer transition hover:brightness-95',
+              style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+              onclick: () => { state._indicatorAddingComp = true; liveRerender(); },
+            }, '+ Add'),
       );
     })() : null),
 
