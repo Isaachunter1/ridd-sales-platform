@@ -20504,6 +20504,10 @@ function reportingChartData(scopeRows, serviceConfig) {
     return name.startsWith('one time') || name.startsWith('one-time');
   };
   const oneTimeRows     = scopeRows.filter(isOneTimeService);
+  // Retired services (config Lifecycle = Retired): the active subs still
+  // sitting on discontinued services — the cleanup backlog, by service type.
+  const lifecycleByName  = reportingServiceLifecycleMap();
+  const retiredActiveRows = scopeRows.filter(r => isActive(r) && lifecycleByName.get(r.subscription) === 'retired');
   const activeRecurring = recurringRows.filter(isActive);
   const activeSubs      = scopeRows.filter(isActive);
   const realCancels     = scopeRows.filter(isRealCancel);
@@ -20615,6 +20619,7 @@ function reportingChartData(scopeRows, serviceConfig) {
       sources:     reportingGroupCount(scopeRows,   r => r.subscription_source || 'Unspecified'),
       onetimeSubs: reportingGroupCount(oneTimeRows, r => r.subscription || 'Unspecified'),
       onetimeRev:  reportingGroupSum(oneTimeRows,   r => r.subscription || 'Unspecified', r => r.subscription_contract_value),
+      retiredSubs: reportingGroupCount(retiredActiveRows, r => r.subscription || 'Unspecified'),
     },
     // Per-chart drill spec: given a slice label, source.filter(r => key(r) === label)
     // returns every row that contributed to that slice. Used by the drill
@@ -20636,6 +20641,7 @@ function reportingChartData(scopeRows, serviceConfig) {
       sources:       { source: scopeRows,     key: r => r.subscription_source || 'Unspecified' },
       onetimeSubs:   { source: oneTimeRows,   key: r => r.subscription || 'Unspecified' },
       onetimeRev:    { source: oneTimeRows,   key: r => r.subscription || 'Unspecified' },
+      retiredSubs:   { source: retiredActiveRows, key: r => r.subscription || 'Unspecified' },
       // Every ACTIVE one-time sub in one bucket (single synthetic slice) so
       // the One-Time Subscriptions card can offer a "show all active" inspect
       // link for flagging mis-categorized or stale one-time subscriptions.
@@ -21059,6 +21065,7 @@ function reportingOverview() {
     sources:       reportingColorMap(dataA.slices.sources,       dataB.slices.sources),
     onetimeSubs:   reportingColorMap(dataA.slices.onetimeSubs,   dataB.slices.onetimeSubs),
     onetimeRev:    reportingColorMap(dataA.slices.onetimeRev,    dataB.slices.onetimeRev),
+    retiredSubs:   reportingColorMap(dataA.slices.retiredSubs,   dataB.slices.retiredSubs),
   } : {};
 
   // Each chart definition fired through both offices when in compare mode.
@@ -21096,6 +21103,7 @@ function reportingOverview() {
         };
       } },
     { id: 'onetimeRev',  title: 'One-Time Revenue',        subline: 'Contract value of non-recurring subs · by service',     totalLabel: 'One-time revenue',    formatValue: fmt.usd0, sliceKey: 'onetimeRev' },
+    { id: 'retiredSubs', title: 'Retired Services',        subline: 'Active subs on discontinued services · should be closed', totalLabel: 'Active retired subs', sliceKey: 'retiredSubs' },
   ];
 
   const makeCard = (def, data, side) => reportingPieCard({
@@ -21149,7 +21157,7 @@ function reportingOverview() {
   };
   const COLUMN_CARDS = [
     { key: 'customers', label: 'Customers Active',        value: dataA.stats.uniqueCustomers.toLocaleString(),               sub: dataA.stats.distinctServices + ' distinct services',                 chartIds: ['customers', 'tenure'] },
-    { key: 'subs',      label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartIds: ['sources', 'agreement', 'onetimeSubs'] },
+    { key: 'subs',      label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartIds: ['sources', 'agreement', 'onetimeSubs', 'retiredSubs'] },
     { key: 'active',    label: 'Subscriptions Active',    value: dataA.stats.activeRecurring.toLocaleString(),               sub: 'currently in service',                                              chartIds: ['activesubs'] },
     { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice', 'serviced', 'onetimeRev'] },
     { key: 'cancels',   label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging', 'pastdue'] },
