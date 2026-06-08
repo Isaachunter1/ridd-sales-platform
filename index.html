@@ -21296,7 +21296,6 @@ function reportingServiceConfigPanel() {
             el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
               el('tr', {},
                 el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Service Type'),
-                el('th', { class: 'text-left px-2 py-2.5 font-semibold' }, 'Category'),
                 el('th', { class: 'text-center px-2 py-2.5 font-semibold', style: { width: '130px' } }, 'Lifecycle'),
                 el('th', { class: 'text-center pr-4 pl-2 py-2.5 font-semibold', style: { width: '110px' } }, 'Hidden'),
               ),
@@ -21332,16 +21331,6 @@ function reportingServiceConfigPanel() {
                     mountApp();
                   },
                 });
-                const catInput = el('input', {
-                  type: 'text', placeholder: '—',
-                  class: 'rounded border px-2 py-1 text-xs w-full',
-                  style: { borderColor: 'var(--border-2)', background: 'transparent', color: 'var(--text)' },
-                  value: c.category || '',
-                  onblur: (e) => {
-                    const v = e.target.value.trim();
-                    if ((c.category || '') !== v) updateConfig(c.service_name, { category: v || null });
-                  },
-                });
                 return el('tr', {
                   class: 'border-t',
                   style: { borderColor: 'var(--border)', opacity: c.is_hidden ? '0.55' : '1' },
@@ -21350,7 +21339,6 @@ function reportingServiceConfigPanel() {
                     el('span', {}, c.service_name),
                     hiddenTag,
                   ),
-                  el('td', { class: 'px-2 py-2' }, catInput),
                   el('td', { class: 'px-2 py-2 text-center whitespace-nowrap' }, lcSelect),
                   el('td', { class: 'pr-4 pl-2 py-2 text-center' }, hidCheckbox),
                 );
