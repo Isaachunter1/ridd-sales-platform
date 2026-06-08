@@ -999,7 +999,7 @@ async function loadReportingSubscriptions(uploadId) {
   // requests at once made Supabase reject/timeout most of them; each failed
   // page silently returned empty, so a 77k-row snapshot loaded only ~19k.
   // Retrying each page with backoff means no page is ever silently dropped.
-  const CHUNK = 1000, CONCURRENCY = 4, MAX_TRIES = 5;
+  const CHUNK = 1000, CONCURRENCY = 8, MAX_TRIES = 6;
   const fetchPage = async (from) => {
     for (let t = 0; t < MAX_TRIES; t++) {
       const { data, error } = await supabase
@@ -1060,9 +1060,29 @@ async function loadReportingSubscriptions(uploadId) {
     console.warn('[ridd] reporting load incomplete:', loaded.length, 'of', count);
   } else {
     reportingIdbPut(uploadId, loaded); // only cache a COMPLETE load
+    migrateSnapshotToStorage(uploadId, loaded); // make next load a 1-file download
   }
   reportingUploadProgress(null);
   return loaded;
+}
+
+// One-time upgrade: take a snapshot that was stored as DB rows (slow paged
+// load) and write it as a single gzipped Storage object + stamp storage_path,
+// so every future load — on any device — is one fast download. Silently
+// no-ops if the storage bucket isn't set up (run reporting_storage.sql).
+async function migrateSnapshotToStorage(uploadId, rows) {
+  try {
+    const u = (state.reportingUploads || []).find(x => x.id === uploadId);
+    if (!u || u.storage_path) return;                 // already migrated
+    if (typeof CompressionStream === 'undefined') return;
+    const blob = await new Response(new Blob([JSON.stringify(rows)]).stream()
+      .pipeThrough(new CompressionStream('gzip'))).blob();
+    const path = 'snapshots/' + uploadId + '.json.gz';
+    const { error: stErr } = await supabase.storage.from('reporting').upload(path, blob, { contentType: 'application/gzip', upsert: true });
+    if (stErr) return;                                // bucket missing — skip quietly
+    const { error: upErr } = await supabase.from('reporting_uploads').update({ storage_path: path }).eq('id', uploadId);
+    if (!upErr) { u.storage_path = path; console.info('[ridd] snapshot migrated to storage — future loads will be instant'); }
+  } catch { /* best-effort */ }
 }
 
 function loadPersistedDemoState() {
