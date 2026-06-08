@@ -10416,20 +10416,34 @@ function springCleaningHasPayment(s) {
   const v = String(s.autoPay || '').trim().toLowerCase();
   return v !== '' && v !== 'no' && v !== 'none' && v !== '0' && v !== 'n' && v !== 'false';
 }
+// Three-way bucket per account:
+//   'excluded' — Last Resort (<$99) or Failed audit → never counts
+//   'pending'  — passes the $99 floor but audit flag is neither pass nor fail
+//                (still being audited; revenue "out there" waiting to clear)
+//   'counting' — clears the floor AND is flagged pass
+function springCleaningStatus(s) {
+  if ((Number(s.initialPrice) || 0) < 99) return 'excluded';
+  if (/pass/i.test(s.customerFlags || '')) return 'counting';
+  if (/fail/i.test(s.customerFlags || '')) return 'excluded';
+  return 'pending';
+}
 function springCleaningReason(s) {
-  const reasons = [];
-  if ((Number(s.initialPrice) || 0) < 99) reasons.push('Last Resort (<$99 initial)');
-  if (!/pass/i.test(s.customerFlags || '')) {
-    reasons.push(/fail/i.test(s.customerFlags || '') ? 'Failed audit' : 'Not yet audited');
-  }
-  return reasons.join('; ');
+  if ((Number(s.initialPrice) || 0) < 99) return 'Last Resort (<$99 initial)';
+  if (/fail/i.test(s.customerFlags || '')) return 'Failed audit';
+  if (!/pass/i.test(s.customerFlags || '')) return 'Awaiting audit';
+  return '';
 }
 function springCleaningCounts(s) {
-  return (Number(s.initialPrice) || 0) >= 99 && /pass/i.test(s.customerFlags || '');
+  return springCleaningStatus(s) === 'counting';
 }
 function springCleaningCompute(sales, branchList) {
-  const counting = sales.filter(springCleaningCounts);
-  const excluded = sales.filter(s => !springCleaningCounts(s));
+  const counting = [], pending = [], excluded = [];
+  for (const s of sales) {
+    const st = springCleaningStatus(s);
+    if (st === 'counting') counting.push(s);
+    else if (st === 'pending') pending.push(s);
+    else excluded.push(s);
+  }
 
   const seed = (office) => ({ office, revenue: 0, reps: new Set(), n: 0, pestSum: 0, pestCnt: 0, cvSum: 0, cnt24: 0, cntAuto: 0 });
   const byBranch = new Map();
@@ -10486,25 +10500,30 @@ function springCleaningCompute(sales, branchList) {
     m.bugs = Math.max(0, 7 - m.place); // fixed 7-place scale: 1st→6 … 7th→0
   });
 
-  // Excluded-metrics summary — "how much revenue isn't counting".
-  const exRevenue = excluded.reduce((s, r) => s + (Number(r.contractValue) || 0), 0);
-  const exInitSum = excluded.reduce((s, r) => s + (Number(r.initialPrice) || 0), 0);
-  const summary = {
+  // Summaries — "how much revenue isn't counting" (excluded) and "still out
+  // there" (pending audit).
+  const sumRev  = (arr) => arr.reduce((s, r) => s + (Number(r.contractValue) || 0), 0);
+  const sumInit = (arr) => arr.reduce((s, r) => s + (Number(r.initialPrice) || 0), 0);
+  const excludedSummary = {
     count: excluded.length,
-    revenue: exRevenue,
-    avgInitial: excluded.length ? exInitSum / excluded.length : 0,
-    lastResort: excluded.filter(s => (Number(s.initialPrice) || 0) < 99).length,
-    failedAudit: excluded.filter(s => /fail/i.test(s.customerFlags || '')).length,
-    notAudited: excluded.filter(s => !/pass/i.test(s.customerFlags || '') && !/fail/i.test(s.customerFlags || '')).length,
+    revenue: sumRev(excluded),
+    avgInitial: excluded.length ? sumInit(excluded) / excluded.length : 0,
+    lastResort:  excluded.filter(s => (Number(s.initialPrice) || 0) < 99).length,
+    failedAudit: excluded.filter(s => (Number(s.initialPrice) || 0) >= 99 && /fail/i.test(s.customerFlags || '')).length,
+  };
+  const pendingSummary = {
+    count: pending.length,
+    revenue: sumRev(pending),
+    avgInitial: pending.length ? sumInit(pending) / pending.length : 0,
   };
 
-  return { ranked, counting, excluded, summary, categories: CATS };
+  return { ranked, counting, pending, excluded, excludedSummary, pendingSummary, categories: CATS };
 }
 
 // Spring Cleaning scoreboard card — golf-scored branch standings for the
 // currently date-filtered window, plus an excluded-revenue summary.
 function indicatorSpringCleaningBoard(sales, branchList) {
-  const { ranked, summary } = springCleaningCompute(sales, branchList);
+  const { ranked, excludedSummary, pendingSummary } = springCleaningCompute(sales, branchList);
   const usd = (v) => '$' + Math.round(v).toLocaleString();
   const pct = (v) => (v * 100).toFixed(1) + '%';
   const catDefs = [
@@ -10526,8 +10545,12 @@ function indicatorSpringCleaningBoard(sales, branchList) {
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
           'Golf scoring: place in each category = points, lowest total wins. Bugs = 1st:6 · 2nd:5 · 3rd:4 · 4th:3 · 5th:2 · 6th:1 · 7th:0. Use the date filter above to set the round.'),
       ),
-      el('div', { class: 'text-[11px] text-right', style: { color: '#DC2626' } },
-        '⚠ ' + summary.count.toLocaleString() + ' accounts not counting · ' + usd(summary.revenue) + ' excluded'),
+      el('div', { class: 'text-[11px] text-right flex flex-col gap-0.5' },
+        el('div', { style: { color: '#DC2626' } },
+          '⚠ ' + excludedSummary.count.toLocaleString() + ' not counting · ' + usd(excludedSummary.revenue) + ' excluded'),
+        el('div', { style: { color: '#D97706' } },
+          '⏳ ' + pendingSummary.count.toLocaleString() + ' pending audit · ' + usd(pendingSummary.revenue) + ' still out there'),
+      ),
     ),
     el('div', { class: 'overflow-x-auto' },
       el('table', { class: 'w-full text-xs' },
@@ -10552,10 +10575,11 @@ function indicatorSpringCleaningBoard(sales, branchList) {
         ),
       ),
     ),
-    summary.count > 0 && el('div', { class: 'p-2.5 text-[11px]', style: { color: 'var(--text-muted)', borderTop: '1px solid var(--border)' } },
-      'Excluded breakdown: ' + summary.lastResort.toLocaleString() + ' Last Resort (<$99), '
-        + summary.failedAudit.toLocaleString() + ' failed audit, ' + summary.notAudited.toLocaleString() + ' not yet audited. '
-        + 'Full list is in the .xlsx export (Excluded sheet).'),
+    (excludedSummary.count > 0 || pendingSummary.count > 0) && el('div', { class: 'p-2.5 text-[11px]', style: { color: 'var(--text-muted)', borderTop: '1px solid var(--border)' } },
+      'Excluded: ' + excludedSummary.lastResort.toLocaleString() + ' Last Resort (<$99), '
+        + excludedSummary.failedAudit.toLocaleString() + ' failed audit. '
+        + 'Pending: ' + pendingSummary.count.toLocaleString() + ' awaiting audit (' + usd(pendingSummary.revenue) + '). '
+        + 'Full lists are in the .xlsx export (Excluded + Pending sheets).'),
   );
 }
 
@@ -12198,12 +12222,14 @@ function viewIndicators() {
                     ]));
                     st.push([]);
                     st.push(['EXCLUDED (not counting)']);
-                    st.push(['Accounts excluded', sc.summary.count]);
-                    st.push(['Revenue excluded', Math.round(sc.summary.revenue)]);
-                    st.push(['Avg initial (excluded)', +sc.summary.avgInitial.toFixed(2)]);
-                    st.push(['— Last Resort (<$99)', sc.summary.lastResort]);
-                    st.push(['— Failed audit', sc.summary.failedAudit]);
-                    st.push(['— Not yet audited', sc.summary.notAudited]);
+                    st.push(['Accounts excluded', sc.excludedSummary.count]);
+                    st.push(['Revenue excluded', Math.round(sc.excludedSummary.revenue)]);
+                    st.push(['— Last Resort (<$99)', sc.excludedSummary.lastResort]);
+                    st.push(['— Failed audit', sc.excludedSummary.failedAudit]);
+                    st.push([]);
+                    st.push(['PENDING (awaiting audit — still out there)']);
+                    st.push(['Accounts pending', sc.pendingSummary.count]);
+                    st.push(['Revenue pending', Math.round(sc.pendingSummary.revenue)]);
 
                     const acctHeader = ['Rep', 'Office', 'Customer', 'Customer ID', 'Date Sold', 'Subscription', 'Source',
                       'Initial Price', 'Contract Value', 'Contract Months', 'Auto Pay', 'Customer Flags'];
@@ -12214,14 +12240,16 @@ function viewIndicators() {
                     ];
                     const counting = [acctHeader, ...sc.counting.map(acctRow)];
                     const excluded = [['Reason', ...acctHeader], ...sc.excluded.map(s => [springCleaningReason(s), ...acctRow(s)])];
+                    const pending  = [acctHeader, ...sc.pending.map(acctRow)];
 
                     const wbS = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(st), 'Standings');
                     XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(counting), 'Counting Accounts');
+                    XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(pending), 'Pending Accounts');
                     XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(excluded), 'Excluded Accounts');
                     XLSX.writeFile(wbS, 'RIDD-Spring-Cleaning-' + new Date().toISOString().slice(0, 10) + '.xlsx');
                     toast('Exported Spring Cleaning — ' + sc.counting.length.toLocaleString() + ' counting, '
-                      + sc.excluded.length.toLocaleString() + ' excluded', 'success');
+                      + sc.pending.length.toLocaleString() + ' pending, ' + sc.excluded.length.toLocaleString() + ' excluded', 'success');
                     return;
                   }
 
