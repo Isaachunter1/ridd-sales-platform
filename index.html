@@ -20278,6 +20278,8 @@ function reportingChartData(scopeRows, serviceConfig) {
   const isServiced = (r) => (Number(r.subscription_completed_services) || 0) > 0;
 
   const recurringRows   = scopeRows.filter(isRecurring);
+  // One-time = NOT recurring (ARV $0 and not flagged recurring in Config).
+  const oneTimeRows     = scopeRows.filter(r => !isRecurring(r));
   const activeRecurring = recurringRows.filter(isActive);
   const activeSubs      = scopeRows.filter(isActive);
   const realCancels     = scopeRows.filter(isRealCancel);
@@ -20382,6 +20384,8 @@ function reportingChartData(scopeRows, serviceConfig) {
       agreement:   agreementSlices,
       cancels:     reportingGroupCount(realCancels, r => r.subscription_cancellation_reason || 'Unspecified'),
       sources:     reportingGroupCount(scopeRows,   r => r.subscription_source || 'Unspecified'),
+      onetimeSubs: reportingGroupCount(oneTimeRows, r => r.subscription || 'Unspecified'),
+      onetimeRev:  reportingGroupSum(oneTimeRows,   r => r.subscription || 'Unspecified', r => r.subscription_contract_value),
     },
     // Per-chart drill spec: given a slice label, source.filter(r => key(r) === label)
     // returns every row that contributed to that slice. Used by the drill
@@ -20401,6 +20405,8 @@ function reportingChartData(scopeRows, serviceConfig) {
       agreement:     { source: scopeRows.filter(r => (Number(r.agreement_length) || 0) > 0), key: r => (Number(r.agreement_length) || 0) + ' mo' },
       cancels:       { source: realCancels,   key: r => r.subscription_cancellation_reason || 'Unspecified' },
       sources:       { source: scopeRows,     key: r => r.subscription_source || 'Unspecified' },
+      onetimeSubs:   { source: oneTimeRows,   key: r => r.subscription || 'Unspecified' },
+      onetimeRev:    { source: oneTimeRows,   key: r => r.subscription || 'Unspecified' },
     },
   };
 }
@@ -20814,6 +20820,8 @@ function reportingOverview() {
     agreement:     reportingColorMap(dataA.slices.agreement,     dataB.slices.agreement),
     cancels:       reportingColorMap(dataA.slices.cancels,       dataB.slices.cancels),
     sources:       reportingColorMap(dataA.slices.sources,       dataB.slices.sources),
+    onetimeSubs:   reportingColorMap(dataA.slices.onetimeSubs,   dataB.slices.onetimeSubs),
+    onetimeRev:    reportingColorMap(dataA.slices.onetimeRev,    dataB.slices.onetimeRev),
   } : {};
 
   // Each chart definition fired through both offices when in compare mode.
@@ -20829,6 +20837,8 @@ function reportingOverview() {
     { id: 'agreement',  title: 'Agreement Length Mix',     subline: 'Distribution by contract length (months)',               totalLabel: 'Subs w/ term',        sliceKey: 'agreement', preserveOrder: true },
     { id: 'cancels',    title: 'Cancellation Reasons',     subline: 'All canceled recurring subs',                            totalLabel: 'Cancellations',       sliceKey: 'cancels' },
     { id: 'sources',    title: 'Subscription Sources',     subline: 'Distribution of every visible subscription',             totalLabel: 'Subscriptions',       sliceKey: 'sources' },
+    { id: 'onetimeSubs', title: 'One-Time Subscriptions',  subline: 'Non-recurring subs by service type',                    totalLabel: 'One-time subs',       sliceKey: 'onetimeSubs' },
+    { id: 'onetimeRev',  title: 'One-Time Revenue',        subline: 'Contract value of non-recurring subs · by service',     totalLabel: 'One-time revenue',    formatValue: fmt.usd0, sliceKey: 'onetimeRev' },
   ];
 
   const makeCard = (def, data, side) => reportingPieCard({
@@ -20880,7 +20890,7 @@ function reportingOverview() {
   };
   const COLUMN_CARDS = [
     { key: 'customers', label: 'Customers Active',        value: dataA.stats.uniqueCustomers.toLocaleString(),               sub: dataA.stats.distinctServices + ' distinct services',                 chartIds: ['customers', 'tenure'] },
-    { key: 'subs',      label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartIds: ['sources', 'agreement'] },
+    { key: 'subs',      label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartIds: ['sources', 'agreement', 'onetimeSubs', 'onetimeRev'] },
     { key: 'active',    label: 'Subscriptions Active',    value: dataA.stats.activeRecurring.toLocaleString(),               sub: 'currently in service',                                              chartIds: ['activesubs'] },
     { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice', 'serviced'] },
     { key: 'cancels',   label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging', 'pastdue'] },
