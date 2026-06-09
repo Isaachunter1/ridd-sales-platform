@@ -108,6 +108,13 @@ thead th[data-tip] .tipdot{display:inline-block;width:12px;height:12px;line-heig
   <div class="section">Marketing spend vs Inside Sales revenue</div>
   <div class="chartbox"><canvas id="trend"></canvas></div>
   <div class="note" id="trendNote"></div>
+  <div class="section">Spend Pulse — daily spend &amp; monthly pacing</div>
+  <div class="chartbox"><canvas id="pulseChart"></canvas></div>
+  <div class="note" id="pulseChartNote"></div>
+  <div style="overflow-x:auto"><table id="pulsetable"><thead><tr><th>Channel</th><th>MTD&nbsp;Spent</th><th>Projected</th><th>Monthly&nbsp;Budget</th><th>Pace</th><th>Remaining</th></tr></thead><tbody></tbody></table></div>
+  <div class="note" id="pulseNote"></div>
+
+
 
   <div class="section">Revenue Sources <a id="mapToggle">⚙ Map sources</a></div>
   <div id="mapPanel"></div>
@@ -300,6 +307,84 @@ function drawMixTrend(){
   if(noteEl) noteEl.innerHTML=`Bucketed by ${mixGran==='week'?'week':'month'}. Bars = new customers (all sources, by Sold Date) · solid line = paid ad spend (Meta + Google) · dashed = blended CAC (spend / customers). Channel-level leads &amp; non-ad spend are monthly-only, so the table above is the authoritative per-channel funnel.`;
 }
 
+// ---------- Spend Pulse: daily spend by channel + monthly pacing/projection ----------
+let pulseChart=null;
+const MKTG_BUDGET_KEY='ridd_mktg_budget_v1';
+function loadMktgBudget(){ try{return JSON.parse(localStorage.getItem(MKTG_BUDGET_KEY)||'{}')}catch(e){return{};} }
+function saveMktgBudget(b){ try{localStorage.setItem(MKTG_BUDGET_KEY,JSON.stringify(b))}catch(e){} }
+
+// Per-day spend split by channel: Meta/Google from Windsor's daily snapshot,
+// every other channel from QuickBooks transactions on their real dates.
+function pulseDailyByChannel(f,t){
+  const out={};
+  const add=(ds,ch,amt)=>{ if(!amt)return; (out[ds]=out[ds]||{})[ch]=(out[ds][ch]||0)+amt; };
+  for(const ds in RAW.spendDaily){ if(!inRange(ds,f,t))continue; const a=RAW.spendDaily[ds]; add(ds,'Facebook',a[0]||0); add(ds,'Google',a[1]||0); }
+  const T=RAW.txns||[];
+  for(let i=0;i<T.length;i++){ const r=T[i]; if(!inRange(r[0],f,t))continue; if(isWindsorTxn(i))continue; const src=txnEffSrc(i); if(!src||src==='(non-channel)')continue; add(r[0],src,r[3]); }
+  return out;
+}
+
+function renderSpendPulse(){
+  // Pacing month = the month containing the range end, so picking a month paces it.
+  const pm=(curTo||TODAY).slice(0,7); const py=+pm.slice(0,4), pmo=+pm.slice(5,7);
+  const dim=new Date(py,pmo,0).getDate();
+  const mStart=pm+'-01', mEnd=pm+'-'+String(dim).padStart(2,'0');
+  const todayM=TODAY.slice(0,7);
+  const elapsed = pm<todayM?dim : (pm>todayM?0 : +TODAY.slice(8,10));
+  const byDay=pulseDailyByChannel(mStart,mEnd);
+  const mtd={}; Object.keys(byDay).forEach(ds=>{ const o=byDay[ds]; for(const ch in o) mtd[ch]=(mtd[ch]||0)+o[ch]; });
+  const budget=loadMktgBudget();
+  const chans=[...new Set([...Object.keys(mtd),...Object.keys(budget)])].sort((a,b)=>(mtd[b]||0)-(mtd[a]||0));
+  const proj=ch=> elapsed>0 ? (mtd[ch]||0)/elapsed*dim : (mtd[ch]||0);
+
+  let html='', T={mtd:0,proj:0,bud:0};
+  chans.forEach(ch=>{
+    const m=mtd[ch]||0, p=proj(ch), b=+budget[ch]||0;
+    T.mtd+=m; T.proj+=p; T.bud+=b;
+    const remain=b? b-m : null;
+    const paceCol = b? (p>b*1.05?'var(--bad)':(p<b*0.9?'var(--gray)':'var(--good)')) : 'inherit';
+    const projVsBud = b? Math.round(p/b*100)+'%' : '<span class="dash">—</span>';
+    html+=`<tr><td>${ch}</td><td>${fmt0(m)}</td><td>${fmt0(p)}</td>`
+      +`<td><span style="opacity:.5">$</span><input class="budgetInp" data-ch="${encodeURIComponent(ch)}" type="number" min="0" step="100" value="${b||''}" placeholder="set" style="width:84px;font:inherit;padding:2px 4px"/></td>`
+      +`<td style="color:${paceCol};font-weight:700">${projVsBud}</td><td>${remain==null?'<span class="dash">—</span>':fmt0(remain)}</td></tr>`;
+  });
+  const tRemain=T.bud?T.bud-T.mtd:null, tPaceCol=T.bud?(T.proj>T.bud*1.05?'var(--bad)':(T.proj<T.bud*0.9?'var(--gray)':'var(--good)')):'inherit';
+  const tProjPct=T.bud?Math.round(T.proj/T.bud*100)+'%':'<span class="dash">—</span>';
+  html+=`<tr class="totrow"><td>Total</td><td>${fmt0(T.mtd)}</td><td>${fmt0(T.proj)}</td><td>${fmt0(T.bud)}</td><td style="color:${tPaceCol};font-weight:700">${tProjPct}</td><td>${tRemain==null?'<span class="dash">—</span>':fmt0(tRemain)}</td></tr>`;
+  document.querySelector('#pulsetable tbody').innerHTML=html;
+
+  const lbl=new Date(py,pmo-1,1).toLocaleString('en-US',{month:'long',year:'numeric'});
+  const status= elapsed===0?'hasn’t started yet' : (elapsed>=dim?'complete':(elapsed+' of '+dim+' days elapsed'));
+  document.getElementById('pulseNote').innerHTML=`Pacing <b>${lbl}</b> — ${status}. MTD = spend so far · Projected = run-rate (MTD ÷ days elapsed × ${dim}) · Budget is editable &amp; saved on this device · Pace = projected ÷ budget (<span style="color:var(--good)">green</span> on track, <span style="color:var(--gray)">gray</span> under, <span style="color:var(--bad)">red</span> &gt;105% over).`;
+
+  document.querySelectorAll('#pulsetable .budgetInp').forEach(inp=>{ inp.onchange=()=>{ const ch=decodeURIComponent(inp.dataset.ch); const b=loadMktgBudget(); const v=parseFloat(inp.value); if(v>0)b[ch]=v; else delete b[ch]; saveMktgBudget(b); renderSpendPulse(); }; });
+  drawPulseChart(curFrom,curTo);
+}
+
+function drawPulseChart(f,t){
+  const byDay=pulseDailyByChannel(f,t);
+  if(pulseChart){pulseChart.destroy();pulseChart=null;}
+  const days=Object.keys(byDay).sort();
+  const noteEl=document.getElementById('pulseChartNote');
+  if(!days.length){ if(noteEl)noteEl.textContent='No spend in this range.'; return; }
+  const span=(new Date(days[days.length-1])-new Date(days[0]))/86400000;
+  const mode=span<=45?'day':(span<=370?'week':'month');
+  const key=ds=>{const d=new Date(ds+'T00:00:00'); if(mode==='day')return ds; if(mode==='week'){const o=(d.getDay()+6)%7;d.setDate(d.getDate()-o);return iso(d);} return ds.slice(0,7);};
+  const chans=new Set(), B={};
+  days.forEach(ds=>{ const k=key(ds); B[k]=B[k]||{}; const o=byDay[ds]; for(const ch in o){ chans.add(ch); B[k][ch]=(B[k][ch]||0)+o[ch]; } });
+  const labels=Object.keys(B).sort();
+  const tot=ch=>labels.reduce((s,k)=>s+(B[k][ch]||0),0);
+  const chanList=[...chans].sort((a,b)=>tot(b)-tot(a));
+  const palette=['#8DC63F','#2b3a6b','#be3a2b','#e0a32e','#5aa9a0','#9b6dc4','#d76aa0','#6b7280','#3f6b1e','#c0552b','#7a7f6a'];
+  const DK=document.documentElement.getAttribute('data-theme')==='dark';
+  const txtCol=DK?'#C9C9BE':'#555', gridCol=DK?'rgba(255,255,255,.08)':'rgba(0,0,0,.06)';
+  const datasets=chanList.map((ch,i)=>({label:ch,data:labels.map(k=>B[k][ch]||0),backgroundColor:palette[i%palette.length],stack:'s'}));
+  pulseChart=new Chart(document.getElementById('pulseChart'),{type:'bar',data:{labels,datasets},
+    options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:txtCol,boxWidth:10,font:{size:10}}},tooltip:{callbacks:{footer:items=>'Total: $'+Math.round(items.reduce((s,it)=>s+(it.parsed.y||0),0)).toLocaleString()}}},
+      scales:{x:{stacked:true,ticks:{color:txtCol,maxRotation:0,autoSkip:true},grid:{color:gridCol}},y:{stacked:true,beginAtZero:true,ticks:{color:txtCol,callback:v=>'$'+(v>=1000?(v/1000)+'k':v)},grid:{color:gridCol}}}}});
+  if(noteEl)noteEl.innerHTML=`Daily marketing spend by channel, bucketed by ${mode}. Meta &amp; Google from Windsor; other channels from QuickBooks transactions on their actual dates.`;
+}
+
 function render(per,spend){
   const totalSpend=spend.meta+spend.goog;
   // leg rollups (sold cohort + serviced cohort)
@@ -348,6 +433,8 @@ function render(per,spend){
   renderConversion(per, channelSpendCombined(curFrom,curTo));
   // mix model: full-funnel by channel (spend -> leads -> new customers)
   renderMixModel(per);
+  // spend pulse: daily channel spend + monthly pacing/projection
+  renderSpendPulse();
   // chart: marketing spend vs inside sales revenue
   drawTrend(txnDailySpend(curFrom,curTo), insideSalesDailyRev(curFrom,curTo));
   // spend source label
