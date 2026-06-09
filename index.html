@@ -256,13 +256,13 @@
   .tg-fly-track { position:relative; flex:1 1 90px; min-width:96px; height:48px; align-self:center; overflow:hidden; }
   .tg-flyer {
     position:absolute; top:50%; left:0; width:56px; margin-top:-15px;
-    animation: tgFly 38s ease-in-out infinite;
+    animation: tgFly 22s ease-in-out infinite;
     will-change:left, transform;
   }
   .tg-flyer .tg-plane {
     display:block; width:56px; height:auto;
     transform-origin:center center;
-    animation: tgBank 7s ease-in-out infinite;
+    animation: tgBank 4.5s ease-in-out infinite;
     filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
   }
   @keyframes tgFly {
@@ -10781,6 +10781,36 @@ function openSpringCleaningHelpModal() {
   document.body.append(overlay);
 }
 
+// Rules popup for the Avg Pest Initial + Raffle competitions (both explanations
+// consolidated into the ⓘ on the green banner).
+function openAvgPestRaffleHelpModal() {
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  const block = (title, body) => el('div', { class: 'mb-4' },
+    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: '#2f5e1c' } }, title),
+    el('div', { class: 'text-[13px] leading-relaxed', style: { color: 'var(--text-muted)' } }, body));
+
+  const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: '#8DC63F' } },
+      el('div', {},
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: '#1D1D1D', opacity: '0.8' } }, 'By RIDDMADE™'),
+        el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#1D1D1D', textTransform: 'uppercase' } }, 'Avg Pest Initial Competitions'),
+      ),
+      el('button', { class: 'text-2xl leading-none', style: { color: '#1D1D1D' }, onclick: close }, '×'),
+    ),
+    el('div', { class: 'overflow-auto px-5 py-4' },
+      block('🏆 Avg Pest Initial', 'Every rep with 6+ qualifying accounts, ranked by Avg Initial. Sentricon / German Roach / Interior Flea services don\'t count toward the average. Post-service cancels still count once the initial ran.'),
+      block('🎟️ Raffle Tickets', '$149–199 initial = 1 ticket · $200–249 = 2 tickets · $250+ = 3 tickets. Active accounts only. Sentricon / German Roach / Interior Flea are excluded. Spin the wheel to draw a winner, weighted by each rep\'s ticket count.'),
+    ),
+  );
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
 function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
   const { ranked, excludedSummary, pendingSummary } = springCleaningCompute(sales, branchList);
   const usd = (v) => '$' + Math.round(v).toLocaleString();
@@ -10843,17 +10873,6 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
         ),
       ),
     ),
-    // Scoring sub-line + live exclusion/pending callouts.
-    el('div', { class: 'px-3 py-2 flex items-baseline justify-between gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
-      el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
-        'Golf scoring: place in each category = points, lowest total wins. Use the date filter above to set the round.'),
-      el('div', { class: 'text-[11px] text-right flex flex-col gap-0.5' },
-        el('div', { style: { color: '#DC2626' } },
-          '⚠ ' + excludedSummary.count.toLocaleString() + ' not counting · ' + usd(excludedSummary.revenue) + ' excluded'),
-        el('div', { style: { color: '#D97706' } },
-          '⏳ ' + pendingSummary.count.toLocaleString() + ' pending audit · ' + usd(pendingSummary.revenue) + ' included (assumed passing)'),
-      ),
-    ),
     el('div', { class: 'overflow-x-auto' },
       el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#1b5e20', color: '#fff' } },
@@ -10883,13 +10902,21 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
         ),
       ),
     ),
-    // RIDDCOIN reward legend (4-round cumulative bug totals).
-    el('div', { class: 'px-3 py-2.5 flex items-center gap-x-3 gap-y-1.5 flex-wrap text-[11px]', style: { borderTop: '1px solid var(--border)' } },
-      el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, '🐛 4-round reward'),
-      ...COIN_TIERS.map(t => el('span', { class: 'inline-flex items-center gap-1.5' },
-        el('span', { style: { display: 'inline-block', width: '26px', textAlign: 'center', padding: '1px 0', borderRadius: '4px', background: t.color, color: '#fff', fontWeight: '900', fontSize: '10px' } }, String(t.bugs)),
-        el('span', { style: { color: 'var(--text-muted)', fontWeight: '700' } }, '= ' + t.coin + '/rep'),
-      )),
+    // RIDDCOIN reward legend (left) + live exclusion / pending callouts (right).
+    el('div', { class: 'px-3 py-2.5 flex items-center justify-between gap-x-4 gap-y-1.5 flex-wrap text-[11px]', style: { borderTop: '1px solid var(--border)' } },
+      el('div', { class: 'flex items-center gap-x-3 gap-y-1.5 flex-wrap' },
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, '🐛 4-round reward'),
+        ...COIN_TIERS.map(t => el('span', { class: 'inline-flex items-center gap-1.5' },
+          el('span', { style: { display: 'inline-block', width: '26px', textAlign: 'center', padding: '1px 0', borderRadius: '4px', background: t.color, color: '#fff', fontWeight: '900', fontSize: '10px' } }, String(t.bugs)),
+          el('span', { style: { color: 'var(--text-muted)', fontWeight: '700' } }, '= ' + t.coin + '/rep'),
+        )),
+      ),
+      el('div', { class: 'text-[11px] text-right flex flex-col gap-0.5' },
+        el('div', { style: { color: '#DC2626' } },
+          '⚠ ' + excludedSummary.count.toLocaleString() + ' not counting · ' + usd(excludedSummary.revenue) + ' excluded'),
+        el('div', { style: { color: '#D97706' } },
+          '⏳ ' + pendingSummary.count.toLocaleString() + ' pending audit · ' + usd(pendingSummary.revenue) + ' included (assumed passing)'),
+      ),
     ),
   );
 }
@@ -13993,8 +14020,6 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
         el('div', {},
           el('h3', { class: 'text-base font-black', style: { color: '#f7f7f2', letterSpacing: '0.02em', textTransform: 'uppercase' } }, '🏆 Avg Pest Initial'),
-          el('p', { class: 'text-[10px] mt-0.5', style: { color: '#dbe7cf', maxWidth: '460px' } },
-            'Every rep with 6+ qualifying accounts, ranked by Avg Initial. Sentricon / German Roach / Interior Flea don\'t count. Post-service cancels still count once the initial ran.'),
         ),
         el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95 shrink-0', style: { background: '#8DC63F', color: '#1D1D1D' }, title: 'Export top-5 avg pest initial sales', onclick: exportAvgPestCsv }, '↓ Export'),
       ),
@@ -14031,8 +14056,6 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     el('div', { class: 'px-5 py-3 flex items-start justify-between gap-3 flex-wrap', style: { background: '#2f5e1c' } },
       el('div', {},
         el('h3', { class: 'text-base font-black', style: { color: '#f7f7f2', letterSpacing: '0.02em', textTransform: 'uppercase' } }, '🎟️ Raffle Tickets'),
-        el('p', { class: 'text-[10px] mt-0.5', style: { color: '#dbe7cf', maxWidth: '460px' } },
-          '$149–199 → 1 · $200–249 → 2 · $250+ → 3 · active accounts only · Sentricon / German Roach / Interior Flea excluded'),
       ),
       el('div', { class: 'flex items-center gap-3' },
         el('div', { class: 'text-right' },
@@ -14178,12 +14201,20 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Spanning banner that unifies both scoped tables under one competition
       // heading while keeping the two cards visually separate below it.
       el('div', { style: { background: '#8DC63F', padding: '12px 16px', borderBottom: '3px solid #2f5e1c' } },
-        el('div', { class: 'flex items-center gap-3' },
-          el('div', { style: { fontSize: '26px', lineHeight: '1' } }, '🏆'),
-          el('div', {},
-            el('div', { style: { fontWeight: '900', fontSize: '20px', letterSpacing: '-0.01em', color: '#1D1D1D', textTransform: 'uppercase', lineHeight: '1' } }, 'Avg Pest Initial Competitions'),
-            el('div', { style: { fontWeight: '800', fontSize: '10px', letterSpacing: '0.08em', color: '#1D1D1D', opacity: '0.8', marginTop: '3px', textTransform: 'uppercase' } }, 'Door-to-Door · by RIDDMADE™'),
+        el('div', { class: 'flex items-center justify-between gap-3' },
+          el('div', { class: 'flex items-center gap-3' },
+            el('div', { style: { fontSize: '26px', lineHeight: '1' } }, '🏆'),
+            el('div', {},
+              el('div', { style: { fontWeight: '900', fontSize: '20px', letterSpacing: '-0.01em', color: '#1D1D1D', textTransform: 'uppercase', lineHeight: '1' } }, 'Avg Pest Initial Competitions'),
+              el('div', { style: { fontWeight: '800', fontSize: '10px', letterSpacing: '0.08em', color: '#1D1D1D', opacity: '0.8', marginTop: '3px', textTransform: 'uppercase' } }, 'Door-to-Door · by RIDDMADE™'),
+            ),
           ),
+          el('button', {
+            class: 'shrink-0 rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-110',
+            style: { width: '26px', height: '26px', background: '#1D1D1D', color: '#8DC63F', fontSize: '13px' },
+            title: 'Competition rules',
+            onclick: () => openAvgPestRaffleHelpModal(),
+          }, 'ⓘ'),
         ),
       ),
       // Date window now lives in the shared Comp Window bar at the top.
