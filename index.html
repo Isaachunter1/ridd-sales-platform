@@ -202,6 +202,29 @@
      re-render. */
   @keyframes fade { from { opacity:0; } to { opacity:1; } }
 
+  /* Spring Cleaning mascot: walks/sweeps back and forth across the header.
+     He's drawn facing left, so scaleX(-1) faces him right when moving right. */
+  .sc-sweep-track { position:relative; flex:1 1 60px; min-width:70px; height:46px; align-self:stretch; overflow:hidden; }
+  .sc-sweeper {
+    position:absolute; bottom:0; left:0; height:44px; width:auto;
+    transform-origin:center bottom;
+    animation: scWalk 7s ease-in-out infinite, scBob .6s ease-in-out infinite;
+    will-change:left, transform;
+  }
+  @keyframes scWalk {
+    0%        { left:0;                       transform:scaleX(-1); }
+    2%        { left:0;                       transform:scaleX(-1); }
+    48%       { left:calc(100% - 40px);       transform:scaleX(-1); }
+    50%       { left:calc(100% - 40px);       transform:scaleX(1); }
+    52%       { left:calc(100% - 40px);       transform:scaleX(1); }
+    98%       { left:0;                       transform:scaleX(1); }
+    100%      { left:0;                       transform:scaleX(-1); }
+  }
+  @keyframes scBob { 0%,100% { margin-bottom:0; } 50% { margin-bottom:3px; } }
+  @media (prefers-reduced-motion: reduce) {
+    .sc-sweeper { animation:none; left:calc(50% - 20px); transform:scaleX(-1); }
+  }
+
   /* Goal progress bar track */
   .goal-track {
     background: var(--border);
@@ -10719,16 +10742,16 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
   return el('div', { class: 'card overflow-hidden' },
     // ── Poster-style banner header ──
     el('div', { style: { background: '#E7E7DF', padding: '14px 16px', borderBottom: '3px solid #1b5e20' } },
-      el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
-        el('div', { class: 'flex items-center gap-3' },
-          el('div', { style: { fontSize: '38px', lineHeight: '1' } }, '🧹'),
-          el('div', {},
-            el('div', { style: { fontWeight: '900', fontSize: '30px', letterSpacing: '-0.02em', color: '#141414', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
-            el('div', { style: { fontWeight: '800', fontSize: '10.5px', letterSpacing: '0.06em', color: '#141414', marginTop: '3px', textTransform: 'uppercase' } },
-              'Team Quality Based Competition by RIDDMADE™'),
-          ),
+      el('div', { class: 'flex items-center justify-between gap-3' },
+        el('div', { class: 'shrink-0' },
+          el('div', { style: { fontWeight: '900', fontSize: '30px', letterSpacing: '-0.02em', color: '#141414', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
+          el('div', { style: { fontWeight: '800', fontSize: '10.5px', letterSpacing: '0.06em', color: '#141414', marginTop: '3px', textTransform: 'uppercase' } },
+            'Team Quality Based Competition by RIDDMADE™'),
         ),
-        el('div', { class: 'flex items-center gap-2' },
+        el('div', { class: 'sc-sweep-track', title: 'Sweepin\' up' },
+          el('img', { src: 'sweeper.png', class: 'sc-sweeper', alt: 'sweeping mascot', draggable: 'false' }),
+        ),
+        el('div', { class: 'flex items-center gap-2 shrink-0' },
           el('button', {
             class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
             style: { background: '#1b5e20', color: '#fff' },
