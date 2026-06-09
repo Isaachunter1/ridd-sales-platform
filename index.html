@@ -10538,6 +10538,54 @@ function springCleaningCompute(sales, branchList) {
 
 // Spring Cleaning scoreboard card — golf-scored branch standings for the
 // currently date-filtered window, plus an excluded-revenue summary.
+// Breakdown popup explaining how each Spring Cleaning metric + rule works.
+function openSpringCleaningHelpModal() {
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  const section = (title, ...body) => el('div', { class: 'mb-3' },
+    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--accent)' } }, title),
+    el('div', { class: 'text-[13px] leading-relaxed', style: { color: 'var(--text-muted)' } }, ...body));
+  const metric = (name, desc) => el('div', { class: 'mb-1.5' },
+    el('span', { class: 'font-bold', style: { color: 'var(--text)' } }, name + ' — '),
+    el('span', { style: { color: 'var(--text-muted)' } }, desc));
+
+  const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-start justify-between p-5 pb-3' },
+      el('div', {},
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Spring Cleaning'),
+        el('h2', { class: 'text-xl font-bold mt-0.5' }, 'How each metric is tracked'),
+      ),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'),
+    ),
+    el('div', { class: 'overflow-auto px-5 pb-5', style: { borderTop: '1px solid var(--border)' } },
+      el('div', { class: 'pt-4' },
+        section('Who counts',
+          el('div', {}, 'Door-to-Door only (Source = "Door to Door"). Office and Techs sales are out entirely.'),
+          el('div', { class: 'mt-1' }, 'An account counts if its initial is ≥ $99 AND it\'s flagged Passed Audit or No Audit. Pending (no audit flag yet) are counted as assumed-passing until flagged. Use the date filter at the top to set the round.')),
+        section('The six categories (per branch)',
+          metric('Revenue', 'Total Contract Value sold.'),
+          metric('Avg Pest Init', 'Average initial price, excluding Sentricon / German Roach / Interior Flea services.'),
+          metric('PRA', 'Per Rep Average = Revenue ÷ number of reps who sold that round.'),
+          metric('ACV', 'Average Contract Value per account.'),
+          metric('24+ Mo %', 'Share of accounts on a 24-month-or-longer agreement (everything else is in the denominator).'),
+          metric('Autopay %', 'Share of accounts with a payment method on file.')),
+        section('Scoring',
+          el('div', {}, 'In each category the branches are ranked; your place = your points (1st = 1pt … 7th = 7pts — golf, low is good).'),
+          el('div', { class: 'mt-1' }, 'Your six category points add up to a Total. Lowest total wins the round. Ties broken by higher Avg Pest Initial.'),
+          el('div', { class: 'mt-1' }, 'Place → Bugs: 1st = 6, 2nd = 5, 3rd = 4, 4th = 3, 5th = 2, 6th = 1, 7th = 0.')),
+        section('Not counting',
+          el('div', {}, 'Last Resort = initial under $99 (own export tab). Failed Audit = flagged Failed Audit (own export tab). Both are dropped from every category. Full lists live in the .xlsx export.')),
+      ),
+    ),
+  );
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
 function indicatorSpringCleaningBoard(sales, branchList) {
   const { ranked, excludedSummary, pendingSummary } = springCleaningCompute(sales, branchList);
   const usd = (v) => '$' + Math.round(v).toLocaleString();
@@ -10557,7 +10605,14 @@ function indicatorSpringCleaningBoard(sales, branchList) {
   return el('div', { class: 'card overflow-hidden', style: { borderLeft: '3px solid #34C759' } },
     el('div', { class: 'p-3 flex items-baseline justify-between gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
       el('div', {},
-        el('div', { class: 'text-sm font-bold' }, '🧹 Spring Cleaning — Standings'),
+        el('div', { class: 'text-sm font-bold flex items-center gap-2' }, '🧹 Spring Cleaning — Standings',
+          el('button', {
+            class: 'inline-flex items-center justify-center rounded-full text-[10px] font-bold cursor-pointer',
+            style: { width: '16px', height: '16px', background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
+            title: 'How each metric is tracked',
+            onclick: () => openSpringCleaningHelpModal(),
+          }, 'ⓘ'),
+        ),
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
           'Golf scoring: place in each category = points, lowest total wins. Bugs = 1st:6 · 2nd:5 · 3rd:4 · 4th:3 · 5th:2 · 6th:1 · 7th:0. Use the date filter above to set the round.'),
       ),
