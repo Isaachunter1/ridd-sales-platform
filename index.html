@@ -10801,33 +10801,57 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
 //   • VETERANS = remaining reps tagged "Vet" in Manage Teams
 //   • ROOKIES  = remaining reps tagged "Rookie" in Manage Teams
 const TOP_GUN_PRO_COUNT = 7;
-function topGunCompute(sales) {
-  const counting = (sales || []).filter(s => scAuditPassed(s.customerFlags));
+// Revenue is split by audit status, mirroring Spring Cleaning:
+//   passed  — Passed Audit OR No Audit
+//   failed  — Failed Audit OR Last Resort (initial < $99 or a "Last Resort" flag)
+//   pending — no pass/fail flag yet
+// Last Resort / Failed take precedence over a pass flag. Total (what reps are
+// ranked on) = passed + pending.
+const TG_LASTRESORT_RE = /last\s*resort/i;
+function topGunBucket(s) {
+  const lastResort = (Number(s.initialPrice) || 0) < 99 || TG_LASTRESORT_RE.test(s.customerFlags || '');
+  if (lastResort || SC_FAIL_RE.test(s.customerFlags || '')) return 'failed';
+  if (scAuditPassed(s.customerFlags)) return 'passed';
+  return 'pending';
+}
+// PROS = the top 7 VET-tier reps by revenue on the YEAR (a standing elite tier,
+// determined from full-year data — not the comp window). Pass the resulting
+// rep set into topGunCompute so the comp-window table values stay separate.
+function topGunProSet(yearSales) {
+  const rev = new Map();
+  for (const s of (yearSales || [])) {
+    if (getRepTier(s.rep) !== 'vet') continue;
+    rev.set(s.rep, (rev.get(s.rep) || 0) + (Number(s.contractValue) || 0));
+  }
+  return new Set([...rev.entries()].sort((a, b) => b[1] - a[1]).slice(0, TOP_GUN_PRO_COUNT).map(([rep]) => rep));
+}
+function topGunCompute(windowedSales, proSet) {
+  proSet = proSet || new Set();
   const byRep = new Map();
-  for (const s of counting) {
-    const rep = s.rep || 'Unknown';
-    if (!byRep.has(rep)) byRep.set(rep, { rep, revenue: 0, accounts: 0 });
-    const m = byRep.get(rep);
-    m.revenue += Number(s.contractValue) || 0;
+  const ensure = (rep) => { if (!byRep.has(rep)) byRep.set(rep, { rep, passedRev: 0, failedRev: 0, pendingRev: 0, accounts: 0 }); return byRep.get(rep); };
+  for (const s of (windowedSales || [])) {
+    const m = ensure(s.rep || 'Unknown');
+    const cv = Number(s.contractValue) || 0;
+    const b = topGunBucket(s);
+    if (b === 'passed') m.passedRev += cv;
+    else if (b === 'failed') m.failedRev += cv;
+    else m.pendingRev += cv;
     m.accounts += 1;
   }
-  const allReps = [...byRep.values()].sort((a, b) => b.revenue - a.revenue || b.accounts - a.accounts);
-  const pro = allReps.slice(0, TOP_GUN_PRO_COUNT);
-  const proSet = new Set(pro.map(r => r.rep));
-  const rookie = [], vet = [], none = [];
-  for (const r of allReps) {
-    if (proSet.has(r.rep)) continue;          // top-7 are Pros, removed from their tier class
-    const t = getRepTier(r.rep);
-    if (t === 'rookie') rookie.push(r);
-    else if (t === 'vet') vet.push(r);
-    else none.push(r);
-  }
-  return { rookie, vet, pro, none }; // each already in revenue order (allReps was sorted)
+  proSet.forEach(rep => ensure(rep)); // Pros always appear, even with no window sales
+  const byTotal = (a, b) => b.total - a.total || b.passedRev - a.passedRev;
+  const all = [...byRep.values()].map(m => ({ ...m, total: m.passedRev + m.pendingRev }));
+  const pro = all.filter(m => proSet.has(m.rep)).sort(byTotal);
+  const rest = all.filter(m => !proSet.has(m.rep) && (m.total > 0 || m.failedRev > 0));
+  const rookie = rest.filter(m => getRepTier(m.rep) === 'rookie').sort(byTotal);
+  const vet    = rest.filter(m => getRepTier(m.rep) === 'vet').sort(byTotal);
+  const none   = rest.filter(m => { const t = getRepTier(m.rep); return t !== 'rookie' && t !== 'vet'; }).sort(byTotal);
+  return { rookie, vet, pro, none };
 }
 
-function indicatorTopGunBoard(sales, winLabel) {
+function indicatorTopGunBoard(sales, proSet) {
   const RED = '#be3a2b', BLUE = '#2b3a6b', CREAM = '#f4eede';
-  const classes = topGunCompute(sales);
+  const classes = topGunCompute(sales, proSet);
   const PRIZES = ['®1,000,000', '®500,000', '®300,000'];
   const usd = (v) => '$' + Math.round(v).toLocaleString();
   const CLASS_DEFS = [
@@ -10856,14 +10880,31 @@ function indicatorTopGunBoard(sales, winLabel) {
               : 'No reps tagged "' + (def.key === 'rookie' ? 'Rookie' : 'Vet') + '" in Manage Teams yet.')
         : el('div', { style: { background: CREAM, margin: '0 8px 8px', borderRadius: '4px', overflow: 'hidden' } },
             // ~10 rows tall, then scroll through the rest of the class.
-            el('div', { style: { maxHeight: '290px', overflowY: 'auto' } },
-              el('table', { class: 'w-full', style: { fontSize: '12px' } },
+            el('div', { style: { maxHeight: '300px', overflowY: 'auto' } },
+              el('table', { class: 'w-full', style: { fontSize: '11px' } },
+                el('thead', { style: { position: 'sticky', top: '0', background: CREAM, zIndex: 1 } },
+                  (() => {
+                    const th = (label, align, title) => el('th', { title: title || '', style: { padding: '6px 8px', textAlign: align, fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.03em', color: '#555', borderBottom: '2px solid rgba(0,0,0,0.15)', whiteSpace: 'nowrap' } }, label);
+                    return el('tr', {},
+                      th('#', 'left'),
+                      th('Rep', 'left'),
+                      th('Passed Rev', 'right', 'Passed Audit + No Audit revenue'),
+                      th('Pending', 'right', 'Awaiting audit'),
+                      th('Failed', 'right', 'Failed Audit + Last Resort'),
+                      th('Total Rev', 'right', 'Passed + Pending'),
+                      th('RIDDCOIN', 'right'),
+                    );
+                  })(),
+                ),
                 el('tbody', {},
                   ...reps.map((r, i) => el('tr', { style: { borderTop: i ? '1px solid rgba(0,0,0,0.08)' : 'none', background: i < 3 ? 'rgba(190,58,43,0.06)' : 'transparent' } },
-                    el('td', { style: { padding: '5px 10px', fontWeight: '900', width: '30px', color: def.color } }, i + 1),
-                    el('td', { style: { padding: '5px 10px', fontWeight: '700', color: '#222' } }, r.rep),
-                    el('td', { style: { padding: '5px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#222' } }, usd(r.revenue)),
-                    el('td', { style: { padding: '5px 10px', textAlign: 'right', fontWeight: '900', color: def.color, width: '110px' } }, i < 3 ? PRIZES[i] : '—'),
+                    el('td', { style: { padding: '5px 8px', fontWeight: '900', width: '26px', color: def.color } }, i + 1),
+                    el('td', { style: { padding: '5px 8px', fontWeight: '700', color: '#222', whiteSpace: 'nowrap' } }, r.rep),
+                    el('td', { style: { padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#222', fontWeight: '700' } }, usd(r.passedRev)),
+                    el('td', { style: { padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#a67c00' } }, r.pendingRev ? usd(r.pendingRev) : '—'),
+                    el('td', { style: { padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#999' } }, r.failedRev ? usd(r.failedRev) : '—'),
+                    el('td', { style: { padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#111', fontWeight: '900' } }, usd(r.total)),
+                    el('td', { style: { padding: '5px 8px', textAlign: 'right', fontWeight: '900', color: def.color, width: '96px', whiteSpace: 'nowrap' } }, i < 3 ? PRIZES[i] : '—'),
                   )),
                 ),
               ),
@@ -10877,15 +10918,17 @@ function indicatorTopGunBoard(sales, winLabel) {
 
   return el('div', { class: 'card overflow-hidden', style: { background: CREAM } },
     el('div', { style: { background: BLUE, padding: '16px 18px' } },
-      el('div', { style: { fontWeight: '900', fontSize: '40px', lineHeight: '0.9', color: CREAM, letterSpacing: '0.04em', fontFamily: 'Georgia, serif' } }, 'TOP GUN'),
-      el('div', { style: { fontWeight: '800', fontSize: '11px', color: CREAM, letterSpacing: '0.14em', marginTop: '4px' } }, 'RIDDMADE   ★ ★ ★'),
+      el('div', { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' } },
+        el('div', { style: { fontWeight: '900', fontSize: '40px', lineHeight: '0.9', color: CREAM, letterSpacing: '0.04em', fontFamily: 'Georgia, serif' } }, 'TOP GUN'),
+        el('div', { style: { fontWeight: '800', fontSize: '11px', color: CREAM, letterSpacing: '0.14em', whiteSpace: 'nowrap', paddingTop: '6px' } }, 'RIDDMADE   ★ ★ ★'),
+      ),
+      el('div', { style: { fontSize: '11px', color: CREAM, opacity: '0.92', marginTop: '10px', maxWidth: '860px', lineHeight: '1.5' } },
+        'Each class pays its top 3 producers. Production = Total Revenue (Passed + Pending Audit · Contract Value). PROS = the top 7 Vet reps by revenue on the year. Veterans & Rookies = the rest, by their Rookie/Vet tier in Manage Teams. Only audit-passed accounts count.'),
     ),
     el('div', { style: { padding: '14px', display: 'flex', flexDirection: 'column', gap: '14px' } },
-      el('div', { style: { fontSize: '11px', color: '#555' } },
-        'Each class pays its top 3 producers. Production = revenue (Contract Value), audit-passed accounts only. PROS = the top 7 revenue reps company-wide (automatic). Veterans & Rookies = the rest, by their Rookie/Vet tier in Manage Teams.'),
       ...CLASS_DEFS.map(classCard),
       unclassified.length ? el('div', { style: { fontSize: '11px', color: '#a33', padding: '4px' } },
-        '⚠ ' + unclassified.length + ' rep' + (unclassified.length === 1 ? '' : 's') + ' outside the top 7 with no Rookie/Vet tier: '
+        '⚠ ' + unclassified.length + ' rep' + (unclassified.length === 1 ? '' : 's') + ' with no Rookie/Vet tier (and not a Pro): '
           + unclassified.slice(0, 20).map(r => r.rep).join(', ') + (unclassified.length > 20 ? '…' : '')
           + ' — tag them in Manage Teams to include them.') : null,
     ),
@@ -12838,12 +12881,16 @@ function viewIndicators() {
     (state.indicatorsComps && (getActiveComp().scoring === 'top_gun') ? (() => {
       const cf = state._indicatorCompFilter || {};
       const bounds = (cf.start && cf.end) ? { s: new Date(cf.start + 'T00:00'), e: new Date(cf.end + 'T23:59') } : null;
-      const windowed = bounds
-        ? (state._indicatorRawSales || []).filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
-        : (state._indicatorRawSales || []);
-      const d2d = windowed.filter(s => _indicatorDeptOf(s) === 'd2d');
-      const winLabel = (cf.start && cf.end) ? cf.start + ' → ' + cf.end : 'all dates';
-      return indicatorTopGunBoard(d2d, winLabel);
+      const allD2d = (state._indicatorRawSales || []).filter(s => _indicatorDeptOf(s) === 'd2d');
+      // Pro class = top 7 Vet reps by revenue THIS YEAR (full-year data, not the
+      // comp window). Table values below use the comp window.
+      const yr = new Date().getFullYear();
+      const yearD2d = allD2d.filter(s => { const d = _parseIndicatorDay(s); return d && d.getFullYear() === yr; });
+      const proSet = topGunProSet(yearD2d);
+      const windowedD2d = bounds
+        ? allD2d.filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
+        : allD2d;
+      return indicatorTopGunBoard(windowedD2d, proSet);
     })() : null),
 
     // Avg Pest Initial / Raffle competition card, lifted to the top.
