@@ -14016,12 +14016,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 
   // ── Card 1: Avg Pest Initial — ALL qualifying reps (6+ accounts), ranked. ──
   const avgInitialCard = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3', style: { background: '#2f5e1c' } },
+    el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
       el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-base font-black', style: { color: '#f7f7f2', letterSpacing: '0.02em', textTransform: 'uppercase' } }, '🏆 Avg Pest Initial'),
+          el('h3', { class: 'text-base font-black', style: { letterSpacing: '0.02em', textTransform: 'uppercase' } }, '🏆 Avg Pest Initial'),
         ),
-        el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95 shrink-0', style: { background: '#8DC63F', color: '#1D1D1D' }, title: 'Export top-5 avg pest initial sales', onclick: exportAvgPestCsv }, '↓ Export'),
+        el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95 shrink-0', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export top-5 avg pest initial sales', onclick: exportAvgPestCsv }, '↓ Export'),
       ),
     ),
     rankedByPest.length === 0
@@ -14029,8 +14029,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       : el('div', { class: 'scroll-x', style: { maxHeight: '320px', overflowY: 'auto' } },
           el('table', { class: 'w-full text-[12px]' },
             el('thead', {
-              class: 'text-[9px] uppercase tracking-wider',
-              style: { position: 'sticky', top: '0', background: '#2f5e1c', color: '#fff', zIndex: 1 },
+              class: 'text-[9px] uppercase tracking-wider text-muted-',
+              style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
             },
               el('tr', {},
                 el('th', { class: 'text-left pl-5 pr-2 py-2 w-8' }, '#'),
@@ -14053,17 +14053,17 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 
   // ── Card 2: Raffle Tickets — all reps with tickets, ranked by total. ──
   const raffleCard = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 flex items-start justify-between gap-3 flex-wrap', style: { background: '#2f5e1c' } },
+    el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {},
-        el('h3', { class: 'text-base font-black', style: { color: '#f7f7f2', letterSpacing: '0.02em', textTransform: 'uppercase' } }, '🎟️ Raffle Tickets'),
+        el('h3', { class: 'text-base font-black', style: { letterSpacing: '0.02em', textTransform: 'uppercase' } }, '🎟️ Raffle Tickets'),
       ),
       el('div', { class: 'flex items-center gap-3' },
         el('div', { class: 'text-right' },
-          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: '#dbe7cf' } }, 'Entries'),
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Entries'),
           el('div', { class: 'text-xl font-black tabular-nums', style: { color: '#8DC63F' } }, fmt.int(raffleTotalTickets)),
         ),
         el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: '#8DC63F', color: '#1D1D1D' }, title: 'Spin a wheel to pick a winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
-        el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'rgba(247,247,242,0.5)', color: '#f7f7f2' }, title: 'Export raffle tickets', onclick: () => exportRaffleCsv() }, '↓ Export'),
+        el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export raffle tickets', onclick: () => exportRaffleCsv() }, '↓ Export'),
       ),
     ),
     raffleSorted.length === 0
@@ -14071,8 +14071,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       : el('div', { class: 'scroll-x', style: { maxHeight: '320px', overflowY: 'auto' } },
           el('table', { class: 'w-full text-[12px]' },
             el('thead', {
-              class: 'text-[9px] uppercase tracking-wider',
-              style: { position: 'sticky', top: '0', background: '#2f5e1c', color: '#fff', zIndex: 1 },
+              class: 'text-[9px] uppercase tracking-wider text-muted-',
+              style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
             },
               el('tr', {},
                 el('th', { class: 'text-left pl-5 pr-2 py-2 w-8' }, '#'),
