@@ -1,6 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" fill="#8DC63F"/>
-  <g fill="none" stroke="#1D1D1D" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter">
+  <g fill="none" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter">
     <!-- left legs -->
     <path d="M14 13 L8.5 9.5 L6 8"/>
     <path d="M13.5 15.5 L7.5 14 L5 14"/>
@@ -16,6 +15,6 @@
     <path d="M17.2 11 L18.8 8.2"/>
   </g>
   <!-- body -->
-  <circle cx="16" cy="12.6" r="2.5" fill="#1D1D1D"/>
-  <ellipse cx="16" cy="18.4" rx="3.5" ry="4.4" fill="#1D1D1D"/>
+  <circle cx="16" cy="12.6" r="2.5" fill="#FFFFFF"/>
+  <ellipse cx="16" cy="18.4" rx="3.5" ry="4.4" fill="#FFFFFF"/>
 </svg>
