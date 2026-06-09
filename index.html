@@ -1964,7 +1964,14 @@ function loadDemoData() {
   }
 }
 
+let _loadAndRenderInFlight = false;
 async function loadAndRender() {
+  // Supabase fires an INITIAL_SESSION event through onAuthStateChange AND we
+  // also call this from the explicit getSession() path on boot — without this
+  // guard both fire, giving two full loading→render cycles (the refresh
+  // flicker). The in-flight flag collapses the duplicate into one render.
+  if (_loadAndRenderInFlight) return;
+  _loadAndRenderInFlight = true;
   mountLoading();
   try {
     await loadProfile();
@@ -1974,6 +1981,8 @@ async function loadAndRender() {
   } catch (err) {
     console.error(err);
     mountError(err);
+  } finally {
+    _loadAndRenderInFlight = false;
   }
 }
 
