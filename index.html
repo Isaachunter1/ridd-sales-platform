@@ -10443,6 +10443,9 @@ const SC_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
 // trip the audit gate.
 const SC_PASS_RE = /passed\s*audit/i;
 const SC_FAIL_RE = /failed\s*audit/i;
+// One-time services (subscription starts with "One Time …") — excluded from the
+// 24+ Month % denominator since a one-time job can never be a 24-month agreement.
+const SC_ONETIME_RE = /^\s*one[\s-]?time/i;
 // "No Audit" = the account doesn't require auditing → treat as passed (counts).
 const SC_NOAUDIT_RE = /no\s*audit/i;
 const scAuditPassed = (flags) => SC_PASS_RE.test(flags || '') || SC_NOAUDIT_RE.test(flags || '');
@@ -10498,7 +10501,7 @@ function springCleaningCompute(sales, branchList) {
   // pending account will pass until it's flagged Failed Audit. (Excluded =
   // failed audit or Last Resort, which never count toward revenue/categories.)
   const scored = counting.concat(pending);
-  const seed = (office) => ({ office, revenue: 0, n: 0, pestSum: 0, pestCnt: 0, cvSum: 0, cnt24: 0, cntAuto: 0 });
+  const seed = (office) => ({ office, revenue: 0, n: 0, pestSum: 0, pestCnt: 0, cvSum: 0, cnt24: 0, n24denom: 0, cntAuto: 0 });
   const byBranch = new Map();
   const branches = (branchList && branchList.length)
     ? branchList.slice()
@@ -10512,6 +10515,9 @@ function springCleaningCompute(sales, branchList) {
     m.n += 1;
     if (!SC_PEST_EXCLUDE.test(s.subscription || '')) { m.pestSum += Number(s.initialPrice) || 0; m.pestCnt += 1; }
     m.cvSum += Number(s.contractValue) || 0;
+    // 24+ Mo %: one-time services are excluded from the denominator (they can't
+    // carry a 24-month agreement). Everything else counts in the denominator.
+    if (!SC_ONETIME_RE.test(s.subscription || '')) m.n24denom += 1;
     if ((Number(s.contract) || 0) >= 24) m.cnt24 += 1;
     if (springCleaningHasPayment(s)) m.cntAuto += 1;
   }
@@ -10525,7 +10531,7 @@ function springCleaningCompute(sales, branchList) {
       pra:            reps > 0 ? m.revenue / reps : 0,
       avgPestInitial: m.pestCnt > 0 ? m.pestSum / m.pestCnt : 0,
       acv:            m.n > 0 ? m.cvSum / m.n : 0,
-      pct24:          m.n > 0 ? m.cnt24 / m.n : 0,
+      pct24:          m.n24denom > 0 ? m.cnt24 / m.n24denom : 0,
       autopayPct:     m.n > 0 ? m.cntAuto / m.n : 0,
     };
   });
@@ -10665,7 +10671,7 @@ function openSpringCleaningHelpModal() {
           metric('Avg Pest Init', 'Average initial price, excluding Sentricon / German Roach / Interior Flea services.'),
           metric('PRA', 'Per Rep Average = Revenue ÷ number of reps who sold that round.'),
           metric('ACV', 'Average Contract Value per account.'),
-          metric('24+ Mo %', 'Share of accounts on a 24-month-or-longer agreement (everything else is in the denominator).'),
+          metric('24+ Mo %', 'Share of accounts on a 24-month-or-longer agreement. One-time services are excluded from the denominator; everything else counts.'),
           metric('Autopay %', 'Share of accounts with a payment method on file.')),
         section('Scoring',
           el('div', {}, 'In each category the branches are ranked; your place = your points (1st = 1pt … 7th = 7pts — golf, low is good).'),
