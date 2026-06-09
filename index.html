@@ -24469,7 +24469,7 @@ function reportingWaterfall() {
 
   const modes = [
     ['subscription',    'Subscription'],
-    ['arv',             'ARV ($)'],
+    ['arv',             'ARR ($)'],
     ['contract',        'Contract Length'],
     ['rep',             'Rep'],
   ];
@@ -24525,7 +24525,7 @@ function reportingWaterfall() {
               el('th', { class: 'text-left px-3 py-2 font-semibold sticky left-0', style: { background: 'var(--card-2)' } },
                 mode === 'subscription' || mode === 'arv' ? 'Cohort Year' :
                 mode === 'contract' ? 'Contract Length' : 'Rep'),
-              el('th', { class: 'text-right px-2 py-2 font-semibold' }, mode === 'arv' ? 'Total ARV' : 'Total'),
+              el('th', { class: 'text-right px-2 py-2 font-semibold' }, mode === 'arv' ? 'Total ARR' : 'Total'),
               ...data.years.map(y => el('th', { class: 'text-right px-2 py-2 font-semibold' }, String(y))),
             ),
           ),
