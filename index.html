@@ -22635,7 +22635,12 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
     // is meaningful inside the state (one big zip doesn't dominate).
     const zipMetricFor = (z) => {
       if (!z) return null;
-      if (metricKey === 'service')    return reportingDomService(z.rows);
+      // Service Types: only color ZIPs with MORE THAN 10 distinct service types
+      // (others fade out). Click opens the top-10 popup.
+      if (metricKey === 'service') {
+        const distinct = new Set((z.rows || []).map(r => r.subscription || 'Unknown')).size;
+        return distinct > 10 ? reportingDomService(z.rows) : null;
+      }
       if (metricKey === 'acv')        return z.avgContract;
       if (metricKey === 'revenue')    return z.arv;
       if (metricKey === 'customers')  return z.customers;
@@ -22661,7 +22666,9 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
         const v = zipMetricFor(z);
         return {
           fillColor: colorFor(v),
-          fillOpacity: isHighlight ? 0.95 : (z ? 0.85 : 0.15),
+          // Fade ZIPs with no qualifying value (e.g. ≤10 service types, or
+          // below the attrition sub-floor) so the colored ones stand out.
+          fillOpacity: isHighlight ? 0.95 : (v == null ? 0.1 : (z ? 0.85 : 0.15)),
           color: isHighlight ? '#DC2626' : '#6B7280',
           weight: isHighlight ? 3 : 0.4,
         };
@@ -22676,7 +22683,10 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
           return;
         }
         const v = zipMetricFor(z);
-        const display = v == null ? '< 10 subs' : fmtMetric(v);
+        const distinctSvc = metricKey === 'service' ? new Set((z.rows || []).map(r => r.subscription || 'Unknown')).size : 0;
+        const display = v == null
+          ? (metricKey === 'service' ? distinctSvc + ' service types (need 11+)' : '< 10 subs')
+          : (metricKey === 'service' ? distinctSvc + ' service types · click for top 10' : fmtMetric(v));
         const tooltipHtml = '<b>ZIP ' + zip + '</b><br>'
           + metricLabel + ': ' + display + '<br>'
           + z.subs + ' subs · ' + z.customers + ' customers';
@@ -22874,6 +22884,53 @@ function reportingDomService(rows) {
   return best;
 }
 const REPORTING_SVC_OTHER = '#9aa0a6';
+
+// Service-type breakdown for a set of rows → [[name, count], ...] desc.
+function reportingServiceBreakdown(rows) {
+  const c = new Map();
+  for (const r of (rows || [])) { const s = r.subscription || 'Unknown'; c.set(s, (c.get(s) || 0) + 1); }
+  return [...c.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+// Service Types popup — top 10 service types in a ZIP (or county) with counts.
+function openReportingServicesModal(area, label) {
+  const breakdown = reportingServiceBreakdown(area.rows);
+  const total = breakdown.reduce((s, [, n]) => s + n, 0);
+  const top = breakdown.slice(0, 10);
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-start justify-between p-5 pb-3' },
+      el('div', {},
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Top Service Types'),
+        el('h2', { class: 'text-xl font-bold mt-0.5' }, label),
+        el('div', { class: 'text-xs text-muted- mt-1' },
+          breakdown.length.toLocaleString() + ' distinct service types · ' + total.toLocaleString() + ' subs'),
+      ),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'),
+    ),
+    el('div', { class: 'overflow-auto px-5 pb-5 flex flex-col gap-2', style: { borderTop: '1px solid var(--border)' } },
+      ...top.map(([name, n], i) => {
+        const pct = total ? (n / total) * 100 : 0;
+        return el('div', { class: 'flex items-center gap-3 text-xs pt-2' },
+          el('div', { class: 'w-5 text-right tabular-nums font-bold', style: { color: 'var(--text-subtle)' } }, String(i + 1)),
+          el('div', { class: 'flex-1 min-w-0' },
+            el('div', { class: 'flex items-center justify-between gap-2' },
+              el('div', { class: 'truncate font-medium', title: name }, name),
+              el('div', { class: 'tabular-nums font-semibold whitespace-nowrap' }, n.toLocaleString() + ' · ' + pct.toFixed(1) + '%'),
+            ),
+            el('div', { class: 'h-2 rounded-full mt-1 overflow-hidden', style: { background: 'var(--border)' } },
+              el('div', { style: { width: pct.toFixed(1) + '%', height: '100%', background: 'var(--accent)', borderRadius: '999px' } })),
+          ),
+        );
+      }),
+    ),
+  );
+  overlay.append(card);
+  document.body.append(overlay);
+}
 
 function reportingGeoAggregate(rows) {
   const ATTRITION_MIN_SUBS = 10;
@@ -23197,61 +23254,36 @@ function reportingGeographic() {
     }
   }
 
-  // Metric toggle — drives map color + table emphasis. The value metrics
-  // (Customers / Revenue / ACV) are consolidated under one "Customers & Value"
-  // tab (the breakdown table shows all three regardless); a small sub-toggle
-  // picks which one colors the map.
-  const VALUE_METRICS = [
-    { key: 'customers', label: 'Customers', fmt: (v) => Math.round(v).toLocaleString() },
-    { key: 'revenue',   label: 'Revenue',   fmt: (v) => '$' + Math.round(v).toLocaleString() },
-    { key: 'acv',       label: 'ACV',       fmt: (v) => '$' + Math.round(v).toLocaleString() },
-  ];
-  const ALL_METRICS = [
-    ...VALUE_METRICS,
-    { key: 'attrition', label: 'Attrition Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
-    { key: 'retention', label: 'Retention Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
-    { key: 'service',   label: 'Service Types',  fmt: (v) => v || '—' },
-  ];
+  // Metric toggle — drives map color + table emphasis. Each metric is its own
+  // tab so it can color the map independently.
   const metricKey = state.reportingGeoMetric || 'customers';
-  const isRetention = metricKey === 'retention';
-  const activeMetric = ALL_METRICS.find(m => m.key === metricKey) || ALL_METRICS[0];
-  const isValueTab = VALUE_METRICS.some(v => v.key === metricKey);
-
-  const tabBtn = (label, active, onclick) => el('button', {
-    class: 'px-3 py-1.5 rounded-lg text-xs font-semibold transition hover:brightness-95',
-    style: active
-      ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-      : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
-    onclick,
-  }, label);
-
-  const topTabs = [
-    { id: 'value',     label: 'Customers & Value', active: isValueTab,            go: () => { state.reportingGeoMetric = state.reportingGeoValueSub || 'customers'; } },
-    { id: 'attrition', label: 'Attrition Rate',    active: metricKey === 'attrition', go: () => { state.reportingGeoMetric = 'attrition'; } },
-    { id: 'retention', label: 'Retention Rate',    active: metricKey === 'retention', go: () => { state.reportingGeoMetric = 'retention'; } },
-    { id: 'service',   label: 'Service Types',     active: metricKey === 'service',   go: () => { state.reportingGeoMetric = 'service'; } },
+  const metrics = [
+    { key: 'customers',       label: 'Customers',      fmt: (v) => Math.round(v).toLocaleString() },
+    { key: 'revenue',         label: 'Revenue',        fmt: (v) => '$' + Math.round(v).toLocaleString() },
+    { key: 'acv',             label: 'ACV',            fmt: (v) => '$' + Math.round(v).toLocaleString() },
+    { key: 'attrition',       label: 'Attrition Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
+    { key: 'retention',       label: 'Retention Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
+    { key: 'service',         label: 'Service Types',  fmt: (v) => v || '—' },
   ];
+  const isRetention = metricKey === 'retention';
+  const activeMetric = metrics.find(m => m.key === metricKey) || metrics[0];
 
-  const metricToggle = el('div', { class: 'card p-3 flex flex-col gap-2' },
-    el('div', { class: 'flex items-center gap-2 flex-wrap' },
-      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Map metric'),
-      ...topTabs.map(t => tabBtn(t.label, t.active, () => { t.go(); mountApp(); })),
-      el('div', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } },
-        (metricKey === 'attrition' || metricKey === 'retention') ? 'Uses 10+ sub floor per area · darker = '
-            + (isRetention ? 'better retention' : 'higher attrition')
-          : (metricKey === 'service' ? 'Each area colored by its most common service' : '')),
-    ),
-    // Sub-toggle: which value colors the map (only on the Customers & Value tab).
-    isValueTab && el('div', { class: 'flex items-center gap-1.5 flex-wrap pt-1 border-t', style: { borderColor: 'var(--border)' } },
-      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-0.5', style: { color: 'var(--text-subtle)' } }, 'Color map by'),
-      ...VALUE_METRICS.map(v => el('button', {
-        class: 'px-2.5 py-1 rounded-full text-[11px] font-semibold border transition cursor-pointer',
-        style: metricKey === v.key
-          ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
-          : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
-        onclick: () => { state.reportingGeoMetric = v.key; state.reportingGeoValueSub = v.key; mountApp(); },
-      }, v.label)),
-    ),
+  const metricToggle = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Map metric'),
+    ...metrics.map(m => {
+      const active = m.key === metricKey;
+      return el('button', {
+        class: 'px-3 py-1.5 rounded-lg text-xs font-semibold transition hover:brightness-95',
+        style: active
+          ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+          : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
+        onclick: () => { state.reportingGeoMetric = m.key; mountApp(); },
+      }, m.label);
+    }),
+    el('div', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } },
+      (metricKey === 'attrition' || metricKey === 'retention') ? 'Uses 10+ sub floor per area · darker = '
+          + (isRetention ? 'better retention' : 'higher attrition')
+        : (metricKey === 'service' ? 'Only ZIPs with 11+ service types are colored · click one for its top 10' : '')),
   );
 
   // Legend for the Top Service metric — top 15 services + their colors.
@@ -23292,6 +23324,12 @@ function reportingGeographic() {
     mountApp();
   };
   const onZipClick = (z) => {
+    // Service Types tab → top-10 service breakdown popup instead of the
+    // generic per-sub drill.
+    if (metricKey === 'service') {
+      openReportingServicesModal(z, 'ZIP ' + z.zip + ' · ' + (z.state || ''));
+      return;
+    }
     openReportingDrillModal({
       chartTitle: 'ZIP ' + z.zip + ' · ' + (z.state || ''),
       sliceLabel: z.zip,
@@ -23300,6 +23338,10 @@ function reportingGeographic() {
     });
   };
   const onCountyClick = (c) => {
+    if (metricKey === 'service') {
+      openReportingServicesModal(c, (c.county || 'Unknown') + ' County · ' + (c.state || ''));
+      return;
+    }
     openReportingDrillModal({
       chartTitle: (c.county || 'Unknown') + ' County · ' + (c.state || ''),
       sliceLabel: c.county || 'Unknown',
