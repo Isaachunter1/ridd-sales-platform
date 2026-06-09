@@ -12366,8 +12366,8 @@ function viewIndicators() {
 
                     const wbS = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(st), 'Standings');
-                    XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(counting), 'Counting Accounts');
-                    XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(pending), 'Pending Accounts');
+                    XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(counting), 'Passed Audit');
+                    XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(pending), 'Pending Audit');
                     XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(failedAudit), 'Failed Audit');
                     XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(lastResort), 'Last Resort');
                     XLSX.writeFile(wbS, 'RIDD-Spring-Cleaning-' + new Date().toISOString().slice(0, 10) + '.xlsx');
