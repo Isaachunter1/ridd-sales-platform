@@ -13565,7 +13565,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           ),
           el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, title: 'Spin a wheel to pick a raffle winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
           el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export top-5 avg pest initial sales', onclick: exportAvgPestCsv }, '↓ Pest'),
-          el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export raffle tickets', onclick: exportRaffleCsv }, '↓ Raffle'),
+          el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export raffle tickets', onclick: () => exportRaffleCsv() }, '↓ Raffle'),
         ),
       ),
     ),
