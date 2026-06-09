@@ -10794,10 +10794,13 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
 }
 
 // ── Top Gun ─────────────────────────────────────────────────────────────────
-// Per-rep production competition split into three classes (Rookies / Veterans /
-// Pros — set per rep via the Rep tier in Manage Teams). Each class pays its
-// top 3 producers ®1,000,000 / ®500,000 / ®300,000. Production = revenue
-// (Contract Value). Only audit-passed (or No Audit) accounts count.
+// Per-rep production competition with three classes. Each class pays its top 3
+// producers ®1,000,000 / ®500,000 / ®300,000. Production = revenue (Contract
+// Value); only audit-passed (or No Audit) accounts count.
+//   • PROS     = the top 7 revenue reps company-wide (auto, regardless of tier)
+//   • VETERANS = remaining reps tagged "Vet" in Manage Teams
+//   • ROOKIES  = remaining reps tagged "Rookie" in Manage Teams
+const TOP_GUN_PRO_COUNT = 7;
 function topGunCompute(sales) {
   const counting = (sales || []).filter(s => scAuditPassed(s.customerFlags));
   const byRep = new Map();
@@ -10808,13 +10811,18 @@ function topGunCompute(sales) {
     m.revenue += Number(s.contractValue) || 0;
     m.accounts += 1;
   }
-  const classes = { rookie: [], vet: [], pro: [], none: [] };
-  for (const m of byRep.values()) {
-    const t = getRepTier(m.rep);
-    (classes[t] || classes.none).push(m);
+  const allReps = [...byRep.values()].sort((a, b) => b.revenue - a.revenue || b.accounts - a.accounts);
+  const pro = allReps.slice(0, TOP_GUN_PRO_COUNT);
+  const proSet = new Set(pro.map(r => r.rep));
+  const rookie = [], vet = [], none = [];
+  for (const r of allReps) {
+    if (proSet.has(r.rep)) continue;          // top-7 are Pros, removed from their tier class
+    const t = getRepTier(r.rep);
+    if (t === 'rookie') rookie.push(r);
+    else if (t === 'vet') vet.push(r);
+    else none.push(r);
   }
-  for (const k in classes) classes[k].sort((a, b) => b.revenue - a.revenue || b.accounts - a.accounts);
-  return classes;
+  return { rookie, vet, pro, none }; // each already in revenue order (allReps was sorted)
 }
 
 function indicatorTopGunBoard(sales, winLabel) {
@@ -10843,7 +10851,9 @@ function indicatorTopGunBoard(sales, winLabel) {
         ),
       ),
       reps.length === 0
-        ? el('div', { style: { padding: '10px 16px', color: CREAM, fontSize: '11px', fontStyle: 'italic', opacity: '0.85' } }, 'No reps assigned to "' + def.name + '" yet — set each rep\'s tier in Manage Teams.')
+        ? el('div', { style: { padding: '10px 16px', color: CREAM, fontSize: '11px', fontStyle: 'italic', opacity: '0.85' } },
+            def.key === 'pro' ? 'No audit-passed production in this window yet.'
+              : 'No reps tagged "' + (def.key === 'rookie' ? 'Rookie' : 'Vet') + '" in Manage Teams yet.')
         : el('div', { style: { background: CREAM, margin: '0 8px 8px', borderRadius: '4px', overflow: 'hidden' } },
             el('table', { class: 'w-full', style: { fontSize: '12px' } },
               el('tbody', {},
@@ -10872,12 +10882,12 @@ function indicatorTopGunBoard(sales, winLabel) {
     ),
     el('div', { style: { padding: '14px', display: 'flex', flexDirection: 'column', gap: '14px' } },
       el('div', { style: { fontSize: '11px', color: '#555' } },
-        'Each class pays its top 3 producers. Production = revenue (Contract Value), audit-passed accounts only. Set each rep\'s class (Rookie / Vet / Pro) via their tier in Manage Teams.'),
+        'Each class pays its top 3 producers. Production = revenue (Contract Value), audit-passed accounts only. PROS = the top 7 revenue reps company-wide (automatic). Veterans & Rookies = the rest, by their Rookie/Vet tier in Manage Teams.'),
       ...CLASS_DEFS.map(classCard),
       unclassified.length ? el('div', { style: { fontSize: '11px', color: '#a33', padding: '4px' } },
-        '⚠ ' + unclassified.length + ' rep' + (unclassified.length === 1 ? '' : 's') + ' not in a class: '
+        '⚠ ' + unclassified.length + ' rep' + (unclassified.length === 1 ? '' : 's') + ' outside the top 7 with no Rookie/Vet tier: '
           + unclassified.slice(0, 20).map(r => r.rep).join(', ') + (unclassified.length > 20 ? '…' : '')
-          + ' — set their tier in Manage Teams to include them.') : null,
+          + ' — tag them in Manage Teams to include them.') : null,
     ),
   );
 }
@@ -10907,7 +10917,6 @@ function isRepExcluded(repName) {
 const REP_TIERS = [
   { id: 'rookie', label: 'Rookie', color: '#0EA5E9' },
   { id: 'vet',    label: 'Vet',    color: '#8DC63F' },
-  { id: 'pro',    label: 'Pro',    color: '#be3a2b' },
 ];
 function getRepTier(repName) {
   if (!repName) return '';
