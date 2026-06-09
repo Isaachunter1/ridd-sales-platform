@@ -21838,7 +21838,7 @@ function viewReporting() {
     reportingMethodologyBar(),
     isMarketing                            ? viewMarketing() :
     state.reportingSubTab === 'is'         ? reportingInsideSales() :
-    state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()) :
+    state.reportingSubTab === 'config'     ? el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()) :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'reps'       ? reportingRepPerformance() :
@@ -22469,6 +22469,33 @@ function reportingOverview() {
   );
 }
 
+// Small reusable info popup + the ⓘ button that opens it (used by the
+// Configurations panels so the explanations live behind an icon).
+function openInfoModal(title, body) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const card = el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col' },
+    el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
+      el('h2', { class: 'text-base font-bold' }, title),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'),
+    ),
+    el('div', { class: 'px-4 pb-4 text-[13px] leading-relaxed', style: { color: 'var(--text-muted)' } }, body),
+  );
+  overlay.append(card);
+  document.body.append(overlay);
+}
+function configInfoBtn(title, body) {
+  return el('button', {
+    class: 'shrink-0 rounded-full flex items-center justify-center cursor-pointer transition hover:brightness-110',
+    style: { width: '20px', height: '20px', background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)', fontSize: '11px', fontWeight: '900' },
+    title: 'Details',
+    onclick: () => openInfoModal(title, body),
+  }, 'ⓘ');
+}
+
 function reportingServiceConfigPanel() {
   // Union of every service name that appears in the config table OR
   // the currently-loaded snapshot, so a freshly-discovered service
@@ -22521,10 +22548,10 @@ function reportingServiceConfigPanel() {
     }
   };
 
-  return el('div', { class: 'card p-4' },
-    el('div', { class: 'mb-4' },
-      el('h2', { class: 'text-lg font-bold' }, 'Service Type Configuration'),
-      el('p', { class: 'text-xs text-muted- mt-1' },
+  return el('div', { class: 'card p-3' },
+    el('div', { class: 'flex items-center gap-2 mb-3' },
+      el('h2', { class: 'text-base font-bold' }, 'Service Types'),
+      configInfoBtn('Service Type Configuration',
         'Set each service\'s Lifecycle: Recurring (ongoing — active is fine), One-time (flags active subs that have already been serviced), ' +
         'or Retired (flags any active sub — discontinued service). Auto infers from revenue (recurring if it carries Annual Recurring Value). ' +
         'Lifecycle drives churn, ARR, retention, the Active-Customers split, and the "should be closed" flags on the Subscriptions card. Hidden services drop out of charts entirely.'),
@@ -22532,12 +22559,12 @@ function reportingServiceConfigPanel() {
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Service types appear here after you upload a snapshot.')
       : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '440px', overflowY: 'auto' } },
-          el('table', { class: 'w-full text-sm' },
+          el('table', { class: 'w-full text-xs' },
             el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
               el('tr', {},
-                el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Service Type'),
-                el('th', { class: 'text-center px-2 py-2.5 font-semibold', style: { width: '130px' } }, 'Lifecycle'),
-                el('th', { class: 'text-center pr-4 pl-2 py-2.5 font-semibold', style: { width: '110px' } }, 'Hidden'),
+                el('th', { class: 'text-left pl-3 pr-2 py-2 font-semibold' }, 'Service Type'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Lifecycle'),
+                el('th', { class: 'text-left pr-3 pl-2 py-2 font-semibold' }, 'Hidden'),
               ),
             ),
             el('tbody', {},
@@ -22591,12 +22618,12 @@ function reportingServiceConfigPanel() {
                   hiddenTag.style.display = v ? 'inline-block' : 'none';
                 };
                 row.append(
-                  el('td', { class: 'pl-4 pr-2 py-2 font-medium' },
+                  el('td', { class: 'pl-3 pr-2 py-1.5 font-medium' },
                     el('span', {}, c.service_name),
                     hiddenTag,
                   ),
-                  el('td', { class: 'px-2 py-2 text-center whitespace-nowrap' }, lcSelect),
-                  el('td', { class: 'pr-4 pl-2 py-2 text-center' }, hidPill),
+                  el('td', { class: 'px-2 py-1.5 text-left whitespace-nowrap' }, lcSelect),
+                  el('td', { class: 'pr-3 pl-2 py-1.5 text-left' }, hidPill),
                 );
                 return row;
               }),
@@ -22641,22 +22668,22 @@ function reportingCancelConfigPanel() {
     }
   };
 
-  return el('div', { class: 'card p-4' },
-    el('div', { class: 'mb-4' },
-      el('h2', { class: 'text-lg font-bold' }, 'Cancellation Reasons'),
-      el('p', { class: 'text-xs text-muted- mt-1' },
+  return el('div', { class: 'card p-3' },
+    el('div', { class: 'flex items-center gap-2 mb-3' },
+      el('h2', { class: 'text-base font-bold' }, 'Cancellation Reasons'),
+      configInfoBtn('Cancellation Reasons',
         'Choose which cancellation reasons count as real attrition. Excluded reasons (e.g. duplicates, moved/relocated, paperwork churn) ' +
         'drop out of churn everywhere — the Overview cancel count + rate AND the Geographic attrition map. Counts shown are canceled subs in the current snapshot.'),
     ),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Cancellation reasons appear here once a snapshot has canceled subscriptions.')
       : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '440px', overflowY: 'auto' } },
-          el('table', { class: 'w-full text-sm' },
+          el('table', { class: 'w-full text-xs' },
             el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
               el('tr', {},
-                el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Cancellation Reason'),
-                el('th', { class: 'text-right px-2 py-2.5 font-semibold', style: { width: '90px' } }, 'Cancels'),
-                el('th', { class: 'text-center pr-4 pl-2 py-2.5 font-semibold', style: { width: '150px' } }, 'Attrition'),
+                el('th', { class: 'text-left pl-3 pr-2 py-2 font-semibold' }, 'Cancellation Reason'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Cancels'),
+                el('th', { class: 'text-left pr-3 pl-2 py-2 font-semibold' }, 'Attrition'),
               ),
             ),
             el('tbody', {},
@@ -22685,9 +22712,9 @@ function reportingCancelConfigPanel() {
                   row.style.opacity = nowExcluded ? '0.6' : '1';
                 };
                 row.append(
-                  el('td', { class: 'pl-4 pr-2 py-2 font-medium' }, reason),
-                  el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, (counts.get(reason) || 0).toLocaleString()),
-                  el('td', { class: 'pr-4 pl-2 py-2 text-center' }, pill),
+                  el('td', { class: 'pl-3 pr-2 py-1.5 font-medium' }, reason),
+                  el('td', { class: 'px-2 py-1.5 text-left tabular-nums text-muted-' }, (counts.get(reason) || 0).toLocaleString()),
+                  el('td', { class: 'pr-3 pl-2 py-1.5 text-left' }, pill),
                 );
                 return row;
               }),
@@ -22732,10 +22759,10 @@ function reportingSourceConfigPanel() {
     }
   };
 
-  return el('div', { class: 'card p-4' },
-    el('div', { class: 'mb-4' },
-      el('h2', { class: 'text-lg font-bold' }, 'Lead Sources'),
-      el('p', { class: 'text-xs text-muted- mt-1' },
+  return el('div', { class: 'card p-3' },
+    el('div', { class: 'flex items-center gap-2 mb-3' },
+      el('h2', { class: 'text-base font-bold' }, 'Lead Sources'),
+      configInfoBtn('Lead Sources',
         'Exclude lead sources from all snapshot reporting (Overview, Geographic, Rep Performance, Waterfall, Inside Sales). ' +
         'Excluded sources — e.g. Miscellaneous — drop out everywhere at once. Counts shown are total subs per source in the current snapshot. ' +
         'The Marketing tab pulls from a separate data source and is unaffected.'),
@@ -22743,12 +22770,12 @@ function reportingSourceConfigPanel() {
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Lead sources appear here after you upload a snapshot.')
       : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '440px', overflowY: 'auto' } },
-          el('table', { class: 'w-full text-sm' },
+          el('table', { class: 'w-full text-xs' },
             el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
               el('tr', {},
-                el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Lead Source'),
-                el('th', { class: 'text-right px-2 py-2.5 font-semibold', style: { width: '90px' } }, 'Subs'),
-                el('th', { class: 'text-center pr-4 pl-2 py-2.5 font-semibold', style: { width: '150px' } }, 'In Reporting'),
+                el('th', { class: 'text-left pl-3 pr-2 py-2 font-semibold' }, 'Lead Source'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Subs'),
+                el('th', { class: 'text-left pr-3 pl-2 py-2 font-semibold' }, 'In Reporting'),
               ),
             ),
             el('tbody', {},
@@ -22777,9 +22804,9 @@ function reportingSourceConfigPanel() {
                   row.style.opacity = nowExcluded ? '0.6' : '1';
                 };
                 row.append(
-                  el('td', { class: 'pl-4 pr-2 py-2 font-medium' }, source),
-                  el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, (counts.get(source) || 0).toLocaleString()),
-                  el('td', { class: 'pr-4 pl-2 py-2 text-center' }, pill),
+                  el('td', { class: 'pl-3 pr-2 py-1.5 font-medium' }, source),
+                  el('td', { class: 'px-2 py-1.5 text-left tabular-nums text-muted-' }, (counts.get(source) || 0).toLocaleString()),
+                  el('td', { class: 'pr-3 pl-2 py-1.5 text-left' }, pill),
                 );
                 return row;
               }),
