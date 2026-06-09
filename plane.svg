@@ -1,4 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 78">
-  <path d="M116,39 L8,9 L40,20 L28,27 L50,33 L34,39 L50,45 L28,51 L40,58 L8,69 Z" fill="#f4eede"/>
-  <path d="M99,36.2 L109,38.4 L103,41 L96,40 Z" fill="#2b3a6b"/>
+  <!-- cartoon flying-wing: chunky dark ink outline, rounded sawtooth, nose right -->
+  <path d="M114 39 L8 12 L38 21 L26 28 L48 33 L34 39 L48 45 L26 50 L38 57 L8 66 Z"
+        fill="#f4eede" stroke="#243056" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- cockpit canopy near the nose, sitting on the centerline -->
+  <path d="M84 36 Q92 34.5 99 38 Q92 41.5 84 41 Z" fill="#2b3a6b" stroke="#243056" stroke-width="1.6" stroke-linejoin="round"/>
+  <!-- canopy glare -->
+  <path d="M87 37.4 Q91 36.7 94 38 Q91 38.7 88 38.6 Z" fill="#cdd6f5"/>
 </svg>
