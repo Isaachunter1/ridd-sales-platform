@@ -10468,22 +10468,32 @@ function springCleaningCompute(sales, branchList) {
     else excluded.push(s);
   }
 
+  // PRA denominator = EVERY D2D rep who made a sale in the branch/window,
+  // even if all their sales are Last Resort or failed audit. A rep with only
+  // a sub-$99 sale still counts against the per-rep average (it SHOULD), so
+  // the rep set is built from the full D2D sale set — not just scored sales.
+  const branchReps = new Map(); // office → Set(rep)
+  for (const s of d2dSales) {
+    const b = s.office || 'UNKNOWN';
+    if (!branchReps.has(b)) branchReps.set(b, new Set());
+    if (s.rep) branchReps.get(b).add(s.rep);
+  }
+
   // Standings count BOTH passed-audit AND pending accounts — we assume a
   // pending account will pass until it's flagged Failed Audit. (Excluded =
-  // failed audit or Last Resort, which never count.)
+  // failed audit or Last Resort, which never count toward revenue/categories.)
   const scored = counting.concat(pending);
-  const seed = (office) => ({ office, revenue: 0, reps: new Set(), n: 0, pestSum: 0, pestCnt: 0, cvSum: 0, cnt24: 0, cntAuto: 0 });
+  const seed = (office) => ({ office, revenue: 0, n: 0, pestSum: 0, pestCnt: 0, cvSum: 0, cnt24: 0, cntAuto: 0 });
   const byBranch = new Map();
   const branches = (branchList && branchList.length)
     ? branchList.slice()
-    : [...new Set(scored.map(s => s.office).filter(Boolean))];
+    : [...new Set(d2dSales.map(s => s.office).filter(Boolean))];
   branches.forEach(b => byBranch.set(b, seed(b)));
   for (const s of scored) {
     const b = s.office || 'UNKNOWN';
     if (!byBranch.has(b)) { byBranch.set(b, seed(b)); branches.push(b); }
     const m = byBranch.get(b);
     m.revenue += Number(s.contractValue) || 0;
-    if (s.rep) m.reps.add(s.rep);
     m.n += 1;
     if (!SC_PEST_EXCLUDE.test(s.subscription || '')) { m.pestSum += Number(s.initialPrice) || 0; m.pestCnt += 1; }
     m.cvSum += Number(s.contractValue) || 0;
@@ -10493,7 +10503,7 @@ function springCleaningCompute(sales, branchList) {
 
   const metrics = branches.map(b => {
     const m = byBranch.get(b);
-    const reps = m.reps.size;
+    const reps = (branchReps.get(b) || new Set()).size;
     return {
       office: b, reps, n: m.n,
       revenue:        m.revenue,
