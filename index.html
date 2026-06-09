@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <meta name="theme-color" content="#FFFFFF" />
 <link rel="manifest" href="manifest.json" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="apple-touch-icon" href="favicon.svg" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <title>RIDD Sales Platform</title>
@@ -202,27 +204,81 @@
      re-render. */
   @keyframes fade { from { opacity:0; } to { opacity:1; } }
 
-  /* Spring Cleaning mascot: walks/sweeps back and forth across the header.
-     He's drawn facing left, so scaleX(-1) faces him right when moving right. */
-  .sc-sweep-track { position:relative; flex:1 1 60px; min-width:70px; height:46px; align-self:stretch; overflow:hidden; }
-  .sc-sweeper {
-    position:absolute; bottom:0; left:0; height:44px; width:auto;
+  /* Spring Cleaning mascot: walks slowly across the header while sweeping.
+     He's drawn facing left, so scaleX(-1) faces him right when moving right.
+     The walker handles the slow glide + flip; the img rocks (broom sweep);
+     dust puffs kick up at the broom head. No vertical bob. */
+  .sc-sweep-track { position:relative; flex:1 1 60px; min-width:72px; height:46px; align-self:stretch; overflow:hidden; }
+  .sc-walker {
+    position:absolute; bottom:0; left:0; width:40px; height:44px;
     transform-origin:center bottom;
-    animation: scWalk 7s ease-in-out infinite, scBob .6s ease-in-out infinite;
+    animation: scWalk 40s ease-in-out infinite;
     will-change:left, transform;
   }
-  @keyframes scWalk {
-    0%        { left:0;                       transform:scaleX(-1); }
-    2%        { left:0;                       transform:scaleX(-1); }
-    48%       { left:calc(100% - 40px);       transform:scaleX(-1); }
-    50%       { left:calc(100% - 40px);       transform:scaleX(1); }
-    52%       { left:calc(100% - 40px);       transform:scaleX(1); }
-    98%       { left:0;                       transform:scaleX(1); }
-    100%      { left:0;                       transform:scaleX(-1); }
+  .sc-walker .sc-sweeper {
+    position:absolute; bottom:0; left:0; height:42px; width:auto; display:block;
+    transform-origin:46% 92%;
+    animation: scSweep 2.6s ease-in-out infinite;
   }
-  @keyframes scBob { 0%,100% { margin-bottom:0; } 50% { margin-bottom:3px; } }
+  .sc-dust { position:absolute; bottom:1px; left:1px; width:16px; height:12px; pointer-events:none; }
+  .sc-dust span {
+    position:absolute; bottom:0; left:0; width:4px; height:4px; border-radius:50%;
+    background: rgba(110,110,98,.5); opacity:0;
+    animation: scDust 2.6s ease-out infinite;
+  }
+  .sc-dust span:nth-child(2) { left:5px;  width:3px;   height:3px;   animation-delay:.87s; }
+  .sc-dust span:nth-child(3) { left:9px;  width:2.5px; height:2.5px; animation-delay:1.73s; }
+  @keyframes scWalk {
+    0%,3%    { left:0;                  transform:scaleX(-1); }
+    47%      { left:calc(100% - 40px);  transform:scaleX(-1); }
+    50%,53%  { left:calc(100% - 40px);  transform:scaleX(1); }
+    97%      { left:0;                  transform:scaleX(1); }
+    100%     { left:0;                  transform:scaleX(-1); }
+  }
+  @keyframes scSweep {
+    0%,100% { transform:rotate(-5deg); }
+    50%     { transform:rotate(3.5deg); }
+  }
+  @keyframes scDust {
+    0%   { opacity:0;  transform:translate(0,0)      scale(.4); }
+    25%  { opacity:.55; }
+    100% { opacity:0;  transform:translate(-8px,-8px) scale(1.4); }
+  }
   @media (prefers-reduced-motion: reduce) {
-    .sc-sweeper { animation:none; left:calc(50% - 20px); transform:scaleX(-1); }
+    .sc-walker { animation:none; left:calc(50% - 20px); transform:scaleX(-1); }
+    .sc-walker .sc-sweeper, .sc-dust span { animation:none; }
+    .sc-dust span { opacity:0; }
+  }
+
+  /* Top Gun mascot: a stealth bomber glides slowly back and forth across the
+     header. Drawn nose-right, so scaleX(-1) faces it left when flying left.
+     The flyer handles the glide + flip; the plane banks gently. */
+  .tg-fly-track { position:relative; flex:1 1 90px; min-width:96px; height:48px; align-self:center; overflow:hidden; }
+  .tg-flyer {
+    position:absolute; top:50%; left:0; width:56px; margin-top:-15px;
+    animation: tgFly 38s ease-in-out infinite;
+    will-change:left, transform;
+  }
+  .tg-flyer .tg-plane {
+    display:block; width:56px; height:auto;
+    transform-origin:center center;
+    animation: tgBank 7s ease-in-out infinite;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
+  }
+  @keyframes tgFly {
+    0%,3%    { left:0;                  transform:scaleX(1); }
+    47%      { left:calc(100% - 56px);  transform:scaleX(1); }
+    50%,53%  { left:calc(100% - 56px);  transform:scaleX(-1); }
+    97%      { left:0;                  transform:scaleX(-1); }
+    100%     { left:0;                  transform:scaleX(1); }
+  }
+  @keyframes tgBank {
+    0%,100% { transform:rotate(-4deg); }
+    50%     { transform:rotate(4deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tg-flyer { animation:none; left:calc(50% - 28px); }
+    .tg-flyer .tg-plane { animation:none; }
   }
 
   /* Goal progress bar track */
@@ -10520,6 +10576,19 @@ function springCleaningCompute(sales, branchList) {
     if (s.rep) branchReps.get(b).add(s.rep);
   }
 
+  // Passed Audit % — measured across EVERY D2D account in the branch (no $99
+  // floor, no last-resort or failed exclusion in the denominator). Numerator =
+  // accounts NOT flagged Failed Audit (passed, no-audit, and pending all count).
+  // Last Resort accounts count by their actual flag, pass or fail.
+  const auditTally = new Map(); // office → { tot, fail }
+  for (const s of d2dSales) {
+    const b = s.office || 'UNKNOWN';
+    if (!auditTally.has(b)) auditTally.set(b, { tot: 0, fail: 0 });
+    const t = auditTally.get(b);
+    t.tot += 1;
+    if (SC_FAIL_RE.test(s.customerFlags || '')) t.fail += 1;
+  }
+
   // Standings count BOTH passed-audit AND pending accounts — we assume a
   // pending account will pass until it's flagged Failed Audit. (Excluded =
   // failed audit or Last Resort, which never count toward revenue/categories.)
@@ -10548,6 +10617,7 @@ function springCleaningCompute(sales, branchList) {
   const metrics = branches.map(b => {
     const m = byBranch.get(b);
     const reps = (branchReps.get(b) || new Set()).size;
+    const at = auditTally.get(b) || { tot: 0, fail: 0 };
     return {
       office: b, reps, n: m.n,
       revenue:        m.revenue,
@@ -10556,6 +10626,8 @@ function springCleaningCompute(sales, branchList) {
       acv:            m.n > 0 ? m.cvSum / m.n : 0,
       pct24:          m.n24denom > 0 ? m.cnt24 / m.n24denom : 0,
       autopayPct:     m.n > 0 ? m.cntAuto / m.n : 0,
+      auditPct:       at.tot > 0 ? (at.tot - at.fail) / at.tot : 0,
+      auditTot:       at.tot,
     };
   });
 
@@ -10712,10 +10784,11 @@ function openSpringCleaningHelpModal() {
 function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
   const { ranked, excludedSummary, pendingSummary } = springCleaningCompute(sales, branchList);
   const usd = (v) => '$' + Math.round(v).toLocaleString();
+  const usd2 = (v) => '$' + (Number(v) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const pct = (v) => (v * 100).toFixed(1) + '%';
   const catDefs = [
     { key: 'revenue',        label: 'Revenue',       fmt: usd },
-    { key: 'avgPestInitial', label: 'Avg Pest Init', fmt: usd },
+    { key: 'avgPestInitial', label: 'Avg Pest Init', fmt: usd2 },
     { key: 'pra',            label: 'PRA',           fmt: usd },
     { key: 'acv',            label: 'ACV',           fmt: usd },
     { key: 'pct24',          label: '24+ Mo %',      fmt: pct },
@@ -10749,7 +10822,10 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
             'Team Quality Based Competition by RIDDMADE™'),
         ),
         el('div', { class: 'sc-sweep-track', title: 'Sweepin\' up' },
-          el('img', { src: 'sweeper.png', class: 'sc-sweeper', alt: 'sweeping mascot', draggable: 'false' }),
+          el('div', { class: 'sc-walker' },
+            el('img', { src: 'sweeper.png', class: 'sc-sweeper', alt: 'sweeping mascot', draggable: 'false' }),
+            el('div', { class: 'sc-dust' }, el('span', {}), el('span', {}), el('span', {})),
+          ),
         ),
         el('div', { class: 'flex items-center gap-2 shrink-0' },
           el('button', {
@@ -10784,6 +10860,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
           el('tr', {},
             el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Branch'),
             ...catDefs.map(d => el('th', { class: 'text-left px-2 py-2.5 font-bold' }, d.label)),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Passed Audit %: passed + no-audit + pending ÷ all accounts (incl. failed audit & last resort)' }, 'Audit %'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Total'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Place'),
             el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Bugs'),
@@ -10795,9 +10872,10 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
             style: { borderColor: 'var(--border)', background: i % 2 ? 'rgba(27,94,32,0.04)' : 'transparent' },
           },
             el('td', { class: 'px-3 py-2 font-bold whitespace-nowrap' },
-              el('span', { style: { color: m.place <= 3 ? '#1b5e20' : 'var(--text)' } }, m.office),
+              el('span', { style: { color: 'var(--text)' } }, m.office),
               el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, '· ' + m.reps + ' reps · ' + m.n + ' accts')),
             ...catDefs.map(d => catCell(m, d)),
+            el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap font-semibold' }, pct(m.auditPct)),
             el('td', { class: 'px-2 py-2 text-left tabular-nums font-black' }, m.totalPoints),
             el('td', { class: 'px-2 py-2 text-left tabular-nums font-bold' }, m.place),
             el('td', { class: 'px-3 py-2 text-left' }, bugBadge(m.bugs)),
@@ -10950,17 +11028,22 @@ function indicatorTopGunBoard(sales, proSet) {
 
   return el('div', { class: 'card overflow-hidden', style: { background: CREAM } },
     el('div', { style: { background: BLUE, padding: '16px 18px' } },
-      el('div', { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' } },
-        el('div', { style: { fontWeight: '900', fontSize: '40px', lineHeight: '0.9', color: CREAM, letterSpacing: '0.04em', fontFamily: 'Georgia, serif' } }, 'TOP GUN'),
-        el('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' } },
-          el('button', {
-            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
-            style: { background: CREAM, color: BLUE },
-            title: 'Export Top Gun (Standings + all accounts by class)',
-            onclick: () => exportTopGunXlsx(sales, proSet),
-          }, '↓ Export'),
-          el('div', { style: { fontWeight: '800', fontSize: '11px', color: CREAM, letterSpacing: '0.14em', whiteSpace: 'nowrap' } }, 'RIDDMADE   ★ ★ ★'),
+      el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' } },
+        el('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '14px' } },
+          el('div', { style: { fontWeight: '900', fontSize: '40px', lineHeight: '0.9', color: CREAM, letterSpacing: '0.04em', fontFamily: 'Georgia, serif' } }, 'TOP GUN'),
+          el('div', { style: { fontWeight: '800', fontSize: '11px', color: CREAM, letterSpacing: '0.14em', whiteSpace: 'nowrap', marginBottom: '5px' } }, 'RIDDMADE   ★ ★ ★'),
         ),
+        el('div', { class: 'tg-fly-track', title: 'On patrol' },
+          el('div', { class: 'tg-flyer' },
+            el('img', { src: 'plane.svg', class: 'tg-plane', alt: 'stealth bomber', draggable: 'false' }),
+          ),
+        ),
+        el('button', {
+          class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95 shrink-0',
+          style: { background: CREAM, color: BLUE },
+          title: 'Export Top Gun (Standings + all accounts by class)',
+          onclick: () => exportTopGunXlsx(sales, proSet),
+        }, '↓ Export'),
       ),
       el('div', { style: { fontSize: '11px', color: CREAM, opacity: '0.92', marginTop: '10px', maxWidth: '860px', lineHeight: '1.5' } },
         'Each class pays its top 3 producers. Production = Total Revenue (Passed + Pending Audit · Contract Value). PROS = the top 7 Vet reps by revenue on the year. Veterans & Rookies = the rest, by their Rookie/Vet tier in Manage Teams. Only audit-passed accounts count.'),
@@ -12828,6 +12911,7 @@ function viewIndicators() {
         // sits directly above the table's RIDD column.
         el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
           el('div', {},
+          el('div', { class: 'flex items-baseline gap-2 flex-wrap' },
           el('h1', { class: 'text-lg font-bold' }, (() => {
             if (!isRange) return 'INDICATORS';
             const presetLabel = (INDICATOR_RANGE_PRESETS.find(p => p.id === state.indicatorsRangePreset) || {}).label || 'Range';
@@ -12839,6 +12923,7 @@ function viewIndicators() {
           !isRange && dateLabel && el('div', { class: 'text-xs text-muted-' }, dateLabel),
           isRange && el('div', { class: 'text-xs text-muted-' },
             rangeBounds.start + ' → ' + rangeBounds.end + ' · ' + weeks.length + ' week' + (weeks.length === 1 ? '' : 's')),
+          ), // close inline title + date row
           state.indicatorsUploadedAt && el('div', { class: 'text-[11px] text-muted- mt-0.5' },
             'Last upload: ',
             el('span', { class: 'font-semibold', style: { color: 'var(--text)' } },
@@ -13904,14 +13989,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 
   // ── Card 1: Avg Pest Initial — ALL qualifying reps (6+ accounts), ranked. ──
   const avgInitialCard = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
+    el('div', { class: 'px-5 py-3', style: { background: '#2f5e1c' } },
       el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-base font-bold' }, '🏆 Avg Pest Initial'),
-          el('p', { class: 'text-[10px] text-muted- mt-0.5' },
+          el('h3', { class: 'text-base font-black', style: { color: '#f7f7f2', letterSpacing: '0.02em', textTransform: 'uppercase' } }, '🏆 Avg Pest Initial'),
+          el('p', { class: 'text-[10px] mt-0.5', style: { color: '#dbe7cf', maxWidth: '460px' } },
             'Every rep with 6+ qualifying accounts, ranked by Avg Initial. Sentricon / German Roach / Interior Flea don\'t count. Post-service cancels still count once the initial ran.'),
         ),
-        el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export top-5 avg pest initial sales', onclick: exportAvgPestCsv }, '↓ Export'),
+        el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95 shrink-0', style: { background: '#8DC63F', color: '#1D1D1D' }, title: 'Export top-5 avg pest initial sales', onclick: exportAvgPestCsv }, '↓ Export'),
       ),
     ),
     rankedByPest.length === 0
@@ -13919,8 +14004,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       : el('div', { class: 'scroll-x', style: { maxHeight: '320px', overflowY: 'auto' } },
           el('table', { class: 'w-full text-[12px]' },
             el('thead', {
-              class: 'text-[9px] uppercase tracking-wider text-muted-',
-              style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
+              class: 'text-[9px] uppercase tracking-wider',
+              style: { position: 'sticky', top: '0', background: '#2f5e1c', color: '#fff', zIndex: 1 },
             },
               el('tr', {},
                 el('th', { class: 'text-left pl-5 pr-2 py-2 w-8' }, '#'),
@@ -13931,10 +14016,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             ),
             el('tbody', {},
               ...rankedByPest.map((r, i) => el('tr', { class: 'border-t border-' },
-                el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: 'var(--accent)' } : {} }, i + 1),
+                el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: '#8DC63F' } : {} }, i + 1),
                 el('td', { class: 'px-2 py-2 font-semibold' }, r.name),
                 el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, fmt.int(r.count)),
-                el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums font-black', style: i === 0 ? { color: 'var(--accent)' } : {} }, fmt.usd(r.avgPest)),
+                el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums font-black', style: i === 0 ? { color: '#8DC63F' } : {} }, fmt.usd(r.avgPest)),
               )),
             ),
           ),
@@ -13943,19 +14028,19 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 
   // ── Card 2: Raffle Tickets — all reps with tickets, ranked by total. ──
   const raffleCard = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+    el('div', { class: 'px-5 py-3 flex items-start justify-between gap-3 flex-wrap', style: { background: '#2f5e1c' } },
       el('div', {},
-        el('h3', { class: 'text-base font-bold' }, '🎟️ Raffle Tickets'),
-        el('p', { class: 'text-[10px] text-muted- mt-0.5' },
+        el('h3', { class: 'text-base font-black', style: { color: '#f7f7f2', letterSpacing: '0.02em', textTransform: 'uppercase' } }, '🎟️ Raffle Tickets'),
+        el('p', { class: 'text-[10px] mt-0.5', style: { color: '#dbe7cf', maxWidth: '460px' } },
           '$149–199 → 1 · $200–249 → 2 · $250+ → 3 · active accounts only · Sentricon / German Roach / Interior Flea excluded'),
       ),
       el('div', { class: 'flex items-center gap-3' },
         el('div', { class: 'text-right' },
-          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Entries'),
-          el('div', { class: 'text-xl font-black tabular-nums', style: { color: 'var(--accent)' } }, fmt.int(raffleTotalTickets)),
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: '#dbe7cf' } }, 'Entries'),
+          el('div', { class: 'text-xl font-black tabular-nums', style: { color: '#8DC63F' } }, fmt.int(raffleTotalTickets)),
         ),
-        el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, title: 'Spin a wheel to pick a winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
-        el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export raffle tickets', onclick: () => exportRaffleCsv() }, '↓ Export'),
+        el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: '#8DC63F', color: '#1D1D1D' }, title: 'Spin a wheel to pick a winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
+        el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'rgba(247,247,242,0.5)', color: '#f7f7f2' }, title: 'Export raffle tickets', onclick: () => exportRaffleCsv() }, '↓ Export'),
       ),
     ),
     raffleSorted.length === 0
@@ -13963,8 +14048,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       : el('div', { class: 'scroll-x', style: { maxHeight: '320px', overflowY: 'auto' } },
           el('table', { class: 'w-full text-[12px]' },
             el('thead', {
-              class: 'text-[9px] uppercase tracking-wider text-muted-',
-              style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
+              class: 'text-[9px] uppercase tracking-wider',
+              style: { position: 'sticky', top: '0', background: '#2f5e1c', color: '#fff', zIndex: 1 },
             },
               el('tr', {},
                 el('th', { class: 'text-left pl-5 pr-2 py-2 w-8' }, '#'),
@@ -13977,12 +14062,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             ),
             el('tbody', {},
               ...raffleSorted.map((r, i) => el('tr', { class: 'border-t border-' },
-                el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: 'var(--accent)' } : {} }, i + 1),
+                el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: '#8DC63F' } : {} }, i + 1),
                 el('td', { class: 'px-2 py-2 font-semibold' }, r.name),
                 el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, r.tier1 ? fmt.int(r.tier1) : '—'),
                 el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, r.tier2 ? fmt.int(r.tier2) : '—'),
                 el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, r.tier3 ? fmt.int(r.tier3) : '—'),
-                el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums font-black', style: { color: 'var(--accent)' } }, fmt.int(r.total)),
+                el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums font-black', style: { color: '#8DC63F' } }, fmt.int(r.total)),
               )),
             ),
           ),
@@ -14087,11 +14172,22 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // tables so it's clear the filter only applies to those two.
     return el('div', {
       'data-section': 'd2d-comp',
-      class: 'rounded-xl border p-3',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' },
+      class: 'rounded-xl border overflow-hidden',
+      style: { borderColor: '#8DC63F', background: 'var(--card-2)' },
     },
+      // Spanning banner that unifies both scoped tables under one competition
+      // heading while keeping the two cards visually separate below it.
+      el('div', { style: { background: '#8DC63F', padding: '12px 16px', borderBottom: '3px solid #2f5e1c' } },
+        el('div', { class: 'flex items-center gap-3' },
+          el('div', { style: { fontSize: '26px', lineHeight: '1' } }, '🏆'),
+          el('div', {},
+            el('div', { style: { fontWeight: '900', fontSize: '20px', letterSpacing: '-0.01em', color: '#1D1D1D', textTransform: 'uppercase', lineHeight: '1' } }, 'Avg Pest Initial Competitions'),
+            el('div', { style: { fontWeight: '800', fontSize: '10px', letterSpacing: '0.08em', color: '#1D1D1D', opacity: '0.8', marginTop: '3px', textTransform: 'uppercase' } }, 'Door-to-Door · by RIDDMADE™'),
+          ),
+        ),
+      ),
       // Date window now lives in the shared Comp Window bar at the top.
-      el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-3' }, avgInitialCard, raffleCard),
+      el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-3 p-3' }, avgInitialCard, raffleCard),
     );
   }
 
