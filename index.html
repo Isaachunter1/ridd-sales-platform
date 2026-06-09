@@ -10342,8 +10342,10 @@ function setRepTeam(repName, team) {
 // while Comps mode is on. Seeded with Top Gun + Spring Cleaning, inheriting
 // any legacy global exclusions so nothing that was hidden becomes visible.
 const DEFAULT_COMPETITIONS = [
-  { id: 'top_gun',        name: 'Top Gun' },
-  { id: 'spring_cleaning', name: 'Spring Cleaning', scoring: 'spring_cleaning' },
+  { id: 'top_gun',          name: 'Top Gun' },
+  { id: 'spring_cleaning',  name: 'Spring Cleaning',  scoring: 'spring_cleaning' },
+  { id: 'avg_pest_initial', name: 'Avg Pest Initial', scoring: 'avg_pest_initial' },
+  { id: 'raffle',           name: 'Raffle Tickets',   scoring: 'raffle' },
 ];
 function getIndicatorCompetitions() {
   if (!Array.isArray(state._indicatorCompetitions) || state._indicatorCompetitions.length === 0) {
@@ -10352,6 +10354,15 @@ function getIndicatorCompetitions() {
       : [REP_EXCLUDED_TEAM];
     state._indicatorCompetitions = DEFAULT_COMPETITIONS.map(c => ({ ...c, excludedTeams: legacy.slice() }));
   }
+  // Heal: make sure the built-in scoring competitions exist even on configs
+  // saved before they were added (e.g. Avg Pest Initial, Raffle Tickets), and
+  // backfill the scoring tag on any built-in that's missing it.
+  const byId = new Map(state._indicatorCompetitions.map(c => [c.id, c]));
+  DEFAULT_COMPETITIONS.forEach(d => {
+    const existing = byId.get(d.id);
+    if (!existing) state._indicatorCompetitions.push({ ...d, excludedTeams: [REP_EXCLUDED_TEAM] });
+    else if (d.scoring && !existing.scoring) existing.scoring = d.scoring;
+  });
   // Defensive: every competition must carry an excludedTeams array.
   state._indicatorCompetitions.forEach(c => { if (!Array.isArray(c.excludedTeams)) c.excludedTeams = [REP_EXCLUDED_TEAM]; });
   return state._indicatorCompetitions;
@@ -13316,7 +13327,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // ── D2D Comp section is built inside a closure so we can swap just THIS
   // chunk of the DOM when the date inputs change, instead of triggering a
   // full mountApp() that re-renders Chart.js canvases (which flicker).
+  // `d2dCompMode` controls which card(s) render: 'pest', 'raffle', or 'both'.
+  // It's a closure var so replaceD2DCompSection() (date-change swap) keeps the
+  // same mode without needing the arg threaded through.
+  let d2dCompMode = 'both';
   function buildD2DCompSection() {
+    const which = d2dCompMode;
     const compBounds = (cf.start && cf.end)
       ? { start: new Date(cf.start + 'T00:00'), end: new Date(cf.end + 'T23:59') }
       : null;
@@ -13740,9 +13756,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' },
     },
       compFilterBar,
-      el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-3' },
-        avgInitialCard,
-        raffleCard,
+      el('div', { class: which === 'both' ? 'grid grid-cols-1 md:grid-cols-2 gap-3' : 'grid grid-cols-1 gap-3' },
+        (which === 'both' || which === 'pest')   && avgInitialCard,
+        (which === 'both' || which === 'raffle') && raffleCard,
       ),
     );
   }
@@ -15078,7 +15094,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // D2D Comp + Aggregate Records pushed here so the trend chart and rep
   // leaderboard sit immediately under the Branch Power Ranking chart at
   // the top of the page; these comp / records cards land below them.
-  sections.push(buildD2DCompSection());
+  // The Avg Pest Initial + Raffle mini-comps now live behind the Comps
+  // selector: each shows only when its competition is the active one. With
+  // Comps off, neither shows.
+  if (state.indicatorsComps) {
+    const activeScoring = getActiveComp().scoring || '';
+    if (activeScoring === 'avg_pest_initial') { d2dCompMode = 'pest';   sections.push(buildD2DCompSection()); }
+    else if (activeScoring === 'raffle')       { d2dCompMode = 'raffle'; sections.push(buildD2DCompSection()); }
+  }
   sections.push(buildAggregateRecordsCard());
 
   // ── 3. CANCEL ANALYSIS ──
