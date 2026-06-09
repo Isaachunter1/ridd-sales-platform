@@ -10602,20 +10602,44 @@ function indicatorSpringCleaningBoard(sales, branchList) {
   const catCell = (m, def) => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
     def.fmt(m[def.key]), placeBadge(m.places[def.key]));
 
-  return el('div', { class: 'card overflow-hidden', style: { borderLeft: '3px solid #34C759' } },
-    el('div', { class: 'p-3 flex items-baseline justify-between gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
-      el('div', {},
-        el('div', { class: 'text-sm font-bold flex items-center gap-2' }, '🧹 Spring Cleaning — Standings',
-          el('button', {
-            class: 'inline-flex items-center justify-center rounded-full text-[10px] font-bold cursor-pointer',
-            style: { width: '16px', height: '16px', background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
-            title: 'How each metric is tracked',
-            onclick: () => openSpringCleaningHelpModal(),
-          }, 'ⓘ'),
+  // Green gradient for the bug count (0 → 6), echoing the Spring Cleaning poster.
+  const BUG_COLORS = ['#b8bdc2', '#cddc39', '#9ccc65', '#66bb6a', '#43a047', '#2e7d32', '#1b5e20'];
+  const bugBadge = (bugs) => el('span', {
+    style: { display: 'inline-block', minWidth: '30px', textAlign: 'center', padding: '2px 9px', borderRadius: '999px',
+      background: BUG_COLORS[Math.max(0, Math.min(6, bugs))], color: '#fff', fontWeight: '900', fontSize: '12px' },
+  }, String(bugs));
+  // 4-round cumulative RIDDCOIN reward tiers (matches the poster's bug-count bars).
+  const COIN_TIERS = [
+    { bugs: 12, coin: '®50K',  color: '#cddc39' },
+    { bugs: 16, coin: '®100K', color: '#9ccc65' },
+    { bugs: 20, coin: '®200K', color: '#43a047' },
+    { bugs: 24, coin: '®300K', color: '#1b5e20' },
+  ];
+
+  return el('div', { class: 'card overflow-hidden' },
+    // ── Poster-style banner header ──
+    el('div', { style: { background: '#E7E7DF', padding: '14px 16px', borderBottom: '3px solid #1b5e20' } },
+      el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
+        el('div', { class: 'flex items-center gap-3' },
+          el('div', { style: { fontSize: '38px', lineHeight: '1' } }, '🧹'),
+          el('div', {},
+            el('div', { style: { fontWeight: '900', fontSize: '30px', letterSpacing: '-0.02em', color: '#141414', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
+            el('div', { style: { fontWeight: '800', fontSize: '10.5px', letterSpacing: '0.06em', color: '#141414', marginTop: '3px', textTransform: 'uppercase' } },
+              'Team Quality Based Competition by RIDDMADE™'),
+          ),
         ),
-        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
-          'Golf scoring: place in each category = points, lowest total wins. Bugs = 1st:6 · 2nd:5 · 3rd:4 · 4th:3 · 5th:2 · 6th:1 · 7th:0. Use the date filter above to set the round.'),
+        el('button', {
+          class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer',
+          style: { width: '22px', height: '22px', background: '#141414', color: '#fff' },
+          title: 'How each metric is tracked',
+          onclick: () => openSpringCleaningHelpModal(),
+        }, 'ⓘ'),
       ),
+    ),
+    // Scoring sub-line + live exclusion/pending callouts.
+    el('div', { class: 'px-3 py-2 flex items-baseline justify-between gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
+      el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
+        'Golf scoring: place in each category = points, lowest total wins. Use the date filter above to set the round.'),
       el('div', { class: 'text-[11px] text-right flex flex-col gap-0.5' },
         el('div', { style: { color: '#DC2626' } },
           '⚠ ' + excludedSummary.count.toLocaleString() + ' not counting · ' + usd(excludedSummary.revenue) + ' excluded'),
@@ -10625,32 +10649,44 @@ function indicatorSpringCleaningBoard(sales, branchList) {
     ),
     el('div', { class: 'overflow-x-auto' },
       el('table', { class: 'w-full text-xs' },
-        el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#1b5e20', color: '#fff' } },
           el('tr', {},
-            el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Branch'),
-            ...catDefs.map(d => el('th', { class: 'text-left px-2 py-2 font-semibold' }, d.label)),
-            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Total'),
-            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Place'),
-            el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Bugs'),
+            el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Branch'),
+            ...catDefs.map(d => el('th', { class: 'text-left px-2 py-2.5 font-bold' }, d.label)),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Total'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Place'),
+            el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Bugs'),
           ),
         ),
         el('tbody', {},
-          ...ranked.map(m => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-            el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, m.office,
+          ...ranked.map((m, i) => el('tr', {
+            class: 'border-t',
+            style: { borderColor: 'var(--border)', background: i % 2 ? 'rgba(27,94,32,0.04)' : 'transparent' },
+          },
+            el('td', { class: 'px-3 py-2 font-bold whitespace-nowrap' },
+              el('span', { style: { color: m.place <= 3 ? '#1b5e20' : 'var(--text)' } }, m.office),
               el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, '· ' + m.reps + ' reps · ' + m.n + ' accts')),
             ...catDefs.map(d => catCell(m, d)),
-            el('td', { class: 'px-2 py-2 text-left tabular-nums font-bold' }, m.totalPoints),
+            el('td', { class: 'px-2 py-2 text-left tabular-nums font-black' }, m.totalPoints),
             el('td', { class: 'px-2 py-2 text-left tabular-nums font-bold' }, m.place),
-            el('td', { class: 'px-3 py-2 text-left tabular-nums font-black', style: { color: '#16a34a' } }, m.bugs),
+            el('td', { class: 'px-3 py-2 text-left' }, bugBadge(m.bugs)),
           )),
         ),
       ),
+    ),
+    // RIDDCOIN reward legend (4-round cumulative bug totals).
+    el('div', { class: 'px-3 py-2.5 flex items-center gap-x-3 gap-y-1.5 flex-wrap text-[11px]', style: { borderTop: '1px solid var(--border)' } },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, '🐛 4-round reward'),
+      ...COIN_TIERS.map(t => el('span', { class: 'inline-flex items-center gap-1.5' },
+        el('span', { style: { display: 'inline-block', width: '26px', textAlign: 'center', padding: '1px 0', borderRadius: '4px', background: t.color, color: '#fff', fontWeight: '900', fontSize: '10px' } }, String(t.bugs)),
+        el('span', { style: { color: 'var(--text-muted)', fontWeight: '700' } }, '= ' + t.coin + '/rep'),
+      )),
     ),
     (excludedSummary.count > 0 || pendingSummary.count > 0) && el('div', { class: 'p-2.5 text-[11px]', style: { color: 'var(--text-muted)', borderTop: '1px solid var(--border)' } },
       'Excluded: ' + excludedSummary.lastResort.toLocaleString() + ' Last Resort (<$99), '
         + excludedSummary.failedAudit.toLocaleString() + ' failed audit. '
         + 'Pending (counted, assumed passing): ' + pendingSummary.count.toLocaleString() + ' (' + usd(pendingSummary.revenue) + '). '
-        + 'Full lists are in the .xlsx export (Excluded + Pending sheets).'),
+        + 'Full lists are in the .xlsx export (Failed Audit + Last Resort + Pending sheets).'),
   );
 }
 
