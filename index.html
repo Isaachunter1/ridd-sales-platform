@@ -10548,7 +10548,7 @@ function indicatorSpringCleaningBoard(sales, branchList) {
     { key: 'autopayPct',     label: 'Autopay %',     fmt: pct },
   ];
   const placeBadge = (p) => el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, '(' + p + ')');
-  const catCell = (m, def) => el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap' },
+  const catCell = (m, def) => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
     def.fmt(m[def.key]), placeBadge(m.places[def.key]));
 
   return el('div', { class: 'card overflow-hidden', style: { borderLeft: '3px solid #34C759' } },
@@ -10570,10 +10570,10 @@ function indicatorSpringCleaningBoard(sales, branchList) {
         el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
           el('tr', {},
             el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Branch'),
-            ...catDefs.map(d => el('th', { class: 'text-right px-2 py-2 font-semibold' }, d.label)),
-            el('th', { class: 'text-right px-2 py-2 font-semibold' }, 'Total'),
-            el('th', { class: 'text-right px-2 py-2 font-semibold' }, 'Place'),
-            el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Bugs'),
+            ...catDefs.map(d => el('th', { class: 'text-left px-2 py-2 font-semibold' }, d.label)),
+            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Total'),
+            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Place'),
+            el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Bugs'),
           ),
         ),
         el('tbody', {},
@@ -10581,9 +10581,9 @@ function indicatorSpringCleaningBoard(sales, branchList) {
             el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, m.office,
               el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, '· ' + m.reps + ' reps · ' + m.n + ' accts')),
             ...catDefs.map(d => catCell(m, d)),
-            el('td', { class: 'px-2 py-2 text-right tabular-nums font-bold' }, m.totalPoints),
-            el('td', { class: 'px-2 py-2 text-right tabular-nums font-bold' }, m.place),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums font-black', style: { color: '#16a34a' } }, m.bugs),
+            el('td', { class: 'px-2 py-2 text-left tabular-nums font-bold' }, m.totalPoints),
+            el('td', { class: 'px-2 py-2 text-left tabular-nums font-bold' }, m.place),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums font-black', style: { color: '#16a34a' } }, m.bugs),
           )),
         ),
       ),
