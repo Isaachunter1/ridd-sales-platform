@@ -10123,7 +10123,7 @@ function indicatorRangeBounds(preset, custom) {
     case 'last_week':  { const ws = startOfWeek(today); ws.setDate(ws.getDate() - 7); const we = new Date(ws); we.setDate(we.getDate() + 6); return { start: iso(ws), end: iso(we) }; }
     case 'this_month': { const ms = new Date(year, today.getMonth(), 1); return { start: iso(ms), end: todayIso }; }
     case 'last_month': { const ms = new Date(year, today.getMonth() - 1, 1); const me = new Date(year, today.getMonth(), 0); return { start: iso(ms), end: iso(me) }; }
-    case 'custom':     return { start: custom?.start || `${year}-01-01`, end: custom?.end || todayIso };
+    case 'custom':     { const ws = startOfWeek(today); return { start: custom?.start || iso(ws), end: custom?.end || todayIso }; }
     case 'this_year':
     default:           return { start: `${year}-01-01`, end: todayIso };
   }
@@ -12137,7 +12137,17 @@ function viewIndicators() {
         // Range preset (range view only)
         isRange && el('select', {
           class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
-          onchange: e => { state.indicatorsRangePreset = e.target.value; mountApp(); },
+          onchange: e => {
+            state.indicatorsRangePreset = e.target.value;
+            // Selecting Custom pre-fills the pickers with THIS WEEK's range as
+            // the starting point (instead of Jan 1 → today).
+            if (e.target.value === 'custom') {
+              const wk = indicatorRangeBounds('this_week');
+              state.indicatorsCustomStart = wk.start;
+              state.indicatorsCustomEnd   = wk.end;
+            }
+            mountApp();
+          },
         },
           ...INDICATOR_RANGE_PRESETS.map(p => el('option', {
             value: p.id, selected: state.indicatorsRangePreset === p.id,
