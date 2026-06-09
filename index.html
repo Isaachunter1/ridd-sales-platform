@@ -12626,11 +12626,34 @@ function viewIndicators() {
       );
     })() : null),
 
+    // ── Comp window — shown whenever Comps is on. Sets the date range for the
+    // selected competition (Spring Cleaning round, Avg Pest & Raffle window). ──
+    (state.indicatorsComps ? (() => {
+      const cf = state._indicatorCompFilter || (state._indicatorCompFilter = { start: '', end: '' });
+      const apply = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
+      const dateInput = (key) => el('input', {
+        type: 'date', value: cf[key] || '',
+        class: 'rounded border px-2 py-1 text-xs',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        onchange: (e) => { cf[key] = e.target.value; apply(); },
+      });
+      return el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid #34C759' } },
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, '📅 Comp Window'),
+        dateInput('start'),
+        el('span', { class: 'text-muted-' }, '→'),
+        dateInput('end'),
+        el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '· date range for the selected competition'),
+      );
+    })() : null),
+
     // ── Spring Cleaning scoreboard — when that competition is active. Uses
-    // the current date filter as the round window. ──
+    // the Comp Window above as the round. ──
     (state.indicatorsComps && isSpringCleaningComp() ? (() => {
-      const weeksInScope = isRange ? new Set(data.map(r => r.week)) : new Set([currentWeek]);
-      const windowed = (state._indicatorRawSales || []).filter(s => weeksInScope.has(s.week));
+      const cf = state._indicatorCompFilter || {};
+      const bounds = (cf.start && cf.end) ? { s: new Date(cf.start + 'T00:00'), e: new Date(cf.end + 'T23:59') } : null;
+      const windowed = bounds
+        ? (state._indicatorRawSales || []).filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
+        : (state._indicatorRawSales || []);
       // Spring Cleaning is always branch (office) level and D2D-only, regardless
       // of the app's Branch/Teams toggle.
       const offices = [...new Set(windowed.filter(s => _indicatorDeptOf(s) === 'd2d').map(s => s.office).filter(Boolean))];
@@ -13735,7 +13758,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       class: 'rounded-xl border p-3',
       style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' },
     },
-      compFilterBar,
+      // Date window now lives in the shared Comp Window bar at the top.
       el('div', { class: 'grid grid-cols-1 gap-3' }, avgInitialCard),
     );
   }
