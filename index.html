@@ -10417,6 +10417,9 @@ const SC_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
 // trip the audit gate.
 const SC_PASS_RE = /passed\s*audit/i;
 const SC_FAIL_RE = /failed\s*audit/i;
+// "No Audit" = the account doesn't require auditing → treat as passed (counts).
+const SC_NOAUDIT_RE = /no\s*audit/i;
+const scAuditPassed = (flags) => SC_PASS_RE.test(flags || '') || SC_NOAUDIT_RE.test(flags || '');
 function springCleaningHasPayment(s) {
   const v = String(s.autoPay || '').trim().toLowerCase();
   return v !== '' && v !== 'no' && v !== 'none' && v !== '0' && v !== 'n' && v !== 'false';
@@ -10428,14 +10431,14 @@ function springCleaningHasPayment(s) {
 //   'counting' — clears the floor AND is flagged pass
 function springCleaningStatus(s) {
   if ((Number(s.initialPrice) || 0) < 99) return 'excluded';
-  if (SC_PASS_RE.test(s.customerFlags || '')) return 'counting';
+  if (scAuditPassed(s.customerFlags)) return 'counting';        // Passed Audit OR No Audit
   if (SC_FAIL_RE.test(s.customerFlags || '')) return 'excluded';
   return 'pending';
 }
 function springCleaningReason(s) {
   if ((Number(s.initialPrice) || 0) < 99) return 'Last Resort (<$99 initial)';
   if (SC_FAIL_RE.test(s.customerFlags || '')) return 'Failed audit';
-  if (!SC_PASS_RE.test(s.customerFlags || '')) return 'Awaiting audit';
+  if (!scAuditPassed(s.customerFlags)) return 'Awaiting audit';
   return '';
 }
 function springCleaningCounts(s) {
@@ -12263,17 +12266,23 @@ function viewIndicators() {
                       numOrBlank0(s.contract), s.autoPay || '', s.customerFlags || '',
                     ];
                     const counting = [acctHeader, ...sc.counting.map(acctRow)];
-                    const excluded = [['Reason', ...acctHeader], ...sc.excluded.map(s => [springCleaningReason(s), ...acctRow(s)])];
                     const pending  = [acctHeader, ...sc.pending.map(acctRow)];
+                    // Split excluded into its two reasons, each on its own sheet.
+                    const lastResortRows = sc.excluded.filter(s => (Number(s.initialPrice) || 0) < 99);
+                    const failedAuditRows = sc.excluded.filter(s => (Number(s.initialPrice) || 0) >= 99);
+                    const failedAudit = [acctHeader, ...failedAuditRows.map(acctRow)];
+                    const lastResort  = [acctHeader, ...lastResortRows.map(acctRow)];
 
                     const wbS = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(st), 'Standings');
                     XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(counting), 'Counting Accounts');
                     XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(pending), 'Pending Accounts');
-                    XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(excluded), 'Excluded Accounts');
+                    XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(failedAudit), 'Failed Audit');
+                    XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(lastResort), 'Last Resort');
                     XLSX.writeFile(wbS, 'RIDD-Spring-Cleaning-' + new Date().toISOString().slice(0, 10) + '.xlsx');
                     toast('Exported Spring Cleaning — ' + sc.counting.length.toLocaleString() + ' counting, '
-                      + sc.pending.length.toLocaleString() + ' pending, ' + sc.excluded.length.toLocaleString() + ' excluded', 'success');
+                      + sc.pending.length.toLocaleString() + ' pending, ' + failedAuditRows.length.toLocaleString() + ' failed audit, '
+                      + lastResortRows.length.toLocaleString() + ' last resort', 'success');
                     return;
                   }
 
