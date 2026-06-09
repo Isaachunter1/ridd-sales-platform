@@ -10982,6 +10982,39 @@ function topGunCompute(windowedSales, proSet) {
   return { rookie, vet, pro, none };
 }
 
+// Rules popup for Top Gun (the header ⓘ next to Export).
+function openTopGunHelpModal() {
+  const BLUE = '#2b3a6b', CREAM = '#f4eede';
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  const block = (title, body) => el('div', { class: 'mb-3' },
+    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: BLUE } }, title),
+    el('div', { class: 'text-[13px] leading-relaxed', style: { color: 'var(--text-muted)' } }, body));
+
+  const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: BLUE } },
+      el('div', {},
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: CREAM, opacity: '0.8' } }, 'RIDDMADE ★ ★ ★'),
+        el('h2', { class: 'text-lg font-black mt-0.5', style: { color: CREAM, textTransform: 'uppercase', fontFamily: 'Georgia, serif' } }, 'Top Gun — Rules'),
+      ),
+      el('button', { class: 'text-2xl leading-none', style: { color: CREAM }, onclick: close }, '×'),
+    ),
+    el('div', { class: 'overflow-auto px-5 py-4' },
+      block('Payouts', 'Each class pays its top 3 producers (®1,000,000 / ®500,000 / ®300,000).'),
+      block('Production', 'Production = Total Revenue (Passed + Pending Audit · Contract Value).'),
+      block('Pros', 'PROS = the top 7 Vet reps by revenue on the year.'),
+      block('Veterans & Rookies', 'The rest of the reps, split by their Rookie/Vet tier in Manage Teams.'),
+      block('Eligibility', 'Only audit-passed accounts count toward the competition.'),
+    ),
+  );
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
 function indicatorTopGunBoard(sales, proSet) {
   const RED = '#be3a2b', BLUE = '#2b3a6b', CREAM = '#f4eede';
   const classes = topGunCompute(sales, proSet);
@@ -11065,15 +11098,21 @@ function indicatorTopGunBoard(sales, proSet) {
             el('img', { src: 'plane.svg', class: 'tg-plane', alt: 'stealth bomber', draggable: 'false' }),
           ),
         ),
-        el('button', {
-          class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95 shrink-0',
-          style: { background: CREAM, color: BLUE },
-          title: 'Export Top Gun (Standings + all accounts by class)',
-          onclick: () => exportTopGunXlsx(sales, proSet),
-        }, '↓ Export'),
+        el('div', { class: 'flex items-center gap-2 shrink-0' },
+          el('button', {
+            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+            style: { background: CREAM, color: BLUE },
+            title: 'Export Top Gun (Standings + all accounts by class)',
+            onclick: () => exportTopGunXlsx(sales, proSet),
+          }, '↓ Export'),
+          el('button', {
+            class: 'rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-110',
+            style: { width: '26px', height: '26px', background: CREAM, color: BLUE, fontSize: '13px' },
+            title: 'Top Gun rules',
+            onclick: () => openTopGunHelpModal(),
+          }, 'ⓘ'),
+        ),
       ),
-      el('div', { style: { fontSize: '11px', color: CREAM, opacity: '0.92', marginTop: '10px', maxWidth: '860px', lineHeight: '1.5' } },
-        'Each class pays its top 3 producers. Production = Total Revenue (Passed + Pending Audit · Contract Value). PROS = the top 7 Vet reps by revenue on the year. Veterans & Rookies = the rest, by their Rookie/Vet tier in Manage Teams. Only audit-passed accounts count.'),
     ),
     el('div', { style: { padding: '14px', display: 'flex', flexDirection: 'column', gap: '14px' } },
       ...CLASS_DEFS.map(classCard),
