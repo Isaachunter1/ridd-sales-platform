@@ -21836,8 +21836,8 @@ function viewReporting() {
     reportingTopBar(),
     reportingSubTabs(),
     reportingMethodologyBar(),
-    isMarketing                            ? viewMarketing() :
-    state.reportingSubTab === 'is'         ? reportingInsideSales() :
+    isMarketing                            ? reportingMarketingPnl() :
+    state.reportingSubTab === 'is'         ? reportingMarketingPnl() :
     state.reportingSubTab === 'config'     ? el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()) :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
@@ -21858,13 +21858,6 @@ function reportingActiveSnapshotMeta() {
 function reportingMethodologyBar() {
   const tab = state.reportingSubTab;
   if (tab === 'config' || tab === 'uploads') return null; // settings, not a report
-
-  if (tab === 'marketing') {
-    return el('div', { class: 'card p-2.5 text-[11px] flex items-center gap-2', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
-      el('span', { class: 'font-semibold', style: { color: 'var(--text)' } }, 'ⓘ'),
-      el('span', {}, 'Marketing pulls from a separate data source (ad platforms + spend) and is NOT affected by the snapshot Configurations (lifecycle, hidden, excluded sources/cancel reasons).'),
-    );
-  }
 
   const u = reportingActiveSnapshotMeta();
   const svc = state.reportingServiceConfig || [];
@@ -22029,7 +22022,6 @@ function formatSnapshotLabel(u) {
 function reportingSubTabs() {
   const tabs = [
     ['overview',   'Overview'],
-    ['is',         'Inside Sales'],
     ['geographic', 'Geographic'],
     ['reps',       'Rep Performance'],
     ['waterfall',  'Waterfall Attrition'],
@@ -22843,6 +22835,131 @@ async function saveIsManual(period, field, value) {
   payload.updated_by = state.profile?.id || null;
   const { error } = await supabase.from('reporting_is_manual').upsert(payload, { onConflict: 'period' });
   if (error) toast('Save failed: ' + error.message + ' (run inside_sales_schema.sql?)', 'error');
+}
+
+// Consolidated Marketing tab = the Inside Sales P&L, topped with the two charts
+// the CMO wanted: marketing spend vs IS revenue, and GHL leads by source.
+function reportingMarketingPnl() {
+  // Lazy-fetch GoHighLevel leads (same Netlify function the old marketing page used).
+  if (state.reportingGhlLeads == null && !state._ghlLoading) {
+    state._ghlLoading = true;
+    fetch('/api/ghl-leads', { headers: { accept: 'application/json' } })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { state.reportingGhlLeads = (j && j.bySourceMonth) ? j : {}; state._ghlLoading = false; mountApp(); })
+      .catch(() => { state.reportingGhlLeads = {}; state._ghlLoading = false; mountApp(); });
+  }
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4' },
+      reportingMktgSpendRevChart(),
+      reportingMktgLeadsChart(),
+    ),
+    reportingInsideSales(),
+  );
+}
+
+const REPORTING_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const reportingMonthLbl = (ym) => { const [y, m] = ym.split('-'); return REPORTING_MONTH_ABBR[Number(m) - 1] + " '" + y.slice(2); };
+
+// Bars = monthly marketing spend (is-spend.json); line = monthly new recurring
+// revenue (ARR) for committed-sold Inside Sales accounts. Mirrors the chart the
+// CMO liked on the old marketing page, but from this tab's own data.
+function reportingMktgSpendRevChart() {
+  const id = 'mktgSpendRev';
+  const rows = state.reportingSubscriptions || [];
+  const SP = state.reportingIsSpend || {};
+  const isExcl = reportingExcludedSources();
+  const rev = {};
+  for (const r of rows) {
+    const sd = r.sold_date; if (!sd) continue;
+    const src = (r.subscription_source || '').trim();
+    if (isExcl.has(src || 'Unspecified')) continue;
+    if (!IS_SOURCES.has(src)) continue;
+    if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue;
+    const ym = sd.slice(0, 7);
+    rev[ym] = (rev[ym] || 0) + (Number(r.annual_recurring_value) || 0);
+  }
+  const spend = {};
+  for (const ym in SP) { let s = 0; for (const ch in SP[ym]) s += SP[ym][ch] || 0; spend[ym] = s; }
+  const months = [...new Set([...Object.keys(rev), ...Object.keys(spend)])].sort().slice(-18);
+  const lbl = months.map(reportingMonthLbl);
+  const cvsWrap = el('div', { style: { position: 'relative', height: '240px', width: '100%' } });
+  const cvs = el('canvas', { id }); cvsWrap.append(cvs);
+  setTimeout(() => {
+    if (typeof Chart === 'undefined') return;
+    const cvsEl = document.getElementById(id); if (!cvsEl) return;
+    if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
+    const isDark = state.theme === 'dark';
+    const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)', bar = isDark ? '#E6E6DC' : '#1D1D1D';
+    _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
+      data: { labels: lbl, datasets: [
+        { type: 'bar', label: 'Marketing spend', data: months.map(m => spend[m] || 0), backgroundColor: bar, order: 2 },
+        { type: 'line', label: 'Inside Sales revenue (ARR sold)', data: months.map(m => rev[m] || 0), borderColor: '#8DC63F', backgroundColor: '#8DC63F', borderWidth: 2, tension: 0.3, fill: false, pointRadius: 2, order: 1 },
+      ] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } } }, scales: { x: { ticks: { color: txt }, grid: { color: grid } }, y: { beginAtZero: true, ticks: { color: txt, callback: v => '$' + (v >= 1000 ? (v / 1000) + 'k' : v) }, grid: { color: grid } } } },
+    });
+  }, 50);
+  return el('div', { class: 'card p-4' },
+    el('h3', { class: 'text-base font-bold mb-1' }, 'Marketing Spend vs Inside Sales Revenue'),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Monthly · bars = marketing spend · line = new recurring revenue (ARR) sold'),
+    cvsWrap,
+  );
+}
+
+// Light source normalizer for GHL lead tags (mirrors the old marketing page).
+function reportingCanonSource(raw) {
+  const s = (raw || '').toString().trim(), L = s.toLowerCase();
+  if (s === '[object Object]' || !s) return 'Unknown';
+  if (/google ads|paid search/.test(L)) return 'Google Ads';
+  if (/local services/.test(L)) return 'Google LSA';
+  if (/gravitate|paid social|\bfb\b|facebook|social media/.test(L)) return 'Facebook';
+  if (/angi/.test(L)) return 'Angi';
+  if (/pest ?net/.test(L)) return 'Pest Net';
+  if (/dolead/.test(L)) return 'DoLead';
+  if (/baton/.test(L)) return 'Baton';
+  if (/service direct/.test(L)) return 'Service Direct';
+  if (/click-to-buy|clicki/.test(L)) return 'Click-To-Buy';
+  if (/organic|direct traffic|ridd form|crm workflow/.test(L)) return 'Website';
+  if (/referral/.test(L)) return 'Referral';
+  return s;
+}
+
+// Monthly GHL leads, stacked by source (top 8 + Other).
+function reportingMktgLeadsChart() {
+  const id = 'mktgLeads';
+  const L = state.reportingGhlLeads;
+  const card = (inner) => el('div', { class: 'card p-4' },
+    el('h3', { class: 'text-base font-bold mb-1' }, 'Leads by Source'),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Monthly GoHighLevel leads, stacked by source'),
+    inner);
+  if (!L || !L.bySourceMonth || !Object.keys(L.bySourceMonth).length) {
+    return card(el('div', { class: 'p-8 text-center text-xs text-muted- italic' },
+      state.reportingGhlLeads == null ? 'Connecting to GoHighLevel…' : 'No GoHighLevel leads available.'));
+  }
+  const BSM = L.bySourceMonth;
+  const months = Object.keys(BSM).sort().slice(-18);
+  const srcTot = {};
+  months.forEach(ym => { const m = BSM[ym]; for (const raw in m) { const s = reportingCanonSource(raw); srcTot[s] = (srcTot[s] || 0) + m[raw]; } });
+  const ranked = Object.keys(srcTot).sort((a, b) => srcTot[b] - srcTot[a]);
+  const top = ranked.slice(0, 8), rest = new Set(ranked.slice(8));
+  const series = [...top, ...(rest.size ? ['Other'] : [])];
+  const data = {}; series.forEach(s => data[s] = months.map(() => 0));
+  months.forEach((ym, mi) => { const m = BSM[ym]; for (const raw in m) { let s = reportingCanonSource(raw); if (rest.has(s)) s = 'Other'; if (data[s]) data[s][mi] += m[raw]; } });
+  const lbl = months.map(reportingMonthLbl);
+  const cvsWrap = el('div', { style: { position: 'relative', height: '240px', width: '100%' } });
+  const cvs = el('canvas', { id }); cvsWrap.append(cvs);
+  setTimeout(() => {
+    if (typeof Chart === 'undefined') return;
+    const cvsEl = document.getElementById(id); if (!cvsEl) return;
+    if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
+    const isDark = state.theme === 'dark';
+    const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+    const datasets = series.map((s, i) => ({ label: s, data: data[s], backgroundColor: REPORTING_PALETTE[i % REPORTING_PALETTE.length], stack: 's' }));
+    _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
+      type: 'bar', data: { labels: lbl, datasets },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } }, tooltip: { callbacks: { footer: items => 'Total: ' + items.reduce((s, it) => s + (it.parsed.y || 0), 0).toLocaleString() + ' leads' } } }, scales: { x: { stacked: true, ticks: { color: txt }, grid: { color: grid } }, y: { stacked: true, beginAtZero: true, ticks: { color: txt, precision: 0 }, grid: { color: grid } } } },
+    });
+  }, 50);
+  return card(cvsWrap);
 }
 
 function reportingInsideSales() {
