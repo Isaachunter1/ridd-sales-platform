@@ -10574,6 +10574,64 @@ function springCleaningCompute(sales, branchList) {
 
 // Spring Cleaning scoreboard card — golf-scored branch standings for the
 // currently date-filtered window, plus an excluded-revenue summary.
+// Spring Cleaning competition export — 5 sheets (Standings / Passed Audit /
+// Pending Audit / Failed Audit / Last Resort). Self-contained so the board's
+// own export button can call it with the same windowed sales it displays.
+async function exportSpringCleaningXlsx(sales, branchList, winLabel) {
+  try { await loadXlsxLibOnce(); } catch { toast('Could not load Excel library — check your connection', 'error'); return; }
+  const XLSX = window.XLSX;
+  if (!XLSX) { toast('Excel library missing after load', 'error'); return; }
+  const numOrBlank0 = (v) => { const n = Number(v); return Number.isFinite(n) ? n : ''; };
+  const sc = springCleaningCompute(sales, branchList);
+
+  const st = [];
+  st.push(['Spring Cleaning — Standings']);
+  st.push(['Scope', (winLabel || 'current window') + ' · Door-to-Door only']);
+  st.push(['Note', 'Standings include passed-audit + pending (assumed passing). Excluded = Failed Audit + Last Resort (<$99).']);
+  st.push(['Pulled', new Date().toLocaleString()]);
+  st.push([]);
+  st.push(['Branch', 'Reps', 'Accounts', 'Revenue', 'Avg Pest Init', 'PRA', 'ACV', '24+ Mo %', 'Autopay %', 'Total Pts', 'Place', 'Bugs']);
+  sc.ranked.forEach(m => st.push([
+    m.office, m.reps, m.n, Math.round(m.revenue), +m.avgPestInitial.toFixed(2), Math.round(m.pra),
+    +m.acv.toFixed(2), +(m.pct24 * 100).toFixed(1), +(m.autopayPct * 100).toFixed(1), m.totalPoints, m.place, m.bugs,
+  ]));
+  st.push([]);
+  st.push(['EXCLUDED (not counting)']);
+  st.push(['Accounts excluded', sc.excludedSummary.count]);
+  st.push(['Revenue excluded', Math.round(sc.excludedSummary.revenue)]);
+  st.push(['— Last Resort (<$99)', sc.excludedSummary.lastResort]);
+  st.push(['— Failed audit', sc.excludedSummary.failedAudit]);
+  st.push([]);
+  st.push(['PENDING (awaiting audit — still out there)']);
+  st.push(['Accounts pending', sc.pendingSummary.count]);
+  st.push(['Revenue pending', Math.round(sc.pendingSummary.revenue)]);
+
+  const acctHeader = ['Rep', 'Office', 'Customer', 'Customer ID', 'Date Sold', 'Subscription', 'Source',
+    'Initial Price', 'Contract Value', 'Contract Months', 'Auto Pay', 'Customer Flags'];
+  const acctRow = (s) => [
+    s.rep || '', s.office || '', s.customer || '', s.customerId || '', s.dateSold || '',
+    s.subscription || '', s.source || '', numOrBlank0(s.initialPrice), numOrBlank0(s.contractValue),
+    numOrBlank0(s.contract), s.autoPay || '', s.customerFlags || '',
+  ];
+  const counting = [acctHeader, ...sc.counting.map(acctRow)];
+  const pending  = [acctHeader, ...sc.pending.map(acctRow)];
+  const lastResortRows  = sc.excluded.filter(s => (Number(s.initialPrice) || 0) < 99);
+  const failedAuditRows = sc.excluded.filter(s => (Number(s.initialPrice) || 0) >= 99);
+  const failedAudit = [acctHeader, ...failedAuditRows.map(acctRow)];
+  const lastResort  = [acctHeader, ...lastResortRows.map(acctRow)];
+
+  const wbS = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(st), 'Standings');
+  XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(counting), 'Passed Audit');
+  XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(pending), 'Pending Audit');
+  XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(failedAudit), 'Failed Audit');
+  XLSX.utils.book_append_sheet(wbS, XLSX.utils.aoa_to_sheet(lastResort), 'Last Resort');
+  XLSX.writeFile(wbS, 'RIDD-Spring-Cleaning-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+  toast('Exported Spring Cleaning — ' + sc.counting.length.toLocaleString() + ' counting, '
+    + sc.pending.length.toLocaleString() + ' pending, ' + failedAuditRows.length.toLocaleString() + ' failed audit, '
+    + lastResortRows.length.toLocaleString() + ' last resort', 'success');
+}
+
 // Breakdown popup explaining how each Spring Cleaning metric + rule works.
 function openSpringCleaningHelpModal() {
   const overlay = el('div', { class: 'modal-overlay' });
@@ -10622,7 +10680,7 @@ function openSpringCleaningHelpModal() {
   document.body.append(overlay);
 }
 
-function indicatorSpringCleaningBoard(sales, branchList) {
+function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
   const { ranked, excludedSummary, pendingSummary } = springCleaningCompute(sales, branchList);
   const usd = (v) => '$' + Math.round(v).toLocaleString();
   const pct = (v) => (v * 100).toFixed(1) + '%';
@@ -10664,12 +10722,20 @@ function indicatorSpringCleaningBoard(sales, branchList) {
               'Team Quality Based Competition by RIDDMADE™'),
           ),
         ),
-        el('button', {
-          class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer',
-          style: { width: '22px', height: '22px', background: '#141414', color: '#fff' },
-          title: 'How each metric is tracked',
-          onclick: () => openSpringCleaningHelpModal(),
-        }, 'ⓘ'),
+        el('div', { class: 'flex items-center gap-2' },
+          el('button', {
+            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+            style: { background: '#1b5e20', color: '#fff' },
+            title: 'Export Spring Cleaning (Standings + Passed / Pending / Failed Audit + Last Resort sheets)',
+            onclick: () => exportSpringCleaningXlsx(sales, branchList, winLabel),
+          }, '↓ Export'),
+          el('button', {
+            class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer',
+            style: { width: '22px', height: '22px', background: '#141414', color: '#fff' },
+            title: 'How each metric is tracked',
+            onclick: () => openSpringCleaningHelpModal(),
+          }, 'ⓘ'),
+        ),
       ),
     ),
     // Scoring sub-line + live exclusion/pending callouts.
@@ -12500,14 +12566,14 @@ function viewIndicators() {
               }),
             );
           }
+          // Import-only now — exports live on each competition's own card.
           return el('div', { style: { position: 'relative' } },
             el('button', {
               class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
               style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-              title: 'Import a sales CSV or export the current table',
-              onclick: () => { state.indicatorsCsvMenu = !state.indicatorsCsvMenu; mountApp(); },
-            }, '⬆⬇ CSV'),
-            menu,
+              title: 'Import a sales CSV',
+              onclick: () => hiddenImport.click(),
+            }, '⬆ Import CSV'),
             hiddenImport,
           );
         })(),
@@ -12664,7 +12730,8 @@ function viewIndicators() {
       // Spring Cleaning is always branch (office) level and D2D-only, regardless
       // of the app's Branch/Teams toggle.
       const offices = [...new Set(windowed.filter(s => _indicatorDeptOf(s) === 'd2d').map(s => s.office).filter(Boolean))];
-      return indicatorSpringCleaningBoard(windowed, offices);
+      const winLabel = (cf.start && cf.end) ? cf.start + ' → ' + cf.end : 'all dates';
+      return indicatorSpringCleaningBoard(windowed, offices, winLabel);
     })() : null),
 
     // Avg Pest Initial / Raffle competition card, lifted to the top.
