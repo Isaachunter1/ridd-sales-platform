@@ -116,6 +116,13 @@ thead th[data-tip] .tipdot{display:inline-block;width:12px;height:12px;line-heig
   <div class="section">Inside Sales by market <span id="allocNote" class="dash" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
   <div style="overflow-x:auto"><table id="markettable"><thead><tr><th>Market</th><th data-tip="QuickBooks marketing spend allocated to this market for the months overlapping the range. Spend not yet split by market shows as Unallocated (Executive).">Spend<span class="tipdot">?</span></th><th data-tip="Inside Sales accounts in this market with a Sold Date in range AND a payment method on file (committed sold).">Sold<span class="tipdot">?</span></th><th data-tip="Of those sold accounts, how many have a completed initial service.">Serviced<span class="tipdot">?</span></th><th data-tip="Acct Serviced ÷ Acct Sold — the % of committed-sold accounts that received an initial service.">Sold→Serviced<span class="tipdot">?</span></th><th data-tip="Sum of Annual Recurring Value (ARV) of the Inside Sales accounts sold in this market.">Rev&nbsp;Sold<span class="tipdot">?</span></th><th data-tip="Sum of ARV of the sold accounts that have been serviced.">Rev&nbsp;Serviced<span class="tipdot">?</span></th><th data-tip="Marketing Spend ÷ Acct Sold — cost to acquire one sold account.">CAC<span class="tipdot">?</span></th><th data-tip="Rev Sold ÷ Marketing Spend — return on ad spend.">ROAS<span class="tipdot">?</span></th><th data-tip="Marketing Spend ÷ Acct Serviced — marketing cost per serviced job.">Cost/Job<span class="tipdot">?</span></th></tr></thead><tbody></tbody></table></div>
 
+  <div class="section">Mix Model — Full-Funnel by Channel</div>
+  <div style="overflow-x:auto"><table id="mixtable"><thead><tr><th>Channel</th><th>Spend</th><th>Leads&nbsp;(GHL)</th><th>Cost/Lead</th><th>New&nbsp;Customers</th><th>CAC</th><th>Lead→Cust</th><th>Rev&nbsp;Sold</th><th>ROAS</th></tr></thead><tbody></tbody></table></div>
+  <div class="note" id="mixNote"></div>
+  <div class="section" style="border-top:0;padding-top:4px">New customers vs spend over time <select id="mixGranSel" style="font:inherit;margin-left:8px"><option value="month" selected>Monthly</option><option value="week">Weekly</option></select></div>
+  <div class="chartbox"><canvas id="mixTrend"></canvas></div>
+  <div class="note" id="mixTrendNote"></div>
+
   <div class="section" id="convSection" style="display:none">Lead → sold conversion (GoHighLevel) <a id="ghlMapToggle" style="display:none">⚙ Map GHL → CRM sources</a></div>
   <div id="ghlMapPanel" style="display:none"></div>
   <div id="convWrap" style="display:none;overflow-x:auto"><table id="convtable"><thead><tr><th>Channel</th><th>Leads&nbsp;(GHL)</th><th>Cost/Lead</th><th>Accounts&nbsp;Sold</th><th>Cost/Job</th><th>Lead→Sold</th></tr></thead><tbody></tbody></table></div>
@@ -218,6 +225,81 @@ function txnDailySpend(f,t){const o={};const T=RAW.txns||[];
   for(let i=0;i<T.length;i++){const r=T[i];if(r[0]<f||r[0]>t)continue;o[r[0]]=(o[r[0]]||0)+r[3];}return o;}
 function legOf(nm){return byName(nm).leg;}
 function isWindsor(nm){return !!byName(nm).windsor;}
+// ---------- Mix Model: full-funnel by channel (spend -> leads -> new customers) ----------
+let mixGran='month';      // 'month' | 'week' — drives the trend chart bucketing
+let mixChart=null;
+
+// Leads by mapped CRM channel over the active range (mirrors renderConversion).
+function mixLeadsByChannel(){
+  const leads={};
+  if(GHLLEADS && GHLMAP){
+    for(const ym in GHLLEADS.byMonth){ const p=ym.split('-').map(Number);
+      const start=ym+'-01', end=ym+'-'+String(new Date(p[0],p[1],0).getDate()).padStart(2,'0');
+      if(start<=curTo && end>=curFrom){ const m=GHLLEADS.byMonth[ym];
+        for(const raw in m){ const tgt=GHLMAP[raw]||'(ignore)'; if(tgt!=='(ignore)') leads[tgt]=(leads[tgt]||0)+m[raw]; } } }
+  }
+  return leads;
+}
+
+function renderMixModel(per){
+  const spend=channelSpendCombined(curFrom,curTo);   // {channel: $}
+  const leads=mixLeadsByChannel();                   // {channel: leadCount}
+  const chans=new Set([...Object.keys(spend),...Object.keys(leads)]);
+  MAP.forEach(s=>{ if(s.leg==='Inside Sales' && per[s.name] && per[s.name].n>0) chans.add(s.name); });
+  const rows=[...chans].map(c=>({
+    c, sp:spend[c]||0, ld:leads[c]||0,
+    cust:(per[c]?per[c].n:0)||0, rev:(per[c]?per[c].arv:0)||0,
+  })).filter(r=>r.sp>0||r.ld>0||r.cust>0).sort((a,b)=>b.sp-a.sp||b.cust-a.cust);
+
+  const T={sp:0,ld:0,cust:0,rev:0}; rows.forEach(r=>{T.sp+=r.sp;T.ld+=r.ld;T.cust+=r.cust;T.rev+=r.rev;});
+  const dash='<span class="dash">—</span>';
+  const td=v=>v==null?'<td>'+dash+'</td>':'<td>'+v+'</td>';
+  const rowHtml=r=>{
+    const cpl=(r.sp&&r.ld)?fmt0(r.sp/r.ld):null;
+    const cac=(r.sp&&r.cust)?fmt0(r.sp/r.cust):null;
+    const conv=r.ld?Math.round(r.cust/r.ld*100)+'%':null;
+    const roas=(r.sp&&r.rev)?fmtX(r.rev/r.sp):null;
+    return `<tr><td>${r.c}</td><td>${r.sp?fmt0(r.sp):dash}</td><td>${r.ld?fmtN(r.ld):dash}</td>`+td(cpl)
+      +`<td>${fmtN(r.cust)}</td>`+td(cac)+`<td>${conv||dash}</td><td>${r.rev?fmt0(r.rev):dash}</td>`+td(roas)+`</tr>`;
+  };
+  let html=rows.map(rowHtml).join('');
+  const tcpl=(T.sp&&T.ld)?fmt0(T.sp/T.ld):null, tcac=(T.sp&&T.cust)?fmt0(T.sp/T.cust):null,
+        tconv=T.ld?Math.round(T.cust/T.ld*100)+'%':null, troas=(T.sp&&T.rev)?fmtX(T.rev/T.sp):null;
+  html+=`<tr style="font-weight:700;border-top:2px solid var(--line)"><td>Total</td><td>${fmt0(T.sp)}</td><td>${fmtN(T.ld)}</td>`
+    +td(tcpl)+`<td>${fmtN(T.cust)}</td>`+td(tcac)+`<td>${tconv||dash}</td><td>${fmt0(T.rev)}</td>`+td(troas)+`</tr>`;
+  document.querySelector('#mixtable tbody').innerHTML=html;
+  document.getElementById('mixNote').innerHTML='Spend = mapped channel spend (Windsor for Meta/Google, QuickBooks for the rest). Leads = GoHighLevel (monthly). New Customers &amp; Rev Sold = FieldRoutes accounts by Sold Date. CAC = Spend / New Customers · ROAS = Rev Sold / Spend · Lead->Cust = New Customers / Leads.';
+  drawMixTrend();
+}
+
+// Daily series for the trend (both bucket cleanly to week or month).
+function mixDailyCustomers(){ const d={}; for(const r of RAW.soldDaily){ if(inRange(r[0],curFrom,curTo)) d[r[0]]=(d[r[0]]||0)+r[2]; } return d; }
+function mixDailySpend(){ const d={}; for(const ds in RAW.spendDaily){ if(inRange(ds,curFrom,curTo)){ const a=RAW.spendDaily[ds]; d[ds]=(d[ds]||0)+(a[0]||0)+(a[1]||0); } } return d; }
+
+function drawMixTrend(){
+  const cust=mixDailyCustomers(), spend=mixDailySpend();
+  if(mixChart){mixChart.destroy();mixChart=null;}
+  const bucket=ds=>{ if(mixGran==='week'){const d=new Date(ds+'T00:00:00');const o=(d.getDay()+6)%7;d.setDate(d.getDate()-o);return iso(d);} return ds.slice(0,7); };
+  const C={},S={};
+  Object.keys(cust).forEach(ds=>{const k=bucket(ds);C[k]=(C[k]||0)+cust[ds];});
+  Object.keys(spend).forEach(ds=>{const k=bucket(ds);S[k]=(S[k]||0)+spend[ds];});
+  const labels=[...new Set([...Object.keys(C),...Object.keys(S)])].sort();
+  const noteEl=document.getElementById('mixTrendNote');
+  if(!labels.length){ if(noteEl)noteEl.textContent='No data in this range.'; return; }
+  const cac=labels.map(k=> C[k]? (S[k]||0)/C[k] : null);
+  const DK=document.documentElement.getAttribute('data-theme')==='dark';
+  const txtCol=DK?'#C9C9BE':'#555', gridCol=DK?'rgba(255,255,255,.08)':'rgba(0,0,0,.06)', lineCol=DK?'#E6E6DC':'#1D1D1D';
+  mixChart=new Chart(document.getElementById('mixTrend'),{data:{labels,datasets:[
+    {type:'bar',yAxisID:'y',label:'New customers',data:labels.map(k=>C[k]||0),backgroundColor:'#8DC63F',order:3},
+    {type:'line',yAxisID:'y1',label:'Paid spend (Meta+Google)',data:labels.map(k=>S[k]||0),borderColor:lineCol,borderWidth:2,tension:.3,fill:false,pointRadius:2,order:1},
+    {type:'line',yAxisID:'y1',label:'Blended CAC',data:cac,spanGaps:true,borderColor:'#C62828',borderWidth:2,borderDash:[5,4],tension:.3,fill:false,pointRadius:2,order:2}
+  ]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:txtCol}}},
+    scales:{x:{ticks:{color:txtCol},grid:{color:gridCol}},
+      y:{position:'left',beginAtZero:true,title:{display:true,text:'New customers',color:txtCol},ticks:{color:txtCol,precision:0},grid:{color:gridCol}},
+      y1:{position:'right',beginAtZero:true,title:{display:true,text:'$',color:txtCol},ticks:{color:txtCol,callback:v=>'$'+(v>=1000?(v/1000)+'k':v)},grid:{drawOnChartArea:false}}}}});
+  if(noteEl) noteEl.innerHTML=`Bucketed by ${mixGran==='week'?'week':'month'}. Bars = new customers (all sources, by Sold Date) · solid line = paid ad spend (Meta + Google) · dashed = blended CAC (spend / customers). Channel-level leads &amp; non-ad spend are monthly-only, so the table above is the authoritative per-channel funnel.`;
+}
+
 function render(per,spend){
   const totalSpend=spend.meta+spend.goog;
   // leg rollups (sold cohort + serviced cohort)
@@ -264,6 +346,8 @@ function render(per,spend){
   renderTxns(curFrom,curTo);
   // lead -> sold conversion (GoHighLevel)
   renderConversion(per, channelSpendCombined(curFrom,curTo));
+  // mix model: full-funnel by channel (spend -> leads -> new customers)
+  renderMixModel(per);
   // chart: marketing spend vs inside sales revenue
   drawTrend(txnDailySpend(curFrom,curTo), insideSalesDailyRev(curFrom,curTo));
   // spend source label
@@ -578,6 +662,7 @@ async function refresh(){
 document.getElementById('presetSel').onchange=e=>{ const v=e.target.value; document.getElementById('customRange').style.display=(v==='custom')?'':'none'; if(v==='custom') return; [curFrom,curTo]=preset(v); refresh(); };
 document.getElementById('from').onchange=e=>{curFrom=e.target.value; document.getElementById('presetSel').value='custom'; refresh();};
 document.getElementById('to').onchange=e=>{curTo=e.target.value; document.getElementById('presetSel').value='custom'; refresh();};
+{const mg=document.getElementById('mixGranSel'); if(mg) mg.onchange=e=>{mixGran=e.target.value; drawMixTrend();};}
 
 // ---- Column tooltips: hover (desktop) + tap-to-toggle (mobile) ----
 (function(){
