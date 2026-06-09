@@ -10351,7 +10351,7 @@ function setRepTeam(repName, team) {
 // while Comps mode is on. Seeded with Top Gun + Spring Cleaning, inheriting
 // any legacy global exclusions so nothing that was hidden becomes visible.
 const DEFAULT_COMPETITIONS = [
-  { id: 'top_gun',          name: 'Top Gun' },
+  { id: 'top_gun',          name: 'Top Gun', scoring: 'top_gun' },
   { id: 'spring_cleaning',  name: 'Spring Cleaning',  scoring: 'spring_cleaning' },
   { id: 'avg_pest_initial', name: 'Avg Pest & Raffle', scoring: 'avg_pest_initial' },
 ];
@@ -10790,11 +10790,95 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
         el('span', { style: { color: 'var(--text-muted)', fontWeight: '700' } }, '= ' + t.coin + '/rep'),
       )),
     ),
-    (excludedSummary.count > 0 || pendingSummary.count > 0) && el('div', { class: 'p-2.5 text-[11px]', style: { color: 'var(--text-muted)', borderTop: '1px solid var(--border)' } },
-      'Excluded: ' + excludedSummary.lastResort.toLocaleString() + ' Last Resort (<$99), '
-        + excludedSummary.failedAudit.toLocaleString() + ' failed audit. '
-        + 'Pending (counted, assumed passing): ' + pendingSummary.count.toLocaleString() + ' (' + usd(pendingSummary.revenue) + '). '
-        + 'Full lists are in the .xlsx export (Failed Audit + Last Resort + Pending sheets).'),
+  );
+}
+
+// ── Top Gun ─────────────────────────────────────────────────────────────────
+// Per-rep production competition split into three classes (Rookies / Veterans /
+// Pros — set per rep via the Rep tier in Manage Teams). Each class pays its
+// top 3 producers ®1,000,000 / ®500,000 / ®300,000. Production = revenue
+// (Contract Value). Only audit-passed (or No Audit) accounts count.
+function topGunCompute(sales) {
+  const counting = (sales || []).filter(s => scAuditPassed(s.customerFlags));
+  const byRep = new Map();
+  for (const s of counting) {
+    const rep = s.rep || 'Unknown';
+    if (!byRep.has(rep)) byRep.set(rep, { rep, revenue: 0, accounts: 0 });
+    const m = byRep.get(rep);
+    m.revenue += Number(s.contractValue) || 0;
+    m.accounts += 1;
+  }
+  const classes = { rookie: [], vet: [], pro: [], none: [] };
+  for (const m of byRep.values()) {
+    const t = getRepTier(m.rep);
+    (classes[t] || classes.none).push(m);
+  }
+  for (const k in classes) classes[k].sort((a, b) => b.revenue - a.revenue || b.accounts - a.accounts);
+  return classes;
+}
+
+function indicatorTopGunBoard(sales, winLabel) {
+  const RED = '#be3a2b', BLUE = '#2b3a6b', CREAM = '#f4eede';
+  const classes = topGunCompute(sales);
+  const PRIZES = ['®1,000,000', '®500,000', '®300,000'];
+  const usd = (v) => '$' + Math.round(v).toLocaleString();
+  const CLASS_DEFS = [
+    { key: 'rookie', name: 'ROOKIES',  badge: 'R', color: RED },
+    { key: 'vet',    name: 'VETERANS', badge: 'V', color: BLUE },
+    { key: 'pro',    name: 'PROS',     badge: 'P', color: RED },
+  ];
+
+  const classCard = (def) => {
+    const reps = classes[def.key] || [];
+    return el('div', { style: { borderRadius: '6px', overflow: 'hidden', border: '3px solid ' + def.color, background: def.color } },
+      el('div', { class: 'flex items-stretch' },
+        el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '96px', padding: '12px', borderRight: '2px solid ' + CREAM } },
+          el('div', { style: { width: '54px', height: '54px', borderRadius: '50%', border: '3px solid ' + CREAM, display: 'flex', alignItems: 'center', justifyContent: 'center', color: CREAM, fontWeight: '900', fontSize: '26px', fontFamily: 'Georgia, serif' } }, def.badge),
+        ),
+        el('div', { style: { flex: '1', padding: '12px 16px', color: CREAM } },
+          el('div', { style: { fontWeight: '900', fontSize: '20px', letterSpacing: '0.02em', fontStyle: 'italic' } }, '"' + def.name + '"'),
+          ...PRIZES.map((p, i) => el('div', { class: 'flex items-center justify-between gap-3', style: { fontSize: '11px', fontWeight: '700', marginTop: '3px', maxWidth: '340px', textTransform: 'uppercase' } },
+            el('span', {}, (i === 0 ? 'Top producing rep' : ('#' + (i + 1) + ' rep in this class')) + ' receives'),
+            el('span', { style: { fontWeight: '900' } }, p))),
+        ),
+      ),
+      reps.length === 0
+        ? el('div', { style: { padding: '10px 16px', color: CREAM, fontSize: '11px', fontStyle: 'italic', opacity: '0.85' } }, 'No reps assigned to "' + def.name + '" yet — set each rep\'s tier in Manage Teams.')
+        : el('div', { style: { background: CREAM, margin: '0 8px 8px', borderRadius: '4px', overflow: 'hidden' } },
+            el('table', { class: 'w-full', style: { fontSize: '12px' } },
+              el('tbody', {},
+                ...reps.slice(0, 15).map((r, i) => el('tr', { style: { borderTop: i ? '1px solid rgba(0,0,0,0.08)' : 'none', background: i < 3 ? 'rgba(190,58,43,0.06)' : 'transparent' } },
+                  el('td', { style: { padding: '6px 10px', fontWeight: '900', width: '30px', color: def.color } }, i + 1),
+                  el('td', { style: { padding: '6px 10px', fontWeight: '700', color: '#222' } }, r.rep),
+                  el('td', { style: { padding: '6px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#222' } }, usd(r.revenue)),
+                  el('td', { style: { padding: '6px 10px', textAlign: 'right', fontWeight: '900', color: def.color, width: '110px' } }, i < 3 ? PRIZES[i] : '—'),
+                )),
+              ),
+            ),
+          ),
+      el('div', { style: { padding: '8px 16px', color: CREAM, fontWeight: '800', fontSize: '11px', textAlign: 'center', letterSpacing: '0.02em', textTransform: 'uppercase' } }, 'Only accounts that pass audit count for competition'),
+    );
+  };
+
+  const unclassified = classes.none || [];
+
+  return el('div', { class: 'card overflow-hidden', style: { background: CREAM } },
+    el('div', { style: { background: BLUE, padding: '16px 18px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' } },
+      el('div', {},
+        el('div', { style: { fontWeight: '900', fontSize: '40px', lineHeight: '0.9', color: CREAM, letterSpacing: '0.04em', fontFamily: 'Georgia, serif' } }, 'TOP GUN'),
+        el('div', { style: { fontWeight: '800', fontSize: '11px', color: CREAM, letterSpacing: '0.14em', marginTop: '4px' } }, 'RIDDMADE   ★ ★ ★'),
+      ),
+      el('div', { style: { color: CREAM, fontWeight: '800', fontSize: '13px', letterSpacing: '0.08em' } }, (winLabel || '').toUpperCase()),
+    ),
+    el('div', { style: { padding: '14px', display: 'flex', flexDirection: 'column', gap: '14px' } },
+      el('div', { style: { fontSize: '11px', color: '#555' } },
+        'Each class pays its top 3 producers. Production = revenue (Contract Value), audit-passed accounts only. Set each rep\'s class (Rookie / Vet / Pro) via their tier in Manage Teams.'),
+      ...CLASS_DEFS.map(classCard),
+      unclassified.length ? el('div', { style: { fontSize: '11px', color: '#a33', padding: '4px' } },
+        '⚠ ' + unclassified.length + ' rep' + (unclassified.length === 1 ? '' : 's') + ' not in a class: '
+          + unclassified.slice(0, 20).map(r => r.rep).join(', ') + (unclassified.length > 20 ? '…' : '')
+          + ' — set their tier in Manage Teams to include them.') : null,
+    ),
   );
 }
 
@@ -10823,6 +10907,7 @@ function isRepExcluded(repName) {
 const REP_TIERS = [
   { id: 'rookie', label: 'Rookie', color: '#0EA5E9' },
   { id: 'vet',    label: 'Vet',    color: '#8DC63F' },
+  { id: 'pro',    label: 'Pro',    color: '#be3a2b' },
 ];
 function getRepTier(repName) {
   if (!repName) return '';
@@ -12259,7 +12344,7 @@ function viewIndicators() {
   // analytics. Keeps comp switching + the comp window snappy instead of
   // re-rendering several canvases each time.
   const _focusedComp = state.indicatorsComps
-    && ['spring_cleaning', 'avg_pest_initial'].includes(getActiveComp().scoring || '');
+    && ['spring_cleaning', 'avg_pest_initial', 'top_gun'].includes(getActiveComp().scoring || '');
 
   return el('div', { class: 'flex flex-col gap-5 max-w-[1400px] mx-auto' },
 
@@ -12738,6 +12823,18 @@ function viewIndicators() {
       const offices = [...new Set(windowed.filter(s => _indicatorDeptOf(s) === 'd2d').map(s => s.office).filter(Boolean))];
       const winLabel = (cf.start && cf.end) ? cf.start + ' → ' + cf.end : 'all dates';
       return indicatorSpringCleaningBoard(windowed, offices, winLabel);
+    })() : null),
+
+    // ── Top Gun — three-class per-rep production board (Rookies/Vets/Pros). ──
+    (state.indicatorsComps && (getActiveComp().scoring === 'top_gun') ? (() => {
+      const cf = state._indicatorCompFilter || {};
+      const bounds = (cf.start && cf.end) ? { s: new Date(cf.start + 'T00:00'), e: new Date(cf.end + 'T23:59') } : null;
+      const windowed = bounds
+        ? (state._indicatorRawSales || []).filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
+        : (state._indicatorRawSales || []);
+      const d2d = windowed.filter(s => _indicatorDeptOf(s) === 'd2d');
+      const winLabel = (cf.start && cf.end) ? cf.start + ' → ' + cf.end : 'all dates';
+      return indicatorTopGunBoard(d2d, winLabel);
     })() : null),
 
     // Avg Pest Initial / Raffle competition card, lifted to the top.
