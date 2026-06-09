@@ -10344,8 +10344,7 @@ function setRepTeam(repName, team) {
 const DEFAULT_COMPETITIONS = [
   { id: 'top_gun',          name: 'Top Gun' },
   { id: 'spring_cleaning',  name: 'Spring Cleaning',  scoring: 'spring_cleaning' },
-  { id: 'avg_pest_initial', name: 'Avg Pest Initial', scoring: 'avg_pest_initial' },
-  { id: 'raffle',           name: 'Raffle Tickets',   scoring: 'raffle' },
+  { id: 'avg_pest_initial', name: 'Avg Pest & Raffle', scoring: 'avg_pest_initial' },
 ];
 function getIndicatorCompetitions() {
   if (!Array.isArray(state._indicatorCompetitions) || state._indicatorCompetitions.length === 0) {
@@ -10354,10 +10353,17 @@ function getIndicatorCompetitions() {
       : [REP_EXCLUDED_TEAM];
     state._indicatorCompetitions = DEFAULT_COMPETITIONS.map(c => ({ ...c, excludedTeams: legacy.slice() }));
   }
+  // Cleanup: the standalone Raffle competition was merged into Avg Pest &
+  // Raffle — drop it from older saved configs.
+  if (state._indicatorCompetitions.some(c => c.id === 'raffle')) {
+    state._indicatorCompetitions = state._indicatorCompetitions.filter(c => c.id !== 'raffle');
+    if (state._indicatorActiveCompId === 'raffle') state._indicatorActiveCompId = 'avg_pest_initial';
+  }
   // Heal: make sure the built-in scoring competitions exist even on configs
-  // saved before they were added (e.g. Avg Pest Initial, Raffle Tickets), and
-  // backfill the scoring tag on any built-in that's missing it.
+  // saved before they were added, and backfill the scoring tag / rename on any
+  // built-in that's stale.
   const byId = new Map(state._indicatorCompetitions.map(c => [c.id, c]));
+  { const ap = byId.get('avg_pest_initial'); if (ap) ap.name = 'Avg Pest & Raffle'; }
   DEFAULT_COMPETITIONS.forEach(d => {
     const existing = byId.get(d.id);
     if (!existing) state._indicatorCompetitions.push({ ...d, excludedTeams: [REP_EXCLUDED_TEAM] });
@@ -12145,6 +12151,28 @@ function viewIndicators() {
   const weekRow = data.find(r => r.week === currentWeek);
   const dateLabel = weekRow?.date || '';
 
+  // Build the rep-level sections ONCE here (instead of inline in the return)
+  // so we can lift the Avg Pest Initial / Raffle competition card up to the
+  // top of the page, right under the competition selector — same spot as the
+  // Spring Cleaning board — when one of those comps is selected.
+  const _repWindowLabel = (() => {
+    if (isRange) {
+      const presetLabel = (INDICATOR_RANGE_PRESETS.find(p => p.id === state.indicatorsRangePreset) || {}).label || 'Range';
+      if (state.indicatorsRangePreset === 'custom') return `${rangeBounds.start} → ${rangeBounds.end}`;
+      return `${presetLabel} · ${rangeBounds.start} → ${rangeBounds.end}`;
+    }
+    const wkRow = (allData || []).find(r => r.week === currentWeek);
+    const dl = (wkRow?.date || '').trim();
+    return 'Week ' + currentWeek + (dl ? ' · ' + dl : '');
+  })();
+  const _repSections = indicatorRepSections(data, isRange, currentWeek, isRange ? rangeBounds : null, allWeeks, allData, _repWindowLabel);
+  // Splice out the D2D comp card so it can render at the top.
+  let _topCompCard = null;
+  {
+    const idx = _repSections.findIndex(n => n && n.getAttribute && n.getAttribute('data-section') === 'd2d-comp');
+    if (idx >= 0) _topCompCard = _repSections.splice(idx, 1)[0];
+  }
+
   return el('div', { class: 'flex flex-col gap-5 max-w-[1400px] mx-auto' },
 
     // ── Fixed filter bar — pinned just below the page header at all times,
@@ -12599,6 +12627,9 @@ function viewIndicators() {
       const offices = [...new Set(windowed.filter(s => _indicatorDeptOf(s) === 'd2d').map(s => s.office).filter(Boolean))];
       return indicatorSpringCleaningBoard(windowed, offices);
     })() : null),
+
+    // Avg Pest Initial / Raffle competition card, lifted to the top.
+    _topCompCard,
 
     // ── Main metrics table (click metric name to sort branches) ──
     (() => {
@@ -13065,20 +13096,7 @@ function viewIndicators() {
     // ════════════════════════════════════════════════════════════════
     // REP-LEVEL ANALYTICS (computed from raw sales if available)
     // ════════════════════════════════════════════════════════════════
-    ...indicatorRepSections(data, isRange, currentWeek, isRange ? rangeBounds : null, allWeeks, allData, (() => {
-      // Build a compact "what window am I looking at" label so screenshot-
-      // friendly cards (Top 5 Avg Pest Initial, Raffle Tickets) can show it.
-      if (isRange) {
-        const presetLabel = (INDICATOR_RANGE_PRESETS.find(p => p.id === state.indicatorsRangePreset) || {}).label || 'Range';
-        if (state.indicatorsRangePreset === 'custom') {
-          return `${rangeBounds.start} → ${rangeBounds.end}`;
-        }
-        return `${presetLabel} · ${rangeBounds.start} → ${rangeBounds.end}`;
-      }
-      const wkRow = (allData || []).find(r => r.week === currentWeek);
-      const dl = (wkRow?.date || '').trim();
-      return 'Week ' + currentWeek + (dl ? ' · ' + dl : '');
-    })()),
+    ..._repSections,
   );
 }
 
@@ -13337,12 +13355,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // ── D2D Comp section is built inside a closure so we can swap just THIS
   // chunk of the DOM when the date inputs change, instead of triggering a
   // full mountApp() that re-renders Chart.js canvases (which flicker).
-  // `d2dCompMode` controls which card(s) render: 'pest', 'raffle', or 'both'.
-  // It's a closure var so replaceD2DCompSection() (date-change swap) keeps the
-  // same mode without needing the arg threaded through.
-  let d2dCompMode = 'both';
+  // One merged card: Avg Pest Initial ranking + raffle ticket columns.
   function buildD2DCompSection() {
-    const which = d2dCompMode;
     const compBounds = (cf.start && cf.end)
       ? { start: new Date(cf.start + 'T00:00'), end: new Date(cf.end + 'T23:59') }
       : null;
@@ -13535,22 +13549,29 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     toast('Exported ' + top5Sales.length + ' sales (' + includedCount + ' counted, ' + (top5Sales.length - includedCount) + ' excluded)', 'success');
   };
 
+  const raffleFor = (name) => raffleByRep[name] || { total: 0, tier1: 0, tier2: 0, tier3: 0 };
   const avgInitialCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' },
-        el('h3', { class: 'text-base font-bold' }, '🏆 Top 15 — Avg Pest Initial'),
-        el('button', {
-          class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-          title: 'Export all sales from the top 5 reps (the comp\'s prize winners) with included/excluded markers',
-          onclick: exportAvgPestCsv,
-        }, '↓ Export'),
+      el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
+        el('div', {},
+          el('h3', { class: 'text-base font-bold' }, '🏆 Avg Pest Initial & Raffle'),
+          el('p', { class: 'text-[10px] text-muted- mt-0.5' },
+            'Reps with 6+ qualifying accounts, ranked by Avg Initial (top 5 win). Sentricon / German Roach / Interior Flea excluded. Raffle tickets: $149–199 → 1 · $200–249 → 2 · $250+ → 3 (active accounts only).'),
+        ),
+        el('div', { class: 'flex items-center gap-3' },
+          el('div', { class: 'text-right' },
+            el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Raffle Entries'),
+            el('div', { class: 'text-xl font-black tabular-nums', style: { color: 'var(--accent)' } }, fmt.int(raffleTotalTickets)),
+          ),
+          el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, title: 'Spin a wheel to pick a raffle winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
+          el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export top-5 avg pest initial sales', onclick: exportAvgPestCsv }, '↓ Pest'),
+          el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export raffle tickets', onclick: exportRaffleCsv }, '↓ Raffle'),
+        ),
       ),
-      el('p', { class: 'text-[10px] text-muted- mt-0.5' }, 'Reps with 6+ qualifying accounts in the window. Sentricon / German Roach / Interior Flea don\'t count. Post-service cancels still count — once the initial ran, the credit is earned. Top 5 win the comp; rows 6–15 show who\'s close.'),
     ),
     avgInitialBoard.length === 0
       ? el('div', { class: 'p-6 text-center text-xs text-muted- italic' }, 'No reps with more than ' + AVG_PEST_MIN_ACCOUNTS + ' accounts in this window.')
-      : el('div', { class: 'scroll-x', style: { maxHeight: '200px', overflowY: 'auto' } },
+      : el('div', { class: 'scroll-x', style: { maxHeight: '280px', overflowY: 'auto' } },
           el('table', { class: 'w-full text-[12px]' },
             el('thead', {
               class: 'text-[9px] uppercase tracking-wider text-muted-',
@@ -13560,15 +13581,17 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 el('th', { class: 'text-left pl-5 pr-2 py-2 w-8' }, '#'),
                 el('th', { class: 'text-left px-2 py-2' }, 'Rep'),
                 el('th', { class: 'text-right px-2 py-2' }, 'Accounts'),
-                el('th', { class: 'text-right pl-2 pr-5 py-2 font-bold' }, 'Avg Initial'),
+                el('th', { class: 'text-right px-2 py-2 font-bold' }, 'Avg Initial'),
+                el('th', { class: 'text-right px-2 py-2' }, '×1'),
+                el('th', { class: 'text-right px-2 py-2' }, '×2'),
+                el('th', { class: 'text-right px-2 py-2' }, '×3'),
+                el('th', { class: 'text-right pl-2 pr-5 py-2 font-bold' }, 'Tickets'),
               ),
             ),
-            // Ranks 1–5 = the actual top 5 (in the comp). Ranks 6–15 are
-            // shown for context — dimmed + a "Close to top 5" divider row
-            // so the eye can tell at a glance who's in vs who's chasing.
             el('tbody', {},
               ...avgInitialBoard.flatMap((r, i) => {
                 const inTop5 = i < 5;
+                const rf = raffleFor(r.name);
                 const tr = el('tr', {
                   class: 'border-t border-',
                   style: inTop5 ? {} : { opacity: '0.55' },
@@ -13577,18 +13600,20 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   el('td', { class: 'px-2 py-2 font-semibold' }, r.name),
                   el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.int(r.count)),
                   el('td', {
-                    class: 'pl-2 pr-5 py-2 text-right tabular-nums font-black',
+                    class: 'px-2 py-2 text-right tabular-nums font-black',
                     style: inTop5 ? { color: 'var(--accent)' } : { color: 'var(--text-muted)' },
                   }, fmt.usd(r.avgPest)),
+                  el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, rf.tier1 ? fmt.int(rf.tier1) : '—'),
+                  el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, rf.tier2 ? fmt.int(rf.tier2) : '—'),
+                  el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, rf.tier3 ? fmt.int(rf.tier3) : '—'),
+                  el('td', { class: 'pl-2 pr-5 py-2 text-right tabular-nums font-black', style: { color: 'var(--accent)' } }, rf.total ? fmt.int(rf.total) : '—'),
                 );
                 if (i === 5) {
-                  // Render the divider FIRST, then the row (it stays
-                  // attached to row 6 which starts the runner-up block).
                   const divider = el('tr', {},
                     el('td', {
                       class: 'pl-5 pr-5 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold',
                       style: { color: 'var(--text-subtle)', background: 'var(--card-2)' },
-                      colspan: 4,
+                      colspan: 8,
                     }, 'Close to top 5'),
                   );
                   return [divider, tr];
@@ -13692,70 +13717,6 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     toast(`Exported ${qualifying.length} qualifying sales across ${raffleSorted.length} reps`, 'success');
   };
 
-  const raffleCard = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {},
-        el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          el('h3', { class: 'text-base font-bold' }, '🎟️ Raffle Tickets'),
-          // Window label so screenshots of this card always show the scope.
-          null,
-        ),
-        el('p', { class: 'text-[10px] text-muted- mt-0.5' },
-          '$149–199 → 1 · $200–249 → 2 · $250+ → 3 · active accounts only · Sentricon / German Roach / Interior Flea excluded'),
-      ),
-      el('div', { class: 'flex items-center gap-3' },
-        el('div', { class: 'text-right' },
-          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Entries'),
-          el('div', { class: 'text-xl font-black tabular-nums', style: { color: 'var(--accent)' } }, fmt.int(raffleTotalTickets)),
-        ),
-        // Spin wheel — randomly picks one winner weighted by ticket count.
-        // Same comp-window data as the table + export, so the field of
-        // entrants always matches what the admin is looking at.
-        el('button', {
-          class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95',
-          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-          title: 'Spin a wheel to randomly pick a winner (weighted by tickets)',
-          onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel),
-        }, '🎰 Spin'),
-        el('button', {
-          class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-          title: 'Export raffle tickets to CSV',
-          onclick: exportRaffleCsv,
-        }, '↓ Export'),
-      ),
-    ),
-    raffleSorted.length === 0
-      ? el('div', { class: 'p-6 text-center text-xs text-muted- italic' }, 'No qualifying sales (initial ≥ $149) in this window.')
-      : el('div', { class: 'scroll-x', style: { maxHeight: '200px', overflowY: 'auto' } },
-          el('table', { class: 'w-full text-[12px]' },
-            el('thead', {
-              class: 'text-[9px] uppercase tracking-wider text-muted-',
-              style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
-            },
-              el('tr', {},
-                el('th', { class: 'text-left pl-5 pr-2 py-2 w-8' }, '#'),
-                el('th', { class: 'text-left px-2 py-2' }, 'Rep'),
-                el('th', { class: 'text-right px-2 py-2 desktop-only', title: 'Initial $149–199 (1 ticket each)' }, '×1'),
-                el('th', { class: 'text-right px-2 py-2 desktop-only', title: 'Initial $200–249 (2 tickets each)' }, '×2'),
-                el('th', { class: 'text-right px-2 py-2 desktop-only', title: 'Initial $250+ (3 tickets each)' }, '×3'),
-                el('th', { class: 'text-right pl-2 pr-5 py-2 font-bold' }, 'Tickets'),
-              ),
-            ),
-            el('tbody', {},
-              ...raffleSorted.slice(0, 50).map((r, i) => el('tr', { class: 'border-t border-' },
-                el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: 'var(--accent)' } : {} }, i + 1),
-                el('td', { class: 'px-2 py-2 font-semibold' }, r.name),
-                el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted- desktop-only' }, r.tier1 ? fmt.int(r.tier1) : '—'),
-                el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted- desktop-only' }, r.tier2 ? fmt.int(r.tier2) : '—'),
-                el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted- desktop-only' }, r.tier3 ? fmt.int(r.tier3) : '—'),
-                el('td', { class: 'pl-2 pr-5 py-2 text-right tabular-nums font-black text-base', style: { color: 'var(--accent)' } }, fmt.int(r.total)),
-              )),
-            ),
-          ),
-        ),
-  );
-
     // The wrapper carries a data-section marker so replaceD2DCompSection()
     // can find and swap just this chunk on date changes — no full re-render.
     // The shaded outer card visually unifies the filter + the two scoped
@@ -13766,10 +13727,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' },
     },
       compFilterBar,
-      el('div', { class: which === 'both' ? 'grid grid-cols-1 md:grid-cols-2 gap-3' : 'grid grid-cols-1 gap-3' },
-        (which === 'both' || which === 'pest')   && avgInitialCard,
-        (which === 'both' || which === 'raffle') && raffleCard,
-      ),
+      el('div', { class: 'grid grid-cols-1 gap-3' }, avgInitialCard),
     );
   }
 
@@ -15107,10 +15065,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // The Avg Pest Initial + Raffle mini-comps now live behind the Comps
   // selector: each shows only when its competition is the active one. With
   // Comps off, neither shows.
-  if (state.indicatorsComps) {
-    const activeScoring = getActiveComp().scoring || '';
-    if (activeScoring === 'avg_pest_initial') { d2dCompMode = 'pest';   sections.push(buildD2DCompSection()); }
-    else if (activeScoring === 'raffle')       { d2dCompMode = 'raffle'; sections.push(buildD2DCompSection()); }
+  if (state.indicatorsComps && getActiveComp().scoring === 'avg_pest_initial') {
+    sections.push(buildD2DCompSection());
   }
   sections.push(buildAggregateRecordsCard());
 
