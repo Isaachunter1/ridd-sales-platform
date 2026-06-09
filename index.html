@@ -13655,29 +13655,21 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     toast('Exported ' + top5Sales.length + ' sales (' + includedCount + ' counted, ' + (top5Sales.length - includedCount) + ' excluded)', 'success');
   };
 
-  const raffleFor = (name) => raffleByRep[name] || { total: 0, tier1: 0, tier2: 0, tier3: 0 };
+  // ── Card 1: Avg Pest Initial — ALL qualifying reps (6+ accounts), ranked. ──
   const avgInitialCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
       el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-base font-bold' }, '🏆 Avg Pest Initial & Raffle'),
+          el('h3', { class: 'text-base font-bold' }, '🏆 Avg Pest Initial'),
           el('p', { class: 'text-[10px] text-muted- mt-0.5' },
-            'Reps with 6+ qualifying accounts, ranked by Avg Initial (top 5 win). Sentricon / German Roach / Interior Flea excluded. Raffle tickets: $149–199 → 1 · $200–249 → 2 · $250+ → 3 (active accounts only).'),
+            'Every rep with 6+ qualifying accounts, ranked by Avg Initial. Sentricon / German Roach / Interior Flea don\'t count. Post-service cancels still count once the initial ran.'),
         ),
-        el('div', { class: 'flex items-center gap-3' },
-          el('div', { class: 'text-right' },
-            el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Raffle Entries'),
-            el('div', { class: 'text-xl font-black tabular-nums', style: { color: 'var(--accent)' } }, fmt.int(raffleTotalTickets)),
-          ),
-          el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, title: 'Spin a wheel to pick a raffle winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
-          el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export top-5 avg pest initial sales', onclick: exportAvgPestCsv }, '↓ Pest'),
-          el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export raffle tickets', onclick: () => exportRaffleCsv() }, '↓ Raffle'),
-        ),
+        el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export top-5 avg pest initial sales', onclick: exportAvgPestCsv }, '↓ Export'),
       ),
     ),
-    avgInitialBoard.length === 0
+    rankedByPest.length === 0
       ? el('div', { class: 'p-6 text-center text-xs text-muted- italic' }, 'No reps with more than ' + AVG_PEST_MIN_ACCOUNTS + ' accounts in this window.')
-      : el('div', { class: 'scroll-x', style: { maxHeight: '280px', overflowY: 'auto' } },
+      : el('div', { class: 'scroll-x', style: { maxHeight: '320px', overflowY: 'auto' } },
           el('table', { class: 'w-full text-[12px]' },
             el('thead', {
               class: 'text-[9px] uppercase tracking-wider text-muted-',
@@ -13687,7 +13679,49 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 el('th', { class: 'text-left pl-5 pr-2 py-2 w-8' }, '#'),
                 el('th', { class: 'text-left px-2 py-2' }, 'Rep'),
                 el('th', { class: 'text-left px-2 py-2' }, 'Accounts'),
-                el('th', { class: 'text-left px-2 py-2 font-bold' }, 'Avg Initial'),
+                el('th', { class: 'text-left pl-2 pr-5 py-2 font-bold' }, 'Avg Initial'),
+              ),
+            ),
+            el('tbody', {},
+              ...rankedByPest.map((r, i) => el('tr', { class: 'border-t border-' },
+                el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: 'var(--accent)' } : {} }, i + 1),
+                el('td', { class: 'px-2 py-2 font-semibold' }, r.name),
+                el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, fmt.int(r.count)),
+                el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums font-black', style: i === 0 ? { color: 'var(--accent)' } : {} }, fmt.usd(r.avgPest)),
+              )),
+            ),
+          ),
+        ),
+  );
+
+  // ── Card 2: Raffle Tickets — all reps with tickets, ranked by total. ──
+  const raffleCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', {},
+        el('h3', { class: 'text-base font-bold' }, '🎟️ Raffle Tickets'),
+        el('p', { class: 'text-[10px] text-muted- mt-0.5' },
+          '$149–199 → 1 · $200–249 → 2 · $250+ → 3 · active accounts only · Sentricon / German Roach / Interior Flea excluded'),
+      ),
+      el('div', { class: 'flex items-center gap-3' },
+        el('div', { class: 'text-right' },
+          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Entries'),
+          el('div', { class: 'text-xl font-black tabular-nums', style: { color: 'var(--accent)' } }, fmt.int(raffleTotalTickets)),
+        ),
+        el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, title: 'Spin a wheel to pick a winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
+        el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export raffle tickets', onclick: () => exportRaffleCsv() }, '↓ Export'),
+      ),
+    ),
+    raffleSorted.length === 0
+      ? el('div', { class: 'p-6 text-center text-xs text-muted- italic' }, 'No qualifying sales (initial ≥ $149) in this window.')
+      : el('div', { class: 'scroll-x', style: { maxHeight: '320px', overflowY: 'auto' } },
+          el('table', { class: 'w-full text-[12px]' },
+            el('thead', {
+              class: 'text-[9px] uppercase tracking-wider text-muted-',
+              style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: 1 },
+            },
+              el('tr', {},
+                el('th', { class: 'text-left pl-5 pr-2 py-2 w-8' }, '#'),
+                el('th', { class: 'text-left px-2 py-2' }, 'Rep'),
                 el('th', { class: 'text-left px-2 py-2' }, '×1'),
                 el('th', { class: 'text-left px-2 py-2' }, '×2'),
                 el('th', { class: 'text-left px-2 py-2' }, '×3'),
@@ -13695,37 +13729,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               ),
             ),
             el('tbody', {},
-              ...avgInitialBoard.flatMap((r, i) => {
-                const inTop5 = i < 5;
-                const rf = raffleFor(r.name);
-                const tr = el('tr', {
-                  class: 'border-t border-',
-                  style: inTop5 ? {} : { opacity: '0.55' },
-                },
-                  el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: 'var(--accent)' } : {} }, i + 1),
-                  el('td', { class: 'px-2 py-2 font-semibold' }, r.name),
-                  el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, fmt.int(r.count)),
-                  el('td', {
-                    class: 'px-2 py-2 text-left tabular-nums font-black',
-                    style: inTop5 ? { color: 'var(--accent)' } : { color: 'var(--text-muted)' },
-                  }, fmt.usd(r.avgPest)),
-                  el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, rf.tier1 ? fmt.int(rf.tier1) : '—'),
-                  el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, rf.tier2 ? fmt.int(rf.tier2) : '—'),
-                  el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, rf.tier3 ? fmt.int(rf.tier3) : '—'),
-                  el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums font-black', style: { color: 'var(--accent)' } }, rf.total ? fmt.int(rf.total) : '—'),
-                );
-                if (i === 5) {
-                  const divider = el('tr', {},
-                    el('td', {
-                      class: 'pl-5 pr-5 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold',
-                      style: { color: 'var(--text-subtle)', background: 'var(--card-2)' },
-                      colspan: 8,
-                    }, 'Close to top 5'),
-                  );
-                  return [divider, tr];
-                }
-                return [tr];
-              }),
+              ...raffleSorted.map((r, i) => el('tr', { class: 'border-t border-' },
+                el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: 'var(--accent)' } : {} }, i + 1),
+                el('td', { class: 'px-2 py-2 font-semibold' }, r.name),
+                el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, r.tier1 ? fmt.int(r.tier1) : '—'),
+                el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, r.tier2 ? fmt.int(r.tier2) : '—'),
+                el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, r.tier3 ? fmt.int(r.tier3) : '—'),
+                el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums font-black', style: { color: 'var(--accent)' } }, fmt.int(r.total)),
+              )),
             ),
           ),
         ),
@@ -13833,7 +13844,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' },
     },
       // Date window now lives in the shared Comp Window bar at the top.
-      el('div', { class: 'grid grid-cols-1 gap-3' }, avgInitialCard),
+      el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-3' }, avgInitialCard, raffleCard),
     );
   }
 
