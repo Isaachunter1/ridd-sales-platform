@@ -12181,6 +12181,13 @@ function viewIndicators() {
     const idx = _repSections.findIndex(n => n && n.getAttribute && n.getAttribute('data-section') === 'd2d-comp');
     if (idx >= 0) _topCompCard = _repSections.splice(idx, 1)[0];
   }
+  // Focused comp view: when a competition with its OWN table (Spring Cleaning,
+  // Avg Pest & Raffle) is selected, render just the selector + comp window +
+  // that table and skip the Chart.js-heavy power ranking / weekly charts / rep
+  // analytics. Keeps comp switching + the comp window snappy instead of
+  // re-rendering several canvases each time.
+  const _focusedComp = state.indicatorsComps
+    && ['spring_cleaning', 'avg_pest_initial'].includes(getActiveComp().scoring || '');
 
   return el('div', { class: 'flex flex-col gap-5 max-w-[1400px] mx-auto' },
 
@@ -12664,7 +12671,7 @@ function viewIndicators() {
     _topCompCard,
 
     // ── Main metrics table (click metric name to sort branches) ──
-    (() => {
+    !_focusedComp && (() => {
       // Sort state: which metric is sorting the columns, and direction
       if (!state._indicatorSort) state._indicatorSort = { key: null, asc: false };
       const sort = state._indicatorSort;
@@ -12789,7 +12796,7 @@ function viewIndicators() {
     // each cell shows the rank with #1 accented and bottom-third dimmed so
     // weak spots stand out. Power Ranking keeps its own card because it adds
     // total points + best/worst-metric callouts.
-    (() => {
+    !_focusedComp && (() => {
       // Mirrors the metrics that feed Power Ranking points so each row's rank
       // sum reconciles with the team's pts on the right-hand card. Reps is
       // intentionally omitted — it's still tracked elsewhere but rendering it
@@ -13115,7 +13122,7 @@ function viewIndicators() {
     // Charts share the table's date filter when in Range mode, or use the full
     // YTD week list when in Weekly mode (so the full season trend is visible
     // even though the table is showing one week).
-    el('div', { class: 'flex flex-col gap-4' },
+    !_focusedComp && el('div', { class: 'flex flex-col gap-4' },
       el('div', {},
         indicatorChart('Branch Power Ranking', isRange ? data : allData, branches, '_power_ranking', isRange ? weeks : allWeeks, true),
       ),
@@ -13128,7 +13135,7 @@ function viewIndicators() {
     // ════════════════════════════════════════════════════════════════
     // REP-LEVEL ANALYTICS (computed from raw sales if available)
     // ════════════════════════════════════════════════════════════════
-    ..._repSections,
+    ...(_focusedComp ? [] : _repSections),
   );
 }
 
