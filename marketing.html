@@ -108,6 +108,14 @@ thead th[data-tip] .tipdot{display:inline-block;width:12px;height:12px;line-heig
   <div class="section">Marketing spend vs Inside Sales revenue</div>
   <div class="chartbox"><canvas id="trend"></canvas></div>
   <div class="note" id="trendNote"></div>
+  <div class="section">Headline</div>
+  <div id="mktgKpis" style="display:flex;gap:10px;flex-wrap:wrap"></div>
+
+  <div class="section">Source &amp; Attribution</div>
+  <div style="overflow-x:auto"><table id="attrtable"><thead><tr><th>Source</th><th>Spend&nbsp;($/mo)</th><th>Leads</th><th>New&nbsp;Customers</th><th>CAC</th><th>Rev&nbsp;Sold</th><th>ARR</th><th>ROAS</th></tr></thead><tbody></tbody></table></div>
+  <div class="note" id="attrNote"></div>
+
+
   <div class="section">Spend Pulse — daily spend &amp; monthly pacing</div>
   <div class="chartbox"><canvas id="pulseChart"></canvas></div>
   <div class="note" id="pulseChartNote"></div>
@@ -116,6 +124,7 @@ thead th[data-tip] .tipdot{display:inline-block;width:12px;height:12px;line-heig
 
 
 
+  <div style="display:none" aria-hidden="true"><!-- legacy marketing sections (kept off-page) -->
   <div class="section">Revenue Sources <a id="mapToggle">⚙ Map sources</a></div>
   <div id="mapPanel"></div>
   <div style="overflow-x:auto"><table id="legtable"><thead><tr><th>Source</th><th data-tip="Accounts with a Sold Date in the selected range AND a payment method on file (committed sold). Accounts with no payment method are excluded.">Acct&nbsp;Sold<span class="tipdot">?</span></th><th data-tip="Of the accounts sold in range, how many have a completed initial service.">Acct&nbsp;Serviced<span class="tipdot">?</span></th><th data-tip="Acct Serviced ÷ Acct Sold — the % of committed-sold accounts that received an initial service.">Sold→Serviced<span class="tipdot">?</span></th><th data-tip="Sum of Annual Recurring Value (ARV) of the accounts sold in range.">Rev&nbsp;Sold<span class="tipdot">?</span></th><th data-tip="Sum of ARV of the sold accounts that have been serviced.">Rev&nbsp;Serviced<span class="tipdot">?</span></th><th data-tip="Total subscription contract value ÷ accounts sold — a volume-weighted average contract value.">Weighted&nbsp;ACV<span class="tipdot">?</span></th><th data-tip="Accounts with an agreement of 18 months or longer ÷ accounts with an agreement of 12 months or longer — the multi-year share of sold agreements.">MY&nbsp;%<span class="tipdot">?</span></th></tr></thead><tbody></tbody></table></div>
@@ -144,6 +153,7 @@ thead th[data-tip] .tipdot{display:inline-block;width:12px;height:12px;line-heig
     <div class="subhd">All transactions <span id="txnCount" class="dash" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
     <div style="overflow-x:auto"><table id="txntable"><thead><tr><th>Date</th><th>Payee</th><th>Description</th><th>Amount</th><th>Source</th></tr></thead><tbody></tbody></table></div>
   </div>
+  </div><!-- /legacy hidden -->
 
   <div id="acctModal"><div id="acctCard"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 id="acctTitle"></h3><button class="acctclose" id="acctClose">✕ Close</button></div><div id="acctBody"></div></div></div>
 </div>
@@ -385,59 +395,76 @@ function drawPulseChart(f,t){
   if(noteEl)noteEl.innerHTML=`Daily marketing spend by channel, bucketed by ${mode}. Meta &amp; Google from Windsor; other channels from QuickBooks transactions on their actual dates.`;
 }
 
+// ---------- Source & Attribution (CSV sources + spend) ----------
+const SRC_SPEND_KEY='ridd_src_spend_v1';   // { sourceName: monthly$ } — manual spend per CRM source
+function loadSrcSpend(){ try{return JSON.parse(localStorage.getItem(SRC_SPEND_KEY)||'{}')}catch(e){return{};} }
+function saveSrcSpend(o){ try{localStorage.setItem(SRC_SPEND_KEY,JSON.stringify(o))}catch(e){} }
+function rangeDaysInc(){ return Math.max(1, Math.round((new Date(curTo)-new Date(curFrom))/86400000)+1); }
+
+// One row per CRM source: customers/revenue/ARR from the CSV, leads from GHL
+// (where mapped), spend auto from Windsor for Meta/Google or a manual monthly
+// figure the CMO types for everything else (prorated to the selected range).
+function attributionRows(per){
+  const ch=channelSpendCombined(curFrom,curTo);
+  const leads=mixLeadsByChannel();
+  const manual=loadSrcSpend();
+  const days=rangeDaysInc();
+  return (MAP||[]).map(s=>{
+    const p=per[s.name]||{n:0,cv:0,arv:0};
+    const auto=ch[s.name]||0;
+    const isWin=!!s.windsor;
+    const man=manual[s.name];
+    const eff = isWin ? auto : (man>0 ? man*days/30.4 : auto);
+    return { name:s.name, win:isWin, auto, man:man>0?man:null, spend:eff,
+             leads:leads[s.name]||0, cust:p.n||0, cv:p.cv||0, arr:p.arv||0 };
+  }).filter(r=> r.cust>0 || r.spend>0 || r.leads>0)
+    .sort((a,b)=> b.spend-a.spend || b.cust-a.cust);
+}
+
+function renderMktgKPIs(rows){
+  const T=rows.reduce((o,r)=>{o.sp+=r.spend;o.ld+=r.leads;o.cu+=r.cust;o.cv+=r.cv;o.arr+=r.arr;return o;},{sp:0,ld:0,cu:0,cv:0,arr:0});
+  const card=(label,val,sub)=>`<div style="flex:1;min-width:120px;background:var(--smoke);border:1px solid var(--line);border-radius:10px;padding:10px 12px">`
+    +`<div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray);font-weight:700">${label}</div>`
+    +`<div style="font-size:22px;font-weight:800;margin-top:2px">${val}</div>`
+    +`${sub?`<div style="font-size:10px;color:var(--gray);margin-top:1px">${sub}</div>`:''}</div>`;
+  const el=document.getElementById('mktgKpis'); if(!el) return;
+  el.innerHTML=
+     card('New Customers',fmtN(T.cu))
+    +card('Leads',T.ld?fmtN(T.ld):'—')
+    +card('Blended CAC',T.cu&&T.sp?fmt0(T.sp/T.cu):'—','spend ÷ customers')
+    +card('Rev Sold',fmt0(T.cv))
+    +card('ARR Added',fmt0(T.arr))
+    +card('ROAS',T.sp&&T.cv?fmtX(T.cv/T.sp):'—','rev ÷ spend');
+}
+
+function renderAttribution(per){
+  const rows=attributionRows(per);
+  renderMktgKPIs(rows);
+  const days=rangeDaysInc();
+  const dash='<span class="dash">—</span>';
+  let html='';
+  rows.forEach(r=>{
+    const cac=(r.spend>0&&r.cust>0)?fmt0(r.spend/r.cust):dash;
+    const roas=(r.spend>0&&r.cv>0)?fmtX(r.cv/r.spend):dash;
+    const spendCell = r.win
+      ? `<span title="Pulled automatically from Windsor">${r.spend?fmt0(r.spend):dash} <span class="pill win">auto</span></span>`
+      : `<span style="opacity:.5">$</span><input class="srcSpendInp" data-src="${encodeURIComponent(r.name)}" type="number" min="0" step="50" value="${r.man||''}" placeholder="${r.auto>0?Math.round(r.auto/(days/30.4)):'mo'}" title="Your monthly spend for this source" style="width:78px;font:inherit;padding:2px 4px"/>`;
+    html+=`<tr><td>${r.name}</td><td>${spendCell}</td><td>${r.leads?fmtN(r.leads):dash}</td><td>${fmtN(r.cust)}</td><td>${cac}</td><td>${r.cv?fmt0(r.cv):dash}</td><td>${r.arr?fmt0(r.arr):dash}</td><td>${roas}</td></tr>`;
+  });
+  const T=rows.reduce((o,r)=>{o.sp+=r.spend;o.ld+=r.leads;o.cu+=r.cust;o.cv+=r.cv;o.arr+=r.arr;return o;},{sp:0,ld:0,cu:0,cv:0,arr:0});
+  html+=`<tr class="totrow"><td>Total</td><td>${fmt0(T.sp)}</td><td>${T.ld?fmtN(T.ld):dash}</td><td>${fmtN(T.cu)}</td><td>${T.cu&&T.sp?fmt0(T.sp/T.cu):dash}</td><td>${fmt0(T.cv)}</td><td>${fmt0(T.arr)}</td><td>${T.sp&&T.cv?fmtX(T.cv/T.sp):dash}</td></tr>`;
+  document.querySelector('#attrtable tbody').innerHTML=html;
+  document.getElementById('attrNote').innerHTML='One row per source from your CRM upload. New Customers, Rev Sold &amp; ARR come straight from the CSV (by Sold Date). Meta &amp; Google spend is pulled from Windsor automatically; for every other source, type your <b>monthly</b> spend and CAC/ROAS fill in instantly (saved on this device, prorated to the selected range).';
+  document.querySelectorAll('#attrtable .srcSpendInp').forEach(inp=>{ inp.onchange=()=>{ const src=decodeURIComponent(inp.dataset.src); const o=loadSrcSpend(); const v=parseFloat(inp.value); if(v>0)o[src]=v; else delete o[src]; saveSrcSpend(o); renderAttribution(per); }; });
+}
+
 function render(per,spend){
-  const totalSpend=spend.meta+spend.goog;
-  // leg rollups (sold cohort + serviced cohort)
-  const legAgg={}; LEGS.forEach(l=>legAgg[l]={n:0,arv:0,cv:0,nsub:0,cvsub:0,svcn:0,svcarv:0,a12:0,a18:0,srcs:[]});
-  MAP.forEach(s=>{
-    const p=per[s.name]; const L=legAgg[s.leg];
-    L.n+=p.n;L.arv+=p.arv;L.cv+=p.cv;L.nsub+=p.nsub;L.cvsub+=p.cvsub;L.svcn+=p.svcn;L.svcarv+=p.svcarv;L.a12+=p.a12;L.a18+=p.a18;
-    if(p.n>0||p.svcn>0) L.srcs.push({name:s.name,paid:s.paid,win:s.windsor,...p});
-  });
-  const IS=legAgg['Inside Sales'];
-  // QuickBooks marketing expense = true Total Spend / CAC basis; Windsor = channel split
-  const qb=qbSpendRange(curFrom,curTo);
-  const adSpend=spend.meta+spend.goog;
-  let paidSold=0; MAP.forEach(s=>{ if(s.paid) paidSold+=per[s.name].n; });
-  // (KPI cards removed — the tables below carry these metrics per leg/source/market)
-  // leg table with source drill-down — Acct Sold | Acct Serviced | Rev Sold | Rev Serviced | Weighted ACV | SUB ACV | Spend | CAC | ROAS
-  const cell=v=>v==null?'<td><span class="dash">—</span></td>':'<td>'+v+'</td>';
-  const tb=document.querySelector('#legtable tbody'); let html=''; let T={n:0,svcn:0,arv:0,svcarv:0,cv:0,a12:0,a18:0};
-  ['Door to Door','Inside Sales','Upsells','Renewals'].forEach(L=>{
-    const a=legAgg[L];
-    T.n+=a.n;T.svcn+=a.svcn;T.arv+=a.arv;T.svcarv+=a.svcarv;T.cv+=a.cv;T.a12+=a.a12;T.a18+=a.a18;
-    const wacvL=a.n?fmt0(a.cv/a.n):null;
-    const s2sL=a.n?Math.round(a.svcn/a.n*100)+'%':null, myL=a.a12?Math.round(a.a18/a.a12*100)+'%':null;
-    html+=`<tr class="legrow" data-leg="${L}"><td>${L}</td><td>${fmtN(a.n)}</td><td>${fmtN(a.svcn)}</td>`+cell(s2sL)+`<td>${fmt0(a.arv)}</td><td>${fmt0(a.svcarv)}</td>`+cell(wacvL)+cell(myL)+`</tr>`;
-    a.srcs.sort((x,y)=>y.arv-x.arv).forEach(s=>{
-      const wacvS=s.n?fmt0(s.cv/s.n):null;
-      const s2sS=s.n?Math.round(s.svcn/s.n*100)+'%':null, myS=s.a12?Math.round(s.a18/s.a12*100)+'%':null;
-      const tags=(s.win?'<span class="pill win">windsor</span>':'');
-      html+=`<tr class="srcrow" data-leg="${L}" data-src="${s.name}"><td>${s.name}${tags}</td><td>${fmtN(s.n)}</td><td>${fmtN(s.svcn)}</td>`+cell(s2sS)+`<td>${fmt0(s.arv)}</td><td>${fmt0(s.svcarv)}</td>`+cell(wacvS)+cell(myS)+`</tr>`;
-    });
-  });
-  html+=`<tr class="totrow"><td>Total</td><td>${fmtN(T.n)}</td><td>${fmtN(T.svcn)}</td>`+cell(T.n?Math.round(T.svcn/T.n*100)+'%':null)+`<td>${fmt0(T.arv)}</td><td>${fmt0(T.svcarv)}</td>`+cell(T.n?fmt0(T.cv/T.n):null)+cell(T.a12?Math.round(T.a18/T.a12*100)+'%':null)+`</tr>`;
-  tb.innerHTML=html;
-  tb.querySelectorAll('.legrow').forEach(r=>r.onclick=()=>{
-    r.classList.toggle('open');
-    tb.querySelectorAll(`.srcrow[data-leg="${r.dataset.leg}"]`).forEach(x=>x.classList.toggle('show'));
-  });
-  tb.querySelectorAll('.srcrow').forEach(r=>{ r.onclick=()=>openAccounts(r.dataset.src); });
-  // by-market table
-  renderMarkets(curFrom,curTo);
-  // marketing spend by source (+ transaction-type mapping under the toggle)
-  renderSourceSpend(curFrom,curTo);
-  renderVendors(curFrom,curTo);
-  renderTxns(curFrom,curTo);
-  // lead -> sold conversion (GoHighLevel)
-  renderConversion(per, channelSpendCombined(curFrom,curTo));
-  // mix model: full-funnel by channel (spend -> leads -> new customers)
-  renderMixModel(per);
+  // Headline KPIs + the source/attribution table (the core of the page)
+  renderAttribution(per);
   // spend pulse: daily channel spend + monthly pacing/projection
   renderSpendPulse();
-  // chart: marketing spend vs inside sales revenue
+  // chart: marketing spend vs inside sales revenue (kept)
   drawTrend(txnDailySpend(curFrom,curTo), insideSalesDailyRev(curFrom,curTo));
-  // spend source label
   document.getElementById('dot').style.background = spend.live? 'var(--green)':'var(--gray)';
 }
 // ---------- GoHighLevel leads + editable GHL→CRM source map (repo only) ----------
