@@ -21833,7 +21833,7 @@ function viewReporting() {
   const isMarketing = state.reportingSubTab === 'marketing';
 
   return el('div', { class: 'flex flex-col gap-4' },
-    isMarketing ? null : reportingTopBar(),
+    reportingTopBar(),
     reportingSubTabs(),
     reportingMethodologyBar(),
     isMarketing                            ? viewMarketing() :
