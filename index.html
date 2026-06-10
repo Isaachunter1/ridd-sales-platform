@@ -22994,11 +22994,14 @@ function reportingInsideSales() {
   const rowsAll = state.reportingSubscriptions || [];
 
   const nowY = new Date().getFullYear();
-  const months = Array.from({ length: 12 }, (_, i) => nowY + '-' + String(i + 1).padStart(2, '0'));
+  const monthsOf = (y) => Array.from({ length: 12 }, (_, i) => y + '-' + String(i + 1).padStart(2, '0'));
   const Y2 = String(nowY - 2), Y1 = String(nowY - 1), YTD = String(nowY);
-  const periods = [Y2, Y1, ...months, YTD];
+  const months = monthsOf(nowY); // current-year months (YTD sums)
+  // Month-over-month from two years back: each year's 12 months, then its total.
+  const allMonths = [...monthsOf(Y2), ...monthsOf(Y1), ...months];
+  const periods = [...monthsOf(Y2), Y2, ...monthsOf(Y1), Y1, ...months, YTD];
   const MONTH_LBL = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const colLabel = (p) => p === YTD ? (nowY + ' YTD') : (p.length === 4 ? p : MONTH_LBL[Number(p.slice(5)) - 1] + ' ' + p.slice(0, 4));
+  const colLabel = (p) => p === YTD ? (nowY + ' YTD') : (p.length === 4 ? p + ' Total' : MONTH_LBL[Number(p.slice(5)) - 1] + ' ' + p.slice(0, 4));
 
   // ── Auto aggregates from the snapshot (sold_date + committed-sold filter) ──
   const agg = {};
@@ -23030,10 +23033,16 @@ function reportingInsideSales() {
   const spendAt = (ch, p) => { let s = 0; for (const ym in SP) { if (ym.startsWith(p)) s += SP[ym][ch] || 0; } return s; };
   const mktAt = (p) => channels.reduce((s, c) => s + spendAt(c, p), 0);
 
-  // ── Manual cells (months + prior-year totals editable; YTD = sum of months) ──
+  // ── Manual cells (months editable; year totals = sum of that year's months,
+  //    falling back to a previously hand-entered year-level value). N/A is
+  //    stored as a sentinel and excluded from all sums and stats. ──
+  const NA_SENTINEL = -999999;
+  const isNA = (v) => v != null && Number(v) === NA_SENTINEL;
+  const sumMan = (ms, f) => { let s = null; for (const m of ms) { const v = MAN[m]?.[f]; if (v != null && !isNA(v)) { s = (s || 0) + Number(v); } } return s; };
   const manAt = (p, f) => {
-    if (p === YTD) { let s = null; for (const m of months) { const v = MAN[m]?.[f]; if (v != null) { s = (s || 0) + Number(v); } } return s; }
-    const v = MAN[p]?.[f]; return v == null ? null : Number(v);
+    if (p === YTD) return sumMan(months, f);
+    if (p.length === 4) { const s = sumMan(monthsOf(p), f); if (s != null) return s; const v = MAN[p]?.[f]; return (v == null || isNA(v)) ? null : Number(v); }
+    const v = MAN[p]?.[f]; return (v == null || isNA(v)) ? null : Number(v);
   };
 
   // ── Formatting + color coding ──
@@ -23048,14 +23057,21 @@ function reportingInsideSales() {
     class: 'px-2.5 py-1.5 text-right tabular-nums whitespace-nowrap text-xs' + (opts.bold ? ' font-bold' : ''),
     style: { background: bg || 'transparent', borderLeft: '1px solid var(--border)' },
   }, content);
-  const inputCell = (p, field) => {
+  const inputCell = (p, field, opts = {}) => {
     const v = MAN[p]?.[field];
+    const na = isNA(v);
     return el('td', { class: 'px-1 py-0.5 text-right', style: { borderLeft: '1px solid var(--border)' } },
       el('input', {
-        type: 'number', value: v == null ? '' : v, placeholder: '—',
+        type: opts.allowNA ? 'text' : 'number', inputmode: 'decimal',
+        value: na ? 'N/A' : (v == null ? '' : v), placeholder: '—',
         class: 'w-20 text-right text-xs rounded border px-1 py-0.5',
-        style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
-        onchange: (e) => { saveIsManual(p, field, e.target.value).then(() => mountApp()); },
+        style: { background: 'var(--card)', borderColor: 'var(--border)', color: na ? 'var(--text-muted)' : 'var(--text)' },
+        onchange: (e) => {
+          let val = e.target.value.trim();
+          if (opts.allowNA && /^n\/?a$/i.test(val)) val = String(NA_SENTINEL);
+          else if (opts.allowNA && val !== '' && isNaN(Number(val))) { toast('Enter a number or N/A', 'error'); e.target.value = na ? 'N/A' : (v == null ? '' : v); return; }
+          saveIsManual(p, field, val).then(() => mountApp());
+        },
       }));
   };
   const labelTd = (label, opts = {}) => el('td', {
@@ -23070,11 +23086,11 @@ function reportingInsideSales() {
   const autoRow = (label, valFn, fmt, shadeFn, opts = {}) => tr(
     labelTd(label, opts),
     ...periods.map(p => { const v = valFn(p); return td(fmt(v), shadeFn ? shadeFn(v, p) : '', opts); }));
-  const manualRow = (label, field) => tr(
+  const manualRow = (label, field, opts = {}) => tr(
     labelTd(label, { indent: false }),
-    ...periods.map(p => p === YTD
-      ? td(usdOrNum(field, manAt(p, field)), '', { bold: false })
-      : inputCell(p, field)));
+    ...periods.map(p => p.length === 4
+      ? td(usdOrNum(field, manAt(p, field)), '', { bold: false }) // year totals & YTD are computed
+      : inputCell(p, field, opts)));
   const usdOrNum = (field, v) => (field === 'total_calls' || field === 'qualified_calls') ? num(v) : usd(v);
 
   // Derived helpers per period
@@ -23082,7 +23098,7 @@ function reportingInsideSales() {
   const wagesAt = (p) => manAt(p, 'wages');
   const incAt   = (p) => manAt(p, 'incentive_costs');
   const totalSpendAt = (p) => mktAt(p) + (wagesAt(p) || 0) + (incAt(p) || 0);
-  const prevMonth = (p) => { if (p.length !== 7) return null; const i = months.indexOf(p); return i > 0 ? months[i - 1] : null; };
+  const prevMonth = (p) => { if (p.length !== 7) return null; const i = allMonths.indexOf(p); return i > 0 ? allMonths[i - 1] : null; };
 
   const header = el('thead', { class: 'sticky top-0', style: { zIndex: 2 } }, el('tr', {},
     el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-widest sticky left-0', style: { background: '#1D1D1D', color: '#fff', zIndex: 3 } }, 'Inside Sales (MO)'),
@@ -23093,7 +23109,7 @@ function reportingInsideSales() {
 
   const body = el('tbody', {},
     sectionRow('Projected'),
-    manualRow('Projected Revenue',  'projected_revenue'),
+    manualRow('Projected Revenue',  'projected_revenue', { allowNA: true }),
     manualRow('Projected Ad Spend', 'projected_ad_spend'),
     manualRow('Projected Wages',    'projected_wages'),
     autoRow('Projected Total Spend', p => {
@@ -23144,8 +23160,14 @@ function reportingInsideSales() {
     needsSchema && el('div', { class: 'card p-3 text-xs', style: { background: 'var(--card-2)' } },
       '⚠ No Sold Date on this snapshot yet. Run inside_sales_schema.sql in Supabase, then re-upload the Customer Report — revenue rows fill in from there.'),
     el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'overflow-x-auto', style: { maxHeight: '78vh' } },
-        el('table', { class: 'w-full', style: { borderCollapse: 'collapse', minWidth: '1400px' } }, header, body))),
+      (() => {
+        // Open scrolled to the current months; remember position across edits/re-renders.
+        const scroller = el('div', { class: 'overflow-x-auto', style: { maxHeight: '78vh' } },
+          el('table', { class: 'w-full', style: { borderCollapse: 'collapse', minWidth: '1400px' } }, header, body));
+        scroller.addEventListener('scroll', () => { state._isPnlScroll = scroller.scrollLeft; });
+        setTimeout(() => { scroller.scrollLeft = state._isPnlScroll != null ? state._isPnlScroll : scroller.scrollWidth; }, 0);
+        return scroller;
+      })()),
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
       'Auto rows compute from the active snapshot (Inside Sales sources, sold date, payment on file) and the marketing spend feed. White input cells are hand-entered and shared with every admin. Green/red shading uses default thresholds — tell me if you want them tuned.'),
   );
