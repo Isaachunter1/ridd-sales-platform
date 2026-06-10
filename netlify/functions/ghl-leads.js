@@ -27,9 +27,9 @@
 const BASE = 'https://services.leadconnectorhq.com';
 const VERSION = '2021-07-28';
 const LOOKBACK_DAYS = 365;
-const PAGE_LIMIT = 100;
-const MAX_PAGES = 60;        // hard cap
-const DEADLINE_MS = 18000;   // overall budget; return partial well before Netlify's 30s
+const PAGE_LIMIT = 500;      // GHL contacts/search max; fewer round-trips per pull
+const MAX_PAGES = 120;       // hard cap (120 x 500 = 60k contacts)
+const DEADLINE_MS = 24000;   // overall budget; return partial well before Netlify's 30s
 const FETCH_MS = 8000;       // hard per-request abort so one hung call can't run to 30s
 
 function ym(dateStr) {
