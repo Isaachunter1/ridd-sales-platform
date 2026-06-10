@@ -10811,6 +10811,15 @@ function openAvgPestRaffleHelpModal() {
   document.body.append(overlay);
 }
 
+// "Last Updated: <time>" from the most recent Indicators CSV upload — shown on
+// each competition header.
+function indicatorLastUpdatedStr() {
+  if (!state.indicatorsUploadedAt) return null;
+  return 'Last Updated: ' + new Date(state.indicatorsUploadedAt).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+}
+
 function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
   const { ranked, excludedSummary, pendingSummary } = springCleaningCompute(sales, branchList);
   const usd = (v) => '$' + Math.round(v).toLocaleString();
@@ -10850,6 +10859,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
           el('div', { style: { fontWeight: '900', fontSize: '30px', letterSpacing: '-0.02em', color: '#141414', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
           el('div', { style: { fontWeight: '800', fontSize: '10.5px', letterSpacing: '0.06em', color: '#141414', marginTop: '3px', textTransform: 'uppercase' } },
             'Team Quality Based Competition by RIDDMADE™'),
+          indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#3a5a2a', marginTop: '4px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
         ),
         el('div', { class: 'sc-sweep-track', title: 'Sweepin\' up' },
           el('div', { class: 'sc-walker' },
@@ -11098,7 +11108,10 @@ function indicatorTopGunBoard(sales, proSet) {
       el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' } },
         el('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '14px' } },
           el('div', { style: { fontWeight: '900', fontSize: '40px', lineHeight: '0.9', color: CREAM, letterSpacing: '0.04em', fontFamily: 'Georgia, serif' } }, 'TOP GUN'),
-          el('div', { style: { fontWeight: '800', fontSize: '11px', color: CREAM, letterSpacing: '0.14em', whiteSpace: 'nowrap', marginBottom: '5px' } }, 'RIDDMADE   ★ ★ ★'),
+          el('div', { style: { marginBottom: '5px' } },
+            el('div', { style: { fontWeight: '800', fontSize: '11px', color: CREAM, letterSpacing: '0.14em', whiteSpace: 'nowrap' } }, 'RIDDMADE   ★ ★ ★'),
+            indicatorLastUpdatedStr() && el('div', { style: { fontSize: '9.5px', color: CREAM, opacity: '0.7', whiteSpace: 'nowrap', marginTop: '2px', letterSpacing: '0.02em' } }, indicatorLastUpdatedStr()),
+          ),
         ),
         el('div', { class: 'tg-fly-track', title: 'On patrol' },
           el('div', { class: 'tg-flyer' },
@@ -14251,6 +14264,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             el('div', {},
               el('div', { style: { fontWeight: '900', fontSize: '20px', letterSpacing: '-0.01em', color: '#1D1D1D', textTransform: 'uppercase', lineHeight: '1' } }, 'Avg Pest Initial Competitions'),
               el('div', { style: { fontWeight: '800', fontSize: '10px', letterSpacing: '0.08em', color: '#1D1D1D', opacity: '0.8', marginTop: '3px', textTransform: 'uppercase' } }, 'Door-to-Door · by RIDDMADE™'),
+              indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#1D1D1D', opacity: '0.7', marginTop: '3px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
             ),
           ),
           el('button', {
