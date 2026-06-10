@@ -22945,7 +22945,8 @@ function reportingMktgLeadsChart() {
     el('div', { class: 'flex items-start justify-between gap-2' },
       el('div', {},
         el('h3', { class: 'text-base font-bold mb-1' }, 'Leads by Source'),
-        el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Monthly GoHighLevel leads, stacked by source')),
+        el('div', { class: 'text-[11px] text-muted- mb-3' },
+          'Monthly GoHighLevel leads, stacked by source' + (L && L.partial ? ' · ⚠ partial pull — oldest months may be incomplete' : ''))),
       filter || null),
     inner);
   if (!L || !L.bySourceMonth || !Object.keys(L.bySourceMonth).length) {
