@@ -18424,7 +18424,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   const page = el('div', {
     style: {
       width: '1056px',
-      padding: '8px 16px 12px',
+      padding: '6px 8px 8px',
       background: '#fff', color: '#1D1D1D',
       fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif',
       boxSizing: 'border-box',
@@ -18698,13 +18698,14 @@ async function downloadRookieVetPdf(allReps) {
     const imgData = canvas.toDataURL('image/png');
     const { jsPDF } = window.jspdf;
     // Landscape gives the 14-column table the horizontal room it needs
-    // to fit on one sheet. Margins kept at 18pt (~0.25") top/bottom and
-    // 24pt (~0.33") left/right.
+    // to fit on one sheet. Margins kept thin (10pt ≈ 0.14") so the
+    // content — and therefore the text — prints as large as possible
+    // while staying inside typical printer-safe areas.
     const pdf = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
     const pageW = pdf.internal.pageSize.getWidth();   // 792pt (11")
     const pageH = pdf.internal.pageSize.getHeight();  // 612pt (8.5")
-    const marginX = 24;
-    const marginY = 18;
+    const marginX = 10;
+    const marginY = 10;
     const imgW = pageW - marginX * 2;
     const imgH = (canvas.height * imgW) / canvas.width;
     const usableH = pageH - marginY * 2;
