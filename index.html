@@ -731,8 +731,9 @@ async function syncIndicatorsToCloud() {
       .pipeThrough(new CompressionStream('gzip'))).blob();
     const { error } = await supabase.storage.from('reporting')
       .upload(INDICATORS_CLOUD_PATH, blob, { contentType: 'application/gzip', upsert: true });
-    if (error) console.warn('[ridd] indicators cloud sync failed (run reporting_storage.sql?)', error);
-  } catch (e) { console.warn('[ridd] indicators cloud sync failed', e); }
+    if (error) { console.warn('[ridd] indicators cloud sync failed (run reporting_storage.sql?)', error); return false; }
+    return true;
+  } catch (e) { console.warn('[ridd] indicators cloud sync failed', e); return false; }
 }
 
 let _indCloudCheckedAt = 0;
@@ -783,6 +784,10 @@ function saveIndicatorState() {
   saveIndicatorConfigToSupabase().catch(err => console.warn('[ridd] indicator config sync failed', err));
   try {
     const data = { savedAt: new Date().toISOString() };
+    // Stamp the upload time on the bulk payload so the IndexedDB restore
+    // can tell whether its copy is older than what's already in state
+    // (e.g. a fresher upload just pulled from the cloud).
+    data.indicatorsUploadedAt = state.indicatorsUploadedAt;
     for (const k of INDICATOR_DATA_FIELDS) {
       if (k === '_indicatorRawSales' && Array.isArray(state[k])) {
         // Strip _rawRow from each sale before persisting. It's a full
@@ -899,6 +904,11 @@ function loadIndicatorState() {
     try {
       const bulk = await _indIdbGet('bulk');
       if (!bulk || !bulk.savedAt) return;
+      // Never clobber fresher data that landed while we were reading —
+      // the cloud refresh may have already pulled a newer admin's upload.
+      const curUp  = state.indicatorsUploadedAt ? Date.parse(state.indicatorsUploadedAt) : 0;
+      const bulkUp = bulk.indicatorsUploadedAt ? Date.parse(bulk.indicatorsUploadedAt) : 0;
+      if (curUp && bulkUp && bulkUp < curUp) return;
       const haveRaw = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
       if (bulk.savedAt >= lsBulkAt || !haveRaw) {
         applyObj(bulk);
@@ -17050,8 +17060,13 @@ function csvUploadButton(size) {
           state.indicatorsCustomEnd    = '';
           captureIndicatorSnapshot();
           saveDemoData();
-          // Share this upload with every other admin (fire-and-forget).
-          syncIndicatorsToCloud();
+          // Share this upload with every other admin — and make the outcome
+          // VISIBLE. A silent sync failure means everyone else keeps
+          // reading yesterday's shared copy while this browser looks fine.
+          syncIndicatorsToCloud().then(ok => {
+            if (ok) toast('Upload shared — other admins pick it up automatically', 'success');
+            else toast('Upload saved on THIS browser, but sharing to other admins FAILED — they will still see the previous upload. Check the reporting storage bucket (reporting_storage.sql) or re-upload.', 'error');
+          });
           toast('CSV loaded — ' + state.indicatorsData.length + ' rows', 'success');
           mountApp();
           // Compute + surface a high-level "what changed in this upload"
@@ -18654,7 +18669,13 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   // Panels group by TEAM (not branch) — reps sell across branches but
   // belong to one team, so team rollups are the meaningful comparison.
   const PDF_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
-  const teamOf = (r) => r.team || getRepTeam(r.name) || 'Unassigned';
+  // Troupe + Ganadores report as ONE team on this sheet (same crew, kept
+  // separate elsewhere in the app).
+  const PDF_TEAM_MERGE = { troupe: 'Troupe / Ganadores', ganadores: 'Troupe / Ganadores' };
+  const teamOf = (r) => {
+    const t = r.team || getRepTeam(r.name) || 'Unassigned';
+    return PDF_TEAM_MERGE[t.toLowerCase().trim()] || t;
+  };
   const byBranch = {};
   for (const r of (allReps || [])) {
     const o = teamOf(r);
