@@ -2716,17 +2716,11 @@ function viewAuditing() {
     }
   }
 
-  const audited = tot.passed + tot.failed;
-  const pctS = (n, d) => d > 0 ? ((n / d) * 100).toFixed(1) + '%' : '—';
   const rate = (pair) => pair[1] > 0 ? pair[0] / pair[1] : null;
   const GOOD = 'rgba(141,198,63,.18)', BAD = 'rgba(220,38,38,.14)';
   const passShade = (p) => p == null ? '' : (p >= 0.85 ? GOOD : p < 0.65 ? BAD : '');
 
   // ── UI bits ──
-  const kpi = (label, val, sub, color) => el('div', { class: 'card p-4 flex-1', style: { minWidth: '140px' } },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
-    el('div', { class: 'text-2xl font-black tabular-nums mt-1', style: color ? { color } : {} }, val),
-    sub && el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, sub));
   const sel = (value, opts, onchange, title) => el('select', {
     class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer', title: title || '', onchange,
   }, ...opts.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === value) o.selected = true; return o; }));
@@ -2802,15 +2796,6 @@ function viewAuditing() {
       sel(yr, [...dataYears.map(y => [y, y]), ['all', 'All-time']], (e) => { state.auditYear = e.target.value; mountApp(); }, 'Filter by the year the account was sold'),
       el('div', { class: 'text-[11px] ml-1', style: { color: 'var(--text-subtle)' } },
         'Live from the Sales Report flags — re-upload it on Indicators to refresh.')),
-
-    // KPI strip
-    el('div', { class: 'flex gap-3 flex-wrap' },
-      kpi('D2D Accounts (' + (yr === 'all' ? 'all-time' : yr) + ')', fmt.int(tot.sold), 'distinct sold accounts'),
-      kpi('Audited', fmt.int(audited), pctS(audited, tot.sold) + ' coverage'),
-      kpi('Passed', fmt.int(tot.passed), pctS(tot.passed, audited) + ' of audited', '#4d7c0f'),
-      kpi('Failed', fmt.int(tot.failed), pctS(tot.failed, audited) + ' of audited', '#DC2626'),
-      kpi('Pending / No Audit', fmt.int(tot.pending), 'counts as passed for eff. rate'),
-      kpi('Effective Pass Rate', pctS(tot.passed + tot.pending, tot.sold), 'passed + unaudited of sold')),
 
     // Attrition + collections splits
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' },
