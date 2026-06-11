@@ -18355,6 +18355,14 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   const titleCase = (s) => (s || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
   const pctOrDash = (v) => (v > 0 ? (v * 100).toFixed(1) + '%' : '—');
   const usdOrDash = (v) => (v > 0 ? fmt.usd(v) : '—');
+  // Record cells carry WHEN the record happened on a tiny second line so
+  // the printed sheet can be referenced without opening the app. 7.5px +
+  // gray keeps the 14-column layout from feeling crammed.
+  const recWhen = {
+    day:   (r) => { const p = (r.bestDayDate || '').split('/'); return p.length === 3 ? p[0].replace(/^0/, '') + '/' + p[1].replace(/^0/, '') + '/' + p[2].slice(-2) : (r.bestDayDate || ''); },
+    week:  (r) => { if (!r.bestWeekStart) return ''; const d = new Date(r.bestWeekStart + 'T00:00'); return isNaN(d) ? '' : 'wk of ' + (d.getMonth() + 1) + '/' + d.getDate() + '/' + String(d.getFullYear()).slice(-2); },
+    month: (r) => { if (!r.bestMonthKey) return ''; const d = new Date(r.bestMonthKey + '-01T00:00'); return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }).replace(' ', ' ’'); },
+  };
 
   // Page wrapper — US letter LANDSCAPE at 96 dpi. The 14-column table
   // needs the wider page to breathe; portrait was forcing the rep /
@@ -18536,12 +18544,19 @@ function buildRookieVetReportNode(allReps, opts = {}) {
               leader: leaders.cancelPct === r.name,
               color: r.cancelPct > 0.1 ? '#B91C1C' : '#1D1D1D',
             }),
-            // Personal records — show the dollar amount only. Date
-            // detail lives on the on-screen leaderboard; keeping the
-            // PDF cells single-line lets all 14 columns fit.
-            td(r.bestDay   > 0 ? fmt.usd0(r.bestDay)   : '—', 'right', { leader: leaders.bestDay   === r.name }),
-            td(r.bestWeek  > 0 ? fmt.usd0(r.bestWeek)  : '—', 'right', { leader: leaders.bestWeek  === r.name }),
-            td(r.bestMonth > 0 ? fmt.usd0(r.bestMonth) : '—', 'right', { leader: leaders.bestMonth === r.name }),
+            // Personal records — dollar amount with the date it happened
+            // tucked underneath in small gray type.
+            ...[
+              [r.bestDay,   recWhen.day(r),   leaders.bestDay   === r.name],
+              [r.bestWeek,  recWhen.week(r),  leaders.bestWeek  === r.name],
+              [r.bestMonth, recWhen.month(r), leaders.bestMonth === r.name],
+            ].map(([amount, when, isLeader]) => td(
+              amount > 0
+                ? el('div', { style: { lineHeight: '1.15' } },
+                    el('div', {}, fmt.usd0(amount)),
+                    when ? el('div', { style: { fontSize: '7.5px', fontWeight: '600', color: isLeader ? '#3F6A14' : '#999' } }, when) : null)
+                : '—',
+              'right', { leader: isLeader })),
           )),
         ),
       ),
