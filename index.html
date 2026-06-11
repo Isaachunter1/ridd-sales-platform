@@ -18605,7 +18605,12 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     .map(([o, b]) => ({ o, subsPra: b.subs / Math.max(1, b.reps.size), revPra: b.revenue / Math.max(1, b.reps.size) }))
     .sort((a, b) => b.revPra - a.revPra);
   const sumSummer = Object.values(summer).reduce((a, b) => ({ revenue: a.revenue + b.revenue, subs: a.subs + b.subs, reps: a.reps + b.reps.size }), { revenue: 0, subs: 0, reps: 0 });
-  const praCell = (txt, opts = {}) => el('td', { style: { padding: '3px 4px', fontSize: '8.5px', fontWeight: opts.bold ? '800' : '600', color: opts.color || '#1D1D1D', textAlign: opts.left ? 'left' : 'right', borderBottom: '1px solid #f0f0f0', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } }, txt);
+  const praCell = (txt, opts = {}) => el('td', { style: {
+    padding: '3px 3px', fontSize: '8.5px', fontWeight: opts.bold ? '800' : '600',
+    color: opts.color || '#1D1D1D', textAlign: opts.left ? 'left' : 'right',
+    borderBottom: '1px solid #f0f0f0', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+    ...(opts.ellipsis ? { maxWidth: '54px', overflow: 'hidden', textOverflow: 'ellipsis' } : {}),
+  } }, txt);
   const praTable = praRows.length === 0 ? null : el('div', { style: { marginBottom: '8px' } },
     el('div', { style: { fontSize: '10px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '4px 0 3px' } }, 'YTD PRA'),
     el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e5e5' } },
@@ -18617,12 +18622,12 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       el('tbody', {},
         el('tr', { style: { background: '#1D1D1D' } },
           praCell('', {}),
-          praCell('Company', { left: true, bold: true, color: '#fff' }),
+          praCell('Company', { left: true, bold: true, color: '#fff', ellipsis: true }),
           praCell(sumSummer.reps > 0 ? (sumSummer.subs / sumSummer.reps).toFixed(1) : '—', { bold: true, color: '#8DC63F' }),
           praCell(sumSummer.reps > 0 ? fmt.usd0(sumSummer.revenue / sumSummer.reps) : '—', { bold: true, color: '#8DC63F' })),
         ...praRows.map((r, i) => el('tr', {},
           praCell('#' + (i + 1), { color: '#999' }),
-          praCell(r.o, { left: true }),
+          praCell(r.o, { left: true, ellipsis: true }),
           praCell(r.subsPra.toFixed(1)),
           praCell(fmt.usd0(r.revPra)))))));
 
@@ -18803,7 +18808,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       el('div', { style: { height: '4px' } }),
       tableSection('Top ' + limitRookie + ' Rookies', '#0EA5E9', rookies),
     ),
-    branchPanel && el('div', { style: { flex: '0 0 134px', width: '134px' } }, branchPanel),
+    branchPanel && el('div', { style: { flex: '0 0 152px', width: '152px' } }, branchPanel),
   ));
 
   return page;
