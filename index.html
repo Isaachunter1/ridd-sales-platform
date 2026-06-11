@@ -2647,21 +2647,47 @@ function microGoalWidget() {
   );
 }
 
+// ── Inside Sales consolidated tab ─────────────────────────────────────────
+// The seven rep-facing views live under ONE "Inside Sales" nav entry; the
+// individual views render with a Reporting-style sub-tab bar above them.
+// Views/hashes/permissions are untouched — this is purely a nav grouping.
+const INSIDE_SALES_TABS = [
+  ['dashboard',    'Dashboard'],
+  ['sales',        'Sales'],
+  ['pay',          'Pay'],
+  ['scorecards',   'Scorecards'],
+  ['calendar',     'Calendar'],
+  ['competitions', 'Competitions'],
+  ['hall_of_fame', 'Hall of Fame'],
+];
+const INSIDE_SALES_TAB_KEYS = new Set(INSIDE_SALES_TABS.map(([k]) => k));
+function insideSalesSubTabs() {
+  return el('div', { class: 'flex items-center gap-1 border-b mb-4 overflow-x-auto', style: { borderColor: 'var(--border)' } },
+    ...INSIDE_SALES_TABS.map(([k, label]) => {
+      const active = state.view === k;
+      return el('button', {
+        class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
+        style: {
+          borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+          color: active ? 'var(--text)' : 'var(--text-muted)',
+          marginBottom: '-1px',
+        },
+        onclick: () => { state.view = k; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); },
+      }, label);
+    }));
+}
+
 function mountApp() {
   const isAdmin = isAdminRole(state.profile.role);
 
   // ── Single-column layout. The grid icon in the header is the nav menu. ──
   const shell = el('div', { class: 'min-h-screen flex flex-col' });
 
-  // Nav items (admin reaches Settings via the gear icon, not the nav menu)
+  // Nav items (admin reaches Settings via the gear icon, not the nav menu).
+  // 'inside_sales' is a virtual entry — clicking it lands on the last-used
+  // Inside Sales sub-tab (default Dashboard).
   const navItems = [
-    ['dashboard',    'Dashboard',    iconDashboard()],
-    ['sales',        'Sales',        iconSales()],
-    ['pay',          'Pay',          iconPay()],
-    ['calendar',     'Calendar',     iconCalendar()],
-    ['scorecards',   'Scorecards',   iconClipboard()],
-    ['competitions', 'Competitions', iconTrophy()],
-    ['hall_of_fame', 'Hall of Fame', iconCrown()],
+    ['inside_sales', 'Inside Sales', iconSales()],
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
   ];
@@ -2689,15 +2715,25 @@ function mountApp() {
       el('div', { class: 'text-[9px] tracking-[.22em] mt-0.5', style: { color: 'var(--text-subtle)' } }, CFG.COMPANY_TAGLINE),
     ),
     // Nav items
-    ...navItems.map(([k, label, icon]) => el('button', {
-      class: 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition',
-      style: state.view === k
-        ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-        : { color: 'var(--text)' },
-      onmouseenter: (e) => { if (state.view !== k) e.currentTarget.style.background = 'var(--card-2)'; },
-      onmouseleave: (e) => { if (state.view !== k) e.currentTarget.style.background = 'transparent'; },
-      onclick: () => { state.view = k; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); },
-    }, icon, el('span', {}, label))),
+    ...navItems.map(([k, label, icon]) => {
+      const active = k === 'inside_sales' ? INSIDE_SALES_TAB_KEYS.has(state.view) : state.view === k;
+      return el('button', {
+        class: 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition',
+        style: active
+          ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+          : { color: 'var(--text)' },
+        onmouseenter: (e) => { if (!active) e.currentTarget.style.background = 'var(--card-2)'; },
+        onmouseleave: (e) => { if (!active) e.currentTarget.style.background = 'transparent'; },
+        onclick: () => {
+          const target = k === 'inside_sales'
+            ? (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) ? state._lastIsTab : 'dashboard')
+            : k;
+          state.view = target;
+          history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);
+          mountApp();
+        },
+      }, icon, el('span', {}, label));
+    }),
     // Footer: current user + sign out
     el('div', {
       class: 'px-3 pt-2 mt-1 border-t',
@@ -2854,8 +2890,11 @@ function mountApp() {
     marketing:    viewMarketing,
     admin:        viewAdmin,
   }[state.view];
+  if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
   const node = view();
   node.classList.add('fade-in');
+  // Inside Sales views get the consolidated sub-tab bar above the content.
+  if (INSIDE_SALES_TAB_KEYS.has(state.view)) contentWrap.append(insideSalesSubTabs());
   contentWrap.append(node);
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
