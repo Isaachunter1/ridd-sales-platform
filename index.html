@@ -2695,7 +2695,14 @@ function parseAuditCsv(text, fallbackOffice) {
     const hasResult = cand.some(h => h.includes('result'));
     if (hasAccount && hasResult) { headerIdx = i; H = cand; break; }
   }
-  if (headerIdx < 0) throw new Error('Couldn’t find a header row with AccountID + Result columns — export the branch tab itself (File → Download → CSV, with that tab open)');
+  if (headerIdx < 0) {
+    // Friendly catch for the most likely mixup: uploading the FieldRoutes
+    // Sales/Customer Report here instead of the D2D Audit sheet export.
+    const first = parseLine(lines[0]).map(h => h.toLowerCase().replace(/^﻿/, '').trim());
+    const looksLikeSalesReport = first.some(h => h.includes('customer id')) && first.some(h => h.includes('date sold')) && first.some(h => h.includes('source'));
+    if (looksLikeSalesReport) throw new Error('This is the FieldRoutes Sales Report — upload it on the INDICATORS tab. The Auditing tab wants the D2D Audit sheet export (branch tab → File → Download → CSV), which has a Result column.');
+    throw new Error('Couldn’t find a header row with AccountID + Result columns — export the branch tab itself (File → Download → CSV, with that tab open)');
+  }
   const find = (pred) => H.findIndex(pred);
   const col = {
     soldDate:  find(h => h.includes('sold date') || h === 'date'),
