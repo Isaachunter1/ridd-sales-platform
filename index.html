@@ -20469,76 +20469,28 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
   // Banner above the chart when drilled in (one or many branches)
   const groupLabel = state.indicatorsGroupBy === 'teams' ? 'Team' : 'Branch';
   const isDrilled  = drilledBranches.length > 0;
-  const drillBanner = isDrilled
-    ? el('div', { class: 'flex items-center justify-between mb-3 rounded-lg px-3 py-2 flex-wrap gap-2', style: { background: 'rgba(141,198,63,.10)', border: '1px solid var(--accent)' } },
-        el('div', { class: 'flex items-center gap-1.5 flex-wrap text-xs' },
-          el('span', { class: 'font-semibold mr-1' }, 'Showing'),
-          ...drilledBranches.map(b => el('span', {
-            class: 'inline-flex items-center gap-1 rounded-full pl-2 pr-1.5 py-0.5 font-semibold',
-            style: { background: 'var(--card)', color: getGroupColor(b), border: '1px solid var(--border)' },
-            title: 'Click to swap this ' + groupLabel.toLowerCase() + ' for another',
-          },
-            // Native select styled to look like the chip's text. Swaps the
-            // currently-drilled branch for whatever the user picks. Dedupes
-            // in case they pick a branch that's already drilled in.
-            el('select', {
-              class: 'cursor-pointer font-semibold bg-transparent pr-3 hover:underline',
-              style: {
-                color: getGroupColor(b),
-                border: 'none',
-                outline: 'none',
-                appearance: 'none',
-                WebkitAppearance: 'none',
-                backgroundImage: 'linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%)',
-                backgroundPosition: 'right 4px center, right 0px center',
-                backgroundSize: '4px 4px, 4px 4px',
-                backgroundRepeat: 'no-repeat',
-              },
-              onchange: (e) => {
-                const next = drilledBranches.map(x => x === b ? e.target.value : x);
-                state._indicatorChartDrill[drillKey] = [...new Set(next)];
-                saveDemoData();
-                mountApp();
-              },
-            },
-              ...branches.map(opt => el('option', {
-                value: opt,
-                selected: opt === b,
-              }, opt.split(' ').map(w => w[0] + w.slice(1).toLowerCase()).join(' '))),
-            ),
-            el('button', {
-              class: 'text-[12px] leading-none hover:opacity-70',
-              style: { color: 'var(--text-muted)' },
-              title: 'Remove from drill',
-              onclick: () => {
-                state._indicatorChartDrill[drillKey] = drilledBranches.filter(x => x !== b);
-                saveDemoData();
-                mountApp();
-              },
-            }, '×'),
-          )),
-          el('span', { class: 'text-muted- mx-1' }, 'vs'),
-          el('span', { class: 'font-semibold', style: { color: 'var(--text-muted)' } }, 'Company'),
-        ),
-        el('button', {
-          class: 'rounded-lg border px-2 py-1 text-[10px] font-semibold',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-          onclick: () => {
-            delete state._indicatorChartDrill[drillKey];
-            saveDemoData();
-            mountApp();
-          },
-        }, '✕ Reset all'),
-      )
+  // Drill UI is just a small Reset button inline with the chart title —
+  // the old green chip banner above the canvas made the card jump around
+  // on every drill change.
+  const resetBtn = (supportsDrill && isDrilled)
+    ? el('button', {
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Clear the drilled ' + groupLabel.toLowerCase() + (drilledBranches.length === 1 ? '' : 's') + ' and show everyone again',
+        onclick: () => {
+          delete state._indicatorChartDrill[drillKey];
+          saveDemoData();
+          mountApp();
+        },
+      }, '\u2715 Reset')
     : null;
 
   const container = el('div', { class: 'card p-5' },
-    el('div', { class: 'flex items-center justify-between mb-3' },
+    el('div', { class: 'flex items-center justify-between mb-3 gap-2' },
       el('h3', { class: 'text-sm font-bold' }, title),
-      supportsDrill && !isDrilled && el('span', { class: 'text-[10px] text-muted- italic' },
-        'Click a ' + groupLabel.toLowerCase() + ' line to compare against Company · click more to stack'),
+      resetBtn || (supportsDrill ? el('span', { class: 'text-[10px] text-muted- italic' },
+        'Click a ' + groupLabel.toLowerCase() + ' line to compare against Company \u00b7 click more to stack') : null),
     ),
-    drillBanner,
     canvasWrap,
   );
 
