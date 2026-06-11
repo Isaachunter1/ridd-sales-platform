@@ -12482,8 +12482,6 @@ function openManageTeamsModal() {
           : { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border-2)' },
         onclick: () => { state._indicatorManageActivityFilter = ''; render(); },
       }, 'All time · ' + reps.length),
-      activityChip('30',   'Sold last 30 days'),
-      activityChip('90',   'Sold last 90 days'),
       activityChip('year', 'Sold this year'),
     );
 
