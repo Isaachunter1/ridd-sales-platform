@@ -10976,6 +10976,7 @@ function setRepTeam(repName, team) {
   if (!state._indicatorRepTeam) state._indicatorRepTeam = {};
   if (!team) delete state._indicatorRepTeam[repName];
   else       state._indicatorRepTeam[repName] = team;
+  logActivity('team_change', { rep_name: repName, detail: team ? repName + ' assigned to team ' + team : repName + ' removed from team' });
   saveDemoData();
 }
 // ── Competitions ──────────────────────────────────────────────────────────
@@ -11383,6 +11384,7 @@ function openSpringRepMarketModal(sales) {
             onclick: () => {
               if (!confirm('Reset all ' + movedCount + ' reassigned reps back to their home markets?')) return;
               comp.repBranchOverrides = {};
+              logActivity('comp_change', { detail: 'Spring Cleaning: all rep market reassignments reset' });
               saveDemoData();
               render();
             },
@@ -11402,6 +11404,7 @@ function openSpringRepMarketModal(sales) {
               const v = e.target.value;
               if (!v || v === home) delete comp.repBranchOverrides[name];
               else comp.repBranchOverrides[name] = v;
+              logActivity('comp_change', { rep_name: name, detail: (!v || v === home) ? name + ' back to home market ' + home : name + ' reassigned to ' + v + ' (comp)' });
               saveDemoData();
               render();
             },
@@ -11604,6 +11607,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
               comp.excludedBranches = off
                 ? comp.excludedBranches.filter(x => String(x).toUpperCase() !== u)
                 : [...comp.excludedBranches, u];
+              logActivity('comp_change', { detail: 'Spring Cleaning: ' + b + (off ? ' back in the comp' : ' pulled from the comp') });
               saveDemoData();
               const sx = window.scrollX, sy = window.scrollY;
               setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0);
@@ -11936,6 +11940,7 @@ function setTeamExcluded(teamName, excluded) {
   const idx = list.indexOf(teamName);
   if (excluded && idx === -1) list.push(teamName);
   else if (!excluded && idx !== -1) list.splice(idx, 1);
+  logActivity('comp_change', { detail: 'Team ' + teamName + (excluded ? ' excluded from comp' : ' included in comp') });
   saveDemoData();
 }
 function isRepExcluded(repName) {
@@ -11956,6 +11961,7 @@ function setRepTier(repName, tier) {
   if (!state._indicatorRepTier) state._indicatorRepTier = {};
   if (!tier) delete state._indicatorRepTier[repName];
   else       state._indicatorRepTier[repName] = tier;
+  logActivity('team_change', { rep_name: repName, detail: repName + (tier ? ' tagged ' + tier : ' tier cleared') });
   saveDemoData();
 }
 function repTierMeta(tierId) { return REP_TIERS.find(t => t.id === tierId); }
@@ -11972,6 +11978,7 @@ function setRepActive(repName, active) {
   if (!state._indicatorRepActive) state._indicatorRepActive = {};
   if (active) delete state._indicatorRepActive[repName];
   else        state._indicatorRepActive[repName] = false;
+  logActivity('team_change', { rep_name: repName, detail: repName + ' marked ' + (active ? 'Active' : 'Inactive') });
   saveDemoData();
 }
 
@@ -12125,6 +12132,7 @@ function mergeDuplicateRep(bad, good) {
   // already canonical, and we should be merging away from it.
   if (!state._indicatorRepAlias) state._indicatorRepAlias = {};
   state._indicatorRepAlias[bad] = good;
+  logActivity('team_change', { detail: 'Merged rep "' + bad + '" into "' + good + '"' });
   // Collapse chains: any alias that previously pointed to BAD now
   // points directly at GOOD, so canonical resolution stays one-hop.
   Object.keys(state._indicatorRepAlias).forEach(k => {
@@ -12316,6 +12324,7 @@ function addTeam(name) {
   if (!state._indicatorTeams) state._indicatorTeams = [];
   if (state._indicatorTeams.some(t => t.toLowerCase() === clean.toLowerCase())) return false;
   state._indicatorTeams.push(clean);
+  logActivity('team_change', { detail: 'Team created: ' + clean });
   saveDemoData();
   return true;
 }
@@ -12333,6 +12342,7 @@ function removeTeam(name) {
   }
   // And from every competition's exclusion list.
   getIndicatorCompetitions().forEach(c => { c.excludedTeams = c.excludedTeams.filter(t => t !== name); });
+  logActivity('team_change', { detail: 'Team deleted: ' + name });
   saveDemoData();
 }
 function renameTeam(oldName, newNameRaw) {
@@ -12346,6 +12356,7 @@ function renameTeam(oldName, newNameRaw) {
   // Rename in the registry, preserving order
   if (!state._indicatorTeams) state._indicatorTeams = [];
   state._indicatorTeams = state._indicatorTeams.map(t => t === oldName ? newName : t);
+  logActivity('team_change', { detail: 'Team renamed: ' + oldName + ' → ' + newName });
   // Rename in every rep assignment
   const map = state._indicatorRepTeam || {};
   Object.keys(map).forEach(r => { if (map[r] === oldName) map[r] = newName; });
@@ -23741,6 +23752,7 @@ function reportingServiceConfigPanel() {
   }
 
   const updateConfig = async (name, patch) => {
+    logActivity('config_change', { detail: 'Service config: ' + name + ' → ' + JSON.stringify(patch) });
     const existing = cfgByName.get(name) || { service_name: name, category: null, is_recurring: false, is_hidden: false, recurring_override: null };
     const next = { ...existing, ...patch, updated_by: state.profile?.id || null };
     // Optimistic local update so toggles feel instant.
@@ -23874,6 +23886,7 @@ function reportingCancelConfigPanel() {
   const list = [...allReasons].sort((a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b));
 
   const updateCancelConfig = async (reason, patch) => {
+    logActivity('config_change', { detail: 'Cancel-reason config: ' + reason + ' → ' + JSON.stringify(patch) });
     const existing = cfgByReason.get(reason) || { reason, counts_attrition: true };
     const next = { ...existing, ...patch, updated_by: state.profile?.id || null };
     const idx = cfg.findIndex(c => c.reason === reason);
@@ -23965,6 +23978,7 @@ function reportingSourceConfigPanel() {
   const list = [...allSources].sort((a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b));
 
   const updateSourceConfig = async (source, patch) => {
+    logActivity('config_change', { detail: 'Source config: ' + source + ' → ' + JSON.stringify(patch) });
     const existing = cfgBySource.get(source) || { source, included: true };
     const next = { ...existing, ...patch, updated_by: state.profile?.id || null };
     const idx = cfg.findIndex(c => c.source === source);
@@ -24054,6 +24068,7 @@ async function loadIsManual() {
   state.reportingIsManual = m;
 }
 async function saveIsManual(period, field, value) {
+  logActivity('config_change', { detail: 'IS P&L cell: ' + field + ' @ ' + period + ' = ' + (value === '' || value == null ? '(cleared)' : value) });
   if (!state.reportingIsManual) state.reportingIsManual = {};
   const cur = state.reportingIsManual[period] || { period };
   cur[field] = (value === '' || value == null) ? null : Number(value);
@@ -24567,6 +24582,7 @@ function reportingUploadsPanel() {
                     state.reportingSubscriptions = [];
                     state.reportingSubscriptionsLoadedFor = null;
                     mountApp();
+                    logActivity('snapshot_change', { detail: 'Switched to snapshot ' + (u.filename || u.id) });
                     toast('Loading snapshot: ' + (u.filename || u.id), 'info');
                   },
                 },
@@ -24588,6 +24604,7 @@ function reportingUploadsPanel() {
                       onclick: async (e) => {
                         e.stopPropagation();
                         if (!confirm('Delete this snapshot and all its rows? This can’t be undone.')) return;
+                        logActivity('snapshot_change', { detail: 'Deleted snapshot ' + (u.filename || u.id) });
                         e.currentTarget.disabled = true;
                         if (DEMO) {
                           state.reportingUploads = (state.reportingUploads || []).filter(x => x.id !== u.id);
@@ -26622,6 +26639,10 @@ function adminBackup() {
     indicators_upload:         { label: 'Indicators CSV',bg: 'rgba(124,58,237,.12)', fg: '#7C3AED' },
     report_upload:             { label: 'Report Upload', bg: 'rgba(61,122,102,.14)', fg: '#3D7A66' },
     user_edited:               { label: 'User',          bg: 'rgba(245,158,11,.15)', fg: '#92400E' },
+    team_change:               { label: 'Teams',         bg: 'rgba(14,165,233,.12)', fg: '#0284C7' },
+    comp_change:               { label: 'Comp',          bg: 'rgba(27,94,32,.12)',   fg: '#1b5e20' },
+    config_change:             { label: 'Config',        bg: 'rgba(117,118,103,.18)',fg: '#757667' },
+    snapshot_change:           { label: 'Snapshot',      bg: 'rgba(234,88,12,.12)',  fg: '#B45309' },
   };
 
   if (state._activityLogSearch == null) state._activityLogSearch = '';
