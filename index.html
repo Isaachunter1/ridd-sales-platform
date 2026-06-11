@@ -624,7 +624,8 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_indicatorDismissedDupes',
   '_indicatorRepAlias',
   'indicatorsGroupBy',
-  'indicatorsRangePreset',
+  // indicatorsRangePreset intentionally NOT persisted — the tab always opens
+  // on This Year; the dropdown changes it for the current session only.
   'indicatorsCustomStart',
   'indicatorsCustomEnd',
   '_indicatorChartDrill',
@@ -12554,7 +12555,9 @@ function openManageTeamsModal() {
 
 function viewIndicators() {
   if (!state.indicatorsData) state.indicatorsData = null;
-  if (!state.indicatorsView) state.indicatorsView = 'weekly';
+  // Weekly mode retired — the preset dropdown (This Year default) drives the
+  // whole tab. 'weekly' state from older sessions heals to range here.
+  state.indicatorsView = 'range';
   // Pull the newest shared upload (any admin's) — throttled to one check
   // every 2 minutes; re-renders automatically if something fresher exists.
   refreshIndicatorsFromCloud();
@@ -12980,11 +12983,8 @@ function viewIndicators() {
             },
           }, 'Teams'),
         ),
-        // Weekly / Range toggle
-        el('div', { class: 'pill-tabs' },
-          el('button', { 'data-active': state.indicatorsView === 'weekly', onclick: () => { state.indicatorsView = 'weekly'; mountApp(); } }, 'Weekly'),
-          el('button', { 'data-active': isRange,                            onclick: () => { state.indicatorsView = 'range';  mountApp(); } }, 'Range'),
-        ),
+        // Weekly/Range toggle removed — the range preset dropdown drives
+        // everything; This Week / Last Week presets cover the old weekly mode.
         // Week selector (weekly view only)
         !isRange && el('select', {
           class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
