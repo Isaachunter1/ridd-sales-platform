@@ -13266,13 +13266,13 @@ function viewIndicators() {
           el('button', {
             class: 'text-xs px-2.5 py-1.5 rounded-lg font-semibold border transition hover:brightness-95 mb-0.5',
             style: { borderColor: 'var(--border)', background: 'var(--card)', color: 'var(--text)' },
-            title: 'YoY scoreboard, trending reps and records from the current upload',
+            title: 'Highlights — YoY scoreboard, trending reps and records from the current upload',
             onclick: () => {
               const insights = computeImportInsights();
               if (insights) openImportInsightsModal(insights);
               else toast('Highlights need a raw-sales CSV upload', 'info');
             },
-          }, '✨ Highlights'),
+          }, '✨'),
           // Comps switch — competition mode. OFF = every sale counts, zero
           // exclusions. ON = comp exclusions apply to every number below.
           (() => {
