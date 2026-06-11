@@ -11328,22 +11328,23 @@ async function exportSpringCleaningXlsx(sales, branchList, winLabel) {
 
 // Breakdown popup explaining how each Spring Cleaning metric + rule works.
 // 🪳 STANDINGS POSTER — live replica of the printed Spring Cleaning
-// standings sheet: header boxes (categories / per-round bug payouts /
-// cumulative RIDDCOIN tiers), the BUG COUNT tracker with milestone
-// columns at 12/16/20/24, and one golf-scored table per 3-day round.
-// Rounds live on the competition (comp.rounds, editable at the top of the
-// modal) and every number comes from springCleaningCompute, so this stays
-// in lockstep with the live board — overrides, exclusions and all.
+// standings sheet. Round date boxes sit beside the header title; Export
+// PDF + Reset-dates at the top. Rounds AUTO-LOCK: a round is final when
+// its date range is over AND no pending-audit accounts remain in the
+// window — at that point nothing can move the numbers, so its bugs turn
+// green (official). Bugs from rounds still in play (in progress, or
+// finished with audits outstanding) are red; unearned slots stay black.
+const SPRING_DEFAULT_ROUNDS = [
+  { start: '2026-06-08', end: '2026-06-10' },
+  { start: '2026-06-11', end: '2026-06-13' },
+  { start: '2026-06-15', end: '2026-06-17' },
+  { start: '2026-06-18', end: '2026-06-20' },
+];
 function openSpringStandingsModal() {
   const comp = (typeof getActiveComp === 'function') ? getActiveComp() : null;
   if (!comp) { toast('No active competition', 'error'); return; }
   if (!Array.isArray(comp.rounds) || comp.rounds.length === 0) {
-    comp.rounds = [
-      { start: '2026-06-08', end: '2026-06-10' },
-      { start: '2026-06-11', end: '2026-06-13' },
-      { start: '2026-06-15', end: '2026-06-17' },
-      { start: '2026-06-18', end: '2026-06-20' },
-    ];
+    comp.rounds = SPRING_DEFAULT_ROUNDS.map(r => ({ ...r }));
   }
   const overlay = el('div', { class: 'modal-overlay' });
   const close = () => { overlay.remove(); mountApp(); };
@@ -11360,21 +11361,16 @@ function openSpringStandingsModal() {
   };
   const tc = (s) => (s || '').split(' ').map(w => w[0] + w.slice(1).toLowerCase()).join(' ');
   const ordinal = (n) => n + (n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th');
-  const dayOrd = (iso) => { const d = new Date(iso + 'T00:00'); return d.toLocaleDateString('en-US', { month: 'long' }) + ' ' + ordinal(d.getDate()); };
-  const roundLabel = (r) => {
-    const a = new Date(r.start + 'T00:00'), b = new Date(r.end + 'T00:00');
-    return a.getMonth() === b.getMonth()
-      ? dayOrd(r.start) + ' - ' + ordinal(b.getDate())
-      : dayOrd(r.start) + ' - ' + dayOrd(r.end);
-  };
 
   const render = () => {
     card.innerHTML = '';
+    const todayIso = new Date().toISOString().slice(0, 10);
     const allSales = (typeof indicatorSales === 'function' ? indicatorSales() : []);
     const d2dAll = allSales.filter(s => _indicatorDeptOf(s) === 'd2d');
     const masterBranches = [...new Set(d2dAll.map(s => s.office).filter(Boolean))];
 
-    // Per-round compute (empty rounds stay all-zero, like the poster).
+    // Per-round results. AUTO-LOCK: final = window over + zero pending
+    // audits left in the window (nothing can move the standings anymore).
     const rounds = comp.rounds.map((r) => {
       const roundSales = d2dAll.filter(s => {
         const d = _parseIndicatorDay(s);
@@ -11383,39 +11379,83 @@ function openSpringStandingsModal() {
         return iso >= r.start && iso <= r.end;
       });
       const sc = roundSales.length > 0 ? springCleaningCompute(roundSales, masterBranches) : null;
-      return { ...r, sc, hasData: roundSales.length > 0 };
+      const finished = r.end < todayIso;
+      const pendingN = sc ? sc.pending.length : 0;
+      return {
+        ...r, sc,
+        ranked: sc ? sc.ranked : [],
+        hasData: roundSales.length > 0,
+        finished,
+        pendingN,
+        official: finished && roundSales.length > 0 && pendingN === 0,
+      };
     });
 
-    // Branch order + cumulative bugs (tracker order = most bugs first).
+    // Branch order + bug tallies: green = official rounds, red = rounds
+    // still in play (live, or finished with audits pending).
     const branchSet = new Set();
-    rounds.forEach(r => r.sc && r.sc.ranked.forEach(m => branchSet.add(m.office)));
-    masterBranches.forEach(b => { const comp2 = (comp.excludedBranches || []).map(x => String(x).toUpperCase()); if (!comp2.includes(String(b).toUpperCase())) branchSet.add(b); });
-    const cumBugs = {}, lastRoundBugs = {};
-    let lastDataRound = -1;
-    rounds.forEach((r, i) => { if (r.hasData) lastDataRound = i; });
-    [...branchSet].forEach(b => { cumBugs[b] = 0; lastRoundBugs[b] = 0; });
-    rounds.forEach((r, i) => {
-      if (!r.sc) return;
-      r.sc.ranked.forEach(m => {
-        cumBugs[m.office] = (cumBugs[m.office] || 0) + m.bugs;
-        if (i === lastDataRound) lastRoundBugs[m.office] = m.bugs;
+    rounds.forEach(r => r.ranked.forEach(m => branchSet.add(m.office)));
+    const exB = (comp.excludedBranches || []).map(x => String(x).toUpperCase());
+    masterBranches.forEach(b => { if (!exB.includes(String(b).toUpperCase())) branchSet.add(b); });
+    const greenBugs = {}, redBugs = {};
+    [...branchSet].forEach(b => { greenBugs[b] = 0; redBugs[b] = 0; });
+    rounds.forEach(r => {
+      if (!r.hasData) return;
+      r.ranked.forEach(m => {
+        if (r.official) greenBugs[m.office] = (greenBugs[m.office] || 0) + (m.bugs || 0);
+        else redBugs[m.office] = (redBugs[m.office] || 0) + (m.bugs || 0);
       });
     });
-    const branches = [...branchSet].sort((a, b) => (cumBugs[b] || 0) - (cumBugs[a] || 0) || a.localeCompare(b));
+    const cum = (b) => (greenBugs[b] || 0) + (redBugs[b] || 0);
+    const branches = [...branchSet].sort((a, b) => cum(b) - cum(a) || a.localeCompare(b));
 
-    // ── Header ──
-    const header = el('div', { style: { padding: '26px 30px 12px', display: 'flex', alignItems: 'center', gap: '16px' } },
-      el('img', { src: 'sweeper.png', alt: '', style: { height: '64px', filter: 'grayscale(1)' } }),
-      el('div', { style: { flex: '1' } },
-        el('div', { style: { fontWeight: '900', fontSize: '46px', letterSpacing: '-0.03em', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
-        el('div', { style: { fontWeight: '800', fontSize: '12px', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: '4px' } }, 'Team Quality Based Competition by RIDDMADE™')),
-      el('button', { class: 'text-2xl leading-none cursor-pointer', style: { color: '#555' }, onclick: close }, '×'));
+    // ── Round date boxes — compact 2×2 grid beside the header title ──
+    const roundsBox = el('div', { class: 'sc-noprint', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 10px', background: '#cfcec6', padding: '8px 10px', borderRadius: '8px' } },
+      ...comp.rounds.map((r, i) => {
+        const rr = rounds[i];
+        const dot = rr.official ? '#43a047' : (rr.hasData ? '#ED1C24' : '#9d9d97');
+        return el('span', { style: { display: 'inline-flex', gap: '3px', alignItems: 'center', fontSize: '9.5px', fontWeight: '800', whiteSpace: 'nowrap' } },
+          el('span', { title: rr.official ? 'Official — window over, all audits settled' : rr.hasData ? (rr.finished ? rr.pendingN + ' audits still pending' : 'In progress') : 'No sales yet', style: { width: '8px', height: '8px', borderRadius: '50%', background: dot, display: 'inline-block' } }),
+          'R' + (i + 1),
+          el('input', { type: 'date', value: r.start, style: { fontSize: '9.5px', padding: '0 2px', border: '1px solid #aaa', background: '#fff', width: '92px' },
+            onchange: (e) => { r.start = e.target.value; logActivity('comp_change', { detail: 'Spring round ' + (i + 1) + ' start → ' + r.start }); saveDemoData(); render(); } }),
+          '–',
+          el('input', { type: 'date', value: r.end, style: { fontSize: '9.5px', padding: '0 2px', border: '1px solid #aaa', background: '#fff', width: '92px' },
+            onchange: (e) => { r.end = e.target.value; logActivity('comp_change', { detail: 'Spring round ' + (i + 1) + ' end → ' + r.end }); saveDemoData(); render(); } }));
+      }));
+
+    // ── Header — title left, round boxes right ──
+    const header = el('div', { style: { padding: '24px 30px 8px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } },
+      el('img', { src: 'sweeper.png', alt: '', style: { height: '60px', filter: 'grayscale(1)' } }),
+      el('div', {},
+        el('div', { style: { fontWeight: '900', fontSize: '38px', letterSpacing: '-0.03em', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
+        el('div', { style: { fontWeight: '800', fontSize: '11px', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: '4px' } }, 'Team Quality Based Competition by RIDDMADE™')),
+      el('span', { style: { flex: '1' } }),
+      roundsBox,
+      el('button', { class: 'text-2xl leading-none cursor-pointer sc-noprint', style: { color: '#555', alignSelf: 'flex-start' }, onclick: close }, '×'));
+
+    // ── Top controls: Export PDF · Reset dates ──
+    const ctlBtn = (label, opts = {}) => el('button', {
+      class: 'cursor-pointer sc-noprint',
+      style: { fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', padding: '4px 10px', borderRadius: '6px',
+        background: opts.bg || '#141414', color: opts.fg || '#fff', border: opts.border || 'none', whiteSpace: 'nowrap' },
+      title: opts.title || '', onclick: opts.onclick,
+    }, label);
+    const controlBar = el('div', { class: 'sc-noprint', style: { margin: '0 30px 8px', display: 'flex', gap: '10px', justifyContent: 'flex-end', alignItems: 'center' } },
+      ctlBtn('⬇ Export PDF', { bg: '#1b5e20', title: 'Download this poster as a PDF', onclick: () => exportSpringStandingsPdf(card) }),
+      ctlBtn('↺ Reset dates', { bg: 'transparent', fg: '#B91C1C', border: '1px solid #B91C1C', title: 'Restore the default round date ranges', onclick: () => {
+        if (!confirm('Reset rounds to the default date ranges?')) return;
+        comp.rounds = SPRING_DEFAULT_ROUNDS.map(r => ({ ...r }));
+        logActivity('comp_change', { detail: 'Spring Cleaning: round dates reset to defaults' });
+        saveDemoData();
+        render();
+      } }));
 
     // ── Info boxes ──
     const CATS_LIST = ['Revenue', 'Average Pest Initial', 'Per Rep Average', 'Average Contract Value', '24 Month Agreement %', 'Autopay %', 'Passed Audit %'];
     const PAYOUT = [['1st Place', 6], ['2nd Place', 5], ['3rd Place', 4], ['4th Place', 3], ['5th Place', 2], ['6th Place', 1], ['7th Place', 0]];
     const TIERS = [[24, '®300k', '#1b5e20'], [20, '®200k', '#43a047'], [16, '®100k', '#9ccc65'], [12, '®50k', '#cddc39']];
-    const infoRow = el('div', { style: { display: 'grid', gridTemplateColumns: '1.2fr 1.1fr 1fr', gap: '10px', padding: '10px 30px' } },
+    const infoRow = el('div', { style: { display: 'grid', gridTemplateColumns: '1.2fr 1.1fr 1fr', gap: '10px', padding: '4px 30px 10px' } },
       el('div', { style: { background: '#F7941D', color: '#141414', padding: '12px 14px', display: 'flex', gap: '10px', alignItems: 'center' } },
         el('div', { style: { flex: '1' } }, ...CATS_LIST.map((c, i) => el('div', { style: { fontSize: '10.5px', fontWeight: '800', lineHeight: '1.5' } }, (i + 1) + '.  ' + c))),
         el('div', { style: { textAlign: 'center' } },
@@ -11428,16 +11468,21 @@ function openSpringStandingsModal() {
         ...TIERS.map(([n, coin, color]) => el('div', { style: { background: color, color: n >= 20 ? '#fff' : '#141414', fontSize: '10.5px', fontWeight: '900', padding: '7px 10px', whiteSpace: 'nowrap' } },
           n + ' Bugs Exterminated = ' + coin + ' per rep'))));
 
-    // ── BUG COUNT tracker ──
+    // ── BUG COUNT tracker — every slot has a spider ──
     const MILESTONES = { 12: ['12', '@50K', '#cddc39', '#141414'], 16: ['16', '@100K', '#9ccc65', '#141414'], 20: ['20', '@200K', '#43a047', '#fff'], 24: ['24', '@300K', '#1b5e20', '#fff'] };
     const SLOTS = 24;
-    const bugCell = (filled, red, slot) => {
+    const SPIDER_FILTERS = {
+      green: 'sepia(1) saturate(6) hue-rotate(60deg) brightness(0.75)',
+      red:   'sepia(1) saturate(9) hue-rotate(-45deg)',
+      black: 'grayscale(1) brightness(0.25)',
+    };
+    const bugCell = (kind, slot) => {
       const ms = MILESTONES[slot];
       return el('div', { style: {
         width: '100%', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: ms ? ms[2] : 'transparent', fontSize: '13px', lineHeight: '1',
-        filter: red ? 'sepia(1) saturate(9) hue-rotate(-45deg)' : 'none',
-      } }, filled ? '🕷️' : '');
+        filter: SPIDER_FILTERS[kind], opacity: kind === 'black' ? '0.55' : '1',
+      } }, '🕷️');
     };
     const tracker = el('div', { style: { margin: '6px 30px 14px', background: '#9d9d97', padding: '14px 16px 16px' } },
       el('div', { style: { display: 'grid', gridTemplateColumns: '120px repeat(' + SLOTS + ', 1fr)', gap: '2px', alignItems: 'center' } },
@@ -11448,19 +11493,28 @@ function openSpringStandingsModal() {
             ms ? el('div', {}, el('div', { style: { fontSize: '11px' } }, ms[0]), el('div', {}, ms[1])) : '·');
         }),
         ...branches.flatMap(b => {
-          const total = Math.min(cumBugs[b] || 0, SLOTS);
-          const red = Math.min(lastRoundBugs[b] || 0, total);
+          const g = Math.min(greenBugs[b] || 0, SLOTS);
+          const r2 = Math.min(redBugs[b] || 0, SLOTS - g);
           return [
             el('div', { style: { fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', color: '#141414', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '4px' } }, b),
-            ...Array.from({ length: SLOTS }, (_, i) => bugCell(i < total, i >= total - red && i < total, i + 1)),
+            ...Array.from({ length: SLOTS }, (_, i) => bugCell(i < g ? 'green' : i < g + r2 ? 'red' : 'black', i + 1)),
           ];
-        })));
+        })),
+      el('div', { style: { display: 'flex', gap: '14px', marginTop: '8px', fontSize: '9px', fontWeight: '800', color: '#141414' } },
+        el('span', {}, '🟢 official — round over, all audits settled'),
+        el('span', {}, '🔴 provisional — round live or audits pending'),
+        el('span', {}, '⚫ not earned yet')));
 
     // ── Round tables ──
     const CAT_COLS = [['revenue', 'Revenue'], ['avgPestInitial', 'Avg In.'], ['pra', 'PRA'], ['acv', 'ACV'], ['pct24', '24M %'], ['autopayPct', 'Apay %'], ['auditPct', 'Audit %']];
+    const dayOrd = (iso) => { const d = new Date(iso + 'T00:00'); return d.toLocaleDateString('en-US', { month: 'long' }) + ' ' + ordinal(d.getDate()); };
+    const roundLabel = (r) => {
+      const a = new Date(r.start + 'T00:00'), b = new Date(r.end + 'T00:00');
+      return a.getMonth() === b.getMonth() ? dayOrd(r.start) + ' - ' + ordinal(b.getDate()) : dayOrd(r.start) + ' - ' + dayOrd(r.end);
+    };
     const roundBlock = (r, idx) => {
       const byOffice = {};
-      if (r.sc) r.sc.ranked.forEach(m => byOffice[m.office] = m);
+      r.ranked.forEach(m => byOffice[m.office] = m);
       const rowFor = (b) => {
         const m = byOffice[b];
         return el('tr', {},
@@ -11478,11 +11532,19 @@ function openSpringStandingsModal() {
         const m = byOffice[b];
         return el('div', { style: { fontSize: '11px', fontWeight: '800', lineHeight: '1.7', whiteSpace: 'nowrap' } }, (m ? m.bugs : 0) + ' Bugs');
       };
+      const status = r.official
+        ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#fff', background: '#43a047', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' } }, '🔒 Official — audits settled')
+        : r.hasData && r.finished
+          ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#fff', background: '#ED1C24', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' } }, r.pendingN + ' audit' + (r.pendingN === 1 ? '' : 's') + ' pending')
+          : r.hasData
+            ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#141414', background: '#cddc39', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' } }, 'Live')
+            : null;
       return el('div', { style: { padding: '6px 30px 14px' } },
-        el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '12px' } },
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
           el('div', {},
             el('div', { style: { fontSize: '17px', fontWeight: '900', textTransform: 'uppercase' } }, 'Round ' + (idx + 1)),
-            el('div', { style: { fontSize: '10px', fontWeight: '700', color: '#555' } }, roundLabel(r)))),
+            el('div', { style: { fontSize: '10px', fontWeight: '700', color: '#555' } }, roundLabel(r))),
+          status),
         el('div', { style: { display: 'flex', gap: '14px', alignItems: 'flex-start', marginTop: '4px' } },
           el('table', { style: { borderCollapse: 'collapse', flex: '1' } },
             el('thead', {}, el('tr', {},
@@ -11497,18 +11559,7 @@ function openSpringStandingsModal() {
             ...branches.map(bugRow))));
     };
 
-    // ── Round date editor (small, admin-only utility row) ──
-    const roundEditor = el('div', { style: { padding: '0 30px 18px', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' } },
-      el('span', { style: { fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#777' } }, 'Round dates'),
-      ...comp.rounds.map((r, i) => el('span', { style: { display: 'inline-flex', gap: '3px', alignItems: 'center', fontSize: '10px', fontWeight: '700' } },
-        'R' + (i + 1),
-        el('input', { type: 'date', value: r.start, style: { fontSize: '10px', padding: '1px 3px', border: '1px solid #aaa', background: '#fff' },
-          onchange: (e) => { r.start = e.target.value; logActivity('comp_change', { detail: 'Spring round ' + (i + 1) + ' start → ' + r.start }); saveDemoData(); render(); } }),
-        '–',
-        el('input', { type: 'date', value: r.end, style: { fontSize: '10px', padding: '1px 3px', border: '1px solid #aaa', background: '#fff' },
-          onchange: (e) => { r.end = e.target.value; logActivity('comp_change', { detail: 'Spring round ' + (i + 1) + ' end → ' + r.end }); saveDemoData(); render(); } }))));
-
-    card.append(header, infoRow, tracker, ...rounds.map(roundBlock), roundEditor,
+    card.append(header, controlBar, infoRow, tracker, ...rounds.map(roundBlock),
       el('div', { style: { padding: '10px 30px 22px', display: 'flex', alignItems: 'center', gap: '8px' } },
         el('img', { src: 'sweeper.png', alt: '', style: { height: '26px', filter: 'grayscale(1)' } }),
         el('div', {},
@@ -11517,6 +11568,32 @@ function openSpringStandingsModal() {
   };
   render();
   document.body.append(overlay);
+}
+
+// Export the standings poster as a single-page PDF sized to the poster
+// itself. Control buttons (date editors, export) are excluded.
+async function exportSpringStandingsPdf(card) {
+  try { await loadPdfLibsOnce(); } catch { toast('Could not load PDF libraries — check your connection', 'error'); return; }
+  const prevMax = card.style.maxHeight, prevOv = card.style.overflowY;
+  card.style.maxHeight = 'none'; card.style.overflowY = 'visible';
+  try {
+    await new Promise(r => requestAnimationFrame(() => r()));
+    const canvas = await html2canvas(card, {
+      scale: 2, backgroundColor: '#dddcd4', logging: false, useCORS: true,
+      ignoreElements: (n) => n.classList && n.classList.contains('sc-noprint'),
+    });
+    const { jsPDF } = window.jspdf;
+    const w = canvas.width / 2, h = canvas.height / 2;
+    const pdf = new jsPDF({ unit: 'pt', format: [w * 0.75, h * 0.75], orientation: w > h ? 'l' : 'p' });
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w * 0.75, h * 0.75);
+    pdf.save('Spring-Cleaning-Standings-' + new Date().toISOString().slice(0, 10) + '.pdf');
+    toast('Standings PDF downloaded', 'success');
+  } catch (e) {
+    console.warn('[ridd] standings pdf failed', e);
+    toast('PDF export failed — try again', 'error');
+  } finally {
+    card.style.maxHeight = prevMax; card.style.overflowY = prevOv;
+  }
 }
 
 // 👥 Reps modal — every D2D rep in the current window with the market
