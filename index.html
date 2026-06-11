@@ -866,6 +866,7 @@ function loadIndicatorState() {
   apply(localStorage.getItem(INDICATORS_STORAGE_KEY));        // legacy combined
   apply(localStorage.getItem(INDICATORS_DATA_STORAGE_KEY));   // bulk (overrides legacy data fields)
   apply(localStorage.getItem(INDICATORS_SETTINGS_STORAGE_KEY)); // settings (overrides legacy settings fields)
+  if (typeof _normalizeRepKeyedMaps === 'function') _normalizeRepKeyedMaps();
 
   // Compressed bulk cache (written when plain JSON exceeded the quota).
   // Decompression is async, so the page may paint once without raw sales
@@ -941,6 +942,7 @@ async function loadIndicatorConfigFromSupabase() {
       state._indicatorRepTier       = data.rep_tiers     && typeof data.rep_tiers     === 'object' ? data.rep_tiers     : (state._indicatorRepTier || {});
       state._indicatorRepActive     = data.rep_active    && typeof data.rep_active    === 'object' ? data.rep_active    : (state._indicatorRepActive || {});
       state._indicatorRepOffice     = data.rep_offices   && typeof data.rep_offices   === 'object' ? data.rep_offices   : (state._indicatorRepOffice || {});
+      _normalizeRepKeyedMaps();
       return;
     }
     // Server row is empty (fresh install). If THIS browser has team data
@@ -3842,7 +3844,7 @@ function _scopeRep(rep, filterFn) {
 // to feed openIndicatorRepCard from anywhere (top header icon, etc.) so we
 // don't need the full indicatorRepSections closure scope.
 function _enrichRepFromRawSales(repName, rawSales) {
-  const sales = rawSales.filter(s => s.rep === repName);
+  const sales = rawSales.filter(s => getCanonicalRepName(s.rep) === repName);
   let revenue = 0, twelve = 0, multi = 0, autoPay = 0, cancels = 0;
   for (const s of sales) {
     revenue += Number(s.contractValue || 0);
@@ -3860,7 +3862,9 @@ function _enrichRepFromRawSales(repName, rawSales) {
   };
 }
 function _buildAllRepsFromRawSales(rawSales) {
-  const names = [...new Set(rawSales.map(s => s.rep).filter(Boolean))];
+  // Canonicalize (alias merges + whitespace) so "Karson  Murray" and
+  // "Karson Murray" are ONE roster entry, keyed by the clean spelling.
+  const names = [...new Set(rawSales.map(s => getCanonicalRepName(s.rep)).filter(Boolean))];
   return names.map(name => _enrichRepFromRawSales(name, rawSales));
 }
 
@@ -10844,10 +10848,28 @@ function indicatorMetricHelp(key) {
 // rollups). The literal "Excluded" name is the default-excluded team for
 // fresh data so existing demo assignments keep working.
 const REP_EXCLUDED_TEAM = 'Excluded';
+// FieldRoutes sometimes exports doubled spaces in rep names, so older
+// team/tier/active assignments may be stored under the raw spelling while
+// lookups use the cleaned one (or vice versa). Normalize the keys of every
+// rep-keyed config map once per load so both sides always agree.
+function _cleanRepName(n) { return String(n || '').replace(/\s+/g, ' ').trim(); }
+function _normalizeRepKeyedMaps() {
+  for (const field of ['_indicatorRepTeam', '_indicatorRepTier', '_indicatorRepActive', '_indicatorRepOffice', '_indicatorRepAlias']) {
+    const m = state[field];
+    if (!m || typeof m !== 'object' || Array.isArray(m)) continue;
+    for (const k of Object.keys(m)) {
+      const ck = _cleanRepName(k);
+      if (ck !== k) { if (!(ck in m)) m[ck] = m[k]; delete m[k]; }
+    }
+    if (field === '_indicatorRepAlias') {
+      for (const k of Object.keys(m)) { if (typeof m[k] === 'string') m[k] = _cleanRepName(m[k]); }
+    }
+  }
+}
 function getRepTeam(repName) {
   if (!repName) return '';
   const map = state._indicatorRepTeam || {};
-  return map[repName] || '';
+  return map[repName] || map[_cleanRepName(repName)] || '';
 }
 function setRepTeam(repName, team) {
   if (!state._indicatorRepTeam) state._indicatorRepTeam = {};
@@ -11652,7 +11674,8 @@ const REP_TIERS = [
 ];
 function getRepTier(repName) {
   if (!repName) return '';
-  return (state._indicatorRepTier || {})[repName] || '';
+  const map = state._indicatorRepTier || {};
+  return map[repName] || map[_cleanRepName(repName)] || '';
 }
 function setRepTier(repName, tier) {
   if (!state._indicatorRepTier) state._indicatorRepTier = {};
@@ -11668,7 +11691,7 @@ function isRepActive(repName) {
   if (!repName) return true;
   const map = state._indicatorRepActive || {};
   // Stored as `false` only for inactive reps; absence of the key = active
-  return map[repName] !== false;
+  return map[repName] !== false && map[_cleanRepName(repName)] !== false;
 }
 function setRepActive(repName, active) {
   if (!state._indicatorRepActive) state._indicatorRepActive = {};
