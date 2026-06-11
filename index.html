@@ -20674,8 +20674,23 @@ function indicatorYoYTrendChart() {
 
   // Per (year, week-of-year) accumulators. Week 1 = the Sunday-anchored
   // week containing Jan 1 (same convention as the week labels everywhere).
-  const mk = () => ({ rev: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, pestSum: 0, pestN: 0, cancels: 0, cancelElig: 0 });
+  //
+  // Cancel % uses MATCHED HORIZONS: a 2025 cohort has had a year longer to
+  // cancel than its 2026 counterpart, which made last year look terrible by
+  // construction. So for the prior year, a cancel only counts if it happened
+  // within the SAME elapsed time the current-year cohort has had (cancel
+  // date ≤ prior-year week start + days elapsed since this year's week
+  // start). `cancels` = all-time cancels (current-year line), `cancelsM` =
+  // horizon-matched cancels (prior-year line).
+  const mk = () => ({ rev: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, pestSum: 0, pestN: 0, cancels: 0, cancelsM: 0, cancelElig: 0 });
   const acc = { [curY]: {}, [prevY]: {} };
+  const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
+  const weekStartOf = (y, wk) => {
+    const jan1 = new Date(y, 0, 1);
+    const a = new Date(jan1); a.setDate(a.getDate() - a.getDay());
+    a.setDate(a.getDate() + (wk - 1) * 7);
+    return a;
+  };
   let maxWeek = 0, lastDataWeek = 0;
   for (const s of raw) {
     const iso = dateSoldToIso(s.dateSold);
@@ -20696,14 +20711,23 @@ function indicatorYoYTrendChart() {
     if (/failed\s*audit/i.test(s.customerFlags || '')) a.fail++;
     a.initSum += Number(s.initialPrice) || 0;
     if (!PEST_RE.test(s.subscription || '')) { a.pestSum += Number(s.initialPrice) || 0; a.pestN++; }
-    if (_isReportableCancel(s)) a.cancels++;
+    if (_isReportableCancel(s)) {
+      a.cancels++;
+      if (y === prevY) {
+        // Matched horizon: cutoff = prior-year week start + the elapsed
+        // time the current-year cohort has had (today − cur week start).
+        const cancelD = _parseSlashDate(s.cancelDate);
+        const cutoff = weekStartOf(prevY, wk).getTime() + Math.max(0, todayMid - weekStartOf(curY, wk));
+        if (cancelD && cancelD.getTime() <= cutoff) a.cancelsM++;
+      }
+    }
     if (!_isExcludableCancel(s)) a.cancelElig++;
     if (wk > maxWeek) maxWeek = wk;
     if (y === curY && wk > lastDataWeek) lastDataWeek = wk;
   }
   maxWeek = Math.min(Math.max(maxWeek, 1), 54);
 
-  const valOf = (a) => {
+  const valOf = (a, matchedHorizon) => {
     if (!a) return null;
     switch (metric) {
       case 'revenue':     return a.rev;
@@ -20713,13 +20737,15 @@ function indicatorYoYTrendChart() {
       case 'avg_pest':    return a.pestN > 0 ? a.pestSum / a.pestN : null;
       case 'my_pct':      { const ct = a.twelve + a.multi; return ct > 0 ? a.multi / ct : null; }
       case 'audit_pct':   return a.n > 0 ? (a.n - a.fail) / a.n : null;
-      case 'cancel_pct':  return a.cancelElig > 0 ? a.cancels / a.cancelElig : null;
+      case 'cancel_pct':  return a.cancelElig > 0 ? (matchedHorizon ? a.cancelsM : a.cancels) / a.cancelElig : null;
       default:            return null;
     }
   };
   const weeksAxis = Array.from({ length: maxWeek }, (_, i) => i + 1);
-  const curVals  = weeksAxis.map(w => (w <= lastDataWeek ? valOf(acc[curY][w]) : null));
-  const prevVals = weeksAxis.map(w => valOf(acc[prevY][w]));
+  const curVals  = weeksAxis.map(w => (w <= lastDataWeek ? valOf(acc[curY][w], false) : null));
+  // Cancel % prior-year line stops where the current year stops — beyond
+  // that there's no equal-horizon counterpart to compare against.
+  const prevVals = weeksAxis.map(w => (metric === 'cancel_pct' && w > lastDataWeek) ? null : valOf(acc[prevY][w], true));
   const fmtVal = (v) => v == null ? '—'
     : kind === 'usd' ? '$' + (metric === 'revenue' ? Math.round(v).toLocaleString() : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
     : kind === 'pct' ? (v * 100).toFixed(1) + '%'
@@ -20800,7 +20826,8 @@ function indicatorYoYTrendChart() {
       el('div', {},
         el('h3', { class: 'text-sm font-bold' }, 'YoY Performance Trends — ' + curY + ' vs ' + prevY),
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
-          'Weekly ' + mDef[1] + ' by week of year · solid = ' + curY + ' · dashed = ' + prevY + ' · hover for the YoY gap')),
+          'Weekly ' + mDef[1] + ' by week of year · solid = ' + curY + ' · dashed = ' + prevY + ' · hover for the YoY gap'
+          + (metric === 'cancel_pct' ? ' · matched horizons: ' + prevY + ' cohorts only count cancels within the same elapsed time their ' + curY + ' counterpart has had' : ''))),
       metricSel),
     cvsWrap);
 }
