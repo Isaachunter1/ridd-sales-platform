@@ -11410,29 +11410,30 @@ function openSpringStandingsModal() {
     const branches = [...branchSet].sort((a, b) => cum(b) - cum(a) || a.localeCompare(b));
 
     // ── Round date boxes — compact 2×2 grid beside the header title ──
-    const roundsBox = el('div', { class: 'sc-noprint', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 10px', background: '#cfcec6', padding: '8px 10px', borderRadius: '8px' } },
+    const roundsBox = el('div', { class: 'sc-noprint', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 8px', background: '#cfcec6', padding: '6px 8px', borderRadius: '8px', flex: 'none' } },
       ...comp.rounds.map((r, i) => {
         const rr = rounds[i];
         const dot = rr.official ? '#43a047' : (rr.hasData ? '#ED1C24' : '#9d9d97');
         return el('span', { style: { display: 'inline-flex', gap: '3px', alignItems: 'center', fontSize: '9.5px', fontWeight: '800', whiteSpace: 'nowrap' } },
           el('span', { title: rr.official ? 'Official — window over, all audits settled' : rr.hasData ? (rr.finished ? rr.pendingN + ' audits still pending' : 'In progress') : 'No sales yet', style: { width: '8px', height: '8px', borderRadius: '50%', background: dot, display: 'inline-block' } }),
           'R' + (i + 1),
-          el('input', { type: 'date', value: r.start, style: { fontSize: '9.5px', padding: '0 2px', border: '1px solid #aaa', background: '#fff', width: '92px' },
+          el('input', { type: 'date', value: r.start, style: { fontSize: '9px', padding: '0 1px', border: '1px solid #aaa', background: '#fff', width: '84px' },
             onchange: (e) => { r.start = e.target.value; logActivity('comp_change', { detail: 'Spring round ' + (i + 1) + ' start → ' + r.start }); saveDemoData(); render(); } }),
           '–',
-          el('input', { type: 'date', value: r.end, style: { fontSize: '9.5px', padding: '0 2px', border: '1px solid #aaa', background: '#fff', width: '92px' },
+          el('input', { type: 'date', value: r.end, style: { fontSize: '9px', padding: '0 1px', border: '1px solid #aaa', background: '#fff', width: '84px' },
             onchange: (e) => { r.end = e.target.value; logActivity('comp_change', { detail: 'Spring round ' + (i + 1) + ' end → ' + r.end }); saveDemoData(); render(); } }));
       }));
 
-    // ── Header — title left, round boxes right ──
-    const header = el('div', { style: { padding: '24px 30px 8px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } },
-      el('img', { src: 'sweeper.png', alt: '', style: { height: '60px', filter: 'grayscale(1)' } }),
-      el('div', {},
-        el('div', { style: { fontWeight: '900', fontSize: '38px', letterSpacing: '-0.03em', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
-        el('div', { style: { fontWeight: '800', fontSize: '11px', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: '4px' } }, 'Team Quality Based Competition by RIDDMADE™')),
+    // ── Header — title left, round boxes to its right (no wrapping);
+    //    a touch taller so it breathes before the category cards. ──
+    const header = el('div', { style: { padding: '26px 30px 16px', minHeight: '104px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'nowrap' } },
+      el('img', { src: 'sweeper.png', alt: '', style: { height: '58px', filter: 'grayscale(1)', flex: 'none' } }),
+      el('div', { style: { flex: 'none', minWidth: '0' } },
+        el('div', { style: { fontWeight: '900', fontSize: '32px', letterSpacing: '-0.03em', lineHeight: '0.95', textTransform: 'uppercase', whiteSpace: 'nowrap' } }, 'Spring Cleaning'),
+        el('div', { style: { fontWeight: '800', fontSize: '9.5px', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: '4px', whiteSpace: 'nowrap' } }, 'Team Quality Based Competition by RIDDMADE™')),
       el('span', { style: { flex: '1' } }),
       roundsBox,
-      el('button', { class: 'text-2xl leading-none cursor-pointer sc-noprint', style: { color: '#555', alignSelf: 'flex-start' }, onclick: close }, '×'));
+      el('button', { class: 'text-2xl leading-none cursor-pointer sc-noprint', style: { color: '#555', alignSelf: 'flex-start', flex: 'none' }, onclick: close }, '×'));
 
     // ── Top controls: Export PDF · Reset dates ──
     const ctlBtn = (label, opts = {}) => el('button', {
@@ -11456,14 +11457,14 @@ function openSpringStandingsModal() {
     const PAYOUT = [['1st Place', 6], ['2nd Place', 5], ['3rd Place', 4], ['4th Place', 3], ['5th Place', 2], ['6th Place', 1], ['7th Place', 0]];
     const TIERS = [[24, '®300k', '#1b5e20'], [20, '®200k', '#43a047'], [16, '®100k', '#9ccc65'], [12, '®50k', '#cddc39']];
     const infoRow = el('div', { style: { display: 'grid', gridTemplateColumns: '1.2fr 1.1fr 1fr', gap: '10px', padding: '4px 30px 10px' } },
-      el('div', { style: { background: '#F7941D', color: '#141414', padding: '12px 14px', display: 'flex', gap: '10px', alignItems: 'center' } },
-        el('div', { style: { flex: '1' } }, ...CATS_LIST.map((c, i) => el('div', { style: { fontSize: '10.5px', fontWeight: '800', lineHeight: '1.5' } }, (i + 1) + '.  ' + c))),
-        el('div', { style: { textAlign: 'center' } },
+      el('div', { style: { background: '#F7941D', color: '#141414', padding: '12px 14px', display: 'flex', gap: '12px', alignItems: 'center' } },
+        el('div', { style: { flex: '1 1 auto', minWidth: '0' } }, ...CATS_LIST.map((c, i) => el('div', { style: { fontSize: '10.5px', fontWeight: '800', lineHeight: '1.55', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (i + 1) + '.  ' + c))),
+        el('div', { style: { textAlign: 'center', flex: 'none', width: '64px' } },
           el('div', { style: { fontSize: '44px', fontWeight: '900', lineHeight: '1' } }, '7'),
           el('div', { style: { fontSize: '10px', fontWeight: '800' } }, 'Categories'))),
-      el('div', { style: { background: '#ED1C24', color: '#fff', padding: '12px 14px', display: 'flex', gap: '8px', alignItems: 'center' } },
-        el('div', { style: { flex: '1' } }, ...PAYOUT.map(([p, n]) => el('div', { style: { fontSize: '10.5px', fontWeight: '800', lineHeight: '1.5', whiteSpace: 'nowrap' } }, p + '………… ' + n + ' Bug' + (n === 1 ? '' : 's') + ' Exterminated'))),
-        el('div', { style: { fontSize: '13px', fontWeight: '900', textTransform: 'uppercase', transform: 'rotate(90deg)', whiteSpace: 'nowrap' } }, 'Per Round')),
+      el('div', { style: { background: '#ED1C24', color: '#fff', padding: '10px 14px 12px' } },
+        el('div', { style: { fontSize: '11px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px', borderBottom: '2px solid rgba(255,255,255,.5)', paddingBottom: '3px' } }, 'Per Round'),
+        ...PAYOUT.map(([p, n]) => el('div', { style: { fontSize: '10.5px', fontWeight: '800', lineHeight: '1.55', whiteSpace: 'nowrap' } }, p + '………… ' + n + ' Bug' + (n === 1 ? '' : 's') + ' Exterminated'))),
       el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
         ...TIERS.map(([n, coin, color]) => el('div', { style: { background: color, color: n >= 20 ? '#fff' : '#141414', fontSize: '10.5px', fontWeight: '900', padding: '7px 10px', whiteSpace: 'nowrap' } },
           n + ' Bugs Exterminated = ' + coin + ' per rep'))));
@@ -11471,18 +11472,22 @@ function openSpringStandingsModal() {
     // ── BUG COUNT tracker — every slot has a spider ──
     const MILESTONES = { 12: ['12', '@50K', '#cddc39', '#141414'], 16: ['16', '@100K', '#9ccc65', '#141414'], 20: ['20', '@200K', '#43a047', '#fff'], 24: ['24', '@300K', '#1b5e20', '#fff'] };
     const SLOTS = 24;
-    const SPIDER_FILTERS = {
-      green: 'sepia(1) saturate(6) hue-rotate(60deg) brightness(0.75)',
-      red:   'sepia(1) saturate(9) hue-rotate(-45deg)',
-      black: 'grayscale(1) brightness(0.25)',
-    };
+    // SVG spiders (not emoji) — emoji rasterize as broken glyphs in the
+    // PDF export; SVG paints identically on screen and in html2canvas.
+    const SPIDER_COLORS = { green: '#2e7d32', red: '#ED1C24', black: '#141414' };
     const bugCell = (kind, slot) => {
       const ms = MILESTONES[slot];
-      return el('div', { style: {
+      const c = SPIDER_COLORS[kind];
+      const cell = el('div', { style: {
         width: '100%', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: ms ? ms[2] : 'transparent', fontSize: '13px', lineHeight: '1',
-        filter: SPIDER_FILTERS[kind], opacity: kind === 'black' ? '0.55' : '1',
-      } }, '🕷️');
+        background: ms ? ms[2] : 'transparent',
+      } });
+      cell.innerHTML = '<svg viewBox="0 0 24 24" style="width:78%;height:78%;display:block">'
+        + '<ellipse cx="12" cy="13.6" rx="4" ry="5" fill="' + c + '"/>'
+        + '<circle cx="12" cy="6.8" r="2.5" fill="' + c + '"/>'
+        + '<path d="M9.2 10 4 6.2M14.8 10 20 6.2M8.6 13H2.8M21.2 13h-5.8M9.2 16.4 4.4 20M14.8 16.4 19.6 20" stroke="' + c + '" stroke-width="1.5" fill="none" stroke-linecap="round"/>'
+        + '</svg>';
+      return cell;
     };
     const tracker = el('div', { style: { margin: '6px 30px 14px', background: '#9d9d97', padding: '14px 16px 16px' } },
       el('div', { style: { display: 'grid', gridTemplateColumns: '120px repeat(' + SLOTS + ', 1fr)', gap: '2px', alignItems: 'center' } },
@@ -11501,9 +11506,9 @@ function openSpringStandingsModal() {
           ];
         })),
       el('div', { style: { display: 'flex', gap: '14px', marginTop: '8px', fontSize: '9px', fontWeight: '800', color: '#141414' } },
-        el('span', {}, '🟢 official — round over, all audits settled'),
-        el('span', {}, '🔴 provisional — round live or audits pending'),
-        el('span', {}, '⚫ not earned yet')));
+        el('span', { style: { color: '#2e7d32' } }, '● official — round over, all audits settled'),
+        el('span', { style: { color: '#ED1C24' } }, '● provisional — round live or audits pending'),
+        el('span', { style: { color: '#141414' } }, '● not earned yet')));
 
     // ── Round tables ──
     const CAT_COLS = [['revenue', 'Revenue'], ['avgPestInitial', 'Avg In.'], ['pra', 'PRA'], ['acv', 'ACV'], ['pct24', '24M %'], ['autopayPct', 'Apay %'], ['auditPct', 'Audit %']];
