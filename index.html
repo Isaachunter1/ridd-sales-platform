@@ -12136,6 +12136,23 @@ function openManageTeamsModal() {
     // Active/Inactive filter — '' = all, 'active' = only Active reps,
     // 'inactive' = only reps the admin flipped Inactive in this modal.
     const activeSelect = state._indicatorManageActiveFilter || '';
+    // Activity filter — scope the roster to reps who actually sold
+    // recently. With all-time uploads the full list includes years of
+    // former reps; this answers "who from the CURRENT crew is unassigned"
+    // without scrolling history. '' = all, '30'/'90' = sold in last N
+    // days, 'year' = sold this calendar year.
+    const activitySelect = state._indicatorManageActivityFilter || '';
+    const lastSaleByRep = {};
+    for (const s of rawSales) {
+      if (!s.rep) continue;
+      const d = _parseIndicatorDay(s);
+      if (!d) continue;
+      if (!lastSaleByRep[s.rep] || d > lastSaleByRep[s.rep]) lastSaleByRep[s.rep] = d;
+    }
+    const activityCut = activitySelect === 'year'
+      ? new Date(new Date().getFullYear(), 0, 1).getTime()
+      : activitySelect ? Date.now() - Number(activitySelect) * 86400000 : null;
+    const passesActivity = (r) => !activityCut || (lastSaleByRep[r] && lastSaleByRep[r].getTime() >= activityCut);
 
     // Counts per team for the summary chips. Aliased (merged-into-
     // another-rep) reps are excluded so the chip counts reflect unique
@@ -12204,6 +12221,9 @@ function openManageTeamsModal() {
       filteredReps = filteredReps.filter(r => isRepActive(r));
     } else if (activeSelect === 'inactive') {
       filteredReps = filteredReps.filter(r => !isRepActive(r));
+    }
+    if (activityCut) {
+      filteredReps = filteredReps.filter(passesActivity);
     }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -12375,6 +12395,42 @@ function openManageTeamsModal() {
       }, 'All · ' + reps.length),
       activeChip('active',   'Active',   '#5F8A1F', activeCounts.active),
       activeChip('inactive', 'Inactive', '#DC2626', activeCounts.inactive),
+    );
+
+    // ── Activity chips — scope to the CURRENT crew ──
+    // Counts respect the other filters' base list so "Sold last 30 days ·
+    // N" reads as how many of the listed reps are recent sellers.
+    const activityCount = (cutMode) => {
+      const cut = cutMode === 'year'
+        ? new Date(new Date().getFullYear(), 0, 1).getTime()
+        : Date.now() - Number(cutMode) * 86400000;
+      return reps.filter(r => lastSaleByRep[r] && lastSaleByRep[r].getTime() >= cut).length;
+    };
+    const activityChip = (id, label) => {
+      const isOn = activitySelect === id;
+      return el('button', {
+        class: 'rounded-full text-[11px] font-semibold cursor-pointer transition hover:brightness-95 inline-flex items-center gap-1.5 px-2.5 py-0.5',
+        style: isOn
+          ? { background: '#7C3AED', color: '#fff', boxShadow: '0 0 0 2px var(--accent)' }
+          : { background: 'transparent', color: '#7C3AED', border: '1px solid #7C3AED' },
+        onclick: () => {
+          state._indicatorManageActivityFilter = isOn ? '' : id;
+          render();
+        },
+      }, label + ' · ' + activityCount(id));
+    };
+    const activityChips = el('div', { class: 'px-5 py-2 border-b flex flex-wrap gap-1.5 items-center', style: { borderColor: 'var(--border)' } },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold mr-1', style: { color: 'var(--text-muted)' } }, 'Activity'),
+      el('button', {
+        class: 'rounded-full px-2.5 py-0.5 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
+        style: !activitySelect
+          ? { background: 'var(--text)', color: 'var(--card)', boxShadow: '0 0 0 2px var(--accent)' }
+          : { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border-2)' },
+        onclick: () => { state._indicatorManageActivityFilter = ''; render(); },
+      }, 'All time · ' + reps.length),
+      activityChip('30',   'Sold last 30 days'),
+      activityChip('90',   'Sold last 90 days'),
+      activityChip('year', 'Sold this year'),
     );
 
     // ── Possible duplicates ──
@@ -12815,7 +12871,7 @@ function openManageTeamsModal() {
 
     card.innerHTML = '';
     card.append(
-      header, addBar, teamChips, tierChips, activeChips,
+      header, addBar, teamChips, tierChips, activeChips, activityChips,
       ...(dupesPanel ? [dupesPanel] : []),
       ...(detailPanel ? [detailPanel] : []),
       searchInput, repList,
