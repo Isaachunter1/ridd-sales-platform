@@ -656,6 +656,40 @@ let _indicatorDataSaveWarned = false;
 // smaller and keeps raw sales (teams mode, dept toggle, exact-day ranges,
 // header colors) alive across refreshes.
 const INDICATORS_DATA_GZ_KEY = 'ridd-indicators-data-gz-v1';
+
+// ── IndexedDB bulk store ─────────────────────────────────────────────────
+// localStorage caps at ~5MB for the whole origin, which an all-time CSV
+// blows through even gzipped. IndexedDB has no practical limit, so the full
+// bulk payload (raw rows already stripped) is mirrored there on every save
+// and restored on load. localStorage remains a fast-paint fallback.
+function _indIdbOpen() {
+  return new Promise((res, rej) => {
+    if (typeof indexedDB === 'undefined') return rej(new Error('IndexedDB unavailable'));
+    const rq = indexedDB.open('ridd-indicators', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function _indIdbSet(key, val) {
+  const db = await _indIdbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').put(val, key);
+    tx.oncomplete = () => { db.close(); res(); };
+    tx.onerror = () => { db.close(); rej(tx.error); };
+  });
+}
+async function _indIdbGet(key) {
+  const db = await _indIdbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readonly');
+    const rq = tx.objectStore('kv').get(key);
+    rq.onsuccess = () => { db.close(); res(rq.result); };
+    rq.onerror = () => { db.close(); rej(rq.error); };
+  });
+}
+
 let _indSaveSeq = 0;
 async function _storeIndicatorDataCompressed(json) {
   const seq = ++_indSaveSeq;
@@ -772,6 +806,10 @@ function saveIndicatorState() {
     if (Array.isArray(data._indicatorSnapshots) && data._indicatorSnapshots.length > 6) {
       data._indicatorSnapshots = data._indicatorSnapshots.slice(-6);
     }
+    // Mirror the full payload to IndexedDB (no 5MB cap) — primary store for
+    // all-time-sized uploads. Fire-and-forget; localStorage below still
+    // provides the fast first paint for smaller payloads.
+    _indIdbSet('bulk', data).catch(e => console.warn('[ridd] IndexedDB indicator save failed', e));
     const json = JSON.stringify(data);
     try {
       localStorage.setItem(INDICATORS_DATA_STORAGE_KEY, json);
@@ -811,16 +849,16 @@ function saveIndicatorState() {
 function loadIndicatorState() {
   // Read the new split keys first; fall back to the legacy combined key if a
   // user is loading from a state written before the split.
+  const applyObj = (parsed) => {
+    if (!parsed) return;
+    for (const k of INDICATOR_PERSIST_FIELDS) {
+      if (parsed[k] !== undefined) state[k] = parsed[k];
+    }
+  };
   const apply = (raw) => {
     if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw);
-      for (const k of INDICATOR_PERSIST_FIELDS) {
-        if (parsed[k] !== undefined) state[k] = parsed[k];
-      }
-    } catch (err) {
-      console.warn('[ridd] failed to parse indicator state', err);
-    }
+    try { applyObj(JSON.parse(raw)); }
+    catch (err) { console.warn('[ridd] failed to parse indicator state', err); }
   };
   apply(localStorage.getItem(INDICATORS_STORAGE_KEY));        // legacy combined
   apply(localStorage.getItem(INDICATORS_DATA_STORAGE_KEY));   // bulk (overrides legacy data fields)
@@ -844,6 +882,26 @@ function loadIndicatorState() {
       }
     })();
   }
+
+  // IndexedDB bulk restore — the primary store for all-time-sized uploads
+  // that don't fit in localStorage at all. Applied when it's at least as
+  // fresh as whatever the localStorage path produced (same save writes both,
+  // so equal timestamps mean the idb copy has the full raw-sales array).
+  const lsBulkAt = (() => {
+    try { return (JSON.parse(localStorage.getItem(INDICATORS_DATA_STORAGE_KEY) || 'null') || {}).savedAt || ''; }
+    catch { return ''; }
+  })();
+  (async () => {
+    try {
+      const bulk = await _indIdbGet('bulk');
+      if (!bulk || !bulk.savedAt) return;
+      const haveRaw = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
+      if (bulk.savedAt >= lsBulkAt || !haveRaw) {
+        applyObj(bulk);
+        if (state.profile && typeof mountApp === 'function') mountApp();
+      }
+    } catch (e) { console.warn('[ridd] IndexedDB indicator restore failed', e); }
+  })();
 }
 
 // ── Supabase-backed indicator config (teams, tiers, rep overrides) ──────
@@ -10197,8 +10255,38 @@ const INDICATOR_RANGE_PRESETS = [
   { id: 'this_month',  label: 'This Month' },
   { id: 'last_month',  label: 'Last Month' },
   { id: 'this_year',   label: 'This Year' },
+  { id: 'last_year',   label: 'Last Year' },
+  { id: 'all_time',    label: 'All Time' },
   { id: 'custom',      label: 'Custom…' },
 ];
+
+// Label for any preset id, including dynamic per-year ids ('year:2024').
+function indicatorPresetLabel(id) {
+  const m = /^year:(\d{4})$/.exec(id || '');
+  if (m) return m[1];
+  return (INDICATOR_RANGE_PRESETS.find(p => p.id === id) || {}).label || 'Range';
+}
+
+// Distinct years present in the uploaded raw sales, older than last year
+// (This Year / Last Year presets already cover the recent two), newest first.
+function indicatorDataYears() {
+  const ys = new Set();
+  for (const s of (state._indicatorRawSales || [])) {
+    const d = s && s.date ? new Date(s.date) : null;
+    if (d && !isNaN(d)) ys.add(d.getFullYear());
+  }
+  const cur = new Date().getFullYear();
+  return [...ys].filter(y => y < cur - 1 && y > 2000).sort((a, b) => b - a);
+}
+
+// Static presets + a per-year option for every older year in the data,
+// inserted just before Custom.
+function indicatorPresetOptions() {
+  const base = INDICATOR_RANGE_PRESETS.slice();
+  const years = indicatorDataYears().map(y => ({ id: 'year:' + y, label: String(y) }));
+  base.splice(base.findIndex(p => p.id === 'custom'), 0, ...years);
+  return base;
+}
 
 function indicatorRangeBounds(preset, custom) {
   const today = new Date();
@@ -10206,7 +10294,11 @@ function indicatorRangeBounds(preset, custom) {
   const iso = (d) => d.toISOString().slice(0, 10);
   const startOfWeek = (d) => { const x = new Date(d); x.setDate(x.getDate() - x.getDay()); return x; };
   const year = today.getFullYear();
+  const ym = /^year:(\d{4})$/.exec(preset || '');
+  if (ym) return { start: `${ym[1]}-01-01`, end: `${ym[1]}-12-31` };
   switch (preset) {
+    case 'last_year':  return { start: `${year - 1}-01-01`, end: `${year - 1}-12-31` };
+    case 'all_time':   return { start: '2000-01-01', end: todayIso };
     case 'this_week':  { const ws = startOfWeek(today); return { start: iso(ws), end: todayIso }; }
     case 'last_week':  { const ws = startOfWeek(today); ws.setDate(ws.getDate() - 7); const we = new Date(ws); we.setDate(we.getDate() + 6); return { start: iso(ws), end: iso(we) }; }
     case 'this_month': { const ms = new Date(year, today.getMonth(), 1); return { start: iso(ms), end: todayIso }; }
@@ -12322,7 +12414,7 @@ function viewIndicators() {
   // Migrate old preset ids (ytd / since_mar1 / 90d / 60d / 30d) to the new
   // labeled set so saved demos don't crash on load.
   const VALID_PRESETS = new Set(INDICATOR_RANGE_PRESETS.map(p => p.id));
-  if (!state.indicatorsRangePreset || !VALID_PRESETS.has(state.indicatorsRangePreset)) {
+  if (!state.indicatorsRangePreset || (!VALID_PRESETS.has(state.indicatorsRangePreset) && !/^year:\d{4}$/.test(state.indicatorsRangePreset))) {
     state.indicatorsRangePreset = 'this_year';
   }
   if (state.indicatorsCustomStart == null) state.indicatorsCustomStart = '';
@@ -12632,7 +12724,7 @@ function viewIndicators() {
   // Spring Cleaning board — when one of those comps is selected.
   const _repWindowLabel = (() => {
     if (isRange) {
-      const presetLabel = (INDICATOR_RANGE_PRESETS.find(p => p.id === state.indicatorsRangePreset) || {}).label || 'Range';
+      const presetLabel = indicatorPresetLabel(state.indicatorsRangePreset);
       if (state.indicatorsRangePreset === 'custom') return `${rangeBounds.start} → ${rangeBounds.end}`;
       return `${presetLabel} · ${rangeBounds.start} → ${rangeBounds.end}`;
     }
@@ -12774,7 +12866,7 @@ function viewIndicators() {
             mountApp();
           },
         },
-          ...INDICATOR_RANGE_PRESETS.map(p => el('option', {
+          ...indicatorPresetOptions().map(p => el('option', {
             value: p.id, selected: state.indicatorsRangePreset === p.id,
           }, p.label)),
         ),
@@ -12808,8 +12900,7 @@ function viewIndicators() {
               chartBuckets: buildReportBuckets(windowedRawSales),
               groupMode: groupBy === 'teams' ? 'team' : 'branch',
               windowLabel: isRange
-                ? ((INDICATOR_RANGE_PRESETS.find(p => p.id === state.indicatorsRangePreset) || {}).label
-                  || (rangeBounds ? rangeBounds.start + ' → ' + rangeBounds.end : 'Range'))
+                ? indicatorPresetLabel(state.indicatorsRangePreset)
                 : ('Wk ' + currentWeek),
             });
           },
@@ -13000,7 +13091,7 @@ function viewIndicators() {
           el('div', { class: 'flex items-baseline gap-2 flex-wrap' },
           el('h1', { class: 'text-lg font-bold' }, (() => {
             if (!isRange) return 'INDICATORS';
-            const presetLabel = (INDICATOR_RANGE_PRESETS.find(p => p.id === state.indicatorsRangePreset) || {}).label || 'Range';
+            const presetLabel = indicatorPresetLabel(state.indicatorsRangePreset);
             if (state.indicatorsRangePreset === 'custom') {
               return `INDICATORS — ${rangeBounds.start} to ${rangeBounds.end}`;
             }
