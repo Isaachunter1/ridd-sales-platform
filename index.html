@@ -10368,6 +10368,26 @@ function indicatorWeekStartIso(row) {
   const year = new Date().getFullYear();
   return `${year}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
 }
+
+// Year-relative week label. All-time uploads made the absolute week index
+// meaningless for display ("Week 295"), so labels show the week's number
+// WITHIN its own year (Sunday-anchored; week 1 is the week containing
+// Jan 1), with a short year suffix when it isn't the current year
+// ("Wk 49 '25"). Falls back to the absolute index when the week's start
+// date can't be determined.
+function indicatorWeekLabel(w, opts) {
+  const word = (opts && opts.short) ? 'Wk ' : 'Week ';
+  const rows = (opts && opts.rows) || state.indicatorsData || [];
+  const iso = indicatorWeekStartIso(rows.find(r => r.week === w));
+  if (!iso) return word + w;
+  const d = new Date(iso + 'T00:00:00');
+  if (isNaN(d)) return word + w;
+  const jan1 = new Date(d.getFullYear(), 0, 1);
+  const anchor = new Date(jan1); anchor.setDate(anchor.getDate() - anchor.getDay());
+  const n = Math.floor((d - anchor) / 604800000) + 1;
+  const suffix = d.getFullYear() !== new Date().getFullYear() ? " '" + String(d.getFullYear()).slice(2) : '';
+  return word + n + suffix;
+}
 function isInIndicatorRange(row, bounds) {
   const iso = indicatorWeekStartIso(row);
   if (!iso) return true; // unknown — keep, don't silently drop
@@ -10442,7 +10462,7 @@ function getChartBuckets(rangeBounds, allWeeks, indicatorsData) {
     // include the original "5/3-5/9" date hint when present.
     return (allWeeks || []).map(w => {
       const row = (indicatorsData || []).find(r => r.week === w);
-      const label = row?.date ? ('Wk ' + w + '\n' + row.date) : 'Wk ' + w;
+      const label = indicatorWeekLabel(w, { short: true, rows: indicatorsData }) + (row?.date ? '\n' + row.date : '');
       return {
         kind: 'week',
         key: 'wk-' + w,
@@ -12779,7 +12799,7 @@ function viewIndicators() {
     }
     const wkRow = (allData || []).find(r => r.week === currentWeek);
     const dl = (wkRow?.date || '').trim();
-    return 'Week ' + currentWeek + (dl ? ' · ' + dl : '');
+    return indicatorWeekLabel(currentWeek, { rows: allData }) + (dl ? ' · ' + dl : '');
   })();
   const _repSections = indicatorRepSections(data, isRange, currentWeek, isRange ? rangeBounds : null, allWeeks, allData, _repWindowLabel);
   // Splice out the D2D comp card so it can render at the top.
@@ -12897,7 +12917,7 @@ function viewIndicators() {
             return el('option', {
               value: w,
               selected: w === currentWeek,
-            }, 'Week ' + w + (dateLabel ? ' · ' + dateLabel : ''));
+            }, indicatorWeekLabel(w, { rows: allData }) + (dateLabel ? ' · ' + dateLabel : ''));
           }),
         ),
         // Range preset (range view only)
@@ -12950,7 +12970,7 @@ function viewIndicators() {
               groupMode: groupBy === 'teams' ? 'team' : 'branch',
               windowLabel: isRange
                 ? indicatorPresetLabel(state.indicatorsRangePreset)
-                : ('Wk ' + currentWeek),
+                : indicatorWeekLabel(currentWeek, { short: true }),
             });
           },
           title: groupBy === 'teams'
@@ -12988,7 +13008,7 @@ function viewIndicators() {
                   const comp = getActiveComp();
                   const winLabel = isRange
                     ? (rangeBounds ? rangeBounds.start + ' → ' + rangeBounds.end : 'Range')
-                    : ('Wk ' + currentWeek);
+                    : indicatorWeekLabel(currentWeek, { short: true });
                   const numOrBlank0 = (v) => { const n = Number(v); return Number.isFinite(n) ? n : ''; };
 
                   // ── SPRING CLEANING → Standings + Counting + Excluded ──
@@ -15187,7 +15207,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       return {
         kind: 'week',
         key: 'wk-' + w,
-        label: row?.date ? ('Wk ' + w + '\n' + row.date) : 'Wk ' + w,
+        label: indicatorWeekLabel(w, { short: true, rows: indicatorRows }) + (row?.date ? '\n' + row.date : ''),
         week: w,
         match: (s) => s.week === w,
         cumThrough: (s) => s.week <= w,
@@ -17266,7 +17286,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   const weekLabel = (() => {
     if (weekFilter == null) return null;
     const row = (state.indicatorsData || []).find(r => r.week === weekFilter);
-    return row?.date ? ('Wk ' + weekFilter + ' · ' + row.date) : ('Wk ' + weekFilter);
+    return indicatorWeekLabel(weekFilter, { short: true }) + (row?.date ? ' · ' + row.date : '');
   })();
   const repByName = Object.fromEntries(allReps.map(r => [r.name, r]));
   const verifyHeaderCell = (label, align) => el('th', {
@@ -17503,7 +17523,7 @@ function buildReportBuckets(rawSales) {
   const last12 = weeks.slice(-12);
   return last12.map(w => ({
     key:   'wk-' + w,
-    label: 'Wk ' + w,
+    label: indicatorWeekLabel(w, { short: true }),
     week:  w,
     match: (s) => s.week === w,
   }));
@@ -19734,7 +19754,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
       data: {
         labels: weeks.map(w => {
           const row = data.find(r => r.week === w && r.date);
-          return row?.date ? ('Wk ' + w + '\n' + row.date) : 'Wk ' + w;
+          return indicatorWeekLabel(w, { short: true, rows: data }) + (row?.date ? '\n' + row.date : '');
         }),
         datasets,
       },
@@ -19789,7 +19809,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
                 const idx = items[0].dataIndex;
                 const w = weeks[idx];
                 const row = data.find(r => r.week === w && r.date);
-                return 'Week ' + w + (row?.date ? ' (' + row.date + ')' : '');
+                return indicatorWeekLabel(w, { rows: data }) + (row?.date ? ' (' + row.date + ')' : '');
               },
               label: (ctx) => {
                 const me = ctx.parsed.y;
