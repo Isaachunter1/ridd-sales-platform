@@ -2422,12 +2422,13 @@ const TAB_TITLES = {
   scorecards:   'SCORECARDS',
   reporting:    'REPORTING',
   marketing:    'MARKETING',
+  auditing:     'AUDITING',
   admin:        'SETTINGS',
 };
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#auditing':'auditing', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -2648,6 +2649,368 @@ function microGoalWidget() {
   );
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// VIEW: AUDITING — Door-to-Door account audits.
+// Branch audit CSVs (same format as the "D2D Audit" Google Sheets) are
+// uploaded here and upserted to Supabase (audit_accounts) by AccountID, so
+// re-uploads update results in place and every admin shares one dataset.
+// The D2D account universe + attrition signal come from the same raw-sales
+// Customer Report the Indicators tab uses, joined on Customer ID.
+// ════════════════════════════════════════════════════════════════════════
+const AUDIT_CHECKS = [
+  ['apruv',           'Apruv Completed'],
+  ['card_on_file',    'Card on File'],
+  ['auto_pay',        'Auto Pay'],
+  ['charge_before',   'Charged Before 1st Service'],
+  ['customer_info',   'Customer Info Correct'],
+  ['contract_length', '12/18/24+ Contract'],
+  ['contract_signed', 'Contract Signed'],
+  ['cancel_notes',    'No Free-Cancel Notes'],
+  ['rep_card',        'Rep Card Not on File'],
+  ['monthly_billing', 'Billing Monthly'],
+  ['sellable_area',   'Sellable Area'],
+  ['scheduled',       'Scheduled'],
+];
+const AUDIT_LS_KEY = 'ridd-audit-rows-v1';
+
+function parseAuditCsv(text, fallbackOffice) {
+  const parseLine = (line) => {
+    const out = []; let cur = '', q = false;
+    for (const c of line) {
+      if (c === '"') q = !q;
+      else if (c === ',' && !q) { out.push(cur.trim()); cur = ''; }
+      else cur += c;
+    }
+    out.push(cur.trim()); return out;
+  };
+  const lines = text.replace(/^﻿/, '').split('\n').filter(l => l.trim());
+  if (lines.length < 2) throw new Error('CSV has no data rows');
+  const H = parseLine(lines[0]).map(h => h.toLowerCase().trim());
+  const find = (pred) => H.findIndex(pred);
+  const col = {
+    soldDate:  find(h => h.includes('sold date') || h === 'date'),
+    rep:       find(h => h.includes('sales rep') || h === 'rep'),
+    customer:  find(h => h.includes('customer name')),
+    accountId: find(h => h.includes('accountid') || h.includes('account id') || h.includes('account #')),
+    office:    find(h => h.includes('office') || h.includes('branch')),
+    result:    find(h => h.includes('result')),
+    notes:     find(h => h === 'notes'),
+  };
+  if (col.accountId < 0) throw new Error('No AccountID column found');
+  if (col.result < 0) throw new Error('No Result column found');
+  const checkCol = {
+    customer_info:   find(h => h.includes('customer info')),
+    contract_signed: find(h => h.includes('contract signed')),
+    rep_card:        find(h => h.includes('rep card')),
+    card_on_file:    find(h => h.includes('card on file') && !h.includes('rep')),
+    auto_pay:        find(h => h.startsWith('auto pay') || h.startsWith('autopay')),
+    contract_length: find(h => h.includes('12')),
+    apruv:           find(h => h.includes('apruv')),
+    cancel_notes:    find(h => h.includes('cancelation') || h.includes('cancellation')),
+    charge_before:   find(h => h.includes('charged before') || h.includes('charge before')),
+    monthly_billing: find(h => h.includes('billing monthly') || h.includes('monthly billing')),
+    sellable_area:   find(h => h.includes('sellable')),
+    scheduled:       find(h => h.includes('scheduled')),
+  };
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const c = parseLine(lines[i]);
+    const id = (c[col.accountId] || '').replace(/\D/g, '');
+    if (!id) continue; // header repeats / spacer / formula-junk rows
+    const resRaw = (c[col.result] || '').trim().toLowerCase();
+    const result = resRaw.startsWith('pass') ? 'passed' : resRaw.startsWith('fail') ? 'failed' : null;
+    if (!result) continue;
+    const checks = {};
+    for (const [key] of AUDIT_CHECKS) {
+      const idx = checkCol[key];
+      if (idx >= 0 && c[idx]) checks[key] = /^y/i.test(c[idx]) ? 'Yes' : (/^n/i.test(c[idx]) ? 'No' : c[idx]);
+    }
+    rows.push({
+      account_id: id,
+      office: ((col.office >= 0 && c[col.office]) || fallbackOffice || '').toUpperCase().trim() || null,
+      rep: col.rep >= 0 ? (c[col.rep] || '').trim() : '',
+      customer: col.customer >= 0 ? (c[col.customer] || '').trim() : '',
+      sold_date: col.soldDate >= 0 ? (c[col.soldDate] || '').trim() : '',
+      result,
+      checks,
+      notes: col.notes >= 0 ? (c[col.notes] || '').trim() : '',
+    });
+  }
+  if (!rows.length) throw new Error('No audit rows with an AccountID + Result found');
+  return rows;
+}
+
+async function loadAuditRows() {
+  // localStorage cache paints first; Supabase (shared) overrides when present.
+  let map = {};
+  try { map = JSON.parse(localStorage.getItem(AUDIT_LS_KEY) || '{}') || {}; } catch {}
+  state._auditRows = map;
+  if (DEMO) return;
+  try {
+    const out = {};
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase.from('audit_accounts').select('*').range(from, from + 999);
+      if (error) { console.warn('[ridd] audit_accounts load failed (run audit_schema.sql?)', error); return; }
+      (data || []).forEach(r => { out[r.account_id] = r; });
+      if (!data || data.length < 1000) break;
+    }
+    state._auditRows = out;
+    try { localStorage.setItem(AUDIT_LS_KEY, JSON.stringify(out)); } catch {}
+  } catch (e) { console.warn('[ridd] audit load failed', e); }
+}
+
+async function saveAuditRows(rows) {
+  if (!state._auditRows) state._auditRows = {};
+  let added = 0, updated = 0;
+  for (const r of rows) {
+    if (state._auditRows[r.account_id]) updated++; else added++;
+    state._auditRows[r.account_id] = { ...state._auditRows[r.account_id], ...r };
+  }
+  try { localStorage.setItem(AUDIT_LS_KEY, JSON.stringify(state._auditRows)); } catch {}
+  if (!DEMO) {
+    const payload = rows.map(r => ({ ...r, updated_at: new Date().toISOString(), updated_by: state.profile?.id || null }));
+    for (let i = 0; i < payload.length; i += 500) {
+      const { error } = await supabase.from('audit_accounts').upsert(payload.slice(i, i + 500), { onConflict: 'account_id' });
+      if (error) { toast('Audit save failed: ' + error.message + ' (run audit_schema.sql?)', 'error'); return { added, updated, synced: false }; }
+    }
+  }
+  return { added, updated, synced: true };
+}
+
+function viewAuditing() {
+  // Lazy loads: shared audit rows + the freshest indicators raw sales.
+  if (state._auditRows == null && !state._auditLoading) {
+    state._auditLoading = true;
+    loadAuditRows().then(() => { state._auditLoading = false; mountApp(); });
+  }
+  if (typeof refreshIndicatorsFromCloud === 'function') refreshIndicatorsFromCloud();
+
+  const auditMap = state._auditRows || {};
+  const rawAll = (state._indicatorRawSales || []).filter(s => (s.source || '').trim().toLowerCase() === 'door to door');
+
+  // ── Scope: year (universe + pending only; audits always count) ──
+  if (!state.auditYear) state.auditYear = String(new Date().getFullYear());
+  if (!state.auditOffice) state.auditOffice = 'all';
+  const dataYears = [...new Set(rawAll.map(s => { const d = s.date ? new Date(s.date) : null; return d && !isNaN(d) ? String(d.getFullYear()) : null; }).filter(Boolean))].sort().reverse();
+  const yr = dataYears.includes(state.auditYear) || state.auditYear === 'all' ? state.auditYear : (dataYears[0] || 'all');
+  const inScope = (s) => { if (yr === 'all') return true; const d = s.date ? new Date(s.date) : null; return d && !isNaN(d) && String(d.getFullYear()) === yr; };
+
+  // ── Joins: attrition flag per account (all-time), universe (in scope) ──
+  const cancelById = new Map();
+  for (const s of rawAll) {
+    if (!s.customerId) continue;
+    if (_isReportableCancel(s)) cancelById.set(s.customerId, true);
+    else if (!cancelById.has(s.customerId)) cancelById.set(s.customerId, false);
+  }
+  const uni = new Map(); // accountId -> { rep, office }
+  for (const s of rawAll) {
+    if (!s.customerId || !inScope(s) || uni.has(s.customerId)) continue;
+    uni.set(s.customerId, { rep: (s.rep || 'Unknown').trim(), office: (s.office || 'UNKNOWN').toUpperCase().trim() });
+  }
+
+  // Office list = union of universe + audit offices
+  const offices = [...new Set([
+    ...[...uni.values()].map(u => u.office),
+    ...Object.values(auditMap).map(a => (a.office || '').toUpperCase()).filter(Boolean),
+  ])].sort();
+  const offFilter = state.auditOffice;
+  const offOk = (o) => offFilter === 'all' || (o || '').toUpperCase() === offFilter;
+
+  // ── Aggregate per rep / per office ──
+  const mk = () => ({ sold: 0, passed: 0, failed: 0, pending: 0, attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0] } }); // attr = [cancelled, total]
+  const reps = {}, offs = {}, tot = mk();
+  const bump = (bucket, key, cancelled) => {
+    bucket[key]++;
+    const a = bucket.attr[key === 'sold' ? 'pending' : key];
+    if (a && key !== 'sold') { a[1]++; if (cancelled) a[0]++; }
+  };
+  const seen = new Set();
+  const addTo = (repName, office, key, cancelled) => {
+    const r = reps[repName] || (reps[repName] = mk());
+    const o = offs[office] || (offs[office] = mk());
+    for (const b of [r, o, tot]) bump(b, key, cancelled);
+  };
+  for (const [id, u] of uni) {
+    const a = auditMap[id];
+    const office = (a?.office || u.office || 'UNKNOWN').toUpperCase();
+    if (!offOk(office)) continue;
+    const rep = (a?.rep || u.rep || 'Unknown').trim();
+    const cancelled = !!cancelById.get(id);
+    reps[rep] = reps[rep] || mk(); offs[office] = offs[office] || mk();
+    for (const b of [reps[rep], offs[office], tot]) b.sold++;
+    addTo(rep, office, a ? a.result : 'pending', cancelled);
+    seen.add(id);
+  }
+  // Audited accounts outside the scoped universe (older years / not in the
+  // current Customer Report) still count toward audit totals — just not Sold.
+  for (const [id, a] of Object.entries(auditMap)) {
+    if (seen.has(id)) continue;
+    const office = (a.office || 'UNKNOWN').toUpperCase();
+    if (!offOk(office)) continue;
+    addTo((a.rep || 'Unknown').trim(), office, a.result, !!cancelById.get(id));
+  }
+
+  const audited = tot.passed + tot.failed;
+  const pctS = (n, d) => d > 0 ? ((n / d) * 100).toFixed(1) + '%' : '—';
+  const rate = (pair) => pair[1] > 0 ? pair[0] / pair[1] : null;
+  const GOOD = 'rgba(141,198,63,.18)', BAD = 'rgba(220,38,38,.14)';
+  const passShade = (p) => p == null ? '' : (p >= 0.85 ? GOOD : p < 0.65 ? BAD : '');
+
+  // ── Fail reasons (among failed audits in the office filter) ──
+  const failReasons = AUDIT_CHECKS.map(([key, label]) => {
+    let n = 0;
+    for (const a of Object.values(auditMap)) {
+      if (a.result !== 'failed' || !offOk(a.office)) continue;
+      if (a.checks && a.checks[key] === 'No') n++;
+    }
+    return { key, label, n };
+  }).filter(r => r.n > 0).sort((a, b) => b.n - a.n);
+  const failTotal = Object.values(auditMap).filter(a => a.result === 'failed' && offOk(a.office)).length;
+
+  // ── UI bits ──
+  const kpi = (label, val, sub, color) => el('div', { class: 'card p-4 flex-1', style: { minWidth: '140px' } },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+    el('div', { class: 'text-2xl font-black tabular-nums mt-1', style: color ? { color } : {} }, val),
+    sub && el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, sub));
+
+  const sel = (value, opts, onchange, title) => el('select', {
+    class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer', title: title || '', onchange,
+  }, ...opts.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === value) o.selected = true; return o; }));
+
+  // Upload control — branch select (used when the CSV has no Branch column) + file input.
+  const branchSel = sel(state._auditUploadOffice || '', [['', 'Branch (for upload)…'], ...offices.map(o => [o, o])],
+    (e) => { state._auditUploadOffice = e.target.value; }, 'Used when the CSV has no Office/Branch column');
+  const fileInput = el('input', { type: 'file', accept: '.csv,text/csv', style: { display: 'none' } });
+  fileInput.addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    try {
+      const text = await f.text();
+      const rows = parseAuditCsv(text, state._auditUploadOffice || '');
+      if (rows.some(r => !r.office)) { toast('CSV has no Branch column — pick a branch in the dropdown first', 'error'); return; }
+      const res = await saveAuditRows(rows);
+      toast(`Audit upload: ${fmt.int(res.added)} new · ${fmt.int(res.updated)} updated` + (res.synced ? '' : ' (saved locally only)'), 'success');
+      mountApp();
+    } catch (err) { toast('Audit CSV: ' + (err.message || err), 'error'); }
+    finally { e.target.value = ''; }
+  });
+  const uploadBtn = el('button', {
+    class: 'px-3 py-2 rounded-xl text-xs font-bold transition hover:brightness-95',
+    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    onclick: () => fileInput.click(),
+  }, '⬆ Upload Audit CSV');
+
+  // ── Tables ──
+  const th = (lab, right = true) => el('th', { class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, lab);
+  const td = (val, opts = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums text-xs whitespace-nowrap ' + (opts.left ? 'text-left' : 'text-right') + (opts.bold ? ' font-bold' : ''), style: { background: opts.bg || 'transparent' } }, val);
+  const statRow = (name, s, opts = {}) => {
+    const auditedN = s.passed + s.failed;
+    const passPct = auditedN > 0 ? s.passed / auditedN : null;
+    const effPct = s.sold > 0 ? (s.passed + s.pending) / Math.max(s.sold, auditedN + s.pending) : (auditedN > 0 ? s.passed / auditedN : null);
+    const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
+    return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: opts.total ? 'var(--card-2)' : 'transparent' } },
+      td(name, { left: true, bold: !!opts.total }),
+      td(fmt.int(s.sold)),
+      td(fmt.int(auditedN)),
+      td(fmt.int(s.passed), { bg: 'rgba(141,198,63,.08)' }),
+      td(fmt.int(s.failed), { bg: s.failed > 0 ? 'rgba(220,38,38,.08)' : 'transparent' }),
+      td(fmt.int(s.pending)),
+      td(passPct == null ? '—' : (passPct * 100).toFixed(1) + '%', { bg: passShade(passPct), bold: true }),
+      td(effPct == null ? '—' : (effPct * 100).toFixed(1) + '%'),
+      td(aP == null ? '—' : (aP * 100).toFixed(1) + '%'),
+      td(aF == null ? '—' : (aF * 100).toFixed(1) + '%', { bg: aF != null && aP != null && aF > aP ? 'rgba(220,38,38,.08)' : 'transparent' }),
+    );
+  };
+  const statTable = (label, entries, note) => el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 pt-4 pb-2' },
+      el('h3', { class: 'text-base font-bold' }, label),
+      note && el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, note)),
+    el('div', { class: 'overflow-x-auto' },
+      el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {},
+          th(label.includes('Branch') ? 'Branch' : 'Rep', false), th('Sold (D2D)'), th('Audited'), th('Passed'), th('Failed'), th('Pending'),
+          th('Pass % (audited)'), th('Eff. Pass %'), th('Attrition · Passed'), th('Attrition · Failed'))),
+        el('tbody', {},
+          ...entries.map(([name, s]) => statRow(name, s)),
+          statRow('TOTAL', tot, { total: true })))));
+
+  const repEntries = Object.entries(reps).sort((a, b) => b[1].sold - a[1].sold || b[1].failed - a[1].failed);
+  const offEntries = Object.entries(offs).sort((a, b) => b[1].sold - a[1].sold);
+
+  // ── Attrition headline ──
+  const attrP = rate(tot.attr.passed), attrF = rate(tot.attr.failed), attrU = rate(tot.attr.pending);
+  const mult = (attrP != null && attrP > 0 && attrF != null) ? (attrF / attrP) : null;
+  const attrBox = (label, r, pair, color) => el('div', { class: 'flex-1 text-center', style: { minWidth: '120px' } },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+    el('div', { class: 'text-2xl font-black tabular-nums', style: { color } }, r == null ? '—' : (r * 100).toFixed(1) + '%'),
+    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fmt.int(pair[0]) + ' of ' + fmt.int(pair[1]) + ' accounts'));
+
+  const noRaw = rawAll.length === 0;
+  const noAudits = Object.keys(auditMap).length === 0;
+
+  return el('div', { class: 'flex flex-col gap-4 max-w-[1400px] mx-auto' },
+    // Toolbar
+    el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' },
+      el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        sel(offFilter, [['all', 'All Branches'], ...offices.map(o => [o, o])], (e) => { state.auditOffice = e.target.value; mountApp(); }),
+        sel(yr, [...dataYears.map(y => [y, y + ' sales']), ['all', 'All-time sales']], (e) => { state.auditYear = e.target.value; mountApp(); }, 'Which sold accounts count as the D2D universe (Sold / Pending)'),
+      ),
+      el('div', { class: 'flex items-center gap-2' }, branchSel, uploadBtn, fileInput)),
+
+    noRaw && el('div', { class: 'card p-3 text-xs', style: { background: 'var(--card-2)' } },
+      '⚠ No raw-sales Customer Report loaded (Indicators tab) — Sold / Pending / Attrition need it. Audit results below still work.'),
+    noAudits && el('div', { class: 'card p-10 text-center' },
+      el('div', { class: 'text-4xl mb-3' }, '🛡️'),
+      el('h2', { class: 'text-lg font-bold mb-2' }, 'Upload your first audit CSV'),
+      el('p', { class: 'text-sm text-muted- max-w-lg mx-auto' },
+        'Export a branch tab from the D2D Audit sheet as CSV (File → Download → CSV) and upload it here. Rows are matched by AccountID, so re-uploading the same branch just updates results. Pick the branch in the dropdown if the CSV has no Branch column.')),
+
+    // KPI strip
+    !noAudits && el('div', { class: 'flex gap-3 flex-wrap' },
+      kpi('D2D Accounts (' + (yr === 'all' ? 'all-time' : yr) + ')', fmt.int(tot.sold), 'distinct sold accounts'),
+      kpi('Audited', fmt.int(audited), pctS(audited, Math.max(tot.sold, audited)) + ' coverage'),
+      kpi('Passed', fmt.int(tot.passed), pctS(tot.passed, audited) + ' of audited', '#4d7c0f'),
+      kpi('Failed', fmt.int(tot.failed), pctS(tot.failed, audited) + ' of audited', '#DC2626'),
+      kpi('Pending', fmt.int(tot.pending), 'sold, not yet audited'),
+      kpi('Effective Pass Rate', pctS(tot.passed + tot.pending, Math.max(tot.sold, audited + tot.pending)), 'no audit counts as passed')),
+
+    // Attrition + fail reasons
+    !noAudits && el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' },
+      el('div', { class: 'card p-4' },
+        el('h3', { class: 'text-base font-bold mb-1' }, 'Attrition by Audit Result'),
+        el('div', { class: 'text-[11px] mb-3', style: { color: 'var(--text-subtle)' } },
+          'Share of accounts with a reportable cancel, split by how they audited' + (noRaw ? ' — needs the Customer Report' : '')),
+        el('div', { class: 'flex gap-4 flex-wrap' },
+          attrBox('Passed Audit', attrP, tot.attr.passed, '#4d7c0f'),
+          attrBox('Failed Audit', attrF, tot.attr.failed, '#DC2626'),
+          attrBox('Not Audited', attrU, tot.attr.pending, 'var(--text-muted)')),
+        mult != null && isFinite(mult) && mult > 1 && el('div', { class: 'text-xs mt-3 px-3 py-2 rounded-lg font-semibold text-center', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626' } },
+          'Failed-audit accounts cancel ' + mult.toFixed(1) + '× more often than passed-audit accounts')),
+      el('div', { class: 'card p-4' },
+        el('h3', { class: 'text-base font-bold mb-1' }, 'Why Audits Fail'),
+        el('div', { class: 'text-[11px] mb-3', style: { color: 'var(--text-subtle)' } },
+          '"No" answers among the ' + fmt.int(failTotal) + ' failed audits' + (offFilter !== 'all' ? ' · ' + offFilter : '')),
+        failReasons.length === 0
+          ? el('div', { class: 'text-xs italic', style: { color: 'var(--text-muted)' } }, 'No failed audits in view.')
+          : el('div', { class: 'flex flex-col gap-1.5' }, ...failReasons.map(r => {
+              const w = failTotal > 0 ? Math.max(2, (r.n / failTotal) * 100) : 0;
+              return el('div', { class: 'flex items-center gap-2' },
+                el('div', { class: 'text-[11px] whitespace-nowrap', style: { width: '180px', color: 'var(--text)' } }, r.label),
+                el('div', { class: 'flex-1 rounded-full overflow-hidden', style: { background: 'var(--card-2)', height: '14px' } },
+                  el('div', { style: { width: w + '%', height: '100%', background: '#DC2626', opacity: .75 } })),
+                el('div', { class: 'text-[11px] tabular-nums font-bold', style: { width: '70px', textAlign: 'right' } },
+                  fmt.int(r.n) + ' · ' + pctS(r.n, failTotal)));
+            })))),
+
+    // Rep + branch tables
+    !noAudits && statTable('Sales Reps · Audit Report', repEntries,
+      'Sold = distinct D2D accounts (' + (yr === 'all' ? 'all-time' : yr) + '). Pending = sold but not audited. Eff. Pass % treats pending as passed. Attrition = reportable cancels.'),
+    !noAudits && offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, null),
+
+    el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
+      fmt.int(Object.keys(auditMap).length) + ' audited accounts on file · shared across admins (audit_schema.sql) · joined to the Indicators Customer Report by AccountID for Sold / Pending / Attrition.'),
+  );
+}
+
 // ── Inside Sales consolidated tab ─────────────────────────────────────────
 // The seven rep-facing views live under ONE "Inside Sales" nav entry; the
 // individual views render with a Reporting-style sub-tab bar above them.
@@ -2691,6 +3054,7 @@ function mountApp() {
     ['inside_sales', 'Inside Sales', iconSales()],
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
+    ...(isAdmin ? [['auditing',      'Auditing',      iconShield()]]    : []),
   ];
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
@@ -2889,6 +3253,7 @@ function mountApp() {
     scorecards:   viewScorecards,
     reporting:    viewReporting,
     marketing:    viewMarketing,
+    auditing:     viewAuditing,
     admin:        viewAdmin,
   }[state.view];
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
@@ -2900,7 +3265,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'calendar', 'scorecards', 'reporting', 'marketing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'calendar', 'scorecards', 'reporting', 'marketing', 'auditing']);
   document.querySelector('.fab')?.remove();
   if (!FAB_HIDDEN_VIEWS.has(state.view)) {
     const fab = el('button', { class: 'fab', onclick: () => openNewSaleModal() },
