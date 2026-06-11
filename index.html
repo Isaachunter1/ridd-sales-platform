@@ -15756,8 +15756,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // Aggregates the same window of raw sales the rest of this section uses,
   // bucketing reps by their indicator tier (rookie / vet). Reps without a
   // tier are not counted on either side — admins tag them in Manage Teams.
-  // Sits above the per-rep trend so the cohort comparison is the first
-  // thing visible after the page-level cards.
+  // Rendered UNDERNEATH the 🏅 Records card (stashed here, pushed later) so
+  // the Performance Trend chart sits right under the page-level cards.
+  let _tierCardSection = null;
   (() => {
     const tierBuckets = { rookie: [], vet: [] };
     let untagged = 0;
@@ -15902,7 +15903,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             'No tagged reps in this window. Tag reps as Rookie or Vet in Manage Teams.')
         : el('div', {}, ...ROW_DEFS.map(([key, label]) => tierRow(label, key))),
     );
-    sections.push(tierCard);
+    _tierCardSection = tierCard;
   })();
 
   sections.push(repTrendChartCard({
@@ -16315,6 +16316,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     sections.push(buildD2DCompSection());
   }
   sections.push(buildAggregateRecordsCard());
+  // Rookie vs Vet lives directly under the Records card (built earlier).
+  if (_tierCardSection) sections.push(_tierCardSection);
 
   // ── 3. CANCEL ANALYSIS ──
   // The ONLY section that can read `rawSalesAll` (with 3-day RORs +
