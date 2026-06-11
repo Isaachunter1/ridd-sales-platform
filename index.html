@@ -18491,12 +18491,55 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   const pestRows = desc(Object.entries(byBranch).map(([o, b]) => [o, b.pestN > 0 ? b.pestSum / b.pestN : 0]));
   const companyACV  = sumAll('count') > 0 ? sumAll('revenue') / sumAll('count') : 0;
   const companyPest = sumAll('pestN') > 0 ? sumAll('pestSum') / sumAll('pestN') : 0;
+  // Summer PRA — May 1 is the first official day of summer, so this panel
+  // always resets there regardless of the page's window. PRA = per-rep
+  // average (subs/rep and revenue/rep) among reps with ≥1 sale in the
+  // branch since 5/1; reps are credited to the branch they sold in.
+  const summerStart = new Date(new Date().getFullYear(), 4, 1);
+  const summer = {};
+  for (const r of (allReps || [])) {
+    for (const s of (r.sales || [])) {
+      const dk = (s.dateSold || '').split(' ')[0].trim();
+      if (!dk) continue;
+      const d = new Date(dk);
+      if (!Number.isFinite(d.getTime()) || d < summerStart) continue;
+      const o = titleCase(s.office || '') || 'Unknown';
+      const b = summer[o] || (summer[o] = { revenue: 0, subs: 0, reps: new Set() });
+      b.revenue += Number(s.contractValue || 0); b.subs++; b.reps.add(r.name);
+    }
+  }
+  const praRows = Object.entries(summer)
+    .map(([o, b]) => ({ o, subsPra: b.subs / Math.max(1, b.reps.size), revPra: b.revenue / Math.max(1, b.reps.size) }))
+    .sort((a, b) => b.revPra - a.revPra);
+  const sumSummer = Object.values(summer).reduce((a, b) => ({ revenue: a.revenue + b.revenue, subs: a.subs + b.subs, reps: a.reps + b.reps.size }), { revenue: 0, subs: 0, reps: 0 });
+  const praCell = (txt, opts = {}) => el('td', { style: { padding: '3px 4px', fontSize: '8.5px', fontWeight: opts.bold ? '800' : '600', color: opts.color || '#1D1D1D', textAlign: opts.left ? 'left' : 'right', borderBottom: '1px solid #f0f0f0', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } }, txt);
+  const praTable = praRows.length === 0 ? null : el('div', { style: { marginBottom: '8px' } },
+    el('div', { style: { fontSize: '10px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '4px 0 3px' } }, 'Summer PRA · since 5/1'),
+    el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e5e5' } },
+      el('thead', {}, el('tr', { style: { background: '#fafafa' } },
+        praCell('', {}),
+        praCell('Branch', { left: true, color: '#666' }),
+        praCell('Subs', { color: '#666' }),
+        praCell('Revenue', { color: '#666' }))),
+      el('tbody', {},
+        el('tr', { style: { background: '#1D1D1D' } },
+          praCell('', {}),
+          praCell('Company', { left: true, bold: true, color: '#fff' }),
+          praCell(sumSummer.reps > 0 ? (sumSummer.subs / sumSummer.reps).toFixed(1) : '—', { bold: true, color: '#8DC63F' }),
+          praCell(sumSummer.reps > 0 ? fmt.usd0(sumSummer.revenue / sumSummer.reps) : '—', { bold: true, color: '#8DC63F' })),
+        ...praRows.map((r, i) => el('tr', {},
+          praCell('#' + (i + 1), { color: '#999' }),
+          praCell(r.o, { left: true }),
+          praCell(r.subsPra.toFixed(1)),
+          praCell(fmt.usd0(r.revPra)))))));
+
   const branchPanel = revRows.length === 0 ? null : el('div', {},
     el('div', { style: { fontSize: '8px', color: '#888', marginBottom: '2px' } },
       (deptLabel === 'All' ? 'All departments' : deptLabel + ' only') + ' · every rep in window'),
     panelTable('Branch Revenue',   revRows.map(([o, v]) => [o, fmt.usd0(v)]), ['Total', fmt.usd0(sumAll('revenue'))]),
     panelTable('Branch ACV',       acvRows.map(([o, v]) => [o, fmt.usd(v)]),  ['Company', fmt.usd(companyACV)]),
-    panelTable('Avg Pest Initial', pestRows.map(([o, v]) => [o, fmt.usd(v)]), ['Company', fmt.usd(companyPest)]));
+    panelTable('Avg Pest Initial', pestRows.map(([o, v]) => [o, fmt.usd(v)]), ['Company', fmt.usd(companyPest)]),
+    praTable);
 
   // For each section we identify the column-leading value per metric
   // so the manager sees at a glance who's #1 in ACV / pest / MY% / etc.
