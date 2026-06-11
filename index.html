@@ -11375,7 +11375,19 @@ function openSpringRepMarketModal(sales) {
           el('h2', { class: 'text-base font-bold' }, '👥 Comp Market Assignments'),
           el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
             byRep.size + ' D2D reps in window · ' + movedCount + ' reassigned · comp purposes only')),
-        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+        el('div', { class: 'flex items-center gap-2' },
+          movedCount > 0 && el('button', {
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+            style: { borderColor: '#DC2626', color: '#DC2626' },
+            title: 'Send every reassigned rep back to their home market',
+            onclick: () => {
+              if (!confirm('Reset all ' + movedCount + ' reassigned reps back to their home markets?')) return;
+              comp.repBranchOverrides = {};
+              saveDemoData();
+              render();
+            },
+          }, '↺ Reset all'),
+          el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'))),
       el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } }, searchInput),
       el('div', { class: 'overflow-y-auto flex-1' },
         ...names.map(name => {
@@ -11547,11 +11559,11 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
         ),
         el('div', { class: 'flex items-center gap-2 shrink-0' },
           el('button', {
-            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
-            style: { background: '#141414', color: '#fff' },
+            class: 'inline-flex items-center justify-center rounded-full text-xs cursor-pointer',
+            style: { width: '22px', height: '22px', background: '#141414', color: '#fff' },
             title: 'See every rep and the market they count toward — reassign for comp purposes',
             onclick: () => openSpringRepMarketModal(sales),
-          }, '👥 Reps'),
+          }, '👥'),
           el('button', {
             class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
             style: { background: '#1b5e20', color: '#fff' },
