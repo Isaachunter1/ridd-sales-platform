@@ -18491,18 +18491,18 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   const pestRows = desc(Object.entries(byBranch).map(([o, b]) => [o, b.pestN > 0 ? b.pestSum / b.pestN : 0]));
   const companyACV  = sumAll('count') > 0 ? sumAll('revenue') / sumAll('count') : 0;
   const companyPest = sumAll('pestN') > 0 ? sumAll('pestSum') / sumAll('pestN') : 0;
-  // Summer PRA — May 1 is the first official day of summer, so this panel
-  // always resets there regardless of the page's window. PRA = per-rep
-  // average (subs/rep and revenue/rep) among reps with ≥1 sale in the
-  // branch since 5/1; reps are credited to the branch they sold in.
-  const summerStart = new Date(new Date().getFullYear(), 4, 1);
+  // YTD PRA — per-rep average (subs/rep and revenue/rep) among reps with
+  // ≥1 sale in the branch since Jan 1; reps are credited to the branch
+  // they sold in. Anchored to the calendar year regardless of the page's
+  // date window so the panel always reads as year-to-date.
+  const praStart = new Date(new Date().getFullYear(), 0, 1);
   const summer = {};
   for (const r of (allReps || [])) {
     for (const s of (r.sales || [])) {
       const dk = (s.dateSold || '').split(' ')[0].trim();
       if (!dk) continue;
       const d = new Date(dk);
-      if (!Number.isFinite(d.getTime()) || d < summerStart) continue;
+      if (!Number.isFinite(d.getTime()) || d < praStart) continue;
       const o = titleCase(s.office || '') || 'Unknown';
       const b = summer[o] || (summer[o] = { revenue: 0, subs: 0, reps: new Set() });
       b.revenue += Number(s.contractValue || 0); b.subs++; b.reps.add(r.name);
@@ -18514,7 +18514,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   const sumSummer = Object.values(summer).reduce((a, b) => ({ revenue: a.revenue + b.revenue, subs: a.subs + b.subs, reps: a.reps + b.reps.size }), { revenue: 0, subs: 0, reps: 0 });
   const praCell = (txt, opts = {}) => el('td', { style: { padding: '3px 4px', fontSize: '8.5px', fontWeight: opts.bold ? '800' : '600', color: opts.color || '#1D1D1D', textAlign: opts.left ? 'left' : 'right', borderBottom: '1px solid #f0f0f0', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } }, txt);
   const praTable = praRows.length === 0 ? null : el('div', { style: { marginBottom: '8px' } },
-    el('div', { style: { fontSize: '10px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '4px 0 3px' } }, 'Summer PRA · since 5/1'),
+    el('div', { style: { fontSize: '10px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '4px 0 3px' } }, 'YTD PRA'),
     el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e5e5' } },
       el('thead', {}, el('tr', { style: { background: '#fafafa' } },
         praCell('', {}),
