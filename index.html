@@ -18689,6 +18689,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   const teamOf = (r) => {
     const t = r.team || getRepTeam(r.name) || '';
     if (!t) return null;
+    if (/^excluded$/i.test(t.trim())) return null; // the "Excluded" parking team
     if (typeof isTeamExcluded === 'function' && isTeamExcluded(t)) return null;
     return PDF_TEAM_MERGE[t.toLowerCase().trim()] || t;
   };
