@@ -12959,6 +12959,16 @@ function viewIndicators() {
   // Pull the newest shared upload (any admin's) — throttled to one check
   // every 2 minutes; re-renders automatically if something fresher exists.
   refreshIndicatorsFromCloud();
+  // Keep the shared dataset fresh while the tab just SITS open — without
+  // this the cloud check only ran on a re-render, so another admin's
+  // upload wouldn't appear until you clicked something. Re-checks when the
+  // window regains focus and every 3 minutes (the refresh itself is
+  // throttled to one real network check per 2 minutes).
+  if (!state._indCloudWatch) {
+    state._indCloudWatch = true;
+    window.addEventListener('focus', () => { if (state.view === 'indicators') refreshIndicatorsFromCloud(); });
+    setInterval(() => { if (state.view === 'indicators') refreshIndicatorsFromCloud(); }, 180000);
+  }
   // Migration: legacy 'cumulative' becomes the new YTD-default 'range' mode
   if (state.indicatorsView === 'cumulative') state.indicatorsView = 'range';
   // Migrate old preset ids (ytd / since_mar1 / 90d / 60d / 30d) to the new
