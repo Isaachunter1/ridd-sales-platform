@@ -11085,6 +11085,18 @@ function springCleaningCompute(sales, branchList) {
   // who counts — excluded branches affect NO category, points, or audit %.
   const _scComp = (typeof getActiveComp === 'function') ? getActiveComp() : null;
   if (_scComp && !Array.isArray(_scComp.excludedBranches)) _scComp.excludedBranches = ['SALT LAKE'];
+  // Rep market overrides — a rep knocking in one market can be reassigned
+  // to ANOTHER branch for comp purposes (👥 Reps button on the board).
+  // All of their sales count under the assigned branch in every category,
+  // PRA denominator, and Audit %. Applied BEFORE the excluded-branch
+  // filter so a reassignment in/out of an excluded branch behaves right.
+  const _scOv = (_scComp && _scComp.repBranchOverrides && typeof _scComp.repBranchOverrides === 'object') ? _scComp.repBranchOverrides : {};
+  if (Object.keys(_scOv).length > 0) {
+    sales = (sales || []).map(s => {
+      const ov = _scOv[_cleanRepName(getCanonicalRepName(s.rep || ''))];
+      return (ov && ov !== s.office) ? { ...s, office: ov } : s;
+    });
+  }
   const _scExB = new Set((_scComp?.excludedBranches || ['SALT LAKE']).map(b => String(b).toUpperCase()));
   sales = (sales || []).filter(s => !_scExB.has((s.office || '').toUpperCase()));
   branchList = (branchList || []).filter(b => !_scExB.has(String(b).toUpperCase()));
@@ -11284,6 +11296,89 @@ async function exportSpringCleaningXlsx(sales, branchList, winLabel) {
 }
 
 // Breakdown popup explaining how each Spring Cleaning metric + rule works.
+// 👥 Reps modal — every D2D rep in the current window with the market
+// they're counting toward. Pick a different branch to reassign a rep for
+// COMP PURPOSES ONLY (stored on the competition as repBranchOverrides;
+// nothing changes about their real sales data).
+function openSpringRepMarketModal(sales) {
+  const comp = (typeof getActiveComp === 'function') ? getActiveComp() : null;
+  if (!comp) { toast('No active competition', 'error'); return; }
+  if (!comp.repBranchOverrides || typeof comp.repBranchOverrides !== 'object') comp.repBranchOverrides = {};
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); mountApp(); };
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  const card = el('div', { class: 'card w-full max-w-xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
+  overlay.append(card);
+
+  // D2D reps in the window + their HOME market (where most of their sales
+  // actually landed — that's where they'd count without an override).
+  const d2d = (sales || []).filter(s => _indicatorDeptOf(s) === 'd2d' && s.rep);
+  const byRep = new Map();
+  for (const s of d2d) {
+    const name = _cleanRepName(getCanonicalRepName(s.rep));
+    let r = byRep.get(name);
+    if (!r) { r = { counts: {}, n: 0 }; byRep.set(name, r); }
+    const o = (s.office || 'UNKNOWN').toUpperCase();
+    r.counts[o] = (r.counts[o] || 0) + 1;
+    r.n++;
+  }
+  const homeOf = (r) => Object.entries(r.counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'UNKNOWN';
+  const branches = [...new Set([
+    ...d2d.map(s => (s.office || '').toUpperCase()).filter(Boolean),
+    ...Object.values(comp.repBranchOverrides).map(b => String(b).toUpperCase()),
+  ])].sort();
+
+  const render = () => {
+    card.innerHTML = '';
+    const q = (state._scRepSearch || '').trim().toLowerCase();
+    const names = [...byRep.keys()].sort((a, b) => a.localeCompare(b)).filter(n => !q || n.toLowerCase().includes(q));
+    const movedCount = Object.keys(comp.repBranchOverrides).length;
+    const searchInput = el('input', {
+      type: 'text', value: state._scRepSearch || '', placeholder: 'Search reps…',
+      class: 'w-full rounded-lg border px-3 py-2 text-sm',
+      style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
+    });
+    searchInput.addEventListener('input', (e) => { state._scRepSearch = e.target.value; render(); setTimeout(() => { const el2 = card.querySelector('input'); if (el2) { el2.focus(); el2.setSelectionRange(el2.value.length, el2.value.length); } }, 0); });
+    card.append(
+      el('div', { class: 'flex items-center justify-between px-5 py-4 border-b gap-3', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('h2', { class: 'text-base font-bold' }, '👥 Comp Market Assignments'),
+          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
+            byRep.size + ' D2D reps in window · ' + movedCount + ' reassigned · comp purposes only')),
+        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+      el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } }, searchInput),
+      el('div', { class: 'overflow-y-auto flex-1' },
+        ...names.map(name => {
+          const r = byRep.get(name);
+          const home = homeOf(r);
+          const ov = comp.repBranchOverrides[name] ? String(comp.repBranchOverrides[name]).toUpperCase() : '';
+          const effective = ov || home;
+          const sel = el('select', {
+            class: 'rounded-lg px-2 py-1.5 text-xs font-semibold cursor-pointer',
+            style: ov ? { border: '2px solid #1b5e20', color: '#1b5e20' } : {},
+            onchange: (e) => {
+              const v = e.target.value;
+              if (!v || v === home) delete comp.repBranchOverrides[name];
+              else comp.repBranchOverrides[name] = v;
+              saveDemoData();
+              render();
+            },
+          }, ...branches.map(b => { const o = el('option', { value: b }, b + (b === home ? ' (home)' : '')); if (b === effective) o.selected = true; return o; }));
+          return el('div', { class: 'flex items-center justify-between gap-3 px-5 py-2 border-b', style: { borderColor: 'var(--border)' } },
+            el('div', { class: 'min-w-0' },
+              el('div', { class: 'text-sm font-semibold truncate' }, name,
+                ov && el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(27,94,32,.12)', color: '#1b5e20' } }, 'moved')),
+              el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } },
+                r.n + ' acct' + (r.n === 1 ? '' : 's') + ' · knocks ' + home)),
+            sel);
+        })),
+      el('div', { class: 'px-5 py-3 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
+        'Reassignments move ALL of a rep\'s accounts (revenue, PRA, Audit %, every category) to the chosen branch on the Spring Cleaning board and its export. Pick the home market to undo. Synced to every admin.'));
+  };
+  render();
+  document.body.append(overlay);
+}
+
 function openSpringCleaningHelpModal() {
   const overlay = el('div', { class: 'modal-overlay' });
   const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
@@ -11421,6 +11516,12 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
           ),
         ),
         el('div', { class: 'flex items-center gap-2 shrink-0' },
+          el('button', {
+            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+            style: { background: '#141414', color: '#fff' },
+            title: 'See every rep and the market they count toward — reassign for comp purposes',
+            onclick: () => openSpringRepMarketModal(sales),
+          }, '👥 Reps'),
           el('button', {
             class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
             style: { background: '#1b5e20', color: '#fff' },
