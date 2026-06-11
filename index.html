@@ -20757,7 +20757,18 @@ function indicatorYoYTrendChart() {
           tooltip: {
             backgroundColor: '#1D1D1D', padding: 10, cornerRadius: 8,
             callbacks: {
-              label: (ctx) => ctx.dataset.label + ': ' + fmtVal(ctx.parsed.y),
+              // Each line carries the actual Sun–Sat date range being
+              // compared, e.g. "2026 (6/7–6/13): $812,440".
+              label: (ctx) => {
+                const w = ctx.dataIndex + 1;
+                const y = Number(ctx.dataset.label);
+                const jan1 = new Date(y, 0, 1);
+                const anchor = new Date(jan1); anchor.setDate(anchor.getDate() - anchor.getDay());
+                const s = new Date(anchor); s.setDate(s.getDate() + (w - 1) * 7);
+                const e2 = new Date(s); e2.setDate(e2.getDate() + 6);
+                const f = (d) => (d.getMonth() + 1) + '/' + d.getDate();
+                return ctx.dataset.label + ' (' + f(s) + '–' + f(e2) + '): ' + fmtVal(ctx.parsed.y);
+              },
               footer: (items) => {
                 const i = items[0]?.dataIndex;
                 if (i == null) return '';
