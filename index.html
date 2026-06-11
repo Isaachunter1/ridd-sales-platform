@@ -14374,6 +14374,7 @@ function viewIndicators() {
           indicatorChart(grain + ' PRA',     chartData, branches, 'pra',     chartWeeks, false, chartLabels),
           indicatorChart(grain + ' Revenue', chartData, branches, 'revenue', chartWeeks, false, chartLabels),
         ),
+        indicatorYoYTrendChart(),
       );
     })(),
 
@@ -20290,6 +20291,104 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep) {
           } : null),
     ),
   );
+}
+
+// ── YoY Trend chart ──────────────────────────────────────────────────────
+// Monthly Revenue (or Sales) for the current year vs last year as two
+// lines — the month-over-month shape with the year-over-year gap visible
+// at a glance. Company-wide within the current department toggle; ignores
+// the page's date range on purpose (it's an always-Jan-to-Dec view).
+function indicatorYoYTrendChart() {
+  const id = 'chart-yoy-trend';
+  const metric = state._indicatorYoYMetric || 'revenue';
+  const raw = indicatorSales();
+  const curY = new Date().getFullYear(), prevY = curY - 1;
+  const cur = Array(12).fill(0), prev = Array(12).fill(0);
+  const curN = Array(12).fill(0), prevN = Array(12).fill(0);
+  let lastDataMonth = -1;
+  for (const s of raw) {
+    const iso = dateSoldToIso(s.dateSold);
+    if (!iso) continue;
+    const y = Number(iso.slice(0, 4)), m = Number(iso.slice(5, 7)) - 1;
+    if (y === curY) { cur[m] += Number(s.contractValue) || 0; curN[m]++; if (m > lastDataMonth) lastDataMonth = m; }
+    else if (y === prevY) { prev[m] += Number(s.contractValue) || 0; prevN[m]++; }
+  }
+  // Current-year line stops at the last month with data instead of cliff-
+  // diving to $0 for future months.
+  const curVals  = (metric === 'count' ? curN : cur).map((v, i) => (i <= lastDataMonth ? v : null));
+  const prevVals = (metric === 'count' ? prevN : prev);
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  const toggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+    ...[['revenue', 'Revenue'], ['count', 'Sales']].map(([id2, label]) => el('button', {
+      class: 'px-2.5 py-1 text-[11px] font-semibold transition',
+      style: metric === id2
+        ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+        : { background: 'transparent', color: 'var(--text)' },
+      onclick: () => { state._indicatorYoYMetric = id2; mountApp(); },
+    }, label)));
+
+  const cvsWrap = el('div', { style: { position: 'relative', height: '280px', width: '100%' } });
+  cvsWrap.append(el('canvas', { id }));
+  setTimeout(() => {
+    if (typeof Chart === 'undefined') return;
+    const cvs = document.getElementById(id);
+    if (!cvs) return;
+    if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
+    const isDark = state.theme === 'dark';
+    const txt = isDark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)';
+    const grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+    const isUsd = metric === 'revenue';
+    _chartInstances[id] = new Chart(cvs.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: MONTHS,
+        datasets: [
+          { label: String(curY), data: curVals, borderColor: '#8DC63F', backgroundColor: 'rgba(141,198,63,.12)', fill: true, borderWidth: 3, tension: 0.35, pointRadius: 3, pointHoverRadius: 5 },
+          { label: String(prevY), data: prevVals, borderColor: isDark ? 'rgba(255,255,255,.45)' : 'rgba(0,0,0,.35)', borderDash: [6, 4], backgroundColor: 'transparent', fill: false, borderWidth: 2, tension: 0.35, pointRadius: 2, pointHoverRadius: 5 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 11 }, usePointStyle: true } },
+          tooltip: {
+            backgroundColor: '#1D1D1D', padding: 10, cornerRadius: 8,
+            callbacks: {
+              label: (ctx) => {
+                const v = ctx.parsed.y;
+                const fmtV = isUsd ? '$' + Math.round(v).toLocaleString() : fmt.int(v);
+                return ctx.dataset.label + ': ' + fmtV;
+              },
+              footer: (items) => {
+                const m = items[0]?.dataIndex;
+                if (m == null) return '';
+                const c = (metric === 'count' ? curN : cur)[m], p = (metric === 'count' ? prevN : prev)[m];
+                if (!(p > 0) || m > lastDataMonth) return '';
+                const d = (c - p) / p;
+                return 'YoY: ' + (d >= 0 ? '+' : '') + (d * 100).toFixed(1) + '%';
+              },
+            },
+          },
+        },
+        scales: {
+          y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 },
+            callback: isUsd ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : v)) : undefined } },
+          x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 } } },
+        },
+      },
+    });
+  }, 50);
+
+  return el('div', { class: 'card p-5' },
+    el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
+      el('div', {},
+        el('h3', { class: 'text-sm font-bold' }, 'YoY Trend — ' + curY + ' vs ' + prevY),
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
+          'Monthly ' + (metric === 'count' ? 'sold accounts' : 'revenue') + ' · solid = ' + curY + ' · dashed = ' + prevY + ' · hover for the YoY gap')),
+      toggle),
+    cvsWrap);
 }
 
 function indicatorChart(title, data, branches, metricKey, weeks, invertForRanking = false, bucketLabels = null) {
