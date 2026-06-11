@@ -2824,9 +2824,9 @@ function reportingAuditing() {
     return el('div', { class: 'flex flex-col gap-4 max-w-3xl mx-auto' },
       el('div', { class: 'card p-10 text-center' },
         el('div', { class: 'text-4xl mb-3' }, '🛡️'),
-        el('h2', { class: 'text-lg font-bold mb-2' }, 'No Customer Flags in this snapshot'),
+        el('h2', { class: 'text-lg font-bold mb-2' }, 'This snapshot has no Customer Flags yet'),
         el('p', { class: 'text-sm text-muted- max-w-lg mx-auto' },
-          'This tab reads audit results from the Customer Flags column (Passed Audit / Failed Audit / No Audit) of the Customer Report. Add the Flags column to the export, run reporting_flags.sql in Supabase once, then re-upload the report here — this page fills in automatically.')));
+          'No separate upload needed — this tab reads the SAME Customer Report as the rest of Reporting. The current snapshot just predates flag capture. Make sure the report export includes the Flags column, then upload it on this tab as usual; every future regular upload keeps this page current automatically. (One-time: run reporting_flags.sql in Supabase first.)')));
   }
 
   return el('div', { class: 'flex flex-col gap-4' },
