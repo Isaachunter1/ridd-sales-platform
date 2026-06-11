@@ -10863,6 +10863,7 @@ const INDICATOR_METRICS = [
   { key: 'pra',            label: 'PRA',              fmt: v => fmt.usd(v) },
   { key: 'multi_year_pct', label: 'Multi Year %',     fmt: v => (v * 100).toFixed(1) + '%' },
   { key: 'auto_pay_pct',   label: 'Auto Pay %',       fmt: v => (v * 100).toFixed(1) + '%' },
+  { key: 'audit_pct',      label: 'Audit %',          fmt: v => (v * 100).toFixed(1) + '%' },
 ];
 
 // EXACT calculation breakdown for each Power-Ranking-table row, built live
@@ -10904,6 +10905,7 @@ function indicatorMetricHelp(key) {
     pra:            'Revenue ÷ Reps W/ A Sale (each exactly as defined on its own row, same scope).',
     multi_year_pct: 'COUNT(contract LONGER than 12 months) ÷ [COUNT(contract = 12 months) + COUNT(contract longer than 12)]. Sales with any other term (0, blank, month-to-month) are excluded from BOTH numerator and denominator.',
     auto_pay_pct:   'COUNT(Auto-Pay field set and not "No") ÷ Sold Accounts.',
+    audit_pct:      'COUNT(accounts NOT flagged "Failed Audit" in Customer Flags) ÷ Sold Accounts. Passed, No Audit, and not-yet-audited accounts all count as good.',
     reps:           'COUNT of unique rep names with at least one in-scope sale. Context only — NOT scored for Power Rank; used as the denominator for PRA.',
     _points:        'Each group is ranked 1–N on the 7 scored rows (Sold Accounts, Revenue, Avg Initial, ACV, PRA, Multi-Year %, Auto-Pay %). Power Rank = SUM of those 7 ranks; lowest total = #1. Reps W/ A Sale is NOT scored. Ties keep their summed totals.',
   };
@@ -12044,6 +12046,7 @@ function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, 
     const multiYears = ss.filter(s => Number(s.contract) > 12).length;
     const twelveMonth = ss.filter(s => Number(s.contract) === 12).length;
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
+    const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
     const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
     const meta = weekMeta[g.week] || {};
     return {
@@ -12056,6 +12059,7 @@ function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, 
       avg_initial: avgInit,
       avg_initial_count: pest.length,
       auto_pay_pct: count > 0 ? autoPayCount / count : 0,
+      audit_fail: auditFail, // accounts flagged Failed Audit (for Audit % rollups)
       multi_years: multiYears,
       twelve_month: twelveMonth,
       reps: uniqueReps,
@@ -12090,6 +12094,7 @@ function aggregateRawSalesByBucket(rawSales, getGroupKey, buckets, applyExclusio
     const multiYears = ss.filter(s => Number(s.contract) > 12).length;
     const twelveMonth = ss.filter(s => Number(s.contract) === 12).length;
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
+    const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
     const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
     return {
       week: g.week,
@@ -12101,6 +12106,7 @@ function aggregateRawSalesByBucket(rawSales, getGroupKey, buckets, applyExclusio
       avg_initial: avgInit,
       avg_initial_count: pest.length,
       auto_pay_pct: count > 0 ? autoPayCount / count : 0,
+      audit_fail: auditFail, // accounts flagged Failed Audit (for Audit % rollups)
       multi_years: multiYears,
       twelve_month: twelveMonth,
       reps: uniqueReps,
@@ -13179,6 +13185,8 @@ function viewIndicators() {
       ? rows.reduce((a, r) => a + r.avg_initial * (r.avg_initial_count != null ? r.avg_initial_count : r.sold_accounts), 0) / avgInitDen
       : 0;
     const autoPay = rows.reduce((a, r) => a + r.auto_pay_pct * r.sold_accounts, 0) / (sold || 1);
+    // Audit % = accounts NOT flagged Failed Audit ÷ all accounts in window.
+    const auditFail = rows.reduce((a, r) => a + (r.audit_fail || 0), 0);
     // Multi Year % = count(18+24 month) / count(12+18+24 month contracts)
     const contractTotal = twelve + multi;
     branchData[b] = {
@@ -13190,6 +13198,7 @@ function viewIndicators() {
       pra: reps > 0 ? rev / reps : 0,
       multi_year_pct: contractTotal > 0 ? multi / contractTotal : 0,
       auto_pay_pct: autoPay,
+      audit_pct: sold > 0 ? (sold - auditFail) / sold : 0,
       reps: reps,
     };
   });
@@ -13211,7 +13220,7 @@ function viewIndicators() {
       riddTotal[m.key] = totalW > 0
         ? activeBranches.reduce((a, b) => a + (branchData[b]?.avg_initial || 0) * weightOf(b), 0) / totalW
         : 0;
-    } else if (m.key === 'auto_pay_pct' || m.key === 'appruv_pct' || m.key === 'multi_year_pct') {
+    } else if (m.key === 'auto_pay_pct' || m.key === 'appruv_pct' || m.key === 'multi_year_pct' || m.key === 'audit_pct') {
       const totalSold = activeBranches.reduce((a, b) => a + (branchData[b]?.sold_accounts || 0), 0);
       riddTotal[m.key] = totalSold > 0
         ? activeBranches.reduce((a, b) => a + (branchData[b]?.[m.key] || 0) * (branchData[b]?.sold_accounts || 0), 0) / totalSold
@@ -14450,6 +14459,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // Starteds — paperwork churn neither counts as a cancel nor pads
     // the base. (Volume/revenue metrics above include those rows.)
     if (!_isExcludableCancel(s)) r.cancelEligible++;
+    if (/failed\s*audit/i.test(s.customerFlags || '')) r.auditFail = (r.auditFail || 0) + 1;
     if (s.age > 0) r.aged++;
   });
   // Decorate every rep with derived metrics so we can sort on any of them.
@@ -14573,6 +14583,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       myPct: ctTotal > 0 ? r.multi / ctTotal : 0,
       autoPayPct: count > 0 ? r.autoPay / count : 0,
       cancelPct: r.cancelEligible > 0 ? r.cancels / r.cancelEligible : 0,
+      // Audit % = accounts NOT flagged Failed Audit ÷ all accounts (passed,
+      // no-audit and pending all count as good — same rule as the branch row).
+      auditPct: count > 0 ? (count - (r.auditFail || 0)) / count : 0,
       bestDay:        bD.value,
       bestDayDate:    bD.key,
       bestDayTime:    Number.isFinite(bestDayTime)   ? bestDayTime   : 0,
@@ -16012,19 +16025,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { key: 'revenue',    label: 'Revenue',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums font-semibold' }, fmt.usd0(r.revenue)) },
     // 12-week revenue sparkline with WoW slope. Sort key = trendSlope so
     // clicking surfaces reps with the biggest week-over-week jump (or drop).
-    { key: 'trendSlope', label: 'WoW Trend', align: 'left', defaultDir: 'desc', cell: r => {
-        const sparkline = miniSparkline(r.weeklyTrend12 || [], r.trendSlope || 0);
-        const slopePct = (r.trendSlope || 0) * 100;
-        const arrow = slopePct >= 5 ? '↑' : slopePct <= -5 ? '↓' : '→';
-        const arrowColor = slopePct >= 5 ? '#5F8A1F' : slopePct <= -5 ? '#DC2626' : 'var(--text-muted)';
-        return el('td', { class: 'px-2 py-2 whitespace-nowrap' },
-          el('div', { class: 'flex items-center gap-2' },
-            sparkline,
-            el('span', { class: 'text-[10px] tabular-nums font-semibold', style: { color: arrowColor } },
-              arrow + ' ' + (slopePct >= 0 ? '+' : '') + slopePct.toFixed(0) + '%'),
-          ),
-        );
-      } },
+    { key: 'auditPct', label: 'Audit %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
+        el('span', {
+          class: 'font-semibold',
+          style: { color: r.auditPct >= 0.9 ? '#5F8A1F' : r.auditPct < 0.7 ? '#DC2626' : 'var(--text)' },
+          title: 'Accounts not flagged Failed Audit ÷ all accounts (no-audit + pending count as good)',
+        }, (r.auditPct * 100).toFixed(1) + '%')) },
     { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
     // Avg Pest Initial = avg of initialPrice EXCLUDING Sentricon / German Roach
     // / Interior Flea (matches the door-to-door comp). Avg Initial = avg of
@@ -17352,6 +17358,7 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
     const multiYears = ss.filter(s => s.contract >= 18).length;   // multi-year (18+ mo, includes 36/60)
     const twelveMonth = ss.filter(s => s.contract === 12).length; // 12 month contracts
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
+    const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
     const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
 
     // Date label for this week
@@ -20448,6 +20455,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
             pra: rev / reps,
             multi_year_pct: ctTotal > 0 ? multi / ctTotal : 0,
             auto_pay_pct: sold > 0 ? bRows.reduce((a, r) => a + r.auto_pay_pct * r.sold_accounts, 0) / sold : 0,
+            audit_pct: sold > 0 ? (sold - bRows.reduce((a, r) => a + (r.audit_fail || 0), 0)) / sold : 0,
             reps,
           };
         });
