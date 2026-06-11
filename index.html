@@ -11099,10 +11099,12 @@ function springCleaningCompute(sales, branchList) {
     m.totalPoints = CATS.reduce((sum, c) => sum + (m.places[c] || 0), 0);
   });
 
-  // Overall placement: lowest total points wins; tie → higher Avg Pest
-  // Initial; still tied → higher Passed Audit %.
+  // Overall placement: lowest total points wins; TOTAL ties are broken by
+  // higher Passed Audit % (per the comp rules — Avg Pest Initial is the
+  // tiebreaker only WITHIN individual categories, handled in the CATS
+  // ranking above).
   const ranked = [...metrics].sort((a, b) =>
-    (a.totalPoints - b.totalPoints) || (b.avgPestInitial - a.avgPestInitial) || (b.auditPct - a.auditPct) || a.office.localeCompare(b.office));
+    (a.totalPoints - b.totalPoints) || (b.auditPct - a.auditPct) || (b.avgPestInitial - a.avgPestInitial) || a.office.localeCompare(b.office));
   ranked.forEach((m, i) => {
     m.place = i + 1;
     m.bugs = Math.max(0, 7 - m.place); // fixed 7-place scale: 1st→6 … 7th→0
@@ -11225,7 +11227,7 @@ function openSpringCleaningHelpModal() {
           metric('Autopay %', 'Share of accounts with a payment method on file.')),
         section('Scoring',
           el('div', {}, 'In each category the branches are ranked; your place = your points (1st = 1pt … 7th = 7pts — golf, low is good).'),
-          el('div', { class: 'mt-1' }, 'Your six category points add up to a Total. Lowest total wins the round. If teams tie on points, higher Avg Pest Initial breaks the tie; if that\'s tied too, higher Passed Audit % wins.'),
+          el('div', { class: 'mt-1' }, 'Your six category points add up to a Total. Lowest total wins the round. Tiebreakers: a dead tie WITHIN any category goes to the higher Avg Pest Initial; a tie in TOTAL points goes to the higher Passed Audit %.'),
           el('div', { class: 'mt-1' }, 'Place → Bugs: 1st = 6, 2nd = 5, 3rd = 4, 4th = 3, 5th = 2, 6th = 1, 7th = 0.')),
         section('Not counting',
           el('div', {}, 'Last Resort = initial under $99 (own export tab). Failed Audit = flagged Failed Audit (own export tab). Both are dropped from every category. Full lists live in the .xlsx export.')),
