@@ -17290,6 +17290,7 @@ function csvUploadButton(size) {
             if (ok) toast('Upload shared — other admins pick it up automatically', 'success');
             else toast('Upload saved on THIS browser, but sharing to other admins FAILED — they will still see the previous upload. Check the reporting storage bucket (reporting_storage.sql) or re-upload.', 'error');
           });
+          logActivity('indicators_upload', { detail: (state.indicatorsFileName || 'CSV') + ' · ' + state.indicatorsData.length + ' rows' });
           toast('CSV loaded — ' + state.indicatorsData.length + ' rows', 'success');
           mountApp();
           // Compute + surface a high-level "what changed in this upload"
@@ -22254,6 +22255,7 @@ async function uploadReportingCsv(file) {
     return;
   }
   reportingUploadProgress(100, 'Finishing up…');
+  logActivity('report_upload', { detail: (upload?.filename || 'Customer Report') + ' · ' + rows.length.toLocaleString() + ' rows' });
   if (strippedAny) {
     setTimeout(() => toast('Uploaded — but Sold Date / Auto Pay weren\'t stored (run inside_sales_schema.sql for the Inside Sales tab).', 'warn'), 800);
   }
@@ -26082,11 +26084,10 @@ function viewAdmin() {
     ['goals',   'Goals',         '🎯'],
     ['users',   'Users',         '👥'],
     ['sources', 'Sources',       '📣'],
-    ['comps',   'Competitions',  '🏆'],
     ['slack',   'Slack',         '💬'],
     ['pricing', 'Pricing',       '💵'],
     ['import',  'Import Sales',  '📥'],
-    ['backup',  'Admin',         '💾'],
+    ['backup',  'Activity Log',  '📜'],
   ];
 
   const sidebar = el('aside', { class: 'rounded-2xl p-2 flex flex-col gap-1 shrink-0', style: { background: 'var(--card)', border: '1px solid var(--border)', width: '220px' } },
@@ -26106,7 +26107,6 @@ function viewAdmin() {
     goals:   adminGoals,
     users:   adminReps,
     sources: adminSources,
-    comps:   adminCompetitions,
     slack:   adminSlack,
     pricing: adminPricing,
     import:  adminImport,
@@ -26619,6 +26619,9 @@ function adminBackup() {
     audit2_assigned:           { label: 'Auditor 2',     bg: 'rgba(147,51,234,.12)', fg: '#7E22CE' },
     slack_dm_sent:             { label: 'Slack DM',      bg: 'rgba(74,21,75,.14)',   fg: '#7E22CE' },
     slack_post:                { label: 'Slack Post',    bg: 'rgba(14,165,233,.14)', fg: '#0284C7' },
+    indicators_upload:         { label: 'Indicators CSV',bg: 'rgba(124,58,237,.12)', fg: '#7C3AED' },
+    report_upload:             { label: 'Report Upload', bg: 'rgba(61,122,102,.14)', fg: '#3D7A66' },
+    user_edited:               { label: 'User',          bg: 'rgba(245,158,11,.15)', fg: '#92400E' },
   };
 
   if (state._activityLogSearch == null) state._activityLogSearch = '';
@@ -26679,7 +26682,7 @@ function adminBackup() {
   const visible = filtered.slice(0, 200);
 
   return el('div', { class: 'flex flex-col gap-5' },
-    el('h2', { class: 'text-xl font-bold' }, 'Admin'),
+    el('h2', { class: 'text-xl font-bold' }, 'Activity Log'),
 
     // ── Activity Log ──
     el('div', { class: 'card overflow-hidden' },
@@ -26790,37 +26793,6 @@ function adminBackup() {
             ),
     ),
 
-    // ── Export / Reset ──
-    el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-3' }, 'Data Export & Reset'),
-      el('div', { class: 'flex gap-2 flex-wrap' },
-      el('button', {
-        class: 'px-4 py-2 rounded-lg text-sm font-semibold',
-        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        onclick: () => {
-          const data = JSON.stringify({
-            mySales: state.mySales, allSales: state.allSales,
-            competitions: state.competitions, compRules: state.compRules, compProgress: state.compProgress,
-            allProfiles: state.allProfiles, companyGoal: state.companyGoal, appSettings: state.appSettings,
-          }, null, 2);
-          const blob = new Blob([data], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = el('a', { href: url, download: `ridd-backup-${new Date().toISOString().slice(0,10)}.json` });
-          document.body.append(a); a.click(); a.remove();
-          URL.revokeObjectURL(url);
-        },
-      }, 'Export JSON'),
-      el('button', {
-        class: 'px-4 py-2 rounded-lg text-sm font-semibold border',
-        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-        onclick: () => {
-          if (confirm('Clear all demo sales, competitions, and settings? This cannot be undone.')) {
-            clearDemoData();
-          }
-        },
-      }, 'Reset Demo Data'),
-    ),
-    ),
   );
 }
 
@@ -28304,14 +28276,13 @@ function adminReps() {
               el('th', { class: 'text-left px-4 py-3' }, 'User'),
               el('th', { class: 'text-left px-3 py-3' }, 'Email'),
               el('th', { class: 'text-left px-3 py-3' }, 'Role'),
-              el('th', { class: 'text-right px-3 py-3' }, 'Annual Goal'),
               el('th', { class: 'text-center px-3 py-3' }, 'Status'),
               el('th', { class: 'text-right px-3 py-3' }, ''),
             ),
           ),
           el('tbody', {},
             profiles.length === 0 && el('tr', {},
-              el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 6 },
+              el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 5 },
                 activeFilter === 'inactive' ? 'No inactive users — everyone\'s active.'
                 : activeFilter === 'active' ? 'No active users match the current filter.'
                 : 'No users match the current filter.'),
@@ -28327,8 +28298,6 @@ function adminReps() {
                 ),
                 el('td', { class: 'px-3 py-3 text-muted-' }, p.email || '—'),
                 el('td', { class: 'px-3 py-3' }, roleLabel(p.role)),
-                el('td', { class: 'px-3 py-3 text-right tabular-nums' },
-                  isSellerRole(p.role) ? fmt.usd0(p.annual_revenue_goal || 0) : el('span', { class: 'text-muted-' }, '—')),
                 el('td', { class: 'px-3 py-3 text-center' },
                   el('span', {
                     class: 'chip',
@@ -28430,6 +28399,7 @@ function openUserEditor(existing = null) {
         if (newPassword) {
           toast('Saved · password "' + newPassword + '" would be set in production', 'info');
         } else {
+          logActivity('user_edited', { detail: (existing?.full_name || 'user') + ' profile updated' });
           toast('Saved', 'success');
         }
         saveDemoData();
@@ -28448,7 +28418,8 @@ function openUserEditor(existing = null) {
             await callAdminSetPassword({ mode: 'update', user_id: existing.id, password: newPassword });
             toast('Saved · password updated', 'success');
           } else {
-            toast('Saved', 'success');
+            logActivity('user_edited', { detail: (existing?.full_name || 'user') + ' profile updated' });
+          toast('Saved', 'success');
           }
         } else if (newPassword) {
           // Admin set a password on a NEW user — skip the magic-link
@@ -28467,6 +28438,7 @@ function openUserEditor(existing = null) {
             avatar_url:          payload.avatar_url ?? null,
             annual_revenue_goal: payload.annual_revenue_goal ?? null,
           });
+          logActivity('user_edited', { detail: 'Created user ' + (payload.full_name || payload.email || '') });
           toast('Created · ' + payload.email + ' can sign in with that password', 'success');
         } else {
           // Standard magic-link invite (no password set).
