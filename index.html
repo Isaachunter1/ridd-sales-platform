@@ -11515,11 +11515,17 @@ function openSpringStandingsModal() {
     const roundBlock = (r, idx) => {
       const byOffice = {};
       r.ranked.forEach(m => byOffice[m.office] = m);
+      // Rows ordered by THIS round's finishing place (1st on top); branches
+      // with no data in the round sink to the bottom alphabetically.
+      const order = [...branches].sort((a, b) => {
+        const pa = byOffice[a]?.place ?? 999, pb = byOffice[b]?.place ?? 999;
+        return pa - pb || a.localeCompare(b);
+      });
       const rowFor = (b) => {
         const m = byOffice[b];
         return el('tr', {},
           el('td', { style: { padding: '3px 8px 3px 0', fontSize: '11.5px', fontWeight: '600', whiteSpace: 'nowrap' } }, tc(b)),
-          ...CAT_COLS.map(([k]) => el('td', { style: { padding: '3px 6px', fontSize: '11.5px', textAlign: 'center', fontVariantNumeric: 'tabular-nums' } }, m ? (m.places[k] || 0) : 0)));
+          ...CAT_COLS.map(([k]) => el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums' } }, m ? (m.places[k] || 0) : 0)));
       };
       const rankRow = (b) => {
         const m = byOffice[b];
@@ -11549,14 +11555,14 @@ function openSpringStandingsModal() {
           el('table', { style: { borderCollapse: 'collapse', flex: '1' } },
             el('thead', {}, el('tr', {},
               el('th', { style: { width: '120px' } }, ''),
-              ...CAT_COLS.map(([, lab]) => el('th', { style: { padding: '3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'center', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, lab)))),
-            el('tbody', {}, ...branches.map(rowFor))),
+              ...CAT_COLS.map(([, lab]) => el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, lab)))),
+            el('tbody', {}, ...order.map(rowFor))),
           el('div', { style: { background: '#9d9d97', padding: '8px 12px', minWidth: '150px' } },
             el('div', { style: { fontSize: '10.5px', fontWeight: '900', color: '#141414', marginBottom: '4px', whiteSpace: 'nowrap' } }, 'Rd ' + (idx + 1) + ' Power Rank'),
-            ...branches.map(rankRow)),
+            ...order.map(rankRow)),
           el('div', { style: { background: '#b9b9b3', padding: '8px 12px', minWidth: '86px' } },
             el('div', { style: { fontSize: '10.5px', fontWeight: '900', color: '#141414', marginBottom: '4px', whiteSpace: 'nowrap' } }, 'Bug Count'),
-            ...branches.map(bugRow))));
+            ...order.map(bugRow))));
     };
 
     card.append(header, controlBar, infoRow, tracker, ...rounds.map(roundBlock),
