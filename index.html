@@ -4751,6 +4751,33 @@ function computeImportInsights() {
     mtdLabel: latest.toLocaleDateString('en-US', { month: 'short' }),
   };
 
+  // ── Reps Knocking — distinct DOOR-TO-DOOR reps with at least one sale
+  // (serviced or not) in the trailing 14 days, anchored at the latest sale
+  // in the dataset. Broken out by branch and by team.
+  const knockStart = new Date(latest); knockStart.setHours(0, 0, 0, 0); knockStart.setDate(knockStart.getDate() - 13);
+  const knockEnd   = new Date(latest); knockEnd.setHours(0, 0, 0, 0); knockEnd.setDate(knockEnd.getDate() + 1);
+  const knockAll = new Set(), knockBranch = {}, knockTeam = {};
+  for (const s of rawSales) {
+    if (!s.rep) continue;
+    if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
+    const d = _parseIndicatorDay(s);
+    if (!d || d < knockStart || d >= knockEnd) continue;
+    const rep = (typeof getCanonicalRepName === 'function') ? getCanonicalRepName(s.rep) : s.rep;
+    knockAll.add(rep);
+    const b = s.office || 'UNKNOWN';
+    (knockBranch[b] = knockBranch[b] || new Set()).add(rep);
+    const t = ((typeof getRepTeam === 'function') ? getRepTeam(rep) : '') || 'Unassigned';
+    (knockTeam[t] = knockTeam[t] || new Set()).add(rep);
+  }
+  const knockSort = (m) => Object.entries(m).map(([k, v]) => [k, v.size]).sort((a, b) => b[1] - a[1]);
+  const repsKnocking = {
+    total: knockAll.size,
+    windowLabel: knockStart.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })
+      + '–' + new Date(knockEnd.getTime() - 86400000).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }),
+    byBranch: knockSort(knockBranch),
+    byTeam: knockSort(knockTeam),
+  };
+
   // Revenue by calendar year — the all-time context strip.
   const yearTotals = {};
   for (const s of rawSales) {
@@ -4813,6 +4840,7 @@ function computeImportInsights() {
     ytd,
     yoy,
     yearTotals,
+    repsKnocking,
     branchYoY,
     trendingUp,
     trendingDown,
@@ -4914,6 +4942,34 @@ function openImportInsightsModal(insights) {
             sbCell(fmt.int(r.d.thisCount) + (noPrior ? '' : ' / ' + fmt.int(r.d.lastCount)), 'text-muted-'),
           );
         })))));
+
+  // ── Reps Knocking — D2D reps with a sale in the trailing 2 weeks, with
+  // branch + team breakdowns. One of the headline numbers of the popup.
+  const rk = insights.repsKnocking;
+  if (rk && rk.total > 0) {
+    const tc = (s) => (s || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    const knockChip = (label, n, accent) => el('span', {
+      class: 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold',
+      style: { background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text)' },
+    }, el('span', { style: { color: accent } }, label), el('span', { class: 'tabular-nums font-bold' }, n));
+    modal.append(el('div', {
+      class: 'rounded-lg border p-4 mb-3',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' },
+    },
+      el('div', { class: 'flex items-baseline gap-3 flex-wrap' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, '🚪 Reps Knocking'),
+        el('div', { class: 'text-2xl font-bold tabular-nums' }, fmt.int(rk.total)),
+        el('div', { class: 'text-[11px] text-muted-' },
+          'D2D reps with a sale in the last 2 weeks (' + rk.windowLabel + ') · serviced or not'),
+      ),
+      rk.byBranch.length > 0 && el('div', { class: 'flex gap-1.5 flex-wrap mt-2' },
+        el('span', { class: 'text-[9px] uppercase tracking-widest font-bold self-center', style: { color: 'var(--text-subtle)' } }, 'Branch'),
+        ...rk.byBranch.map(([b, n]) => knockChip(tc(b), n, '#3F6A14'))),
+      rk.byTeam.length > 0 && el('div', { class: 'flex gap-1.5 flex-wrap mt-1.5' },
+        el('span', { class: 'text-[9px] uppercase tracking-widest font-bold self-center', style: { color: 'var(--text-subtle)' } }, 'Team'),
+        ...rk.byTeam.map(([t, n]) => knockChip(t, n, '#0EA5E9'))),
+    ));
+  }
 
   // ── Revenue by year — the all-time context strip.
   const yt = insights.yearTotals || {};
@@ -18009,20 +18065,59 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     drillPanel = scopeDrillPanel(state._indicatorTrendScope, rawSales || [], chartBuckets);
   }
 
-  // Footer hint — adapts to mode. The hint disappears in custom mode with
-  // no picks since the empty-state body already explains what to do.
-  const footerHint = (groups.length === 0)
-    ? null
-    : el('div', { class: 'text-[10px] text-muted- italic mt-2 text-center' },
-        cfg.mode === 'team'   ? 'Click any team\'s line to drill into that team\'s metric trends.'
-      : cfg.mode === 'branch' ? 'Click any branch\'s line to drill into that branch\'s metric trends.'
-      :                         'Click any rep\'s line to see all of their metric trends.');
+  // ── Slimmed layout: the old multi-line trend chart (header / chips /
+  // canvas) is gone — the mini-chart scope panel IS the section now, with
+  // direct pickers for Company / Branch / Team / Rep. Compare lives inside
+  // the panel as before.
+  const curScope = drillRep
+    ? { type: 'rep', value: drillRepName }
+    : (state._indicatorTrendScope || { type: 'company' });
+  const titleCase2 = (s) => (s || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  const setScope = (scope, repName) => {
+    state._indicatorRepDrillDown = repName || null;
+    state._indicatorTrendScope = scope || { type: 'company' };
+    if (!repName) state._indicatorTrendCompare = state._indicatorTrendCompare || null;
+    saveDemoData();
+    mountApp();
+  };
+  const pickerSel = (placeholder, opts, selected, onpick, title) => {
+    const sel = el('select', {
+      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+      title: title || '',
+      onchange: (e) => onpick(e.target.value),
+    },
+      el('option', { value: '' }, placeholder),
+      ...opts.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === selected) o.selected = true; return o; }));
+    return sel;
+  };
+  const branchesAll = [...new Set((rawSales || []).map(s => s.office).filter(Boolean))].sort();
+  const teamsAll = distinctTeams().filter(t => !isTeamExcluded(t));
+  const repNames = Object.keys(repMap).sort();
+  const pickerRow = el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
+    el('h3', { class: 'text-base font-bold mr-1' }, '📈 Performance Trend'),
+    el('button', {
+      class: 'rounded-xl px-3 py-2 text-xs font-semibold cursor-pointer transition hover:brightness-95',
+      style: curScope.type === 'company'
+        ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+        : { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border-2)' },
+      onclick: () => setScope({ type: 'company' }, null),
+    }, 'Company'),
+    pickerSel('Branch…', branchesAll.map(b => [b, titleCase2(b)]),
+      curScope.type === 'branch' ? curScope.value : '',
+      (v) => setScope(v ? { type: 'branch', value: v } : { type: 'company' }, null),
+      'Scope the mini-charts to one branch'),
+    pickerSel('Team…', teamsAll.map(t => [t, t]),
+      curScope.type === 'team' ? curScope.value : '',
+      (v) => setScope(v ? { type: 'team', value: v } : { type: 'company' }, null),
+      'Scope the mini-charts to one team'),
+    pickerSel('Rep…', repNames.map(n => [n, n]),
+      curScope.type === 'rep' ? curScope.value : '',
+      (v) => setScope(state._indicatorTrendScope || { type: 'company' }, v || null),
+      'Drill into a single rep'),
+  );
 
   return el('div', { class: 'card p-5' },
-    header,
-    chipRow || el('span'),
-    body,
-    footerHint,
+    pickerRow,
     drillPanel,
   );
 }
