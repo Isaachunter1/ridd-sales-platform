@@ -11085,14 +11085,24 @@ function springCleaningCompute(sales, branchList) {
     };
   });
 
-  // Rank each category (higher value = better = lower place number). Ties
-  // broken by higher Avg Pest Initial, then office name for determinism.
+  // Rank each category (higher value = better = lower place number).
+  // Competition ("1-2-2-4") ranking: a DEAD tie shares the same points and
+  // the next place is skipped — two teams at 100% AutoPay both take 1pt
+  // and the next team gets 3. (Values rounded to 6dp so float noise can't
+  // fake or break a tie.)
   const CATS = ['revenue', 'pra', 'avgPestInitial', 'acv', 'pct24', 'autopayPct'];
   const places = {};
+  const _rkey = (v) => Math.round((Number(v) || 0) * 1e6) / 1e6;
   for (const cat of CATS) {
     const sorted = [...metrics].sort((a, b) =>
-      (b[cat] - a[cat]) || (b.avgPestInitial - a.avgPestInitial) || a.office.localeCompare(b.office));
-    sorted.forEach((m, i) => { (places[m.office] = places[m.office] || {})[cat] = i + 1; });
+      (_rkey(b[cat]) - _rkey(a[cat])) || a.office.localeCompare(b.office));
+    let prevVal = null, prevPlace = 0;
+    sorted.forEach((m, i) => {
+      const v = _rkey(m[cat]);
+      const place = (prevVal !== null && v === prevVal) ? prevPlace : i + 1;
+      prevVal = v; prevPlace = place;
+      (places[m.office] = places[m.office] || {})[cat] = place;
+    });
   }
   metrics.forEach(m => {
     m.places = places[m.office];
@@ -11227,7 +11237,8 @@ function openSpringCleaningHelpModal() {
           metric('Autopay %', 'Share of accounts with a payment method on file.')),
         section('Scoring',
           el('div', {}, 'In each category the branches are ranked; your place = your points (1st = 1pt … 7th = 7pts — golf, low is good).'),
-          el('div', { class: 'mt-1' }, 'Your six category points add up to a Total. Lowest total wins the round. Tiebreakers: a dead tie WITHIN any category goes to the higher Avg Pest Initial; a tie in TOTAL points goes to the higher Passed Audit %.'),
+          el('div', { class: 'mt-1' }, 'Your six category points add up to a Total. Lowest total wins the round.'),
+          el('div', { class: 'mt-1' }, 'Tiebreakers: a dead tie WITHIN a category means both teams take the same points and the next place is skipped (two teams at 100% AutoPay both score 1, the next team scores 3). A tie in TOTAL points goes to the higher Passed Audit %; if that\'s somehow tied too, higher Avg Pest Initial decides it.'),
           el('div', { class: 'mt-1' }, 'Place → Bugs: 1st = 6, 2nd = 5, 3rd = 4, 4th = 3, 5th = 2, 6th = 1, 7th = 0.')),
         section('Not counting',
           el('div', {}, 'Last Resort = initial under $99 (own export tab). Failed Audit = flagged Failed Audit (own export tab). Both are dropped from every category. Full lists live in the .xlsx export.')),
