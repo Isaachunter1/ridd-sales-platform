@@ -18431,31 +18431,49 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     ),
   );
 
-  // ── Branch revenue panel — vertical table on the right of the page so
-  // the printed sheet can be sanity-checked against the CRM's branch
-  // totals at a glance. Sums EVERY rep in the dataset (not just the
-  // top-15 rows below) and inherits the page's department toggle — with
-  // Door to Door selected these are D2D-only dollars (no upsells / inside
-  // sales), matching what the leaderboard itself counts.
-  const branchTotals = {};
+  // ── Right-side branch panels — Revenue / ACV / Avg Pest Initial, each
+  // ranked, stacked vertically beside the leaderboard so the printed
+  // sheet reconciles against the CRM's branch totals at a glance. Sums
+  // EVERY rep in the dataset (not just the top-15 rows below) and
+  // inherits the page's department toggle — with Door to Door selected
+  // these are D2D-only numbers (no upsells / inside sales).
+  const PDF_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
+  const byBranch = {};
   for (const r of (allReps || [])) {
     const o = titleCase(r.office || '') || 'Unknown';
-    branchTotals[o] = (branchTotals[o] || 0) + (r.revenue || 0);
+    const b = byBranch[o] || (byBranch[o] = { revenue: 0, count: 0, pestSum: 0, pestN: 0 });
+    b.revenue += r.revenue || 0;
+    b.count   += r.count || (r.sales ? r.sales.length : 0);
+    for (const s of (r.sales || [])) {
+      if (PDF_PEST_EXCLUDE.test(s.subscription || '')) continue;
+      b.pestSum += Number(s.initialPrice) || 0; b.pestN++;
+    }
   }
-  const branchEntries = Object.entries(branchTotals).sort((a, b) => b[1] - a[1]);
-  const totalRev = branchEntries.reduce((a, [, v]) => a + v, 0);
   const deptLabel = (typeof INDICATOR_DEPTS !== 'undefined'
     && (INDICATOR_DEPTS.find(([k]) => k === (state.indicatorDept || 'all')) || [])[1]) || 'All';
-  const branchPanel = branchEntries.length === 0 ? null : el('div', {},
-    el('div', { style: { fontSize: '11px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '4px 0 2px' } }, 'Branch Revenue'),
-    el('div', { style: { fontSize: '8px', color: '#888', marginBottom: '3px' } },
-      (deptLabel === 'All' ? 'All departments' : deptLabel + ' only') + ' · every rep in window'),
+  const sumAll = (k) => Object.values(byBranch).reduce((a, b) => a + b[k], 0);
+  const panelRow = (rank, lab, valStr, isTotal) => el('tr', { style: { background: isTotal ? '#1D1D1D' : '#fff' } },
+    el('td', { style: { padding: '3px 2px 3px 6px', fontSize: '8px', fontWeight: '800', color: isTotal ? '#8DC63F' : '#999', borderBottom: '1px solid #f0f0f0', width: '18px', whiteSpace: 'nowrap' } }, rank || ''),
+    el('td', { style: { padding: '3px 2px', fontSize: '9px', fontWeight: isTotal ? '800' : '600', color: isTotal ? '#fff' : '#1D1D1D', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap' } }, lab),
+    el('td', { style: { padding: '3px 6px 3px 2px', fontSize: '9px', fontWeight: '800', color: isTotal ? '#8DC63F' : '#1D1D1D', textAlign: 'right', borderBottom: '1px solid #f0f0f0', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } }, valStr));
+  const panelTable = (title, rows, totalRow) => el('div', { style: { marginBottom: '8px' } },
+    el('div', { style: { fontSize: '10px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '4px 0 3px' } }, title),
     el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e5e5' } },
       el('tbody', {},
-        ...[['Total', totalRev, true], ...branchEntries.map(([o, v]) => [o, v, false])].map(([lab, v, isTotal]) =>
-          el('tr', { style: { background: isTotal ? '#1D1D1D' : '#fff' } },
-            el('td', { style: { padding: '4px 6px', fontSize: '9px', fontWeight: isTotal ? '800' : '600', color: isTotal ? '#fff' : '#1D1D1D', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap' } }, lab),
-            el('td', { style: { padding: '4px 6px', fontSize: '9.5px', fontWeight: '800', color: isTotal ? '#8DC63F' : '#1D1D1D', textAlign: 'right', borderBottom: '1px solid #f0f0f0', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } }, fmt.usd0(v)))))));
+        panelRow(null, totalRow[0], totalRow[1], true),
+        ...rows.map(([o, v], i) => panelRow('#' + (i + 1), o, v, false)))));
+  const desc = (rows) => rows.sort((a, b) => b[1] - a[1]);
+  const revRows  = desc(Object.entries(byBranch).map(([o, b]) => [o, b.revenue]));
+  const acvRows  = desc(Object.entries(byBranch).map(([o, b]) => [o, b.count > 0 ? b.revenue / b.count : 0]));
+  const pestRows = desc(Object.entries(byBranch).map(([o, b]) => [o, b.pestN > 0 ? b.pestSum / b.pestN : 0]));
+  const companyACV  = sumAll('count') > 0 ? sumAll('revenue') / sumAll('count') : 0;
+  const companyPest = sumAll('pestN') > 0 ? sumAll('pestSum') / sumAll('pestN') : 0;
+  const branchPanel = revRows.length === 0 ? null : el('div', {},
+    el('div', { style: { fontSize: '8px', color: '#888', marginBottom: '2px' } },
+      (deptLabel === 'All' ? 'All departments' : deptLabel + ' only') + ' · every rep in window'),
+    panelTable('Branch Revenue',   revRows.map(([o, v]) => [o, fmt.usd0(v)]), ['Total', fmt.usd0(sumAll('revenue'))]),
+    panelTable('Branch ACV',       acvRows.map(([o, v]) => [o, fmt.usd(v)]),  ['Company', fmt.usd(companyACV)]),
+    panelTable('Avg Pest Initial', pestRows.map(([o, v]) => [o, fmt.usd(v)]), ['Company', fmt.usd(companyPest)]));
 
   // For each section we identify the column-leading value per metric
   // so the manager sees at a glance who's #1 in ACV / pest / MY% / etc.
