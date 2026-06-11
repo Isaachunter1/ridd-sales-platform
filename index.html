@@ -18611,7 +18611,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     const leaders = findLeaders(reps);
     const th = (text, align) => el('th', {
       style: {
-        fontSize: '8px', fontWeight: '800', letterSpacing: '0.06em',
+        fontSize: '8.5px', fontWeight: '800', letterSpacing: '0.06em',
         textTransform: 'uppercase', color: '#666',
         padding: '4px 5px',
         textAlign: align || 'left',
@@ -18625,7 +18625,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     const td = (content, align, opts2 = {}) => {
       const style = {
         padding: '3px 5px',
-        fontSize: '10px',
+        fontSize: '10.5px',
         textAlign: align || 'left',
         borderBottom: '1px solid #f0f0f0',
         whiteSpace: 'nowrap',
@@ -18703,14 +18703,16 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     );
   };
 
-  // Leaderboard tables on the left, branch revenue panel on the right.
-  page.append(el('div', { style: { display: 'flex', gap: '10px', alignItems: 'flex-start' } },
+  // Leaderboard tables on the left, branch panels on the right — wide gap
+  // so the two zones read separately; panel kept narrow so the leaderboard
+  // gets the larger share of the page.
+  page.append(el('div', { style: { display: 'flex', gap: '20px', alignItems: 'flex-start' } },
     el('div', { style: { flex: '1 1 auto', minWidth: '0' } },
       tableSection('Top ' + limitOverall + ' Overall', '#1D1D1D', overall),
       el('div', { style: { height: '4px' } }),
       tableSection('Top ' + limitRookie + ' Rookies', '#0EA5E9', rookies),
     ),
-    branchPanel && el('div', { style: { flex: '0 0 148px', width: '148px' } }, branchPanel),
+    branchPanel && el('div', { style: { flex: '0 0 134px', width: '134px' } }, branchPanel),
   ));
 
   return page;
@@ -18747,8 +18749,8 @@ async function downloadRookieVetPdf(allReps) {
     const pdf = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
     const pageW = pdf.internal.pageSize.getWidth();   // 792pt (11")
     const pageH = pdf.internal.pageSize.getHeight();  // 612pt (8.5")
-    const marginX = 10;
-    const marginY = 10;
+    const marginX = 5;
+    const marginY = 8;
     const imgW = pageW - marginX * 2;
     const imgH = (canvas.height * imgW) / canvas.width;
     const usableH = pageH - marginY * 2;
