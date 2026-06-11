@@ -13187,14 +13187,20 @@ function viewIndicators() {
         // Teams mode every department except D2D is locked out.
         el('div', { class: 'pill-tabs', title: 'Filter by department (from sale Source)' },
           ...INDICATOR_DEPTS.map(([k, label]) => {
-            const lockedByTeams = groupBy === 'teams' && k !== 'd2d';
+            // Teams mode AND Comps mode are Door-to-Door concepts — lock the
+            // other departments out while either is active.
+            const locked = (groupBy === 'teams' || state.indicatorsComps) && k !== 'd2d';
             return el('button', {
               'data-active': (state.indicatorDept || 'all') === k,
-              disabled: lockedByTeams,
-              style: lockedByTeams ? { opacity: '0.4', cursor: 'not-allowed' } : {},
-              title: lockedByTeams ? 'Teams are Door-to-Door only — switch to Branch to view ' + label : '',
+              disabled: locked,
+              style: locked ? { opacity: '0.4', cursor: 'not-allowed' } : {},
+              title: locked
+                ? (state.indicatorsComps
+                    ? 'Comps are Door-to-Door only — turn Comps off to view ' + label
+                    : 'Teams are Door-to-Door only — switch to Branch to view ' + label)
+                : '',
               onclick: () => {
-                if (lockedByTeams) return;
+                if (locked) return;
                 state.indicatorDept = k;
                 mountApp();
               },
@@ -13527,6 +13533,8 @@ function viewIndicators() {
                 e.preventDefault();
                 e.stopPropagation();
                 state.indicatorsComps = !state.indicatorsComps;
+                // Comps are Door-to-Door competitions — force the dept there.
+                if (state.indicatorsComps) state.indicatorDept = 'd2d';
                 const sx = window.scrollX, sy = window.scrollY;
                 setTimeout(() => {
                   mountApp();
