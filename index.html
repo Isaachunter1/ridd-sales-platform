@@ -2701,17 +2701,22 @@ function reportingAuditing() {
     if (!id) continue;
     let a = acct.get(id);
     if (!a) {
+      const repName = _cleanRepName(getCanonicalRepName((r.sold_by || 'Unknown').trim()));
       a = {
-        rep: (r.sold_by || 'Unknown').trim(),
+        rep: repName,
+        team: (typeof getRepTeam === 'function' ? getRepTeam(repName) : '') || 'Unassigned',
         office: (r.office_name || 'UNKNOWN').toUpperCase().trim(),
         status: _auditStatusOf(r.customer_flags),
-        collections: /sent to collections/i.test(r.customer_flags || ''),
+        collections: false,
         cancelled: false,
         date: null,
       };
       acct.set(id, a);
     }
     if (r.subscription_date_canceled && !isExcludableRow(r)) a.cancelled = true;
+    // Collections = cancelled with reason "Delinquent" (per comp rules — the
+    // Sent to Collections flag is NOT used here).
+    if (/delinquen/i.test(r.subscription_cancellation_reason || '')) a.collections = true;
     const ds = r.sold_date || r.initial_service;
     const d = ds ? new Date(ds + (String(ds).length === 10 ? 'T00:00' : '')) : null;
     if (d && !isNaN(d) && (!a.date || d < a.date)) a.date = d;
@@ -2744,13 +2749,14 @@ function reportingAuditing() {
   const mk = () => ({ sold: 0, passed: 0, failed: 0, pending: 0,
     attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0] },
     coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0] } });
-  const reps = {}, offs = {}, tot = mk();
+  const reps = {}, offs = {}, teams = {}, tot = mk();
   for (const a of acct.values()) {
     if (!inRange(a)) continue;
     if (offFilter !== 'all' && a.office !== offFilter) continue;
     const r = reps[a.rep] || (reps[a.rep] = mk());
     const o = offs[a.office] || (offs[a.office] = mk());
-    for (const b of [r, o, tot]) {
+    const t = teams[a.team] || (teams[a.team] = mk());
+    for (const b of [r, o, t, tot]) {
       b.sold++; b[a.status]++;
       b.attr[a.status][1]++; if (a.cancelled) b.attr[a.status][0]++;
       b.coll[a.status][1]++; if (a.collections) b.coll[a.status][0]++;
@@ -2802,22 +2808,37 @@ function reportingAuditing() {
   const repEntries = Object.entries(reps).sort((a, b) => b[1].sold - a[1].sold || b[1].failed - a[1].failed);
   const offEntries = Object.entries(offs).sort((a, b) => b[1].sold - a[1].sold);
 
-  const splitBox = (label, r, pair, color) => el('div', { class: 'flex-1 text-center', style: { minWidth: '110px' } },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
-    el('div', { class: 'text-2xl font-black tabular-nums', style: { color } }, r == null ? '—' : (r * 100).toFixed(1) + '%'),
-    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fmt.int(pair[0]) + ' of ' + fmt.int(pair[1])));
-  const splitCard = (title, subtitle, src2, multNoun) => {
-    const p = rate(src2.passed), f = rate(src2.failed), u = rate(src2.pending);
-    const mult = (p != null && p > 0 && f != null) ? f / p : null;
-    return el('div', { class: 'card p-4' },
-      el('h3', { class: 'text-base font-bold mb-1' }, title),
-      el('div', { class: 'text-[11px] mb-3', style: { color: 'var(--text-subtle)' } }, subtitle),
-      el('div', { class: 'flex gap-4 flex-wrap' },
-        splitBox('Passed Audit', p, src2.passed, '#4d7c0f'),
-        splitBox('Failed Audit', f, src2.failed, '#DC2626'),
-        splitBox('No Audit', u, src2.pending, 'var(--text-muted)')),
-      mult != null && isFinite(mult) && mult > 1.05 && el('div', { class: 'text-xs mt-3 px-3 py-2 rounded-lg font-semibold text-center', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626' } },
-        'Failed-audit accounts ' + multNoun + ' ' + mult.toFixed(1) + '× more often than passed-audit accounts'));
+  // ── Split tables: Company on top, branches then teams underneath, with
+  // the Passed / Failed / No Audit rate for each scope.
+  const teamEntries = Object.entries(teams).sort((a, b) => b[1].sold - a[1].sold);
+  const splitTable = (title, subtitle, key) => {
+    const cell = (pair, color) => {
+      const r0 = rate(pair);
+      return el('td', { class: 'px-2.5 py-1.5 text-right tabular-nums text-xs whitespace-nowrap' },
+        el('span', { class: 'font-bold', style: { color } }, r0 == null ? '\u2014' : (r0 * 100).toFixed(1) + '%'),
+        el('span', { class: 'text-[10px] ml-1', style: { color: 'var(--text-subtle)' } }, pair[1] > 0 ? fmt.int(pair[0]) + '/' + fmt.int(pair[1]) : ''));
+    };
+    const row = (name, s, opts = {}) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: opts.total ? 'var(--card-2)' : 'transparent' } },
+      el('td', { class: 'px-2.5 py-1.5 text-xs whitespace-nowrap ' + (opts.total ? 'font-bold' : 'font-semibold') }, name),
+      cell(s[key].passed, '#4d7c0f'),
+      cell(s[key].failed, '#DC2626'),
+      cell(s[key].pending, 'var(--text-muted)'));
+    const divider = (label) => el('tr', {},
+      el('td', { colspan: '4', class: 'px-2.5 pt-2.5 pb-1 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)', background: 'var(--card-2)' } }, label));
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 pt-4 pb-2' },
+        el('h3', { class: 'text-base font-bold' }, title),
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, subtitle)),
+      el('div', { class: 'overflow-x-auto' },
+        el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
+          el('thead', {}, el('tr', {},
+            th('', false), th('Passed Audit'), th('Failed Audit'), th('No Audit'))),
+          el('tbody', {},
+            row('Company', tot, { total: true }),
+            offEntries.length > 0 && divider('Branches'),
+            ...offEntries.map(([name, s]) => row(name, s)),
+            teamEntries.length > 0 && divider('Teams'),
+            ...teamEntries.map(([name, s]) => row(name, s))))));
   };
 
   if (!anyFlags) {
@@ -2855,10 +2876,10 @@ function reportingAuditing() {
       el('div', { class: 'text-[11px] ml-1', style: { color: 'var(--text-subtle)' } },
         'Live from this snapshot\u2019s Customer Flags \u2014 re-upload the report to refresh.')),
 
-    // Attrition + collections splits
+    // Attrition + collections splits — Company, branches, teams
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' },
-      splitCard('Attrition by Audit Result', 'Share of accounts with a reportable cancel (ROR / Sold-Not-Started excluded)', tot.attr, 'cancel'),
-      splitCard('Collections by Audit Result', 'Share of accounts flagged Sent to Collections', tot.coll, 'go to collections')),
+      splitTable('Attrition by Audit Result', 'Share of accounts with a reportable cancel (ROR / Sold-Not-Started excluded)', 'attr'),
+      splitTable('Collections by Audit Result', 'Share of accounts cancelled as Delinquent', 'coll')),
 
     // Rep + branch tables
     statTable('Sales Reps · Audit Report', repEntries,
