@@ -230,8 +230,8 @@
   .sc-dust span:nth-child(3) { left:9px;  width:2.5px; height:2.5px; animation-delay:1.73s; }
   @keyframes scWalk {
     0%,3%    { left:0;                  transform:scaleX(-1); }
-    47%      { left:calc(100% - 40px);  transform:scaleX(-1); }
-    50%,53%  { left:calc(100% - 40px);  transform:scaleX(1); }
+    47%      { left:calc(100% - 80px);  transform:scaleX(-1); }
+    50%,53%  { left:calc(100% - 80px);  transform:scaleX(1); }
     97%      { left:0;                  transform:scaleX(1); }
     100%     { left:0;                  transform:scaleX(-1); }
   }
@@ -245,7 +245,7 @@
     100% { opacity:0;  transform:translate(-8px,-8px) scale(1.4); }
   }
   @media (prefers-reduced-motion: reduce) {
-    .sc-walker { animation:none; left:calc(50% - 20px); transform:scaleX(-1); }
+    .sc-walker { animation:none; left:calc(50% - 40px); transform:scaleX(-1); }
     .sc-walker .sc-sweeper, .sc-dust span { animation:none; }
     .sc-dust span { opacity:0; }
   }
@@ -11340,17 +11340,15 @@ const SPRING_DEFAULT_ROUNDS = [
   { start: '2026-06-15', end: '2026-06-17' },
   { start: '2026-06-18', end: '2026-06-20' },
 ];
-function openSpringStandingsModal() {
+function springStandingsCard() {
+  // Inline section — sits on the Spring Cleaning tab directly under the
+  // live board. Export happens from the board's "↓ Standings" button.
   const comp = (typeof getActiveComp === 'function') ? getActiveComp() : null;
-  if (!comp) { toast('No active competition', 'error'); return; }
+  if (!comp) return null;
   if (!Array.isArray(comp.rounds) || comp.rounds.length === 0) {
     comp.rounds = SPRING_DEFAULT_ROUNDS.map(r => ({ ...r }));
   }
-  const overlay = el('div', { class: 'modal-overlay' });
-  const close = () => { overlay.remove(); mountApp(); };
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  const card = el('div', { class: 'w-full my-6 overflow-y-auto rounded-2xl', style: { maxWidth: '880px', maxHeight: 'calc(100vh - 48px)', background: '#dddcd4', color: '#141414' } });
-  overlay.append(card);
+  const card = el('div', { id: 'spring-standings-poster', class: 'rounded-2xl overflow-hidden', style: { background: '#dddcd4', color: '#141414' } });
 
   const ABBREV = { CHARLESTON: 'CHS', DETROIT: 'DET', RALEIGH: 'RAL', DESTIN: 'DES', ATLANTA: 'ATL' };
   const abbrev = (b) => {
@@ -11432,8 +11430,7 @@ function openSpringStandingsModal() {
         el('div', { style: { fontWeight: '900', fontSize: '32px', letterSpacing: '-0.03em', lineHeight: '0.95', textTransform: 'uppercase', whiteSpace: 'nowrap' } }, 'Spring Cleaning'),
         el('div', { style: { fontWeight: '800', fontSize: '9.5px', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: '4px', whiteSpace: 'nowrap' } }, 'Team Quality Based Competition by RIDDMADE™')),
       el('span', { style: { flex: '1' } }),
-      roundsBox,
-      el('button', { class: 'text-2xl leading-none cursor-pointer sc-noprint', style: { color: '#555', alignSelf: 'flex-start', flex: 'none' }, onclick: close }, '×'));
+      roundsBox);
 
     // ── Top controls: Export PDF · Reset dates ──
     const ctlBtn = (label, opts = {}) => el('button', {
@@ -11443,7 +11440,6 @@ function openSpringStandingsModal() {
       title: opts.title || '', onclick: opts.onclick,
     }, label);
     const controlBar = el('div', { class: 'sc-noprint', style: { margin: '0 30px 8px', display: 'flex', gap: '10px', justifyContent: 'flex-end', alignItems: 'center' } },
-      ctlBtn('⬇ Export PDF', { bg: '#1b5e20', title: 'Download this poster as a PDF', onclick: () => exportSpringStandingsPdf(card) }),
       ctlBtn('↺ Reset dates', { bg: 'transparent', fg: '#B91C1C', border: '1px solid #B91C1C', title: 'Restore the default round date ranges', onclick: () => {
         if (!confirm('Reset rounds to the default date ranges?')) return;
         comp.rounds = SPRING_DEFAULT_ROUNDS.map(r => ({ ...r }));
@@ -11580,7 +11576,7 @@ function openSpringStandingsModal() {
           el('div', { style: { fontSize: '8px', color: '#777' } }, 'RIDDMADE · RIDD PEST'))));
   };
   render();
-  document.body.append(overlay);
+  return card;
 }
 
 // Export the standings poster as a single-page PDF sized to the poster
@@ -11846,15 +11842,19 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
           el('button', {
             class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
             style: { background: '#1b5e20', color: '#fff' },
-            title: 'Export Spring Cleaning (Standings + Passed / Pending / Failed Audit + Last Resort sheets)',
+            title: 'Export the leaderboard workbook (Standings + Passed / Pending / Failed Audit + Last Resort sheets)',
             onclick: () => exportSpringCleaningXlsx(sales, branchList, winLabel),
-          }, '↓ Export'),
+          }, '↓ Leaderboard'),
           el('button', {
-            class: 'cursor-pointer transition hover:brightness-95',
-            style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid #c9c9c0', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
-            title: 'Standings — live poster with the bug tracker + all four rounds',
-            onclick: () => openSpringStandingsModal(),
-          }, '🏆'),
+            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+            style: { background: '#1b5e20', color: '#fff' },
+            title: 'Export the standings poster below as a PDF',
+            onclick: () => {
+              const node = document.getElementById('spring-standings-poster');
+              if (node) exportSpringStandingsPdf(node);
+              else toast('Standings section not found', 'error');
+            },
+          }, '↓ Standings'),
           el('button', {
             class: 'cursor-pointer transition hover:brightness-95',
             style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid #c9c9c0', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
@@ -14314,7 +14314,11 @@ function viewIndicators() {
       // of the app's Branch/Teams toggle.
       const offices = [...new Set(windowed.filter(s => _indicatorDeptOf(s) === 'd2d').map(s => s.office).filter(Boolean))];
       const winLabel = (cf.start && cf.end) ? cf.start + ' → ' + cf.end : 'all dates';
-      return indicatorSpringCleaningBoard(windowed, offices, winLabel);
+      // Live board on top (the round you're watching), standings poster
+      // directly underneath.
+      return el('div', { class: 'flex flex-col gap-4' },
+        indicatorSpringCleaningBoard(windowed, offices, winLabel),
+        springStandingsCard());
     })() : null),
 
     // ── Top Gun — three-class per-rep production board (Rookies/Vets/Pros). ──
