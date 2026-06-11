@@ -14115,13 +14115,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const rawSalesAll = (allRawSales || []).filter(s =>
     (!applyExclusion || !isRepExcluded(s.rep)) && inRepScope(s));
   // Default for every other consumer (leaderboard, records, D2D comp,
-  // PDF reports, sub-mix, rep drill-downs). Sold-Not-Started rows are
-  // dropped — they never became real production. 3-day RORs STAY IN:
-  // they count as sales for volume / revenue / ACV / Avg Pest / MY% /
-  // Auto Pay%. The ONLY metric that strips RORs (and SNS) is Cancel %,
-  // which uses its own ROR-free denominator below and the
+  // PDF reports, sub-mix, rep drill-downs): EVERYTHING counts — including
+  // 3-day RORs and Sold-Not-Starteds — so the board reconciles 1:1 with
+  // the CRM's rep revenue cards. The ONLY metric that strips ROR/SNS is
+  // Cancel %, which uses its own clean denominator below and the
   // _isReportableCancel numerator.
-  const rawSales = rawSalesAll.filter(s => !_isSoldNotStarted(s));
+  const rawSales = rawSalesAll;
   if (!allRawSales || !allRawSales.length) {
     // Always render a visible placeholder so admins know these tables exist
     // and what's needed to populate them.
@@ -14155,10 +14154,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     if (s.contract === 12) r.twelve++;
     if (s.autoPay && s.autoPay !== 'No') r.autoPay++;
     if (_isReportableCancel(s)) r.cancels++;
-    // Cancel % denominator: sales excluding 3-day RORs (SNS already gone
-    // from the set) — so paperwork churn neither counts as a cancel nor
-    // pads the base.
-    if (!_is3DayROR(s)) r.cancelEligible++;
+    // Cancel % denominator: sales excluding 3-day RORs AND Sold-Not-
+    // Starteds — paperwork churn neither counts as a cancel nor pads
+    // the base. (Volume/revenue metrics above include those rows.)
+    if (!_isExcludableCancel(s)) r.cancelEligible++;
     if (s.age > 0) r.aged++;
   });
   // Decorate every rep with derived metrics so we can sort on any of them.
