@@ -4458,6 +4458,41 @@ function computeImportInsights() {
     pct:       yLast.revenue > 0 ? (yThis.revenue - yLast.revenue) / yLast.revenue : 0,
   };
 
+  // ── Same-period YoY windows ───────────────────────────────────────────
+  // Each current window matched against the IDENTICAL calendar dates one
+  // year earlier — only meaningful now that uploads carry multi-year data.
+  const shiftYear = (d) => { const x = new Date(d); x.setFullYear(x.getFullYear() - 1); return x; };
+  const cmp = (curArr, prevArr) => {
+    const a = sumOf(curArr), b = sumOf(prevArr);
+    return { thisRev: a.revenue, lastRev: b.revenue, thisCount: a.count, lastCount: b.count,
+             delta: a.revenue - b.revenue, pct: b.revenue > 0 ? (a.revenue - b.revenue) / b.revenue : 0 };
+  };
+  const mtdStart = new Date(latest.getFullYear(), latest.getMonth(), 1);
+  const yoy = {
+    week: cmp(thisWeek, rawSales.filter(s => inRange(s, shiftYear(thisStart), shiftYear(thisEnd)))),
+    mtd:  cmp(rawSales.filter(s => inRange(s, mtdStart, ytdEnd)),
+              rawSales.filter(s => inRange(s, shiftYear(mtdStart), shiftYear(ytdEnd)))),
+    mtdLabel: latest.toLocaleDateString('en-US', { month: 'short' }),
+  };
+
+  // Revenue by calendar year — the all-time context strip.
+  const yearTotals = {};
+  for (const s of rawSales) {
+    const d = _parseIndicatorDay(s); if (!d) continue;
+    const y = d.getFullYear();
+    if (!yearTotals[y]) yearTotals[y] = { revenue: 0, count: 0 };
+    yearTotals[y].revenue += Number(s.contractValue || 0);
+    yearTotals[y].count++;
+  }
+
+  // Branch YTD vs same period last year (mover-shaped so the modal can
+  // reuse moverRow). Sorted biggest gain → biggest loss.
+  const ytdByBranch = aggBy(ytdSales, s => s.office);
+  const lyByBranch  = aggBy(lySales,  s => s.office);
+  const branchYoY = movers(ytdByBranch, lyByBranch)
+    .filter(m => m.thisRev > 0 || m.lastRev > 0)
+    .sort((a, b) => b.delta - a.delta);
+
   // Personal records broken since last upload — diff the last two
   // snapshots (the current snapshot was just pushed by the upload, so
   // it lives at the tail; prior is the one before it).
@@ -4500,6 +4535,9 @@ function computeImportInsights() {
     },
     company,
     ytd,
+    yoy,
+    yearTotals,
+    branchYoY,
     trendingUp,
     trendingDown,
     branchMovers,
@@ -4536,11 +4574,11 @@ function openImportInsightsModal(insights) {
     el('h3', { class: 'text-xs uppercase tracking-widest font-bold' }, text),
     sub && el('span', { class: 'text-[10px] text-muted-' }, sub),
   );
-  const moverRow = (m) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t border-' },
+  const moverRow = (m, opts) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t border-' },
     el('div', { class: 'flex items-center gap-2 min-w-0' },
       el('span', { class: 'font-semibold truncate' }, m.name),
       el('span', { class: 'text-[10px] text-muted- tabular-nums' },
-        fmt.usd0(m.thisRev) + (m.lastRev > 0 ? ' vs ' + fmt.usd0(m.lastRev) : ' (new this week)')),
+        fmt.usd0(m.thisRev) + (m.lastRev > 0 ? ' vs ' + fmt.usd0(m.lastRev) : ' ' + ((opts && opts.newText) || '(new this week)'))),
     ),
     el('div', { class: 'flex items-center gap-2 shrink-0' },
       el('span', { class: 'text-[10px] text-muted- tabular-nums' },
@@ -4567,46 +4605,57 @@ function openImportInsightsModal(insights) {
     ),
   );
 
-  // ── Company headline
-  // ── YTD headline (season-level pace) — rendered first so the
-  // manager's eye lands on the year number before the weekly snapshot.
+  // ── YoY scoreboard — every window vs the same calendar period a year
+  // earlier (plus week-over-week), now that uploads carry multi-year data.
   const y = insights.ytd;
+  const sb = [
+    { label: 'This Week vs Last Week',
+      sub: insights.weekLabel.thisStart + '–' + insights.weekLabel.thisEnd + ' vs ' + insights.weekLabel.lastStart + '–' + insights.weekLabel.lastEnd,
+      d: insights.company, accent: true },
+    { label: 'This Week vs ' + (y.year - 1), sub: 'same week last year', d: insights.yoy?.week },
+    { label: (insights.yoy?.mtdLabel || 'Month') + ' MTD vs ' + (y.year - 1), sub: 'same days last year', d: insights.yoy?.mtd },
+    { label: y.year + ' YTD vs ' + (y.year - 1), sub: 'Jan 1 through same day', d: y },
+  ].filter(r => r.d);
+  const sbCell = (txt, cls) => el('td', { class: 'px-2 py-2 tabular-nums text-right text-xs ' + (cls || '') }, txt);
   modal.append(
-    el('div', {
-      class: 'rounded-lg border p-4 mb-3',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' },
-    },
-      el('div', { class: 'flex items-baseline gap-3 flex-wrap' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Company · YTD ' + y.year),
-        el('div', { class: 'text-2xl font-bold tabular-nums' }, fmt.usd0(y.thisRev)),
-        y.lastRev > 0 && pctBadge(y.pct, { big: true }),
-        el('div', { class: 'text-[11px] text-muted- tabular-nums' },
-          y.lastRev > 0
-            ? ((y.delta >= 0 ? '+' : '') + fmt.usd0(y.delta) + ' vs same period ' + (y.year - 1) + ' · '
-                + fmt.int(y.thisCount) + ' sales (was ' + fmt.int(y.lastCount) + ')')
-            : (fmt.int(y.thisCount) + ' sales · no prior-year data in this CSV to compare against')),
-      ),
-    ),
-  );
+    el('div', { class: 'rounded-lg border mb-3 overflow-x-auto', style: { borderColor: 'var(--border-2)' } },
+      el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', { style: { background: 'var(--card-2)' } },
+          el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-widest font-bold' }, 'Period'),
+          ...['Revenue', 'Prior', 'Δ', '%', 'Sales'].map(h =>
+            el('th', { class: 'px-2 py-2 text-right text-[10px] uppercase tracking-widest font-bold' }, h)))),
+        el('tbody', {}, ...sb.map(r => {
+          const noPrior = !(r.d.lastRev > 0 || r.d.lastCount > 0);
+          return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: r.accent ? 'rgba(141,198,63,.06)' : 'transparent' } },
+            el('td', { class: 'px-3 py-2 text-xs' },
+              el('div', { class: 'font-semibold whitespace-nowrap' }, r.label),
+              el('div', { class: 'text-[10px] text-muted- whitespace-nowrap' }, r.sub)),
+            sbCell(fmt.usd0(r.d.thisRev), 'font-bold'),
+            sbCell(noPrior ? '—' : fmt.usd0(r.d.lastRev), 'text-muted-'),
+            sbCell(noPrior ? '—' : (r.d.delta >= 0 ? '+' : '') + fmt.usd0(r.d.delta)),
+            el('td', { class: 'px-2 py-2 text-right' },
+              noPrior ? el('span', { class: 'text-[10px] text-muted-' }, 'no data') : pctBadge(r.d.pct)),
+            sbCell(fmt.int(r.d.thisCount) + (noPrior ? '' : ' / ' + fmt.int(r.d.lastCount)), 'text-muted-'),
+          );
+        })))));
 
-  // ── This Week headline — the immediate snapshot that the rest of
-  // the popup (movers, records, biggest sale) all key off of.
-  const c = insights.company;
-  modal.append(
-    el('div', {
-      class: 'rounded-lg border p-4 mb-4',
-      style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.06)' },
-    },
-      el('div', { class: 'flex items-baseline gap-3 flex-wrap' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--accent)' } }, 'Company · This Week'),
-        el('div', { class: 'text-2xl font-bold tabular-nums' }, fmt.usd0(c.thisRev)),
-        pctBadge(c.pct, { big: true }),
-        el('div', { class: 'text-[11px] text-muted- tabular-nums' },
-          (c.delta >= 0 ? '+' : '') + fmt.usd0(c.delta) + ' vs last week · '
-            + fmt.int(c.thisCount) + ' sales (was ' + fmt.int(c.lastCount) + ')'),
-      ),
-    ),
-  );
+  // ── Revenue by year — the all-time context strip.
+  const yt = insights.yearTotals || {};
+  const ytYears = Object.keys(yt).sort();
+  if (ytYears.length > 1) {
+    modal.append(el('div', { class: 'flex gap-2 flex-wrap mb-4' },
+      ...ytYears.map(yr => el('div', { class: 'rounded-lg border px-3 py-1.5', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+        el('span', { class: 'text-[10px] uppercase tracking-wider font-bold mr-2', style: { color: 'var(--text-subtle)' } }, yr + (Number(yr) === y.year ? ' YTD' : '')),
+        el('span', { class: 'text-xs font-bold tabular-nums' }, fmt.usd0(yt[yr].revenue)),
+        el('span', { class: 'text-[10px] text-muted- tabular-nums ml-1.5' }, fmt.int(yt[yr].count) + ' sales')))));
+  }
+
+  // ── Branch YTD vs same period last year
+  if ((insights.branchYoY || []).some(m => m.lastRev > 0)) {
+    modal.append(el('div', { class: 'mb-2' },
+      sectionHeader('Branches · YTD vs ' + (y.year - 1), 'same period both years'),
+      el('div', {}, ...insights.branchYoY.slice(0, 8).map(m => moverRow(m, { newText: '(new this year)' })))));
+  }
 
   // ── Trending reps (two columns)
   const upBlock = el('div', {},
