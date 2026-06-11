@@ -208,19 +208,19 @@
      He's drawn facing left, so scaleX(-1) faces him right when moving right.
      The walker handles the slow glide + flip; the img rocks (broom sweep);
      dust puffs kick up at the broom head. No vertical bob. */
-  .sc-sweep-track { position:relative; flex:1 1 60px; min-width:72px; height:46px; align-self:stretch; overflow:hidden; }
+  .sc-sweep-track { position:relative; flex:1 1 120px; min-width:144px; height:92px; align-self:stretch; overflow:hidden; }
   .sc-walker {
-    position:absolute; bottom:0; left:0; width:40px; height:44px;
+    position:absolute; bottom:0; left:0; width:80px; height:88px;
     transform-origin:center bottom;
     animation: scWalk 30s ease-in-out infinite;
     will-change:left, transform;
   }
   .sc-walker .sc-sweeper {
-    position:absolute; bottom:0; left:0; height:42px; width:auto; display:block;
+    position:absolute; bottom:0; left:0; height:84px; width:auto; display:block;
     transform-origin:46% 92%;
     animation: scSweep 2.6s ease-in-out infinite;
   }
-  .sc-dust { position:absolute; bottom:1px; left:1px; width:16px; height:12px; pointer-events:none; }
+  .sc-dust { position:absolute; bottom:2px; left:2px; width:32px; height:24px; pointer-events:none; }
   .sc-dust span {
     position:absolute; bottom:0; left:0; width:4px; height:4px; border-radius:50%;
     background: rgba(110,110,98,.5); opacity:0;
@@ -11837,23 +11837,23 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
         ),
         el('div', { class: 'flex items-center gap-2 shrink-0' },
           el('button', {
-            class: 'inline-flex items-center justify-center rounded-full text-xs cursor-pointer',
-            style: { width: '22px', height: '22px', background: '#141414', color: '#fff' },
-            title: 'Standings — live poster with the bug tracker + all four rounds',
-            onclick: () => openSpringStandingsModal(),
-          }, '🏆'),
-          el('button', {
-            class: 'inline-flex items-center justify-center rounded-full text-xs cursor-pointer',
-            style: { width: '22px', height: '22px', background: '#141414', color: '#fff' },
-            title: 'See every rep and the market they count toward — reassign for comp purposes',
-            onclick: () => openSpringRepMarketModal(sales),
-          }, '👥'),
-          el('button', {
             class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
             style: { background: '#1b5e20', color: '#fff' },
             title: 'Export Spring Cleaning (Standings + Passed / Pending / Failed Audit + Last Resort sheets)',
             onclick: () => exportSpringCleaningXlsx(sales, branchList, winLabel),
           }, '↓ Export'),
+          el('button', {
+            class: 'cursor-pointer transition hover:brightness-95',
+            style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid #c9c9c0', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
+            title: 'Standings — live poster with the bug tracker + all four rounds',
+            onclick: () => openSpringStandingsModal(),
+          }, '🏆'),
+          el('button', {
+            class: 'cursor-pointer transition hover:brightness-95',
+            style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid #c9c9c0', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
+            title: 'See every rep and the market they count toward — reassign for comp purposes',
+            onclick: () => openSpringRepMarketModal(sales),
+          }, '👥'),
           el('button', {
             class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer',
             style: { width: '22px', height: '22px', background: '#141414', color: '#fff' },
