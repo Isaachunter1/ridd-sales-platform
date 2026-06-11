@@ -2650,219 +2650,71 @@ function microGoalWidget() {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// VIEW: AUDITING — Door-to-Door account audits.
-// Branch audit CSVs (same format as the "D2D Audit" Google Sheets) are
-// uploaded here and upserted to Supabase (audit_accounts) by AccountID, so
-// re-uploads update results in place and every admin shares one dataset.
-// The D2D account universe + attrition signal come from the same raw-sales
-// Customer Report the Indicators tab uses, joined on Customer ID.
 // ════════════════════════════════════════════════════════════════════════
-const AUDIT_CHECKS = [
-  ['apruv',           'Apruv Completed'],
-  ['card_on_file',    'Card on File'],
-  ['auto_pay',        'Auto Pay'],
-  ['charge_before',   'Charged Before 1st Service'],
-  ['customer_info',   'Customer Info Correct'],
-  ['contract_length', '12/18/24+ Contract'],
-  ['contract_signed', 'Contract Signed'],
-  ['cancel_notes',    'No Free-Cancel Notes'],
-  ['rep_card',        'Rep Card Not on File'],
-  ['monthly_billing', 'Billing Monthly'],
-  ['sellable_area',   'Sellable Area'],
-  ['scheduled',       'Scheduled'],
-];
-const AUDIT_LS_KEY = 'ridd-audit-rows-v1';
-
-function parseAuditCsv(text, fallbackOffice) {
-  const parseLine = (line) => {
-    const out = []; let cur = '', q = false;
-    for (const c of line) {
-      if (c === '"') q = !q;
-      else if (c === ',' && !q) { out.push(cur.trim()); cur = ''; }
-      else cur += c;
-    }
-    out.push(cur.trim()); return out;
-  };
-  const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) throw new Error('CSV has no data rows');
-  // The header row isn't always line 1 (sheet exports often carry a title
-  // row or two above it) — scan for the first line that has both an
-  // Account column and a Result column.
-  let headerIdx = -1, H = null;
-  for (let i = 0; i < Math.min(lines.length, 40); i++) {
-    const cand = parseLine(lines[i]).map(h => h.toLowerCase().replace(/^﻿/, '').trim());
-    const hasAccount = cand.some(h => h.replace(/[^a-z#]/g, '').includes('accountid') || h.includes('account #') || (h.includes('account') && (h.includes('id') || h.includes('number'))));
-    const hasResult = cand.some(h => h.includes('result'));
-    if (hasAccount && hasResult) { headerIdx = i; H = cand; break; }
-  }
-  if (headerIdx < 0) {
-    // Friendly catch for the most likely mixup: uploading the FieldRoutes
-    // Sales/Customer Report here instead of the D2D Audit sheet export.
-    const first = parseLine(lines[0]).map(h => h.toLowerCase().replace(/^﻿/, '').trim());
-    const looksLikeSalesReport = first.some(h => h.includes('customer id')) && first.some(h => h.includes('date sold')) && first.some(h => h.includes('source'));
-    if (looksLikeSalesReport) throw new Error('This is the FieldRoutes Sales Report — upload it on the INDICATORS tab. The Auditing tab wants the D2D Audit sheet export (branch tab → File → Download → CSV), which has a Result column.');
-    throw new Error('Couldn’t find a header row with AccountID + Result columns — export the branch tab itself (File → Download → CSV, with that tab open)');
-  }
-  const find = (pred) => H.findIndex(pred);
-  const col = {
-    soldDate:  find(h => h.includes('sold date') || h === 'date'),
-    rep:       find(h => h.includes('sales rep') || h === 'rep'),
-    customer:  find(h => h.includes('customer name') || h === 'customer'),
-    accountId: find(h => h.replace(/[^a-z#]/g, '').includes('accountid') || h.includes('account #') || (h.includes('account') && (h.includes('id') || h.includes('number')))),
-    office:    find(h => h.includes('office') || h.includes('branch')),
-    result:    find(h => h.includes('result')),
-    notes:     find(h => h === 'notes'),
-  };
-  const checkCol = {
-    customer_info:   find(h => h.includes('customer info')),
-    contract_signed: find(h => h.includes('contract signed')),
-    rep_card:        find(h => h.includes('rep card')),
-    card_on_file:    find(h => h.includes('card on file') && !h.includes('rep')),
-    auto_pay:        find(h => h.startsWith('auto pay') || h.startsWith('autopay')),
-    contract_length: find(h => h.includes('12')),
-    apruv:           find(h => h.includes('apruv')),
-    cancel_notes:    find(h => h.includes('cancelation') || h.includes('cancellation')),
-    charge_before:   find(h => h.includes('charged before') || h.includes('charge before')),
-    monthly_billing: find(h => h.includes('billing monthly') || h.includes('monthly billing')),
-    sellable_area:   find(h => h.includes('sellable')),
-    scheduled:       find(h => h.includes('scheduled')),
-  };
-  const rows = [];
-  for (let i = headerIdx + 1; i < lines.length; i++) {
-    const c = parseLine(lines[i]);
-    const id = (c[col.accountId] || '').replace(/\D/g, '');
-    if (!id) continue; // header repeats / spacer / formula-junk rows
-    const resRaw = (c[col.result] || '').trim().toLowerCase();
-    const result = resRaw.startsWith('pass') ? 'passed' : resRaw.startsWith('fail') ? 'failed' : null;
-    if (!result) continue;
-    const checks = {};
-    for (const [key] of AUDIT_CHECKS) {
-      const idx = checkCol[key];
-      if (idx >= 0 && c[idx]) checks[key] = /^y/i.test(c[idx]) ? 'Yes' : (/^n/i.test(c[idx]) ? 'No' : c[idx]);
-    }
-    rows.push({
-      account_id: id,
-      office: ((col.office >= 0 && c[col.office]) || fallbackOffice || '').toUpperCase().trim() || null,
-      rep: col.rep >= 0 ? (c[col.rep] || '').trim() : '',
-      customer: col.customer >= 0 ? (c[col.customer] || '').trim() : '',
-      sold_date: col.soldDate >= 0 ? (c[col.soldDate] || '').trim() : '',
-      result,
-      checks,
-      notes: col.notes >= 0 ? (c[col.notes] || '').trim() : '',
-    });
-  }
-  if (!rows.length) throw new Error('No audit rows with an AccountID + Result found');
-  return rows;
-}
-
-async function loadAuditRows() {
-  // localStorage cache paints first; Supabase (shared) overrides when present.
-  let map = {};
-  try { map = JSON.parse(localStorage.getItem(AUDIT_LS_KEY) || '{}') || {}; } catch {}
-  state._auditRows = map;
-  if (DEMO) return;
-  try {
-    const out = {};
-    for (let from = 0; ; from += 1000) {
-      const { data, error } = await supabase.from('audit_accounts').select('*').range(from, from + 999);
-      if (error) { console.warn('[ridd] audit_accounts load failed (run audit_schema.sql?)', error); return; }
-      (data || []).forEach(r => { out[r.account_id] = r; });
-      if (!data || data.length < 1000) break;
-    }
-    state._auditRows = out;
-    try { localStorage.setItem(AUDIT_LS_KEY, JSON.stringify(out)); } catch {}
-  } catch (e) { console.warn('[ridd] audit load failed', e); }
-}
-
-async function saveAuditRows(rows) {
-  if (!state._auditRows) state._auditRows = {};
-  let added = 0, updated = 0;
-  for (const r of rows) {
-    if (state._auditRows[r.account_id]) updated++; else added++;
-    state._auditRows[r.account_id] = { ...state._auditRows[r.account_id], ...r };
-  }
-  try { localStorage.setItem(AUDIT_LS_KEY, JSON.stringify(state._auditRows)); } catch {}
-  if (!DEMO) {
-    const payload = rows.map(r => ({ ...r, updated_at: new Date().toISOString(), updated_by: state.profile?.id || null }));
-    for (let i = 0; i < payload.length; i += 500) {
-      const { error } = await supabase.from('audit_accounts').upsert(payload.slice(i, i + 500), { onConflict: 'account_id' });
-      if (error) { toast('Audit save failed: ' + error.message + ' (run audit_schema.sql?)', 'error'); return { added, updated, synced: false }; }
-    }
-  }
-  return { added, updated, synced: true };
+// VIEW: AUDITING — Door-to-Door account audits, derived LIVE from the
+// Customer Flags column of the FieldRoutes Sales Report (the same raw-sales
+// upload the Indicators tab uses). No separate audit upload:
+//   'Failed Audit' flag → failed · 'Passed Audit' → passed ·
+//   'No Audit' / no audit flag → pending (counts as passed for the
+//   effective pass rate). 'Sent to Collections' powers the collections
+//   split; reportable cancels power the attrition split.
+// ════════════════════════════════════════════════════════════════════════
+function _auditStatusOf(flagsStr) {
+  const f = (flagsStr || '').toLowerCase();
+  if (f.includes('failed audit')) return 'failed';
+  if (f.includes('passed audit')) return 'passed';
+  return 'pending';
 }
 
 function viewAuditing() {
-  // Lazy loads: shared audit rows + the freshest indicators raw sales.
-  if (state._auditRows == null && !state._auditLoading) {
-    state._auditLoading = true;
-    loadAuditRows().then(() => { state._auditLoading = false; mountApp(); });
-  }
   if (typeof refreshIndicatorsFromCloud === 'function') refreshIndicatorsFromCloud();
-
-  const auditMap = state._auditRows || {};
   const rawAll = (state._indicatorRawSales || []).filter(s => (s.source || '').trim().toLowerCase() === 'door to door');
+  const anyFlags = rawAll.some(s => s.customerFlags && String(s.customerFlags).trim());
 
-  // ── Scope: year (universe + pending only; audits always count) ──
-  if (!state.auditYear) state.auditYear = String(new Date().getFullYear());
-  if (!state.auditOffice) state.auditOffice = 'all';
-  const dataYears = [...new Set(rawAll.map(s => { const d = s.date ? new Date(s.date) : null; return d && !isNaN(d) ? String(d.getFullYear()) : null; }).filter(Boolean))].sort().reverse();
-  const yr = dataYears.includes(state.auditYear) || state.auditYear === 'all' ? state.auditYear : (dataYears[0] || 'all');
-  const inScope = (s) => { if (yr === 'all') return true; const d = s.date ? new Date(s.date) : null; return d && !isNaN(d) && String(d.getFullYear()) === yr; };
-
-  // ── Joins: attrition flag per account (all-time), universe (in scope) ──
-  const cancelById = new Map();
+  // ── One record per account (flags are customer-level) ──
+  const acct = new Map();
   for (const s of rawAll) {
     if (!s.customerId) continue;
-    if (_isReportableCancel(s)) cancelById.set(s.customerId, true);
-    else if (!cancelById.has(s.customerId)) cancelById.set(s.customerId, false);
-  }
-  const uni = new Map(); // accountId -> { rep, office }
-  for (const s of rawAll) {
-    if (!s.customerId || !inScope(s) || uni.has(s.customerId)) continue;
-    uni.set(s.customerId, { rep: (s.rep || 'Unknown').trim(), office: (s.office || 'UNKNOWN').toUpperCase().trim() });
+    let a = acct.get(s.customerId);
+    if (!a) {
+      a = {
+        rep: (s.rep || 'Unknown').trim(),
+        office: (s.office || 'UNKNOWN').toUpperCase().trim(),
+        status: _auditStatusOf(s.customerFlags),
+        collections: /sent to collections/i.test(s.customerFlags || ''),
+        cancelled: false,
+        date: null,
+      };
+      acct.set(s.customerId, a);
+    }
+    if (_isReportableCancel(s)) a.cancelled = true;
+    const d = s.date instanceof Date ? s.date : (s.date ? new Date(s.date) : null);
+    if (d && !isNaN(d) && (!a.date || d < a.date)) a.date = d;
   }
 
-  // Office list = union of universe + audit offices
-  const offices = [...new Set([
-    ...[...uni.values()].map(u => u.office),
-    ...Object.values(auditMap).map(a => (a.office || '').toUpperCase()).filter(Boolean),
-  ])].sort();
+  // ── Filters: sold-year + branch ──
+  if (!state.auditYear) state.auditYear = String(new Date().getFullYear());
+  if (!state.auditOffice) state.auditOffice = 'all';
+  const dataYears = [...new Set([...acct.values()].map(a => a.date ? String(a.date.getFullYear()) : null).filter(Boolean))].sort().reverse();
+  const yr = dataYears.includes(state.auditYear) || state.auditYear === 'all' ? state.auditYear : (dataYears[0] || 'all');
+  const offices = [...new Set([...acct.values()].map(a => a.office))].sort();
   const offFilter = state.auditOffice;
-  const offOk = (o) => offFilter === 'all' || (o || '').toUpperCase() === offFilter;
 
-  // ── Aggregate per rep / per office ──
-  const mk = () => ({ sold: 0, passed: 0, failed: 0, pending: 0, attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0] } }); // attr = [cancelled, total]
+  // ── Aggregate per rep / per branch ──
+  const mk = () => ({ sold: 0, passed: 0, failed: 0, pending: 0,
+    attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0] },
+    coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0] } });
   const reps = {}, offs = {}, tot = mk();
-  const bump = (bucket, key, cancelled) => {
-    bucket[key]++;
-    const a = bucket.attr[key === 'sold' ? 'pending' : key];
-    if (a && key !== 'sold') { a[1]++; if (cancelled) a[0]++; }
-  };
-  const seen = new Set();
-  const addTo = (repName, office, key, cancelled) => {
-    const r = reps[repName] || (reps[repName] = mk());
-    const o = offs[office] || (offs[office] = mk());
-    for (const b of [r, o, tot]) bump(b, key, cancelled);
-  };
-  for (const [id, u] of uni) {
-    const a = auditMap[id];
-    const office = (a?.office || u.office || 'UNKNOWN').toUpperCase();
-    if (!offOk(office)) continue;
-    const rep = (a?.rep || u.rep || 'Unknown').trim();
-    const cancelled = !!cancelById.get(id);
-    reps[rep] = reps[rep] || mk(); offs[office] = offs[office] || mk();
-    for (const b of [reps[rep], offs[office], tot]) b.sold++;
-    addTo(rep, office, a ? a.result : 'pending', cancelled);
-    seen.add(id);
-  }
-  // Audited accounts outside the scoped universe (older years / not in the
-  // current Customer Report) still count toward audit totals — just not Sold.
-  for (const [id, a] of Object.entries(auditMap)) {
-    if (seen.has(id)) continue;
-    const office = (a.office || 'UNKNOWN').toUpperCase();
-    if (!offOk(office)) continue;
-    addTo((a.rep || 'Unknown').trim(), office, a.result, !!cancelById.get(id));
+  for (const a of acct.values()) {
+    if (yr !== 'all' && (!a.date || String(a.date.getFullYear()) !== yr)) continue;
+    if (offFilter !== 'all' && a.office !== offFilter) continue;
+    const r = reps[a.rep] || (reps[a.rep] = mk());
+    const o = offs[a.office] || (offs[a.office] = mk());
+    for (const b of [r, o, tot]) {
+      b.sold++; b[a.status]++;
+      b.attr[a.status][1]++; if (a.cancelled) b.attr[a.status][0]++;
+      b.coll[a.status][1]++; if (a.collections) b.coll[a.status][0]++;
+    }
   }
 
   const audited = tot.passed + tot.failed;
@@ -2871,56 +2723,21 @@ function viewAuditing() {
   const GOOD = 'rgba(141,198,63,.18)', BAD = 'rgba(220,38,38,.14)';
   const passShade = (p) => p == null ? '' : (p >= 0.85 ? GOOD : p < 0.65 ? BAD : '');
 
-  // ── Fail reasons (among failed audits in the office filter) ──
-  const failReasons = AUDIT_CHECKS.map(([key, label]) => {
-    let n = 0;
-    for (const a of Object.values(auditMap)) {
-      if (a.result !== 'failed' || !offOk(a.office)) continue;
-      if (a.checks && a.checks[key] === 'No') n++;
-    }
-    return { key, label, n };
-  }).filter(r => r.n > 0).sort((a, b) => b.n - a.n);
-  const failTotal = Object.values(auditMap).filter(a => a.result === 'failed' && offOk(a.office)).length;
-
   // ── UI bits ──
   const kpi = (label, val, sub, color) => el('div', { class: 'card p-4 flex-1', style: { minWidth: '140px' } },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
     el('div', { class: 'text-2xl font-black tabular-nums mt-1', style: color ? { color } : {} }, val),
     sub && el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, sub));
-
   const sel = (value, opts, onchange, title) => el('select', {
     class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer', title: title || '', onchange,
   }, ...opts.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === value) o.selected = true; return o; }));
 
-  // Upload control — branch select (used when the CSV has no Branch column) + file input.
-  const branchSel = sel(state._auditUploadOffice || '', [['', 'Branch (for upload)…'], ...offices.map(o => [o, o])],
-    (e) => { state._auditUploadOffice = e.target.value; }, 'Used when the CSV has no Office/Branch column');
-  const fileInput = el('input', { type: 'file', accept: '.csv,text/csv', style: { display: 'none' } });
-  fileInput.addEventListener('change', async (e) => {
-    const f = e.target.files && e.target.files[0]; if (!f) return;
-    try {
-      const text = await f.text();
-      const rows = parseAuditCsv(text, state._auditUploadOffice || '');
-      if (rows.some(r => !r.office)) { toast('CSV has no Branch column — pick a branch in the dropdown first', 'error'); return; }
-      const res = await saveAuditRows(rows);
-      toast(`Audit upload: ${fmt.int(res.added)} new · ${fmt.int(res.updated)} updated` + (res.synced ? '' : ' (saved locally only)'), 'success');
-      mountApp();
-    } catch (err) { toast('Audit CSV: ' + (err.message || err), 'error'); }
-    finally { e.target.value = ''; }
-  });
-  const uploadBtn = el('button', {
-    class: 'px-3 py-2 rounded-xl text-xs font-bold transition hover:brightness-95',
-    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-    onclick: () => fileInput.click(),
-  }, '⬆ Upload Audit CSV');
-
-  // ── Tables ──
   const th = (lab, right = true) => el('th', { class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, lab);
   const td = (val, opts = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums text-xs whitespace-nowrap ' + (opts.left ? 'text-left' : 'text-right') + (opts.bold ? ' font-bold' : ''), style: { background: opts.bg || 'transparent' } }, val);
   const statRow = (name, s, opts = {}) => {
     const auditedN = s.passed + s.failed;
     const passPct = auditedN > 0 ? s.passed / auditedN : null;
-    const effPct = s.sold > 0 ? (s.passed + s.pending) / Math.max(s.sold, auditedN + s.pending) : (auditedN > 0 ? s.passed / auditedN : null);
+    const effPct = s.sold > 0 ? (s.passed + s.pending) / s.sold : null;
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
     return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: opts.total ? 'var(--card-2)' : 'transparent' } },
       td(name, { left: true, bold: !!opts.total }),
@@ -2942,7 +2759,7 @@ function viewAuditing() {
     el('div', { class: 'overflow-x-auto' },
       el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {},
-          th(label.includes('Branch') ? 'Branch' : 'Rep', false), th('Sold (D2D)'), th('Audited'), th('Passed'), th('Failed'), th('Pending'),
+          th(label.includes('Branch') ? 'Branch' : 'Rep', false), th('Sold (D2D)'), th('Audited'), th('Passed'), th('Failed'), th('Pending / No Audit'),
           th('Pass % (audited)'), th('Eff. Pass %'), th('Attrition · Passed'), th('Attrition · Failed'))),
         el('tbody', {},
           ...entries.map(([name, s]) => statRow(name, s)),
@@ -2951,78 +2768,63 @@ function viewAuditing() {
   const repEntries = Object.entries(reps).sort((a, b) => b[1].sold - a[1].sold || b[1].failed - a[1].failed);
   const offEntries = Object.entries(offs).sort((a, b) => b[1].sold - a[1].sold);
 
-  // ── Attrition headline ──
-  const attrP = rate(tot.attr.passed), attrF = rate(tot.attr.failed), attrU = rate(tot.attr.pending);
-  const mult = (attrP != null && attrP > 0 && attrF != null) ? (attrF / attrP) : null;
-  const attrBox = (label, r, pair, color) => el('div', { class: 'flex-1 text-center', style: { minWidth: '120px' } },
+  // ── Split cards: attrition + collections by audit result ──
+  const splitBox = (label, r, pair, color) => el('div', { class: 'flex-1 text-center', style: { minWidth: '110px' } },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
     el('div', { class: 'text-2xl font-black tabular-nums', style: { color } }, r == null ? '—' : (r * 100).toFixed(1) + '%'),
-    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fmt.int(pair[0]) + ' of ' + fmt.int(pair[1]) + ' accounts'));
+    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fmt.int(pair[0]) + ' of ' + fmt.int(pair[1])));
+  const splitCard = (title, subtitle, src, multNoun) => {
+    const p = rate(src.passed), f = rate(src.failed), u = rate(src.pending);
+    const mult = (p != null && p > 0 && f != null) ? f / p : null;
+    return el('div', { class: 'card p-4' },
+      el('h3', { class: 'text-base font-bold mb-1' }, title),
+      el('div', { class: 'text-[11px] mb-3', style: { color: 'var(--text-subtle)' } }, subtitle),
+      el('div', { class: 'flex gap-4 flex-wrap' },
+        splitBox('Passed Audit', p, src.passed, '#4d7c0f'),
+        splitBox('Failed Audit', f, src.failed, '#DC2626'),
+        splitBox('No Audit', u, src.pending, 'var(--text-muted)')),
+      mult != null && isFinite(mult) && mult > 1.05 && el('div', { class: 'text-xs mt-3 px-3 py-2 rounded-lg font-semibold text-center', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626' } },
+        'Failed-audit accounts ' + multNoun + ' ' + mult.toFixed(1) + '× more often than passed-audit accounts'));
+  };
 
-  const noRaw = rawAll.length === 0;
-  const noAudits = Object.keys(auditMap).length === 0;
+  if (rawAll.length === 0 || !anyFlags) {
+    return el('div', { class: 'flex flex-col gap-4 max-w-3xl mx-auto' },
+      el('div', { class: 'card p-10 text-center' },
+        el('div', { class: 'text-4xl mb-3' }, '🛡️'),
+        el('h2', { class: 'text-lg font-bold mb-2' }, rawAll.length === 0 ? 'No Sales Report loaded yet' : 'No Customer Flags in the current Sales Report'),
+        el('p', { class: 'text-sm text-muted- max-w-lg mx-auto' },
+          'This tab reads audit results straight from the Customer Flags column (Passed Audit / Failed Audit / No Audit) of the FieldRoutes Sales Report. Upload the report on the INDICATORS tab — make sure the export includes the Flags column — and this page fills in automatically.')));
+  }
 
   return el('div', { class: 'flex flex-col gap-4 max-w-[1400px] mx-auto' },
     // Toolbar
-    el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' },
-      el('div', { class: 'flex items-center gap-2 flex-wrap' },
-        sel(offFilter, [['all', 'All Branches'], ...offices.map(o => [o, o])], (e) => { state.auditOffice = e.target.value; mountApp(); }),
-        sel(yr, [...dataYears.map(y => [y, y + ' sales']), ['all', 'All-time sales']], (e) => { state.auditYear = e.target.value; mountApp(); }, 'Which sold accounts count as the D2D universe (Sold / Pending)'),
-      ),
-      el('div', { class: 'flex items-center gap-2' }, branchSel, uploadBtn, fileInput)),
-
-    noRaw && el('div', { class: 'card p-3 text-xs', style: { background: 'var(--card-2)' } },
-      '⚠ No raw-sales Customer Report loaded (Indicators tab) — Sold / Pending / Attrition need it. Audit results below still work.'),
-    noAudits && el('div', { class: 'card p-10 text-center' },
-      el('div', { class: 'text-4xl mb-3' }, '🛡️'),
-      el('h2', { class: 'text-lg font-bold mb-2' }, 'Upload your first audit CSV'),
-      el('p', { class: 'text-sm text-muted- max-w-lg mx-auto' },
-        'Export a branch tab from the D2D Audit sheet as CSV (File → Download → CSV) and upload it here. Rows are matched by AccountID, so re-uploading the same branch just updates results. Pick the branch in the dropdown if the CSV has no Branch column.')),
+    el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      sel(offFilter, [['all', 'All Branches'], ...offices.map(o => [o, o])], (e) => { state.auditOffice = e.target.value; mountApp(); }),
+      sel(yr, [...dataYears.map(y => [y, y]), ['all', 'All-time']], (e) => { state.auditYear = e.target.value; mountApp(); }, 'Filter by the year the account was sold'),
+      el('div', { class: 'text-[11px] ml-1', style: { color: 'var(--text-subtle)' } },
+        'Live from the Sales Report flags — re-upload it on Indicators to refresh.')),
 
     // KPI strip
-    !noAudits && el('div', { class: 'flex gap-3 flex-wrap' },
+    el('div', { class: 'flex gap-3 flex-wrap' },
       kpi('D2D Accounts (' + (yr === 'all' ? 'all-time' : yr) + ')', fmt.int(tot.sold), 'distinct sold accounts'),
-      kpi('Audited', fmt.int(audited), pctS(audited, Math.max(tot.sold, audited)) + ' coverage'),
+      kpi('Audited', fmt.int(audited), pctS(audited, tot.sold) + ' coverage'),
       kpi('Passed', fmt.int(tot.passed), pctS(tot.passed, audited) + ' of audited', '#4d7c0f'),
       kpi('Failed', fmt.int(tot.failed), pctS(tot.failed, audited) + ' of audited', '#DC2626'),
-      kpi('Pending', fmt.int(tot.pending), 'sold, not yet audited'),
-      kpi('Effective Pass Rate', pctS(tot.passed + tot.pending, Math.max(tot.sold, audited + tot.pending)), 'no audit counts as passed')),
+      kpi('Pending / No Audit', fmt.int(tot.pending), 'counts as passed for eff. rate'),
+      kpi('Effective Pass Rate', pctS(tot.passed + tot.pending, tot.sold), 'passed + unaudited of sold')),
 
-    // Attrition + fail reasons
-    !noAudits && el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' },
-      el('div', { class: 'card p-4' },
-        el('h3', { class: 'text-base font-bold mb-1' }, 'Attrition by Audit Result'),
-        el('div', { class: 'text-[11px] mb-3', style: { color: 'var(--text-subtle)' } },
-          'Share of accounts with a reportable cancel, split by how they audited' + (noRaw ? ' — needs the Customer Report' : '')),
-        el('div', { class: 'flex gap-4 flex-wrap' },
-          attrBox('Passed Audit', attrP, tot.attr.passed, '#4d7c0f'),
-          attrBox('Failed Audit', attrF, tot.attr.failed, '#DC2626'),
-          attrBox('Not Audited', attrU, tot.attr.pending, 'var(--text-muted)')),
-        mult != null && isFinite(mult) && mult > 1 && el('div', { class: 'text-xs mt-3 px-3 py-2 rounded-lg font-semibold text-center', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626' } },
-          'Failed-audit accounts cancel ' + mult.toFixed(1) + '× more often than passed-audit accounts')),
-      el('div', { class: 'card p-4' },
-        el('h3', { class: 'text-base font-bold mb-1' }, 'Why Audits Fail'),
-        el('div', { class: 'text-[11px] mb-3', style: { color: 'var(--text-subtle)' } },
-          '"No" answers among the ' + fmt.int(failTotal) + ' failed audits' + (offFilter !== 'all' ? ' · ' + offFilter : '')),
-        failReasons.length === 0
-          ? el('div', { class: 'text-xs italic', style: { color: 'var(--text-muted)' } }, 'No failed audits in view.')
-          : el('div', { class: 'flex flex-col gap-1.5' }, ...failReasons.map(r => {
-              const w = failTotal > 0 ? Math.max(2, (r.n / failTotal) * 100) : 0;
-              return el('div', { class: 'flex items-center gap-2' },
-                el('div', { class: 'text-[11px] whitespace-nowrap', style: { width: '180px', color: 'var(--text)' } }, r.label),
-                el('div', { class: 'flex-1 rounded-full overflow-hidden', style: { background: 'var(--card-2)', height: '14px' } },
-                  el('div', { style: { width: w + '%', height: '100%', background: '#DC2626', opacity: .75 } })),
-                el('div', { class: 'text-[11px] tabular-nums font-bold', style: { width: '70px', textAlign: 'right' } },
-                  fmt.int(r.n) + ' · ' + pctS(r.n, failTotal)));
-            })))),
+    // Attrition + collections splits
+    el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' },
+      splitCard('Attrition by Audit Result', 'Share of accounts with a reportable cancel', tot.attr, 'cancel'),
+      splitCard('Collections by Audit Result', 'Share of accounts flagged Sent to Collections', tot.coll, 'go to collections')),
 
     // Rep + branch tables
-    !noAudits && statTable('Sales Reps · Audit Report', repEntries,
-      'Sold = distinct D2D accounts (' + (yr === 'all' ? 'all-time' : yr) + '). Pending = sold but not audited. Eff. Pass % treats pending as passed. Attrition = reportable cancels.'),
-    !noAudits && offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, null),
+    statTable('Sales Reps · Audit Report', repEntries,
+      'Sold = distinct D2D accounts (' + (yr === 'all' ? 'all-time' : yr) + ') · audit result from Customer Flags · Eff. Pass % treats unaudited as passed · attrition = reportable cancels.'),
+    offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, null),
 
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
-      fmt.int(Object.keys(auditMap).length) + ' audited accounts on file · shared across admins (audit_schema.sql) · joined to the Indicators Customer Report by AccountID for Sold / Pending / Attrition.'),
+      fmt.int(acct.size) + ' D2D accounts on file · audit status, collections and attrition all derive from the raw-sales Customer Report — no separate audit upload needed.'),
   );
 }
 
