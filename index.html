@@ -2434,13 +2434,12 @@ const TAB_TITLES = {
   scorecards:   'SCORECARDS',
   reporting:    'REPORTING',
   marketing:    'MARKETING',
-  auditing:     'AUDITING',
   admin:        'SETTINGS',
 };
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#auditing':'auditing', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -2662,13 +2661,13 @@ function microGoalWidget() {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// VIEW: AUDITING — Door-to-Door account audits, derived LIVE from the
-// Customer Flags column of the FieldRoutes Sales Report (the same raw-sales
-// upload the Indicators tab uses). No separate audit upload:
+// REPORTING SUB-TAB: AUDITING — Door-to-Door account audits, derived LIVE
+// from the Customer Flags column of the REPORTING snapshot (the Customer
+// Report uploaded on this tab — make sure the export includes Flags):
 //   'Failed Audit' flag → failed · 'Passed Audit' → passed ·
 //   'No Audit' / no audit flag → pending (counts as passed for the
 //   effective pass rate). 'Sent to Collections' powers the collections
-//   split; reportable cancels power the attrition split.
+//   split; cancels (minus ROR / Sold-Not-Started churn) power attrition.
 // ════════════════════════════════════════════════════════════════════════
 function _auditStatusOf(flagsStr) {
   const f = (flagsStr || '').toLowerCase();
@@ -2677,35 +2676,48 @@ function _auditStatusOf(flagsStr) {
   return 'pending';
 }
 
-function viewAuditing() {
-  if (typeof refreshIndicatorsFromCloud === 'function') refreshIndicatorsFromCloud();
-  const rawAll = (state._indicatorRawSales || []).filter(s => (s.source || '').trim().toLowerCase() === 'door to door');
-  const anyFlags = rawAll.some(s => s.customerFlags && String(s.customerFlags).trim());
+function reportingAuditing() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+  const rowsAll = state.reportingSubscriptions || [];
+  const d2d = rowsAll.filter(r => (r.subscription_source || '').trim() === 'Door to Door');
+  const anyFlags = d2d.some(r => r.customer_flags && String(r.customer_flags).trim());
+
+  // Reportable cancel = has a cancel date and isn't ROR / Sold-Not-Started
+  // churn (reason match, or a no-reason cancel within 3 days of the sale).
+  const isExcludableRow = (r) => {
+    const reason = r.subscription_cancellation_reason || '';
+    if (_ROR_REASON_RE.test(reason) || _SNS_REASON_RE.test(reason)) return true;
+    if (reason.trim()) return false;
+    if (!r.sold_date || !r.subscription_date_canceled) return false;
+    const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000;
+    return d >= 0 && d <= 3;
+  };
 
   // ── One record per account (flags are customer-level) ──
   const acct = new Map();
-  for (const s of rawAll) {
-    if (!s.customerId) continue;
-    let a = acct.get(s.customerId);
+  for (const r of d2d) {
+    const id = (r.customer_id || '').trim();
+    if (!id) continue;
+    let a = acct.get(id);
     if (!a) {
       a = {
-        rep: (s.rep || 'Unknown').trim(),
-        office: (s.office || 'UNKNOWN').toUpperCase().trim(),
-        status: _auditStatusOf(s.customerFlags),
-        collections: /sent to collections/i.test(s.customerFlags || ''),
+        rep: (r.sold_by || 'Unknown').trim(),
+        office: (r.office_name || 'UNKNOWN').toUpperCase().trim(),
+        status: _auditStatusOf(r.customer_flags),
+        collections: /sent to collections/i.test(r.customer_flags || ''),
         cancelled: false,
         date: null,
       };
-      acct.set(s.customerId, a);
+      acct.set(id, a);
     }
-    if (_isReportableCancel(s)) a.cancelled = true;
-    const d = s.date instanceof Date ? s.date : (s.date ? new Date(s.date) : null);
+    if (r.subscription_date_canceled && !isExcludableRow(r)) a.cancelled = true;
+    const ds = r.sold_date || r.initial_service;
+    const d = ds ? new Date(ds + (String(ds).length === 10 ? 'T00:00' : '')) : null;
     if (d && !isNaN(d) && (!a.date || d < a.date)) a.date = d;
   }
 
-  // ── Filters: sold-date range + branch. Real ranges matter here because
-  //    auditing only started recently — all-time would bury the signal
-  //    under years of never-audited accounts. ──
+  // ── Filters: sold-date range + branch ──
   if (!state.auditRange) state.auditRange = 'this_year';
   if (!state.auditOffice) state.auditOffice = 'all';
   const dataYears = [...new Set([...acct.values()].map(a => a.date ? String(a.date.getFullYear()) : null).filter(Boolean))].sort().reverse();
@@ -2790,35 +2802,34 @@ function viewAuditing() {
   const repEntries = Object.entries(reps).sort((a, b) => b[1].sold - a[1].sold || b[1].failed - a[1].failed);
   const offEntries = Object.entries(offs).sort((a, b) => b[1].sold - a[1].sold);
 
-  // ── Split cards: attrition + collections by audit result ──
   const splitBox = (label, r, pair, color) => el('div', { class: 'flex-1 text-center', style: { minWidth: '110px' } },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
     el('div', { class: 'text-2xl font-black tabular-nums', style: { color } }, r == null ? '—' : (r * 100).toFixed(1) + '%'),
     el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fmt.int(pair[0]) + ' of ' + fmt.int(pair[1])));
-  const splitCard = (title, subtitle, src, multNoun) => {
-    const p = rate(src.passed), f = rate(src.failed), u = rate(src.pending);
+  const splitCard = (title, subtitle, src2, multNoun) => {
+    const p = rate(src2.passed), f = rate(src2.failed), u = rate(src2.pending);
     const mult = (p != null && p > 0 && f != null) ? f / p : null;
     return el('div', { class: 'card p-4' },
       el('h3', { class: 'text-base font-bold mb-1' }, title),
       el('div', { class: 'text-[11px] mb-3', style: { color: 'var(--text-subtle)' } }, subtitle),
       el('div', { class: 'flex gap-4 flex-wrap' },
-        splitBox('Passed Audit', p, src.passed, '#4d7c0f'),
-        splitBox('Failed Audit', f, src.failed, '#DC2626'),
-        splitBox('No Audit', u, src.pending, 'var(--text-muted)')),
+        splitBox('Passed Audit', p, src2.passed, '#4d7c0f'),
+        splitBox('Failed Audit', f, src2.failed, '#DC2626'),
+        splitBox('No Audit', u, src2.pending, 'var(--text-muted)')),
       mult != null && isFinite(mult) && mult > 1.05 && el('div', { class: 'text-xs mt-3 px-3 py-2 rounded-lg font-semibold text-center', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626' } },
         'Failed-audit accounts ' + multNoun + ' ' + mult.toFixed(1) + '× more often than passed-audit accounts'));
   };
 
-  if (rawAll.length === 0 || !anyFlags) {
+  if (!anyFlags) {
     return el('div', { class: 'flex flex-col gap-4 max-w-3xl mx-auto' },
       el('div', { class: 'card p-10 text-center' },
         el('div', { class: 'text-4xl mb-3' }, '🛡️'),
-        el('h2', { class: 'text-lg font-bold mb-2' }, rawAll.length === 0 ? 'No Sales Report loaded yet' : 'No Customer Flags in the current Sales Report'),
+        el('h2', { class: 'text-lg font-bold mb-2' }, 'No Customer Flags in this snapshot'),
         el('p', { class: 'text-sm text-muted- max-w-lg mx-auto' },
-          'This tab reads audit results straight from the Customer Flags column (Passed Audit / Failed Audit / No Audit) of the FieldRoutes Sales Report. Upload the report on the INDICATORS tab — make sure the export includes the Flags column — and this page fills in automatically.')));
+          'This tab reads audit results from the Customer Flags column (Passed Audit / Failed Audit / No Audit) of the Customer Report. Add the Flags column to the export, run reporting_flags.sql in Supabase once, then re-upload the report here — this page fills in automatically.')));
   }
 
-  return el('div', { class: 'flex flex-col gap-4 max-w-[1400px] mx-auto' },
+  return el('div', { class: 'flex flex-col gap-4' },
     // Toolbar
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       sel(offFilter, [['all', 'All Branches'], ...offices.map(o => [o, o])], (e) => { state.auditOffice = e.target.value; mountApp(); }),
@@ -2842,20 +2853,20 @@ function viewAuditing() {
         onchange: (e) => { state.auditCustomEnd = e.target.value; mountApp(); },
       }),
       el('div', { class: 'text-[11px] ml-1', style: { color: 'var(--text-subtle)' } },
-        'Live from the Sales Report flags — re-upload it on Indicators to refresh.')),
+        'Live from this snapshot\u2019s Customer Flags \u2014 re-upload the report to refresh.')),
 
     // Attrition + collections splits
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' },
-      splitCard('Attrition by Audit Result', 'Share of accounts with a reportable cancel', tot.attr, 'cancel'),
+      splitCard('Attrition by Audit Result', 'Share of accounts with a reportable cancel (ROR / Sold-Not-Started excluded)', tot.attr, 'cancel'),
       splitCard('Collections by Audit Result', 'Share of accounts flagged Sent to Collections', tot.coll, 'go to collections')),
 
     // Rep + branch tables
     statTable('Sales Reps · Audit Report', repEntries,
-      'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · Eff. Pass % treats unaudited as passed · attrition = reportable cancels.'),
+      'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · Eff. Pass % treats unaudited as passed.'),
     offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, null),
 
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
-      fmt.int(acct.size) + ' D2D accounts on file · audit status, collections and attrition all derive from the raw-sales Customer Report — no separate audit upload needed.'),
+      fmt.int(acct.size) + ' D2D accounts in this snapshot · audit status, collections and attrition all derive from the Customer Report — no separate upload needed.'),
   );
 }
 
@@ -2902,7 +2913,6 @@ function mountApp() {
     ['inside_sales', 'Inside Sales', iconSales()],
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
-    ...(isAdmin ? [['auditing',      'Auditing',      iconShield()]]    : []),
   ];
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
@@ -3101,7 +3111,6 @@ function mountApp() {
     scorecards:   viewScorecards,
     reporting:    viewReporting,
     marketing:    viewMarketing,
-    auditing:     viewAuditing,
     admin:        viewAdmin,
   }[state.view];
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
@@ -21913,6 +21922,7 @@ function parseReportingCsv(text) {
     first_name:                       find('first name'),
     sold_date:                        find('sold date', 'date sold'),
     customer_auto_pay:                find('customer auto pay', 'auto pay', 'apay'),
+    customer_flags:                   find('customer flags', 'flags'),
     annual_recurring_value:           find('annual recurring value', 'arr', 'annual recurring'),
     sold_by_id:                       find('sold by id'),
     sold_by:                          find('sold by'),
@@ -21984,6 +21994,7 @@ function parseReportingCsv(text) {
       first_name:                       textOrNull(pick(r, cols.first_name)),
       sold_date:                        parseDate(pick(r, cols.sold_date)),
       customer_auto_pay:                textOrNull(pick(r, cols.customer_auto_pay)),
+      customer_flags:                   textOrNull(pick(r, cols.customer_flags)),
       annual_recurring_value:           parseNumOrNull(pick(r, cols.annual_recurring_value)),
       sold_by_id:                       textOrNull(pick(r, cols.sold_by_id)),
       sold_by:                          textOrNull(pick(r, cols.sold_by)),
@@ -22144,7 +22155,7 @@ async function uploadReportingCsv(file) {
   // insert errors because they're missing, we strip them and keep going so the
   // upload NEVER hard-fails on a not-yet-run migration. Inside Sales sold-date
   // data just won't populate until that migration is run.
-  const OPTIONAL_COLS = ['customer_auto_pay', 'sold_date'];
+  const OPTIONAL_COLS = ['customer_auto_pay', 'sold_date', 'customer_flags'];
   const stripOptional = (r) => { const c = { ...r }; OPTIONAL_COLS.forEach(k => delete c[k]); return c; };
   let strip = false, strippedAny = false;
   const chunks = [];
@@ -23024,6 +23035,7 @@ function viewReporting() {
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'reps'       ? reportingRepPerformance() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
+    state.reportingSubTab === 'auditing'   ? reportingAuditing() :
                                               reportingOverview(),
   );
 }
@@ -23206,6 +23218,7 @@ function reportingSubTabs() {
     ['geographic', 'Geographic'],
     ['reps',       'Rep Performance'],
     ['waterfall',  'Waterfall Attrition'],
+    ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
   ];
   return el('div', { class: 'flex items-center gap-1 border-b', style: { borderColor: 'var(--border)' } },
