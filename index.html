@@ -14110,11 +14110,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   };
   const rawSalesAll = (allRawSales || []).filter(s =>
     (!applyExclusion || !isRepExcluded(s.rep)) && inRepScope(s));
-  // Default for every other consumer. RORs / Sold-Not-Started are
-  // dropped because they aren't real production — the leaderboard,
-  // records, D2D comp, PDF reports, sub-mix, and rep drill-downs all
-  // work off this trimmed set.
-  const rawSales = rawSalesAll.filter(s => !_isExcludableCancel(s));
+  // Default for every other consumer (leaderboard, records, D2D comp,
+  // PDF reports, sub-mix, rep drill-downs). Sold-Not-Started rows are
+  // dropped — they never became real production. 3-day RORs STAY IN:
+  // they count as sales for volume / revenue / ACV / Avg Pest / MY% /
+  // Auto Pay%. The ONLY metric that strips RORs (and SNS) is Cancel %,
+  // which uses its own ROR-free denominator below and the
+  // _isReportableCancel numerator.
+  const rawSales = rawSalesAll.filter(s => !_isSoldNotStarted(s));
   if (!allRawSales || !allRawSales.length) {
     // Always render a visible placeholder so admins know these tables exist
     // and what's needed to populate them.
@@ -14140,7 +14143,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const repMap = {};
   rawSales.forEach(s => {
     const rep = getCanonicalRepName(s.rep || 'Unknown');
-    if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, sales: [], cancels: 0, revenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
+    if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, sales: [], cancels: 0, cancelEligible: 0, revenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
     const r = repMap[rep];
     r.sales.push(s);
     r.revenue += s.contractValue;
@@ -14148,6 +14151,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     if (s.contract === 12) r.twelve++;
     if (s.autoPay && s.autoPay !== 'No') r.autoPay++;
     if (_isReportableCancel(s)) r.cancels++;
+    // Cancel % denominator: sales excluding 3-day RORs (SNS already gone
+    // from the set) — so paperwork churn neither counts as a cancel nor
+    // pads the base.
+    if (!_is3DayROR(s)) r.cancelEligible++;
     if (s.age > 0) r.aged++;
   });
   // Decorate every rep with derived metrics so we can sort on any of them.
@@ -14270,7 +14277,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       avgInitial,
       myPct: ctTotal > 0 ? r.multi / ctTotal : 0,
       autoPayPct: count > 0 ? r.autoPay / count : 0,
-      cancelPct: count > 0 ? r.cancels / count : 0,
+      cancelPct: r.cancelEligible > 0 ? r.cancels / r.cancelEligible : 0,
       bestDay:        bD.value,
       bestDayDate:    bD.key,
       bestDayTime:    Number.isFinite(bestDayTime)   ? bestDayTime   : 0,
