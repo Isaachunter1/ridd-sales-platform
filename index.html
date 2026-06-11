@@ -11170,7 +11170,7 @@ function springCleaningCompute(sales, branchList) {
   // the next place is skipped — two teams at 100% AutoPay both take 1pt
   // and the next team gets 3. (Values rounded to 6dp so float noise can't
   // fake or break a tie.)
-  const CATS = ['revenue', 'pra', 'avgPestInitial', 'acv', 'pct24', 'autopayPct'];
+  const CATS = ['revenue', 'pra', 'avgPestInitial', 'acv', 'pct24', 'autopayPct', 'auditPct'];
   const places = {};
   const _rkey = (v) => Math.round((Number(v) || 0) * 1e6) / 1e6;
   for (const cat of CATS) {
@@ -11308,16 +11308,17 @@ function openSpringCleaningHelpModal() {
         section('Who counts',
           el('div', {}, 'Door-to-Door only (Source = "Door to Door"). Office and Techs sales are out entirely.'),
           el('div', { class: 'mt-1' }, 'An account counts if its initial is ≥ $99 AND it\'s flagged Passed Audit or No Audit. Pending (no audit flag yet) are counted as assumed-passing until flagged. Use the date filter at the top to set the round.')),
-        section('The six categories (per branch)',
+        section('The seven categories (per branch)',
           metric('Revenue', 'Total Contract Value sold.'),
           metric('Avg Pest Init', 'Average initial price, excluding Sentricon / German Roach / Interior Flea services.'),
           metric('PRA', 'Per Rep Average = Revenue ÷ number of reps who sold that round. Last Resort sales leave no footprint here — they add no revenue and don\'t count a rep into the denominator.'),
           metric('ACV', 'Average Contract Value per account.'),
           metric('24+ Mo %', 'Share of accounts on a 24-month-or-longer agreement. One-time services are excluded from the denominator; everything else counts.'),
-          metric('Autopay %', 'Share of accounts with a payment method on file.')),
+          metric('Autopay %', 'Share of accounts with a payment method on file.'),
+          metric('Audit %', 'Passed Audit %: passed + no-audit + pending ÷ ALL accounts (incl. failed audit & Last Resort). Scored like every other category — and it doubles as the points tiebreaker.')),
         section('Scoring',
           el('div', {}, 'In each category the branches are ranked; your place = your points (1st = 1pt … 7th = 7pts — golf, low is good).'),
-          el('div', { class: 'mt-1' }, 'Your six category points add up to a Total. Lowest total wins the round.'),
+          el('div', { class: 'mt-1' }, 'Your seven category points add up to a Total. Lowest total wins the round.'),
           el('div', { class: 'mt-1' }, 'Tiebreakers: a dead tie WITHIN a category means both teams take the same points and the next place is skipped (two teams at 100% AutoPay both score 1, the next team scores 3). A tie in TOTAL points goes to the higher Passed Audit %; if that\'s somehow tied too, higher Avg Pest Initial decides it.'),
           el('div', { class: 'mt-1' }, 'Place → Bugs: 1st = 6, 2nd = 5, 3rd = 4, 4th = 3, 5th = 2, 6th = 1, 7th = 0.')),
         section('Not counting',
@@ -11380,6 +11381,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
     { key: 'acv',            label: 'ACV',           fmt: usd },
     { key: 'pct24',          label: '24+ Mo %',      fmt: pct },
     { key: 'autopayPct',     label: 'Autopay %',     fmt: pct },
+    { key: 'auditPct',       label: 'Audit %',       fmt: pct },
   ];
   const placeBadge = (p) => el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, '(' + p + ')');
   const catCell = (m, def) => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
@@ -11468,8 +11470,10 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
         el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#1b5e20', color: '#fff' } },
           el('tr', {},
             el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Branch'),
-            ...catDefs.map(d => el('th', { class: 'text-left px-2 py-2.5 font-bold' }, d.label)),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Passed Audit %: passed + no-audit + pending ÷ all accounts (incl. failed audit & last resort)' }, 'Audit %'),
+            ...catDefs.map(d => el('th', {
+              class: 'text-left px-2 py-2.5 font-bold',
+              title: d.key === 'auditPct' ? 'Passed Audit %: passed + no-audit + pending ÷ all accounts (incl. failed audit & last resort) — now a scored category AND the points tiebreaker' : '',
+            }, d.label)),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Total'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Place'),
             el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Bugs'),
@@ -11484,7 +11488,6 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
               el('span', { style: { color: 'var(--text)' } }, m.office),
               el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, '· ' + m.reps + ' reps · ' + m.n + ' accts')),
             ...catDefs.map(d => catCell(m, d)),
-            el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap font-semibold' }, pct(m.auditPct)),
             el('td', { class: 'px-2 py-2 text-left tabular-nums font-black' }, m.totalPoints),
             el('td', { class: 'px-2 py-2 text-left tabular-nums font-bold' }, m.place),
             el('td', { class: 'px-3 py-2 text-left' }, bugBadge(m.bugs)),
