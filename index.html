@@ -4414,11 +4414,10 @@ function _parseSlashDate(str) {
 function _is3DayROR(s) {
   if (!s) return false;
   if (_ROR_REASON_RE.test(s.cancelReason || '')) return true;
-  // Date-based fallback: cancel within 3 days of sale — but ONLY when no
-  // explicit reason was typed. A quick cancel that's deliberately tagged
-  // with a real reason ("Sales Rep Error", "Finances", …) is genuine
-  // attrition and must count against the rep's cancel rate.
-  if ((s.cancelReason || '').trim()) return false;
+  // Date-based fallback: cancel within 3 days of sale, regardless of
+  // what's typed in the reason field — confirmed rule: a quick cancel is
+  // ROR even when the reason is mistagged (those get cleaned up in
+  // FieldRoutes instead).
   const sold   = _parseSlashDate(s.dateSold);
   const cancel = _parseSlashDate(s.cancelDate);
   if (!sold || !cancel) return false;
