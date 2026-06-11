@@ -761,6 +761,8 @@ async function refreshIndicatorsFromCloud(force) {
 }
 
 function saveIndicatorState() {
+  // Any settings save may change exclusions/teams — drop the sales caches.
+  if (typeof _indCfgRev !== 'undefined') _indCfgRev++;
   // Settings ALWAYS save first, with their own try/catch, so a quota failure
   // on the bulk CSV save can't roll back team/rep edits. Without this split,
   // adding a team while the data payload was over quota silently dropped the
@@ -3444,10 +3446,13 @@ function _parseIndicatorDay(s) {
 //   Office — everything else (inside sales, web, renewals, etc.)
 const _IND_TECH_SOURCES = new Set(['upsell - service pro', 'upsell - termite pro']);
 function _indicatorDeptOf(s) {
-  const src = (s && s.source ? String(s.source) : '').trim().toLowerCase();
-  if (src === 'door to door') return 'd2d';
-  if (_IND_TECH_SOURCES.has(src)) return 'techs';
-  return 'office';
+  if (!s) return 'office';
+  if (s._dept) return s._dept; // memoized — classification never changes for a row
+  const src = (s.source ? String(s.source) : '').trim().toLowerCase();
+  const dept = src === 'door to door' ? 'd2d' : (_IND_TECH_SOURCES.has(src) ? 'techs' : 'office');
+  // Non-enumerable so it stays out of JSON/IndexedDB/cloud payloads.
+  try { Object.defineProperty(s, '_dept', { value: dept, configurable: true }); } catch { return dept; }
+  return dept;
 }
 const INDICATOR_DEPTS = [
   ['all',    'All'],
@@ -3458,15 +3463,29 @@ const INDICATOR_DEPTS = [
 // The department-scoped raw sales — every on-screen indicators metric reads
 // through this so the toggle re-runs the whole dashboard. Roster, PDF
 // exports and scorecard periods intentionally use the full set instead.
+let _indCfgRev = 0; // bumped on every settings save — invalidates sales caches
+const _indSalesCache = { src: null, cfg: '', byKey: new Map() };
 function indicatorSales() {
   const dept = state.indicatorDept || 'all';
-  let all = state._indicatorRawSales || [];
+  const src = state._indicatorRawSales || [];
+  // Cache filtered views per dept+comps. A render calls this dozens of times
+  // and the dept toggle flips between the same four arrays — with all-time
+  // uploads, re-filtering 100k+ rows each call was most of the lag. The cache
+  // resets when the upload (array identity) or any saved config changes.
+  const cfg = _indCfgRev + '|' + (state.indicatorsComps ? 1 : 0);
+  if (_indSalesCache.src !== src || _indSalesCache.cfg !== cfg) {
+    _indSalesCache.src = src; _indSalesCache.cfg = cfg; _indSalesCache.byKey.clear();
+  }
+  const hit = _indSalesCache.byKey.get(dept);
+  if (hit) return hit;
   // Comps mode — competition exclusions. OFF (default): branch level shows
   // everything, no exclusions at any level. ON: comp rules apply — currently
   // reps on excluded teams (Manage Teams); extend here as comp rules grow.
+  let all = src;
   if (state.indicatorsComps) all = all.filter(s => !isRepExcluded(s.rep));
-  if (dept === 'all') return all;
-  return all.filter(s => _indicatorDeptOf(s) === dept);
+  const out = dept === 'all' ? all : all.filter(s => _indicatorDeptOf(s) === dept);
+  _indSalesCache.byKey.set(dept, out);
+  return out;
 }
 
 // "MM/DD/YY HH:MM AM/PM" → { hour: 0-23, minute: 0-59 } | null
@@ -10401,14 +10420,25 @@ function isInIndicatorRange(row, bounds) {
 
 // Convert the raw-sales `dateSold` string (e.g. "5/3/26 9:14 AM" or "5/3/2026")
 // into an ISO YYYY-MM-DD so chart buckets can compare consistently.
+// Memoized — chart bucket predicates call this once per sale per bucket,
+// which multiplies fast on all-time uploads (80+ monthly buckets × 100k rows).
+const _dateSoldIsoCache = new Map();
 function dateSoldToIso(dateSold) {
-  const head = (dateSold || '').split(' ')[0].trim();
+  const key = dateSold || '';
+  const hit = _dateSoldIsoCache.get(key);
+  if (hit !== undefined) return hit;
+  let out = '';
+  const head = key.split(' ')[0].trim();
   const parts = head.split('/');
-  if (parts.length !== 3) return '';
-  let [m, d, y] = parts.map(Number);
-  if (!Number.isFinite(m) || !Number.isFinite(d) || !Number.isFinite(y)) return '';
-  if (y < 100) y += 2000;
-  return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  if (parts.length === 3) {
+    let [m, d, y] = parts.map(Number);
+    if (Number.isFinite(m) && Number.isFinite(d) && Number.isFinite(y)) {
+      if (y < 100) y += 2000;
+      out = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    }
+  }
+  _dateSoldIsoCache.set(key, out);
+  return out;
 }
 
 // Build the x-axis buckets for the Indicators charts based on the selected
@@ -11639,8 +11669,19 @@ function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, 
 // non-pest accounts the same way.
 const TEAM_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
 
+// Memoized per sales-array identity — indicatorSales() returns stable cached
+// arrays per dept, so flipping the dept toggle reuses prior aggregations
+// instead of re-rolling 100k+ rows every click.
+const _aggBranchCache = new WeakMap();
 function aggregateByBranch(rawSales, indicatorRowsForDates) {
   // Branch totals include every rep AND every subscription type — no exclusions.
+  if (rawSales && typeof rawSales === 'object') {
+    const hit = _aggBranchCache.get(rawSales);
+    if (hit && hit.rows === indicatorRowsForDates) return hit.out;
+    const out = aggregateRawSalesByGroup(rawSales, s => s.office || 'Unknown', indicatorRowsForDates, false, null);
+    _aggBranchCache.set(rawSales, { rows: indicatorRowsForDates, out });
+    return out;
+  }
   return aggregateRawSalesByGroup(rawSales, s => s.office || 'Unknown', indicatorRowsForDates, false, null);
 }
 function aggregateByTeam(rawSales, indicatorRowsForDates) {
@@ -13180,6 +13221,19 @@ function viewIndicators() {
             state.indicatorsFileName ? ' · ' + state.indicatorsFileName : '',
           ),
           ), // close left column of the title row
+          el('div', { class: 'flex items-center gap-3' },
+          // Highlights — reopens the same popup that shows after a CSV import
+          // (YoY scoreboard, movers, records), computed from the current data.
+          el('button', {
+            class: 'text-xs px-2.5 py-1.5 rounded-lg font-semibold border transition hover:brightness-95 mb-0.5',
+            style: { borderColor: 'var(--border)', background: 'var(--card)', color: 'var(--text)' },
+            title: 'YoY scoreboard, trending reps and records from the current upload',
+            onclick: () => {
+              const insights = computeImportInsights();
+              if (insights) openImportInsightsModal(insights);
+              else toast('Highlights need a raw-sales CSV upload', 'info');
+            },
+          }, '✨ Highlights'),
           // Comps switch — competition mode. OFF = every sale counts, zero
           // exclusions. ON = comp exclusions apply to every number below.
           (() => {
@@ -13207,6 +13261,7 @@ function viewIndicators() {
               ),
             );
           })(),
+          ), // close Highlights + Comps group
         ),
       );
     })(),
@@ -19623,67 +19678,85 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
     // When drilled in, only render the focused branches — Company line gets
     // appended below for context.
     const branchesForChart = drilledBranches.length > 0 ? drilledBranches : branches;
+
+    // ── Precomputed indexes ──────────────────────────────────────────────
+    // The per-point closures below used to re-scan `data` and the FULL raw
+    // sales array for every plotted point (branches × weeks × full scans),
+    // which turned all-time uploads into multi-second renders. Everything is
+    // now indexed once up front; per-point work is a Map lookup.
+    const rowIx = new Map();
+    data.forEach(r => { const k = r.branch + '|' + r.week; const a = rowIx.get(k); if (a) a.push(r); else rowIx.set(k, [r]); });
+    const rowsAt = (b, w) => rowIx.get(b + '|' + w) || [];
+    let rankIx = null;
+    if (isRanking) {
+      // Reps W/ A Sale per branch|week — one pass over raw sales (matches the
+      // table's single-week reps logic).
+      const raw = indicatorSales();
+      const hasRaw = Array.isArray(raw) && raw.length > 0;
+      const repsIx = new Map();
+      if (hasRaw) for (const s of raw) {
+        if (!s.rep) continue;
+        const k = s.office + '|' + s.week;
+        let set = repsIx.get(k); if (!set) { set = new Set(); repsIx.set(k, set); }
+        set.add(s.rep);
+      }
+      // Each plotted point ranks branches on JUST that week's numbers, so
+      // the latest point on the line agrees with the weekly Power Ranking
+      // table — including mid-week swaps that a season-to-date cumulative
+      // view would bury under prior weeks of data.
+      rankIx = new Map();
+      for (const w of weeks) {
+        const weekData = {};
+        branches.forEach(b => {
+          const bRows = rowsAt(b, w);
+          const sold = bRows.reduce((a, r) => a + r.sold_accounts, 0);
+          const rev = bRows.reduce((a, r) => a + r.revenue, 0);
+          const multi = bRows.reduce((a, r) => a + r.multi_years, 0);
+          let reps = hasRaw ? (repsIx.get(b + '|' + w)?.size || 0) : (bRows[0]?.reps || 0);
+          reps = Math.max(1, reps); // avoid divide-by-zero for PRA
+          const twelve = bRows.reduce((a, r) => a + (r.twelve_month || 0), 0);
+          const ctTotal = twelve + multi;
+          // Avg Initial weighted by non-Sentricon counts (falls back to sold_accounts)
+          const aiDen = bRows.reduce((a, r) => a + (r.avg_initial_count != null ? r.avg_initial_count : r.sold_accounts), 0);
+          const aiNum = bRows.reduce((a, r) => a + r.avg_initial * (r.avg_initial_count != null ? r.avg_initial_count : r.sold_accounts), 0);
+          weekData[b] = {
+            sold_accounts: sold, revenue: rev,
+            avg_initial: aiDen > 0 ? aiNum / aiDen : 0,
+            acv: sold > 0 ? rev / sold : 0,
+            pra: rev / reps,
+            multi_year_pct: ctTotal > 0 ? multi / ctTotal : 0,
+            auto_pay_pct: sold > 0 ? bRows.reduce((a, r) => a + r.auto_pay_pct * r.sold_accounts, 0) / sold : 0,
+            reps,
+          };
+        });
+        // Golf scoring — sum of per-metric ranks, lower = better. Matches table.
+        // Ties: higher D2D Revenue → higher Avg Pest Initial.
+        // Reps W/ A Sale is intentionally EXCLUDED here, mirroring the
+        // Power Ranking table — more reps doesn't make a branch a better
+        // seller, just a bigger one. Including it here was making the
+        // trend chart disagree with the table on the leader.
+        const pts = {};
+        branches.forEach(b => pts[b] = 0);
+        INDICATOR_METRICS.filter(m => m.key !== 'reps').forEach(m => {
+          const sorted = branches.slice().sort((a, b) => (weekData[b]?.[m.key] || 0) - (weekData[a]?.[m.key] || 0));
+          sorted.forEach((b, i) => { pts[b] += i + 1; });
+        });
+        const ranked = branches.slice().sort((a, b) => {
+          const tp = (pts[a] || 0) - (pts[b] || 0);
+          if (tp !== 0) return tp;
+          const rev = (weekData[b]?.revenue || 0) - (weekData[a]?.revenue || 0);
+          if (rev !== 0) return rev;
+          return (weekData[b]?.avg_initial || 0) - (weekData[a]?.avg_initial || 0);
+        });
+        ranked.forEach((b, i) => rankIx.set(b + '|' + w, i + 1));
+      }
+    }
+
     const datasets = branchesForChart.map(branch => {
       const values = weeks.map(w => {
-        if (isRanking) {
-          // Each plotted point ranks branches on JUST that week's numbers, so
-          // the latest point on the line agrees with the weekly Power Ranking
-          // table — including mid-week swaps that a season-to-date cumulative
-          // view would bury under prior weeks of data.
-          const weekData = {};
-          branches.forEach(b => {
-            const bRows = data.filter(r => r.branch === b && r.week === w);
-            const sold = bRows.reduce((a, r) => a + r.sold_accounts, 0);
-            const rev = bRows.reduce((a, r) => a + r.revenue, 0);
-            const multi = bRows.reduce((a, r) => a + r.multi_years, 0);
-            // Reps W/ A Sale for this single week — counted from raw sales
-            // when available so it matches the table's single-week reps logic.
-            let reps;
-            const raw = indicatorSales();
-            if (Array.isArray(raw) && raw.length) {
-              reps = new Set(raw.filter(s => s.office === b && s.week === w).map(s => s.rep).filter(Boolean)).size;
-            } else {
-              reps = bRows[0]?.reps || 0;
-            }
-            reps = Math.max(1, reps); // avoid divide-by-zero for PRA
-            const twelve = bRows.reduce((a, r) => a + (r.twelve_month || 0), 0);
-            const ctTotal = twelve + multi;
-            // Avg Initial weighted by non-Sentricon counts (falls back to sold_accounts)
-            const aiDen = bRows.reduce((a, r) => a + (r.avg_initial_count != null ? r.avg_initial_count : r.sold_accounts), 0);
-            const aiNum = bRows.reduce((a, r) => a + r.avg_initial * (r.avg_initial_count != null ? r.avg_initial_count : r.sold_accounts), 0);
-            weekData[b] = {
-              sold_accounts: sold, revenue: rev,
-              avg_initial: aiDen > 0 ? aiNum / aiDen : 0,
-              acv: sold > 0 ? rev / sold : 0,
-              pra: rev / reps,
-              multi_year_pct: ctTotal > 0 ? multi / ctTotal : 0,
-              auto_pay_pct: sold > 0 ? bRows.reduce((a, r) => a + r.auto_pay_pct * r.sold_accounts, 0) / sold : 0,
-              reps,
-            };
-          });
-          // Golf scoring — sum of per-metric ranks, lower = better. Matches table.
-          // Ties: higher D2D Revenue → higher Avg Pest Initial.
-          // Reps W/ A Sale is intentionally EXCLUDED here, mirroring the
-          // Power Ranking table — more reps doesn't make a branch a better
-          // seller, just a bigger one. Including it here was making the
-          // trend chart disagree with the table on the leader.
-          const pts = {};
-          branches.forEach(b => pts[b] = 0);
-          INDICATOR_METRICS.filter(m => m.key !== 'reps').forEach(m => {
-            const sorted = branches.slice().sort((a, b) => (weekData[b]?.[m.key] || 0) - (weekData[a]?.[m.key] || 0));
-            sorted.forEach((b, i) => { pts[b] += i + 1; });
-          });
-          const ranked = branches.slice().sort((a, b) => {
-            const tp = (pts[a] || 0) - (pts[b] || 0);
-            if (tp !== 0) return tp;
-            const rev = (weekData[b]?.revenue || 0) - (weekData[a]?.revenue || 0);
-            if (rev !== 0) return rev;
-            return (weekData[b]?.avg_initial || 0) - (weekData[a]?.avg_initial || 0);
-          });
-          return ranked.indexOf(branch) + 1;
-        }
+        if (isRanking) return rankIx.get(branch + '|' + w) || null;
 
-        const weekRow = data.find(r => r.branch === branch && r.week === w);
+        const weekRow = rowsAt(branch, w)[0];
         if (!weekRow) return null;
         const sold = weekRow.sold_accounts;
         if (metricKey === 'pra') return weekRow.reps > 0 ? weekRow.revenue / weekRow.reps : 0;
