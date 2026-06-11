@@ -20294,39 +20294,88 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep) {
 }
 
 // ── YoY Trend chart ──────────────────────────────────────────────────────
-// Monthly Revenue (or Sales) for the current year vs last year as two
-// lines — the month-over-month shape with the year-over-year gap visible
-// at a glance. Company-wide within the current department toggle; ignores
-// the page's date range on purpose (it's an always-Jan-to-Dec view).
+// WEEKLY metric lines for the current year vs last year — the week-by-week
+// shape with the year-over-year gap visible at a glance. Pick the metric
+// from the dropdown (Revenue, Sales, ACV, Avg Initial, Avg Pest Initial,
+// MY %, Audit %, Cancel %). Company-wide within the current department
+// toggle; ignores the page's date range on purpose (always a full-year
+// week-of-year axis, Sunday-anchored like everything else).
+const YOY_METRICS = [
+  ['revenue',     'Revenue',          'usd'],
+  ['count',       'Sales',            'int'],
+  ['acv',         'ACV',              'usd'],
+  ['avg_initial', 'Avg Initial',      'usd'],
+  ['avg_pest',    'Avg Pest Initial', 'usd'],
+  ['my_pct',      'MY %',             'pct'],
+  ['audit_pct',   'Audit %',          'pct'],
+  ['cancel_pct',  'Cancel %',         'pct'],
+];
 function indicatorYoYTrendChart() {
   const id = 'chart-yoy-trend';
   const metric = state._indicatorYoYMetric || 'revenue';
+  const mDef = YOY_METRICS.find(m => m[0] === metric) || YOY_METRICS[0];
+  const kind = mDef[2];
   const raw = indicatorSales();
   const curY = new Date().getFullYear(), prevY = curY - 1;
-  const cur = Array(12).fill(0), prev = Array(12).fill(0);
-  const curN = Array(12).fill(0), prevN = Array(12).fill(0);
-  let lastDataMonth = -1;
+  const PEST_RE = /sentricon|german\s*roach|interior\s*flea/i;
+
+  // Per (year, week-of-year) accumulators. Week 1 = the Sunday-anchored
+  // week containing Jan 1 (same convention as the week labels everywhere).
+  const mk = () => ({ rev: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, pestSum: 0, pestN: 0, cancels: 0, cancelElig: 0 });
+  const acc = { [curY]: {}, [prevY]: {} };
+  let maxWeek = 0, lastDataWeek = 0;
   for (const s of raw) {
     const iso = dateSoldToIso(s.dateSold);
     if (!iso) continue;
-    const y = Number(iso.slice(0, 4)), m = Number(iso.slice(5, 7)) - 1;
-    if (y === curY) { cur[m] += Number(s.contractValue) || 0; curN[m]++; if (m > lastDataMonth) lastDataMonth = m; }
-    else if (y === prevY) { prev[m] += Number(s.contractValue) || 0; prevN[m]++; }
+    const y = Number(iso.slice(0, 4));
+    if (y !== curY && y !== prevY) continue;
+    const d = new Date(iso + 'T00:00');
+    if (isNaN(d)) continue;
+    const jan1 = new Date(y, 0, 1);
+    const anchor = new Date(jan1); anchor.setDate(anchor.getDate() - anchor.getDay());
+    const wk = Math.floor((d - anchor) / 604800000) + 1;
+    if (wk < 1) continue;
+    const a = acc[y][wk] || (acc[y][wk] = mk());
+    a.rev += Number(s.contractValue) || 0;
+    a.n++;
+    if (Number(s.contract) >= 18) a.multi++;
+    if (Number(s.contract) === 12) a.twelve++;
+    if (/failed\s*audit/i.test(s.customerFlags || '')) a.fail++;
+    a.initSum += Number(s.initialPrice) || 0;
+    if (!PEST_RE.test(s.subscription || '')) { a.pestSum += Number(s.initialPrice) || 0; a.pestN++; }
+    if (_isReportableCancel(s)) a.cancels++;
+    if (!_isExcludableCancel(s)) a.cancelElig++;
+    if (wk > maxWeek) maxWeek = wk;
+    if (y === curY && wk > lastDataWeek) lastDataWeek = wk;
   }
-  // Current-year line stops at the last month with data instead of cliff-
-  // diving to $0 for future months.
-  const curVals  = (metric === 'count' ? curN : cur).map((v, i) => (i <= lastDataMonth ? v : null));
-  const prevVals = (metric === 'count' ? prevN : prev);
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  maxWeek = Math.min(Math.max(maxWeek, 1), 54);
 
-  const toggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-    ...[['revenue', 'Revenue'], ['count', 'Sales']].map(([id2, label]) => el('button', {
-      class: 'px-2.5 py-1 text-[11px] font-semibold transition',
-      style: metric === id2
-        ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-        : { background: 'transparent', color: 'var(--text)' },
-      onclick: () => { state._indicatorYoYMetric = id2; mountApp(); },
-    }, label)));
+  const valOf = (a) => {
+    if (!a) return null;
+    switch (metric) {
+      case 'revenue':     return a.rev;
+      case 'count':       return a.n;
+      case 'acv':         return a.n > 0 ? a.rev / a.n : null;
+      case 'avg_initial': return a.n > 0 ? a.initSum / a.n : null;
+      case 'avg_pest':    return a.pestN > 0 ? a.pestSum / a.pestN : null;
+      case 'my_pct':      { const ct = a.twelve + a.multi; return ct > 0 ? a.multi / ct : null; }
+      case 'audit_pct':   return a.n > 0 ? (a.n - a.fail) / a.n : null;
+      case 'cancel_pct':  return a.cancelElig > 0 ? a.cancels / a.cancelElig : null;
+      default:            return null;
+    }
+  };
+  const weeksAxis = Array.from({ length: maxWeek }, (_, i) => i + 1);
+  const curVals  = weeksAxis.map(w => (w <= lastDataWeek ? valOf(acc[curY][w]) : null));
+  const prevVals = weeksAxis.map(w => valOf(acc[prevY][w]));
+  const fmtVal = (v) => v == null ? '—'
+    : kind === 'usd' ? '$' + (metric === 'revenue' ? Math.round(v).toLocaleString() : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+    : kind === 'pct' ? (v * 100).toFixed(1) + '%'
+    : fmt.int(v);
+
+  const metricSel = el('select', {
+    class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+    onchange: (e) => { state._indicatorYoYMetric = e.target.value; mountApp(); },
+  }, ...YOY_METRICS.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === metric) o.selected = true; return o; }));
 
   const cvsWrap = el('div', { style: { position: 'relative', height: '280px', width: '100%' } });
   cvsWrap.append(el('canvas', { id }));
@@ -20338,14 +20387,13 @@ function indicatorYoYTrendChart() {
     const isDark = state.theme === 'dark';
     const txt = isDark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)';
     const grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
-    const isUsd = metric === 'revenue';
     _chartInstances[id] = new Chart(cvs.getContext('2d'), {
       type: 'line',
       data: {
-        labels: MONTHS,
+        labels: weeksAxis.map(w => 'Wk ' + w),
         datasets: [
-          { label: String(curY), data: curVals, borderColor: '#8DC63F', backgroundColor: 'rgba(141,198,63,.12)', fill: true, borderWidth: 3, tension: 0.35, pointRadius: 3, pointHoverRadius: 5 },
-          { label: String(prevY), data: prevVals, borderColor: isDark ? 'rgba(255,255,255,.45)' : 'rgba(0,0,0,.35)', borderDash: [6, 4], backgroundColor: 'transparent', fill: false, borderWidth: 2, tension: 0.35, pointRadius: 2, pointHoverRadius: 5 },
+          { label: String(curY), data: curVals, borderColor: '#8DC63F', backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct', spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5 },
+          { label: String(prevY), data: prevVals, borderColor: isDark ? 'rgba(255,255,255,.45)' : 'rgba(0,0,0,.35)', borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5 },
         ],
       },
       options: {
@@ -20356,16 +20404,16 @@ function indicatorYoYTrendChart() {
           tooltip: {
             backgroundColor: '#1D1D1D', padding: 10, cornerRadius: 8,
             callbacks: {
-              label: (ctx) => {
-                const v = ctx.parsed.y;
-                const fmtV = isUsd ? '$' + Math.round(v).toLocaleString() : fmt.int(v);
-                return ctx.dataset.label + ': ' + fmtV;
-              },
+              label: (ctx) => ctx.dataset.label + ': ' + fmtVal(ctx.parsed.y),
               footer: (items) => {
-                const m = items[0]?.dataIndex;
-                if (m == null) return '';
-                const c = (metric === 'count' ? curN : cur)[m], p = (metric === 'count' ? prevN : prev)[m];
-                if (!(p > 0) || m > lastDataMonth) return '';
+                const i = items[0]?.dataIndex;
+                if (i == null) return '';
+                const c = curVals[i], p = prevVals[i];
+                if (c == null || p == null || !(p !== 0)) return '';
+                if (kind === 'pct') {
+                  const d = (c - p) * 100;
+                  return 'YoY: ' + (d >= 0 ? '+' : '') + d.toFixed(1) + ' pts';
+                }
                 const d = (c - p) / p;
                 return 'YoY: ' + (d >= 0 ? '+' : '') + (d * 100).toFixed(1) + '%';
               },
@@ -20373,9 +20421,11 @@ function indicatorYoYTrendChart() {
           },
         },
         scales: {
-          y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 },
-            callback: isUsd ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : v)) : undefined } },
-          x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 } } },
+          y: { beginAtZero: kind !== 'pct', grid: { color: grid }, ticks: { color: txt, font: { size: 10 },
+            callback: kind === 'usd'
+              ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : v))
+              : kind === 'pct' ? (v => (v * 100).toFixed(0) + '%') : undefined } },
+          x: { grid: { display: false }, ticks: { color: txt, font: { size: 9 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 18 } },
         },
       },
     });
@@ -20386,8 +20436,8 @@ function indicatorYoYTrendChart() {
       el('div', {},
         el('h3', { class: 'text-sm font-bold' }, 'YoY Trend — ' + curY + ' vs ' + prevY),
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
-          'Monthly ' + (metric === 'count' ? 'sold accounts' : 'revenue') + ' · solid = ' + curY + ' · dashed = ' + prevY + ' · hover for the YoY gap')),
-      toggle),
+          'Weekly ' + mDef[1] + ' by week of year · solid = ' + curY + ' · dashed = ' + prevY + ' · hover for the YoY gap')),
+      metricSel),
     cvsWrap);
 }
 
