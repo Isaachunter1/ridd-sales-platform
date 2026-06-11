@@ -11041,12 +11041,14 @@ function springCleaningCompute(sales, branchList) {
     else excluded.push(s);
   }
 
-  // PRA denominator = EVERY D2D rep who made a sale in the branch/window,
-  // even if all their sales are Last Resort or failed audit. A rep with only
-  // a sub-$99 sale still counts against the per-rep average (it SHOULD), so
-  // the rep set is built from the full D2D sale set — not just scored sales.
+  // PRA denominator = every D2D rep with at least one NON-Last-Resort sale
+  // in the branch/window. Last Resort (<$99 initial) accounts leave NO
+  // footprint on PRA — they don't add revenue and a rep whose only sales
+  // are Last Resorts doesn't dilute the per-rep average either. (Failed
+  // audit / pending sales still count the rep — those are real production.)
   const branchReps = new Map(); // office → Set(rep)
   for (const s of d2dSales) {
+    if ((Number(s.initialPrice) || 0) < 99) continue; // Last Resort — no PRA footprint
     const b = s.office || 'UNKNOWN';
     if (!branchReps.has(b)) branchReps.set(b, new Set());
     if (s.rep) branchReps.get(b).add(s.rep);
@@ -11253,7 +11255,7 @@ function openSpringCleaningHelpModal() {
         section('The six categories (per branch)',
           metric('Revenue', 'Total Contract Value sold.'),
           metric('Avg Pest Init', 'Average initial price, excluding Sentricon / German Roach / Interior Flea services.'),
-          metric('PRA', 'Per Rep Average = Revenue ÷ number of reps who sold that round.'),
+          metric('PRA', 'Per Rep Average = Revenue ÷ number of reps who sold that round. Last Resort sales leave no footprint here — they add no revenue and don\'t count a rep into the denominator.'),
           metric('ACV', 'Average Contract Value per account.'),
           metric('24+ Mo %', 'Share of accounts on a 24-month-or-longer agreement. One-time services are excluded from the denominator; everything else counts.'),
           metric('Autopay %', 'Share of accounts with a payment method on file.')),
@@ -11263,7 +11265,7 @@ function openSpringCleaningHelpModal() {
           el('div', { class: 'mt-1' }, 'Tiebreakers: a dead tie WITHIN a category means both teams take the same points and the next place is skipped (two teams at 100% AutoPay both score 1, the next team scores 3). A tie in TOTAL points goes to the higher Passed Audit %; if that\'s somehow tied too, higher Avg Pest Initial decides it.'),
           el('div', { class: 'mt-1' }, 'Place → Bugs: 1st = 6, 2nd = 5, 3rd = 4, 4th = 3, 5th = 2, 6th = 1, 7th = 0.')),
         section('Not counting',
-          el('div', {}, 'Last Resort = initial under $99 (own export tab). Failed Audit = flagged Failed Audit (own export tab). Both are dropped from every category. Full lists live in the .xlsx export.')),
+          el('div', {}, 'Last Resort = initial under $99 (own export tab). Failed Audit = flagged Failed Audit (own export tab). Both are dropped from every category — the ONLY place Last Resort accounts still count is Audit %, by their actual flag. Full lists live in the .xlsx export.')),
       ),
     ),
   );
