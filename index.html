@@ -11946,6 +11946,52 @@ function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, 
     };
   });
 }
+// Bucket-axis variant of aggregateRawSalesByGroup — same output row shape,
+// but rows are keyed by BUCKET ordinal (day / month buckets from
+// getChartBuckets) instead of the CSV week number, so the trend charts can
+// render daily granularity on short ranges and monthly on long ones.
+function aggregateRawSalesByBucket(rawSales, getGroupKey, buckets, applyExclusion = false, pestExcludeRegex = null) {
+  const groups = {};
+  (rawSales || []).forEach(s => {
+    if (!s.rep) return;
+    if (applyExclusion && isRepExcluded(s.rep)) return;
+    const groupKey = getGroupKey(s);
+    if (!groupKey) return;
+    for (let i = 0; i < buckets.length; i++) {
+      if (!buckets[i].match(s)) continue;
+      const key = groupKey + '|' + i;
+      if (!groups[key]) groups[key] = { groupKey, week: i, sales: [] };
+      groups[key].sales.push(s);
+      break;
+    }
+  });
+  return Object.values(groups).map(g => {
+    const ss = g.sales;
+    const count = ss.length;
+    const revenue = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
+    const pest = pestExcludeRegex ? ss.filter(s => !pestExcludeRegex.test(s.subscription || '')) : ss;
+    const avgInit = pest.length > 0 ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
+    const multiYears = ss.filter(s => Number(s.contract) > 12).length;
+    const twelveMonth = ss.filter(s => Number(s.contract) === 12).length;
+    const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
+    const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
+    return {
+      week: g.week,
+      date: buckets[g.week]?.label || '',
+      iso_start: null,
+      branch: g.groupKey,
+      sold_accounts: count,
+      revenue,
+      avg_initial: avgInit,
+      avg_initial_count: pest.length,
+      auto_pay_pct: count > 0 ? autoPayCount / count : 0,
+      multi_years: multiYears,
+      twelve_month: twelveMonth,
+      reps: uniqueReps,
+    };
+  });
+}
+
 // Subscription exclusions used at the team-aggregation level — the same
 // strict list rep-level analytics use, kept here so team rollups treat
 // non-pest accounts the same way.
@@ -14108,18 +14154,39 @@ function viewIndicators() {
     })(),
 
     // ── Charts ──
-    // Charts share the table's date filter when in Range mode, or use the full
-    // YTD week list when in Weekly mode (so the full season trend is visible
-    // even though the table is showing one week).
-    !_focusedComp && el('div', { class: 'flex flex-col gap-4' },
-      el('div', {},
-        indicatorChart('Branch Power Ranking', isRange ? data : allData, branches, '_power_ranking', isRange ? weeks : allWeeks, true),
-      ),
-      el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4' },
-        indicatorChart('Weekly PRA',     isRange ? data : allData, branches, 'pra',             isRange ? weeks : allWeeks),
-        indicatorChart('Weekly Revenue', isRange ? data : allData, branches, 'revenue',         isRange ? weeks : allWeeks),
-      ),
-    ),
+    // Granularity follows the range selector: ≤31 days plots DAILY points
+    // (so This Week / Last Week actually graph), ≤180 days stays weekly,
+    // longer ranges roll up to months — same rules as getChartBuckets.
+    // Day/month axes aggregate straight from the raw sales.
+    !_focusedComp && (() => {
+      let chartData = isRange ? data : allData;
+      let chartWeeks = isRange ? weeks : allWeeks;
+      let chartLabels = null;
+      let grain = 'Weekly';
+      const rawAvail = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
+      if (isRange && rawAvail && rangeBounds) {
+        const buckets = getChartBuckets(rangeBounds, allWeeks, state.indicatorsData);
+        if (buckets.length > 0 && buckets[0].kind !== 'week') {
+          const groupFn = state.indicatorsGroupBy === 'teams'
+            ? (s => getRepTeam(s.rep) || 'Unassigned')
+            : (s => s.office || 'Unknown');
+          chartData = aggregateRawSalesByBucket(indicatorSales(), groupFn, buckets,
+            state.indicatorsGroupBy === 'teams', state.indicatorsGroupBy === 'teams' ? TEAM_PEST_EXCLUDE : null);
+          chartWeeks = buckets.map((b, i) => i);
+          chartLabels = buckets.map(b => b.label);
+          grain = buckets[0].kind === 'day' ? 'Daily' : 'Monthly';
+        }
+      }
+      return el('div', { class: 'flex flex-col gap-4' },
+        el('div', {},
+          indicatorChart('Branch Power Ranking', chartData, branches, '_power_ranking', chartWeeks, true, chartLabels),
+        ),
+        el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4' },
+          indicatorChart(grain + ' PRA',     chartData, branches, 'pra',     chartWeeks, false, chartLabels),
+          indicatorChart(grain + ' Revenue', chartData, branches, 'revenue', chartWeeks, false, chartLabels),
+        ),
+      );
+    })(),
 
     // ════════════════════════════════════════════════════════════════
     // REP-LEVEL ANALYTICS (computed from raw sales if available)
@@ -19970,7 +20037,10 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep) {
   );
 }
 
-function indicatorChart(title, data, branches, metricKey, weeks, invertForRanking = false) {
+function indicatorChart(title, data, branches, metricKey, weeks, invertForRanking = false, bucketLabels = null) {
+  // bucketLabels: when provided, the x-axis is day/month buckets (ordinals)
+  // instead of CSV week numbers — labels come from this array and the
+  // raw-sales reps index is skipped (synthetic rows already carry reps).
   const canvasId = 'chart-' + metricKey;
   const isRanking = metricKey === '_power_ranking';
   const chartHeight = isRanking ? '320px' : '260px';
@@ -20095,10 +20165,10 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
     if (isRanking) {
       // Reps W/ A Sale per branch|week — one pass over raw sales (matches the
       // table's single-week reps logic).
-      const raw = indicatorSales();
-      const hasRaw = Array.isArray(raw) && raw.length > 0;
+      const raw = bucketLabels ? null : indicatorSales();
+      const hasRaw = !bucketLabels && Array.isArray(raw) && raw.length > 0;
       const repsIx = new Map();
-      if (hasRaw) for (const s of raw) {
+      if (hasRaw) for (const s of (raw || [])) {
         if (!s.rep) continue;
         const k = s.office + '|' + s.week;
         let set = repsIx.get(k); if (!set) { set = new Set(); repsIx.set(k, set); }
@@ -20230,6 +20300,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
       type: 'line',
       data: {
         labels: weeks.map(w => {
+          if (bucketLabels) return bucketLabels[w] || '';
           const row = data.find(r => r.week === w && r.date);
           return indicatorWeekLabel(w, { short: true, rows: data }) + (row?.date ? '\n' + row.date : '');
         }),
@@ -20285,6 +20356,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
                 if (!items.length) return '';
                 const idx = items[0].dataIndex;
                 const w = weeks[idx];
+                if (bucketLabels) return String(bucketLabels[w] || '').replace('\n', ' · ');
                 const row = data.find(r => r.week === w && r.date);
                 return indicatorWeekLabel(w, { rows: data }) + (row?.date ? ' (' + row.date + ')' : '');
               },
