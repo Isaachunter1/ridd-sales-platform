@@ -11795,8 +11795,12 @@ function findDuplicateRepCandidates() {
 // spellings still counts as ONE rep for revenue, sales, ranking, etc.
 function getCanonicalRepName(name) {
   if (!name) return name;
+  // FieldRoutes sometimes exports doubled spaces ("Karson  Murray") —
+  // collapse whitespace so the same human can't split into two reps and
+  // team/tier lookups keyed on the clean spelling still match.
+  const clean = String(name).replace(/\s+/g, ' ').trim();
   const aliases = state._indicatorRepAlias || {};
-  return aliases[name] || name;
+  return aliases[clean] || aliases[name] || clean;
 }
 // If a name is an alias (has been merged into something else), return
 // the canonical target. Returns null when the name is itself canonical.
@@ -18428,10 +18432,12 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     ),
   );
 
-  // ── Branch revenue strip — mirrors the CRM's branch totals bar so the
-  // printed sheet can be sanity-checked against FieldRoutes at a glance.
-  // Sums EVERY rep in the dataset (not just the top-15 rows below), same
-  // window + SNS-exclusion rules as the leaderboard.
+  // ── Branch revenue panel — vertical table on the right of the page so
+  // the printed sheet can be sanity-checked against the CRM's branch
+  // totals at a glance. Sums EVERY rep in the dataset (not just the
+  // top-15 rows below) and inherits the page's department toggle — with
+  // Door to Door selected these are D2D-only dollars (no upsells / inside
+  // sales), matching what the leaderboard itself counts.
   const branchTotals = {};
   for (const r of (allReps || [])) {
     const o = titleCase(r.office || '') || 'Unknown';
@@ -18439,16 +18445,18 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   }
   const branchEntries = Object.entries(branchTotals).sort((a, b) => b[1] - a[1]);
   const totalRev = branchEntries.reduce((a, [, v]) => a + v, 0);
-  const revBox = (label, value, isTotal) => el('div', {
-    style: { flex: '1', minWidth: '0', border: '1px solid #e0e0e0', borderRadius: '4px', overflow: 'hidden', textAlign: 'center' },
-  },
-    el('div', { style: { background: isTotal ? '#1D1D1D' : '#3F6A14', color: '#fff', fontSize: '8px', fontWeight: '800', letterSpacing: '0.06em', textTransform: 'uppercase', padding: '2px 4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
-    el('div', { style: { fontSize: '12px', fontWeight: '900', padding: '3px 4px', fontVariantNumeric: 'tabular-nums', background: isTotal ? '#f4f4f4' : '#fff' } }, fmt.usd0(value)));
-  if (branchEntries.length > 0) {
-    page.append(el('div', { style: { display: 'flex', gap: '4px', marginBottom: '6px' } },
-      revBox('Total', totalRev, true),
-      ...branchEntries.map(([o, v]) => revBox(o, v, false))));
-  }
+  const deptLabel = (typeof INDICATOR_DEPTS !== 'undefined'
+    && (INDICATOR_DEPTS.find(([k]) => k === (state.indicatorDept || 'all')) || [])[1]) || 'All';
+  const branchPanel = branchEntries.length === 0 ? null : el('div', {},
+    el('div', { style: { fontSize: '11px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '4px 0 2px' } }, 'Branch Revenue'),
+    el('div', { style: { fontSize: '8px', color: '#888', marginBottom: '3px' } },
+      (deptLabel === 'All' ? 'All departments' : deptLabel + ' only') + ' · every rep in window'),
+    el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e5e5' } },
+      el('tbody', {},
+        ...[['Total', totalRev, true], ...branchEntries.map(([o, v]) => [o, v, false])].map(([lab, v, isTotal]) =>
+          el('tr', { style: { background: isTotal ? '#1D1D1D' : '#fff' } },
+            el('td', { style: { padding: '4px 6px', fontSize: '9px', fontWeight: isTotal ? '800' : '600', color: isTotal ? '#fff' : '#1D1D1D', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap' } }, lab),
+            el('td', { style: { padding: '4px 6px', fontSize: '9.5px', fontWeight: '800', color: isTotal ? '#8DC63F' : '#1D1D1D', textAlign: 'right', borderBottom: '1px solid #f0f0f0', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } }, fmt.usd0(v)))))));
 
   // For each section we identify the column-leading value per metric
   // so the manager sees at a glance who's #1 in ACV / pest / MY% / etc.
@@ -18612,11 +18620,15 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     );
   };
 
-  page.append(
-    tableSection('Top ' + limitOverall + ' Overall', '#1D1D1D', overall),
-    el('div', { style: { height: '4px' } }),
-    tableSection('Top ' + limitRookie + ' Rookies', '#0EA5E9', rookies),
-  );
+  // Leaderboard tables on the left, branch revenue panel on the right.
+  page.append(el('div', { style: { display: 'flex', gap: '10px', alignItems: 'flex-start' } },
+    el('div', { style: { flex: '1 1 auto', minWidth: '0' } },
+      tableSection('Top ' + limitOverall + ' Overall', '#1D1D1D', overall),
+      el('div', { style: { height: '4px' } }),
+      tableSection('Top ' + limitRookie + ' Rookies', '#0EA5E9', rookies),
+    ),
+    branchPanel && el('div', { style: { flex: '0 0 148px', width: '148px' } }, branchPanel),
+  ));
 
   return page;
 }
