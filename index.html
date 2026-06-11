@@ -2683,21 +2683,29 @@ function parseAuditCsv(text, fallbackOffice) {
     }
     out.push(cur.trim()); return out;
   };
-  const lines = text.replace(/^﻿/, '').split('\n').filter(l => l.trim());
+  const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
   if (lines.length < 2) throw new Error('CSV has no data rows');
-  const H = parseLine(lines[0]).map(h => h.toLowerCase().trim());
+  // The header row isn't always line 1 (sheet exports often carry a title
+  // row or two above it) — scan for the first line that has both an
+  // Account column and a Result column.
+  let headerIdx = -1, H = null;
+  for (let i = 0; i < Math.min(lines.length, 40); i++) {
+    const cand = parseLine(lines[i]).map(h => h.toLowerCase().replace(/^﻿/, '').trim());
+    const hasAccount = cand.some(h => h.replace(/[^a-z#]/g, '').includes('accountid') || h.includes('account #') || (h.includes('account') && (h.includes('id') || h.includes('number'))));
+    const hasResult = cand.some(h => h.includes('result'));
+    if (hasAccount && hasResult) { headerIdx = i; H = cand; break; }
+  }
+  if (headerIdx < 0) throw new Error('Couldn’t find a header row with AccountID + Result columns — export the branch tab itself (File → Download → CSV, with that tab open)');
   const find = (pred) => H.findIndex(pred);
   const col = {
     soldDate:  find(h => h.includes('sold date') || h === 'date'),
     rep:       find(h => h.includes('sales rep') || h === 'rep'),
-    customer:  find(h => h.includes('customer name')),
-    accountId: find(h => h.includes('accountid') || h.includes('account id') || h.includes('account #')),
+    customer:  find(h => h.includes('customer name') || h === 'customer'),
+    accountId: find(h => h.replace(/[^a-z#]/g, '').includes('accountid') || h.includes('account #') || (h.includes('account') && (h.includes('id') || h.includes('number')))),
     office:    find(h => h.includes('office') || h.includes('branch')),
     result:    find(h => h.includes('result')),
     notes:     find(h => h === 'notes'),
   };
-  if (col.accountId < 0) throw new Error('No AccountID column found');
-  if (col.result < 0) throw new Error('No Result column found');
   const checkCol = {
     customer_info:   find(h => h.includes('customer info')),
     contract_signed: find(h => h.includes('contract signed')),
@@ -2713,7 +2721,7 @@ function parseAuditCsv(text, fallbackOffice) {
     scheduled:       find(h => h.includes('scheduled')),
   };
   const rows = [];
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = headerIdx + 1; i < lines.length; i++) {
     const c = parseLine(lines[i]);
     const id = (c[col.accountId] || '').replace(/\D/g, '');
     if (!id) continue; // header repeats / spacer / formula-junk rows
