@@ -11831,11 +11831,11 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
         ),
         el('div', { class: 'flex items-center gap-2 shrink-0' },
           el('button', {
-            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
-            style: { background: '#141414', color: '#fff' },
-            title: 'Open the live standings poster — bug count tracker + all four rounds',
+            class: 'inline-flex items-center justify-center rounded-full text-xs cursor-pointer',
+            style: { width: '22px', height: '22px', background: '#141414', color: '#fff' },
+            title: 'Standings — live poster with the bug tracker + all four rounds',
             onclick: () => openSpringStandingsModal(),
-          }, '🪳 Standings'),
+          }, '🏆'),
           el('button', {
             class: 'inline-flex items-center justify-center rounded-full text-xs cursor-pointer',
             style: { width: '22px', height: '22px', background: '#141414', color: '#fff' },
