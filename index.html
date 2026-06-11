@@ -18428,6 +18428,28 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     ),
   );
 
+  // ── Branch revenue strip — mirrors the CRM's branch totals bar so the
+  // printed sheet can be sanity-checked against FieldRoutes at a glance.
+  // Sums EVERY rep in the dataset (not just the top-15 rows below), same
+  // window + SNS-exclusion rules as the leaderboard.
+  const branchTotals = {};
+  for (const r of (allReps || [])) {
+    const o = titleCase(r.office || '') || 'Unknown';
+    branchTotals[o] = (branchTotals[o] || 0) + (r.revenue || 0);
+  }
+  const branchEntries = Object.entries(branchTotals).sort((a, b) => b[1] - a[1]);
+  const totalRev = branchEntries.reduce((a, [, v]) => a + v, 0);
+  const revBox = (label, value, isTotal) => el('div', {
+    style: { flex: '1', minWidth: '0', border: '1px solid #e0e0e0', borderRadius: '4px', overflow: 'hidden', textAlign: 'center' },
+  },
+    el('div', { style: { background: isTotal ? '#1D1D1D' : '#3F6A14', color: '#fff', fontSize: '8px', fontWeight: '800', letterSpacing: '0.06em', textTransform: 'uppercase', padding: '2px 4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
+    el('div', { style: { fontSize: '12px', fontWeight: '900', padding: '3px 4px', fontVariantNumeric: 'tabular-nums', background: isTotal ? '#f4f4f4' : '#fff' } }, fmt.usd0(value)));
+  if (branchEntries.length > 0) {
+    page.append(el('div', { style: { display: 'flex', gap: '4px', marginBottom: '6px' } },
+      revBox('Total', totalRev, true),
+      ...branchEntries.map(([o, v]) => revBox(o, v, false))));
+  }
+
   // For each section we identify the column-leading value per metric
   // so the manager sees at a glance who's #1 in ACV / pest / MY% / etc.
   // Cancel % is "best when low" so its leader is the min, not the max.
