@@ -11529,10 +11529,12 @@ function openSpringStandingsModal() {
       };
       const rankRow = (b) => {
         const m = byOffice[b];
-        return el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '11px', lineHeight: '1.7' } },
+        // Fixed grid columns so the points stack in one clean vertical
+        // line regardless of how wide the branch abbreviation is.
+        return el('div', { style: { display: 'grid', gridTemplateColumns: '36px 1fr 30px', gap: '8px', fontSize: '11px', lineHeight: '1.7', alignItems: 'baseline' } },
           el('span', { style: { fontWeight: '900', color: '#fff' } }, abbrev(b)),
-          el('span', { style: { fontWeight: '800', color: '#fff', fontVariantNumeric: 'tabular-nums' } }, m ? m.totalPoints : 0),
-          el('span', { style: { fontWeight: '900', color: m && m.place === 1 ? '#cddc39' : '#e8e8e2', minWidth: '26px', textAlign: 'right' } }, m ? ordinal(m.place) : ''));
+          el('span', { style: { fontWeight: '800', color: '#fff', fontVariantNumeric: 'tabular-nums', textAlign: 'right' } }, m ? m.totalPoints : 0),
+          el('span', { style: { fontWeight: '900', color: m && m.place === 1 ? '#cddc39' : '#e8e8e2', textAlign: 'right' } }, m ? ordinal(m.place) : ''));
       };
       const bugRow = (b) => {
         const m = byOffice[b];
