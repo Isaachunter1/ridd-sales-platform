@@ -4948,26 +4948,27 @@ function openImportInsightsModal(insights) {
   const rk = insights.repsKnocking;
   if (rk && rk.total > 0) {
     const tc = (s) => (s || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-    const knockChip = (label, n, accent) => el('span', {
-      class: 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold',
-      style: { background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text)' },
-    }, el('span', { style: { color: accent } }, label), el('span', { class: 'tabular-nums font-bold' }, n));
+    const knockTable = (title, rows, labelFmt) => el('div', {},
+      el('div', { class: 'text-[9px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, title),
+      el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
+        el('tbody', {},
+          ...rows.map(([k, n], i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'py-1 pr-2 text-[10px] tabular-nums', style: { color: 'var(--text-subtle)', width: '24px' } }, '#' + (i + 1)),
+            el('td', { class: 'py-1 text-xs font-semibold' }, labelFmt(k)),
+            el('td', { class: 'py-1 text-xs text-right tabular-nums font-bold' }, fmt.int(n)))))));
     modal.append(el('div', {
       class: 'rounded-lg border p-4 mb-3',
       style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' },
     },
-      el('div', { class: 'flex items-baseline gap-3 flex-wrap' },
+      el('div', { class: 'flex items-baseline gap-3 flex-wrap mb-2' },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, '🚪 Reps Knocking'),
         el('div', { class: 'text-2xl font-bold tabular-nums' }, fmt.int(rk.total)),
         el('div', { class: 'text-[11px] text-muted-' },
-          'D2D reps with a sale in the last 2 weeks (' + rk.windowLabel + ') · serviced or not'),
+          'D2D reps with a sale in the last 2 weeks (' + rk.windowLabel + ')'),
       ),
-      rk.byBranch.length > 0 && el('div', { class: 'flex gap-1.5 flex-wrap mt-2' },
-        el('span', { class: 'text-[9px] uppercase tracking-widest font-bold self-center', style: { color: 'var(--text-subtle)' } }, 'Branch'),
-        ...rk.byBranch.map(([b, n]) => knockChip(tc(b), n, '#3F6A14'))),
-      rk.byTeam.length > 0 && el('div', { class: 'flex gap-1.5 flex-wrap mt-1.5' },
-        el('span', { class: 'text-[9px] uppercase tracking-widest font-bold self-center', style: { color: 'var(--text-subtle)' } }, 'Team'),
-        ...rk.byTeam.map(([t, n]) => knockChip(t, n, '#0EA5E9'))),
+      el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3' },
+        rk.byBranch.length > 0 ? knockTable('By Branch', rk.byBranch, tc) : el('span'),
+        rk.byTeam.length > 0 ? knockTable('By Team', rk.byTeam, (t) => t) : el('span')),
     ));
   }
 
