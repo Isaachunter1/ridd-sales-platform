@@ -2691,11 +2691,28 @@ function viewAuditing() {
     if (d && !isNaN(d) && (!a.date || d < a.date)) a.date = d;
   }
 
-  // ── Filters: sold-year + branch ──
-  if (!state.auditYear) state.auditYear = String(new Date().getFullYear());
+  // ── Filters: sold-date range + branch. Real ranges matter here because
+  //    auditing only started recently — all-time would bury the signal
+  //    under years of never-audited accounts. ──
+  if (!state.auditRange) state.auditRange = 'this_year';
   if (!state.auditOffice) state.auditOffice = 'all';
   const dataYears = [...new Set([...acct.values()].map(a => a.date ? String(a.date.getFullYear()) : null).filter(Boolean))].sort().reverse();
-  const yr = dataYears.includes(state.auditYear) || state.auditYear === 'all' ? state.auditYear : (dataYears[0] || 'all');
+  const curYear = new Date().getFullYear();
+  const presetOpts = [
+    ['this_month', 'This Month'], ['last_month', 'Last Month'],
+    ['this_year', 'This Year'], ['last_year', 'Last Year'],
+    ...dataYears.filter(y => Number(y) < curYear - 1).map(y => ['year:' + y, y]),
+    ['all_time', 'All Time'], ['custom', 'Custom…'],
+  ];
+  const preset = presetOpts.some(([v]) => v === state.auditRange) ? state.auditRange : 'this_year';
+  const bounds = indicatorRangeBounds(preset, { start: state.auditCustomStart, end: state.auditCustomEnd });
+  const rangeLabel = preset === 'custom' ? (bounds.start + ' → ' + bounds.end) : indicatorPresetLabel(preset);
+  const inRange = (a) => {
+    if (preset === 'all_time') return true;
+    if (!a.date || isNaN(a.date)) return false;
+    const iso = a.date.toISOString().slice(0, 10);
+    return iso >= bounds.start && iso <= bounds.end;
+  };
   const offices = [...new Set([...acct.values()].map(a => a.office))].sort();
   const offFilter = state.auditOffice;
 
@@ -2705,7 +2722,7 @@ function viewAuditing() {
     coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0] } });
   const reps = {}, offs = {}, tot = mk();
   for (const a of acct.values()) {
-    if (yr !== 'all' && (!a.date || String(a.date.getFullYear()) !== yr)) continue;
+    if (!inRange(a)) continue;
     if (offFilter !== 'all' && a.office !== offFilter) continue;
     const r = reps[a.rep] || (reps[a.rep] = mk());
     const o = offs[a.office] || (offs[a.office] = mk());
@@ -2793,7 +2810,25 @@ function viewAuditing() {
     // Toolbar
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       sel(offFilter, [['all', 'All Branches'], ...offices.map(o => [o, o])], (e) => { state.auditOffice = e.target.value; mountApp(); }),
-      sel(yr, [...dataYears.map(y => [y, y]), ['all', 'All-time']], (e) => { state.auditYear = e.target.value; mountApp(); }, 'Filter by the year the account was sold'),
+      sel(preset, presetOpts, (e) => {
+        state.auditRange = e.target.value;
+        if (e.target.value === 'custom' && !state.auditCustomStart) {
+          const t = new Date(); state.auditCustomEnd = t.toISOString().slice(0, 10);
+          const s = new Date(t); s.setMonth(s.getMonth() - 1); state.auditCustomStart = s.toISOString().slice(0, 10);
+        }
+        mountApp();
+      }, 'Accounts sold in this window'),
+      preset === 'custom' && el('input', {
+        type: 'date', value: state.auditCustomStart || '',
+        class: 'rounded-xl px-2 py-1.5 text-xs',
+        onchange: (e) => { state.auditCustomStart = e.target.value; mountApp(); },
+      }),
+      preset === 'custom' && el('span', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, '→'),
+      preset === 'custom' && el('input', {
+        type: 'date', value: state.auditCustomEnd || '',
+        class: 'rounded-xl px-2 py-1.5 text-xs',
+        onchange: (e) => { state.auditCustomEnd = e.target.value; mountApp(); },
+      }),
       el('div', { class: 'text-[11px] ml-1', style: { color: 'var(--text-subtle)' } },
         'Live from the Sales Report flags — re-upload it on Indicators to refresh.')),
 
@@ -2804,7 +2839,7 @@ function viewAuditing() {
 
     // Rep + branch tables
     statTable('Sales Reps · Audit Report', repEntries,
-      'Sold = distinct D2D accounts (' + (yr === 'all' ? 'all-time' : yr) + ') · audit result from Customer Flags · Eff. Pass % treats unaudited as passed · attrition = reportable cancels.'),
+      'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · Eff. Pass % treats unaudited as passed · attrition = reportable cancels.'),
     offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, null),
 
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
