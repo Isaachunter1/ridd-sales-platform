@@ -466,12 +466,36 @@
     100% { transform: scale(1); filter: brightness(1); }
   }
 
+  /* Smooth momentum scrolling on every horizontal table wrapper */
+  .scroll-x, .overflow-x-auto { -webkit-overflow-scrolling: touch; }
+
   @media (max-width: 640px) {
     .desktop-only { display:none !important; }
     .fab { bottom: 72px !important; }
     body { padding-bottom: 60px; }
     .search-bar { max-width: none; margin: 0 4px; }
     .notif-dropdown { width: 300px; right: -40px; }
+
+    /* Modals: use the whole screen instead of floating in 24px gutters */
+    .modal-overlay { padding: 8px 6px; }
+    .modal-overlay > * { max-width: 100% !important; margin-top: 6px !important; margin-bottom: 6px !important; }
+
+    /* Header: tighter so the icon cluster fits */
+    .page-header { padding-left: 8px !important; padding-right: 8px !important; gap: 6px; }
+    .icon-btn { width: 34px; height: 34px; }
+
+    /* Spring Cleaning standings poster: keep the print layout intact and
+       let the phone scroll it sideways */
+    #spring-standings-poster { overflow-x: auto; }
+    #spring-standings-poster > div { min-width: 760px; }
+
+    /* Nav menu shouldn't overflow short screens */
+    .nav-menu { max-height: calc(100vh - 90px); overflow-y: auto; }
+
+    /* Native pickers: 16px stops iOS from zoom-jumping into the field */
+    .modal-overlay input[type='text'], .modal-overlay input[type='email'],
+    .modal-overlay input[type='password'], .modal-overlay input[type='number'],
+    .modal-overlay select { font-size: 16px; }
   }
   @media (min-width: 641px) {
     .mobile-only { display:none !important; }
@@ -2602,6 +2626,7 @@ function mobileBottomNav() {
           ['scorecards','Scorecards',iconClipboard],
           ['hall_of_fame','Hall of Fame',iconCrown],
           ...(isAdmin ? [['indicators','Indicators',iconChart]] : []),
+          ...(isAdmin ? [['reporting','Reporting',iconPie]] : []),
           ...(isAdmin ? [['admin','Settings',iconGear]] : [])
         ].map(([k,label,iconFn]) => el('button', {
           class: 'flex items-center gap-3 w-full px-4 py-2.5 text-sm',
@@ -3038,7 +3063,7 @@ function mountApp() {
       // TV Display button — opens a fullscreen sales leaderboard meant
       // for a wall-mounted TV.
       el('button', {
-        class: 'icon-btn show',
+        class: 'icon-btn show desktop-only',
         title: 'TV Display — fullscreen sales leaderboard',
         onclick: () => openTVDashboard(),
       }, iconTv(18)),
@@ -23614,11 +23639,11 @@ function reportingSubTabs() {
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
   ];
-  return el('div', { class: 'flex items-center gap-1 border-b', style: { borderColor: 'var(--border)' } },
+  return el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
     ...tabs.map(([k, label]) => {
       const active = state.reportingSubTab === k;
       return el('button', {
-        class: 'px-4 py-2.5 text-sm font-semibold transition',
+        class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
         style: {
           borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
           color: active ? 'var(--text)' : 'var(--text-muted)',
