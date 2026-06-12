@@ -4533,6 +4533,10 @@ const _SNS_REASON_RE = /sold,?\s*not\s*started/i;
 // lost. Matches "Combined", "Combined Subscriptions", "combined with #102084",
 // etc. Not real attrition, so it never counts as a cancel.
 const _COMBINED_REASON_RE = /combin/i;
+// One-time services — the job ran its course and the subscription closed out.
+// Matches "One Time Service", "One-Time", "OTS" in the cancel reason. A
+// completed one-time job is not attrition, so it never counts as a cancel.
+const _ONETIME_REASON_RE = /\b(one[\s-]?time|ots)\b/i;
 function _parseSlashDate(str) {
   if (!str) return null;
   const parts = String(str).split(' ')[0].split('/');
@@ -4561,12 +4565,16 @@ function _isSoldNotStarted(s) {
 function _isCombinedSub(s) {
   return !!s && _COMBINED_REASON_RE.test(s.cancelReason || '');
 }
-// Combined ROR + SNS + Combined-subscription check — the kinds of cancels
-// we strip from reporting metrics (paperwork churn / install failures /
-// account merges, not real attrition). Cancel Analysis intentionally
-// bypasses this so the analyst can still see them.
+function _isOneTimeCancel(s) {
+  return !!s && _ONETIME_REASON_RE.test(s.cancelReason || '');
+}
+// Combined ROR + SNS + Combined-subscription + One-Time check — the kinds
+// of cancels we strip from reporting metrics (paperwork churn / install
+// failures / account merges / completed one-time jobs, not real attrition).
+// Cancel Analysis intentionally bypasses this so the analyst can still see
+// them.
 function _isExcludableCancel(s) {
-  return _is3DayROR(s) || _isSoldNotStarted(s) || _isCombinedSub(s);
+  return _is3DayROR(s) || _isSoldNotStarted(s) || _isCombinedSub(s) || _isOneTimeCancel(s);
 }
 // "Counts as a cancel for reporting purposes." Use in place of the
 // `(s.cancelDate || s.active === 'No')` literal everywhere outside
@@ -4585,9 +4593,10 @@ function _isReportableCancel(s) {
 // subscription rows stay excluded either way — those are never attrition.
 // Persisted with the rest of the indicator settings (per browser).
 function _repCancelExcluded(s) {
-  return state._indicatorRepIncludeRor
-    ? (_isSoldNotStarted(s) || _isCombinedSub(s))
-    : _isExcludableCancel(s);
+  // SNS / Combined / One-Time are excluded no matter what; the toggle only
+  // controls whether 3-day RORs come back into the cancel counts.
+  if (_isSoldNotStarted(s) || _isCombinedSub(s) || _isOneTimeCancel(s)) return true;
+  return state._indicatorRepIncludeRor ? false : _is3DayROR(s);
 }
 function _repCancelCounts(s) {
   if (!s) return false;
@@ -17189,7 +17198,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             },
           },
             el('span', { style: { fontSize: '13px' } }, cancelIncludeRorSns ? '☑' : '☐'),
-            el('span', {}, 'Include RORs + SNS + Combined'),
+            el('span', {}, 'Include non-attrition cancels (ROR / SNS / Combined / One-Time)'),
             rorSnsCount > 0 && el('span', {
               class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded font-bold',
               style: cancelIncludeRorSns
