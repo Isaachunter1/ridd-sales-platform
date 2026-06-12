@@ -62,7 +62,7 @@ Or just double-click `index.html` — auth will work because Supabase allows `fi
 ### Tabs
 - **Dashboard** — KPIs, active competitions, recent sales, monthly leaderboard
 - **Sales** — log new sales, view pending audit queue
-- **Pay** — RIDD-style pay stub (Pending / Below Min / Approved / Backend / by source)
+- **Pay** — RIDD-style pay stub (Pending / Below Min / Approved / Backend) plus a By Source grid mirroring the IS PAY sheet. Sources are fully dynamic: add or deactivate lead providers in Settings → Sources and pay updates automatically — standard sources pay % by contract type, renewal-tagged sources pay flat $/account ($25/30/35/35). Renewal amounts, backend rates (18mo 2% / 24mo 3% / renewal 2%) and close-rate bonus tiers (≥60%→3%, ≥50%→2%) are configurable in Settings → Pricing
 - **Competitions** — live bingo cards and royalty-style rules with per-rep progress
 - **History** — full searchable sales history with CSV export
 - **Admin** (admins only) — audit queue, competition editor, reps list
