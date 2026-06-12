@@ -756,9 +756,15 @@ async function syncIndicatorsToCloud() {
       .pipeThrough(new CompressionStream('gzip'))).blob();
     const { error } = await supabase.storage.from('reporting')
       .upload(INDICATORS_CLOUD_PATH, blob, { contentType: 'application/gzip', upsert: true });
-    if (error) { console.warn('[ridd] indicators cloud sync failed (run reporting_storage.sql?)', error); return false; }
-    return true;
-  } catch (e) { console.warn('[ridd] indicators cloud sync failed', e); return false; }
+    if (error) {
+      console.warn('[ridd] indicators cloud sync failed (run reporting_storage.sql?)', error);
+      return { ok: false, msg: error.message || String(error) };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.warn('[ridd] indicators cloud sync failed', e);
+    return { ok: false, msg: e?.message || String(e) };
+  }
 }
 
 let _indCloudCheckedAt = 0;
@@ -17827,9 +17833,15 @@ function csvUploadButton(size) {
           // Share this upload with every other admin — and make the outcome
           // VISIBLE. A silent sync failure means everyone else keeps
           // reading yesterday's shared copy while this browser looks fine.
-          syncIndicatorsToCloud().then(ok => {
-            if (ok) toast('Upload shared — other admins pick it up automatically', 'success');
-            else toast('Upload saved on THIS browser, but sharing to other admins FAILED — they will still see the previous upload. Check the reporting storage bucket (reporting_storage.sql) or re-upload.', 'error');
+          syncIndicatorsToCloud().then(r => {
+            if (r?.ok) toast('Upload shared — other admins pick it up automatically', 'success');
+            else {
+              const why = r?.msg ? ' Reason: ' + r.msg + '.' : '';
+              const hint = /bucket|not.*found|404/i.test(r?.msg || '')
+                ? ' Fix: run reporting_storage.sql in the Supabase SQL Editor, then re-upload.'
+                : ' Check the reporting storage bucket (reporting_storage.sql) or re-upload.';
+              toast('Upload saved on THIS browser, but sharing to other admins FAILED — they will still see the previous upload.' + why + hint, 'error');
+            }
           });
           logActivity('indicators_upload', { detail: (state.indicatorsFileName || 'CSV') + ' · ' + state.indicatorsData.length + ' rows' });
           toast('CSV loaded — ' + state.indicatorsData.length + ' rows', 'success');
