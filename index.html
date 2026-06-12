@@ -646,6 +646,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_indicatorTrendScope',
   '_indicatorRepActive',
   '_indicatorRepOffice',
+  '_indicatorRepIncludeRor',
   '_indicatorDismissedDupes',
   '_indicatorRepAlias',
   'indicatorsGroupBy',
@@ -3905,7 +3906,7 @@ function _computeRecordMetrics(sales) {
   const twelve  = sales.filter(s => Number(s.contract) === 12).length;
   const ctTotal = multi + twelve;
   const myPct   = ctTotal > 0 ? multi / ctTotal : 0;
-  const cancels   = sales.filter(_isReportableCancel).length;
+  const cancels   = sales.filter(_repCancelCounts).length;
   const cancelPct = cancels / sales.length;
   return { acv, myPct, avgPest, avgInitial, cancelPct };
 }
@@ -3961,7 +3962,7 @@ function _scopeRep(rep, filterFn) {
     if (Number(s.contract) === 12) twelve++;
     if (Number(s.contract) >= 18) multi++;
     if (s.autoPay && s.autoPay !== 'No') autoPay++;
-    if (_isReportableCancel(s)) cancels++;
+    if (_repCancelCounts(s)) cancels++;
   }
   return { ...rep, sales, revenue, twelve, multi, autoPay, cancels };
 }
@@ -3977,7 +3978,7 @@ function _enrichRepFromRawSales(repName, rawSales) {
     if (Number(s.contract) === 12) twelve++;
     if (Number(s.contract) >= 18) multi++;
     if (s.autoPay && s.autoPay !== 'No') autoPay++;
-    if (_isReportableCancel(s)) cancels++;
+    if (_repCancelCounts(s)) cancels++;
   }
   return {
     name: repName, sales,
@@ -4575,6 +4576,23 @@ function _isReportableCancel(s) {
   if (!s) return false;
   if (!(s.cancelDate || s.active === 'No')) return false;
   return !_isExcludableCancel(s);
+}
+
+// ── Rep Leaderboard ROR toggle ──────────────────────────────────────────
+// One global toggle on the Rep Leaderboard header ("Count 3-Day RORs").
+// When ON, 3-day ROR cancels count as cancels again on the leaderboard AND
+// every rep player card opened from it. Sold-Not-Started and Combined-
+// subscription rows stay excluded either way — those are never attrition.
+// Persisted with the rest of the indicator settings (per browser).
+function _repCancelExcluded(s) {
+  return state._indicatorRepIncludeRor
+    ? (_isSoldNotStarted(s) || _isCombinedSub(s))
+    : _isExcludableCancel(s);
+}
+function _repCancelCounts(s) {
+  if (!s) return false;
+  if (!(s.cancelDate || s.active === 'No')) return false;
+  return !_repCancelExcluded(s);
 }
 
 // Apples-to-apples week-over-week windows. Given an anchor Date — the
@@ -5461,10 +5479,10 @@ function openIndicatorRepCard(rep, allReps = []) {
           return true;
         }).sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''));
       case 'cancels':
-        // Hides ROR / Sold-Not-Started rows — see _isReportableCancel.
-        // They live in the dataset for Cancel Analysis but the rep
-        // drill-down treats them as paperwork churn, not attrition.
-        return all.filter(_isReportableCancel)
+        // Follows the leaderboard's ROR toggle: RORs show here when the
+        // toggle is on; Sold-Not-Started / Combined rows never do. They
+        // all live in the dataset for Cancel Analysis either way.
+        return all.filter(_repCancelCounts)
           .sort((a, b) => (b.cancelDate || '').localeCompare(a.cancelDate || ''));
       case 'sales':
       default:
@@ -5605,10 +5623,9 @@ function openIndicatorRepCard(rep, allReps = []) {
         ),
         el('tbody', {},
           ...sorted.map(s => {
-            // Tint reportable cancels red so they stand out in the
-            // detail list; ROR / SNS rows stay neutral since we don't
-            // treat those as real attrition anywhere else either.
-            const cancelled = _isReportableCancel(s);
+            // Tint counted cancels red so they stand out in the detail
+            // list; excluded rows (per the ROR toggle) stay neutral.
+            const cancelled = _repCancelCounts(s);
             const on = isAutoPayOn(s);
             return el('tr', {
               class: 'border-t border-',
@@ -15154,11 +15171,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     if (s.contract >= 18) r.multi++;
     if (s.contract === 12) r.twelve++;
     if (s.autoPay && s.autoPay !== 'No') r.autoPay++;
-    if (_isReportableCancel(s)) r.cancels++;
-    // Cancel % denominator: sales excluding 3-day RORs AND Sold-Not-
-    // Starteds — paperwork churn neither counts as a cancel nor pads
+    if (_repCancelCounts(s)) r.cancels++;
+    // Cancel % denominator: sales excluding whatever the ROR toggle
+    // currently strips — excluded rows neither count as a cancel nor pad
     // the base. (Volume/revenue metrics above include those rows.)
-    if (!_isExcludableCancel(s)) r.cancelEligible++;
+    if (!_repCancelExcluded(s)) r.cancelEligible++;
     if (/failed\s*audit/i.test(s.customerFlags || '')) r.auditFail = (r.auditFail || 0) + 1;
     if (s.age > 0) r.aged++;
   });
@@ -16869,6 +16886,24 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           })(),
         ),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          // ROR toggle — global: flips the cancel definition for the
+          // leaderboard Cancels column, Cancel %, and every rep player
+          // card opened from here. SNS / Combined rows never count.
+          el('button', {
+            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition border flex items-center gap-1.5',
+            style: state._indicatorRepIncludeRor
+              ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+              : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+            title: 'When on, 3-Day ROR cancels count toward Cancels and Cancel % here and on every rep player card. Sold-Not-Started and Combined-subscription rows never count.',
+            onclick: () => {
+              state._indicatorRepIncludeRor = !state._indicatorRepIncludeRor;
+              saveDemoData();
+              mountApp();
+            },
+          },
+            el('span', { style: { fontSize: '13px' } }, state._indicatorRepIncludeRor ? '☑' : '☐'),
+            el('span', {}, 'Count 3-Day RORs'),
+          ),
           // Search by rep name. mountApp() rebuilds the entire page, so
           // firing it per-keystroke is the source of the "laggy / glitchy"
           // feel on big rosters. State updates immediately (input value
