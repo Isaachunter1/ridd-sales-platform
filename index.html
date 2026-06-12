@@ -7739,7 +7739,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
         name: 'source_id',
         class: 'w-full rounded-lg border px-3 py-2.5 text-sm',
         required: true,
-        onchange: () => checkValidity(),
+        onchange: () => { checkValidity(); updateFooter(); },
       },
         el('option', { value: '' }, 'Select Source...'),
         // Hidden sources (is_active === false) drop out of the dropdown but
@@ -7833,10 +7833,15 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
     const revenue = modalState.pay_per_service
       ? initial + numSvcs * amtSvc
       : initial + monthly * 11;
-    // Use the new pricing engine for the projected commission preview
-    const mockSale = { contract_type_id: ctId, audit_status: 'serviced' };
-    const projRate = getCommissionRate(modalState.rep_id, mockSale);
-    const projected = revenue * projRate;
+    // Use the pricing engine for the projected commission preview —
+    // source-aware so renewal sources preview their flat $/account pay.
+    const srcId = Number(form.querySelector('select[name="source_id"]')?.value) || null;
+    const mockSale = {
+      contract_type_id: ctId, contract_months: months, audit_status: 'serviced',
+      source_id: srcId, revenue_amount: revenue,
+      paid_in_full: !!modalState.paid_in_full, is_commercial: !!modalState.is_commercial,
+    };
+    const projected = getCommissionAmount(modalState.rep_id, mockSale);
     const repName = profiles.find(p => p.id === modalState.rep_id)?.full_name || '';
     footerRep.textContent   = repName;
     footerAcv.textContent   = fmt.usd(acv);
@@ -8049,51 +8054,54 @@ function viewPay() {
   const servicedRev  = sumRev(servicedStaged);
   const belowRev     = sumRev(belowStaged);
 
-  // Per-sale commission using the new getCommissionRate(repId, sale)
-  // Serviced = full rate, Below Min = half rate (configurable in Pricing)
-  const sumCommission = (arr) => arr.reduce((a, s) => a + Number(s.revenue_amount || 0) * getCommissionRate(repId, s), 0);
+  // Per-sale commission via getCommissionAmount (source-aware):
+  // standard sources pay revenue × rate, renewal sources pay flat $/account.
+  // Serviced = full, Below Min = halved (configurable in Pricing).
+  ensurePaySettings();
+  const sumCommission = (arr) => arr.reduce((a, s) => a + getCommissionAmount(repId, s), 0);
   const pendingPay = pending.reduce((a, s) => {
     // Estimate pending at the serviced rate (optimistic)
     const estSale = { ...s, audit_status: 'serviced' };
-    return a + Number(s.revenue_amount || 0) * getCommissionRate(repId, estSale);
+    return a + getCommissionAmount(repId, estSale);
   }, 0);
   const salesPay   = sumCommission(servicedStaged);  // full commission
-  const belowPay   = sumCommission(belowStaged);     // half commission (via getCommissionRate)
+  const belowPay   = sumCommission(belowStaged);     // half commission (via getCommissionAmount)
 
-  // Close rate / multi-year backend
-  // Close rate is now manually maintained per rep — admins upload each rep's
-  // actual rate at quarter end via the inline input in the Backend Pay
-  // section. Default is 50%, which qualifies for the 2% bump on serviced
-  // revenue. Anything below 50% drops the bonus to $0.
-  const CLOSE_RATE_THRESHOLD = 0.5;
-  const CLOSE_RATE_BUMP = 0.02;
+  // Close rate bonus (sheet O17): tiered — ≥60% pays 3% of subscription
+  // revenue, ≥50% pays 2%, below that $0. Subscription revenue = serviced
+  // 12/18/24/PIF revenue from standard sources (no commercial/OTS/upsells/
+  // renewals). Close rate itself is manually maintained per rep.
   const closeRate = Number(viewedProfile.close_rate_target ?? 0.50);
-  const meetsCloseRate = closeRate >= CLOSE_RATE_THRESHOLD;
-  const closeRateBonus = meetsCloseRate ? servicedRev * CLOSE_RATE_BUMP : 0;
+  const periodSubscriptionRev = subscriptionRevenueOf(servicedStaged);
+  const closeRateBonus = closeRateBonusFor(closeRate, periodSubscriptionRev);
+  const meetsCloseRate = closeRateBonus > 0;
 
-  // Backend bonus = 2% of revenue for 18- or 24-month contracts. The same
-  // sale earns this once (Multi Year % Bonus when payroll runs); Pending
-  // Backend is the running tally of multi-year backend $$ that's still in
-  // flight: (a) accounts already paid out where the backend audit hasn't
-  // confirmed the lock yet, and (b) staged multi-year accounts in the
+  // Backend bonus per sale (sheet O16/O18): 18mo ×2%, 24mo ×3%, renewal
+  // sources ×2% of serviced revenue. The same sale earns this once (when
+  // payroll runs); Pending Backend is the running tally of backend $$ still
+  // in flight: (a) accounts already paid out where the backend audit hasn't
+  // confirmed the lock yet, and (b) staged backend-eligible accounts in the
   // current period that are about to be paid.
-  const BACKEND_RATE = 0.02;
   const isMultiYear = (s) => [18, 24].includes(Number(s.contract_months));
+  const hasBackend  = (s) => getBackendAmount(s) > 0;
   const multiYearBonus = servicedStaged
-    .filter(isMultiYear)
-    .reduce((a, s) => a + Number(s.revenue_amount || 0) * BACKEND_RATE, 0);
+    .filter(s => isMultiYear(s) && !isRenewalSource(s))
+    .reduce((a, s) => a + getBackendAmount(s), 0);
+  const renewalPayPeriod = servicedStaged
+    .filter(s => isRenewalSource(s))
+    .reduce((a, s) => a + getBackendAmount(s), 0);
 
-  const aboutToRunBackendSales = [...servicedStaged, ...belowStaged].filter(isMultiYear);
-  const aboutToRunBackend = aboutToRunBackendSales.reduce((a, s) => a + Number(s.revenue_amount || 0) * BACKEND_RATE, 0);
-  // Pending backend audit — multi-year sales already paid out in prior
+  const aboutToRunBackendSales = [...servicedStaged, ...belowStaged].filter(hasBackend);
+  const aboutToRunBackend = aboutToRunBackendSales.reduce((a, s) => a + getBackendAmount(s), 0);
+  // Pending backend audit — backend-eligible sales already paid out in prior
   // payroll runs whose backend lock-in is still in review. Tracked via
   // backend_audited_at (nullable). Without that field set, we treat every
-  // processed multi-year sale as still-pending-audit until confirmed.
+  // processed backend-eligible sale as still-pending-audit until confirmed.
   const allRepSales = (isAdmin ? state.allSales : state.mySales).filter(s => s.rep_id === repId);
   const pendingBackendAuditSales = allRepSales.filter(s =>
-    isMultiYear(s) && (s.audit_status === 'serviced' || s.audit_status === 'below_minimums') && s.payroll_processed_at && !s.backend_audited_at
+    hasBackend(s) && (s.audit_status === 'serviced' || s.audit_status === 'below_minimums') && s.payroll_processed_at && !s.backend_audited_at
   );
-  const pendingBackendAudit = pendingBackendAuditSales.reduce((a, s) => a + Number(s.revenue_amount || 0) * BACKEND_RATE, 0);
+  const pendingBackendAudit = pendingBackendAuditSales.reduce((a, s) => a + getBackendAmount(s), 0);
   const pendingBackend = aboutToRunBackend + pendingBackendAudit;
   // ── Numbers driven by the two pay-stub templates ──
   // The Pay Period stub pays the regular biweekly commission. The Backend
@@ -8111,21 +8119,22 @@ function viewPay() {
   };
   const quarterSales = (isAdmin ? state.allSales : state.mySales).filter(inQuarter);
   const quarterRevenue = sumRev(quarterSales);
-  // Renewal pay isn't modeled yet — placeholder until renewal contracts get
-  // their own pricing rules. Multi-year and close-rate bonuses are computed
+  // Renewal pay (sheet O18) — renewal-source serviced revenue × the
+  // renewal backend rate. Multi-year and close-rate bonuses are computed
   // above; the three together make this period's backend contribution.
-  const renewalPay = 0;
+  const renewalPay = renewalPayPeriod;
 
   const payPeriodBackendPay = multiYearBonus + closeRateBonus + renewalPay;
 
   // Quarter Running counterparts — same three metrics computed across every
-  // sale in the calendar quarter so the rep can see cumulative-to-date next
-  // to this period's contribution.
+  // serviced sale in the calendar quarter so the rep can see cumulative-to-
+  // date next to this period's contribution. Backend only accrues on
+  // serviced accounts (sheet sums the Serviced block only).
   const quarterEligible = quarterSales.filter(s => s.audit_status === 'serviced' || s.audit_status === 'below_minimums');
-  const quarterServicedRev   = quarterEligible.filter(s => s.audit_status === 'serviced').reduce((a, s) => a + Number(s.revenue_amount || 0), 0);
-  const multiYearBonusQuarter = quarterEligible.filter(isMultiYear).reduce((a, s) => a + Number(s.revenue_amount || 0) * BACKEND_RATE, 0);
-  const closeRateBonusQuarter = meetsCloseRate ? quarterServicedRev * CLOSE_RATE_BUMP : 0;
-  const renewalPayQuarter     = 0;
+  const quarterServiced = quarterSales.filter(s => s.audit_status === 'serviced');
+  const multiYearBonusQuarter = quarterServiced.filter(s => isMultiYear(s) && !isRenewalSource(s)).reduce((a, s) => a + getBackendAmount(s), 0);
+  const closeRateBonusQuarter = closeRateBonusFor(closeRate, subscriptionRevenueOf(quarterServiced));
+  const renewalPayQuarter     = quarterServiced.filter(s => isRenewalSource(s)).reduce((a, s) => a + getBackendAmount(s), 0);
   const quarterlyBackendPay   = multiYearBonusQuarter + closeRateBonusQuarter + renewalPayQuarter;
 
   const pendingBackendRevenue = sumRev(pendingBackendAuditSales);
@@ -8420,6 +8429,7 @@ function viewPay() {
       // row at the top of this section (recurring services tally).
       stubSectionHeader(labelRevenue),
       isLoyaltyRep && isBackendStub && stubRow('Subscription Revenue', subscriptionRevenue),
+      !isLoyaltyRep && isBackendStub && stubRow('Subscription Revenue', periodSubscriptionRev),
       stubRow('Total Revenue',     periodTotalRevenue),
       stubRow('Quarterly Revenue', quarterRevenue),
 
@@ -8450,6 +8460,138 @@ function viewPay() {
       ),
     ),
 
+    // ─── BY SOURCE breakdown (replicates the IS PAY sheet grid) ───
+    // Rows come straight from the sources catalog: every active source shows
+    // automatically (add a lead provider in Settings → Sources and it appears
+    // here with $0s), deactivated sources only linger while they still have
+    // sales in the period. Renewal sources show account counts (they pay
+    // flat $/account); standard sources show revenue per contract bucket.
+    paySourceBreakdown(repId, { serviced: servicedStaged, below_minimums: belowStaged, pending }),
+
+  );
+}
+
+// The Pay tab's by-source grid. `salesByStatus` carries the same three
+// buckets the stub uses; a segmented toggle picks which one renders.
+function paySourceBreakdown(repId, salesByStatus) {
+  if (!state.paySourceStatus) state.paySourceStatus = 'serviced';
+  const status = state.paySourceStatus;
+  const rows = salesByStatus[status] || [];
+
+  // Sheet columns E..L: 12 / 18 / 24 / PIF / Upsell-D2D / Upsell-Office /
+  // Commercial / OTS. Commercial + PIF are flags in the app, checked first.
+  const BUCKETS = [
+    { key: 'm12',          label: '12'   },
+    { key: 'm18',          label: '18'   },
+    { key: 'm24',          label: '24'   },
+    { key: 'pif',          label: 'PIF'  },
+    { key: 'upsellD2D',    label: 'UP-D2D' },
+    { key: 'upsellOffice', label: 'UP-OFF' },
+    { key: 'commercial',   label: 'COMM' },
+    { key: 'ots',          label: 'OTS'  },
+  ];
+  const bucketOf = (s) => {
+    if (s.is_commercial) return 'commercial';
+    if (s.paid_in_full)  return 'pif';
+    const ctName = (state.contractTypes.find(c => c.id === s.contract_type_id)?.name || '');
+    if (/upsell.*d2d/i.test(ctName))    return 'upsellD2D';
+    if (/upsell.*office/i.test(ctName)) return 'upsellOffice';
+    const m = Number(s.contract_months);
+    if (m === 18) return 'm18';
+    if (m === 24) return 'm24';
+    if (!m)       return 'ots';
+    return 'm12';
+  };
+
+  // Aggregate the selected bucket's sales per source.
+  const agg = new Map(); // source_id → { accounts, revenue, pay, buckets:{} }
+  for (const s of rows) {
+    const id = s.source_id || 0;
+    if (!agg.has(id)) agg.set(id, { accounts: 0, revenue: 0, pay: 0, buckets: {} });
+    const a = agg.get(id);
+    const rev = Number(s.revenue_amount || 0);
+    a.accounts += 1;
+    a.revenue  += rev;
+    // Pending pay is estimated at the serviced rate (matches the stub).
+    a.pay += getCommissionAmount(repId, status === 'pending' ? { ...s, audit_status: 'serviced' } : s);
+    const b = bucketOf(s);
+    a.buckets[b] = (a.buckets[b] || 0) + (isRenewalSource(s) ? 1 : rev);
+  }
+
+  // Every active source renders (zeros included — that's how new lead
+  // providers show up with no extra setup); inactive ones only if they
+  // still have sales in this bucket. Standard sources first, A→Z, then
+  // renewal sources.
+  const sources = state.sources
+    .filter(o => o.is_active !== false || agg.has(o.id))
+    .sort((x, y) => (x.is_renewal - y.is_renewal) || x.name.localeCompare(y.name));
+
+  const totals = { accounts: 0, revenue: 0, pay: 0 };
+  for (const a of agg.values()) { totals.accounts += a.accounts; totals.revenue += a.revenue; totals.pay += a.pay; }
+
+  const STATUSES = [
+    { id: 'serviced',       label: 'SALES' },
+    { id: 'below_minimums', label: 'BELOW MIN' },
+    { id: 'pending',        label: 'PENDING' },
+  ];
+
+  const th = (txt, right) => el('th', {
+    class: 'px-2 py-2 text-[10px] uppercase tracking-widest font-bold whitespace-nowrap' + (right ? ' text-right' : ' text-left'),
+    style: { background: '#000', color: '#fff' },
+  }, txt);
+  const td = (content, opts = {}) => el('td', {
+    class: 'px-2 py-1.5 text-xs tabular-nums whitespace-nowrap' + (opts.right ? ' text-right' : ' text-left'),
+    style: {
+      borderBottom: '1px solid var(--border)',
+      fontWeight: opts.bold ? '700' : '400',
+      color: opts.dim ? 'var(--text-muted)' : 'var(--text)',
+    },
+  }, content);
+
+  return el('div', { class: 'card overflow-hidden', style: { border: '1px solid #000', borderRadius: '0' } },
+    el('div', { class: 'flex items-center justify-between flex-wrap gap-2', style: { padding: '10px 14px', background: '#000' } },
+      el('div', { style: { color: '#fff', fontSize: '11px', fontWeight: '800', letterSpacing: '.18em', textTransform: 'uppercase' } }, 'By Source'),
+      el('div', { class: 'inline-flex rounded overflow-hidden', style: { border: '1px solid #fff' } },
+        ...STATUSES.map(t => el('button', {
+          style: status === t.id
+            ? { padding: '4px 10px', fontSize: '10px', fontWeight: '800', letterSpacing: '.12em', background: '#fff', color: '#000' }
+            : { padding: '4px 10px', fontSize: '10px', fontWeight: '700', letterSpacing: '.12em', background: 'transparent', color: '#fff' },
+          onclick: () => { state.paySourceStatus = t.id; mountApp(); },
+        }, t.label)),
+      ),
+    ),
+    el('div', { class: 'overflow-x-auto' },
+      el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {},
+          th('Source'), th('Accts', true), th('Revenue', true),
+          ...BUCKETS.map(b => th(b.label, true)),
+          th('Pay', true),
+        )),
+        el('tbody', {},
+          ...sources.map(src => {
+            const a = agg.get(src.id) || { accounts: 0, revenue: 0, pay: 0, buckets: {} };
+            const zero = a.accounts === 0;
+            return el('tr', {},
+              td(el('span', {}, src.name, src.is_renewal ? el('span', { class: 'ml-1 text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, 'flat') : null), { dim: zero }),
+              td(zero ? '—' : fmt.int(a.accounts), { right: true, dim: zero }),
+              td(zero ? '—' : fmt.usd(a.revenue), { right: true, dim: zero }),
+              ...BUCKETS.map(b => {
+                const v = a.buckets[b.key] || 0;
+                return td(!v ? '—' : (src.is_renewal ? fmt.int(v) : fmt.usd(v)), { right: true, dim: !v });
+              }),
+              td(zero ? '—' : fmt.usd(a.pay), { right: true, bold: !zero, dim: zero }),
+            );
+          }),
+          el('tr', {},
+            td('TOTAL', { bold: true }),
+            td(fmt.int(totals.accounts), { right: true, bold: true }),
+            td(fmt.usd(totals.revenue), { right: true, bold: true }),
+            ...BUCKETS.map(() => td('', {})),
+            td(fmt.usd(totals.pay), { right: true, bold: true }),
+          ),
+        ),
+      ),
+    ),
   );
 }
 
@@ -8618,12 +8760,10 @@ function notifyPayrollRun(sales, period, kind) {
 
     let summary;
     if (kind === 'backend') {
-      const BACKEND_RATE = 0.02;
-      const isMultiYear = (s) => [18, 24].includes(Number(s.contract_months));
       const lockSales   = repSales.filter(s => s.lock_status === 'lock');
       const chargeback  = repSales.filter(s => s.lock_status === 'chargeback');
-      const lockBonus = lockSales.filter(isMultiYear).reduce((a, s) => a + Number(s.revenue_amount || 0) * BACKEND_RATE, 0);
-      const cbClawback = chargeback.filter(isMultiYear).reduce((a, s) => a + Number(s.revenue_amount || 0) * BACKEND_RATE, 0);
+      const lockBonus  = lockSales.reduce((a, s) => a + getBackendAmount(s), 0);
+      const cbClawback = chargeback.reduce((a, s) => a + getBackendAmount(s), 0);
       summary = {
         serviced: lockSales.length,
         below: chargeback.length,
@@ -8633,8 +8773,8 @@ function notifyPayrollRun(sales, period, kind) {
     } else {
       const serviced = repSales.filter(s => s.audit_status === 'serviced');
       const below    = repSales.filter(s => s.audit_status === 'below_minimums');
-      const salesPay = serviced.reduce((a, s) => a + Number(s.revenue_amount || 0) * getCommissionRate(repId, s), 0);
-      const belowPay = below.reduce((a, s) => a + Number(s.revenue_amount || 0) * getCommissionRate(repId, s), 0);
+      const salesPay = serviced.reduce((a, s) => a + getCommissionAmount(repId, s), 0);
+      const belowPay = below.reduce((a, s) => a + getCommissionAmount(repId, s), 0);
       summary = {
         serviced: serviced.length,
         below: below.length,
@@ -8685,15 +8825,16 @@ function downloadPayrollCsv(sales, period) {
   const lines = [headers.join(',')];
   for (const s of sales) {
     const r = Number(s.revenue_amount || 0);
-    const saleRate = getCommissionRate(repId, s);
-    const commission = r * saleRate;
-    const backend = [18, 24].includes(Number(s.contract_months)) ? r * 0.02 : 0;
+    const renewal = isRenewalSource(s);
+    const saleRate = renewal ? null : getCommissionRate(repId, s);
+    const commission = getCommissionAmount(repId, s);
+    const backend = getBackendAmount(s);
     lines.push([
       csvEsc(s.customer_name),
       csvEsc(s.customer_number || ''),
       csvEsc(contractTypeLabelForSale(s)),
       r.toFixed(2),
-      (saleRate * 100).toFixed(2) + '%',
+      renewal ? 'flat' : (saleRate * 100).toFixed(2) + '%',
       commission.toFixed(2),
       backend.toFixed(2),
       s.sold_date,
@@ -26846,7 +26987,9 @@ function adminSources() {
 }
 
 function adminPricing() {
-  const s = state.appSettings || (state.appSettings = {});
+  // Seeds sheet-aligned defaults (incl. renewal flat pay, backend rates,
+  // close-rate tiers) and runs the one-time 7%→sheet-rates migration.
+  const s = ensurePaySettings();
 
   // Commission rates per contract type (exclude Commercial + Paid in Full — those are separate overrides)
   const validCtIds = new Set(state.contractTypes.map(ct => ct.id));
@@ -26971,6 +27114,90 @@ function adminPricing() {
       ),
     ),
 
+    // ── Renewal Pay (flat $/account by contract term) ──
+    el('div', { class: 'card p-5' },
+      el('h3', { class: 'text-sm font-bold mb-1' }, 'Renewal Pay'),
+      el('p', { class: 'text-xs text-muted- mb-3' },
+        'Sources tagged "Renewal" in Settings → Sources pay a flat amount per serviced account instead of a % of revenue. Below Minimums pays half. Any new source you add is standard (%) unless you tag it as a renewal.',
+      ),
+      el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
+        ...[
+          ['m12', '12 Months'], ['m18', '18 Months'], ['m24', '24 Months'], ['pif', 'Paid in Full'],
+        ].map(([key, label]) => el('div', {},
+          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, label),
+          el('div', { class: 'relative' },
+            el('span', { class: 'absolute left-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '$'),
+            el('input', {
+              type: 'text', inputmode: 'numeric',
+              class: 'w-full rounded-lg border pl-7 pr-3 py-2 text-sm text-right',
+              value: s.renewal_flat[key],
+              onchange: e => { s.renewal_flat[key] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
+            }),
+          ),
+        )),
+      ),
+    ),
+
+    // ── Backend Pay rates ──
+    el('div', { class: 'card p-5' },
+      el('h3', { class: 'text-sm font-bold mb-1' }, 'Backend Pay'),
+      el('p', { class: 'text-xs text-muted- mb-3' },
+        'Quarter-end backend rates. Multi-year applies to 18/24-month contracts from standard sources; renewal backend applies to serviced revenue from renewal sources. Paid-in-Full accounts earn no backend.',
+      ),
+      el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-3' },
+        ...[
+          ['multi_year_rate_18',   '18-Month Backend'],
+          ['multi_year_rate_24',   '24-Month Backend'],
+          ['renewal_backend_rate', 'Renewal Backend'],
+        ].map(([key, label]) => el('div', {},
+          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, label),
+          el('div', { class: 'relative' },
+            el('input', {
+              type: 'text', inputmode: 'numeric',
+              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm text-right',
+              value: s[key],
+              onchange: e => { s[key] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
+            }),
+            el('span', { class: 'absolute right-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '%'),
+          ),
+        )),
+      ),
+    ),
+
+    // ── Close Rate Bonus tiers ──
+    el('div', { class: 'card p-5' },
+      el('h3', { class: 'text-sm font-bold mb-1' }, 'Close Rate Bonus'),
+      el('p', { class: 'text-xs text-muted- mb-3' },
+        'Quarter-end bonus on subscription revenue (12/18/24/PIF from standard sources). The highest tier the rep’s close rate reaches wins; below every tier pays $0.',
+      ),
+      el('div', { class: 'flex flex-col gap-2' },
+        el('div', { class: 'grid grid-cols-[1fr_1fr] gap-2 text-[10px] uppercase tracking-widest text-muted- font-semibold px-1' },
+          el('div', {}, 'Close Rate ≥'),
+          el('div', {}, 'Bonus Rate'),
+        ),
+        ...s.close_rate_tiers.map(t => el('div', { class: 'grid grid-cols-[1fr_1fr] gap-2 items-center' },
+          el('div', { class: 'relative' },
+            el('input', {
+              type: 'text', inputmode: 'numeric',
+              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm text-right',
+              value: t.min_close_rate,
+              onchange: e => { t.min_close_rate = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
+            }),
+            el('span', { class: 'absolute right-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '%'),
+          ),
+          el('div', { class: 'relative' },
+            el('input', {
+              type: 'text', inputmode: 'numeric',
+              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm text-right',
+              value: t.rate,
+              onchange: e => { t.rate = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
+            }),
+            el('span', { class: 'absolute right-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '%'),
+          ),
+        )),
+      ),
+    ),
+
     // ── Quarterly Bonus ──
     el('div', { class: 'card p-5' },
       el('h3', { class: 'text-sm font-bold mb-1' }, 'Quarterly Bonus'),
@@ -27044,6 +27271,127 @@ function getCommissionRate(repId, sale) {
   }
 
   return Math.round(rate * 10000) / 10000;
+}
+
+// ── Pay settings defaults + one-time spreadsheet alignment ────────────────
+// Ensures every pay-related setting exists with the IS PAY sheet defaults,
+// and (once) migrates untouched 7% legacy defaults to the sheet's actual
+// rates: PIF 12%, Commercial 5%, OTS 5%, Upsells 10%. Values an admin has
+// already changed away from 7.0 are left alone.
+function ensurePaySettings() {
+  const s = state.appSettings || (state.appSettings = {});
+
+  // Renewal sources pay a flat $ per account by contract term (sheet: rows
+  // 25-28 × $25/$30/$35/$35), not a % of revenue.
+  s.renewal_flat = s.renewal_flat || { m12: 25, m18: 30, m24: 35, pif: 35 };
+
+  // Backend pay rates (sheet O16/O18): 18mo ×2% + 24mo ×3%; renewal
+  // revenue ×2% at quarter end.
+  s.multi_year_rate_18   = s.multi_year_rate_18   ?? 2.0;
+  s.multi_year_rate_24   = s.multi_year_rate_24   ?? 3.0;
+  s.renewal_backend_rate = s.renewal_backend_rate ?? 2.0;
+
+  // Close-rate bonus tiers (sheet O17 array formula): ≥60% → 3% of
+  // subscription revenue, ≥50% → 2%, else $0. Ordered high→low.
+  s.close_rate_tiers = s.close_rate_tiers || [
+    { min_close_rate: 60, rate: 3.0 },
+    { min_close_rate: 50, rate: 2.0 },
+  ];
+
+  // One-time migration to the sheet's contract rates. Only rewrites values
+  // still sitting at the legacy 7.0 default so admin overrides survive.
+  if (!s.sheet_defaults_v1) {
+    if (s.paid_in_full_rate == null || s.paid_in_full_rate === 7.0) s.paid_in_full_rate = 12.0;
+    if (s.commercial_rate   == null || s.commercial_rate   === 7.0) s.commercial_rate   = 5.0;
+    const validCtIds = new Set(state.contractTypes.map(ct => ct.id));
+    if (!s.contract_commissions) {
+      s.contract_commissions = state.contractTypes.map(ct => ({ contract_type_id: ct.id, name: ct.name, rate: 7.0 }));
+    } else {
+      s.contract_commissions = s.contract_commissions.filter(cc => validCtIds.has(cc.contract_type_id));
+    }
+    for (const cc of s.contract_commissions) {
+      if (cc.rate !== 7.0) continue;
+      if (/^upsell/i.test(cc.name))            cc.rate = 10.0;
+      else if (/one time/i.test(cc.name))      cc.rate = 5.0;
+    }
+    s.sheet_defaults_v1 = true;
+    saveDemoData();
+  }
+  return s;
+}
+
+// Is this sale from a renewal source? (Sources are managed in Settings →
+// Sources; tagging a source as Renewal switches its pay to flat $/account.)
+function isRenewalSource(sale) {
+  if (!sale?.source_id) return false;
+  const src = state.sources.find(o => o.id === sale.source_id);
+  return !!src?.is_renewal;
+}
+
+// Flat renewal pay for a sale by contract term (sheet: $25/12mo, $30/18mo,
+// $35/24mo, $35/PIF). Terms outside those buckets pay $0 — same as the
+// sheet, which has no renewal column for upsell/commercial/OTS.
+function renewalFlatFor(sale, s) {
+  const flat = (s || ensurePaySettings()).renewal_flat;
+  if (sale?.paid_in_full) return Number(flat.pif || 0);
+  const m = Number(sale?.contract_months);
+  if (m === 12) return Number(flat.m12 || 0);
+  if (m === 18) return Number(flat.m18 || 0);
+  if (m === 24) return Number(flat.m24 || 0);
+  return 0;
+}
+
+// Per-sale upfront commission in dollars. This is the single entry point
+// for all pay math — renewal sources pay flat $/account, everything else
+// pays revenue × getCommissionRate. Below Minimums halves either one
+// (via the configurable multiplier). New sources added in Settings →
+// Sources flow through automatically: standard % unless tagged Renewal.
+function getCommissionAmount(repId, sale) {
+  const s = ensurePaySettings();
+  if (isRenewalSource(sale)) {
+    let amt = renewalFlatFor(sale, s);
+    if (sale?.audit_status === 'below_minimums') amt *= (s.below_min_multiplier ?? 50) / 100;
+    return amt;
+  }
+  return Number(sale?.revenue_amount || 0) * getCommissionRate(repId, sale);
+}
+
+// Per-sale backend pay in dollars (quarter-end). Sheet rules: standard
+// sources earn 18mo ×2% / 24mo ×3% of revenue; renewal-source serviced
+// revenue earns the renewal backend rate. PIF pays everything upfront —
+// no backend.
+function getBackendAmount(sale) {
+  const s = ensurePaySettings();
+  const rev = Number(sale?.revenue_amount || 0);
+  if (sale?.paid_in_full) return 0;
+  if (isRenewalSource(sale)) return rev * (Number(s.renewal_backend_rate) / 100);
+  const m = Number(sale?.contract_months);
+  if (m === 18) return rev * (Number(s.multi_year_rate_18) / 100);
+  if (m === 24) return rev * (Number(s.multi_year_rate_24) / 100);
+  return 0;
+}
+
+// Close-rate bonus: highest tier whose threshold the rep's close rate
+// meets, applied to subscription revenue (serviced 12/18/24/PIF revenue
+// from standard sources — no commercial, OTS, upsells, or renewals).
+function closeRateBonusFor(closeRate, subscriptionRevenue) {
+  const s = ensurePaySettings();
+  const tiers = (s.close_rate_tiers || []).slice().sort((a, b) => b.min_close_rate - a.min_close_rate);
+  for (const t of tiers) {
+    if (closeRate * 100 >= Number(t.min_close_rate)) return subscriptionRevenue * (Number(t.rate) / 100);
+  }
+  return 0;
+}
+
+// Subscription revenue for a set of sales (sheet O8): 12/18/24-month or
+// PIF contracts from standard (non-renewal) sources, excluding commercial.
+function subscriptionRevenueOf(sales) {
+  return sales.reduce((a, s) => {
+    if (isRenewalSource(s) || s.is_commercial) return a;
+    const m = Number(s.contract_months);
+    if (s.paid_in_full || m === 12 || m === 18 || m === 24) return a + Number(s.revenue_amount || 0);
+    return a;
+  }, 0);
 }
 
 function adminBackup() {
