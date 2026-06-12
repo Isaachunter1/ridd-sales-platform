@@ -8190,16 +8190,16 @@ function viewPay() {
     ? upfrontSalesPay + loyaltyRoyaltyAmt + quarterlyBackendPay + quotaPayAmt + loyaltyPayAmt
     : upfrontSalesPay + goldenPhoneAmt    + quarterlyBackendPay + quotaPayAmt + loyaltyPayAmt;
 
+  // ── Stub mode ── (must come before the labels below, which read it)
+  if (!state.payStubMode) state.payStubMode = 'pay_period';
+  const stubMode      = state.payStubMode;
+  const isBackendStub = stubMode === 'backend';
+
   // Section header labels are rep-type aware in Pay Period mode: loyalty
   // reps see the verbose "Pay Period ..." names; sales reps see the short
   // names. Backend mode always uses verbose names for both.
   const labelRevenue    = (isBackendStub || isLoyaltyRep) ? 'Pay Period Revenue' : 'Revenue';
   const labelBackendPay = (isBackendStub || isLoyaltyRep) ? 'Pay Period Backend Pay' : 'Backend';
-
-  // ── Stub mode ──
-  if (!state.payStubMode) state.payStubMode = 'pay_period';
-  const stubMode      = state.payStubMode;
-  const isBackendStub = stubMode === 'backend';
 
   // ── Stub building blocks ──
   // The stub is a black-bordered table of cells matching the printed RIDD
