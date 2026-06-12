@@ -4528,6 +4528,10 @@ let _repLeaderboardSearchTimer = null;
 // the raw `(s.cancelDate || s.active === 'No')` predicate.
 const _ROR_REASON_RE = /\b(ror|right\s*of\s*rescission|3[-\s]*day)/i;
 const _SNS_REASON_RE = /sold,?\s*not\s*started/i;
+// Combined subscriptions — the account was merged into another account, not
+// lost. Matches "Combined", "Combined Subscriptions", "combined with #102084",
+// etc. Not real attrition, so it never counts as a cancel.
+const _COMBINED_REASON_RE = /combin/i;
 function _parseSlashDate(str) {
   if (!str) return null;
   const parts = String(str).split(' ')[0].split('/');
@@ -4553,10 +4557,15 @@ function _is3DayROR(s) {
 function _isSoldNotStarted(s) {
   return !!s && _SNS_REASON_RE.test(s.cancelReason || '');
 }
-// Combined ROR + SNS check — the kinds of cancels we strip from
-// reporting metrics. Cancel Analysis intentionally bypasses this.
+function _isCombinedSub(s) {
+  return !!s && _COMBINED_REASON_RE.test(s.cancelReason || '');
+}
+// Combined ROR + SNS + Combined-subscription check — the kinds of cancels
+// we strip from reporting metrics (paperwork churn / install failures /
+// account merges, not real attrition). Cancel Analysis intentionally
+// bypasses this so the analyst can still see them.
 function _isExcludableCancel(s) {
-  return _is3DayROR(s) || _isSoldNotStarted(s);
+  return _is3DayROR(s) || _isSoldNotStarted(s) || _isCombinedSub(s);
 }
 // "Counts as a cancel for reporting purposes." Use in place of the
 // `(s.cancelDate || s.active === 'No')` literal everywhere outside
@@ -17145,7 +17154,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             },
           },
             el('span', { style: { fontSize: '13px' } }, cancelIncludeRorSns ? '☑' : '☐'),
-            el('span', {}, 'Include RORs + SNS'),
+            el('span', {}, 'Include RORs + SNS + Combined'),
             rorSnsCount > 0 && el('span', {
               class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded font-bold',
               style: cancelIncludeRorSns
@@ -17922,8 +17931,12 @@ function parseIndicatorsCsv(text) {
   const iRep       = findCol('sales rep', 'rep');
   const iSub       = findCol('subscription');
   const iActive    = findCol('active');
-  const iCancelR   = findCol('cancel reason');
-  const iCancelD   = findCol('cancel date');
+  // FieldRoutes headers vary: "Cancel Reason" vs "Cancellation Reason" (and
+  // the same for the date column). Match both spellings — without this the
+  // reason column is silently dropped (blank everywhere in the app) and the
+  // reason-based exclusions (ROR / Sold-Not-Started / Combined) can't fire.
+  const iCancelR   = findCol('cancel reason', 'cancellation reason', 'cancelation reason', 'cxl reason');
+  const iCancelD   = findCol('cancel date', 'cancellation date', 'cancelation date', 'cxl date', 'date cancelled', 'date canceled');
   const iAge       = findCol('age');
   const iSource    = findCol('source');
   const iCustFlags = findCol('customer flags', 'customer flag', 'flags');
