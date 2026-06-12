@@ -4534,9 +4534,12 @@ const _SNS_REASON_RE = /sold,?\s*not\s*started/i;
 // etc. Not real attrition, so it never counts as a cancel.
 const _COMBINED_REASON_RE = /combin/i;
 // One-time services — the job ran its course and the subscription closed out.
-// Matches "One Time Service", "One-Time", "OTS" in the cancel reason. A
-// completed one-time job is not attrition, so it never counts as a cancel.
+// Matched by cancel reason ("One Time Service", "One-Time", "OTS") OR by the
+// subscription name itself ("One Time Pest Control", "One Time Mosquito", …)
+// because the CSV export often drops the cancel reason on these even when
+// the CRM has it. A completed one-time job is not attrition — never a cancel.
 const _ONETIME_REASON_RE = /\b(one[\s-]?time|ots)\b/i;
+const _ONETIME_SUB_RE    = /^\s*one[\s-]?time/i;
 // Renewals — the old subscription closes out because the customer renewed
 // onto a new one. Matches "Renewal", "Renewed", "Renewal - Loyalty", etc.
 // That's a kept customer, not attrition — never counts as a cancel.
@@ -4570,7 +4573,8 @@ function _isCombinedSub(s) {
   return !!s && _COMBINED_REASON_RE.test(s.cancelReason || '');
 }
 function _isOneTimeCancel(s) {
-  return !!s && _ONETIME_REASON_RE.test(s.cancelReason || '');
+  if (!s) return false;
+  return _ONETIME_REASON_RE.test(s.cancelReason || '') || _ONETIME_SUB_RE.test(s.subscription || '');
 }
 function _isRenewalCancel(s) {
   return !!s && _RENEWAL_REASON_RE.test(s.cancelReason || '');
