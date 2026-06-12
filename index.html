@@ -11395,20 +11395,18 @@ function springStandingsCard() {
     rounds.forEach(r => r.ranked.forEach(m => branchSet.add(m.office)));
     const exB = (comp.excludedBranches || []).map(x => String(x).toUpperCase());
     masterBranches.forEach(b => { if (!exB.includes(String(b).toUpperCase())) branchSet.add(b); });
-    // green = official (round over + audits settled) · redDead = round
-    // finished but audits pending · redLive = round still in progress.
-    // Bugs from FINISHED rounds render upside down — exterminated.
-    const greenBugs = {}, redDeadBugs = {}, redLiveBugs = {};
-    [...branchSet].forEach(b => { greenBugs[b] = 0; redDeadBugs[b] = 0; redLiveBugs[b] = 0; });
+    // dead = bugs from FINISHED rounds (red, flipped — exterminated) ·
+    // live = bugs from the round still in progress (black, red outline).
+    const deadBugs = {}, liveBugs = {};
+    [...branchSet].forEach(b => { deadBugs[b] = 0; liveBugs[b] = 0; });
     rounds.forEach(r => {
       if (!r.hasData) return;
       r.ranked.forEach(m => {
-        if (r.official) greenBugs[m.office] = (greenBugs[m.office] || 0) + (m.bugs || 0);
-        else if (r.finished) redDeadBugs[m.office] = (redDeadBugs[m.office] || 0) + (m.bugs || 0);
-        else redLiveBugs[m.office] = (redLiveBugs[m.office] || 0) + (m.bugs || 0);
+        if (r.finished) deadBugs[m.office] = (deadBugs[m.office] || 0) + (m.bugs || 0);
+        else liveBugs[m.office] = (liveBugs[m.office] || 0) + (m.bugs || 0);
       });
     });
-    const cum = (b) => (greenBugs[b] || 0) + (redDeadBugs[b] || 0) + (redLiveBugs[b] || 0);
+    const cum = (b) => (deadBugs[b] || 0) + (liveBugs[b] || 0);
     const branches = [...branchSet].sort((a, b) => cum(b) - cum(a) || a.localeCompare(b));
 
     // ── Round date boxes — compact 2×2 grid beside the header title ──
@@ -11475,24 +11473,28 @@ function springStandingsCard() {
     const SLOTS = 24;
     // SVG spiders (not emoji) — emoji rasterize as broken glyphs in the
     // PDF export; SVG paints identically on screen and in html2canvas.
-    // Poster-style: small head + 8 legs fanned upward. Bugs earned in a
-    // FINISHED round flip upside down — exterminated.
-    const SPIDER_COLORS = { green: '#2e7d32', redDead: '#ED1C24', redLive: '#ED1C24', black: '#141414' };
+    // Poster-style: small head + 8 legs (4 per side). Three states:
+    //   dead — red + flipped (round finished, exterminated)
+    //   live — black with a red outline (current round, still moving)
+    //   black — not earned yet
+    // Artwork is vertically centered in the viewBox so flipped and
+    // upright spiders sit on the SAME baseline.
+    const SPIDER_LEGS = 'M10 11 C7 9 5 6.8 4.2 4.2 M11 10.4 C9.4 8 8.6 6 8.2 3.8 M13 10.4 C14.6 8 15.4 6 15.8 3.8 M14 11 C17 9 19 6.8 19.8 4.2 M9.5 12.6 C6.4 12 3.8 11.8 1.9 12.4 M14.5 12.6 C17.6 12 20.2 11.8 22.1 12.4 M9.9 14.6 C7 15.8 5 17.2 3.7 19.5 M14.1 14.6 C17 15.8 19 17.2 20.3 19.5';
     const bugCell = (kind, slot) => {
       const ms = MILESTONES[slot];
-      const c = SPIDER_COLORS[kind];
-      const dead = kind === 'green' || kind === 'redDead';
+      const dead = kind === 'dead';
+      const fill = dead ? '#ED1C24' : '#141414';
+      const legC = dead ? '#ED1C24' : '#141414';
+      const outline = kind === 'live' ? ' stroke="#ED1C24" stroke-width="1.4"' : '';
       const cell = el('div', { style: {
         width: '100%', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: ms ? ms[2] : 'transparent',
       } });
       cell.innerHTML = '<svg viewBox="0 0 24 24" style="width:86%;height:86%;display:block'
         + (dead ? ';transform:rotate(180deg)' : '') + '">'
-        // 8 legs — 4 per side, fanned up and out like the printed poster
-        + '<path d="M10 10.5 C7 8.5 5 6.5 4 3.5 M10.8 10 C9 7.5 8 5.5 7.6 2.8 M13.2 10 C15 7.5 16 5.5 16.4 2.8 M14 10.5 C17 8.5 19 6.5 20 3.5 M9.6 12 C6.5 11 4 10.5 1.8 11 M14.4 12 C17.5 11 20 10.5 22.2 11 M9.8 13.8 C7 14.8 5 16 3.4 18 M14.2 13.8 C17 14.8 19 16 20.6 18" stroke="' + c + '" stroke-width="1.6" fill="none" stroke-linecap="round"/>'
-        // abdomen + head
-        + '<ellipse cx="12" cy="13" rx="3.4" ry="4.4" fill="' + c + '"/>'
-        + '<circle cx="12" cy="7.4" r="2.1" fill="' + c + '"/>'
+        + '<path d="' + SPIDER_LEGS + '" stroke="' + legC + '" stroke-width="1.6" fill="none" stroke-linecap="round"/>'
+        + '<ellipse cx="12" cy="13.4" rx="3.4" ry="4.3" fill="' + fill + '"' + outline + '/>'
+        + '<circle cx="12" cy="7.6" r="2.1" fill="' + fill + '"' + outline + '/>'
         + '</svg>';
       return cell;
     };
@@ -11505,19 +11507,18 @@ function springStandingsCard() {
             ms ? el('div', {}, el('div', { style: { fontSize: '11px' } }, ms[0]), el('div', {}, ms[1])) : '·');
         }),
         ...branches.flatMap(b => {
-          const g = Math.min(greenBugs[b] || 0, SLOTS);
-          const rd = Math.min(redDeadBugs[b] || 0, SLOTS - g);
-          const rl = Math.min(redLiveBugs[b] || 0, SLOTS - g - rd);
+          const d = Math.min(deadBugs[b] || 0, SLOTS);
+          const l = Math.min(liveBugs[b] || 0, SLOTS - d);
           return [
             el('div', { style: { fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', color: '#141414', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '4px' } }, b),
             ...Array.from({ length: SLOTS }, (_, i) =>
-              bugCell(i < g ? 'green' : i < g + rd ? 'redDead' : i < g + rd + rl ? 'redLive' : 'black', i + 1)),
+              bugCell(i < d ? 'dead' : i < d + l ? 'live' : 'black', i + 1)),
           ];
         })),
       el('div', { style: { display: 'flex', gap: '14px', marginTop: '8px', fontSize: '9px', fontWeight: '800', color: '#141414' } },
-        el('span', { style: { color: '#2e7d32' } }, '● official — round over, audits settled (exterminated)'),
-        el('span', { style: { color: '#ED1C24' } }, '● round finished, audits pending — upside down once the round ends'),
-        el('span', { style: { color: '#141414' } }, '● not earned yet')));
+        el('span', { style: { color: '#ED1C24' } }, '● flipped red — past rounds (exterminated)'),
+        el('span', { style: { color: '#141414' } }, '◉ black + red outline — live round'),
+        el('span', { style: { color: '#141414' } }, '● black — not earned yet')));
 
     // ── Round tables ──
     const CAT_COLS = [['revenue', 'Revenue'], ['avgPestInitial', 'Avg In.'], ['pra', 'PRA'], ['acv', 'ACV'], ['pct24', '24M %'], ['autopayPct', 'Apay %'], ['auditPct', 'Audit %']];
