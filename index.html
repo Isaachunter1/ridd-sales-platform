@@ -12202,9 +12202,18 @@ const TOP_GUN_PRO_COUNT = 7;
 // Last Resort / Failed take precedence over a pass flag. Total (what reps are
 // ranked on) = passed + pending.
 const TG_LASTRESORT_RE = /last\s*resort/i;
+// Cancelled accounts are stripped from Pending — they only count once
+// they've received their initial service AND passed audit. "Serviced" =
+// at least one service on the account, or a real post-service cancel
+// (not a 3-day ROR / Sold-Not-Started, which never got serviced).
 function topGunBucket(s) {
   const lastResort = (Number(s.initialPrice) || 0) < 99 || TG_LASTRESORT_RE.test(s.customerFlags || '');
   if (lastResort || SC_FAIL_RE.test(s.customerFlags || '')) return 'failed';
+  const cancelled = !!(s.cancelDate || s.active === 'No');
+  if (cancelled) {
+    const serviced = (Number(s.services) || 0) >= 1 || !_isExcludableCancel(s);
+    return (serviced && scAuditPassed(s.customerFlags)) ? 'passed' : 'cancelled';
+  }
   if (scAuditPassed(s.customerFlags)) return 'passed';
   return 'pending';
 }
@@ -12222,13 +12231,14 @@ function topGunProSet(yearSales) {
 function topGunCompute(windowedSales, proSet) {
   proSet = proSet || new Set();
   const byRep = new Map();
-  const ensure = (rep) => { if (!byRep.has(rep)) byRep.set(rep, { rep, passedRev: 0, failedRev: 0, pendingRev: 0, passedCount: 0, pendingCount: 0, accounts: 0, failedAudit: 0 }); return byRep.get(rep); };
+  const ensure = (rep) => { if (!byRep.has(rep)) byRep.set(rep, { rep, passedRev: 0, failedRev: 0, pendingRev: 0, cancelledRev: 0, passedCount: 0, pendingCount: 0, cancelledCount: 0, accounts: 0, failedAudit: 0 }); return byRep.get(rep); };
   for (const s of (windowedSales || [])) {
     const m = ensure(s.rep || 'Unknown');
     const cv = Number(s.contractValue) || 0;
     const b = topGunBucket(s);
     if (b === 'passed') { m.passedRev += cv; m.passedCount += 1; }
     else if (b === 'failed') m.failedRev += cv;
+    else if (b === 'cancelled') { m.cancelledRev += cv; m.cancelledCount += 1; } // stripped — no production credit
     else { m.pendingRev += cv; m.pendingCount += 1; }
     // Audit % (same as Spring Cleaning): numerator = NOT flagged Failed Audit
     // (passed + no-audit + pending all count); denominator = every account
@@ -12242,11 +12252,11 @@ function topGunCompute(windowedSales, proSet) {
     ...m,
     total: m.passedRev + m.pendingRev,
     subs: m.accounts,                                           // all subscriptions sold (every account, all audit statuses)
-    acv: m.accounts > 0 ? (m.passedRev + m.pendingRev + m.failedRev) / m.accounts : 0, // ACV across ALL accounts
+    acv: m.accounts > 0 ? (m.passedRev + m.pendingRev + m.failedRev + m.cancelledRev) / m.accounts : 0, // ACV across ALL accounts
     auditPct: m.accounts > 0 ? (m.accounts - m.failedAudit) / m.accounts : 0,
   }));
   const pro = all.filter(m => proSet.has(m.rep)).sort(byTotal);
-  const rest = all.filter(m => !proSet.has(m.rep) && (m.total > 0 || m.failedRev > 0));
+  const rest = all.filter(m => !proSet.has(m.rep) && (m.total > 0 || m.failedRev > 0 || m.cancelledRev > 0));
   const rookie = rest.filter(m => getRepTier(m.rep) === 'rookie').sort(byTotal);
   const vet    = rest.filter(m => getRepTier(m.rep) === 'vet').sort(byTotal);
   const none   = rest.filter(m => { const t = getRepTier(m.rep); return t !== 'rookie' && t !== 'vet'; }).sort(byTotal);
@@ -12280,6 +12290,7 @@ function openTopGunHelpModal() {
       block('Pros', 'PROS = the top 7 Vet reps by revenue on the year.'),
       block('Veterans & Rookies', 'The rest of the reps, split by their Rookie/Vet tier in Manage Teams.'),
       block('Eligibility', 'Only audit-passed accounts count toward the competition.'),
+      block('Cancelled Accounts', 'Cancelled accounts don’t count toward Pending. A cancelled account only earns credit if it received an initial service and passed audit.'),
     ),
   );
   overlay.append(card);
@@ -12327,9 +12338,10 @@ function indicatorTopGunBoard(sales, proSet) {
                       th('Rep'),
                       th('Subs', 'All subscriptions sold (every account, all audit statuses)'),
                       th('ACV', 'Avg contract value across all accounts'),
-                      th('Passed Rev', 'Passed Audit + No Audit revenue'),
-                      th('Pending', 'Awaiting audit'),
+                      th('Passed Rev', 'Passed Audit + No Audit revenue (incl. post-service cancels that passed audit)'),
+                      th('Pending', 'Awaiting audit — cancelled accounts stripped'),
                       th('Failed', 'Failed Audit + Last Resort'),
+                      th('Cancelled', 'Cancelled without initial service + audit pass — no production credit'),
                       th('Total Rev', 'Passed + Pending'),
                       th('Audit %', 'Passed + No-Audit + Pending ÷ all accounts (incl. failed audit & last resort)'),
                       th('RIDDCOIN'),
@@ -12345,6 +12357,7 @@ function indicatorTopGunBoard(sales, proSet) {
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#222', fontWeight: '700' } }, usd(r.passedRev)),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#a67c00' } }, r.pendingRev ? usd(r.pendingRev) : '—'),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: RED, fontWeight: '700' } }, r.failedRev ? usd(r.failedRev) : '—'),
+                    el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#888', textDecoration: r.cancelledRev ? 'line-through' : 'none' } }, r.cancelledRev ? usd(r.cancelledRev) : '—'),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#111', fontWeight: '900' } }, usd(r.total)),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#222', fontWeight: '700' } }, (r.auditPct * 100).toFixed(1) + '%'),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontWeight: '900', color: BLUE, width: '96px', whiteSpace: 'nowrap' } }, i < 3 ? PRIZES[i] : '—'),
@@ -12421,13 +12434,13 @@ async function exportTopGunXlsx(sales, proSet) {
   const st = [];
   st.push(['Top Gun — Standings']);
   st.push(['Pulled', new Date().toLocaleString()]);
-  st.push(['Note', 'Production = Total (Passed + Pending Audit revenue). Pros = top 7 Vet reps by year revenue. Only audit-passed accounts count.']);
+  st.push(['Note', 'Production = Total (Passed + Pending Audit revenue). Pros = top 7 Vet reps by year revenue. Cancelled accounts are stripped from Pending — they only count if they received an initial service and passed audit.']);
   CLASS_DEFS.forEach(d => {
     const reps = classes[d.key] || [];
     st.push([]);
     st.push([d.name.toUpperCase()]);
-    st.push(['#', 'Rep', 'Subs', 'ACV', 'Passed Rev', 'Pending Rev', 'Failed Rev', 'Total Rev', 'RIDDCOIN']);
-    reps.forEach((r, i) => st.push([i + 1, r.rep, r.subs, Math.round(r.acv), Math.round(r.passedRev), Math.round(r.pendingRev), Math.round(r.failedRev), Math.round(r.total), i < 3 ? PRIZES[i] : '']));
+    st.push(['#', 'Rep', 'Subs', 'ACV', 'Passed Rev', 'Pending Rev', 'Failed Rev', 'Cancelled Rev', 'Total Rev', 'RIDDCOIN']);
+    reps.forEach((r, i) => st.push([i + 1, r.rep, r.subs, Math.round(r.acv), Math.round(r.passedRev), Math.round(r.pendingRev), Math.round(r.failedRev), Math.round(r.cancelledRev), Math.round(r.total), i < 3 ? PRIZES[i] : '']));
   });
 
   const acctHeader = ['Rep', 'Class', 'Audit Bucket', 'Office', 'Customer', 'Customer ID', 'Date Sold',
