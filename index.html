@@ -605,6 +605,7 @@ const ADMIN_ROLES   = ['admin', 'admin_rep'];
 const SELLER_ROLES  = ['rep', 'admin_rep'];
 const isAdminRole   = (r) => ADMIN_ROLES.includes(r);
 const isSellerRole  = (r) => SELLER_ROLES.includes(r);
+const isAuditorRole = (r) => r === 'auditor';
 // Human-readable label for any role enum value, used wherever we render a
 // role to the UI. Keeps the Users table, the editor dropdown, and the
 // profile menu in sync without scattering string-cases.
@@ -2594,10 +2595,14 @@ function buildSearchBar() {
 
 function mobileBottomNav() {
   const isAdmin = isAdminRole(state.profile?.role);
+  const isAuditor = isAuditorRole(state.profile?.role);
   // Slot 4 is role-aware: reps see Competitions (live bingo + leaderboards
   // they check between sales), admins see Calendar (they manage scheduling).
   // The other view stays reachable through the More popover.
-  const items = [
+  // Auditors only have sales access — a single Sales slot, no More menu.
+  const items = isAuditor ? [
+    ['sales', 'Sales', iconSales],
+  ] : [
     ['dashboard', 'Dashboard', iconDashboard],
     ['sales', 'Sales', iconSales],
     ['pay', 'Pay', iconPay],
@@ -2612,14 +2617,14 @@ function mobileBottomNav() {
       onclick: () => { state.view = k; history.replaceState(null,'',VIEW_TO_HASH[k]||'#'+k); mountApp(); },
     }, iconFn(20), el('span', {}, label))),
     // "More" button
-    (() => {
+    !isAuditor && (() => {
       const moreBtn = el('button', { 'data-active': !slotKeys.has(state.view) },
         iconGrid(20), el('span', {}, 'More'));
       const popover = el('div', { class: 'more-popover card', style: { display: 'none' } },
         ...[
           // Surface whichever of (Competitions, Calendar) isn't already in slot 4.
           ...(isAdmin ? [['competitions','Competitions',iconTrophy]] : [['calendar', 'Calendar', iconCalendar]]),
-          // Scorecards is visible to every user — admins see the
+          // Scorecards is visible to every seller — admins see the
           // full roster, reps see only their own card (viewScorecards
           // handles the scoping). Indicators stays admin-only since
           // it's leadership-only data.
@@ -2930,9 +2935,20 @@ const INSIDE_SALES_TABS = [
   ['hall_of_fame', 'Hall of Fame'],
 ];
 const INSIDE_SALES_TAB_KEYS = new Set(INSIDE_SALES_TABS.map(([k]) => k));
+// Sales access — who gets the full Inside Sales group. Sellers (rep /
+// admin_rep, incl. loyalty reps via rep_type) and admins see everything;
+// auditors only need the Sales tab so they can audit sales. Everything
+// else (Dashboard/leaderboard, Pay, Scorecards, Calendar, Competitions,
+// Hall of Fame) is hidden from them.
+function insideSalesTabsFor(role) {
+  return isAuditorRole(role) ? INSIDE_SALES_TABS.filter(([k]) => k === 'sales') : INSIDE_SALES_TABS;
+}
 function insideSalesSubTabs() {
+  const tabs = insideSalesTabsFor(state.profile?.role);
+  // A one-tab bar is just noise — auditors land straight on Sales.
+  if (tabs.length < 2) return null;
   return el('div', { class: 'flex items-center gap-1 border-b mb-4 overflow-x-auto', style: { borderColor: 'var(--border)' } },
-    ...INSIDE_SALES_TABS.map(([k, label]) => {
+    ...tabs.map(([k, label]) => {
       const active = state.view === k;
       return el('button', {
         class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
@@ -2948,6 +2964,16 @@ function insideSalesSubTabs() {
 
 function mountApp() {
   const isAdmin = isAdminRole(state.profile.role);
+  const isAuditor = isAuditorRole(state.profile.role);
+
+  // Route guard — auditors only get the Sales tab of the Inside Sales
+  // group (they audit sales, they don't sell). Any other Inside Sales
+  // view (deep-link hash, stale _lastIsTab, default 'dashboard' on boot)
+  // is coerced to Sales before render.
+  if (isAuditor && INSIDE_SALES_TAB_KEYS.has(state.view) && state.view !== 'sales') {
+    state.view = 'sales';
+    history.replaceState(null, '', VIEW_TO_HASH.sales || '#sales');
+  }
 
   // ── Single-column layout. The grid icon in the header is the nav menu. ──
   const shell = el('div', { class: 'min-h-screen flex flex-col' });
@@ -2956,7 +2982,8 @@ function mountApp() {
   // 'inside_sales' is a virtual entry — clicking it lands on the last-used
   // Inside Sales sub-tab (default Dashboard).
   const navItems = [
-    ['inside_sales', 'Inside Sales', iconSales()],
+    // Auditors only have the Sales tab, so call the entry what it is.
+    ['inside_sales', isAuditor ? 'Sales' : 'Inside Sales', iconSales()],
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
   ];
@@ -2995,7 +3022,7 @@ function mountApp() {
         onmouseleave: (e) => { if (!active) e.currentTarget.style.background = 'transparent'; },
         onclick: () => {
           const target = k === 'inside_sales'
-            ? (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) ? state._lastIsTab : 'dashboard')
+            ? (isAuditor ? 'sales' : (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) ? state._lastIsTab : 'dashboard'))
             : k;
           state.view = target;
           history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);
@@ -3162,8 +3189,12 @@ function mountApp() {
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
   const node = view();
   node.classList.add('fade-in');
-  // Inside Sales views get the consolidated sub-tab bar above the content.
-  if (INSIDE_SALES_TAB_KEYS.has(state.view)) contentWrap.append(insideSalesSubTabs());
+  // Inside Sales views get the consolidated sub-tab bar above the content
+  // (auditors get no bar — their only tab is Sales).
+  if (INSIDE_SALES_TAB_KEYS.has(state.view)) {
+    const subTabBar = insideSalesSubTabs();
+    if (subTabBar) contentWrap.append(subTabBar);
+  }
   contentWrap.append(node);
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
@@ -3391,17 +3422,20 @@ function viewDashboard() {
       );
     })(),
 
-    // ─── KPI grid (3 columns, 2 rows) ───
-    el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-3' },
-      kpiCard('Total Sales',   fmt.int(totalSalesCount), 'view all', () => { state.view = 'sales'; mountApp(); }),
-      kpiCard('New Sales',     fmt.int(newSalesCount),   'view all', () => { state.view = 'sales'; mountApp(); }),
-      kpiCard('Renewals',      fmt.int(renewalCount),    'view all', () => { state.view = 'sales'; state._salesQueueFilter = 'history'; mountApp(); }),
-    ),
-    el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-3' },
-      kpiCard('Total Revenue',   fmt.usd0(totalRevenue),   'all sales'),
-      kpiCard('New Revenue',     fmt.usd0(newRevenue),     'excludes renewals'),
-      kpiCard('Renewal Revenue', fmt.usd0(renewalRevenue), 'renewals only'),
-    ),
+    // ─── KPI cards: one combined Sales card + one combined Revenue card.
+    // Three stats sit side by side inside each card (instead of three
+    // separate cards) so the dashboard stays compact — especially on
+    // mobile, where the old layout stacked six full-width cards. ───
+    kpiTripleCard([
+      ['Total Sales', fmt.int(totalSalesCount), () => { state.view = 'sales'; mountApp(); }],
+      ['New Sales',   fmt.int(newSalesCount),   () => { state.view = 'sales'; mountApp(); }],
+      ['Renewals',    fmt.int(renewalCount),    () => { state.view = 'sales'; state._salesQueueFilter = 'history'; mountApp(); }],
+    ]),
+    kpiTripleCard([
+      ['Total Revenue',   fmt.usd0(totalRevenue)],
+      ['New Revenue',     fmt.usd0(newRevenue)],
+      ['Renewal Revenue', fmt.usd0(renewalRevenue)],
+    ]),
 
     // ─── Split: Today's Sales (30%) | Leaderboard (70%) ───
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-[3fr_7fr] gap-4' },
@@ -3412,6 +3446,26 @@ function viewDashboard() {
 }
 
 function sumRev(rows) { return rows.reduce((a, s) => a + Number(s.revenue_amount || 0), 0); }
+
+// One card, three stats side by side, divided by hairlines. Replaces the
+// old 3-cards-per-row KPI grid on the dashboard — on mobile the three
+// numbers share one row instead of stacking three full-width cards.
+// stats: array of [label, value, onclick?]
+function kpiTripleCard(stats) {
+  return el('div', { class: 'card p-4 sm:p-5 grid grid-cols-3' },
+    ...stats.map(([label, value, onclick], i) => el('div', {
+      class: 'min-w-0 flex flex-col justify-center px-2 sm:px-4 text-center'
+        + (i > 0 ? ' border-l' : '')
+        + (onclick ? ' cursor-pointer hover:brightness-95 transition' : ''),
+      style: i > 0 ? { borderColor: 'var(--border)' } : {},
+      onclick,
+      title: onclick ? label + ' — view all' : undefined,
+    },
+      el('div', { class: 'text-[9px] sm:text-[10px] text-muted- uppercase tracking-widest font-semibold truncate' }, label),
+      el('div', { class: 'text-lg sm:text-3xl font-black mt-1 tabular-nums truncate' }, value),
+    )),
+  );
+}
 
 function kpiCard(label, value, sub, onclick) {
   return el('div', { class: 'card p-5' + (onclick ? ' cursor-pointer hover:brightness-95 transition' : ''), onclick },
@@ -3573,10 +3627,11 @@ function recentSalesTable(rows, opts = {}) {
 // LEADERBOARD — computed live from profiles + sales
 // ──────────────────────────────────────────────────────────────────────────
 function computeLeaderboard(tab = 'total', range = null) {
-  // Auditors don't sell — they review. Exclude them from the leaderboard so
-  // the rankings stay focused on the people actually generating sales.
+  // Only people with sales access rank on the leaderboard: sales reps,
+  // loyalty reps, and Admin + Sales. Auditors review and Admin (no sales)
+  // manages — neither sells, so neither gets a row.
   const profilesAll = state.allProfiles.length ? state.allProfiles : [state.profile].filter(Boolean);
-  const profiles = profilesAll.filter(p => p.role !== 'auditor');
+  const profiles = profilesAll.filter(p => isSellerRole(p.role));
   const renewalIds = new Set(state.sources.filter(s => s.is_renewal).map(s => s.id));
   const isRenewalSale = s => renewalIds.has(s.source_id);
 
