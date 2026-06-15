@@ -12252,8 +12252,8 @@ const TOP_GUN_PRO_COUNT = 7;
 //   passed  — Passed Audit OR No Audit
 //   failed  — Failed Audit OR Last Resort (initial < $99 or a "Last Resort" flag)
 //   pending — no pass/fail flag yet
-// Last Resort / Failed take precedence over a pass flag. Total (what reps are
-// ranked on) = passed + pending.
+// Last Resort / Failed take precedence over a pass flag. Total = the sum of
+// everything (passed + pending + failed); reps are ranked on Passed revenue.
 const TG_LASTRESORT_RE = /last\s*resort/i;
 function topGunBucket(s) {
   const lastResort = (Number(s.initialPrice) || 0) < 99 || TG_LASTRESORT_RE.test(s.customerFlags || '');
@@ -12290,19 +12290,21 @@ function topGunCompute(windowedSales, proSet) {
     m.accounts += 1;
   }
   proSet.forEach(rep => ensure(rep)); // Pros always appear, even with no window sales
-  const byTotal = (a, b) => b.total - a.total || b.passedRev - a.passedRev;
+  // Reps are ranked on Passed revenue (audit-passed production). Total is just
+  // the sum of everything (passed + pending + failed), shown as the lead column.
+  const byPassed = (a, b) => b.passedRev - a.passedRev || b.total - a.total;
   const all = [...byRep.values()].map(m => ({
     ...m,
-    total: m.passedRev + m.pendingRev,
+    total: m.passedRev + m.pendingRev + m.failedRev,
     subs: m.accounts,                                           // all subscriptions sold (every account, all audit statuses)
     acv: m.accounts > 0 ? (m.passedRev + m.pendingRev + m.failedRev) / m.accounts : 0, // ACV across ALL accounts
     auditPct: m.accounts > 0 ? (m.accounts - m.failedAudit) / m.accounts : 0,
   }));
-  const pro = all.filter(m => proSet.has(m.rep)).sort(byTotal);
+  const pro = all.filter(m => proSet.has(m.rep)).sort(byPassed);
   const rest = all.filter(m => !proSet.has(m.rep) && (m.total > 0 || m.failedRev > 0));
-  const rookie = rest.filter(m => getRepTier(m.rep) === 'rookie').sort(byTotal);
-  const vet    = rest.filter(m => getRepTier(m.rep) === 'vet').sort(byTotal);
-  const none   = rest.filter(m => { const t = getRepTier(m.rep); return t !== 'rookie' && t !== 'vet'; }).sort(byTotal);
+  const rookie = rest.filter(m => getRepTier(m.rep) === 'rookie').sort(byPassed);
+  const vet    = rest.filter(m => getRepTier(m.rep) === 'vet').sort(byPassed);
+  const none   = rest.filter(m => { const t = getRepTier(m.rep); return t !== 'rookie' && t !== 'vet'; }).sort(byPassed);
   return { rookie, vet, pro, none };
 }
 
@@ -12329,7 +12331,8 @@ function openTopGunHelpModal() {
     ),
     el('div', { class: 'overflow-auto px-5 py-4' },
       block('Payouts', 'Each class pays its top 3 producers (®1,000,000 / ®500,000 / ®300,000).'),
-      block('Production', 'Production = Total Revenue (Passed + Pending Audit · Contract Value).'),
+      block('Ranking', 'Reps are ranked on Passed Rev (audit-passed production · Contract Value).'),
+      block('Total Revenue', 'Total Rev = the sum of everything (Passed + Pending + Failed).'),
       block('Pros', 'PROS = the top 7 Vet reps by revenue on the year.'),
       block('Veterans & Rookies', 'The rest of the reps, split by their Rookie/Vet tier in Manage Teams.'),
       block('Eligibility', 'Only audit-passed accounts count toward the competition.'),
@@ -12380,10 +12383,10 @@ function indicatorTopGunBoard(sales, proSet) {
                       th('Rep'),
                       th('Subs', 'All subscriptions sold (every account, all audit statuses)'),
                       th('ACV', 'Avg contract value across all accounts'),
-                      th('Passed Rev', 'Passed Audit + No Audit revenue'),
-                      th('Pending', 'Awaiting audit'),
+                      th('Total Rev', 'Passed + Pending + Failed (all revenue)'),
                       th('Failed', 'Failed Audit + Last Resort'),
-                      th('Total Rev', 'Passed + Pending'),
+                      th('Pending', 'Awaiting audit'),
+                      th('Passed Rev', 'Passed Audit + No Audit revenue — reps are ranked on this'),
                       th('Audit %', 'Passed + No-Audit + Pending ÷ all accounts (incl. failed audit & last resort)'),
                       th('RIDDCOIN'),
                     );
@@ -12395,10 +12398,10 @@ function indicatorTopGunBoard(sales, proSet) {
                     el('td', { style: { padding: '5px 8px', fontWeight: '700', color: '#222', whiteSpace: 'nowrap' } }, r.rep),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#222' } }, r.subs.toLocaleString()),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#222' } }, usd(r.acv)),
-                    el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#222', fontWeight: '700' } }, usd(r.passedRev)),
-                    el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#a67c00' } }, r.pendingRev ? usd(r.pendingRev) : '—'),
-                    el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: RED, fontWeight: '700' } }, r.failedRev ? usd(r.failedRev) : '—'),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#111', fontWeight: '900' } }, usd(r.total)),
+                    el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: RED, fontWeight: '700' } }, r.failedRev ? usd(r.failedRev) : '—'),
+                    el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#a67c00' } }, r.pendingRev ? usd(r.pendingRev) : '—'),
+                    el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#222', fontWeight: '900' } }, usd(r.passedRev)),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#222', fontWeight: '700' } }, (r.auditPct * 100).toFixed(1) + '%'),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontWeight: '900', color: BLUE, width: '96px', whiteSpace: 'nowrap' } }, i < 3 ? PRIZES[i] : '—'),
                   )),
@@ -12474,13 +12477,13 @@ async function exportTopGunXlsx(sales, proSet) {
   const st = [];
   st.push(['Top Gun — Standings']);
   st.push(['Pulled', new Date().toLocaleString()]);
-  st.push(['Note', 'Production = Total (Passed + Pending Audit revenue). Pros = top 7 Vet reps by year revenue. Only audit-passed accounts count.']);
+  st.push(['Note', 'Reps are ranked on Passed Rev (audit-passed production). Total Rev = Passed + Pending + Failed (all revenue). Pros = top 7 Vet reps by year revenue.']);
   CLASS_DEFS.forEach(d => {
     const reps = classes[d.key] || [];
     st.push([]);
     st.push([d.name.toUpperCase()]);
-    st.push(['#', 'Rep', 'Subs', 'ACV', 'Passed Rev', 'Pending Rev', 'Failed Rev', 'Total Rev', 'RIDDCOIN']);
-    reps.forEach((r, i) => st.push([i + 1, r.rep, r.subs, Math.round(r.acv), Math.round(r.passedRev), Math.round(r.pendingRev), Math.round(r.failedRev), Math.round(r.total), i < 3 ? PRIZES[i] : '']));
+    st.push(['#', 'Rep', 'Subs', 'ACV', 'Total Rev', 'Failed Rev', 'Pending Rev', 'Passed Rev', 'RIDDCOIN']);
+    reps.forEach((r, i) => st.push([i + 1, r.rep, r.subs, Math.round(r.acv), Math.round(r.total), Math.round(r.failedRev), Math.round(r.pendingRev), Math.round(r.passedRev), i < 3 ? PRIZES[i] : '']));
   });
 
   const acctHeader = ['Rep', 'Class', 'Audit Bucket', 'Office', 'Customer', 'Customer ID', 'Date Sold',
