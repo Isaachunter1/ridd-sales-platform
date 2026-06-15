@@ -2875,23 +2875,70 @@ function reportingAuditing() {
       td(money(s.agingRev), { bg: s.agingRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
     );
   };
+  // Value extractor for each sortable column. Percent/attrition use -1 for
+  // "no data" so blanks sort to the bottom. Name/Office/Team sort as text.
+  const sortVal = (id, name, s) => {
+    switch (id) {
+      case 'name':     return name;
+      case 'office':   return repOfficeOf(name);
+      case 'team':     return repTeamOf(name);
+      case 'sold':     return s.sold;
+      case 'audited':  return s.passed + s.failed;
+      case 'passed':   return s.passed;
+      case 'failed':   return s.failed;
+      case 'pending':  return s.pending;
+      case 'passpct':  { const a = s.passed + s.failed; return a > 0 ? s.passed / a : -1; }
+      case 'effpct':   return s.sold > 0 ? (s.passed + s.pending) / s.sold : -1;
+      case 'attrP':    { const r = rate(s.attr.passed); return r == null ? -1 : r; }
+      case 'attrF':    { const r = rate(s.attr.failed); return r == null ? -1 : r; }
+      case 'totalRev': return s.totalRev;
+      case 'activeRev':return s.activeRev;
+      case 'agingRev': return s.agingRev;
+      default:         return 0;
+    }
+  };
   // kind 'rep' adds Office + Team columns (pulled per rep); both kinds show
-  // the Total / Active / Aging revenue columns.
-  const statTable = (label, entries, note, kind) => el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-4 pt-4 pb-2' },
-      el('h3', { class: 'text-base font-bold' }, label),
-      note && el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, note)),
-    el('div', { class: 'overflow-x-auto' },
-      el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {},
-          th(kind === 'rep' ? 'Rep' : 'Branch'),
-          ...(kind === 'rep' ? [th('Office'), th('Team')] : []),
-          th('Sold (D2D)'), th('Audited'), th('Passed'), th('Failed'), th('Pending / No Audit'),
-          th('Pass % (audited)'), th('Eff. Pass %'), th('Attrition · Passed'), th('Attrition · Failed'),
-          th('Total Rev'), th('Active Rev'), th('Aging Bal'))),
-        el('tbody', {},
-          ...entries.map(([name, s]) => statRow(name, s, kind === 'rep' ? { org: { office: repOfficeOf(name), team: repTeamOf(name) } } : {})),
-          statRow('TOTAL', tot, { total: true, org: kind === 'rep' ? {} : undefined })))));
+  // the Total / Active / Aging revenue columns. Click any header to sort.
+  const statTable = (label, entries, note, kind) => {
+    const cols = [
+      { id: 'name', label: kind === 'rep' ? 'Rep' : 'Branch' },
+      ...(kind === 'rep' ? [{ id: 'office', label: 'Office' }, { id: 'team', label: 'Team' }] : []),
+      { id: 'sold', label: 'Sold (D2D)' }, { id: 'audited', label: 'Audited' },
+      { id: 'passed', label: 'Passed' }, { id: 'failed', label: 'Failed' }, { id: 'pending', label: 'Pending / No Audit' },
+      { id: 'passpct', label: 'Pass % (audited)' }, { id: 'effpct', label: 'Eff. Pass %' },
+      { id: 'attrP', label: 'Attrition · Passed' }, { id: 'attrF', label: 'Attrition · Failed' },
+      { id: 'totalRev', label: 'Total Rev' }, { id: 'activeRev', label: 'Active Rev' }, { id: 'agingRev', label: 'Aging Bal' },
+    ];
+    if (!state.auditSort) state.auditSort = {};
+    const sortState = state.auditSort[kind] || { key: 'sold', dir: 'desc' };
+    const setSort = (key) => {
+      const cur = state.auditSort[kind] || { key: 'sold', dir: 'desc' };
+      const dir = cur.key === key ? (cur.dir === 'asc' ? 'desc' : 'asc')
+        : (key === 'name' || key === 'office' || key === 'team' ? 'asc' : 'desc');
+      state.auditSort[kind] = { key, dir };
+      mountApp();
+    };
+    const sorted = [...entries].sort((a, b) => {
+      const va = sortVal(sortState.key, a[0], a[1]), vb = sortVal(sortState.key, b[0], b[1]);
+      const c = (typeof va === 'string' || typeof vb === 'string') ? String(va).localeCompare(String(vb)) : (va - vb);
+      return sortState.dir === 'asc' ? c : -c;
+    });
+    const thSort = (c) => el('th', {
+      class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left cursor-pointer select-none hover:text-default transition',
+      style: { background: 'var(--card-2)', color: sortState.key === c.id ? 'var(--accent)' : 'var(--text-muted)' },
+      onclick: () => setSort(c.id),
+    }, c.label + (sortState.key === c.id ? (sortState.dir === 'asc' ? ' ↑' : ' ↓') : ''));
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 pt-4 pb-2' },
+        el('h3', { class: 'text-base font-bold' }, label),
+        note && el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, note)),
+      el('div', { class: 'overflow-x-auto' },
+        el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
+          el('thead', {}, el('tr', {}, ...cols.map(thSort))),
+          el('tbody', {},
+            ...sorted.map(([name, s]) => statRow(name, s, kind === 'rep' ? { org: { office: repOfficeOf(name), team: repTeamOf(name) } } : {})),
+            statRow('TOTAL', tot, { total: true, org: kind === 'rep' ? {} : undefined })))));
+  };
 
   const repEntries = Object.entries(reps).sort((a, b) => b[1].sold - a[1].sold || b[1].failed - a[1].failed);
   const offEntries = Object.entries(offs).sort((a, b) => b[1].sold - a[1].sold);
