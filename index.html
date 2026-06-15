@@ -11684,7 +11684,7 @@ function springStandingsCard() {
 
     // ── Round date boxes — single horizontal row, spread across the top
     //    and aligned with the Reset-dates button to their right. ──
-    const roundsBox = el('div', { class: 'sc-noprint', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', background: '#cfcec6', padding: '6px 12px', borderRadius: '8px', flex: '1' } },
+    const roundsBox = el('div', { class: 'sc-noprint', style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '18px', background: '#cfcec6', padding: '6px 12px', borderRadius: '8px', flex: '1' } },
       ...comp.rounds.map((r, i) => {
         const rr = rounds[i];
         const dot = rr.official ? '#43a047' : (rr.hasData ? '#ED1C24' : '#9d9d97');
@@ -11795,6 +11795,11 @@ function springStandingsCard() {
 
     // ── Round tables ──
     const CAT_COLS = [['revenue', 'Revenue'], ['avgPestInitial', 'Avg In.'], ['pra', 'PRA'], ['acv', 'ACV'], ['pct24', '24M %'], ['autopayPct', 'Apay %'], ['auditPct', 'Audit %']];
+    // Formatters for the actual metric values (shown alongside each rank).
+    const _usd  = (v) => '$' + Math.round(Number(v) || 0).toLocaleString();
+    const _usd2 = (v) => '$' + (Number(v) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const _pct  = (v) => ((Number(v) || 0) * 100).toFixed(1) + '%';
+    const CAT_FMT = { revenue: _usd, avgPestInitial: _usd2, pra: _usd, acv: _usd, pct24: _pct, autopayPct: _pct, auditPct: _pct };
     const dayOrd = (iso) => { const d = new Date(iso + 'T00:00'); return d.toLocaleDateString('en-US', { month: 'long' }) + ' ' + ordinal(d.getDate()); };
     const roundLabel = (r) => {
       const a = new Date(r.start + 'T00:00'), b = new Date(r.end + 'T00:00');
@@ -11813,7 +11818,11 @@ function springStandingsCard() {
         const m = byOffice[b];
         return el('tr', {},
           el('td', { style: { padding: '3px 8px 3px 0', fontSize: '11.5px', fontWeight: '600', whiteSpace: 'nowrap' } }, tc(b)),
-          ...CAT_COLS.map(([k]) => el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums' } }, m ? (m.places[k] || 0) : 0)));
+          ...CAT_COLS.map(([k]) => el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } },
+            m ? el('span', {},
+                  el('span', { style: { fontWeight: '700' } }, CAT_FMT[k](m[k])),
+                  el('span', { style: { color: '#777', marginLeft: '5px', fontSize: '10px', fontWeight: '800' } }, '(' + (m.places[k] || 0) + ')'))
+              : '—')));
       };
       const rankRow = (b) => {
         const m = byOffice[b];
@@ -11847,10 +11856,10 @@ function springStandingsCard() {
               el('th', { style: { width: '120px' } }, ''),
               ...CAT_COLS.map(([, lab]) => el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, lab)))),
             el('tbody', {}, ...order.map(rowFor))),
-          el('div', { style: { background: '#9d9d97', padding: '8px 12px', minWidth: '150px' } },
+          el('div', { style: { background: '#9d9d97', padding: '8px 12px', minWidth: '150px', marginTop: '21px' } },
             el('div', { style: { fontSize: '10.5px', fontWeight: '900', color: '#141414', marginBottom: '4px', whiteSpace: 'nowrap' } }, 'Rd ' + (idx + 1) + ' Power Rank'),
             ...order.map(rankRow)),
-          el('div', { style: { background: '#b9b9b3', padding: '8px 12px', minWidth: '86px' } },
+          el('div', { style: { background: '#b9b9b3', padding: '8px 12px', minWidth: '86px', marginTop: '21px' } },
             el('div', { style: { fontSize: '10.5px', fontWeight: '900', color: '#141414', marginBottom: '4px', whiteSpace: 'nowrap' } }, 'Bug Count'),
             ...order.map(bugRow))));
     };
