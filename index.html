@@ -642,6 +642,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   // the current calendar year so a stale saved year can't silently change
   // team grouping app-wide. It's still remembered within a session.
   '_indicatorRepTier',
+  '_indicatorRepTypeBySig',   // rep name-signature → "Sold By Type" from the Customer Report
   '_indicatorTeams',
   '_indicatorExcludedTeams',
   '_indicatorCompetitions',
@@ -3027,6 +3028,12 @@ function reportingAuditing() {
         title: 'Export every in-scope D2D account (audit status, flags, revenue) to Excel \u2014 incl. a sheet of accounts with no audit flag',
         onclick: () => exportAuditingXlsx(scopedAccounts, rangeLabel),
       }, '\u2b07 Export'),
+      el('button', {
+        class: 'rounded-xl border px-3 py-2 text-xs font-semibold transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Assign reps to teams / tiers (same as the Indicators tab)',
+        onclick: () => openManageTeamsModal(),
+      }, '\ud83d\udc65 Manage Teams'),
       el('div', { class: 'text-[11px] ml-1', style: { color: 'var(--text-subtle)' } },
         'Live from this snapshot\u2019s Customer Flags \u2014 re-upload the report to refresh.')),
 
@@ -13190,12 +13197,21 @@ function openManageTeamsModal() {
     // Technician). Matched to each Manage-Teams rep by a format-agnostic name
     // signature so "Last, First" and "First Last" line up.
     const _nameSig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
-    const _typeBySig = {};
-    for (const r of (state.reportingSubscriptions || [])) {
-      const t = (r.sold_by_type || '').trim();
-      if (!r.sold_by || !t || _typeBySig[_nameSig(getCanonicalRepName(r.sold_by))]) continue;
-      _typeBySig[_nameSig(getCanonicalRepName(r.sold_by))] = t;
+    let _typeBySig = {};
+    if ((state.reportingSubscriptions || []).length) {
+      for (const r of state.reportingSubscriptions) {
+        const t = (r.sold_by_type || '').trim();
+        if (!r.sold_by || !t) continue;
+        const k = _nameSig(getCanonicalRepName(r.sold_by));
+        if (k && !_typeBySig[k]) _typeBySig[k] = t;
+      }
+      state._indicatorRepTypeBySig = _typeBySig; // keep the persisted copy fresh
+    } else {
+      // Report rows aren't in memory (they don't survive a refresh) — fall back
+      // to the small persisted map built when the report was last loaded.
+      _typeBySig = state._indicatorRepTypeBySig || {};
     }
+    const hasTypeData = Object.keys(_typeBySig).length > 0;
     const repTypeOf = (rep) => _typeBySig[_nameSig(rep)] || 'Unknown';
     const repTypesPresent = (() => {
       const s = new Set(reps.map(repTypeOf));
@@ -13505,8 +13521,8 @@ function openManageTeamsModal() {
         onclick: () => { state._indicatorManageTypeFilter = ''; render(); },
       }, 'All · ' + reps.length),
       ...repTypesPresent.map(typeChip),
-      (state.reportingSubscriptions || []).length === 0
-        ? el('span', { class: 'text-[10px] text-muted- italic ml-1' }, 'Upload a Customer Report on the Reporting tab to populate types')
+      !hasTypeData
+        ? el('span', { class: 'text-[10px] text-muted- italic ml-1' }, 'Open the Reporting tab (or upload a Customer Report) to populate rep types')
         : null,
     );
 
@@ -13986,6 +14002,19 @@ function openManageTeamsModal() {
 
   render();
   document.body.append(overlay);
+  // If the Customer Report rows aren't in memory (they don't survive a
+  // refresh), pull them in the background so the Rep Type column can populate
+  // without the user having to visit the Reporting tab first.
+  if (!(state.reportingSubscriptions || []).length && state.reportingActiveUploadId
+      && typeof loadReportingSubscriptions === 'function' && !state._indicatorRepTypeBySig) {
+    loadReportingSubscriptions(state.reportingActiveUploadId).then(rows => {
+      if (!rows || !rows.length || !overlay.isConnected) return;
+      state.reportingSubscriptions = rows;
+      state.reportingSubscriptionsLoadedFor = state.reportingActiveUploadId;
+      _refreshRepTypeMap();
+      render();
+    }).catch(() => {});
+  }
 }
 
 function viewIndicators() {
@@ -23031,6 +23060,7 @@ async function uploadReportingCsv(file) {
     state.reportingSubscriptions = rows;
     state.reportingActiveUploadId = uploadId;
     state.reportingSubscriptionsLoadedFor = uploadId;
+    _refreshRepTypeMap();
 
     // Seed any new service names into the config table so they appear
     // in Service Types with default (non-recurring, non-hidden) flags.
@@ -23202,6 +23232,7 @@ async function uploadReportingCsv(file) {
   state.reportingActiveUploadId = upload.id;
   state.reportingSubscriptions = rows;
   state.reportingSubscriptionsLoadedFor = upload.id;
+  _refreshRepTypeMap();
   reportingIdbPut(upload.id, rows); // seed the local cache so refresh is instant
   reportingUploadProgress(null);
   toast('Uploaded ' + rows.length.toLocaleString() + ' rows', 'success');
@@ -23243,6 +23274,28 @@ const REPORTING_PALETTE = [
 //   1. config.lifecycle  ('recurring' | 'onetime' | 'retired')   — admin's choice
 //   2. config.recurring_override (true → recurring, false → onetime) — legacy
 //   3. data guess: recurring if any row has ARV > 0, else onetime  — 'auto'
+// Build + persist a small map of rep name-signature → "Sold By Type" from the
+// Customer Report's rows. The full report doesn't survive a refresh (too big
+// for localStorage), but this tiny map does, so Manage Teams can show each
+// rep's type (Sales Rep / Office Staff / Technician) even when the rows aren't
+// loaded. Called whenever reporting subscription rows become available.
+function _repTypeNameSig(n) { return String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' '); }
+function _refreshRepTypeMap() {
+  const rows = state.reportingSubscriptions || [];
+  if (!rows.length) return;
+  const m = {};
+  for (const r of rows) {
+    const t = (r.sold_by_type || '').trim();
+    if (!r.sold_by || !t) continue;
+    const k = _repTypeNameSig(typeof getCanonicalRepName === 'function' ? getCanonicalRepName(r.sold_by) : r.sold_by);
+    if (k && !m[k]) m[k] = t;
+  }
+  if (Object.keys(m).length) {
+    state._indicatorRepTypeBySig = m;
+    if (typeof saveIndicatorState === 'function') saveIndicatorState();
+  }
+}
+
 function reportingServiceLifecycleMap() {
   const cfg = state.reportingServiceConfig || [];
   const byName = new Map(cfg.map(c => [c.service_name, c]));
@@ -23965,6 +24018,7 @@ function viewReporting() {
       if (rows == null) return;        // aborted/superseded load — keep what we have
       state.reportingSubscriptions = rows;
       state.reportingSubscriptionsLoadedFor = activeId;
+      _refreshRepTypeMap();
       mountApp();
     });
   }
