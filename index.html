@@ -2486,7 +2486,7 @@ const TAB_TITLES = {
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#training':'training', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -2651,6 +2651,7 @@ function mobileBottomNav() {
           // handles the scoping). Indicators stays admin-only since
           // it's leadership-only data.
           ['scorecards','Scorecards',iconClipboard],
+          ['training','Training',iconClipboard],
           ['hall_of_fame','Hall of Fame',iconCrown],
           ...(isAdmin ? [['indicators','Indicators',iconChart]] : []),
           ...(isAdmin ? [['reporting','Reporting',iconPie]] : []),
@@ -3141,6 +3142,7 @@ function mountApp() {
     ['inside_sales', isAuditor ? 'Sales' : 'Inside Sales', iconSales()],
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
+    ...(isAuditor ? [] : [['training', 'Training', iconClipboard()]]),
   ];
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
@@ -3339,6 +3341,7 @@ function mountApp() {
     scorecards:   viewScorecards,
     reporting:    viewReporting,
     marketing:    viewMarketing,
+    training:     viewTraining,
     admin:        viewAdmin,
   }[state.view];
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
@@ -3354,7 +3357,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'calendar', 'scorecards', 'reporting', 'marketing', 'auditing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'calendar', 'scorecards', 'reporting', 'marketing', 'training', 'auditing']);
   document.querySelector('.fab')?.remove();
   if (!FAB_HIDDEN_VIEWS.has(state.view)) {
     const fab = el('button', { class: 'fab', onclick: () => openNewSaleModal() },
@@ -23999,6 +24002,48 @@ function viewMarketing() {
     },
   });
   wrap.append(frame);
+  return wrap;
+}
+
+// ── Training tab ──────────────────────────────────────────────────────────
+// Houses internal onboarding / product training, recreated in-app from the
+// team's Tiled content. Content lives in TRAINING_MODULES so it can be filled
+// in incrementally; empty shows a placeholder. Each module has a title,
+// optional description, and a body() that returns the page content.
+// Each module links to a live Tiled microapp (Tiled's content is media/
+// interactive and is best viewed in Tiled itself). The hub mirrors the team's
+// Tiled "SALES" library. To add more, drop another { title, description, tiled }
+// entry — `tiled` is the microapp id from the library URL.
+const TRAINING_TILED_BASE = 'https://app.tiled.co/library/62291a25d862f34e4be07366/microapps/';
+const TRAINING_MODULES = [
+  { title: 'Sales Manuals (Interactive)', description: 'Interactive sales manuals.',                 tiled: '65726c81af6ecaac5138292f' },
+  { title: 'Onboarding Meeting',          description: 'New-hire onboarding deck.',                  tiled: '62f162ebcb84fb4af73465d2' },
+  { title: 'FAQ',                         description: 'Frequently asked questions.',                tiled: '660b5143bb33254798df81d8' },
+  { title: 'Training',                    description: 'Per-rep training pages.',                     tiled: '640fbf25571cf8f1edc2445b' },
+];
+function viewTraining() {
+  const wrap = el('div', { class: 'flex flex-col gap-4 max-w-5xl mx-auto' });
+  wrap.append(
+    el('div', {},
+      el('h1', { class: 'text-lg font-bold' }, '🎓 Training'),
+      el('div', { class: 'text-xs text-muted- mt-0.5' }, 'Training modules from Tiled — click one to open it.'),
+    ),
+  );
+  wrap.append(el('div', { class: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' },
+    ...TRAINING_MODULES.map(m => el('a', {
+      href: TRAINING_TILED_BASE + m.tiled, target: '_blank', rel: 'noopener',
+      class: 'card p-4 flex flex-col gap-2 transition hover:brightness-95 cursor-pointer',
+      style: { color: 'inherit', textDecoration: 'none' },
+    },
+      el('div', { class: 'flex items-center justify-between gap-2' },
+        el('div', { class: 'text-base font-bold' }, m.title),
+        el('span', { class: 'text-xs font-semibold', style: { color: 'var(--accent)' } }, 'Open ↗'),
+      ),
+      m.description && el('div', { class: 'text-sm text-muted-' }, m.description),
+    )),
+  ));
+  wrap.append(el('div', { class: 'text-[11px] text-muted-' },
+    'Modules open the live microapp in Tiled (requires a Tiled login). If you want reps without Tiled accounts to view these, share the public links from Tiled and we’ll embed those instead.'));
   return wrap;
 }
 
