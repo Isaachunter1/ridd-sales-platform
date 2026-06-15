@@ -11682,8 +11682,9 @@ function springStandingsCard() {
     const cum = (b) => (deadBugs[b] || 0) + (liveBugs[b] || 0);
     const branches = [...branchSet].sort((a, b) => cum(b) - cum(a) || a.localeCompare(b));
 
-    // ── Round date boxes — compact 2×2 grid beside the header title ──
-    const roundsBox = el('div', { class: 'sc-noprint', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 8px', background: '#cfcec6', padding: '6px 8px', borderRadius: '8px', flex: 'none' } },
+    // ── Round date boxes — single horizontal row, spread across the top
+    //    and aligned with the Reset-dates button to their right. ──
+    const roundsBox = el('div', { class: 'sc-noprint', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', background: '#cfcec6', padding: '6px 12px', borderRadius: '8px', flex: '1' } },
       ...comp.rounds.map((r, i) => {
         const rr = rounds[i];
         const dot = rr.official ? '#43a047' : (rr.hasData ? '#ED1C24' : '#9d9d97');
@@ -11704,9 +11705,7 @@ function springStandingsCard() {
       el('img', { src: 'sweeper.png', alt: '', style: { height: '84px', filter: 'grayscale(1)', flex: 'none' } }),
       el('div', { style: { flex: 'none', minWidth: '0' } },
         el('div', { style: { fontWeight: '900', fontSize: '52px', letterSpacing: '-0.03em', lineHeight: '0.95', textTransform: 'uppercase', whiteSpace: 'nowrap' } }, 'Spring Cleaning'),
-        el('div', { style: { fontWeight: '800', fontSize: '13px', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: '6px', whiteSpace: 'nowrap' } }, 'Team Quality Based Competition by RIDDMADE™')),
-      el('span', { style: { flex: '1' } }),
-      roundsBox);
+        el('div', { style: { fontWeight: '800', fontSize: '13px', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: '6px', whiteSpace: 'nowrap' } }, 'Team Quality Based Competition by RIDDMADE™')));
 
     // ── Top controls: Export PDF · Reset dates ──
     const ctlBtn = (label, opts = {}) => el('button', {
@@ -11715,7 +11714,8 @@ function springStandingsCard() {
         background: opts.bg || '#141414', color: opts.fg || '#fff', border: opts.border || 'none', whiteSpace: 'nowrap' },
       title: opts.title || '', onclick: opts.onclick,
     }, label);
-    const controlBar = el('div', { class: 'sc-noprint', style: { margin: '0 30px 8px', display: 'flex', gap: '10px', justifyContent: 'flex-end', alignItems: 'center' } },
+    const controlBar = el('div', { class: 'sc-noprint', style: { margin: '0 30px 8px', display: 'flex', gap: '12px', justifyContent: 'flex-end', alignItems: 'center' } },
+      roundsBox,
       ctlBtn('↺ Reset dates', { bg: 'transparent', fg: '#B91C1C', border: '1px solid #B91C1C', title: 'Restore the default round date ranges', onclick: () => {
         if (!confirm('Reset rounds to the default date ranges?')) return;
         comp.rounds = SPRING_DEFAULT_ROUNDS.map(r => ({ ...r }));
@@ -12434,8 +12434,8 @@ function indicatorTopGunBoard(sales, proSet) {
           el('div', { style: { fontWeight: '900', fontSize: '40px', lineHeight: '0.9', color: CREAM, letterSpacing: '0.04em', fontFamily: 'Georgia, serif' } }, 'TOP GUN'),
           el('div', { style: { marginBottom: '5px' } },
             el('div', { style: { fontWeight: '800', fontSize: '11px', color: CREAM, letterSpacing: '0.14em', whiteSpace: 'nowrap' } }, 'RIDDMADE   ★ ★ ★'),
-            el('div', { style: { display: 'inline-block', marginTop: '4px', padding: '3px 10px', borderRadius: '999px', background: CREAM, color: BLUE, fontWeight: '900', fontSize: '11px', letterSpacing: '0.02em', whiteSpace: 'nowrap' } }, '📅 ' + indicatorCompWindowStr()),
             indicatorLastUpdatedStr() && el('div', { style: { fontSize: '9.5px', color: CREAM, opacity: '0.7', whiteSpace: 'nowrap', marginTop: '2px', letterSpacing: '0.02em' } }, indicatorLastUpdatedStr()),
+            el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: CREAM, color: BLUE, fontWeight: '900', fontSize: '11px', letterSpacing: '0.02em', whiteSpace: 'nowrap' } }, '📅 ' + indicatorCompWindowStr()),
           ),
         ),
         el('div', { class: 'tg-fly-track', title: 'On patrol' },
