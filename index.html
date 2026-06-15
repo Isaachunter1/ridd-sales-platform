@@ -24021,10 +24021,10 @@ function viewMarketing() {
 const TRAINING_TILED_BASE = 'https://app.tiled.co/library/62291a25d862f34e4be07366/microapps/';
 const TRAINING_ASSET_BASE = ''; // e.g. 'https://<project>.supabase.co/storage/v1/object/public/training/'
 const TRAINING_MODULES = [
+  { title: 'Sales Manual', description: 'The full sales manual — 94 pages.', pdf: 'training/sales-manual.pdf' },
   { title: 'FAQ', description: 'Frequently asked questions.', screens: [
     { label: 'FAQ Home', image: 'https://dznhhhcrzizxr.cloudfront.net/840755c6-29c3-435e-ad37-a6511c44b827.png' },
   ] },
-  { title: 'Sales Manuals (Interactive)', description: 'Interactive sales manuals.', tiled: '65726c81af6ecaac5138292f' },
   { title: 'Onboarding Meeting',          description: 'New-hire onboarding deck.',  tiled: '62f162ebcb84fb4af73465d2' },
   { title: 'Training',                    description: 'Per-rep training pages.',     tiled: '640fbf25571cf8f1edc2445b' },
 ];
@@ -24033,6 +24033,24 @@ function _trainingImg(src) { return (/^https?:/.test(src) ? src : (TRAINING_ASSE
 function viewTraining() {
   const wrap = el('div', { class: 'flex flex-col gap-4 max-w-5xl mx-auto' });
   const mod = (state._trainingOpen != null) ? TRAINING_MODULES[state._trainingOpen] : null;
+
+  // ── Native PDF viewer (e.g. the sales manual) ──
+  if (mod && mod.pdf) {
+    wrap.append(
+      el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
+        el('button', { class: 'text-xs font-semibold', style: { color: 'var(--accent)' },
+          onclick: () => { state._trainingOpen = null; mountApp(); } }, '← All training'),
+        el('div', { class: 'text-sm font-bold' }, mod.title),
+        el('a', { href: _trainingImg(mod.pdf), target: '_blank', rel: 'noopener',
+          class: 'text-xs font-semibold', style: { color: 'var(--accent)' } }, 'Open / download ↗'),
+      ),
+      el('div', { class: 'card overflow-hidden', style: { height: 'calc(100vh - 200px)', minHeight: '480px' } },
+        el('iframe', { src: _trainingImg(mod.pdf) + '#view=FitH', title: mod.title,
+          style: { width: '100%', height: '100%', border: '0', display: 'block' } }),
+      ),
+    );
+    return wrap;
+  }
 
   // ── Native screen viewer for a ported module ──
   if (mod && Array.isArray(mod.screens) && mod.screens.length) {
@@ -24075,7 +24093,7 @@ function viewTraining() {
   );
   wrap.append(el('div', { class: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' },
     ...TRAINING_MODULES.map((m, idx) => {
-      const ported = Array.isArray(m.screens) && m.screens.length;
+      const ported = m.pdf || (Array.isArray(m.screens) && m.screens.length);
       const inner = [
         el('div', { class: 'flex items-center justify-between gap-2' },
           el('div', { class: 'text-base font-bold' }, m.title),
