@@ -2882,13 +2882,13 @@ function reportingAuditing() {
       td(fmt.int(s.failed), { bg: s.failed > 0 ? 'rgba(220,38,38,.08)' : 'transparent' }),
       td(fmt.int(s.noaudit)),
       td(fmt.int(s.pending)),
-      td(passPct == null ? '—' : (passPct * 100).toFixed(1) + '%', { bg: passShade(passPct), bold: true }),
-      td(aP == null ? '—' : (aP * 100).toFixed(1) + '%'),
-      td(aF == null ? '—' : (aF * 100).toFixed(1) + '%', { bg: aF != null && aP != null && aF > aP ? 'rgba(220,38,38,.08)' : 'transparent' }),
       td(money(s.servicedRev)),
       td(money(s.activeRev)),
       td(money(s.cancelledRev), { bg: s.cancelledRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
       td(money(s.agingRev), { bg: s.agingRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
+      td(passPct == null ? '—' : (passPct * 100).toFixed(1) + '%', { bg: passShade(passPct), bold: true }),
+      td(aP == null ? '—' : (aP * 100).toFixed(1) + '%'),
+      td(aF == null ? '—' : (aF * 100).toFixed(1) + '%', { bg: aF != null && aP != null && aF > aP ? 'rgba(220,38,38,.08)' : 'transparent' }),
     );
   };
   // Value extractor for each sortable column. Percent/attrition use -1 for
@@ -2929,13 +2929,13 @@ function reportingAuditing() {
       { id: 'failed', label: 'Failed', tip: 'Accounts flagged "Failed Audit".' },
       { id: 'noaudit', label: 'No Audit', tip: 'Accounts explicitly flagged "No Audit" — exempt from auditing.' },
       { id: 'pending', label: 'Pending', tip: 'No audit result yet — awaiting audit (no Passed / Failed / No-Audit flag).' },
-      { id: 'passpct', label: 'Pass % (audited)', tip: 'Passed ÷ (Passed + Failed). Pending and No-Audit accounts are excluded from the denominator.' },
-      { id: 'attrP', label: 'Attrition · Passed', tip: 'Of passed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
-      { id: 'attrF', label: 'Attrition · Failed', tip: 'Of failed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
       { id: 'servicedRev', label: 'Serviced Rev', tip: 'Contract value of accounts that have been serviced (an initial service / at least one completed service).' },
       { id: 'activeRev', label: 'Active Rev', tip: 'Contract value of ACTIVE subscriptions (status Active, not cancelled) that are under 7 days past due.' },
       { id: 'cancelledRev', label: 'Cancelled Rev', tip: 'Contract value of cancelled subscriptions (real cancels — ROR / Sold-Not-Started excluded).' },
       { id: 'agingRev', label: 'Aging Rev', tip: 'Contract value of ACTIVE subscriptions (not cancelled) that are 7+ days past due.' },
+      { id: 'passpct', label: 'Pass % (audited)', tip: 'Passed ÷ (Passed + Failed). Pending and No-Audit accounts are excluded from the denominator.' },
+      { id: 'attrP', label: 'Attrition · Passed', tip: 'Of passed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
+      { id: 'attrF', label: 'Attrition · Failed', tip: 'Of failed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
     ];
     if (!state.auditSort) state.auditSort = {};
     const sortState = state.auditSort[kind] || { key: 'sold', dir: 'desc' };
