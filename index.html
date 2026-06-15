@@ -3002,11 +3002,11 @@ function reportingAuditing() {
       el('div', { class: 'text-[11px] ml-1', style: { color: 'var(--text-subtle)' } },
         'Live from this snapshot\u2019s Customer Flags \u2014 re-upload the report to refresh.')),
 
-    // Rep + branch tables
-    statTable('Sales Reps · Audit Report', repEntries,
-      'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · hover any column header for how it’s calculated.', 'rep'),
+    // Branch + team rollups on top, then the per-rep detail table.
     offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, 'High-level audit + revenue metrics rolled up by office.', 'branch'),
     teamFilter === 'all' && teamEntries.length > 1 && statTable('Teams · Audit Report', teamEntries, 'Same metrics rolled up by team (from Manage Teams · current Team Year).', 'team'),
+    statTable('Sales Reps · Audit Report', repEntries,
+      'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · hover any column header for how it’s calculated.', 'rep'),
 
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
       fmt.int(acct.size) + ' D2D accounts in this snapshot · audit status, collections and attrition all derive from the Customer Report — no separate upload needed.'),
