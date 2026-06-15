@@ -2724,6 +2724,7 @@ function _auditStatusOf(flagsStr) {
   const f = (flagsStr || '').toLowerCase();
   if (f.includes('failed audit')) return 'failed';
   if (f.includes('passed audit')) return 'passed';
+  if (f.includes('no audit'))     return 'noaudit';
   return 'pending';
 }
 
@@ -2745,6 +2746,16 @@ function reportingAuditing() {
     return d >= 0 && d <= 3;
   };
 
+  // Team lookup from Manage Teams (indicators), but format-agnostic: the
+  // Customer Report's "Sold By" is "Last, First" while Manage Teams may key a
+  // rep as "First Last" (or vice-versa). Index every assignment by a sorted
+  // token signature so either spelling resolves to the same team.
+  const _teamMap = (typeof _activeTeamMap === 'function') ? _activeTeamMap() : (state._indicatorRepTeam || {});
+  const _nameSig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const _teamBySig = {};
+  for (const k of Object.keys(_teamMap || {})) { if (_teamMap[k]) _teamBySig[_nameSig(k)] = _teamMap[k]; }
+  const teamForRep = (repName) => (typeof getRepTeam === 'function' && getRepTeam(repName)) || _teamBySig[_nameSig(repName)] || '';
+
   // ── One record per account (flags are customer-level) ──
   const acct = new Map();
   for (const r of d2d) {
@@ -2755,7 +2766,7 @@ function reportingAuditing() {
       const repName = _cleanRepName(getCanonicalRepName((r.sold_by || 'Unknown').trim()));
       a = {
         rep: repName,
-        team: (typeof getRepTeam === 'function' ? getRepTeam(repName) : '') || 'Unassigned',
+        team: teamForRep(repName) || 'Unassigned',
         office: (r.office_name || 'UNKNOWN').toUpperCase().trim(),
         status: _auditStatusOf(r.customer_flags),
         collections: false,
@@ -2812,10 +2823,10 @@ function reportingAuditing() {
   const teamFilter = state.auditTeam;
 
   // ── Aggregate per rep / per branch ──
-  const mk = () => ({ sold: 0, passed: 0, failed: 0, pending: 0,
+  const mk = () => ({ sold: 0, passed: 0, failed: 0, pending: 0, noaudit: 0,
     totalRev: 0, activeRev: 0, agingRev: 0,
-    attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0] },
-    coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0] } });
+    attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] },
+    coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] } });
   const reps = {}, offs = {}, tot = mk();
   // Per-rep office/team so the Rep column can show where each rep belongs.
   const repMeta = {};
@@ -2856,7 +2867,6 @@ function reportingAuditing() {
   const statRow = (name, s, opts = {}) => {
     const auditedN = s.passed + s.failed;
     const passPct = auditedN > 0 ? s.passed / auditedN : null;
-    const effPct = s.sold > 0 ? (s.passed + s.pending) / s.sold : null;
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
     return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: opts.total ? 'var(--card-2)' : 'transparent' } },
       td(name, { bold: !!opts.total }),
@@ -2866,8 +2876,8 @@ function reportingAuditing() {
       td(fmt.int(s.passed), { bg: 'rgba(141,198,63,.08)' }),
       td(fmt.int(s.failed), { bg: s.failed > 0 ? 'rgba(220,38,38,.08)' : 'transparent' }),
       td(fmt.int(s.pending)),
+      td(fmt.int(s.noaudit)),
       td(passPct == null ? '—' : (passPct * 100).toFixed(1) + '%', { bg: passShade(passPct), bold: true }),
-      td(effPct == null ? '—' : (effPct * 100).toFixed(1) + '%'),
       td(aP == null ? '—' : (aP * 100).toFixed(1) + '%'),
       td(aF == null ? '—' : (aF * 100).toFixed(1) + '%', { bg: aF != null && aP != null && aF > aP ? 'rgba(220,38,38,.08)' : 'transparent' }),
       td(money(s.totalRev)),
@@ -2887,8 +2897,8 @@ function reportingAuditing() {
       case 'passed':   return s.passed;
       case 'failed':   return s.failed;
       case 'pending':  return s.pending;
+      case 'noaudit':  return s.noaudit;
       case 'passpct':  { const a = s.passed + s.failed; return a > 0 ? s.passed / a : -1; }
-      case 'effpct':   return s.sold > 0 ? (s.passed + s.pending) / s.sold : -1;
       case 'attrP':    { const r = rate(s.attr.passed); return r == null ? -1 : r; }
       case 'attrF':    { const r = rate(s.attr.failed); return r == null ? -1 : r; }
       case 'totalRev': return s.totalRev;
@@ -2901,13 +2911,23 @@ function reportingAuditing() {
   // the Total / Active / Aging revenue columns. Click any header to sort.
   const statTable = (label, entries, note, kind) => {
     const cols = [
-      { id: 'name', label: kind === 'rep' ? 'Rep' : 'Branch' },
-      ...(kind === 'rep' ? [{ id: 'office', label: 'Office' }, { id: 'team', label: 'Team' }] : []),
-      { id: 'sold', label: 'Sold (D2D)' }, { id: 'audited', label: 'Audited' },
-      { id: 'passed', label: 'Passed' }, { id: 'failed', label: 'Failed' }, { id: 'pending', label: 'Pending / No Audit' },
-      { id: 'passpct', label: 'Pass % (audited)' }, { id: 'effpct', label: 'Eff. Pass %' },
-      { id: 'attrP', label: 'Attrition · Passed' }, { id: 'attrF', label: 'Attrition · Failed' },
-      { id: 'totalRev', label: 'Total Rev' }, { id: 'activeRev', label: 'Active Rev' }, { id: 'agingRev', label: 'Aging Bal' },
+      { id: 'name', label: kind === 'rep' ? 'Rep' : 'Branch', tip: kind === 'rep' ? 'Sales rep (canonical name).' : 'Branch / office.' },
+      ...(kind === 'rep' ? [
+        { id: 'office', label: 'Office', tip: 'The rep’s primary office — where most of their accounts were sold.' },
+        { id: 'team', label: 'Team', tip: 'The rep’s team, pulled from Manage Teams for the current Team Year. "Unassigned" = no team set for that year.' },
+      ] : []),
+      { id: 'sold', label: 'Sold (D2D)', tip: 'EVERY distinct Door-to-Door account sold in range — passed, failed, pending, and no-audit all included.' },
+      { id: 'audited', label: 'Audited', tip: 'Accounts with a final audit result = Passed + Failed. (Pending and No Audit are not yet audited.)' },
+      { id: 'passed', label: 'Passed', tip: 'Accounts flagged "Passed Audit".' },
+      { id: 'failed', label: 'Failed', tip: 'Accounts flagged "Failed Audit".' },
+      { id: 'pending', label: 'Pending', tip: 'No audit result yet — awaiting audit (no Passed / Failed / No-Audit flag).' },
+      { id: 'noaudit', label: 'No Audit', tip: 'Accounts explicitly flagged "No Audit" — exempt from auditing.' },
+      { id: 'passpct', label: 'Pass % (audited)', tip: 'Passed ÷ (Passed + Failed). Pending and No-Audit accounts are excluded from the denominator.' },
+      { id: 'attrP', label: 'Attrition · Passed', tip: 'Of passed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
+      { id: 'attrF', label: 'Attrition · Failed', tip: 'Of failed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
+      { id: 'totalRev', label: 'Total Rev', tip: 'Sum of subscription contract value across ALL the rep’s accounts (every status).' },
+      { id: 'activeRev', label: 'Active Rev', tip: 'Contract value of ACTIVE subscriptions (status Active, not cancelled) that are under 7 days past due.' },
+      { id: 'agingRev', label: 'Aging Bal', tip: 'Contract value of ACTIVE subscriptions (not cancelled) that are 7+ days past due.' },
     ];
     if (!state.auditSort) state.auditSort = {};
     const sortState = state.auditSort[kind] || { key: 'sold', dir: 'desc' };
@@ -2926,6 +2946,7 @@ function reportingAuditing() {
     const thSort = (c) => el('th', {
       class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left cursor-pointer select-none hover:text-default transition',
       style: { background: 'var(--card-2)', color: sortState.key === c.id ? 'var(--accent)' : 'var(--text-muted)' },
+      title: c.tip || '',
       onclick: () => setSort(c.id),
     }, c.label + (sortState.key === c.id ? (sortState.dir === 'asc' ? ' ↑' : ' ↓') : ''));
     return el('div', { class: 'card overflow-hidden' },
@@ -2981,7 +3002,7 @@ function reportingAuditing() {
 
     // Rep + branch tables
     statTable('Sales Reps · Audit Report', repEntries,
-      'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · Eff. Pass % treats unaudited as passed. Active Rev = active subs <7d past due · Aging Bal = active subs 7d+ past due.', 'rep'),
+      'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · hover any column header for how it’s calculated.', 'rep'),
     offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, null, 'branch'),
 
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
