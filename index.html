@@ -14298,6 +14298,18 @@ function viewIndicators() {
             ? 'Download a PDF report per team (current timeframe)'
             : 'Download a PDF report per branch (current timeframe)',
         }, '📄'),
+        // Highlights — reopens the same popup that shows after a CSV import
+        // (YoY scoreboard, movers, records), computed from the current data.
+        el('button', {
+          class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          title: 'Highlights — YoY scoreboard, trending reps and records from the current upload',
+          onclick: () => {
+            const insights = computeImportInsights();
+            if (insights) openImportInsightsModal(insights);
+            else toast('Highlights need a raw-sales CSV upload', 'info');
+          },
+        }, '✨'),
         // CSV menu — import a fresh sales report or export the current
         // by-branch/team table (with a pulled-at timestamp up top).
         (() => {
@@ -14502,18 +14514,6 @@ function viewIndicators() {
           ),
           ), // close left column of the title row
           el('div', { class: 'flex items-center gap-3' },
-          // Highlights — reopens the same popup that shows after a CSV import
-          // (YoY scoreboard, movers, records), computed from the current data.
-          el('button', {
-            class: 'text-xs px-2.5 py-1.5 rounded-lg font-semibold border transition hover:brightness-95 mb-0.5',
-            style: { borderColor: 'var(--border)', background: 'var(--card)', color: 'var(--text)' },
-            title: 'Highlights — YoY scoreboard, trending reps and records from the current upload',
-            onclick: () => {
-              const insights = computeImportInsights();
-              if (insights) openImportInsightsModal(insights);
-              else toast('Highlights need a raw-sales CSV upload', 'info');
-            },
-          }, '✨'),
           // Comps switch — competition mode. OFF = every sale counts, zero
           // exclusions. ON = comp exclusions apply to every number below.
           (() => {
