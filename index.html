@@ -2772,7 +2772,7 @@ function reportingAuditing() {
         collections: false,
         cancelled: false,
         date: null,
-        totalRev: 0, activeRev: 0, agingRev: 0,
+        servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0,
       };
       acct.set(id, a);
     }
@@ -2783,17 +2783,21 @@ function reportingAuditing() {
     const ds = r.sold_date || r.initial_service;
     const d = ds ? new Date(ds + (String(ds).length === 10 ? 'T00:00' : '')) : null;
     if (d && !isNaN(d) && (!a.date || d < a.date)) a.date = d;
-    // Revenue rollups (per subscription row). Total = everything sold.
-    // Active = active sub with < 7 days past due. Aging = active sub with
-    // 7+ days past due (still active, but the balance is aging).
+    // Revenue rollups (per subscription row):
+    //   Serviced  = subs that have received a service (initial service / completed > 0)
+    //   Active    = active sub (not cancelled) under 7 days past due
+    //   Aging     = active sub (not cancelled) 7+ days past due
+    //   Cancelled = a real cancel (cancel date, excluding ROR / Sold-Not-Started)
     const cv = Number(r.subscription_contract_value) || 0;
-    a.totalRev += cv;
+    const serviced = (Number(r.subscription_completed_services) || 0) > 0 || !!r.initial_service;
+    if (serviced) a.servicedRev += cv;
     const subActive = (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
     if (subActive) {
       const dpd = Number(r.days_past_due) || 0;
       if (dpd < 7) a.activeRev += cv;
       else         a.agingRev += cv;
     }
+    if (r.subscription_date_canceled && !isExcludableRow(r)) a.cancelledRev += cv;
   }
 
   // ── Filters: sold-date range + branch ──
@@ -2824,7 +2828,7 @@ function reportingAuditing() {
 
   // ── Aggregate per rep / per branch ──
   const mk = () => ({ sold: 0, passed: 0, failed: 0, pending: 0, noaudit: 0,
-    totalRev: 0, activeRev: 0, agingRev: 0,
+    servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0,
     attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] },
     coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] } });
   const reps = {}, offs = {}, teams = {}, tot = mk();
@@ -2842,7 +2846,7 @@ function reportingAuditing() {
     meta.team = a.team;
     for (const b of [r, o, t, tot]) {
       b.sold++; b[a.status]++;
-      b.totalRev += a.totalRev; b.activeRev += a.activeRev; b.agingRev += a.agingRev;
+      b.servicedRev += a.servicedRev; b.activeRev += a.activeRev; b.cancelledRev += a.cancelledRev; b.agingRev += a.agingRev;
       b.attr[a.status][1]++; if (a.cancelled) b.attr[a.status][0]++;
       b.coll[a.status][1]++; if (a.collections) b.coll[a.status][0]++;
     }
@@ -2876,13 +2880,14 @@ function reportingAuditing() {
       td(fmt.int(auditedN)),
       td(fmt.int(s.passed), { bg: 'rgba(141,198,63,.08)' }),
       td(fmt.int(s.failed), { bg: s.failed > 0 ? 'rgba(220,38,38,.08)' : 'transparent' }),
-      td(fmt.int(s.pending)),
       td(fmt.int(s.noaudit)),
+      td(fmt.int(s.pending)),
       td(passPct == null ? '—' : (passPct * 100).toFixed(1) + '%', { bg: passShade(passPct), bold: true }),
       td(aP == null ? '—' : (aP * 100).toFixed(1) + '%'),
       td(aF == null ? '—' : (aF * 100).toFixed(1) + '%', { bg: aF != null && aP != null && aF > aP ? 'rgba(220,38,38,.08)' : 'transparent' }),
-      td(money(s.totalRev)),
+      td(money(s.servicedRev)),
       td(money(s.activeRev)),
+      td(money(s.cancelledRev), { bg: s.cancelledRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
       td(money(s.agingRev), { bg: s.agingRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
     );
   };
@@ -2902,10 +2907,11 @@ function reportingAuditing() {
       case 'passpct':  { const a = s.passed + s.failed; return a > 0 ? s.passed / a : -1; }
       case 'attrP':    { const r = rate(s.attr.passed); return r == null ? -1 : r; }
       case 'attrF':    { const r = rate(s.attr.failed); return r == null ? -1 : r; }
-      case 'totalRev': return s.totalRev;
-      case 'activeRev':return s.activeRev;
-      case 'agingRev': return s.agingRev;
-      default:         return 0;
+      case 'servicedRev': return s.servicedRev;
+      case 'activeRev':   return s.activeRev;
+      case 'cancelledRev':return s.cancelledRev;
+      case 'agingRev':    return s.agingRev;
+      default:            return 0;
     }
   };
   // kind 'rep' adds Office + Team columns (pulled per rep); both kinds show
@@ -2921,14 +2927,15 @@ function reportingAuditing() {
       { id: 'audited', label: 'Audited', tip: 'Accounts with a final audit result = Passed + Failed. (Pending and No Audit are not yet audited.)' },
       { id: 'passed', label: 'Passed', tip: 'Accounts flagged "Passed Audit".' },
       { id: 'failed', label: 'Failed', tip: 'Accounts flagged "Failed Audit".' },
-      { id: 'pending', label: 'Pending', tip: 'No audit result yet — awaiting audit (no Passed / Failed / No-Audit flag).' },
       { id: 'noaudit', label: 'No Audit', tip: 'Accounts explicitly flagged "No Audit" — exempt from auditing.' },
+      { id: 'pending', label: 'Pending', tip: 'No audit result yet — awaiting audit (no Passed / Failed / No-Audit flag).' },
       { id: 'passpct', label: 'Pass % (audited)', tip: 'Passed ÷ (Passed + Failed). Pending and No-Audit accounts are excluded from the denominator.' },
       { id: 'attrP', label: 'Attrition · Passed', tip: 'Of passed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
       { id: 'attrF', label: 'Attrition · Failed', tip: 'Of failed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
-      { id: 'totalRev', label: 'Total Rev', tip: 'Sum of subscription contract value across ALL the rep’s accounts (every status).' },
+      { id: 'servicedRev', label: 'Serviced Rev', tip: 'Contract value of accounts that have been serviced (an initial service / at least one completed service).' },
       { id: 'activeRev', label: 'Active Rev', tip: 'Contract value of ACTIVE subscriptions (status Active, not cancelled) that are under 7 days past due.' },
-      { id: 'agingRev', label: 'Aging Bal', tip: 'Contract value of ACTIVE subscriptions (not cancelled) that are 7+ days past due.' },
+      { id: 'cancelledRev', label: 'Cancelled Rev', tip: 'Contract value of cancelled subscriptions (real cancels — ROR / Sold-Not-Started excluded).' },
+      { id: 'agingRev', label: 'Aging Rev', tip: 'Contract value of ACTIVE subscriptions (not cancelled) that are 7+ days past due.' },
     ];
     if (!state.auditSort) state.auditSort = {};
     const sortState = state.auditSort[kind] || { key: 'sold', dir: 'desc' };
