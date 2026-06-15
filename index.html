@@ -2761,6 +2761,7 @@ function reportingAuditing() {
         collections: false,
         cancelled: false,
         date: null,
+        totalRev: 0, activeRev: 0, agingRev: 0,
       };
       acct.set(id, a);
     }
@@ -2771,6 +2772,17 @@ function reportingAuditing() {
     const ds = r.sold_date || r.initial_service;
     const d = ds ? new Date(ds + (String(ds).length === 10 ? 'T00:00' : '')) : null;
     if (d && !isNaN(d) && (!a.date || d < a.date)) a.date = d;
+    // Revenue rollups (per subscription row). Total = everything sold.
+    // Active = active sub with < 7 days past due. Aging = active sub with
+    // 7+ days past due (still active, but the balance is aging).
+    const cv = Number(r.subscription_contract_value) || 0;
+    a.totalRev += cv;
+    const subActive = (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
+    if (subActive) {
+      const dpd = Number(r.days_past_due) || 0;
+      if (dpd < 7) a.activeRev += cv;
+      else         a.agingRev += cv;
+    }
   }
 
   // ── Filters: sold-date range + branch ──
@@ -2801,6 +2813,7 @@ function reportingAuditing() {
 
   // ── Aggregate per rep / per branch ──
   const mk = () => ({ sold: 0, passed: 0, failed: 0, pending: 0,
+    totalRev: 0, activeRev: 0, agingRev: 0,
     attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0] },
     coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0] } });
   const reps = {}, offs = {}, tot = mk();
@@ -2817,6 +2830,7 @@ function reportingAuditing() {
     meta.team = a.team;
     for (const b of [r, o, tot]) {
       b.sold++; b[a.status]++;
+      b.totalRev += a.totalRev; b.activeRev += a.activeRev; b.agingRev += a.agingRev;
       b.attr[a.status][1]++; if (a.cancelled) b.attr[a.status][0]++;
       b.coll[a.status][1]++; if (a.collections) b.coll[a.status][0]++;
     }
@@ -2834,15 +2848,19 @@ function reportingAuditing() {
     class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer', title: title || '', onchange,
   }, ...opts.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === value) o.selected = true; return o; }));
 
-  const th = (lab, right = true) => el('th', { class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, lab);
-  const td = (val, opts = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums text-xs whitespace-nowrap ' + (opts.left ? 'text-left' : 'text-right') + (opts.bold ? ' font-bold' : ''), style: { background: opts.bg || 'transparent' } }, val);
+  // Everything on this tab is left-justified per request.
+  const th = (lab) => el('th', { class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, lab);
+  const td = (val, opts = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums text-xs whitespace-nowrap text-left' + (opts.bold ? ' font-bold' : ''), style: { background: opts.bg || 'transparent' } }, val);
+  const money = (v) => v ? '$' + Math.round(v).toLocaleString() : '—';
+  // opts.org = { office, team } renders the two org columns (rep table only).
   const statRow = (name, s, opts = {}) => {
     const auditedN = s.passed + s.failed;
     const passPct = auditedN > 0 ? s.passed / auditedN : null;
     const effPct = s.sold > 0 ? (s.passed + s.pending) / s.sold : null;
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
     return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: opts.total ? 'var(--card-2)' : 'transparent' } },
-      td(name, { left: true, bold: !!opts.total }),
+      td(name, { bold: !!opts.total }),
+      ...(opts.org ? [td(opts.org.office || '—'), td(opts.org.team || '—')] : []),
       td(fmt.int(s.sold)),
       td(fmt.int(auditedN)),
       td(fmt.int(s.passed), { bg: 'rgba(141,198,63,.08)' }),
@@ -2852,26 +2870,28 @@ function reportingAuditing() {
       td(effPct == null ? '—' : (effPct * 100).toFixed(1) + '%'),
       td(aP == null ? '—' : (aP * 100).toFixed(1) + '%'),
       td(aF == null ? '—' : (aF * 100).toFixed(1) + '%', { bg: aF != null && aP != null && aF > aP ? 'rgba(220,38,38,.08)' : 'transparent' }),
+      td(money(s.totalRev)),
+      td(money(s.activeRev)),
+      td(money(s.agingRev), { bg: s.agingRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
     );
   };
-  const statTable = (label, entries, note, nameFmt) => el('div', { class: 'card overflow-hidden' },
+  // kind 'rep' adds Office + Team columns (pulled per rep); both kinds show
+  // the Total / Active / Aging revenue columns.
+  const statTable = (label, entries, note, kind) => el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 pt-4 pb-2' },
       el('h3', { class: 'text-base font-bold' }, label),
       note && el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, note)),
     el('div', { class: 'overflow-x-auto' },
       el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {},
-          th(label.includes('Branch') ? 'Branch' : 'Rep', false), th('Sold (D2D)'), th('Audited'), th('Passed'), th('Failed'), th('Pending / No Audit'),
-          th('Pass % (audited)'), th('Eff. Pass %'), th('Attrition · Passed'), th('Attrition · Failed'))),
+          th(kind === 'rep' ? 'Rep' : 'Branch'),
+          ...(kind === 'rep' ? [th('Office'), th('Team')] : []),
+          th('Sold (D2D)'), th('Audited'), th('Passed'), th('Failed'), th('Pending / No Audit'),
+          th('Pass % (audited)'), th('Eff. Pass %'), th('Attrition · Passed'), th('Attrition · Failed'),
+          th('Total Rev'), th('Active Rev'), th('Aging Bal'))),
         el('tbody', {},
-          ...entries.map(([name, s]) => statRow(nameFmt ? nameFmt(name) : name, s)),
-          statRow('TOTAL', tot, { total: true })))));
-
-  // Rep column shows the rep name with their office + team beneath it.
-  const repNameNode = (rep) => el('div', { class: 'leading-tight' },
-    el('div', { class: 'font-medium' }, rep),
-    el('div', { class: 'text-[10px] font-normal', style: { color: 'var(--text-subtle)' } },
-      [repOfficeOf(rep), repTeamOf(rep)].filter(Boolean).join(' · ')));
+          ...entries.map(([name, s]) => statRow(name, s, kind === 'rep' ? { org: { office: repOfficeOf(name), team: repTeamOf(name) } } : {})),
+          statRow('TOTAL', tot, { total: true, org: kind === 'rep' ? {} : undefined })))));
 
   const repEntries = Object.entries(reps).sort((a, b) => b[1].sold - a[1].sold || b[1].failed - a[1].failed);
   const offEntries = Object.entries(offs).sort((a, b) => b[1].sold - a[1].sold);
@@ -2914,8 +2934,8 @@ function reportingAuditing() {
 
     // Rep + branch tables
     statTable('Sales Reps · Audit Report', repEntries,
-      'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · Eff. Pass % treats unaudited as passed.', repNameNode),
-    offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, null),
+      'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · Eff. Pass % treats unaudited as passed. Active Rev = active subs <7d past due · Aging Bal = active subs 7d+ past due.', 'rep'),
+    offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, null, 'branch'),
 
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
       fmt.int(acct.size) + ' D2D accounts in this snapshot · audit status, collections and attrition all derive from the Customer Report — no separate upload needed.'),
