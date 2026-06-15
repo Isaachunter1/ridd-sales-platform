@@ -2827,7 +2827,7 @@ function reportingAuditing() {
     totalRev: 0, activeRev: 0, agingRev: 0,
     attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] },
     coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] } });
-  const reps = {}, offs = {}, tot = mk();
+  const reps = {}, offs = {}, teams = {}, tot = mk();
   // Per-rep office/team so the Rep column can show where each rep belongs.
   const repMeta = {};
   for (const a of acct.values()) {
@@ -2836,10 +2836,11 @@ function reportingAuditing() {
     if (teamFilter !== 'all' && a.team !== teamFilter) continue;
     const r = reps[a.rep] || (reps[a.rep] = mk());
     const o = offs[a.office] || (offs[a.office] = mk());
+    const t = teams[a.team] || (teams[a.team] = mk());
     const meta = repMeta[a.rep] || (repMeta[a.rep] = { officeCounts: {}, team: a.team });
     meta.officeCounts[a.office] = (meta.officeCounts[a.office] || 0) + 1;
     meta.team = a.team;
-    for (const b of [r, o, tot]) {
+    for (const b of [r, o, t, tot]) {
       b.sold++; b[a.status]++;
       b.totalRev += a.totalRev; b.activeRev += a.activeRev; b.agingRev += a.agingRev;
       b.attr[a.status][1]++; if (a.cancelled) b.attr[a.status][0]++;
@@ -2911,7 +2912,7 @@ function reportingAuditing() {
   // the Total / Active / Aging revenue columns. Click any header to sort.
   const statTable = (label, entries, note, kind) => {
     const cols = [
-      { id: 'name', label: kind === 'rep' ? 'Rep' : 'Branch', tip: kind === 'rep' ? 'Sales rep (canonical name).' : 'Branch / office.' },
+      { id: 'name', label: kind === 'rep' ? 'Rep' : (kind === 'team' ? 'Team' : 'Branch'), tip: kind === 'rep' ? 'Sales rep (canonical name).' : (kind === 'team' ? 'Team from Manage Teams (current Team Year). "Unassigned" = no team set.' : 'Branch / office.') },
       ...(kind === 'rep' ? [
         { id: 'office', label: 'Office', tip: 'The rep’s primary office — where most of their accounts were sold.' },
         { id: 'team', label: 'Team', tip: 'The rep’s team, pulled from Manage Teams for the current Team Year. "Unassigned" = no team set for that year.' },
@@ -2963,6 +2964,7 @@ function reportingAuditing() {
 
   const repEntries = Object.entries(reps).sort((a, b) => b[1].sold - a[1].sold || b[1].failed - a[1].failed);
   const offEntries = Object.entries(offs).sort((a, b) => b[1].sold - a[1].sold);
+  const teamEntries = Object.entries(teams).sort((a, b) => b[1].sold - a[1].sold);
 
   if (!anyFlags) {
     return el('div', { class: 'flex flex-col gap-4 max-w-3xl mx-auto' },
@@ -3003,7 +3005,8 @@ function reportingAuditing() {
     // Rep + branch tables
     statTable('Sales Reps · Audit Report', repEntries,
       'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · hover any column header for how it’s calculated.', 'rep'),
-    offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, null, 'branch'),
+    offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, 'High-level audit + revenue metrics rolled up by office.', 'branch'),
+    teamFilter === 'all' && teamEntries.length > 1 && statTable('Teams · Audit Report', teamEntries, 'Same metrics rolled up by team (from Manage Teams · current Team Year).', 'team'),
 
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
       fmt.int(acct.size) + ' D2D accounts in this snapshot · audit status, collections and attrition all derive from the Customer Report — no separate upload needed.'),
