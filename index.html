@@ -24010,40 +24010,88 @@ function viewMarketing() {
 // team's Tiled content. Content lives in TRAINING_MODULES so it can be filled
 // in incrementally; empty shows a placeholder. Each module has a title,
 // optional description, and a body() that returns the page content.
-// Each module links to a live Tiled microapp (Tiled's content is media/
-// interactive and is best viewed in Tiled itself). The hub mirrors the team's
-// Tiled "SALES" library. To add more, drop another { title, description, tiled }
-// entry — `tiled` is the microapp id from the library URL.
+// In-house replacement for Tiled. Each Tiled page is a full-screen image, so a
+// module is just an ordered list of screen images we render natively (no Tiled
+// dependency once the assets are rehosted in our own storage).
+//   • screens: [{ label, image }]  → rendered natively in the in-app viewer
+//   • tiled:   '<microappId>'      → temporary link out to Tiled (not yet ported)
+// TRAINING_ASSET_BASE lets us point every relative screen image at our own
+// Supabase Storage bucket once the originals are exported + uploaded; absolute
+// URLs (http…) are used as-is.
 const TRAINING_TILED_BASE = 'https://app.tiled.co/library/62291a25d862f34e4be07366/microapps/';
+const TRAINING_ASSET_BASE = ''; // e.g. 'https://<project>.supabase.co/storage/v1/object/public/training/'
 const TRAINING_MODULES = [
-  { title: 'Sales Manuals (Interactive)', description: 'Interactive sales manuals.',                 tiled: '65726c81af6ecaac5138292f' },
-  { title: 'Onboarding Meeting',          description: 'New-hire onboarding deck.',                  tiled: '62f162ebcb84fb4af73465d2' },
-  { title: 'FAQ',                         description: 'Frequently asked questions.',                tiled: '660b5143bb33254798df81d8' },
-  { title: 'Training',                    description: 'Per-rep training pages.',                     tiled: '640fbf25571cf8f1edc2445b' },
+  { title: 'FAQ', description: 'Frequently asked questions.', screens: [
+    { label: 'FAQ Home', image: 'https://dznhhhcrzizxr.cloudfront.net/840755c6-29c3-435e-ad37-a6511c44b827.png' },
+  ] },
+  { title: 'Sales Manuals (Interactive)', description: 'Interactive sales manuals.', tiled: '65726c81af6ecaac5138292f' },
+  { title: 'Onboarding Meeting',          description: 'New-hire onboarding deck.',  tiled: '62f162ebcb84fb4af73465d2' },
+  { title: 'Training',                    description: 'Per-rep training pages.',     tiled: '640fbf25571cf8f1edc2445b' },
 ];
+function _trainingImg(src) { return (/^https?:/.test(src) ? src : (TRAINING_ASSET_BASE + src)); }
+
 function viewTraining() {
   const wrap = el('div', { class: 'flex flex-col gap-4 max-w-5xl mx-auto' });
+  const mod = (state._trainingOpen != null) ? TRAINING_MODULES[state._trainingOpen] : null;
+
+  // ── Native screen viewer for a ported module ──
+  if (mod && Array.isArray(mod.screens) && mod.screens.length) {
+    const i = Math.max(0, Math.min(state._trainingScreen || 0, mod.screens.length - 1));
+    const scr = mod.screens[i];
+    wrap.append(
+      el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
+        el('button', { class: 'text-xs font-semibold', style: { color: 'var(--accent)' },
+          onclick: () => { state._trainingOpen = null; state._trainingScreen = 0; mountApp(); } }, '← All training'),
+        el('div', { class: 'text-sm font-bold' }, mod.title),
+        el('div', { class: 'text-xs text-muted-' }, (i + 1) + ' / ' + mod.screens.length),
+      ),
+      el('div', { class: 'card overflow-hidden flex justify-center', style: { background: '#0b0b0b' } },
+        el('img', { src: _trainingImg(scr.image), alt: scr.label || mod.title,
+          style: { maxWidth: '100%', height: 'auto', display: 'block' } }),
+      ),
+      mod.screens.length > 1 ? el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' },
+        el('button', { class: 'rounded-lg border px-3 py-2 text-xs font-semibold', style: { borderColor: 'var(--border-2)' },
+          onclick: () => { state._trainingScreen = Math.max(0, i - 1); mountApp(); } }, '← Prev'),
+        el('div', { class: 'flex gap-1 flex-wrap justify-center' },
+          ...mod.screens.map((s, j) => el('button', {
+            class: 'text-[11px] px-2 py-1 rounded font-semibold',
+            style: { background: j === i ? 'var(--accent)' : 'var(--card-2)', color: j === i ? 'var(--accent-text)' : 'var(--text)' },
+            onclick: () => { state._trainingScreen = j; mountApp(); },
+          }, s.label || ('Screen ' + (j + 1)))),
+        ),
+        el('button', { class: 'rounded-lg border px-3 py-2 text-xs font-semibold', style: { borderColor: 'var(--border-2)' },
+          onclick: () => { state._trainingScreen = Math.min(mod.screens.length - 1, i + 1); mountApp(); } }, 'Next →'),
+      ) : null,
+    );
+    return wrap;
+  }
+
+  // ── Module grid ──
   wrap.append(
     el('div', {},
       el('h1', { class: 'text-lg font-bold' }, '🎓 Training'),
-      el('div', { class: 'text-xs text-muted- mt-0.5' }, 'Training modules from Tiled — click one to open it.'),
+      el('div', { class: 'text-xs text-muted- mt-0.5' }, 'In-app training modules.'),
     ),
   );
   wrap.append(el('div', { class: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' },
-    ...TRAINING_MODULES.map(m => el('a', {
-      href: TRAINING_TILED_BASE + m.tiled, target: '_blank', rel: 'noopener',
-      class: 'card p-4 flex flex-col gap-2 transition hover:brightness-95 cursor-pointer',
-      style: { color: 'inherit', textDecoration: 'none' },
-    },
-      el('div', { class: 'flex items-center justify-between gap-2' },
-        el('div', { class: 'text-base font-bold' }, m.title),
-        el('span', { class: 'text-xs font-semibold', style: { color: 'var(--accent)' } }, 'Open ↗'),
-      ),
-      m.description && el('div', { class: 'text-sm text-muted-' }, m.description),
-    )),
+    ...TRAINING_MODULES.map((m, idx) => {
+      const ported = Array.isArray(m.screens) && m.screens.length;
+      const inner = [
+        el('div', { class: 'flex items-center justify-between gap-2' },
+          el('div', { class: 'text-base font-bold' }, m.title),
+          el('span', { class: 'text-xs font-semibold', style: { color: 'var(--accent)' } }, ported ? 'Open' : 'Open ↗'),
+        ),
+        m.description && el('div', { class: 'text-sm text-muted-' }, m.description),
+        !ported && el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Not ported yet'),
+      ];
+      return ported
+        ? el('button', { class: 'card p-4 flex flex-col gap-2 text-left transition hover:brightness-95 cursor-pointer',
+            onclick: () => { state._trainingOpen = idx; state._trainingScreen = 0; mountApp(); } }, ...inner)
+        : el('a', { href: TRAINING_TILED_BASE + m.tiled, target: '_blank', rel: 'noopener',
+            class: 'card p-4 flex flex-col gap-2 transition hover:brightness-95 cursor-pointer',
+            style: { color: 'inherit', textDecoration: 'none' } }, ...inner);
+    }),
   ));
-  wrap.append(el('div', { class: 'text-[11px] text-muted-' },
-    'Modules open the live microapp in Tiled (requires a Tiled login). If you want reps without Tiled accounts to view these, share the public links from Tiled and we’ll embed those instead.'));
   return wrap;
 }
 
