@@ -2765,14 +2765,18 @@ function reportingAuditing() {
     if (!a) {
       const repName = _cleanRepName(getCanonicalRepName((r.sold_by || 'Unknown').trim()));
       a = {
+        customerId: id,
+        customer: [r.last_name, r.first_name].filter(Boolean).join(', '),
+        flags: (r.customer_flags || '').trim(),
         rep: repName,
         team: teamForRep(repName) || 'Unassigned',
         office: (r.office_name || 'UNKNOWN').toUpperCase().trim(),
         status: _auditStatusOf(r.customer_flags),
         collections: false,
         cancelled: false,
+        serviced: false,
         date: null,
-        servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0,
+        soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0,
       };
       acct.set(id, a);
     }
@@ -2789,8 +2793,9 @@ function reportingAuditing() {
     //   Aging     = active sub (not cancelled) 7+ days past due
     //   Cancelled = a real cancel (cancel date, excluding ROR / Sold-Not-Started)
     const cv = Number(r.subscription_contract_value) || 0;
+    a.soldRev += cv;
     const serviced = (Number(r.subscription_completed_services) || 0) > 0 || !!r.initial_service;
-    if (serviced) a.servicedRev += cv;
+    if (serviced) { a.servicedRev += cv; a.serviced = true; }
     const subActive = (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
     if (subActive) {
       const dpd = Number(r.days_past_due) || 0;
@@ -2827,8 +2832,8 @@ function reportingAuditing() {
   const teamFilter = state.auditTeam;
 
   // ── Aggregate per rep / per branch ──
-  const mk = () => ({ sold: 0, passed: 0, failed: 0, pending: 0, noaudit: 0,
-    servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0,
+  const mk = () => ({ sold: 0, serviced: 0, passed: 0, failed: 0, pending: 0, noaudit: 0,
+    soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0,
     attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] },
     coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] } });
   const reps = {}, offs = {}, teams = {}, tot = mk();
@@ -2845,8 +2850,8 @@ function reportingAuditing() {
     meta.officeCounts[a.office] = (meta.officeCounts[a.office] || 0) + 1;
     meta.team = a.team;
     for (const b of [r, o, t, tot]) {
-      b.sold++; b[a.status]++;
-      b.servicedRev += a.servicedRev; b.activeRev += a.activeRev; b.cancelledRev += a.cancelledRev; b.agingRev += a.agingRev;
+      b.sold++; if (a.serviced) b.serviced++; b[a.status]++;
+      b.soldRev += a.soldRev; b.servicedRev += a.servicedRev; b.activeRev += a.activeRev; b.cancelledRev += a.cancelledRev; b.agingRev += a.agingRev;
       b.attr[a.status][1]++; if (a.cancelled) b.attr[a.status][0]++;
       b.coll[a.status][1]++; if (a.collections) b.coll[a.status][0]++;
     }
@@ -2877,12 +2882,14 @@ function reportingAuditing() {
       td(name, { bold: !!opts.total }),
       ...(opts.org ? [td(opts.org.office || '—'), td(opts.org.team || '—')] : []),
       td(fmt.int(s.sold)),
+      td(fmt.int(s.serviced)),
       td(fmt.int(auditedN)),
       td(fmt.int(s.passed), { bg: 'rgba(141,198,63,.08)' }),
       td(fmt.int(s.failed), { bg: s.failed > 0 ? 'rgba(220,38,38,.08)' : 'transparent' }),
       td(fmt.int(s.noaudit)),
       td(fmt.int(s.pending)),
       td(money(s.servicedRev)),
+      td(money(s.soldRev)),
       td(money(s.activeRev)),
       td(money(s.cancelledRev), { bg: s.cancelledRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
       td(money(s.agingRev), { bg: s.agingRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
@@ -2899,6 +2906,7 @@ function reportingAuditing() {
       case 'office':   return repOfficeOf(name);
       case 'team':     return repTeamOf(name);
       case 'sold':     return s.sold;
+      case 'serviced': return s.serviced;
       case 'audited':  return s.passed + s.failed;
       case 'passed':   return s.passed;
       case 'failed':   return s.failed;
@@ -2908,6 +2916,7 @@ function reportingAuditing() {
       case 'attrP':    { const r = rate(s.attr.passed); return r == null ? -1 : r; }
       case 'attrF':    { const r = rate(s.attr.failed); return r == null ? -1 : r; }
       case 'servicedRev': return s.servicedRev;
+      case 'soldRev':     return s.soldRev;
       case 'activeRev':   return s.activeRev;
       case 'cancelledRev':return s.cancelledRev;
       case 'agingRev':    return s.agingRev;
@@ -2924,12 +2933,14 @@ function reportingAuditing() {
         { id: 'team', label: 'Team', tip: 'The rep’s team, pulled from Manage Teams for the current Team Year. "Unassigned" = no team set for that year.' },
       ] : []),
       { id: 'sold', label: 'Sold (D2D)', tip: 'EVERY distinct Door-to-Door account sold in range — passed, failed, pending, and no-audit all included.' },
+      { id: 'serviced', label: 'Serviced', tip: 'Accounts that have been serviced — an initial service / at least one completed service.' },
       { id: 'audited', label: 'Audited', tip: 'Accounts with a final audit result = Passed + Failed. (Pending and No Audit are not yet audited.)' },
       { id: 'passed', label: 'Passed', tip: 'Accounts flagged "Passed Audit".' },
       { id: 'failed', label: 'Failed', tip: 'Accounts flagged "Failed Audit".' },
       { id: 'noaudit', label: 'No Audit', tip: 'Accounts explicitly flagged "No Audit" — exempt from auditing.' },
       { id: 'pending', label: 'Pending', tip: 'No audit result yet — awaiting audit (no Passed / Failed / No-Audit flag).' },
       { id: 'servicedRev', label: 'Serviced Rev', tip: 'Contract value of accounts that have been serviced (an initial service / at least one completed service).' },
+      { id: 'soldRev', label: 'Sold Rev', tip: 'Contract value across ALL sold accounts (everything, regardless of service or status).' },
       { id: 'activeRev', label: 'Active Rev', tip: 'Contract value of ACTIVE subscriptions (status Active, not cancelled) that are under 7 days past due.' },
       { id: 'cancelledRev', label: 'Cancelled Rev', tip: 'Contract value of cancelled subscriptions (real cancels — ROR / Sold-Not-Started excluded).' },
       { id: 'agingRev', label: 'Aging Rev', tip: 'Contract value of ACTIVE subscriptions (not cancelled) that are 7+ days past due.' },
@@ -2972,6 +2983,10 @@ function reportingAuditing() {
   const repEntries = Object.entries(reps).sort((a, b) => b[1].sold - a[1].sold || b[1].failed - a[1].failed);
   const offEntries = Object.entries(offs).sort((a, b) => b[1].sold - a[1].sold);
   const teamEntries = Object.entries(teams).sort((a, b) => b[1].sold - a[1].sold);
+  // Every in-scope account (same range/office/team filters as the tables) —
+  // used by the Export button so the download matches what's on screen.
+  const scopedAccounts = [...acct.values()].filter(a =>
+    inRange(a) && (offFilter === 'all' || a.office === offFilter) && (teamFilter === 'all' || a.team === teamFilter));
 
   if (!anyFlags) {
     return el('div', { class: 'flex flex-col gap-4 max-w-3xl mx-auto' },
@@ -3006,6 +3021,12 @@ function reportingAuditing() {
         class: 'rounded-xl px-2 py-1.5 text-xs',
         onchange: (e) => { state.auditCustomEnd = e.target.value; mountApp(); },
       }),
+      el('button', {
+        class: 'rounded-xl border px-3 py-2 text-xs font-semibold transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Export every in-scope D2D account (audit status, flags, revenue) to Excel \u2014 incl. a sheet of accounts with no audit flag',
+        onclick: () => exportAuditingXlsx(scopedAccounts, rangeLabel),
+      }, '\u2b07 Export'),
       el('div', { class: 'text-[11px] ml-1', style: { color: 'var(--text-subtle)' } },
         'Live from this snapshot\u2019s Customer Flags \u2014 re-upload the report to refresh.')),
 
@@ -3018,6 +3039,34 @@ function reportingAuditing() {
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
       fmt.int(acct.size) + ' D2D accounts in this snapshot · audit status, collections and attrition all derive from the Customer Report — no separate upload needed.'),
   );
+}
+
+// Export the in-scope D2D accounts (one row per account) to an .xlsx. The
+// first sheet is every account with its audit status, raw Customer Flags and
+// revenue; the second isolates accounts with NO audit flag yet (Pending) so
+// the auditor can chase down what still needs a flag.
+async function exportAuditingXlsx(accounts, scopeLabel) {
+  try { await loadXlsxLibOnce(); } catch { toast('Could not load Excel library — check your connection', 'error'); return; }
+  const XLSX = window.XLSX;
+  if (!XLSX) { toast('Excel library missing after load', 'error'); return; }
+  const STATUS = { passed: 'Passed', failed: 'Failed', noaudit: 'No Audit', pending: 'Pending (no flag)' };
+  const fmtD = (d) => (d && !isNaN(d)) ? d.toISOString().slice(0, 10) : '';
+  const header = ['Customer ID', 'Customer', 'Rep', 'Team', 'Office', 'Audit Status', 'Has Audit Flag', 'Serviced',
+    'Customer Flags', 'Cancelled', 'In Collections', 'First Sold/Service',
+    'Sold Rev', 'Serviced Rev', 'Active Rev', 'Cancelled Rev', 'Aging Rev'];
+  const toRow = (a) => [
+    a.customerId || '', a.customer || '', a.rep || '', a.team || '', a.office || '',
+    STATUS[a.status] || a.status, a.status === 'pending' ? 'No' : 'Yes', a.serviced ? 'Yes' : 'No',
+    a.flags || '', a.cancelled ? 'Yes' : 'No', a.collections ? 'Yes' : 'No', fmtD(a.date),
+    Math.round(a.soldRev || 0), Math.round(a.servicedRev || 0), Math.round(a.activeRev || 0), Math.round(a.cancelledRev || 0), Math.round(a.agingRev || 0),
+  ];
+  const all = (accounts || []).slice().sort((x, y) => (x.office || '').localeCompare(y.office || '') || (x.rep || '').localeCompare(y.rep || ''));
+  const noFlag = all.filter(a => a.status === 'pending');
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Scope', scopeLabel || ''], ['Pulled', new Date().toLocaleString()], [], header, ...all.map(toRow)]), 'All Accounts');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Accounts with NO audit flag yet (Pending)'], [], header, ...noFlag.map(toRow)]), 'No Audit Flag');
+  XLSX.writeFile(wb, 'RIDD-Auditing-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+  toast('Exported ' + all.length + ' accounts · ' + noFlag.length + ' with no flag', 'success');
 }
 
 // ── Inside Sales consolidated tab ─────────────────────────────────────────
@@ -23926,7 +23975,6 @@ function viewReporting() {
     state.reportingSubTab === 'config'     ? el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()) :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
-    state.reportingSubTab === 'reps'       ? reportingRepPerformance() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
     state.reportingSubTab === 'auditing'   ? reportingAuditing() :
                                               reportingOverview(),
@@ -24109,7 +24157,6 @@ function reportingSubTabs() {
   const tabs = [
     ['overview',   'Overview'],
     ['geographic', 'Geographic'],
-    ['reps',       'Rep Performance'],
     ['waterfall',  'Waterfall Attrition'],
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
