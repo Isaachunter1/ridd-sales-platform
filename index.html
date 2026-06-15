@@ -24019,10 +24019,12 @@ function viewMarketing() {
 // Supabase Storage bucket once the originals are exported + uploaded; absolute
 // URLs (http…) are used as-is.
 const TRAINING_TILED_BASE = 'https://app.tiled.co/library/62291a25d862f34e4be07366/microapps/';
-const TRAINING_ASSET_BASE = ''; // e.g. 'https://<project>.supabase.co/storage/v1/object/public/training/'
+// Assets live in the Supabase Storage "training" bucket (public). Relative
+// paths below are resolved against this base; only the filename is stored.
+const TRAINING_ASSET_BASE = 'https://iqlrndyuiolbxhhwmsqv.supabase.co/storage/v1/object/public/training/';
 const TRAINING_MODULES = [
-  { title: 'Sales Manual', description: 'The full sales manual — 94 pages.', pdf: 'training/sales-manual.pdf' },
-  { title: 'Objections Manual', description: 'Handling objections — 68 pages.', pdf: 'training/objections-manual.pdf' },
+  { title: 'Sales Manual', description: 'The full sales manual — 94 pages.', pdf: 'sales-manual.pdf' },
+  { title: 'Objections Manual', description: 'Handling objections — 68 pages.', pdf: 'objections-manual.pdf' },
   { title: 'FAQ', description: 'Frequently asked questions.', screens: [
     { label: 'FAQ Home', image: 'https://dznhhhcrzizxr.cloudfront.net/840755c6-29c3-435e-ad37-a6511c44b827.png' },
   ] },
