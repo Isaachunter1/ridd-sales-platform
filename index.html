@@ -636,7 +636,11 @@ const INDICATORS_DATA_STORAGE_KEY     = 'ridd-indicators-data-v1';       // bulk
 // edits down with it.
 const INDICATOR_SETTINGS_FIELDS = [
   '_indicatorRepChart',
-  '_indicatorRepTeam',
+  '_indicatorRepTeam',        // legacy flat map — kept so old saves still migrate
+  '_indicatorRepTeamByYear',  // per-year team assignments (source of truth)
+  // NOTE: _teamYear is intentionally NOT persisted — the app always boots on
+  // the current calendar year so a stale saved year can't silently change
+  // team grouping app-wide. It's still remembered within a session.
   '_indicatorRepTier',
   '_indicatorTeams',
   '_indicatorExcludedTeams',
@@ -904,6 +908,7 @@ function loadIndicatorState() {
   apply(localStorage.getItem(INDICATORS_DATA_STORAGE_KEY));   // bulk (overrides legacy data fields)
   apply(localStorage.getItem(INDICATORS_SETTINGS_STORAGE_KEY)); // settings (overrides legacy settings fields)
   if (typeof _normalizeRepKeyedMaps === 'function') _normalizeRepKeyedMaps();
+  if (typeof _hydrateTeamYears === 'function') _hydrateTeamYears();
 
   // Compressed bulk cache (written when plain JSON exceeded the quota).
   // Decompression is async, so the page may paint once without raw sales
@@ -980,11 +985,20 @@ async function loadIndicatorConfigFromSupabase() {
         if (Array.isArray(data.competitions.list)) state._indicatorCompetitions = data.competitions.list;
         if (data.competitions.active)              state._indicatorActiveCompId = data.competitions.active;
       }
-      state._indicatorRepTeam       = data.rep_teams     && typeof data.rep_teams     === 'object' ? data.rep_teams     : (state._indicatorRepTeam || {});
+      // rep_teams may arrive as the new by-year shape ({ "2026": {rep:team} })
+      // or the legacy flat shape ({ rep:team }). Detect and normalize into the
+      // by-year structure; _hydrateTeamYears folds legacy data into this year.
+      {
+        const rt = (data.rep_teams && typeof data.rep_teams === 'object' && !Array.isArray(data.rep_teams)) ? data.rep_teams : {};
+        const keys = Object.keys(rt);
+        const looksByYear = keys.length === 0 || keys.every(k => /^\d{4}$/.test(k) && rt[k] && typeof rt[k] === 'object');
+        state._indicatorRepTeamByYear = looksByYear ? rt : { [String(new Date().getFullYear())]: rt };
+      }
       state._indicatorRepTier       = data.rep_tiers     && typeof data.rep_tiers     === 'object' ? data.rep_tiers     : (state._indicatorRepTier || {});
       state._indicatorRepActive     = data.rep_active    && typeof data.rep_active    === 'object' ? data.rep_active    : (state._indicatorRepActive || {});
       state._indicatorRepOffice     = data.rep_offices   && typeof data.rep_offices   === 'object' ? data.rep_offices   : (state._indicatorRepOffice || {});
       _normalizeRepKeyedMaps();
+      if (typeof _hydrateTeamYears === 'function') _hydrateTeamYears();
       return;
     }
     // Server row is empty (fresh install). If THIS browser has team data
@@ -1016,7 +1030,7 @@ async function saveIndicatorConfigToSupabase() {
     team_logos:    state._indicatorTeamLogos || {},
     team_excluded: state._indicatorExcludedTeams || [],
     competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [] },
-    rep_teams:     state._indicatorRepTeam || {},
+    rep_teams:     state._indicatorRepTeamByYear || {},
     rep_tiers:     state._indicatorRepTier || {},
     rep_active:    state._indicatorRepActive || {},
     rep_offices:   state._indicatorRepOffice || {},
@@ -5072,39 +5086,9 @@ function openImportInsightsModal(insights) {
     ),
   );
 
-  // ── YoY scoreboard — every window vs the same calendar period a year
-  // earlier (plus week-over-week), now that uploads carry multi-year data.
+  // YoY context (the scoreboard table was removed; `y` is still used by
+  // the Revenue-by-year strip and Branch YoY section below).
   const y = insights.ytd;
-  const sb = [
-    { label: 'This Week vs Last Week',
-      sub: insights.weekLabel.thisStart + '–' + insights.weekLabel.thisEnd + ' vs ' + insights.weekLabel.lastStart + '–' + insights.weekLabel.lastEnd,
-      d: insights.company, accent: true },
-    { label: 'This Week vs ' + (y.year - 1), sub: 'same week last year', d: insights.yoy?.week },
-    { label: (insights.yoy?.mtdLabel || 'Month') + ' MTD vs ' + (y.year - 1), sub: 'same days last year', d: insights.yoy?.mtd },
-    { label: y.year + ' YTD vs ' + (y.year - 1), sub: 'Jan 1 through same day', d: y },
-  ].filter(r => r.d);
-  const sbCell = (txt, cls) => el('td', { class: 'px-2 py-2 tabular-nums text-right text-xs ' + (cls || '') }, txt);
-  modal.append(
-    el('div', { class: 'rounded-lg border mb-3 overflow-x-auto', style: { borderColor: 'var(--border-2)' } },
-      el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', { style: { background: 'var(--card-2)' } },
-          el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-widest font-bold' }, 'Period'),
-          ...['Revenue', 'Prior', 'Δ', '%', 'Sales'].map(h =>
-            el('th', { class: 'px-2 py-2 text-right text-[10px] uppercase tracking-widest font-bold' }, h)))),
-        el('tbody', {}, ...sb.map(r => {
-          const noPrior = !(r.d.lastRev > 0 || r.d.lastCount > 0);
-          return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: r.accent ? 'rgba(141,198,63,.06)' : 'transparent' } },
-            el('td', { class: 'px-3 py-2 text-xs' },
-              el('div', { class: 'font-semibold whitespace-nowrap' }, r.label),
-              el('div', { class: 'text-[10px] text-muted- whitespace-nowrap' }, r.sub)),
-            sbCell(fmt.usd0(r.d.thisRev), 'font-bold'),
-            sbCell(noPrior ? '—' : fmt.usd0(r.d.lastRev), 'text-muted-'),
-            sbCell(noPrior ? '—' : (r.d.delta >= 0 ? '+' : '') + fmt.usd0(r.d.delta)),
-            el('td', { class: 'px-2 py-2 text-right' },
-              noPrior ? el('span', { class: 'text-[10px] text-muted-' }, 'no data') : pctBadge(r.d.pct)),
-            sbCell(fmt.int(r.d.thisCount) + (noPrior ? '' : ' / ' + fmt.int(r.d.lastCount)), 'text-muted-'),
-          );
-        })))));
 
   // ── Reps Knocking — D2D reps with a sale in the trailing 2 weeks, with
   // branch + team breakdowns. One of the headline numbers of the popup.
@@ -11240,16 +11224,80 @@ function _normalizeRepKeyedMaps() {
     }
   }
 }
+// ── Year-scoped team assignments ──────────────────────────────────────────
+// Team membership is now stored per CALENDAR YEAR: a rep can be on a team in
+// 2025 and a different team (or none) in 2026. The source of truth is
+// state._indicatorRepTeamByYear = { "2025": {rep:team}, "2026": {rep:team} }.
+// state._teamYear is the year currently being viewed/edited (defaults to the
+// current calendar year). For backwards compatibility every existing consumer
+// still reads state._indicatorRepTeam — we keep that as a live pointer to the
+// active year's sub-map via _activeTeamMap().
+function _teamYearKey() { return String(state._teamYear || new Date().getFullYear()); }
+function _activeTeamMap() {
+  if (!state._indicatorRepTeamByYear || typeof state._indicatorRepTeamByYear !== 'object' || Array.isArray(state._indicatorRepTeamByYear)) {
+    state._indicatorRepTeamByYear = {};
+  }
+  const y = _teamYearKey();
+  if (!state._indicatorRepTeamByYear[y] || typeof state._indicatorRepTeamByYear[y] !== 'object') state._indicatorRepTeamByYear[y] = {};
+  // Keep the legacy flat pointer aimed at the active year so direct readers
+  // (distinctTeams, roster unions, etc.) transparently see the right map.
+  state._indicatorRepTeam = state._indicatorRepTeamByYear[y];
+  return state._indicatorRepTeam;
+}
+function _allTeamYearMaps() {
+  const by = state._indicatorRepTeamByYear;
+  const out = [];
+  if (by && typeof by === 'object' && !Array.isArray(by)) {
+    for (const y of Object.keys(by)) { if (by[y] && typeof by[y] === 'object') out.push(by[y]); }
+  }
+  return out;
+}
+// Migrate/normalize the by-year structure. Safe to call repeatedly after any
+// load. Legacy flat rep_teams (rep→teamString) gets folded into the current
+// year so nothing the admin already configured is lost.
+function _hydrateTeamYears() {
+  const cur = String(new Date().getFullYear());
+  let byYear = state._indicatorRepTeamByYear;
+  const looksByYear = byYear && typeof byYear === 'object' && !Array.isArray(byYear)
+    && Object.keys(byYear).every(k => /^\d{4}$/.test(k) && byYear[k] && typeof byYear[k] === 'object');
+  if (!looksByYear) {
+    byYear = {};
+    const legacy = state._indicatorRepTeam;
+    if (legacy && typeof legacy === 'object' && !Array.isArray(legacy) && Object.values(legacy).some(v => typeof v === 'string')) {
+      byYear[cur] = { ...legacy };
+    }
+  }
+  if (!byYear[cur]) byYear[cur] = {};
+  state._indicatorRepTeamByYear = byYear;
+  if (!state._teamYear) state._teamYear = cur;
+  // Normalize rep-name keys within every year (doubled-space spellings, etc.).
+  for (const y of Object.keys(byYear)) {
+    const m = byYear[y];
+    if (!m || typeof m !== 'object') continue;
+    for (const k of Object.keys(m)) {
+      const ck = _cleanRepName(k);
+      if (ck !== k) { if (!(ck in m)) m[ck] = m[k]; delete m[k]; }
+    }
+  }
+  _activeTeamMap();
+}
 function getRepTeam(repName) {
   if (!repName) return '';
-  const map = state._indicatorRepTeam || {};
+  const map = _activeTeamMap();
+  return map[repName] || map[_cleanRepName(repName)] || '';
+}
+// Read a rep's team for a SPECIFIC year without disturbing the active pointer.
+function getRepTeamForYear(repName, year) {
+  if (!repName) return '';
+  const by = state._indicatorRepTeamByYear || {};
+  const map = by[String(year)] || {};
   return map[repName] || map[_cleanRepName(repName)] || '';
 }
 function setRepTeam(repName, team) {
-  if (!state._indicatorRepTeam) state._indicatorRepTeam = {};
-  if (!team) delete state._indicatorRepTeam[repName];
-  else       state._indicatorRepTeam[repName] = team;
-  logActivity('team_change', { rep_name: repName, detail: team ? repName + ' assigned to team ' + team : repName + ' removed from team' });
+  const map = _activeTeamMap();
+  if (!team) delete map[repName];
+  else       map[repName] = team;
+  logActivity('team_change', { rep_name: repName, detail: (team ? repName + ' assigned to team ' + team : repName + ' removed from team') + ' (' + _teamYearKey() + ')' });
   saveDemoData();
 }
 // ── Competitions ──────────────────────────────────────────────────────────
@@ -12742,7 +12790,7 @@ function mergeDuplicateRep(bad, good) {
     if (state._indicatorRepAlias[k] === bad) state._indicatorRepAlias[k] = good;
   });
 
-  const mapKeys = ['_indicatorRepTeam', '_indicatorRepTier', '_indicatorRepOffice', '_indicatorRepActive'];
+  const mapKeys = ['_indicatorRepTier', '_indicatorRepOffice', '_indicatorRepActive'];
   let changed = true;  // setting the alias always counts as a change
   mapKeys.forEach(key => {
     const m = state[key] = state[key] || {};
@@ -12750,6 +12798,10 @@ function mergeDuplicateRep(bad, good) {
       m[good] = m[bad];
       delete m[bad];
     }
+  });
+  // Team assignments are per-year — merge BAD→GOOD in every year's map.
+  _allTeamYearMaps().forEach(m => {
+    if (m[bad] !== undefined) { m[good] = m[bad]; delete m[bad]; }
   });
   saveDemoData();
   return changed;
@@ -12907,14 +12959,15 @@ function indicatorMetricLabel(metric) {
 // referenced by current assignments, so legacy assignments still work even if
 // they pre-date the registry.
 function distinctTeams() {
-  const map = state._indicatorRepTeam || {};
   const registry = state._indicatorTeams || [];
   // Surface every currently-excluded team so users can manage them. On fresh
   // state, getExcludedTeams() seeds itself with ['Excluded']; once the user
   // removes a team it stays gone (no hardcoded re-seed here).
   const set = new Set(getExcludedTeams());
   registry.forEach(t => { if (t) set.add(t); });
-  Object.values(map).forEach(t => { if (t) set.add(t); });
+  // Team NAMES are global across years, so surface any team referenced by an
+  // assignment in ANY year (not just the active one).
+  _allTeamYearMaps().forEach(map => Object.values(map).forEach(t => { if (t) set.add(t); }));
   return [...set].sort((a, b) => {
     const ax = isTeamExcluded(a), bx = isTeamExcluded(b);
     if (ax !== bx) return ax ? 1 : -1; // excluded teams sort last
@@ -12936,9 +12989,8 @@ function removeTeam(name) {
   if (state._indicatorTeams) {
     state._indicatorTeams = state._indicatorTeams.filter(t => t !== name);
   }
-  // Unassign any rep currently on that team
-  const map = state._indicatorRepTeam || {};
-  Object.keys(map).forEach(r => { if (map[r] === name) delete map[r]; });
+  // Unassign any rep currently on that team — across every year.
+  _allTeamYearMaps().forEach(map => Object.keys(map).forEach(r => { if (map[r] === name) delete map[r]; }));
   // Drop from the excluded list too — no orphaned exclusion entries.
   if (Array.isArray(state._indicatorExcludedTeams)) {
     state._indicatorExcludedTeams = state._indicatorExcludedTeams.filter(t => t !== name);
@@ -12960,9 +13012,8 @@ function renameTeam(oldName, newNameRaw) {
   if (!state._indicatorTeams) state._indicatorTeams = [];
   state._indicatorTeams = state._indicatorTeams.map(t => t === oldName ? newName : t);
   logActivity('team_change', { detail: 'Team renamed: ' + oldName + ' → ' + newName });
-  // Rename in every rep assignment
-  const map = state._indicatorRepTeam || {};
-  Object.keys(map).forEach(r => { if (map[r] === oldName) map[r] = newName; });
+  // Rename in every rep assignment, across every year.
+  _allTeamYearMaps().forEach(map => Object.keys(map).forEach(r => { if (map[r] === oldName) map[r] = newName; }));
   // Carry the rename into the modal's active filter so the filter doesn't break
   if (state._indicatorManageTeamFilter === oldName) state._indicatorManageTeamFilter = newName;
   if (state._indicatorRepTeamFilter === oldName)   state._indicatorRepTeamFilter   = newName;
@@ -12993,19 +13044,33 @@ function openManageTeamsModal() {
 
   const render = () => {
     const rawSales = indicatorSales();
-    // Manage Teams is a DOOR-TO-DOOR concept — office staff and techs
-    // don't carry teams, so the roster is: (1) every rep with at least one
-    // D2D-sourced sale, plus (2/3) anyone already assigned a team or tier
-    // (so deliberate assignments stay visible and reversible even before a
-    // new hire's first D2D sale lands). Pure office/tech sellers (e.g.
-    // inside sales, renewals, upsell techs) no longer appear.
-    const d2dReps = rawSales.filter(s => _indicatorDeptOf(s) === 'd2d').map(s => s.rep).filter(Boolean);
+    // Teams are now YEAR-SCOPED. Point the legacy team map at the selected
+    // year and build the roster for THAT year only: (1) every rep with a
+    // D2D sale in the selected year, plus (2) anyone already assigned a team
+    // in that year (so deliberate assignments stay visible before a sale
+    // lands). This makes the "(unassigned)" chip read as "sold this year but
+    // not on a team yet" — i.e. exactly who still needs a team for the year.
+    _activeTeamMap();
+    const teamYear = Number(_teamYearKey());
+    const d2dRepsThisYear = rawSales.filter(s => {
+      if (_indicatorDeptOf(s) !== 'd2d' || !s.rep) return false;
+      const d = _parseIndicatorDay(s);
+      return d && d.getFullYear() === teamYear;
+    }).map(s => s.rep).filter(Boolean);
     const reps = [...new Set([
-      ...d2dReps,
+      ...d2dRepsThisYear,
       ...Object.keys(state._indicatorRepTeam || {}),
-      ...Object.keys(state._indicatorRepTier || {}),
     ])].sort();
     const teams = distinctTeams();
+    // Years available in the Team-Year selector: every year present in the
+    // uploaded sales + every year that already has assignments + the current
+    // year, newest first.
+    const teamYearOptions = (() => {
+      const ys = new Set([new Date().getFullYear()]);
+      for (const s of rawSales) { const d = _parseIndicatorDay(s); if (d) ys.add(d.getFullYear()); }
+      Object.keys(state._indicatorRepTeamByYear || {}).forEach(y => { if (/^\d{4}$/.test(y)) ys.add(Number(y)); });
+      return [...ys].sort((a, b) => b - a);
+    })();
 
     const search = state._indicatorTeamSearch || '';
     const teamSelect = state._indicatorManageTeamFilter || ''; // '' = all, '(unassigned)' = no team
@@ -13114,9 +13179,21 @@ function openManageTeamsModal() {
       el('div', { class: 'flex-1 min-w-0' },
         el('h2', { class: 'text-base font-bold' }, '👥 Manage Teams'),
         el('div', { class: 'text-xs text-muted- mt-0.5' },
-          'Assign each rep to a team and tag as Rookie or Vet. Click a team to rename it, pick a color, or toggle ', el('strong', {}, 'Exclude from metrics'), ' — reps on excluded teams drop out of every rep-level view.'),
+          'Teams are tracked ', el('strong', {}, 'per year'), ' — the roster and ', el('strong', {}, '(unassigned)'), ' chip below reflect the selected ', el('strong', {}, 'Team Year'), '. Assign each rep to a team and tag as Rookie or Vet; click a team to rename it, pick a color, or toggle Exclude from metrics.'),
       ),
       el('div', { class: 'flex items-center gap-2 shrink-0' },
+        // Team Year — assignments are stored per calendar year, so this picks
+        // which year's teams you're viewing and editing. Defaults to the
+        // current year; switching it changes the roster + (unassigned) chip.
+        el('div', { class: 'flex items-center gap-1.5 mr-1' },
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, 'Team Year'),
+          el('select', {
+            class: 'rounded-lg border px-2 py-1.5 text-xs font-semibold cursor-pointer',
+            style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
+            title: 'Team assignments are tracked per year — pick which year to view/edit',
+            onchange: (e) => { state._teamYear = e.target.value; _activeTeamMap(); saveDemoData(); render(); },
+          }, ...teamYearOptions.map(y => el('option', { value: String(y), selected: String(y) === _teamYearKey() }, String(y)))),
+        ),
         // Export every team as a multi-tab .xlsx (Google Sheets imports
         // .xlsx cleanly with the tabs preserved). One tab per team plus
         // a Summary tab at the front.
