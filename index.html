@@ -13163,11 +13163,6 @@ function openManageTeamsModal() {
   const close = () => { overlay.remove(); mountApp(); };
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
-  // Debounce handle for the search input. Closure-scoped so it survives
-  // across the modal-local render() calls — each keystroke cancels the
-  // previous pending render and re-schedules so the modal doesn't
-  // rebuild the whole rep list on every key.
-  let searchRenderTimer = null;
 
   const render = () => {
     const rawSales = indicatorSales();
@@ -13189,6 +13184,23 @@ function openManageTeamsModal() {
       ...Object.keys(state._indicatorRepTeam || {}),
     ])].sort();
     const teams = distinctTeams();
+
+    // Rep TYPE — cross-referenced from the Customer Report uploaded on the
+    // Reporting tab (its "Sold By Type" column: Sales Rep / Office Staff /
+    // Technician). Matched to each Manage-Teams rep by a format-agnostic name
+    // signature so "Last, First" and "First Last" line up.
+    const _nameSig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+    const _typeBySig = {};
+    for (const r of (state.reportingSubscriptions || [])) {
+      const t = (r.sold_by_type || '').trim();
+      if (!r.sold_by || !t || _typeBySig[_nameSig(getCanonicalRepName(r.sold_by))]) continue;
+      _typeBySig[_nameSig(getCanonicalRepName(r.sold_by))] = t;
+    }
+    const repTypeOf = (rep) => _typeBySig[_nameSig(rep)] || 'Unknown';
+    const repTypesPresent = (() => {
+      const s = new Set(reps.map(repTypeOf));
+      return ['Sales Rep', 'Office Staff', 'Technician'].filter(t => s.has(t)).concat(s.has('Unknown') ? ['Unknown'] : []);
+    })();
     // Years available in the Team-Year selector: every year present in the
     // uploaded sales + every year that already has assignments + the current
     // year, newest first.
@@ -13208,23 +13220,9 @@ function openManageTeamsModal() {
     // Active/Inactive filter — '' = all, 'active' = only Active reps,
     // 'inactive' = only reps the admin flipped Inactive in this modal.
     const activeSelect = state._indicatorManageActiveFilter || '';
-    // Activity filter — scope the roster to reps who actually sold
-    // recently. With all-time uploads the full list includes years of
-    // former reps; this answers "who from the CURRENT crew is unassigned"
-    // without scrolling history. '' = all, '30'/'90' = sold in last N
-    // days, 'year' = sold this calendar year.
-    const activitySelect = state._indicatorManageActivityFilter || '';
-    const lastSaleByRep = {};
-    for (const s of rawSales) {
-      if (!s.rep) continue;
-      const d = _parseIndicatorDay(s);
-      if (!d) continue;
-      if (!lastSaleByRep[s.rep] || d > lastSaleByRep[s.rep]) lastSaleByRep[s.rep] = d;
-    }
-    const activityCut = activitySelect === 'year'
-      ? new Date(new Date().getFullYear(), 0, 1).getTime()
-      : activitySelect ? Date.now() - Number(activitySelect) * 86400000 : null;
-    const passesActivity = (r) => !activityCut || (lastSaleByRep[r] && lastSaleByRep[r].getTime() >= activityCut);
+    // Rep-type filter — '' = all, else a "Sold By Type" value from the
+    // Customer Report (Sales Rep / Office Staff / Technician / Unknown).
+    const typeSelect = state._indicatorManageTypeFilter || '';
 
     // Counts per team for the summary chips. Aliased (merged-into-
     // another-rep) reps are excluded so the chip counts reflect unique
@@ -13253,6 +13251,9 @@ function openManageTeamsModal() {
       if (isRepActive(r)) activeCounts.active++;
       else                activeCounts.inactive++;
     });
+    // Counts per rep-type (from the Customer Report) for the Rep Type chips.
+    const typeCounts = {};
+    reps.forEach(r => { if (isAlias(r)) return; const t = repTypeOf(r); typeCounts[t] = (typeCounts[t] || 0) + 1; });
 
     // For each rep, figure out their primary office (most-frequent office across
     // their sales). Read-only — purely informational so admins can sanity-check
@@ -13294,13 +13295,11 @@ function openManageTeamsModal() {
     } else if (activeSelect === 'inactive') {
       filteredReps = filteredReps.filter(r => !isRepActive(r));
     }
-    if (activityCut) {
-      filteredReps = filteredReps.filter(passesActivity);
+    if (typeSelect) {
+      filteredReps = filteredReps.filter(r => repTypeOf(r) === typeSelect);
     }
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      filteredReps = filteredReps.filter(r => r.toLowerCase().includes(q));
-    }
+    // NOTE: the search box is applied client-side (show/hide rows) so typing
+    // never triggers a full re-render — see applyRepSearch() below.
 
     const header = el('div', { class: 'flex items-center justify-between px-5 py-4 border-b gap-3', style: { borderColor: 'var(--border)' } },
       el('div', { class: 'flex-1 min-w-0' },
@@ -13481,38 +13480,34 @@ function openManageTeamsModal() {
       activeChip('inactive', 'Inactive', '#DC2626', activeCounts.inactive),
     );
 
-    // ── Activity chips — scope to the CURRENT crew ──
-    // Counts respect the other filters' base list so "Sold last 30 days ·
-    // N" reads as how many of the listed reps are recent sellers.
-    const activityCount = (cutMode) => {
-      const cut = cutMode === 'year'
-        ? new Date(new Date().getFullYear(), 0, 1).getTime()
-        : Date.now() - Number(cutMode) * 86400000;
-      return reps.filter(r => lastSaleByRep[r] && lastSaleByRep[r].getTime() >= cut).length;
-    };
-    const activityChip = (id, label) => {
-      const isOn = activitySelect === id;
+    // ── Rep Type chips — cross-referenced from the Customer Report ──
+    // "Sold By Type" (Sales Rep / Office Staff / Technician) matched to each
+    // rep by name. "Unknown" = no match in the uploaded report.
+    const TYPE_COLOR = { 'Sales Rep': '#0EA5E9', 'Office Staff': '#7C3AED', 'Technician': '#B45309', 'Unknown': '#6B7280' };
+    const typeChip = (id) => {
+      const isOn = typeSelect === id;
+      const color = TYPE_COLOR[id] || '#6B7280';
       return el('button', {
         class: 'rounded-full text-[11px] font-semibold cursor-pointer transition hover:brightness-95 inline-flex items-center gap-1.5 px-2.5 py-0.5',
         style: isOn
-          ? { background: '#7C3AED', color: '#fff', boxShadow: '0 0 0 2px var(--accent)' }
-          : { background: 'transparent', color: '#7C3AED', border: '1px solid #7C3AED' },
-        onclick: () => {
-          state._indicatorManageActivityFilter = isOn ? '' : id;
-          render();
-        },
-      }, label + ' · ' + activityCount(id));
+          ? { background: color, color: '#fff', boxShadow: '0 0 0 2px var(--accent)' }
+          : { background: 'transparent', color: color, border: '1px solid ' + color },
+        onclick: () => { state._indicatorManageTypeFilter = isOn ? '' : id; render(); },
+      }, id + ' · ' + (typeCounts[id] || 0));
     };
-    const activityChips = el('div', { class: 'px-5 py-2 border-b flex flex-wrap gap-1.5 items-center', style: { borderColor: 'var(--border)' } },
-      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold mr-1', style: { color: 'var(--text-muted)' } }, 'Activity'),
+    const typeChips = el('div', { class: 'px-5 py-2 border-b flex flex-wrap gap-1.5 items-center', style: { borderColor: 'var(--border)' } },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold mr-1', style: { color: 'var(--text-muted)' } }, 'Rep Type'),
       el('button', {
         class: 'rounded-full px-2.5 py-0.5 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
-        style: !activitySelect
+        style: !typeSelect
           ? { background: 'var(--text)', color: 'var(--card)', boxShadow: '0 0 0 2px var(--accent)' }
           : { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border-2)' },
-        onclick: () => { state._indicatorManageActivityFilter = ''; render(); },
-      }, 'All time · ' + reps.length),
-      activityChip('year', 'Sold this year'),
+        onclick: () => { state._indicatorManageTypeFilter = ''; render(); },
+      }, 'All · ' + reps.length),
+      ...repTypesPresent.map(typeChip),
+      (state.reportingSubscriptions || []).length === 0
+        ? el('span', { class: 'text-[10px] text-muted- italic ml-1' }, 'Upload a Customer Report on the Reporting tab to populate types')
+        : null,
     );
 
     // ── Possible duplicates ──
@@ -13798,17 +13793,11 @@ function openManageTeamsModal() {
         class: 'w-full rounded-lg border px-3 py-1.5 text-sm',
         style: { borderColor: 'var(--border-2)' },
         oninput: (e) => {
-          // State updates immediately (input value tracks the user);
-          // the modal-local render() is debounced so we're not rebuilding
-          // the entire rep list, counts, chips, and dropdowns on every
-          // keystroke. The existing prevSearch focus/selection capture
-          // in render() handles cursor restoration when the rebuild fires.
+          // Filter the list IN PLACE — show/hide existing rows — instead of
+          // re-rendering the whole modal. No rebuild means the input keeps
+          // focus and there's no flicker on every keystroke.
           state._indicatorTeamSearch = e.target.value;
-          if (searchRenderTimer) clearTimeout(searchRenderTimer);
-          searchRenderTimer = setTimeout(() => {
-            searchRenderTimer = null;
-            render();
-          }, 150);
+          applyRepSearch();
         },
       }),
     );
@@ -13898,7 +13887,9 @@ function openManageTeamsModal() {
           },
         }, 'Unmerge') : null;
 
+        const repType = repTypeOf(repName);
         return el('div', {
+          'data-rep': repName.toLowerCase(),
           class: 'flex items-center justify-between gap-3 px-5 py-2 border-b text-sm',
           style: {
             borderColor: 'var(--border)',
@@ -13927,6 +13918,11 @@ function openManageTeamsModal() {
               },
               title: 'Primary office (read-only)',
             }, titleCase(office)),
+            !isAlias && repType && repType !== 'Unknown' && el('span', {
+              class: 'text-[10px] font-semibold rounded-full px-2 py-0.5 shrink-0',
+              style: { background: 'var(--card)', color: TYPE_COLOR[repType] || 'var(--text-muted)', border: '1px solid var(--border)' },
+              title: 'Rep type from the Customer Report (read-only)',
+            }, repType),
             teamExcluded && !isAlias && el('span', { class: 'text-[10px] font-bold uppercase tracking-widest shrink-0', style: { color: '#DC2626' } }, '· hidden'),
           ),
           // Aliased rows hide the editable controls — edits should
@@ -13939,8 +13935,19 @@ function openManageTeamsModal() {
         );
       }),
       filteredReps.length === 0 && el('div', { class: 'px-5 py-6 text-center text-sm text-muted- italic' },
-        reps.length === 0 ? 'No reps found — upload a raw-sales CSV first.' : 'No reps match your search.'),
+        reps.length === 0 ? 'No reps found — upload a raw-sales CSV first.' : 'No reps match the current filters.'),
     );
+
+    // Show/hide rep rows by the search box without re-rendering the modal.
+    const applyRepSearch = () => {
+      const q = (state._indicatorTeamSearch || '').trim().toLowerCase();
+      for (const row of repList.children) {
+        const name = row.getAttribute && row.getAttribute('data-rep');
+        if (name == null) continue;
+        row.style.display = (!q || name.includes(q)) ? '' : 'none';
+      }
+    };
+    applyRepSearch();
 
     // Capture focus + scroll BEFORE we tear down the DOM so the user doesn't
     // lose their place every time they pick a tier/team or type in search.
@@ -13953,7 +13960,7 @@ function openManageTeamsModal() {
 
     card.innerHTML = '';
     card.append(
-      header, addBar, teamChips, tierChips, activeChips, activityChips,
+      header, addBar, teamChips, tierChips, activeChips, typeChips,
       ...(dupesPanel ? [dupesPanel] : []),
       ...(detailPanel ? [detailPanel] : []),
       searchInput, repList,
