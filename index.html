@@ -2794,25 +2794,36 @@ function reportingAuditing() {
     return iso >= bounds.start && iso <= bounds.end;
   };
   const offices = [...new Set([...acct.values()].map(a => a.office))].sort();
+  const teamsList = [...new Set([...acct.values()].map(a => a.team))].sort();
+  if (!state.auditTeam) state.auditTeam = 'all';
   const offFilter = state.auditOffice;
+  const teamFilter = state.auditTeam;
 
   // ── Aggregate per rep / per branch ──
   const mk = () => ({ sold: 0, passed: 0, failed: 0, pending: 0,
     attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0] },
     coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0] } });
-  const reps = {}, offs = {}, teams = {}, tot = mk();
+  const reps = {}, offs = {}, tot = mk();
+  // Per-rep office/team so the Rep column can show where each rep belongs.
+  const repMeta = {};
   for (const a of acct.values()) {
     if (!inRange(a)) continue;
     if (offFilter !== 'all' && a.office !== offFilter) continue;
+    if (teamFilter !== 'all' && a.team !== teamFilter) continue;
     const r = reps[a.rep] || (reps[a.rep] = mk());
     const o = offs[a.office] || (offs[a.office] = mk());
-    const t = teams[a.team] || (teams[a.team] = mk());
-    for (const b of [r, o, t, tot]) {
+    const meta = repMeta[a.rep] || (repMeta[a.rep] = { officeCounts: {}, team: a.team });
+    meta.officeCounts[a.office] = (meta.officeCounts[a.office] || 0) + 1;
+    meta.team = a.team;
+    for (const b of [r, o, tot]) {
       b.sold++; b[a.status]++;
       b.attr[a.status][1]++; if (a.cancelled) b.attr[a.status][0]++;
       b.coll[a.status][1]++; if (a.collections) b.coll[a.status][0]++;
     }
   }
+  // A rep's primary office = the one most of their in-range accounts came from.
+  const repOfficeOf = (rep) => { const c = (repMeta[rep] || {}).officeCounts || {}; const e = Object.entries(c); return e.length ? e.sort((x, y) => y[1] - x[1])[0][0] : ''; };
+  const repTeamOf = (rep) => (repMeta[rep] || {}).team || 'Unassigned';
 
   const rate = (pair) => pair[1] > 0 ? pair[0] / pair[1] : null;
   const GOOD = 'rgba(141,198,63,.18)', BAD = 'rgba(220,38,38,.14)';
@@ -2843,7 +2854,7 @@ function reportingAuditing() {
       td(aF == null ? '—' : (aF * 100).toFixed(1) + '%', { bg: aF != null && aP != null && aF > aP ? 'rgba(220,38,38,.08)' : 'transparent' }),
     );
   };
-  const statTable = (label, entries, note) => el('div', { class: 'card overflow-hidden' },
+  const statTable = (label, entries, note, nameFmt) => el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 pt-4 pb-2' },
       el('h3', { class: 'text-base font-bold' }, label),
       note && el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, note)),
@@ -2853,44 +2864,17 @@ function reportingAuditing() {
           th(label.includes('Branch') ? 'Branch' : 'Rep', false), th('Sold (D2D)'), th('Audited'), th('Passed'), th('Failed'), th('Pending / No Audit'),
           th('Pass % (audited)'), th('Eff. Pass %'), th('Attrition · Passed'), th('Attrition · Failed'))),
         el('tbody', {},
-          ...entries.map(([name, s]) => statRow(name, s)),
+          ...entries.map(([name, s]) => statRow(nameFmt ? nameFmt(name) : name, s)),
           statRow('TOTAL', tot, { total: true })))));
+
+  // Rep column shows the rep name with their office + team beneath it.
+  const repNameNode = (rep) => el('div', { class: 'leading-tight' },
+    el('div', { class: 'font-medium' }, rep),
+    el('div', { class: 'text-[10px] font-normal', style: { color: 'var(--text-subtle)' } },
+      [repOfficeOf(rep), repTeamOf(rep)].filter(Boolean).join(' · ')));
 
   const repEntries = Object.entries(reps).sort((a, b) => b[1].sold - a[1].sold || b[1].failed - a[1].failed);
   const offEntries = Object.entries(offs).sort((a, b) => b[1].sold - a[1].sold);
-
-  // ── Split tables: Company on top, branches then teams underneath, with
-  // the Passed / Failed / No Audit rate for each scope.
-  const teamEntries = Object.entries(teams).sort((a, b) => b[1].sold - a[1].sold);
-  const splitTable = (title, subtitle, key) => {
-    const cell = (pair, color) => {
-      const r0 = rate(pair);
-      return el('td', { class: 'px-2.5 py-1.5 text-right tabular-nums text-xs whitespace-nowrap' },
-        el('span', { class: 'font-bold', style: { color } }, r0 == null ? '\u2014' : (r0 * 100).toFixed(1) + '%'),
-        el('span', { class: 'text-[10px] ml-1', style: { color: 'var(--text-subtle)' } }, pair[1] > 0 ? fmt.int(pair[0]) + '/' + fmt.int(pair[1]) : ''));
-    };
-    const row = (name, s, opts = {}) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: opts.total ? 'var(--card-2)' : 'transparent' } },
-      el('td', { class: 'px-2.5 py-1.5 text-xs whitespace-nowrap ' + (opts.total ? 'font-bold' : 'font-semibold') }, name),
-      cell(s[key].passed, '#4d7c0f'),
-      cell(s[key].failed, '#DC2626'),
-      cell(s[key].pending, 'var(--text-muted)'));
-    const divider = (label) => el('tr', {},
-      el('td', { colspan: '4', class: 'px-2.5 pt-2.5 pb-1 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)', background: 'var(--card-2)' } }, label));
-    return el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 pt-4 pb-2' },
-        el('h3', { class: 'text-base font-bold' }, title),
-        el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, subtitle)),
-      el('div', { class: 'overflow-x-auto' },
-        el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
-          el('thead', {}, el('tr', {},
-            th('', false), th('Passed Audit'), th('Failed Audit'), th('No Audit'))),
-          el('tbody', {},
-            row('Company', tot, { total: true }),
-            offEntries.length > 0 && divider('Branches'),
-            ...offEntries.map(([name, s]) => row(name, s)),
-            teamEntries.length > 0 && divider('Teams'),
-            ...teamEntries.map(([name, s]) => row(name, s))))));
-  };
 
   if (!anyFlags) {
     return el('div', { class: 'flex flex-col gap-4 max-w-3xl mx-auto' },
@@ -2905,6 +2889,7 @@ function reportingAuditing() {
     // Toolbar
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       sel(offFilter, [['all', 'All Branches'], ...offices.map(o => [o, o])], (e) => { state.auditOffice = e.target.value; mountApp(); }),
+      sel(teamFilter, [['all', 'All Teams'], ...teamsList.map(t => [t, t])], (e) => { state.auditTeam = e.target.value; mountApp(); }, 'Filter by team'),
       sel(preset, presetOpts, (e) => {
         state.auditRange = e.target.value;
         if (e.target.value === 'custom' && !state.auditCustomStart) {
@@ -2927,14 +2912,9 @@ function reportingAuditing() {
       el('div', { class: 'text-[11px] ml-1', style: { color: 'var(--text-subtle)' } },
         'Live from this snapshot\u2019s Customer Flags \u2014 re-upload the report to refresh.')),
 
-    // Attrition + collections splits — Company, branches, teams
-    el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' },
-      splitTable('Attrition by Audit Result', 'Share of accounts with a reportable cancel (ROR / Sold-Not-Started excluded)', 'attr'),
-      splitTable('Collections by Audit Result', 'Share of accounts cancelled as Delinquent', 'coll')),
-
     // Rep + branch tables
     statTable('Sales Reps · Audit Report', repEntries,
-      'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · Eff. Pass % treats unaudited as passed.'),
+      'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · Eff. Pass % treats unaudited as passed.', repNameNode),
     offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, null),
 
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
