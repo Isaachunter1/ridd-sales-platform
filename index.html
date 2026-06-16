@@ -3994,6 +3994,10 @@ function _parseIndicatorDay(s) {
 //   Techs  — Source "Upsell - Service Pro" / "Upsell - Termite Pro"
 //   Office — everything else (inside sales, web, renewals, etc.)
 const _IND_TECH_SOURCES = new Set(['upsell - service pro', 'upsell - termite pro']);
+// Renewal detection for uploaded indicator sales — renewal sources are named
+// "Renewal - Inbound / Loyalty / Outbound / Service Pro Upsell".
+const _IND_RENEWAL_RE = /renewal/i;
+function _indicatorIsRenewal(s) { return _IND_RENEWAL_RE.test(s && s.source ? String(s.source) : ''); }
 function _indicatorDeptOf(s) {
   if (!s) return 'office';
   if (s._dept) return s._dept; // memoized — classification never changes for a row
@@ -15441,10 +15445,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const repMap = {};
   rawSales.forEach(s => {
     const rep = getCanonicalRepName(s.rep || 'Unknown');
-    if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, sales: [], cancels: 0, cancelEligible: 0, revenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
+    if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, sales: [], cancels: 0, cancelEligible: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
     const r = repMap[rep];
     r.sales.push(s);
     r.revenue += s.contractValue;
+    // New vs renewal split (renewal sources are named "Renewal - …"). D2D has
+    // none, so newRevenue == revenue there; office staff carry both.
+    if (_indicatorIsRenewal(s)) r.renewalRevenue += s.contractValue;
+    else                        r.newRevenue += s.contractValue;
     if (s.contract >= 18) r.multi++;
     if (s.contract === 12) r.twelve++;
     if (s.autoPay && s.autoPay !== 'No') r.autoPay++;
@@ -17012,7 +17020,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   if (state._indicatorRepTierFilter   == null) state._indicatorRepTierFilter   = '';
 
   // Define columns once so headers, sorting, and cell rendering stay in lockstep
-  const repCols = [
+  let repCols = [
     { key: 'name',       label: 'Rep',      align: 'left',  defaultDir: 'asc',  cell: r => {
         const meta = repTierMeta(r.tier);
         return el('td', { class: 'px-2 py-2' },
@@ -17078,6 +17086,25 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           : '—',
       ) },
   ];
+
+  // ── Per-rep-type columns (driven by the dept toggle) ──
+  // Office staff revenue includes renewals, so show Revenue (incl. renewals),
+  // New Rev (renewals stripped), and Renewal Rev — and drop Audit %, which
+  // isn't meaningful for inside/office sales. D2D + Techs keep the single
+  // Revenue column (renewals are ~zero there) and Audit %.
+  if ((state.indicatorDept || 'all') === 'office') {
+    repCols = repCols.filter(c => c.key !== 'auditPct');
+    const usdCol = (key, label, bold) => ({
+      key, label, align: 'left', defaultDir: 'desc',
+      cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' + (bold ? ' font-semibold' : '') }, fmt.usd0(r[key] || 0)),
+    });
+    const ri = repCols.findIndex(c => c.key === 'revenue');
+    if (ri >= 0) repCols.splice(ri, 1,
+      usdCol('revenue', 'Revenue', true),
+      usdCol('newRevenue', 'New Rev', false),
+      usdCol('renewalRevenue', 'Renewal Rev', false),
+    );
+  }
 
   // Apply office + team + tier + name-search filters. Reps flipped to
   // Inactive in Manage Teams drop out unconditionally — they're already
