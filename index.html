@@ -5359,42 +5359,8 @@ function openImportInsightsModal(insights) {
       el('div', {}, ...insights.branchYoY.slice(0, 8).map(m => moverRow(m, { newText: '(new this year)' })))));
   }
 
-  // ── Branch + Team movers (top 5 by absolute change) — hidden for Office Staff
-  if (state.indicatorDept !== 'office' && (insights.branchMovers.length > 0 || insights.teamMovers.length > 0)) {
-    const branchBlock = el('div', {},
-      sectionHeader('Branch Movers'),
-      insights.branchMovers.length === 0
-        ? el('div', { class: 'text-[11px] text-muted- italic' }, '—')
-        : el('div', {}, ...insights.branchMovers.map(moverRow)),
-    );
-    const teamBlock = el('div', {},
-      sectionHeader('Team Movers'),
-      insights.teamMovers.length === 0
-        ? el('div', { class: 'text-[11px] text-muted- italic' }, '—')
-        : el('div', {}, ...insights.teamMovers.map(moverRow)),
-    );
-    modal.append(el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-2' }, branchBlock, teamBlock));
-  }
-
-  // ── New personal records (if any)
-  if (insights.newRecords.length > 0) {
-    const recordKindLabels = { bestDay: 'Best Day', bestWeek: 'Best Week', bestMonth: 'Best Month' };
-    modal.append(
-      sectionHeader('🏅 New Personal Records', insights.newRecords.length + ' broken since last upload'),
-      el('div', { class: 'rounded border', style: { borderColor: 'var(--border)' } },
-        ...insights.newRecords.map(r => el('div', { class: 'flex items-center justify-between gap-3 px-3 py-2 border-t border- first:border-t-0' },
-          el('div', { class: 'flex items-center gap-2 min-w-0' },
-            el('span', { class: 'font-semibold truncate' }, r.rep),
-            el('span', { class: 'text-[10px] text-muted-' }, recordKindLabels[r.kind] || r.kind),
-          ),
-          el('div', { class: 'tabular-nums text-xs font-semibold' },
-            fmt.usd0(r.newRev),
-            r.oldRev > 0 ? el('span', { class: 'text-[10px] text-muted- ml-2' }, '(was ' + fmt.usd0(r.oldRev) + ')') : null,
-          ),
-        )),
-      ),
-    );
-  }
+  // Branch Movers, Team Movers, and New Personal Records intentionally removed
+  // from the rep-facing Import Highlights box.
 
   // ── Footer dismiss
   modal.append(
@@ -5611,8 +5577,11 @@ function openIndicatorRepCard(rep, allReps = []) {
       { key: 'sales',      label: 'Sales',      value: fmt.int(count) },
       { key: 'revenue',    label: 'Revenue',    value: fmt.usd0(scopedRep.revenue || 0) },
       { key: 'acv',        label: 'ACV',        value: fmt.usd(acv) },
-      { key: 'avgInitial', label: 'Avg Init',   value: avgInitial > 0 ? fmt.usd(avgInitial) : '—' },
-      { key: 'avgPest',    label: 'Avg Pest',   value: avgPest    > 0 ? fmt.usd(avgPest)    : '—' },
+      // Sales Rep dept → Avg Pest Initial (excludes Sentricon / German Roach /
+      // Interior Flea). Office Staff, Technician, and All → plain Avg Initial.
+      (state.indicatorDept === 'd2d'
+        ? { key: 'avgPest',    label: 'Avg Pest Initial', value: avgPest    > 0 ? fmt.usd(avgPest)    : '—' }
+        : { key: 'avgInitial', label: 'Avg Initial',      value: avgInitial > 0 ? fmt.usd(avgInitial) : '—' }),
       { key: 'myPct',      label: 'MY %',       value: (myPct * 100).toFixed(1) + '%' },
       { key: 'autoPay',    label: 'Auto Pay',   value: (autoPayPct * 100).toFixed(1) + '%' },
       { key: 'cancels',    label: 'Cancels',    value: fmt.int(scopedRep.cancels || 0) },
