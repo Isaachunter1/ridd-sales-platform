@@ -985,7 +985,6 @@ async function loadIndicatorConfigFromSupabase() {
       state._indicatorTeamColors    = data.team_colors   && typeof data.team_colors   === 'object' ? data.team_colors   : (state._indicatorTeamColors || {});
       state._indicatorTeamLogos     = data.team_logos    && typeof data.team_logos    === 'object' ? data.team_logos    : (state._indicatorTeamLogos || {});
       state._indicatorExcludedTeams = Array.isArray(data.team_excluded) ? data.team_excluded : (state._indicatorExcludedTeams || []);
-      state._indicatorRankExclude   = data.rank_exclude && typeof data.rank_exclude === 'object' ? data.rank_exclude : (state._indicatorRankExclude || {});
       if (data.competitions && typeof data.competitions === 'object') {
         if (Array.isArray(data.competitions.list)) state._indicatorCompetitions = data.competitions.list;
         if (data.competitions.active)              state._indicatorActiveCompId = data.competitions.active;
@@ -1034,7 +1033,6 @@ async function saveIndicatorConfigToSupabase() {
     team_colors:   state._indicatorTeamColors || {},
     team_logos:    state._indicatorTeamLogos || {},
     team_excluded: state._indicatorExcludedTeams || [],
-    rank_exclude: state._indicatorRankExclude || {},
     competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [] },
     rep_teams:     state._indicatorRepTeamByYear || {},
     rep_tiers:     state._indicatorRepTier || {},
@@ -12845,8 +12843,9 @@ function toggleRankExcluded(name) {
   if (cur.has(name)) cur.delete(name); else cur.add(name);
   state._indicatorRankExclude[mode] = [...cur];
   logActivity('config_change', { detail: 'Power Ranking ' + (cur.has(name) ? 'excluded' : 'included') + ' ' + mode + ': ' + name });
+  // Local-only persistence: the indicator_config table has no rank_exclude
+  // column, so we don't push this to the cloud (would 400 the whole sync).
   saveDemoData();
-  if (typeof syncIndicatorsToCloud === 'function') syncIndicatorsToCloud();
 }
 
 // Excluded-team helpers now operate on the ACTIVE competition's list, so all
@@ -14922,6 +14921,53 @@ function viewIndicators() {
           ),
           ), // close left column of the title row
           el('div', { class: 'flex items-center gap-3' },
+          // Power Ranking selector — pick which offices/teams are scored. Default
+          // is everyone in; deselecting keeps an office/team on the board (stats
+          // still show + roll into totals) but drops it from the ranking points.
+          (() => {
+            const excludedNow = rankExcludedSet();
+            const noun = groupBy === 'teams' ? 'teams' : 'offices';
+            const opts = activeBranches.filter(b => !(groupBy === 'teams' && b === 'Unassigned')).sort((a, b) => a.localeCompare(b));
+            const titleCase = (s) => s.split(' ').map(w => w ? w[0] + w.slice(1).toLowerCase() : w).join(' ');
+            const reRender = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
+            const panel = el('div', {
+              class: 'card',
+              style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '230px', maxHeight: '340px', overflowY: 'auto', padding: '6px', boxShadow: 'var(--shadow-lg)', display: 'none' },
+            },
+              el('div', { class: 'flex items-center justify-between px-2 py-1.5' },
+                el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'In Power Ranking'),
+                el('button', {
+                  class: 'text-[10px] font-semibold', style: { color: 'var(--accent)', cursor: 'pointer' },
+                  onclick: (e) => { e.stopPropagation(); if (state._indicatorRankExclude) state._indicatorRankExclude[_rankExcludeMode()] = []; saveDemoData(); reRender(); },
+                }, 'All'),
+              ),
+              ...opts.map(b => el('label', {
+                class: 'flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs',
+                style: { color: 'var(--text)' },
+                onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
+                onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
+              },
+                el('input', { type: 'checkbox', checked: !excludedNow.has(b), onchange: () => { toggleRankExcluded(b); reRender(); } }),
+                el('span', { class: 'truncate' }, titleCase(b)),
+              )),
+            );
+            const btn = el('button', {
+              class: 'flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95 mb-0.5',
+              style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)', background: 'var(--card)' },
+              title: 'Choose which ' + noun + ' are scored in the Power Ranking — deselected ones keep their stats but earn no points',
+              onclick: (e) => {
+                e.stopPropagation();
+                const open = panel.style.display === 'block';
+                panel.style.display = open ? 'none' : 'block';
+                if (!open) { const closer = (ev) => { if (!panel.contains(ev.target) && !btn.contains(ev.target)) { panel.style.display = 'none'; document.removeEventListener('mousedown', closer); } }; setTimeout(() => document.addEventListener('mousedown', closer), 0); }
+              },
+            },
+              el('span', {}, '🏆'),
+              el('span', {}, 'Ranking: ' + (excludedNow.size ? excludedNow.size + ' ' + noun + ' out' : 'all ' + noun)),
+              el('span', { style: { fontSize: '9px' } }, '▾'),
+            );
+            return el('div', { style: { position: 'relative' } }, btn, panel);
+          })(),
           // Comps switch — competition mode. OFF = every sale counts, zero
           // exclusions. ON = comp exclusions apply to every number below.
           (() => {
@@ -15357,50 +15403,10 @@ function viewIndicators() {
         class: 'px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted- font-semibold whitespace-nowrap ' + (align === 'right' ? 'text-right' : 'text-left'),
       }, label);
 
-      // Adjust control — pick which offices/teams are scored in the ranking.
-      // Excluded ones stay on the board; they just don't earn points.
-      const rankExcludedNow = rankExcludedSet();
-      const groupNoun = groupBy === 'teams' ? 'teams' : 'offices';
-      const rankAdjustControl = (() => {
-        const panel = el('div', {
-          class: 'card',
-          style: { position: 'absolute', right: '0', top: 'calc(100% + 4px)', zIndex: '50', minWidth: '230px', maxHeight: '320px', overflowY: 'auto', padding: '6px', boxShadow: 'var(--shadow-lg)', display: 'none' },
-        },
-          el('div', { class: 'px-2 py-1.5 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Scored in Power Ranking'),
-          ...activeBranches.map(b => el('label', {
-            class: 'flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs',
-            style: { color: 'var(--text)' },
-            onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
-            onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
-          },
-            el('input', { type: 'checkbox', checked: !rankExcludedNow.has(b), onchange: () => { toggleRankExcluded(b); mountApp(); } }),
-            el('span', { class: 'truncate' }, b.split(' ').map(w => w[0] + w.slice(1).toLowerCase()).join(' ')),
-          )),
-        );
-        const btn = el('button', {
-          class: 'text-[9px] uppercase tracking-widest font-semibold px-2 py-1 rounded border cursor-pointer transition hover:brightness-95',
-          style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)', background: 'var(--card)' },
-          title: 'Choose which ' + groupNoun + ' are scored in the Power Ranking (deselected ones stay on the board, just unscored)',
-          onclick: (e) => {
-            e.stopPropagation();
-            const open = panel.style.display === 'block';
-            panel.style.display = open ? 'none' : 'block';
-            if (!open) {
-              const closer = (ev) => { if (!panel.contains(ev.target) && ev.target !== btn) { panel.style.display = 'none'; document.removeEventListener('mousedown', closer); } };
-              setTimeout(() => document.addEventListener('mousedown', closer), 0);
-            }
-          },
-        }, '⚙ Adjust' + (rankExcludedNow.size ? ' · ' + rankExcludedNow.size + ' out' : ''));
-        return el('div', { style: { position: 'relative' } }, btn, panel);
-      })();
-
       const powerCard = el('div', { class: 'card overflow-hidden', style: { borderColor: 'var(--accent)', borderWidth: '2px' } },
-        el('div', { class: 'px-4 py-2 border-b flex items-center justify-between gap-3', style: { borderColor: 'var(--accent)' } },
+        el('div', { class: 'px-4 py-2 border-b flex items-center justify-between', style: { borderColor: 'var(--accent)' } },
           el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--accent)' } }, 'Power Ranking'),
-          el('div', { class: 'flex items-center gap-3' },
-            el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- hidden sm:block' }, POWER_RANKING_METRICS.length + ' metrics scored · low pts win'),
-            rankAdjustControl,
-          ),
+          el('div', { class: 'text-[9px] uppercase tracking-widest text-muted-' }, POWER_RANKING_METRICS.length + ' metrics scored · low pts win'),
         ),
         // Desktop / tablet: full table with horizontal scroll if needed.
         el('div', { class: 'hidden sm:block scroll-x' },
