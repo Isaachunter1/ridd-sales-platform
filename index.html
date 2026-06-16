@@ -3118,11 +3118,13 @@ function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);
   // A one-tab bar is just noise — auditors land straight on Sales.
   if (tabs.length < 2) return null;
-  return el('div', { class: 'flex items-center gap-1 border-b mb-4 overflow-x-auto', style: { borderColor: 'var(--border)' } },
+  // Static tab bar — wraps onto multiple rows on narrow/mobile screens instead
+  // of becoming a horizontal scroll strip (which floated around on mobile).
+  return el('div', { class: 'flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } },
     ...tabs.map(([k, label]) => {
       const active = state.view === k;
       return el('button', {
-        class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
+        class: 'px-3 sm:px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
         style: {
           borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
           color: active ? 'var(--text)' : 'var(--text-muted)',
@@ -6998,17 +7000,20 @@ function viewSales() {
   });
 
   // Queue toggle is always the first row, regardless of which queue is active.
-  const queueToggle = el('div', { class: 'inline-flex rounded-xl border overflow-hidden self-start', style: { borderColor: 'var(--border-2)' } },
+  // Individual pills that WRAP rather than one segmented strip — the strip
+  // overflowed into a horizontal scroll/slider on mobile. Wrapping keeps every
+  // pill visible and static on any width.
+  const queueToggle = el('div', { class: 'flex flex-wrap gap-2 self-start' },
     ...[
       { id: 'upfront', label: 'Pending Upfront' },
       { id: 'backend', label: 'Pending Backend Lock' },
       { id: 'cancels', label: 'Cancels' },
       { id: 'history', label: 'History' },
     ].map(t => el('button', {
-      class: 'px-4 py-2 text-xs font-semibold transition flex items-center gap-2',
+      class: 'px-3 py-2 text-xs font-semibold rounded-lg border transition flex items-center gap-2 whitespace-nowrap',
       style: queueFilter === t.id
-        ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-        : { background: 'transparent', color: 'var(--text)' },
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+        : { background: 'var(--card)', color: 'var(--text)', borderColor: 'var(--border-2)' },
       onclick: () => { state._salesQueueFilter = t.id; mountApp(); },
     },
       el('span', {}, t.label),
@@ -7021,62 +7026,40 @@ function viewSales() {
     )),
   );
 
-  // Backend-report upload — sits in the top-right of the queue toggle row
-  // when on the Pending Backend Lock pill (admin/auditor only). On hover the
-  // button title shows the last-uploaded filename + time. Clear link appears
-  // beside it when a report is loaded.
-  const canUpload = queueFilter === 'backend' && (isAdminRole(state.profile?.role) || state.profile?.role === 'auditor');
-  const uploadGroup = canUpload ? (() => {
-    const fileInput = el('input', {
-      type: 'file', accept: '.csv,.txt', style: { display: 'none' },
-      onchange: (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          try {
-            const result = applyBackendReport(ev.target.result);
-            state.backendReportUploadedAt = new Date().toISOString();
-            state.backendReportFileName = file.name || '';
-            saveDemoData();
-            toast(`Matched ${result.matched} of ${result.total} rows${result.unmatched > 0 ? ' · ' + result.unmatched + ' unmatched' : ''}`, 'success');
-            mountApp();
-          } catch (err) {
-            toast('Report parse error: ' + err.message, 'error');
-          }
-        };
-        reader.readAsText(file);
-      },
-    });
-    const hasUpload = !!state.backendReportUploadedAt;
-    const tooltip = hasUpload
-      ? `Loaded ${state.backendReportFileName || 'report.csv'} · ${new Date(state.backendReportUploadedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
-      : 'CSV columns: customer #, subscriptions, appointments completed, aging, subscription type';
-    return el('div', { class: 'flex items-center gap-2' },
-      fileInput,
-      hasUpload && el('button', {
-        class: 'text-[11px] font-semibold transition',
-        style: { color: 'var(--text-muted)' },
-        onclick: () => {
-          if (!confirm('Clear the uploaded backend report? Enriched columns disappear; the sale records themselves stay put.')) return;
-          clearBackendReport();
-          toast('Backend report cleared', 'success');
-          mountApp();
-        },
-      }, 'Clear'),
-      el('button', {
-        class: 'px-3 py-2 rounded-lg text-xs font-bold transition hover:brightness-95',
-        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        title: tooltip,
-        onclick: () => fileInput.click(),
-      }, hasUpload ? '📁 Re-upload Report' : '📁 Upload Backend Report'),
-    );
-  })() : null;
+  // Status + rep filters — reused either inline with + New Sale (Pending
+  // Upfront) or moved up to the toggle row on the review queues (Backend Lock
+  // and Cancels), where there's no + New Sale button to share the row with.
+  const filterControls = () => [
+    el('select', {
+      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+      style: { maxWidth: '140px' },
+      onchange: e => { sf.status = e.target.value; mountApp(); },
+    },
+      el('option', { value: '', selected: !sf.status }, 'All statuses'),
+      ...['pending','serviced','below_minimums','cancelled','nsf','not_payable','reschedule'].map(s =>
+        el('option', { value: s, selected: sf.status === s }, s.replace('_',' '))),
+    ),
+    isAdmin && el('select', {
+      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+      style: { maxWidth: '140px' },
+      onchange: e => { sf.repId = e.target.value; mountApp(); },
+    },
+      el('option', { value: '', selected: !sf.repId }, 'All reps'),
+      ...(state.allProfiles||[]).map(p => el('option', { value: p.id, selected: sf.repId === p.id }, p.full_name)),
+    ),
+    (sf.status || sf.repId) && el('button', {
+      class: 'text-xs font-semibold px-2 py-2', style: { color: 'var(--accent)' },
+      onclick: () => { Object.assign(sf, { dateStart:'', dateEnd:'', status:'', repId:'', contractTypeId:'' }); mountApp(); },
+    }, 'Clear'),
+  ];
 
-  // Top row: queue toggle on the left, upload group (when present) on the right.
+  const onReviewQueue = (queueFilter === 'backend' || queueFilter === 'cancels');
+
+  // Top row: queue toggle on the left. On the review queues the status/rep
+  // filters move up here, right-aligned.
   const queueRow = el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
     queueToggle,
-    uploadGroup,
+    onReviewQueue ? el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...filterControls()) : null,
   );
 
   // History pill swaps in the (settled) history view inline — same toggle on
@@ -7093,37 +7076,15 @@ function viewSales() {
   return el('div', { class: 'flex flex-col gap-5 max-w-6xl mx-auto' },
     queueRow,
 
-    // ── Top row: + New Sale (sized to match dashboard) + filters on its right ──
-    // New Sale only belongs on Pending Upfront — backend-lock and cancels are
-    // review queues for existing sales, not where you log a fresh one.
-    el('div', { class: 'flex items-center gap-2 flex-wrap' },
-      queueFilter === 'upfront' && el('button', {
+    // ── Pending Upfront only: + New Sale + filters on its right. On the review
+    // queues these filters live up in the toggle row instead. ──
+    queueFilter === 'upfront' && el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      el('button', {
         class: 'flex-1 min-w-0 rounded-xl px-5 py-2.5 text-sm font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openNewSaleModal(),
       }, '+ New Sale'),
-
-      el('select', {
-        class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
-        style: { maxWidth: '140px' },
-        onchange: e => { sf.status = e.target.value; mountApp(); },
-      },
-        el('option', { value: '', selected: !sf.status }, 'All statuses'),
-        ...['pending','serviced','below_minimums','cancelled','nsf','not_payable','reschedule'].map(s =>
-          el('option', { value: s, selected: sf.status === s }, s.replace('_',' '))),
-      ),
-      isAdmin && el('select', {
-        class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
-        style: { maxWidth: '140px' },
-        onchange: e => { sf.repId = e.target.value; mountApp(); },
-      },
-        el('option', { value: '', selected: !sf.repId }, 'All reps'),
-        ...(state.allProfiles||[]).map(p => el('option', { value: p.id, selected: sf.repId === p.id }, p.full_name)),
-      ),
-      (sf.status || sf.repId) && el('button', {
-        class: 'text-xs font-semibold px-2 py-2', style: { color: 'var(--accent)' },
-        onclick: () => { Object.assign(sf, { dateStart:'', dateEnd:'', status:'', repId:'', contractTypeId:'' }); mountApp(); },
-      }, 'Clear'),
+      ...filterControls(),
     ),
 
     // ── Table ──
