@@ -647,6 +647,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_reportingSourcesSeen',       // distinct lead sources seen in the reporting CSV (persisted universe)
   '_indicatorTeams',
   '_indicatorExcludedTeams',
+  '_indicatorRankExclude',    // { branch:[...], teams:[...] } — kept on the board but out of Power Ranking
   '_indicatorCompetitions',
   '_indicatorActiveCompId',
   '_indicatorTeamColors',
@@ -984,6 +985,7 @@ async function loadIndicatorConfigFromSupabase() {
       state._indicatorTeamColors    = data.team_colors   && typeof data.team_colors   === 'object' ? data.team_colors   : (state._indicatorTeamColors || {});
       state._indicatorTeamLogos     = data.team_logos    && typeof data.team_logos    === 'object' ? data.team_logos    : (state._indicatorTeamLogos || {});
       state._indicatorExcludedTeams = Array.isArray(data.team_excluded) ? data.team_excluded : (state._indicatorExcludedTeams || []);
+      state._indicatorRankExclude   = data.rank_exclude && typeof data.rank_exclude === 'object' ? data.rank_exclude : (state._indicatorRankExclude || {});
       if (data.competitions && typeof data.competitions === 'object') {
         if (Array.isArray(data.competitions.list)) state._indicatorCompetitions = data.competitions.list;
         if (data.competitions.active)              state._indicatorActiveCompId = data.competitions.active;
@@ -1032,6 +1034,7 @@ async function saveIndicatorConfigToSupabase() {
     team_colors:   state._indicatorTeamColors || {},
     team_logos:    state._indicatorTeamLogos || {},
     team_excluded: state._indicatorExcludedTeams || [],
+    rank_exclude: state._indicatorRankExclude || {},
     competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [] },
     rep_teams:     state._indicatorRepTeamByYear || {},
     rep_tiers:     state._indicatorRepTier || {},
@@ -12818,6 +12821,34 @@ async function exportTopGunXlsx(sales, proSet) {
   toast('Exported Top Gun — Standings + accounts by class', 'success');
 }
 
+// ── Power-Ranking exclusions ─────────────────────────────────────────────
+// Offices (branch view) or teams (team view) the user has deselected from the
+// Power Ranking. Unlike team exclusions, these stay fully ON THE BOARD (values
+// table + RIDD totals) — they just don't earn ranking points and don't shift
+// anyone else's ranks. Stored per group type so branches and teams are kept
+// separate. Shared across admins via the same cloud sync as team settings.
+function _rankExcludeMode() {
+  return state.indicatorsGroupBy === 'teams' ? 'teams' : 'branch';
+}
+function rankExcludedSet() {
+  const store = state._indicatorRankExclude || {};
+  return new Set(store[_rankExcludeMode()] || []);
+}
+function isRankExcluded(name) {
+  return !!name && rankExcludedSet().has(name);
+}
+function toggleRankExcluded(name) {
+  if (!name) return;
+  if (!state._indicatorRankExclude || typeof state._indicatorRankExclude !== 'object') state._indicatorRankExclude = {};
+  const mode = _rankExcludeMode();
+  const cur = new Set(state._indicatorRankExclude[mode] || []);
+  if (cur.has(name)) cur.delete(name); else cur.add(name);
+  state._indicatorRankExclude[mode] = [...cur];
+  logActivity('config_change', { detail: 'Power Ranking ' + (cur.has(name) ? 'excluded' : 'included') + ' ' + mode + ': ' + name });
+  saveDemoData();
+  if (typeof syncIndicatorsToCloud === 'function') syncIndicatorsToCloud();
+}
+
 // Excluded-team helpers now operate on the ACTIVE competition's list, so all
 // existing call sites become competition-aware through this single chokepoint.
 function getExcludedTeams() {
@@ -13172,27 +13203,33 @@ const TEAM_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
 // instead of re-rolling 100k+ rows every click.
 const _aggBranchCache = new WeakMap();
 function aggregateByBranch(rawSales, indicatorRowsForDates) {
-  // Branch totals include every rep AND every subscription type — no exclusions.
+  // Avg Initial: Sales Rep dept strips Sentricon/Roach/Flea (Avg Pest Initial);
+  // Office Staff, Technician, and All average every account type. indicatorSales()
+  // returns a distinct cached array per dept, so the WeakMap stays dept-correct.
+  const pestRe = state.indicatorDept === 'd2d' ? TEAM_PEST_EXCLUDE : null;
   if (rawSales && typeof rawSales === 'object') {
     const hit = _aggBranchCache.get(rawSales);
     if (hit && hit.rows === indicatorRowsForDates) return hit.out;
-    const out = aggregateRawSalesByGroup(rawSales, s => s.office || 'Unknown', indicatorRowsForDates, false, null);
+    const out = aggregateRawSalesByGroup(rawSales, s => s.office || 'Unknown', indicatorRowsForDates, false, pestRe);
     _aggBranchCache.set(rawSales, { rows: indicatorRowsForDates, out });
     return out;
   }
-  return aggregateRawSalesByGroup(rawSales, s => s.office || 'Unknown', indicatorRowsForDates, false, null);
+  return aggregateRawSalesByGroup(rawSales, s => s.office || 'Unknown', indicatorRowsForDates, false, pestRe);
 }
 function aggregateByTeam(rawSales, indicatorRowsForDates) {
   // Team view honors both team exclusions and the strict pest-subscription regex.
   return aggregateRawSalesByGroup(rawSales, s => getRepTeam(s.rep) || 'Unassigned', indicatorRowsForDates, true, TEAM_PEST_EXCLUDE);
 }
 
-// Dynamic label for the avg_initial column — branch view shows the unfiltered
-// "Avg Initial" (every account type counts); team view shows "Avg Pest
-// Initial" because it strips Sentricon/Roach/Flea from the average.
+// Dynamic label for the avg_initial column. "Avg Pest Initial" (strips
+// Sentricon/Roach/Flea from the average) is used for the Sales Rep dept and in
+// Team view; Office Staff, Technician, and All show the plain "Avg Initial".
+function indicatorAvgInitialIsPest() {
+  return state.indicatorsGroupBy === 'teams' || state.indicatorDept === 'd2d';
+}
 function indicatorMetricLabel(metric) {
   if (metric && metric.key === 'avg_initial') {
-    return (state.indicatorsGroupBy === 'teams' || state.indicatorDept === 'office') ? 'Avg Pest Initial' : 'Avg Initial';
+    return indicatorAvgInitialIsPest() ? 'Avg Pest Initial' : 'Avg Initial';
   }
   return metric ? metric.label : '';
 }
@@ -14242,7 +14279,7 @@ function viewIndicators() {
       const revRenewal = ss.reduce((a, s) => a + (_indicatorIsRenewal(s) ? (Number(s.contractValue) || 0) : 0), 0);
       // Avg Pest Initial rules (exclude Sentricon / German Roach / Interior
       // Flea) apply to Teams view AND the Office Staff dept.
-      const usePestExclude = groupBy === 'teams' || state.indicatorDept === 'office';
+      const usePestExclude = groupBy === 'teams' || state.indicatorDept === 'd2d';
       const pest = usePestExclude ? ss.filter(s => !TEAM_PEST_EXCLUDE.test(s.subscription || '')) : ss;
       const avgInit = pest.length > 0 ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
       const multi = ss.filter(s => Number(s.contract) > 12).length;
@@ -14331,7 +14368,13 @@ function viewIndicators() {
   // strips Unassigned so a bucket that doesn't represent a real team
   // can't score Power Rank points.
   const activeBranches   = branches.filter(b => branchData[b]);
-  const rankableBranches = activeBranches.filter(b => !(groupBy === 'teams' && b === 'Unassigned'));
+  // Deselected offices/teams stay ON THE BOARD (still in activeBranches, so the
+  // column + stats render and roll into RIDD totals) but are excluded from the
+  // Power Ranking — no points, and they don't shift anyone else's ranks. Like
+  // Unassigned, they just sit out the ranking math.
+  const rankableBranches = activeBranches.filter(b =>
+    !(groupBy === 'teams' && b === 'Unassigned')
+    && !isRankExcluded(b));
   INDICATOR_METRICS.forEach(m => {
     if (m.key === 'avg_initial') {
       // Weighted by non-Sentricon account count; falls back to sold_accounts for pre-agg branches
@@ -15050,7 +15093,9 @@ function viewIndicators() {
       const _deptT = state.indicatorDept || 'all';
       const tableMetrics = INDICATOR_METRICS.filter(m => {
         if (m.key === 'new_revenue' || m.key === 'renewal_revenue') return _deptT === 'office';
-        if (_deptT === 'office' && (m.key === 'pra' || m.key === 'audit_pct')) return false;
+        // Audit % only appears on the Sales Rep tab — hidden for All, Office, Technician.
+        if (m.key === 'audit_pct') return _deptT === 'd2d';
+        if (_deptT === 'office' && m.key === 'pra') return false;
         return true;
       });
       return el('div', { class: 'card overflow-hidden' },
@@ -15312,10 +15357,50 @@ function viewIndicators() {
         class: 'px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted- font-semibold whitespace-nowrap ' + (align === 'right' ? 'text-right' : 'text-left'),
       }, label);
 
+      // Adjust control — pick which offices/teams are scored in the ranking.
+      // Excluded ones stay on the board; they just don't earn points.
+      const rankExcludedNow = rankExcludedSet();
+      const groupNoun = groupBy === 'teams' ? 'teams' : 'offices';
+      const rankAdjustControl = (() => {
+        const panel = el('div', {
+          class: 'card',
+          style: { position: 'absolute', right: '0', top: 'calc(100% + 4px)', zIndex: '50', minWidth: '230px', maxHeight: '320px', overflowY: 'auto', padding: '6px', boxShadow: 'var(--shadow-lg)', display: 'none' },
+        },
+          el('div', { class: 'px-2 py-1.5 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Scored in Power Ranking'),
+          ...activeBranches.map(b => el('label', {
+            class: 'flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs',
+            style: { color: 'var(--text)' },
+            onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
+            onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
+          },
+            el('input', { type: 'checkbox', checked: !rankExcludedNow.has(b), onchange: () => { toggleRankExcluded(b); mountApp(); } }),
+            el('span', { class: 'truncate' }, b.split(' ').map(w => w[0] + w.slice(1).toLowerCase()).join(' ')),
+          )),
+        );
+        const btn = el('button', {
+          class: 'text-[9px] uppercase tracking-widest font-semibold px-2 py-1 rounded border cursor-pointer transition hover:brightness-95',
+          style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)', background: 'var(--card)' },
+          title: 'Choose which ' + groupNoun + ' are scored in the Power Ranking (deselected ones stay on the board, just unscored)',
+          onclick: (e) => {
+            e.stopPropagation();
+            const open = panel.style.display === 'block';
+            panel.style.display = open ? 'none' : 'block';
+            if (!open) {
+              const closer = (ev) => { if (!panel.contains(ev.target) && ev.target !== btn) { panel.style.display = 'none'; document.removeEventListener('mousedown', closer); } };
+              setTimeout(() => document.addEventListener('mousedown', closer), 0);
+            }
+          },
+        }, '⚙ Adjust' + (rankExcludedNow.size ? ' · ' + rankExcludedNow.size + ' out' : ''));
+        return el('div', { style: { position: 'relative' } }, btn, panel);
+      })();
+
       const powerCard = el('div', { class: 'card overflow-hidden', style: { borderColor: 'var(--accent)', borderWidth: '2px' } },
-        el('div', { class: 'px-4 py-2 border-b flex items-center justify-between', style: { borderColor: 'var(--accent)' } },
+        el('div', { class: 'px-4 py-2 border-b flex items-center justify-between gap-3', style: { borderColor: 'var(--accent)' } },
           el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--accent)' } }, 'Power Ranking'),
-          el('div', { class: 'text-[9px] uppercase tracking-widest text-muted-' }, POWER_RANKING_METRICS.length + ' metrics scored · low pts win'),
+          el('div', { class: 'flex items-center gap-3' },
+            el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- hidden sm:block' }, POWER_RANKING_METRICS.length + ' metrics scored · low pts win'),
+            rankAdjustControl,
+          ),
         ),
         // Desktop / tablet: full table with horizontal scroll if needed.
         el('div', { class: 'hidden sm:block scroll-x' },
@@ -15496,7 +15581,7 @@ function viewIndicators() {
             ? (s => getRepTeam(s.rep) || 'Unassigned')
             : (s => s.office || 'Unknown');
           chartData = aggregateRawSalesByBucket(indicatorSales(), groupFn, buckets,
-            state.indicatorsGroupBy === 'teams', state.indicatorsGroupBy === 'teams' ? TEAM_PEST_EXCLUDE : null);
+            state.indicatorsGroupBy === 'teams', indicatorAvgInitialIsPest() ? TEAM_PEST_EXCLUDE : null);
           chartWeeks = buckets.map((b, i) => i);
           chartLabels = buckets.map(b => b.label);
           grain = buckets[0].kind === 'day' ? 'Daily' : 'Monthly';
@@ -21865,15 +21950,18 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
         // Power Ranking table — more reps doesn't make a branch a better
         // seller, just a bigger one. Including it here was making the
         // trend chart disagree with the table on the leader.
+        // Deselected offices/teams are excluded from Power Ranking — keep the
+        // trend's ranking in lockstep with the table so neither scores them.
+        const rankBranches = branches.filter(b => !isRankExcluded(b));
         const pts = {};
-        branches.forEach(b => pts[b] = 0);
+        rankBranches.forEach(b => pts[b] = 0);
         // Audit % excluded from scoring (shown in the table only) — keep this in
         // lockstep with POWER_RANKING_METRICS so the trend matches the table.
         INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue' && m.key !== 'audit_pct').forEach(m => {
-          const sorted = branches.slice().sort((a, b) => (weekData[b]?.[m.key] || 0) - (weekData[a]?.[m.key] || 0));
+          const sorted = rankBranches.slice().sort((a, b) => (weekData[b]?.[m.key] || 0) - (weekData[a]?.[m.key] || 0));
           sorted.forEach((b, i) => { pts[b] += i + 1; });
         });
-        const ranked = branches.slice().sort((a, b) => {
+        const ranked = rankBranches.slice().sort((a, b) => {
           const tp = (pts[a] || 0) - (pts[b] || 0);
           if (tp !== 0) return tp;
           const rev = (weekData[b]?.revenue || 0) - (weekData[a]?.revenue || 0);
