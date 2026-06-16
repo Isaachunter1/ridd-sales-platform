@@ -4801,8 +4801,21 @@ function _isRenewalCancel(s) {
 // install failures / account merges / completed one-time jobs / renewals
 // onto a new subscription — none of it real attrition). Cancel Analysis
 // intentionally bypasses this so the analyst can still see them.
+// Cancel reasons the admin marked "doesn't count as attrition" in the shared
+// Cancel Reasons config (Settings → Configurations). The SAME exclusions now
+// apply to the indicators tab so the two reconcile. Cached on the config
+// array's identity (rebuilt only when the config is edited).
+let _indCancelReasonSet = null, _indCancelReasonSrc = null;
+function _indConfigCancelExcluded(s) {
+  const cfg = state.reportingCancelConfig || [];
+  if (_indCancelReasonSrc !== cfg) {
+    _indCancelReasonSrc = cfg;
+    _indCancelReasonSet = new Set(cfg.filter(c => c.counts_attrition === false).map(c => String(c.reason || '').trim().toLowerCase()));
+  }
+  return _indCancelReasonSet.has(String((s && s.cancelReason) || '').trim().toLowerCase());
+}
 function _isExcludableCancel(s) {
-  return _is3DayROR(s) || _isSoldNotStarted(s) || _isCombinedSub(s) || _isOneTimeCancel(s) || _isRenewalCancel(s);
+  return _is3DayROR(s) || _isSoldNotStarted(s) || _isCombinedSub(s) || _isOneTimeCancel(s) || _isRenewalCancel(s) || _indConfigCancelExcluded(s);
 }
 // "Counts as a cancel for reporting purposes." Use in place of the
 // `(s.cancelDate || s.active === 'No')` literal everywhere outside
@@ -4821,9 +4834,9 @@ function _isReportableCancel(s) {
 // subscription rows stay excluded either way — those are never attrition.
 // Persisted with the rest of the indicator settings (per browser).
 function _repCancelExcluded(s) {
-  // SNS / Combined / One-Time / Renewal are excluded no matter what; the
-  // toggle only controls whether 3-day RORs come back into the counts.
-  if (_isSoldNotStarted(s) || _isCombinedSub(s) || _isOneTimeCancel(s) || _isRenewalCancel(s)) return true;
+  // SNS / Combined / One-Time / Renewal + config-excluded reasons are excluded
+  // no matter what; the toggle only controls whether 3-day RORs come back.
+  if (_isSoldNotStarted(s) || _isCombinedSub(s) || _isOneTimeCancel(s) || _isRenewalCancel(s) || _indConfigCancelExcluded(s)) return true;
   return state._indicatorRepIncludeRor ? false : _is3DayROR(s);
 }
 function _repCancelCounts(s) {
@@ -5329,8 +5342,8 @@ function openImportInsightsModal(insights) {
       el('div', {}, ...insights.branchYoY.slice(0, 8).map(m => moverRow(m, { newText: '(new this year)' })))));
   }
 
-  // ── Branch + Team movers (top 5 by absolute change)
-  if (insights.branchMovers.length > 0 || insights.teamMovers.length > 0) {
+  // ── Branch + Team movers (top 5 by absolute change) — hidden for Office Staff
+  if (state.indicatorDept !== 'office' && (insights.branchMovers.length > 0 || insights.teamMovers.length > 0)) {
     const branchBlock = el('div', {},
       sectionHeader('Branch Movers'),
       insights.branchMovers.length === 0
@@ -24432,11 +24445,17 @@ function reportingTopBar() {
     class: 'card',
     style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '50', minWidth: '190px', padding: '6px', boxShadow: 'var(--shadow-lg)' },
   },
-    ...[['uploads', '📁 Uploads'], ['config', '⚙ Configurations']].map(([k, label]) => el('button', {
+    ...[['uploads', '📁 Uploads']].map(([k, label]) => el('button', {
       class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition hover:brightness-95',
       style: { background: state.reportingSubTab === k ? 'var(--card-2)' : 'transparent', color: 'var(--text)' },
       onclick: () => { state.reportingSubTab = k; state.reportingSettingsOpen = false; mountApp(); },
     }, label)),
+    // Configurations moved to the global Settings (top-right gear → Configurations).
+    el('button', {
+      class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition hover:brightness-95',
+      style: { color: 'var(--text)' },
+      onclick: () => { state.reportingSettingsOpen = false; state.adminSection = 'config'; state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); },
+    }, '⚙ Configurations (in Settings)'),
   ) : null;
 
   return el('div', { class: 'card p-4 flex items-center justify-between gap-4 flex-wrap' },
@@ -27300,6 +27319,7 @@ function viewAdmin() {
     ['goals',   'Goals',         '🎯'],
     ['users',   'Users',         '👥'],
     ['sources', 'Sources',       '📣'],
+    ['config',  'Configurations','🧮'],
     ['slack',   'Slack',         '💬'],
     ['pricing', 'Pricing',       '💵'],
     ['import',  'Import Sales',  '📥'],
@@ -27323,6 +27343,7 @@ function viewAdmin() {
     goals:   adminGoals,
     users:   adminReps,
     sources: adminSources,
+    config:  adminConfigurations,
     slack:   adminSlack,
     pricing: adminPricing,
     import:  adminImport,
@@ -27332,6 +27353,21 @@ function viewAdmin() {
   const body = el('div', { class: 'flex-1 min-w-0' }, view());
 
   return el('div', { class: 'flex gap-5 max-w-6xl mx-auto' }, sidebar, body);
+}
+
+// Global Configurations — service lifecycle, lead sources, and cancel-reason
+// rules. Moved here from the Reporting gear so it's one shared place; these
+// rules now drive BOTH Reporting and the Indicators tab.
+function adminConfigurations() {
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', {},
+      el('h2', { class: 'text-lg font-bold' }, 'Configurations'),
+      el('p', { class: 'text-xs text-muted- mt-0.5' },
+        'Service lifecycle, lead sources, and cancel-reason rules. These apply to both the Reporting and Indicators tabs.'),
+    ),
+    el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' },
+      reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()),
+  );
 }
 
 // ── Placeholder settings sections (filled in later as needed) ──
