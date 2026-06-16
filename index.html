@@ -3998,6 +3998,22 @@ const _IND_TECH_SOURCES = new Set(['upsell - service pro', 'upsell - termite pro
 // "Renewal - Inbound / Loyalty / Outbound / Service Pro Upsell".
 const _IND_RENEWAL_RE = /renewal/i;
 function _indicatorIsRenewal(s) { return _IND_RENEWAL_RE.test(s && s.source ? String(s.source) : ''); }
+// Service types RIDD excludes by default from all reporting (mirrors the CRM's
+// Global excluded service types) — fees, chargebacks, follow-ups, inspections,
+// removals, etc. that aren't real new production. Matched on the subscription
+// name (case-insensitive, "(Hidden)" + any leading "Office:" prefix stripped).
+// Edit this list to add/remove an excluded service.
+const _IND_EXCLUDED_SERVICES = new Set([
+  'ach chargeback', 'early cancellation fee', 'german roach initial', 'rodent station removal',
+  'sentricon station removal', 'tech follow up', 'box elder treatment', 'german roach follow up',
+  'initial interior', 'inspection', 'late fee', 'paid in full',
+]);
+function _indicatorServiceExcluded(s) {
+  const n = String(s && s.subscription || '').toLowerCase().replace(/\(hidden\)/g, '').replace(/\s+/g, ' ').trim();
+  if (_IND_EXCLUDED_SERVICES.has(n)) return true;
+  const ci = n.indexOf(':'); // strip a leading office prefix, e.g. "salt lake: box elder treatment"
+  return ci >= 0 && _IND_EXCLUDED_SERVICES.has(n.slice(ci + 1).trim());
+}
 // Rep type (Sales Rep / Office Staff / Technician) from the Customer Report
 // cross-reference is the most accurate delineation, so it drives the dept
 // buckets: Sales Rep → d2d, Office Staff → office, Technician → techs. Reps not
@@ -4052,7 +4068,7 @@ function indicatorSales() {
   // only. Serviced-then-cancelled accounts still count (they got service).
   // Cancel Analysis reads state._indicatorRawSales directly when it needs the
   // raw mix back.
-  let all = src.filter(s => !_isSoldNotStarted(s));
+  let all = src.filter(s => !_isSoldNotStarted(s) && !_indicatorServiceExcluded(s));
   if (state.indicatorsComps) all = all.filter(s => !isRepExcluded(s.rep));
   const out = dept === 'all' ? all : all.filter(s => _indicatorDeptOf(s) === dept);
   _indSalesCache.byKey.set(dept, out);
@@ -11321,6 +11337,7 @@ function indicatorMetricHelp(key) {
     ? 'Window: sales whose Date Sold falls inside the selected range — start and end days both included.'
     : 'Window: sales in the selected week (Sun–Sat).');
   scope.push('Sold-Not-Started accounts (sold but cancelled before any service) are EXCLUDED from every metric — pending + serviced production only.');
+  scope.push('Excluded service types are removed by default (ACH Chargeback, Early Cancellation Fee, Late Fee, Paid In Full, German Roach Initial / Follow Up, Rodent / Sentricon Station Removal, Tech Follow Up, Initial Interior, Inspection, Box Elder Treatment).');
   if (dept === 'd2d')    scope.push('Rep Type = Sales Rep (from the Customer Report\'s "Sold By Type"). Reps not found in the report fall back to Source = "Door to Door".');
   if (dept === 'office') scope.push('Rep Type = Office Staff (from the Customer Report). Fallback for unmatched reps: Source is anything EXCEPT "Door to Door" / "Upsell - Service Pro" / "Upsell - Termite Pro".');
   if (dept === 'techs')  scope.push('Rep Type = Technician (from the Customer Report). Fallback: Source "Upsell - Service Pro" or "Upsell - Termite Pro".');
