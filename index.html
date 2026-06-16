@@ -3998,20 +3998,32 @@ const _IND_TECH_SOURCES = new Set(['upsell - service pro', 'upsell - termite pro
 // "Renewal - Inbound / Loyalty / Outbound / Service Pro Upsell".
 const _IND_RENEWAL_RE = /renewal/i;
 function _indicatorIsRenewal(s) { return _IND_RENEWAL_RE.test(s && s.source ? String(s.source) : ''); }
+// Rep type (Sales Rep / Office Staff / Technician) from the Customer Report
+// cross-reference is the most accurate delineation, so it drives the dept
+// buckets: Sales Rep → d2d, Office Staff → office, Technician → techs. Reps not
+// found in the report fall back to classifying each sale by its Source. Cached
+// per rep, reset whenever the config/upload changes (_indCfgRev).
+const _repDeptCache = new Map(); let _repDeptCacheRev = -1;
 function _indicatorDeptOf(s) {
   if (!s) return 'office';
-  if (s._dept) return s._dept; // memoized — classification never changes for a row
+  const rep = s.rep || '';
+  if (_repDeptCacheRev !== _indCfgRev) { _repDeptCache.clear(); _repDeptCacheRev = _indCfgRev; }
+  let dept = _repDeptCache.get(rep);
+  if (dept === undefined) {
+    const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(rep))];
+    dept = t === 'Sales Rep' ? 'd2d' : t === 'Office Staff' ? 'office' : t === 'Technician' ? 'techs' : null;
+    _repDeptCache.set(rep, dept); // null = rep not in the Customer Report
+  }
+  if (dept) return dept;
+  // Fallback — rep has no type in the report; classify this sale by its Source.
   const src = (s.source ? String(s.source) : '').trim().toLowerCase();
-  const dept = src === 'door to door' ? 'd2d' : (_IND_TECH_SOURCES.has(src) ? 'techs' : 'office');
-  // Non-enumerable so it stays out of JSON/IndexedDB/cloud payloads.
-  try { Object.defineProperty(s, '_dept', { value: dept, configurable: true }); } catch { return dept; }
-  return dept;
+  return src === 'door to door' ? 'd2d' : (_IND_TECH_SOURCES.has(src) ? 'techs' : 'office');
 }
 const INDICATOR_DEPTS = [
   ['all',    'All'],
-  ['d2d',    'Door to Door'],
+  ['d2d',    'Sales Rep'],
   ['office', 'Office Staff'],
-  ['techs',  'Techs'],
+  ['techs',  'Technician'],
 ];
 // The department-scoped raw sales — every on-screen indicators metric reads
 // through this so the toggle re-runs the whole dashboard. Roster, PDF
@@ -11308,10 +11320,11 @@ function indicatorMetricHelp(key) {
   scope.push(isRange
     ? 'Window: sales whose Date Sold falls inside the selected range — start and end days both included.'
     : 'Window: sales in the selected week (Sun–Sat).');
-  if (dept === 'd2d')    scope.push('Department = Door to Door: ONLY sales with Source exactly "Door to Door".');
-  if (dept === 'office') scope.push('Department = Office Staff: ONLY sales whose Source is anything EXCEPT "Door to Door", "Upsell - Service Pro", "Upsell - Termite Pro".');
-  if (dept === 'techs')  scope.push('Department = Techs: ONLY sales with Source "Upsell - Service Pro" or "Upsell - Termite Pro".');
-  if (dept === 'all')    scope.push('Department = All: every Source counts.');
+  scope.push('Sold-Not-Started accounts (sold but cancelled before any service) are EXCLUDED from every metric — pending + serviced production only.');
+  if (dept === 'd2d')    scope.push('Rep Type = Sales Rep (from the Customer Report\'s "Sold By Type"). Reps not found in the report fall back to Source = "Door to Door".');
+  if (dept === 'office') scope.push('Rep Type = Office Staff (from the Customer Report). Fallback for unmatched reps: Source is anything EXCEPT "Door to Door" / "Upsell - Service Pro" / "Upsell - Termite Pro".');
+  if (dept === 'techs')  scope.push('Rep Type = Technician (from the Customer Report). Fallback: Source "Upsell - Service Pro" or "Upsell - Termite Pro".');
+  if (dept === 'all')    scope.push('Rep Type = All: every rep type counts.');
   scope.push(comps
     ? 'COMPS ON: reps on excluded teams are removed (' + exList + ').'
     : 'Comps OFF: no comp exclusions.');
@@ -11321,11 +11334,13 @@ function indicatorMetricHelp(key) {
   scope.push('Sales with a blank rep name are never counted.');
 
   const F = {
-    sold_accounts:  'COUNT of in-scope sales — every row of the sales report is one sold account. No other filters.',
-    revenue:        'SUM of Contract Value across in-scope sales. Every subscription type counts — nothing excluded.',
-    avg_initial:    teamsMode
-      ? 'MEAN of Initial Service Price across in-scope sales, EXCLUDING any subscription whose name contains "Sentricon", "German Roach", or "Interior Flea" (teams view only).'
-      : 'MEAN of Initial Service Price across ALL in-scope sales — branch view applies NO subscription-type exclusions.',
+    sold_accounts:  'COUNT of in-scope sales — every row of the sales report is one sold account (Sold-Not-Started accounts excluded).',
+    revenue:        'SUM of Contract Value across in-scope sales (Sold-Not-Started excluded). Every subscription type counts.',
+    new_revenue:    'SUM of Contract Value from NEW sales — renewal sources ("Renewal - Inbound / Loyalty / Outbound / Service Pro Upsell") are excluded.',
+    renewal_revenue:'SUM of Contract Value from RENEWAL sources only ("Renewal - …").',
+    avg_initial:    (teamsMode || dept === 'office')
+      ? 'MEAN of Initial Service Price across in-scope sales, EXCLUDING any subscription whose name contains "Sentricon", "German Roach", or "Interior Flea" (Avg Pest Initial).'
+      : 'MEAN of Initial Service Price across ALL in-scope sales — no subscription-type exclusions.',
     acv:            'Revenue ÷ Sold Accounts (each exactly as defined on its own row, same scope).',
     pra:            'Revenue ÷ Reps W/ A Sale (each exactly as defined on its own row, same scope).',
     multi_year_pct: 'COUNT(contract LONGER than 12 months) ÷ [COUNT(contract = 12 months) + COUNT(contract longer than 12)]. Sales with any other term (0, blank, month-to-month) are excluded from BOTH numerator and denominator.',
