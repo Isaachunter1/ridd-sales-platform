@@ -2006,14 +2006,7 @@ function loadDemoData() {
   ];
 
   // Real RIDD contract types (Commercial + Paid in Full are checkbox modifiers, not contract types)
-  state.contractTypes = [
-    { id: 1, name: '12 Months',        implied_months: 12 },
-    { id: 2, name: '18 Months',        implied_months: 18 },
-    { id: 3, name: '24 Months',        implied_months: 24 },
-    { id: 4, name: 'Upsell - D2D',     implied_months: null },
-    { id: 5, name: 'Upsell - Office',  implied_months: null },
-    { id: 6, name: 'One Time Service', implied_months: 0 },
-  ];
+  state.contractTypes = DEFAULT_CONTRACT_TYPES.map(c => ({ ...c }));
   // Avatars default to null — initials show until an admin uploads a photo.
   state.profile = {
     id: 'demo-1', full_name: 'Isaac Hunter', email: 'isaac@ridd.com', role: 'admin', office_id: 3, initials: 'IH',
@@ -2223,6 +2216,19 @@ async function loadProfile() {
   state.profile = data;
 }
 
+// Canonical RIDD contract types. Commercial + Paid in Full are checkbox
+// modifiers on a sale, NOT contract types, so they're intentionally excluded.
+// Used both to seed demo mode and as a fallback when the backend table is
+// empty (otherwise the Contract Type dropdown renders with no options).
+const DEFAULT_CONTRACT_TYPES = [
+  { id: 1, name: '12 Months',        implied_months: 12 },
+  { id: 2, name: '18 Months',        implied_months: 18 },
+  { id: 3, name: '24 Months',        implied_months: 24 },
+  { id: 4, name: 'Upsell - D2D',     implied_months: null },
+  { id: 5, name: 'Upsell - Office',  implied_months: null },
+  { id: 6, name: 'One Time Service', implied_months: 0 },
+];
+
 async function loadLookups() {
   const [offices, serviceTypes, sources, contractTypes] = await Promise.all([
     supabase.from('offices').select('*').order('name'),
@@ -2233,7 +2239,11 @@ async function loadLookups() {
   state.offices       = offices.data || [];
   state.serviceTypes  = serviceTypes.data || [];
   state.sources       = sources.data || [];
-  state.contractTypes = contractTypes.data || [];
+  // Fall back to the canonical list when the table returns nothing, so the
+  // Contract Type dropdown is never empty.
+  state.contractTypes = (contractTypes.data && contractTypes.data.length)
+    ? contractTypes.data
+    : DEFAULT_CONTRACT_TYPES.map(c => ({ ...c }));
 }
 
 async function loadData() {
@@ -6884,6 +6894,19 @@ function viewSales() {
   // rep can see the whole pipeline in one place.
   if (!state._salesQueueFilter) state._salesQueueFilter = 'upfront';
   const queueFilter = state._salesQueueFilter;
+  // The backend queue cross-references the active Reporting snapshot (by
+  // customer #). Those rows lazy-load on the Reporting tab — pull them here too
+  // so a reviewer landing straight on the backend queue still sees live status.
+  if (queueFilter === 'backend' && state.reportingActiveUploadId
+      && state.reportingSubscriptionsLoadedFor !== state.reportingActiveUploadId
+      && typeof loadReportingSubscriptions === 'function') {
+    loadReportingSubscriptions(state.reportingActiveUploadId).then(rows => {
+      if (rows == null || state.reportingActiveUploadId == null) return;
+      state.reportingSubscriptions = rows;
+      state.reportingSubscriptionsLoadedFor = state.reportingActiveUploadId;
+      mountApp();
+    });
+  }
   const HIST_TERMINAL = new Set(['not_payable', 'reschedule']);
   const isUpfrontPending = (s) =>
     s.audit_status === 'pending' && lockOf(s) === 'pending' && !s.payroll_processed_at;
@@ -7157,6 +7180,9 @@ function salesCardsMobile(rows, { isAdmin = false, queueFilter = 'upfront' } = {
       const repFirst = (rep?.full_name || '').split(' ')[0];
       const ctName = contractTypeLabelForSale(s);
       const noteTxt = s.notes || '';
+      const rptM = (queueFilter === 'backend' && (state.reportingSubscriptions || []).length)
+        ? reportingBackendMatch(s.customer_number)
+        : null;
       return el('div', {
         class: 'card p-4 transition active:brightness-95',
         onclick: (e) => {
@@ -7186,6 +7212,20 @@ function salesCardsMobile(rows, { isAdmin = false, queueFilter = 'upfront' } = {
           ),
           el('span', { class: 'tabular-nums font-bold whitespace-nowrap' }, fmt.usd(s.revenue_amount)),
         ),
+        // Backend queue: live account state cross-referenced from the snapshot.
+        (queueFilter === 'backend' && (state.reportingSubscriptions || []).length) && el('div', {
+          class: 'flex items-center gap-2 mt-2 text-[11px] flex-wrap',
+        },
+          rptM
+            ? el('span', {
+                class: 'inline-block px-2 py-0.5 rounded-full text-[10px] font-bold',
+                style: rptM.isActive ? { background: 'rgba(141,198,63,.15)', color: '#5F8A1F' } : { background: 'rgba(220,38,38,.12)', color: '#B91C1C' },
+              }, rptM.status)
+            : el('span', { style: { color: 'var(--text-subtle)' } }, 'No CSV match'),
+          rptM && el('span', { class: 'text-muted-', style: (rptM.daysPastDue > 0) ? { color: '#DC2626', fontWeight: '600' } : {} },
+            (rptM.daysPastDue != null ? rptM.daysPastDue.toLocaleString() : '—') + ' days past due'),
+          rptM && rptM.completedServices != null && el('span', { class: 'text-muted-' }, rptM.completedServices.toLocaleString() + ' svcs done'),
+        ),
         // Optional note preview
         noteTxt && el('div', {
           class: 'mt-2 text-[11px] italic text-muted- line-clamp-2',
@@ -7203,7 +7243,62 @@ function salesCardsMobile(rows, { isAdmin = false, queueFilter = 'upfront' } = {
   );
 }
 
+// ── Backend cross-reference: rep-logged sales ↔ active Reporting snapshot ──
+// A sale's customer_number is the FieldRoutes customer ID, which matches a
+// reporting row's customer_id. We index the snapshot by that ID (cached per
+// loaded snapshot) so the backend queue can show each account's CURRENT state.
+let _reportingCustIndex = null, _reportingCustIndexFor = null;
+function reportingCustomerIndex() {
+  const sig = (state.reportingSubscriptionsLoadedFor || '') + ':' + (state.reportingSubscriptions || []).length;
+  if (_reportingCustIndexFor === sig && _reportingCustIndex) return _reportingCustIndex;
+  const map = new Map();
+  for (const r of (state.reportingSubscriptions || [])) {
+    const id = r.customer_id != null ? String(r.customer_id).trim() : '';
+    if (!id) continue;
+    if (!map.has(id)) map.set(id, []);
+    map.get(id).push(r);
+  }
+  _reportingCustIndex = map;
+  _reportingCustIndexFor = sig;
+  return map;
+}
+
+// Current account state for one customer, for the backend cross-reference.
+// Per the workflow: an upsell can change the subscription over time, so we
+// report whatever is LIVE on the account now rather than the originally-sold
+// sub. Returns null when the customer isn't in the active snapshot at all.
+function reportingBackendMatch(custNumber, index) {
+  const id = custNumber != null ? String(custNumber).trim() : '';
+  if (!id) return null;
+  const matched = (index || reportingCustomerIndex()).get(id);
+  if (!matched || !matched.length) return null;
+  const isActive = (r) => (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
+  const active = matched.filter(isActive);
+  const pickBy = (arr, score) => arr.slice().sort((a, b) => score(b) - score(a))[0];
+  let pick;
+  if (active.length) {
+    // The established live sub: most completed services, tie-broken by ARV.
+    pick = pickBy(active, r => (Number(r.subscription_completed_services) || 0) * 1e6 + (Number(r.annual_recurring_value) || 0));
+  } else {
+    // Inactive — surface the most recently canceled sub for context.
+    pick = pickBy(matched, r => Date.parse(r.subscription_date_canceled || '') || 0) || matched[0];
+  }
+  return {
+    isActive: active.length > 0,
+    status: active.length > 0 ? 'Active' : 'Inactive',
+    subscription: pick.subscription || null,
+    daysPastDue: pick.days_past_due != null ? Number(pick.days_past_due) : null,
+    completedServices: pick.subscription_completed_services != null ? Number(pick.subscription_completed_services) : null,
+    cancelDate: pick.subscription_date_canceled || null,
+    cancelReason: pick.subscription_cancellation_reason || null,
+    matchedCount: matched.length,
+  };
+}
+
 function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBackend = false, showReportCols = false, rowStyle } = {}) {
+  // Backend queue cross-references the active Reporting snapshot by customer #.
+  const rptIndex = showBackend ? reportingCustomerIndex() : null;
+  const showRptStatus = !!(rptIndex && rptIndex.size);
   const cell = (content, extraClass = '') => el('td', {
     class: 'px-2 py-2 ' + extraClass,
   }, content);
@@ -7253,6 +7348,12 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             // Pending Backend Lock pill: surface the second-pass review pair.
             showBackend && headerCell('Audit 2'),
             showBackend && headerCell('Lock'),
+            // Live account state cross-referenced from the active Reporting
+            // snapshot (matched by customer #). Drives backend decisions:
+            // is the account still active, behind on payment, and serviced?
+            showRptStatus && headerCell('Acct Status'),
+            showRptStatus && headerCell('Days Past Due', { align: 'right' }),
+            showRptStatus && headerCell('Svcs Done',     { align: 'right' }),
             // Enriched columns from an uploaded backend report (xlookup'd by
             // customer #). Only show once a report exists so the table stays
             // narrow on the typical day-to-day pass.
@@ -7269,6 +7370,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             const first = (rep?.full_name || '').split(' ')[0];
             const ctName = contractTypeLabelForSale(s);
             const noteTxt = s.notes || '';
+            const rpt = showRptStatus ? reportingBackendMatch(s.customer_number, rptIndex) : null;
             // Per-row style override (e.g. "decided rows fade out" on Backend
             // Lock so the eye lands on rows still needing a decision).
             const extraRowStyle = rowStyle ? rowStyle(s) : null;
@@ -7305,6 +7407,26 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
               // the reviewer can decide right here without leaving the row.
               showBackend && el('td', { class: 'px-2 py-2 whitespace-nowrap' }, auditor2Select(s.id)),
               showBackend && el('td', { class: 'px-2 py-2 whitespace-nowrap' }, lockStatusSelect(s.id)),
+              // Live account state from the active Reporting snapshot (matched
+              // by customer #). "No match" = this customer isn't in the snapshot.
+              showRptStatus && el('td', { class: 'px-2 py-2 whitespace-nowrap' },
+                rpt
+                  ? el('span', {
+                      class: 'inline-block px-2 py-0.5 rounded-full text-[10px] font-bold',
+                      style: rpt.isActive
+                        ? { background: 'rgba(141,198,63,.15)', color: '#5F8A1F' }
+                        : { background: 'rgba(220,38,38,.12)', color: '#B91C1C' },
+                      title: (rpt.subscription ? 'Live sub: ' + rpt.subscription : '')
+                        + (rpt.cancelDate ? ' \u00b7 canceled ' + fmt.dateShortYear(rpt.cancelDate) + (rpt.cancelReason ? ' (' + rpt.cancelReason + ')' : '') : '')
+                        + (rpt.matchedCount > 1 ? ' \u00b7 ' + rpt.matchedCount + ' subs on file' : ''),
+                    }, rpt.status)
+                  : el('span', { style: { color: 'var(--text-subtle)' }, title: 'No matching customer in the active reporting snapshot' }, 'No match')),
+              showRptStatus && el('td', {
+                class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap',
+                style: (rpt && rpt.daysPastDue > 0) ? { color: '#DC2626', fontWeight: '600' } : { color: 'var(--text-muted)' },
+              }, rpt && rpt.daysPastDue != null ? rpt.daysPastDue.toLocaleString() : '\u2014'),
+              showRptStatus && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap text-muted-' },
+                rpt && rpt.completedServices != null ? rpt.completedServices.toLocaleString() : '\u2014'),
               // Enriched columns from an uploaded backend report. Show '\u2014'
               // when this row didn't match any report row (so the gap is
               // visible and the reviewer knows it's missing data).
@@ -27543,13 +27665,13 @@ function viewAdmin() {
       ['users',   'Users',          '👥'],
       ['config',  'Configurations', '🧮'],
       ['uploads', 'Admin',          '🗂'],
-      ['slack',   'Slack',          '💬'],
     ] },
     { label: 'Inside Sales Settings', items: [
       ['goals',   'Goals',          '🎯'],
       ['sources', 'Sources',        '📣'],
       ['pricing', 'Pricing',        '💵'],
       ['import',  'Import Sales',    '📥'],
+      ['slack',   'Slack',          '💬'],
     ] },
   ];
 
