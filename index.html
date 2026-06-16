@@ -23831,8 +23831,15 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
 
   let sortKey = 'contract';   // default: largest contract value first
   let sortDir = 'desc';
+  // Render is WINDOWED: a big slice (e.g. the whole snapshot behind the
+  // Subscriptions card) is tens of thousands of rows × 11 cells — building
+  // that many DOM nodes at once freezes then crashes the tab. We render a page
+  // at a time and cache the sort so "Show more" doesn't re-sort every click.
+  const RENDER_PAGE = 200;
+  let renderLimit = RENDER_PAGE;
+  let sortedCache = null;
 
-  const sortedRows = () => {
+  const computeSorted = () => {
     const col = cols.find(c => c.key === sortKey) || cols[0];
     const dir = sortDir === 'asc' ? 1 : -1;
     return [...rows].sort((a, b) => {
@@ -23876,9 +23883,37 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
   );
 
   const tbody = el('tbody', {});
+  const moreBar = el('div', { class: 'flex items-center justify-center gap-3 p-3 text-xs', style: { borderTop: '1px solid var(--border)', display: 'none' } });
+
   const renderRows = () => {
-    tbody.replaceChildren(...sortedRows().map(rowFor));
+    if (!sortedCache) sortedCache = computeSorted();
+    const shown = Math.min(renderLimit, sortedCache.length);
+    tbody.replaceChildren(...sortedCache.slice(0, shown).map(rowFor));
+    moreBar.replaceChildren();
+    moreBar.style.display = (sortedCache.length > RENDER_PAGE) ? 'flex' : 'none';
+    if (sortedCache.length > shown) {
+      const remaining = sortedCache.length - shown;
+      moreBar.append(
+        el('span', { style: { color: 'var(--text-muted)' } }, 'Showing ' + shown.toLocaleString() + ' of ' + sortedCache.length.toLocaleString() + ' rows'),
+        el('button', {
+          class: 'rounded-full px-4 py-1.5 font-semibold border cursor-pointer transition hover:brightness-110',
+          style: { background: 'var(--accent)', color: '#16321a', borderColor: 'var(--accent)' },
+          onclick: () => { renderLimit += RENDER_PAGE * 2; renderRows(); },
+        }, 'Show ' + Math.min(RENDER_PAGE * 2, remaining).toLocaleString() + ' more'),
+        el('button', {
+          class: 'rounded-full px-4 py-1.5 font-semibold border cursor-pointer transition hover:brightness-110',
+          style: { background: 'transparent', color: 'var(--text)', borderColor: 'var(--border-2)' },
+          title: 'May be slow for very large lists',
+          onclick: () => { renderLimit = sortedCache.length; renderRows(); },
+        }, 'Show all ' + sortedCache.length.toLocaleString()),
+      );
+    } else if (sortedCache.length > RENDER_PAGE) {
+      moreBar.append(el('span', { style: { color: 'var(--text-muted)' } }, 'Showing all ' + sortedCache.length.toLocaleString() + ' rows'));
+    }
   };
+  // A new sort invalidates the cache and snaps back to the first page so we
+  // never sort-then-build the whole list in one frame.
+  const resort = () => { sortedCache = null; renderLimit = RENDER_PAGE; renderRows(); };
 
   const headRow = el('tr', {});
   const paintHeaders = () => {
@@ -23893,11 +23928,43 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
           if (sortKey === c.key) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
           else { sortKey = c.key; sortDir = c.type === 'num' ? 'desc' : 'asc'; }
           paintHeaders();
-          renderRows();
+          resort();
         },
       }, c.label + arrow);
     }));
   };
+
+  // Export the FULL slice (all rows, current sort) so nothing is lost to the
+  // render window — the workflow for hunting CRM errors needs every row.
+  const exportCsv = () => {
+    const data = sortedCache || computeSorted();
+    const head = ['Customer', 'Customer ID', 'Office', 'Subscription', 'Status', 'Completed Services', 'Flag', 'ARV', 'Contract', 'Initial Service', 'Days Past Due', 'Canceled Date', 'Cancel Reason'];
+    const lines = [head.map(csvEsc).join(',')];
+    for (const r of data) {
+      lines.push([
+        csvEsc(customerName(r)),
+        csvEsc(r.customer_id || ''),
+        csvEsc(r.office_name || ''),
+        csvEsc(r.subscription || ''),
+        csvEsc(r.subscription_status || ''),
+        Number(r.subscription_completed_services) || 0,
+        csvEsc(r._flagReason || ''),
+        Number(r.annual_recurring_value) || 0,
+        Number(r.subscription_contract_value) || 0,
+        csvEsc(r.initial_service || ''),
+        Number(r.days_past_due) || 0,
+        csvEsc(r.subscription_date_canceled || ''),
+        csvEsc(r.subscription_cancellation_reason || ''),
+      ].join(','));
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const fname = ('ridd-' + (chartTitle || 'drill') + '-' + (sliceLabel || '')).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 80) + '.csv';
+    const a = el('a', { href: url, download: fname });
+    document.body.append(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   paintHeaders();
   renderRows();
 
@@ -23915,11 +23982,19 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
           (totalArv > 0 ? ' · ' + formatter(totalArv) + ' ARV' : '') +
           ' · click a column to sort'),
       ),
-      el('button', {
-        class: 'text-2xl leading-none',
-        style: { color: 'var(--text-muted)' },
-        onclick: () => { overlay.remove(); document.removeEventListener('keydown', closeKey); },
-      }, '×'),
+      el('div', { class: 'flex items-center gap-2 shrink-0' },
+        rows.length > 0 && el('button', {
+          class: 'rounded-lg px-3 py-1.5 text-xs font-semibold border cursor-pointer transition hover:brightness-110',
+          style: { background: 'var(--card-2)', color: 'var(--text)', borderColor: 'var(--border)' },
+          title: 'Download all ' + rows.length.toLocaleString() + ' rows as CSV',
+          onclick: exportCsv,
+        }, '↓ Export CSV'),
+        el('button', {
+          class: 'text-2xl leading-none',
+          style: { color: 'var(--text-muted)' },
+          onclick: () => { overlay.remove(); document.removeEventListener('keydown', closeKey); },
+        }, '×'),
+      ),
     ),
     rows.length === 0
       ? el('div', { class: 'p-12 text-center text-sm text-muted-' }, 'No rows in this slice.')
@@ -23931,6 +24006,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
             tbody,
           ),
         ),
+    moreBar,
   );
 
   overlay.append(card);
