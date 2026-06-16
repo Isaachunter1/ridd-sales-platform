@@ -643,6 +643,8 @@ const INDICATOR_SETTINGS_FIELDS = [
   // team grouping app-wide. It's still remembered within a session.
   '_indicatorRepTier',
   '_indicatorRepTypeBySig',   // rep name-signature → "Sold By Type" from the Customer Report
+  '_reportingCancelReasonsSeen', // distinct cancel reasons seen in the reporting CSV (persisted universe)
+  '_reportingSourcesSeen',       // distinct lead sources seen in the reporting CSV (persisted universe)
   '_indicatorTeams',
   '_indicatorExcludedTeams',
   '_indicatorCompetitions',
@@ -23434,16 +23436,27 @@ function _refreshRepTypeMap() {
   const rows = state.reportingSubscriptions || [];
   if (!rows.length) return;
   const m = {};
+  // Also accumulate the distinct cancel reasons + lead sources seen in the
+  // reporting customer report. The report's rows don't persist (too big), but
+  // these small lists do — so the Configurations panels can reference the
+  // reporting CSV's reasons/sources even when no snapshot is loaded.
+  const reasons = new Set(state._reportingCancelReasonsSeen || []);
+  const sources = new Set(state._reportingSourcesSeen || []);
   for (const r of rows) {
     const t = (r.sold_by_type || '').trim();
-    if (!r.sold_by || !t) continue;
-    const k = _repTypeNameSig(typeof getCanonicalRepName === 'function' ? getCanonicalRepName(r.sold_by) : r.sold_by);
-    if (k && !m[k]) m[k] = t;
+    if (r.sold_by && t) {
+      const k = _repTypeNameSig(typeof getCanonicalRepName === 'function' ? getCanonicalRepName(r.sold_by) : r.sold_by);
+      if (k && !m[k]) m[k] = t;
+    }
+    const reason = (r.subscription_cancellation_reason || '').trim();
+    if (reason) reasons.add(reason);
+    const src = (r.subscription_source || '').trim();
+    if (src) sources.add(src);
   }
-  if (Object.keys(m).length) {
-    state._indicatorRepTypeBySig = m;
-    if (typeof saveIndicatorState === 'function') saveIndicatorState();
-  }
+  if (Object.keys(m).length) state._indicatorRepTypeBySig = m;
+  state._reportingCancelReasonsSeen = [...reasons];
+  state._reportingSourcesSeen = [...sources];
+  if (typeof saveIndicatorState === 'function') saveIndicatorState();
 }
 
 function reportingServiceLifecycleMap() {
@@ -25109,11 +25122,11 @@ function reportingCancelConfigPanel() {
     const reason = reportingCancelReasonOf(r);
     counts.set(reason, (counts.get(reason) || 0) + 1);
   }
-  // Also surface every cancel reason seen in the Indicators sales upload, so the
-  // full reason universe shows up even when no reporting snapshot is loaded.
-  for (const s of (state._indicatorRawSales || [])) {
-    const reason = String(s.cancelReason || '').trim();
-    if (reason) counts.set(reason, (counts.get(reason) || 0) + 1);
+  // Reference the reporting customer report's reason universe (persisted), so
+  // the full list shows even when the report's rows aren't loaded in memory.
+  for (const reason of (state._reportingCancelReasonsSeen || [])) {
+    const r = String(reason || '').trim();
+    if (r && !counts.has(r)) counts.set(r, 0);
   }
   // Consolidate variant spellings of the same reason (case/whitespace, and
   // CRM system duplicates like two "Expired Subscription" entries) into ONE
@@ -25228,11 +25241,12 @@ function reportingSourceConfigPanel() {
     const src = reportingSourceOf(r);
     counts.set(src, (counts.get(src) || 0) + 1);
   }
-  // Every source ever sold: also pull from the Indicators sales upload and the
-  // company Sources registry, so the full list shows without a snapshot loaded.
-  for (const s of (state._indicatorRawSales || [])) {
-    const src = String(s.source || '').trim();
-    if (src) counts.set(src, (counts.get(src) || 0) + 1);
+  // Every source ever sold: reference the reporting customer report's source
+  // universe (persisted) + the company Sources registry, so the full list
+  // shows without a snapshot loaded.
+  for (const src of (state._reportingSourcesSeen || [])) {
+    const s2 = String(src || '').trim();
+    if (s2 && !counts.has(s2)) counts.set(s2, 0);
   }
   const registrySources = (state.sources || []).map(x => String(x.name || '').trim()).filter(Boolean);
   const allSources = new Set([...cfgBySource.keys(), ...counts.keys(), ...registrySources]);
