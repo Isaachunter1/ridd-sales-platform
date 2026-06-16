@@ -24598,30 +24598,15 @@ function reportingTopBar() {
         ' · uploaded ' + timeAgo(active.uploaded_at))
     : el('div', { class: 'text-xs text-muted-' }, 'No snapshots yet — upload a CSV to begin.');
 
-  // Uploads + Configurations live behind a gear menu now (the snapshot dropdown
-  // was redundant with the Uploads tab's clickable snapshot list).
-  const settingsBtn = el('button', {
-    class: 'rounded-lg px-2.5 py-2 text-base leading-none transition hover:brightness-95 border',
+  // Upload history (reporting + indicators) and Configurations now both live
+  // in the global Settings. This is just a shortcut over to Settings → Uploads,
+  // where snapshots are switched/deleted and the two CSV histories live.
+  const historyBtn = el('button', {
+    class: 'rounded-lg px-3 py-2 text-xs font-semibold leading-none transition hover:brightness-95 border',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text-muted)' },
-    title: 'Uploads & Configurations',
-    onclick: () => { state.reportingSettingsOpen = !state.reportingSettingsOpen; mountApp(); },
-  }, '⚙');
-  const settingsMenu = state.reportingSettingsOpen ? el('div', {
-    class: 'card',
-    style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '50', minWidth: '190px', padding: '6px', boxShadow: 'var(--shadow-lg)' },
-  },
-    ...[['uploads', '📁 Uploads']].map(([k, label]) => el('button', {
-      class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition hover:brightness-95',
-      style: { background: state.reportingSubTab === k ? 'var(--card-2)' : 'transparent', color: 'var(--text)' },
-      onclick: () => { state.reportingSubTab = k; state.reportingSettingsOpen = false; mountApp(); },
-    }, label)),
-    // Configurations moved to the global Settings (top-right gear → Configurations).
-    el('button', {
-      class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition hover:brightness-95',
-      style: { color: 'var(--text)' },
-      onclick: () => { state.reportingSettingsOpen = false; state.adminSection = 'config'; state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); },
-    }, '⚙ Configurations (in Settings)'),
-  ) : null;
+    title: 'Upload history & snapshots (Settings)',
+    onclick: () => { state.adminSection = 'uploads'; state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); },
+  }, '🕘 Upload history');
 
   return el('div', { class: 'card p-4 flex items-center justify-between gap-4 flex-wrap' },
     el('div', { class: 'flex flex-col gap-1' },
@@ -24630,7 +24615,7 @@ function reportingTopBar() {
     ),
     el('div', { class: 'flex items-center gap-2' },
       uploadBtn,
-      el('div', { style: { position: 'relative' } }, settingsBtn, settingsMenu),
+      historyBtn,
     ),
   );
 }
@@ -27563,6 +27548,7 @@ function viewAdmin() {
     ['users',   'Users',         '👥'],
     ['sources', 'Sources',       '📣'],
     ['config',  'Configurations','🧮'],
+    ['uploads', 'Uploads',       '📁'],
     ['slack',   'Slack',         '💬'],
     ['pricing', 'Pricing',       '💵'],
     ['import',  'Import Sales',  '📥'],
@@ -27587,6 +27573,7 @@ function viewAdmin() {
     users:   adminReps,
     sources: adminSources,
     config:  adminConfigurations,
+    uploads: adminUploads,
     slack:   adminSlack,
     pricing: adminPricing,
     import:  adminImport,
@@ -27628,6 +27615,67 @@ function adminConfigurations() {
     ),
     el('div', { class: 'flex flex-col gap-4' },
       reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()),
+  );
+}
+
+// Global Uploads — the two CSVs that drive the dashboards live side by side
+// here: the Reporting (Customer Report) snapshot and the Indicators export.
+// They're separate files and should generally be uploaded together so every
+// tab reflects the same week. Reporting snapshots are switchable/deletable;
+// indicators history is read-only (kept for record-break comparisons).
+function adminUploads() {
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', {},
+      el('h2', { class: 'text-lg font-bold' }, 'Uploads'),
+      el('p', { class: 'text-xs text-muted- mt-0.5' },
+        'The Reporting (Customer Report) CSV and the Indicators CSV are separate files. Upload them together each week so every tab reflects the same data.'),
+    ),
+    reportingUploadsPanel(),
+    indicatorsUploadsPanel(),
+  );
+}
+
+// Indicators upload history — each row is one Indicators CSV import. The most
+// recent is the live data behind the Indicators tab; older entries are kept
+// for "records broken since last upload" comparisons. Read-only (no per-row
+// activate/delete — there's a single live indicators dataset, not switchable
+// snapshots like the reporting side).
+function indicatorsUploadsPanel() {
+  const snaps = [...(state._indicatorSnapshots || [])].reverse(); // newest first
+  const liveAt = state.indicatorsUploadedAt || null;
+  return el('div', { class: 'card p-4' },
+    el('h2', { class: 'text-lg font-bold mb-1' }, 'Indicators Uploads'),
+    el('p', { class: 'text-xs text-muted- mb-4' },
+      'Each row is an Indicators CSV import. The newest is the live data behind the Indicators tab; older imports are retained for record-break comparisons.'),
+    snaps.length === 0
+      ? el('div', { class: 'p-8 text-center text-sm text-muted-' },
+          'No indicators uploads yet. Upload the Indicators CSV from the Indicators tab.')
+      : el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--border)', maxHeight: '440px', overflowY: 'auto' } },
+          el('table', { class: 'w-full text-sm' },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
+              el('tr', {},
+                el('th', { class: 'text-left pl-4 pr-2 py-2.5 font-semibold' }, 'Filename'),
+                el('th', { class: 'text-left px-2 py-2.5 font-semibold' }, 'Uploaded'),
+                el('th', { class: 'text-right pr-4 pl-2 py-2.5 font-semibold', style: { width: '90px' } }, ''),
+              ),
+            ),
+            el('tbody', {},
+              ...snaps.map((s, i) => {
+                const isLive = i === 0 && (!liveAt || s.uploadedAt === liveAt);
+                return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: isLive ? 'rgba(141,198,63,.08)' : 'transparent' } },
+                  el('td', { class: 'pl-4 pr-2 py-2.5' },
+                    el('div', { class: 'font-medium' }, s.fileName || '(no filename)'),
+                    isLive && el('div', { class: 'text-[10px] uppercase tracking-wider font-semibold mt-0.5', style: { color: 'var(--accent)' } }, 'Live'),
+                  ),
+                  el('td', { class: 'px-2 py-2.5 text-xs text-muted-' },
+                    s.uploadedAt ? new Date(s.uploadedAt).toLocaleString() : ''),
+                  el('td', { class: 'pr-4 pl-2 py-2.5 text-right text-xs text-muted-' },
+                    isLive ? 'current' : timeAgo(s.uploadedAt)),
+                );
+              }),
+            ),
+          ),
+        ),
   );
 }
 
