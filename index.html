@@ -4034,7 +4034,13 @@ function indicatorSales() {
   // Comps mode — competition exclusions. OFF (default): branch level shows
   // everything, no exclusions at any level. ON: comp rules apply — currently
   // reps on excluded teams (Manage Teams); extend here as comp rules grow.
-  let all = src;
+  // Sold-Not-Started accounts (sold but cancelled before ever receiving a
+  // service) are not real customers — their revenue/counts are stripped from
+  // EVERY indicator metric so the page reflects pending + serviced production
+  // only. Serviced-then-cancelled accounts still count (they got service).
+  // Cancel Analysis reads state._indicatorRawSales directly when it needs the
+  // raw mix back.
+  let all = src.filter(s => !_isSoldNotStarted(s));
   if (state.indicatorsComps) all = all.filter(s => !isRepExcluded(s.rep));
   const out = dept === 'all' ? all : all.filter(s => _indicatorDeptOf(s) === dept);
   _indSalesCache.byKey.set(dept, out);
@@ -21402,8 +21408,8 @@ function indicatorYoYTrendChart() {
   // date ≤ prior-year week start + days elapsed since this year's week
   // start). `cancels` = all-time cancels (current-year line), `cancelsM` =
   // horizon-matched cancels (prior-year line).
-  const mk = () => ({ rev: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, pestSum: 0, pestN: 0, cancels: 0, cancelsM: 0, cancelElig: 0 });
-  const acc = { [curY]: {}, [prevY]: {} };
+  const mk = () => ({ rev: 0, revNew: 0, revRenewal: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, pestSum: 0, pestN: 0, cancels: 0, cancelsM: 0, cancelElig: 0 });
+  const acc = {}; // keyed by year → { week → bucket } — every year present
   const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
   const weekStartOf = (y, wk) => {
     const jan1 = new Date(y, 0, 1);
@@ -21416,15 +21422,17 @@ function indicatorYoYTrendChart() {
     const iso = dateSoldToIso(s.dateSold);
     if (!iso) continue;
     const y = Number(iso.slice(0, 4));
-    if (y !== curY && y !== prevY) continue;
     const d = new Date(iso + 'T00:00');
     if (isNaN(d)) continue;
     const jan1 = new Date(y, 0, 1);
     const anchor = new Date(jan1); anchor.setDate(anchor.getDate() - anchor.getDay());
     const wk = Math.floor((d - anchor) / 604800000) + 1;
     if (wk < 1) continue;
-    const a = acc[y][wk] || (acc[y][wk] = mk());
-    a.rev += Number(s.contractValue) || 0;
+    const ay = acc[y] || (acc[y] = {});
+    const a = ay[wk] || (ay[wk] = mk());
+    const cv = Number(s.contractValue) || 0;
+    a.rev += cv;
+    if (_indicatorIsRenewal(s)) a.revRenewal += cv; else a.revNew += cv;
     a.n++;
     if (Number(s.contract) >= 18) a.multi++;
     if (Number(s.contract) === 12) a.twelve++;
@@ -21447,10 +21455,13 @@ function indicatorYoYTrendChart() {
   }
   maxWeek = Math.min(Math.max(maxWeek, 1), 54);
 
+  // Office staff can split the revenue metric into Total / New / Renewal.
+  const isOffice = (state.indicatorDept === 'office');
+  const revType = (isOffice && metric === 'revenue') ? (state._indicatorYoYRevType || 'total') : 'total';
   const valOf = (a, matchedHorizon) => {
     if (!a) return null;
     switch (metric) {
-      case 'revenue':     return a.rev;
+      case 'revenue':     return revType === 'new' ? a.revNew : revType === 'renewal' ? a.revRenewal : a.rev;
       case 'count':       return a.n;
       case 'acv':         return a.n > 0 ? a.rev / a.n : null;
       case 'avg_initial': return a.n > 0 ? a.initSum / a.n : null;
@@ -21462,10 +21473,11 @@ function indicatorYoYTrendChart() {
     }
   };
   const weeksAxis = Array.from({ length: maxWeek }, (_, i) => i + 1);
-  const curVals  = weeksAxis.map(w => (w <= lastDataWeek ? valOf(acc[curY][w], false) : null));
+  const yearsPresent = Object.keys(acc).map(Number).sort((a, b) => a - b);
+  const curVals  = weeksAxis.map(w => (w <= lastDataWeek ? valOf(acc[curY] && acc[curY][w], false) : null));
   // Cancel % prior-year line stops where the current year stops — beyond
   // that there's no equal-horizon counterpart to compare against.
-  const prevVals = weeksAxis.map(w => (metric === 'cancel_pct' && w > lastDataWeek) ? null : valOf(acc[prevY][w], true));
+  const prevVals = weeksAxis.map(w => (metric === 'cancel_pct' && w > lastDataWeek) ? null : valOf(acc[prevY] && acc[prevY][w], true));
   const fmtVal = (v) => v == null ? '—'
     : kind === 'usd' ? '$' + (metric === 'revenue' ? Math.round(v).toLocaleString() : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
     : kind === 'pct' ? (v * 100).toFixed(1) + '%'
@@ -21490,10 +21502,26 @@ function indicatorYoYTrendChart() {
       type: 'line',
       data: {
         labels: weeksAxis.map(w => 'Wk ' + w),
-        datasets: [
-          { label: String(curY), data: curVals, borderColor: '#8DC63F', backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct', spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5 },
-          { label: String(prevY), data: prevVals, borderColor: isDark ? 'rgba(255,255,255,.45)' : 'rgba(0,0,0,.35)', borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5 },
-        ],
+        datasets: (() => {
+          // One line per year present. Current year = bold green solid; prior
+          // years = dashed, the immediately-prior muted and older ones colored.
+          const muted = isDark ? 'rgba(255,255,255,.45)' : 'rgba(0,0,0,.35)';
+          const palette = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899'];
+          return yearsPresent.map((y) => {
+            const isCur = y === curY;
+            const vals = weeksAxis.map(w => {
+              if (isCur && w > lastDataWeek) return null;
+              if (metric === 'cancel_pct' && y === prevY && w > lastDataWeek) return null;
+              return valOf(acc[y] && acc[y][w], y === prevY);
+            });
+            if (isCur) {
+              return { label: String(y), data: vals, borderColor: '#8DC63F', backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct', spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 };
+            }
+            const idx = curY - y; // 1 = prior year, 2 = two years ago, …
+            const color = idx === 1 ? muted : palette[(idx - 2) % palette.length];
+            return { label: String(y), data: vals, borderColor: color, borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5, order: idx };
+          });
+        })(),
       },
       options: {
         responsive: true, maintainAspectRatio: false,
@@ -21541,14 +21569,23 @@ function indicatorYoYTrendChart() {
     });
   }, 50);
 
+  // Revenue type selector — Office staff only, when the metric is Revenue.
+  const revSel = (isOffice && metric === 'revenue') ? el('select', {
+    class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+    title: 'Which revenue to trend',
+    onchange: (e) => { state._indicatorYoYRevType = e.target.value; mountApp(); },
+  }, ...[['total', 'Total Revenue'], ['new', 'New Revenue'], ['renewal', 'Renewal Revenue']]
+      .map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === revType) o.selected = true; return o; })) : null;
+  const revTypeLabel = revType === 'new' ? 'New ' : revType === 'renewal' ? 'Renewal ' : '';
+
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
       el('div', {},
-        el('h3', { class: 'text-sm font-bold' }, 'YoY Performance Trends — ' + curY + ' vs ' + prevY),
+        el('h3', { class: 'text-sm font-bold' }, 'Performance Trends by Year'),
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
-          'Weekly ' + mDef[1] + ' by week of year · solid = ' + curY + ' · dashed = ' + prevY + ' · hover for the YoY gap'
+          'Weekly ' + revTypeLabel + mDef[1] + ' by week of year · one line per year (' + curY + ' solid) · hover for the YoY gap'
           + (metric === 'cancel_pct' ? ' · matched horizons: ' + prevY + ' cohorts only count cancels within the same elapsed time their ' + curY + ' counterpart has had' : ''))),
-      metricSel),
+      el('div', { class: 'flex items-center gap-2' }, revSel, metricSel)),
     cvsWrap);
 }
 
