@@ -23422,7 +23422,8 @@ const REPORTING_PALETTE = [
 // Resolution order per service:
 //   1. config.lifecycle  ('recurring' | 'onetime' | 'retired')   — admin's choice
 //   2. config.recurring_override (true → recurring, false → onetime) — legacy
-//   3. data guess: recurring if any row has ARV > 0, else onetime  — 'auto'
+//   3. default ('auto'): RECURRING for everything except services named
+//      "One Time …", which default to one-time.
 // Build + persist a small map of rep name-signature → "Sold By Type" from the
 // Customer Report's rows. The full report doesn't survive a refresh (too big
 // for localStorage), but this tiny map does, so Manage Teams can show each
@@ -23463,7 +23464,9 @@ function reportingServiceLifecycleMap() {
     if (VALID.has(c.lifecycle)) lc = c.lifecycle;
     else if (c.recurring_override === true)  lc = 'recurring';
     else if (c.recurring_override === false) lc = 'onetime';
-    else lc = arvAny.get(n) ? 'recurring' : 'onetime';  // auto from data
+    // Default: everything is recurring EXCEPT services named "One Time …",
+    // which default to one-time. (Explicit pins above still win.)
+    else lc = _ONETIME_SUB_RE.test(n) ? 'onetime' : 'recurring';
     map.set(n, lc);
   }
   return map;
