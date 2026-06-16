@@ -19153,17 +19153,10 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   const repNames = Object.keys(repMap).sort();
   const pickerRow = el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
     el('h3', { class: 'text-base font-bold mr-1' }, '📈 Performance Trends'),
-    el('button', {
-      class: 'rounded-xl px-3 py-2 text-xs font-semibold cursor-pointer transition hover:brightness-95',
-      style: curScope.type === 'company'
-        ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-        : { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border-2)' },
-      onclick: () => setScope({ type: 'company' }, null),
-    }, 'Company'),
-    pickerSel('Branch…', branchesAll.map(b => [b, titleCase2(b)]),
+    pickerSel('Company', branchesAll.map(b => [b, titleCase2(b)]),
       curScope.type === 'branch' ? curScope.value : '',
       (v) => setScope(v ? { type: 'branch', value: v } : { type: 'company' }, null),
-      'Scope the mini-charts to one branch'),
+      'Company-wide, or scope the mini-charts to one branch'),
     pickerSel('Team…', teamsAll.map(t => [t, t]),
       curScope.type === 'team' ? curScope.value : '',
       (v) => setScope(v ? { type: 'team', value: v } : { type: 'company' }, null),
