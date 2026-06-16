@@ -27535,28 +27535,39 @@ function reportingWaterfall() {
 function viewAdmin() {
   if (!state.adminSection) state.adminSection = 'users';
 
-  const sections = [
-    ['goals',   'Goals',         '🎯'],
-    ['users',   'Users',         '👥'],
-    ['sources', 'Sources',       '📣'],
-    ['config',  'Configurations','🧮'],
-    ['uploads', 'Admin',         '🗂'],
-    ['slack',   'Slack',         '💬'],
-    ['pricing', 'Pricing',       '💵'],
-    ['import',  'Import Sales',  '📥'],
+  // Two groups: general Settings vs. the Inside Sales pieces that will overlap
+  // with reps logging accounts in-app (Goals/Sources/Pricing/Import), kept
+  // separate so the CSV-driven config doesn't get confused with them.
+  const groups = [
+    { label: 'Settings', items: [
+      ['users',   'Users',          '👥'],
+      ['config',  'Configurations', '🧮'],
+      ['uploads', 'Admin',          '🗂'],
+      ['slack',   'Slack',          '💬'],
+    ] },
+    { label: 'Inside Sales Settings', items: [
+      ['goals',   'Goals',          '🎯'],
+      ['sources', 'Sources',        '📣'],
+      ['pricing', 'Pricing',        '💵'],
+      ['import',  'Import Sales',    '📥'],
+    ] },
   ];
 
+  const navBtn = ([k, label, icon]) => el('button', {
+    class: 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-left',
+    style: state.adminSection === k
+      ? { background: 'var(--bg-subtle)', color: 'var(--text)', fontWeight: '600' }
+      : { color: 'var(--text-muted)' },
+    onmouseenter: (e) => { if (state.adminSection !== k) e.currentTarget.style.background = 'var(--bg-subtle)'; },
+    onmouseleave: (e) => { if (state.adminSection !== k) e.currentTarget.style.background = 'transparent'; },
+    onclick: () => { state.adminSection = k; mountApp(); },
+  }, el('span', { class: 'text-base' }, icon), el('span', {}, label));
+
   const sidebar = el('aside', { class: 'rounded-2xl p-2 flex flex-col gap-1 shrink-0', style: { background: 'var(--card)', border: '1px solid var(--border)', width: '220px' } },
-    el('div', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Settings'),
-    ...sections.map(([k, label, icon]) => el('button', {
-      class: 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-left',
-      style: state.adminSection === k
-        ? { background: 'var(--bg-subtle)', color: 'var(--text)', fontWeight: '600' }
-        : { color: 'var(--text-muted)' },
-      onmouseenter: (e) => { if (state.adminSection !== k) e.currentTarget.style.background = 'var(--bg-subtle)'; },
-      onmouseleave: (e) => { if (state.adminSection !== k) e.currentTarget.style.background = 'transparent'; },
-      onclick: () => { state.adminSection = k; mountApp(); },
-    }, el('span', { class: 'text-base' }, icon), el('span', {}, label))),
+    ...groups.flatMap((g, gi) => [
+      el('div', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest font-semibold' + (gi > 0 ? ' mt-2' : ''), style: { color: 'var(--text-subtle)' } }, g.label),
+      ...g.items.map(navBtn),
+    ]),
   );
 
   const sectionRenderers = {
