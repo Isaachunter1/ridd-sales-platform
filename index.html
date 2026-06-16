@@ -24598,16 +24598,9 @@ function reportingTopBar() {
         ' · uploaded ' + timeAgo(active.uploaded_at))
     : el('div', { class: 'text-xs text-muted-' }, 'No snapshots yet — upload a CSV to begin.');
 
-  // Upload history (reporting + indicators) and Configurations now both live
-  // in the global Settings. This is just a shortcut over to Settings → Uploads,
-  // where snapshots are switched/deleted and the two CSV histories live.
-  const historyBtn = el('button', {
-    class: 'rounded-lg px-3 py-2 text-xs font-semibold leading-none transition hover:brightness-95 border',
-    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text-muted)' },
-    title: 'Upload history & snapshots (Settings)',
-    onclick: () => { state.adminSection = 'uploads'; state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); },
-  }, '🕘 Upload history');
-
+  // Upload history (reporting + indicators) and Configurations both live in the
+  // global Settings now (Settings → Uploads), so the top bar just keeps the
+  // upload action itself.
   return el('div', { class: 'card p-4 flex items-center justify-between gap-4 flex-wrap' },
     el('div', { class: 'flex flex-col gap-1' },
       el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Active Snapshot'),
@@ -24615,7 +24608,6 @@ function reportingTopBar() {
     ),
     el('div', { class: 'flex items-center gap-2' },
       uploadBtn,
-      historyBtn,
     ),
   );
 }
@@ -25999,7 +25991,7 @@ function reportingInsideSales() {
 function reportingUploadsPanel() {
   const uploads = state.reportingUploads || [];
   return el('div', { class: 'card p-4' },
-    el('h2', { class: 'text-lg font-bold mb-1' }, 'Uploads'),
+    el('h2', { class: 'text-lg font-bold mb-1' }, 'Reporting Uploads'),
     el('p', { class: 'text-xs text-muted- mb-4' },
       'Each row is an all-time data snapshot, shared across everyone on the account. Click any row to load that snapshot ' +
       '(or pick it from the dropdown at the top). Delete removes the snapshot and all its rows.'),
@@ -27548,11 +27540,10 @@ function viewAdmin() {
     ['users',   'Users',         '👥'],
     ['sources', 'Sources',       '📣'],
     ['config',  'Configurations','🧮'],
-    ['uploads', 'Uploads',       '📁'],
+    ['uploads', 'Admin',         '🗂'],
     ['slack',   'Slack',         '💬'],
     ['pricing', 'Pricing',       '💵'],
     ['import',  'Import Sales',  '📥'],
-    ['backup',  'Activity Log',  '📜'],
   ];
 
   const sidebar = el('aside', { class: 'rounded-2xl p-2 flex flex-col gap-1 shrink-0', style: { background: 'var(--card)', border: '1px solid var(--border)', width: '220px' } },
@@ -27618,20 +27609,37 @@ function adminConfigurations() {
   );
 }
 
-// Global Uploads — the two CSVs that drive the dashboards live side by side
-// here: the Reporting (Customer Report) snapshot and the Indicators export.
-// They're separate files and should generally be uploaded together so every
-// tab reflects the same week. Reporting snapshots are switchable/deletable;
-// indicators history is read-only (kept for record-break comparisons).
+// Global Admin — toggles between two views:
+//   • Upload History — the two CSVs that drive the dashboards (Reporting
+//     snapshot + Indicators export), side by side. They're separate files and
+//     should generally be uploaded together so every tab reflects the same
+//     week. Reporting snapshots are switchable/deletable; indicators history
+//     is read-only (kept for record-break comparisons).
+//   • App Activity — the full activity log (every logged action).
 function adminUploads() {
+  if (!state._adminSubTab) state._adminSubTab = 'history';
+  const tab = state._adminSubTab;
+
+  const toggle = el('div', { class: 'flex items-center gap-1 p-1 rounded-lg', style: { background: 'var(--card-2)', width: 'fit-content' } },
+    ...[['history', 'Upload History'], ['activity', 'App Activity']].map(([k, label]) => el('button', {
+      class: 'px-3.5 py-1.5 rounded-md text-sm font-semibold transition',
+      style: tab === k
+        ? { background: 'var(--card)', color: 'var(--text)', boxShadow: 'var(--shadow-sm)' }
+        : { background: 'transparent', color: 'var(--text-muted)' },
+      onclick: () => { state._adminSubTab = k; mountApp(); },
+    }, label)),
+  );
+
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', {},
-      el('h2', { class: 'text-lg font-bold' }, 'Uploads'),
+      el('h2', { class: 'text-lg font-bold' }, 'Admin'),
       el('p', { class: 'text-xs text-muted- mt-0.5' },
-        'The Reporting (Customer Report) CSV and the Indicators CSV are separate files. Upload them together each week so every tab reflects the same data.'),
+        'Upload history for the Reporting and Indicators CSVs, plus the app activity log.'),
     ),
-    reportingUploadsPanel(),
-    indicatorsUploadsPanel(),
+    toggle,
+    tab === 'activity'
+      ? adminBackup()
+      : el('div', { class: 'flex flex-col gap-4' }, reportingUploadsPanel(), indicatorsUploadsPanel()),
   );
 }
 
@@ -27665,7 +27673,7 @@ function indicatorsUploadsPanel() {
                 return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: isLive ? 'rgba(141,198,63,.08)' : 'transparent' } },
                   el('td', { class: 'pl-4 pr-2 py-2.5' },
                     el('div', { class: 'font-medium' }, s.fileName || '(no filename)'),
-                    isLive && el('div', { class: 'text-[10px] uppercase tracking-wider font-semibold mt-0.5', style: { color: 'var(--accent)' } }, 'Live'),
+                    isLive && el('div', { class: 'text-[10px] uppercase tracking-wider font-semibold mt-0.5', style: { color: 'var(--accent)' } }, 'Active'),
                   ),
                   el('td', { class: 'px-2 py-2.5 text-xs text-muted-' },
                     s.uploadedAt ? new Date(s.uploadedAt).toLocaleString() : ''),
