@@ -4068,7 +4068,10 @@ function indicatorSales() {
   // only. Serviced-then-cancelled accounts still count (they got service).
   // Cancel Analysis reads state._indicatorRawSales directly when it needs the
   // raw mix back.
-  let all = src.filter(s => !_isSoldNotStarted(s) && !_indicatorServiceExcluded(s));
+  // Excluded lead sources (Settings → Configurations) now drop from the
+  // Indicators tab too, matching Reporting.
+  const _exclSrc = (typeof reportingExcludedSources === 'function') ? reportingExcludedSources() : new Set();
+  let all = src.filter(s => !_isSoldNotStarted(s) && !_indicatorServiceExcluded(s) && !_exclSrc.has(String(s.source || '').trim()));
   if (state.indicatorsComps) all = all.filter(s => !isRepExcluded(s.rep));
   const out = dept === 'all' ? all : all.filter(s => _indicatorDeptOf(s) === dept);
   _indSalesCache.byKey.set(dept, out);
@@ -25100,6 +25103,12 @@ function reportingCancelConfigPanel() {
     const reason = reportingCancelReasonOf(r);
     counts.set(reason, (counts.get(reason) || 0) + 1);
   }
+  // Also surface every cancel reason seen in the Indicators sales upload, so the
+  // full reason universe shows up even when no reporting snapshot is loaded.
+  for (const s of (state._indicatorRawSales || [])) {
+    const reason = String(s.cancelReason || '').trim();
+    if (reason) counts.set(reason, (counts.get(reason) || 0) + 1);
+  }
   const allReasons = new Set([...cfgByReason.keys(), ...counts.keys()]);
   const list = [...allReasons].sort((a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b));
 
@@ -25192,7 +25201,14 @@ function reportingSourceConfigPanel() {
     const src = reportingSourceOf(r);
     counts.set(src, (counts.get(src) || 0) + 1);
   }
-  const allSources = new Set([...cfgBySource.keys(), ...counts.keys()]);
+  // Every source ever sold: also pull from the Indicators sales upload and the
+  // company Sources registry, so the full list shows without a snapshot loaded.
+  for (const s of (state._indicatorRawSales || [])) {
+    const src = String(s.source || '').trim();
+    if (src) counts.set(src, (counts.get(src) || 0) + 1);
+  }
+  const registrySources = (state.sources || []).map(x => String(x.name || '').trim()).filter(Boolean);
+  const allSources = new Set([...cfgBySource.keys(), ...counts.keys(), ...registrySources]);
   const list = [...allSources].sort((a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b));
 
   const updateSourceConfig = async (source, patch) => {
