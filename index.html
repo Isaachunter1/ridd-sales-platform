@@ -14279,6 +14279,9 @@ function viewIndicators() {
       const multi = ss.filter(s => Number(s.contract) > 12).length;
       const twelve = ss.filter(s => Number(s.contract) === 12).length;
       const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
+      // Audit % = accounts NOT flagged "Failed Audit" ÷ all accounts. Without
+      // this the range view left audit_pct undefined → the column rendered NaN%.
+      const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
       const reps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
       branchData[b] = {
         sold_accounts: count,
@@ -14291,6 +14294,7 @@ function viewIndicators() {
         pra: reps > 0 ? rev / reps : 0,
         multi_year_pct: (twelve + multi) > 0 ? multi / (twelve + multi) : 0,
         auto_pay_pct: count > 0 ? autoPayCount / count : 0,
+        audit_pct: count > 0 ? (count - auditFail) / count : 0,
         reps,
       };
       return;
@@ -14404,7 +14408,10 @@ function viewIndicators() {
   // points here.
   // Best-possible score = POWER_RANKING_METRICS.length (rank 1 on every metric).
   // Worst-possible = N × POWER_RANKING_METRICS.length.
-  const POWER_RANKING_METRICS = INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue');
+  // Audit % is shown in the table for context but intentionally NOT scored —
+  // it's a quality flag, not a selling-effectiveness signal, so it shouldn't
+  // move a branch/team up or down the Power Ranking.
+  const POWER_RANKING_METRICS = INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue' && m.key !== 'audit_pct');
   const worstRank = rankableBranches.length;
   const totalPoints = {};
   rankableBranches.forEach(b => {
@@ -21891,7 +21898,9 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
         // trend chart disagree with the table on the leader.
         const pts = {};
         branches.forEach(b => pts[b] = 0);
-        INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue').forEach(m => {
+        // Audit % excluded from scoring (shown in the table only) — keep this in
+        // lockstep with POWER_RANKING_METRICS so the trend matches the table.
+        INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue' && m.key !== 'audit_pct').forEach(m => {
           const sorted = branches.slice().sort((a, b) => (weekData[b]?.[m.key] || 0) - (weekData[a]?.[m.key] || 0));
           sorted.forEach((b, i) => { pts[b] += i + 1; });
         });
