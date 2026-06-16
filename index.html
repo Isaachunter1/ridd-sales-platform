@@ -21532,37 +21532,42 @@ function indicatorYoYTrendChart() {
         datasets: (() => {
           // One line per year present. Current year = bold green solid; prior
           // years = dashed, the immediately-prior muted and older ones colored.
+          // The YTD value rides a SEPARATE right-hand axis (and its own point-
+          // only dataset) so its cumulative size never skews the weekly scale.
           const muted = isDark ? 'rgba(255,255,255,.45)' : 'rgba(0,0,0,.35)';
           const palette = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899'];
-          return yearsPresent.map((y) => {
+          const lines = [], ytdPts = [];
+          yearsPresent.forEach((y) => {
             const isCur = y === curY;
+            const idx = curY - y; // 0 = current, 1 = prior year, …
+            const color = isCur ? '#8DC63F' : (idx === 1 ? muted : palette[(idx - 2 + palette.length) % palette.length]);
             const vals = weeksAxis.map(w => {
               if (isCur && w > lastDataWeek) return null;
               if (metric === 'cancel_pct' && y === prevY && w > lastDataWeek) return null;
               return valOf(acc[y] && acc[y][w], y === prevY);
             });
-            vals.push(ytdValOf(y)); // final "YTD" dot
-            if (isCur) {
-              return { label: String(y), data: vals, borderColor: '#8DC63F', backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct', spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 };
-            }
-            const idx = curY - y; // 1 = prior year, 2 = two years ago, …
-            const color = idx === 1 ? muted : palette[(idx - 2) % palette.length];
-            return { label: String(y), data: vals, borderColor: color, borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5, order: idx };
+            lines.push(isCur
+              ? { label: String(y), data: vals, borderColor: '#8DC63F', backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct', spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 }
+              : { label: String(y), data: vals, borderColor: color, borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5, order: idx });
+            // YTD dot — point only, on the secondary 'yYTD' axis.
+            const ytdData = weeksAxis.map(() => null); ytdData.push(ytdValOf(y));
+            ytdPts.push({ label: 'YTD ' + y, data: ytdData, yAxisID: 'yYTD', showLine: false, borderColor: color, backgroundColor: color, pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', order: 0 });
           });
+          return lines.concat(ytdPts);
         })(),
       },
       options: {
         responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 11 }, usePointStyle: true } },
+          legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 11 }, usePointStyle: true, filter: (item) => !/^YTD /.test(item.text) } },
           tooltip: {
             backgroundColor: '#1D1D1D', padding: 10, cornerRadius: 8,
             callbacks: {
               // Each line carries the actual Sun–Sat date range being
               // compared, e.g. "2026 (6/7–6/13): $812,440".
               label: (ctx) => {
-                if (ctx.dataIndex >= weeksAxis.length) return ctx.dataset.label + ' YTD: ' + fmtVal(ctx.parsed.y);
+                if (ctx.dataIndex >= weeksAxis.length) return ctx.dataset.label + ': ' + fmtVal(ctx.parsed.y);
                 const w = ctx.dataIndex + 1;
                 const y = Number(ctx.dataset.label);
                 const jan1 = new Date(y, 0, 1);
@@ -21589,6 +21594,12 @@ function indicatorYoYTrendChart() {
         },
         scales: {
           y: { beginAtZero: kind !== 'pct', grid: { color: grid }, ticks: { color: txt, font: { size: 10 },
+            callback: kind === 'usd'
+              ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : v))
+              : kind === 'pct' ? (v => (v * 100).toFixed(0) + '%') : undefined } },
+          // Independent right-hand axis for the YTD dots so their cumulative
+          // magnitude never rescales the weekly lines.
+          yYTD: { position: 'right', beginAtZero: kind !== 'pct', grid: { drawOnChartArea: false }, ticks: { color: txt, font: { size: 10 },
             callback: kind === 'usd'
               ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : v))
               : kind === 'pct' ? (v => (v * 100).toFixed(0) + '%') : undefined } },
