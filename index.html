@@ -23647,7 +23647,7 @@ const REPORTING_TENURE_ORDER = ['<1 year', '1–2 years', '2–3 years', '3–4 
 // Chart.js instance can be cleanly destroyed before re-creation. When
 // `colorMap` is provided (compare mode), labels look up colors there so
 // the same service is the same color across both offices' pies.
-function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline, top = 6, officeLabel, colorMap, overrideTotal, hidePercent, preserveOrder, onSliceClick, footerAction }) {
+function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline, top = 6, officeLabel, colorMap, overrideTotal, hidePercent, preserveOrder, onSliceClick, onOtherClick, footerAction }) {
   const id = 'rpt-pie-' + key;
   const formatter = formatValue || ((n) => Number(n).toLocaleString());
   // `preserveOrder` keeps the caller's order (used for aging buckets so
@@ -23741,16 +23741,39 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
             el('div', { class: 'text-lg font-bold tabular-nums pt-2' }, formatter(overall)),
           ),
           el('div', { class: 'flex flex-col gap-1.5 text-xs' },
-            ...topSlices.map((s, i) => el('div', { class: 'flex items-center gap-2' },
-              el('div', { style: { width: '8px', height: '8px', borderRadius: '2px', background: colorFor(s.label, i), flexShrink: '0' } }),
-              el('div', { class: 'flex-1 truncate', style: { color: 'var(--text)' } }, s.label),
-              el('div', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, formatter(s.value)),
-            )),
-            otherCount > 0 && el('div', { class: 'flex items-center gap-2' },
-              el('div', { style: { width: '8px', height: '8px', borderRadius: '2px', background: 'var(--text-subtle)', flexShrink: '0' } }),
-              el('div', { class: 'flex-1', style: { color: 'var(--text-muted)' } }, 'Other (' + otherCount + ')'),
-              el('div', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, formatter(otherTotal)),
-            ),
+            ...topSlices.map((s, i) => {
+              // Legend rows mirror the donut wedges: clicking either opens the
+              // same drill table. Rows are the bigger, easier-to-hit target —
+              // especially for tiny wedges (e.g. a 1-mo agreement slice).
+              const clickable = !!onSliceClick;
+              const rowEl = el('div', {
+                class: 'flex items-center gap-2 rounded px-1 -mx-1 py-0.5' + (clickable ? ' cursor-pointer transition' : ''),
+                title: clickable ? 'Click to see the ' + formatter(s.value) + ' under "' + s.label + '"' : undefined,
+                onclick: clickable ? () => onSliceClick(s.label, s.value) : undefined,
+                onmouseenter: clickable ? (e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; } : undefined,
+                onmouseleave: clickable ? (e) => { e.currentTarget.style.background = 'transparent'; } : undefined,
+              },
+                el('div', { style: { width: '8px', height: '8px', borderRadius: '2px', background: colorFor(s.label, i), flexShrink: '0' } }),
+                el('div', { class: 'flex-1 truncate', style: { color: 'var(--text)' } }, s.label),
+                el('div', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, formatter(s.value)),
+              );
+              return rowEl;
+            }),
+            otherCount > 0 && (() => {
+              const otherLabels = sorted.slice(top).map(s => s.label);
+              const clickable = !!onOtherClick;
+              return el('div', {
+                class: 'flex items-center gap-2 rounded px-1 -mx-1 py-0.5' + (clickable ? ' cursor-pointer transition' : ''),
+                title: clickable ? 'Click to see the ' + otherCount + ' smaller categories combined' : undefined,
+                onclick: clickable ? () => onOtherClick(otherLabels, otherTotal) : undefined,
+                onmouseenter: clickable ? (e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; } : undefined,
+                onmouseleave: clickable ? (e) => { e.currentTarget.style.background = 'transparent'; } : undefined,
+              },
+                el('div', { style: { width: '8px', height: '8px', borderRadius: '2px', background: 'var(--text-subtle)', flexShrink: '0' } }),
+                el('div', { class: 'flex-1', style: { color: 'var(--text-muted)' } }, 'Other (' + otherCount + ')'),
+                el('div', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, formatter(otherTotal)),
+              );
+            })(),
           ),
           footerAction && el('div', {
             class: 'text-[11px] font-semibold cursor-pointer pt-1 mt-1 border-t hover:brightness-110 transition',
@@ -23775,11 +23798,9 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
     if (e.target === overlay) { overlay.remove(); document.removeEventListener('keydown', closeKey); }
   });
 
-  const sorted = [...rows].sort((a, b) =>
-    (Number(b.subscription_contract_value) || 0) - (Number(a.subscription_contract_value) || 0));
-  const hasFlags = sorted.some(r => r._flagReason);
-  const totalContract = sorted.reduce((s, r) => s + (Number(r.subscription_contract_value) || 0), 0);
-  const totalArv      = sorted.reduce((s, r) => s + (Number(r.annual_recurring_value) || 0), 0);
+  const hasFlags = rows.some(r => r._flagReason);
+  const totalContract = rows.reduce((s, r) => s + (Number(r.subscription_contract_value) || 0), 0);
+  const totalArv      = rows.reduce((s, r) => s + (Number(r.annual_recurring_value) || 0), 0);
   const formatter = formatValue || fmt.usd0;
 
   // Customer "Last, First" with a graceful fall-back to ID if names are missing.
@@ -23791,6 +23812,95 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
   };
   const fmtDate = (d) => d ? new Date(d + 'T00:00').toLocaleDateString() : '—';
 
+  // Column model — drives both the (sortable) header and the body cells, so
+  // they can never drift out of order. `get` returns a comparable value used
+  // for sorting; `type` decides the default sort direction on first click.
+  const cols = [
+    { key: 'customer',     label: 'Customer',        align: 'left',  type: 'str', get: r => customerName(r).toLowerCase() },
+    { key: 'office',       label: 'Office',          align: 'left',  type: 'str', get: r => (r.office_name || '').toLowerCase() },
+    { key: 'subscription', label: 'Subscription',    align: 'left',  type: 'str', get: r => (r.subscription || '').toLowerCase() },
+    { key: 'status',       label: 'Status',          align: 'left',  type: 'str', get: r => (r.subscription_status || '').toLowerCase() },
+    ...(hasFlags ? [{ key: 'svcs', label: 'Svcs', align: 'right', type: 'num', get: r => Number(r.subscription_completed_services) || 0 }] : []),
+    ...(hasFlags ? [{ key: 'flag', label: 'Flag', align: 'left',  type: 'str', get: r => (r._flagReason || '').toLowerCase() }] : []),
+    { key: 'arv',          label: 'ARV',             align: 'right', type: 'num', get: r => Number(r.annual_recurring_value) || 0 },
+    { key: 'contract',     label: 'Contract $',      align: 'right', type: 'num', get: r => Number(r.subscription_contract_value) || 0 },
+    { key: 'initial',      label: 'Initial Service', align: 'left',  type: 'str', get: r => r.initial_service || '' },
+    { key: 'pastdue',      label: 'Past Due',        align: 'right', type: 'num', get: r => Number(r.days_past_due) || 0 },
+    { key: 'canceled',     label: 'Canceled',        align: 'left',  type: 'str', get: r => r.subscription_date_canceled || '' },
+  ];
+
+  let sortKey = 'contract';   // default: largest contract value first
+  let sortDir = 'desc';
+
+  const sortedRows = () => {
+    const col = cols.find(c => c.key === sortKey) || cols[0];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const av = col.get(a), bv = col.get(b);
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+  };
+
+  const rowFor = (r) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    el('td', { class: 'px-3 py-2' },
+      el('div', { class: 'font-medium' }, customerName(r)),
+      r.customer_id && el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + r.customer_id),
+    ),
+    el('td', { class: 'px-3 py-2' }, r.office_name || '—'),
+    el('td', { class: 'px-3 py-2' }, r.subscription || '—'),
+    el('td', { class: 'px-3 py-2' }, r.subscription_status || '—'),
+    hasFlags && el('td', { class: 'px-3 py-2 text-right tabular-nums' }, String(Number(r.subscription_completed_services) || 0)),
+    hasFlags && el('td', { class: 'px-3 py-2' },
+      r._flagReason
+        ? el('span', { class: 'text-[11px] font-semibold', style: { color: '#DC2626' } }, r._flagReason)
+        : '—'),
+    el('td', { class: 'px-3 py-2 text-right tabular-nums' },
+      r.annual_recurring_value != null ? '$' + Math.round(r.annual_recurring_value).toLocaleString() : '—'),
+    el('td', { class: 'px-3 py-2 text-right tabular-nums' },
+      r.subscription_contract_value != null ? '$' + Math.round(r.subscription_contract_value).toLocaleString() : '—'),
+    el('td', { class: 'px-3 py-2' }, fmtDate(r.initial_service)),
+    el('td', {
+      class: 'px-3 py-2 text-right tabular-nums',
+      style: { color: (Number(r.days_past_due) || 0) > 0 ? '#DC2626' : 'var(--text-muted)' },
+    }, r.days_past_due ? r.days_past_due + 'd' : '—'),
+    el('td', { class: 'px-3 py-2' },
+      r.subscription_date_canceled
+        ? el('div', {},
+            el('div', {}, fmtDate(r.subscription_date_canceled)),
+            r.subscription_cancellation_reason && el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, r.subscription_cancellation_reason),
+          )
+        : '—',
+    ),
+  );
+
+  const tbody = el('tbody', {});
+  const renderRows = () => {
+    tbody.replaceChildren(...sortedRows().map(rowFor));
+  };
+
+  const headRow = el('tr', {});
+  const paintHeaders = () => {
+    headRow.replaceChildren(...cols.map(c => {
+      const active = c.key === sortKey;
+      const arrow = active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+      return el('th', {
+        class: (c.align === 'right' ? 'text-right' : 'text-left') + ' px-3 py-2 font-semibold cursor-pointer select-none whitespace-nowrap hover:text-default transition',
+        style: active ? { color: 'var(--text)' } : undefined,
+        title: 'Sort by ' + c.label,
+        onclick: () => {
+          if (sortKey === c.key) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
+          else { sortKey = c.key; sortDir = c.type === 'num' ? 'desc' : 'asc'; }
+          paintHeaders();
+          renderRows();
+        },
+      }, c.label + arrow);
+    }));
+  };
+  paintHeaders();
+  renderRows();
+
   const card = el('div', {
     class: 'card w-full max-w-6xl my-8 overflow-hidden flex flex-col',
     style: { maxHeight: 'calc(100vh - 64px)' },
@@ -23800,9 +23910,10 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, chartTitle),
         el('h2', { class: 'text-xl font-bold mt-0.5' }, sliceLabel),
         el('div', { class: 'text-xs text-muted- mt-1' },
-          sorted.length.toLocaleString() + ' row' + (sorted.length === 1 ? '' : 's') +
+          rows.length.toLocaleString() + ' row' + (rows.length === 1 ? '' : 's') +
           ' · ' + formatter(totalContract) + ' contract' +
-          (totalArv > 0 ? ' · ' + formatter(totalArv) + ' ARV' : '')),
+          (totalArv > 0 ? ' · ' + formatter(totalArv) + ' ARV' : '') +
+          ' · click a column to sort'),
       ),
       el('button', {
         class: 'text-2xl leading-none',
@@ -23810,58 +23921,14 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
         onclick: () => { overlay.remove(); document.removeEventListener('keydown', closeKey); },
       }, '×'),
     ),
-    sorted.length === 0
+    rows.length === 0
       ? el('div', { class: 'p-12 text-center text-sm text-muted-' }, 'No rows in this slice.')
       : el('div', { class: 'overflow-auto flex-1', style: { borderTop: '1px solid var(--border)' } },
           el('table', { class: 'w-full text-xs' },
             el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
-              el('tr', {},
-                el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Customer'),
-                el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Office'),
-                el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Subscription'),
-                el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Status'),
-                hasFlags && el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Svcs'),
-                hasFlags && el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Flag'),
-                el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'ARV'),
-                el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Contract $'),
-                el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Initial Service'),
-                el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Past Due'),
-                el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Canceled'),
-              ),
+              headRow,
             ),
-            el('tbody', {},
-              ...sorted.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-                el('td', { class: 'px-3 py-2' },
-                  el('div', { class: 'font-medium' }, customerName(r)),
-                  r.customer_id && el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + r.customer_id),
-                ),
-                el('td', { class: 'px-3 py-2' }, r.office_name || '—'),
-                el('td', { class: 'px-3 py-2' }, r.subscription || '—'),
-                el('td', { class: 'px-3 py-2' }, r.subscription_status || '—'),
-                hasFlags && el('td', { class: 'px-3 py-2 text-right tabular-nums' }, String(Number(r.subscription_completed_services) || 0)),
-                hasFlags && el('td', { class: 'px-3 py-2' },
-                  r._flagReason
-                    ? el('span', { class: 'text-[11px] font-semibold', style: { color: '#DC2626' } }, r._flagReason)
-                    : '—'),
-                el('td', { class: 'px-3 py-2 text-right tabular-nums' },
-                  r.annual_recurring_value != null ? '$' + Math.round(r.annual_recurring_value).toLocaleString() : '—'),
-                el('td', { class: 'px-3 py-2 text-right tabular-nums' },
-                  r.subscription_contract_value != null ? '$' + Math.round(r.subscription_contract_value).toLocaleString() : '—'),
-                el('td', { class: 'px-3 py-2' }, fmtDate(r.initial_service)),
-                el('td', {
-                  class: 'px-3 py-2 text-right tabular-nums',
-                  style: { color: (Number(r.days_past_due) || 0) > 0 ? '#DC2626' : 'var(--text-muted)' },
-                }, r.days_past_due ? r.days_past_due + 'd' : '—'),
-                el('td', { class: 'px-3 py-2' },
-                  r.subscription_date_canceled
-                    ? el('div', {},
-                        el('div', {}, fmtDate(r.subscription_date_canceled)),
-                        r.subscription_cancellation_reason && el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, r.subscription_cancellation_reason),
-                      )
-                    : '—',
-                ),
-              )),
-            ),
+            tbody,
           ),
         ),
   );
@@ -24840,6 +24907,23 @@ function reportingOverview() {
         formatValue: def.formatValue,
       });
     },
+    // "Other (N)" legend row → every row across the combined smaller slices,
+    // so nothing is unreachable just because it didn't make the top-6 cut.
+    onOtherClick: (otherLabels) => {
+      const drill = data.drill?.[def.sliceKey];
+      if (!drill) return;
+      const labelSet = new Set(otherLabels);
+      const drillRows = drill.source.filter(r => labelSet.has(drill.key(r)));
+      const chartTitle = inCompare
+        ? def.title + ' · ' + officeLabel(side === 'a' ? office : compareOffice)
+        : def.title;
+      openReportingDrillModal({
+        chartTitle,
+        sliceLabel: 'Other — ' + otherLabels.length + ' smaller categories',
+        rows: drillRows,
+        formatValue: def.formatValue,
+      });
+    },
   });
 
   // ── Column-header cards + aligned donuts (single mode) ───────────────
@@ -24914,6 +24998,28 @@ function reportingOverview() {
     });
     cardCust.clickLabel = otherActiveCount.toLocaleString() + ' "Other active" — click to inspect →';
     cardCust.clickTitle = 'See the active customers whose subs are all one-time / non-recurring';
+  }
+  // Make the remaining headline cards drill into their full underlying row
+  // list — the same set the number is counting — so any miscategorized sub is
+  // one click away. Row sources are pulled from the chart drill specs.
+  const cardDrills = {
+    subs:    { rows: (dataA.drill && dataA.drill.sources && dataA.drill.sources.source) || [], label: 'every subscription in scope' },
+    active:  { rows: (dataA.drill && dataA.drill.rarr    && dataA.drill.rarr.source)    || [], label: 'active recurring subscriptions' },
+    arr:     { rows: (dataA.drill && dataA.drill.rarr    && dataA.drill.rarr.source)    || [], label: 'active recurring subscriptions' },
+    cancels: { rows: (dataA.drill && dataA.drill.cancels && dataA.drill.cancels.source) || [], label: 'cancelled recurring subscriptions' },
+  };
+  for (const c of COLUMN_CARDS) {
+    if (c.onClick) continue;                 // 'customers' already wired above
+    const d = cardDrills[c.key];
+    if (!d || !d.rows.length) continue;
+    c.onClick = () => openReportingDrillModal({
+      chartTitle: c.label,
+      sliceLabel: c.value + ' · ' + d.label,
+      rows: d.rows,
+      formatValue: fmt.usd0,
+    });
+    c.clickLabel = 'Click to inspect ' + d.rows.length.toLocaleString() + ' rows →';
+    c.clickTitle = 'See ' + d.label;
   }
   const defById = Object.fromEntries(chartDefs.map(d => [d.id, d]));
   const usedChartIds = new Set(COLUMN_CARDS.flatMap(c => c.chartIds));
