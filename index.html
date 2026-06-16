@@ -15017,7 +15017,7 @@ function viewIndicators() {
     // each cell shows the rank with #1 accented and bottom-third dimmed so
     // weak spots stand out. Power Ranking keeps its own card because it adds
     // total points + best/worst-metric callouts.
-    !_focusedComp && (() => {
+    !_focusedComp && state.indicatorDept !== 'office' && (() => {
       // Mirrors the metrics that feed Power Ranking points so each row's rank
       // sum reconciles with the team's pts on the right-hand card. Reps is
       // intentionally omitted — it's still tracked elsewhere but rendering it
@@ -15363,11 +15363,14 @@ function viewIndicators() {
           grain = buckets[0].kind === 'day' ? 'Daily' : 'Monthly';
         }
       }
+      // Office Staff hides the branch-level charts (Power Ranking / PRA /
+      // Revenue) — only the YoY trend stays.
+      const _hideBranchCharts = state.indicatorDept === 'office';
       return el('div', { class: 'flex flex-col gap-4' },
-        el('div', {},
+        !_hideBranchCharts && el('div', {},
           indicatorChart('Branch Power Ranking', chartData, branches, '_power_ranking', chartWeeks, true, chartLabels),
         ),
-        el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4' },
+        !_hideBranchCharts && el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4' },
           indicatorChart(grain + ' PRA',     chartData, branches, 'pra',     chartWeeks, false, chartLabels),
           indicatorChart(grain + ' Revenue', chartData, branches, 'revenue', chartWeeks, false, chartLabels),
         ),
@@ -17443,7 +17446,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   }
   sections.push(buildAggregateRecordsCard());
   // Rookie vs Vet lives directly under the Records card (built earlier).
-  if (_tierCardSection) sections.push(_tierCardSection);
+  if (_tierCardSection && state.indicatorDept !== 'office') sections.push(_tierCardSection);
 
   // ── 3. CANCEL ANALYSIS ──
   // The ONLY section that can read `rawSalesAll` (with 3-day RORs +
@@ -17452,10 +17455,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // understanding the full cancel mix) and excluding them (matches the
   // rest of the page). Every other indicators section always reads from
   // the trimmed `rawSales`.
-  if (state._indicatorCancelIncludeRorSns == null) state._indicatorCancelIncludeRorSns = true;
+  if (state._indicatorCancelIncludeRorSns == null) state._indicatorCancelIncludeRorSns = false;
   const cancelIncludeRorSns = state._indicatorCancelIncludeRorSns === true;
   const cancelSrc = cancelIncludeRorSns ? rawSalesAll : rawSales;
-  const isCountableCancel = (s) => (s.cancelDate || s.active === 'No');
+  // Default: only REAL cancels count — 3-day RORs, Sold-Not-Started, Combined
+  // subscriptions, One-Time services, and Renewals are all stripped (via
+  // _isReportableCancel). The header toggle lets the analyst opt back into the
+  // raw mix (everything with a cancel date) when they want to see it.
+  const isCountableCancel = (s) => cancelIncludeRorSns ? (s.cancelDate || s.active === 'No') : _isReportableCancel(s);
   const allCancels = cancelSrc.filter(isCountableCancel);
   // Count of RORs + SNS in the page-filtered set (regardless of toggle)
   // so the toggle's badge tells the analyst what's being added or
