@@ -13252,6 +13252,21 @@ function distinctTeams() {
     return a.localeCompare(b);
   });
 }
+// Year-scoped variant for Manage Teams. Shows the registry (so freshly-created /
+// empty teams stay assignable), excluded teams (so they can still be managed),
+// and ONLY the selected year's assignments — teams that exist solely in OTHER
+// years' rosters drop out, so each year shows just its own teams.
+function distinctTeamsForYear(year) {
+  const set = new Set(getExcludedTeams());
+  (state._indicatorTeams || []).forEach(t => { if (t) set.add(t); });
+  const map = (state._indicatorRepTeamByYear || {})[String(year)] || {};
+  Object.values(map).forEach(t => { if (t) set.add(t); });
+  return [...set].sort((a, b) => {
+    const ax = isTeamExcluded(a), bx = isTeamExcluded(b);
+    if (ax !== bx) return ax ? 1 : -1;
+    return a.localeCompare(b);
+  });
+}
 function addTeam(name) {
   const clean = (name || '').trim();
   if (!clean) return false;
@@ -13334,7 +13349,7 @@ function openManageTeamsModal() {
       ...d2dRepsThisYear,
       ...Object.keys(state._indicatorRepTeam || {}),
     ])].sort();
-    const teams = distinctTeams();
+    const teams = distinctTeamsForYear(teamYear);
 
     // Rep TYPE — cross-referenced from the Customer Report uploaded on the
     // Reporting tab (its "Sold By Type" column: Sales Rep / Office Staff /
@@ -13465,14 +13480,14 @@ function openManageTeamsModal() {
       el('div', { class: 'flex-1 min-w-0' },
         el('h2', { class: 'text-base font-bold' }, '👥 Manage Teams'),
         el('div', { class: 'text-xs text-muted- mt-0.5' },
-          'Teams are tracked ', el('strong', {}, 'per year'), ' — the roster and ', el('strong', {}, '(unassigned)'), ' chip below reflect the selected ', el('strong', {}, 'Team Year'), '. Assign each rep to a team and tag as Rookie or Vet; click a team to rename it, pick a color, or toggle Exclude from metrics.'),
+          'Teams are tracked ', el('strong', {}, 'per year'), ' — the roster and ', el('strong', {}, '(unassigned)'), ' chip below reflect the selected ', el('strong', {}, 'Year'), '. Assign each rep to a team and tag as Rookie or Vet; click a team to rename it, pick a color, or toggle Exclude from metrics.'),
       ),
       el('div', { class: 'flex items-center gap-2 shrink-0' },
         // Team Year — assignments are stored per calendar year, so this picks
         // which year's teams you're viewing and editing. Defaults to the
         // current year; switching it changes the roster + (unassigned) chip.
         el('div', { class: 'flex items-center gap-1.5 mr-1' },
-          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, 'Team Year'),
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, 'Year'),
           el('select', {
             class: 'rounded-lg border px-2 py-1.5 text-xs font-semibold cursor-pointer',
             style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
