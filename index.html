@@ -24985,10 +24985,12 @@ function reportingServiceConfigPanel() {
   const recurringMap = reportingServiceRecurringMap();
   const lifecycleMap = reportingServiceLifecycleMap();
   const arvAny = new Map();
+  const svcCounts = new Map(); // service name → # of subs in the snapshot
   for (const r of subs) {
     const n = r.subscription; if (!n) continue;
     if (!arvAny.has(n)) arvAny.set(n, false);
     if ((Number(r.annual_recurring_value) || 0) > 0) arvAny.set(n, true);
+    svcCounts.set(n, (svcCounts.get(n) || 0) + 1);
   }
 
   const updateConfig = async (name, patch) => {
@@ -25036,6 +25038,7 @@ function reportingServiceConfigPanel() {
             el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: '0', zIndex: '10' } },
               el('tr', {},
                 el('th', { class: 'text-left pl-3 pr-2 py-2 font-semibold' }, 'Service Type'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Subs'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Lifecycle'),
                 el('th', { class: 'text-left pr-3 pl-2 py-2 font-semibold' }, 'Hidden'),
               ),
@@ -25095,6 +25098,7 @@ function reportingServiceConfigPanel() {
                     el('span', {}, c.service_name),
                     hiddenTag,
                   ),
+                  el('td', { class: 'px-2 py-1.5 text-left tabular-nums text-muted-' }, (svcCounts.get(c.service_name) || 0).toLocaleString()),
                   el('td', { class: 'px-2 py-1.5 text-left whitespace-nowrap' }, lcSelect),
                   el('td', { class: 'pr-3 pl-2 py-1.5 text-left' }, hidPill),
                 );
@@ -27416,6 +27420,24 @@ function viewAdmin() {
 // rules. Moved here from the Reporting gear so it's one shared place; these
 // rules now drive BOTH Reporting and the Indicators tab.
 function adminConfigurations() {
+  // The config panels show per-row counts (subs per service/source, cancels per
+  // reason) sourced from state.reportingSubscriptions. Those rows are lazy-loaded
+  // by the Reporting tab — but a user landing straight on Settings → Configurations
+  // never trips that load, so every count comes back 0. Trigger the same load here
+  // so the counts populate without having to visit Reporting first.
+  const activeId = state.reportingActiveUploadId;
+  if (activeId && state.reportingSubscriptionsLoadedFor !== activeId
+      && typeof loadReportingSubscriptions === 'function') {
+    loadReportingSubscriptions(activeId).then(rows => {
+      if (state.reportingActiveUploadId !== activeId) return; // snapshot switched mid-flight
+      if (rows == null) return;                               // aborted/superseded load
+      state.reportingSubscriptions = rows;
+      state.reportingSubscriptionsLoadedFor = activeId;
+      _refreshRepTypeMap();
+      mountApp();
+    });
+  }
+
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', {},
       el('h2', { class: 'text-lg font-bold' }, 'Configurations'),
