@@ -4813,9 +4813,9 @@ function _indConfigCancelExcluded(s) {
   const cfg = state.reportingCancelConfig || [];
   if (_indCancelReasonSrc !== cfg) {
     _indCancelReasonSrc = cfg;
-    _indCancelReasonSet = new Set(cfg.filter(c => c.counts_attrition === false).map(c => String(c.reason || '').trim().toLowerCase()));
+    _indCancelReasonSet = new Set(cfg.filter(c => c.counts_attrition === false).map(c => _normCancelReason(c.reason)));
   }
-  return _indCancelReasonSet.has(String((s && s.cancelReason) || '').trim().toLowerCase());
+  return _indCancelReasonSet.has(_normCancelReason((s && s.cancelReason) || ''));
 }
 function _isExcludableCancel(s) {
   return _is3DayROR(s) || _isSoldNotStarted(s) || _isCombinedSub(s) || _isOneTimeCancel(s) || _isRenewalCancel(s) || _indConfigCancelExcluded(s);
@@ -23502,9 +23502,12 @@ function reportingFlaggedActive(rows, isActive) {
 // (Configurations tab). A canceled sub whose reason is in this set is excluded
 // from churn everywhere — Overview cancel count/rate AND the Geographic map.
 // Null/blank reason normalizes to 'Unspecified' to match the donut grouping.
+// Normalize a cancel reason for matching/consolidation — collapse whitespace,
+// trim, lowercase. So "Moved", "moved " and "Moved" all reconcile to one.
+function _normCancelReason(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase(); }
 function reportingExcludedCancelReasons() {
   const cfg = state.reportingCancelConfig || [];
-  return new Set(cfg.filter(c => c.counts_attrition === false).map(c => c.reason));
+  return new Set(cfg.filter(c => c.counts_attrition === false).map(c => _normCancelReason(c.reason)));
 }
 function reportingCancelReasonOf(r) {
   return r.subscription_cancellation_reason || 'Unspecified';
@@ -23548,7 +23551,7 @@ function reportingFilters() {
   const isRealCancel = (r) => {
     if (!r.subscription_date_canceled) return false;
     if (!isRecurring(r)) return false;
-    if (excludedReasons.has(reportingCancelReasonOf(r))) return false;
+    if (excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))) return false;
     return true;
   };
   const all = state.reportingSubscriptions || [];
@@ -23938,7 +23941,7 @@ function reportingChartData(scopeRows, serviceConfig) {
   const isRealCancel = (r) => {
     if (!r.subscription_date_canceled) return false;
     if (!isRecurring(r)) return false;
-    if (excludedReasons.has(reportingCancelReasonOf(r))) return false;
+    if (excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))) return false;
     return true;
   };
 
@@ -25109,8 +25112,27 @@ function reportingCancelConfigPanel() {
     const reason = String(s.cancelReason || '').trim();
     if (reason) counts.set(reason, (counts.get(reason) || 0) + 1);
   }
-  const allReasons = new Set([...cfgByReason.keys(), ...counts.keys()]);
-  const list = [...allReasons].sort((a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b));
+  // Consolidate variant spellings of the same reason (case/whitespace, and
+  // CRM system duplicates like two "Expired Subscription" entries) into ONE
+  // row. Distinct compound reasons (e.g. "Apruv | Sent to Collections") have
+  // different text so they naturally stay separate.
+  const groups = new Map(); // normKey → { key, display, count, variants:Set }
+  const addReason = (raw, n) => {
+    const key = _normCancelReason(raw);
+    if (!key) return;
+    let g = groups.get(key);
+    if (!g) { g = { key, display: String(raw).trim(), count: 0, variants: new Set() }; groups.set(key, g); }
+    g.count += n; g.variants.add(raw);
+  };
+  for (const [raw, n] of counts) addReason(raw, n);
+  for (const c of cfg) addReason(c.reason, 0);
+  // Prefer an existing config entry's exact text as the row label.
+  for (const g of groups.values()) {
+    const cv = [...g.variants].find(v => cfgByReason.has(v));
+    if (cv) g.display = String(cv).trim();
+  }
+  const excludedSet = reportingExcludedCancelReasons(); // normalized keys
+  const list = [...groups.values()].sort((a, b) => b.count - a.count || a.display.localeCompare(b.display));
 
   const updateCancelConfig = async (reason, patch) => {
     logActivity('config_change', { detail: 'Cancel-reason config: ' + reason + ' → ' + JSON.stringify(patch) });
@@ -25148,12 +25170,11 @@ function reportingCancelConfigPanel() {
               ),
             ),
             el('tbody', {},
-              ...list.map(reason => {
-                const c = cfgByReason.get(reason) || { reason, counts_attrition: true };
-                const excluded0 = c.counts_attrition === false;
+              ...list.map(g => {
+                let excludedNow = excludedSet.has(g.key);
                 const row = el('tr', {
                   class: 'border-t',
-                  style: { borderColor: 'var(--border)', opacity: excluded0 ? '0.6' : '1' },
+                  style: { borderColor: 'var(--border)', opacity: excludedNow ? '0.6' : '1' },
                 });
                 const pill = el('button', {
                   class: 'text-[11px] font-bold rounded-full px-3 py-1 border cursor-pointer transition whitespace-nowrap',
@@ -25164,17 +25185,20 @@ function reportingCancelConfigPanel() {
                     ? { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' }
                     : { background: 'var(--accent)', color: '#16321a', borderColor: 'var(--accent)' });
                 };
-                paint(excluded0);
+                paint(excludedNow);
                 pill.onclick = () => {
-                  const nowExcluded = !(c.counts_attrition === false);
-                  c.counts_attrition = !nowExcluded;       // true = counts, false = excluded
-                  updateCancelConfig(reason, { counts_attrition: !nowExcluded });
-                  paint(nowExcluded);
-                  row.style.opacity = nowExcluded ? '0.6' : '1';
+                  excludedNow = !excludedNow;
+                  const countsAttr = !excludedNow; // excluded → counts_attrition = false
+                  // Sync the canonical reason AND every variant config entry so
+                  // all spellings stay aligned (matching is normalized anyway).
+                  updateCancelConfig(g.display, { counts_attrition: countsAttr });
+                  g.variants.forEach(v => { if (v !== g.display && cfgByReason.has(v)) updateCancelConfig(v, { counts_attrition: countsAttr }); });
+                  paint(excludedNow);
+                  row.style.opacity = excludedNow ? '0.6' : '1';
                 };
                 row.append(
-                  el('td', { class: 'pl-3 pr-2 py-1.5 font-medium' }, reason),
-                  el('td', { class: 'px-2 py-1.5 text-left tabular-nums text-muted-' }, (counts.get(reason) || 0).toLocaleString()),
+                  el('td', { class: 'pl-3 pr-2 py-1.5 font-medium' }, g.display),
+                  el('td', { class: 'px-2 py-1.5 text-left tabular-nums text-muted-' }, g.count.toLocaleString()),
                   el('td', { class: 'pr-3 pl-2 py-1.5 text-left' }, pill),
                 );
                 return row;
@@ -26399,7 +26423,7 @@ function reportingGeoAggregate(rows) {
       if (r.customer_id) m.customers.add(r.customer_id);
       m.contract += Number(r.subscription_contract_value) || 0;
       m.arv      += Number(r.annual_recurring_value) || 0;
-      if (r.subscription_date_canceled && !excludedReasons.has(reportingCancelReasonOf(r))) m.cancellations += 1;
+      if (r.subscription_date_canceled && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))) m.cancellations += 1;
       // Active = currently in service: status says active AND no cancel
       // date (matches isActive() in reportingFilters).
       if ((r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled) m.active += 1;
@@ -27160,7 +27184,7 @@ function buildReportingWaterfall(rows, mode) {
   const excludedReasons = reportingExcludedCancelReasons();
   rows = rows.filter(r => !!recurringByName.get(r.subscription)).map(r => {
     const realCancel = r.subscription_date_canceled
-      && !excludedReasons.has(reportingCancelReasonOf(r))
+      && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
       ? r.subscription_date_canceled : null;
     return { ...r, _effCancel: realCancel };
   });
@@ -27381,7 +27405,7 @@ function adminConfigurations() {
       el('p', { class: 'text-xs text-muted- mt-0.5' },
         'Service lifecycle, lead sources, and cancel-reason rules. These apply to both the Reporting and Indicators tabs.'),
     ),
-    el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' },
+    el('div', { class: 'flex flex-col gap-4' },
       reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()),
   );
 }
