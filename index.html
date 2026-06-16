@@ -3121,6 +3121,31 @@ function insideSalesSubTabs() {
     }));
 }
 
+// ── Independent section re-render ─────────────────────────────────────────
+// Lets a chart/section repaint just itself instead of triggering a full
+// mountApp(). A section is wrapped via indSection(id, build): the builder is
+// remembered, and refreshIndSection(id) rebuilds only that section's host
+// (destroying any Chart.js instances first so canvases don't leak). Inside a
+// section's own builder we shadow `mountApp` with refreshIndSection so every
+// local control (toggles, pickers, sorts) updates only that card.
+const _indSectionBuilders = {};
+function indSection(id, build) {
+  _indSectionBuilders[id] = build;
+  const host = el('div', { 'data-indsection': id });
+  host.append(build());
+  return host;
+}
+function refreshIndSection(id) {
+  const build = _indSectionBuilders[id];
+  const host = document.querySelector('[data-indsection="' + CSS.escape(id) + '"]');
+  if (!build || !host) { mountApp(); return; }   // fallback if not mounted
+  if (window.Chart && Chart.getChart) {
+    host.querySelectorAll('canvas').forEach(c => { const ch = Chart.getChart(c); if (ch) ch.destroy(); });
+  }
+  host.innerHTML = '';
+  host.append(build());
+}
+
 function mountApp() {
   const isAdmin = isAdminRole(state.profile.role);
   const isAuditor = isAuditorRole(state.profile.role);
@@ -5259,38 +5284,12 @@ function openImportInsightsModal(insights) {
     ));
   }
 
-  // ── Revenue by year — the all-time context strip.
-  const yt = insights.yearTotals || {};
-  const ytYears = Object.keys(yt).sort();
-  if (ytYears.length > 1) {
-    modal.append(el('div', { class: 'flex gap-2 flex-wrap mb-4' },
-      ...ytYears.map(yr => el('div', { class: 'rounded-lg border px-3 py-1.5', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-        el('span', { class: 'text-[10px] uppercase tracking-wider font-bold mr-2', style: { color: 'var(--text-subtle)' } }, yr + (Number(yr) === y.year ? ' YTD' : '')),
-        el('span', { class: 'text-xs font-bold tabular-nums' }, fmt.usd0(yt[yr].revenue)),
-        el('span', { class: 'text-[10px] text-muted- tabular-nums ml-1.5' }, fmt.int(yt[yr].count) + ' sales')))));
-  }
-
   // ── Branch YTD vs same period last year
   if ((insights.branchYoY || []).some(m => m.lastRev > 0)) {
     modal.append(el('div', { class: 'mb-2' },
       sectionHeader('Branches · YTD vs ' + (y.year - 1), 'same period both years'),
       el('div', {}, ...insights.branchYoY.slice(0, 8).map(m => moverRow(m, { newText: '(new this year)' })))));
   }
-
-  // ── Trending reps (two columns)
-  const upBlock = el('div', {},
-    sectionHeader('Trending Up · Reps', insights.trendingUp.length === 0 ? 'no movers above threshold' : null),
-    insights.trendingUp.length === 0
-      ? el('div', { class: 'text-[11px] text-muted- italic' }, '—')
-      : el('div', {}, ...insights.trendingUp.map(moverRow)),
-  );
-  const downBlock = el('div', {},
-    sectionHeader('Trending Down · Reps', insights.trendingDown.length === 0 ? 'no significant drops' : null),
-    insights.trendingDown.length === 0
-      ? el('div', { class: 'text-[11px] text-muted- italic' }, '—')
-      : el('div', {}, ...insights.trendingDown.map(moverRow)),
-  );
-  modal.append(el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-2' }, upBlock, downBlock));
 
   // ── Branch + Team movers (top 5 by absolute change)
   if (insights.branchMovers.length > 0 || insights.teamMovers.length > 0) {
@@ -5325,22 +5324,6 @@ function openImportInsightsModal(insights) {
             r.oldRev > 0 ? el('span', { class: 'text-[10px] text-muted- ml-2' }, '(was ' + fmt.usd0(r.oldRev) + ')') : null,
           ),
         )),
-      ),
-    );
-  }
-
-  // ── Notable single sale
-  if (insights.topSale) {
-    const s = insights.topSale;
-    modal.append(
-      sectionHeader('🐳 Biggest Sale This Week'),
-      el('div', { class: 'rounded border p-3 flex items-center justify-between gap-3', style: { borderColor: 'var(--border)' } },
-        el('div', { class: 'min-w-0' },
-          el('div', { class: 'font-semibold truncate' }, (s.rep || 'Unknown') + ' · ' + (s.customer || '—')),
-          el('div', { class: 'text-[10px] text-muted-' },
-            (s.office || '—') + ' · ' + (s.subscription || '—') + (s.dateSold ? ' · ' + s.dateSold : '')),
-        ),
-        el('div', { class: 'text-base font-bold tabular-nums shrink-0' }, fmt.usd0(s.contractValue || 0)),
       ),
     );
   }
@@ -17006,14 +16989,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     _tierCardSection = tierCard;
   })();
 
-  sections.push(repTrendChartCard({
-    repsToChart,
-    repMap,
-    allReps,
-    rawSales,
-    chartBuckets,
-    cfg: repChartCfg,
-  }));
+  {
+    const _repTrendArgs = { repsToChart, repMap, allReps, rawSales, chartBuckets, cfg: repChartCfg };
+    sections.push(indSection('repTrend', () => repTrendChartCard(_repTrendArgs)));
+  }
 
   // ── 2. REP LEADERBOARD ──
   if (!state._indicatorRepSort) state._indicatorRepSort = { key: 'count', dir: 'desc' };
@@ -17118,7 +17097,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       if (tierFilter === '__unassigned__') { if (r.tier) return false; }
       else if (r.tier !== tierFilter) return false;
     }
-    if (nameSearch && !(r.name || '').toLowerCase().includes(nameSearch)) return false;
+    // Name search is applied client-side (show/hide rows) so typing never
+    // triggers a full re-render — see the search input's oninput below.
     return true;
   });
 
@@ -17161,6 +17141,18 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const displayReps = filteredReps;
 
   const offices = [...new Set(allReps.map(r => r.office).filter(Boolean))].sort();
+
+  // Re-apply an active name search after the render mounts, so it survives
+  // tier/office pill changes (which DO re-render) without a per-keystroke one.
+  if (state._indicatorRepNameSearch && state._indicatorRepNameSearch.trim()) {
+    setTimeout(() => {
+      const q = state._indicatorRepNameSearch.trim().toLowerCase();
+      document.querySelectorAll('[data-replb]').forEach(row => {
+        const n = row.getAttribute('data-replb') || '';
+        row.style.display = (!q || n.includes(q)) ? '' : 'none';
+      });
+    }, 0);
+  }
 
   sections.push(
     el('div', { class: 'card overflow-hidden' },
@@ -17230,20 +17222,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             class: 'rounded-lg border px-3 py-1.5 text-xs',
             style: { borderColor: 'var(--border-2)', minWidth: '160px' },
             oninput: (e) => {
-              const cursor = e.target.selectionStart;
+              // Filter rows IN PLACE (show/hide) — no full re-render, so the
+              // input keeps focus and there's zero flicker per keystroke.
               state._indicatorRepNameSearch = e.target.value;
-              if (_repLeaderboardSearchTimer) clearTimeout(_repLeaderboardSearchTimer);
-              _repLeaderboardSearchTimer = setTimeout(() => {
-                _repLeaderboardSearchTimer = null;
-                mountApp();
-                requestAnimationFrame(() => {
-                  const next = document.getElementById('rep-leaderboard-search');
-                  if (next) {
-                    next.focus();
-                    try { next.setSelectionRange(cursor, cursor); } catch (_) {}
-                  }
-                });
-              }, 150);
+              const q = e.target.value.trim().toLowerCase();
+              document.querySelectorAll('[data-replb]').forEach(row => {
+                const n = row.getAttribute('data-replb') || '';
+                row.style.display = (!q || n.includes(q)) ? '' : 'none';
+              });
             },
           }),
           // Tier quick-filter pills (replaces the previous dropdown)
@@ -17342,6 +17328,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               ? [el('tr', {}, el('td', { class: 'px-5 py-6 text-center text-xs text-muted-', colspan: repCols.length + 1 }, 'No reps match the current filters.'))]
               : displayReps.map((r, i) => {
                   return el('tr', {
+                    'data-replb': (r.name || '').toLowerCase(),
                     class: 'border-t border- cursor-pointer transition hover:brightness-95',
                     onclick: () => openIndicatorRepCard(r, allReps),
                   },
@@ -17369,6 +17356,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 }, value),
               );
               return el('div', {
+                'data-replb': (r.name || '').toLowerCase(),
                 class: 'rounded-lg border p-2.5 flex flex-col gap-1.5 cursor-pointer transition hover:brightness-95',
                 style: {
                   borderColor: 'var(--border)',
@@ -18577,6 +18565,9 @@ const REP_TREND_PALETTE = [
 function repTrendColor(idx) { return REP_TREND_PALETTE[idx % REP_TREND_PALETTE.length]; }
 
 function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBuckets, cfg }) {
+  // Controls in this card (scope, compare, metric pickers) repaint ONLY this
+  // card — shadow the global mountApp with a local section refresh.
+  const mountApp = () => refreshIndSection('repTrend');
   const canvasId = 'chart-rep-trend';
   const canvasWrap = el('div', { style: { position: 'relative', height: '320px', width: '100%' } });
   const canvas = el('canvas', { id: canvasId });
