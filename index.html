@@ -7094,8 +7094,10 @@ function viewSales() {
     queueRow,
 
     // ── Top row: + New Sale (sized to match dashboard) + filters on its right ──
+    // New Sale only belongs on Pending Upfront — backend-lock and cancels are
+    // review queues for existing sales, not where you log a fresh one.
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
-      el('button', {
+      queueFilter === 'upfront' && el('button', {
         class: 'flex-1 min-w-0 rounded-xl px-5 py-2.5 text-sm font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openNewSaleModal(),
