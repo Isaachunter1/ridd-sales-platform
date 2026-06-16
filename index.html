@@ -11278,6 +11278,11 @@ function chartBucketsGrainLabel(buckets) {
 const INDICATOR_METRICS = [
   { key: 'sold_accounts',  label: 'Sold Accounts',    fmt: v => fmt.int(v) },
   { key: 'revenue',        label: 'Revenue',          fmt: v => fmt.usd0(v) },
+  // New / Renewal revenue split — only SHOWN on the Office Staff table, but
+  // defined here so RIDD totals + rankings compute them. Excluded from Power
+  // Ranking scoring (they'd double-count Revenue).
+  { key: 'new_revenue',     label: 'New Revenue',     fmt: v => fmt.usd0(v) },
+  { key: 'renewal_revenue', label: 'Renewal Revenue', fmt: v => fmt.usd0(v) },
   { key: 'avg_initial',    label: 'Avg Pest Initial',   fmt: v => fmt.usd(v) },
   { key: 'acv',            label: 'ACV',              fmt: v => fmt.usd(v) },
   { key: 'pra',            label: 'PRA',              fmt: v => fmt.usd(v) },
@@ -13083,7 +13088,7 @@ function aggregateByTeam(rawSales, indicatorRowsForDates) {
 // Initial" because it strips Sentricon/Roach/Flea from the average.
 function indicatorMetricLabel(metric) {
   if (metric && metric.key === 'avg_initial') {
-    return state.indicatorsGroupBy === 'teams' ? 'Avg Pest Initial' : 'Avg Initial';
+    return (state.indicatorsGroupBy === 'teams' || state.indicatorDept === 'office') ? 'Avg Pest Initial' : 'Avg Initial';
   }
   return metric ? metric.label : '';
 }
@@ -14130,7 +14135,11 @@ function viewIndicators() {
       if (!ss.length) { branchData[b] = null; return; }
       const count = ss.length;
       const rev = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
-      const pest = groupBy === 'teams' ? ss.filter(s => !TEAM_PEST_EXCLUDE.test(s.subscription || '')) : ss;
+      const revRenewal = ss.reduce((a, s) => a + (_indicatorIsRenewal(s) ? (Number(s.contractValue) || 0) : 0), 0);
+      // Avg Pest Initial rules (exclude Sentricon / German Roach / Interior
+      // Flea) apply to Teams view AND the Office Staff dept.
+      const usePestExclude = groupBy === 'teams' || state.indicatorDept === 'office';
+      const pest = usePestExclude ? ss.filter(s => !TEAM_PEST_EXCLUDE.test(s.subscription || '')) : ss;
       const avgInit = pest.length > 0 ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
       const multi = ss.filter(s => Number(s.contract) > 12).length;
       const twelve = ss.filter(s => Number(s.contract) === 12).length;
@@ -14139,6 +14148,8 @@ function viewIndicators() {
       branchData[b] = {
         sold_accounts: count,
         revenue: rev,
+        new_revenue: rev - revRenewal,
+        renewal_revenue: revRenewal,
         avg_initial: avgInit,
         avg_initial_count: pest.length,
         acv: count > 0 ? rev / count : 0,
@@ -14191,6 +14202,8 @@ function viewIndicators() {
     branchData[b] = {
       sold_accounts: sold,
       revenue: rev,
+      new_revenue: rev,        // pre-aggregated CSV has no renewal split
+      renewal_revenue: 0,
       avg_initial: avgInit,
       avg_initial_count: avgInitDen, // for proper RIDD-level weighting (excludes Sentricon)
       acv: sold > 0 ? rev / sold : 0,
@@ -14256,7 +14269,7 @@ function viewIndicators() {
   // points here.
   // Best-possible score = POWER_RANKING_METRICS.length (rank 1 on every metric).
   // Worst-possible = N × POWER_RANKING_METRICS.length.
-  const POWER_RANKING_METRICS = INDICATOR_METRICS.filter(m => m.key !== 'reps');
+  const POWER_RANKING_METRICS = INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue');
   const worstRank = rankableBranches.length;
   const totalPoints = {};
   rankableBranches.forEach(b => {
@@ -14920,6 +14933,15 @@ function viewIndicators() {
         });
       }
 
+      // Dept-aware metric rows: Office Staff drops PRA + Audit % and shows the
+      // New / Renewal revenue split; every other dept hides the split and keeps
+      // PRA + Audit %.
+      const _deptT = state.indicatorDept || 'all';
+      const tableMetrics = INDICATOR_METRICS.filter(m => {
+        if (m.key === 'new_revenue' || m.key === 'renewal_revenue') return _deptT === 'office';
+        if (_deptT === 'office' && (m.key === 'pra' || m.key === 'audit_pct')) return false;
+        return true;
+      });
       return el('div', { class: 'card overflow-hidden' },
         el('div', { class: 'scroll-x' },
           el('table', { class: 'w-full text-[12px]' },
@@ -14938,7 +14960,7 @@ function viewIndicators() {
               ),
             ),
             el('tbody', {},
-              ...INDICATOR_METRICS.map(m => {
+              ...tableMetrics.map(m => {
                 const isSorting = sort.key === m.key;
                 return el('tr', { class: 'border-t border-' + (isSorting ? ' font-bold' : '') },
                   (() => {
@@ -21478,6 +21500,11 @@ function indicatorYoYTrendChart() {
   // Cancel % prior-year line stops where the current year stops — beyond
   // that there's no equal-horizon counterpart to compare against.
   const prevVals = weeksAxis.map(w => (metric === 'cancel_pct' && w > lastDataWeek) ? null : valOf(acc[prevY] && acc[prevY][w], true));
+  // YTD aggregate per year — combine weeks 1..lastDataWeek into one bucket so
+  // the final "YTD" dot shows each year's year-to-date total (proper ratio for
+  // averages/percent, not a sum of weekly averages).
+  const _combineYTD = (year) => { const c = mk(); const ay = acc[year] || {}; for (let w = 1; w <= lastDataWeek; w++) { const a = ay[w]; if (!a) continue; for (const k in c) c[k] += (a[k] || 0); } return c; };
+  const ytdValOf = (year) => valOf(_combineYTD(year), year === prevY);
   const fmtVal = (v) => v == null ? '—'
     : kind === 'usd' ? '$' + (metric === 'revenue' ? Math.round(v).toLocaleString() : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
     : kind === 'pct' ? (v * 100).toFixed(1) + '%'
@@ -21501,7 +21528,7 @@ function indicatorYoYTrendChart() {
     _chartInstances[id] = new Chart(cvs.getContext('2d'), {
       type: 'line',
       data: {
-        labels: weeksAxis.map(w => 'Wk ' + w),
+        labels: weeksAxis.map(w => 'Wk ' + w).concat('YTD'),
         datasets: (() => {
           // One line per year present. Current year = bold green solid; prior
           // years = dashed, the immediately-prior muted and older ones colored.
@@ -21514,6 +21541,7 @@ function indicatorYoYTrendChart() {
               if (metric === 'cancel_pct' && y === prevY && w > lastDataWeek) return null;
               return valOf(acc[y] && acc[y][w], y === prevY);
             });
+            vals.push(ytdValOf(y)); // final "YTD" dot
             if (isCur) {
               return { label: String(y), data: vals, borderColor: '#8DC63F', backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct', spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 };
             }
@@ -21534,6 +21562,7 @@ function indicatorYoYTrendChart() {
               // Each line carries the actual Sun–Sat date range being
               // compared, e.g. "2026 (6/7–6/13): $812,440".
               label: (ctx) => {
+                if (ctx.dataIndex >= weeksAxis.length) return ctx.dataset.label + ' YTD: ' + fmtVal(ctx.parsed.y);
                 const w = ctx.dataIndex + 1;
                 const y = Number(ctx.dataset.label);
                 const jan1 = new Date(y, 0, 1);
@@ -21716,7 +21745,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
         // trend chart disagree with the table on the leader.
         const pts = {};
         branches.forEach(b => pts[b] = 0);
-        INDICATOR_METRICS.filter(m => m.key !== 'reps').forEach(m => {
+        INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue').forEach(m => {
           const sorted = branches.slice().sort((a, b) => (weekData[b]?.[m.key] || 0) - (weekData[a]?.[m.key] || 0));
           sorted.forEach((b, i) => { pts[b] += i + 1; });
         });
