@@ -62,7 +62,7 @@ async function fetchJSON(url, opts) {
 
 // Walks GHL contacts newest->oldest via the search endpoint, hard per-request and
 // overall time bounds, and always returns 200 with whatever it gathered (+ diagnostics).
-exports.handler = async () => {
+exports.handler = async (event) => {
   const token = process.env.GHL_PRIVATE_TOKEN;
   const locationId = process.env.GHL_LOCATION_ID;
   if (!token || !locationId) {
@@ -75,7 +75,11 @@ exports.handler = async () => {
   const leadsBySource = {};
   const bySourceMonth = {};
   let total = 0, pages = 0, partial = false, sampleKeys = null, note = null;
-  let searchAfter = null, reachedCutoff = false;
+  // Resume from the cursor the client saved on its previous call, so a
+  // high-volume location's full 365-day history accumulates across several
+  // budget-bounded calls instead of one call that times out on a partial slice.
+  let searchAfter = null, reachedCutoff = false, done = false;
+  try { const q = (event && event.queryStringParameters) || {}; if (q.after) searchAfter = JSON.parse(q.after); } catch (e) { /* ignore bad cursor */ }
 
   for (let page = 0; page < MAX_PAGES; page++) {
     if (Date.now() - started > DEADLINE_MS) { partial = true; note = 'time budget reached'; break; }
@@ -88,7 +92,7 @@ exports.handler = async () => {
     if (!res.ok) { note = `contacts/search ${res.status}: ${(res.text || '').slice(0, 200)}`; break; }
 
     const contacts = (res.json && (res.json.contacts || res.json.data)) || [];
-    if (contacts.length === 0) break;
+    if (contacts.length === 0) { done = true; break; }
     if (!sampleKeys) sampleKeys = Object.keys(contacts[0]); // shape probe
     pages++;
 
@@ -102,17 +106,17 @@ exports.handler = async () => {
       if (m) { (bySourceMonth[m] = bySourceMonth[m] || {}); bySourceMonth[m][src] = (bySourceMonth[m][src] || 0) + 1; }
     }
 
-    if (reachedCutoff) break;
+    if (reachedCutoff) { done = true; break; }
     const last = contacts[contacts.length - 1];
     const next = last && (last.searchAfter || (res.json && res.json.searchAfter));
-    if (!next || (searchAfter && JSON.stringify(next) === JSON.stringify(searchAfter))) break;
+    if (!next || (searchAfter && JSON.stringify(next) === JSON.stringify(searchAfter))) { done = true; break; }
     searchAfter = next;
-    if (contacts.length < PAGE_LIMIT) break;
+    if (contacts.length < PAGE_LIMIT) { done = true; break; }
   }
 
   return {
     statusCode: 200,
     headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=1800' },
-    body: JSON.stringify({ leadsBySource, bySourceMonth, total, pages, partial, note, sampleKeys, pulledAt: new Date().toISOString() }),
+    body: JSON.stringify({ leadsBySource, bySourceMonth, total, pages, partial, done, nextAfter: done ? null : searchAfter, note, sampleKeys, pulledAt: new Date().toISOString() }),
   };
 };
