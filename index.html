@@ -2888,12 +2888,72 @@ function reportingAuditing() {
   const th = (lab) => el('th', { class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, lab);
   const td = (val, opts = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums text-xs whitespace-nowrap text-left' + (opts.bold ? ' font-bold' : ''), style: { background: opts.bg || 'transparent' } }, val);
   const money = (v) => v ? '$' + Math.round(v).toLocaleString() : '—';
+
+  // Player-card drill-in: click any rep / team / branch row to see its full
+  // audit + production + revenue profile in one popup.
+  const openAuditCardModal = (name, s, kind, org) => {
+    const auditedN = s.passed + s.failed;
+    const passPct = auditedN > 0 ? s.passed / auditedN : null;
+    const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
+    const soldSvc = s.sold > 0 ? s.serviced / s.sold : null;
+    const kindLabel = kind === 'rep' ? 'Rep' : kind === 'team' ? 'Team' : 'Branch';
+    const pctS = (p) => p == null ? '—' : (p * 100).toFixed(1) + '%';
+    const good = '#5F8A1F', bad = '#DC2626';
+    const overlay = el('div', { class: 'modal-overlay' });
+    const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+    const key = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', key);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    const tile = (label, val, sub, color) => el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)' } },
+      el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, label),
+      el('div', { class: 'text-xl font-black tabular-nums mt-0.5', style: color ? { color } : {} }, val),
+      sub ? el('div', { class: 'text-[10px] text-muted- mt-0.5' }, sub) : null);
+    const group = (title, tiles) => el('div', {},
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, title),
+      el('div', { class: 'grid grid-cols-2 sm:grid-cols-3 gap-2' }, ...tiles));
+    const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+      el('div', { class: 'p-5 pb-3 flex items-start justify-between gap-3', style: { borderBottom: '1px solid var(--border)' } },
+        el('div', {},
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--accent)' } }, kindLabel),
+          el('h2', { class: 'text-xl font-bold mt-0.5' }, name),
+          (org && (org.office || org.team)) ? el('div', { class: 'text-xs text-muted- mt-0.5' }, [org.office, org.team].filter(Boolean).join(' · ')) : null),
+        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+      el('div', { class: 'p-5 overflow-auto flex flex-col gap-4' },
+        group('Production', [
+          tile('Sold', fmt.int(s.sold)),
+          tile('Serviced', fmt.int(s.serviced)),
+          tile('Sold → Service', pctS(soldSvc), null, soldSvc == null ? null : (soldSvc >= 0.85 ? good : soldSvc < 0.65 ? bad : null)),
+        ]),
+        group('Audit', [
+          tile('Pass %', pctS(passPct), auditedN + ' audited', passPct == null ? null : (passPct >= 0.85 ? good : passPct < 0.65 ? bad : null)),
+          tile('Passed', fmt.int(s.passed), null, good),
+          tile('Failed', fmt.int(s.failed), null, s.failed > 0 ? bad : null),
+          tile('No Audit', fmt.int(s.noaudit)),
+          tile('Pending', fmt.int(s.pending)),
+          tile('Attrition P / F', pctS(aP) + ' / ' + pctS(aF)),
+        ]),
+        group('Revenue · contract value', [
+          tile('Sold', money(s.soldRev)),
+          tile('Serviced', money(s.servicedRev)),
+          tile('Active', money(s.activeRev)),
+          tile('Cancelled', money(s.cancelledRev), null, s.cancelledRev > 0 ? bad : null),
+          tile('Aging', money(s.agingRev), null, s.agingRev > 0 ? bad : null),
+        ])));
+    overlay.append(card);
+    document.body.append(overlay);
+  };
+
   // opts.org = { office, team } renders the two org columns (rep table only).
   const statRow = (name, s, opts = {}) => {
     const auditedN = s.passed + s.failed;
     const passPct = auditedN > 0 ? s.passed / auditedN : null;
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
-    return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: opts.total ? 'var(--card-2)' : 'transparent' } },
+    return el('tr', {
+      class: 'border-t' + (opts.total ? '' : ' cursor-pointer hover:brightness-95 transition'),
+      style: { borderColor: 'var(--border)', background: opts.total ? 'var(--card-2)' : 'transparent' },
+      title: opts.total ? '' : 'Click for the ' + (opts.kind === 'rep' ? 'rep' : opts.kind === 'team' ? 'team' : 'branch') + ' card',
+      onclick: opts.total ? undefined : () => openAuditCardModal(name, s, opts.kind, opts.org),
+    },
       td(name, { bold: !!opts.total }),
       ...(opts.org ? [td(opts.org.office || '—'), td(opts.org.team || '—')] : []),
       td(fmt.int(s.sold)),
@@ -2994,8 +3054,8 @@ function reportingAuditing() {
         el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
           el('thead', {}, el('tr', {}, ...cols.map(thSort))),
           el('tbody', {},
-            ...sorted.map(([name, s]) => statRow(name, s, kind === 'rep' ? { org: { office: repOfficeOf(name), team: repTeamOf(name) } } : {})),
-            statRow('TOTAL', tot, { total: true, org: kind === 'rep' ? {} : undefined })))));
+            ...sorted.map(([name, s]) => statRow(name, s, { kind, org: kind === 'rep' ? { office: repOfficeOf(name), team: repTeamOf(name) } : undefined })),
+            statRow('TOTAL', tot, { total: true, kind, org: kind === 'rep' ? {} : undefined })))));
   };
 
   const repEntries = Object.entries(reps).sort((a, b) => b[1].sold - a[1].sold || b[1].failed - a[1].failed);
