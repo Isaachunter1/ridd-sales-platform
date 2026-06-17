@@ -2791,7 +2791,7 @@ function reportingAuditing() {
         cancelled: false,
         serviced: false,
         date: null,
-        soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0,
+        soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0, frozenRev: 0,
         subs: 0, servicedSubs: 0, cancelledSubs: 0, collSubs: 0,
       };
       acct.set(id, a);
@@ -2816,14 +2816,18 @@ function reportingAuditing() {
     a.soldRev += cv;
     const serviced = (Number(r.subscription_completed_services) || 0) > 0 || !!r.initial_service;
     if (serviced) { a.servicedRev += cv; a.serviced = true; a.servicedSubs += 1; }
+    // Serviced revenue partitions cleanly into Active + Cancelled + Frozen/Other,
+    // so Serviced − Cancelled − Frozen = Active exactly (and with no frozen, = Active):
+    //   Active    = serviced, status Active, not cancelled  (Aging = 7+ dpd slice of it)
+    //   Cancelled = serviced, real cancel (ROR / Sold-Not-Started excluded)
+    //   Frozen    = serviced, not a real cancel, status not Active (on hold / frozen)
+    const realCancel = !!r.subscription_date_canceled && !isExcludableRow(r);
     const subActive = (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
-    // Active = received an initial service AND is active (not cancelled), so Active
-    // is ALWAYS a subset of Serviced. Aging = the at-risk slice of Active 7+ days past due.
-    if (serviced && subActive) {
-      a.activeRev += cv;
-      if ((Number(r.days_past_due) || 0) >= 7) a.agingRev += cv;
+    if (serviced) {
+      if (realCancel) a.cancelledRev += cv;
+      else if (subActive) { a.activeRev += cv; if ((Number(r.days_past_due) || 0) >= 7) a.agingRev += cv; }
+      else a.frozenRev += cv;
     }
-    if (r.subscription_date_canceled && !isExcludableRow(r)) a.cancelledRev += cv;
   }
 
   // ── Filters: sold-date range + branch ──
@@ -2854,7 +2858,7 @@ function reportingAuditing() {
 
   // ── Aggregate per rep / per branch ──
   const mk = () => ({ sold: 0, serviced: 0, passed: 0, failed: 0, pending: 0, noaudit: 0,
-    soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0,
+    soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0, frozenRev: 0,
     attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] },
     coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] } });
   const reps = {}, offs = {}, teams = {}, tot = mk();
@@ -2872,7 +2876,7 @@ function reportingAuditing() {
     meta.team = a.team;
     for (const b of [r, o, t, tot]) {
       b.sold += a.subs; b.serviced += a.servicedSubs; b[a.status] += a.subs;
-      b.soldRev += a.soldRev; b.servicedRev += a.servicedRev; b.activeRev += a.activeRev; b.cancelledRev += a.cancelledRev; b.agingRev += a.agingRev;
+      b.soldRev += a.soldRev; b.servicedRev += a.servicedRev; b.activeRev += a.activeRev; b.cancelledRev += a.cancelledRev; b.agingRev += a.agingRev; b.frozenRev += a.frozenRev;
       b.attr[a.status][1] += a.subs; b.attr[a.status][0] += a.cancelledSubs;
       b.coll[a.status][1] += a.subs; b.coll[a.status][0] += a.collSubs;
     }
@@ -2903,9 +2907,9 @@ function reportingAuditing() {
     const passPct = passBase > 0 ? (s.passed + s.noaudit) / passBase : null;
     // Revenue waterfall: Active = serviced AND active (subset of Serviced; includes Aging).
     const activeRev = s.activeRev;
-    const cancelRate = s.soldRev > 0 ? s.cancelledRev / s.soldRev : null;
-    const cancelIfAging = s.soldRev > 0 ? (s.cancelledRev + s.agingRev) / s.soldRev : null;
-    const activeRetention = s.soldRev > 0 ? activeRev / s.soldRev : null;
+    const cancelRate = s.servicedRev > 0 ? s.cancelledRev / s.servicedRev : null;
+    const cancelIfAging = s.servicedRev > 0 ? (s.cancelledRev + s.agingRev) / s.servicedRev : null;
+    const activeRetention = s.servicedRev > 0 ? activeRev / s.servicedRev : null;
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
     const soldSvc = s.sold > 0 ? s.serviced / s.sold : null;
     const kindLabel = kind === 'rep' ? 'Rep' : kind === 'team' ? 'Team' : 'Branch';
@@ -2947,17 +2951,18 @@ function reportingAuditing() {
           tile('Pending', fmt.int(s.pending)),
           tile('Attrition on Audits: Pass / Fail', pctS(aP) + ' / ' + pctS(aF)),
         ]),
-        group('Revenue · contract value', [
-          tile('Sold', money(s.soldRev)),
-          tile('Serviced', money(s.servicedRev)),
+        group('Revenue · of serviced  (Active + Cancelled + Frozen = Serviced)', [
+          tile('Serviced', money(s.servicedRev), 'received an initial service'),
           tile('Active', money(activeRev), 'serviced & active · incl. aging'),
-          tile('Cancelled', money(s.cancelledRev), null, s.cancelledRev > 0 ? bad : null),
+          tile('Cancelled', money(s.cancelledRev), 'serviced, then cancelled', s.cancelledRev > 0 ? bad : null),
+          tile('Frozen / Other', money(s.frozenRev), 'serviced, on hold, not cancelled'),
           tile('Aging', money(s.agingRev), 'at-risk slice of Active', s.agingRev > 0 ? bad : null),
+          tile('Sold', money(s.soldRev), 'all sold (incl. pre-service)'),
         ]),
-        group('Attrition', [
-          tile('Cancel rate', pctS(cancelRate), 'cancelled ÷ sold', cancelRate == null ? null : (cancelRate >= 0.25 ? bad : cancelRate < 0.10 ? good : null)),
-          tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ sold', cancelIfAging == null ? null : (cancelIfAging >= 0.25 ? bad : cancelIfAging < 0.10 ? good : null)),
-          tile('Active retention', pctS(activeRetention), 'active ÷ sold', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
+        group('Attrition · of serviced', [
+          tile('Cancel rate', pctS(cancelRate), 'cancelled ÷ serviced', cancelRate == null ? null : (cancelRate >= 0.25 ? bad : cancelRate < 0.10 ? good : null)),
+          tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', cancelIfAging == null ? null : (cancelIfAging >= 0.25 ? bad : cancelIfAging < 0.10 ? good : null)),
+          tile('Active retention', pctS(activeRetention), 'active ÷ serviced', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
         ])));
     overlay.append(card);
     document.body.append(overlay);
@@ -2990,6 +2995,7 @@ function reportingAuditing() {
       td(money(s.soldRev)),
       td(money(activeRev)),
       td(money(s.cancelledRev), { bg: s.cancelledRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
+      td(money(s.frozenRev)),
       td(money(s.agingRev), { bg: s.agingRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
       td(passPct == null ? '—' : (passPct * 100).toFixed(1) + '%', { bg: passShade(passPct), bold: true }),
       td(aP == null ? '—' : (aP * 100).toFixed(1) + '%'),
@@ -3018,6 +3024,7 @@ function reportingAuditing() {
       case 'soldRev':     return s.soldRev;
       case 'activeRev':   return s.activeRev;
       case 'cancelledRev':return s.cancelledRev;
+      case 'frozenRev':   return s.frozenRev;
       case 'agingRev':    return s.agingRev;
       default:            return 0;
     }
@@ -3039,11 +3046,12 @@ function reportingAuditing() {
       { id: 'failed', label: 'Failed', tip: 'Accounts flagged "Failed Audit".' },
       { id: 'noaudit', label: 'No Audit', tip: 'Accounts explicitly flagged "No Audit" — exempt from auditing.' },
       { id: 'pending', label: 'Pending', tip: 'No audit result yet — awaiting audit (no Passed / Failed / No-Audit flag).' },
-      { id: 'servicedRev', label: 'Serviced Rev', tip: 'Contract value of accounts that have been serviced (an initial service / at least one completed service).' },
-      { id: 'soldRev', label: 'Sold Rev', tip: 'Contract value across ALL sold accounts (everything, regardless of service or status).' },
+      { id: 'servicedRev', label: 'Serviced Rev', tip: 'Contract value of subscriptions that received an initial service. Splits into Active + Cancelled + Frozen.' },
+      { id: 'soldRev', label: 'Sold Rev', tip: 'Contract value across ALL sold subscriptions (everything, regardless of service or status).' },
       { id: 'activeRev', label: 'Active Rev', tip: 'Contract value of subscriptions that were SERVICED and are still active (not cancelled). Always ≤ Serviced Rev. Includes aging.' },
-      { id: 'cancelledRev', label: 'Cancelled Rev', tip: 'Contract value of cancelled subscriptions (real cancels — ROR / Sold-Not-Started excluded).' },
-      { id: 'agingRev', label: 'Aging Rev', tip: 'Contract value of non-cancelled subscriptions 7+ days past due — the at-risk slice inside Active.' },
+      { id: 'cancelledRev', label: 'Cancelled Rev', tip: 'Contract value of SERVICED subscriptions that later cancelled (ROR / Sold-Not-Started excluded).' },
+      { id: 'frozenRev', label: 'Frozen Rev', tip: 'Contract value of SERVICED subscriptions on hold / frozen — not active, but not a real cancel. Serviced = Active + Cancelled + Frozen.' },
+      { id: 'agingRev', label: 'Aging Rev', tip: 'Contract value of serviced, active subscriptions 7+ days past due — the at-risk slice inside Active.' },
       { id: 'passpct', label: 'Pass %', tip: '(Passed + No Audit) ÷ (Passed + Failed + No Audit). No-Audit counts as passed; Pending excluded.' },
       { id: 'attrP', label: 'Attrition · Passed', tip: 'Of passed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
       { id: 'attrF', label: 'Attrition · Failed', tip: 'Of failed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
