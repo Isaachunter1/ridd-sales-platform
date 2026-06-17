@@ -2898,7 +2898,7 @@ function reportingAuditing() {
       ...(opts.org ? [td(opts.org.office || '—'), td(opts.org.team || '—')] : []),
       td(fmt.int(s.sold)),
       td(fmt.int(s.serviced)),
-      td(s.serviced > 0 ? (s.sold / s.serviced).toFixed(2) : '—'),
+      td(s.sold > 0 ? (s.serviced / s.sold * 100).toFixed(1) + '%' : '—'),
       td(fmt.int(auditedN)),
       td(fmt.int(s.passed), { bg: 'rgba(141,198,63,.08)' }),
       td(fmt.int(s.failed), { bg: s.failed > 0 ? 'rgba(220,38,38,.08)' : 'transparent' }),
@@ -2923,7 +2923,7 @@ function reportingAuditing() {
       case 'team':     return repTeamOf(name);
       case 'sold':     return s.sold;
       case 'serviced': return s.serviced;
-      case 'soldServiced': return s.serviced > 0 ? s.sold / s.serviced : -1;
+      case 'soldServiced': return s.sold > 0 ? s.serviced / s.sold : -1;
       case 'audited':  return s.passed + s.failed;
       case 'passed':   return s.passed;
       case 'failed':   return s.failed;
@@ -2951,7 +2951,7 @@ function reportingAuditing() {
       ] : []),
       { id: 'sold', label: 'Sold (D2D)', tip: 'EVERY distinct Door-to-Door account sold in range — passed, failed, pending, and no-audit all included.' },
       { id: 'serviced', label: 'Serviced', tip: 'Accounts that have been serviced — an initial service / at least one completed service.' },
-      { id: 'soldServiced', label: 'Sold : Serviced', tip: 'Accounts sold (any status) ÷ accounts that received an initial service. 1.00 = everything sold got serviced; higher means sold accounts are not all being serviced.' },
+      { id: 'soldServiced', label: 'Sold → Service %', tip: 'Of accounts sold (any status, serviced or not), the share that received an initial service — serviced ÷ sold. 89% = 89% of sold accounts have been serviced; the rest are sold but not yet serviced.' },
       { id: 'audited', label: 'Audited', tip: 'Accounts with a final audit result = Passed + Failed. (Pending and No Audit are not yet audited.)' },
       { id: 'passed', label: 'Passed', tip: 'Accounts flagged "Passed Audit".' },
       { id: 'failed', label: 'Failed', tip: 'Accounts flagged "Failed Audit".' },
