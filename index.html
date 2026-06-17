@@ -23255,6 +23255,10 @@ function parseReportingCsv(text) {
     recurring_frequency:              find('recurring frequency', 'frequency'),
     phone:                            find('phone number', 'phone', 'cell', 'mobile'),
     email:                            find('email address', 'email', 'e-mail'),
+    // Optional second source column = the lead's ORIGINAL marketing source
+    // (GHL / Google / Meta), distinct from Subscription Source (the CRM tag).
+    // When present, Lead Attribution compares the two straight from the snapshot.
+    lead_source:                      find('lead source', 'original source', 'first source', 'attribution source', 'marketing source', 'utm source', 'ad source', 'campaign source', 'ghl source', 'gohighlevel source'),
   };
   if (cols.customer_id < 0) throw new Error('Missing required column: Customer ID');
   if (cols.subscription < 0) throw new Error('Missing required column: Subscription');
@@ -23329,6 +23333,7 @@ function parseReportingCsv(text) {
       recurring_frequency:              textOrNull(pick(r, cols.recurring_frequency)),
       phone:                            textOrNull(pick(r, cols.phone)),
       email:                            textOrNull(pick(r, cols.email)),
+      lead_source:                      textOrNull(pick(r, cols.lead_source)),
     });
   }
   return rows;
@@ -25805,13 +25810,13 @@ function reportingIsPacer() {
   const annual = (goalRow.projected_revenue != null && Number(goalRow.projected_revenue) !== NA)
     ? Number(goalRow.projected_revenue)
     : (IS_ANNUAL_GOAL[String(yr)] != null ? IS_ANNUAL_GOAL[String(yr)] : null);
-  // Monthly goal: manual override → model projection → annual × seasonal.
-  const projAt = (m) => {
+  // Monthly goal = the annual goal box (top-right) × the seasonal allocation.
+  // A hand-entered monthly override still wins if one was ever set.
+  const goalAt = (m) => {
     const v = MAN[yr + '-' + String(m + 1).padStart(2, '0')]?.projected_revenue;
     if (v != null && Number(v) !== NA) return Number(v);
-    return isProjectionAt(yr + '-' + String(m + 1).padStart(2, '0'), 'projected_revenue');
+    return annual != null ? annual * IS_SEASONAL[m] : null;
   };
-  const goalAt = (m) => { const p = projAt(m); if (p != null) return p; return annual != null ? annual * IS_SEASONAL[m] : null; };
   const usd0 = (v) => v == null ? '—' : '$' + Math.round(v).toLocaleString();
   const ytdAct = act.slice(0, curM + 1).reduce((s, v) => s + v, 0);
   let ytdGoal = 0, anyGoal = false;
@@ -25868,15 +25873,55 @@ function reportingIsPacer() {
 
 // Consolidated Marketing tab = the Inside Sales P&L, topped with the two charts
 // the CMO wanted: marketing spend vs IS revenue, and GHL leads by source.
-function reportingMarketingPnl() {
-  // Lazy-fetch GoHighLevel leads (same Netlify function the old marketing page used).
-  if (state.reportingGhlLeads == null && !state._ghlLoading) {
-    state._ghlLoading = true;
-    fetch('/api/ghl-leads', { headers: { accept: 'application/json' } })
-      .then(r => r.ok ? r.json() : null)
-      .then(j => { state.reportingGhlLeads = (j && j.bySourceMonth) ? j : {}; state._ghlLoading = false; mountApp(); })
-      .catch(() => { state.reportingGhlLeads = {}; state._ghlLoading = false; mountApp(); });
+// Incrementally pull GoHighLevel leads. A high-volume location can't be paged
+// in one serverless call (24s budget), which left only the latest month and
+// made the chart's range filter look broken. We now resume from the cursor the
+// function returns, MERGING each budget-bounded slice into one accumulator and
+// persisting it to localStorage, so the full 365-day history fills in over a few
+// background calls and survives reloads.
+function reportingLoadGhlLeads() {
+  if (state._ghlLoading || state._ghlDone) return;
+  // Restore a prior session's accumulated pull before the first network call.
+  if (state.reportingGhlLeads == null && !state._ghlRestored) {
+    state._ghlRestored = true;
+    try {
+      const c = JSON.parse(localStorage.getItem('ridd_ghl_leads') || 'null');
+      if (c && c.data) { state.reportingGhlLeads = c.data; state._ghlCursor = c.cursor || null; state._ghlDone = !!c.done; }
+    } catch (e) {}
+    if (state._ghlDone) return; // cached full history
   }
+  state._ghlLoading = true;
+  const url = '/api/ghl-leads' + (state._ghlCursor ? ('?after=' + encodeURIComponent(JSON.stringify(state._ghlCursor))) : '');
+  fetch(url, { headers: { accept: 'application/json' } })
+    .then(r => r.ok ? r.json() : null)
+    .then(j => {
+      state._ghlLoading = false;
+      if (!j) { state.reportingGhlLeads = state.reportingGhlLeads || {}; mountApp(); return; }
+      const acc = (state.reportingGhlLeads && state.reportingGhlLeads.bySourceMonth)
+        ? state.reportingGhlLeads : { bySourceMonth: {}, leadsBySource: {}, total: 0 };
+      const bsm = j.bySourceMonth || {};
+      for (const ym in bsm) { acc.bySourceMonth[ym] = acc.bySourceMonth[ym] || {}; for (const s in bsm[ym]) acc.bySourceMonth[ym][s] = (acc.bySourceMonth[ym][s] || 0) + bsm[ym][s]; }
+      const lbs = j.leadsBySource || {}; for (const s in lbs) acc.leadsBySource[s] = (acc.leadsBySource[s] || 0) + lbs[s];
+      acc.total = (acc.total || 0) + (j.total || 0);
+      acc.pulledAt = j.pulledAt;
+      state._ghlCursor = j.nextAfter || null;
+      state._ghlDone = !!j.done || !state._ghlCursor;
+      acc.partial = !state._ghlDone;
+      state.reportingGhlLeads = acc;
+      try { localStorage.setItem('ridd_ghl_leads', JSON.stringify({ data: acc, cursor: state._ghlCursor, done: state._ghlDone })); } catch (e) {}
+      mountApp();
+      if (!state._ghlDone) setTimeout(reportingLoadGhlLeads, 500); // keep gathering older months
+    })
+    .catch(() => { state._ghlLoading = false; state.reportingGhlLeads = state.reportingGhlLeads || {}; mountApp(); });
+}
+function reportingRefreshGhlLeads() {
+  state.reportingGhlLeads = null; state._ghlCursor = null; state._ghlDone = false; state._ghlRestored = true; state._ghlLoading = false;
+  try { localStorage.removeItem('ridd_ghl_leads'); } catch (e) {}
+  reportingLoadGhlLeads();
+}
+
+function reportingMarketingPnl() {
+  reportingLoadGhlLeads();
   return el('div', { class: 'flex flex-col gap-4' },
     reportingIsPacer(),
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4' },
@@ -25970,13 +26015,21 @@ function reportingCanonSource(raw) {
 function reportingMktgLeadsChart() {
   const id = 'mktgLeads';
   const L = state.reportingGhlLeads;
+  const loadingMore = !!state._ghlLoading || (!state._ghlDone && !!state._ghlCursor);
+  const refreshBtn = el('button', {
+    class: 'text-[11px] font-semibold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text-muted)' },
+    title: 'Re-pull leads from GoHighLevel',
+    onclick: () => reportingRefreshGhlLeads(),
+  }, loadingMore ? '⏳ loading…' : '↻ refresh');
   const card = (inner, filter) => el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-start justify-between gap-2' },
       el('div', {},
         el('h3', { class: 'text-base font-bold mb-1' }, 'Leads by Source'),
         el('div', { class: 'text-[11px] text-muted- mb-3' },
-          'Monthly GoHighLevel leads, stacked by source' + (L && L.partial ? ' · ⚠ partial pull — oldest months may be incomplete' : ''))),
-      filter || null),
+          'Monthly GoHighLevel leads, stacked by source'
+          + (loadingMore ? ' · loading older months…' : (L && L.partial ? ' · ⚠ partial pull' : '')))),
+      el('div', { class: 'flex items-center gap-2' }, filter || null, refreshBtn)),
     inner);
   if (!L || !L.bySourceMonth || !Object.keys(L.bySourceMonth).length) {
     return card(el('div', { class: 'p-8 text-center text-xs text-muted- italic' },
@@ -26061,7 +26114,21 @@ function parseLeadsCsv(text) {
 }
 
 function reportingLeadAttribution() {
-  const leads = state.reportingLeadRows;
+  // Prefer a separately-uploaded leads CSV; otherwise, if the loaded snapshot
+  // carries a lead-source column, synthesize the leads straight from it — no
+  // separate upload needed.
+  let leads = state.reportingLeadRows;
+  let fromSnapshot = false;
+  if (!leads || !leads.length) {
+    const withLS = (state.reportingSubscriptions || []).filter(r => r.lead_source && String(r.lead_source).trim());
+    if (withLS.length) {
+      leads = withLS.map(r => {
+        const l = (r.last_name || '').trim(), f = (r.first_name || '').trim();
+        return { phone: r.phone, email: r.email, source: r.lead_source, name: (l && f) ? (l + ', ' + f) : (l || f || r.customer_id || '') };
+      });
+      fromSnapshot = true;
+    }
+  }
   const fileInput = el('input', {
     type: 'file', accept: '.csv,.txt', style: { display: 'none' },
     onchange: (e) => {
@@ -26093,14 +26160,17 @@ function reportingLeadAttribution() {
   const head = el('div', { class: 'flex items-start justify-between gap-3 flex-wrap mb-2' },
     el('div', {},
       el('h3', { class: 'text-base font-bold' }, 'Lead Attribution'),
-      el('div', { class: 'text-[11px] text-muted-' }, 'Match a leads CSV (phone + email) to sold customers, then check the CSV source against the CRM tag.')),
+      el('div', { class: 'text-[11px] text-muted-' },
+        fromSnapshot
+          ? 'Reading the lead source straight from the reporting snapshot and checking it against the CRM tag.'
+          : 'Match a leads CSV (phone + email) to sold customers, then check the CSV source against the CRM tag.')),
     el('div', { class: 'flex items-center gap-2' },
       leads && state.reportingLeadFile ? el('span', { class: 'text-[11px] text-muted-' }, state.reportingLeadFile) : null, clearBtn, uploadBtn));
 
   if (!leads || !leads.length) {
     return el('div', { class: 'card p-4' }, head,
       el('div', { class: 'p-6 text-center text-xs text-muted- italic' },
-        'Upload a CSV with phone and email columns (plus a source column). Phone matches on the last 10 digits, so a leading 1 or any formatting won\'t matter.'));
+        'Add a lead-source column (e.g. "Lead Source" / "Original Source") to your Customer Report export and it shows here automatically — or upload a separate leads CSV with phone + email. Phone matches on the last 10 digits, so a leading 1 or formatting won\'t matter.'));
   }
 
   // Customer contact index from the loaded snapshot (needs phone/email columns).
@@ -26308,8 +26378,14 @@ function reportingInsideSales() {
     style: { background: opts.section ? 'var(--card-2)' : 'var(--card)', color: opts.muted ? 'var(--text-muted)' : 'var(--text)', zIndex: 1 },
   }, label);
   const tr = (...cells) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...cells);
-  const sectionRow = (label) => el('tr', {},
-    el('td', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest font-bold sticky left-0', style: { background: 'var(--card-2)', color: 'var(--text-subtle)', zIndex: 1 } }, label),
+  // Collapsible section headers — click to expand/collapse the rows beneath.
+  const collapsed = state._isPnlCollapsed || (state._isPnlCollapsed = {});
+  const sectionRow = (label) => el('tr', {
+    class: 'cursor-pointer', title: 'Click to expand/collapse',
+    onclick: () => { collapsed[label] = !collapsed[label]; mountApp(); },
+  },
+    el('td', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest font-bold sticky left-0 select-none', style: { background: 'var(--card-2)', color: 'var(--text-subtle)', zIndex: 1 } },
+      (collapsed[label] ? '▸ ' : '▾ ') + label),
     ...periods.map(() => el('td', { style: { background: 'var(--card-2)' } })));
 
   const autoRow = (label, valFn, fmt, shadeFn, opts = {}) => tr(
@@ -26341,52 +26417,48 @@ function reportingInsideSales() {
   // line up beside the actual rows below for a clean projection-vs-actual read.
   const curM0 = new Date().getMonth();
   const projOf = (p, field) => isProjectionAt(p, field, nowY, curM0);
-  const body = el('tbody', {},
-    sectionRow('Projected (from model)'),
-    autoRow('Projected Revenue',  p => projOf(p, 'projected_revenue'),  usd, null),
-    autoRow('Projected Ad Spend', p => projOf(p, 'projected_ad_spend'), usd, null),
-    autoRow('Projected Wages',    p => projOf(p, 'projected_wages'),    usd, null),
-    autoRow('Projected Total Spend', p => {
-      const a = projOf(p, 'projected_ad_spend'), w = projOf(p, 'projected_wages');
-      return (a == null && w == null) ? null : (a || 0) + (w || 0);
-    }, usd, null, { bold: true }),
-
-    sectionRow('Revenue (auto · office staff · sold date · payment on file)'),
-    autoRow('Serviced New Revenue', p => G(p).newRevSvc, usd, null, { indent: true }),
-    autoRow('New Revenue (Sold)',   p => G(p).newRev,    usd, null),
-    autoRow('TOTAL IS REVENUE',     p => revAt(p),       usd, null, { bold: true }),
-
-    sectionRow('Marketing Spend (auto · QuickBooks + Windsor)'),
-    ...channels.map(ch => autoRow(ch, p => spendAt(ch, p) || null, usd, null, { indent: true, muted: true })),
-    autoRow('ACTUAL MARKETING SPEND', p => mktAt(p), usd, null, { bold: true }),
-
-    sectionRow('Payroll & Calls (manual)'),
-    manualRow('Wages',           'wages'),
-    manualRow('Incentive Costs', 'incentive_costs'),
-    manualRow('Total Calls',     'total_calls'),
-    manualRow('Qualified Calls (Lace)', 'qualified_calls'),
-    autoRow('TOTAL SPEND', p => totalSpendAt(p) || null, usd, null, { bold: true }),
-
-    sectionRow('Stats'),
-    autoRow('Blended ROAS', p => { const m = mktAt(p); return m > 0 ? revAt(p) / m : null; }, x2,
-      (v) => shade(v, x => x >= 3, x => x < 2), { bold: true }),
-    autoRow('MoM Revenue Change', p => { const pm = prevMonth(p); if (!pm) return null; const a = revAt(pm); return a > 0 ? (revAt(p) - a) / a : null; }, pct,
-      (v) => shade(v, x => x > 0, x => x < -0.1)),
-    autoRow('% Marketing of IS Revenue', p => { const r = revAt(p); return r > 0 ? mktAt(p) / r : null; }, pct,
-      (v) => shade(v, x => x <= 0.30, x => x > 0.40)),
-    autoRow('% Wages of IS Revenue', p => { const r = revAt(p), w = wagesAt(p); return (r > 0 && w != null) ? w / r : null; }, pct,
-      (v) => shade(v, x => x <= 0.25, x => x > 0.40)),
-    autoRow('% Incentives of IS Revenue', p => { const r = revAt(p), i = incAt(p); return (r > 0 && i != null) ? i / r : null; }, pct, null),
-    autoRow('Subscriptions Sold (#)', p => G(p).sold || null, num, null),
-    autoRow('Close Rate (sold / qualified calls)', p => { const q = manAt(p, 'qualified_calls'); return q > 0 ? G(p).sold / q : null; }, pct,
-      (v) => shade(v, x => x >= 0.20, x => x < 0.12)),
-    autoRow('Weighted ACV', p => { const a = G(p); return a.sold > 0 ? a.cv / a.sold : null; }, usd, null),
-    autoRow('Wages per Job', p => { const w = wagesAt(p), a = G(p); return (w != null && a.sold > 0) ? w / a.sold : null; }, usd, null),
-    autoRow('Cost per Lead (calls)', p => { const c = manAt(p, 'total_calls'); return c > 0 ? mktAt(p) / c : null; }, usd, null),
-    autoRow('Cost per Qualified Lead (Lace)', p => { const q = manAt(p, 'qualified_calls'); return q > 0 ? mktAt(p) / q : null; }, usd, null),
-    autoRow('Cost per Job', p => { const a = G(p); return a.sold > 0 ? mktAt(p) / a.sold : null; }, usd,
-      (v) => shade(v, x => x <= 350, x => x > 500)),
-  );
+  // Each section's rows are built lazily so a collapsed section skips the work.
+  const SECTIONS = [
+    { label: 'Projected (from model)', rows: () => [
+      autoRow('Projected Revenue',  p => projOf(p, 'projected_revenue'),  usd, null),
+      autoRow('Projected Ad Spend', p => projOf(p, 'projected_ad_spend'), usd, null),
+      autoRow('Projected Wages',    p => projOf(p, 'projected_wages'),    usd, null),
+      autoRow('Projected Total Spend', p => { const a = projOf(p, 'projected_ad_spend'), w = projOf(p, 'projected_wages'); return (a == null && w == null) ? null : (a || 0) + (w || 0); }, usd, null, { bold: true }),
+    ] },
+    { label: 'Revenue (auto · office staff · sold date · payment on file)', rows: () => [
+      autoRow('Serviced New Revenue', p => G(p).newRevSvc, usd, null, { indent: true }),
+      autoRow('New Revenue (Sold)',   p => G(p).newRev,    usd, null),
+      autoRow('TOTAL IS REVENUE',     p => revAt(p),       usd, null, { bold: true }),
+    ] },
+    { label: 'Marketing Spend (auto · QuickBooks + Windsor)', rows: () => [
+      ...channels.map(ch => autoRow(ch, p => spendAt(ch, p) || null, usd, null, { indent: true, muted: true })),
+      autoRow('ACTUAL MARKETING SPEND', p => mktAt(p), usd, null, { bold: true }),
+    ] },
+    { label: 'Payroll & Calls (manual)', rows: () => [
+      manualRow('Wages',           'wages'),
+      manualRow('Incentive Costs', 'incentive_costs'),
+      manualRow('Total Calls',     'total_calls'),
+      manualRow('Qualified Calls (Lace)', 'qualified_calls'),
+      autoRow('TOTAL SPEND', p => totalSpendAt(p) || null, usd, null, { bold: true }),
+    ] },
+    { label: 'Stats', rows: () => [
+      autoRow('Blended ROAS', p => { const m = mktAt(p); return m > 0 ? revAt(p) / m : null; }, x2, (v) => shade(v, x => x >= 3, x => x < 2), { bold: true }),
+      autoRow('MoM Revenue Change', p => { const pm = prevMonth(p); if (!pm) return null; const a = revAt(pm); return a > 0 ? (revAt(p) - a) / a : null; }, pct, (v) => shade(v, x => x > 0, x => x < -0.1)),
+      autoRow('% Marketing of IS Revenue', p => { const r = revAt(p); return r > 0 ? mktAt(p) / r : null; }, pct, (v) => shade(v, x => x <= 0.30, x => x > 0.40)),
+      autoRow('% Wages of IS Revenue', p => { const r = revAt(p), w = wagesAt(p); return (r > 0 && w != null) ? w / r : null; }, pct, (v) => shade(v, x => x <= 0.25, x => x > 0.40)),
+      autoRow('% Incentives of IS Revenue', p => { const r = revAt(p), i = incAt(p); return (r > 0 && i != null) ? i / r : null; }, pct, null),
+      autoRow('Subscriptions Sold (#)', p => G(p).sold || null, num, null),
+      autoRow('Close Rate (sold / qualified calls)', p => { const q = manAt(p, 'qualified_calls'); return q > 0 ? G(p).sold / q : null; }, pct, (v) => shade(v, x => x >= 0.20, x => x < 0.12)),
+      autoRow('Weighted ACV', p => { const a = G(p); return a.sold > 0 ? a.cv / a.sold : null; }, usd, null),
+      autoRow('Wages per Job', p => { const w = wagesAt(p), a = G(p); return (w != null && a.sold > 0) ? w / a.sold : null; }, usd, null),
+      autoRow('Cost per Lead (calls)', p => { const c = manAt(p, 'total_calls'); return c > 0 ? mktAt(p) / c : null; }, usd, null),
+      autoRow('Cost per Qualified Lead (Lace)', p => { const q = manAt(p, 'qualified_calls'); return q > 0 ? mktAt(p) / q : null; }, usd, null),
+      autoRow('Cost per Job', p => { const a = G(p); return a.sold > 0 ? mktAt(p) / a.sold : null; }, usd, (v) => shade(v, x => x <= 350, x => x > 500)),
+    ] },
+  ];
+  const bodyKids = [];
+  for (const sec of SECTIONS) { bodyKids.push(sectionRow(sec.label)); if (!collapsed[sec.label]) bodyKids.push(...sec.rows()); }
+  const body = el('tbody', {}, ...bodyKids);
 
   const needsSchema = rowsAll.length > 0 && !anySoldDate;
   return el('div', { class: 'flex flex-col gap-3' },
