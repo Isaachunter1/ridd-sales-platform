@@ -4009,10 +4009,13 @@ function _parseIndicatorDay(s) {
 //   Techs  — Source "Upsell - Service Pro" / "Upsell - Termite Pro"
 //   Office — everything else (inside sales, web, renewals, etc.)
 const _IND_TECH_SOURCES = new Set(['upsell - service pro', 'upsell - termite pro']);
-// Renewal detection for uploaded indicator sales — renewal sources are named
-// "Renewal - Inbound / Loyalty / Outbound / Service Pro Upsell".
-const _IND_RENEWAL_RE = /renewal/i;
-function _indicatorIsRenewal(s) { return _IND_RENEWAL_RE.test(s && s.source ? String(s.source) : ''); }
+// Renewal detection for uploaded indicator sales. Now reads the SAME source
+// revenue classification as reporting (Configurations → Lead Sources): a source
+// counts as a renewal when its Revenue Type is Renewal. With no override it
+// falls back to the name rule (…Renewal…), so default behavior is unchanged —
+// but an admin retag in one place now applies to indicators too.
+const _IND_RENEWAL_RE = /renewal/i; // legacy default, retained for reference
+function _indicatorIsRenewal(s) { return reportingSourceClass(s && s.source ? String(s.source) : '') === 'renewal'; }
 // Service types RIDD excludes by default from all reporting (mirrors the CRM's
 // Global excluded service types) — fees, chargebacks, follow-ups, inspections,
 // removals, etc. that aren't real new production. Matched on the subscription
@@ -27886,6 +27889,16 @@ function adminConfigurations() {
       el('h2', { class: 'text-lg font-bold' }, 'Configurations'),
       el('p', { class: 'text-xs text-muted- mt-0.5' },
         'Service lifecycle, lead sources, and cancel-reason rules. These apply to both the Reporting and Indicators tabs.'),
+    ),
+    // Revenue rules explainer — how the three dimensions combine into a single
+    // app-wide definition of how revenue is counted.
+    el('div', { class: 'card p-3', style: { background: 'var(--card-2)' } },
+      el('div', { class: 'text-[11px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-subtle)' } }, 'How revenue is counted'),
+      el('div', { class: 'text-xs text-muted- leading-relaxed' },
+        'Three dimensions decide how every sale is counted, the same way everywhere: ',
+        el('b', {}, 'Rep type'), ' (Sold By Type from the Customer Report — Marketing/Inside Sales counts Office Staff only); ',
+        el('b', {}, 'Source'), ' (Revenue Type below — New, Renewal, or Upsell; renewals are excluded from new-business pace); and ',
+        el('b', {}, 'Cancellation reason'), ' (whether a cancel counts as real attrition). Set Source and Cancellation rules here; rep type comes straight from the report.'),
     ),
     el('div', { class: 'flex flex-col gap-4' },
       reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()),
