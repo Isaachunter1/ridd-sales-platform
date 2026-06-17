@@ -19,6 +19,12 @@ create table if not exists public.reporting_source_config (
   updated_by uuid references auth.users(id)
 );
 
+-- Revenue classification per source: 'new' | 'renewal' | 'upsell'. NULL = follow
+-- the name-based default in-app (…Renewal…→renewal, …Upsell…→upsell, else new).
+-- Drives how the Inside Sales pace and P&L count each source's revenue.
+alter table public.reporting_source_config
+  add column if not exists revenue_class text;
+
 alter table public.reporting_source_config enable row level security;
 
 drop policy if exists "reporting_source_config: admin all" on public.reporting_source_config;

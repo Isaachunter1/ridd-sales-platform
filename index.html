@@ -23719,6 +23719,19 @@ function reportingExcludedSources() {
 function reportingSourceOf(r) {
   return (r.subscription_source || '').trim() || 'Unspecified';
 }
+// Revenue classification of a lead source — the single source of truth for how
+// the app counts revenue from that source: 'new', 'renewal', or 'upsell'.
+// Admin override lives in reporting_source_config.revenue_class (Configurations →
+// Lead Sources); when unset it falls back to the source NAME (the historical
+// rule): "…Renewal…" → renewal, "…Upsell…" → upsell, everything else → new.
+function reportingSourceClass(sourceName) {
+  const name = String(sourceName || '').trim();
+  const cfg = (state.reportingSourceConfig || []).find(c => c.source === name);
+  if (cfg && cfg.revenue_class) return cfg.revenue_class;
+  if (/renewal/i.test(name)) return 'renewal';
+  if (/upsell/i.test(name))  return 'upsell';
+  return 'new';
+}
 
 // Filters + flag helpers used by every chart. Centralized so the rules
 // (hide hidden services, exclude 3-day RORs from churn, etc.) live in
@@ -25600,11 +25613,21 @@ function reportingSourceConfigPanel() {
     const idx = cfg.findIndex(c => c.source === source);
     if (idx >= 0) cfg[idx] = next; else cfg.push(next);
     if (DEMO) { saveDemoData(); return; }
+    // Don't send revenue_class unless it's actually been set — keeps the
+    // Included toggle working even before reporting_source_config gains the
+    // revenue_class column (a null/absent send would 400 on the missing column).
+    const payload = { ...next };
+    if (payload.revenue_class == null && !('revenue_class' in patch)) {
+      delete payload.revenue_class;
+    }
     const { error } = await supabase
       .from('reporting_source_config')
-      .upsert(next, { onConflict: 'source' });
+      .upsert(payload, { onConflict: 'source' });
     if (error) {
-      toast('Save failed: ' + error.message, 'error');
+      const hint = /revenue_class/.test(error.message || '')
+        ? ' — add the column first: ALTER TABLE reporting_source_config ADD COLUMN revenue_class text;'
+        : '';
+      toast('Save failed: ' + error.message + hint, 'error');
       if (idx >= 0) cfg[idx] = existing; else cfg.splice(cfg.length - 1, 1);
       mountApp();
     }
@@ -25614,9 +25637,8 @@ function reportingSourceConfigPanel() {
     el('div', { class: 'flex items-center gap-2 mb-3' },
       el('h2', { class: 'text-base font-bold' }, 'Lead Sources'),
       configInfoBtn('Lead Sources',
-        'Exclude lead sources from all snapshot reporting (Overview, Geographic, Rep Performance, Waterfall, Inside Sales). ' +
-        'Excluded sources — e.g. Miscellaneous — drop out everywhere at once. Counts shown are total subs per source in the current snapshot. ' +
-        'The Marketing tab pulls from a separate data source and is unaffected.'),
+        'Two controls per source. Revenue Type classifies it as New, Renewal, or Upsell — the single rule the Inside Sales pace and P&L read (renewals are excluded from new-business pace; upsells bucket separately). Defaults follow the source name. ' +
+        'In Reporting excludes a source from all snapshot reporting (Overview, Geographic, Rep Performance, Waterfall, Inside Sales) — e.g. Miscellaneous drops out everywhere at once. Counts are total subs per source in the current snapshot.'),
     ),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Lead sources appear here after you upload a snapshot.')
@@ -25626,6 +25648,7 @@ function reportingSourceConfigPanel() {
               el('tr', {},
                 el('th', { class: 'text-left pl-3 pr-2 py-2 font-semibold' }, 'Lead Source'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Subs'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Revenue Type'),
                 el('th', { class: 'text-left pr-3 pl-2 py-2 font-semibold' }, 'In Reporting'),
               ),
             ),
@@ -25654,9 +25677,24 @@ function reportingSourceConfigPanel() {
                   paint(nowExcluded);
                   row.style.opacity = nowExcluded ? '0.6' : '1';
                 };
+                // Revenue Type — New / Renewal / Upsell. Blank value = follow the
+                // name-based default, which the "Auto" label spells out.
+                const nameDefault = /renewal/i.test(source) ? 'renewal' : /upsell/i.test(source) ? 'upsell' : 'new';
+                const setClass = c.revenue_class || '';
+                const classSelect = el('select', {
+                  class: 'rounded border px-1.5 py-1 text-xs cursor-pointer',
+                  style: { borderColor: 'var(--border-2)', background: 'transparent', color: 'var(--text)' },
+                  onchange: (e) => { c.revenue_class = e.target.value || null; updateSourceConfig(source, { revenue_class: e.target.value || null }); },
+                },
+                  el('option', { value: '',        selected: setClass === '' },        'Auto (' + nameDefault + ')'),
+                  el('option', { value: 'new',     selected: setClass === 'new' },     'New'),
+                  el('option', { value: 'renewal', selected: setClass === 'renewal' }, 'Renewal'),
+                  el('option', { value: 'upsell',  selected: setClass === 'upsell' },  'Upsell'),
+                );
                 row.append(
                   el('td', { class: 'pl-3 pr-2 py-1.5 font-medium' }, source),
                   el('td', { class: 'px-2 py-1.5 text-left tabular-nums text-muted-' }, (counts.get(source) || 0).toLocaleString()),
+                  el('td', { class: 'px-2 py-1.5 text-left' }, classSelect),
                   el('td', { class: 'pr-3 pl-2 py-1.5 text-left' }, pill),
                 );
                 return row;
@@ -25720,8 +25758,10 @@ function reportingIsPacer() {
     const sd = r.sold_date; if (!sd || !String(sd).startsWith(yr + '-')) continue;
     const src = (r.subscription_source || '').trim();
     if (isExcl.has(src || 'Unspecified')) continue;
-    if (/renewal/i.test(src)) continue; // exclude renewals — IS pace tracks NEW production only
-    if (!IS_SOURCES.has(src) && !IS_UPSELL_SOURCES.has(src)) continue;
+    const cls = reportingSourceClass(src);
+    if (cls === 'renewal') continue;                  // renewals never count toward IS pace
+    const isUp = cls === 'upsell';
+    if (!isUp && !IS_SOURCES.has(src)) continue;       // else must be an inside-sales source
     if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue;
     act[Number(String(sd).slice(5, 7)) - 1] += Number(r.annual_recurring_value) || 0;
   }
@@ -25967,7 +26007,10 @@ function reportingInsideSales() {
     anySoldDate = true;
     const src = (r.subscription_source || '').trim();
     if (isExcludedSource.has(src || 'Unspecified')) continue; // Configurations exclusion
-    const isIS = IS_SOURCES.has(src), isUp = IS_UPSELL_SOURCES.has(src);
+    const cls = reportingSourceClass(src);
+    if (cls === 'renewal') continue;                      // renewals excluded from IS revenue
+    const isUp = cls === 'upsell';
+    const isIS = !isUp && IS_SOURCES.has(src);
     if (!isIS && !isUp) continue;
     if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue; // committed sold
     const arv = Number(r.annual_recurring_value) || 0;
