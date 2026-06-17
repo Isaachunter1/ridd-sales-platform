@@ -26435,19 +26435,23 @@ function reportingInsideSales() {
   const GOOD = 'rgba(141,198,63,.18)', BAD = 'rgba(220,38,38,.14)';
   const shade = (v, goodIf, badIf) => v == null ? '' : (goodIf(v) ? GOOD : (badIf(v) ? BAD : ''));
 
+  // Excel-style cells: full gridlines, dense rows, right-aligned numbers.
+  const GRID = '1px solid var(--border)';
   const td = (content, bg, opts = {}) => el('td', {
-    class: 'px-2.5 py-1.5 text-right tabular-nums whitespace-nowrap text-xs' + (opts.bold ? ' font-bold' : ''),
-    style: { background: bg || 'transparent', borderLeft: '1px solid var(--border)' },
+    class: 'px-2.5 py-1 text-right tabular-nums whitespace-nowrap text-xs' + (opts.bold ? ' font-bold' : ''),
+    style: { background: bg || 'transparent', border: GRID },
   }, content);
   const inputCell = (p, field, opts = {}) => {
     const v = MAN[p]?.[field];
     const na = isNA(v);
-    return el('td', { class: 'px-1 py-0.5 text-right', style: { borderLeft: '1px solid var(--border)' } },
+    return el('td', { class: 'p-0 text-right', style: { border: GRID } },
       el('input', {
         type: opts.allowNA ? 'text' : 'number', inputmode: 'decimal',
         value: na ? 'N/A' : (v == null ? '' : v), placeholder: '—',
-        class: 'w-20 text-right text-xs rounded border px-1 py-0.5',
-        style: { background: 'var(--card)', borderColor: 'var(--border)', color: na ? 'var(--text-muted)' : 'var(--text)' },
+        class: 'w-full text-right text-xs px-2 py-1',
+        style: { background: 'transparent', border: 'none', outline: 'none', color: na ? 'var(--text-muted)' : 'var(--text)' },
+        onfocus: (e) => { e.target.style.background = 'rgba(141,198,63,.12)'; },
+        onblur: (e) => { e.target.style.background = 'transparent'; },
         onchange: (e) => {
           let val = e.target.value.trim();
           if (opts.allowNA && /^n\/?a$/i.test(val)) val = String(NA_SENTINEL);
@@ -26457,19 +26461,19 @@ function reportingInsideSales() {
       }));
   };
   const labelTd = (label, opts = {}) => el('td', {
-    class: 'px-3 py-1.5 text-xs whitespace-nowrap sticky left-0' + (opts.bold ? ' font-bold' : '') + (opts.indent ? ' pl-6' : ''),
-    style: { background: opts.section ? 'var(--card-2)' : 'var(--card)', color: opts.muted ? 'var(--text-muted)' : 'var(--text)', zIndex: 1 },
+    class: 'px-3 py-1 text-xs whitespace-nowrap sticky left-0' + (opts.bold ? ' font-bold' : '') + (opts.indent ? ' pl-6' : ''),
+    style: { background: opts.section ? 'var(--card-2)' : 'var(--card)', color: opts.muted ? 'var(--text-muted)' : 'var(--text)', zIndex: 1, border: GRID, borderRight: '2px solid var(--border-2)' },
   }, label);
-  const tr = (...cells) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...cells);
+  const tr = (...cells) => el('tr', {}, ...cells);
   // Collapsible section headers — click to expand/collapse the rows beneath.
   const collapsed = state._isPnlCollapsed || (state._isPnlCollapsed = {});
   const sectionRow = (label) => el('tr', {
     class: 'cursor-pointer', title: 'Click to expand/collapse',
     onclick: () => { collapsed[label] = !collapsed[label]; mountApp(); },
   },
-    el('td', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest font-bold sticky left-0 select-none', style: { background: 'var(--card-2)', color: 'var(--text-subtle)', zIndex: 1 } },
+    el('td', { class: 'px-3 py-1.5 text-[10px] uppercase tracking-widest font-bold sticky left-0 select-none', style: { background: 'var(--card-2)', color: 'var(--text-subtle)', zIndex: 1, border: GRID, borderRight: '2px solid var(--border-2)' } },
       (collapsed[label] ? '▸ ' : '▾ ') + label),
-    ...periods.map(() => el('td', { style: { background: 'var(--card-2)' } })));
+    ...periods.map(() => el('td', { style: { background: 'var(--card-2)', border: GRID } })));
 
   const autoRow = (label, valFn, fmt, shadeFn, opts = {}) => tr(
     labelTd(label, opts),
@@ -26489,10 +26493,10 @@ function reportingInsideSales() {
   const prevMonth = (p) => { if (p.length !== 7) return null; const i = allMonths.indexOf(p); return i > 0 ? allMonths[i - 1] : null; };
 
   const header = el('thead', { class: 'sticky top-0', style: { zIndex: 2 } }, el('tr', {},
-    el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-widest sticky left-0', style: { background: '#1D1D1D', color: '#fff', zIndex: 3 } }, 'Inside Sales (MO)'),
+    el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-widest sticky left-0', style: { background: '#1D1D1D', color: '#fff', zIndex: 3, border: '1px solid #333', borderRight: '2px solid #555' } }, 'Inside Sales (MO)'),
     ...periods.map(p => el('th', {
       class: 'px-2.5 py-2 text-right text-[10px] uppercase tracking-wider whitespace-nowrap' + (p.length === 4 ? ' font-black' : ' font-semibold'),
-      style: { background: '#1D1D1D', color: p.length === 4 ? 'var(--accent)' : '#fff' },
+      style: { background: '#1D1D1D', color: p.length === 4 ? 'var(--accent)' : '#fff', border: '1px solid #333' },
     }, colLabel(p)))));
 
   // Projections come from the PROJECTIONS tab of RIDD Reporting.xlsx (baked into
