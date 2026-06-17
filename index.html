@@ -25786,8 +25786,22 @@ function isProjectionAt(period, field, ytdYear, ytdMonth0) {
 }
 
 // Monthly + YTD pace vs goal. Monthly goal = hand-entered Projected Revenue
-// (P&L row) when set, else annual goal × seasonal curve. Annual goal is
-// editable here and stored in reporting_is_manual under period 'goal:<year>'.
+// (P&L row) when set, else annual goal × seasonal curve. The annual goal is
+// editable here and persisted LOCALLY (browser) so it works even when the
+// optional reporting_is_manual table isn't set up — no "save failed" toast.
+function isAnnualGoalFor(yr) {
+  const y = String(yr);
+  if (state._isAnnualGoal && state._isAnnualGoal[y] != null) return state._isAnnualGoal[y];
+  try { const v = localStorage.getItem('ridd_is_annual_goal_' + y); if (v != null && v !== '') return Number(v); } catch (e) {}
+  return IS_ANNUAL_GOAL[y] != null ? IS_ANNUAL_GOAL[y] : null;
+}
+function setAnnualGoalFor(yr, value) {
+  const y = String(yr);
+  if (!state._isAnnualGoal) state._isAnnualGoal = {};
+  const num = (value === '' || value == null) ? null : Number(value);
+  state._isAnnualGoal[y] = num;
+  try { if (num == null) localStorage.removeItem('ridd_is_annual_goal_' + y); else localStorage.setItem('ridd_is_annual_goal_' + y, String(num)); } catch (e) {}
+}
 function reportingIsPacer() {
   const rows = state.reportingSubscriptions || [];
   const MAN = state.reportingIsManual || {};
@@ -25805,11 +25819,8 @@ function reportingIsPacer() {
     if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue;
     act[Number(String(sd).slice(5, 7)) - 1] += Number(r.annual_recurring_value) || 0;
   }
-  const goalRow = MAN['goal:' + yr] || {};
-  // Annual goal: manual override → model goal ($4M for 2026) → none.
-  const annual = (goalRow.projected_revenue != null && Number(goalRow.projected_revenue) !== NA)
-    ? Number(goalRow.projected_revenue)
-    : (IS_ANNUAL_GOAL[String(yr)] != null ? IS_ANNUAL_GOAL[String(yr)] : null);
+  // Annual goal: whatever's in the box (persisted locally), else the model goal.
+  const annual = isAnnualGoalFor(yr);
   // Monthly goal = the annual goal box (top-right) × the seasonal allocation.
   // A hand-entered monthly override still wins if one was ever set.
   const goalAt = (m) => {
@@ -25841,7 +25852,8 @@ function reportingIsPacer() {
     onchange: (e) => {
       const v = e.target.value.replace(/[$,\s]/g, '');
       if (v !== '' && isNaN(Number(v))) { toast('Enter a number', 'error'); return; }
-      saveIsManual('goal:' + yr, 'projected_revenue', v).then(() => mountApp());
+      setAnnualGoalFor(yr, v);   // local persist — recomputes every monthly goal
+      mountApp();
     },
   });
 
@@ -25862,7 +25874,7 @@ function reportingIsPacer() {
         el('h3', { class: 'text-base font-bold mb-1' }, 'Inside Sales Pacer'),
         el('div', { class: 'text-[11px] text-muted-' }, 'Committed-sold revenue vs goal · monthly goal = your Projected Revenue cells, else seasonal curve × annual goal')),
       el('div', { class: 'flex items-center gap-2' },
-        el('span', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-subtle)' } }, yr + ' annual goal $'), goalInput)),
+        el('span', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-subtle)' } }, 'Annual goal $'), goalInput)),
     el('div', { class: 'flex gap-4 flex-wrap mb-3' },
       kpi('YTD Actual', usd0(ytdAct)),
       kpi('YTD Goal', anyGoal ? usd0(ytdGoal) : '—'),
@@ -26284,10 +26296,19 @@ function reportingInsideSales() {
     state._isManualLoading = true;
     loadIsManual().then(() => { state._isManualLoading = false; mountApp(); });
   }
+  // Marketing spend: pull LIVE from QuickBooks (/api/qbo-spend → Advertising &
+  // Marketing by branch by month). Falls back to the static is-spend.json
+  // snapshot if the QuickBooks function isn't configured yet (env vars unset).
   if (state.reportingIsSpend == null && !state._isSpendLoading) {
     state._isSpendLoading = true;
-    fetch('/is-spend.json').then(r => r.ok ? r.json() : {}).then(j => { state.reportingIsSpend = j || {}; mountApp(); })
-      .catch(() => { state.reportingIsSpend = {}; mountApp(); });
+    const useFile = () => fetch('/is-spend.json').then(r => r.ok ? r.json() : {})
+      .then(j => { state.reportingIsSpend = j || {}; state._isSpendSource = 'file'; state._isSpendLoading = false; mountApp(); })
+      .catch(() => { state.reportingIsSpend = {}; state._isSpendLoading = false; mountApp(); });
+    fetch('/api/qbo-spend').then(r => r.ok ? r.json() : null).then(j => {
+      if (j && j.bySourceMonth && Object.keys(j.bySourceMonth).length) {
+        state.reportingIsSpend = j.bySourceMonth; state._isSpendSource = 'QuickBooks'; state._isSpendPulledAt = j.pulledAt; state._isSpendLoading = false; mountApp();
+      } else { useFile(); }
+    }).catch(useFile);
   }
   const MAN = state.reportingIsManual || {};
   const SP  = state.reportingIsSpend  || {};
@@ -26430,16 +26451,18 @@ function reportingInsideSales() {
       autoRow('New Revenue (Sold)',   p => G(p).newRev,    usd, null),
       autoRow('TOTAL IS REVENUE',     p => revAt(p),       usd, null, { bold: true }),
     ] },
-    { label: 'Marketing Spend (auto · QuickBooks + Windsor)', rows: () => [
+    { label: 'Marketing Spend (' + (state._isSpendSource === 'QuickBooks' ? 'live · QuickBooks' : 'static snapshot — connect QuickBooks') + ')', rows: () => [
       ...channels.map(ch => autoRow(ch, p => spendAt(ch, p) || null, usd, null, { indent: true, muted: true })),
       autoRow('ACTUAL MARKETING SPEND', p => mktAt(p), usd, null, { bold: true }),
     ] },
-    { label: 'Payroll & Calls (manual)', rows: () => [
+    { label: 'Payroll (manual)', rows: () => [
       manualRow('Wages',           'wages'),
       manualRow('Incentive Costs', 'incentive_costs'),
-      manualRow('Total Calls',     'total_calls'),
-      manualRow('Qualified Calls (Lace)', 'qualified_calls'),
       autoRow('TOTAL SPEND', p => totalSpendAt(p) || null, usd, null, { bold: true }),
+    ] },
+    { label: 'Calls (manual)', rows: () => [
+      manualRow('Total Calls',     'total_calls'),
+      manualRow('Qualified Calls', 'qualified_calls'),
     ] },
     { label: 'Stats', rows: () => [
       autoRow('Blended ROAS', p => { const m = mktAt(p); return m > 0 ? revAt(p) / m : null; }, x2, (v) => shade(v, x => x >= 3, x => x < 2), { bold: true }),
