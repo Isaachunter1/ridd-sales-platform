@@ -49,6 +49,12 @@ function pickSource(c) {
   s = (s == null ? 'Unknown' : ('' + s)).trim();
   return s || 'Unknown';
 }
+// Normalize a phone to its core 10 digits (drop US country code + extensions).
+function phone10(v) {
+  let d = String(v == null ? '' : v).replace(/\D/g, '');
+  if (d.length === 11 && d[0] === '1') d = d.slice(1);
+  return d.length >= 10 ? d.slice(0, 10) : '';
+}
 async function fetchJSON(url, opts) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), FETCH_MS);
@@ -74,6 +80,7 @@ exports.handler = async (event) => {
 
   const leadsBySource = {};
   const bySourceMonth = {};
+  const contactsOut = [];   // per-lead {p:phone10, e:email, s:source} for attribution matching
   let total = 0, pages = 0, partial = false, sampleKeys = null, note = null;
   // Resume from the cursor the client saved on its previous call, so a
   // high-volume location's full 365-day history accumulates across several
@@ -104,6 +111,12 @@ exports.handler = async (event) => {
       total++;
       const m = added && ym(added);
       if (m) { (bySourceMonth[m] = bySourceMonth[m] || {}); bySourceMonth[m][src] = (bySourceMonth[m][src] || 0) + 1; }
+      // Per-lead identity for attribution matching (phone + email) plus the
+      // add date (YYYY-MM-DD) so the chart can filter by today/week/month.
+      const ph = phone10(c.phone || c.phoneNumber);
+      const em = String(c.email || '').trim().toLowerCase();
+      const dd = added ? new Date(added).toISOString().slice(0, 10) : '';
+      if (ph || em || dd) contactsOut.push({ p: ph, e: em, s: src, d: dd });
     }
 
     if (reachedCutoff) { done = true; break; }
@@ -117,6 +130,6 @@ exports.handler = async (event) => {
   return {
     statusCode: 200,
     headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=1800' },
-    body: JSON.stringify({ leadsBySource, bySourceMonth, total, pages, partial, done, nextAfter: done ? null : searchAfter, note, sampleKeys, pulledAt: new Date().toISOString() }),
+    body: JSON.stringify({ leadsBySource, bySourceMonth, contacts: contactsOut, total, pages, partial, done, nextAfter: done ? null : searchAfter, note, sampleKeys, pulledAt: new Date().toISOString() }),
   };
 };
