@@ -25701,7 +25701,9 @@ async function saveIsManual(period, field, value) {
 // Cumulative % of the annual goal expected by end of each month, and the
 // monthly seasonal allocation. Source: RIDD Reporting.xlsx, IS tab.
 const IS_PACER_CUM = [0.025, 0.055, 0.105, 0.20, 0.30, 0.42, 0.595, 0.74, 0.84, 0.93, 0.98, 1];
-const IS_SEASONAL  = [0.02, 0.03, 0.07, 0.11, 0.13, 0.14, 0.15, 0.13, 0.09, 0.06, 0.04, 0.03];
+// Month-over-month seasonal allocation (Jan→Dec). Sums to 100% and lines up
+// exactly with IS_PACER_CUM as its running total.
+const IS_SEASONAL  = [0.025, 0.03, 0.05, 0.095, 0.10, 0.12, 0.175, 0.145, 0.10, 0.09, 0.05, 0.02];
 
 // Monthly + YTD pace vs goal. Monthly goal = hand-entered Projected Revenue
 // (P&L row) when set, else annual goal × seasonal curve. Annual goal is
@@ -25718,6 +25720,7 @@ function reportingIsPacer() {
     const sd = r.sold_date; if (!sd || !String(sd).startsWith(yr + '-')) continue;
     const src = (r.subscription_source || '').trim();
     if (isExcl.has(src || 'Unspecified')) continue;
+    if (/renewal/i.test(src)) continue; // exclude renewals — IS pace tracks NEW production only
     if (!IS_SOURCES.has(src) && !IS_UPSELL_SOURCES.has(src)) continue;
     if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue;
     act[Number(String(sd).slice(5, 7)) - 1] += Number(r.annual_recurring_value) || 0;
