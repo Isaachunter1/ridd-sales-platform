@@ -2817,10 +2817,11 @@ function reportingAuditing() {
     const serviced = (Number(r.subscription_completed_services) || 0) > 0 || !!r.initial_service;
     if (serviced) { a.servicedRev += cv; a.serviced = true; a.servicedSubs += 1; }
     const subActive = (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
-    if (subActive) {
-      const dpd = Number(r.days_past_due) || 0;
-      if (dpd < 7) a.activeRev += cv;
-      else         a.agingRev += cv;
+    // Active = received an initial service AND is active (not cancelled), so Active
+    // is ALWAYS a subset of Serviced. Aging = the at-risk slice of Active 7+ days past due.
+    if (serviced && subActive) {
+      a.activeRev += cv;
+      if ((Number(r.days_past_due) || 0) >= 7) a.agingRev += cv;
     }
     if (r.subscription_date_canceled && !isExcludableRow(r)) a.cancelledRev += cv;
   }
@@ -2900,8 +2901,8 @@ function reportingAuditing() {
     // No Audit counts toward Passed (exempt = not a failure); Pending excluded.
     const passBase = s.passed + s.failed + s.noaudit;
     const passPct = passBase > 0 ? (s.passed + s.noaudit) / passBase : null;
-    // Revenue waterfall: Active = everything NOT cancelled (includes Aging).
-    const activeRev = s.soldRev - s.cancelledRev;
+    // Revenue waterfall: Active = serviced AND active (subset of Serviced; includes Aging).
+    const activeRev = s.activeRev;
     const cancelRate = s.soldRev > 0 ? s.cancelledRev / s.soldRev : null;
     const cancelIfAging = s.soldRev > 0 ? (s.cancelledRev + s.agingRev) / s.soldRev : null;
     const activeRetention = s.soldRev > 0 ? activeRev / s.soldRev : null;
@@ -2949,7 +2950,7 @@ function reportingAuditing() {
         group('Revenue · contract value', [
           tile('Sold', money(s.soldRev)),
           tile('Serviced', money(s.servicedRev)),
-          tile('Active', money(activeRev), 'not cancelled · incl. aging'),
+          tile('Active', money(activeRev), 'serviced & active · incl. aging'),
           tile('Cancelled', money(s.cancelledRev), null, s.cancelledRev > 0 ? bad : null),
           tile('Aging', money(s.agingRev), 'at-risk slice of Active', s.agingRev > 0 ? bad : null),
         ]),
@@ -2967,7 +2968,7 @@ function reportingAuditing() {
     const auditedN = s.passed + s.failed;
     const passBase = s.passed + s.failed + s.noaudit;
     const passPct = passBase > 0 ? (s.passed + s.noaudit) / passBase : null;
-    const activeRev = s.soldRev - s.cancelledRev;
+    const activeRev = s.activeRev;
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
     return el('tr', {
       class: 'border-t' + (opts.total ? '' : ' cursor-pointer hover:brightness-95 transition'),
@@ -3015,7 +3016,7 @@ function reportingAuditing() {
       case 'attrF':    { const r = rate(s.attr.failed); return r == null ? -1 : r; }
       case 'servicedRev': return s.servicedRev;
       case 'soldRev':     return s.soldRev;
-      case 'activeRev':   return s.soldRev - s.cancelledRev;
+      case 'activeRev':   return s.activeRev;
       case 'cancelledRev':return s.cancelledRev;
       case 'agingRev':    return s.agingRev;
       default:            return 0;
@@ -3040,7 +3041,7 @@ function reportingAuditing() {
       { id: 'pending', label: 'Pending', tip: 'No audit result yet — awaiting audit (no Passed / Failed / No-Audit flag).' },
       { id: 'servicedRev', label: 'Serviced Rev', tip: 'Contract value of accounts that have been serviced (an initial service / at least one completed service).' },
       { id: 'soldRev', label: 'Sold Rev', tip: 'Contract value across ALL sold accounts (everything, regardless of service or status).' },
-      { id: 'activeRev', label: 'Active Rev', tip: 'Contract value NOT cancelled — includes aging. Sold Rev − Cancelled Rev.' },
+      { id: 'activeRev', label: 'Active Rev', tip: 'Contract value of subscriptions that were SERVICED and are still active (not cancelled). Always ≤ Serviced Rev. Includes aging.' },
       { id: 'cancelledRev', label: 'Cancelled Rev', tip: 'Contract value of cancelled subscriptions (real cancels — ROR / Sold-Not-Started excluded).' },
       { id: 'agingRev', label: 'Aging Rev', tip: 'Contract value of non-cancelled subscriptions 7+ days past due — the at-risk slice inside Active.' },
       { id: 'passpct', label: 'Pass %', tip: '(Passed + No Audit) ÷ (Passed + Failed + No Audit). No-Audit counts as passed; Pending excluded.' },
