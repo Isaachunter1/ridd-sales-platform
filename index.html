@@ -23732,6 +23732,12 @@ function reportingSourceClass(sourceName) {
   if (/upsell/i.test(name))  return 'upsell';
   return 'new';
 }
+// Marketing / Inside Sales counts ONLY Office Staff accounts (the call center).
+// Door-to-door (Sales Rep) and technician upsells are excluded — rep type comes
+// from the Customer Report's "Sold By Type".
+function reportingIsOfficeStaff(r) {
+  return String((r && r.sold_by_type) || '').trim() === 'Office Staff';
+}
 
 // Filters + flag helpers used by every chart. Centralized so the rules
 // (hide hidden services, exclude 3-day RORs from churn, etc.) live in
@@ -25743,6 +25749,30 @@ const IS_PACER_CUM = [0.025, 0.055, 0.105, 0.20, 0.30, 0.42, 0.595, 0.74, 0.84, 
 // exactly with IS_PACER_CUM as its running total.
 const IS_SEASONAL  = [0.025, 0.03, 0.05, 0.095, 0.10, 0.12, 0.175, 0.145, 0.10, 0.09, 0.05, 0.02];
 
+// RIDD-level monthly projections (Jan→Dec), straight from the PROJECTIONS tab of
+// RIDD Reporting.xlsx — revenue goal $4M × seasonal curve × branch ramp. These
+// feed the P&L's Projected rows and the pacer so projections sit next to actuals.
+// Annual revenue GOAL is $4.0M; the monthly figures sum to $3.904M (Detroit ramps
+// up mid-year), which is why we keep the goal separate from the monthly sum.
+const IS_ANNUAL_GOAL = { '2026': 4000000 };
+const IS_PROJECTIONS = {
+  '2026': {
+    projected_revenue:  [88000, 105600, 176000, 334400, 400000, 480000, 700000, 580000, 400000, 360000, 200000, 80000],
+    projected_ad_spend: [35200, 42240, 70400, 133760, 140800, 168960, 246400, 204160, 140800, 126720, 70400, 28160],
+    projected_wages:    [13640, 16368, 27280, 51832, 54560, 65472, 95480, 79112, 54560, 49104, 27280, 10912],
+  },
+};
+// Projection value for a period + field. Period is 'YYYY-MM' (one month), a bare
+// 'YYYY' (full-year total), or the YTD sentinel (= sum Jan→current month).
+function isProjectionAt(period, field, ytdYear, ytdMonth0) {
+  const p = String(period);
+  const tbl = (y) => (IS_PROJECTIONS[String(y)] || {})[field] || null;
+  if (/^\d{4}-\d{2}$/.test(p)) { const t = tbl(p.slice(0, 4)); return t ? (t[Number(p.slice(5, 7)) - 1] ?? null) : null; }
+  if (ytdYear != null && p === String(ytdYear)) { const t = tbl(ytdYear); return t ? t.slice(0, (ytdMonth0 ?? 11) + 1).reduce((a, b) => a + b, 0) : null; }
+  if (/^\d{4}$/.test(p)) { const t = tbl(p); return t ? t.reduce((a, b) => a + b, 0) : null; }
+  return null;
+}
+
 // Monthly + YTD pace vs goal. Monthly goal = hand-entered Projected Revenue
 // (P&L row) when set, else annual goal × seasonal curve. Annual goal is
 // editable here and stored in reporting_is_manual under period 'goal:<year>'.
@@ -25758,16 +25788,22 @@ function reportingIsPacer() {
     const sd = r.sold_date; if (!sd || !String(sd).startsWith(yr + '-')) continue;
     const src = (r.subscription_source || '').trim();
     if (isExcl.has(src || 'Unspecified')) continue;
-    const cls = reportingSourceClass(src);
-    if (cls === 'renewal') continue;                  // renewals never count toward IS pace
-    const isUp = cls === 'upsell';
-    if (!isUp && !IS_SOURCES.has(src)) continue;       // else must be an inside-sales source
+    if (reportingSourceClass(src) === 'renewal') continue;  // renewals never count toward IS pace
+    if (!reportingIsOfficeStaff(r)) continue;               // Marketing = Office Staff accounts only
     if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue;
     act[Number(String(sd).slice(5, 7)) - 1] += Number(r.annual_recurring_value) || 0;
   }
   const goalRow = MAN['goal:' + yr] || {};
-  const annual = (goalRow.projected_revenue != null && Number(goalRow.projected_revenue) !== NA) ? Number(goalRow.projected_revenue) : null;
-  const projAt = (m) => { const v = MAN[yr + '-' + String(m + 1).padStart(2, '0')]?.projected_revenue; return (v == null || Number(v) === NA) ? null : Number(v); };
+  // Annual goal: manual override → model goal ($4M for 2026) → none.
+  const annual = (goalRow.projected_revenue != null && Number(goalRow.projected_revenue) !== NA)
+    ? Number(goalRow.projected_revenue)
+    : (IS_ANNUAL_GOAL[String(yr)] != null ? IS_ANNUAL_GOAL[String(yr)] : null);
+  // Monthly goal: manual override → model projection → annual × seasonal.
+  const projAt = (m) => {
+    const v = MAN[yr + '-' + String(m + 1).padStart(2, '0')]?.projected_revenue;
+    if (v != null && Number(v) !== NA) return Number(v);
+    return isProjectionAt(yr + '-' + String(m + 1).padStart(2, '0'), 'projected_revenue');
+  };
   const goalAt = (m) => { const p = projAt(m); if (p != null) return p; return annual != null ? annual * IS_SEASONAL[m] : null; };
   const usd0 = (v) => v == null ? '—' : '$' + Math.round(v).toLocaleString();
   const ytdAct = act.slice(0, curM + 1).reduce((s, v) => s + v, 0);
@@ -25847,28 +25883,36 @@ function reportingMarketingPnl() {
 const REPORTING_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const reportingMonthLbl = (ym) => { const [y, m] = ym.split('-'); return REPORTING_MONTH_ABBR[Number(m) - 1] + " '" + y.slice(2); };
 
-// Bars = monthly marketing spend (is-spend.json); line = monthly new recurring
-// revenue (ARR) for committed-sold Inside Sales accounts. Mirrors the chart the
-// CMO liked on the old marketing page, but from this tab's own data.
+// Year-over-year: grouped bars = monthly marketing spend (is-spend.json) for this
+// year vs last; two lines = monthly new recurring revenue (ARR) for committed-sold
+// Office-Staff accounts, this year vs last. X-axis is calendar months Jan→Dec.
 function reportingMktgSpendRevChart() {
   const id = 'mktgSpendRev';
   const rows = state.reportingSubscriptions || [];
   const SP = state.reportingIsSpend || {};
   const isExcl = reportingExcludedSources();
-  const rev = {};
+  const nowY = new Date().getFullYear();
+  const curY = String(nowY), prevY = String(nowY - 1);
+  const revByYM = {};
   for (const r of rows) {
     const sd = r.sold_date; if (!sd) continue;
     const src = (r.subscription_source || '').trim();
     if (isExcl.has(src || 'Unspecified')) continue;
-    if (!IS_SOURCES.has(src)) continue;
+    if (reportingSourceClass(src) === 'renewal') continue;
+    if (!reportingIsOfficeStaff(r)) continue;
     if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue;
     const ym = sd.slice(0, 7);
-    rev[ym] = (rev[ym] || 0) + (Number(r.annual_recurring_value) || 0);
+    revByYM[ym] = (revByYM[ym] || 0) + (Number(r.annual_recurring_value) || 0);
   }
-  const spend = {};
-  for (const ym in SP) { let s = 0; for (const ch in SP[ym]) s += SP[ym][ch] || 0; spend[ym] = s; }
-  const months = [...new Set([...Object.keys(rev), ...Object.keys(spend)])].sort().slice(-18);
-  const lbl = months.map(reportingMonthLbl);
+  const spendByYM = {};
+  for (const ym in SP) { let s = 0; for (const ch in SP[ym]) s += SP[ym][ch] || 0; spendByYM[ym] = s; }
+  const monthKeys = (y) => Array.from({ length: 12 }, (_, i) => y + '-' + String(i + 1).padStart(2, '0'));
+  const spendCur  = monthKeys(curY).map(k => spendByYM[k] || 0);
+  const spendPrev = monthKeys(prevY).map(k => spendByYM[k] || 0);
+  const revCur    = monthKeys(curY).map(k => revByYM[k] || 0);
+  const revPrev   = monthKeys(prevY).map(k => revByYM[k] || 0);
+  const hasPrev   = spendPrev.some(v => v > 0) || revPrev.some(v => v > 0);
+  const lbl = REPORTING_MONTH_ABBR;
   const cvsWrap = el('div', { style: { position: 'relative', height: '240px', width: '100%' } });
   const cvs = el('canvas', { id }); cvsWrap.append(cvs);
   setTimeout(() => {
@@ -25876,18 +25920,22 @@ function reportingMktgSpendRevChart() {
     const cvsEl = document.getElementById(id); if (!cvsEl) return;
     if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
     const isDark = state.theme === 'dark';
-    const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)', bar = isDark ? '#E6E6DC' : '#1D1D1D';
+    const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+    const barCur = isDark ? '#E6E6DC' : '#1D1D1D', barPrev = isDark ? '#6b6b63' : '#B8B8AE';
+    const datasets = [
+      { type: 'bar', label: 'Spend ' + curY, data: spendCur, backgroundColor: barCur, order: 3 },
+      ...(hasPrev ? [{ type: 'bar', label: 'Spend ' + prevY, data: spendPrev, backgroundColor: barPrev, order: 3 }] : []),
+      { type: 'line', label: 'IS Rev ' + curY, data: revCur, borderColor: '#8DC63F', backgroundColor: '#8DC63F', borderWidth: 2, tension: 0.3, fill: false, pointRadius: 2, order: 1 },
+      ...(hasPrev ? [{ type: 'line', label: 'IS Rev ' + prevY, data: revPrev, borderColor: '#8DC63F', backgroundColor: '#8DC63F', borderWidth: 2, borderDash: [5, 4], tension: 0.3, fill: false, pointRadius: 2, order: 2 }] : []),
+    ];
     _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
-      data: { labels: lbl, datasets: [
-        { type: 'bar', label: 'Marketing spend', data: months.map(m => spend[m] || 0), backgroundColor: bar, order: 2 },
-        { type: 'line', label: 'Inside Sales revenue (ARR sold)', data: months.map(m => rev[m] || 0), borderColor: '#8DC63F', backgroundColor: '#8DC63F', borderWidth: 2, tension: 0.3, fill: false, pointRadius: 2, order: 1 },
-      ] },
+      data: { labels: lbl, datasets },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } } }, scales: { x: { ticks: { color: txt }, grid: { color: grid } }, y: { beginAtZero: true, ticks: { color: txt, callback: v => '$' + (v >= 1000 ? (v / 1000) + 'k' : v) }, grid: { color: grid } } } },
     });
   }, 50);
   return el('div', { class: 'card p-4' },
     el('h3', { class: 'text-base font-bold mb-1' }, 'Marketing Spend vs Inside Sales Revenue'),
-    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Monthly · bars = marketing spend · line = new recurring revenue (ARR) sold'),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Year-over-year by month · bars = marketing spend · lines = new recurring revenue (ARR), office-staff sold · ' + curY + ' solid vs ' + prevY + ' dashed'),
     cvsWrap,
   );
 }
@@ -26007,18 +26055,14 @@ function reportingInsideSales() {
     anySoldDate = true;
     const src = (r.subscription_source || '').trim();
     if (isExcludedSource.has(src || 'Unspecified')) continue; // Configurations exclusion
-    const cls = reportingSourceClass(src);
-    if (cls === 'renewal') continue;                      // renewals excluded from IS revenue
-    const isUp = cls === 'upsell';
-    const isIS = !isUp && IS_SOURCES.has(src);
-    if (!isIS && !isUp) continue;
+    if (reportingSourceClass(src) === 'renewal') continue;    // renewals excluded from IS revenue
+    if (!reportingIsOfficeStaff(r)) continue;                 // Marketing = Office Staff accounts only
     if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue; // committed sold
     const arv = Number(r.annual_recurring_value) || 0;
     const cv  = Number(r.subscription_contract_value) || 0;
     for (const p of [sd.slice(0, 4), sd.slice(0, 7)]) {
       const a = A(p);
-      if (isIS) { a.newRev += arv; a.sold += 1; a.cv += cv; if (r.initial_service) a.newRevSvc += arv; }
-      else      { a.upsell += arv; }
+      a.newRev += arv; a.sold += 1; a.cv += cv; if (r.initial_service) a.newRevSvc += arv;
     }
   }
   const G = (p) => agg[p] || { newRev: 0, newRevSvc: 0, upsell: 0, sold: 0, cv: 0 };
@@ -26091,7 +26135,7 @@ function reportingInsideSales() {
   const usdOrNum = (field, v) => (field === 'total_calls' || field === 'qualified_calls') ? num(v) : usd(v);
 
   // Derived helpers per period
-  const revAt   = (p) => G(p).newRev + G(p).upsell;
+  const revAt   = (p) => G(p).newRev;   // office-staff new revenue (upsells excluded)
   const wagesAt = (p) => manAt(p, 'wages');
   const incAt   = (p) => manAt(p, 'incentive_costs');
   const totalSpendAt = (p) => mktAt(p) + (wagesAt(p) || 0) + (incAt(p) || 0);
@@ -26104,20 +26148,24 @@ function reportingInsideSales() {
       style: { background: '#1D1D1D', color: p.length === 4 ? 'var(--accent)' : '#fff' },
     }, colLabel(p)))));
 
+  // Projections come from the PROJECTIONS tab of RIDD Reporting.xlsx (baked into
+  // IS_PROJECTIONS). Read-only here so the model stays the source of truth; they
+  // line up beside the actual rows below for a clean projection-vs-actual read.
+  const curM0 = new Date().getMonth();
+  const projOf = (p, field) => isProjectionAt(p, field, nowY, curM0);
   const body = el('tbody', {},
-    sectionRow('Projected'),
-    manualRow('Projected Revenue',  'projected_revenue', { allowNA: true }),
-    manualRow('Projected Ad Spend', 'projected_ad_spend'),
-    manualRow('Projected Wages',    'projected_wages'),
+    sectionRow('Projected (from model)'),
+    autoRow('Projected Revenue',  p => projOf(p, 'projected_revenue'),  usd, null),
+    autoRow('Projected Ad Spend', p => projOf(p, 'projected_ad_spend'), usd, null),
+    autoRow('Projected Wages',    p => projOf(p, 'projected_wages'),    usd, null),
     autoRow('Projected Total Spend', p => {
-      const a = manAt(p, 'projected_ad_spend'), w = manAt(p, 'projected_wages');
+      const a = projOf(p, 'projected_ad_spend'), w = projOf(p, 'projected_wages');
       return (a == null && w == null) ? null : (a || 0) + (w || 0);
     }, usd, null, { bold: true }),
 
-    sectionRow('Revenue (auto · sold date · payment on file)'),
+    sectionRow('Revenue (auto · office staff · sold date · payment on file)'),
     autoRow('Serviced New Revenue', p => G(p).newRevSvc, usd, null, { indent: true }),
     autoRow('New Revenue (Sold)',   p => G(p).newRev,    usd, null),
-    autoRow('Upsell Revenue',       p => G(p).upsell,    usd, null),
     autoRow('TOTAL IS REVENUE',     p => revAt(p),       usd, null, { bold: true }),
 
     sectionRow('Marketing Spend (auto · QuickBooks + Windsor)'),
