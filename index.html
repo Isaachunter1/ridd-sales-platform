@@ -23253,6 +23253,8 @@ function parseReportingCsv(text) {
     subscription_contract_value:      find('subscription contract value', 'contract value'),
     initial_price:                    find('initial price'),
     recurring_frequency:              find('recurring frequency', 'frequency'),
+    phone:                            find('phone number', 'phone', 'cell', 'mobile'),
+    email:                            find('email address', 'email', 'e-mail'),
   };
   if (cols.customer_id < 0) throw new Error('Missing required column: Customer ID');
   if (cols.subscription < 0) throw new Error('Missing required column: Subscription');
@@ -23325,6 +23327,8 @@ function parseReportingCsv(text) {
       subscription_contract_value:      parseNumOrNull(pick(r, cols.subscription_contract_value)),
       initial_price:                    parseNumOrNull(pick(r, cols.initial_price)),
       recurring_frequency:              textOrNull(pick(r, cols.recurring_frequency)),
+      phone:                            textOrNull(pick(r, cols.phone)),
+      email:                            textOrNull(pick(r, cols.email)),
     });
   }
   return rows;
@@ -25879,6 +25883,7 @@ function reportingMarketingPnl() {
       reportingMktgSpendRevChart(),
       reportingMktgLeadsChart(),
     ),
+    reportingLeadAttribution(),
     reportingInsideSales(),
   );
 }
@@ -26019,6 +26024,186 @@ function reportingMktgLeadsChart() {
     });
   }, 50);
   return card(cvsWrap, filterSel);
+}
+
+// ── Lead attribution ─────────────────────────────────────────────────────
+// Match an imported leads CSV (phone + email + source) against the loaded
+// Customer Report snapshot. Phone is normalized to its last 10 digits so a
+// leading 1, formatting, or a bare number all collapse to one key. For each
+// matched lead we compare the CSV's source against how the CRM tagged that
+// customer, surfacing mis-sourced accounts.
+const _leadNormPhone = (s) => {
+  let d = String(s == null ? '' : s).replace(/\D/g, '');
+  if (d.length === 11 && d[0] === '1') d = d.slice(1); // drop US country code
+  return d.length >= 10 ? d.slice(0, 10) : '';         // core 10 digits (ignore any trailing extension)
+};
+const _leadNormEmail = (s) => String(s == null ? '' : s).trim().toLowerCase();
+
+function parseLeadsCsv(text) {
+  const lines = String(text || '').replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const parseLine = (line) => { const out = []; let cur = '', q = false; for (let i = 0; i < line.length; i++) { const c = line[i]; if (c === '"') { if (q && line[i + 1] === '"') { cur += '"'; i++; } else q = !q; } else if (c === ',' && !q) { out.push(cur); cur = ''; } else cur += c; } out.push(cur); return out.map(s => s.trim()); };
+  const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const hdr = parseLine(lines[0]).map(norm);
+  const idx = (...al) => { for (const a of al.map(norm)) { const i = hdr.indexOf(a); if (i !== -1) return i; } return -1; };
+  const iP = idx('phone', 'phonenumber', 'cell', 'cellphone', 'mobile', 'mobilephone');
+  const iE = idx('email', 'emailaddress', 'e-mail');
+  const iS = idx('source', 'leadsource', 'utmsource', 'channel', 'attributionsource', 'medium');
+  const iN = idx('name', 'fullname', 'contactname', 'customer', 'firstname');
+  const iD = idx('date', 'dateadded', 'createddate', 'created', 'datecreated');
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    const c = parseLine(lines[i]);
+    const row = { phone: iP >= 0 ? (c[iP] || '') : '', email: iE >= 0 ? (c[iE] || '') : '', source: iS >= 0 ? (c[iS] || '') : '', name: iN >= 0 ? (c[iN] || '') : '', date: iD >= 0 ? (c[iD] || '') : '' };
+    if (row.phone || row.email) out.push(row);
+  }
+  return out;
+}
+
+function reportingLeadAttribution() {
+  const leads = state.reportingLeadRows;
+  const fileInput = el('input', {
+    type: 'file', accept: '.csv,.txt', style: { display: 'none' },
+    onchange: (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const rd = new FileReader();
+      rd.onload = (ev) => {
+        try {
+          const rows = parseLeadsCsv(ev.target.result);
+          if (!rows.length) { toast('No leads found — need a phone or email column', 'warn'); return; }
+          state.reportingLeadRows = rows; state.reportingLeadFile = f.name || ''; state.reportingLeadFilter = 'all'; state.reportingLeadLimit = 200;
+          logActivity('config_change', { detail: 'Lead attribution CSV: ' + (f.name || '') + ' · ' + rows.length + ' leads' });
+          mountApp();
+          toast(rows.length.toLocaleString() + ' leads loaded', 'success');
+        } catch (err) { toast('Parse error: ' + err.message, 'error'); }
+      };
+      rd.readAsText(f);
+    },
+  });
+  const uploadBtn = el('button', {
+    class: 'px-3 py-2 rounded-lg text-xs font-bold transition hover:brightness-95',
+    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    title: 'CSV with phone + email columns (and a source column)',
+    onclick: () => fileInput.click(),
+  }, fileInput, leads ? '📁 Re-upload leads' : '📁 Upload leads CSV');
+  const clearBtn = leads ? el('button', {
+    class: 'text-[11px] font-semibold', style: { color: 'var(--text-muted)' },
+    onclick: () => { state.reportingLeadRows = null; state.reportingLeadFile = null; mountApp(); },
+  }, 'Clear') : null;
+  const head = el('div', { class: 'flex items-start justify-between gap-3 flex-wrap mb-2' },
+    el('div', {},
+      el('h3', { class: 'text-base font-bold' }, 'Lead Attribution'),
+      el('div', { class: 'text-[11px] text-muted-' }, 'Match a leads CSV (phone + email) to sold customers, then check the CSV source against the CRM tag.')),
+    el('div', { class: 'flex items-center gap-2' },
+      leads && state.reportingLeadFile ? el('span', { class: 'text-[11px] text-muted-' }, state.reportingLeadFile) : null, clearBtn, uploadBtn));
+
+  if (!leads || !leads.length) {
+    return el('div', { class: 'card p-4' }, head,
+      el('div', { class: 'p-6 text-center text-xs text-muted- italic' },
+        'Upload a CSV with phone and email columns (plus a source column). Phone matches on the last 10 digits, so a leading 1 or any formatting won\'t matter.'));
+  }
+
+  // Customer contact index from the loaded snapshot (needs phone/email columns).
+  const subs = state.reportingSubscriptions || [];
+  const custName = (r) => { const l = (r.last_name || '').trim(), f = (r.first_name || '').trim(); return (l && f) ? (l + ', ' + f) : (l || f || r.customer_id || '—'); };
+  const byPhone = new Map(), byEmail = new Map(), byCust = new Map();
+  for (const r of subs) {
+    const cid = r.customer_id || ('p:' + _leadNormPhone(r.phone) + '|e:' + _leadNormEmail(r.email));
+    const info = { name: custName(r), source: (r.subscription_source || '').trim(), sold_date: r.sold_date || '' };
+    const cur = byCust.get(cid);
+    if (!cur || (info.sold_date && (!cur.sold_date || info.sold_date < cur.sold_date))) byCust.set(cid, info);
+    const np = _leadNormPhone(r.phone); if (np && !byPhone.has(np)) byPhone.set(np, cid);
+    const ne = _leadNormEmail(r.email); if (ne && !byEmail.has(ne)) byEmail.set(ne, cid);
+  }
+  const hasContact = byPhone.size > 0 || byEmail.size > 0;
+
+  // Match each lead by phone, then email.
+  const results = leads.map(L => {
+    const np = _leadNormPhone(L.phone), ne = _leadNormEmail(L.email);
+    let cid = null, via = null;
+    if (np && byPhone.has(np)) { cid = byPhone.get(np); via = 'phone'; }
+    else if (ne && byEmail.has(ne)) { cid = byEmail.get(ne); via = 'email'; }
+    const cust = cid ? byCust.get(cid) : null;
+    const leadSrc = (L.source || '').trim();
+    let srcOk = null;
+    if (cust && leadSrc && cust.source) {
+      srcOk = reportingCanonSource(leadSrc).toLowerCase() === reportingCanonSource(cust.source).toLowerCase();
+    }
+    return { lead: L, matched: !!cust, via, cust, leadSrc, srcOk };
+  });
+  const nMatched = results.filter(r => r.matched).length;
+  const nMis = results.filter(r => r.srcOk === false).length;
+  const rate = results.length ? Math.round(100 * nMatched / results.length) : 0;
+
+  // Filter pills.
+  const filt = state.reportingLeadFilter || 'all';
+  const pills = [['all', 'All ' + results.length], ['matched', 'Matched ' + nMatched], ['unmatched', 'No match ' + (results.length - nMatched)], ['mismatch', 'Source mismatch ' + nMis]];
+  const pillBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap mb-3' }, ...pills.map(([k, lab]) => el('button', {
+    class: 'text-[11px] font-semibold rounded-full px-3 py-1 border cursor-pointer transition',
+    style: filt === k ? { background: 'var(--accent)', color: '#16321a', borderColor: 'var(--accent)' } : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+    onclick: () => { state.reportingLeadFilter = k; state.reportingLeadLimit = 200; mountApp(); },
+  }, lab)));
+
+  const shown0 = results.filter(r => filt === 'all' ? true : filt === 'matched' ? r.matched : filt === 'unmatched' ? !r.matched : r.srcOk === false);
+  const limit = state.reportingLeadLimit || 200;
+  const shown = shown0.slice(0, limit);
+
+  const exportCsv = () => {
+    const head2 = ['Lead Name', 'Lead Phone', 'Lead Email', 'Lead Source', 'Matched', 'Via', 'Customer', 'CRM Source', 'Source OK'];
+    const lines = [head2.map(csvEsc).join(',')];
+    for (const r of results) lines.push([
+      csvEsc(r.lead.name), csvEsc(r.lead.phone), csvEsc(r.lead.email), csvEsc(r.leadSrc),
+      r.matched ? 'yes' : 'no', csvEsc(r.via || ''), csvEsc(r.cust ? r.cust.name : ''), csvEsc(r.cust ? r.cust.source : ''),
+      r.srcOk == null ? '' : (r.srcOk ? 'match' : 'MISMATCH'),
+    ].join(','));
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = el('a', { href: url, download: 'lead-attribution-' + new Date().toISOString().slice(0, 10) + '.csv' });
+    document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  };
+
+  const cellCls = 'px-2 py-1.5 whitespace-nowrap';
+  const table = el('div', { class: 'rounded-lg border overflow-auto', style: { borderColor: 'var(--border)', maxHeight: '420px' } },
+    el('table', { class: 'w-full text-[11px]' },
+      el('thead', { class: 'text-[9px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+        el('tr', {},
+          el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Lead'),
+          el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Lead Source'),
+          el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Match'),
+          el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Customer (CRM)'),
+          el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'CRM Source'),
+          el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Source'))),
+      el('tbody', {}, ...shown.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        el('td', { class: cellCls },
+          el('div', { class: 'font-medium' }, r.lead.name || r.lead.phone || r.lead.email || '—'),
+          (r.lead.name && (r.lead.phone || r.lead.email)) ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, r.lead.phone || r.lead.email) : null),
+        el('td', { class: cellCls + ' text-muted-' }, r.leadSrc || '—'),
+        el('td', { class: cellCls },
+          r.matched
+            ? el('span', { class: 'text-[10px] font-bold', style: { color: '#5F8A1F' } }, '✓ ' + r.via)
+            : el('span', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-subtle)' } }, '—')),
+        el('td', { class: cellCls }, r.cust ? r.cust.name : '—'),
+        el('td', { class: cellCls + ' text-muted-' }, r.cust ? (r.cust.source || '—') : '—'),
+        el('td', { class: cellCls },
+          r.srcOk == null ? el('span', { style: { color: 'var(--text-subtle)' } }, '—')
+            : r.srcOk ? el('span', { style: { color: '#5F8A1F', fontWeight: '700' } }, '✓')
+              : el('span', { class: 'px-1.5 py-0.5 rounded text-[10px] font-bold', style: { background: 'rgba(220,38,38,.12)', color: '#B91C1C' } }, '✕ mismatch')))))));
+
+  const moreBar = shown0.length > shown.length ? el('div', { class: 'flex justify-center pt-2' },
+    el('button', { class: 'text-[11px] font-semibold rounded-full px-4 py-1.5 border cursor-pointer', style: { background: 'var(--accent)', color: '#16321a', borderColor: 'var(--accent)' },
+      onclick: () => { state.reportingLeadLimit = (state.reportingLeadLimit || 200) + 400; mountApp(); } }, 'Show ' + Math.min(400, shown0.length - shown.length) + ' more (' + shown.length.toLocaleString() + ' of ' + shown0.length.toLocaleString() + ')')) : null;
+
+  return el('div', { class: 'card p-4' }, head,
+    !hasContact ? el('div', { class: 'card p-3 mb-3 text-[11px]', style: { background: 'rgba(245,158,11,.12)' } },
+      '⚠ The loaded Customer Report snapshot has no phone or email columns, so nothing can match. Re-export it with Phone Number and Email columns and re-upload the snapshot.') : null,
+    el('div', { class: 'grid gap-2 mb-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))' } },
+      ...[['Leads', results.length.toLocaleString()], ['Matched', nMatched.toLocaleString() + ' · ' + rate + '%'], ['Source mismatches', nMis.toLocaleString()]].map(([l, v]) =>
+        el('div', { class: 'rounded-lg p-2 text-center', style: { background: 'var(--card-2)' } },
+          el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, l),
+          el('div', { class: 'text-base font-bold tabular-nums' }, v)))),
+    el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' }, pillBar,
+      el('button', { class: 'text-[11px] font-semibold rounded-lg px-3 py-1.5 border cursor-pointer', style: { background: 'var(--card-2)', color: 'var(--text)', borderColor: 'var(--border)' }, onclick: exportCsv }, '↓ Export results')),
+    table, moreBar);
 }
 
 function reportingInsideSales() {
