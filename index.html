@@ -25766,8 +25766,15 @@ const IS_SEASONAL  = [0.025, 0.03, 0.05, 0.095, 0.10, 0.12, 0.175, 0.145, 0.10, 
 // feed the P&L's Projected rows and the pacer so projections sit next to actuals.
 // Annual revenue GOAL is $4.0M; the monthly figures sum to $3.904M (Detroit ramps
 // up mid-year), which is why we keep the goal separate from the monthly sum.
-const IS_ANNUAL_GOAL = { '2026': 4000000 };
+const IS_ANNUAL_GOAL = { '2024': 2000000, '2025': 1500000, '2026': 4000000 };
 const IS_PROJECTIONS = {
+  // Prior years: projected revenue = annual goal × the seasonal allocation.
+  '2024': {
+    projected_revenue:  [50000, 60000, 100000, 190000, 200000, 240000, 350000, 290000, 200000, 180000, 100000, 40000],
+  },
+  '2025': {
+    projected_revenue:  [37500, 45000, 75000, 142500, 150000, 180000, 262500, 217500, 150000, 135000, 75000, 30000],
+  },
   '2026': {
     projected_revenue:  [88000, 105600, 176000, 334400, 400000, 480000, 700000, 580000, 400000, 360000, 200000, 80000],
     projected_ad_spend: [35200, 42240, 70400, 133760, 140800, 168960, 246400, 204160, 140800, 126720, 70400, 28160],
@@ -25801,6 +25808,25 @@ function setAnnualGoalFor(yr, value) {
   const num = (value === '' || value == null) ? null : Number(value);
   state._isAnnualGoal[y] = num;
   try { if (num == null) localStorage.removeItem('ridd_is_annual_goal_' + y); else localStorage.setItem('ridd_is_annual_goal_' + y, String(num)); } catch (e) {}
+}
+
+// P&L assumptions — spend modeled as a % of revenue, editable per year and
+// persisted locally. Stored as fractions (0.18 = 18%). Defaults mirror the
+// PROJECTIONS-tab config (ad spend 36%, wages 15.5%, incentives 1%).
+const IS_ASSUMPTION_DEFAULTS = { ad_spend_pct: 0.36, wages_pct: 0.155, incentive_pct: 0.01 };
+function isAssumptionFor(yr, key) {
+  const y = String(yr);
+  if (state._isAssumptions && state._isAssumptions[y] && state._isAssumptions[y][key] != null) return state._isAssumptions[y][key];
+  try { const v = localStorage.getItem('ridd_is_assume_' + y + '_' + key); if (v != null && v !== '') return Number(v); } catch (e) {}
+  return IS_ASSUMPTION_DEFAULTS[key];
+}
+function setAssumptionFor(yr, key, pctValue) {
+  const y = String(yr);
+  if (!state._isAssumptions) state._isAssumptions = {};
+  if (!state._isAssumptions[y]) state._isAssumptions[y] = {};
+  const num = (pctValue == null || pctValue === '') ? null : Number(pctValue) / 100; // input is a percent
+  state._isAssumptions[y][key] = num;
+  try { if (num == null) localStorage.removeItem('ridd_is_assume_' + y + '_' + key); else localStorage.setItem('ridd_is_assume_' + y + '_' + key, String(num)); } catch (e) {}
 }
 function reportingIsPacer() {
   const rows = state.reportingSubscriptions || [];
@@ -26473,18 +26499,31 @@ function reportingInsideSales() {
   // IS_PROJECTIONS). Read-only here so the model stays the source of truth; they
   // line up beside the actual rows below for a clean projection-vs-actual read.
   const curM0 = new Date().getMonth();
-  const projOf = (p, field) => isProjectionAt(p, field, nowY, curM0);
+  // Projected revenue is the goal × seasonal model; projected SPEND lines are
+  // derived from the editable per-year assumptions (% of revenue).
+  const projRev = (p) => isProjectionAt(p, 'projected_revenue', nowY, curM0);
+  const yearOf = (p) => /^\d{4}/.test(p) ? p.slice(0, 4) : null;
+  const projOf = (p, field) => {
+    if (field === 'projected_revenue') return projRev(p);
+    const rev = projRev(p), yr = yearOf(p);
+    if (rev == null || !yr) return null;
+    if (field === 'projected_ad_spend')  return rev * isAssumptionFor(yr, 'ad_spend_pct');
+    if (field === 'projected_wages')     return rev * isAssumptionFor(yr, 'wages_pct');
+    if (field === 'projected_incentive') return rev * isAssumptionFor(yr, 'incentive_pct');
+    return null;
+  };
   // Each section splits into `detail` (hidden when collapsed) and `total` (the
   // bold summary row, ALWAYS shown). Collapsing hides the fluff but keeps totals.
   const SECTIONS = [
-    { label: 'Projected (from model)',
+    { label: 'Projected (model + assumptions)',
       detail: () => [
-        autoRow('Projected Revenue',  p => projOf(p, 'projected_revenue'),  usd, null),
-        autoRow('Projected Ad Spend', p => projOf(p, 'projected_ad_spend'), usd, null),
-        autoRow('Projected Wages',    p => projOf(p, 'projected_wages'),    usd, null),
+        autoRow('Projected Revenue',    p => projOf(p, 'projected_revenue'),  usd, null),
+        autoRow('Projected Ad Spend',   p => projOf(p, 'projected_ad_spend'), usd, null),
+        autoRow('Projected Wages',      p => projOf(p, 'projected_wages'),    usd, null),
+        autoRow('Projected Incentives', p => projOf(p, 'projected_incentive'),usd, null),
       ],
       total: () => [
-        autoRow('Projected Total Spend', p => { const a = projOf(p, 'projected_ad_spend'), w = projOf(p, 'projected_wages'); return (a == null && w == null) ? null : (a || 0) + (w || 0); }, usd, null, { bold: true }),
+        autoRow('Projected Total Spend', p => { const a = projOf(p, 'projected_ad_spend'), w = projOf(p, 'projected_wages'), i = projOf(p, 'projected_incentive'); return (a == null && w == null && i == null) ? null : (a || 0) + (w || 0) + (i || 0); }, usd, null, { bold: true }),
       ] },
     { label: 'Revenue (auto · office staff · sold date · payment on file)',
       detail: () => [
@@ -26533,9 +26572,34 @@ function reportingInsideSales() {
   const body = el('tbody', {}, ...bodyKids);
 
   const needsSchema = rowsAll.length > 0 && !anySoldDate;
+
+  // ── Editable assumptions: spend modeled as % of revenue, per year ──
+  const assumeYears = [Y2, Y1, YTD];
+  const ASSUMP_ROWS = [['wages_pct', 'Wages'], ['ad_spend_pct', 'Ad Spend'], ['incentive_pct', 'Incentives']];
+  const assumeInput = (y, key) => el('input', {
+    type: 'text', inputmode: 'decimal',
+    value: (isAssumptionFor(y, key) * 100).toFixed(1),
+    class: 'w-14 text-right text-xs rounded border px-1 py-0.5',
+    style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
+    onchange: (e) => { const v = e.target.value.replace(/[%\s,]/g, ''); if (v !== '' && isNaN(Number(v))) { toast('Enter a number', 'error'); return; } setAssumptionFor(y, key, v); mountApp(); },
+  });
+  const assumePanel = el('div', { class: 'card p-3' },
+    el('div', { class: 'flex items-baseline gap-2 mb-2 flex-wrap' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Assumptions · spend as % of revenue'),
+      el('div', { class: 'text-[10px] text-muted-' }, '— drives the Projected spend rows below')),
+    el('div', { class: 'overflow-x-auto' },
+      el('table', { class: 'text-xs' },
+        el('thead', {}, el('tr', {},
+          el('th', { class: 'text-left pr-5 py-1 font-semibold' }, ''),
+          ...assumeYears.map(y => el('th', { class: 'px-2 py-1 text-right font-semibold', style: { color: 'var(--text-muted)' } }, y)))),
+        el('tbody', {}, ...ASSUMP_ROWS.map(([key, label]) => el('tr', {},
+          el('td', { class: 'pr-5 py-1 font-medium whitespace-nowrap' }, label),
+          ...assumeYears.map(y => el('td', { class: 'px-2 py-1 text-right whitespace-nowrap' }, assumeInput(y, key), el('span', { class: 'text-[9px] text-muted- ml-0.5' }, '%')))))))));
+
   return el('div', { class: 'flex flex-col gap-3' },
     needsSchema && el('div', { class: 'card p-3 text-xs', style: { background: 'var(--card-2)' } },
       '⚠ No Sold Date on this snapshot yet. Run inside_sales_schema.sql in Supabase, then re-upload the Customer Report — revenue rows fill in from there.'),
+    assumePanel,
     el('div', { class: 'card overflow-hidden' },
       (() => {
         // Open scrolled to the current months; remember position across edits/re-renders.
