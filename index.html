@@ -2897,6 +2897,8 @@ function reportingAuditing() {
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
     const soldSvc = s.sold > 0 ? s.serviced / s.sold : null;
     const kindLabel = kind === 'rep' ? 'Rep' : kind === 'team' ? 'Team' : 'Branch';
+    const _meta = (typeof reportingActiveSnapshotMeta === 'function') ? reportingActiveSnapshotMeta() : null;
+    const asOf = _meta && _meta.uploaded_at ? new Date(_meta.uploaded_at).toLocaleDateString() : null;
     const pctS = (p) => p == null ? '—' : (p * 100).toFixed(1) + '%';
     const good = '#5F8A1F', bad = '#DC2626';
     const overlay = el('div', { class: 'modal-overlay' });
@@ -2916,7 +2918,8 @@ function reportingAuditing() {
         el('div', {},
           el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--accent)' } }, kindLabel),
           el('h2', { class: 'text-xl font-bold mt-0.5' }, name),
-          (org && (org.office || org.team)) ? el('div', { class: 'text-xs text-muted- mt-0.5' }, [org.office, org.team].filter(Boolean).join(' · ')) : null),
+          (org && (org.office || org.team)) ? el('div', { class: 'text-xs text-muted- mt-0.5' }, [org.office, org.team].filter(Boolean).join(' · ')) : null,
+          asOf ? el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-subtle)' } }, 'As of ' + asOf) : null),
         el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
       el('div', { class: 'p-5 overflow-auto flex flex-col gap-4' },
         group('Production', [
@@ -2930,7 +2933,7 @@ function reportingAuditing() {
           tile('Failed', fmt.int(s.failed), null, s.failed > 0 ? bad : null),
           tile('No Audit', fmt.int(s.noaudit)),
           tile('Pending', fmt.int(s.pending)),
-          tile('Attrition P / F', pctS(aP) + ' / ' + pctS(aF)),
+          tile('Attrition on Audits: Pass / Fail', pctS(aP) + ' / ' + pctS(aF)),
         ]),
         group('Revenue · contract value', [
           tile('Sold', money(s.soldRev)),
