@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RIDD — Atlanta Service Area (by ZIP)</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+<style>
+  :root{--ink:#1d1d1d;--line:#e5e5e0;--red:#e11d2e;--lime:#8DC63F;--gray:#8a8a8a;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--ink)}
+  #app{display:flex;height:100vh;width:100vw}
+  #side{width:320px;flex:none;border-right:1px solid var(--line);padding:16px;overflow-y:auto;background:#fafafa}
+  #map{flex:1}
+  h1{font-size:16px;margin:0 0 2px}
+  .sub{font-size:12px;color:var(--gray);margin:0 0 14px}
+  .stat{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px dashed var(--line)}
+  .stat b{font-variant-numeric:tabular-nums}
+  .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--gray);margin:16px 0 6px;font-weight:700}
+  .row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  button{font-size:12px;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:600}
+  button:hover{background:#f0f0f0}
+  button.primary{background:var(--lime);border-color:var(--lime);color:#1d1d1d}
+  input[type=range]{width:100%}
+  .note{font-size:11px;color:var(--gray);line-height:1.5;margin-top:6px}
+  .swatch{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  .legend div{font-size:11px;margin:3px 0;color:#444}
+  #status{font-size:11px;color:var(--red);height:14px;margin-top:4px}
+  .leaflet-tooltip.zt{font-size:12px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="side">
+    <h1>Atlanta Service Area</h1>
+    <p class="sub">Zip-based boundary · refine to match your map</p>
+
+    <div class="stat"><span>ZIPs in service area</span><b id="s-zips">—</b></div>
+    <div class="stat"><span>Customers covered</span><b id="s-cust">—</b></div>
+    <div class="stat"><span>% of Atlanta customers</span><b id="s-pct">—</b></div>
+    <div class="stat"><span>Counties touched</span><b id="s-cty">—</b></div>
+
+    <div class="lbl">Quick threshold</div>
+    <div style="font-size:12px;margin-bottom:4px">Include ZIPs with at least <b id="thr-val">2</b> customer(s)</div>
+    <input id="thr" type="range" min="1" max="15" value="2">
+    <div class="note">Drag to bulk add/remove by customer density. Then click individual ZIPs on the map to fine-tune.</div>
+
+    <div class="lbl">Actions</div>
+    <div class="row">
+      <button onclick="selectAllServed()">All served</button>
+      <button onclick="clearAll()">Clear</button>
+      <button onclick="resetSuggested()">Reset</button>
+      <button onclick="removeIslands()">Remove islands</button>
+    </div>
+    <div class="row">
+      <button class="primary" onclick="exportCsv()">⬇ Export ZIP list (CSV)</button>
+    </div>
+    <div id="status"></div>
+
+    <div class="lbl">Legend</div>
+    <div class="legend">
+      <div><span class="swatch" style="background:#e11d2e;opacity:.85"></span>Red line = outer service boundary</div>
+      <div><span class="swatch" style="background:#e11d2e;opacity:.12"></span>Inside = serviced (interior gaps filled)</div>
+      <div><span class="swatch" style="background:#fff;border:1px dashed #ccc"></span>Click any ZIP to push the edge in/out</div>
+    </div>
+    <div class="note" style="margin-top:14px">Click a ZIP to toggle it in/out. The red boundary redraws automatically. When it matches your screenshot, hit Export.</div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script>
+const ZIP = {"30134": {"n": 382, "county": "Douglas"}, "30135": {"n": 744, "county": "Douglas"}, "30180": {"n": 379, "county": "Carroll"}, "30122": {"n": 129, "county": "Douglas"}, "30106": {"n": 57, "county": "Cobb"}, "30168": {"n": 39, "county": "Douglas"}, "30297": {"n": 1, "county": "Clay"}, "30127": {"n": 299, "county": "Paulding"}, "30141": {"n": 118, "county": "Paulding"}, "30213": {"n": 35, "county": "Fulton"}, "30126": {"n": 55, "county": "Cobb"}, "30187": {"n": 101, "county": "Douglas"}, "30008": {"n": 32, "county": "Cobb"}, "30064": {"n": 70, "county": "Cobb"}, "30120": {"n": 232, "county": "Bartow"}, "30132": {"n": 226, "county": "Paulding"}, "30157": {"n": 525, "county": "Paulding"}, "30067": {"n": 23, "county": "Cobb"}, "30102": {"n": 134, "county": "Bartow"}, "30339": {"n": 3, "county": "Cobb"}, "30349": {"n": 67, "county": "Fulton"}, "30066": {"n": 89, "county": "Cobb"}, "30329": {"n": 6, "county": "DeKalb"}, "30291": {"n": 23, "county": "Fulton"}, "30315": {"n": 17, "county": "Fulton"}, "30296": {"n": 1, "county": "Fulton"}, "30310": {"n": 27, "county": "Fulton"}, "30336": {"n": 2, "county": "Fulton"}, "30281": {"n": 15, "county": "Henry"}, "30318": {"n": 108, "county": "Fulton"}, "30331": {"n": 49, "county": "Fulton"}, "30344": {"n": 9, "county": "Fulton"}, "30327": {"n": 27, "county": "Fulton"}, "30319": {"n": 17, "county": "DeKalb"}, "30338": {"n": 9, "county": "DeKalb"}, "30340": {"n": 1, "county": "DeKalb"}, "30083": {"n": 4, "county": "DeKalb"}, "30084": {"n": 5, "county": "DeKalb"}, "30092": {"n": 24, "county": "Gwinnett"}, "30022": {"n": 12, "county": "Fulton"}, "30062": {"n": 39, "county": "Cobb"}, "30068": {"n": 5, "county": "Cobb"}, "30115": {"n": 81, "county": "Cherokee"}, "30188": {"n": 144, "county": "Cherokee"}, "30052": {"n": 121, "county": "Walton"}, "30078": {"n": 107, "county": "Gwinnett"}, "30039": {"n": 147, "county": "Gwinnett"}, "30017": {"n": 9, "county": "Gwinnett"}, "30033": {"n": 5, "county": "DeKalb"}, "30101": {"n": 162, "county": "Cobb"}, "30253": {"n": 1, "county": "Henry"}, "30152": {"n": 20, "county": "Cobb"}, "30542": {"n": 119, "county": "Hall"}, "30566": {"n": 34, "county": "Hall"}, "30504": {"n": 24, "county": "Hall"}, "30045": {"n": 15, "county": "Gwinnett"}, "30144": {"n": 67, "county": "Cobb"}, "30114": {"n": 60, "county": "Cherokee"}, "30121": {"n": 142, "county": "Bartow"}, "30107": {"n": 10, "county": "Cherokee"}, "30680": {"n": 167, "county": "Barrow"}, "30620": {"n": 69, "county": "Barrow"}, "30666": {"n": 11, "county": "Barrow"}, "30019": {"n": 38, "county": "Gwinnett"}, "30342": {"n": 6, "county": "Fulton"}, "30011": {"n": 92, "county": "Barrow"}, "30548": {"n": 32, "county": "Jackson"}, "30549": {"n": 10, "county": "Jackson"}, "30518": {"n": 57, "county": "Gwinnett"}, "30046": {"n": 8, "county": "Gwinnett"}, "30273": {"n": 5, "county": "Clay"}, "30004": {"n": 46, "county": "Fulton"}, "30179": {"n": 346, "county": "Carroll"}, "30117": {"n": 224, "county": "Carroll"}, "30153": {"n": 224, "county": "Paulding"}, "30145": {"n": 91, "county": "Bartow"}, "30324": {"n": 13, "county": "Fulton"}, "30103": {"n": 137, "county": "Gordon"}, "30171": {"n": 33, "county": "Bartow"}, "30110": {"n": 130, "county": "Haralson"}, "30116": {"n": 329, "county": "Carroll"}, "30184": {"n": 9, "county": "Bartow"}, "30189": {"n": 59, "county": "Cherokee"}, "30185": {"n": 21, "county": "Carroll"}, "30108": {"n": 2, "county": "Carroll"}, "30082": {"n": 10, "county": "Cobb"}, "30305": {"n": 13, "county": "Fulton"}, "30104": {"n": 20, "county": "Polk"}, "30075": {"n": 49, "county": "Fulton"}, "30143": {"n": 27, "county": "Dawson"}, "30238": {"n": 2, "county": "Clayton"}, "30655": {"n": 25, "county": "Walton"}, "30656": {"n": 22, "county": "Walton"}, "30507": {"n": 58, "county": "Hall"}, "30543": {"n": 46, "county": "Hall"}, "30567": {"n": 9, "county": "Jackson"}, "30575": {"n": 2, "county": "Jackson"}, "30506": {"n": 48, "county": "Forsyth"}, "30043": {"n": 56, "county": "Gwinnett"}, "30517": {"n": 19, "county": "Jackson"}, "30519": {"n": 40, "county": "Gwinnett"}, "30024": {"n": 30, "county": "Gwinnett"}, "30316": {"n": 31, "county": "DeKalb"}, "30554": {"n": 41, "county": "Hall"}, "30054": {"n": 3, "county": "Newton"}, "30303": {"n": 1, "county": "Fulton"}, "30058": {"n": 22, "county": "DeKalb"}, "30060": {"n": 10, "county": "Cobb"}, "30080": {"n": 15, "county": "Cobb"}, "30314": {"n": 7, "county": "Fulton"}, "30306": {"n": 6, "county": "Fulton"}, "30311": {"n": 20, "county": "Fulton"}, "30317": {"n": 14, "county": "DeKalb"}, "30354": {"n": 5, "county": "Fulton"}, "30307": {"n": 5, "county": "DeKalb"}, "30030": {"n": 9, "county": "DeKalb"}, "30309": {"n": 3, "county": "Fulton"}, "30345": {"n": 2, "county": "DeKalb"}, "30308": {"n": 4, "county": "Fulton"}, "30088": {"n": 5, "county": "DeKalb"}, "30040": {"n": 84, "county": "Forsyth"}, "30076": {"n": 11, "county": "Fulton"}, "30009": {"n": 12, "county": "Fulton"}, "30041": {"n": 46, "county": "Forsyth"}, "30274": {"n": 6, "county": "Clayton"}, "33619": {"n": 2, "county": "Fulton"}, "30047": {"n": 49, "county": "Gwinnett"}, "30137": {"n": 3, "county": "Bartow"}, "30337": {"n": 4, "county": "Fulton"}, "30032": {"n": 3, "county": "DeKalb"}, "30178": {"n": 5, "county": "Bartow"}, "39318": {"n": 1, "county": "Fulton"}, "30277": {"n": 2, "county": "Coweta"}, "30002": {"n": 1, "county": "DeKalb"}, "30328": {"n": 15, "county": "Fulton"}, "30087": {"n": 59, "county": "Gwinnett"}, "30038": {"n": 16, "county": "DeKalb"}, "30028": {"n": 3, "county": "Forsyth"}, "30294": {"n": 6, "county": "Henry"}, "30260": {"n": 1, "county": "Clayton"}, "30269": {"n": 1, "county": "Fayette"}, "30263": {"n": 6, "county": "Coweta"}, "30093": {"n": 3, "county": "Gwinnett"}, "30096": {"n": 8, "county": "Gwinnett"}, "30125": {"n": 1, "county": "Cobb"}, "30044": {"n": 27, "county": "Gwinnett"}, "30034": {"n": 3, "county": "DeKalb"}, "30049": {"n": 1, "county": "Fulton"}, "30123": {"n": 1, "county": "Fulton"}, "30265": {"n": 1, "county": "Coweta"}, "30214": {"n": 1, "county": "Fayette"}, "30035": {"n": 2, "county": "DeKalb"}, "30312": {"n": 1, "county": "Fulton"}, "30268": {"n": 2, "county": "Fulton"}, "30097": {"n": 2, "county": "Gwinnett"}, "30014": {"n": 17, "county": "Newton"}, "30094": {"n": 4, "county": "Rockdale"}, "30501": {"n": 8, "county": "Hall"}, "30350": {"n": 3, "county": "Fulton"}, "30341": {"n": 1, "county": "DeKalb"}, "30183": {"n": 2, "county": "Cherokee"}, "30025": {"n": 2, "county": "Walton"}, "31324": {"n": 1, "county": "Bryan"}, "30360": {"n": 1, "county": "DeKalb"}, "30016": {"n": 2, "county": "Newton"}};            // { "30135": {n, county}, ... } — served zips only
+const STATE_URLS = ["https://raw.githubusercontent.com/OpenDataDE/State-zip-code-GeoJSON/master/ga_georgia_zip_codes_geo.min.json"];  // one or more OpenDataDE state ZIP GeoJSON URLs
+const BBOX = {"s": 32.9, "n": 34.7, "w": -85.6, "e": -83.0};               // map area + buffer
+const TOTAL_CUST = Object.values(ZIP).reduce((a,z)=>a+z.n,0);
+
+let SELECTED = new Set(Object.keys(ZIP).filter(z => ZIP[z].n >= 2));  // suggested start
+const SUGGESTED = new Set(SELECTED);
+const featById = {};                // zip -> leaflet layer
+const geoByZip = {};                // zip -> geojson feature
+let boundaryLayer = null;
+let recomputeTimer = null;
+
+const map = L.map('map', { preferCanvas:true }).setView([33.9, -84.4], 9);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution:'© OpenStreetMap © CARTO', subdomains:'abcd', maxZoom:19
+}).addTo(map);
+
+function zipOf(f){ return String(f.properties.ZCTA5CE10 || f.properties.zip || '').padStart(5,'0'); }
+function inBox(f){
+  try{
+    const c = f.geometry.type === 'Polygon' ? f.geometry.coordinates[0][0] : f.geometry.coordinates[0][0][0];
+    return c[1]>=BBOX.s && c[1]<=BBOX.n && c[0]>=BBOX.w && c[0]<=BBOX.e;
+  }catch(e){ return false; }
+}
+// Per-zip polygons are near-invisible click targets — the only thing drawn
+// boldly is the dissolved outer boundary (drawBoundary). Interior is filled
+// uniformly: everything inside the edge is serviced.
+function styleFor(zip){
+  const served = !!ZIP[zip], sel = SELECTED.has(zip);
+  if(sel)    return { fillColor:'#e11d2e', fillOpacity:0.01, color:'#e11d2e', weight:0 };
+  if(served) return { fillColor:'#999999', fillOpacity:0.01, color:'#cccccc', weight:0.5, dashArray:'2,2' };
+  return { fillColor:'#ffffff', fillOpacity:0.01, color:'#e2e2e2', weight:0.5 };
+}
+function restyle(zip){ if(featById[zip]) featById[zip].setStyle(styleFor(zip)); }
+
+function toggle(zip){
+  if(SELECTED.has(zip)) SELECTED.delete(zip); else SELECTED.add(zip);
+  restyle(zip); updateStats(); scheduleBoundary();
+}
+
+function updateStats(){
+  const zips=[...SELECTED];
+  const cust = zips.reduce((a,z)=> a + (ZIP[z]?ZIP[z].n:0), 0);
+  const counties = new Set(zips.map(z=>ZIP[z]&&ZIP[z].county).filter(Boolean));
+  document.getElementById('s-zips').textContent = zips.length.toLocaleString();
+  document.getElementById('s-cust').textContent = cust.toLocaleString();
+  document.getElementById('s-pct').textContent = TOTAL_CUST? Math.round(100*cust/TOTAL_CUST)+'%' : '—';
+  document.getElementById('s-cty').textContent = counties.size;
+}
+
+function scheduleBoundary(){
+  clearTimeout(recomputeTimer);
+  document.getElementById('status').textContent = 'updating boundary…';
+  recomputeTimer = setTimeout(()=>{ requestAnimationFrame(drawBoundary); }, 350);
+}
+// Keep only exterior rings so interior gaps (unserved ZIPs surrounded by the
+// area) get filled in — everything inside the edge is serviced.
+function stripHoles(feat){
+  const g = feat.geometry;
+  if(g.type==='Polygon')      return turf.polygon([g.coordinates[0]]);
+  if(g.type==='MultiPolygon') return turf.multiPolygon(g.coordinates.map(p=>[p[0]]));
+  return feat;
+}
+function drawBoundary(){
+  try{
+    const feats = [...SELECTED].map(z=>geoByZip[z]).filter(Boolean)
+      .map(f=>{ try{ return turf.simplify(f,{tolerance:0.004,highQuality:false}); }catch(e){ return f; } });
+    let merged = null;
+    for(const f of feats){
+      if(!merged){ merged = f; continue; }
+      try{ merged = turf.union(merged, f) || merged; }catch(e){ /* skip bad geom */ }
+    }
+    if(boundaryLayer){ map.removeLayer(boundaryLayer); boundaryLayer=null; }
+    if(merged){
+      const solid = stripHoles(merged);
+      boundaryLayer = L.geoJSON(solid, {
+        interactive:false,
+        style:{ color:'#e11d2e', weight:3.5, opacity:.95, fill:true, fillColor:'#e11d2e', fillOpacity:.07 }
+      }).addTo(map);
+    }
+  }catch(e){ console.warn(e); }
+  document.getElementById('status').textContent = '';
+}
+
+function partsOf(geom){
+  if(geom.type==='Polygon')      return [turf.polygon(geom.coordinates)];
+  if(geom.type==='MultiPolygon') return geom.coordinates.map(c=>turf.polygon(c));
+  return [];
+}
+// Drop "island" ZIPs not connected to the main service area — the little
+// detached circles. Keeps only parts >= 8% of the largest region's area.
+function pruneIslands(){
+  const feats=[...SELECTED].map(z=>geoByZip[z]).filter(Boolean)
+    .map(f=>{ try{ return turf.simplify(f,{tolerance:0.004,highQuality:false}); }catch(e){ return f; } });
+  let merged=null;
+  for(const f of feats){ if(!merged){ merged=f; continue; } try{ merged=turf.union(merged,f)||merged; }catch(e){} }
+  if(!merged) return;
+  const parts=partsOf(merged.geometry).map(p=>({p,a:turf.area(p)}));
+  if(parts.length<=1) return;
+  const maxA=Math.max(...parts.map(x=>x.a));
+  const keep=parts.filter(x=>x.a>=0.08*maxA).map(x=>x.p);
+  const next=new Set();
+  for(const z of SELECTED){
+    const f=geoByZip[z]; if(!f) continue;
+    let pt; try{ pt=turf.pointOnFeature(f); }catch(e){ continue; }
+    if(keep.some(k=>turf.booleanPointInPolygon(pt,k))) next.add(z);
+  }
+  const dropped = SELECTED.size - next.size;
+  SELECTED=next;
+  Object.keys(geoByZip).forEach(restyle); updateStats();
+  return dropped;
+}
+
+Promise.all(STATE_URLS.map(u=>fetch(u).then(r=>r.json()))).then(geos=>{
+  const geo = { type:'FeatureCollection', features: geos.flatMap(g=>g.features) };
+  const feats = geo.features.filter(f => ZIP[zipOf(f)] || inBox(f));
+  L.geoJSON({type:'FeatureCollection',features:feats}, {
+    style: f => styleFor(zipOf(f)),
+    onEachFeature: (f, layer) => {
+      const zip = zipOf(f);
+      featById[zip] = layer; geoByZip[zip] = f;
+      const z = ZIP[zip];
+      layer.bindTooltip(
+        '<b>'+zip+'</b>'+(z?(' · '+z.county+' Co.'):'')+'<br>'+(z?z.n.toLocaleString()+' customers':'no customers'),
+        {className:'zt', sticky:true});
+      layer.on('click', ()=>toggle(zip));
+      layer.on('mouseover', ()=>layer.setStyle({weight:1.6}));
+      layer.on('mouseout',  ()=>restyle(zip));
+    }
+  }).addTo(map);
+  // Fit to served zips
+  const servedLayers = Object.keys(ZIP).map(z=>featById[z]).filter(Boolean);
+  if(servedLayers.length){ map.fitBounds(L.featureGroup(servedLayers).getBounds().pad(0.05)); }
+  updateStats(); pruneIslands(); scheduleBoundary();
+}).catch(e=>{
+  document.getElementById('status').textContent = 'Could not load ZIP boundaries (open via a local server if blocked).';
+  console.error(e);
+});
+
+// Controls
+const thr = document.getElementById('thr');
+thr.addEventListener('input', ()=>{
+  document.getElementById('thr-val').textContent = thr.value;
+  const t = +thr.value;
+  SELECTED = new Set(Object.keys(ZIP).filter(z=>ZIP[z].n>=t));
+  Object.keys(geoByZip).forEach(restyle); updateStats(); scheduleBoundary();
+});
+// Once the slider is released, strip any islands the new threshold created.
+thr.addEventListener('change', ()=>{ pruneIslands(); scheduleBoundary(); });
+function selectAllServed(){ SELECTED = new Set(Object.keys(ZIP)); Object.keys(geoByZip).forEach(restyle); updateStats(); scheduleBoundary(); }
+function clearAll(){ SELECTED = new Set(); Object.keys(geoByZip).forEach(restyle); updateStats(); scheduleBoundary(); }
+function resetSuggested(){ SELECTED = new Set(SUGGESTED); thr.value=2; document.getElementById('thr-val').textContent='2'; Object.keys(geoByZip).forEach(restyle); updateStats(); scheduleBoundary(); }
+function exportCsv(){
+  const rows = [['zip','county','customers']].concat(
+    [...SELECTED].sort().map(z=>[z, (ZIP[z]&&ZIP[z].county)||'', (ZIP[z]&&ZIP[z].n)||0]));
+  const csv = rows.map(r=>r.join(',')).join('\n');
+  const blob = new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='atlanta_service_area_zips.csv'; a.click();
+}
+function removeIslands(){ const d=pruneIslands()||0; document.getElementById('status').textContent = d? ('removed '+d+' island ZIP'+(d===1?'':'s')) : 'no islands found'; setTimeout(()=>{document.getElementById('status').textContent='';},2500); scheduleBoundary(); }
+window.selectAllServed=selectAllServed; window.clearAll=clearAll; window.resetSuggested=resetSuggested; window.exportCsv=exportCsv; window.removeIslands=removeIslands;
+</script>
+</body>
+</html>
