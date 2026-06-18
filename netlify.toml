@@ -58,6 +58,13 @@
   to   = "/.netlify/functions/qbo-spend"
   status = 200
 
+# Manual trigger for the RevHawk → snapshot sync (the daily run is scheduled in
+# revhawk-sync-scheduled.js). POST here with the x-sync-secret header to refresh now.
+[[redirects]]
+  from = "/api/revhawk-sync"
+  to   = "/.netlify/functions/revhawk-sync-background"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
