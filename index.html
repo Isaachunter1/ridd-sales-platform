@@ -11825,22 +11825,59 @@ function lastManStandingBoard(windowed, winLabel) {
       : el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '7px', justifyContent: 'center' } },
           ...(survivors.length ? survivors.map(r => tile(r, { big: true })) : [el('div', { style: { fontFamily: COND, color: '#6b6256', fontSize: '14px' } }, 'No qualifying Saturday sales yet')])));
 
-  const roundCard = (rd) => el('div', { style: { border: '1px solid #2a2420', borderRadius: '4px', background: 'linear-gradient(180deg,#13100e,#0b0908)', padding: '10px 12px' } },
-    el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid #2a2420', paddingBottom: '6px', marginBottom: '8px' } },
-      el('div', { style: { fontFamily: COND, fontSize: '16px', fontWeight: '800', letterSpacing: '.06em', color: BONE, textTransform: 'uppercase' } },
-        'Week ' + rd.week + ' · ' + new Date(rd.iso + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
-      el('div', { style: { fontFamily: COND, fontSize: '12px', fontWeight: '700', color: DUST } }, rd.before + ' in → ' + rd.advanceN + ' survive')),
-    el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } }, ...rd.contenders.map(c => tile(c.rep, { out: !c.advanced, rev: c.rev }))));
+  // ── THE GAUNTLET — rows = reps, columns = each Saturday. A rep's row stays
+  // lit while alive and turns to ash with a skull on the week they fall;
+  // survivors run bright to the edge. Survivors sort to the top, then the
+  // fallen in order of how long they lasted.
+  const reps = {};
+  R.rounds.forEach((rd, i) => rd.contenders.forEach(c => {
+    const e = reps[c.rep] || (reps[c.rep] = { rep: c.rep, office: c.office, cells: {}, elimWeek: null, total: 0 });
+    e.cells[i] = { rev: c.rev, advanced: c.advanced }; e.total += c.rev;
+    if (!c.advanced && e.elimWeek == null) e.elimWeek = i;
+  }));
+  const aliveSet = new Set(R.alive);
+  const rows = Object.values(reps);
+  rows.forEach(r => (r.alive = aliveSet.has(r.rep)));
+  rows.sort((a, b) =>
+    (b.alive ? 1 : 0) - (a.alive ? 1 : 0)
+    || ((b.elimWeek == null ? 99 : b.elimWeek) - (a.elimWeek == null ? 99 : a.elimWeek))
+    || b.total - a.total
+    || String(a.rep).localeCompare(String(b.rep)));
+
+  const headCell = (rd) => el('th', { style: { padding: '4px 8px', borderBottom: '1px solid #2a2420', whiteSpace: 'nowrap', textAlign: 'center' } },
+    el('div', { style: { fontFamily: COND, fontSize: '15px', fontWeight: '800', color: BLOOD, lineHeight: '1' } }, 'W' + rd.week),
+    el('div', { style: { fontFamily: COND, fontSize: '10px', fontWeight: '700', color: DUST, letterSpacing: '.04em' } }, new Date(rd.iso + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })));
+  const nameCell = (r) => el('td', { style: { position: 'sticky', left: '0', zIndex: '1', background: '#100c0a', borderRight: '2px solid #2a2420', padding: '5px 10px 5px 8px', whiteSpace: 'nowrap' } },
+    el('div', { style: { fontFamily: COND, fontSize: '14px', fontWeight: '800', letterSpacing: '.03em', textTransform: 'uppercase', color: (r.rep === R.champion ? BLOOD : (r.alive ? BONE : '#857c6c')) } },
+      (r.rep === R.champion ? '☠ ' : '') + firstLast(r.rep)),
+    el('div', { style: { fontFamily: COND, fontSize: '10px', fontWeight: '700', letterSpacing: '.06em', color: r.alive ? BLOOD : '#5c554a' } },
+      r.rep === R.champion ? 'CHAMPION' : (r.alive ? 'STILL STANDING' : ('✝ FELL WK ' + (r.elimWeek + 1)))));
+  const gridCell = (r, i) => {
+    const c = r.cells[i];
+    const base = { fontFamily: COND, fontSize: '12px', fontWeight: '700', textAlign: 'center', padding: '5px 8px', borderRight: '1px solid rgba(255,255,255,.03)', borderBottom: '1px solid rgba(255,255,255,.03)', whiteSpace: 'nowrap' };
+    if (!c) return el('td', { style: Object.assign({}, base, { background: 'repeating-linear-gradient(45deg, rgba(255,255,255,.025) 0 5px, transparent 5px 10px)', color: '#3a342c' }) }, '·');
+    if (!c.advanced) return el('td', { style: Object.assign({}, base, { background: 'rgba(179,51,31,.18)', color: '#9c9081' }) },
+      el('span', { style: { color: BLOOD, fontWeight: '800' } }, '☠ '), el('span', { style: { textDecoration: 'line-through' } }, money(c.rev)));
+    return el('td', { style: Object.assign({}, base, { background: 'rgba(231,224,207,.07)', color: BONE, boxShadow: 'inset 0 -2px 0 rgba(179,51,31,.5)' }) }, money(c.rev));
+  };
+
+  const gauntlet = el('div', { style: { overflowX: 'auto', border: '1px solid #241e1a', borderRadius: '4px', background: 'linear-gradient(180deg,#13100e,#0b0908)' } },
+    el('table', { style: { borderCollapse: 'collapse', width: '100%' } },
+      el('thead', {}, el('tr', {},
+        el('th', { style: { position: 'sticky', left: '0', zIndex: '2', background: '#100c0a', borderBottom: '1px solid #2a2420', borderRight: '2px solid #2a2420', textAlign: 'left', padding: '4px 10px' } },
+          el('div', { style: { fontFamily: COND, fontSize: '11px', fontWeight: '800', letterSpacing: '.12em', color: DUST, textTransform: 'uppercase' } }, 'The Field')),
+        ...R.rounds.map(headCell))),
+      el('tbody', {}, ...rows.map(r => el('tr', {}, nameCell(r), ...R.rounds.map((rd, i) => gridCell(r, i)))))));
 
   return el('div', { class: 'card', style: {
       padding: '14px', border: '1px solid #241e1a',
       background: 'radial-gradient(circle at 25% 0%, rgba(150,110,70,.10), transparent 55%), repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 2px, transparent 2px 5px), linear-gradient(180deg,#171210,#0a0807)',
     } },
     sign,
-    el('div', { style: { fontFamily: COND, fontSize: '11px', letterSpacing: '.14em', color: DUST, textAlign: 'center', margin: '14px 0 6px', textTransform: 'uppercase' } },
+    el('div', { style: { fontFamily: COND, fontSize: '11px', letterSpacing: '.14em', color: DUST, textAlign: 'center', margin: '14px 0 8px', textTransform: 'uppercase' } },
       'Saturdays only · D2D · ≥$99 initial · passed/no-audit · top 50% advance (round up) · ' + (winLabel || 'all dates')),
     R.rounds.length
-      ? el('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, ...R.rounds.map(roundCard))
+      ? gauntlet
       : el('div', { style: { fontFamily: COND, color: DUST, textAlign: 'center', padding: '18px', fontSize: '14px' } }, 'The wasteland is empty — no Saturday rounds have been played in this window.'));
 }
 
