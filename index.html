@@ -122,9 +122,13 @@
   /* Hypebeast display type — Anton poster face for tab titles + hero numbers. */
   .font-display { font-family: var(--font-display); font-weight: 400 !important; letter-spacing: .015em; }
   .hb-kicker { text-transform: uppercase; letter-spacing: .18em; font-weight: 700; }
-  /* Every page / tab title becomes a poster headline. Anton is a single weight,
-     so force 400 to avoid ugly synthetic-bold from font-bold/black utilities. */
-  h1 { font-family: var(--font-display); font-weight: 400 !important; letter-spacing: .02em; text-transform: uppercase; }
+  /* Every page / tab title + section header becomes a poster headline. Anton is
+     a single weight, so force 400 to avoid synthetic-bold from font utilities. */
+  h1, h2, h3 { font-family: var(--font-display); font-weight: 400 !important; letter-spacing: .02em; }
+  h1 { font-size: clamp(2.5rem, 6vw, 6rem); line-height: .92; text-transform: uppercase; }
+  h2 { letter-spacing: .01em; }
+  /* Keep the fixed top-bar tab title compact (it lives in a ~60px header). */
+  .hb-topbar-title { font-size: 1.05rem !important; line-height: 1 !important; text-transform: uppercase; }
 
   /* Text helpers driven by CSS vars */
   .text-default  { color: var(--text); }
@@ -3406,7 +3410,7 @@ function mountApp() {
     el('div', { class: 'flex items-center gap-3 relative' },
       gridBtn,
       navMenu,
-      el('h1', { class: 'text-base sm:text-lg font-bold tracking-wider' }, TAB_TITLES[state.view] || ''),
+      el('h1', { class: 'hb-topbar-title font-bold tracking-wider' }, TAB_TITLES[state.view] || ''),
     ),
     state.view === 'sales' ? buildSearchBar() : el('div', { class: 'flex-1' }),
     el('div', { class: 'flex items-center gap-2' },
@@ -3577,7 +3581,7 @@ function viewDashboard() {
   const goalProgress = goal.amount > 0 ? Math.min(1, ytd[state.dashGoalTab] / goal.amount) : 0;
   const daysLeft = daysLeftInGoalPeriod(goal);
 
-  return el('div', { class: 'flex flex-col gap-5 max-w-6xl mx-auto' },
+  return el('div', { class: 'flex flex-col gap-5 w-full' },
 
     // ─── Top row: + New Sale + date filter + office view ───
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
@@ -7163,13 +7167,13 @@ function viewSales() {
   // table. No "+ New Sale" button here; settled sales aren't created from
   // the History view.
   if (queueFilter === 'history') {
-    return el('div', { class: 'flex flex-col gap-5 max-w-6xl mx-auto' },
+    return el('div', { class: 'flex flex-col gap-5 w-full' },
       queueRow,
       viewHistory({ embedded: true }),
     );
   }
 
-  return el('div', { class: 'flex flex-col gap-5 max-w-6xl mx-auto' },
+  return el('div', { class: 'flex flex-col gap-5 w-full' },
     queueRow,
 
     // ── Pending Upfront only: + New Sale + filters on its right. On the review
@@ -9252,7 +9256,7 @@ function viewCompetitions() {
   const upcoming = state.competitions.filter(c => c.is_active && new Date(c.start_date) > new Date());
   const past = state.competitions.filter(c => !c.is_active || new Date(c.end_date) < new Date());
 
-  const container = el('div', { class: 'flex flex-col gap-6 max-w-6xl' });
+  const container = el('div', { class: 'flex flex-col gap-6 w-full' });
 
   container.append(
     el('div', {},
@@ -9464,7 +9468,7 @@ function viewCalendar() {
   const incoming = state.shiftSwapRequests.filter(r => r.to_rep_id === meId && r.status === 'pending' && inDept(r));
   const outgoing = state.shiftSwapRequests.filter(r => r.from_rep_id === meId && r.status === 'pending' && inDept(r));
 
-  return el('div', { class: 'flex flex-col gap-5 max-w-6xl mx-auto' },
+  return el('div', { class: 'flex flex-col gap-5 w-full' },
 
     // ── Toolbar ──
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
@@ -10620,7 +10624,7 @@ function viewHallOfFame() {
     bestMonth: repCards.reduce((a, r) => r.bestMonth.revenue > (a?.revenue || 0) ? { rep: r.profile, ...r.bestMonth } : a, null),
   };
 
-  return el('div', { class: 'flex flex-col gap-6 max-w-6xl mx-auto' },
+  return el('div', { class: 'flex flex-col gap-6 w-full' },
     el('div', {},
       el('h1', { class: 'text-3xl font-bold flex items-center gap-3' },
         el('span', { class: 'text-4xl' }, '🏆'),
@@ -14467,7 +14471,7 @@ function viewIndicators() {
 
   // If no data uploaded yet, show upload UI
   if (!state.indicatorsData || !state.indicatorsData.length) {
-    return el('div', { class: 'flex flex-col gap-5 max-w-6xl mx-auto' },
+    return el('div', { class: 'flex flex-col gap-5 w-full' },
       el('h1', { class: 'text-2xl font-bold' }, 'Indicators'),
       el('div', { class: 'card p-10 text-center' },
         el('div', { class: 'text-4xl mb-3' }, '📊'),
@@ -14815,7 +14819,7 @@ function viewIndicators() {
     && (['spring_cleaning', 'avg_pest_initial', 'top_gun', 'last_man_standing'].includes(getActiveComp().scoring || '')
         || isLastManStandingComp());
 
-  return el('div', { class: 'flex flex-col gap-5 max-w-[1400px] mx-auto' },
+  return el('div', { class: 'flex flex-col gap-5 w-full' },
 
     // ── Fixed filter bar — pinned just below the page header at all times,
     // so the user can change week / range / scope from anywhere on the page.
@@ -14852,7 +14856,7 @@ function viewIndicators() {
             paddingTop: '8px', paddingBottom: '8px',
           },
         },
-          el('div', { class: 'max-w-[1400px] mx-auto px-4 sm:px-6' },
+          el('div', { class: 'w-full px-4 sm:px-6' },
             el('div', { class: 'flex flex-col gap-2' },
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
         // Department toggle (D2D / Office / Techs) — derived from sale Source,
@@ -15199,6 +15203,7 @@ function viewIndicators() {
           // is everyone in; deselecting keeps an office/team on the board (stats
           // still show + roll into totals) but drops it from the ranking points.
           (() => {
+            if (state.indicatorsComps) return null; // Power Ranking is comps-OFF only — hide its trophy in comp mode
             const excludedNow = rankExcludedSet();
             const noun = groupBy === 'teams' ? 'teams' : 'offices';
             const opts = activeBranches.filter(b => !(groupBy === 'teams' && b === 'Unassigned')).sort((a, b) => a.localeCompare(b));
@@ -15292,14 +15297,14 @@ function viewIndicators() {
         const sx = window.scrollX, sy = window.scrollY;
         setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0);
       };
-      return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid #34C759' } },
-        el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, '🏆 Competition'),
+      return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
+        el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Competition'),
         ...comps.map(c => {
           const on = c.id === activeId;
           return el('button', {
             class: 'text-xs font-bold rounded-full px-3 py-1 border transition cursor-pointer whitespace-nowrap',
             style: on
-              ? { background: '#34C759', color: '#06310f', borderColor: '#34C759' }
+              ? { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' }
               : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
             onclick: () => { setActiveCompId(c.id); liveRerender(); },
           }, c.name);
@@ -15320,7 +15325,7 @@ function viewIndicators() {
               setTimeout(() => input.focus(), 0);
               return el('span', { class: 'flex items-center gap-1' },
                 input,
-                el('button', { class: 'text-[11px] font-bold rounded px-2 py-1 cursor-pointer', style: { background: '#34C759', color: '#06310f' }, onclick: save }, 'Save'),
+                el('button', { class: 'text-[11px] font-bold rounded px-2 py-1 cursor-pointer', style: { background: 'var(--text)', color: 'var(--bg)' }, onclick: save }, 'Save'),
                 el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => { state._indicatorAddingComp = false; liveRerender(); } }, 'Cancel'),
               );
             })()
@@ -15344,7 +15349,7 @@ function viewIndicators() {
             setTimeout(() => input.focus(), 0);
             return el('span', { class: 'flex items-center gap-1 ml-auto' },
               input,
-              el('button', { class: 'text-[11px] font-bold rounded px-2 py-1 cursor-pointer', style: { background: '#34C759', color: '#06310f' }, onclick: save }, 'Save'),
+              el('button', { class: 'text-[11px] font-bold rounded px-2 py-1 cursor-pointer', style: { background: 'var(--text)', color: 'var(--bg)' }, onclick: save }, 'Save'),
               el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => { state._indicatorRenamingComp = null; liveRerender(); } }, 'Cancel'),
             );
           }
@@ -15369,8 +15374,8 @@ function viewIndicators() {
         style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
         onchange: (e) => { cf[key] = e.target.value; apply(); },
       });
-      return el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid #34C759' } },
-        el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, '📅 Comp Window'),
+      return el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
         dateInput('start'),
         el('span', { class: 'text-muted-' }, '→'),
         dateInput('end'),
@@ -22511,7 +22516,7 @@ function viewHistory({ embedded = false } = {}) {
   const rows = state.mySales.filter(isSettled).sort((a, b) => new Date(b.sold_date) - new Date(a.sold_date));
   const filterState = { q: '', status: '', source: '' };
 
-  const container = el('div', { class: 'flex flex-col gap-4' + (embedded ? '' : ' max-w-6xl') });
+  const container = el('div', { class: 'flex flex-col gap-4' + (embedded ? '' : ' w-full') });
 
   // Embedded mode lives inside the Sales tab — the queue-pill label is
   // already serving as the section header, so we skip the H1 + tagline.
@@ -24471,7 +24476,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
   renderRows();
 
   const card = el('div', {
-    class: 'card w-full max-w-6xl my-8 overflow-hidden flex flex-col',
+    class: 'card w-full w-full my-8 overflow-hidden flex flex-col',
     style: { maxHeight: 'calc(100vh - 64px)' },
   },
     el('div', { class: 'flex items-start justify-between p-6 pb-3' },
@@ -28549,7 +28554,7 @@ function viewAdmin() {
   const view = sectionRenderers[state.adminSection] || adminReps;
   const body = el('div', { class: 'flex-1 min-w-0' }, view());
 
-  return el('div', { class: 'flex gap-5 max-w-6xl mx-auto' }, sidebar, body);
+  return el('div', { class: 'flex gap-5 w-full' }, sidebar, body);
 }
 
 // Global Configurations — service lifecycle, lead sources, and cancel-reason
