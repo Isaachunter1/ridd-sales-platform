@@ -2854,12 +2854,15 @@ function reportingAuditing() {
     const subActive = (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
     if (serviced) {
       if (realCancel) a.cancelledRev += cv;
-      else if (subActive) { a.activeRev += cv; if ((Number(r.days_past_due) || 0) >= 7) a.agingRev += cv; }
+      else if (subActive) { a.activeRev += cv; a.activeSubsN = (a.activeSubsN || 0) + 1; if ((Number(r.days_past_due) || 0) >= 7) a.agingRev += cv; }
       else a.frozenRev += cv;
     }
     // 3-day ROR revenue that sits INSIDE Serviced (initial done, then rescinded
     // within 3 days) — non-commissionable; surfaced so reps see it transparently.
     if (serviced && isRorRow(r)) a.rorRev += cv;
+    // Pre-service cancel = sold then cancelled before any service ran. These
+    // never need an audit, so they're dropped from the Pending count below.
+    if (r.subscription_date_canceled && !serviced) a.preCancelSubs = (a.preCancelSubs || 0) + 1;
   }
 
   // ── Filters: sold-date range + branch ──
@@ -2889,7 +2892,7 @@ function reportingAuditing() {
   const teamFilter = state.auditTeam;
 
   // ── Aggregate per rep / per branch ──
-  const mk = () => ({ sold: 0, serviced: 0, passed: 0, failed: 0, pending: 0, noaudit: 0,
+  const mk = () => ({ sold: 0, serviced: 0, activeSubs: 0, passed: 0, failed: 0, pending: 0, noaudit: 0,
     soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0, frozenRev: 0, rorRev: 0,
     attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] },
     coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] } });
@@ -2907,7 +2910,9 @@ function reportingAuditing() {
     meta.officeCounts[a.office] = (meta.officeCounts[a.office] || 0) + 1;
     meta.team = a.team;
     for (const b of [r, o, t, tot]) {
-      b.sold += a.subs; b.serviced += a.servicedSubs; b[a.status] += a.subs;
+      b.sold += a.subs; b.serviced += a.servicedSubs; b.activeSubs += (a.activeSubsN || 0);
+      if (a.status === 'pending') b.pending += Math.max(0, a.subs - (a.preCancelSubs || 0)); // pre-service cancels need no audit
+      else b[a.status] += a.subs;
       b.soldRev += a.soldRev; b.servicedRev += a.servicedRev; b.activeRev += a.activeRev; b.cancelledRev += a.cancelledRev; b.agingRev += a.agingRev; b.frozenRev += a.frozenRev; b.rorRev += a.rorRev;
       b.attr[a.status][1] += a.subs; b.attr[a.status][0] += a.cancelledSubs;
       b.coll[a.status][1] += a.subs; b.coll[a.status][0] += a.collSubs;
@@ -3022,14 +3027,15 @@ function reportingAuditing() {
       ...(opts.org ? [td(opts.org.office || '—'), td(opts.org.team || '—')] : []),
       td(fmt.int(s.sold)),
       td(fmt.int(s.serviced)),
+      td(fmt.int(s.activeSubs)),
       td(s.sold > 0 ? (s.serviced / s.sold * 100).toFixed(1) + '%' : '—'),
       td(fmt.int(auditedN)),
       td(fmt.int(s.passed), { bg: 'rgba(141,198,63,.08)' }),
       td(fmt.int(s.failed), { bg: s.failed > 0 ? 'rgba(220,38,38,.08)' : 'transparent' }),
       td(fmt.int(s.noaudit)),
       td(fmt.int(s.pending)),
-      td(money(s.servicedRev)),
       td(money(s.soldRev)),
+      td(money(s.servicedRev)),
       td(money(activeRev)),
       td(money(s.cancelledRev), { bg: s.cancelledRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
       td(money(s.frozenRev)),
@@ -3048,6 +3054,7 @@ function reportingAuditing() {
       case 'team':     return repTeamOf(name);
       case 'sold':     return s.sold;
       case 'serviced': return s.serviced;
+      case 'activeSubs': return s.activeSubs;
       case 'soldServiced': return s.sold > 0 ? s.serviced / s.sold : -1;
       case 'audited':  return s.passed + s.failed;
       case 'passed':   return s.passed;
@@ -3077,14 +3084,15 @@ function reportingAuditing() {
       ] : []),
       { id: 'sold', label: 'Sold (D2D)', tip: 'EVERY subscription sold in range (a customer with 2 subs counts as 2). Passed, failed, pending and no-audit all included.' },
       { id: 'serviced', label: 'Serviced', tip: 'Subscriptions that have been serviced — an initial service / at least one completed service.' },
+      { id: 'activeSubs', label: 'Active Subs', tip: 'Count of serviced subscriptions that are still active (not cancelled) — the unit behind Active Rev.' },
       { id: 'soldServiced', label: 'Sold → Service %', tip: 'Of subscriptions sold, the share that received an initial service — serviced ÷ sold. 89% = 89% of sold subs have been serviced; the rest are sold but not yet serviced.' },
       { id: 'audited', label: 'Audited', tip: 'Subscriptions with a final audit result = Passed + Failed. (Pending and No Audit are not yet audited.)' },
       { id: 'passed', label: 'Passed', tip: 'Accounts flagged "Passed Audit".' },
       { id: 'failed', label: 'Failed', tip: 'Accounts flagged "Failed Audit".' },
       { id: 'noaudit', label: 'No Audit', tip: 'Accounts explicitly flagged "No Audit" — exempt from auditing.' },
-      { id: 'pending', label: 'Pending', tip: 'No audit result yet — awaiting audit (no Passed / Failed / No-Audit flag).' },
-      { id: 'servicedRev', label: 'Serviced Rev', tip: 'Contract value of subscriptions that received an initial service. Splits into Active + Cancelled + Frozen.' },
+      { id: 'pending', label: 'Pending', tip: 'No audit result yet — awaiting audit (no Passed / Failed / No-Audit flag). Pre-service cancels are excluded — they never need an audit.' },
       { id: 'soldRev', label: 'Sold Rev', tip: 'Contract value across ALL sold subscriptions (everything, regardless of service or status).' },
+      { id: 'servicedRev', label: 'Serviced Rev', tip: 'Contract value of subscriptions that received an initial service. Splits into Active + Cancelled + Frozen.' },
       { id: 'activeRev', label: 'Active Rev', tip: 'Contract value of subscriptions that were SERVICED and are still active (not cancelled). Always ≤ Serviced Rev. Includes aging.' },
       { id: 'cancelledRev', label: 'Cancelled Rev', tip: 'Contract value of SERVICED subscriptions that later cancelled (ROR / Sold-Not-Started excluded).' },
       { id: 'frozenRev', label: 'Frozen Rev', tip: 'Contract value of SERVICED subscriptions on hold / frozen — not active, but not a real cancel. Serviced = Active + Cancelled + Frozen.' },
