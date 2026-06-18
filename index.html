@@ -2821,10 +2821,11 @@ function reportingAuditing() {
         serviced: false,
         date: null,
         soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0, frozenRev: 0, rorRev: 0,
-        subs: 0, servicedSubs: 0, cancelledSubs: 0, collSubs: 0,
+        subs: 0, servicedSubs: 0, cancelledSubs: 0, collSubs: 0, rows: [],
       };
       acct.set(id, a);
     }
+    a.rows.push(r); // keep raw subscription rows so the player card can drill into any bucket
     // Sold = every subscription row tied to the rep (NOT deduped to one per
     // customer). A customer with 2 subs counts as 2 sold; the customer-level
     // audit flag applies to each of their subs so the buckets still tie out.
@@ -2850,10 +2851,11 @@ function reportingAuditing() {
     //   Active    = serviced, status Active, not cancelled  (Aging = 7+ dpd slice of it)
     //   Cancelled = serviced, real cancel (ROR / Sold-Not-Started excluded)
     //   Frozen    = serviced, not a real cancel, status not Active (on hold / frozen)
-    const realCancel = !!r.subscription_date_canceled && !isExcludableRow(r);
     const subActive = (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
     if (serviced) {
-      if (realCancel) a.cancelledRev += cv;
+      // Cancelled = serviced then cancelled, INCLUDING 3-day RORs (a ROR that got
+      // an initial service before it was rescinded is still a serviced cancel).
+      if (r.subscription_date_canceled) a.cancelledRev += cv;
       else if (subActive) { a.activeRev += cv; a.activeSubsN = (a.activeSubsN || 0) + 1; if ((Number(r.days_past_due) || 0) >= 7) a.agingRev += cv; }
       else a.frozenRev += cv;
     }
@@ -2944,10 +2946,10 @@ function reportingAuditing() {
     const passPct = passBase > 0 ? (s.passed + s.noaudit) / passBase : null;
     // Revenue waterfall: Active = serviced AND active (subset of Serviced; includes Aging).
     const activeRev = s.activeRev;
-    const rorRev = s.rorRev || 0;                              // serviced 3-day ROR (non-commissionable)
-    const servExclRor = s.servicedRev - rorRev;               // commissionable serviced revenue
-    const attrExclRor = servExclRor > 0 ? s.cancelledRev / servExclRor : null;          // RORs ignored entirely
-    const attrInclRor = s.servicedRev > 0 ? (s.cancelledRev + rorRev) / s.servicedRev : null; // RORs counted as churn
+    const rorRev = s.rorRev || 0;                              // serviced 3-day ROR portion (now inside Cancelled)
+    const servExclRor = s.servicedRev - rorRev;               // serviced revenue with RORs removed
+    const attrExclRor = servExclRor > 0 ? (s.cancelledRev - rorRev) / servExclRor : null;   // RORs removed from both sides
+    const attrInclRor = s.servicedRev > 0 ? s.cancelledRev / s.servicedRev : null;          // RORs counted (already in Cancelled)
     const cancelIfAging = s.servicedRev > 0 ? (s.cancelledRev + s.agingRev) / s.servicedRev : null;
     const activeRetention = s.servicedRev > 0 ? activeRev / s.servicedRev : null;
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
@@ -2962,10 +2964,31 @@ function reportingAuditing() {
     const key = (e) => { if (e.key === 'Escape') close(); };
     document.addEventListener('keydown', key);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-    const tile = (label, val, sub, color) => el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)' } },
+    const tile = (label, val, sub, color, onClick) => el('div', {
+        class: 'rounded-xl p-3' + (onClick ? ' cursor-pointer hover:brightness-95 transition' : ''),
+        style: { background: 'var(--card-2)' }, onclick: onClick || undefined,
+        title: onClick ? 'Click to see these customers' : undefined,
+      },
       el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, label),
       el('div', { class: 'text-xl font-black tabular-nums mt-0.5', style: color ? { color } : {} }, val),
       sub ? el('div', { class: 'text-[10px] text-muted- mt-0.5' }, sub) : null);
+    // ── Drill: gather THIS entity's raw subscription rows (same filters that
+    // built `s`), then a clicked tile opens the windowed customer list. ──
+    const entityAccts = [...acct.values()].filter(a => {
+      if (!inRange(a)) return false;
+      if (offFilter !== 'all' && a.office !== offFilter) return false;
+      if (teamFilter !== 'all' && a.team !== teamFilter) return false;
+      return kind === 'rep' ? a.rep === name : kind === 'team' ? a.team === name : a.office === name;
+    });
+    const entityRows = entityAccts.flatMap(a => a.rows || []);
+    const _svc = (r) => (Number(r.subscription_completed_services) || 0) > 0 || !!r.initial_service;
+    const _act = (r) => (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
+    const _stat = (r) => (typeof _auditStatusOf === 'function') ? _auditStatusOf(r.customer_flags) : '';
+    const drill = (label, pred) => () => {
+      const rows = entityRows.filter(pred);
+      if (!rows.length) return;
+      openReportingDrillModal({ chartTitle: name + ' — ' + label, sliceLabel: fmt.int(rows.length) + ' subscription' + (rows.length === 1 ? '' : 's'), rows, formatValue: money });
+    };
     const group = (title, tiles) => el('div', {},
       el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, title),
       el('div', { class: 'grid grid-cols-2 sm:grid-cols-3 gap-2' }, ...tiles));
@@ -2979,30 +3002,29 @@ function reportingAuditing() {
         el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
       el('div', { class: 'p-5 overflow-auto flex flex-col gap-4' },
         group('Production', [
-          tile('Sold', fmt.int(s.sold)),
-          tile('Serviced', fmt.int(s.serviced)),
+          tile('Sold', fmt.int(s.sold), null, null, drill('Sold', () => true)),
+          tile('Serviced', fmt.int(s.serviced), null, null, drill('Serviced', _svc)),
           tile('Sold → Service', pctS(soldSvc), null, soldSvc == null ? null : (soldSvc >= 0.85 ? good : soldSvc < 0.65 ? bad : null)),
         ]),
         group('Audit', [
           tile('Pass %', pctS(passPct), passBase + ' audited (incl. no-audit)', passPct == null ? null : (passPct >= 0.85 ? good : passPct < 0.65 ? bad : null)),
-          tile('Passed', fmt.int(s.passed), null, good),
-          tile('Failed', fmt.int(s.failed), null, s.failed > 0 ? bad : null),
-          tile('No Audit', fmt.int(s.noaudit), 'counts as passed'),
-          tile('Pending', fmt.int(s.pending)),
+          tile('Passed', fmt.int(s.passed), null, good, drill('Passed', r => _stat(r) === 'passed')),
+          tile('Failed', fmt.int(s.failed), null, s.failed > 0 ? bad : null, drill('Failed', r => _stat(r) === 'failed')),
+          tile('No Audit', fmt.int(s.noaudit), 'counts as passed', null, drill('No Audit', r => _stat(r) === 'noaudit')),
+          tile('Pending', fmt.int(s.pending), null, null, drill('Pending', r => _stat(r) === 'pending' && !(r.subscription_date_canceled && !_svc(r)))),
           tile('Attrition on Audits: Pass / Fail', pctS(aP) + ' / ' + pctS(aF)),
         ]),
         group('Revenue · contract value  (Serviced = Active + Cancelled + Frozen)', [
-          tile('Sold', money(s.soldRev), 'all sold (incl. pre-service)'),
-          tile('Serviced', money(s.servicedRev), 'received an initial service'),
-          tile('Active', money(activeRev), 'serviced & active · incl. aging'),
-          tile('Cancelled', money(s.cancelledRev), 'serviced, then cancelled', s.cancelledRev > 0 ? bad : null),
-          tile('Frozen / Other', money(s.frozenRev), 'serviced, on hold, not cancelled'),
-          tile('Aging', money(s.agingRev), 'at-risk slice of Active', s.agingRev > 0 ? bad : null),
-          tile('3-Day ROR', money(rorRev), 'inside Serviced · non-commissionable', rorRev > 0 ? bad : null),
+          tile('Sold', money(s.soldRev), 'all sold (incl. pre-service)', null, drill('Sold revenue', () => true)),
+          tile('Serviced', money(s.servicedRev), 'received an initial service', null, drill('Serviced revenue', _svc)),
+          tile('Active', money(activeRev), 'serviced & active · incl. aging', null, drill('Active', r => _svc(r) && _act(r))),
+          tile('Cancelled', money(s.cancelledRev), 'serviced then cancelled · incl. 3-day ROR', s.cancelledRev > 0 ? bad : null, drill('Cancelled', r => _svc(r) && !!r.subscription_date_canceled)),
+          tile('Frozen / Other', money(s.frozenRev), 'serviced, on hold, not cancelled', null, drill('Frozen / Other', r => _svc(r) && !_act(r) && !r.subscription_date_canceled)),
+          tile('Aging', money(s.agingRev), 'at-risk slice of Active', s.agingRev > 0 ? bad : null, drill('Aging', r => _svc(r) && _act(r) && (Number(r.days_past_due) || 0) >= 7)),
         ]),
         group('Attrition · of serviced', [
           tile('Attrition · excl. ROR', pctS(attrExclRor), 'cancelled ÷ serviced (RORs removed)', attrExclRor == null ? null : (attrExclRor >= 0.25 ? bad : attrExclRor < 0.10 ? good : null)),
-          tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), '(cancelled + ROR) ÷ serviced', attrInclRor == null ? null : (attrInclRor >= 0.25 ? bad : attrInclRor < 0.10 ? good : null)),
+          tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), 'cancelled ÷ serviced (incl. ROR)', attrInclRor == null ? null : (attrInclRor >= 0.25 ? bad : attrInclRor < 0.10 ? good : null)),
           tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', cancelIfAging == null ? null : (cancelIfAging >= 0.25 ? bad : cancelIfAging < 0.10 ? good : null)),
           tile('Active retention', pctS(activeRetention), 'active ÷ serviced', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
         ])));
@@ -3094,8 +3116,8 @@ function reportingAuditing() {
       { id: 'soldRev', label: 'Sold Rev', tip: 'Contract value across ALL sold subscriptions (everything, regardless of service or status).' },
       { id: 'servicedRev', label: 'Serviced Rev', tip: 'Contract value of subscriptions that received an initial service. Splits into Active + Cancelled + Frozen.' },
       { id: 'activeRev', label: 'Active Rev', tip: 'Contract value of subscriptions that were SERVICED and are still active (not cancelled). Always ≤ Serviced Rev. Includes aging.' },
-      { id: 'cancelledRev', label: 'Cancelled Rev', tip: 'Contract value of SERVICED subscriptions that later cancelled (ROR / Sold-Not-Started excluded).' },
-      { id: 'frozenRev', label: 'Frozen Rev', tip: 'Contract value of SERVICED subscriptions on hold / frozen — not active, but not a real cancel. Serviced = Active + Cancelled + Frozen.' },
+      { id: 'cancelledRev', label: 'Cancelled Rev', tip: 'Contract value of SERVICED subscriptions that later cancelled — includes 3-day RORs that were serviced before being rescinded.' },
+      { id: 'frozenRev', label: 'Frozen Rev', tip: 'Contract value of SERVICED subscriptions on hold / frozen — not active and not cancelled. Serviced = Active + Cancelled + Frozen.' },
       { id: 'agingRev', label: 'Aging Rev', tip: 'Contract value of serviced, active subscriptions 7+ days past due — the at-risk slice inside Active.' },
       { id: 'passpct', label: 'Pass %', tip: '(Passed + No Audit) ÷ (Passed + Failed + No Audit). No-Audit counts as passed; Pending excluded.' },
       { id: 'attrP', label: 'Attrition · Passed', tip: 'Of passed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
