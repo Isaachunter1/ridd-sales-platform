@@ -10626,10 +10626,7 @@ function viewHallOfFame() {
 
   return el('div', { class: 'flex flex-col gap-6 w-full' },
     el('div', {},
-      el('h1', { class: 'text-3xl font-bold flex items-center gap-3' },
-        el('span', { class: 'text-4xl' }, '🏆'),
-        'Hall of Fame',
-      ),
+      el('h1', { class: 'text-3xl font-bold' }, 'Hall of Fame'),
       el('p', { class: 'text-sm text-muted- mt-1' }, 'Personal bests. Beat them, break them, earn a badge.'),
     ),
 
@@ -22858,7 +22855,7 @@ function viewScorecards() {
 
   const header = el('div', { class: 'card p-5 flex items-start justify-between gap-4 flex-wrap' },
     el('div', {},
-      el('h2', { class: 'text-xl font-bold' }, '📋 Scorecards'),
+      el('h2', { class: 'text-xl font-bold' }, 'Scorecards'),
       el('p', { class: 'text-xs text-muted- mt-1' },
         'Monthly performance review per agent. ' + tpl.name + ' template: ' +
         tpl.metrics.map(m => m.label + ' ' + Math.round(m.weight * 100) + '%').join(' · ') + '.'),
