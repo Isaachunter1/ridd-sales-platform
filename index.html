@@ -2862,9 +2862,12 @@ function reportingAuditing() {
     // 3-day ROR revenue that sits INSIDE Serviced (initial done, then rescinded
     // within 3 days) — non-commissionable; surfaced so reps see it transparently.
     if (serviced && isRorRow(r)) a.rorRev += cv;
-    // Pre-service cancel = sold then cancelled before any service ran. These
-    // never need an audit, so they're dropped from the Pending count below.
-    if (r.subscription_date_canceled && !serviced) a.preCancelSubs = (a.preCancelSubs || 0) + 1;
+    // Pending-eligible = actually needs an audit: NOT frozen status, and not a
+    // pre-service cancel (sold then cancelled before any service ran). Drives the
+    // Pending count — frozen / on-hold and pre-service cancels never need auditing.
+    if ((r.subscription_status || '').toLowerCase() !== 'frozen' && !(r.subscription_date_canceled && !serviced)) {
+      a.pendingSubs = (a.pendingSubs || 0) + 1;
+    }
   }
 
   // ── Filters: sold-date range + branch ──
@@ -2913,7 +2916,7 @@ function reportingAuditing() {
     meta.team = a.team;
     for (const b of [r, o, t, tot]) {
       b.sold += a.subs; b.serviced += a.servicedSubs; b.activeSubs += (a.activeSubsN || 0);
-      if (a.status === 'pending') b.pending += Math.max(0, a.subs - (a.preCancelSubs || 0)); // pre-service cancels need no audit
+      if (a.status === 'pending') b.pending += (a.pendingSubs || 0); // frozen + pre-service cancels need no audit
       else b[a.status] += a.subs;
       b.soldRev += a.soldRev; b.servicedRev += a.servicedRev; b.activeRev += a.activeRev; b.cancelledRev += a.cancelledRev; b.agingRev += a.agingRev; b.frozenRev += a.frozenRev; b.rorRev += a.rorRev;
       b.attr[a.status][1] += a.subs; b.attr[a.status][0] += a.cancelledSubs;
@@ -3011,15 +3014,14 @@ function reportingAuditing() {
           tile('Passed', fmt.int(s.passed), null, good, drill('Passed', r => _stat(r) === 'passed')),
           tile('Failed', fmt.int(s.failed), null, s.failed > 0 ? bad : null, drill('Failed', r => _stat(r) === 'failed')),
           tile('No Audit', fmt.int(s.noaudit), 'counts as passed', null, drill('No Audit', r => _stat(r) === 'noaudit')),
-          tile('Pending', fmt.int(s.pending), null, null, drill('Pending', r => _stat(r) === 'pending' && !(r.subscription_date_canceled && !_svc(r)))),
+          tile('Pending', fmt.int(s.pending), null, null, drill('Pending', r => _stat(r) === 'pending' && (r.subscription_status || '').toLowerCase() !== 'frozen' && !(r.subscription_date_canceled && !_svc(r)))),
           tile('Attrition on Audits: Pass / Fail', pctS(aP) + ' / ' + pctS(aF)),
         ]),
-        group('Revenue · contract value  (Serviced = Active + Cancelled + Frozen)', [
+        group('Revenue · contract value  (Serviced = Active + Cancelled)', [
           tile('Sold', money(s.soldRev), 'all sold (incl. pre-service)', null, drill('Sold revenue', () => true)),
           tile('Serviced', money(s.servicedRev), 'received an initial service', null, drill('Serviced revenue', _svc)),
           tile('Active', money(activeRev), 'serviced & active · incl. aging', null, drill('Active', r => _svc(r) && _act(r))),
           tile('Cancelled', money(s.cancelledRev), 'serviced then cancelled · incl. 3-day ROR', s.cancelledRev > 0 ? bad : null, drill('Cancelled', r => _svc(r) && !!r.subscription_date_canceled)),
-          tile('Frozen / Other', money(s.frozenRev), 'serviced, on hold, not cancelled', null, drill('Frozen / Other', r => _svc(r) && !_act(r) && !r.subscription_date_canceled)),
           tile('Aging', money(s.agingRev), 'at-risk slice of Active', s.agingRev > 0 ? bad : null, drill('Aging', r => _svc(r) && _act(r) && (Number(r.days_past_due) || 0) >= 7)),
         ]),
         group('Attrition · of serviced', [
@@ -3060,7 +3062,6 @@ function reportingAuditing() {
       td(money(s.servicedRev)),
       td(money(activeRev)),
       td(money(s.cancelledRev), { bg: s.cancelledRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
-      td(money(s.frozenRev)),
       td(money(s.agingRev), { bg: s.agingRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
       td(passPct == null ? '—' : (passPct * 100).toFixed(1) + '%', { bg: passShade(passPct), bold: true }),
       td(aP == null ? '—' : (aP * 100).toFixed(1) + '%'),
@@ -3116,8 +3117,7 @@ function reportingAuditing() {
       { id: 'soldRev', label: 'Sold Rev', tip: 'Contract value across ALL sold subscriptions (everything, regardless of service or status).' },
       { id: 'servicedRev', label: 'Serviced Rev', tip: 'Contract value of subscriptions that received an initial service. Splits into Active + Cancelled + Frozen.' },
       { id: 'activeRev', label: 'Active Rev', tip: 'Contract value of subscriptions that were SERVICED and are still active (not cancelled). Always ≤ Serviced Rev. Includes aging.' },
-      { id: 'cancelledRev', label: 'Cancelled Rev', tip: 'Contract value of SERVICED subscriptions that later cancelled — includes 3-day RORs that were serviced before being rescinded.' },
-      { id: 'frozenRev', label: 'Frozen Rev', tip: 'Contract value of SERVICED subscriptions on hold / frozen — not active and not cancelled. Serviced = Active + Cancelled + Frozen.' },
+      { id: 'cancelledRev', label: 'Cancelled Rev', tip: 'Contract value of SERVICED subscriptions that later cancelled — includes 3-day RORs that were serviced before being rescinded. Serviced = Active + Cancelled.' },
       { id: 'agingRev', label: 'Aging Rev', tip: 'Contract value of serviced, active subscriptions 7+ days past due — the at-risk slice inside Active.' },
       { id: 'passpct', label: 'Pass %', tip: '(Passed + No Audit) ÷ (Passed + Failed + No Audit). No-Audit counts as passed; Pending excluded.' },
       { id: 'attrP', label: 'Attrition · Passed', tip: 'Of passed-audit accounts, the share with a reportable cancel (ROR / Sold-Not-Started excluded).' },
