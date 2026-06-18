@@ -650,6 +650,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_indicatorRankExclude',    // { branch:[...], teams:[...] } — kept on the board but out of Power Ranking
   '_indicatorCompetitions',
   '_indicatorActiveCompId',
+  '_indicatorRemovedDefaults', // built-in comps the admin deleted — don't re-seed them
   '_indicatorTeamColors',
   '_indicatorTrendScope',
   '_indicatorRepActive',
@@ -988,6 +989,7 @@ async function loadIndicatorConfigFromSupabase() {
       if (data.competitions && typeof data.competitions === 'object') {
         if (Array.isArray(data.competitions.list)) state._indicatorCompetitions = data.competitions.list;
         if (data.competitions.active)              state._indicatorActiveCompId = data.competitions.active;
+        if (Array.isArray(data.competitions.removed)) state._indicatorRemovedDefaults = data.competitions.removed;
       }
       // rep_teams may arrive as the new by-year shape ({ "2026": {rep:team} })
       // or the legacy flat shape ({ rep:team }). Detect and normalize into the
@@ -1033,7 +1035,7 @@ async function saveIndicatorConfigToSupabase() {
     team_colors:   state._indicatorTeamColors || {},
     team_logos:    state._indicatorTeamLogos || {},
     team_excluded: state._indicatorExcludedTeams || [],
-    competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [] },
+    competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [] },
     rep_teams:     state._indicatorRepTeamByYear || {},
     rep_tiers:     state._indicatorRepTier || {},
     rep_active:    state._indicatorRepActive || {},
@@ -11686,9 +11688,10 @@ function getIndicatorCompetitions() {
   // built-in that's stale.
   const byId = new Map(state._indicatorCompetitions.map(c => [c.id, c]));
   { const ap = byId.get('avg_pest_initial'); if (ap) ap.name = 'Avg Pest & Raffle'; }
+  const _removedDefaults = new Set(state._indicatorRemovedDefaults || []);
   DEFAULT_COMPETITIONS.forEach(d => {
     const existing = byId.get(d.id);
-    if (!existing) state._indicatorCompetitions.push({ ...d, excludedTeams: [REP_EXCLUDED_TEAM] });
+    if (!existing) { if (!_removedDefaults.has(d.id)) state._indicatorCompetitions.push({ ...d, excludedTeams: [REP_EXCLUDED_TEAM] }); }
     else if (d.scoring && !existing.scoring) existing.scoring = d.scoring;
   });
   // Defensive: every competition must carry an excludedTeams array.
@@ -11732,6 +11735,11 @@ function deleteCompetition(id) {
   const comps = getIndicatorCompetitions();
   if (comps.length <= 1) return;       // always keep at least one
   state._indicatorCompetitions = comps.filter(c => c.id !== id);
+  // Tombstone built-in comps so the Heal pass in getIndicatorCompetitions()
+  // doesn't immediately re-seed them (that was why Remove "did nothing").
+  if (DEFAULT_COMPETITIONS.some(d => d.id === id)) {
+    state._indicatorRemovedDefaults = [...new Set([...(state._indicatorRemovedDefaults || []), id])];
+  }
   if (state._indicatorActiveCompId === id) state._indicatorActiveCompId = state._indicatorCompetitions[0].id;
   saveDemoData();
 }
@@ -11793,37 +11801,29 @@ function lastManStandingBoard(windowed, winLabel) {
   const money = (n) => (typeof fmt !== 'undefined' && fmt.usd0) ? fmt.usd0(n) : ('$' + Math.round(n || 0).toLocaleString());
   const firstLast = (r) => { const t = String(r || '').split(',').map(x => x.trim()); return (t.length === 2 && t[0] && t[1]) ? (t[1] + ' ' + t[0]) : String(r || ''); };
 
-  const tile = (name, opts = {}) => el('div', { style: {
-      fontFamily: COND, fontWeight: '700', fontSize: (opts.big ? '17px' : '14px'), letterSpacing: '.05em', textTransform: 'uppercase',
-      color: opts.out ? '#7a7163' : INK, background: opts.out ? 'transparent' : BONE,
-      border: opts.out ? '1px dashed #4d4537' : '1px solid #b7ae98', borderRadius: '2px',
-      padding: opts.big ? '6px 12px' : '3px 9px', textDecoration: opts.out ? 'line-through' : 'none',
-      boxShadow: opts.out ? 'none' : 'inset 0 -2px 0 rgba(0,0,0,.16), 0 1px 2px rgba(0,0,0,.45)',
-      opacity: opts.out ? 0.5 : 1, whiteSpace: 'nowrap', display: 'inline-flex', gap: '8px', alignItems: 'baseline',
-    } },
-    el('span', {}, firstLast(name)),
-    opts.rev != null ? el('span', { style: { fontWeight: '800', color: opts.out ? '#7a7163' : BLOOD } }, money(opts.rev)) : null);
-
-  const signStat = (label, val, color) => el('div', { style: { textAlign: 'center', lineHeight: '.95' } },
-    el('div', { style: { fontFamily: COND, fontSize: '10px', fontWeight: '700', letterSpacing: '.2em', color: DUST } }, label),
-    el('div', { style: { fontFamily: COND, fontSize: '38px', fontWeight: '800', color: color || BLOOD, textShadow: '2px 2px 0 rgba(0,0,0,.5)' } }, String(val)));
-
   const survivors = R.alive.slice().sort((a, b) => (R.cum[b] || 0) - (R.cum[a] || 0));
-  const sign = el('div', { style: {
-      border: '5px solid ' + FRAME, borderRadius: '4px', background: 'linear-gradient(180deg,#efe9d9,#ddd5c0)',
-      boxShadow: '0 10px 26px rgba(0,0,0,.55), inset 0 0 0 2px rgba(255,255,255,.22)', padding: '14px 14px 16px',
-    } },
-    el('div', { style: { textAlign: 'center', fontFamily: COND, fontSize: '34px', fontWeight: '800', letterSpacing: '.04em', color: INK, textTransform: 'uppercase', lineHeight: '.9', marginBottom: '10px' } }, 'Last Man Standing'),
-    el('div', { style: { display: 'flex', justifyContent: 'center', gap: '26px', marginBottom: '12px' } },
-      signStat('Still Standing', R.champion ? 1 : R.alive.length),
-      signStat('Rounds', R.rounds.length, INK),
-      signStat('Started', R.rosterSize, INK)),
+  const stat = (label, val, hot) => el('div', { style: { textAlign: 'center', padding: '0 16px', borderLeft: '1px solid #2a2420' } },
+    el('div', { style: { fontFamily: COND, fontSize: '36px', fontWeight: '800', color: hot ? BLOOD : BONE, lineHeight: '1', textShadow: '1px 2px 0 rgba(0,0,0,.5)' } }, String(val)),
+    el('div', { style: { fontFamily: COND, fontSize: '10px', fontWeight: '700', letterSpacing: '.18em', color: DUST, textTransform: 'uppercase', marginTop: '4px' } }, label));
+  const survTag = (r) => el('span', { style: { fontFamily: COND, fontSize: '13px', fontWeight: '700', letterSpacing: '.04em', textTransform: 'uppercase', color: INK, background: BONE, border: '1px solid #b7ae98', borderRadius: '2px', padding: '2px 8px', boxShadow: 'inset 0 -2px 0 rgba(0,0,0,.16)' } }, firstLast(r));
+  const sign = el('div', {},
+    el('div', { style: { display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px', borderBottom: '2px solid ' + BLOOD, paddingBottom: '10px' } },
+      el('div', {},
+        el('div', { style: { fontFamily: COND, fontSize: '30px', fontWeight: '800', letterSpacing: '.06em', color: BONE, textTransform: 'uppercase', lineHeight: '.9' } }, 'Last Man Standing'),
+        el('div', { style: { fontFamily: COND, fontSize: '11px', fontWeight: '700', letterSpacing: '.16em', color: DUST, textTransform: 'uppercase', marginTop: '5px' } }, 'Every man for himself · Saturdays only')),
+      el('div', { style: { display: 'flex', alignItems: 'center' } },
+        stat('Standing', R.champion ? 1 : R.alive.length, true),
+        stat('Rounds', R.rounds.length),
+        stat('Started', R.rosterSize))),
     R.champion
-      ? el('div', { style: { textAlign: 'center' } },
-          el('div', { style: { fontFamily: COND, fontSize: '12px', fontWeight: '700', letterSpacing: '.25em', color: BLOOD } }, '☠  CHAMPION  ☠'),
-          el('div', { style: { fontFamily: COND, fontSize: '30px', fontWeight: '800', color: INK, textTransform: 'uppercase' } }, firstLast(R.champion)))
-      : el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '7px', justifyContent: 'center' } },
-          ...(survivors.length ? survivors.map(r => tile(r, { big: true })) : [el('div', { style: { fontFamily: COND, color: '#6b6256', fontSize: '14px' } }, 'No qualifying Saturday sales yet')])));
+      ? el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px', padding: '9px 14px', background: 'rgba(179,51,31,.14)', border: '1px solid rgba(179,51,31,.4)', borderRadius: '3px' } },
+          el('div', { style: { fontFamily: COND, fontSize: '13px', fontWeight: '800', letterSpacing: '.22em', color: BLOOD } }, '☠ CHAMPION'),
+          el('div', { style: { fontFamily: COND, fontSize: '26px', fontWeight: '800', color: BONE, textTransform: 'uppercase', lineHeight: '1' } }, firstLast(R.champion)))
+      : (survivors.length
+          ? el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '12px' } },
+              el('div', { style: { fontFamily: COND, fontSize: '11px', fontWeight: '700', letterSpacing: '.18em', color: DUST, textTransform: 'uppercase' } }, 'Still standing'),
+              ...survivors.map(survTag))
+          : el('div', { style: { fontFamily: COND, color: '#6b6256', fontSize: '14px', marginTop: '12px' } }, 'No qualifying Saturday sales yet')));
 
   // ── THE GAUNTLET — rows = reps, columns = each Saturday. A rep's row stays
   // lit while alive and turns to ash with a skull on the week they fall;
