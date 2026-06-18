@@ -2951,13 +2951,13 @@ function reportingAuditing() {
           tile('Pending', fmt.int(s.pending)),
           tile('Attrition on Audits: Pass / Fail', pctS(aP) + ' / ' + pctS(aF)),
         ]),
-        group('Revenue · of serviced  (Active + Cancelled + Frozen = Serviced)', [
+        group('Revenue · contract value  (Serviced = Active + Cancelled + Frozen)', [
+          tile('Sold', money(s.soldRev), 'all sold (incl. pre-service)'),
           tile('Serviced', money(s.servicedRev), 'received an initial service'),
           tile('Active', money(activeRev), 'serviced & active · incl. aging'),
           tile('Cancelled', money(s.cancelledRev), 'serviced, then cancelled', s.cancelledRev > 0 ? bad : null),
           tile('Frozen / Other', money(s.frozenRev), 'serviced, on hold, not cancelled'),
           tile('Aging', money(s.agingRev), 'at-risk slice of Active', s.agingRev > 0 ? bad : null),
-          tile('Sold', money(s.soldRev), 'all sold (incl. pre-service)'),
         ]),
         group('Attrition · of serviced', [
           tile('Cancel rate', pctS(cancelRate), 'cancelled ÷ serviced', cancelRate == null ? null : (cancelRate >= 0.25 ? bad : cancelRate < 0.10 ? good : null)),
