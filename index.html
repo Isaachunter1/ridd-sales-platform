@@ -2760,6 +2760,18 @@ function reportingAuditing() {
     const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000;
     return d >= 0 && d <= 3;
   };
+  // 3-day ROR ONLY (a Right-of-Rescission cancel — explicit reason, or a
+  // no-reason cancel within 3 days of the sale). Sold-Not-Started is NOT a ROR.
+  // Tracked separately so the player card can show attrition with vs. without RORs.
+  const isRorRow = (r) => {
+    const reason = r.subscription_cancellation_reason || '';
+    if (_SNS_REASON_RE.test(reason)) return false;     // Sold-Not-Started, not a ROR
+    if (_ROR_REASON_RE.test(reason)) return true;       // explicit ROR reason
+    if (reason.trim()) return false;                    // some other reason → not a ROR
+    if (!r.sold_date || !r.subscription_date_canceled) return false;
+    const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000;
+    return d >= 0 && d <= 3;
+  };
 
   // Team lookup from Manage Teams (indicators), but format-agnostic: the
   // Customer Report's "Sold By" is "Last, First" while Manage Teams may key a
@@ -2791,7 +2803,7 @@ function reportingAuditing() {
         cancelled: false,
         serviced: false,
         date: null,
-        soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0, frozenRev: 0,
+        soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0, frozenRev: 0, rorRev: 0,
         subs: 0, servicedSubs: 0, cancelledSubs: 0, collSubs: 0,
       };
       acct.set(id, a);
@@ -2828,6 +2840,9 @@ function reportingAuditing() {
       else if (subActive) { a.activeRev += cv; if ((Number(r.days_past_due) || 0) >= 7) a.agingRev += cv; }
       else a.frozenRev += cv;
     }
+    // 3-day ROR revenue that sits INSIDE Serviced (initial done, then rescinded
+    // within 3 days) — non-commissionable; surfaced so reps see it transparently.
+    if (serviced && isRorRow(r)) a.rorRev += cv;
   }
 
   // ── Filters: sold-date range + branch ──
@@ -2858,7 +2873,7 @@ function reportingAuditing() {
 
   // ── Aggregate per rep / per branch ──
   const mk = () => ({ sold: 0, serviced: 0, passed: 0, failed: 0, pending: 0, noaudit: 0,
-    soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0, frozenRev: 0,
+    soldRev: 0, servicedRev: 0, activeRev: 0, cancelledRev: 0, agingRev: 0, frozenRev: 0, rorRev: 0,
     attr: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] },
     coll: { passed: [0, 0], failed: [0, 0], pending: [0, 0], noaudit: [0, 0] } });
   const reps = {}, offs = {}, teams = {}, tot = mk();
@@ -2876,7 +2891,7 @@ function reportingAuditing() {
     meta.team = a.team;
     for (const b of [r, o, t, tot]) {
       b.sold += a.subs; b.serviced += a.servicedSubs; b[a.status] += a.subs;
-      b.soldRev += a.soldRev; b.servicedRev += a.servicedRev; b.activeRev += a.activeRev; b.cancelledRev += a.cancelledRev; b.agingRev += a.agingRev; b.frozenRev += a.frozenRev;
+      b.soldRev += a.soldRev; b.servicedRev += a.servicedRev; b.activeRev += a.activeRev; b.cancelledRev += a.cancelledRev; b.agingRev += a.agingRev; b.frozenRev += a.frozenRev; b.rorRev += a.rorRev;
       b.attr[a.status][1] += a.subs; b.attr[a.status][0] += a.cancelledSubs;
       b.coll[a.status][1] += a.subs; b.coll[a.status][0] += a.collSubs;
     }
@@ -2907,7 +2922,10 @@ function reportingAuditing() {
     const passPct = passBase > 0 ? (s.passed + s.noaudit) / passBase : null;
     // Revenue waterfall: Active = serviced AND active (subset of Serviced; includes Aging).
     const activeRev = s.activeRev;
-    const cancelRate = s.servicedRev > 0 ? s.cancelledRev / s.servicedRev : null;
+    const rorRev = s.rorRev || 0;                              // serviced 3-day ROR (non-commissionable)
+    const servExclRor = s.servicedRev - rorRev;               // commissionable serviced revenue
+    const attrExclRor = servExclRor > 0 ? s.cancelledRev / servExclRor : null;          // RORs ignored entirely
+    const attrInclRor = s.servicedRev > 0 ? (s.cancelledRev + rorRev) / s.servicedRev : null; // RORs counted as churn
     const cancelIfAging = s.servicedRev > 0 ? (s.cancelledRev + s.agingRev) / s.servicedRev : null;
     const activeRetention = s.servicedRev > 0 ? activeRev / s.servicedRev : null;
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
@@ -2958,9 +2976,11 @@ function reportingAuditing() {
           tile('Cancelled', money(s.cancelledRev), 'serviced, then cancelled', s.cancelledRev > 0 ? bad : null),
           tile('Frozen / Other', money(s.frozenRev), 'serviced, on hold, not cancelled'),
           tile('Aging', money(s.agingRev), 'at-risk slice of Active', s.agingRev > 0 ? bad : null),
+          tile('3-Day ROR', money(rorRev), 'inside Serviced · non-commissionable', rorRev > 0 ? bad : null),
         ]),
         group('Attrition · of serviced', [
-          tile('Cancel rate', pctS(cancelRate), 'cancelled ÷ serviced', cancelRate == null ? null : (cancelRate >= 0.25 ? bad : cancelRate < 0.10 ? good : null)),
+          tile('Attrition · excl. ROR', pctS(attrExclRor), 'cancelled ÷ serviced (RORs removed)', attrExclRor == null ? null : (attrExclRor >= 0.25 ? bad : attrExclRor < 0.10 ? good : null)),
+          tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), '(cancelled + ROR) ÷ serviced', attrInclRor == null ? null : (attrInclRor >= 0.25 ? bad : attrInclRor < 0.10 ? good : null)),
           tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', cancelIfAging == null ? null : (cancelIfAging >= 0.25 ? bad : cancelIfAging < 0.10 ? good : null)),
           tile('Active retention', pctS(activeRetention), 'active ÷ serviced', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
         ])));
