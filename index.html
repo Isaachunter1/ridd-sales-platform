@@ -11801,11 +11801,9 @@ function lastManStandingBoard(windowed, winLabel) {
   const money = (n) => (typeof fmt !== 'undefined' && fmt.usd0) ? fmt.usd0(n) : ('$' + Math.round(n || 0).toLocaleString());
   const firstLast = (r) => { const t = String(r || '').split(',').map(x => x.trim()); return (t.length === 2 && t[0] && t[1]) ? (t[1] + ' ' + t[0]) : String(r || ''); };
 
-  const survivors = R.alive.slice().sort((a, b) => (R.cum[b] || 0) - (R.cum[a] || 0));
   const stat = (label, val, hot) => el('div', { style: { textAlign: 'center', padding: '0 16px', borderLeft: '1px solid #2a2420' } },
     el('div', { style: { fontFamily: COND, fontSize: '36px', fontWeight: '800', color: hot ? BLOOD : BONE, lineHeight: '1', textShadow: '1px 2px 0 rgba(0,0,0,.5)' } }, String(val)),
     el('div', { style: { fontFamily: COND, fontSize: '10px', fontWeight: '700', letterSpacing: '.18em', color: DUST, textTransform: 'uppercase', marginTop: '4px' } }, label));
-  const survTag = (r) => el('span', { style: { fontFamily: COND, fontSize: '13px', fontWeight: '700', letterSpacing: '.04em', textTransform: 'uppercase', color: INK, background: BONE, border: '1px solid #b7ae98', borderRadius: '2px', padding: '2px 8px', boxShadow: 'inset 0 -2px 0 rgba(0,0,0,.16)' } }, firstLast(r));
   const sign = el('div', {},
     el('div', { style: { display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px', borderBottom: '2px solid ' + BLOOD, paddingBottom: '10px' } },
       el('div', {},
@@ -11819,11 +11817,7 @@ function lastManStandingBoard(windowed, winLabel) {
       ? el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px', padding: '9px 14px', background: 'rgba(179,51,31,.14)', border: '1px solid rgba(179,51,31,.4)', borderRadius: '3px' } },
           el('div', { style: { fontFamily: COND, fontSize: '13px', fontWeight: '800', letterSpacing: '.22em', color: BLOOD } }, '☠ CHAMPION'),
           el('div', { style: { fontFamily: COND, fontSize: '26px', fontWeight: '800', color: BONE, textTransform: 'uppercase', lineHeight: '1' } }, firstLast(R.champion)))
-      : (survivors.length
-          ? el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '12px' } },
-              el('div', { style: { fontFamily: COND, fontSize: '11px', fontWeight: '700', letterSpacing: '.18em', color: DUST, textTransform: 'uppercase' } }, 'Still standing'),
-              ...survivors.map(survTag))
-          : el('div', { style: { fontFamily: COND, color: '#6b6256', fontSize: '14px', marginTop: '12px' } }, 'No qualifying Saturday sales yet')));
+      : null);
 
   // ── THE GAUNTLET — rows = reps, columns = each Saturday. A rep's row stays
   // lit while alive and turns to ash with a skull on the week they fall;
