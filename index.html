@@ -11645,6 +11645,7 @@ function setRepTeam(repName, team) {
 const DEFAULT_COMPETITIONS = [
   { id: 'top_gun',          name: 'Top Gun', scoring: 'top_gun' },
   { id: 'spring_cleaning',  name: 'Spring Cleaning',  scoring: 'spring_cleaning' },
+  { id: 'last_man_standing',name: 'Last Man Standing', scoring: 'last_man_standing' },
   { id: 'avg_pest_initial', name: 'Avg Pest & Raffle', scoring: 'avg_pest_initial' },
 ];
 function getIndicatorCompetitions() {
@@ -11719,6 +11720,108 @@ function deleteCompetition(id) {
 function isSpringCleaningComp(comp) {
   const c = comp || getActiveComp();
   return c && (c.scoring === 'spring_cleaning' || c.id === 'spring_cleaning' || /spring\s*clean/i.test(c.name || ''));
+}
+
+// ── Last Man Standing ──────────────────────────────────────────────────────
+// Every-man-for-himself weekly elimination. SATURDAY ONLY. Each Saturday with
+// qualifying sales is a round: among reps still alive, rank by qualifying
+// revenue (same gate as Spring Cleaning — D2D, ≥$99 initial, Passed/No-Audit),
+// top 50% (rounded UP) advance, the rest are eliminated. No losers bracket. A
+// rep with no sale that Saturday stays in the pool at $0 and is subject to the
+// cut. Last rep standing wins.
+function isLastManStandingComp(comp) {
+  const c = comp || (typeof getActiveComp === 'function' ? getActiveComp() : null);
+  return !!(c && (c.scoring === 'last_man_standing' || c.id === 'last_man_standing' || /last\s*man\s*standing/i.test(c.name || '')));
+}
+function lastManStandingCompute(sales) {
+  const dayOf = (s) => (typeof _parseIndicatorDay === 'function') ? _parseIndicatorDay(s) : ((s && s.date) || null);
+  const d2d = (sales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === 'd2d' : true));
+  const repOffice = {}; const roster = [];
+  for (const s of d2d) { const r = s.rep; if (r && !(r in repOffice)) { repOffice[r] = s.office || ''; roster.push(r); } }
+  // Qualifying Saturday revenue per rep per Saturday.
+  const byWeek = {};
+  for (const s of d2d) {
+    const d = dayOf(s); if (!d || isNaN(d) || d.getDay() !== 6) continue;                      // Saturday only
+    if (typeof springCleaningCounts === 'function' && !springCleaningCounts(s)) continue;       // qualifying gate
+    const iso = d.toISOString().slice(0, 10);
+    (byWeek[iso] = byWeek[iso] || {});
+    byWeek[iso][s.rep] = (byWeek[iso][s.rep] || 0) + (Number(s.contractValue) || 0);
+  }
+  const saturdays = Object.keys(byWeek).sort();
+  let alive = new Set(roster);
+  const cum = {}; roster.forEach(r => (cum[r] = 0));
+  const rounds = [];
+  for (const iso of saturdays) {
+    if (alive.size <= 1) break;                                       // champion already decided
+    const wk = byWeek[iso];
+    const contenders = [...alive].map(rep => {
+      const rev = wk[rep] || 0;
+      return { rep, office: repOffice[rep] || '', rev, cum: (cum[rep] || 0) + rev };
+    });
+    contenders.sort((a, b) => b.rev - a.rev || b.cum - a.cum || String(a.rep).localeCompare(String(b.rep)));
+    const advanceN = Math.max(1, Math.ceil(contenders.length / 2));   // top 50%, rounded UP
+    contenders.forEach((c, i) => { c.advanced = i < advanceN; cum[c.rep] = c.cum; });
+    rounds.push({ iso, week: rounds.length + 1, contenders, advanceN, before: contenders.length });
+    alive = new Set(contenders.filter(c => c.advanced).map(c => c.rep));
+  }
+  return { rounds, alive: [...alive], champion: alive.size === 1 ? [...alive][0] : null, rosterSize: roster.length, repOffice, cum, saturdays };
+}
+function lastManStandingBoard(windowed, winLabel) {
+  const R = lastManStandingCompute(windowed);
+  const BONE = '#e7e0cf', INK = '#17120d', BLOOD = '#b3331f', FRAME = '#2f5f80', DUST = '#9a8f78';
+  const COND = "'Arial Narrow','Oswald',system-ui,sans-serif";
+  const money = (n) => (typeof fmt !== 'undefined' && fmt.usd0) ? fmt.usd0(n) : ('$' + Math.round(n || 0).toLocaleString());
+  const firstLast = (r) => { const t = String(r || '').split(',').map(x => x.trim()); return (t.length === 2 && t[0] && t[1]) ? (t[1] + ' ' + t[0]) : String(r || ''); };
+
+  const tile = (name, opts = {}) => el('div', { style: {
+      fontFamily: COND, fontWeight: '700', fontSize: (opts.big ? '17px' : '14px'), letterSpacing: '.05em', textTransform: 'uppercase',
+      color: opts.out ? '#7a7163' : INK, background: opts.out ? 'transparent' : BONE,
+      border: opts.out ? '1px dashed #4d4537' : '1px solid #b7ae98', borderRadius: '2px',
+      padding: opts.big ? '6px 12px' : '3px 9px', textDecoration: opts.out ? 'line-through' : 'none',
+      boxShadow: opts.out ? 'none' : 'inset 0 -2px 0 rgba(0,0,0,.16), 0 1px 2px rgba(0,0,0,.45)',
+      opacity: opts.out ? 0.5 : 1, whiteSpace: 'nowrap', display: 'inline-flex', gap: '8px', alignItems: 'baseline',
+    } },
+    el('span', {}, firstLast(name)),
+    opts.rev != null ? el('span', { style: { fontWeight: '800', color: opts.out ? '#7a7163' : BLOOD } }, money(opts.rev)) : null);
+
+  const signStat = (label, val, color) => el('div', { style: { textAlign: 'center', lineHeight: '.95' } },
+    el('div', { style: { fontFamily: COND, fontSize: '10px', fontWeight: '700', letterSpacing: '.2em', color: DUST } }, label),
+    el('div', { style: { fontFamily: COND, fontSize: '38px', fontWeight: '800', color: color || BLOOD, textShadow: '2px 2px 0 rgba(0,0,0,.5)' } }, String(val)));
+
+  const survivors = R.alive.slice().sort((a, b) => (R.cum[b] || 0) - (R.cum[a] || 0));
+  const sign = el('div', { style: {
+      border: '5px solid ' + FRAME, borderRadius: '4px', background: 'linear-gradient(180deg,#efe9d9,#ddd5c0)',
+      boxShadow: '0 10px 26px rgba(0,0,0,.55), inset 0 0 0 2px rgba(255,255,255,.22)', padding: '14px 14px 16px',
+    } },
+    el('div', { style: { textAlign: 'center', fontFamily: COND, fontSize: '34px', fontWeight: '800', letterSpacing: '.04em', color: INK, textTransform: 'uppercase', lineHeight: '.9', marginBottom: '10px' } }, 'Last Man Standing'),
+    el('div', { style: { display: 'flex', justifyContent: 'center', gap: '26px', marginBottom: '12px' } },
+      signStat('Still Standing', R.champion ? 1 : R.alive.length),
+      signStat('Rounds', R.rounds.length, INK),
+      signStat('Started', R.rosterSize, INK)),
+    R.champion
+      ? el('div', { style: { textAlign: 'center' } },
+          el('div', { style: { fontFamily: COND, fontSize: '12px', fontWeight: '700', letterSpacing: '.25em', color: BLOOD } }, '☠  CHAMPION  ☠'),
+          el('div', { style: { fontFamily: COND, fontSize: '30px', fontWeight: '800', color: INK, textTransform: 'uppercase' } }, firstLast(R.champion)))
+      : el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '7px', justifyContent: 'center' } },
+          ...(survivors.length ? survivors.map(r => tile(r, { big: true })) : [el('div', { style: { fontFamily: COND, color: '#6b6256', fontSize: '14px' } }, 'No qualifying Saturday sales yet')])));
+
+  const roundCard = (rd) => el('div', { style: { border: '1px solid #2a2420', borderRadius: '4px', background: 'linear-gradient(180deg,#13100e,#0b0908)', padding: '10px 12px' } },
+    el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid #2a2420', paddingBottom: '6px', marginBottom: '8px' } },
+      el('div', { style: { fontFamily: COND, fontSize: '16px', fontWeight: '800', letterSpacing: '.06em', color: BONE, textTransform: 'uppercase' } },
+        'Week ' + rd.week + ' · ' + new Date(rd.iso + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+      el('div', { style: { fontFamily: COND, fontSize: '12px', fontWeight: '700', color: DUST } }, rd.before + ' in → ' + rd.advanceN + ' survive')),
+    el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } }, ...rd.contenders.map(c => tile(c.rep, { out: !c.advanced, rev: c.rev }))));
+
+  return el('div', { class: 'card', style: {
+      padding: '14px', border: '1px solid #241e1a',
+      background: 'radial-gradient(circle at 25% 0%, rgba(150,110,70,.10), transparent 55%), repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 2px, transparent 2px 5px), linear-gradient(180deg,#171210,#0a0807)',
+    } },
+    sign,
+    el('div', { style: { fontFamily: COND, fontSize: '11px', letterSpacing: '.14em', color: DUST, textAlign: 'center', margin: '14px 0 6px', textTransform: 'uppercase' } },
+      'Saturdays only · D2D · ≥$99 initial · passed/no-audit · top 50% advance (round up) · ' + (winLabel || 'all dates')),
+    R.rounds.length
+      ? el('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, ...R.rounds.map(roundCard))
+      : el('div', { style: { fontFamily: COND, color: DUST, textAlign: 'center', padding: '18px', fontSize: '14px' } }, 'The wasteland is empty — no Saturday rounds have been played in this window.'));
 }
 
 // ── Spring Cleaning scoring ────────────────────────────────────────────────
@@ -14647,7 +14750,8 @@ function viewIndicators() {
   // analytics. Keeps comp switching + the comp window snappy instead of
   // re-rendering several canvases each time.
   const _focusedComp = state.indicatorsComps
-    && ['spring_cleaning', 'avg_pest_initial', 'top_gun'].includes(getActiveComp().scoring || '');
+    && (['spring_cleaning', 'avg_pest_initial', 'top_gun', 'last_man_standing'].includes(getActiveComp().scoring || '')
+        || isLastManStandingComp());
 
   return el('div', { class: 'flex flex-col gap-5 max-w-[1400px] mx-auto' },
 
@@ -15229,6 +15333,17 @@ function viewIndicators() {
       return el('div', { class: 'flex flex-col gap-4' },
         indicatorSpringCleaningBoard(windowed, offices, winLabel),
         springStandingsCard());
+    })() : null),
+
+    // ── Last Man Standing — Saturday-only weekly elimination bracket. ──
+    (state.indicatorsComps && isLastManStandingComp() ? (() => {
+      const cf = state._indicatorCompFilter || {};
+      const bounds = (cf.start && cf.end) ? { s: new Date(cf.start + 'T00:00'), e: new Date(cf.end + 'T23:59') } : null;
+      const windowed = bounds
+        ? (state._indicatorRawSales || []).filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
+        : (state._indicatorRawSales || []);
+      const winLabel = (cf.start && cf.end) ? cf.start + ' → ' + cf.end : 'all dates';
+      return lastManStandingBoard(windowed, winLabel);
     })() : null),
 
     // ── Top Gun — three-class per-rep production board (Rookies/Vets/Pros). ──
