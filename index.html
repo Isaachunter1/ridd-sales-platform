@@ -3790,7 +3790,7 @@ function kpiTripleCard(stats) {
       title: onclick ? label + ' — view all' : undefined,
     },
       el('div', { class: 'text-[9px] sm:text-[10px] text-muted- uppercase tracking-widest font-semibold truncate' }, label),
-      el('div', { class: 'text-lg sm:text-3xl font-black mt-1 tabular-nums truncate' }, value),
+      el('div', { class: 'font-display text-2xl sm:text-4xl mt-1.5 tabular-nums truncate leading-none' }, value),
     )),
   );
 }
@@ -3798,8 +3798,8 @@ function kpiTripleCard(stats) {
 function kpiCard(label, value, sub, onclick) {
   return el('div', { class: 'card p-5' + (onclick ? ' cursor-pointer hover:brightness-95 transition' : ''), onclick },
     el('div', { class: 'text-[10px] text-muted- uppercase tracking-widest font-semibold' }, label),
-    el('div', { class: 'text-3xl font-black mt-1 tabular-nums' }, value),
-    el('div', { class: 'text-xs mt-2 font-medium', style: { color: onclick ? 'var(--accent)' : 'var(--text-muted)' } },
+    el('div', { class: 'font-display text-4xl sm:text-5xl mt-1.5 tabular-nums leading-none' }, value),
+    el('div', { class: 'text-xs mt-2.5 font-medium', style: { color: onclick ? 'var(--accent)' : 'var(--text-muted)' } },
       onclick ? (sub + ' ↗') : sub,
     ),
   );
@@ -25532,18 +25532,14 @@ function reportingOverview() {
     })() : null;
     const clickable = !!t.onClick;
     return el('div', {
-      class: 'card p-4' + (clickable ? ' cursor-pointer hover:brightness-95 transition' : ''),
-      style: {
-        borderTop: '3px solid var(--accent)',
-        background: 'linear-gradient(180deg, rgba(141,198,63,.10), transparent 60%), var(--card)',
-      },
+      class: 'card p-4 sm:p-5' + (clickable ? ' cursor-pointer hover:brightness-95 transition' : ''),
       title: clickable ? t.clickTitle || '' : '',
       onclick: clickable ? (e) => { if (e.target.closest('span[style*="cursor: help"]')) return; t.onClick(); } : undefined,
     },
       el('div', { class: 'text-[10px] uppercase tracking-widest font-bold flex items-center', style: { color: 'var(--text-muted)' } }, t.label, info),
-      el('div', { class: 'text-3xl font-black mt-1 tabular-nums' }, t.value),
-      t.sub && el('div', { class: 'text-[11px] text-muted- mt-1' }, t.sub),
-      clickable && el('div', { class: 'text-[10px] mt-1 font-semibold', style: { color: 'var(--accent)' } }, t.clickLabel || 'Click to inspect →'),
+      el('div', { class: 'font-display text-4xl sm:text-5xl mt-1.5 tabular-nums leading-none' }, t.value),
+      t.sub && el('div', { class: 'text-[11px] text-muted- mt-2' }, t.sub),
+      clickable && el('div', { class: 'text-[10px] mt-2 font-semibold', style: { color: 'var(--text-muted)' } }, t.clickLabel || 'Click to inspect →'),
     );
   };
   // Make Customers Active drillable into its "Other active" group.
