@@ -15163,6 +15163,32 @@ function viewIndicators() {
               style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
               onclick: () => { state._indicatorAddingComp = true; liveRerender(); },
             }, '+ Add'),
+        // Manage the SELECTED competition — rename (fix a typo) or remove it.
+        (() => {
+          const active = comps.find(c => c.id === activeId);
+          if (!active || state._indicatorAddingComp) return null;
+          if (state._indicatorRenamingComp === active.id) {
+            const input = el('input', {
+              type: 'text', value: active.name,
+              class: 'rounded border px-2 py-1 text-xs',
+              style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            });
+            const save = () => { const v = input.value.trim(); if (v) renameCompetition(active.id, v); state._indicatorRenamingComp = null; liveRerender(); };
+            input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { state._indicatorRenamingComp = null; liveRerender(); } });
+            setTimeout(() => input.focus(), 0);
+            return el('span', { class: 'flex items-center gap-1 ml-auto' },
+              input,
+              el('button', { class: 'text-[11px] font-bold rounded px-2 py-1 cursor-pointer', style: { background: '#34C759', color: '#06310f' }, onclick: save }, 'Save'),
+              el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => { state._indicatorRenamingComp = null; liveRerender(); } }, 'Cancel'),
+            );
+          }
+          return el('span', { class: 'flex items-center gap-1 ml-auto' },
+            el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer border', style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' }, title: 'Rename the selected competition', onclick: () => { state._indicatorRenamingComp = active.id; liveRerender(); } }, '✏️ Rename'),
+            comps.length > 1
+              ? el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer border', style: { color: '#DC2626', borderColor: 'rgba(220,38,38,.4)' }, title: 'Remove the selected competition', onclick: () => { if (window.confirm('Remove competition “' + active.name + '”? This can’t be undone.')) { deleteCompetition(active.id); liveRerender(); } } }, '🗑 Remove')
+              : null,
+          );
+        })(),
       );
     })() : null),
 
