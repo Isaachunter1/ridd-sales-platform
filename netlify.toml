@@ -13,6 +13,13 @@
   # a built file (it should only live in the Netlify Functions runtime).
   SECRETS_SCAN_OMIT_KEYS = "SUPABASE_URL,SUPABASE_ANON_KEY"
 
+# Daily RevHawk → snapshot sync. 02:00 UTC ≈ evening across RIDD's US branches
+# (~10pm Eastern / 8pm Mountain) so the full day's sales are captured. This
+# scheduled function fires the background worker that pulls from BigQuery and
+# writes the fresh snapshot to Supabase.
+[functions."revhawk-sync-scheduled"]
+  schedule = "0 2 * * *"
+
 [[headers]]
   for = "/*"
   [headers.values]

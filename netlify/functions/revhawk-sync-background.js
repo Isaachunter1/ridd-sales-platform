@@ -32,8 +32,13 @@ const crypto = require('crypto');
 const zlib = require('zlib');
 const { createClient } = require('@supabase/supabase-js');
 
+// DATA project + dataset = where RevHawk's tables live (your service account was
+// granted read access here). JOB project = your OWN GCP project, where the query
+// runs and is billed (your service account has BigQuery Job User there). These
+// differ: the SA reads RevHawk's data from inside your project's job.
 const PROJECT = process.env.REVHAWK_PROJECT_ID || 'revhawkdataconnect';
 const DATASET = process.env.REVHAWK_DATASET || 'org_ridd_pest_control_3f4149';
+const JOB_PROJECT = process.env.GCP_JOB_PROJECT || PROJECT;
 
 // Office id → branch name. RevHawk only stores the numeric office id, so this
 // map supplies the names the rest of the app groups by. Confirm / edit these.
@@ -149,7 +154,7 @@ async function getAccessToken() {
 
 // Run the query and page through every result row.
 async function runQuery(token) {
-  const base = `https://bigquery.googleapis.com/bigquery/v2/projects/${PROJECT}`;
+  const base = `https://bigquery.googleapis.com/bigquery/v2/projects/${JOB_PROJECT}`;
   const auth = { Authorization: `Bearer ${token}` };
   let res = await fetch(`${base}/queries`, {
     method: 'POST',
