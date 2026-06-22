@@ -72,6 +72,12 @@
   to   = "/.netlify/functions/revhawk-sync-background"
   status = 200
 
+# Synchronous connection test — returns the result/error straight to the caller.
+[[redirects]]
+  from = "/api/revhawk-test"
+  to   = "/.netlify/functions/revhawk-test"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
