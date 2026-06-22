@@ -124,24 +124,27 @@ LEFT JOIN flags ON flags.cid = s.fieldRoutes_customerID
 LEFT JOIN cxl   ON cxl.sid   = s.id
 WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''`;
 
-// Employee roster — one entry per PERSON, mirrored into the app. FieldRoutes
-// stores an employee row PER OFFICE, but it natively links them: every branch
-// record carries fieldRoutes_linkedEmployeeIDs pointing at the person's BASE
-// account (the office their account was first created in). We group on that:
-//   base_eid = linkedEmployeeIDs  (when it's a real id)
-//            = the row's own employeeID  (when linkedEmployeeIDs is ''/'0' —
-//              i.e. a single-office rep with no links)
-// This is FieldRoutes' own source of truth (validated: 1,004 people, never
-// merges two different names). employee_id = the Base EID (the "Main ID"),
-// employee_ids = every linked branch ID. Scalar fields prefer the BASE record,
-// then the most-recently-updated, so contact info is the canonical/current one.
+// Employee roster — one entry per PERSON. FieldRoutes stores an employee row
+// PER OFFICE and links them via fieldRoutes_linkedEmployeeIDs (a base account).
+// But a "roaming" person can ALSO have several base/master accounts that aren't
+// linked to each other (e.g. Dan Farah has masters 10915 and 18528). The one
+// thing that unifies them is their email. So we group by:
+//   gkey = email           (when present — merges all of a person's masters)
+//        = base_eid         (when there's no email; base_eid = linkedEmployeeIDs
+//                            or the row's own id, so single-office no-email reps
+//                            and linked groups still collapse correctly)
+// employee_id = the roaming MASTER = the lowest base id in the group (the
+// account created first — what FieldRoutes shows as "Roaming Master").
+// employee_ids = every branch id (used to match the rep's CRM sales).
+// Scalar fields prefer the MASTER record (where the username/contact live), then
+// the most-recently-updated. Validated: 936 people, Dan→10915, Aby→11328.
 const EMP_SQL = `
-WITH base AS (
+WITH src AS (
   SELECT
+    fieldRoutes_employeeID AS eid,
     CASE WHEN fieldRoutes_linkedEmployeeIDs IS NULL OR fieldRoutes_linkedEmployeeIDs IN ('', '0')
          THEN fieldRoutes_employeeID ELSE fieldRoutes_linkedEmployeeIDs END AS base_eid,
-    fieldRoutes_employeeID AS eid,
-    SAFE_CAST(fieldRoutes_employeeID AS INT64) AS id_num,
+    NULLIF(LOWER(fieldRoutes_email), '') AS email_l,
     fieldRoutes_dateUpdated AS date_updated,
     fieldRoutes_fname AS fname, fieldRoutes_lname AS lname, fieldRoutes_nickname AS nickname,
     fieldRoutes_username AS username, fieldRoutes_email AS email, fieldRoutes_phone AS phone,
@@ -150,23 +153,28 @@ WITH base AS (
   FROM \`${PROJECT}.${DATASET}.FieldRoutesEmployee\`
   WHERE fieldRoutes_employeeID IS NOT NULL AND fieldRoutes_employeeID != ''
     AND (fieldRoutes_active = '1' OR LOWER(fieldRoutes_active) = 'true')
+),
+g AS (
+  SELECT *, COALESCE(email_l, base_eid) AS gkey,
+         SAFE_CAST(base_eid AS INT64) AS base_num, SAFE_CAST(eid AS INT64) AS id_num
+  FROM src
 )
 SELECT
-  base_eid AS employee_id,
-  ARRAY_AGG(NULLIF(fname,'')     IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS fname,
-  ARRAY_AGG(NULLIF(lname,'')     IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS lname,
-  ARRAY_AGG(NULLIF(nickname,'')  IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS nickname,
-  ARRAY_AGG(NULLIF(username,'')  IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS username,
-  ARRAY_AGG(NULLIF(email,'')     IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS email,
-  ARRAY_AGG(NULLIF(phone,'')     IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS phone,
-  ARRAY_AGG(NULLIF(office_id,'') IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS office_id,
+  CAST(MIN(base_num) AS STRING) AS employee_id,
+  ARRAY_AGG(NULLIF(fname,'')     IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), base_num ASC, date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS fname,
+  ARRAY_AGG(NULLIF(lname,'')     IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), base_num ASC, date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS lname,
+  ARRAY_AGG(NULLIF(nickname,'')  IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), base_num ASC, date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS nickname,
+  ARRAY_AGG(NULLIF(username,'')  IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), base_num ASC, date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS username,
+  ARRAY_AGG(NULLIF(email,'')     IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), base_num ASC, date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS email,
+  ARRAY_AGG(NULLIF(phone,'')     IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), base_num ASC, date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS phone,
+  ARRAY_AGG(NULLIF(office_id,'') IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), base_num ASC, date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS office_id,
   STRING_AGG(DISTINCT office_id, ',') AS office_ids,
   STRING_AGG(DISTINCT eid, ',')       AS employee_ids,
-  ARRAY_AGG(NULLIF(type,'')      IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS type,
+  ARRAY_AGG(NULLIF(type,'')      IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), base_num ASC, date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS type,
   MAX(active)                AS active,
   MAX(NULLIF(last_login,'')) AS last_login
-FROM base
-GROUP BY base_eid`;
+FROM g
+GROUP BY gkey`;
 
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
