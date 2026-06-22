@@ -28456,6 +28456,7 @@ function reportingWaterfall() {
   // total; for Contract Length / Rep modes the row total isn't a true
   // starting cohort, so we compare to the row's max cell instead.
   const cellColor = (rowDef, value) => {
+    if (!value) return 'transparent';   // blank cell (e.g. before the cohort existed) → white, not red
     const baseline = (mode === 'subscription' || mode === 'arv')
       ? rowDef.total
       : Math.max(...Object.values(rowDef.byYear));
@@ -28488,18 +28489,18 @@ function reportingWaterfall() {
               el('th', { class: 'text-left px-3 py-2 font-semibold sticky left-0', style: { background: 'var(--card-2)' } },
                 mode === 'subscription' || mode === 'arv' ? 'Cohort Year' :
                 mode === 'contract' ? 'Contract Length' : 'Rep'),
-              el('th', { class: 'text-right px-2 py-2 font-semibold' }, mode === 'arv' ? 'Total ARR' : 'Total'),
-              ...data.years.map(y => el('th', { class: 'text-right px-2 py-2 font-semibold' }, String(y))),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, mode === 'arv' ? 'Total ARR' : 'Total'),
+              ...data.years.map(y => el('th', { class: 'text-left px-2 py-2 font-semibold' }, String(y))),
             ),
           ),
           el('tbody', {},
             ...data.rowDefs.map(row => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
               el('td', { class: 'text-left px-3 py-2 font-semibold sticky left-0', style: { background: 'var(--card)' } }, rowLabel(row.id)),
-              el('td', { class: 'text-right px-2 py-2 font-bold' }, fmtCell(row.total, true)),
+              el('td', { class: 'text-left px-2 py-2 font-bold' }, fmtCell(row.total, true)),
               ...data.years.map(y => {
                 const v = row.byYear[y] || 0;
                 return el('td', {
-                  class: 'text-right px-2 py-2',
+                  class: 'text-left px-2 py-2',
                   style: { background: cellColor(row, v) },
                 }, fmtCell(v));
               }),
