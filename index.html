@@ -28812,7 +28812,7 @@ function commissionRenderCards(B, repName) {
       background: kind === 'rev' ? 'rgba(59,130,246,.08)' : kind === 'comm' ? 'rgba(141,198,63,.10)' : kind === 'total' ? 'rgba(141,198,63,.18)' : 'transparent' } },
     el('span', { class: kind === 'total' ? 'font-bold' : '' }, label),
     el('span', { class: 'tabular-nums ' + (kind === 'total' ? 'font-bold' : '') }, valNode));
-  const breakdown = el('div', { class: 'card overflow-hidden', style: { maxWidth: '520px' } },
+  const breakdown = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-3 py-2 font-display text-xl', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Backend Breakdown'),
     ROW('Sales Rep', repName),
     ROW('Pest Revenue', money(B.pestRev), 'rev'),
@@ -28834,7 +28834,7 @@ function commissionRenderCards(B, repName) {
       el('span', { class: 'font-semibold' }, 'Total Payable Rev'), el('span', { class: 'tabular-nums font-semibold' }, money(B.payableRev))));
   const statRow = (label, val, tone) => el('div', { class: 'flex items-center justify-between px-3 py-1.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
     el('span', {}, label), el('span', { class: 'tabular-nums font-semibold', style: tone ? { color: tone } : {} }, val));
-  const stats = el('div', { class: 'card overflow-hidden', style: { maxWidth: '520px' } },
+  const stats = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-3 py-2 font-display text-lg', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Accounts & Attrition'),
     statRow('Total Accounts Sold', B.sold),
     statRow('Canceled Accounts', B.canceled + '  (' + pct(B.sold ? B.canceled / B.sold * 100 : 0) + ')', B.canceled ? '#DC2626' : null),
@@ -28876,8 +28876,8 @@ function commissionMyPay() {
   const B = row.data;
   const { breakdown, stats } = commissionRenderCards(B, B.name || p.full_name || '');
   return wrap(el('div', { class: 'flex flex-col gap-3' },
-    el('div', { class: 'text-xs text-muted-' }, 'Published ' + (row.published_at ? new Date(row.published_at).toLocaleDateString() : '') + (row.period_start ? ' · sold ' + row.period_start + ' → ' + row.period_end : '')),
-    el('div', { class: 'flex flex-wrap gap-4 items-start' }, breakdown, stats)));
+    el('div', { class: 'text-xs text-muted-' }, 'Updated ' + (row.published_at ? new Date(row.published_at).toLocaleDateString() : '') + (row.period_start ? ' · sold ' + row.period_start + ' → ' + row.period_end : '')),
+    el('div', { class: 'flex flex-col gap-4 w-full max-w-[440px]' }, breakdown, stats)));
 }
 
 function commissionCalculator() {
@@ -28971,10 +28971,13 @@ function commissionCalculator() {
       el('div', { class: 'text-sm font-bold' }, 'Service → category map'),
       R.unclRev > 0 ? el('span', { class: 'chip', style: { background: 'rgba(220,38,38,.08)', color: '#B91C1C' } }, money(R.unclRev) + ' unclassified') : null),
     el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Tag each service so its revenue lands in Pest, Bundle, or Ancillary. Mapping is global — set once, applies to every rep.'),
-    el('div', { class: 'flex flex-col divide-y', style: { borderColor: 'var(--border)' } },
-      ...svcList.slice(0, 60).map(([svc, rev]) => el('div', { class: 'flex items-center justify-between gap-3 py-2' },
-        el('div', { class: 'min-w-0' }, el('div', { class: 'text-sm font-medium truncate' }, svc), el('div', { class: 'text-[11px] text-muted-' }, money(rev))),
-        catSelect(svc)))));
+    svcList.length === 0
+      ? el('div', { class: 'rounded-lg border border-dashed p-6 text-center text-xs text-muted-', style: { borderColor: 'var(--border-2)' } },
+          'No services to map yet — they appear here once this rep has sales in the selected window.')
+      : el('div', { class: 'flex flex-col divide-y', style: { borderColor: 'var(--border)' } },
+          ...svcList.slice(0, 60).map(([svc, rev]) => el('div', { class: 'flex items-center justify-between gap-3 py-2' },
+            el('div', { class: 'min-w-0' }, el('div', { class: 'text-sm font-medium truncate' }, svc), el('div', { class: 'text-[11px] text-muted-' }, money(rev))),
+            catSelect(svc)))));
 
   // ---- controls ----
   const repSelect = el('select', { class: 'rounded-xl border px-3 py-2 text-sm font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
@@ -28991,9 +28994,13 @@ function commissionCalculator() {
         el('label', { class: 'block' }, lbl('Sold from'), dateInput(state._commStart, v => state._commStart = v)),
         el('label', { class: 'block' }, lbl('Sold to'), dateInput(state._commEnd, v => state._commEnd = v)),
         el('label', { class: 'block' }, lbl('Lock date'), dateInput(state._commLock, v => state._commLock = v)))),
-    el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' },
-      el('div', { class: 'flex flex-col gap-4' }, breakdown, stats),                      // left: the breakdown
-      el('div', { class: 'flex flex-col gap-4' }, ratesPanel, manualPanel, myPanel, svcPanel)));  // right: all config
+    el('div', { class: 'flex flex-col lg:flex-row gap-5 items-start' },
+      el('div', { class: 'flex flex-col gap-4 w-full lg:w-[440px] lg:shrink-0' },   // left: the breakdown (fixed width)
+        R.sold === 0 ? el('div', { class: 'card p-3 text-xs', style: { borderLeft: '3px solid var(--accent)' } },
+          el('b', { style: { color: 'var(--text)' } }, 'No sales matched this rep in the window.'),
+          el('span', { class: 'text-muted-' }, ' Try widening the dates, re-syncing, or confirming the rep’s FieldRoutes link on Settings → Users. Once accounts show up, map their service types to split the revenue.')) : null,
+        breakdown, stats),
+      el('div', { class: 'flex flex-col gap-4 flex-1 w-full min-w-0' }, ratesPanel, manualPanel, myPanel, svcPanel)));  // right: all config (fills the rest)
 }
 
 // ── CRM Reconciliation ──────────────────────────────────────────────────────
@@ -32825,7 +32832,8 @@ function svg(paths, size = 20) {
   return div.firstElementChild;
 }
 function iconDashboard() { return svg('<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>'); }
-function iconSales()     { return svg('<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'); }
+// Inside Sales — a headset (phone reps), distinct from the Commission dollar sign.
+function iconSales()     { return svg('<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H4a1 1 0 0 1-1-1v-9a9 9 0 0 1 18 0v9a1 1 0 0 1-1 1h-2a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>'); }
 function iconPay()       { return svg('<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>'); }
 function iconTrophy()    { return svg('<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>'); }
 function iconHistory()   { return svg('<path d="M3 12a9 9 0 1 0 9-9 9.74 9.74 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>'); }
