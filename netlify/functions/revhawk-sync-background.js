@@ -87,6 +87,7 @@ SELECT
   cust.lname AS last_name,
   cust.fname AS first_name,
   NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00') AS sold_date,
+  CASE WHEN s.fieldRoutes_dateAdded IS NULL OR s.fieldRoutes_dateAdded LIKE '0000%' THEN NULL ELSE LEFT(s.fieldRoutes_dateAdded,19) END AS sold_at,
   cust.apay AS customer_auto_pay,
   flags.flags AS customer_flags,
   SAFE_CAST(s.fieldRoutes_annualRecurringValue AS FLOAT64) AS annual_recurring_value,
