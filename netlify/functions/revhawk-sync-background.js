@@ -125,12 +125,19 @@ WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''`;
 
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
+// Service-account creds: prefer the whole JSON file in GCP_SA_JSON (JSON.parse
+// decodes the private_key newlines correctly), else fall back to the split vars.
+function getCreds() {
+  const raw = process.env.GCP_SA_JSON;
+  if (raw && raw.trim()) { const o = JSON.parse(raw); return { email: o.client_email, key: o.private_key }; }
+  const email = process.env.GCP_SA_EMAIL;
+  const key = (process.env.GCP_SA_PRIVATE_KEY || '').replace(/^["']|["']$/g, '').replace(/\\n/g, '\n');
+  return { email, key };
+}
 // Mint a Google OAuth access token from the service account (JWT bearer flow).
 async function getAccessToken() {
-  const email = process.env.GCP_SA_EMAIL;
-  let key = process.env.GCP_SA_PRIVATE_KEY || '';
-  if (!email || !key) throw new Error('GCP_SA_EMAIL and GCP_SA_PRIVATE_KEY are required');
-  key = key.replace(/\\n/g, '\n'); // env vars often store the PEM with literal \n
+  const { email, key } = getCreds();
+  if (!email || !key) throw new Error('Set GCP_SA_JSON (whole key file) OR GCP_SA_EMAIL + GCP_SA_PRIVATE_KEY');
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const claim = b64url(JSON.stringify({
