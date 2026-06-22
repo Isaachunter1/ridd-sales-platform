@@ -2306,7 +2306,9 @@ async function loadData() {
   // tab lazy-loads the heavy subscription rows on demand once the user
   // actually visits the tab, so this just primes the uploads list +
   // service config (both small).
-  loadReportingMetadata().catch(err => console.warn('[ridd] reporting metadata load skipped', err));
+  loadReportingMetadata()
+    .then(() => autoDeriveIndicatorsFromSnapshot())   // hands-off: keep Indicators current with the nightly snapshot
+    .catch(err => console.warn('[ridd] reporting metadata load skipped', err));
 
   state.allSales     = salesRes.data || [];
   // Derive mySales client-side from the company-wide set so reps only
@@ -24127,6 +24129,45 @@ function reportingSnapshotToIndicatorsCsv(rows) {
   return lines.join('\n');
 }
 
+// HANDS-OFF nightly Indicators: when a fresher Reporting snapshot exists than
+// the current Indicators dataset, rebuild Indicators from it automatically (and
+// push to the shared cloud copy). Runs on boot for admins, so the morning after
+// the nightly sync the first admin to open the app makes Indicators current for
+// everyone — no clicks. Idempotent + guarded so it does the heavy work at most
+// once per new snapshot per browser, and prefers a cloud copy another admin
+// already derived.
+async function autoDeriveIndicatorsFromSnapshot() {
+  if ((typeof DEMO !== 'undefined' && DEMO) || !state.profile || !isAdminRole(state.profile.role)) return;
+  const up = (state.reportingUploads || [])[0];                  // newest snapshot
+  if (!up || !up.uploaded_at) return;
+  const snapAt = new Date(up.uploaded_at).getTime();
+  const indAt  = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt).getTime() : 0;
+  if (indAt >= snapAt) return;                                   // Indicators already ≥ snapshot
+  if (state._indicatorsBuiltFromUploadId === up.id) return;      // already built from this one here
+  state._indicatorsBuiltFromUploadId = up.id;                    // claim it (prevents re-entry)
+  try {
+    // Prefer a copy another admin already derived + shared.
+    if (typeof refreshIndicatorsFromCloud === 'function') await refreshIndicatorsFromCloud(true);
+    const indAt2 = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt).getTime() : 0;
+    if (indAt2 >= snapAt) return;                                // cloud copy was fresh enough
+    // Otherwise build locally from the snapshot rows.
+    let rows = state.reportingSubscriptions;
+    if ((!rows || !rows.length || state.reportingSubscriptionsLoadedFor !== up.id) && typeof loadReportingSubscriptions === 'function') {
+      rows = await loadReportingSubscriptions(up.id);
+      if (rows) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = up.id; }
+    }
+    if (!rows || !rows.length) return;
+    state.indicatorsData = parseIndicatorsCsv(reportingSnapshotToIndicatorsCsv(rows)); // also sets _indicatorRawSales
+    state.indicatorsWeek = -1;
+    state.indicatorsUploadedAt = up.uploaded_at;                 // tie freshness to the snapshot
+    state.indicatorsFileName = 'RevHawk sync — ' + new Date(up.uploaded_at).toLocaleDateString();
+    if (typeof captureIndicatorSnapshot === 'function') captureIndicatorSnapshot();
+    saveDemoData();
+    if (typeof syncIndicatorsToCloud === 'function') await syncIndicatorsToCloud();
+    if (state.view === 'indicators') mountApp();
+  } catch (e) { console.warn('[ridd] auto-derive indicators failed', e); state._indicatorsBuiltFromUploadId = null; }
+}
+
 // One-click RevHawk refresh behind the header sync icon. Fires the admin-gated
 // background sync, waits for the FRESH snapshot to land in Supabase, then loads
 // it into Reporting AND rebuilds Indicators from it (sale times preserved). The
@@ -25202,6 +25243,7 @@ function viewReporting() {
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
     state.reportingSubTab === 'auditing'   ? reportingAuditing() :
+    state.reportingSubTab === 'reconcile'  ? reportingReconciliation() :
                                               reportingOverview(),
   );
 }
@@ -25349,6 +25391,7 @@ function reportingSubTabs() {
     ['waterfall',  'Waterfall Attrition'],
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
+    ['reconcile',  'CRM Reconciliation'],
   ];
   return el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
     ...tabs.map(([k, label]) => {
@@ -28607,6 +28650,124 @@ function buildReportingWaterfall(rows, mode) {
   });
 
   return { rowDefs, years };
+}
+
+// ── CRM Reconciliation ──────────────────────────────────────────────────────
+// Match every sale logged in THIS app to the live FieldRoutes snapshot, using
+// each rep's FieldRoutes employee-ID link. Surfaces "logged in the app but not
+// in the CRM" (the office-staff integrity check) and, optionally, the reverse.
+function reportingReconciliation() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+  // Need the employee roster for the ID links.
+  if (state.frRoster == null && !state._frRosterLoading) {
+    loadFieldRoutesRoster().then(() => { if (state.view === 'reporting') mountApp(); });
+  }
+  const money = (n) => (typeof fmt !== 'undefined' && fmt.usd0) ? fmt.usd0(n) : ('$' + Math.round(n || 0).toLocaleString());
+  const nameKey = (s) => String(s || '').toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+
+  const profiles = state.allProfiles || [];
+  const roster = state.frRoster || [];
+  const rosterById = new Map(roster.map(e => [e.employee_id, e]));
+  const crmRows = state.reportingSubscriptions || [];
+
+  // Date window for app sales (default 90 days).
+  if (state._reconDays == null) state._reconDays = 90;
+  const days = state._reconDays;
+  const cutoff = days ? (Date.now() - days * 86400000) : 0;
+
+  // rep profile → the set of all their FieldRoutes employee IDs (across offices).
+  const repEmpIds = new Map();
+  for (const p of profiles) {
+    let row = p.fieldroutes_employee_id ? rosterById.get(p.fieldroutes_employee_id) : null;
+    if (!row) row = roster.find(e => e.email && _frNormEmail(e.email) === _frNormEmail(p.email))
+                  || roster.find(e => _frRealName(e) === _frNormName(p.full_name));
+    if (row) repEmpIds.set(p.id, new Set(String(row.employee_ids || row.employee_id || '').split(',').map(s => s.trim()).filter(Boolean)));
+  }
+  // CRM rows grouped by the selling employee ID.
+  const crmByEmp = new Map();
+  for (const r of crmRows) { const id = String(r.sold_by_id || '').trim(); if (!id) continue; if (!crmByEmp.has(id)) crmByEmp.set(id, []); crmByEmp.get(id).push(r); }
+
+  const matchSale = (sale, empIds) => {
+    let cands = [];
+    for (const id of empIds) { const a = crmByEmp.get(id); if (a) cands = cands.concat(a); }
+    if (!cands.length) return null;
+    const cnum = String(sale.customer_number || '').trim();
+    if (cnum) { const hit = cands.find(r => String(r.customer_id || '').trim() === cnum); if (hit) return hit; }
+    const sn = nameKey(sale.customer_name);
+    const sd = Date.parse(sale.sold_date);
+    return cands.find(r => {
+      const rn = nameKey([r.first_name, r.last_name].filter(Boolean).join(' '));
+      if (!rn || rn !== sn) return false;
+      const rd = Date.parse(r.sold_date || String(r.sold_at || '').slice(0, 10));
+      if (isNaN(sd) || isNaN(rd)) return true;
+      return Math.abs(sd - rd) <= 7 * 86400000;
+    }) || null;
+  };
+
+  const matched = [], missing = [], unlinkable = [];
+  for (const s of (state.allSales || [])) {
+    if (cutoff && Date.parse(s.sold_date) < cutoff) continue;
+    const empIds = repEmpIds.get(s.rep_id);
+    if (!empIds || !empIds.size) { unlinkable.push(s); continue; }
+    (matchSale(s, empIds) ? matched : missing).push(s);
+  }
+  const reconcilable = matched.length + missing.length;
+  const matchPct = reconcilable ? Math.round((matched.length / reconcilable) * 100) : 0;
+  const repName = (id) => (profiles.find(p => p.id === id) || {}).full_name || '—';
+  const fmtD = (d) => { const t = Date.parse(d); return isNaN(t) ? (d || '—') : new Date(t).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' }); };
+
+  const rangeBtns = el('div', { class: 'inline-flex rounded-xl border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+    ...[[30, '30d'], [90, '90d'], [365, '1y'], [0, 'All']].map(([d, lbl]) => el('button', {
+      class: 'px-3 py-2 text-xs font-semibold transition',
+      style: days === d ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'transparent', color: 'var(--text)' },
+      onclick: () => { state._reconDays = d; mountApp(); },
+    }, lbl)));
+
+  const card = (label, val, sub, color) => el('div', { class: 'card p-4 flex-1', style: { minWidth: '150px' } },
+    el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, label),
+    el('div', { class: 'font-display text-3xl sm:text-4xl mt-1', style: color ? { color } : {} }, val),
+    sub ? el('div', { class: 'text-[11px] text-muted- mt-0.5' }, sub) : null);
+
+  const missingTable = el('div', { class: 'card overflow-hidden' }, el('div', { class: 'scroll-x' },
+    el('table', { class: 'w-full text-sm whitespace-nowrap' },
+      el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, el('tr', {},
+        el('th', { class: 'text-left px-4 py-3' }, 'Rep'),
+        el('th', { class: 'text-left px-3 py-3' }, 'Customer'),
+        el('th', { class: 'text-left px-3 py-3' }, 'Cust #'),
+        el('th', { class: 'text-left px-3 py-3' }, 'Sold'),
+        el('th', { class: 'text-right px-3 py-3' }, 'Value'),
+        el('th', { class: 'text-left px-3 py-3' }, 'Audit'))),
+      el('tbody', {},
+        missing.length === 0
+          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 6 }, 'Every reconcilable app sale was found in FieldRoutes. 🎉'))
+          : null,
+        ...missing.slice().sort((a, b) => Date.parse(b.sold_date) - Date.parse(a.sold_date)).slice(0, 200).map(s => el('tr', { class: 'border-t border-' },
+          el('td', { class: 'px-4 py-3 font-semibold' }, repName(s.rep_id)),
+          el('td', { class: 'px-3 py-3' }, s.customer_name || '—'),
+          el('td', { class: 'px-3 py-3 text-muted-' }, s.customer_number || '—'),
+          el('td', { class: 'px-3 py-3 text-muted-' }, fmtD(s.sold_date)),
+          el('td', { class: 'px-3 py-3 text-right tabular-nums' }, money(s.revenue_amount)),
+          el('td', { class: 'px-3 py-3 text-muted-' }, s.audit_status || '—')))))));
+
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'flex items-center justify-between flex-wrap gap-3' },
+      el('div', {},
+        el('h2', { class: 'text-lg font-bold' }, 'CRM Reconciliation'),
+        el('p', { class: 'text-xs text-muted-' }, 'App-logged sales matched to FieldRoutes by each rep’s employee-ID link, then by customer number or name + date.')),
+      rangeBtns),
+    el('div', { class: 'flex gap-3 flex-wrap' },
+      card('Reconcilable sales', reconcilable.toLocaleString(), 'Linked reps, in range', null),
+      card('Matched in CRM', matched.length.toLocaleString(), matchPct + '% of reconcilable', 'var(--accent)'),
+      card('Missing from CRM', missing.length.toLocaleString(), 'Logged in app, not found', missing.length ? '#DC2626' : null)),
+    unlinkable.length
+      ? el('div', { class: 'card p-3 text-xs text-muted-', style: { borderLeft: '3px solid var(--border-2)' } },
+          el('b', { style: { color: 'var(--text)' } }, unlinkable.length.toLocaleString() + ' sale' + (unlinkable.length === 1 ? '' : 's')),
+          ' skipped — the rep isn’t linked to a FieldRoutes employee yet. Link them on Settings → Users to include their sales here.')
+      : null,
+    el('div', { class: 'text-[11px] uppercase tracking-widest text-muted- font-semibold mt-1' }, 'Logged in app · not found in CRM'),
+    missingTable,
+    missing.length > 200 ? el('div', { class: 'text-[11px] text-muted-' }, 'Showing the 200 most recent of ' + missing.length.toLocaleString() + '.') : null);
 }
 
 function reportingWaterfall() {
