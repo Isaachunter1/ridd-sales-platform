@@ -128,7 +128,7 @@
   h1 { font-size: clamp(2.5rem, 6vw, 6rem); line-height: .92; text-transform: uppercase; }
   h2 { letter-spacing: .01em; }
   /* Keep the fixed top-bar tab title compact (it lives in a ~60px header). */
-  .hb-topbar-title { font-size: 1.05rem !important; line-height: 1 !important; text-transform: uppercase; }
+  .hb-topbar-title { font-size: clamp(1.45rem, 2.6vw, 2.1rem) !important; line-height: 1 !important; text-transform: uppercase; }
 
   /* Text helpers driven by CSS vars */
   .text-default  { color: var(--text); }
@@ -3434,7 +3434,7 @@ function mountApp() {
   // first view-content line starts under the header instead of being
   // hidden behind it.
   const pageHeader = el('header', {
-    class: 'page-header flex items-center justify-between px-4 sm:px-6 py-3',
+    class: 'page-header flex items-center justify-between px-4 sm:px-6 py-4',
     style: { position: 'fixed', top: '0', left: '0', right: '0', zIndex: 30 },
   },
     el('div', { class: 'flex items-center gap-3 relative' },
@@ -3521,7 +3521,7 @@ function mountApp() {
   // header's height (~60px = py-3 padding + 36px icon-btn). The page header
   // floats over this padding via position:fixed; main's in-flow children
   // (contentWrap) start below it cleanly.
-  const main = el('main', { class: 'flex-1 overflow-x-hidden pt-[60px]' });
+  const main = el('main', { class: 'flex-1 overflow-x-hidden pt-[76px]' });
   const contentWrap = el('div', { class: 'p-4 sm:p-6' });
   main.append(pageHeader, contentWrap);
 
@@ -28761,6 +28761,30 @@ function adminUploads() {
       el('h2', { class: 'text-lg font-bold' }, 'Admin'),
       el('p', { class: 'text-xs text-muted- mt-0.5' },
         'Upload history for the Reporting and Indicators CSVs, plus the app activity log.'),
+    ),
+    // RevHawk live data — auto-syncs nightly; this fires an on-demand refresh.
+    el('div', { class: 'card p-3 flex items-center justify-between gap-3 flex-wrap' },
+      el('div', {},
+        el('div', { class: 'text-sm font-semibold' }, 'RevHawk live data'),
+        el('div', { class: 'text-[11px] text-muted-' }, 'Auto-syncs every evening. Pull a fresh snapshot right now (≈1 min) when reps need mid-day numbers.')),
+      el('button', {
+        class: 'rounded-lg px-3.5 py-2 text-sm font-bold transition hover:brightness-95',
+        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: async (e) => {
+          const btn = e.currentTarget, orig = btn.textContent;
+          btn.textContent = 'Starting…'; btn.disabled = true;
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const token = session && session.access_token;
+            if (!token) { toast('Sign in required', 'error'); return; }
+            const r = await fetch('/api/revhawk-sync-now', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+            const j = await r.json().catch(() => ({}));
+            (r.ok && j.ok) ? toast(j.message || 'Sync started — fresh data in ~1 min', 'success')
+                           : toast('Sync failed: ' + (j.error || ('HTTP ' + r.status)), 'error');
+          } catch (err) { toast('Sync failed: ' + (err && err.message || err), 'error'); }
+          finally { btn.textContent = orig; btn.disabled = false; }
+        },
+      }, '↻ Sync now'),
     ),
     toggle,
     tab === 'activity'
