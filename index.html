@@ -1119,6 +1119,36 @@ async function saveCompanyLogo(dataUrl) {
   } catch (err) { console.warn('[ridd] company_logo save threw', err); }
 }
 
+// ── Commission calculator config (shared across admins via app_settings) ──
+// One JSON row holds: per-rep negotiated rates, the service→category map, and
+// the multi-year bonus thresholds. Money config, so it lives server-side (not
+// localStorage) to stay consistent for everyone.
+const COMMISSION_MY_DEFAULT = { hiPct: 75, loPct: 55, rate18: 2, rate24: 3, penalty: 5 };
+function commissionConfig() {
+  const c = state.commissionConfig || {};
+  return {
+    repRates:          c.repRates || {},          // { [profileId]: { pest, bundle, ancillary } }  (decimals, e.g. 0.24)
+    serviceCategories: c.serviceCategories || {}, // { [serviceName]: 'pest'|'bundle'|'ancillary'|'exclude' }
+    multiYear:         Object.assign({}, COMMISSION_MY_DEFAULT, c.multiYear || {}),
+  };
+}
+async function loadCommissionConfig() {
+  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile.role)) return;
+  try {
+    const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'commission_config').maybeSingle();
+    if (error) { console.warn('[ridd] commission_config load failed', error); return; }
+    if (data && data.value) state.commissionConfig = data.value;
+  } catch (e) { console.warn('[ridd] commission_config load threw', e); }
+}
+async function saveCommissionConfig(next) {
+  state.commissionConfig = next;
+  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile.role)) return;
+  try {
+    const { error } = await supabase.from('app_settings').upsert({ key: 'commission_config', value: next }, { onConflict: 'key' });
+    if (error) { console.warn('[ridd] commission_config save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
+  } catch (e) { console.warn('[ridd] commission_config save threw', e); }
+}
+
 // ── Reporting tab loaders ────────────────────────────────────────────────
 // Two-tier load: metadata (uploads list + service config) loads on app
 // boot so the Reporting tab can render instantly. Subscription rows are
@@ -2302,6 +2332,7 @@ async function loadData() {
   // and on every rep's view. Fire-and-forget — localStorage already
   // populated state.companyLogo for instant first render.
   loadCompanyLogo().catch(err => console.warn('[ridd] company logo load skipped', err));
+  loadCommissionConfig().catch(err => console.warn('[ridd] commission config load skipped', err));
   // Reporting tab metadata — admin-only, fire-and-forget. The Reporting
   // tab lazy-loads the heavy subscription rows on demand once the user
   // actually visits the tab, so this just primes the uploads list +
@@ -2515,12 +2546,13 @@ const TAB_TITLES = {
   scorecards:   'SCORECARDS',
   reporting:    'REPORTING',
   marketing:    'MARKETING',
+  commission:   'COMMISSION CALCULATOR',
   admin:        'SETTINGS',
 };
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#training':'training', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#training':'training', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -3346,6 +3378,7 @@ function mountApp() {
     ['inside_sales', isAuditor ? 'Sales' : 'Inside Sales', iconSales()],
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
+    ...(isAdmin ? [['commission',    'Commission Calculator', iconDollar()]] : []),
     ...(isAuditor ? [] : [['training', 'Training', iconClipboard()]]),
   ];
 
@@ -3555,6 +3588,7 @@ function mountApp() {
     scorecards:   viewScorecards,
     reporting:    viewReporting,
     marketing:    viewMarketing,
+    commission:   viewCommission,
     training:     viewTraining,
     admin:        viewAdmin,
   }[state.view];
@@ -3571,7 +3605,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'calendar', 'scorecards', 'reporting', 'marketing', 'training', 'auditing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'training', 'auditing']);
   document.querySelector('.fab')?.remove();
   if (!FAB_HIDDEN_VIEWS.has(state.view)) {
     const fab = el('button', { class: 'fab', onclick: () => openNewSaleModal() },
@@ -28652,6 +28686,236 @@ function buildReportingWaterfall(rows, mode) {
   return { rowDefs, years };
 }
 
+// ── COMMISSION CALCULATOR ────────────────────────────────────────────────────
+// Backend commission breakdown for a FieldRoutes SALES REP, computed from the
+// live CRM snapshot: revenue split into Pest / Bundle / Ancillary (via the
+// configurable service map) × each rep's negotiated rates, a multi-year
+// bonus/penalty, manual deductions, and the account/attrition stats. Mirrors
+// the Excel "Backend Breakdown" sheet.
+
+// Per-rep manual inputs (overrides + deductions + pay periods) live in
+// localStorage keyed by the rep's CRM employee id — they're re-entered each run.
+function commissionManual(empId) { try { return JSON.parse(localStorage.getItem('ridd_comm_manual_' + empId) || '{}'); } catch { return {}; } }
+function setCommissionManual(empId, obj) { try { localStorage.setItem('ridd_comm_manual_' + empId, JSON.stringify(obj)); } catch {} }
+
+// Compute the full breakdown for one roster employee over [startMs,endMs],
+// with lockMs deciding which cancels are "after lock" (excluded from attrition).
+function commissionCompute(emp, startMs, endMs, lockMs) {
+  const cfg = commissionConfig();
+  const empIds = new Set(String(emp.employee_ids || emp.employee_id || '').split(',').map(s => s.trim()).filter(Boolean));
+  const cv = (r) => Number(r.subscription_contract_value) || 0;
+  const catOf = (r) => cfg.serviceCategories[r.subscription] || 'unclassified';
+  const rows = (state.reportingSubscriptions || []).filter(r => {
+    if (!empIds.has(String(r.sold_by_id || '').trim())) return false;
+    const sd = Date.parse(r.sold_date || String(r.sold_at || '').slice(0, 10));
+    if (isNaN(sd)) return false;
+    if (startMs && sd < startMs) return false;
+    if (endMs && sd > endMs) return false;
+    return true;
+  });
+  let pestRev = 0, bundleRev = 0, ancRev = 0, exclRev = 0, unclRev = 0;
+  const unclassified = new Map();
+  for (const r of rows) {
+    const c = catOf(r), v = cv(r);
+    if (c === 'pest') pestRev += v; else if (c === 'bundle') bundleRev += v; else if (c === 'ancillary') ancRev += v;
+    else if (c === 'exclude') exclRev += v; else { unclRev += v; unclassified.set(r.subscription, (unclassified.get(r.subscription) || 0) + v); }
+  }
+  const rates = cfg.repRates[emp.employee_id] || {};
+  const pestRate = Number(rates.pest) || 0, bundleRate = Number(rates.bundle) || 0, ancRate = Number(rates.ancillary) || 0;
+  const pestComm = pestRev * pestRate, bundleComm = bundleRev * bundleRate, ancComm = ancRev * ancRate;
+  const payableRev = pestRev + bundleRev + ancRev;
+  // Multi-year: term from agreement_length, only on commissionable categories.
+  let rev18 = 0, rev24 = 0, myRev = 0;
+  for (const r of rows) {
+    const c = catOf(r); if (!(c === 'pest' || c === 'bundle' || c === 'ancillary')) continue;
+    const t = Number(r.agreement_length) || 0, v = cv(r);
+    if (t >= 24) { rev24 += v; myRev += v; } else if (t >= 18) { rev18 += v; myRev += v; }
+  }
+  const myPct = payableRev > 0 ? (myRev / payableRev * 100) : 0;
+  const MY = cfg.multiYear;
+  let multiYearAmt = 0;
+  if (myPct > MY.hiPct) multiYearAmt = rev18 * (MY.rate18 / 100) + rev24 * (MY.rate24 / 100);
+  else if (myPct >= MY.loPct) multiYearAmt = 0;
+  else multiYearAmt = -(payableRev * (MY.penalty / 100));
+  // Account stats
+  const canceled = rows.filter(r => r.subscription_date_canceled);
+  const ror = canceled.filter(r => { const s = Date.parse(r.sold_date), c = Date.parse(r.subscription_date_canceled); return !isNaN(s) && !isNaN(c) && (c - s) >= 0 && (c - s) / 86400000 <= 3; });
+  const afterLock = lockMs ? canceled.filter(r => { const c = Date.parse(r.subscription_date_canceled); return !isNaN(c) && c > lockMs; }) : [];
+  const agingDays = (typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7;
+  const withBalance = rows.filter(r => (Number(r.days_past_due) || 0) >= agingDays && !r.subscription_date_canceled);
+  const sold = rows.length;
+  const finalAttrCount = Math.max(0, canceled.length - ror.length - afterLock.length);
+  const m = commissionManual(emp.employee_id);
+  const overrides = Number(m.overrides) || 0, rent = Number(m.rent) || 0, paidYtd = Number(m.paidYtd) || 0;
+  const other = Number(m.other) || 0, audit = Number(m.audit) || 0, payPeriods = Number(m.payPeriods) || 26;
+  const totalCommission = pestComm + bundleComm + ancComm + overrides + multiYearAmt;
+  const netDue = totalCommission - rent - paidYtd - other - audit;
+  const biWeekly = payPeriods ? netDue / payPeriods : netDue;
+  return {
+    rows, pestRev, bundleRev, ancRev, exclRev, unclRev, unclassified, payableRev,
+    pestRate, bundleRate, ancRate, pestComm, bundleComm, ancComm,
+    rev18, rev24, myPct, multiYearAmt, MY,
+    overrides, rent, paidYtd, other, audit, payPeriods, totalCommission, netDue, biWeekly,
+    sold, canceled: canceled.length, ror: ror.length, afterLock: afterLock.length,
+    withBalance: withBalance.length, finalAttrCount, finalAttrition: sold > 0 ? finalAttrCount / sold * 100 : 0,
+  };
+}
+
+function viewCommission() { return commissionCalculator(); }
+function commissionCalculator() {
+  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Commission Calculator is admin-only.');
+  const money = (n) => { const v = Math.round((n || 0) * 100) / 100; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  const pct = (n) => (Math.round((n || 0) * 100) / 100).toFixed(2) + '%';
+
+  // Need the roster (rep list + links) and the CRM snapshot rows.
+  if (state.frRoster == null && !state._frRosterLoading) loadFieldRoutesRoster().then(() => { if (state.view === 'commission') mountApp(); });
+  const activeId = state.reportingActiveUploadId;
+  if (!activeId) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No CRM snapshot yet — hit the ↻ sync icon to pull FieldRoutes, then come back.');
+  if (state.reportingSubscriptionsLoadedFor !== activeId) {
+    loadReportingSubscriptions(activeId).then(rows => { if (rows && state.reportingActiveUploadId === activeId) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = activeId; mountApp(); } });
+    return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Loading the CRM snapshot…');
+  }
+
+  const roster = state.frRoster || [];
+  const salesReps = roster.filter(e => e.type_label === 'Sales Rep').sort((a, b) => _frEmpName(a).localeCompare(_frEmpName(b)));
+  if (!salesReps.length) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No sales reps in the roster yet — run a sync.');
+
+  if (!state._commEmpId || !salesReps.find(e => e.employee_id === state._commEmpId)) state._commEmpId = salesReps[0].employee_id;
+  const emp = salesReps.find(e => e.employee_id === state._commEmpId);
+
+  // Period (default: this year) + lock date.
+  const yr = new Date().getFullYear();
+  if (state._commStart == null) state._commStart = yr + '-01-01';
+  if (state._commEnd == null)   state._commEnd = new Date().toISOString().slice(0, 10);
+  if (state._commLock == null)  state._commLock = '';
+  const startMs = state._commStart ? Date.parse(state._commStart) : 0;
+  const endMs   = state._commEnd ? Date.parse(state._commEnd) + 86399000 : 0;
+  const lockMs  = state._commLock ? Date.parse(state._commLock) : 0;
+
+  const cfg = commissionConfig();
+  const R = commissionCompute(emp, startMs, endMs, lockMs);
+  const man = commissionManual(emp.employee_id);
+
+  // ---- input helpers ----
+  const saveRates = (patch) => { const c = commissionConfig(); c.repRates = Object.assign({}, c.repRates); c.repRates[emp.employee_id] = Object.assign({}, c.repRates[emp.employee_id], patch); saveCommissionConfig(c); mountApp(); };
+  const saveMY = (patch) => { const c = commissionConfig(); c.multiYear = Object.assign({}, c.multiYear, patch); saveCommissionConfig(c); mountApp(); };
+  const saveCat = (svc, val) => { const c = commissionConfig(); c.serviceCategories = Object.assign({}, c.serviceCategories); c.serviceCategories[svc] = val; saveCommissionConfig(c); mountApp(); };
+  const saveMan = (patch) => { setCommissionManual(emp.employee_id, Object.assign({}, man, patch)); mountApp(); };
+
+  const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
+  const numField = (label, val, onCommit, opts = {}) => el('label', { class: 'block' }, lbl(label),
+    el('input', { type: 'number', step: opts.step || '0.01', value: (val == null ? '' : val), placeholder: opts.ph || '',
+      class: 'w-full rounded-lg border px-2 py-1.5 text-sm text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
+      onchange: (e) => onCommit(e.target.value) }));
+
+  // ---- breakdown card (the Excel sheet) ----
+  const ROW = (label, valNode, kind) => el('div', {
+    class: 'flex items-center justify-between gap-3 px-3 py-2 text-sm',
+    style: { borderTop: '1px solid var(--border)',
+      background: kind === 'rev' ? 'rgba(59,130,246,.08)' : kind === 'comm' ? 'rgba(141,198,63,.10)' : kind === 'total' ? 'rgba(141,198,63,.18)' : 'transparent' } },
+    el('span', { class: kind === 'total' ? 'font-bold' : '' }, label),
+    el('span', { class: 'tabular-nums ' + (kind === 'total' ? 'font-bold' : '') }, valNode));
+  const breakdown = el('div', { class: 'card overflow-hidden', style: { maxWidth: '520px' } },
+    el('div', { class: 'px-3 py-2 font-display text-xl', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Backend Breakdown'),
+    ROW('Sales Rep', _frEmpName(emp)),
+    ROW('Pest Revenue', money(R.pestRev), 'rev'),
+    ROW('Pest Commission (' + pct(R.pestRate * 100) + ')', money(R.pestComm), 'comm'),
+    ROW('Bundle Revenue', money(R.bundleRev), 'rev'),
+    ROW('Bundle Commission (' + pct(R.bundleRate * 100) + ')', money(R.bundleComm), 'comm'),
+    ROW('Ancillary Revenue', money(R.ancRev), 'rev'),
+    ROW('Ancillary Commission (' + pct(R.ancRate * 100) + ')', money(R.ancComm), 'comm'),
+    ROW('Overrides', money(R.overrides), 'comm'),
+    ROW('Multi-Year Bonus/Deduction', money(R.multiYearAmt), 'comm'),
+    ROW('Total Commission', money(R.totalCommission), 'total'),
+    ROW('Rent', money(-R.rent)),
+    ROW('Paid Year-to-Date', money(-R.paidYtd)),
+    ROW('Other Additions/Deductions', money(-R.other)),
+    ROW('Audit Deduction', money(-R.audit)),
+    ROW('Net Due', money(R.netDue), 'total'),
+    ROW('Bi-Weekly Pay (÷ ' + R.payPeriods + ')', money(R.biWeekly), 'total'),
+    el('div', { class: 'px-3 py-2 text-sm flex items-center justify-between', style: { background: 'rgba(59,130,246,.08)', borderTop: '1px solid var(--border)' } },
+      el('span', { class: 'font-semibold' }, 'Total Payable Rev'), el('span', { class: 'tabular-nums font-semibold' }, money(R.payableRev))));
+
+  // ---- attrition / account stats ----
+  const statRow = (label, val, tone) => el('div', { class: 'flex items-center justify-between px-3 py-1.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
+    el('span', {}, label), el('span', { class: 'tabular-nums font-semibold', style: tone ? { color: tone } : {} }, val));
+  const stats = el('div', { class: 'card overflow-hidden', style: { maxWidth: '520px' } },
+    el('div', { class: 'px-3 py-2 font-display text-lg', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Accounts & Attrition'),
+    statRow('Total Accounts Sold', R.sold),
+    statRow('Canceled Accounts', R.canceled + '  (' + pct(R.sold ? R.canceled / R.sold * 100 : 0) + ')', R.canceled ? '#DC2626' : null),
+    statRow('Accounts with Balance', R.withBalance + '  (' + pct(R.sold ? R.withBalance / R.sold * 100 : 0) + ')'),
+    statRow('Multi-Year %', pct(R.myPct)),
+    statRow('Total 3-Day Right of Rescission', R.ror),
+    statRow('Accounts Canceled After Lock Date', R.afterLock),
+    el('div', { class: 'flex items-center justify-between px-3 py-2.5', style: { borderTop: '2px solid var(--text)', background: 'var(--text)', color: 'var(--bg)' } },
+      el('span', { class: 'font-display text-lg' }, 'FINAL ATTRITION'),
+      el('span', { class: 'font-display text-lg tabular-nums' }, pct(R.finalAttrition))));
+
+  // ---- config: rep rates + multi-year + manual inputs ----
+  const ratesPanel = el('div', { class: 'card p-4' },
+    el('div', { class: 'text-sm font-bold mb-3' }, 'Rep rates · ' + _frEmpName(emp)),
+    el('div', { class: 'grid grid-cols-3 gap-3' },
+      numField('Pest %', R.pestRate * 100, v => saveRates({ pest: (parseFloat(v) || 0) / 100 }), { step: '0.1' }),
+      numField('Bundle %', R.bundleRate * 100, v => saveRates({ bundle: (parseFloat(v) || 0) / 100 }), { step: '0.1' }),
+      numField('Ancillary %', R.ancRate * 100, v => saveRates({ ancillary: (parseFloat(v) || 0) / 100 }), { step: '0.1' })),
+    el('div', { class: 'text-[11px] text-muted- mt-2' }, 'Negotiated per rep · saved for everyone.'));
+
+  const myPanel = el('div', { class: 'card p-4' },
+    el('div', { class: 'text-sm font-bold mb-1' }, 'Multi-year bonus rule'),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Above the high threshold: +18mo% on 18-month revenue and +24mo% on 24-month. Below the low threshold: a penalty on all revenue.'),
+    el('div', { class: 'grid grid-cols-2 sm:grid-cols-5 gap-3' },
+      numField('High % >', cfg.multiYear.hiPct, v => saveMY({ hiPct: parseFloat(v) || 0 }), { step: '1' }),
+      numField('Low % ≥', cfg.multiYear.loPct, v => saveMY({ loPct: parseFloat(v) || 0 }), { step: '1' }),
+      numField('18mo +%', cfg.multiYear.rate18, v => saveMY({ rate18: parseFloat(v) || 0 }), { step: '0.5' }),
+      numField('24mo +%', cfg.multiYear.rate24, v => saveMY({ rate24: parseFloat(v) || 0 }), { step: '0.5' }),
+      numField('Penalty %', cfg.multiYear.penalty, v => saveMY({ penalty: parseFloat(v) || 0 }), { step: '0.5' })));
+
+  const manualPanel = el('div', { class: 'card p-4' },
+    el('div', { class: 'text-sm font-bold mb-3' }, 'This run — overrides & deductions'),
+    el('div', { class: 'grid grid-cols-2 sm:grid-cols-3 gap-3' },
+      numField('Overrides', man.overrides, v => saveMan({ overrides: v })),
+      numField('Rent', man.rent, v => saveMan({ rent: v })),
+      numField('Paid YTD', man.paidYtd, v => saveMan({ paidYtd: v })),
+      numField('Other +/-', man.other, v => saveMan({ other: v })),
+      numField('Audit Deduction', man.audit, v => saveMan({ audit: v })),
+      numField('Pay Periods', man.payPeriods == null ? 26 : man.payPeriods, v => saveMan({ payPeriods: v }), { step: '1' })),
+    el('div', { class: 'text-[11px] text-muted- mt-2' }, 'Deductions are entered as positive numbers — the breakdown subtracts them.'));
+
+  // ---- service category mapping (services present in this rep's window) ----
+  const svcSet = new Map();
+  for (const r of R.rows) { const s = r.subscription || '(blank)'; svcSet.set(s, (svcSet.get(s) || 0) + (Number(r.subscription_contract_value) || 0)); }
+  const svcList = [...svcSet.entries()].sort((a, b) => (cfg.serviceCategories[a[0]] ? 1 : 0) - (cfg.serviceCategories[b[0]] ? 1 : 0) || b[1] - a[1]);
+  const catSelect = (svc) => { const cur = cfg.serviceCategories[svc] || ''; return el('select', { class: 'rounded-lg border px-2 py-1 text-xs', style: { borderColor: 'var(--border-2)' }, onchange: (e) => saveCat(svc, e.target.value) },
+    ...[['', 'Unclassified'], ['pest', 'Pest'], ['bundle', 'Bundle'], ['ancillary', 'Ancillary'], ['exclude', 'Exclude']].map(([v, t]) => el('option', { value: v, selected: cur === v }, t))); };
+  const svcPanel = el('div', { class: 'card p-4' },
+    el('div', { class: 'flex items-center justify-between mb-1' },
+      el('div', { class: 'text-sm font-bold' }, 'Service → category map'),
+      R.unclRev > 0 ? el('span', { class: 'chip', style: { background: 'rgba(220,38,38,.08)', color: '#B91C1C' } }, money(R.unclRev) + ' unclassified') : null),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Tag each service so its revenue lands in Pest, Bundle, or Ancillary. Mapping is global — set once, applies to every rep.'),
+    el('div', { class: 'flex flex-col divide-y', style: { borderColor: 'var(--border)' } },
+      ...svcList.slice(0, 60).map(([svc, rev]) => el('div', { class: 'flex items-center justify-between gap-3 py-2' },
+        el('div', { class: 'min-w-0' }, el('div', { class: 'text-sm font-medium truncate' }, svc), el('div', { class: 'text-[11px] text-muted-' }, money(rev))),
+        catSelect(svc)))));
+
+  // ---- controls ----
+  const repSelect = el('select', { class: 'rounded-xl border px-3 py-2 text-sm font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
+    ...salesReps.map(e => el('option', { value: e.employee_id, selected: e.employee_id === state._commEmpId }, _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : ''))));
+  const dateInput = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-3 py-2 text-sm', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
+
+  return el('div', { class: 'flex flex-col gap-4 w-full' },
+    el('div', { class: 'flex items-end justify-between flex-wrap gap-3' },
+      el('div', {},
+        el('h1', { class: 'text-2xl font-bold' }, 'Commission Calculator'),
+        el('p', { class: 'text-xs text-muted-' }, 'Backend commission from live FieldRoutes data. Pick a rep and period; rates & rules are saved for everyone.')),
+      el('div', { class: 'flex items-end gap-2 flex-wrap' },
+        el('label', { class: 'block' }, lbl('Sales Rep'), repSelect),
+        el('label', { class: 'block' }, lbl('Sold from'), dateInput(state._commStart, v => state._commStart = v)),
+        el('label', { class: 'block' }, lbl('Sold to'), dateInput(state._commEnd, v => state._commEnd = v)),
+        el('label', { class: 'block' }, lbl('Lock date'), dateInput(state._commLock, v => state._commLock = v)))),
+    el('div', { class: 'flex flex-wrap gap-4 items-start' }, breakdown, stats),
+    el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, ratesPanel, manualPanel, myPanel, svcPanel));
+}
+
 // ── CRM Reconciliation ──────────────────────────────────────────────────────
 // Match every sale logged in THIS app to the live FieldRoutes snapshot, using
 // each rep's FieldRoutes employee-ID link. Surfaces "logged in the app but not
@@ -32499,6 +32763,8 @@ function iconGear(s)     { return svg('<circle cx="12" cy="12" r="3"/><path d="M
 function iconBell(s) { return svg('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>', s || 20); }
 // RevHawk "Sync" — the classic two-arrow refresh loop.
 function iconSync(s) { return svg('<path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>', s || 20); }
+// Commission — a dollar sign.
+function iconDollar(s) { return svg('<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>', s || 20); }
 // Coach Mode — represented by a "team / users" glyph since the panel is
 // about people who need coaching attention.
 function iconCoach(s) { return svg('<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', s || 20); }
