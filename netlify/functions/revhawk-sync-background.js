@@ -128,21 +128,29 @@ WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''`;
 // Users screen can show "in CRM, not in the app yet" and provision one in a
 // click (pre-filled with name/email/phone). The id is the identity backbone
 // that joins an app user to their CRM sales.
+// FieldRoutes stores an employee row PER OFFICE, so one person (esp. office
+// staff / regional) has many employeeIDs across branches. Dedupe to one roster
+// entry per PERSON — grouped by email when present (falls back to the single
+// employeeID otherwise) — while keeping every office + employeeID for later
+// sales reconciliation. type/active/last_login are consistent across a person's
+// rows; MAX picks a stable representative.
 const EMP_SQL = `
 SELECT
-  fieldRoutes_employeeID AS employee_id,
-  ANY_VALUE(fieldRoutes_fname)     AS fname,
-  ANY_VALUE(fieldRoutes_lname)     AS lname,
-  ANY_VALUE(fieldRoutes_nickname)  AS nickname,
-  ANY_VALUE(fieldRoutes_email)     AS email,
-  ANY_VALUE(fieldRoutes_phone)     AS phone,
-  ANY_VALUE(fieldRoutes_officeID)  AS office_id,
-  ANY_VALUE(fieldRoutes_type)      AS type,
-  ANY_VALUE(fieldRoutes_active)    AS active,
-  ANY_VALUE(fieldRoutes_lastLogin) AS last_login
+  ANY_VALUE(fieldRoutes_employeeID)                AS employee_id,
+  ANY_VALUE(fieldRoutes_fname)                     AS fname,
+  ANY_VALUE(fieldRoutes_lname)                     AS lname,
+  ANY_VALUE(fieldRoutes_nickname)                  AS nickname,
+  ANY_VALUE(NULLIF(fieldRoutes_email,''))          AS email,
+  ANY_VALUE(NULLIF(fieldRoutes_phone,''))          AS phone,
+  ANY_VALUE(fieldRoutes_officeID)                  AS office_id,
+  STRING_AGG(DISTINCT fieldRoutes_officeID,   ',') AS office_ids,
+  STRING_AGG(DISTINCT fieldRoutes_employeeID, ',') AS employee_ids,
+  MAX(fieldRoutes_type)                            AS type,
+  MAX(fieldRoutes_active)                          AS active,
+  MAX(fieldRoutes_lastLogin)                       AS last_login
 FROM \`${PROJECT}.${DATASET}.FieldRoutesEmployee\`
 WHERE fieldRoutes_employeeID IS NOT NULL AND fieldRoutes_employeeID != ''
-GROUP BY 1`;
+GROUP BY COALESCE(LOWER(NULLIF(fieldRoutes_email,'')), fieldRoutes_employeeID)`;
 
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -277,12 +285,16 @@ exports.handler = async (event) => {
       const TYPE_LABEL = { '0': 'Office Staff', '1': 'Technician', '2': 'Sales Rep' };
       const emp = await runQuery(token, EMP_SQL);
       const empObjects = toObjects(emp.schema, emp.rows);
+      const officeNames = (ids) => (ids ? String(ids).split(',').map(s => OFFICE_NAMES[s.trim()] || ('Office ' + s.trim())) : []);
       const roster = empObjects.filter(e => e.employee_id).map(e => ({
         employee_id: String(e.employee_id),
         fname: e.fname || null, lname: e.lname || null, nickname: e.nickname || null,
         email: (e.email || '').trim() || null, phone: (e.phone || '').trim() || null,
         office_id: e.office_id || null,
-        office_name: OFFICE_NAMES[e.office_id] || (e.office_id ? 'Office ' + e.office_id : null),
+        office_ids: e.office_ids || null,
+        employee_ids: e.employee_ids || null,
+        // Representative office name; for multi-office people, list them all.
+        office_name: officeNames(e.office_ids).join(', ') || OFFICE_NAMES[e.office_id] || (e.office_id ? 'Office ' + e.office_id : null),
         type: e.type || null, type_label: TYPE_LABEL[e.type] || null,
         active: (e.active === '1' || String(e.active).toLowerCase() === 'true'),
         last_login: e.last_login || null,
