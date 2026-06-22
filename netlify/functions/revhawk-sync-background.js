@@ -140,6 +140,7 @@ SELECT
   ANY_VALUE(fieldRoutes_fname)                     AS fname,
   ANY_VALUE(fieldRoutes_lname)                     AS lname,
   ANY_VALUE(fieldRoutes_nickname)                  AS nickname,
+  ANY_VALUE(NULLIF(fieldRoutes_username,''))       AS username,
   ANY_VALUE(NULLIF(fieldRoutes_email,''))          AS email,
   ANY_VALUE(NULLIF(fieldRoutes_phone,''))          AS phone,
   ANY_VALUE(fieldRoutes_officeID)                  AS office_id,
@@ -150,6 +151,7 @@ SELECT
   MAX(fieldRoutes_lastLogin)                       AS last_login
 FROM \`${PROJECT}.${DATASET}.FieldRoutesEmployee\`
 WHERE fieldRoutes_employeeID IS NOT NULL AND fieldRoutes_employeeID != ''
+  AND (fieldRoutes_active = '1' OR LOWER(fieldRoutes_active) = 'true')
 GROUP BY COALESCE(LOWER(NULLIF(fieldRoutes_email,'')), fieldRoutes_employeeID)`;
 
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -289,6 +291,7 @@ exports.handler = async (event) => {
       const roster = empObjects.filter(e => e.employee_id).map(e => ({
         employee_id: String(e.employee_id),
         fname: e.fname || null, lname: e.lname || null, nickname: e.nickname || null,
+        username: (e.username || '').trim() || null,
         email: (e.email || '').trim() || null, phone: (e.phone || '').trim() || null,
         office_id: e.office_id || null,
         office_ids: e.office_ids || null,
