@@ -31447,7 +31447,7 @@ function adminReps() {
           fr && !p.fieldroutes_employee_id ? el('div', { class: 'text-[10px]', style: { color: 'var(--accent)' } }, '↔ match — confirm to link') : null))),
       tdM(fr ? fr.username : null),                                       // User ID (CRM username)
       td(roleLabel(p.role)),                                             // Access Profile (app role)
-      tdM(fr ? fr.phone : (p.phone || null)),                             // Phone
+      tdM(p.phone || (fr ? fr.phone : null)),                             // Phone (profile wins, else CRM)
       tdM(p.email || (fr ? fr.email : null)),                             // Email
       tdM(fr ? fmtLogin(fr.last_login) : null),                           // Last Login (CRM)
       td(fr ? fr.type_label : null, fr ? '' : 'text-muted- italic'),      // Rep Type (CRM)
