@@ -31270,6 +31270,12 @@ async function loadFieldRoutesRoster(force) {
 }
 const _frEmpName  = (e) => ([(e.nickname || e.fname), e.lname].filter(Boolean).join(' ')).trim() || (e.email || ('Employee ' + e.employee_id));
 const _frNormEmail = (s) => String(s || '').trim().toLowerCase();
+// Normalized full name for fallback matching when an app login email differs
+// from the CRM email (e.g. cameron@riddpest.com vs crprymak@gmail.com).
+const _frNormName  = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+// First+last from a FieldRoutes record (ignores nickname so it matches the app
+// profile's real name, e.g. "Cameron Prymak").
+const _frRealName  = (e) => _frNormName([e.fname, e.lname].filter(Boolean).join(' '));
 // Write a FieldRoutes link onto an existing profile (admin RLS allows it).
 async function applyFieldRoutesLink(profileId, empId) {
   if (typeof DEMO !== 'undefined' && DEMO) {
@@ -31320,18 +31326,27 @@ function adminReps() {
   // A person is either an app user (a real login) or a CRM-only employee
   // (display-only until provisioned). App users inherit their FieldRoutes type
   // (via link or email match); roster-only people use their CRM type.
-  // The FieldRoutes employee behind an app user — linked first, else email match.
+  // The FieldRoutes employee behind an app user — linked first, then email
+  // match, then full-name match (covers app logins whose email differs from
+  // the CRM email, e.g. cameron@riddpest.com vs crprymak@gmail.com).
   const profFrEmp = (p) => {
     const linked = p.fieldroutes_employee_id ? rosterById.get(p.fieldroutes_employee_id) : null;
     if (linked) return linked;
-    return roster.find(e => e.email && _frNormEmail(e.email) === _frNormEmail(p.email)) || null;
+    const byEmail = roster.find(e => e.email && _frNormEmail(e.email) === _frNormEmail(p.email));
+    if (byEmail) return byEmail;
+    const pn = _frNormName(p.full_name);
+    return (pn && roster.find(e => _frRealName(e) === pn || _frNormName(_frEmpName(e)) === pn)) || null;
   };
   const appByEmpId = new Map();
   const appEmails = new Set();
   allProfiles.forEach(p => { if (p.fieldroutes_employee_id) appByEmpId.set(p.fieldroutes_employee_id, p); if (p.email) appEmails.add(_frNormEmail(p.email)); });
 
+  // Every CRM employee an app user resolves to — so they never also appear as a
+  // separate "in CRM" row (which is what duplicated Cameron).
+  const matchedEmpIds = new Set();
   const people = allProfiles.map(p => {
     const fr = profFrEmp(p);
+    if (fr) matchedEmpIds.add(fr.employee_id);
     return {
       isApp: true, profile: p, frEmp: fr, name: p.full_name || '(no name)', email: p.email || '',
       // Rep type comes from FieldRoutes when we know it; role is only a fallback.
@@ -31341,6 +31356,7 @@ function adminReps() {
   });
   roster.forEach(e => {
     if (appByEmpId.has(e.employee_id)) return;                       // already a linked app user
+    if (matchedEmpIds.has(e.employee_id)) return;                    // matched to an app user (email or name)
     if (e.email && appEmails.has(_frNormEmail(e.email))) return;     // matches an app user's email
     people.push({ isApp: false, emp: e, name: _frEmpName(e), email: e.email || '', type: e.type_label || 'Office Staff', active: false });
   });
@@ -31501,8 +31517,8 @@ function adminReps() {
     const suggestions = [];
     for (const p of allProfiles) {
       if (p.fieldroutes_employee_id) continue;
-      const hit = roster.find(e => e.email && _frNormEmail(e.email) === _frNormEmail(p.email) && !linkedIds.has(e.employee_id));
-      if (hit) suggestions.push({ p, e: hit });
+      const hit = profFrEmp(p); // email or full-name match
+      if (hit && !linkedIds.has(hit.employee_id)) suggestions.push({ p, e: hit });
     }
     if (suggestions.length) {
       host.append(el('div', { class: 'card p-4' },
