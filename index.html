@@ -3459,7 +3459,7 @@ function mountApp() {
       // this is the manual "I need it now" refresh.
       isAdmin && el('button', {
         class: 'icon-btn show' + (state._revhawkSyncing ? ' icon-spin' : ''),
-        title: state._revhawkSyncing ? 'Syncing from RevHawk…' : 'Sync from RevHawk',
+        title: state._revhawkSyncing ? 'Syncing…' : 'Sync — RevHawk (Reporting + Indicators) & QuickBooks',
         disabled: !!state._revhawkSyncing,
         onclick: (e) => syncFromRevHawk(e.currentTarget),
       }, iconSync(18)),
@@ -24149,7 +24149,21 @@ async function syncFromRevHawk(btn) {
     const r = await fetch('/api/revhawk-sync-now', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.ok) { toast('Sync failed: ' + (j.error || ('HTTP ' + r.status)), 'error'); return; }
-    toast('Syncing from RevHawk… fresh numbers in about a minute', 'info');
+    toast('Syncing… fresh numbers in about a minute', 'info');
+
+    // QuickBooks marketing spend is served live from /api/qbo-spend (not a
+    // stored snapshot), so refresh it inline — it's quick and independent of
+    // the RevHawk snapshot below. Best-effort; a QBO hiccup never blocks sync.
+    try {
+      const qr = await fetch('/api/qbo-spend');
+      const qj = qr.ok ? await qr.json() : null;
+      if (qj && qj.bySourceMonth && Object.keys(qj.bySourceMonth).length) {
+        state.reportingIsSpend = qj.bySourceMonth;
+        state._isSpendSource = 'QuickBooks';
+        state._isSpendPulledAt = qj.pulledAt;
+        state._isSpendLoading = false;
+      }
+    } catch (e) { console.warn('QBO refresh during sync failed', e); }
 
     // Poll Supabase for the new snapshot (the background job writes a new
     // reporting_uploads row when it finishes). Up to ~3 min, every 5s.
@@ -24160,7 +24174,7 @@ async function syncFromRevHawk(btn) {
       const top = (state.reportingUploads || [])[0];
       if (top && top.id !== beforeId && (!beforeAt || (top.uploaded_at && top.uploaded_at > beforeAt))) { fresh = top; break; }
     }
-    if (!fresh) { toast('Still syncing — give it another minute, then reload.', 'info'); return; }
+    if (!fresh) { toast('QuickBooks refreshed · RevHawk still syncing — give it another minute, then reload.', 'info'); mountApp(); return; }
 
     // Load the new snapshot into Reporting.
     state.reportingActiveUploadId = fresh.id;
@@ -24184,7 +24198,7 @@ async function syncFromRevHawk(btn) {
       } catch (e) { console.warn('Indicators rebuild after sync failed', e); }
     }
     if (typeof saveDemoData === 'function') saveDemoData();
-    toast('Synced from RevHawk — ' + (rows ? rows.length.toLocaleString() : '0') + ' subscriptions', 'success');
+    toast('Synced — ' + (rows ? rows.length.toLocaleString() : '0') + ' subscriptions + QuickBooks spend', 'success');
     mountApp();
   } catch (err) {
     toast('Sync failed: ' + (err && err.message || err), 'error');
