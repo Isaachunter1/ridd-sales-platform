@@ -1124,13 +1124,26 @@ async function saveCompanyLogo(dataUrl) {
 // the multi-year bonus thresholds. Money config, so it lives server-side (not
 // localStorage) to stay consistent for everyone.
 const COMMISSION_MY_DEFAULT = { hiPct: 75, loPct: 55, rate18: 2, rate24: 3, penalty: 5 };
+// Default rate model (matches the Retool backend): Pest % is the base; Ancillary
+// and Bundle are MULTIPLES of the pest rate.
+const COMMISSION_RATE_DEFAULT = { pest: 0.20, ancMult: 0.5, bundleMult: 0.8 };
 function commissionConfig() {
   const c = state.commissionConfig || {};
   return {
-    repRates:          c.repRates || {},          // { [profileId]: { pest, bundle, ancillary } }  (decimals, e.g. 0.24)
+    repRates:          c.repRates || {},          // { [empId]: { pest, ancMult, bundleMult } }  pest is a decimal (0.20)
     serviceCategories: c.serviceCategories || {}, // { [serviceName]: 'pest'|'bundle'|'ancillary'|'exclude' }
     multiYear:         Object.assign({}, COMMISSION_MY_DEFAULT, c.multiYear || {}),
+    manual:            c.manual || {},            // { [empId]: { overrides, rent, paidYtd, other, audit, payPeriods } } — shared
+    published:         c.published || {},         // { [empId]: { ...breakdown, period, at } } — what reps see
   };
+}
+// Effective rates for a rep (falls back to the company defaults when unset).
+function commissionRatesFor(empId) {
+  const r = commissionConfig().repRates[empId] || {};
+  const pest = r.pest != null ? Number(r.pest) : COMMISSION_RATE_DEFAULT.pest;
+  const ancMult = r.ancMult != null ? Number(r.ancMult) : COMMISSION_RATE_DEFAULT.ancMult;
+  const bundleMult = r.bundleMult != null ? Number(r.bundleMult) : COMMISSION_RATE_DEFAULT.bundleMult;
+  return { pest, ancMult, bundleMult, ancRate: pest * ancMult, bundleRate: pest * bundleMult };
 }
 async function loadCommissionConfig() {
   if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile.role)) return;
@@ -1147,6 +1160,31 @@ async function saveCommissionConfig(next) {
     const { error } = await supabase.from('app_settings').upsert({ key: 'commission_config', value: next }, { onConflict: 'key' });
     if (error) { console.warn('[ridd] commission_config save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
   } catch (e) { console.warn('[ridd] commission_config save threw', e); }
+}
+// Publish one rep's computed breakdown to the per-rep, RLS-protected results
+// table so that rep (and only that rep) can see it in "My Commission".
+async function publishCommissionResult(empId, data, period) {
+  if (DEMO || !supabase || !isAdminRole(state.profile?.role)) return { ok: false };
+  try {
+    const { error } = await supabase.from('commission_results').upsert({
+      employee_id: String(empId), data,
+      period_start: (period && period.start) || null, period_end: (period && period.end) || null,
+      published_by: state.profile.id, published_at: new Date().toISOString(),
+    }, { onConflict: 'employee_id' });
+    if (error) { console.warn('[ridd] commission publish failed (run commission_results.sql?)', error); return { ok: false, msg: error.message }; }
+    return { ok: true };
+  } catch (e) { console.warn('[ridd] commission publish threw', e); return { ok: false, msg: String(e) }; }
+}
+// A rep loads ONLY their own published row (RLS keys on their linked id).
+async function loadMyCommissionResult() {
+  if (DEMO || !supabase || !state.profile) { state._myCommissionLoaded = true; return; }
+  try {
+    let q = supabase.from('commission_results').select('*');
+    if (state.profile.fieldroutes_employee_id) q = q.eq('employee_id', String(state.profile.fieldroutes_employee_id));
+    const { data, error } = await q.maybeSingle();
+    state._myCommission = (!error && data) ? data : null;
+  } catch (e) { state._myCommission = null; }
+  state._myCommissionLoaded = true;
 }
 
 // ── Reporting tab loaders ────────────────────────────────────────────────
@@ -2546,7 +2584,7 @@ const TAB_TITLES = {
   scorecards:   'SCORECARDS',
   reporting:    'REPORTING',
   marketing:    'MARKETING',
-  commission:   'COMMISSION CALCULATOR',
+  commission:   'COMMISSION',
   admin:        'SETTINGS',
 };
 
@@ -3378,7 +3416,7 @@ function mountApp() {
     ['inside_sales', isAuditor ? 'Sales' : 'Inside Sales', iconSales()],
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
-    ...(isAdmin ? [['commission',    'Commission Calculator', iconDollar()]] : []),
+    ...(isAuditor ? [] : [['commission', isAdmin ? 'Commission Calculator' : 'My Commission', iconDollar()]]),
     ...(isAuditor ? [] : [['training', 'Training', iconClipboard()]]),
   ];
 
@@ -28693,10 +28731,11 @@ function buildReportingWaterfall(rows, mode) {
 // bonus/penalty, manual deductions, and the account/attrition stats. Mirrors
 // the Excel "Backend Breakdown" sheet.
 
-// Per-rep manual inputs (overrides + deductions + pay periods) live in
-// localStorage keyed by the rep's CRM employee id — they're re-entered each run.
-function commissionManual(empId) { try { return JSON.parse(localStorage.getItem('ridd_comm_manual_' + empId) || '{}'); } catch { return {}; } }
-function setCommissionManual(empId, obj) { try { localStorage.setItem('ridd_comm_manual_' + empId, JSON.stringify(obj)); } catch {} }
+// Per-rep manual inputs (overrides + deductions + pay periods) live in the
+// SHARED commission config (keyed by CRM employee id) so the rep's own pay view
+// shows the same numbers the admin entered.
+function commissionManual(empId) { return commissionConfig().manual[empId] || {}; }
+function setCommissionManual(empId, obj) { const c = commissionConfig(); c.manual = Object.assign({}, c.manual); c.manual[empId] = obj; saveCommissionConfig(c); }
 
 // Compute the full breakdown for one roster employee over [startMs,endMs],
 // with lockMs deciding which cancels are "after lock" (excluded from attrition).
@@ -28720,8 +28759,8 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
     if (c === 'pest') pestRev += v; else if (c === 'bundle') bundleRev += v; else if (c === 'ancillary') ancRev += v;
     else if (c === 'exclude') exclRev += v; else { unclRev += v; unclassified.set(r.subscription, (unclassified.get(r.subscription) || 0) + v); }
   }
-  const rates = cfg.repRates[emp.employee_id] || {};
-  const pestRate = Number(rates.pest) || 0, bundleRate = Number(rates.bundle) || 0, ancRate = Number(rates.ancillary) || 0;
+  const rt = commissionRatesFor(emp.employee_id);
+  const pestRate = rt.pest, bundleRate = rt.bundleRate, ancRate = rt.ancRate, ancMult = rt.ancMult, bundleMult = rt.bundleMult;
   const pestComm = pestRev * pestRate, bundleComm = bundleRev * bundleRate, ancComm = ancRev * ancRate;
   const payableRev = pestRev + bundleRev + ancRev;
   // Multi-year: term from agreement_length, only on commissionable categories.
@@ -28753,7 +28792,7 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
   const biWeekly = payPeriods ? netDue / payPeriods : netDue;
   return {
     rows, pestRev, bundleRev, ancRev, exclRev, unclRev, unclassified, payableRev,
-    pestRate, bundleRate, ancRate, pestComm, bundleComm, ancComm,
+    pestRate, bundleRate, ancRate, ancMult, bundleMult, pestComm, bundleComm, ancComm,
     rev18, rev24, myPct, multiYearAmt, MY,
     overrides, rent, paidYtd, other, audit, payPeriods, totalCommission, netDue, biWeekly,
     sold, canceled: canceled.length, ror: ror.length, afterLock: afterLock.length,
@@ -28761,7 +28800,86 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
   };
 }
 
-function viewCommission() { return commissionCalculator(); }
+// Shared breakdown + accounts/attrition cards. B is a plain object carrying the
+// computed fields — used by the admin calculator (live) AND a rep's own pay view
+// (from the published snapshot), so they always look identical.
+function commissionRenderCards(B, repName) {
+  const money = (n) => { const v = Math.round((n || 0) * 100) / 100; return (v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  const pct = (n) => (Math.round((n || 0) * 100) / 100).toFixed(2) + '%';
+  const ROW = (label, valNode, kind) => el('div', {
+    class: 'flex items-center justify-between gap-3 px-3 py-2 text-sm',
+    style: { borderTop: '1px solid var(--border)',
+      background: kind === 'rev' ? 'rgba(59,130,246,.08)' : kind === 'comm' ? 'rgba(141,198,63,.10)' : kind === 'total' ? 'rgba(141,198,63,.18)' : 'transparent' } },
+    el('span', { class: kind === 'total' ? 'font-bold' : '' }, label),
+    el('span', { class: 'tabular-nums ' + (kind === 'total' ? 'font-bold' : '') }, valNode));
+  const breakdown = el('div', { class: 'card overflow-hidden', style: { maxWidth: '520px' } },
+    el('div', { class: 'px-3 py-2 font-display text-xl', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Backend Breakdown'),
+    ROW('Sales Rep', repName),
+    ROW('Pest Revenue', money(B.pestRev), 'rev'),
+    ROW('Pest Commission (' + pct(B.pestRate * 100) + ')', money(B.pestComm), 'comm'),
+    ROW('Bundle Revenue', money(B.bundleRev), 'rev'),
+    ROW('Bundle Commission (' + pct(B.bundleRate * 100) + ')', money(B.bundleComm), 'comm'),
+    ROW('Ancillary Revenue', money(B.ancRev), 'rev'),
+    ROW('Ancillary Commission (' + pct(B.ancRate * 100) + ')', money(B.ancComm), 'comm'),
+    ROW('Overrides', money(B.overrides), 'comm'),
+    ROW('Multi-Year Bonus/Deduction', money(B.multiYearAmt), 'comm'),
+    ROW('Total Commission', money(B.totalCommission), 'total'),
+    ROW('Rent', money(-B.rent)),
+    ROW('Paid Year-to-Date', money(-B.paidYtd)),
+    ROW('Other Additions/Deductions', money(-B.other)),
+    ROW('Audit Deduction', money(-B.audit)),
+    ROW('Net Due', money(B.netDue), 'total'),
+    ROW('Bi-Weekly Pay (÷ ' + B.payPeriods + ')', money(B.biWeekly), 'total'),
+    el('div', { class: 'px-3 py-2 text-sm flex items-center justify-between', style: { background: 'rgba(59,130,246,.08)', borderTop: '1px solid var(--border)' } },
+      el('span', { class: 'font-semibold' }, 'Total Payable Rev'), el('span', { class: 'tabular-nums font-semibold' }, money(B.payableRev))));
+  const statRow = (label, val, tone) => el('div', { class: 'flex items-center justify-between px-3 py-1.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
+    el('span', {}, label), el('span', { class: 'tabular-nums font-semibold', style: tone ? { color: tone } : {} }, val));
+  const stats = el('div', { class: 'card overflow-hidden', style: { maxWidth: '520px' } },
+    el('div', { class: 'px-3 py-2 font-display text-lg', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Accounts & Attrition'),
+    statRow('Total Accounts Sold', B.sold),
+    statRow('Canceled Accounts', B.canceled + '  (' + pct(B.sold ? B.canceled / B.sold * 100 : 0) + ')', B.canceled ? '#DC2626' : null),
+    statRow('Accounts with Balance', B.withBalance + '  (' + pct(B.sold ? B.withBalance / B.sold * 100 : 0) + ')'),
+    statRow('Multi-Year %', pct(B.myPct)),
+    statRow('Total 3-Day Right of Rescission', B.ror),
+    statRow('Accounts Canceled After Lock Date', B.afterLock),
+    el('div', { class: 'flex items-center justify-between px-3 py-2.5', style: { borderTop: '2px solid var(--text)', background: 'var(--text)', color: 'var(--bg)' } },
+      el('span', { class: 'font-display text-lg' }, 'FINAL ATTRITION'),
+      el('span', { class: 'font-display text-lg tabular-nums' }, pct(B.finalAttrition))));
+  return { breakdown, stats };
+}
+
+// Plain serializable summary of a computed run — what we publish for the rep.
+function commissionSnapshot(R, emp, period) {
+  const keys = ['pestRev', 'bundleRev', 'ancRev', 'payableRev', 'pestRate', 'ancRate', 'bundleRate',
+    'pestComm', 'bundleComm', 'ancComm', 'overrides', 'multiYearAmt', 'totalCommission',
+    'rent', 'paidYtd', 'other', 'audit', 'netDue', 'biWeekly', 'payPeriods',
+    'sold', 'canceled', 'withBalance', 'myPct', 'ror', 'afterLock', 'finalAttrition'];
+  const o = { name: _frEmpName(emp), period, at: new Date().toISOString() };
+  for (const k of keys) o[k] = R[k];
+  return o;
+}
+
+function viewCommission() {
+  return isAdminRole(state.profile?.role) ? commissionCalculator() : commissionMyPay();
+}
+
+// ── Rep-facing view: your OWN published commission, read-only. Reps can't read
+// the company snapshot or other reps' pay — they read only their own row from
+// commission_results (row-level security enforces it). ──
+function commissionMyPay() {
+  const p = state.profile || {};
+  const wrap = (node) => el('div', { class: 'flex flex-col gap-4 w-full' }, el('h1', { class: 'text-2xl font-bold' }, 'My Commission'), node);
+  if (!p.fieldroutes_employee_id) return wrap(el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Your account isn’t linked to a FieldRoutes rep yet. Ask an admin to link you on Settings → Users.'));
+  if (!state._myCommissionLoaded) { loadMyCommissionResult().then(() => { if (state.view === 'commission') mountApp(); }); return wrap(el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Loading your commission…')); }
+  const row = state._myCommission;
+  if (!row || !row.data) return wrap(el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No commission has been published for you yet. Your manager publishes it after each pay period.'));
+  const B = row.data;
+  const { breakdown, stats } = commissionRenderCards(B, B.name || p.full_name || '');
+  return wrap(el('div', { class: 'flex flex-col gap-3' },
+    el('div', { class: 'text-xs text-muted-' }, 'Published ' + (row.published_at ? new Date(row.published_at).toLocaleDateString() : '') + (row.period_start ? ' · sold ' + row.period_start + ' → ' + row.period_end : '')),
+    el('div', { class: 'flex flex-wrap gap-4 items-start' }, breakdown, stats)));
+}
+
 function commissionCalculator() {
   if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Commission Calculator is admin-only.');
   const money = (n) => { const v = Math.round((n || 0) * 100) / 100; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
@@ -28801,6 +28919,14 @@ function commissionCalculator() {
   const saveMY = (patch) => { const c = commissionConfig(); c.multiYear = Object.assign({}, c.multiYear, patch); saveCommissionConfig(c); mountApp(); };
   const saveCat = (svc, val) => { const c = commissionConfig(); c.serviceCategories = Object.assign({}, c.serviceCategories); c.serviceCategories[svc] = val; saveCommissionConfig(c); mountApp(); };
   const saveMan = (patch) => { setCommissionManual(emp.employee_id, Object.assign({}, man, patch)); mountApp(); };
+  const publishRep = async () => {
+    const snap = commissionSnapshot(R, emp, { start: state._commStart, end: state._commEnd });
+    const c = commissionConfig(); c.published = Object.assign({}, c.published); c.published[emp.employee_id] = snap; saveCommissionConfig(c);
+    const res = await publishCommissionResult(emp.employee_id, snap, { start: state._commStart, end: state._commEnd });
+    toast(res.ok ? ('Published — ' + _frEmpName(emp) + ' can now see this in My Commission') : ('Publish failed: ' + (res.msg || 'run commission_results.sql')), res.ok ? 'success' : 'error');
+    mountApp();
+  };
+  const isPublished = !!commissionConfig().published[emp.employee_id];
 
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
   const numField = (label, val, onCommit, opts = {}) => el('label', { class: 'block' }, lbl(label),
@@ -28808,57 +28934,19 @@ function commissionCalculator() {
       class: 'w-full rounded-lg border px-2 py-1.5 text-sm text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
       onchange: (e) => onCommit(e.target.value) }));
 
-  // ---- breakdown card (the Excel sheet) ----
-  const ROW = (label, valNode, kind) => el('div', {
-    class: 'flex items-center justify-between gap-3 px-3 py-2 text-sm',
-    style: { borderTop: '1px solid var(--border)',
-      background: kind === 'rev' ? 'rgba(59,130,246,.08)' : kind === 'comm' ? 'rgba(141,198,63,.10)' : kind === 'total' ? 'rgba(141,198,63,.18)' : 'transparent' } },
-    el('span', { class: kind === 'total' ? 'font-bold' : '' }, label),
-    el('span', { class: 'tabular-nums ' + (kind === 'total' ? 'font-bold' : '') }, valNode));
-  const breakdown = el('div', { class: 'card overflow-hidden', style: { maxWidth: '520px' } },
-    el('div', { class: 'px-3 py-2 font-display text-xl', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Backend Breakdown'),
-    ROW('Sales Rep', _frEmpName(emp)),
-    ROW('Pest Revenue', money(R.pestRev), 'rev'),
-    ROW('Pest Commission (' + pct(R.pestRate * 100) + ')', money(R.pestComm), 'comm'),
-    ROW('Bundle Revenue', money(R.bundleRev), 'rev'),
-    ROW('Bundle Commission (' + pct(R.bundleRate * 100) + ')', money(R.bundleComm), 'comm'),
-    ROW('Ancillary Revenue', money(R.ancRev), 'rev'),
-    ROW('Ancillary Commission (' + pct(R.ancRate * 100) + ')', money(R.ancComm), 'comm'),
-    ROW('Overrides', money(R.overrides), 'comm'),
-    ROW('Multi-Year Bonus/Deduction', money(R.multiYearAmt), 'comm'),
-    ROW('Total Commission', money(R.totalCommission), 'total'),
-    ROW('Rent', money(-R.rent)),
-    ROW('Paid Year-to-Date', money(-R.paidYtd)),
-    ROW('Other Additions/Deductions', money(-R.other)),
-    ROW('Audit Deduction', money(-R.audit)),
-    ROW('Net Due', money(R.netDue), 'total'),
-    ROW('Bi-Weekly Pay (÷ ' + R.payPeriods + ')', money(R.biWeekly), 'total'),
-    el('div', { class: 'px-3 py-2 text-sm flex items-center justify-between', style: { background: 'rgba(59,130,246,.08)', borderTop: '1px solid var(--border)' } },
-      el('span', { class: 'font-semibold' }, 'Total Payable Rev'), el('span', { class: 'tabular-nums font-semibold' }, money(R.payableRev))));
+  // ---- breakdown + stats (shared with the rep's own pay view) ----
+  const { breakdown, stats } = commissionRenderCards(R, _frEmpName(emp));
 
-  // ---- attrition / account stats ----
-  const statRow = (label, val, tone) => el('div', { class: 'flex items-center justify-between px-3 py-1.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
-    el('span', {}, label), el('span', { class: 'tabular-nums font-semibold', style: tone ? { color: tone } : {} }, val));
-  const stats = el('div', { class: 'card overflow-hidden', style: { maxWidth: '520px' } },
-    el('div', { class: 'px-3 py-2 font-display text-lg', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Accounts & Attrition'),
-    statRow('Total Accounts Sold', R.sold),
-    statRow('Canceled Accounts', R.canceled + '  (' + pct(R.sold ? R.canceled / R.sold * 100 : 0) + ')', R.canceled ? '#DC2626' : null),
-    statRow('Accounts with Balance', R.withBalance + '  (' + pct(R.sold ? R.withBalance / R.sold * 100 : 0) + ')'),
-    statRow('Multi-Year %', pct(R.myPct)),
-    statRow('Total 3-Day Right of Rescission', R.ror),
-    statRow('Accounts Canceled After Lock Date', R.afterLock),
-    el('div', { class: 'flex items-center justify-between px-3 py-2.5', style: { borderTop: '2px solid var(--text)', background: 'var(--text)', color: 'var(--bg)' } },
-      el('span', { class: 'font-display text-lg' }, 'FINAL ATTRITION'),
-      el('span', { class: 'font-display text-lg tabular-nums' }, pct(R.finalAttrition))));
-
-  // ---- config: rep rates + multi-year + manual inputs ----
+  // ---- config: rep rates (Pest % + multipliers) ----
   const ratesPanel = el('div', { class: 'card p-4' },
-    el('div', { class: 'text-sm font-bold mb-3' }, 'Rep rates · ' + _frEmpName(emp)),
+    el('div', { class: 'text-sm font-bold mb-1' }, 'Set commission rates · ' + _frEmpName(emp)),
+    el('div', { class: 'text-[11px] text-muted- mb-3' },
+      'Default: Pest 20% of qualified revenue · Ancillary 0.5× pest · Bundle 0.8× pest. Changes apply to future calculations.'),
     el('div', { class: 'grid grid-cols-3 gap-3' },
-      numField('Pest %', R.pestRate * 100, v => saveRates({ pest: (parseFloat(v) || 0) / 100 }), { step: '0.1' }),
-      numField('Bundle %', R.bundleRate * 100, v => saveRates({ bundle: (parseFloat(v) || 0) / 100 }), { step: '0.1' }),
-      numField('Ancillary %', R.ancRate * 100, v => saveRates({ ancillary: (parseFloat(v) || 0) / 100 }), { step: '0.1' })),
-    el('div', { class: 'text-[11px] text-muted- mt-2' }, 'Negotiated per rep · saved for everyone.'));
+      numField('Pest Commission %', R.pestRate * 100, v => saveRates({ pest: (parseFloat(v) || 0) / 100 }), { step: '0.5' }),
+      numField('Ancillary Multiplier', R.ancMult, v => saveRates({ ancMult: parseFloat(v) || 0 }), { step: '0.1' }),
+      numField('Bundle Multiplier', R.bundleMult, v => saveRates({ bundleMult: parseFloat(v) || 0 }), { step: '0.1' })),
+    el('div', { class: 'text-[11px] text-muted- mt-2' }, '→ Ancillary ' + pct(R.ancRate * 100) + ' · Bundle ' + pct(R.bundleRate * 100) + ' · saved for everyone.'));
 
   const myPanel = el('div', { class: 'card p-4' },
     el('div', { class: 'text-sm font-bold mb-1' }, 'Multi-year bonus rule'),
@@ -28911,7 +28999,9 @@ function commissionCalculator() {
         el('label', { class: 'block' }, lbl('Sales Rep'), repSelect),
         el('label', { class: 'block' }, lbl('Sold from'), dateInput(state._commStart, v => state._commStart = v)),
         el('label', { class: 'block' }, lbl('Sold to'), dateInput(state._commEnd, v => state._commEnd = v)),
-        el('label', { class: 'block' }, lbl('Lock date'), dateInput(state._commLock, v => state._commLock = v)))),
+        el('label', { class: 'block' }, lbl('Lock date'), dateInput(state._commLock, v => state._commLock = v)),
+        el('button', { class: 'rounded-xl px-4 py-2 text-sm font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: publishRep },
+          isPublished ? '↻ Re-publish to rep' : '✓ Publish to rep'))),
     el('div', { class: 'flex flex-wrap gap-4 items-start' }, breakdown, stats),
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, ratesPanel, manualPanel, myPanel, svcPanel));
 }

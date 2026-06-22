@@ -124,29 +124,25 @@ LEFT JOIN flags ON flags.cid = s.fieldRoutes_customerID
 LEFT JOIN cxl   ON cxl.sid   = s.id
 WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''`;
 
-// Employee roster — every FieldRoutes employee, mirrored into the app so the
-// Users screen can show "in CRM, not in the app yet" and provision one in a
-// click (pre-filled with name/email/phone). The id is the identity backbone
-// that joins an app user to their CRM sales.
-// FieldRoutes stores an employee row PER OFFICE, so one person (esp. office
-// staff / regional) has many employeeIDs across branches. Dedupe to one roster
-// entry per PERSON — grouped by email when present (falls back to the single
-// employeeID otherwise) — while keeping every office + employeeID for later
-// sales reconciliation. type/active/last_login are consistent across a person's
-// rows; MAX picks a stable representative.
-// Dedupe each person's per-office rows into ONE roster entry. Key = email when
-// present, else full name (people without an email — like office staff — still
-// collapse). For each scalar field we take the value from the MOST RECENTLY
-// UPDATED record (so phone/email reflect the latest edit, not an arbitrary or
-// stale office copy); offices + employeeIDs are aggregated across all rows.
+// Employee roster — one entry per PERSON, mirrored into the app. FieldRoutes
+// stores an employee row PER OFFICE, but it natively links them: every branch
+// record carries fieldRoutes_linkedEmployeeIDs pointing at the person's BASE
+// account (the office their account was first created in). We group on that:
+//   base_eid = linkedEmployeeIDs  (when it's a real id)
+//            = the row's own employeeID  (when linkedEmployeeIDs is ''/'0' —
+//              i.e. a single-office rep with no links)
+// This is FieldRoutes' own source of truth (validated: 1,004 people, never
+// merges two different names). employee_id = the Base EID (the "Main ID"),
+// employee_ids = every linked branch ID. Scalar fields prefer the BASE record,
+// then the most-recently-updated, so contact info is the canonical/current one.
 const EMP_SQL = `
 WITH base AS (
   SELECT
-    COALESCE(LOWER(NULLIF(fieldRoutes_email,'')),
-             LOWER(TRIM(CONCAT(COALESCE(fieldRoutes_fname,''),' ',COALESCE(fieldRoutes_lname,''))))) AS person_key,
+    CASE WHEN fieldRoutes_linkedEmployeeIDs IS NULL OR fieldRoutes_linkedEmployeeIDs IN ('', '0')
+         THEN fieldRoutes_employeeID ELSE fieldRoutes_linkedEmployeeIDs END AS base_eid,
+    fieldRoutes_employeeID AS eid,
     SAFE_CAST(fieldRoutes_employeeID AS INT64) AS id_num,
     fieldRoutes_dateUpdated AS date_updated,
-    fieldRoutes_employeeID AS employee_id,
     fieldRoutes_fname AS fname, fieldRoutes_lname AS lname, fieldRoutes_nickname AS nickname,
     fieldRoutes_username AS username, fieldRoutes_email AS email, fieldRoutes_phone AS phone,
     fieldRoutes_officeID AS office_id, fieldRoutes_type AS type,
@@ -156,21 +152,21 @@ WITH base AS (
     AND (fieldRoutes_active = '1' OR LOWER(fieldRoutes_active) = 'true')
 )
 SELECT
-  CAST(MAX(id_num) AS STRING)                                                                         AS employee_id,
-  ARRAY_AGG(NULLIF(fname,'')     IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS fname,
-  ARRAY_AGG(NULLIF(lname,'')     IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS lname,
-  ARRAY_AGG(NULLIF(nickname,'')  IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS nickname,
-  ARRAY_AGG(NULLIF(username,'')  IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS username,
-  ARRAY_AGG(NULLIF(email,'')     IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS email,
-  ARRAY_AGG(NULLIF(phone,'')     IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS phone,
-  ARRAY_AGG(NULLIF(office_id,'') IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS office_id,
-  STRING_AGG(DISTINCT office_id,   ',')                                                               AS office_ids,
-  STRING_AGG(DISTINCT employee_id, ',')                                                               AS employee_ids,
-  ARRAY_AGG(NULLIF(type,'')      IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS type,
-  MAX(active)                                                                                         AS active,
-  MAX(NULLIF(last_login,''))                                                                          AS last_login
+  base_eid AS employee_id,
+  ARRAY_AGG(NULLIF(fname,'')     IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS fname,
+  ARRAY_AGG(NULLIF(lname,'')     IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS lname,
+  ARRAY_AGG(NULLIF(nickname,'')  IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS nickname,
+  ARRAY_AGG(NULLIF(username,'')  IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS username,
+  ARRAY_AGG(NULLIF(email,'')     IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS email,
+  ARRAY_AGG(NULLIF(phone,'')     IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS phone,
+  ARRAY_AGG(NULLIF(office_id,'') IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS office_id,
+  STRING_AGG(DISTINCT office_id, ',') AS office_ids,
+  STRING_AGG(DISTINCT eid, ',')       AS employee_ids,
+  ARRAY_AGG(NULLIF(type,'')      IGNORE NULLS ORDER BY IF(eid=base_eid,0,1), date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS type,
+  MAX(active)                AS active,
+  MAX(NULLIF(last_login,'')) AS last_login
 FROM base
-GROUP BY person_key`;
+GROUP BY base_eid`;
 
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -303,6 +299,7 @@ exports.handler = async (event) => {
     let rosterCount = 0, rosterError = null;
     try {
       const TYPE_LABEL = { '0': 'Office Staff', '1': 'Technician', '2': 'Sales Rep' };
+      const runStamp = new Date().toISOString();   // one timestamp for the whole batch
       const emp = await runQuery(token, EMP_SQL);
       const empObjects = toObjects(emp.schema, emp.rows);
       const officeNames = (ids) => (ids ? String(ids).split(',').map(s => OFFICE_NAMES[s.trim()] || ('Office ' + s.trim())) : []);
@@ -319,12 +316,18 @@ exports.handler = async (event) => {
         type: e.type || null, type_label: TYPE_LABEL[e.type] || null,
         active: (e.active === '1' || String(e.active).toLowerCase() === 'true'),
         last_login: e.last_login || null,
-        synced_at: new Date().toISOString(),
+        synced_at: runStamp,
       }));
       for (let i = 0; i < roster.length; i += 500) {
         const { error } = await supabase.from('fieldroutes_employees')
           .upsert(roster.slice(i, i + 500), { onConflict: 'employee_id' });
         if (error) throw new Error(error.message);
+      }
+      // Purge stale rows from a previous grouping scheme (e.g. old max-ID keys):
+      // anything not touched by THIS run is no longer a current person.
+      if (roster.length) {
+        const { error: delErr } = await supabase.from('fieldroutes_employees').delete().lt('synced_at', runStamp);
+        if (delErr) console.warn('[revhawk-sync] stale roster purge failed:', delErr.message);
       }
       rosterCount = roster.length;
     } catch (re) {
