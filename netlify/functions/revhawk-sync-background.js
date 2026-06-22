@@ -124,6 +124,26 @@ LEFT JOIN flags ON flags.cid = s.fieldRoutes_customerID
 LEFT JOIN cxl   ON cxl.sid   = s.id
 WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''`;
 
+// Employee roster — every FieldRoutes employee, mirrored into the app so the
+// Users screen can show "in CRM, not in the app yet" and provision one in a
+// click (pre-filled with name/email/phone). The id is the identity backbone
+// that joins an app user to their CRM sales.
+const EMP_SQL = `
+SELECT
+  fieldRoutes_employeeID AS employee_id,
+  ANY_VALUE(fieldRoutes_fname)     AS fname,
+  ANY_VALUE(fieldRoutes_lname)     AS lname,
+  ANY_VALUE(fieldRoutes_nickname)  AS nickname,
+  ANY_VALUE(fieldRoutes_email)     AS email,
+  ANY_VALUE(fieldRoutes_phone)     AS phone,
+  ANY_VALUE(fieldRoutes_officeID)  AS office_id,
+  ANY_VALUE(fieldRoutes_type)      AS type,
+  ANY_VALUE(fieldRoutes_active)    AS active,
+  ANY_VALUE(fieldRoutes_lastLogin) AS last_login
+FROM \`${PROJECT}.${DATASET}.FieldRoutesEmployee\`
+WHERE fieldRoutes_employeeID IS NOT NULL AND fieldRoutes_employeeID != ''
+GROUP BY 1`;
+
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 // Service-account creds: prefer the whole JSON file in GCP_SA_JSON (JSON.parse
@@ -160,14 +180,14 @@ async function getAccessToken() {
   return j.access_token;
 }
 
-// Run the query and page through every result row.
-async function runQuery(token) {
+// Run a query and page through every result row.
+async function runQuery(token, sql) {
   const base = `https://bigquery.googleapis.com/bigquery/v2/projects/${JOB_PROJECT}`;
   const auth = { Authorization: `Bearer ${token}` };
   let res = await fetch(`${base}/queries`, {
     method: 'POST',
     headers: { ...auth, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: SQL, useLegacySql: false, maxResults: 20000, timeoutMs: 60000 }),
+    body: JSON.stringify({ query: sql, useLegacySql: false, maxResults: 20000, timeoutMs: 60000 }),
   });
   let j = await res.json();
   if (!res.ok) throw new Error('BigQuery query failed: ' + JSON.stringify(j.error || j).slice(0, 400));
@@ -228,7 +248,7 @@ exports.handler = async (event) => {
   try {
     const started = Date.now();
     const token = await getAccessToken();
-    const { schema, rows } = await runQuery(token);
+    const { schema, rows } = await runQuery(token, SQL);
     const objects = toObjects(schema, rows);
     if (!objects.length) return { statusCode: 200, body: JSON.stringify({ ok: false, note: 'query returned 0 rows — nothing written' }) };
 
@@ -248,9 +268,40 @@ exports.handler = async (event) => {
     });
     if (envErr) throw new Error('envelope insert failed: ' + envErr.message);
 
+    // ── Employee roster → fieldroutes_employees (best-effort) ──
+    // Mirror every CRM employee so the app can show "in CRM, not in app yet"
+    // and provision a profile pre-filled with their email/phone. A failure
+    // here must NOT fail the snapshot, so it's wrapped on its own.
+    let rosterCount = 0, rosterError = null;
+    try {
+      const TYPE_LABEL = { '0': 'Office Staff', '1': 'Technician', '2': 'Sales Rep' };
+      const emp = await runQuery(token, EMP_SQL);
+      const empObjects = toObjects(emp.schema, emp.rows);
+      const roster = empObjects.filter(e => e.employee_id).map(e => ({
+        employee_id: String(e.employee_id),
+        fname: e.fname || null, lname: e.lname || null, nickname: e.nickname || null,
+        email: (e.email || '').trim() || null, phone: (e.phone || '').trim() || null,
+        office_id: e.office_id || null,
+        office_name: OFFICE_NAMES[e.office_id] || (e.office_id ? 'Office ' + e.office_id : null),
+        type: e.type || null, type_label: TYPE_LABEL[e.type] || null,
+        active: (e.active === '1' || String(e.active).toLowerCase() === 'true'),
+        last_login: e.last_login || null,
+        synced_at: new Date().toISOString(),
+      }));
+      for (let i = 0; i < roster.length; i += 500) {
+        const { error } = await supabase.from('fieldroutes_employees')
+          .upsert(roster.slice(i, i + 500), { onConflict: 'employee_id' });
+        if (error) throw new Error(error.message);
+      }
+      rosterCount = roster.length;
+    } catch (re) {
+      rosterError = String((re && re.message) || re);
+      console.error('[revhawk-sync] roster upsert skipped:', rosterError);
+    }
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ ok: true, rows: objects.length, storage_path: path, ms: Date.now() - started }),
+      body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, storage_path: path, ms: Date.now() - started }),
     };
   } catch (e) {
     console.error('[revhawk-sync]', e);
