@@ -16,11 +16,23 @@ const JOB_PROJECT = process.env.GCP_JOB_PROJECT || PROJECT;
 
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-async function getAccessToken() {
+function getCreds() {
+  // Most reliable: paste the WHOLE service-account JSON file into GCP_SA_JSON —
+  // JSON.parse decodes the private_key's \n escapes correctly, avoiding the
+  // newline-mangling that breaks a hand-pasted PEM (the DECODER error).
+  const raw = process.env.GCP_SA_JSON;
+  if (raw && raw.trim()) {
+    const o = JSON.parse(raw);
+    return { email: o.client_email, key: o.private_key };
+  }
   const email = process.env.GCP_SA_EMAIL;
   let key = process.env.GCP_SA_PRIVATE_KEY || '';
-  if (!email || !key) throw new Error('GCP_SA_EMAIL and GCP_SA_PRIVATE_KEY env vars are required');
-  key = key.replace(/\\n/g, '\n');
+  key = key.replace(/^["']|["']$/g, '').replace(/\\n/g, '\n'); // unwrap quotes + fix \n
+  return { email, key };
+}
+async function getAccessToken() {
+  const { email, key } = getCreds();
+  if (!email || !key) throw new Error('Set GCP_SA_JSON (whole key file) OR GCP_SA_EMAIL + GCP_SA_PRIVATE_KEY');
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const claim = b64url(JSON.stringify({
@@ -43,6 +55,7 @@ async function getAccessToken() {
 
 exports.handler = async () => {
   const envSeen = {
+    GCP_SA_JSON: !!process.env.GCP_SA_JSON,
     GCP_SA_EMAIL: !!process.env.GCP_SA_EMAIL,
     GCP_SA_PRIVATE_KEY: !!process.env.GCP_SA_PRIVATE_KEY,
     GCP_JOB_PROJECT: process.env.GCP_JOB_PROJECT || '(unset → defaults to data project)',
