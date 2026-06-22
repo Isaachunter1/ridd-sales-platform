@@ -18,20 +18,27 @@
 
 -- 1. CRM employee roster (written by the sync's service role) ──────────────────
 create table if not exists public.fieldroutes_employees (
-  employee_id text primary key,          -- fieldRoutes_employeeID (the join key)
-  fname       text,
-  lname       text,
-  nickname    text,
-  email       text,
-  phone       text,
-  office_id   text,
-  office_name text,                       -- resolved via the sync's office map
-  type        text,                       -- raw fieldRoutes_type ('0','1','2')
-  type_label  text,                       -- Office Staff / Technician / Sales Rep
-  active      boolean,                    -- fieldRoutes_active (see caveat in app)
-  last_login  text,                       -- fieldRoutes_lastLogin (recency signal)
-  synced_at   timestamptz not null default now()
+  employee_id  text primary key,          -- representative fieldRoutes_employeeID
+  fname        text,
+  lname        text,
+  nickname     text,
+  email        text,
+  phone        text,
+  office_id    text,                       -- representative office
+  office_ids   text,                       -- ALL offices the person appears in (CSV)
+  employee_ids text,                       -- ALL their per-office employeeIDs (CSV)
+  office_name  text,                       -- resolved via the sync's office map
+  type         text,                       -- raw fieldRoutes_type ('0','1','2')
+  type_label   text,                       -- Office Staff / Technician / Sales Rep
+  active       boolean,                    -- fieldRoutes_active (see caveat in app)
+  last_login   text,                       -- fieldRoutes_lastLogin (recency signal)
+  synced_at    timestamptz not null default now()
 );
+
+-- If the table already exists from an earlier run, add the new columns.
+alter table public.fieldroutes_employees
+  add column if not exists office_ids   text,
+  add column if not exists employee_ids text;
 
 alter table public.fieldroutes_employees enable row level security;
 

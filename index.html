@@ -31319,21 +31319,25 @@ function adminReps() {
   // A person is either an app user (a real login) or a CRM-only employee
   // (display-only until provisioned). App users inherit their FieldRoutes type
   // (via link or email match); roster-only people use their CRM type.
-  const profType = (p) => {
+  // The FieldRoutes employee behind an app user — linked first, else email match.
+  const profFrEmp = (p) => {
     const linked = p.fieldroutes_employee_id ? rosterById.get(p.fieldroutes_employee_id) : null;
-    if (linked && linked.type_label) return linked.type_label;
-    const m = roster.find(e => e.email && _frNormEmail(e.email) === _frNormEmail(p.email));
-    if (m && m.type_label) return m.type_label;
-    return p.role === 'rep' ? 'Sales Rep' : 'Office Staff';
+    if (linked) return linked;
+    return roster.find(e => e.email && _frNormEmail(e.email) === _frNormEmail(p.email)) || null;
   };
   const appByEmpId = new Map();
   const appEmails = new Set();
   allProfiles.forEach(p => { if (p.fieldroutes_employee_id) appByEmpId.set(p.fieldroutes_employee_id, p); if (p.email) appEmails.add(_frNormEmail(p.email)); });
 
-  const people = allProfiles.map(p => ({
-    isApp: true, profile: p, name: p.full_name || '(no name)', email: p.email || '',
-    type: profType(p), active: p.is_active !== false,
-  }));
+  const people = allProfiles.map(p => {
+    const fr = profFrEmp(p);
+    return {
+      isApp: true, profile: p, frEmp: fr, name: p.full_name || '(no name)', email: p.email || '',
+      // Rep type comes from FieldRoutes when we know it; role is only a fallback.
+      type: (fr && fr.type_label) || (p.role === 'rep' ? 'Sales Rep' : 'Office Staff'),
+      active: p.is_active !== false,
+    };
+  });
   roster.forEach(e => {
     if (appByEmpId.has(e.employee_id)) return;                       // already a linked app user
     if (e.email && appEmails.has(_frNormEmail(e.email))) return;     // matches an app user's email
@@ -31403,15 +31407,21 @@ function adminReps() {
     ? { background: 'rgba(141,198,63,.14)', color: '#5F8A1F', border: '1px solid rgba(141,198,63,.4)' }
     : { background: 'rgba(220,38,38,.08)', color: '#B91C1C', border: '1px solid rgba(220,38,38,.25)' } }, active ? 'Active' : 'Inactive');
 
+  // The FieldRoutes rep type, shown as its own column. Linked/matched users get
+  // their real CRM type; an unmatched app user shows "—".
+  const crmTypeCell = (label, muted) => el('td', { class: 'px-3 py-3 ' + (muted ? 'text-muted- italic' : '') }, label || '—');
+
   const appRow = (x) => {
-    const p = x.profile, active = x.active;
+    const p = x.profile, active = x.active, fr = x.frEmp;
     return el('tr', { class: 'border-t border-' + (!active ? ' opacity-60' : '') },
       el('td', { class: 'px-4 py-3' }, el('div', { class: 'flex items-center gap-3' },
         avatarNode(p.avatar_url, p.initials, 'w-9 h-9 text-[10px]'),
         el('div', {}, el('div', { class: 'font-semibold' }, p.full_name),
-          p.fieldroutes_employee_id ? el('div', { class: 'text-[10px]', style: { color: 'var(--accent)' } }, '↔ FieldRoutes #' + p.fieldroutes_employee_id) : null))),
+          fr ? el('div', { class: 'text-[10px]', style: { color: 'var(--accent)' } },
+            '↔ FieldRoutes' + (p.fieldroutes_employee_id ? '' : ' (match — confirm to link)')) : null))),
       el('td', { class: 'px-3 py-3 text-muted-' }, p.email || '—'),
       el('td', { class: 'px-3 py-3' }, roleLabel(p.role)),
+      crmTypeCell(fr ? fr.type_label : null, !fr),
       el('td', { class: 'px-3 py-3 text-center' },
         el('button', { title: active ? 'Click to deactivate' : 'Click to activate', onclick: () => setProfileActive(p, !active) }, statusChip(active))),
       el('td', { class: 'px-3 py-3 text-right' },
@@ -31426,10 +31436,11 @@ function adminReps() {
           el('div', { class: 'text-[10px] text-muted-' }, [e.office_name, e.phone].filter(Boolean).join(' · ') || ('CRM #' + e.employee_id))))),
       el('td', { class: 'px-3 py-3 text-muted-' }, e.email || '—'),
       el('td', { class: 'px-3 py-3 text-muted- italic' }, 'In CRM'),
+      crmTypeCell(e.type_label, false),
       el('td', { class: 'px-3 py-3 text-center' }, statusChip(false)),
       el('td', { class: 'px-3 py-3 text-right' },
         el('button', { class: 'text-xs px-3 py-1.5 rounded-lg font-bold transition hover:brightness-95 whitespace-nowrap', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-          onclick: () => openUserEditor(null, { full_name: x.name, email: e.email || '', phone: e.phone || '', role: typeTab === 'Sales Rep' ? 'rep' : 'rep', fieldroutes_employee_id: e.employee_id }) }, '+ Add to app')));
+          onclick: () => openUserEditor(null, { full_name: x.name, email: e.email || '', phone: e.phone || '', role: 'rep', fieldroutes_employee_id: e.employee_id }) }, '+ Add to app')));
   };
 
   host.append(el('div', { class: 'card overflow-hidden' }, el('div', { class: 'scroll-x' },
@@ -31438,11 +31449,12 @@ function adminReps() {
         el('th', { class: 'text-left px-4 py-3' }, 'User'),
         el('th', { class: 'text-left px-3 py-3' }, 'Email'),
         el('th', { class: 'text-left px-3 py-3' }, 'Role'),
+        el('th', { class: 'text-left px-3 py-3' }, 'CRM Type'),
         el('th', { class: 'text-center px-3 py-3' }, 'Status'),
         el('th', { class: 'text-right px-3 py-3' }, ''))),
       el('tbody', {},
         (appPeople.length + rosterShown.length) === 0
-          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 5 },
+          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 6 },
               q ? 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' match “' + state._adminUserSearch + '”.' : 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' in this view.'))
           : null,
         ...appPeople.map(appRow),
