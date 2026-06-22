@@ -22,6 +22,7 @@ create table if not exists public.fieldroutes_employees (
   fname        text,
   lname        text,
   nickname     text,
+  username     text,                       -- fieldRoutes_username (CRM login id)
   email        text,
   phone        text,
   office_id    text,                       -- representative office
@@ -37,6 +38,7 @@ create table if not exists public.fieldroutes_employees (
 
 -- If the table already exists from an earlier run, add the new columns.
 alter table public.fieldroutes_employees
+  add column if not exists username     text,
   add column if not exists office_ids   text,
   add column if not exists employee_ids text;
 

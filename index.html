@@ -31262,8 +31262,9 @@ async function loadFieldRoutesRoster(force) {
   try {
     const { data, error } = await supabase.from('fieldroutes_employees').select('*');
     state.frRoster = error ? [] : (data || []);
+    state._frRosterError = error ? error.message : null;
     if (error) console.warn('[fr roster] load failed:', error.message);
-  } catch (e) { state.frRoster = []; console.warn('[fr roster]', e); }
+  } catch (e) { state.frRoster = []; state._frRosterError = String((e && e.message) || e); console.warn('[fr roster]', e); }
   finally { state._frRosterLoading = false; }
   return state.frRoster;
 }
@@ -31360,6 +31361,26 @@ function adminReps() {
       onclick: () => openUserEditor(),
     }, '+ New user')));
 
+  // ── Roster status banner — tells the admin exactly why the CRM roster is
+  // empty (table missing → run the SQL; loaded 0 → run a sync; or an error). ──
+  if (!(typeof DEMO !== 'undefined' && DEMO) && roster.length === 0) {
+    const err = state._frRosterError || '';
+    const missingTable = /relation .*does not exist|could not find the table|schema cache/i.test(err);
+    host.append(el('div', { class: 'card p-4', style: { borderLeft: '3px solid var(--accent)' } },
+      el('div', { class: 'text-sm font-bold mb-1' }, 'FieldRoutes roster not loaded yet'),
+      el('div', { class: 'text-xs text-muted-' },
+        missingTable
+          ? 'The fieldroutes_employees table doesn’t exist yet — run fieldroutes_link.sql in Supabase, then hit the ↻ sync icon.'
+          : err
+            ? ('Couldn’t read the roster: ' + err)
+            : 'The table is empty. Hit the ↻ sync icon in the top bar to pull the FieldRoutes roster (about a minute).'),
+      el('button', {
+        class: 'mt-3 px-3 py-2 rounded-lg text-xs font-bold transition hover:brightness-95',
+        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: (e) => syncFromRevHawk(e.currentTarget),
+      }, '↻ Sync FieldRoutes now')));
+  }
+
   // ── Rep-type tabs ──
   host.append(el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
     ...REP_TYPE_TABS.map(t => {
@@ -31407,21 +31428,29 @@ function adminReps() {
     ? { background: 'rgba(141,198,63,.14)', color: '#5F8A1F', border: '1px solid rgba(141,198,63,.4)' }
     : { background: 'rgba(220,38,38,.08)', color: '#B91C1C', border: '1px solid rgba(220,38,38,.25)' } }, active ? 'Active' : 'Inactive');
 
-  // The FieldRoutes rep type, shown as its own column. Linked/matched users get
-  // their real CRM type; an unmatched app user shows "—".
-  const crmTypeCell = (label, muted) => el('td', { class: 'px-3 py-3 ' + (muted ? 'text-muted- italic' : '') }, label || '—');
+  // Readable last-login from the CRM string ("YYYY-MM-DD HH:MM:SS" or blank).
+  const fmtLogin = (s) => {
+    if (!s || /^0+[^0-9]/.test(String(s)) || /^0000/.test(String(s))) return 'Never';
+    const d = new Date(String(s).replace(' ', 'T'));
+    return isNaN(d) ? String(s) : d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' });
+  };
+  const td  = (v, extra) => el('td', { class: 'px-3 py-3 ' + (extra || '') }, v == null || v === '' ? '—' : v);
+  const tdM = (v) => td(v, 'text-muted-');
 
   const appRow = (x) => {
     const p = x.profile, active = x.active, fr = x.frEmp;
     return el('tr', { class: 'border-t border-' + (!active ? ' opacity-60' : '') },
+      tdM(fr ? fr.employee_id : null),                                    // ID (CRM)
       el('td', { class: 'px-4 py-3' }, el('div', { class: 'flex items-center gap-3' },
         avatarNode(p.avatar_url, p.initials, 'w-9 h-9 text-[10px]'),
         el('div', {}, el('div', { class: 'font-semibold' }, p.full_name),
-          fr ? el('div', { class: 'text-[10px]', style: { color: 'var(--accent)' } },
-            '↔ FieldRoutes' + (p.fieldroutes_employee_id ? '' : ' (match — confirm to link)')) : null))),
-      el('td', { class: 'px-3 py-3 text-muted-' }, p.email || '—'),
-      el('td', { class: 'px-3 py-3' }, roleLabel(p.role)),
-      crmTypeCell(fr ? fr.type_label : null, !fr),
+          fr && !p.fieldroutes_employee_id ? el('div', { class: 'text-[10px]', style: { color: 'var(--accent)' } }, '↔ match — confirm to link') : null))),
+      tdM(fr ? fr.username : null),                                       // User ID (CRM username)
+      td(roleLabel(p.role)),                                             // Access Profile (app role)
+      tdM(fr ? fr.phone : (p.phone || null)),                             // Phone
+      tdM(p.email || (fr ? fr.email : null)),                             // Email
+      tdM(fr ? fmtLogin(fr.last_login) : null),                           // Last Login (CRM)
+      td(fr ? fr.type_label : null, fr ? '' : 'text-muted- italic'),      // Rep Type (CRM)
       el('td', { class: 'px-3 py-3 text-center' },
         el('button', { title: active ? 'Click to deactivate' : 'Click to activate', onclick: () => setProfileActive(p, !active) }, statusChip(active))),
       el('td', { class: 'px-3 py-3 text-right' },
@@ -31430,31 +31459,32 @@ function adminReps() {
   const rosterRow = (x) => {
     const e = x.emp;
     return el('tr', { class: 'border-t border- opacity-80' },
+      tdM(e.employee_id),                                                 // ID
       el('td', { class: 'px-4 py-3' }, el('div', { class: 'flex items-center gap-3' },
         avatarNode(null, (e.fname || '?')[0] + (e.lname || '')[0], 'w-9 h-9 text-[10px]'),
         el('div', {}, el('div', { class: 'font-semibold' }, x.name),
-          el('div', { class: 'text-[10px] text-muted-' }, [e.office_name, e.phone].filter(Boolean).join(' · ') || ('CRM #' + e.employee_id))))),
-      el('td', { class: 'px-3 py-3 text-muted-' }, e.email || '—'),
-      el('td', { class: 'px-3 py-3 text-muted- italic' }, 'In CRM'),
-      crmTypeCell(e.type_label, false),
+          e.office_name ? el('div', { class: 'text-[10px] text-muted-' }, e.office_name) : null))),
+      tdM(e.username),                                                    // User ID
+      el('td', { class: 'px-3 py-3 text-muted- italic' }, 'In CRM'),      // Access Profile (none yet)
+      tdM(e.phone),                                                       // Phone
+      tdM(e.email),                                                       // Email
+      tdM(fmtLogin(e.last_login)),                                        // Last Login
+      td(e.type_label),                                                   // Rep Type
       el('td', { class: 'px-3 py-3 text-center' }, statusChip(false)),
       el('td', { class: 'px-3 py-3 text-right' },
         el('button', { class: 'text-xs px-3 py-1.5 rounded-lg font-bold transition hover:brightness-95 whitespace-nowrap', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: () => openUserEditor(null, { full_name: x.name, email: e.email || '', phone: e.phone || '', role: 'rep', fieldroutes_employee_id: e.employee_id }) }, '+ Add to app')));
   };
 
+  const th = (label, align) => el('th', { class: (align || 'text-left') + ' px-3 py-3' }, label);
   host.append(el('div', { class: 'card overflow-hidden' }, el('div', { class: 'scroll-x' },
-    el('table', { class: 'w-full text-sm' },
+    el('table', { class: 'w-full text-sm whitespace-nowrap' },
       el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, el('tr', {},
-        el('th', { class: 'text-left px-4 py-3' }, 'User'),
-        el('th', { class: 'text-left px-3 py-3' }, 'Email'),
-        el('th', { class: 'text-left px-3 py-3' }, 'Role'),
-        el('th', { class: 'text-left px-3 py-3' }, 'CRM Type'),
-        el('th', { class: 'text-center px-3 py-3' }, 'Status'),
-        el('th', { class: 'text-right px-3 py-3' }, ''))),
+        th('ID'), el('th', { class: 'text-left px-4 py-3' }, 'Name'), th('User ID'), th('Access Profile'),
+        th('Phone'), th('Email'), th('Last Login'), th('Rep Type'), th('Status', 'text-center'), th('', 'text-right'))),
       el('tbody', {},
         (appPeople.length + rosterShown.length) === 0
-          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 6 },
+          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 10 },
               q ? 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' match “' + state._adminUserSearch + '”.' : 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' in this view.'))
           : null,
         ...appPeople.map(appRow),
