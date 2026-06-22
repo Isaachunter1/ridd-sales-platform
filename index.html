@@ -24048,6 +24048,33 @@ function reportingApplyBranchRules(rows) {
   return out;
 }
 
+// Turn the synced reporting snapshot into the exact Sales-Report CSV shape the
+// Indicators parser expects — so Indicators can run off the same RevHawk data
+// (with the sale TIME, from sold_at, preserved for the time-of-day charts).
+// Header names are chosen to match parseIndicatorsCsv's column detection.
+function reportingSnapshotToIndicatorsCsv(rows) {
+  const fmtDate = (r) => {
+    const raw = r.sold_at || r.sold_date || '';
+    const m = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}(?::\d{2})?))?/);
+    if (!m) return '';
+    const date = m[2] + '/' + m[3] + '/' + m[1];     // MM/DD/YYYY (parser wants slashes)
+    return m[4] ? (date + ' ' + m[4]) : date;         // append 24h time when present
+  };
+  const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const headers = ['Office', 'Date Sold', 'Customer Id', 'Customer Name', 'Subscription', 'Active', 'Cancellation Reason', 'Cancellation Date', 'Age', 'Source', 'Contract', 'Contract Value', 'Initial Price', 'Annual Recurring Value', 'Completed Services', 'Status', 'Auto Pay', 'Sales Rep', 'Customer Flags'];
+  const lines = [headers.join(',')];
+  for (const r of (rows || [])) {
+    lines.push([
+      r.office_name || '', fmtDate(r), r.customer_id || '', [r.last_name, r.first_name].filter(Boolean).join(', '),
+      r.subscription || '', r.subscription_status || '', r.subscription_cancellation_reason || '', r.subscription_date_canceled || '',
+      r.days_past_due || 0, r.subscription_source || '', r.agreement_length || 0, r.subscription_contract_value || 0, r.initial_price || 0,
+      r.annual_recurring_value || 0, r.subscription_completed_services || 0, r.subscription_status || '', r.customer_auto_pay || '',
+      r.sold_by || '', r.customer_flags || '',
+    ].map(esc).join(','));
+  }
+  return lines.join('\n');
+}
+
 // Given the active-test, return the ACTIVE subs that data-hygiene says are
 // probably stale and should be closed, each stamped with a _flagReason:
 //   • retired service, still Active                → "Retired service"
@@ -28767,24 +28794,55 @@ function adminUploads() {
       el('div', {},
         el('div', { class: 'text-sm font-semibold' }, 'RevHawk live data'),
         el('div', { class: 'text-[11px] text-muted-' }, 'Auto-syncs every evening. Pull a fresh snapshot right now (≈1 min) when reps need mid-day numbers.')),
-      el('button', {
-        class: 'rounded-lg px-3.5 py-2 text-sm font-bold transition hover:brightness-95',
-        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        onclick: async (e) => {
-          const btn = e.currentTarget, orig = btn.textContent;
-          btn.textContent = 'Starting…'; btn.disabled = true;
-          try {
-            const { data: { session } } = await supabase.auth.getSession();
-            const token = session && session.access_token;
-            if (!token) { toast('Sign in required', 'error'); return; }
-            const r = await fetch('/api/revhawk-sync-now', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
-            const j = await r.json().catch(() => ({}));
-            (r.ok && j.ok) ? toast(j.message || 'Sync started — fresh data in ~1 min', 'success')
-                           : toast('Sync failed: ' + (j.error || ('HTTP ' + r.status)), 'error');
-          } catch (err) { toast('Sync failed: ' + (err && err.message || err), 'error'); }
-          finally { btn.textContent = orig; btn.disabled = false; }
-        },
-      }, '↻ Sync now'),
+      el('div', { class: 'flex gap-2 flex-wrap' },
+        el('button', {
+          class: 'rounded-lg px-3.5 py-2 text-sm font-bold transition hover:brightness-95',
+          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          onclick: async (e) => {
+            const btn = e.currentTarget, orig = btn.textContent;
+            btn.textContent = 'Starting…'; btn.disabled = true;
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              const token = session && session.access_token;
+              if (!token) { toast('Sign in required', 'error'); return; }
+              const r = await fetch('/api/revhawk-sync-now', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+              const j = await r.json().catch(() => ({}));
+              (r.ok && j.ok) ? toast(j.message || 'Sync started — fresh data in ~1 min', 'success')
+                             : toast('Sync failed: ' + (j.error || ('HTTP ' + r.status)), 'error');
+            } catch (err) { toast('Sync failed: ' + (err && err.message || err), 'error'); }
+            finally { btn.textContent = orig; btn.disabled = false; }
+          },
+        }, '↻ Sync Reporting now'),
+        el('button', {
+          class: 'rounded-lg px-3.5 py-2 text-sm font-bold transition hover:brightness-95 border',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          title: 'Rebuild the Indicators dataset from the latest RevHawk snapshot (with sale times).',
+          onclick: async (e) => {
+            const btn = e.currentTarget, orig = btn.textContent;
+            btn.textContent = 'Importing…'; btn.disabled = true;
+            try {
+              let rows = state.reportingSubscriptions;
+              if ((!rows || !rows.length) && state.reportingActiveUploadId && typeof loadReportingSubscriptions === 'function') {
+                rows = await loadReportingSubscriptions(state.reportingActiveUploadId);
+                if (rows) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = state.reportingActiveUploadId; }
+              }
+              if (!rows || !rows.length) { toast('No snapshot loaded yet — run a Reporting sync first', 'error'); return; }
+              state.indicatorsData = parseIndicatorsCsv(reportingSnapshotToIndicatorsCsv(rows)); // also sets state._indicatorRawSales
+              state.indicatorsWeek = -1;
+              state.indicatorsUploadedAt = new Date().toISOString();
+              state.indicatorsFileName = 'RevHawk sync — ' + new Date().toLocaleDateString();
+              state.indicatorsView = 'range'; state.indicatorsRangePreset = 'this_year';
+              state.indicatorsCustomStart = ''; state.indicatorsCustomEnd = '';
+              if (typeof captureIndicatorSnapshot === 'function') captureIndicatorSnapshot();
+              saveDemoData();
+              if (typeof syncIndicatorsToCloud === 'function') syncIndicatorsToCloud();
+              toast('Indicators imported from RevHawk — ' + state.indicatorsData.length + ' rows', 'success');
+              mountApp();
+            } catch (err) { toast('Import failed: ' + (err && err.message || err), 'error'); }
+            finally { btn.textContent = orig; btn.disabled = false; }
+          },
+        }, '↻ Import Indicators from RevHawk'),
+      ),
     ),
     toggle,
     tab === 'activity'
