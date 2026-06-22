@@ -78,6 +78,12 @@
   to   = "/.netlify/functions/revhawk-test"
   status = 200
 
+# Admin "Sync now" — verifies the caller is an admin, then fires the sync.
+[[redirects]]
+  from = "/api/revhawk-sync-now"
+  to   = "/.netlify/functions/revhawk-sync-now"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
