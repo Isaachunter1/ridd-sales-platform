@@ -28872,7 +28872,7 @@ function commissionMyPay() {
   if (!p.fieldroutes_employee_id) return wrap(el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Your account isn’t linked to a FieldRoutes rep yet. Ask an admin to link you on Settings → Users.'));
   if (!state._myCommissionLoaded) { loadMyCommissionResult().then(() => { if (state.view === 'commission') mountApp(); }); return wrap(el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Loading your commission…')); }
   const row = state._myCommission;
-  if (!row || !row.data) return wrap(el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No commission has been published for you yet. Your manager publishes it after each pay period.'));
+  if (!row || !row.data) return wrap(el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Your commission will appear here, updated with each sync. Nothing to show yet.'));
   const B = row.data;
   const { breakdown, stats } = commissionRenderCards(B, B.name || p.full_name || '');
   return wrap(el('div', { class: 'flex flex-col gap-3' },
@@ -28919,15 +28919,6 @@ function commissionCalculator() {
   const saveMY = (patch) => { const c = commissionConfig(); c.multiYear = Object.assign({}, c.multiYear, patch); saveCommissionConfig(c); mountApp(); };
   const saveCat = (svc, val) => { const c = commissionConfig(); c.serviceCategories = Object.assign({}, c.serviceCategories); c.serviceCategories[svc] = val; saveCommissionConfig(c); mountApp(); };
   const saveMan = (patch) => { setCommissionManual(emp.employee_id, Object.assign({}, man, patch)); mountApp(); };
-  const publishRep = async () => {
-    const snap = commissionSnapshot(R, emp, { start: state._commStart, end: state._commEnd });
-    const c = commissionConfig(); c.published = Object.assign({}, c.published); c.published[emp.employee_id] = snap; saveCommissionConfig(c);
-    const res = await publishCommissionResult(emp.employee_id, snap, { start: state._commStart, end: state._commEnd });
-    toast(res.ok ? ('Published — ' + _frEmpName(emp) + ' can now see this in My Commission') : ('Publish failed: ' + (res.msg || 'run commission_results.sql')), res.ok ? 'success' : 'error');
-    mountApp();
-  };
-  const isPublished = !!commissionConfig().published[emp.employee_id];
-
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
   const numField = (label, val, onCommit, opts = {}) => el('label', { class: 'block' }, lbl(label),
     el('input', { type: 'number', step: opts.step || '0.01', value: (val == null ? '' : val), placeholder: opts.ph || '',
@@ -28999,9 +28990,7 @@ function commissionCalculator() {
         el('label', { class: 'block' }, lbl('Sales Rep'), repSelect),
         el('label', { class: 'block' }, lbl('Sold from'), dateInput(state._commStart, v => state._commStart = v)),
         el('label', { class: 'block' }, lbl('Sold to'), dateInput(state._commEnd, v => state._commEnd = v)),
-        el('label', { class: 'block' }, lbl('Lock date'), dateInput(state._commLock, v => state._commLock = v)),
-        el('button', { class: 'rounded-xl px-4 py-2 text-sm font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: publishRep },
-          isPublished ? '↻ Re-publish to rep' : '✓ Publish to rep'))),
+        el('label', { class: 'block' }, lbl('Lock date'), dateInput(state._commLock, v => state._commLock = v)))),
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' },
       el('div', { class: 'flex flex-col gap-4' }, breakdown, stats),                      // left: the breakdown
       el('div', { class: 'flex flex-col gap-4' }, ratesPanel, manualPanel, myPanel, svcPanel)));  // right: all config
