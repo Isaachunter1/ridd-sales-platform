@@ -31282,6 +31282,19 @@ async function applyFieldRoutesLink(profileId, empId) {
   if (p) p.fieldroutes_employee_id = empId;
   toast('Linked to FieldRoutes', 'success'); mountApp();
 }
+// Flip an app user's active state (Users screen inline toggle). Guards against
+// an admin locking themselves out.
+async function setProfileActive(p, active) {
+  if (p.id === state.profile?.id && !active) { toast('You can’t deactivate your own account.', 'error'); return; }
+  if (typeof DEMO !== 'undefined' && DEMO) { p.is_active = active; saveDemoData(); toast(active ? 'Activated' : 'Deactivated', 'success'); mountApp(); return; }
+  const { error } = await supabase.from('profiles').update({ is_active: active }).eq('id', p.id);
+  if (error) { toast('Update failed: ' + error.message, 'error'); return; }
+  p.is_active = active; toast(active ? 'Activated' : 'Deactivated', 'success'); mountApp();
+}
+// Which rep-type tab a person belongs to. App users inherit their linked (or
+// email-matched) FieldRoutes type; otherwise infer from role.
+const REP_TYPE_TABS = ['Office Staff', 'Technician', 'Sales Rep'];
+const REP_TYPE_TAB_LABEL = { 'Office Staff': 'Office Staff', 'Technician': 'Technicians', 'Sales Rep': 'Sales Reps' };
 
 function adminReps() {
   const host = el('div', { class: 'flex flex-col gap-4' });
@@ -31290,133 +31303,159 @@ function adminReps() {
     loadFieldRoutesRoster().then(() => { if (state.view === 'admin') mountApp(); });
   }
 
-  // Filters persist across re-renders so admins can focus on one group
-  // (e.g. all active reps) without re-selecting every page load. Active is
-  // the default so the list reads as a "current roster" by default — flip
-  // to Inactive to recover or audit a deactivated user without losing them.
-  if (state._adminUserRoleFilter == null) state._adminUserRoleFilter = '';
+  // Persisted UI state: which rep-type tab, active/inactive/all, search box.
+  if (!REP_TYPE_TABS.includes(state._adminUserTypeTab)) state._adminUserTypeTab = 'Office Staff';
   if (state._adminUserActiveFilter == null) state._adminUserActiveFilter = 'active';
-  const roleFilter = state._adminUserRoleFilter;
+  if (state._adminUserSearch == null) state._adminUserSearch = '';
+  const typeTab = state._adminUserTypeTab;
   const activeFilter = state._adminUserActiveFilter;
+  const q = state._adminUserSearch.trim().toLowerCase();
 
   const allProfiles = state.allProfiles.length ? state.allProfiles : [state.profile];
-  const activeCount = allProfiles.filter(p => p.is_active !== false).length;
-  const inactiveCount = allProfiles.length - activeCount;
-
-  const activeToggle = el('div', { class: 'inline-flex rounded-xl border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-    ...[
-      { id: 'active',   label: 'Active',   count: activeCount },
-      { id: 'inactive', label: 'Inactive', count: inactiveCount },
-      { id: 'all',      label: 'All',      count: allProfiles.length },
-    ].map(t => el('button', {
-      class: 'px-3 py-2 text-xs font-semibold transition flex items-center gap-1.5',
-      style: activeFilter === t.id
-        ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-        : { background: 'transparent', color: 'var(--text)' },
-      onclick: () => { state._adminUserActiveFilter = t.id; mountApp(); },
-    },
-      el('span', {}, t.label),
-      el('span', {
-        class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded',
-        style: activeFilter === t.id
-          ? { background: 'rgba(0,0,0,.15)', color: 'var(--accent-text)' }
-          : { background: 'var(--card-2)', color: 'var(--text-muted)' },
-      }, t.count),
-    )),
-  );
-
-  host.append(
-    el('div', { class: 'flex items-center justify-between flex-wrap gap-3' },
-      el('div', {},
-        el('h3', { class: 'text-lg font-bold' }, 'Users'),
-        el('p', { class: 'text-xs text-muted-' }, 'Add reps, manage their profile, assign avatars. Inactive users keep all historical sales — they just can\'t sign in.'),
-      ),
-      el('div', { class: 'flex items-center gap-2 flex-wrap' },
-        activeToggle,
-        el('select', {
-          class: 'rounded-xl border px-3 py-2 text-xs font-medium cursor-pointer',
-          style: { borderColor: 'var(--border-2)' },
-          onchange: (e) => { state._adminUserRoleFilter = e.target.value; mountApp(); },
-        },
-          el('option', { value: '',        selected: !roleFilter },              'All roles'),
-          el('option', { value: 'admin',   selected: roleFilter === 'admin' },   'Admin'),
-          el('option', { value: 'rep',     selected: roleFilter === 'rep' },     'Rep'),
-          el('option', { value: 'auditor', selected: roleFilter === 'auditor' }, 'Auditor'),
-        ),
-        el('button', {
-          class: 'px-4 py-2 rounded-xl font-semibold text-sm transition hover:brightness-95',
-          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-          onclick: () => openUserEditor(),
-        }, '+ New user'),
-      ),
-    ),
-  );
-
-  let profiles = roleFilter ? allProfiles.filter(p => p.role === roleFilter) : allProfiles;
-  if (activeFilter === 'active')   profiles = profiles.filter(p => p.is_active !== false);
-  else if (activeFilter === 'inactive') profiles = profiles.filter(p => p.is_active === false);
-
-  host.append(
-    el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'scroll-x' },
-        el('table', { class: 'w-full text-sm' },
-          el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' },
-            el('tr', {},
-              el('th', { class: 'text-left px-4 py-3' }, 'User'),
-              el('th', { class: 'text-left px-3 py-3' }, 'Email'),
-              el('th', { class: 'text-left px-3 py-3' }, 'Role'),
-              el('th', { class: 'text-center px-3 py-3' }, 'Status'),
-              el('th', { class: 'text-right px-3 py-3' }, ''),
-            ),
-          ),
-          el('tbody', {},
-            profiles.length === 0 && el('tr', {},
-              el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 5 },
-                activeFilter === 'inactive' ? 'No inactive users — everyone\'s active.'
-                : activeFilter === 'active' ? 'No active users match the current filter.'
-                : 'No users match the current filter.'),
-            ),
-            profiles.map(p => {
-              const active = p.is_active !== false;
-              return el('tr', { class: 'border-t border-' + (!active ? ' opacity-50' : '') },
-                el('td', { class: 'px-4 py-3' },
-                  el('div', { class: 'flex items-center gap-3' },
-                    avatarNode(p.avatar_url, p.initials, 'w-9 h-9 text-[10px]'),
-                    el('div', { class: 'font-semibold' }, p.full_name),
-                  ),
-                ),
-                el('td', { class: 'px-3 py-3 text-muted-' }, p.email || '—'),
-                el('td', { class: 'px-3 py-3' }, roleLabel(p.role)),
-                el('td', { class: 'px-3 py-3 text-center' },
-                  el('span', {
-                    class: 'chip',
-                    style: active
-                      ? { background: 'rgba(141,198,63,.14)', color: '#5F8A1F', border: '1px solid rgba(141,198,63,.4)' }
-                      : { background: 'rgba(220,38,38,.08)', color: '#B91C1C', border: '1px solid rgba(220,38,38,.25)' },
-                  }, active ? 'Active' : 'Inactive'),
-                ),
-                el('td', { class: 'px-3 py-3 text-right' },
-                  el('button', {
-                    class: 'text-xs px-3 py-1.5 rounded-lg border border- text-muted- hover:text-default transition',
-                    onclick: () => openUserEditor(p),
-                  }, 'Edit'),
-                ),
-              );
-            }),
-          ),
-        ),
-      ),
-    ),
-  );
-
-  // ── FieldRoutes bridge ──────────────────────────────────────────────────
   const roster = state.frRoster || [];
-  if (roster.length) {
-    const linkedIds   = new Set(allProfiles.map(p => p.fieldroutes_employee_id).filter(Boolean));
-    const profByEmail = new Map(allProfiles.map(p => [_frNormEmail(p.email), p]).filter(([k]) => k));
+  const rosterById = new Map(roster.map(e => [e.employee_id, e]));
 
-    // Auto-link review: app users with no link yet whose email matches a CRM
-    // employee. Surface the match so the admin confirms before it's relied on.
+  // ── Merge app profiles + CRM roster into one "people" list ──
+  // A person is either an app user (a real login) or a CRM-only employee
+  // (display-only until provisioned). App users inherit their FieldRoutes type
+  // (via link or email match); roster-only people use their CRM type.
+  const profType = (p) => {
+    const linked = p.fieldroutes_employee_id ? rosterById.get(p.fieldroutes_employee_id) : null;
+    if (linked && linked.type_label) return linked.type_label;
+    const m = roster.find(e => e.email && _frNormEmail(e.email) === _frNormEmail(p.email));
+    if (m && m.type_label) return m.type_label;
+    return p.role === 'rep' ? 'Sales Rep' : 'Office Staff';
+  };
+  const appByEmpId = new Map();
+  const appEmails = new Set();
+  allProfiles.forEach(p => { if (p.fieldroutes_employee_id) appByEmpId.set(p.fieldroutes_employee_id, p); if (p.email) appEmails.add(_frNormEmail(p.email)); });
+
+  const people = allProfiles.map(p => ({
+    isApp: true, profile: p, name: p.full_name || '(no name)', email: p.email || '',
+    type: profType(p), active: p.is_active !== false,
+  }));
+  roster.forEach(e => {
+    if (appByEmpId.has(e.employee_id)) return;                       // already a linked app user
+    if (e.email && appEmails.has(_frNormEmail(e.email))) return;     // matches an app user's email
+    people.push({ isApp: false, emp: e, name: _frEmpName(e), email: e.email || '', type: e.type_label || 'Office Staff', active: false });
+  });
+
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  const countByType = (t) => people.filter(x => x.type === t).length;
+
+  // ── Header ──
+  host.append(el('div', { class: 'flex items-center justify-between flex-wrap gap-3' },
+    el('div', {},
+      el('h3', { class: 'text-lg font-bold' }, 'Users'),
+      el('p', { class: 'text-xs text-muted-' }, roster.length
+        ? 'Synced from FieldRoutes. Active users can sign in; everyone else is in the CRM and can be added in a click. Historical sales are always kept.'
+        : 'Add reps, manage their profile, assign avatars. Run a sync to pull the FieldRoutes roster.')),
+    el('button', {
+      class: 'px-4 py-2 rounded-xl font-semibold text-sm transition hover:brightness-95',
+      style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+      onclick: () => openUserEditor(),
+    }, '+ New user')));
+
+  // ── Rep-type tabs ──
+  host.append(el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
+    ...REP_TYPE_TABS.map(t => {
+      const on = typeTab === t;
+      return el('button', {
+        class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap flex items-center gap-2',
+        style: { borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent', color: on ? 'var(--text)' : 'var(--text-muted)', marginBottom: '-1px' },
+        onclick: () => { state._adminUserTypeTab = t; mountApp(); },
+      }, REP_TYPE_TAB_LABEL[t],
+        el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, countByType(t).toLocaleString()));
+    })));
+
+  // ── Active / Inactive / All + search ──
+  const inTab = people.filter(x => x.type === typeTab);
+  const aCount = inTab.filter(x => x.active).length;
+  host.append(el('div', { class: 'flex items-center justify-between flex-wrap gap-2' },
+    el('div', { class: 'inline-flex rounded-xl border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+      ...[
+        { id: 'active', label: 'Active', count: aCount },
+        { id: 'inactive', label: 'Inactive', count: inTab.length - aCount },
+        { id: 'all', label: 'All', count: inTab.length },
+      ].map(t => el('button', {
+        class: 'px-3 py-2 text-xs font-semibold transition flex items-center gap-1.5',
+        style: activeFilter === t.id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'transparent', color: 'var(--text)' },
+        onclick: () => { state._adminUserActiveFilter = t.id; mountApp(); },
+      }, el('span', {}, t.label),
+        el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: activeFilter === t.id ? { background: 'rgba(0,0,0,.15)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t.count.toLocaleString())))),
+    el('input', {
+      class: 'rounded-xl border px-3 py-2 text-xs', style: { borderColor: 'var(--border-2)', minWidth: '220px' },
+      placeholder: 'Search ' + REP_TYPE_TAB_LABEL[typeTab] + '…', value: state._adminUserSearch,
+      oninput: (e) => { state._adminUserSearch = e.target.value; clearTimeout(state._adminUserSearchT); state._adminUserSearchT = setTimeout(mountApp, 200); },
+    })));
+
+  // ── Build the filtered, capped list for this tab ──
+  let list = inTab;
+  if (activeFilter === 'active') list = list.filter(x => x.active);
+  else if (activeFilter === 'inactive') list = list.filter(x => !x.active);
+  if (q) list = list.filter(x => (x.name + ' ' + x.email).toLowerCase().includes(q));
+  const appPeople = list.filter(x => x.isApp).sort(byName);
+  const rosterPeople = list.filter(x => !x.isApp).sort(byName);
+  const ROSTER_CAP = q ? 80 : 40;
+  const rosterShown = rosterPeople.slice(0, ROSTER_CAP);
+
+  const statusChip = (active) => el('span', { class: 'chip', style: active
+    ? { background: 'rgba(141,198,63,.14)', color: '#5F8A1F', border: '1px solid rgba(141,198,63,.4)' }
+    : { background: 'rgba(220,38,38,.08)', color: '#B91C1C', border: '1px solid rgba(220,38,38,.25)' } }, active ? 'Active' : 'Inactive');
+
+  const appRow = (x) => {
+    const p = x.profile, active = x.active;
+    return el('tr', { class: 'border-t border-' + (!active ? ' opacity-60' : '') },
+      el('td', { class: 'px-4 py-3' }, el('div', { class: 'flex items-center gap-3' },
+        avatarNode(p.avatar_url, p.initials, 'w-9 h-9 text-[10px]'),
+        el('div', {}, el('div', { class: 'font-semibold' }, p.full_name),
+          p.fieldroutes_employee_id ? el('div', { class: 'text-[10px]', style: { color: 'var(--accent)' } }, '↔ FieldRoutes #' + p.fieldroutes_employee_id) : null))),
+      el('td', { class: 'px-3 py-3 text-muted-' }, p.email || '—'),
+      el('td', { class: 'px-3 py-3' }, roleLabel(p.role)),
+      el('td', { class: 'px-3 py-3 text-center' },
+        el('button', { title: active ? 'Click to deactivate' : 'Click to activate', onclick: () => setProfileActive(p, !active) }, statusChip(active))),
+      el('td', { class: 'px-3 py-3 text-right' },
+        el('button', { class: 'text-xs px-3 py-1.5 rounded-lg border border- text-muted- hover:text-default transition', onclick: () => openUserEditor(p) }, 'Edit')));
+  };
+  const rosterRow = (x) => {
+    const e = x.emp;
+    return el('tr', { class: 'border-t border- opacity-80' },
+      el('td', { class: 'px-4 py-3' }, el('div', { class: 'flex items-center gap-3' },
+        avatarNode(null, (e.fname || '?')[0] + (e.lname || '')[0], 'w-9 h-9 text-[10px]'),
+        el('div', {}, el('div', { class: 'font-semibold' }, x.name),
+          el('div', { class: 'text-[10px] text-muted-' }, [e.office_name, e.phone].filter(Boolean).join(' · ') || ('CRM #' + e.employee_id))))),
+      el('td', { class: 'px-3 py-3 text-muted-' }, e.email || '—'),
+      el('td', { class: 'px-3 py-3 text-muted- italic' }, 'In CRM'),
+      el('td', { class: 'px-3 py-3 text-center' }, statusChip(false)),
+      el('td', { class: 'px-3 py-3 text-right' },
+        el('button', { class: 'text-xs px-3 py-1.5 rounded-lg font-bold transition hover:brightness-95 whitespace-nowrap', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          onclick: () => openUserEditor(null, { full_name: x.name, email: e.email || '', phone: e.phone || '', role: typeTab === 'Sales Rep' ? 'rep' : 'rep', fieldroutes_employee_id: e.employee_id }) }, '+ Add to app')));
+  };
+
+  host.append(el('div', { class: 'card overflow-hidden' }, el('div', { class: 'scroll-x' },
+    el('table', { class: 'w-full text-sm' },
+      el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, el('tr', {},
+        el('th', { class: 'text-left px-4 py-3' }, 'User'),
+        el('th', { class: 'text-left px-3 py-3' }, 'Email'),
+        el('th', { class: 'text-left px-3 py-3' }, 'Role'),
+        el('th', { class: 'text-center px-3 py-3' }, 'Status'),
+        el('th', { class: 'text-right px-3 py-3' }, ''))),
+      el('tbody', {},
+        (appPeople.length + rosterShown.length) === 0
+          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 5 },
+              q ? 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' match “' + state._adminUserSearch + '”.' : 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' in this view.'))
+          : null,
+        ...appPeople.map(appRow),
+        ...rosterShown.map(rosterRow))))));
+
+  if (rosterPeople.length > rosterShown.length) {
+    host.append(el('div', { class: 'text-[11px] text-muted-' },
+      'Showing ' + rosterShown.length + ' of ' + rosterPeople.length.toLocaleString() + ' CRM-only ' + REP_TYPE_TAB_LABEL[typeTab] + ' — search to narrow.'));
+  }
+
+  // ── Auto-link review (email matches) — kept as a banner above the list ──
+  if (roster.length) {
+    const linkedIds = new Set(allProfiles.map(p => p.fieldroutes_employee_id).filter(Boolean));
     const suggestions = [];
     for (const p of allProfiles) {
       if (p.fieldroutes_employee_id) continue;
@@ -31429,60 +31468,17 @@ function adminReps() {
           el('div', {},
             el('h3', { class: 'text-base font-bold' }, '↔ FieldRoutes links to review'),
             el('p', { class: 'text-xs text-muted-' }, suggestions.length + ' app user' + (suggestions.length === 1 ? '' : 's') + ' matched a CRM employee by email. Confirm to link.')),
-          el('button', {
-            class: 'px-3 py-2 rounded-lg text-xs font-bold transition hover:brightness-95',
-            style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-            onclick: async () => { for (const s of suggestions) { await applyFieldRoutesLink(s.p.id, s.e.employee_id); } },
-          }, 'Link all ' + suggestions.length)),
+          el('button', { class: 'px-3 py-2 rounded-lg text-xs font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+            onclick: async () => { for (const s of suggestions) { await applyFieldRoutesLink(s.p.id, s.e.employee_id); } } }, 'Link all ' + suggestions.length)),
         el('div', { class: 'flex flex-col divide-y', style: { borderColor: 'var(--border)' } },
           ...suggestions.slice(0, 30).map(({ p, e }) => el('div', { class: 'flex items-center justify-between gap-3 py-2 text-sm' },
             el('div', { class: 'min-w-0' },
               el('span', { class: 'font-semibold' }, p.full_name),
               el('span', { class: 'text-muted-' }, ' → ' + _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : '') + (e.type_label ? ' · ' + e.type_label : '')),
               el('div', { class: 'text-[11px] text-muted-' }, p.email)),
-            el('button', {
-              class: 'text-xs px-3 py-1.5 rounded-lg border font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)' },
-              onclick: () => applyFieldRoutesLink(p.id, e.employee_id),
-            }, 'Link'))))));
+            el('button', { class: 'text-xs px-3 py-1.5 rounded-lg border font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)' },
+              onclick: () => applyFieldRoutesLink(p.id, e.employee_id) }, 'Link'))))));
     }
-
-    // In CRM, not in the app yet: roster employees with no linked profile.
-    // 1,780 rows, so this is search-first; we seed with active, emailed staff.
-    if (state._frAddSearch == null) state._frAddSearch = '';
-    const q = state._frAddSearch.trim().toLowerCase();
-    const unprovisioned = roster.filter(e => !linkedIds.has(e.employee_id) && !profByEmail.has(_frNormEmail(e.email)));
-    let shown = unprovisioned;
-    if (q) shown = unprovisioned.filter(e => (_frEmpName(e) + ' ' + (e.email || '') + ' ' + (e.office_name || '')).toLowerCase().includes(q));
-    else   shown = unprovisioned.filter(e => e.active && e.email).sort((a, b) => _frEmpName(a).localeCompare(_frEmpName(b)));
-    const cap = shown.slice(0, 40);
-
-    host.append(el('div', { class: 'card p-4' },
-      el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-1' },
-        el('div', {},
-          el('h3', { class: 'text-base font-bold' }, 'In FieldRoutes, not in the app'),
-          el('p', { class: 'text-xs text-muted-' }, unprovisioned.length.toLocaleString() + ' CRM employees aren’t app users yet. Add one to provision it pre-filled with their CRM email & phone — no re-typing.')),
-        el('input', {
-          class: 'rounded-xl border px-3 py-2 text-xs', style: { borderColor: 'var(--border-2)', minWidth: '220px' },
-          placeholder: 'Search the CRM roster…', value: state._frAddSearch,
-          oninput: (e) => { state._frAddSearch = e.target.value; clearTimeout(state._frAddSearchT); state._frAddSearchT = setTimeout(mountApp, 200); },
-        })),
-      el('div', { class: 'mt-2 rounded-lg border', style: { borderColor: 'var(--border)' } },
-        cap.length === 0
-          ? el('div', { class: 'p-6 text-center text-xs text-muted- italic' }, q ? 'No CRM employees match “' + state._frAddSearch + '”.' : 'Everyone active in the CRM is already in the app.')
-          : el('div', { class: 'flex flex-col divide-y', style: { borderColor: 'var(--border)' } },
-              ...cap.map(e => el('div', { class: 'flex items-center justify-between gap-3 px-3 py-2.5 text-sm' },
-                el('div', { class: 'min-w-0' },
-                  el('div', { class: 'font-semibold flex items-center gap-2' }, _frEmpName(e),
-                    !e.active ? el('span', { class: 'chip', style: { background: 'rgba(220,38,38,.08)', color: '#B91C1C', fontSize: '9px' } }, 'CRM inactive') : null),
-                  el('div', { class: 'text-[11px] text-muted-' },
-                    [e.office_name, e.type_label, e.email, e.phone].filter(Boolean).join(' · ') || ('Employee #' + e.employee_id))),
-                el('button', {
-                  class: 'text-xs px-3 py-1.5 rounded-lg font-bold transition hover:brightness-95 whitespace-nowrap',
-                  style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-                  onclick: () => openUserEditor(null, { full_name: _frEmpName(e), email: e.email || '', phone: e.phone || '', role: 'rep', fieldroutes_employee_id: e.employee_id }),
-                }, '+ Add to app')))) ),
-      (!q && shown.length > cap.length) ? el('div', { class: 'text-[11px] text-muted- mt-2' }, 'Showing 40 of ' + shown.length.toLocaleString() + ' — search to narrow.') : null,
-    ));
   }
 
   return host;
