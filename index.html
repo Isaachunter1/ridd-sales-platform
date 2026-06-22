@@ -2856,7 +2856,7 @@ function reportingAuditing() {
       // Cancelled = serviced then cancelled, INCLUDING 3-day RORs (a ROR that got
       // an initial service before it was rescinded is still a serviced cancel).
       if (r.subscription_date_canceled) a.cancelledRev += cv;
-      else if (subActive) { a.activeRev += cv; a.activeSubsN = (a.activeSubsN || 0) + 1; if ((Number(r.days_past_due) || 0) >= 7) a.agingRev += cv; }
+      else if (subActive) { a.activeRev += cv; a.activeSubsN = (a.activeSubsN || 0) + 1; if ((Number(r.days_past_due) || 0) >= reportingAgingDays()) a.agingRev += cv; }
       else a.frozenRev += cv;
     }
     // 3-day ROR revenue that sits INSIDE Serviced (initial done, then rescinded
@@ -3022,7 +3022,7 @@ function reportingAuditing() {
           tile('Serviced', money(s.servicedRev), 'received an initial service', null, drill('Serviced revenue', _svc)),
           tile('Active', money(activeRev), 'serviced & active · incl. aging', null, drill('Active', r => _svc(r) && _act(r))),
           tile('Cancelled', money(s.cancelledRev), 'serviced then cancelled · incl. 3-day ROR', s.cancelledRev > 0 ? bad : null, drill('Cancelled', r => _svc(r) && !!r.subscription_date_canceled)),
-          tile('Aging', money(s.agingRev), 'at-risk slice of Active', s.agingRev > 0 ? bad : null, drill('Aging', r => _svc(r) && _act(r) && (Number(r.days_past_due) || 0) >= 7)),
+          tile('Aging', money(s.agingRev), 'at-risk slice of Active', s.agingRev > 0 ? bad : null, drill('Aging', r => _svc(r) && _act(r) && (Number(r.days_past_due) || 0) >= reportingAgingDays())),
         ]),
         group('Attrition · of serviced', [
           tile('Attrition · excl. ROR', pctS(attrExclRor), 'cancelled ÷ serviced (RORs removed)', attrExclRor == null ? null : (attrExclRor >= 0.25 ? bad : attrExclRor < 0.10 ? good : null)),
@@ -24008,6 +24008,46 @@ function reportingServiceRecurringMap() {
   return map;
 }
 
+// How "recurring" is decided across all reporting:
+//   'lifecycle' — the admin's per-service Lifecycle config (manual, can drift).
+//   'arv'       — data-driven: a sub is recurring iff it carries an annual
+//                 recurring value > $0 (self-maintaining, matches FieldRoutes).
+// Persisted locally so it survives reloads without a Supabase column.
+function reportingRecurringMode() {
+  try { return localStorage.getItem('ridd_reporting_recurring_mode') === 'arv' ? 'arv' : 'lifecycle'; } catch { return 'lifecycle'; }
+}
+function setReportingRecurringMode(m) {
+  try { localStorage.setItem('ridd_reporting_recurring_mode', m === 'arv' ? 'arv' : 'lifecycle'); } catch {}
+}
+
+// ── Reporting rules (locally-persisted settings; defaults preserve behavior) ──
+function reportingAgingDays() { try { const v = parseInt(localStorage.getItem('ridd_rpt_aging_days') || '7', 10); return Number.isFinite(v) && v >= 0 ? v : 7; } catch { return 7; } }
+function setReportingAgingDays(n) { try { localStorage.setItem('ridd_rpt_aging_days', String(Math.max(0, parseInt(n, 10) || 0))); } catch {} }
+function reportingExcludeRorChurn() { try { return localStorage.getItem('ridd_rpt_excl_ror') === '1'; } catch { return false; } }
+function setReportingExcludeRorChurn(b) { try { localStorage.setItem('ridd_rpt_excl_ror', b ? '1' : '0'); } catch {} }
+function reportingActiveInclOneTime() { try { return localStorage.getItem('ridd_rpt_active_onetime') === '1'; } catch { return false; } }
+function setReportingActiveInclOneTime(b) { try { localStorage.setItem('ridd_rpt_active_onetime', b ? '1' : '0'); } catch {} }
+function reportingExcludedBranches() { try { return new Set(JSON.parse(localStorage.getItem('ridd_rpt_excl_branches') || '[]')); } catch { return new Set(); } }
+function setReportingExcludedBranches(arr) { try { localStorage.setItem('ridd_rpt_excl_branches', JSON.stringify([...arr])); } catch {} }
+function reportingBranchRenames() { try { return JSON.parse(localStorage.getItem('ridd_rpt_branch_renames') || '{}') || {}; } catch { return {}; } }
+function setReportingBranchRename(from, to) { try { const m = reportingBranchRenames(); if (to && to !== from) m[from] = to; else delete m[from]; localStorage.setItem('ridd_rpt_branch_renames', JSON.stringify(m)); } catch {} }
+function reportingAllBranches() { const s = new Set(); for (const r of (state.reportingSubscriptions || [])) { const o = (r.office_name || '').trim(); if (o) s.add(o); } return [...s].sort(); }
+function _reporting3dayRor(r) { if (!r.subscription_date_canceled || !r.sold_date) return false; const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000; return d >= 0 && d <= 3; }
+// Apply branch exclusions + renames to a row set (used by every reporting scope).
+function reportingApplyBranchRules(rows) {
+  const excl = reportingExcludedBranches();
+  const ren = reportingBranchRenames();
+  const hasRen = Object.keys(ren).length > 0;
+  if (!excl.size && !hasRen) return rows;
+  const out = [];
+  for (const r of rows) {
+    const o = (r.office_name || '').trim();
+    if (excl.has(o)) continue;
+    out.push(hasRen && ren[o] ? { ...r, office_name: ren[o] } : r);
+  }
+  return out;
+}
+
 // Given the active-test, return the ACTIVE subs that data-hygiene says are
 // probably stale and should be closed, each stamped with a _flagReason:
 //   • retired service, still Active                → "Retired service"
@@ -24086,7 +24126,9 @@ function reportingFilters() {
   // guess) — see reportingServiceRecurringMap. This means even a $0-ARV
   // row (e.g. a frozen month) of a recurring service still counts recurring.
   const recurringByName = reportingServiceRecurringMap();
-  const isRecurring = (r) => !!recurringByName.get(r.subscription);
+  const isRecurring = (r) => reportingRecurringMode() === 'arv'
+    ? (Number(r.annual_recurring_value) || 0) > 0
+    : !!recurringByName.get(r.subscription);
   // Active = currently in service. Both the status field and the cancel
   // date have to agree — a row with status=Active but a cancel date is
   // a frozen/lapsed sub, not active.
@@ -24101,10 +24143,11 @@ function reportingFilters() {
   const isRealCancel = (r) => {
     if (!r.subscription_date_canceled) return false;
     if (!isRecurring(r)) return false;
+    if (reportingExcludeRorChurn() && _reporting3dayRor(r)) return false;
     if (excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))) return false;
     return true;
   };
-  const all = state.reportingSubscriptions || [];
+  const all = reportingApplyBranchRules(state.reportingSubscriptions || []);
   // `visible` is the master set every snapshot-based tab reads from. It drops
   // Hidden service types AND subs from excluded lead sources (Configurations),
   // so a source like Miscellaneous falls out of all reporting at once.
@@ -24616,13 +24659,16 @@ function reportingOfficeList(rows) {
 // Pulling this into a helper means single-mode and compare-mode call the
 // exact same code path — no risk of one going stale relative to the other.
 function reportingChartData(scopeRows, serviceConfig) {
+  scopeRows = reportingApplyBranchRules(scopeRows); // branch excludes + renames
   const cfgByName = new Map((serviceConfig || []).map(c => [c.service_name, c]));
   // Recurring is decided per SERVICE TYPE (admin override in Configurations,
   // else "any row of this service has ARV > 0"). See
   // reportingServiceRecurringMap — this is why a frozen recurring sub still
   // classifies as recurring instead of falling into "Other active".
   const recurringByName = reportingServiceRecurringMap();
-  const isRecurring = (r) => !!recurringByName.get(r.subscription);
+  const isRecurring = (r) => reportingRecurringMode() === 'arv'
+    ? (Number(r.annual_recurring_value) || 0) > 0
+    : !!recurringByName.get(r.subscription);
   const isActive = (r) => {
     const s = (r.subscription_status || '').toLowerCase();
     return s === 'active' && !r.subscription_date_canceled;
@@ -24634,6 +24680,7 @@ function reportingChartData(scopeRows, serviceConfig) {
   const isRealCancel = (r) => {
     if (!r.subscription_date_canceled) return false;
     if (!isRecurring(r)) return false;
+    if (reportingExcludeRorChurn() && _reporting3dayRor(r)) return false;
     if (excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))) return false;
     return true;
   };
@@ -24747,6 +24794,7 @@ function reportingChartData(scopeRows, serviceConfig) {
       subs:             scopeRows.length,
       recurring:        recurringRows.length,
       activeRecurring:  activeRecurring.length,
+      activeSubs:       activeSubs.length,
       activeArr,
       uniqueCustomers:  new Set(scopeRows.map(r => r.customer_id).filter(Boolean)).size,
       distinctServices: new Set(scopeRows.map(r => r.subscription).filter(Boolean)).size,
@@ -25022,10 +25070,10 @@ function reportingMethodologyBar() {
   }, txt);
 
   return el('div', { class: 'card p-2.5 flex items-center gap-x-2.5 gap-y-1 flex-wrap text-[11px]', style: { background: 'var(--card-2)' } },
-    el('span', { class: 'font-bold', style: { color: 'var(--text)' } }, '📊 How this is calculated'),
+    el('span', { class: 'font-bold', style: { color: 'var(--text)' } }, 'How this is calculated'),
     u && el('span', { style: { color: 'var(--text-muted)' } },
       'Snapshot: ' + (u.filename || 'upload') + ' · ' + (u.row_count || 0).toLocaleString() + ' subs'),
-    chip('Recurring = Lifecycle config'),
+    chip('Recurring = ' + (reportingRecurringMode() === 'arv' ? 'data-driven (ARV > $0)' : 'Lifecycle config')),
     chip(hidden + ' hidden'),
     chip(srcExcl + ' source' + (srcExcl === 1 ? '' : 's') + ' excluded'),
     chip(reaExcl + ' cancel reason' + (reaExcl === 1 ? '' : 's') + ' excluded'),
@@ -25532,7 +25580,7 @@ function reportingOverview() {
   };
   const COLUMN_CARDS = [
     { key: 'subs',      label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartIds: ['sources', 'agreement', 'onetimeSubs', 'retiredSubs'] },
-    { key: 'active',    label: 'Subscriptions Active',    value: dataA.stats.activeRecurring.toLocaleString(),               sub: 'currently in service',                                              chartIds: ['activesubs'] },
+    { key: 'active',    label: 'Subscriptions Active',    value: (reportingActiveInclOneTime() ? dataA.stats.activeSubs : dataA.stats.activeRecurring).toLocaleString(), sub: reportingActiveInclOneTime() ? 'currently in service · incl. one-time' : 'currently in service · recurring', chartIds: ['activesubs'] },
     { key: 'customers', label: 'Customers Active',        value: dataA.stats.uniqueCustomers.toLocaleString(),               sub: dataA.stats.distinctServices + ' distinct services',                 chartIds: ['customers', 'tenure'] },
     { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice', 'serviced', 'onetimeRev'] },
     { key: 'cancels',   label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging', 'pastdue'] },
@@ -28555,7 +28603,7 @@ function viewAdmin() {
     onmouseenter: (e) => { if (state.adminSection !== k) e.currentTarget.style.background = 'var(--bg-subtle)'; },
     onmouseleave: (e) => { if (state.adminSection !== k) e.currentTarget.style.background = 'transparent'; },
     onclick: () => { state.adminSection = k; mountApp(); },
-  }, el('span', { class: 'text-base' }, icon), el('span', {}, label));
+  }, el('span', {}, label));
 
   const sidebar = el('aside', { class: 'rounded-2xl p-2 flex flex-col gap-1 shrink-0', style: { background: 'var(--card)', border: '1px solid var(--border)', width: '220px' } },
     ...groups.flatMap((g, gi) => [
@@ -28603,22 +28651,85 @@ function adminConfigurations() {
     });
   }
 
+  const recurMode = reportingRecurringMode();
+  const modeBtn = (k, label, desc) => el('button', {
+    class: 'flex-1 text-left rounded-lg px-3 py-2 border transition cursor-pointer',
+    style: recurMode === k
+      ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+      : { background: 'var(--card)', color: 'var(--text)', borderColor: 'var(--border-2)' },
+    onclick: () => { setReportingRecurringMode(k); mountApp(); },
+  },
+    el('div', { class: 'text-sm font-bold' }, label),
+    el('div', { class: 'text-[11px] mt-0.5', style: { opacity: '.85' } }, desc));
+  const defRow = (term, def) => el('div', { class: 'flex gap-3 text-xs' },
+    el('div', { class: 'font-semibold shrink-0', style: { color: 'var(--text)', width: '132px' } }, term),
+    el('div', { class: 'text-muted- leading-relaxed' }, def));
+
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', {},
       el('h2', { class: 'text-lg font-bold' }, 'Configurations'),
       el('p', { class: 'text-xs text-muted- mt-0.5' },
-        'Service lifecycle, lead sources, and cancel-reason rules. These apply to both the Reporting and Indicators tabs.'),
+        'Everything that decides how the dashboards count revenue, churn, and retention — in one place. These rules apply across Reporting and Indicators.'),
     ),
-    // Revenue rules explainer — how the three dimensions combine into a single
-    // app-wide definition of how revenue is counted.
-    el('div', { class: 'card p-3', style: { background: 'var(--card-2)' } },
-      el('div', { class: 'text-[11px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-subtle)' } }, 'How revenue is counted'),
-      el('div', { class: 'text-xs text-muted- leading-relaxed' },
-        'Three dimensions decide how every sale is counted, the same way everywhere: ',
-        el('b', {}, 'Rep type'), ' (Sold By Type from the Customer Report — Marketing/Inside Sales counts Office Staff only); ',
-        el('b', {}, 'Source'), ' (Revenue Type below — New, Renewal, or Upsell; renewals are excluded from new-business pace); and ',
-        el('b', {}, 'Cancellation reason'), ' (whether a cancel counts as real attrition). Set Source and Cancellation rules here; rep type comes straight from the report.'),
+    // Plain-English breakdown of how every reporting number is built.
+    el('div', { class: 'card p-4', style: { background: 'var(--card-2)' } },
+      el('div', { class: 'text-[11px] uppercase tracking-widest font-semibold mb-2', style: { color: 'var(--text-subtle)' } }, 'How reporting works'),
+      el('div', { class: 'flex flex-col gap-1.5' },
+        defRow('Data source', 'A live mirror of FieldRoutes (RevHawk), re-synced automatically every evening — no manual uploads.'),
+        defRow('Active', 'Subscription status is Active AND it has no cancel date. (Active status with a cancel date = a lapsed / frozen sub, not active.)'),
+        defRow('Recurring', 'Decided by the Recurring basis setting below — each sub’s annual recurring value, or the manual Service-Type list.'),
+        defRow('Active ARR', 'Sum of annual recurring value across active, recurring subs. One-time services contribute $0 by nature.'),
+        defRow('Active customers', 'Distinct customers with at least one active subscription.'),
+        defRow('Cancelled', 'A recurring sub with a real cancel. Excludes one-time services, the cancel reasons excluded below, and 3-day RORs / sold-not-started (buyer’s remorse, not attrition).'),
+        defRow('Marketing / IS', 'Counts Office-Staff-sold accounts only (rep type comes straight from the report); Renewal sources are excluded from new-business pace.'),
+        defRow('Three rules', 'Service lifecycle, excluded Sources, and excluded Cancel reasons — set in the panels below.'),
+      ),
     ),
+    // Recurring basis — the single biggest accuracy lever.
+    el('div', { class: 'card p-4' },
+      el('div', { class: 'flex items-center justify-between mb-2 flex-wrap gap-1' },
+        el('div', { class: 'text-sm font-bold' }, 'Recurring revenue basis'),
+        el('div', { class: 'text-[11px] text-muted-' }, 'Drives ARR · churn · retention')),
+      el('div', { class: 'text-xs text-muted- mb-2.5 leading-relaxed' },
+        'How the app decides which subscriptions are recurring. ',
+        el('b', {}, 'Data-driven'), ' reads each sub’s annual recurring value straight from FieldRoutes — self-maintaining and recommended for accuracy. ',
+        el('b', {}, 'Lifecycle config'), ' uses the manual Service Types list, which can drift as new plans appear.'),
+      el('div', { class: 'flex gap-2 flex-wrap' },
+        modeBtn('arv', 'Data-driven (ARV > $0)', 'Recurring iff annual recurring value > $0 · recommended'),
+        modeBtn('lifecycle', 'Lifecycle config', 'Recurring iff the Service Type is marked recurring')),
+    ),
+    // ── Reporting rules — fine-grained levers ──
+    (() => {
+      const sw = (on) => el('div', { style: { width: '38px', height: '22px', borderRadius: '11px', background: on ? 'var(--accent)' : 'var(--border-2)', position: 'relative', flex: 'none' } },
+        el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)' } }));
+      const toggleRow = (label, desc, on, onToggle) => el('div', { class: 'flex items-center justify-between gap-3 cursor-pointer py-1', onclick: onToggle },
+        el('div', {}, el('div', { class: 'text-sm font-semibold' }, label), el('div', { class: 'text-[11px] text-muted-' }, desc)), sw(on));
+      const rule = () => el('div', { style: { borderTop: '1px solid var(--border)' } });
+      const branches = reportingAllBranches();
+      const excl = reportingExcludedBranches();
+      const renames = reportingBranchRenames();
+      return el('div', { class: 'card p-4 flex flex-col gap-2.5' },
+        el('div', { class: 'text-sm font-bold' }, 'Reporting rules'),
+        el('div', { class: 'flex items-center justify-between gap-3 py-1' },
+          el('div', {}, el('div', { class: 'text-sm font-semibold' }, 'Aging threshold'), el('div', { class: 'text-[11px] text-muted-' }, 'Days past due before a sub counts as aging / at-risk.')),
+          el('input', { type: 'number', min: '0', value: String(reportingAgingDays()), style: { width: '70px', textAlign: 'right' }, onchange: (e) => { setReportingAgingDays(e.target.value); mountApp(); } })),
+        rule(),
+        toggleRow('Active includes one-time', 'Count one-time active subs in “Subscriptions Active” (otherwise recurring only).', reportingActiveInclOneTime(), () => { setReportingActiveInclOneTime(!reportingActiveInclOneTime()); mountApp(); }),
+        rule(),
+        toggleRow('Exclude 3-day RORs from churn', 'Drop subs cancelled within 3 days of the sale (buyer’s remorse) from cancellation / attrition.', reportingExcludeRorChurn(), () => { setReportingExcludeRorChurn(!reportingExcludeRorChurn()); mountApp(); }),
+        rule(),
+        el('div', {},
+          el('div', { class: 'text-sm font-semibold mb-0.5' }, 'Branches'),
+          el('div', { class: 'text-[11px] text-muted- mb-2' }, 'Untick to drop a branch from all company reporting. Type in the box to rename it (blank keeps the original).'),
+          branches.length
+            ? el('div', { class: 'flex flex-col gap-1.5' },
+                ...branches.map(b => el('div', { class: 'flex items-center gap-2' },
+                  el('input', { type: 'checkbox', checked: !excl.has(b), onchange: (e) => { const s = reportingExcludedBranches(); if (e.target.checked) s.delete(b); else s.add(b); setReportingExcludedBranches(s); mountApp(); } }),
+                  el('span', { class: 'text-xs', style: { width: '150px' } }, b),
+                  el('input', { type: 'text', placeholder: 'rename…', value: renames[b] || '', style: { flex: '1', maxWidth: '200px' }, onchange: (e) => { setReportingBranchRename(b, e.target.value.trim()); mountApp(); } }))))
+            : el('div', { class: 'text-xs text-muted-' }, 'No branches loaded yet — open Reporting once so the snapshot loads, then come back.')),
+      );
+    })(),
     el('div', { class: 'flex flex-col gap-4' },
       reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()),
   );
