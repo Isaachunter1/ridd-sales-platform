@@ -134,25 +134,43 @@ WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''`;
 // employeeID otherwise) — while keeping every office + employeeID for later
 // sales reconciliation. type/active/last_login are consistent across a person's
 // rows; MAX picks a stable representative.
+// Dedupe each person's per-office rows into ONE roster entry. Key = email when
+// present, else full name (people without an email — like office staff — still
+// collapse). For each scalar field we take the value from the MOST RECENTLY
+// UPDATED record (so phone/email reflect the latest edit, not an arbitrary or
+// stale office copy); offices + employeeIDs are aggregated across all rows.
 const EMP_SQL = `
+WITH base AS (
+  SELECT
+    COALESCE(LOWER(NULLIF(fieldRoutes_email,'')),
+             LOWER(TRIM(CONCAT(COALESCE(fieldRoutes_fname,''),' ',COALESCE(fieldRoutes_lname,''))))) AS person_key,
+    SAFE_CAST(fieldRoutes_employeeID AS INT64) AS id_num,
+    fieldRoutes_dateUpdated AS date_updated,
+    fieldRoutes_employeeID AS employee_id,
+    fieldRoutes_fname AS fname, fieldRoutes_lname AS lname, fieldRoutes_nickname AS nickname,
+    fieldRoutes_username AS username, fieldRoutes_email AS email, fieldRoutes_phone AS phone,
+    fieldRoutes_officeID AS office_id, fieldRoutes_type AS type,
+    fieldRoutes_active AS active, fieldRoutes_lastLogin AS last_login
+  FROM \`${PROJECT}.${DATASET}.FieldRoutesEmployee\`
+  WHERE fieldRoutes_employeeID IS NOT NULL AND fieldRoutes_employeeID != ''
+    AND (fieldRoutes_active = '1' OR LOWER(fieldRoutes_active) = 'true')
+)
 SELECT
-  ANY_VALUE(fieldRoutes_employeeID)                AS employee_id,
-  ANY_VALUE(fieldRoutes_fname)                     AS fname,
-  ANY_VALUE(fieldRoutes_lname)                     AS lname,
-  ANY_VALUE(fieldRoutes_nickname)                  AS nickname,
-  ANY_VALUE(NULLIF(fieldRoutes_username,''))       AS username,
-  ANY_VALUE(NULLIF(fieldRoutes_email,''))          AS email,
-  ANY_VALUE(NULLIF(fieldRoutes_phone,''))          AS phone,
-  ANY_VALUE(fieldRoutes_officeID)                  AS office_id,
-  STRING_AGG(DISTINCT fieldRoutes_officeID,   ',') AS office_ids,
-  STRING_AGG(DISTINCT fieldRoutes_employeeID, ',') AS employee_ids,
-  MAX(fieldRoutes_type)                            AS type,
-  MAX(fieldRoutes_active)                          AS active,
-  MAX(fieldRoutes_lastLogin)                       AS last_login
-FROM \`${PROJECT}.${DATASET}.FieldRoutesEmployee\`
-WHERE fieldRoutes_employeeID IS NOT NULL AND fieldRoutes_employeeID != ''
-  AND (fieldRoutes_active = '1' OR LOWER(fieldRoutes_active) = 'true')
-GROUP BY COALESCE(LOWER(NULLIF(fieldRoutes_email,'')), fieldRoutes_employeeID)`;
+  CAST(MAX(id_num) AS STRING)                                                                         AS employee_id,
+  ARRAY_AGG(NULLIF(fname,'')     IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS fname,
+  ARRAY_AGG(NULLIF(lname,'')     IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS lname,
+  ARRAY_AGG(NULLIF(nickname,'')  IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS nickname,
+  ARRAY_AGG(NULLIF(username,'')  IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS username,
+  ARRAY_AGG(NULLIF(email,'')     IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS email,
+  ARRAY_AGG(NULLIF(phone,'')     IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS phone,
+  ARRAY_AGG(NULLIF(office_id,'') IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS office_id,
+  STRING_AGG(DISTINCT office_id,   ',')                                                               AS office_ids,
+  STRING_AGG(DISTINCT employee_id, ',')                                                               AS employee_ids,
+  ARRAY_AGG(NULLIF(type,'')      IGNORE NULLS ORDER BY date_updated DESC, id_num DESC LIMIT 1)[SAFE_OFFSET(0)] AS type,
+  MAX(active)                                                                                         AS active,
+  MAX(NULLIF(last_login,''))                                                                          AS last_login
+FROM base
+GROUP BY person_key`;
 
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
