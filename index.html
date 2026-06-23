@@ -3535,27 +3535,16 @@ function mountApp() {
     state.view === 'sales' ? buildSearchBar() : el('div', { class: 'flex-1' }),
     el('div', { class: 'flex items-center gap-2' },
       // TV Display button — opens a fullscreen sales leaderboard meant
-      // for a wall-mounted TV.
-      el('button', {
+      // for a wall-mounted TV. Only shown inside the Inside Sales tab.
+      INSIDE_SALES_TAB_KEYS.has(state.view) && el('button', {
         class: 'icon-btn show desktop-only',
         title: 'TV Display — fullscreen sales leaderboard',
         onclick: () => openTVDashboard(),
       }, iconTv(18)),
-      // RevHawk sync (admin-only) — one click pulls a fresh snapshot from the
-      // live CRM mirror and rebuilds BOTH Reporting and Indicators. Spins while
-      // the round-trip is in flight (~1 min). The nightly auto-sync still runs;
-      // this is the manual "I need it now" refresh.
-      isAdmin && el('button', {
-        class: 'icon-btn show' + (state._revhawkSyncing ? ' icon-spin' : ''),
-        title: state._revhawkSyncing ? 'Syncing…' : 'Sync — RevHawk (Reporting + Indicators) & QuickBooks',
-        disabled: !!state._revhawkSyncing,
-        onclick: (e) => syncFromRevHawk(e.currentTarget),
-      }, iconSync(18)),
-      // Coach Mode icon (admin-only) — opens the panel of reps flagged
-      // for attention. Badge surfaces the current high+med flag count
-      // so the manager has an at-a-glance "how many reps need me?"
-      // signal without having to navigate to the indicators page.
-      isAdmin && (() => {
+      // Coach Mode icon (admin-only) — opens the panel of reps flagged for
+      // attention. Only shown inside the Indicators tab. Badge surfaces the
+      // current high+med flag count for an at-a-glance "how many reps need me?".
+      isAdmin && state.view === 'indicators' && (() => {
         const flagCount = (typeof computeCoachFlags === 'function') ? computeCoachFlags().length : 0;
         const btn = el('button', {
           class: 'icon-btn show',
@@ -3608,6 +3597,15 @@ function mountApp() {
         onclick: toggleTheme,
         title: state.theme === 'light' ? 'Switch to dark' : 'Switch to light',
       }, state.theme === 'light' ? iconMoon(18) : iconSun(18)),
+      // RevHawk sync (admin-only) — manual "pull fresh now" refresh, sits just
+      // left of Settings. Spins while the ~1-min round-trip is in flight; the
+      // nightly auto-sync still runs on its own.
+      isAdmin && el('button', {
+        class: 'icon-btn show' + (state._revhawkSyncing ? ' icon-spin' : ''),
+        title: state._revhawkSyncing ? 'Syncing…' : 'Sync — RevHawk (Reporting + Indicators) & QuickBooks',
+        disabled: !!state._revhawkSyncing,
+        onclick: (e) => syncFromRevHawk(e.currentTarget),
+      }, iconSync(18)),
       isAdmin && el('button', {
         class: 'icon-btn show',
         onclick: () => { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); },
