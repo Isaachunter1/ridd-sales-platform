@@ -14643,15 +14643,10 @@ function manageTeamsPanel(opts) {
         { value: 'active', label: 'Active · ' + activeCounts.active },
         { value: 'inactive', label: 'Inactive · ' + activeCounts.inactive },
       ], (v) => { state._indicatorManageActiveFilter = v; render(); }),
-      mkFilter('Rep Type', typeSelect, [
-        { value: '', label: 'All' },
-        ...repTypesPresent.map(t => ({ value: t, label: t + ' · ' + (typeCounts[t] || 0) })),
-      ], (v) => { state._indicatorManageTypeFilter = v; render(); }),
       mkFilter('Branch', branchSelect, [
         { value: '', label: 'All' },
         ...branchesPresent.map(b => ({ value: b, label: titleCase(b) + ' · ' + branchCounts[b] })),
       ], (v) => { state._indicatorManageBranchFilter = v; render(); }),
-      !hasTypeData ? el('span', { class: 'text-[10px] text-muted- italic' }, 'Upload a Customer Report to populate rep types') : null,
     );
 
     card.innerHTML = '';
