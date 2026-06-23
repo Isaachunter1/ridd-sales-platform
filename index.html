@@ -29607,8 +29607,8 @@ function adminConfigurations() {
         el('b', {}, 'Data-driven'), ' reads each sub’s annual recurring value straight from FieldRoutes — self-maintaining and recommended for accuracy. ',
         el('b', {}, 'Lifecycle config'), ' uses the manual Service Types list, which can drift as new plans appear.'),
       el('div', { class: 'flex gap-2 flex-wrap' },
-        modeBtn('arv', 'Data-driven (ARV > $0)', 'Recurring iff annual recurring value > $0 · recommended'),
-        modeBtn('lifecycle', 'Lifecycle config', 'Recurring iff the Service Type is marked recurring')),
+        modeBtn('arv', 'Data-driven (ARV > $0)', 'Recurring if annual recurring value > $0 · recommended'),
+        modeBtn('lifecycle', 'Lifecycle config', 'Recurring if the Service Type is marked recurring')),
     ),
     // ── Reporting rules — fine-grained levers ──
     (() => {
