@@ -26876,9 +26876,53 @@ function reportingRefreshGhlLeads() {
   reportingLoadGhlLeads();
 }
 
+// At-a-glance inside-sales acquisition efficiency for the current year:
+// marketing spend (live QuickBooks or snapshot) vs. office-staff committed-sold
+// accounts and their new ARR → blended CAC and CAC-as-%-of-ARR. Uses the same
+// filters as the Inside Sales grid so the numbers reconcile.
+function reportingIsEfficiencyCard() {
+  const SP = state.reportingIsSpend || {};
+  const rows = state.reportingSubscriptions || [];
+  const yr = String(new Date().getFullYear());
+  const isExcl = (typeof reportingExcludedSources === 'function') ? reportingExcludedSources() : new Set();
+  let spend = 0;
+  for (const ym in SP) { if (ym.slice(0, 4) === yr) for (const ch in SP[ym]) spend += SP[ym][ch] || 0; }
+  let accounts = 0, arr = 0;
+  for (const r of rows) {
+    const sd = r.sold_date; if (!sd || sd.slice(0, 4) !== yr) continue;
+    const src = (r.subscription_source || '').trim();
+    if (isExcl.has(src || 'Unspecified')) continue;
+    if (reportingSourceClass(src) === 'renewal') continue;
+    if (!reportingIsOfficeStaff(r)) continue;
+    if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue;
+    accounts++; arr += Number(r.annual_recurring_value) || 0;
+  }
+  const cac = accounts ? spend / accounts : 0;
+  const arvPer = accounts ? arr / accounts : 0;
+  const ratio = arr > 0 ? spend / arr : 0;
+  const usd0 = (n) => '$' + Math.round(n).toLocaleString();
+  const kpi = (label, val, sub) => el('div', { class: 'flex-1 min-w-[130px]' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-0.5' }, label),
+    el('div', { class: 'text-xl font-black tabular-nums' }, val),
+    sub ? el('div', { class: 'text-[11px] text-muted- mt-0.5' }, sub) : null);
+  return el('div', { class: 'card p-4' },
+    el('div', { class: 'flex items-center justify-between mb-3 flex-wrap gap-1' },
+      el('h3', { class: 'text-base font-bold' }, 'Inside Sales — Acquisition Efficiency · ' + yr + ' YTD'),
+      el('span', { class: 'text-[11px] text-muted-' }, 'Spend: ' + (state._isSpendSource === 'QuickBooks' ? 'live QuickBooks' : 'snapshot') + ' · accounts: office-staff committed-sold (renewals excluded)')),
+    el('div', { class: 'flex flex-wrap gap-4' },
+      kpi('Marketing Spend', usd0(spend)),
+      kpi('IS Accounts', accounts.toLocaleString()),
+      kpi('New ARR', usd0(arr)),
+      kpi('Blended CAC', usd0(cac), 'spend ÷ accounts'),
+      kpi('Avg ARV / acct', usd0(arvPer)),
+      kpi('CAC : ARV', accounts ? (ratio * 100).toFixed(0) + '%' : '—', 'spend as % of new ARR')),
+  );
+}
+
 function reportingMarketingPnl() {
   reportingLoadGhlLeads();
   return el('div', { class: 'flex flex-col gap-4' },
+    reportingIsEfficiencyCard(),
     reportingIsPacer(),
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4' },
       reportingMktgSpendRevChart(),
