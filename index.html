@@ -13785,10 +13785,30 @@ function manageTeamsPanel(opts) {
       const d = _parseIndicatorDay(s);
       return d && d.getFullYear() === teamYear;
     }).map(s => s.rep).filter(Boolean);
-    const reps = [...new Set([
-      ...d2dRepsThisYear,
-      ...Object.keys(state._indicatorRepTeam || {}),
-    ])].sort();
+    // Also pull D2D sellers for this year straight from the CRM sync
+    // (FieldRoutes), mapped to their CRM employee name. The uploaded indicator
+    // CSV can be a partial window, so this fills in everyone who actually sold
+    // that year per the live data. Matched by name signature so we only ADD
+    // reps the CSV/assignments don't already cover (no duplicates, and existing
+    // team/tier assignments under their current name are preserved).
+    const _rosterSig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+    const _empByIdRoster = new Map((state.frRoster || []).map(e => [String(e.employee_id), e]));
+    const baseReps = [...d2dRepsThisYear, ...Object.keys(state._indicatorRepTeam || {})];
+    const haveSig = new Set(baseReps.map(_rosterSig));
+    const crmExtra = [];
+    (state.reportingSubscriptions || []).forEach(r => {
+      const sd = Date.parse(r.sold_date || String(r.sold_at || '').slice(0, 10));
+      if (isNaN(sd) || new Date(sd).getFullYear() !== teamYear) return;
+      const src = (typeof reportingSourceOf === 'function') ? reportingSourceOf(r) : (r.source || '');
+      if (!/door/i.test(String(src))) return;  // D2D sellers only
+      const e = _empByIdRoster.get(String(r.sold_by_id || '').trim());
+      const nm = e ? _frEmpName(e) : '';
+      if (!nm) return;
+      const s = _rosterSig(nm);
+      if (haveSig.has(s)) return;
+      haveSig.add(s); crmExtra.push(nm);
+    });
+    const reps = [...new Set([...baseReps, ...crmExtra])].sort();
     const teams = distinctTeamsForYear(teamYear);
 
     // Rep TYPE — cross-referenced from the Customer Report uploaded on the
@@ -14768,7 +14788,7 @@ function manageTeamsPanel(opts) {
   // refresh), pull them in the background so the Rep Type column can populate
   // without the user having to visit the Reporting tab first.
   if (!(state.reportingSubscriptions || []).length && state.reportingActiveUploadId
-      && typeof loadReportingSubscriptions === 'function' && !state._indicatorRepTypeBySig) {
+      && typeof loadReportingSubscriptions === 'function') {
     loadReportingSubscriptions(state.reportingActiveUploadId).then(rows => {
       if (!rows || !rows.length || (overlay && !overlay.isConnected) || !card.isConnected) return;
       state.reportingSubscriptions = rows;
