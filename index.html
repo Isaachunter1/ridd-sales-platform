@@ -26751,9 +26751,10 @@ function reportingIsPacer() {
   const now = new Date(), yr = now.getFullYear(), curM = now.getMonth();
   const NA = -999999;
   const isExcl = reportingExcludedSources();
-  // Actual = total CONTRACT VALUE of NEW sales, Office-Staff (inside sales) only.
-  // Excludes renewals, upsells, and Sales-Rep (Door-to-Door) accounts; counts
-  // ALL new sales (no committed/auto-pay gate). Bucketed by sold date.
+  // Actual = total CONTRACT VALUE of NEW Office-Staff (inside sales) sales whose
+  // initial is PENDING or SERVICED. Excludes renewals, upsells, Sales-Rep (D2D)
+  // accounts, and sold-not-started / cancelled-before-initial deadwood.
+  // Bucketed by sold date.
   const act = Array(12).fill(0);
   for (const r of rows) {
     const sd = r.sold_date; if (!sd || !String(sd).startsWith(yr + '-')) continue;
@@ -26761,6 +26762,7 @@ function reportingIsPacer() {
     if (isExcl.has(src || 'Unspecified')) continue;
     if (reportingSourceClass(src) !== 'new') continue;      // NEW only — exclude renewals AND upsells
     if (!reportingIsOfficeStaff(r)) continue;               // Office Staff (rep type) only — excludes Sales Reps
+    if (!r.initial_service && r.subscription_date_canceled) continue;  // pending or serviced initial only (drop sold-not-started / cancelled-before-initial)
     act[Number(String(sd).slice(5, 7)) - 1] += Number(r.subscription_contract_value) || 0;
   }
   // Annual goal: whatever's in the box (persisted locally), else the model goal.
@@ -26816,7 +26818,7 @@ function reportingIsPacer() {
     el('div', { class: 'flex items-start justify-between gap-2 flex-wrap mb-3' },
       el('div', {},
         el('h3', { class: 'text-base font-bold mb-1' }, 'Inside Sales Pacer'),
-        el('div', { class: 'text-[11px] text-muted-' }, 'New Office-Staff contract value vs goal · all new sales (renewals, upsells & Sales Reps excluded) · monthly goal = your Projected Revenue cells, else seasonal curve × annual goal')),
+        el('div', { class: 'text-[11px] text-muted-' }, 'New Office-Staff contract value vs goal · pending or serviced initials only (renewals, upsells, Sales Reps & sold-not-started excluded) · monthly goal = your Projected Revenue cells, else seasonal curve × annual goal')),
       el('div', { class: 'flex items-center gap-2' },
         el('span', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-subtle)' } }, 'Annual goal $'), goalInput)),
     el('div', { class: 'flex gap-4 flex-wrap mb-3' },
