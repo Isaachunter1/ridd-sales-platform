@@ -13838,6 +13838,9 @@ function manageTeamsPanel(opts) {
     // Rep-type filter — '' = all, else a "Sold By Type" value from the
     // Customer Report (Sales Rep / Office Staff / Technician / Unknown).
     const typeSelect = state._indicatorManageTypeFilter || '';
+    // Branch filter — '' = all, else a primary-office name. Lets the admin
+    // view the roster one branch at a time.
+    const branchSelect = state._indicatorManageBranchFilter || '';
 
     // Counts per team for the summary chips. Aliased (merged-into-
     // another-rep) reps are excluded so the chip counts reflect unique
@@ -13891,6 +13894,12 @@ function manageTeamsPanel(opts) {
     };
     const titleCase = (s) => (s || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 
+    // Per-branch counts for the Branch filter chips (alias rows excluded,
+    // matching the other chip rows). Branch = the rep's primary office.
+    const branchCounts = {};
+    reps.forEach(r => { if (isAlias(r)) return; const b = primaryOffice(r) || '(no branch)'; branchCounts[b] = (branchCounts[b] || 0) + 1; });
+    const branchesPresent = Object.keys(branchCounts).sort();
+
     let filteredReps = reps;
     if (teamSelect) {
       filteredReps = filteredReps.filter(r => {
@@ -13912,6 +13921,9 @@ function manageTeamsPanel(opts) {
     }
     if (typeSelect) {
       filteredReps = filteredReps.filter(r => repTypeOf(r) === typeSelect);
+    }
+    if (branchSelect) {
+      filteredReps = filteredReps.filter(r => (primaryOffice(r) || '(no branch)') === branchSelect);
     }
     // NOTE: the search box is applied client-side (show/hide rows) so typing
     // never triggers a full re-render — see applyRepSearch() below.
@@ -14123,6 +14135,30 @@ function manageTeamsPanel(opts) {
       !hasTypeData
         ? el('span', { class: 'text-[10px] text-muted- italic ml-1' }, 'Open the Reporting tab (or upload a Customer Report) to populate rep types')
         : null,
+    );
+
+    // ── Branch chips — filter the roster by the rep's primary office ──
+    const branchChip = (b) => {
+      const isOn = branchSelect === b;
+      const color = BRANCH_COLORS[String(b).toUpperCase()] || '#6B7280';
+      return el('button', {
+        class: 'rounded-full text-[11px] font-semibold cursor-pointer transition hover:brightness-95 inline-flex items-center gap-1.5 px-2.5 py-0.5',
+        style: isOn
+          ? { background: color, color: '#fff', boxShadow: '0 0 0 2px var(--accent)' }
+          : { background: 'transparent', color: color, border: '1px solid ' + color },
+        onclick: () => { state._indicatorManageBranchFilter = isOn ? '' : b; render(); },
+      }, titleCase(b) + ' · ' + (branchCounts[b] || 0));
+    };
+    const branchChips = el('div', { class: 'px-5 py-2 border-b flex flex-wrap gap-1.5 items-center', style: { borderColor: 'var(--border)' } },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold mr-1', style: { color: 'var(--text-muted)' } }, 'Branch'),
+      el('button', {
+        class: 'rounded-full px-2.5 py-0.5 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
+        style: !branchSelect
+          ? { background: 'var(--text)', color: 'var(--card)', boxShadow: '0 0 0 2px var(--accent)' }
+          : { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border-2)' },
+        onclick: () => { state._indicatorManageBranchFilter = ''; render(); },
+      }, 'All · ' + reps.length),
+      ...branchesPresent.map(branchChip),
     );
 
     // ── Possible duplicates ──
@@ -14575,7 +14611,7 @@ function manageTeamsPanel(opts) {
 
     card.innerHTML = '';
     card.append(
-      header, addBar, teamChips, tierChips, activeChips, typeChips,
+      header, addBar, teamChips, tierChips, activeChips, typeChips, branchChips,
       ...(dupesPanel ? [dupesPanel] : []),
       ...(detailPanel ? [detailPanel] : []),
       searchInput, repList,
@@ -32208,12 +32244,30 @@ function adminReps() {
     return [el('td', { class: 'px-3 py-3' }, teamSel), el('td', { class: 'px-3 py-3' }, tierSel)];
   };
 
+  // Avatar that opens a photo picker on click (app users only) — saves straight
+  // from the table without opening the editor. Hover shows an accent ring + 📷.
+  const clickableAvatar = (p) => {
+    const wrap = el('button', {
+      class: 'relative shrink-0 cursor-pointer rounded-full',
+      title: 'Click to change photo',
+      style: { lineHeight: '0', borderRadius: '9999px', transition: 'box-shadow .12s' },
+      onmouseenter: (e) => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent)'; const b = e.currentTarget.querySelector('[data-cam]'); if (b) b.style.opacity = '1'; },
+      onmouseleave: (e) => { e.currentTarget.style.boxShadow = 'none'; const b = e.currentTarget.querySelector('[data-cam]'); if (b) b.style.opacity = '0'; },
+      onclick: (e) => { e.stopPropagation(); changeProfileAvatar(p); },
+    },
+      avatarNode(p.avatar_url, p.initials, 'w-9 h-9 text-[10px]'),
+      el('div', { 'data-cam': '1', class: 'absolute rounded-full flex items-center justify-center',
+        style: { bottom: '-2px', right: '-2px', width: '16px', height: '16px', background: '#1D1D1D', border: '2px solid var(--card)', opacity: '0', transition: 'opacity .12s' } },
+        el('span', { style: { color: '#F3F3F3', fontSize: '8px' } }, '📷')));
+    return wrap;
+  };
+
   const appRow = (x) => {
     const p = x.profile, active = x.active, fr = x.frEmp;
     return el('tr', { class: 'border-t border-' + (!active ? ' opacity-60' : '') },
       tdM(fr ? fr.employee_id : null),                                    // ID (CRM)
       el('td', { class: 'px-4 py-3' }, el('div', { class: 'flex items-center gap-3' },
-        avatarNode(p.avatar_url, p.initials, 'w-9 h-9 text-[10px]'),
+        clickableAvatar(p),
         el('div', {}, el('div', { class: 'font-semibold' }, p.full_name),
           fr && !p.fieldroutes_employee_id ? el('div', { class: 'text-[10px]', style: { color: 'var(--accent)' } }, '↔ match — confirm to link') : null))),
       tdM(fr ? fr.username : null),                                       // User ID (CRM username)
@@ -32305,6 +32359,53 @@ function adminReps() {
 // `prefill` lets "Add to app" from the FieldRoutes roster seed a NEW user with
 // the CRM's name/email/phone (+ the fieldroutes_employee_id link) so nothing is
 // re-typed. It only applies when existing == null.
+// Click-to-change avatar straight from the Users table — no need to open the
+// editor. Pops a file picker, center-crops to the same 80×80 JPEG thumbnail the
+// editor uses, persists to the profile, and re-renders. App users only (a
+// CRM-only person has no profiles row to save to yet).
+function changeProfileAvatar(p) {
+  if (!p || !p.id) return;
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/jpeg,image/png,image/gif,image/webp';
+  inp.style.display = 'none';
+  inp.onchange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) { inp.remove(); return; }
+    const img = new Image();
+    img.onload = async () => {
+      const SIZE = 80;
+      const canvas = document.createElement('canvas');
+      canvas.width = SIZE; canvas.height = SIZE;
+      const ctx = canvas.getContext('2d');
+      const min = Math.min(img.width, img.height);
+      const sx = (img.width - min) / 2, sy = (img.height - min) / 2;
+      ctx.drawImage(img, sx, sy, min, min, 0, 0, SIZE, SIZE);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.6); // ~3-8KB
+      URL.revokeObjectURL(img.src);
+      p.avatar_url = dataUrl;
+      if (state.profile && p.id === state.profile.id) state.profile.avatar_url = dataUrl;
+      if (typeof DEMO !== 'undefined' && DEMO) {
+        saveDemoData(); toast('Photo updated', 'success'); inp.remove(); mountApp(); return;
+      }
+      try {
+        const { error } = await supabase.from('profiles').update({ avatar_url: dataUrl }).eq('id', p.id);
+        if (error) throw error;
+        logActivity('user_edited', { detail: (p.full_name || 'user') + ' photo updated' });
+        toast('Photo updated', 'success');
+      } catch (err) {
+        console.warn('[ridd] avatar update failed', err);
+        toast('Photo save failed — ' + (err.message || err), 'error');
+      }
+      inp.remove();
+      mountApp();
+    };
+    img.src = URL.createObjectURL(file);
+  };
+  document.body.append(inp);
+  inp.click();
+}
+
 function openUserEditor(existing = null, prefill = null) {
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
