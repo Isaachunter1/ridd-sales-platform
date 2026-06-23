@@ -13887,9 +13887,13 @@ function manageTeamsPanel(opts) {
     // time (a rep who switches markets keeps their original housing office, but
     // that's the right read the large majority of the time). Built from the CRM
     // roster, which loads in the background below if it isn't in memory yet.
+    // office_name can be a comma-joined list when a rep is tied to several
+    // offices (regional managers, roaming reps). Take just the FIRST = their
+    // main/home branch, so the table shows a single branch per rep.
+    const _mainBranch = (off) => String(off || '').split(',')[0].trim();
     const _officeBySig = {};
     (state.frRoster || []).forEach(e => {
-      const off = e && e.office_name; if (!off) return;
+      const off = _mainBranch(e && e.office_name); if (!off) return;
       [(typeof _frEmpName === 'function') ? _frEmpName(e) : '', (typeof _frRealName === 'function') ? _frRealName(e) : '']
         .forEach(nm => { const s = _nameSig(nm); if (s && !_officeBySig[s]) _officeBySig[s] = off; });
     });
@@ -14667,9 +14671,68 @@ function manageTeamsPanel(opts) {
         : null,
     );
 
+    // ── Link names to FieldRoutes (CRM) ──────────────────────────────────
+    // Some reps are spelled differently in the sales data than in the CRM, so
+    // they don't auto-match (no branch, "Unknown" type). This finds those and
+    // lets the admin link each to the right CRM employee; linking renames the
+    // rep to the CRM spelling (via the existing alias/merge), so sales, team,
+    // tier, and branch all consolidate under the CRM name.
+    let crmLinkPanel = null;
+    if (Array.isArray(state.frRoster) && state.frRoster.length) {
+      const _toks = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean);
+      const crmSigSet = new Set();
+      const crmByToken = new Map();
+      state.frRoster.forEach(e => {
+        const names = [(typeof _frEmpName === 'function') ? _frEmpName(e) : '', (typeof _frRealName === 'function') ? _frRealName(e) : ''];
+        names.forEach(nm => { const s = _nameSig(nm); if (s) crmSigSet.add(s); });
+        new Set(names.flatMap(_toks)).forEach(t => { if (!crmByToken.has(t)) crmByToken.set(t, []); crmByToken.get(t).push(e); });
+      });
+      const appNames = new Set([
+        ...(state._indicatorRawSales || []).map(s => s.rep).filter(Boolean),
+        ...Object.keys(state._indicatorRepTier || {}),
+        ...Object.keys(state._indicatorRepOffice || {}),
+      ]);
+      _allTeamYearMaps().forEach(m => Object.keys(m).forEach(k => appNames.add(k)));
+      const candidatesFor = (rep) => {
+        const score = new Map();
+        _toks(rep).forEach(t => (crmByToken.get(t) || []).forEach(e => score.set(e, (score.get(e) || 0) + 1)));
+        return [...score.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e).slice(0, 8);
+      };
+      const unmatched = [...appNames].filter(n => n && !getRepAliasTarget(n) && !crmSigSet.has(_nameSig(n))).sort((a, b) => a.localeCompare(b));
+      const withCand = [], noCand = [];
+      unmatched.forEach(n => { (candidatesFor(n).length ? withCand : noCand).push(n); });
+      const open = !!state._indicatorCrmLinkOpen;
+      const empById = new Map(state.frRoster.map(e => [String(e.employee_id), e]));
+      const rowFor = (rep) => {
+        const cands = candidatesFor(rep);
+        const sel = el('select', { class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)', maxWidth: '260px' } },
+          ...cands.map((e, i) => el('option', { value: String(e.employee_id), selected: i === 0 }, _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : ''))));
+        return el('div', { class: 'flex items-center justify-between gap-3 px-5 py-2 border-b text-sm', style: { borderColor: 'var(--border)' } },
+          el('span', { class: 'font-medium truncate flex-1 min-w-0' }, rep),
+          el('div', { class: 'flex items-center gap-2 shrink-0' },
+            el('span', { class: 'text-[10px] text-muted-' }, '→'), sel,
+            el('button', { class: 'rounded-md px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+              onclick: () => { const e = empById.get(sel.value); if (e) { mergeDuplicateRep(rep, _frEmpName(e)); toast('Linked to ' + _frEmpName(e), 'success'); render(); } } }, 'Link')));
+      };
+      crmLinkPanel = el('div', { class: 'border-b', style: { borderColor: 'var(--border)', background: open ? 'rgba(13,148,136,.05)' : 'transparent' } },
+        el('button', { class: 'w-full flex items-center justify-between gap-2 px-5 py-2.5 cursor-pointer', style: { background: 'transparent' },
+          onclick: () => { state._indicatorCrmLinkOpen = !open; render(); } },
+          el('span', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: '#0D9488' } },
+            '🔗 Link names to CRM · ' + withCand.length + ' to review' + (noCand.length ? ' · ' + noCand.length + ' no match' : '')),
+          el('span', { class: 'text-[11px] text-muted-' }, open ? 'Hide ▲' : 'Show ▼')),
+        open ? el('div', { class: 'flex flex-col' },
+          el('div', { class: 'px-5 py-2 text-[11px] text-muted- italic' }, 'Pick each rep’s CRM match and Link — the app renames them to the CRM spelling everywhere.'),
+          ...withCand.slice(0, 150).map(rowFor),
+          withCand.length > 150 ? el('div', { class: 'px-5 py-2 text-[11px] text-muted-' }, 'Showing first 150 of ' + withCand.length + ' — link some and the rest will surface.') : null,
+          noCand.length ? el('div', { class: 'px-5 py-2 text-[11px] text-muted-' }, noCand.length + ' had no close CRM name (likely not in the CRM / terminated): ' + noCand.slice(0, 30).join(', ') + (noCand.length > 30 ? '…' : '')) : null,
+        ) : null,
+      );
+    }
+
     card.innerHTML = '';
     card.append(
       header, addBar, filterBar,
+      ...(crmLinkPanel ? [crmLinkPanel] : []),
       ...(dupesPanel ? [dupesPanel] : []),
       ...(detailPanel ? [detailPanel] : []),
       searchInput, repList,
