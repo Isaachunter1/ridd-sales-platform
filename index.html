@@ -14609,9 +14609,45 @@ function manageTeamsPanel(opts) {
     const searchSelStart = searchHadFocus ? prevSearch.selectionStart : null;
     const searchSelEnd   = searchHadFocus ? prevSearch.selectionEnd   : null;
 
+    // ── Compact filter toolbar ──────────────────────────────────────────
+    // Tier / Status / Rep Type / Branch collapsed from four stacked chip rows
+    // into one row of dropdowns. Every count is scoped to the roster for the
+    // selected Team Year (the Year dropdown above), so switching years
+    // re-scopes the whole panel. Team stays as chips since clicking a team
+    // also opens its detail/edit panel.
+    const mkFilter = (label, value, opts, onChange) => el('label', { class: 'inline-flex items-center gap-1.5' },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
+      el('select', {
+        class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)' },
+        onchange: (e) => onChange(e.target.value),
+      }, ...opts.map(o => el('option', { value: o.value, selected: value === o.value }, o.label))));
+    const filterBar = el('div', { class: 'px-5 py-2.5 border-b flex flex-wrap items-center gap-x-4 gap-y-2', style: { borderColor: 'var(--border)' } },
+      mkFilter('Tier', tierSelect, [
+        { value: '', label: 'All · ' + (tierCounts.rookie + tierCounts.vet + tierCounts.untagged) },
+        { value: 'rookie', label: 'Rookie · ' + tierCounts.rookie },
+        { value: 'vet', label: 'Vet · ' + tierCounts.vet },
+        { value: 'untagged', label: 'Untagged · ' + tierCounts.untagged },
+      ], (v) => { state._indicatorManageTierFilter = v; render(); }),
+      mkFilter('Status', activeSelect, [
+        { value: '', label: 'All' },
+        { value: 'active', label: 'Active · ' + activeCounts.active },
+        { value: 'inactive', label: 'Inactive · ' + activeCounts.inactive },
+      ], (v) => { state._indicatorManageActiveFilter = v; render(); }),
+      mkFilter('Rep Type', typeSelect, [
+        { value: '', label: 'All' },
+        ...repTypesPresent.map(t => ({ value: t, label: t + ' · ' + (typeCounts[t] || 0) })),
+      ], (v) => { state._indicatorManageTypeFilter = v; render(); }),
+      mkFilter('Branch', branchSelect, [
+        { value: '', label: 'All' },
+        ...branchesPresent.map(b => ({ value: b, label: titleCase(b) + ' · ' + branchCounts[b] })),
+      ], (v) => { state._indicatorManageBranchFilter = v; render(); }),
+      !hasTypeData ? el('span', { class: 'text-[10px] text-muted- italic' }, 'Upload a Customer Report to populate rep types') : null,
+    );
+
     card.innerHTML = '';
     card.append(
-      header, addBar, teamChips, tierChips, activeChips, typeChips, branchChips,
+      header, addBar, teamChips, filterBar,
       ...(dupesPanel ? [dupesPanel] : []),
       ...(detailPanel ? [detailPanel] : []),
       searchInput, repList,
