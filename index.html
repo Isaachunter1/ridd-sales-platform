@@ -14575,7 +14575,10 @@ function manageTeamsPanel(opts) {
               },
               title: 'Primary office (read-only)',
             }, titleCase(office)),
-            !isAlias && repType && repType !== 'Unknown' && el('span', {
+            // Sales Rep is the expected default for this roster, so only badge
+            // the exceptions (Office Staff / Technician) — those are the rows
+            // worth a second look. Unknown stays unbadged too.
+            !isAlias && repType && repType !== 'Unknown' && repType !== 'Sales Rep' && el('span', {
               class: 'text-[10px] font-semibold rounded-full px-2 py-0.5 shrink-0',
               style: { background: 'var(--card)', color: TYPE_COLOR[repType] || 'var(--text-muted)', border: '1px solid var(--border)' },
               title: 'Rep type from the Customer Report (read-only)',
