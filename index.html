@@ -13751,15 +13751,24 @@ function renameTeam(oldName, newNameRaw) {
   return { ok: true };
 }
 
-function openManageTeamsModal() {
-  const overlay = el('div', { class: 'modal-overlay' });
+function openManageTeamsModal() { return manageTeamsPanel({ embedded: false }); }
+// Core builder for the Manage Teams UI.
+//   embedded:false → floating modal (launched from the Audit view).
+//   embedded:true  → returns a plain in-page card for the Settings ▸ Teams tab
+//                    (no overlay, no "Done" button).
+function manageTeamsPanel(opts) {
+  const embedded = !!(opts && opts.embedded);
+  const overlay = embedded ? null : el('div', { class: 'modal-overlay' });
   // Closing the modal also re-renders the app shell so any color / team
   // assignment / tier change the admin made in here is reflected in the
   // tables and charts behind it. Without this the modal-local render()
-  // updates the modal preview only.
-  const close = () => { overlay.remove(); mountApp(); };
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
+  // updates the modal preview only. (Embedded mode has no close button —
+  // the local render() rebuilds the panel in place.)
+  const close = embedded ? null : () => { overlay.remove(); mountApp(); };
+  if (overlay) overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  const card = embedded
+    ? el('div', { class: 'card overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 220px)' } })
+    : el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
 
   const render = () => {
     const rawSales = indicatorSales();
@@ -13935,7 +13944,7 @@ function openManageTeamsModal() {
           onclick: () => exportManageTeamsXlsx(),
           title: 'Download an .xlsx with one tab per team (open in Google Sheets to send to managers)',
         }, '📊 Export'),
-        el('button', {
+        embedded ? null : el('button', {
           class: 'rounded-lg border px-3 py-1.5 text-xs',
           style: { borderColor: 'var(--border-2)' },
           onclick: close,
@@ -14571,8 +14580,7 @@ function openManageTeamsModal() {
       ...(detailPanel ? [detailPanel] : []),
       searchInput, repList,
     );
-    overlay.innerHTML = '';
-    overlay.append(card);
+    if (overlay) { overlay.innerHTML = ''; overlay.append(card); }
 
     // Restore scroll + search focus on the freshly-rendered DOM
     requestAnimationFrame(() => {
@@ -14591,20 +14599,21 @@ function openManageTeamsModal() {
   };
 
   render();
-  document.body.append(overlay);
   // If the Customer Report rows aren't in memory (they don't survive a
   // refresh), pull them in the background so the Rep Type column can populate
   // without the user having to visit the Reporting tab first.
   if (!(state.reportingSubscriptions || []).length && state.reportingActiveUploadId
       && typeof loadReportingSubscriptions === 'function' && !state._indicatorRepTypeBySig) {
     loadReportingSubscriptions(state.reportingActiveUploadId).then(rows => {
-      if (!rows || !rows.length || !overlay.isConnected) return;
+      if (!rows || !rows.length || (overlay && !overlay.isConnected) || !card.isConnected) return;
       state.reportingSubscriptions = rows;
       state.reportingSubscriptionsLoadedFor = state.reportingActiveUploadId;
       _refreshRepTypeMap();
       render();
     }).catch(() => {});
   }
+  if (embedded) return card;
+  document.body.append(overlay);
 }
 
 function viewIndicators() {
@@ -29239,6 +29248,7 @@ function viewAdmin() {
   const groups = [
     { label: 'Settings', items: [
       ['users',   'Users',          '👥'],
+      ['teams',   'Teams',          '🤝'],
       ['config',  'Configurations', '🧮'],
       ['uploads', 'Admin',          '🗂'],
     ] },
@@ -29270,6 +29280,7 @@ function viewAdmin() {
   const sectionRenderers = {
     goals:   adminGoals,
     users:   adminReps,
+    teams:   adminTeams,
     config:  adminConfigurations,
     uploads: adminUploads,
     slack:   adminSlack,
@@ -29281,6 +29292,15 @@ function viewAdmin() {
   const body = el('div', { class: 'flex-1 min-w-0' }, view());
 
   return el('div', { class: 'flex gap-5 w-full' }, sidebar, body);
+}
+
+// Settings ▸ Teams — the Manage Teams roster (teams, branches, tier, active)
+// embedded as a tab. Same UI as the modal launched from the Audit view; both
+// share manageTeamsPanel(). Editing here writes through to the same per-year
+// team map and tier map the Users tab reads.
+function adminTeams() {
+  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
+  return el('div', { class: 'flex flex-col gap-3' }, manageTeamsPanel({ embedded: true }));
 }
 
 // Global Configurations — service lifecycle, lead sources, and cancel-reason
@@ -32138,6 +32158,56 @@ function adminReps() {
   const td  = (v, extra) => el('td', { class: 'px-3 py-3 ' + (extra || '') }, v == null || v === '' ? '—' : v);
   const tdM = (v) => td(v, 'text-muted-');
 
+  // ── Team + Tier columns (read from the same maps Manage Teams writes) ──
+  // Those maps are keyed by the canonical sales-data rep name ("Last, First"),
+  // while a profile carries "First Last". Bridge them with a format-agnostic
+  // name signature, the same trick Manage Teams uses. Team is per-Team-Year;
+  // Tier is global.
+  const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const _repKeyBySig = {};
+  const _seedKey = (name) => { if (!name) return; const s = _sig(name); if (s && !_repKeyBySig[s]) _repKeyBySig[s] = name; };
+  Object.keys(_activeTeamMap() || {}).forEach(_seedKey);
+  Object.keys(state._indicatorRepTier || {}).forEach(_seedKey);
+  (state.reportingSubscriptions || []).forEach(r => { if (r.sold_by) _seedKey(getCanonicalRepName(r.sold_by)); });
+  // The canonical rep name to read/write team & tier for this person.
+  const repKeyForPerson = (x) => {
+    const s = _sig(x.name);
+    if (_repKeyBySig[s]) return _repKeyBySig[s];
+    const frName = x.frEmp ? _frEmpName(x.frEmp) : (x.emp ? _frEmpName(x.emp) : '');
+    if (frName) { const s2 = _sig(frName); if (_repKeyBySig[s2]) return _repKeyBySig[s2]; }
+    return x.name; // no match yet — key under their own name
+  };
+  const teamsForYear = (typeof distinctTeamsForYear === 'function') ? distinctTeamsForYear(Number(_teamYearKey())) : (state._indicatorTeams || []);
+  const teamTierCells = (x) => {
+    const key = repKeyForPerson(x);
+    const curTeam = getRepTeam(key);
+    const curTier = getRepTier(key);
+    const teamSel = el('select', {
+      class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)' },
+      onchange: (e) => {
+        const v = e.target.value;
+        if (v === '__new__') {
+          const name = prompt('New team name:');
+          if (name && name.trim()) { const c = name.trim(); addTeam(c); setRepTeam(key, c); }
+        } else { setRepTeam(key, v); }
+        mountApp();
+      },
+    },
+      el('option', { value: '', selected: !curTeam }, '— Team —'),
+      ...teamsForYear.map(t => el('option', { value: t, selected: curTeam === t }, t)),
+      el('option', { value: '__new__' }, '+ New team…'));
+    const tierMeta = (typeof repTierMeta === 'function') ? repTierMeta(curTier) : null;
+    const tierSel = el('select', {
+      class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: tierMeta ? 'rgba(141,198,63,.08)' : 'var(--card-2)', color: tierMeta ? tierMeta.color : 'var(--text)', fontWeight: tierMeta ? '700' : '400' },
+      onchange: (e) => { setRepTier(key, e.target.value); mountApp(); },
+    },
+      el('option', { value: '', selected: !curTier }, '— Tier —'),
+      ...REP_TIERS.map(t => el('option', { value: t.id, selected: curTier === t.id }, t.label)));
+    return [el('td', { class: 'px-3 py-3' }, teamSel), el('td', { class: 'px-3 py-3' }, tierSel)];
+  };
+
   const appRow = (x) => {
     const p = x.profile, active = x.active, fr = x.frEmp;
     return el('tr', { class: 'border-t border-' + (!active ? ' opacity-60' : '') },
@@ -32152,6 +32222,7 @@ function adminReps() {
       tdM(p.email || (fr ? fr.email : null)),                             // Email
       tdM(fr ? fmtLogin(fr.last_login) : null),                           // Last Login (CRM)
       td(fr ? fr.type_label : null, fr ? '' : 'text-muted- italic'),      // Rep Type (CRM)
+      ...teamTierCells(x),                                                // Team (year) + Tier
       el('td', { class: 'px-3 py-3 text-center' },
         el('button', { title: active ? 'Click to deactivate' : 'Click to activate', onclick: () => setProfileActive(p, !active) }, statusChip(active))),
       el('td', { class: 'px-3 py-3 text-right' },
@@ -32171,6 +32242,7 @@ function adminReps() {
       tdM(e.email),                                                       // Email
       tdM(fmtLogin(e.last_login)),                                        // Last Login
       td(e.type_label),                                                   // Rep Type
+      ...teamTierCells(x),                                                // Team (year) + Tier
       el('td', { class: 'px-3 py-3 text-center' }, statusChip(false)),
       el('td', { class: 'px-3 py-3 text-right' },
         el('button', { class: 'text-xs px-3 py-1.5 rounded-lg font-bold transition hover:brightness-95 whitespace-nowrap', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
@@ -32182,10 +32254,10 @@ function adminReps() {
     el('table', { class: 'w-full text-sm whitespace-nowrap' },
       el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, el('tr', {},
         th('ID'), el('th', { class: 'text-left px-4 py-3' }, 'Name'), th('User Name'), th('Access Profile'),
-        th('Phone'), th('Email'), th('Last Login'), th('Rep Type'), th('Status', 'text-center'), th('', 'text-right'))),
+        th('Phone'), th('Email'), th('Last Login'), th('Rep Type'), th('Team · ' + _teamYearKey()), th('Tier'), th('Status', 'text-center'), th('', 'text-right'))),
       el('tbody', {},
         (appPeople.length + rosterShown.length) === 0
-          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 10 },
+          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 12 },
               q ? 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' match “' + state._adminUserSearch + '”.' : 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' in this view.'))
           : null,
         ...appPeople.map(appRow),
