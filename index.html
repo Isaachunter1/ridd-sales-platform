@@ -13882,15 +13882,26 @@ function manageTeamsPanel(opts) {
       if (!repToOffice[s.rep]) repToOffice[s.rep] = {};
       repToOffice[s.rep][s.office] = (repToOffice[s.rep][s.office] || 0) + 1;
     });
+    // Branch comes from the FieldRoutes employee record — where the rep's
+    // account is housed — matched by name signature. Authoritative most of the
+    // time (a rep who switches markets keeps their original housing office, but
+    // that's the right read the large majority of the time). Built from the CRM
+    // roster, which loads in the background below if it isn't in memory yet.
+    const _officeBySig = {};
+    (state.frRoster || []).forEach(e => {
+      const off = e && e.office_name; if (!off) return;
+      [(typeof _frEmpName === 'function') ? _frEmpName(e) : '', (typeof _frRealName === 'function') ? _frRealName(e) : '']
+        .forEach(nm => { const s = _nameSig(nm); if (s && !_officeBySig[s]) _officeBySig[s] = off; });
+    });
     const primaryOffice = (rep) => {
-      const counts = repToOffice[rep] || {};
-      const entries = Object.entries(counts);
-      // Prefer the office derived from the rep's actual sales (always
-      // up-to-date with the latest CSV). Fall back to the manual map for
-      // reps with no sales rows yet — that map gets seeded from the
-      // team-upload CSV's Market column via setRepOffice / bulk SQL.
-      if (entries.length === 0) return getRepOffice(rep) || '';
-      return entries.sort((a, b) => b[1] - a[1])[0][0];
+      // 1) FieldRoutes employee office (where the account lives) — authoritative.
+      const frOff = _officeBySig[_nameSig(rep)];
+      if (frOff) return frOff;
+      // 2) Fall back to the office derived from the rep's actual sales.
+      const entries = Object.entries(repToOffice[rep] || {});
+      if (entries.length) return entries.sort((a, b) => b[1] - a[1])[0][0];
+      // 3) Last resort: the manual map (team-upload Market column).
+      return getRepOffice(rep) || '';
     };
     const titleCase = (s) => (s || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 
@@ -14682,6 +14693,12 @@ function manageTeamsPanel(opts) {
   };
 
   render();
+  // Branch is sourced from the FieldRoutes employee office — pull the CRM
+  // roster in the background if it isn't loaded yet, then re-render so offices
+  // fill in.
+  if (state.frRoster == null && typeof loadFieldRoutesRoster === 'function' && !state._frRosterLoading) {
+    loadFieldRoutesRoster().then(() => { if ((overlay && overlay.isConnected) || card.isConnected) render(); }).catch(() => {});
+  }
   // If the Customer Report rows aren't in memory (they don't survive a
   // refresh), pull them in the background so the Rep Type column can populate
   // without the user having to visit the Reporting tab first.
