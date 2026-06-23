@@ -13956,6 +13956,12 @@ function manageTeamsPanel(opts) {
           onclick: () => exportManageTeamsXlsx(),
           title: 'Download an .xlsx with one tab per team (open in Google Sheets to send to managers)',
         }, '📊 Export'),
+        el('button', {
+          class: 'rounded-lg border px-3 py-1.5 text-xs font-semibold transition hover:brightness-95',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          onclick: () => exportTiersXlsx(),
+          title: 'Download a flat list of every rep + their Rookie/Vet tier and FieldRoutes id — to load into the CRM',
+        }, '🏷 Tiers'),
         embedded ? null : el('button', {
           class: 'rounded-lg border px-3 py-1.5 text-xs',
           style: { borderColor: 'var(--border-2)' },
@@ -21787,6 +21793,67 @@ async function exportManageTeamsXlsx() {
   const filename = 'RIDD-Manage-Teams-' + new Date().toISOString().slice(0, 10) + '.xlsx';
   XLSX.writeFile(wb, filename);
   toast('Exported ' + teamNames.length + ' team tab' + (teamNames.length === 1 ? '' : 's'), 'success');
+}
+
+// Flat, CRM-ready export of every rep's Rookie/Vet tier. One row per rep with
+// the FieldRoutes employee id + username so the values can be loaded back into
+// the CRM (which then becomes the source of truth for tier). Tier is global
+// (not year-scoped), so this lists the whole roster regardless of Team Year.
+async function exportTiersXlsx() {
+  try { await loadXlsxLibOnce(); } catch { toast('Could not load Excel library — check your connection', 'error'); return; }
+  const XLSX = window.XLSX;
+  if (!XLSX) { toast('Excel library missing after load', 'error'); return; }
+  // Pull the CRM roster so we can stamp each rep with their FieldRoutes id /
+  // username for matching on import.
+  if (state.frRoster == null && typeof loadFieldRoutesRoster === 'function') { try { await loadFieldRoutesRoster(); } catch (_) {} }
+  const roster = state.frRoster || [];
+  const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const empBySig = {};
+  roster.forEach(e => {
+    const cands = [(typeof _frEmpName === 'function') ? _frEmpName(e) : '', (typeof _frRealName === 'function') ? _frRealName(e) : ''];
+    cands.forEach(c => { const s = _sig(c); if (s && !empBySig[s]) empBySig[s] = e; });
+  });
+  const names = new Set([
+    ...(state._indicatorRawSales || []).map(s => s.rep).filter(Boolean),
+    ...Object.keys(state._indicatorRepTier   || {}),
+    ...Object.keys(state._indicatorRepTeam   || {}),
+    ...Object.keys(state._indicatorRepOffice || {}),
+  ]);
+  const rows = [...names]
+    .filter(n => !(typeof getRepAliasTarget === 'function' && getRepAliasTarget(n)))  // drop merged duplicates
+    .map(n => {
+      const e = empBySig[_sig(n)];
+      const t = getRepTier(n);
+      return {
+        name: n,
+        tier: t === 'rookie' ? 'Rookie' : t === 'vet' ? 'Vet' : '',
+        empId: e ? (e.employee_id || '') : '',
+        username: e ? (e.username || '') : '',
+        type: (e && e.type_label) || '',
+        office: getRepOffice(n) || (e && e.office_name) || '',
+        team: getRepTeam(n) || '',
+        active: isRepActive(n) ? 'Active' : 'Inactive',
+        matched: e ? 'Yes' : 'No',
+      };
+    })
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const tagged = rows.filter(r => r.tier).length;
+  const header = ['Rep Name', 'Tier', 'FieldRoutes Employee ID', 'FieldRoutes Username', 'Rep Type', 'Branch / Office', 'Team', 'Active', 'Matched in CRM'];
+  const aoa = [
+    ['RIDD · Rep Tier Export (Rookie / Vet)'],
+    ['Generated', new Date().toLocaleString('en-US')],
+    [rows.length + ' reps · ' + tagged + ' tagged Rookie/Vet · ' + (rows.length - tagged) + ' untagged'],
+    ['Load these tiers into FieldRoutes per employee, then the app can read tier back from the CRM as the source of truth.'],
+    [],
+    header,
+    ...rows.map(r => [r.name, r.tier, r.empId, r.username, r.type, r.office, r.team, r.active, r.matched]),
+  ];
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  sheet['!cols'] = [{ wch: 26 }, { wch: 8 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 9 }, { wch: 13 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheet, 'Rep Tiers');
+  XLSX.writeFile(wb, 'RIDD-Rep-Tiers-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+  toast('Exported ' + rows.length + ' reps (' + tagged + ' tagged)', 'success');
 }
 
 // Per-week values for the small-multiples grid (Revenue, Sales, ACV, Avg Pest,
