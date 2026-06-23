@@ -153,6 +153,11 @@ WITH src AS (
   FROM \`${PROJECT}.${DATASET}.FieldRoutesEmployee\`
   WHERE fieldRoutes_employeeID IS NOT NULL AND fieldRoutes_employeeID != ''
     AND (fieldRoutes_active = '1' OR LOWER(fieldRoutes_active) = 'true')
+    -- Drop FieldRoutes' internal/system accounts (FieldRoutes Admin, FR-System,
+    -- Test users, integrations, etc.) so the roster is real people only. Also
+    -- stops system accounts that reuse a real person's email from polluting them.
+    AND NOT REGEXP_CONTAINS(LOWER(CONCAT(COALESCE(fieldRoutes_fname,''),' ',COALESCE(fieldRoutes_lname,''))),
+        r'\\badmin\\b|\\bsystem\\b|fieldroutes|fr-system|\\btest\\b|\\breferral\\b|sellify|pest routes|ridd account|ridd sales|pro products|mosquito joe|clicki|pest ai|pest booker|applause')
 ),
 g AS (
   SELECT *, COALESCE(email_l, base_eid) AS gkey,
