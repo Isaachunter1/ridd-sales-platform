@@ -14722,9 +14722,11 @@ function manageTeamsPanel(opts) {
           el('span', { class: 'text-[11px] text-muted-' }, open ? 'Hide ▲' : 'Show ▼')),
         open ? el('div', { class: 'flex flex-col' },
           el('div', { class: 'px-5 py-2 text-[11px] text-muted- italic' }, 'Pick each rep’s CRM match and Link — the app renames them to the CRM spelling everywhere.'),
-          ...withCand.slice(0, 150).map(rowFor),
-          withCand.length > 150 ? el('div', { class: 'px-5 py-2 text-[11px] text-muted-' }, 'Showing first 150 of ' + withCand.length + ' — link some and the rest will surface.') : null,
-          noCand.length ? el('div', { class: 'px-5 py-2 text-[11px] text-muted-' }, noCand.length + ' had no close CRM name (likely not in the CRM / terminated): ' + noCand.slice(0, 30).join(', ') + (noCand.length > 30 ? '…' : '')) : null,
+          el('div', { class: 'flex flex-col overflow-y-auto', style: { maxHeight: '340px' } },
+            ...withCand.slice(0, 150).map(rowFor),
+            withCand.length > 150 ? el('div', { class: 'px-5 py-2 text-[11px] text-muted-' }, 'Showing first 150 of ' + withCand.length + ' — link some and the rest will surface.') : null,
+            noCand.length ? el('div', { class: 'px-5 py-2 text-[11px] text-muted-' }, noCand.length + ' had no close CRM name (likely not in the CRM / terminated): ' + noCand.slice(0, 30).join(', ') + (noCand.length > 30 ? '…' : '')) : null,
+          ),
         ) : null,
       );
     }
