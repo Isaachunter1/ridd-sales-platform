@@ -26270,7 +26270,8 @@ function reportingServiceConfigPanel() {
       configInfoBtn('Service Type Configuration',
         'Set each service\'s Lifecycle: Recurring (ongoing — active is fine), One-time (flags active subs that have already been serviced), ' +
         'or Retired (flags any active sub — discontinued service). Auto infers from revenue (recurring if it carries Annual Recurring Value). ' +
-        'Lifecycle drives churn, ARR, retention, the Active-Customers split, and the "should be closed" flags on the Subscriptions card. Hidden services drop out of charts entirely.'),
+        'Lifecycle drives churn, ARR, retention, the Active-Customers split, and the "should be closed" flags on the Subscriptions card. Hidden services drop out of charts entirely. ' +
+        'Click a service type (or its Subs count) to drill into the exact subscriptions behind it.'),
     ),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Service types appear here after you upload a snapshot.')
@@ -26334,12 +26335,23 @@ function reportingServiceConfigPanel() {
                   row.style.opacity = v ? '0.55' : '1';
                   hiddenTag.style.display = v ? 'inline-block' : 'none';
                 };
+                // Drill into the actual subscriptions carrying this service type.
+                const svcCount = svcCounts.get(c.service_name) || 0;
+                const canDrill = svcCount > 0;
+                const drillSvc = () => {
+                  const drillRows = subs.filter(r => r.subscription === c.service_name);
+                  if (!drillRows.length) { toast('No subscriptions loaded for this service type', 'info'); return; }
+                  openReportingDrillModal({ chartTitle: 'Service Types', sliceLabel: c.service_name + ' — ' + drillRows.length + ' subscription' + (drillRows.length === 1 ? '' : 's'), rows: drillRows, formatValue: fmt.usd0 });
+                };
                 row.append(
                   el('td', { class: 'pl-3 pr-2 py-1.5 font-medium' },
-                    el('span', {}, c.service_name),
+                    el('span', { class: canDrill ? 'cursor-pointer hover:underline' : '', title: canDrill ? 'View the subscriptions with this service type' : '', onclick: canDrill ? drillSvc : null }, c.service_name),
                     hiddenTag,
                   ),
-                  el('td', { class: 'px-2 py-1.5 text-left tabular-nums text-muted-' }, (svcCounts.get(c.service_name) || 0).toLocaleString()),
+                  el('td', { class: 'px-2 py-1.5 text-left' },
+                    canDrill
+                      ? el('button', { class: 'tabular-nums font-semibold cursor-pointer hover:underline', style: { color: 'var(--text)' }, title: 'View the subscriptions with this service type', onclick: drillSvc }, svcCount.toLocaleString())
+                      : el('span', { class: 'tabular-nums text-muted-' }, '0')),
                   el('td', { class: 'px-2 py-1.5 text-left whitespace-nowrap' }, lcSelect),
                   el('td', { class: 'pr-3 pl-2 py-1.5 text-left' }, hidPill),
                 );
