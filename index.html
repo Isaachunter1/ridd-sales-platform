@@ -29481,6 +29481,8 @@ function adminGoals() {
   const g = state.companyGoal;
   g.new_amount     = g.new_amount     ?? Math.round(g.amount * 0.75);
   g.renewal_amount = g.renewal_amount ?? Math.round(g.amount * 0.25);
+  g.is_reps        = g.is_reps        ?? 5;   // Inside Sales reps (carry the NEW quota)
+  g.loyalty_reps   = g.loyalty_reps   ?? 4;   // Loyalty reps (carry the RENEWAL quota)
   // Monthly allocation is the source of truth — seeded from the seasonal curve,
   // editable per month, and feeds the IS pacer, dashboard, and Marketing tab.
   if (!Array.isArray(g.monthly_new)     || g.monthly_new.length     !== 12) g.monthly_new     = IS_SEASONAL.map(s => Math.round(g.new_amount * s));
@@ -29511,20 +29513,63 @@ function adminGoals() {
     el('h2', { class: 'text-xl font-bold' }, 'Goals'),
     el('p', { class: 'text-xs text-muted- -mt-3' }, 'Set the annual New and Renewal targets, then shape how they land across the year. These monthly numbers drive the Inside Sales pacer, the dashboard, and the Marketing tab.'),
 
-    // ── Annual targets ──
+    // ── Annual targets + team size ──
     el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, 'Annual revenue targets'),
-      el('p', { class: 'text-xs text-muted- mb-4' }, 'Total = New + Renewal. Editing an annual target re-spreads it across the months using the seasonal curve (you can still tweak any month below).'),
+      el('h3', { class: 'text-sm font-bold mb-1' }, 'Annual targets & team'),
+      el('p', { class: 'text-xs text-muted- mb-4' }, 'New (Inside Sales) + Renewal (Loyalty) = Total. Editing a target re-spreads it across the months by its seasonal curve. Rep counts drive the per-rep quotas below.'),
       el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-4' },
         goalTargetCard('Total Revenue', g.amount, ytd.total, null, true),
-        goalTargetCard('New Revenue', g.new_amount, ytd.new, (val) => reseed('new', val)),
-        goalTargetCard('Renewal Revenue', g.renewal_amount, ytd.renewal, (val) => reseed('renewal', val)))),
+        goalTargetCard('New / Inside Sales', g.new_amount, ytd.new, (val) => reseed('new', val)),
+        goalTargetCard('Renewal / Loyalty', g.renewal_amount, ytd.renewal, (val) => reseed('renewal', val))),
+      el('div', { class: 'grid grid-cols-2 gap-4 mt-4 max-w-md' },
+        goalRepCountField('Inside Sales Reps', g.is_reps, (v) => { g.is_reps = Math.max(1, parseInt(v) || 1); persist(); mountApp(); }),
+        goalRepCountField('Loyalty Reps', g.loyalty_reps, (v) => { g.loyalty_reps = Math.max(1, parseInt(v) || 1); persist(); mountApp(); }))),
 
-    // ── Monthly seasonal allocation ──
+    // ── Monthly seasonal allocation (with per-rep) ──
     goalMonthlyCard(g, persist),
 
-    el('div', { class: 'text-[11px] text-muted-' }, 'Per-rep goals are editable in ', el('strong', {}, 'Users'), '.'),
+    // ── Quarterly per-rep quotas (Inside Sales + Loyalty) ──
+    goalQuarterlyCard(g),
   );
+}
+
+function goalRepCountField(label, val, onCommit) {
+  return el('label', { class: 'block' },
+    el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, label),
+    el('input', { type: 'number', min: '1', step: '1', value: val,
+      class: 'w-full rounded-lg border px-3 py-2 text-sm font-bold text-left', style: { borderColor: 'var(--border-2)' },
+      onchange: (e) => onCommit(e.target.value) }));
+}
+
+// Quarterly rollup with per-rep quota (quarterly amount ÷ rep count) — matches
+// the Inside Sales / Loyalty quota blocks in the RIDD quota sheet.
+function goalQuarterlyCard(g) {
+  const usd = (n) => '$' + Math.round(n || 0).toLocaleString();
+  const block = (title, qAmts, reps) => {
+    const yr = qAmts.reduce((a, b) => a + (b || 0), 0);
+    const td = (v, bold) => el('td', { class: 'px-3 py-1.5 text-left tabular-nums' + (bold ? ' font-bold' : '') }, v);
+    return el('div', { class: 'mb-1' },
+      el('div', { class: 'text-xs font-bold uppercase tracking-wider px-3 py-1.5', style: { background: 'var(--text)', color: 'var(--bg)' } }, title + ' · ' + reps + ' reps'),
+      el('table', { class: 'w-full text-xs' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider text-left', style: { color: 'var(--text-muted)' } },
+          el('tr', {}, el('th', { class: 'text-left px-3 py-2 font-semibold' }, ''), ...['Q1','Q2','Q3','Q4','Total'].map(q => el('th', { class: 'text-left px-3 py-2 font-semibold' }, q)))),
+        el('tbody', {},
+          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'px-3 py-1.5 text-left font-semibold' }, 'Quarterly %'),
+            ...qAmts.map(a => td(yr > 0 ? Math.round(a / yr * 100) + '%' : '0%')), td('100%')),
+          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'px-3 py-1.5 text-left font-semibold' }, 'Quarterly amount'),
+            ...qAmts.map(a => td(usd(a))), td(usd(yr), true)),
+          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'rgba(141,198,63,.06)' } },
+            el('td', { class: 'px-3 py-1.5 text-left font-semibold' }, 'Per-rep quota'),
+            ...qAmts.map(a => td(usd(reps > 0 ? a / reps : 0), true)), td(usd(reps > 0 ? yr / reps : 0), true)))));
+  };
+  return el('div', { class: 'card p-4' },
+    el('h3', { class: 'text-sm font-bold mb-1' }, 'Quarterly quotas'),
+    el('p', { class: 'text-[11px] text-muted- mb-3' }, 'Quarterly rollup of the monthly allocation, with each rep’s share (quarterly amount ÷ rep count).'),
+    el('div', { class: 'rounded-lg border overflow-x-auto', style: { borderColor: 'var(--border)' } },
+      block('Inside Sales', g.quarterly_new, g.is_reps),
+      block('Loyalty', g.quarterly_renewal, g.loyalty_reps)));
 }
 
 // Monthly allocation grid — New + Renewal editable per month, Total computed.
@@ -29535,41 +29580,48 @@ function goalMonthlyCard(g, persist) {
   const curM = new Date().getMonth();
   const cell = (arr, m) => el('input', {
     type: 'text', inputmode: 'numeric', value: Math.round(arr[m] || 0).toLocaleString(),
-    class: 'w-24 text-right text-xs rounded border px-2 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
+    class: 'w-24 text-left text-xs rounded border px-2 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
     onchange: (e) => { arr[m] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); mountApp(); },
   });
   const totNew = g.monthly_new.reduce((a, b) => a + (b || 0), 0);
   const totRen = g.monthly_renewal.reduce((a, b) => a + (b || 0), 0);
-  const th = (t, align) => el('th', { class: (align || 'text-right') + ' px-3 py-2 font-semibold' }, t);
+  const isReps = Math.max(1, g.is_reps || 1), loyReps = Math.max(1, g.loyalty_reps || 1);
+  const th = (t) => el('th', { class: 'text-left px-3 py-2 font-semibold' }, t);
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-1' },
       el('h3', { class: 'text-sm font-bold' }, 'Monthly allocation'),
       el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
         onclick: () => { g.monthly_new = IS_SEASONAL.map(s => Math.round(g.new_amount * s)); g.monthly_renewal = IS_RENEWAL_SEASONAL.map(s => Math.round(g.renewal_amount * s)); persist(); mountApp(); } },
         '↻ Reset to seasonal curve')),
-    el('p', { class: 'text-[11px] text-muted- mb-3' }, 'How the annual targets land each month. Edit New or Renewal for any month; Total updates automatically. Defaults follow the seasonal curve.'),
+    el('p', { class: 'text-[11px] text-muted- mb-3' }, 'How the annual targets land each month. Edit New or Renewal for any month; the % columns are each line’s share of its own annual total (New and Renewal seasonally allocate differently).'),
     el('div', { class: 'rounded-lg border overflow-x-auto', style: { borderColor: 'var(--border)' } },
       el('table', { class: 'w-full text-xs' },
-        el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
-          el('tr', {}, th('Month', 'text-left'), th('New'), th('Renewal'), th('Total'), th('% of yr'))),
+        el('thead', { class: 'text-[10px] uppercase tracking-wider text-left', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+          el('tr', {}, th('Month'), th('New'), th('New %'), th('New /rep'), th('Renewal'), th('Renewal %'), th('Renewal /rep'), th('Total'))),
         el('tbody', {},
           ...M.map((lbl, m) => {
-            const tot = (g.monthly_new[m] || 0) + (g.monthly_renewal[m] || 0);
-            const yr = (totNew + totRen) > 0 ? tot / (totNew + totRen) : 0;
-            return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: m === curM ? 'rgba(141,198,63,.06)' : 'transparent' } },
-              el('td', { class: 'px-3 py-1.5 font-semibold' }, lbl + (m === curM ? ' ·' : '')),
-              el('td', { class: 'px-3 py-1.5 text-right' }, cell(g.monthly_new, m)),
-              el('td', { class: 'px-3 py-1.5 text-right' }, cell(g.monthly_renewal, m)),
-              el('td', { class: 'px-3 py-1.5 text-right tabular-nums font-semibold' }, usd(tot)),
-              el('td', { class: 'px-3 py-1.5 text-right tabular-nums text-muted-' }, (yr * 100).toFixed(1) + '%'));
+            const nv = g.monthly_new[m] || 0, rv = g.monthly_renewal[m] || 0;
+            const np = totNew > 0 ? nv / totNew : 0, rp = totRen > 0 ? rv / totRen : 0;
+            return el('tr', { class: 'border-t text-left', style: { borderColor: 'var(--border)', background: m === curM ? 'rgba(141,198,63,.06)' : 'transparent' } },
+              el('td', { class: 'px-3 py-1.5 text-left font-semibold' }, lbl + (m === curM ? ' ·' : '')),
+              el('td', { class: 'px-3 py-1.5 text-left' }, cell(g.monthly_new, m)),
+              el('td', { class: 'px-3 py-1.5 text-left tabular-nums text-muted-' }, (np * 100).toFixed(1) + '%'),
+              el('td', { class: 'px-3 py-1.5 text-left tabular-nums' }, usd(nv / isReps)),
+              el('td', { class: 'px-3 py-1.5 text-left' }, cell(g.monthly_renewal, m)),
+              el('td', { class: 'px-3 py-1.5 text-left tabular-nums text-muted-' }, (rp * 100).toFixed(1) + '%'),
+              el('td', { class: 'px-3 py-1.5 text-left tabular-nums' }, usd(rv / loyReps)),
+              el('td', { class: 'px-3 py-1.5 text-left tabular-nums font-semibold' }, usd(nv + rv)));
           }))),
         el('tfoot', {},
-          el('tr', { style: { borderTop: '2px solid var(--border)', background: 'var(--card-2)' } },
-            el('td', { class: 'px-3 py-2 font-bold' }, 'Year'),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, usd(totNew)),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, usd(totRen)),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, usd(totNew + totRen)),
-            el('td', { class: 'px-3 py-2 text-right text-muted-' }, '100%')))));
+          el('tr', { class: 'text-left', style: { borderTop: '2px solid var(--border)', background: 'var(--card-2)' } },
+            el('td', { class: 'px-3 py-2 text-left font-bold' }, 'Year'),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totNew)),
+            el('td', { class: 'px-3 py-2 text-left text-muted-' }, '100%'),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totNew / isReps)),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totRen)),
+            el('td', { class: 'px-3 py-2 text-left text-muted-' }, '100%'),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totRen / loyReps)),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totNew + totRen))))));
 }
 
 // Helper card for the Goals section — shows target, YTD actual, and a mini progress bar
