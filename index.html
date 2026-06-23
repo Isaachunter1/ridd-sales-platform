@@ -1127,23 +1127,38 @@ const COMMISSION_MY_DEFAULT = { hiPct: 75, loPct: 55, rate18: 2, rate24: 3, pena
 // Default rate model (matches the Retool backend): Pest % is the base; Ancillary
 // and Bundle are MULTIPLES of the pest rate.
 const COMMISSION_RATE_DEFAULT = { pest: 0.20, ancMult: 0.5, bundleMult: 0.8 };
+const COMMISSION_REP_TYPES = ['Office Staff', 'Sales Rep', 'Technician'];
 function commissionConfig() {
   const c = state.commissionConfig || {};
   return {
-    repRates:          c.repRates || {},          // { [empId]: { pest, ancMult, bundleMult } }  pest is a decimal (0.20)
+    repRates:          c.repRates || {},          // { [empId]: { pest, ancMult, bundleMult } } — per-rep OVERRIDE
+    typeRules:         c.typeRules || {},         // { [repType]: { pest, ancMult, bundleMult, multiYear:{...} } } — defaults by rep type
     serviceCategories: c.serviceCategories || {}, // { [serviceName]: 'pest'|'bundle'|'ancillary'|'exclude' }
-    multiYear:         Object.assign({}, COMMISSION_MY_DEFAULT, c.multiYear || {}),
+    multiYear:         Object.assign({}, COMMISSION_MY_DEFAULT, c.multiYear || {}), // legacy company-wide fallback
     manual:            c.manual || {},            // { [empId]: { overrides, rent, paidYtd, other, audit, payPeriods } } — shared
     published:         c.published || {},         // { [empId]: { ...breakdown, period, at } } — what reps see
   };
 }
-// Effective rates for a rep (falls back to the company defaults when unset).
-function commissionRatesFor(empId) {
+// The rule set for a rep TYPE — type config layered over company defaults.
+function commissionRulesForType(typeLabel) {
+  const cfg = commissionConfig();
+  const t = cfg.typeRules[typeLabel] || {};
+  return {
+    pest:       t.pest != null ? Number(t.pest) : COMMISSION_RATE_DEFAULT.pest,
+    ancMult:    t.ancMult != null ? Number(t.ancMult) : COMMISSION_RATE_DEFAULT.ancMult,
+    bundleMult: t.bundleMult != null ? Number(t.bundleMult) : COMMISSION_RATE_DEFAULT.bundleMult,
+    multiYear:  Object.assign({}, COMMISSION_MY_DEFAULT, cfg.multiYear, t.multiYear || {}),
+  };
+}
+// Effective rates for a specific rep: per-rep override → rep-type default → company default.
+function commissionRatesFor(empId, typeLabel) {
+  const base = commissionRulesForType(typeLabel);
   const r = commissionConfig().repRates[empId] || {};
-  const pest = r.pest != null ? Number(r.pest) : COMMISSION_RATE_DEFAULT.pest;
-  const ancMult = r.ancMult != null ? Number(r.ancMult) : COMMISSION_RATE_DEFAULT.ancMult;
-  const bundleMult = r.bundleMult != null ? Number(r.bundleMult) : COMMISSION_RATE_DEFAULT.bundleMult;
-  return { pest, ancMult, bundleMult, ancRate: pest * ancMult, bundleRate: pest * bundleMult };
+  const pest = r.pest != null ? Number(r.pest) : base.pest;
+  const ancMult = r.ancMult != null ? Number(r.ancMult) : base.ancMult;
+  const bundleMult = r.bundleMult != null ? Number(r.bundleMult) : base.bundleMult;
+  return { pest, ancMult, bundleMult, ancRate: pest * ancMult, bundleRate: pest * bundleMult,
+           overridden: (r.pest != null || r.ancMult != null || r.bundleMult != null) };
 }
 async function loadCommissionConfig() {
   if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile.role)) return;
@@ -25315,7 +25330,6 @@ function viewReporting() {
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
     state.reportingSubTab === 'auditing'   ? reportingAuditing() :
-    state.reportingSubTab === 'reconcile'  ? reportingReconciliation() :
                                               reportingOverview(),
   );
 }
@@ -25463,7 +25477,6 @@ function reportingSubTabs() {
     ['waterfall',  'Waterfall Attrition'],
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
-    ['reconcile',  'CRM Reconciliation'],
   ];
   return el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
     ...tabs.map(([k, label]) => {
@@ -27299,7 +27312,7 @@ function reportingInsideSales() {
 function reportingUploadsPanel() {
   const uploads = state.reportingUploads || [];
   return el('div', { class: 'card p-4' },
-    el('h2', { class: 'text-lg font-bold mb-1' }, 'Reporting Uploads'),
+    el('h2', { class: 'text-lg font-bold mb-1' }, 'Uploads'),
     el('p', { class: 'text-xs text-muted- mb-4' },
       'Each row is an all-time data snapshot, shared across everyone on the account. Click any row to load that snapshot ' +
       '(or pick it from the dropdown at the top). Delete removes the snapshot and all its rows.'),
@@ -28770,7 +28783,8 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
     if (c === 'pest') pestRev += v; else if (c === 'bundle') bundleRev += v; else if (c === 'ancillary') ancRev += v;
     else if (c === 'exclude') exclRev += v; else { unclRev += v; unclassified.set(r.subscription, (unclassified.get(r.subscription) || 0) + v); }
   }
-  const rt = commissionRatesFor(emp.employee_id);
+  const typeLabel = emp.type_label || 'Sales Rep';
+  const rt = commissionRatesFor(emp.employee_id, typeLabel);
   const pestRate = rt.pest, bundleRate = rt.bundleRate, ancRate = rt.ancRate, ancMult = rt.ancMult, bundleMult = rt.bundleMult;
   const pestComm = pestRev * pestRate, bundleComm = bundleRev * bundleRate, ancComm = ancRev * ancRate;
   const payableRev = pestRev + bundleRev + ancRev;
@@ -28782,7 +28796,7 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
     if (t >= 24) { rev24 += v; myRev += v; } else if (t >= 18) { rev18 += v; myRev += v; }
   }
   const myPct = payableRev > 0 ? (myRev / payableRev * 100) : 0;
-  const MY = cfg.multiYear;
+  const MY = commissionRulesForType(typeLabel).multiYear;
   let multiYearAmt = 0;
   if (myPct > MY.hiPct) multiYearAmt = rev18 * (MY.rate18 / 100) + rev24 * (MY.rate24 / 100);
   else if (myPct >= MY.loPct) multiYearAmt = 0;
@@ -28803,7 +28817,7 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
   const biWeekly = payPeriods ? netDue / payPeriods : netDue;
   return {
     rows, pestRev, bundleRev, ancRev, exclRev, unclRev, unclassified, payableRev,
-    pestRate, bundleRate, ancRate, ancMult, bundleMult, pestComm, bundleComm, ancComm,
+    pestRate, bundleRate, ancRate, ancMult, bundleMult, overridden: rt.overridden, pestComm, bundleComm, ancComm,
     rev18, rev24, myPct, multiYearAmt, MY,
     overrides, rent, paidYtd, other, audit, payPeriods, totalCommission, netDue, biWeekly,
     sold, canceled: canceled.length, ror: ror.length, afterLock: afterLock.length,
@@ -28927,8 +28941,7 @@ function commissionCalculator() {
 
   // ---- input helpers ----
   const saveRates = (patch) => { const c = commissionConfig(); c.repRates = Object.assign({}, c.repRates); c.repRates[emp.employee_id] = Object.assign({}, c.repRates[emp.employee_id], patch); saveCommissionConfig(c); mountApp(); };
-  const saveMY = (patch) => { const c = commissionConfig(); c.multiYear = Object.assign({}, c.multiYear, patch); saveCommissionConfig(c); mountApp(); };
-  const saveCat = (svc, val) => { const c = commissionConfig(); c.serviceCategories = Object.assign({}, c.serviceCategories); c.serviceCategories[svc] = val; saveCommissionConfig(c); mountApp(); };
+  const clearOverride = () => { const c = commissionConfig(); c.repRates = Object.assign({}, c.repRates); delete c.repRates[emp.employee_id]; saveCommissionConfig(c); mountApp(); };
   const saveMan = (patch) => { setCommissionManual(emp.employee_id, Object.assign({}, man, patch)); mountApp(); };
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
   const numField = (label, val, onCommit, opts = {}) => el('label', { class: 'block' }, lbl(label),
@@ -28939,26 +28952,21 @@ function commissionCalculator() {
   // ---- breakdown + stats (shared with the rep's own pay view) ----
   const { breakdown, stats } = commissionRenderCards(R, _frEmpName(emp));
 
-  // ---- config: rep rates (Pest % + multipliers) ----
+  // ---- per-rep rate override (type defaults live in Settings → Commissions) ----
+  const typeLabel = emp.type_label || 'Sales Rep';
+  const typeDef = commissionRulesForType(typeLabel);
   const ratesPanel = el('div', { class: 'card p-4' },
-    el('div', { class: 'text-sm font-bold mb-1' }, 'Set commission rates · ' + _frEmpName(emp)),
+    el('div', { class: 'flex items-center justify-between gap-2 mb-1' },
+      el('div', { class: 'text-sm font-bold' }, 'Rate override · ' + _frEmpName(emp)),
+      R.overridden ? el('button', { class: 'text-[11px] rounded px-2 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: clearOverride }, 'Reset to ' + typeLabel + ' default') : null),
     el('div', { class: 'text-[11px] text-muted- mb-3' },
-      'Default: Pest 20% of qualified revenue · Ancillary 0.5× pest · Bundle 0.8× pest. Changes apply to future calculations.'),
+      typeLabel + ' default: Pest ' + pct(typeDef.pest * 100) + ' · Anc ×' + typeDef.ancMult + ' · Bundle ×' + typeDef.bundleMult + '. Edit below only to override this rep (negotiated deal). Defaults are set in Settings → Commissions.'),
     el('div', { class: 'grid grid-cols-3 gap-3' },
       numField('Pest Commission %', R.pestRate * 100, v => saveRates({ pest: (parseFloat(v) || 0) / 100 }), { step: '0.5' }),
       numField('Ancillary Multiplier', R.ancMult, v => saveRates({ ancMult: parseFloat(v) || 0 }), { step: '0.1' }),
       numField('Bundle Multiplier', R.bundleMult, v => saveRates({ bundleMult: parseFloat(v) || 0 }), { step: '0.1' })),
-    el('div', { class: 'text-[11px] text-muted- mt-2' }, '→ Ancillary ' + pct(R.ancRate * 100) + ' · Bundle ' + pct(R.bundleRate * 100) + ' · saved for everyone.'));
-
-  const myPanel = el('div', { class: 'card p-4' },
-    el('div', { class: 'text-sm font-bold mb-1' }, 'Multi-year bonus rule'),
-    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Above the high threshold: +18mo% on 18-month revenue and +24mo% on 24-month. Below the low threshold: a penalty on all revenue.'),
-    el('div', { class: 'grid grid-cols-2 sm:grid-cols-5 gap-3' },
-      numField('High % >', cfg.multiYear.hiPct, v => saveMY({ hiPct: parseFloat(v) || 0 }), { step: '1' }),
-      numField('Low % ≥', cfg.multiYear.loPct, v => saveMY({ loPct: parseFloat(v) || 0 }), { step: '1' }),
-      numField('18mo +%', cfg.multiYear.rate18, v => saveMY({ rate18: parseFloat(v) || 0 }), { step: '0.5' }),
-      numField('24mo +%', cfg.multiYear.rate24, v => saveMY({ rate24: parseFloat(v) || 0 }), { step: '0.5' }),
-      numField('Penalty %', cfg.multiYear.penalty, v => saveMY({ penalty: parseFloat(v) || 0 }), { step: '0.5' })));
+    el('div', { class: 'text-[11px] mt-2', style: { color: R.overridden ? 'var(--accent)' : 'var(--text-muted)' } },
+      (R.overridden ? '✎ Overriding the ' + typeLabel + ' default · ' : 'Using the ' + typeLabel + ' default · ') + 'Ancillary ' + pct(R.ancRate * 100) + ' · Bundle ' + pct(R.bundleRate * 100)));
 
   const manualPanel = el('div', { class: 'card p-4' },
     el('div', { class: 'text-sm font-bold mb-3' }, 'This run — overrides & deductions'),
@@ -28970,25 +28978,6 @@ function commissionCalculator() {
       numField('Audit Deduction', man.audit, v => saveMan({ audit: v })),
       numField('Pay Periods', man.payPeriods == null ? 26 : man.payPeriods, v => saveMan({ payPeriods: v }), { step: '1' })),
     el('div', { class: 'text-[11px] text-muted- mt-2' }, 'Deductions are entered as positive numbers — the breakdown subtracts them.'));
-
-  // ---- service category mapping (services present in this rep's window) ----
-  const svcSet = new Map();
-  for (const r of R.rows) { const s = r.subscription || '(blank)'; svcSet.set(s, (svcSet.get(s) || 0) + (Number(r.subscription_contract_value) || 0)); }
-  const svcList = [...svcSet.entries()].sort((a, b) => (cfg.serviceCategories[a[0]] ? 1 : 0) - (cfg.serviceCategories[b[0]] ? 1 : 0) || b[1] - a[1]);
-  const catSelect = (svc) => { const cur = cfg.serviceCategories[svc] || ''; return el('select', { class: 'rounded-lg border px-2 py-1 text-xs', style: { borderColor: 'var(--border-2)' }, onchange: (e) => saveCat(svc, e.target.value) },
-    ...[['', 'Unclassified'], ['pest', 'Pest'], ['bundle', 'Bundle'], ['ancillary', 'Ancillary'], ['exclude', 'Exclude']].map(([v, t]) => el('option', { value: v, selected: cur === v }, t))); };
-  const svcPanel = el('div', { class: 'card p-4' },
-    el('div', { class: 'flex items-center justify-between mb-1' },
-      el('div', { class: 'text-sm font-bold' }, 'Service → category map'),
-      R.unclRev > 0 ? el('span', { class: 'chip', style: { background: 'rgba(220,38,38,.08)', color: '#B91C1C' } }, money(R.unclRev) + ' unclassified') : null),
-    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Tag each service so its revenue lands in Pest, Bundle, or Ancillary. Mapping is global — set once, applies to every rep.'),
-    svcList.length === 0
-      ? el('div', { class: 'rounded-lg border border-dashed p-6 text-center text-xs text-muted-', style: { borderColor: 'var(--border-2)' } },
-          'No services to map yet — they appear here once this rep has sales in the selected window.')
-      : el('div', { class: 'flex flex-col divide-y', style: { borderColor: 'var(--border)' } },
-          ...svcList.slice(0, 60).map(([svc, rev]) => el('div', { class: 'flex items-center justify-between gap-3 py-2' },
-            el('div', { class: 'min-w-0' }, el('div', { class: 'text-sm font-medium truncate' }, svc), el('div', { class: 'text-[11px] text-muted-' }, money(rev))),
-            catSelect(svc)))));
 
   // ---- controls ----
   const repSelect = el('select', { class: 'rounded-xl border px-3 py-2 text-sm font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
@@ -29011,7 +29000,7 @@ function commissionCalculator() {
           el('b', { style: { color: 'var(--text)' } }, 'No sales matched this rep in the window.'),
           el('span', { class: 'text-muted-' }, ' Try widening the dates, re-syncing, or confirming the rep’s FieldRoutes link on Settings → Users. Once accounts show up, map their service types to split the revenue.')) : null,
         breakdown, stats),
-      el('div', { class: 'flex flex-col gap-4 flex-1 w-full min-w-0' }, ratesPanel, manualPanel, myPanel, svcPanel)));  // right: all config (fills the rest)
+      el('div', { class: 'flex flex-col gap-4 flex-1 w-full min-w-0' }, ratesPanel, manualPanel)));  // right: per-rep override + deductions (type rules live in Settings → Commissions)
 }
 
 // ── CRM Reconciliation ──────────────────────────────────────────────────────
@@ -29252,8 +29241,7 @@ function viewAdmin() {
     ] },
     { label: 'Inside Sales Settings', items: [
       ['goals',   'Goals',          '🎯'],
-      ['sources', 'Sources',        '📣'],
-      ['pricing', 'Pricing',        '💵'],
+      ['pricing', 'Commissions',    '💵'],
       ['import',  'Import Sales',    '📥'],
       ['slack',   'Slack',          '💬'],
     ] },
@@ -29279,11 +29267,10 @@ function viewAdmin() {
   const sectionRenderers = {
     goals:   adminGoals,
     users:   adminReps,
-    sources: adminSources,
     config:  adminConfigurations,
     uploads: adminUploads,
     slack:   adminSlack,
-    pricing: adminPricing,
+    pricing: adminCommissions,   // "Commissions" — CRM commission rules by rep type
     import:  adminImport,
     backup:  adminBackup,
   };
@@ -29427,7 +29414,7 @@ function adminUploads() {
     el('div', {},
       el('h2', { class: 'text-lg font-bold' }, 'Admin'),
       el('p', { class: 'text-xs text-muted- mt-0.5' },
-        'Upload history for the Reporting and Indicators CSVs, plus the app activity log.'),
+        'Snapshot history (synced from RevHawk) plus the app activity log.'),
     ),
     // RevHawk live data is now one click — the ↻ sync icon in the top-bar
     // header refreshes both Reporting and Indicators. (Auto-syncs nightly too.)
@@ -29438,7 +29425,7 @@ function adminUploads() {
     toggle,
     tab === 'activity'
       ? adminBackup()
-      : el('div', { class: 'flex flex-col gap-4' }, reportingUploadsPanel(), indicatorsUploadsPanel()),
+      : reportingUploadsPanel(),
   );
 }
 
@@ -29767,6 +29754,82 @@ function adminSources() {
       ),
     ),
   );
+}
+
+// Admin → Commissions: the rule set behind the Commission Calculator, set per
+// REP TYPE (Office Staff / Sales Reps / Technicians). A specific rep's rates can
+// still be overridden on the calculator; this is the default for everyone of a
+// type. The service→category map is global (one taxonomy for all).
+function adminCommissions() {
+  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
+  const pct = (n) => (Math.round((n || 0) * 100) / 100).toFixed(2) + '%';
+  const money = (n) => '$' + Math.round(n || 0).toLocaleString();
+  if (!COMMISSION_REP_TYPES.includes(state._commRulesTab)) state._commRulesTab = 'Sales Rep';
+  const type = state._commRulesTab;
+  const cfg = commissionConfig();
+  const rules = commissionRulesForType(type);
+
+  const saveTypeRule = (patch) => { const c = commissionConfig(); c.typeRules = Object.assign({}, c.typeRules); c.typeRules[type] = Object.assign({}, c.typeRules[type], patch); saveCommissionConfig(c); mountApp(); };
+  const saveTypeMY = (patch) => { const c = commissionConfig(); c.typeRules = Object.assign({}, c.typeRules); const cur = Object.assign({}, c.typeRules[type]); cur.multiYear = Object.assign({}, COMMISSION_MY_DEFAULT, c.multiYear, cur.multiYear, patch); c.typeRules[type] = cur; saveCommissionConfig(c); mountApp(); };
+  const saveCat = (svc, val) => { const c = commissionConfig(); c.serviceCategories = Object.assign({}, c.serviceCategories); c.serviceCategories[svc] = val; saveCommissionConfig(c); mountApp(); };
+
+  const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
+  const numField = (label, val, onCommit, opts = {}) => el('label', { class: 'block' }, lbl(label),
+    el('input', { type: 'number', step: opts.step || '0.01', value: (val == null ? '' : val),
+      class: 'w-full rounded-lg border px-2 py-1.5 text-sm text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
+      onchange: (e) => onCommit(e.target.value) }));
+
+  const tabs = el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
+    ...COMMISSION_REP_TYPES.map(t => {
+      const on = type === t;
+      return el('button', { class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
+        style: { borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent', color: on ? 'var(--text)' : 'var(--text-muted)', marginBottom: '-1px' },
+        onclick: () => { state._commRulesTab = t; mountApp(); } }, t === 'Sales Rep' ? 'Sales Reps' : t === 'Technician' ? 'Technicians' : t);
+    }));
+
+  const ratesPanel = el('div', { class: 'card p-4' },
+    el('div', { class: 'text-sm font-bold mb-1' }, 'Commission rates · ' + type),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Default for every ' + type + '. Pest % is the base; Ancillary and Bundle are multiples of it. Company default: 20% · 0.5× · 0.8×.'),
+    el('div', { class: 'grid grid-cols-3 gap-3' },
+      numField('Pest Commission %', rules.pest * 100, v => saveTypeRule({ pest: (parseFloat(v) || 0) / 100 }), { step: '0.5' }),
+      numField('Ancillary Multiplier', rules.ancMult, v => saveTypeRule({ ancMult: parseFloat(v) || 0 }), { step: '0.1' }),
+      numField('Bundle Multiplier', rules.bundleMult, v => saveTypeRule({ bundleMult: parseFloat(v) || 0 }), { step: '0.1' })),
+    el('div', { class: 'text-[11px] text-muted- mt-2' }, '→ Ancillary ' + pct(rules.pest * rules.ancMult * 100) + ' · Bundle ' + pct(rules.pest * rules.bundleMult * 100)));
+
+  const my = rules.multiYear;
+  const myPanel = el('div', { class: 'card p-4' },
+    el('div', { class: 'text-sm font-bold mb-1' }, 'Multi-year bonus · ' + type),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Above the high threshold: +18mo% on 18-month revenue and +24mo% on 24-month. Below the low threshold: a penalty on all revenue.'),
+    el('div', { class: 'grid grid-cols-2 sm:grid-cols-5 gap-3' },
+      numField('High % >', my.hiPct, v => saveTypeMY({ hiPct: parseFloat(v) || 0 }), { step: '1' }),
+      numField('Low % ≥', my.loPct, v => saveTypeMY({ loPct: parseFloat(v) || 0 }), { step: '1' }),
+      numField('18mo +%', my.rate18, v => saveTypeMY({ rate18: parseFloat(v) || 0 }), { step: '0.5' }),
+      numField('24mo +%', my.rate24, v => saveTypeMY({ rate24: parseFloat(v) || 0 }), { step: '0.5' }),
+      numField('Penalty %', my.penalty, v => saveTypeMY({ penalty: parseFloat(v) || 0 }), { step: '0.5' })));
+
+  // Global service → category map (one taxonomy for everyone).
+  const svcAgg = new Map();
+  for (const r of (state.reportingSubscriptions || [])) { const s = r.subscription || '(blank)'; svcAgg.set(s, (svcAgg.get(s) || 0) + (Number(r.subscription_contract_value) || 0)); }
+  const svcList = [...svcAgg.entries()].sort((a, b) => (cfg.serviceCategories[a[0]] ? 1 : 0) - (cfg.serviceCategories[b[0]] ? 1 : 0) || b[1] - a[1]);
+  const catSelect = (svc) => { const cur = cfg.serviceCategories[svc] || ''; return el('select', { class: 'rounded-lg border px-2 py-1 text-xs', style: { borderColor: 'var(--border-2)' }, onchange: (e) => saveCat(svc, e.target.value) },
+    ...[['', 'Unclassified'], ['pest', 'Pest'], ['bundle', 'Bundle'], ['ancillary', 'Ancillary'], ['exclude', 'Exclude']].map(([v, t]) => el('option', { value: v, selected: cur === v }, t))); };
+  const svcPanel = el('div', { class: 'card p-4' },
+    el('div', { class: 'text-sm font-bold mb-1' }, 'Service → category map (global)'),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Tag each service so its revenue lands in Pest, Bundle, or Ancillary. Applies to every rep type.'),
+    svcList.length === 0
+      ? el('div', { class: 'rounded-lg border border-dashed p-6 text-center text-xs text-muted-', style: { borderColor: 'var(--border-2)' } }, 'No services loaded yet — open the Reporting tab once so the snapshot loads, then come back.')
+      : el('div', { class: 'flex flex-col divide-y', style: { borderColor: 'var(--border)' } },
+          ...svcList.slice(0, 80).map(([svc, rev]) => el('div', { class: 'flex items-center justify-between gap-3 py-2' },
+            el('div', { class: 'min-w-0' }, el('div', { class: 'text-sm font-medium truncate' }, svc), el('div', { class: 'text-[11px] text-muted-' }, money(rev))),
+            catSelect(svc)))));
+
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', {},
+      el('h2', { class: 'text-lg font-bold' }, 'Commissions'),
+      el('p', { class: 'text-xs text-muted-' }, 'Commission rules by rep type. The Commission Calculator uses these; a specific rep can still be overridden there.')),
+    tabs,
+    el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, ratesPanel, myPanel),
+    svcPanel);
 }
 
 function adminPricing() {
