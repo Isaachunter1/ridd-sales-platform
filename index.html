@@ -26751,16 +26751,17 @@ function reportingIsPacer() {
   const now = new Date(), yr = now.getFullYear(), curM = now.getMonth();
   const NA = -999999;
   const isExcl = reportingExcludedSources();
-  // Actual IS revenue by month — same rules as the P&L (sold date, committed, IS + upsell sources).
+  // Actual = total CONTRACT VALUE of NEW sales, Office-Staff (inside sales) only.
+  // Excludes renewals, upsells, and Sales-Rep (Door-to-Door) accounts; counts
+  // ALL new sales (no committed/auto-pay gate). Bucketed by sold date.
   const act = Array(12).fill(0);
   for (const r of rows) {
     const sd = r.sold_date; if (!sd || !String(sd).startsWith(yr + '-')) continue;
     const src = (r.subscription_source || '').trim();
     if (isExcl.has(src || 'Unspecified')) continue;
-    if (reportingSourceClass(src) !== 'new') continue;      // NEW business only — exclude renewals AND upsells
-    if (!reportingIsOfficeStaff(r)) continue;               // Marketing = Office Staff accounts only
-    if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue;
-    act[Number(String(sd).slice(5, 7)) - 1] += Number(r.annual_recurring_value) || 0;
+    if (reportingSourceClass(src) !== 'new') continue;      // NEW only — exclude renewals AND upsells
+    if (!reportingIsOfficeStaff(r)) continue;               // Office Staff (rep type) only — excludes Sales Reps
+    act[Number(String(sd).slice(5, 7)) - 1] += Number(r.subscription_contract_value) || 0;
   }
   // Annual goal: whatever's in the box (persisted locally), else the model goal.
   const annual = isAnnualGoalFor(yr);
@@ -26815,7 +26816,7 @@ function reportingIsPacer() {
     el('div', { class: 'flex items-start justify-between gap-2 flex-wrap mb-3' },
       el('div', {},
         el('h3', { class: 'text-base font-bold mb-1' }, 'Inside Sales Pacer'),
-        el('div', { class: 'text-[11px] text-muted-' }, 'Committed-sold revenue vs goal · monthly goal = your Projected Revenue cells, else seasonal curve × annual goal')),
+        el('div', { class: 'text-[11px] text-muted-' }, 'New Office-Staff contract value vs goal · all new sales (renewals, upsells & Sales Reps excluded) · monthly goal = your Projected Revenue cells, else seasonal curve × annual goal')),
       el('div', { class: 'flex items-center gap-2' },
         el('span', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-subtle)' } }, 'Annual goal $'), goalInput)),
     el('div', { class: 'flex gap-4 flex-wrap mb-3' },
@@ -26916,8 +26917,10 @@ function reportingMktgSpendRevChart() {
   const spendByYM = {};
   for (const ym in SP) { let s = 0; for (const ch in SP[ym]) s += SP[ym][ch] || 0; spendByYM[ym] = s; }
   const monthKeys = (y) => Array.from({ length: 12 }, (_, i) => y + '-' + String(i + 1).padStart(2, '0'));
-  const spendCur  = monthKeys(curY).map(k => spendByYM[k] || 0);
-  const spendPrev = monthKeys(prevY).map(k => spendByYM[k] || 0);
+  // Only plot spend for months we actually have (reliable, branch-categorized)
+  // data for — months with no trustworthy spend render as a gap, not a $0 bar.
+  const spendCur  = monthKeys(curY).map(k => (k in spendByYM) ? spendByYM[k] : null);
+  const spendPrev = monthKeys(prevY).map(k => (k in spendByYM) ? spendByYM[k] : null);
   const revCur    = monthKeys(curY).map(k => revByYM[k] || 0);
   const revPrev   = monthKeys(prevY).map(k => revByYM[k] || 0);
   const hasPrev   = spendPrev.some(v => v > 0) || revPrev.some(v => v > 0);
@@ -26944,7 +26947,7 @@ function reportingMktgSpendRevChart() {
   }, 50);
   return el('div', { class: 'card p-4' },
     el('h3', { class: 'text-base font-bold mb-1' }, 'Marketing Spend vs Inside Sales Revenue'),
-    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Year-over-year by month · bars = marketing spend · lines = new recurring revenue (ARR), office-staff sold · ' + curY + ' solid vs ' + prevY + ' dashed'),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Year-over-year by month · bars = marketing spend (shown only for months with verified QuickBooks data) · lines = new recurring revenue (ARR), office-staff sold · ' + curY + ' solid vs ' + prevY + ' dashed'),
     cvsWrap,
   );
 }
