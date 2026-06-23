@@ -24353,8 +24353,28 @@ function reportingExcludedCancelReasons() {
   const cfg = state.reportingCancelConfig || [];
   return new Set(cfg.filter(c => c.counts_attrition === false).map(c => _normCancelReason(c.reason)));
 }
+// Cancel-reason MERGE map — lets an admin fold legacy/duplicate reasons into a
+// current one (Configurations → Cancellation Reasons). Stored normalized-key →
+// canonical display. Cached because reportingCancelReasonOf runs per row.
+let _cancelRemapCache = null;
+function reportingCancelRemap() {
+  if (_cancelRemapCache) return _cancelRemapCache;
+  try { _cancelRemapCache = JSON.parse(localStorage.getItem('ridd_rpt_cancel_remap') || '{}') || {}; } catch { _cancelRemapCache = {}; }
+  return _cancelRemapCache;
+}
+function setReportingCancelRemap(fromRaw, toRaw) {
+  const m = { ...reportingCancelRemap() };
+  const key = _normCancelReason(fromRaw);
+  if (!key) return;
+  if (toRaw && _normCancelReason(toRaw) !== key) m[key] = String(toRaw).trim();
+  else delete m[key]; // mapping to itself / blank clears it
+  try { localStorage.setItem('ridd_rpt_cancel_remap', JSON.stringify(m)); } catch {}
+  _cancelRemapCache = m;
+}
 function reportingCancelReasonOf(r) {
-  return r.subscription_cancellation_reason || 'Unspecified';
+  const raw = r.subscription_cancellation_reason || 'Unspecified';
+  const t = reportingCancelRemap()[_normCancelReason(raw)];
+  return t || raw;
 }
 
 // Lead sources the admin marked as NOT counting (Configurations tab). Subs
@@ -26112,18 +26132,20 @@ function reportingCancelConfigPanel() {
   const subs = state.reportingSubscriptions || [];
   const cfgByReason = new Map(cfg.map(c => [c.reason, c]));
 
-  // Count canceled subs per reason (volume context) from the snapshot.
+  // Count canceled subs per reason — EFFECTIVE reason (after any merge), so a
+  // reason merged into another drops to 0 here and the target absorbs it.
   const counts = new Map();
+  const rawReasons = new Set();   // raw (pre-merge) reasons, so merged-away ones still show at 0
   for (const r of subs) {
     if (!r.subscription_date_canceled) continue;
-    const reason = reportingCancelReasonOf(r);
-    counts.set(reason, (counts.get(reason) || 0) + 1);
+    counts.set(reportingCancelReasonOf(r), (counts.get(reportingCancelReasonOf(r)) || 0) + 1);
+    rawReasons.add(r.subscription_cancellation_reason || 'Unspecified');
   }
   // Reference the reporting customer report's reason universe (persisted), so
   // the full list shows even when the report's rows aren't loaded in memory.
   for (const reason of (state._reportingCancelReasonsSeen || [])) {
     const r = String(reason || '').trim();
-    if (r && !counts.has(r)) counts.set(r, 0);
+    if (r) rawReasons.add(r);
   }
   // Consolidate variant spellings of the same reason (case/whitespace, and
   // CRM system duplicates like two "Expired Subscription" entries) into ONE
@@ -26138,6 +26160,7 @@ function reportingCancelConfigPanel() {
     g.count += n; g.variants.add(raw);
   };
   for (const [raw, n] of counts) addReason(raw, n);
+  for (const raw of rawReasons) addReason(raw, 0);   // keep merged-away reasons visible at 0
   for (const c of cfg) addReason(c.reason, 0);
   // Prefer an existing config entry's exact text as the row label.
   for (const g of groups.values()) {
@@ -26169,7 +26192,9 @@ function reportingCancelConfigPanel() {
       el('h2', { class: 'text-base font-bold' }, 'Cancellation Reasons'),
       configInfoBtn('Cancellation Reasons',
         'Choose which cancellation reasons count as real attrition. Excluded reasons (e.g. duplicates, moved/relocated, paperwork churn) ' +
-        'drop out of churn everywhere — the Overview cancel count + rate AND the Geographic attrition map. Counts shown are canceled subs in the current snapshot.'),
+        'drop out of churn everywhere — the Overview cancel count + rate AND the Geographic attrition map. ' +
+        'Use “Merge into” to fold a legacy/duplicate reason into a current one — the old reason then shows 0 and the current reason absorbs its cancels everywhere. ' +
+        'Click a Cancels number to drill into the exact canceled accounts behind it. Counts are canceled subs in the current snapshot.'),
     ),
     list.length === 0
       ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Cancellation reasons appear here once a snapshot has canceled subscriptions.')
@@ -26179,6 +26204,7 @@ function reportingCancelConfigPanel() {
               el('tr', {},
                 el('th', { class: 'text-left pl-3 pr-2 py-2 font-semibold' }, 'Cancellation Reason'),
                 el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Cancels'),
+                el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Merge into'),
                 el('th', { class: 'text-left pr-3 pl-2 py-2 font-semibold' }, 'Attrition'),
               ),
             ),
@@ -26209,9 +26235,28 @@ function reportingCancelConfigPanel() {
                   paint(excludedNow);
                   row.style.opacity = excludedNow ? '0.6' : '1';
                 };
+                // Merge target for THIS reason (normalized-key lookup).
+                const mergedTo = reportingCancelRemap()[g.key] || '';
+                // Drill into the actual canceled accounts behind the count.
+                const drill = () => {
+                  const drillRows = subs.filter(r => r.subscription_date_canceled && _normCancelReason(reportingCancelReasonOf(r)) === g.key);
+                  if (!drillRows.length) { toast('No canceled accounts loaded for this reason', 'info'); return; }
+                  openReportingDrillModal({ chartTitle: 'Cancellations', sliceLabel: g.display + ' — ' + drillRows.length + ' canceled', rows: drillRows, formatValue: fmt.usd0 });
+                };
+                const countCell = g.count > 0
+                  ? el('button', { class: 'tabular-nums font-semibold cursor-pointer hover:underline', style: { color: 'var(--accent-strong, var(--text))' }, title: 'View the canceled accounts', onclick: drill }, g.count.toLocaleString())
+                  : el('span', { class: 'tabular-nums text-muted-' }, '0');
+                // "Merge into" dropdown — fold this reason into another (current) one.
+                const otherReasons = list.filter(o => o.key !== g.key).map(o => o.display).sort((a, b) => a.localeCompare(b));
+                const mergeSel = el('select', { class: 'rounded border px-1.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', maxWidth: '160px' },
+                  onchange: (e) => { setReportingCancelRemap(g.display, e.target.value); logActivity('config_change', { detail: 'Cancel-reason merge: ' + g.display + ' → ' + (e.target.value || '(none)') }); mountApp(); } },
+                  el('option', { value: '', selected: !mergedTo }, '—'),
+                  ...otherReasons.map(o => el('option', { value: o, selected: _normCancelReason(o) === _normCancelReason(mergedTo) }, o)));
                 row.append(
-                  el('td', { class: 'pl-3 pr-2 py-1.5 font-medium' }, g.display),
-                  el('td', { class: 'px-2 py-1.5 text-left tabular-nums text-muted-' }, g.count.toLocaleString()),
+                  el('td', { class: 'pl-3 pr-2 py-1.5 font-medium' }, g.display,
+                    mergedTo ? el('span', { class: 'text-[10px] ml-1.5', style: { color: 'var(--text-muted)' } }, '→ ' + mergedTo) : null),
+                  el('td', { class: 'px-2 py-1.5 text-left' }, countCell),
+                  el('td', { class: 'px-2 py-1.5 text-left' }, mergeSel),
                   el('td', { class: 'pr-3 pl-2 py-1.5 text-left' }, pill),
                 );
                 return row;
