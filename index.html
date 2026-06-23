@@ -32249,26 +32249,12 @@ function adminReps() {
     if (frName) { const s2 = _sig(frName); if (_repKeyBySig[s2]) return _repKeyBySig[s2]; }
     return x.name; // no match yet — key under their own name
   };
-  const teamsForYear = (typeof distinctTeamsForYear === 'function') ? distinctTeamsForYear(Number(_teamYearKey())) : (state._indicatorTeams || []);
-  const teamTierCells = (x) => {
+  // Tier cell. Currently writes the manual Rookie/Vet tag (shared with Manage
+  // Teams). TODO: once FieldRoutes carries a rookie/vet designation, source this
+  // read-only from the roster instead of the manual tag.
+  const tierCell = (x) => {
     const key = repKeyForPerson(x);
-    const curTeam = getRepTeam(key);
     const curTier = getRepTier(key);
-    const teamSel = el('select', {
-      class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)' },
-      onchange: (e) => {
-        const v = e.target.value;
-        if (v === '__new__') {
-          const name = prompt('New team name:');
-          if (name && name.trim()) { const c = name.trim(); addTeam(c); setRepTeam(key, c); }
-        } else { setRepTeam(key, v); }
-        mountApp();
-      },
-    },
-      el('option', { value: '', selected: !curTeam }, '— Team —'),
-      ...teamsForYear.map(t => el('option', { value: t, selected: curTeam === t }, t)),
-      el('option', { value: '__new__' }, '+ New team…'));
     const tierMeta = (typeof repTierMeta === 'function') ? repTierMeta(curTier) : null;
     const tierSel = el('select', {
       class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
@@ -32277,7 +32263,7 @@ function adminReps() {
     },
       el('option', { value: '', selected: !curTier }, '— Tier —'),
       ...REP_TIERS.map(t => el('option', { value: t.id, selected: curTier === t.id }, t.label)));
-    return [el('td', { class: 'px-3 py-3' }, teamSel), el('td', { class: 'px-3 py-3' }, tierSel)];
+    return el('td', { class: 'px-3 py-3' }, tierSel);
   };
 
   // Avatar that opens a photo picker on click (app users only) — saves straight
@@ -32312,7 +32298,7 @@ function adminReps() {
       tdM(p.email || (fr ? fr.email : null)),                             // Email
       tdM(fr ? fmtLogin(fr.last_login) : null),                           // Last Login (CRM)
       td(fr ? fr.type_label : null, fr ? '' : 'text-muted- italic'),      // Rep Type (CRM)
-      ...teamTierCells(x),                                                // Team (year) + Tier
+      tierCell(x),                                                       // Tier
       el('td', { class: 'px-3 py-3 text-center' },
         el('button', { title: active ? 'Click to deactivate' : 'Click to activate', onclick: () => setProfileActive(p, !active) }, statusChip(active))),
       el('td', { class: 'px-3 py-3 text-right' },
@@ -32332,7 +32318,7 @@ function adminReps() {
       tdM(e.email),                                                       // Email
       tdM(fmtLogin(e.last_login)),                                        // Last Login
       td(e.type_label),                                                   // Rep Type
-      ...teamTierCells(x),                                                // Team (year) + Tier
+      tierCell(x),                                                       // Tier
       el('td', { class: 'px-3 py-3 text-center' }, statusChip(false)),
       el('td', { class: 'px-3 py-3 text-right' },
         el('button', { class: 'text-xs px-3 py-1.5 rounded-lg font-bold transition hover:brightness-95 whitespace-nowrap', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
@@ -32344,10 +32330,10 @@ function adminReps() {
     el('table', { class: 'w-full text-sm whitespace-nowrap' },
       el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, el('tr', {},
         th('ID'), el('th', { class: 'text-left px-4 py-3' }, 'Name'), th('User Name'), th('Access Profile'),
-        th('Phone'), th('Email'), th('Last Login'), th('Rep Type'), th('Team · ' + _teamYearKey()), th('Tier'), th('Status', 'text-center'), th('', 'text-right'))),
+        th('Phone'), th('Email'), th('Last Login'), th('Rep Type'), th('Tier'), th('Status', 'text-center'), th('', 'text-right'))),
       el('tbody', {},
         (appPeople.length + rosterShown.length) === 0
-          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 12 },
+          ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 11 },
               q ? 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' match “' + state._adminUserSearch + '”.' : 'No ' + REP_TYPE_TAB_LABEL[typeTab] + ' in this view.'))
           : null,
         ...appPeople.map(appRow),
