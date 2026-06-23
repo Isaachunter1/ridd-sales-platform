@@ -14632,6 +14632,10 @@ function manageTeamsPanel(opts) {
         onchange: (e) => onChange(e.target.value),
       }, ...opts.map(o => el('option', { value: o.value, selected: value === o.value }, o.label))));
     const filterBar = el('div', { class: 'px-5 py-2.5 border-b flex flex-wrap items-center gap-x-4 gap-y-2', style: { borderColor: 'var(--border)' } },
+      mkFilter('Team', teamSelect, [
+        { value: '', label: 'All · ' + reps.length },
+        ...chipEntries.map(([t, n]) => ({ value: t, label: t + ' · ' + n })),
+      ], (v) => { state._indicatorManageTeamFilter = v; render(); }),
       mkFilter('Tier', tierSelect, [
         { value: '', label: 'All · ' + (tierCounts.rookie + tierCounts.vet + tierCounts.untagged) },
         { value: 'rookie', label: 'Rookie · ' + tierCounts.rookie },
@@ -14647,11 +14651,14 @@ function manageTeamsPanel(opts) {
         { value: '', label: 'All' },
         ...branchesPresent.map(b => ({ value: b, label: titleCase(b) + ' · ' + branchCounts[b] })),
       ], (v) => { state._indicatorManageBranchFilter = v; render(); }),
+      (teamSelect || tierSelect || activeSelect || branchSelect)
+        ? el('span', { class: 'text-[10px] text-muted- italic', style: { marginLeft: 'auto' } }, 'Showing ' + filteredReps.length + ' of ' + reps.length)
+        : null,
     );
 
     card.innerHTML = '';
     card.append(
-      header, addBar, teamChips, filterBar,
+      header, addBar, filterBar,
       ...(dupesPanel ? [dupesPanel] : []),
       ...(detailPanel ? [detailPanel] : []),
       searchInput, repList,
