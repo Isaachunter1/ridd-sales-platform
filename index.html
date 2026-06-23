@@ -26409,6 +26409,9 @@ const IS_PACER_CUM = [0.025, 0.055, 0.105, 0.20, 0.30, 0.42, 0.595, 0.74, 0.84, 
 // Month-over-month seasonal allocation (Jan→Dec). Sums to 100% and lines up
 // exactly with IS_PACER_CUM as its running total.
 const IS_SEASONAL  = [0.025, 0.03, 0.05, 0.095, 0.10, 0.12, 0.175, 0.145, 0.10, 0.09, 0.05, 0.02];
+// Renewals follow their OWN seasonal curve (front/back-loaded — high in winter,
+// low through the summer selling season), the inverse of new-sales seasonality.
+const IS_RENEWAL_SEASONAL = [0.14, 0.12, 0.10, 0.08, 0.07, 0.05, 0.06, 0.06, 0.06, 0.06, 0.07, 0.13];
 
 // RIDD-level monthly projections (Jan→Dec), straight from the PROJECTIONS tab of
 // RIDD Reporting.xlsx — revenue goal $4M × seasonal curve × branch ramp. These
@@ -29476,56 +29479,97 @@ function indicatorsUploadsPanel() {
 // ── Placeholder settings sections (filled in later as needed) ──
 function adminGoals() {
   const g = state.companyGoal;
-  // Ensure sub-goals exist with defaults
-  g.new_amount    = g.new_amount    ?? Math.round(g.amount * 0.75);
-  g.renewal_amount= g.renewal_amount?? Math.round(g.amount * 0.25);
-  g.quarterly         = g.quarterly         || [g.amount/4, g.amount/4, g.amount/4, g.amount/4];
-  g.quarterly_new     = g.quarterly_new     || [g.new_amount/4, g.new_amount/4, g.new_amount/4, g.new_amount/4];
-  g.quarterly_renewal = g.quarterly_renewal || [g.renewal_amount/4, g.renewal_amount/4, g.renewal_amount/4, g.renewal_amount/4];
-  g.stretch       = g.stretch       || 0;
-  const persist = () => saveDemoData();
-
-  // Live YTD numbers for the progress cards
+  g.new_amount     = g.new_amount     ?? Math.round(g.amount * 0.75);
+  g.renewal_amount = g.renewal_amount ?? Math.round(g.amount * 0.25);
+  // Monthly allocation is the source of truth — seeded from the seasonal curve,
+  // editable per month, and feeds the IS pacer, dashboard, and Marketing tab.
+  if (!Array.isArray(g.monthly_new)     || g.monthly_new.length     !== 12) g.monthly_new     = IS_SEASONAL.map(s => Math.round(g.new_amount * s));
+  if (!Array.isArray(g.monthly_renewal) || g.monthly_renewal.length !== 12) g.monthly_renewal = IS_RENEWAL_SEASONAL.map(s => Math.round(g.renewal_amount * s));
+  // Keep annual + quarterly derived from the monthly grid so existing consumers
+  // (dashboard war-room, per-rep math) stay correct.
+  const syncDerived = () => {
+    g.new_amount     = g.monthly_new.reduce((a, b) => a + (b || 0), 0);
+    g.renewal_amount = g.monthly_renewal.reduce((a, b) => a + (b || 0), 0);
+    g.amount = g.new_amount + g.renewal_amount;
+    const qsum = (arr, q) => (arr[q*3]||0) + (arr[q*3+1]||0) + (arr[q*3+2]||0);
+    g.quarterly_new     = [0,1,2,3].map(q => qsum(g.monthly_new, q));
+    g.quarterly_renewal = [0,1,2,3].map(q => qsum(g.monthly_renewal, q));
+    g.quarterly         = [0,1,2,3].map(q => g.quarterly_new[q] + g.quarterly_renewal[q]);
+  };
+  syncDerived();
+  const persist = () => { syncDerived(); saveDemoData(); };
+  // Re-spread an annual total across the 12 months via the matching seasonal curve.
+  const reseed = (which, annual) => {
+    const curve = which === 'new' ? IS_SEASONAL : IS_RENEWAL_SEASONAL;
+    const arr = curve.map(s => Math.round(annual * s));
+    if (which === 'new') g.monthly_new = arr; else g.monthly_renewal = arr;
+    persist(); mountApp();
+  };
   const ytd = goalYtdRevenue(true);
 
   return el('div', { class: 'flex flex-col gap-5' },
     el('h2', { class: 'text-xl font-bold' }, 'Goals'),
+    el('p', { class: 'text-xs text-muted- -mt-3' }, 'Set the annual New and Renewal targets, then shape how they land across the year. These monthly numbers drive the Inside Sales pacer, the dashboard, and the Marketing tab.'),
 
-    // ── Total / New / Renewal targets ──
+    // ── Annual targets ──
     el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, 'Company Annual Revenue Targets'),
-      el('p', { class: 'text-xs text-muted- mb-4' }, 'Total = New + Renewal. Adjust the New and Renewal targets — the Total updates automatically.'),
-
-      el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4' },
-        // Total (computed, read-only)
+      el('h3', { class: 'text-sm font-bold mb-1' }, 'Annual revenue targets'),
+      el('p', { class: 'text-xs text-muted- mb-4' }, 'Total = New + Renewal. Editing an annual target re-spreads it across the months using the seasonal curve (you can still tweak any month below).'),
+      el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-4' },
         goalTargetCard('Total Revenue', g.amount, ytd.total, null, true),
-        // New (editable)
-        goalTargetCard('New Revenue', g.new_amount, ytd.new, (val) => {
-          g.new_amount = val;
-          g.amount = g.new_amount + g.renewal_amount;
-          g.quarterly = [g.amount/4, g.amount/4, g.amount/4, g.amount/4];
-          g.quarterly_new = [val/4, val/4, val/4, val/4];
-          persist(); mountApp();
-        }),
-        // Renewal (editable)
-        goalTargetCard('Renewal Revenue', g.renewal_amount, ytd.renewal, (val) => {
-          g.renewal_amount = val;
-          g.amount = g.new_amount + g.renewal_amount;
-          g.quarterly = [g.amount/4, g.amount/4, g.amount/4, g.amount/4];
-          g.quarterly_renewal = [val/4, val/4, val/4, val/4];
-          persist(); mountApp();
-        }),
-      ),
+        goalTargetCard('New Revenue', g.new_amount, ytd.new, (val) => reseed('new', val)),
+        goalTargetCard('Renewal Revenue', g.renewal_amount, ytd.renewal, (val) => reseed('renewal', val)))),
 
-    ),
-
-    // ── Quarterly milestones — Total, New, Renewal ──
-    quarterlyMilestonesCard('Total Quarterly', g, 'quarterly', g.amount, persist, true),
-    quarterlyMilestonesCard('New Revenue Quarterly', g, 'quarterly_new', g.new_amount, persist, false),
-    quarterlyMilestonesCard('Renewal Revenue Quarterly', g, 'quarterly_renewal', g.renewal_amount, persist, false),
+    // ── Monthly seasonal allocation ──
+    goalMonthlyCard(g, persist),
 
     el('div', { class: 'text-[11px] text-muted-' }, 'Per-rep goals are editable in ', el('strong', {}, 'Users'), '.'),
   );
+}
+
+// Monthly allocation grid — New + Renewal editable per month, Total computed.
+// This is what the IS pacer / dashboard / Marketing read for projections.
+function goalMonthlyCard(g, persist) {
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const usd = (n) => '$' + Math.round(n || 0).toLocaleString();
+  const curM = new Date().getMonth();
+  const cell = (arr, m) => el('input', {
+    type: 'text', inputmode: 'numeric', value: Math.round(arr[m] || 0).toLocaleString(),
+    class: 'w-24 text-right text-xs rounded border px-2 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
+    onchange: (e) => { arr[m] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); mountApp(); },
+  });
+  const totNew = g.monthly_new.reduce((a, b) => a + (b || 0), 0);
+  const totRen = g.monthly_renewal.reduce((a, b) => a + (b || 0), 0);
+  const th = (t, align) => el('th', { class: (align || 'text-right') + ' px-3 py-2 font-semibold' }, t);
+  return el('div', { class: 'card p-4' },
+    el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-1' },
+      el('h3', { class: 'text-sm font-bold' }, 'Monthly allocation'),
+      el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+        onclick: () => { g.monthly_new = IS_SEASONAL.map(s => Math.round(g.new_amount * s)); g.monthly_renewal = IS_RENEWAL_SEASONAL.map(s => Math.round(g.renewal_amount * s)); persist(); mountApp(); } },
+        '↻ Reset to seasonal curve')),
+    el('p', { class: 'text-[11px] text-muted- mb-3' }, 'How the annual targets land each month. Edit New or Renewal for any month; Total updates automatically. Defaults follow the seasonal curve.'),
+    el('div', { class: 'rounded-lg border overflow-x-auto', style: { borderColor: 'var(--border)' } },
+      el('table', { class: 'w-full text-xs' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+          el('tr', {}, th('Month', 'text-left'), th('New'), th('Renewal'), th('Total'), th('% of yr'))),
+        el('tbody', {},
+          ...M.map((lbl, m) => {
+            const tot = (g.monthly_new[m] || 0) + (g.monthly_renewal[m] || 0);
+            const yr = (totNew + totRen) > 0 ? tot / (totNew + totRen) : 0;
+            return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: m === curM ? 'rgba(141,198,63,.06)' : 'transparent' } },
+              el('td', { class: 'px-3 py-1.5 font-semibold' }, lbl + (m === curM ? ' ·' : '')),
+              el('td', { class: 'px-3 py-1.5 text-right' }, cell(g.monthly_new, m)),
+              el('td', { class: 'px-3 py-1.5 text-right' }, cell(g.monthly_renewal, m)),
+              el('td', { class: 'px-3 py-1.5 text-right tabular-nums font-semibold' }, usd(tot)),
+              el('td', { class: 'px-3 py-1.5 text-right tabular-nums text-muted-' }, (yr * 100).toFixed(1) + '%'));
+          }))),
+        el('tfoot', {},
+          el('tr', { style: { borderTop: '2px solid var(--border)', background: 'var(--card-2)' } },
+            el('td', { class: 'px-3 py-2 font-bold' }, 'Year'),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, usd(totNew)),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, usd(totRen)),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, usd(totNew + totRen)),
+            el('td', { class: 'px-3 py-2 text-right text-muted-' }, '100%')))));
 }
 
 // Helper card for the Goals section — shows target, YTD actual, and a mini progress bar
