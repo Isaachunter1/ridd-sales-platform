@@ -29372,14 +29372,17 @@ function adminConfigurations() {
         toggleRow('Exclude 3-day RORs from churn', 'Drop subs cancelled within 3 days of the sale (buyer’s remorse) from cancellation / attrition.', reportingExcludeRorChurn(), () => { setReportingExcludeRorChurn(!reportingExcludeRorChurn()); mountApp(); }),
         rule(),
         el('div', {},
-          el('div', { class: 'text-sm font-semibold mb-0.5' }, 'Branches'),
-          el('div', { class: 'text-[11px] text-muted- mb-2' }, 'Untick to drop a branch from all company reporting. Type in the box to rename it (blank keeps the original).'),
+          el('div', { class: 'text-sm font-semibold mb-0.5' }, 'Exclude branches'),
+          el('div', { class: 'text-[11px] text-muted- mb-2' }, 'Tick a branch to exclude it from all company reporting. Ticked = excluded.'),
           branches.length
             ? el('div', { class: 'flex flex-col gap-1.5' },
-                ...branches.map(b => el('div', { class: 'flex items-center gap-2' },
-                  el('input', { type: 'checkbox', checked: !excl.has(b), onchange: (e) => { const s = reportingExcludedBranches(); if (e.target.checked) s.delete(b); else s.add(b); setReportingExcludedBranches(s); mountApp(); } }),
-                  el('span', { class: 'text-xs', style: { width: '150px' } }, b),
-                  el('input', { type: 'text', placeholder: 'rename…', value: renames[b] || '', style: { flex: '1', maxWidth: '200px' }, onchange: (e) => { setReportingBranchRename(b, e.target.value.trim()); mountApp(); } }))))
+                ...branches.map(b => {
+                  const isExcl = excl.has(b);
+                  return el('label', { class: 'flex items-center gap-2 cursor-pointer' },
+                    el('input', { type: 'checkbox', checked: isExcl, onchange: (e) => { const s = reportingExcludedBranches(); if (e.target.checked) s.add(b); else s.delete(b); setReportingExcludedBranches(s); mountApp(); } }),
+                    el('span', { class: 'text-xs', style: isExcl ? { color: '#DC2626', textDecoration: 'line-through' } : {} }, b),
+                    isExcl ? el('span', { class: 'text-[9px] font-bold tracking-wider', style: { color: '#DC2626' } }, 'EXCLUDED') : null);
+                }))
             : el('div', { class: 'text-xs text-muted-' }, 'No branches loaded yet — open Reporting once so the snapshot loads, then come back.')),
       );
     })(),
