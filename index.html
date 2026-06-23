@@ -26907,7 +26907,7 @@ function reportingMktgSpendRevChart() {
     const sd = r.sold_date; if (!sd) continue;
     const src = (r.subscription_source || '').trim();
     if (isExcl.has(src || 'Unspecified')) continue;
-    if (reportingSourceClass(src) === 'renewal') continue;
+    if (reportingSourceClass(src) !== 'new') continue;  // NEW business only (exclude renewals + upsells)
     if (!reportingIsOfficeStaff(r)) continue;
     if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue;
     const ym = sd.slice(0, 7);
@@ -27313,7 +27313,7 @@ function reportingInsideSales() {
     anySoldDate = true;
     const src = (r.subscription_source || '').trim();
     if (isExcludedSource.has(src || 'Unspecified')) continue; // Configurations exclusion
-    if (reportingSourceClass(src) === 'renewal') continue;    // renewals excluded from IS revenue
+    if (reportingSourceClass(src) !== 'new') continue;        // NEW business only — exclude renewals AND upsells
     if (!reportingIsOfficeStaff(r)) continue;                 // Marketing = Office Staff accounts only
     if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue; // committed sold
     const arv = Number(r.annual_recurring_value) || 0;
