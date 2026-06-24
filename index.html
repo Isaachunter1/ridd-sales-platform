@@ -1176,6 +1176,24 @@ async function saveCommissionConfig(next) {
     if (error) { console.warn('[ridd] commission_config save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
   } catch (e) { console.warn('[ridd] commission_config save threw', e); }
 }
+// ── Company goal (annual target + monthly allocation) — shared via app_settings ──
+// In demo mode this lives in the demo snapshot; in production it persists to
+// app_settings under 'company_goal' so the Goals tab survives a reload.
+async function loadCompanyGoal() {
+  if (DEMO || !supabase || !state.profile) return;
+  try {
+    const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'company_goal').maybeSingle();
+    if (error) { console.warn('[ridd] company_goal load failed', error); return; }
+    if (data && data.value) state.companyGoal = data.value;
+  } catch (e) { console.warn('[ridd] company_goal load threw', e); }
+}
+async function saveCompanyGoal() {
+  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile.role)) return;
+  try {
+    const { error } = await supabase.from('app_settings').upsert({ key: 'company_goal', value: state.companyGoal }, { onConflict: 'key' });
+    if (error) { console.warn('[ridd] company_goal save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
+  } catch (e) { console.warn('[ridd] company_goal save threw', e); }
+}
 // Publish one rep's computed breakdown to the per-rep, RLS-protected results
 // table so that rep (and only that rep) can see it in "My Commission".
 async function publishCommissionResult(empId, data, period) {
@@ -2386,6 +2404,7 @@ async function loadData() {
   // populated state.companyLogo for instant first render.
   loadCompanyLogo().catch(err => console.warn('[ridd] company logo load skipped', err));
   loadCommissionConfig().catch(err => console.warn('[ridd] commission config load skipped', err));
+  loadCompanyGoal().then(() => { if (typeof mountApp === 'function') mountApp(); }).catch(err => console.warn('[ridd] company goal load skipped', err));
   // Reporting tab metadata — admin-only, fire-and-forget. The Reporting
   // tab lazy-loads the heavy subscription rows on demand once the user
   // actually visits the tab, so this just primes the uploads list +
@@ -2774,7 +2793,10 @@ function mobileBottomNav() {
           ['hall_of_fame','Hall of Fame',iconCrown],
           ...(isAdmin ? [['indicators','Indicators',iconChart]] : []),
           ...(isAdmin ? [['reporting','Reporting',iconPie]] : []),
-          ...(isAdmin ? [['admin','Settings',iconGear]] : [])
+          ...(isAdmin ? [['admin','Settings',iconGear]] : []),
+          // Commission now spans multiple rep types (Sales Reps + Office Staff),
+          // so it sits with the admin tools, just under Settings.
+          ['commission', isAdmin ? 'Commission Calculator' : 'My Commission', iconDollar],
         ].map(([k,label,iconFn]) => el('button', {
           class: 'flex items-center gap-3 w-full px-4 py-2.5 text-sm',
           style: state.view === k ? { color: 'var(--accent)', fontWeight: '600' } : { color: 'var(--text)' },
@@ -3431,8 +3453,10 @@ function mountApp() {
     ['inside_sales', isAuditor ? 'Sales' : 'Inside Sales', iconSales()],
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
-    ...(isAuditor ? [] : [['commission', isAdmin ? 'Commission Calculator' : 'My Commission', iconDollar()]]),
     ...(isAuditor ? [] : [['training', 'Training', iconClipboard()]]),
+    // Commission spans Sales Reps + Office Staff now — keep it last, nearest the
+    // Settings gear, since it's a cross-team admin tool rather than IS-only.
+    ...(isAuditor ? [] : [['commission', isAdmin ? 'Commission Calculator' : 'My Commission', iconDollar()]]),
   ];
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
@@ -29038,17 +29062,43 @@ function setCommissionManual(empId, obj) { const c = commissionConfig(); c.manua
 // with lockMs deciding which cancels are "after lock" (excluded from attrition).
 function commissionCompute(emp, startMs, endMs, lockMs) {
   const cfg = commissionConfig();
-  const empIds = new Set(String(emp.employee_ids || emp.employee_id || '').split(',').map(s => s.trim()).filter(Boolean));
   const cv = (r) => Number(r.subscription_contract_value) || 0;
   const catOf = (r) => cfg.serviceCategories[r.subscription] || 'unclassified';
-  const rows = (state.reportingSubscriptions || []).filter(r => {
-    if (!empIds.has(String(r.sold_by_id || '').trim())) return false;
-    const sd = Date.parse(r.sold_date || String(r.sold_at || '').slice(0, 10));
-    if (isNaN(sd)) return false;
-    if (startMs && sd < startMs) return false;
-    if (endMs && sd > endMs) return false;
-    return true;
-  });
+  let rows;
+  if (emp.isApp) {
+    // Office Staff / Inside Sales: source from sales logged in THIS app (keyed
+    // by rep_id), reshaped into the CRM-row shape the rule math below expects.
+    // Contract value = revenue_amount (initial + monthly×11, or PPS) — matches
+    // the Inside Sales Pay Tab. Category comes from the same service taxonomy.
+    const svcName = (s) => (state.serviceTypes || []).find(t => t.id === s.service_type_id)?.name || '';
+    const CANCEL = new Set(['cancelled', 'nsf', 'not_payable', 'rejected']);
+    rows = (state.allSales || []).filter(s => {
+      if (String(s.rep_id) !== String(emp.app_profile_id)) return false;
+      const sd = Date.parse(s.sold_date);
+      if (isNaN(sd)) return false;
+      if (startMs && sd < startMs) return false;
+      if (endMs && sd > endMs) return false;
+      return true;
+    }).map(s => ({
+      subscription: svcName(s),
+      subscription_contract_value: Number(s.revenue_amount) || 0,
+      agreement_length: Number(s.contract_months) || 0,
+      sold_date: s.sold_date,
+      sold_by_id: s.rep_id,
+      subscription_date_canceled: CANCEL.has(s.audit_status) ? (s.commission_date || s.sold_date) : null,
+      days_past_due: 0,
+    }));
+  } else {
+    const empIds = new Set(String(emp.employee_ids || emp.employee_id || '').split(',').map(s => s.trim()).filter(Boolean));
+    rows = (state.reportingSubscriptions || []).filter(r => {
+      if (!empIds.has(String(r.sold_by_id || '').trim())) return false;
+      const sd = Date.parse(r.sold_date || String(r.sold_at || '').slice(0, 10));
+      if (isNaN(sd)) return false;
+      if (startMs && sd < startMs) return false;
+      if (endMs && sd > endMs) return false;
+      return true;
+    });
+  }
   let pestRev = 0, bundleRev = 0, ancRev = 0, exclRev = 0, unclRev = 0;
   const unclassified = new Map();
   for (const r of rows) {
@@ -29183,21 +29233,34 @@ function commissionCalculator() {
   const money = (n) => { const v = Math.round((n || 0) * 100) / 100; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   const pct = (n) => (Math.round((n || 0) * 100) / 100).toFixed(2) + '%';
 
-  // Need the roster (rep list + links) and the CRM snapshot rows.
+  // Need the roster for Sales Reps (CRM-sourced). Office Staff are app users
+  // who log Inside Sales in-app (keyed by rep_id) — no CRM snapshot required.
   if (state.frRoster == null && !state._frRosterLoading) loadFieldRoutesRoster().then(() => { if (state.view === 'commission') mountApp(); });
-  const activeId = state.reportingActiveUploadId;
-  if (!activeId) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No CRM snapshot yet — hit the ↻ sync icon to pull FieldRoutes, then come back.');
-  if (state.reportingSubscriptionsLoadedFor !== activeId) {
-    loadReportingSubscriptions(activeId).then(rows => { if (rows && state.reportingActiveUploadId === activeId) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = activeId; mountApp(); } });
-    return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Loading the CRM snapshot…');
-  }
 
   const roster = state.frRoster || [];
   const salesReps = roster.filter(e => e.type_label === 'Sales Rep').sort((a, b) => _frEmpName(a).localeCompare(_frEmpName(b)));
-  if (!salesReps.length) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No sales reps in the roster yet — run a sync.');
+  // Office Staff / Inside Sales reps: app profiles that have logged sales here.
+  const appRepIds = new Set((state.allSales || []).map(s => String(s.rep_id)));
+  const officeStaff = (state.allProfiles || [])
+    .filter(p => appRepIds.has(String(p.id)))
+    .map(p => ({ employee_id: 'app:' + p.id, app_profile_id: p.id, isApp: true, type_label: 'Office Staff', fname: p.full_name || '', lname: '', email: p.email || '', office_name: '' }))
+    .sort((a, b) => _frEmpName(a).localeCompare(_frEmpName(b)));
+  const reps = [...salesReps, ...officeStaff];
+  if (!reps.length) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No reps yet — run a sync (Sales Reps) or log Inside Sales in-app (Office Staff).');
 
-  if (!state._commEmpId || !salesReps.find(e => e.employee_id === state._commEmpId)) state._commEmpId = salesReps[0].employee_id;
-  const emp = salesReps.find(e => e.employee_id === state._commEmpId);
+  if (!state._commEmpId || !reps.find(e => e.employee_id === state._commEmpId)) state._commEmpId = reps[0].employee_id;
+  const emp = reps.find(e => e.employee_id === state._commEmpId);
+
+  // Sales Reps read from the CRM snapshot — load it on demand. Office Staff
+  // pull from in-app logged sales, so they skip this guard.
+  if (!emp.isApp) {
+    const activeId = state.reportingActiveUploadId;
+    if (!activeId) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No CRM snapshot yet — hit the ↻ sync icon to pull FieldRoutes, then come back.');
+    if (state.reportingSubscriptionsLoadedFor !== activeId) {
+      loadReportingSubscriptions(activeId).then(rows => { if (rows && state.reportingActiveUploadId === activeId) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = activeId; mountApp(); } });
+      return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Loading the CRM snapshot…');
+    }
+  }
 
   // Period (default: this year) + lock date.
   const yr = new Date().getFullYear();
@@ -29253,15 +29316,17 @@ function commissionCalculator() {
     el('div', { class: 'text-[11px] text-muted- mt-2' }, 'Deductions are entered as positive numbers — the breakdown subtracts them.'));
 
   // ---- controls ----
+  const optFor = (e) => el('option', { value: e.employee_id, selected: e.employee_id === state._commEmpId }, _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : ''));
   const repSelect = el('select', { class: 'rounded-xl border px-3 py-2 text-sm font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
-    ...salesReps.map(e => el('option', { value: e.employee_id, selected: e.employee_id === state._commEmpId }, _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : ''))));
+    salesReps.length ? el('optgroup', { label: 'Sales Reps · CRM' }, ...salesReps.map(optFor)) : null,
+    officeStaff.length ? el('optgroup', { label: 'Office Staff · Inside Sales' }, ...officeStaff.map(optFor)) : null);
   const dateInput = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-3 py-2 text-sm', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
 
   return el('div', { class: 'flex flex-col gap-4 w-full' },
     el('div', { class: 'flex items-end justify-between flex-wrap gap-3' },
       el('div', {},
         el('h1', { class: 'text-2xl font-bold' }, 'Commission Calculator'),
-        el('p', { class: 'text-xs text-muted-' }, 'Backend commission from live FieldRoutes data. Pick a rep and period; rates & rules are saved for everyone.')),
+        el('p', { class: 'text-xs text-muted-' }, 'Sales Reps from live FieldRoutes; Office Staff from Inside Sales logged in-app. Pick a rep and period; rates & rules are saved for everyone.')),
       el('div', { class: 'flex items-end gap-2 flex-wrap' },
         el('label', { class: 'block' }, lbl('Sales Rep'), repSelect),
         el('label', { class: 'block' }, lbl('Sold from'), dateInput(state._commStart, v => state._commStart = v)),
@@ -29780,7 +29845,7 @@ function adminGoals() {
     g.quarterly         = [0,1,2,3].map(q => g.quarterly_new[q] + g.quarterly_renewal[q]);
   };
   syncDerived();
-  const persist = () => { syncDerived(); saveDemoData(); };
+  const persist = () => { syncDerived(); saveDemoData(); saveCompanyGoal(); };
   // Re-spread an annual total across the 12 months via the matching seasonal curve.
   const reseed = (which, annual) => {
     const curve = which === 'new' ? IS_SEASONAL : IS_RENEWAL_SEASONAL;
@@ -29861,7 +29926,7 @@ function goalMonthlyCard(g, persist) {
   const curM = new Date().getMonth();
   const cell = (arr, m) => el('input', {
     type: 'text', inputmode: 'numeric', value: Math.round(arr[m] || 0).toLocaleString(),
-    class: 'w-24 text-right text-xs rounded border px-2 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
+    class: 'w-24 text-left text-xs rounded border px-2 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
     onchange: (e) => { arr[m] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); mountApp(); },
   });
   // Editable seasonal curve %: each month's share of its line's annual total.
@@ -29882,14 +29947,14 @@ function goalMonthlyCard(g, persist) {
     const pct = tot > 0 ? (arr[m] || 0) / tot * 100 : 0;
     return el('input', {
       type: 'text', inputmode: 'decimal', value: pct.toFixed(1),
-      class: 'w-16 text-right text-xs rounded border px-2 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
+      class: 'w-16 text-left text-xs rounded border px-2 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
       onchange: (e) => { reshapeCurve(arr, m, (parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0) / 100); persist(); mountApp(); },
     });
   };
   const totNew = g.monthly_new.reduce((a, b) => a + (b || 0), 0);
   const totRen = g.monthly_renewal.reduce((a, b) => a + (b || 0), 0);
   const isReps = Math.max(1, g.is_reps || 1), loyReps = Math.max(1, g.loyalty_reps || 1);
-  const th = (t, align) => el('th', { class: (align || 'text-right') + ' px-3 py-2 font-semibold' }, t);
+  const th = (t, align) => el('th', { class: (align || 'text-left') + ' px-3 py-2 font-semibold' }, t);
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-1' },
       el('h3', { class: 'text-sm font-bold' }, 'Monthly allocation'),
@@ -29905,25 +29970,25 @@ function goalMonthlyCard(g, persist) {
           ...M.map((lbl, m) => {
             const nv = g.monthly_new[m] || 0, rv = g.monthly_renewal[m] || 0;
             return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: m === curM ? 'rgba(141,198,63,.06)' : 'transparent' } },
-              el('td', { class: 'px-3 py-1.5 text-right' }, curveCell(g.monthly_new, m)),
-              el('td', { class: 'px-3 py-1.5 text-right' }, curveCell(g.monthly_renewal, m)),
+              el('td', { class: 'px-3 py-1.5 text-left' }, curveCell(g.monthly_new, m)),
+              el('td', { class: 'px-3 py-1.5 text-left' }, curveCell(g.monthly_renewal, m)),
               el('td', { class: 'px-3 py-1.5 text-left font-semibold' }, lbl + (m === curM ? ' ·' : '')),
-              el('td', { class: 'px-3 py-1.5 text-right' }, cell(g.monthly_new, m)),
-              el('td', { class: 'px-3 py-1.5 text-right tabular-nums' }, usd(nv / isReps)),
-              el('td', { class: 'px-3 py-1.5 text-right' }, cell(g.monthly_renewal, m)),
-              el('td', { class: 'px-3 py-1.5 text-right tabular-nums' }, usd(rv / loyReps)),
-              el('td', { class: 'px-3 py-1.5 text-right tabular-nums font-semibold' }, usd(nv + rv)));
+              el('td', { class: 'px-3 py-1.5 text-left' }, cell(g.monthly_new, m)),
+              el('td', { class: 'px-3 py-1.5 text-left tabular-nums' }, usd(nv / isReps)),
+              el('td', { class: 'px-3 py-1.5 text-left' }, cell(g.monthly_renewal, m)),
+              el('td', { class: 'px-3 py-1.5 text-left tabular-nums' }, usd(rv / loyReps)),
+              el('td', { class: 'px-3 py-1.5 text-left tabular-nums font-semibold' }, usd(nv + rv)));
           }))),
         el('tfoot', {},
           el('tr', { style: { borderTop: '2px solid var(--border)', background: 'var(--card-2)' } },
-            el('td', { class: 'px-3 py-2 text-right text-muted-' }, '100%'),
-            el('td', { class: 'px-3 py-2 text-right text-muted-' }, '100%'),
+            el('td', { class: 'px-3 py-2 text-left text-muted-' }, '100%'),
+            el('td', { class: 'px-3 py-2 text-left text-muted-' }, '100%'),
             el('td', { class: 'px-3 py-2 text-left font-bold' }, 'Year'),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, usd(totNew)),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, usd(totNew / isReps)),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, usd(totRen)),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, usd(totRen / loyReps)),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, usd(totNew + totRen))))));
+            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totNew)),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totNew / isReps)),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totRen)),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totRen / loyReps)),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totNew + totRen))))));
 }
 
 // Helper card for the Goals section — shows target, YTD actual, and a mini progress bar
