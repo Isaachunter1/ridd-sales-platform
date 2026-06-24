@@ -30399,11 +30399,16 @@ function adminCommissions() {
   // bonus). That's a different animal from the CRM pest/bundle model the D2D
   // Sales Reps and Technicians use, so this tab renders the pay-settings editor.
   const isOfficeStaff = (type === 'Office Staff');
+  const isTechnician  = (type === 'Technician');
   const body = isOfficeStaff
     ? adminPricing({ embedded: true })
-    : el('div', { class: 'flex flex-col gap-4' },
-        el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, ratesPanel, myPanel),
-        svcPanel);
+    : isTechnician
+      ? el('div', { class: 'card p-10 text-center' },
+          el('div', { class: 'text-sm font-semibold mb-1' }, 'No Technician commission rules yet'),
+          el('div', { class: 'text-xs text-muted-' }, 'Rules for Technicians haven’t been set up. They’ll be added here later.'))
+      : el('div', { class: 'flex flex-col gap-4' },
+          el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, ratesPanel, myPanel),
+          svcPanel);
 
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', {},
@@ -30480,24 +30485,24 @@ function adminPricing(opts = {}) {
       ),
     ),
 
-    // ── Paid in Full override ──
-    el('div', { class: 'card p-5' },
-      el('div', { class: 'flex items-center justify-between' },
-        el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, 'Paid in Full Override'),
-          el('p', { class: 'text-xs text-muted- mt-0.5' }, 'Overrides the contract type base rate when the "Paid in Full" box is checked on a sale. No hold on backend — full commission paid upfront.'),
-        ),
-        el('div', { class: 'flex items-center gap-1 shrink-0 ml-4' },
-          el('input', {
-            type: 'text', inputmode: 'numeric',
-            class: 'rounded-lg border px-2 py-1.5 text-sm font-bold w-16 text-right',
-            value: s.paid_in_full_rate,
-            onchange: e => { s.paid_in_full_rate = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
-          }),
-          el('span', { class: 'text-sm text-muted-' }, '%'),
-        ),
-      ),
-    ),
+    // ── Paid in Full (derived, not a fixed rate) ──
+    (() => {
+      const my18 = Number(s.multi_year_rate_18 || 0), my24 = Number(s.multi_year_rate_24 || 0);
+      const crEst = closeRateTierPct(0.50, s);
+      const base = 7;
+      const exRow = (term, myRate) => el('div', { class: 'flex items-center justify-between py-1.5 text-xs', style: { borderTop: '1px solid var(--border)' } },
+        el('span', { class: 'text-muted-' }, term + ' agreement'),
+        el('span', { class: 'tabular-nums' }, base + '% + ' + myRate + '% + ' + crEst + '% = ', el('b', {}, (base + myRate + crEst) + '%')));
+      return el('div', { class: 'card p-5' },
+        el('h3', { class: 'text-sm font-bold mb-1' }, 'Paid in Full'),
+        el('p', { class: 'text-xs text-muted- mb-3' },
+          'No fixed rate. Paid-in-Full accounts are paid everything upfront (no backend hold), so the rate = the contract-type upfront + the multi-year backend for the term + a close-rate bonus at the 50%-estimate tier (' + crEst + '%). These values come from the Backend Pay and Close Rate Bonus settings below.'),
+        el('div', { class: 'flex flex-col' },
+          exRow('12-month', 0),
+          exRow('18-month', my18),
+          exRow('24-month', my24)),
+        el('div', { class: 'text-[11px] text-muted- mt-2' }, 'Examples use a 7% base upfront; a rep’s Commission Bump (in Users) still adds on top.'));
+    })(),
 
     // ── Commercial override ──
     el('div', { class: 'card p-5' },
@@ -30664,15 +30669,33 @@ function getCommissionRate(repId, sale) {
   const BASE = 0.07;
   const profile = state.allProfiles.find(p => p.id === repId) || state.profile;
 
-  // 1. Contract type rate (or Commercial/Paid in Full override)
+  // Contract-type base upfront rate for this sale.
+  const contractRate = () => {
+    if (sale?.contract_type_id && s.contract_commissions) {
+      const cc = s.contract_commissions.find(c => c.contract_type_id === sale.contract_type_id);
+      if (cc) return cc.rate / 100;
+    }
+    return BASE;
+  };
+
+  // 1. Base rate (Paid-in-Full / Commercial overrides, else contract type).
   let baseRate = BASE;
-  if (sale?.paid_in_full && s.paid_in_full_rate != null) {
-    baseRate = s.paid_in_full_rate / 100;
+  if (sale?.paid_in_full) {
+    // Paid-in-Full pays everything upfront — no backend hold. So the upfront
+    // rate rolls in what would otherwise be quarter-end backend: the base
+    // upfront + the multi-year backend for the term + the close-rate bonus at
+    // the 50%-estimate tier (PIF accounts assume a 50%+ close rate). E.g. a
+    // 24-mo PIF = 7% + 3% (24-mo) + 2% (50% close-rate) = 12%; a 12-mo PIF =
+    // 7% + 0% + 2% = 9%.
+    const m = Number(sale?.contract_months);
+    let myRate = 0;
+    if (m === 18) myRate = Number(s.multi_year_rate_18 || 0) / 100;
+    else if (m === 24) myRate = Number(s.multi_year_rate_24 || 0) / 100;
+    baseRate = contractRate() + myRate + (closeRateTierPct(0.50, s) / 100);
   } else if (sale?.is_commercial && s.commercial_rate != null) {
     baseRate = s.commercial_rate / 100;
   } else if (sale?.contract_type_id && s.contract_commissions) {
-    const cc = s.contract_commissions.find(c => c.contract_type_id === sale.contract_type_id);
-    if (cc) baseRate = cc.rate / 100;
+    baseRate = contractRate();
   }
 
   // 2. Volume tier override (if any)
@@ -30806,10 +30829,17 @@ function getBackendAmount(sale) {
 // meets, applied to subscription revenue (serviced 12/18/24/PIF revenue
 // from standard sources — no commercial, OTS, upsells, or renewals).
 function closeRateBonusFor(closeRate, subscriptionRevenue) {
-  const s = ensurePaySettings();
+  return subscriptionRevenue * (closeRateTierPct(closeRate) / 100);
+}
+
+// The close-rate bonus PERCENTAGE for a given close rate — the highest tier
+// whose threshold the close rate meets. Used both for the live bonus and for
+// the Paid-in-Full upfront estimate (which assumes a 50% close rate).
+function closeRateTierPct(closeRate, s) {
+  s = s || ensurePaySettings();
   const tiers = (s.close_rate_tiers || []).slice().sort((a, b) => b.min_close_rate - a.min_close_rate);
   for (const t of tiers) {
-    if (closeRate * 100 >= Number(t.min_close_rate)) return subscriptionRevenue * (Number(t.rate) / 100);
+    if (closeRate * 100 >= Number(t.min_close_rate)) return Number(t.rate);
   }
   return 0;
 }
