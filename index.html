@@ -1846,7 +1846,7 @@ function toast(msg, type = 'info') {
     warn:    'bg-amber-500 text-eerie border-amber-600',
   };
   const t = el('div', {
-    class: `pointer-events-auto fade-in rounded-xl border px-4 py-3 shadow-lg min-w-[240px] max-w-[360px] ${colors[type]}`,
+    class: `pointer-events-auto fade-in rounded-xl border px-4 py-3 shadow-lg max-w-[min(360px,calc(100vw-2rem))] ${colors[type]}`,
   }, msg);
   $('#toasts').append(t);
   setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; }, 3200);
