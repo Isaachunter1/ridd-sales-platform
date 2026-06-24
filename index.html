@@ -4406,7 +4406,11 @@ function indicatorSales() {
   // Excluded lead sources (Settings → Configurations) now drop from the
   // Indicators tab too, matching Reporting.
   const _exclSrc = (typeof reportingExcludedSources === 'function') ? reportingExcludedSources() : new Set();
-  let all = src.filter(s => !_isSoldNotStarted(s) && !_indicatorServiceExcluded(s) && !_exclSrc.has(String(s.source || '').trim()));
+  // Pre-service cancels (sold then cancelled before any initial service ran —
+  // ANY cancel reason, not just the "Sold, Not Started" tag) aren't real
+  // production, so they're stripped from EVERY indicator metric. Leaves only
+  // pending (awaiting service) + serviced accounts.
+  let all = src.filter(s => !_isSoldNotStarted(s) && !_scIsPreServiceCancel(s) && !_indicatorServiceExcluded(s) && !_exclSrc.has(String(s.source || '').trim()));
   if (state.indicatorsComps) all = all.filter(s => !isRepExcluded(s.rep));
   const out = dept === 'all' ? all : all.filter(s => _indicatorDeptOf(s) === dept);
   _indSalesCache.byKey.set(dept, out);
@@ -12260,10 +12264,14 @@ function springCleaningCompute(sales, branchList) {
   const _scExB = new Set((_scComp?.excludedBranches || ['SALT LAKE']).map(b => String(b).toUpperCase()));
   sales = (sales || []).filter(s => !_scExB.has((s.office || '').toUpperCase()));
   branchList = (branchList || []).filter(b => !_scExB.has(String(b).toUpperCase()));
-  // Spring Cleaning is a DOOR-TO-DOOR competition — only sales sourced
-  // "Door to Door" participate at all. Office/Techs sales are out entirely
-  // (they don't even land in pending/excluded).
-  const d2dSales = sales.filter(s => _indicatorDeptOf(s) === 'd2d');
+  // Who competes: the SALES REP rep type only (Office Staff / Technicians are
+  // out entirely — they don't even land in pending/excluded). Rep type comes
+  // from the Customer Report cross-reference, falling back to Source only for
+  // reps with no type on file.
+  // Pre-service cancels (sold then cancelled before any initial service ran)
+  // are dropped here, up front, so they touch NO metric — not revenue, not
+  // Audit %, not PRA. They never needed an audit.
+  const d2dSales = sales.filter(s => _indicatorDeptOf(s) === 'd2d' && !_scIsPreServiceCancel(s));
   const counting = [], pending = [], excluded = [];
   for (const s of d2dSales) {
     const st = springCleaningStatus(s);
@@ -12285,10 +12293,11 @@ function springCleaningCompute(sales, branchList) {
     if (s.rep) branchReps.get(b).add(s.rep);
   }
 
-  // Passed Audit % — measured across EVERY D2D account in the branch (no $99
-  // floor, no last-resort or failed exclusion in the denominator). Numerator =
-  // accounts NOT flagged Failed Audit (passed, no-audit, and pending all count).
-  // Last Resort accounts count by their actual flag, pass or fail.
+  // Passed Audit % — measured across every Sales-Rep account in the branch (no
+  // $99 floor, no last-resort or failed exclusion in the denominator); only
+  // pre-service cancels are already gone. Numerator = accounts NOT flagged
+  // Failed Audit (passed, no-audit, and pending all count). Last Resort
+  // accounts count by their actual flag, pass or fail.
   const auditTally = new Map(); // office → { tot, fail }
   for (const s of d2dSales) {
     const b = s.office || 'UNKNOWN';
@@ -12922,11 +12931,11 @@ function openSpringCleaningHelpModal() {
     el('div', { class: 'overflow-auto px-5 pb-5', style: { borderTop: '1px solid var(--border)' } },
       el('div', { class: 'pt-4' },
         section('Who competes',
-          el('div', {}, 'Door-to-Door only (Source = "Door to Door"). Office and Tech sales are out entirely. Branches can be sat out for the year via the "Competing" chips on the board.'),
+          el('div', {}, 'The Sales Rep rep type only — Office Staff and Technicians are out entirely. Rep type comes from the Customer Report (Source is only a fallback for reps with no type on file). Branches can be sat out for the year via the "Competing" chips on the board.'),
           el('div', { class: 'mt-1' }, 'Set the round with the date filter at the top.')),
         section('Does an account count? (in order)',
           metric('1 · Initial ≥ $99', 'Under $99 = "Last Resort" — out of every category (but still shows in Audit %).'),
-          metric('2 · Not a pre-service cancel', 'Sold then cancelled BEFORE the initial service ever ran (any cancel reason) → out. These never need an audit, so they don\'t sit in pending.'),
+          metric('2 · Not a pre-service cancel', 'If the account cancelled before its initial service ever ran (any cancel reason), it\'s excluded from EVERY metric — revenue, PRA, Audit %, all of it. A pre-service cancel never needed an audit, so it isn\'t counted anywhere.'),
           metric('3 · Serviced by the deadline', 'Sold in a round, it must be serviced (initial service completed) by the end of the FOLLOWING week. Weeks run Sun–Sat — e.g. sold the week of Jun 8 → serviced by Sat Jun 20. Past the deadline unserviced, or serviced late → out. Before the deadline, an unserviced account is still in play.'),
           metric('4 · Audit flag', 'Passed Audit or No Audit → counts. Failed Audit → out. No flag yet = pending, counted as assumed-passing until it\'s flagged.')),
         section('The seven categories (per branch)',
