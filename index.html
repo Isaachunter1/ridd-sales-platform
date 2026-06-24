@@ -1318,7 +1318,20 @@ async function reportingIdbPut(uploadId, rows) {
   } catch { /* cache is best-effort */ }
 }
 
+// Phantom offices lingering in the CRM (negative office IDs surface as
+// "Office -1" / "Office -7"). They aren't real branches we sold from. The
+// sync now filters them at the source, but older snapshots still carry them —
+// so we also strip them here, at the single chokepoint every reporting /
+// indicators / commission consumer loads through. Revenue, subs, audits,
+// everything: gone.
+const PHANTOM_OFFICE_NAMES = new Set(['Office -1', 'Office -7']);
+function stripPhantomOffices(rows) {
+  return Array.isArray(rows) ? rows.filter(r => !PHANTOM_OFFICE_NAMES.has(String(r && r.office_name || '').trim())) : rows;
+}
 async function loadReportingSubscriptions(uploadId) {
+  return stripPhantomOffices(await _loadReportingSubscriptionsRaw(uploadId));
+}
+async function _loadReportingSubscriptionsRaw(uploadId) {
   if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return [];
   if (!uploadId) return [];
 
@@ -3662,7 +3675,7 @@ function mountApp() {
   // header's height (~60px = py-3 padding + 36px icon-btn). The page header
   // floats over this padding via position:fixed; main's in-flow children
   // (contentWrap) start below it cleanly.
-  const main = el('main', { class: 'flex-1 overflow-x-hidden pt-[76px]' });
+  const main = el('main', { class: 'flex-1 pt-[76px]' });
   const contentWrap = el('div', { class: 'p-4 sm:p-6 w-full max-w-[1600px] mx-auto' });
   main.append(pageHeader, contentWrap);
 
@@ -11971,9 +11984,19 @@ function lastManStandingCompute(sales) {
       return { rep, office: repOffice[rep] || '', rev, cum: (cum[rep] || 0) + rev };
     });
     contenders.sort((a, b) => b.rev - a.rev || b.cum - a.cum || String(a.rep).localeCompare(String(b.rep)));
-    const advanceN = Math.max(1, Math.ceil(contenders.length / 2));   // top 50%, rounded UP
-    contenders.forEach((c, i) => { c.advanced = i < advanceN; cum[c.rep] = c.cum; });
-    rounds.push({ iso, week: rounds.length + 1, contenders, advanceN, before: contenders.length });
+    const isQualifier = rounds.length === 0;                          // Round 1 = pure qualifier
+    let advanceN;
+    if (isQualifier) {
+      // Round 1 is a pure qualifier: every rep with a qualifying (passed-audit)
+      // account this Saturday advances — no halving. Reps with no qualifying
+      // sale are eliminated. The weekly top-50% cut starts in Round 2.
+      contenders.forEach(c => { c.advanced = c.rev > 0; cum[c.rep] = c.cum; });
+      advanceN = contenders.filter(c => c.advanced).length;
+    } else {
+      advanceN = Math.max(1, Math.ceil(contenders.length / 2));       // top 50%, rounded UP
+      contenders.forEach((c, i) => { c.advanced = i < advanceN; cum[c.rep] = c.cum; });
+    }
+    rounds.push({ iso, week: rounds.length + 1, contenders, advanceN, before: contenders.length, qualifier: isQualifier });
     alive = new Set(contenders.filter(c => c.advanced).map(c => c.rep));
   }
   return { rounds, alive: [...alive], champion: alive.size === 1 ? [...alive][0] : null, rosterSize: roster.length, repOffice, cum, saturdays };
@@ -19300,6 +19323,7 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
     const c = parseCsvLine(lines[i]);
     const office = (c[cols.iOffice] || '').toUpperCase().trim();
     if (!office) continue;
+    if (/^office\s*-\s*\d/i.test(office)) continue;   // phantom CRM offices (negative IDs → "Office -1"/"Office -7") — never real branches
     const dateSold = c[cols.iDateSold] || '';
     // Parse date: "MM/DD/YY HH:MM AM/PM" or "MM/DD/YYYY"
     let dateObj = null;
@@ -30631,28 +30655,6 @@ function adminPricing(opts = {}) {
             el('span', { class: 'absolute right-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '%'),
           ),
         )),
-      ),
-    ),
-
-    // ── Quarterly Bonus ──
-    el('div', { class: 'card p-5' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, 'Quarterly Bonus'),
-      el('p', { class: 'text-xs text-muted- mb-3' },
-        'A flat bonus amount added to the pay stub each quarter when you run payroll. Configure the amount — you add it manually when processing the quarterly payroll cycle.',
-      ),
-      el('div', { class: 'flex items-center gap-3' },
-        el('label', { class: 'text-sm font-medium flex-1' }, 'Bonus per quarter'),
-        el('div', { class: 'relative' },
-          el('span', { class: 'absolute left-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '$'),
-          el('input', {
-            type: 'text',
-            inputmode: 'numeric',
-            class: 'rounded-lg border pl-7 pr-3 py-2 text-sm w-40 text-right',
-            value: s.quarterly_bonus || '',
-            placeholder: 'e.g. 500',
-            onchange: e => { s.quarterly_bonus = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
-          }),
-        ),
       ),
     ),
 
