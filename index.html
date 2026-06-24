@@ -106,6 +106,7 @@
     background: var(--bg);
     color: var(--text);
     transition: background-color .15s ease, color .15s ease;
+    overflow-x: hidden;
   }
   .card {
     background: var(--card);
@@ -3566,9 +3567,10 @@ function mountApp() {
   // first view-content line starts under the header instead of being
   // hidden behind it.
   const pageHeader = el('header', {
-    class: 'page-header flex items-center justify-between px-4 sm:px-6 py-4',
+    class: 'page-header px-4 sm:px-6 py-4',
     style: { position: 'fixed', top: '0', left: '0', right: '0', zIndex: 30 },
   },
+   el('div', { class: 'flex items-center justify-between gap-3 w-full max-w-[1600px] mx-auto' },
     el('div', { class: 'flex items-center gap-3 relative' },
       gridBtn,
       navMenu,
@@ -3654,7 +3656,7 @@ function mountApp() {
         title: 'Settings',
       }, iconGear(18)),
     ),
-  );
+  ));
 
   // ── Main content area ──
   // pt-[60px] reserves space at the top of main equal to the fixed page
@@ -3662,7 +3664,7 @@ function mountApp() {
   // floats over this padding via position:fixed; main's in-flow children
   // (contentWrap) start below it cleanly.
   const main = el('main', { class: 'flex-1 overflow-x-hidden pt-[76px]' });
-  const contentWrap = el('div', { class: 'p-4 sm:p-6' });
+  const contentWrap = el('div', { class: 'p-4 sm:p-6 w-full max-w-[1600px] mx-auto' });
   main.append(pageHeader, contentWrap);
 
   shell.append(main);
@@ -30438,7 +30440,7 @@ function adminPricing(opts = {}) {
 
   const persist = () => { saveDemoData(); saveAppSettings(); };
 
-  return el('div', { class: 'flex flex-col gap-5' },
+  return el('div', { class: 'flex flex-col gap-5 max-w-4xl w-full' },
     opts.embedded ? null : el('h2', { class: 'text-xl font-bold' }, 'Pricing'),
 
     // ── Status-based pay rules ──
