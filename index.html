@@ -12201,13 +12201,26 @@ function springServicedStatus(s) {
   return (new Date() > deadline) ? 'late' : 'open';
 }
 
+// Sold then cancelled BEFORE any initial service ran — ANY cancel reason, not
+// just the "Sold, Not Started" tag. A pre-service cancel never needs an audit,
+// so it's out of the comp entirely rather than sitting in pending. Detected
+// from a cancel date + zero completed services (and no initial-service date).
+function _scIsPreServiceCancel(s) {
+  const cancelled = !!String(s.cancelDate || '').trim();
+  if (!cancelled) return false;
+  const serviced = (Number(s.services) || 0) > 0 || !!_scParseServiced(s.servicedDate);
+  return !serviced;
+}
+
 // Three-way bucket per account:
-//   'excluded' — Last Resort (<$99), Failed audit, or not serviced by deadline
+//   'excluded' — Last Resort (<$99), pre-service cancel, Failed audit, or not
+//                serviced by the deadline
 //   'pending'  — passes the $99 floor but audit flag is neither pass nor fail
 //                (still being audited; revenue "out there" waiting to clear)
 //   'counting' — clears the floor AND is flagged pass
 function springCleaningStatus(s) {
   if ((Number(s.initialPrice) || 0) < 99) return 'excluded';
+  if (_scIsPreServiceCancel(s)) return 'excluded';              // cancelled before any service — no audit needed
   if (springServicedStatus(s) === 'late') return 'excluded';    // not serviced by the deadline
   if (scAuditPassed(s.customerFlags)) return 'counting';        // Passed Audit OR No Audit
   if (SC_FAIL_RE.test(s.customerFlags || '')) return 'excluded';
@@ -12215,6 +12228,7 @@ function springCleaningStatus(s) {
 }
 function springCleaningReason(s) {
   if ((Number(s.initialPrice) || 0) < 99) return 'Last Resort (<$99 initial)';
+  if (_scIsPreServiceCancel(s)) return 'Cancelled pre-service';
   if (springServicedStatus(s) === 'late') return 'Not serviced by deadline';
   if (SC_FAIL_RE.test(s.customerFlags || '')) return 'Failed audit';
   if (!scAuditPassed(s.customerFlags)) return 'Awaiting audit';
