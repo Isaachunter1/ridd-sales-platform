@@ -3675,8 +3675,13 @@ function mountApp() {
   // header's height (~60px = py-3 padding + 36px icon-btn). The page header
   // floats over this padding via position:fixed; main's in-flow children
   // (contentWrap) start below it cleanly.
-  const main = el('main', { class: 'flex-1 pt-[76px]' });
-  const contentWrap = el('div', { class: 'p-4 sm:p-6 w-full max-w-[1600px] mx-auto' });
+  // main clips horizontal overflow so the document never grows wider than the
+  // window — that keeps the fixed header/indicator bars aligned to the viewport
+  // (a wider document would shove their right-aligned content off-screen). Wide
+  // content (tables, toolbars) instead scrolls inside contentWrap, so nothing
+  // is hidden.
+  const main = el('main', { class: 'flex-1 overflow-x-hidden pt-[76px]' });
+  const contentWrap = el('div', { class: 'p-4 sm:p-6 w-full max-w-[1600px] mx-auto overflow-x-auto' });
   main.append(pageHeader, contentWrap);
 
   shell.append(main);
@@ -15289,7 +15294,7 @@ function viewIndicators() {
             paddingTop: '8px', paddingBottom: '8px',
           },
         },
-          el('div', { class: 'w-full px-4 sm:px-6' },
+          el('div', { class: 'w-full max-w-[1600px] mx-auto px-4 sm:px-6' },
             el('div', { class: 'flex flex-col gap-2' },
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
         // Department toggle (D2D / Office / Techs) — derived from sale Source,
