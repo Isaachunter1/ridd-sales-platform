@@ -2793,10 +2793,7 @@ function mobileBottomNav() {
           ['hall_of_fame','Hall of Fame',iconCrown],
           ...(isAdmin ? [['indicators','Indicators',iconChart]] : []),
           ...(isAdmin ? [['reporting','Reporting',iconPie]] : []),
-          ...(isAdmin ? [['admin','Settings',iconGear]] : []),
-          // Commission now spans multiple rep types (Sales Reps + Office Staff),
-          // so it sits with the admin tools, just under Settings.
-          ['commission', isAdmin ? 'Commission Calculator' : 'My Commission', iconDollar],
+          ...(isAdmin ? [['admin','Settings',iconGear]] : [])
         ].map(([k,label,iconFn]) => el('button', {
           class: 'flex items-center gap-3 w-full px-4 py-2.5 text-sm',
           style: state.view === k ? { color: 'var(--accent)', fontWeight: '600' } : { color: 'var(--text)' },
@@ -3453,10 +3450,8 @@ function mountApp() {
     ['inside_sales', isAuditor ? 'Sales' : 'Inside Sales', iconSales()],
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
-    ...(isAuditor ? [] : [['training', 'Training', iconClipboard()]]),
-    // Commission spans Sales Reps + Office Staff now — keep it last, nearest the
-    // Settings gear, since it's a cross-team admin tool rather than IS-only.
     ...(isAuditor ? [] : [['commission', isAdmin ? 'Commission Calculator' : 'My Commission', iconDollar()]]),
+    ...(isAuditor ? [] : [['training', 'Training', iconClipboard()]]),
   ];
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
@@ -29573,6 +29568,7 @@ function viewAdmin() {
   // separate so the CSV-driven config doesn't get confused with them.
   const groups = [
     { label: 'Settings', items: [
+      ['pricing', 'Commissions',    '💵'],
       ['users',   'Users',          '👥'],
       ['teams',   'Teams',          '🤝'],
       ['config',  'Configurations', '🧮'],
@@ -29580,7 +29576,6 @@ function viewAdmin() {
     ] },
     { label: 'Inside Sales Settings', items: [
       ['goals',   'Goals',          '🎯'],
-      ['pricing', 'Commissions',    '💵'],
       ['import',  'Import Sales',    '📥'],
       ['slack',   'Slack',          '💬'],
     ] },
