@@ -122,7 +122,11 @@ LEFT JOIN cust  ON cust.cid  = s.fieldRoutes_customerID
 LEFT JOIN emp   ON emp.eid   = s.fieldRoutes_soldBy
 LEFT JOIN flags ON flags.cid = s.fieldRoutes_customerID
 LEFT JOIN cxl   ON cxl.sid   = s.id
-WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''`;
+WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''
+  -- Phantom offices lingering in the CRM (negative office IDs, e.g. -1 / -7).
+  -- These aren't real branches we sold from — exclude them from the snapshot
+  -- entirely so they never touch revenue, subs, or any downstream metric.
+  AND COALESCE(s.fieldRoutes_officeID, '') NOT IN ('-1', '-7')`;
 
 // Employee roster — one entry per PERSON. FieldRoutes stores an employee row
 // PER OFFICE and links them via fieldRoutes_linkedEmployeeIDs (a base account).
