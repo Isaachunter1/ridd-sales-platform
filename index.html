@@ -13330,7 +13330,12 @@ function _rankExcludeMode() {
 }
 function rankExcludedSet() {
   const store = state._indicatorRankExclude || {};
-  return new Set(store[_rankExcludeMode()] || []);
+  // Phantom CRM offices (negative IDs → "OFFICE -1" / "OFFICE -7") can linger in
+  // a persisted exclusion list from before they were filtered out of the data.
+  // They're no longer real branches, so never count them toward the Power
+  // Ranking exclusions or the trophy badge.
+  const raw = (store[_rankExcludeMode()] || []).filter(n => !/^office\s*-\s*\d/i.test(String(n || '').trim()));
+  return new Set(raw);
 }
 function isRankExcluded(name) {
   return !!name && rankExcludedSet().has(name);
