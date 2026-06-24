@@ -1194,6 +1194,28 @@ async function saveCompanyGoal() {
     if (error) { console.warn('[ridd] company_goal save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
   } catch (e) { console.warn('[ridd] company_goal save threw', e); }
 }
+// ── Pay settings (Inside Sales / Office Staff pay rules) — shared via
+// app_settings key 'pay_settings'. Holds contract-type rates, below-min,
+// PIF/commercial overrides, renewal flat $, backend rates, close-rate tiers.
+// In demo mode these ride along in the demo snapshot; in production they
+// persist here so the Office Staff rules (and the Pay tab math) survive a
+// reload. Loaded for any signed-in user so reps see correct pay; saved by
+// admins only.
+async function loadAppSettings() {
+  if (DEMO || !supabase || !state.profile) return;
+  try {
+    const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'pay_settings').maybeSingle();
+    if (error) { console.warn('[ridd] pay_settings load failed', error); return; }
+    if (data && data.value) state.appSettings = Object.assign({}, state.appSettings, data.value);
+  } catch (e) { console.warn('[ridd] pay_settings load threw', e); }
+}
+async function saveAppSettings() {
+  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile.role)) return;
+  try {
+    const { error } = await supabase.from('app_settings').upsert({ key: 'pay_settings', value: state.appSettings }, { onConflict: 'key' });
+    if (error) { console.warn('[ridd] pay_settings save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
+  } catch (e) { console.warn('[ridd] pay_settings save threw', e); }
+}
 // Publish one rep's computed breakdown to the per-rep, RLS-protected results
 // table so that rep (and only that rep) can see it in "My Commission".
 async function publishCommissionResult(empId, data, period) {
@@ -2405,6 +2427,7 @@ async function loadData() {
   loadCompanyLogo().catch(err => console.warn('[ridd] company logo load skipped', err));
   loadCommissionConfig().catch(err => console.warn('[ridd] commission config load skipped', err));
   loadCompanyGoal().then(() => { if (typeof mountApp === 'function') mountApp(); }).catch(err => console.warn('[ridd] company goal load skipped', err));
+  loadAppSettings().then(() => { if (typeof mountApp === 'function') mountApp(); }).catch(err => console.warn('[ridd] pay settings load skipped', err));
   // Reporting tab metadata — admin-only, fire-and-forget. The Reporting
   // tab lazy-loads the heavy subscription rows on demand once the user
   // actually visits the tab, so this just primes the uploads list +
@@ -29057,43 +29080,17 @@ function setCommissionManual(empId, obj) { const c = commissionConfig(); c.manua
 // with lockMs deciding which cancels are "after lock" (excluded from attrition).
 function commissionCompute(emp, startMs, endMs, lockMs) {
   const cfg = commissionConfig();
+  const empIds = new Set(String(emp.employee_ids || emp.employee_id || '').split(',').map(s => s.trim()).filter(Boolean));
   const cv = (r) => Number(r.subscription_contract_value) || 0;
   const catOf = (r) => cfg.serviceCategories[r.subscription] || 'unclassified';
-  let rows;
-  if (emp.isApp) {
-    // Office Staff / Inside Sales: source from sales logged in THIS app (keyed
-    // by rep_id), reshaped into the CRM-row shape the rule math below expects.
-    // Contract value = revenue_amount (initial + monthly×11, or PPS) — matches
-    // the Inside Sales Pay Tab. Category comes from the same service taxonomy.
-    const svcName = (s) => (state.serviceTypes || []).find(t => t.id === s.service_type_id)?.name || '';
-    const CANCEL = new Set(['cancelled', 'nsf', 'not_payable', 'rejected']);
-    rows = (state.allSales || []).filter(s => {
-      if (String(s.rep_id) !== String(emp.app_profile_id)) return false;
-      const sd = Date.parse(s.sold_date);
-      if (isNaN(sd)) return false;
-      if (startMs && sd < startMs) return false;
-      if (endMs && sd > endMs) return false;
-      return true;
-    }).map(s => ({
-      subscription: svcName(s),
-      subscription_contract_value: Number(s.revenue_amount) || 0,
-      agreement_length: Number(s.contract_months) || 0,
-      sold_date: s.sold_date,
-      sold_by_id: s.rep_id,
-      subscription_date_canceled: CANCEL.has(s.audit_status) ? (s.commission_date || s.sold_date) : null,
-      days_past_due: 0,
-    }));
-  } else {
-    const empIds = new Set(String(emp.employee_ids || emp.employee_id || '').split(',').map(s => s.trim()).filter(Boolean));
-    rows = (state.reportingSubscriptions || []).filter(r => {
-      if (!empIds.has(String(r.sold_by_id || '').trim())) return false;
-      const sd = Date.parse(r.sold_date || String(r.sold_at || '').slice(0, 10));
-      if (isNaN(sd)) return false;
-      if (startMs && sd < startMs) return false;
-      if (endMs && sd > endMs) return false;
-      return true;
-    });
-  }
+  const rows = (state.reportingSubscriptions || []).filter(r => {
+    if (!empIds.has(String(r.sold_by_id || '').trim())) return false;
+    const sd = Date.parse(r.sold_date || String(r.sold_at || '').slice(0, 10));
+    if (isNaN(sd)) return false;
+    if (startMs && sd < startMs) return false;
+    if (endMs && sd > endMs) return false;
+    return true;
+  });
   let pestRev = 0, bundleRev = 0, ancRev = 0, exclRev = 0, unclRev = 0;
   const unclassified = new Map();
   for (const r of rows) {
@@ -29223,6 +29220,91 @@ function commissionMyPay() {
     el('div', { class: 'flex flex-col gap-4 w-full max-w-[440px]' }, breakdown, stats)));
 }
 
+// ── Office Staff (Inside Sales) commission — the in-app Pay-Tab model ────────
+// Office Staff log sales in this app and are paid on the Inside Sales pay
+// rules (Settings → Commissions ▸ Office Staff), NOT the CRM pest/bundle model.
+// This mirrors the math in the Inside Sales "Pay" view: upfront commission per
+// serviced sale (revenue × contract-type rate, or flat $ for renewal sources),
+// Below-Minimums at the reduced rate, plus quarter-end backend (multi-year,
+// renewal) and the close-rate bonus on subscription revenue.
+function commissionComputeOfficeStaff(emp, startMs, endMs) {
+  const repId = emp.app_profile_id;
+  const profile = (state.allProfiles || []).find(p => p.id === repId) || {};
+  ensurePaySettings();
+  const sales = (state.allSales || []).filter(s => {
+    if (String(s.rep_id) !== String(repId)) return false;
+    const sd = Date.parse(s.sold_date);
+    if (isNaN(sd)) return false;
+    if (startMs && sd < startMs) return false;
+    if (endMs && sd > endMs) return false;
+    return true;
+  });
+  const sumRev = (arr) => arr.reduce((a, s) => a + Number(s.revenue_amount || 0), 0);
+  const serviced = sales.filter(s => s.audit_status === 'serviced');
+  const below    = sales.filter(s => s.audit_status === 'below_minimums');
+  const pending  = sales.filter(s => s.audit_status === 'pending');
+  const cancelled = sales.filter(s => s.audit_status === 'cancelled');
+  const isMultiYear = (s) => [18, 24].includes(Number(s.contract_months));
+
+  const salesPay   = serviced.reduce((a, s) => a + getCommissionAmount(repId, s), 0);
+  const belowPay   = below.reduce((a, s) => a + getCommissionAmount(repId, s), 0);
+  const pendingPay = pending.reduce((a, s) => a + getCommissionAmount(repId, { ...s, audit_status: 'serviced' }), 0);
+
+  const multiYearBonus = serviced.filter(s => isMultiYear(s) && !isRenewalSource(s)).reduce((a, s) => a + getBackendAmount(s), 0);
+  const renewalPay     = serviced.filter(s => isRenewalSource(s)).reduce((a, s) => a + getBackendAmount(s), 0);
+  const closeRate      = Number(profile.close_rate_target ?? 0.50);
+  const subscriptionRev = subscriptionRevenueOf(serviced);
+  const closeRateBonus = closeRateBonusFor(closeRate, subscriptionRev);
+  const backendPay     = multiYearBonus + closeRateBonus + renewalPay;
+
+  const upfrontPay = salesPay + belowPay;
+  const totalPay   = upfrontPay + backendPay;
+  return {
+    totalRevenue: sumRev(sales), subscriptionRev, salesPay, belowPay, pendingPay,
+    multiYearBonus, closeRateBonus, renewalPay, backendPay, upfrontPay, totalPay, closeRate,
+    sold: sales.length, serviced: serviced.length, below: below.length,
+    pending: pending.length, cancelled: cancelled.length,
+  };
+}
+
+// Breakdown + stats cards for an Office Staff rep — same visual language as
+// the CRM commissionRenderCards, but with the Inside Sales pay lines.
+function commissionRenderOfficeStaff(B, repName) {
+  const money = (n) => { const v = Math.round((n || 0) * 100) / 100; return (v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  const pct = (n) => (Math.round((n || 0) * 100) / 100).toFixed(2) + '%';
+  const ROW = (label, valNode, kind) => el('div', {
+    class: 'flex items-center justify-between gap-3 px-3 py-2 text-sm',
+    style: { borderTop: '1px solid var(--border)',
+      background: kind === 'rev' ? 'rgba(59,130,246,.08)' : kind === 'comm' ? 'rgba(141,198,63,.10)' : kind === 'total' ? 'rgba(141,198,63,.18)' : 'transparent' } },
+    el('span', { class: kind === 'total' ? 'font-bold' : '' }, label),
+    el('span', { class: 'tabular-nums ' + (kind === 'total' ? 'font-bold' : '') }, valNode));
+  const breakdown = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-3 py-2 font-display text-xl', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Inside Sales Pay'),
+    ROW('Office Staff', repName),
+    ROW('Total Revenue', money(B.totalRevenue), 'rev'),
+    ROW('Subscription Revenue', money(B.subscriptionRev), 'rev'),
+    ROW('Sales Pay (serviced)', money(B.salesPay), 'comm'),
+    ROW('Below-Minimums Pay', money(B.belowPay), 'comm'),
+    ROW('Upfront Pay', money(B.upfrontPay), 'total'),
+    ROW('Multi-Year Backend', money(B.multiYearBonus), 'comm'),
+    ROW('Renewal Pay', money(B.renewalPay), 'comm'),
+    ROW('Close-Rate Bonus (' + pct(B.closeRate * 100) + ')', money(B.closeRateBonus), 'comm'),
+    ROW('Backend Pay', money(B.backendPay), 'total'),
+    ROW('Total Pay', money(B.totalPay), 'total'),
+    el('div', { class: 'px-3 py-2 text-sm flex items-center justify-between', style: { background: 'rgba(59,130,246,.08)', borderTop: '1px solid var(--border)' } },
+      el('span', { class: 'font-semibold' }, 'Pending Pay (est.)'), el('span', { class: 'tabular-nums font-semibold' }, money(B.pendingPay))));
+  const statRow = (label, val, tone) => el('div', { class: 'flex items-center justify-between px-3 py-1.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
+    el('span', {}, label), el('span', { class: 'tabular-nums font-semibold', style: tone ? { color: tone } : {} }, val));
+  const stats = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-3 py-2 font-display text-lg', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Accounts'),
+    statRow('Total Accounts Sold', B.sold),
+    statRow('Serviced', B.serviced),
+    statRow('Below Minimums', B.below),
+    statRow('Pending Audit', B.pending),
+    statRow('Cancelled', B.cancelled, B.cancelled ? '#DC2626' : null));
+  return { breakdown, stats };
+}
+
 function commissionCalculator() {
   if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Commission Calculator is admin-only.');
   const money = (n) => { const v = Math.round((n || 0) * 100) / 100; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
@@ -29265,6 +29347,35 @@ function commissionCalculator() {
   const startMs = state._commStart ? Date.parse(state._commStart) : 0;
   const endMs   = state._commEnd ? Date.parse(state._commEnd) + 86399000 : 0;
   const lockMs  = state._commLock ? Date.parse(state._commLock) : 0;
+
+  // ── Office Staff (Inside Sales) — paid on the in-app Pay-Tab model. Self-
+  // contained: no CRM rate override / lock date, rules live in Settings. ──
+  if (emp.isApp) {
+    const lblO = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
+    const optForO = (e) => el('option', { value: e.employee_id, selected: e.employee_id === state._commEmpId }, _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : ''));
+    const repSelectO = el('select', { class: 'rounded-xl border px-3 py-2 text-sm font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
+      salesReps.length ? el('optgroup', { label: 'Sales Reps · CRM' }, ...salesReps.map(optForO)) : null,
+      officeStaff.length ? el('optgroup', { label: 'Office Staff · Inside Sales' }, ...officeStaff.map(optForO)) : null);
+    const dateInputO = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-3 py-2 text-sm', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
+    const B = commissionComputeOfficeStaff(emp, startMs, endMs);
+    const { breakdown, stats } = commissionRenderOfficeStaff(B, _frEmpName(emp));
+    const note = el('div', { class: 'card p-3 text-xs', style: { borderLeft: '3px solid var(--accent)' } },
+      el('b', { style: { color: 'var(--text)' } }, 'Inside Sales pay model. '),
+      el('span', { class: 'text-muted-' }, 'Sourced from sales logged in-app. Rates (upfront % by contract type, below-min, renewal flat $, backend, close-rate bonus) are set in Settings → Commissions ▸ Office Staff.'),
+      B.sold === 0 ? el('div', { class: 'mt-2 text-muted-' }, 'No sales logged for this rep in the selected window.') : null);
+    return el('div', { class: 'flex flex-col gap-4 w-full' },
+      el('div', { class: 'flex items-end justify-between flex-wrap gap-3' },
+        el('div', {},
+          el('h1', { class: 'text-2xl font-bold' }, 'Commission Calculator'),
+          el('p', { class: 'text-xs text-muted-' }, 'Sales Reps from live FieldRoutes; Office Staff from Inside Sales logged in-app. Pick a rep and period; rates & rules are saved for everyone.')),
+        el('div', { class: 'flex items-end gap-2 flex-wrap' },
+          el('label', { class: 'block' }, lblO('Rep'), repSelectO),
+          el('label', { class: 'block' }, lblO('Sold from'), dateInputO(state._commStart, v => state._commStart = v)),
+          el('label', { class: 'block' }, lblO('Sold to'), dateInputO(state._commEnd, v => state._commEnd = v)))),
+      el('div', { class: 'flex flex-col lg:flex-row gap-5 items-start' },
+        el('div', { class: 'flex flex-col gap-4 w-full lg:w-[440px] lg:shrink-0' }, breakdown, stats),
+        el('div', { class: 'flex flex-col gap-4 flex-1 w-full min-w-0' }, note)));
+  }
 
   const cfg = commissionConfig();
   const R = commissionCompute(emp, startMs, endMs, lockMs);
@@ -30281,18 +30392,33 @@ function adminCommissions() {
             el('div', { class: 'min-w-0' }, el('div', { class: 'text-sm font-medium truncate' }, svc), el('div', { class: 'text-[11px] text-muted-' }, money(rev))),
             catSelect(svc)))));
 
+  // Office Staff = Inside Sales reps, who log accounts in-app and are paid on
+  // the Inside Sales Pay-Tab model (upfront % by contract type, below-min,
+  // PIF/commercial overrides, flat renewal $, quarter-end backend + close-rate
+  // bonus). That's a different animal from the CRM pest/bundle model the D2D
+  // Sales Reps and Technicians use, so this tab renders the pay-settings editor.
+  const isOfficeStaff = (type === 'Office Staff');
+  const body = isOfficeStaff
+    ? adminPricing({ embedded: true })
+    : el('div', { class: 'flex flex-col gap-4' },
+        el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, ratesPanel, myPanel),
+        svcPanel);
+
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', {},
       el('h2', { class: 'text-lg font-bold' }, 'Commissions'),
-      el('p', { class: 'text-xs text-muted-' }, 'Commission rules by rep type. The Commission Calculator uses these; a specific rep can still be overridden there.')),
+      el('p', { class: 'text-xs text-muted-' }, isOfficeStaff
+        ? 'Inside Sales pay rules for Office Staff — these drive the Pay tab and the Commission Calculator. Sales Reps and Technicians use the CRM pest/bundle model on their tabs.'
+        : 'Commission rules by rep type. The Commission Calculator uses these; a specific rep can still be overridden there.')),
     tabs,
-    el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, ratesPanel, myPanel),
-    svcPanel);
+    body);
 }
 
-function adminPricing() {
+function adminPricing(opts = {}) {
   // Seeds sheet-aligned defaults (incl. renewal flat pay, backend rates,
   // close-rate tiers) and runs the one-time 7%→sheet-rates migration.
+  // opts.embedded → omit the standalone "Pricing" heading so this can be
+  // dropped inside the Office Staff tab of Settings → Commissions.
   const s = ensurePaySettings();
 
   // Commission rates per contract type (exclude Commercial + Paid in Full — those are separate overrides)
@@ -30310,10 +30436,10 @@ function adminPricing() {
   s.commercial_rate = s.commercial_rate ?? 7.0;
   s.paid_in_full_rate = s.paid_in_full_rate ?? 7.0;
 
-  const persist = () => saveDemoData();
+  const persist = () => { saveDemoData(); saveAppSettings(); };
 
   return el('div', { class: 'flex flex-col gap-5' },
-    el('h2', { class: 'text-xl font-bold' }, 'Pricing'),
+    opts.embedded ? null : el('h2', { class: 'text-xl font-bold' }, 'Pricing'),
 
     // ── Status-based pay rules ──
     el('div', { class: 'card p-5' },
