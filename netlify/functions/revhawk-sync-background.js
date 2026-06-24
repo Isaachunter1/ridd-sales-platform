@@ -54,10 +54,28 @@ const officeCase = Object.entries(OFFICE_NAMES)
 // types let us coerce to JS numbers. Validated against the live data.
 const SQL = `
 WITH flags AS (
-  SELECT fieldRoutes_customerID AS cid, STRING_AGG(DISTINCT fieldRoutes_flag, ', ') AS flags
-  FROM \`${PROJECT}.${DATASET}.FieldRoutesCustomerFlags\`
-  WHERE fieldRoutes_flag IS NOT NULL AND fieldRoutes_flag != ''
-  GROUP BY 1
+  -- Customer flags drive the Auditing tab + Spring Cleaning / Last Man Standing
+  -- audit gates (Passed Audit / No Audit / Failed Audit). The denormalized
+  -- FieldRoutesCustomerFlags table is INCOMPLETE — it misses a meaningful chunk
+  -- of audit flags that exist in the raw generic-flag assignments (verified:
+  -- a recent Spring Cleaning round dropped from 258 "pending" to 181 once the
+  -- assignment table was included). So union both sources: the legacy customer
+  -- flags PLUS every CUST-type generic flag resolved to its code via the
+  -- assignment → definition join. STRING_AGG(DISTINCT ...) dedupes the overlap.
+  SELECT cid, STRING_AGG(DISTINCT flag, ', ') AS flags FROM (
+    SELECT fieldRoutes_customerID AS cid, fieldRoutes_flag AS flag
+    FROM \`${PROJECT}.${DATASET}.FieldRoutesCustomerFlags\`
+    WHERE fieldRoutes_flag IS NOT NULL AND fieldRoutes_flag != ''
+    UNION DISTINCT
+    SELECT a.fieldRoutes_entityID AS cid, g.code AS flag
+    FROM \`${PROJECT}.${DATASET}.FieldRoutesGenericFlagAssignment\` a
+    JOIN (
+      SELECT DISTINCT fieldRoutes_genericFlagID AS gid, fieldRoutes_code AS code
+      FROM \`${PROJECT}.${DATASET}.FieldRoutesGenericFlags\`
+      WHERE fieldRoutes_type = 'CUST' AND fieldRoutes_code IS NOT NULL AND fieldRoutes_code != ''
+    ) g ON g.gid = a.fieldRoutes_genericFlagID
+  )
+  GROUP BY cid
 ),
 emp AS (
   SELECT fieldRoutes_employeeID AS eid, ANY_VALUE(fieldRoutes_lname) AS lname,
@@ -81,6 +99,16 @@ cxl AS (
     FROM \`${PROJECT}.${DATASET}.FieldRoutesCancellationNote\`
     WHERE fieldRoutes_cancellationReason IS NOT NULL AND fieldRoutes_cancellationReason != ''
   ) WHERE rn = 1
+),
+appt AS (
+  -- Completion date of each subscription's INITIAL appointment — i.e. when the
+  -- account was first serviced. Drives the Spring Cleaning / Last Man Standing
+  -- "serviced by the deadline" rule. One row per appointment id.
+  SELECT fieldRoutes_appointmentID AS aid,
+         MIN(NULLIF(LEFT(fieldRoutes_dateCompleted,10),'0000-00-00')) AS serviced_date
+  FROM \`${PROJECT}.${DATASET}.FieldRoutesAppointment\`
+  WHERE fieldRoutes_dateCompleted IS NOT NULL AND fieldRoutes_dateCompleted NOT LIKE '0000%' AND fieldRoutes_dateCompleted != ''
+  GROUP BY 1
 )
 SELECT
   s.fieldRoutes_customerID AS customer_id,
@@ -104,6 +132,7 @@ SELECT
   s.fieldRoutes_activeText AS subscription_status,
   CASE WHEN s.fieldRoutes_initialStatusText='Completed'
        THEN NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00') END AS initial_service,
+  appt.serviced_date AS initial_serviced_date,
   s.fieldRoutes_source AS subscription_source,
   CAST(NULL AS STRING) AS country,
   cust.state AS state,
@@ -122,6 +151,7 @@ LEFT JOIN cust  ON cust.cid  = s.fieldRoutes_customerID
 LEFT JOIN emp   ON emp.eid   = s.fieldRoutes_soldBy
 LEFT JOIN flags ON flags.cid = s.fieldRoutes_customerID
 LEFT JOIN cxl   ON cxl.sid   = s.id
+LEFT JOIN appt  ON appt.aid  = s.fieldRoutes_initialAppointmentID
 WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''
   -- Phantom offices lingering in the CRM (negative office IDs, e.g. -1 / -7).
   -- These aren't real branches we sold from — exclude them from the snapshot

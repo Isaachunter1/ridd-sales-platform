@@ -11954,11 +11954,13 @@ function isSpringCleaningComp(comp) {
 
 // ── Last Man Standing ──────────────────────────────────────────────────────
 // Every-man-for-himself weekly elimination. SATURDAY ONLY. Each Saturday with
-// qualifying sales is a round: among reps still alive, rank by qualifying
-// revenue (same gate as Spring Cleaning — D2D, ≥$99 initial, Passed/No-Audit),
-// top 50% (rounded UP) advance, the rest are eliminated. No losers bracket. A
-// rep with no sale that Saturday stays in the pool at $0 and is subject to the
-// cut. Last rep standing wins.
+// qualifying sales is a round. Gate matches Spring Cleaning standings: D2D,
+// ≥$99 initial, NOT Failed Audit (passed + no-audit + pending all count —
+// pending is assumed passing so the comp runs before audits land). Round 1 is
+// a pure qualifier (anyone with a qualifying account advances); from Round 2,
+// among reps still alive, rank by qualifying revenue and the top 50% (rounded
+// UP) advance, the rest are eliminated. A rep with no sale that Saturday stays
+// in the pool at $0 and is subject to the cut. Last rep standing wins.
 function isLastManStandingComp(comp) {
   const c = comp || (typeof getActiveComp === 'function' ? getActiveComp() : null);
   return !!(c && (c.scoring === 'last_man_standing' || c.id === 'last_man_standing' || /last\s*man\s*standing/i.test(c.name || '')));
@@ -11972,7 +11974,10 @@ function lastManStandingCompute(sales) {
   const byWeek = {};
   for (const s of d2d) {
     const d = dayOf(s); if (!d || isNaN(d) || d.getDay() !== 6) continue;                      // Saturday only
-    if (typeof springCleaningCounts === 'function' && !springCleaningCounts(s)) continue;       // qualifying gate
+    // Qualifying gate — assume-passing, matching Spring Cleaning standings:
+    // passed + no-audit + pending all count; only Failed Audit and <$99 (Last
+    // Resort) are excluded. Lets the comp run on recent windows before audits land.
+    if (typeof springCleaningStatus === 'function' && springCleaningStatus(s) === 'excluded') continue;
     const iso = d.toISOString().slice(0, 10);
     (byWeek[iso] = byWeek[iso] || {});
     byWeek[iso][s.rep] = (byWeek[iso][s.rep] || 0) + (Number(s.contractValue) || 0);
@@ -12122,7 +12127,7 @@ function lastManStandingBoard(windowed, winLabel) {
   return el('div', { class: 'card', style: { padding: '0', border: '1px solid #000', background: '#000', overflow: 'hidden' } },
     hero,
     el('div', { style: { fontFamily: DISP, fontSize: '.66rem', letterSpacing: '.12em', color: WHITE, opacity: '.5', textAlign: 'center', padding: '12px 14px 0', textTransform: 'uppercase', background: '#000' } },
-      'Saturdays only · D2D · ≥$99 initial · passed/no-audit · top 50% advance (round up) · ' + (winLabel || 'all dates')),
+      'Saturdays only · D2D · ≥$99 initial · not failed-audit (pending counts) · Round 1 qualifier, then top 50% (round up) · ' + (winLabel || 'all dates')),
     R.rounds.length
       ? el('div', { style: { padding: '12px 0 0' } }, gauntlet)
       : el('div', { style: { fontFamily: DISP, color: MAG, textAlign: 'center', padding: '26px', fontSize: '1rem', background: '#000', textTransform: 'uppercase', letterSpacing: '.05em' } }, 'No Saturday rounds played in this window yet.'));
@@ -12152,19 +12157,65 @@ function springCleaningHasPayment(s) {
   const v = String(s.autoPay || '').trim().toLowerCase();
   return v !== '' && v !== 'no' && v !== 'none' && v !== '0' && v !== 'n' && v !== 'false';
 }
+// ── Servicing deadline ─────────────────────────────────────────────────────
+// Accounts sold in a round must be SERVICED (initial service completed) by the
+// end of the week FOLLOWING the week they were sold (weeks Sun–Sat). Sold
+// June 8 (week Jun 7–13) → serviced by Sat Jun 20. Past the deadline and still
+// unserviced — or serviced after it — the account is excluded from the comp
+// entirely. Before the deadline, an unserviced account is still in play. Only
+// enforced once the data actually carries serviced dates, so older snapshots
+// (no Serviced Date column) are unaffected and never wrongly excluded.
+let _scServicingCache = { ref: null, val: false };
+function _scServicingHasData() {
+  const rows = state._indicatorRawSales || [];
+  if (_scServicingCache.ref === rows) return _scServicingCache.val;
+  const val = rows.some(r => r && String(r.servicedDate || '').trim());
+  _scServicingCache = { ref: rows, val };
+  return val;
+}
+function springServiceDeadline(s) {
+  const sold = (typeof _parseIndicatorDay === 'function') ? _parseIndicatorDay(s) : null;
+  if (!sold || isNaN(sold)) return null;
+  const wkSun = new Date(sold); wkSun.setHours(0, 0, 0, 0);
+  wkSun.setDate(wkSun.getDate() - wkSun.getDay());          // back to that week's Sunday
+  const deadline = new Date(wkSun);
+  deadline.setDate(deadline.getDate() + 13);                // the FOLLOWING week's Saturday
+  deadline.setHours(23, 59, 59, 999);
+  return deadline;
+}
+function _scParseServiced(raw) {
+  raw = String(raw || '').trim(); if (!raw) return null;
+  let d;
+  if (raw.includes('/')) { const p = raw.split(' ')[0].split('/'); if (p.length === 3) { let [m, dd, y] = p.map(Number); if (y < 100) y += 2000; d = new Date(y, m - 1, dd); } }
+  else d = new Date(raw.length <= 10 ? raw + 'T00:00' : raw);
+  return (d && !isNaN(d)) ? d : null;
+}
+// 'intime' serviced on/before deadline · 'late' serviced after / past deadline
+// unserviced · 'open' unserviced but deadline not reached · 'na' no data.
+function springServicedStatus(s) {
+  if (!_scServicingHasData()) return 'na';
+  const deadline = springServiceDeadline(s);
+  if (!deadline) return 'open';
+  const svc = _scParseServiced(s.servicedDate);
+  if (svc) return svc <= deadline ? 'intime' : 'late';
+  return (new Date() > deadline) ? 'late' : 'open';
+}
+
 // Three-way bucket per account:
-//   'excluded' — Last Resort (<$99) or Failed audit → never counts
+//   'excluded' — Last Resort (<$99), Failed audit, or not serviced by deadline
 //   'pending'  — passes the $99 floor but audit flag is neither pass nor fail
 //                (still being audited; revenue "out there" waiting to clear)
 //   'counting' — clears the floor AND is flagged pass
 function springCleaningStatus(s) {
   if ((Number(s.initialPrice) || 0) < 99) return 'excluded';
+  if (springServicedStatus(s) === 'late') return 'excluded';    // not serviced by the deadline
   if (scAuditPassed(s.customerFlags)) return 'counting';        // Passed Audit OR No Audit
   if (SC_FAIL_RE.test(s.customerFlags || '')) return 'excluded';
   return 'pending';
 }
 function springCleaningReason(s) {
   if ((Number(s.initialPrice) || 0) < 99) return 'Last Resort (<$99 initial)';
+  if (springServicedStatus(s) === 'late') return 'Not serviced by deadline';
   if (SC_FAIL_RE.test(s.customerFlags || '')) return 'Failed audit';
   if (!scAuditPassed(s.customerFlags)) return 'Awaiting audit';
   return '';
@@ -12631,7 +12682,10 @@ function springStandingsCard() {
       const status = r.official
         ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#fff', background: '#43a047', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' } }, '🔒 Official — audits settled')
         : r.hasData && r.finished
-          ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#fff', background: '#ED1C24', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' } }, r.pendingN + ' audit' + (r.pendingN === 1 ? '' : 's') + ' pending')
+          ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#fff', background: '#ED1C24', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase', cursor: r.pendingN ? 'pointer' : 'default' },
+              title: r.pendingN ? 'Click to see the pending accounts' : '',
+              onclick: r.pendingN ? () => openSpringPendingModal(idx + 1, roundLabel(r), r.sc ? r.sc.pending : []) : null },
+              r.pendingN + ' audit' + (r.pendingN === 1 ? '' : 's') + ' pending')
           : r.hasData
             ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#141414', background: '#cddc39', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' } }, 'Live')
             : null;
@@ -12789,6 +12843,46 @@ function openSpringRepMarketModal(sales) {
   document.body.append(overlay);
 }
 
+// Click-through from a round's red "N audits pending" pill — lists the exact
+// accounts with no audit flag yet, so the admin can go flag them in FieldRoutes
+// and settle the round. Replaces the old leaderboard export for that workflow.
+function openSpringPendingModal(roundNum, roundLabelStr, pending) {
+  const tc = (s) => String(s || '').split(' ').map(w => w ? w[0] + w.slice(1).toLowerCase() : w).join(' ');
+  const list = (pending || []).slice().sort((a, b) =>
+    String(a.office || '').localeCompare(String(b.office || '')) || String(a.rep || '').localeCompare(String(b.rep || '')));
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const money = (n) => '$' + Math.round(Number(n) || 0).toLocaleString();
+  const th = (t, right) => el('th', { class: 'text-[10px] uppercase tracking-wider font-semibold px-3 py-2 ' + (right ? 'text-right' : 'text-left'), style: { borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', position: 'sticky', top: '0', background: 'var(--card)' } }, t);
+  const td = (t, right) => el('td', { class: 'px-3 py-1.5 text-xs ' + (right ? 'text-right tabular-nums' : ''), style: { borderBottom: '1px solid var(--border)' } }, t);
+  const card = el('div', { class: 'card w-full max-w-3xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-start justify-between p-5 pb-3' },
+      el('div', {},
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Spring Cleaning · Round ' + roundNum + ' · ' + roundLabelStr),
+        el('h2', { class: 'text-xl font-bold mt-0.5' }, list.length + ' pending audit' + (list.length === 1 ? '' : 's')),
+        el('p', { class: 'text-xs text-muted- mt-1' }, 'Door-to-Door, ≥$99, no Passed / No Audit / Failed flag yet (counted as assumed-passing). Flag these in FieldRoutes to settle the round.')),
+      el('button', { class: 'text-2xl leading-none px-2', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+    el('div', { class: 'overflow-auto px-5 pb-5', style: { borderTop: '1px solid var(--border)' } },
+      list.length === 0
+        ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No pending audits — this round is settled.')
+        : el('table', { class: 'w-full' },
+            el('thead', {}, el('tr', {}, th('Customer'), th('Cust #'), th('Rep'), th('Office'), th('Service'), th('Initial', true), th('Contract', true), th('Sold'))),
+            el('tbody', {}, ...list.map(s => el('tr', {},
+              td(s.customer || '—'),
+              td(s.customerId || '—'),
+              td(s.rep || '—'),
+              td(tc(s.office)),
+              td(s.subscription || '—'),
+              td(money(s.initialPrice), true),
+              td(money(s.contractValue), true),
+              td(s.dateSold || '')))))));
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
 function openSpringCleaningHelpModal() {
   const overlay = el('div', { class: 'modal-overlay' });
   const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
@@ -12939,12 +13033,6 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
           ),
         ),
         el('div', { class: 'flex items-center gap-2 shrink-0' },
-          el('button', {
-            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
-            style: { background: '#1b5e20', color: '#fff' },
-            title: 'Export the leaderboard workbook (Standings + Passed / Pending / Failed Audit + Last Resort sheets)',
-            onclick: () => exportSpringCleaningXlsx(sales, branchList, winLabel),
-          }, '↓ Leaderboard'),
           el('button', {
             class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
             style: { background: '#1b5e20', color: '#fff' },
@@ -19295,13 +19383,14 @@ function parseIndicatorsCsv(text) {
   const iAge       = findCol('age');
   const iSource    = findCol('source');
   const iCustFlags = findCol('customer flags', 'customer flag', 'flags');
+  const iServicedDate = findCol('serviced date', 'date serviced', 'service date');
 
   const isRawSales = iCustomer >= 0 && iDateSold >= 0 && iOffice >= 0;
 
   if (isRawSales) {
     return parseRawSalesReport(lines, headerRow, headers, {
       iOffice, iDateSold, iContract, iInitPrice, iContractVal, iStatus, iAPay, iRep, iRecurring, iServices,
-      iSub, iActive, iCancelR, iCancelD, iAge, iSource, iCustName, iCustId, iCustFlags
+      iSub, iActive, iCancelR, iCancelD, iAge, iSource, iCustName, iCustId, iCustFlags, iServicedDate
     });
   }
 
@@ -19365,6 +19454,7 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
       status: (c[cols.iStatus] || '').trim(),
       autoPay: (c[cols.iAPay] || '').trim(),
       customerFlags: cols.iCustFlags >= 0 ? (c[cols.iCustFlags] || '').trim() : '',
+      servicedDate: cols.iServicedDate >= 0 ? (c[cols.iServicedDate] || '').trim() : '',
       rep: (c[cols.iRep] || '').trim(),
       dateSold: dateSold,
       // Preserve the full original row + the upload's header order so the
@@ -19473,6 +19563,7 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
     status: s.status,
     autoPay: s.autoPay,
     customerFlags: s.customerFlags || '',
+    servicedDate: s.servicedDate || '',
     age: s.age || 0,
     source: s.source || '',
     contract: s.contract,
@@ -24532,7 +24623,7 @@ function reportingSnapshotToIndicatorsCsv(rows) {
     return m[4] ? (date + ' ' + m[4]) : date;         // append 24h time when present
   };
   const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const headers = ['Office', 'Date Sold', 'Customer Id', 'Customer Name', 'Subscription', 'Active', 'Cancellation Reason', 'Cancellation Date', 'Age', 'Source', 'Contract', 'Contract Value', 'Initial Price', 'Annual Recurring Value', 'Completed Services', 'Status', 'Auto Pay', 'Sales Rep', 'Customer Flags'];
+  const headers = ['Office', 'Date Sold', 'Customer Id', 'Customer Name', 'Subscription', 'Active', 'Cancellation Reason', 'Cancellation Date', 'Age', 'Source', 'Contract', 'Contract Value', 'Initial Price', 'Annual Recurring Value', 'Completed Services', 'Status', 'Auto Pay', 'Sales Rep', 'Customer Flags', 'Serviced Date'];
   const lines = [headers.join(',')];
   for (const r of (rows || [])) {
     lines.push([
@@ -24540,7 +24631,7 @@ function reportingSnapshotToIndicatorsCsv(rows) {
       r.subscription || '', r.subscription_status || '', r.subscription_cancellation_reason || '', r.subscription_date_canceled || '',
       r.days_past_due || 0, r.subscription_source || '', r.agreement_length || 0, r.subscription_contract_value || 0, r.initial_price || 0,
       r.annual_recurring_value || 0, r.subscription_completed_services || 0, r.subscription_status || '', r.customer_auto_pay || '',
-      r.sold_by || '', r.customer_flags || '',
+      r.sold_by || '', r.customer_flags || '', r.initial_serviced_date || '',
     ].map(esc).join(','));
   }
   return lines.join('\n');
