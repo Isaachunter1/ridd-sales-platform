@@ -12180,7 +12180,7 @@ function lastManStandingBoard(windowed, winLabel) {
       el('span', { style: { fontFamily: DISP, fontWeight: '700', lineHeight: '1', fontSize: mode === 'total' ? '1.55rem' : '1.3rem', color: mode === 'out' ? DIM : WHITE, textDecoration: mode === 'out' ? 'line-through' : 'none' } }, money((wb.passed || 0) + (wb.pending || 0)))),
     moneyTrio(wb));
 
-  const headCell = (rd) => el('th', { style: { padding: '11px 18px', borderBottom: '2px solid ' + ORANGE, whiteSpace: 'nowrap', textAlign: 'center', background: '#000' } },
+  const headCell = (rd) => el('th', { style: { position: 'sticky', top: '0', zIndex: '2', padding: '11px 18px', boxShadow: 'inset 0 -2px 0 ' + ORANGE, whiteSpace: 'nowrap', textAlign: 'center', background: '#000' } },
     el('div', { style: { fontFamily: DISP, fontSize: '1.05rem', color: ORANGE, lineHeight: '1', letterSpacing: '.04em' } }, 'Week ' + rd.week),
     el('div', { style: { fontFamily: DISP, fontSize: '.64rem', color: WHITE, opacity: '.5', letterSpacing: '.1em', marginTop: '3px', textTransform: 'uppercase' } }, new Date(rd.iso + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })));
 
@@ -12191,7 +12191,7 @@ function lastManStandingBoard(windowed, winLabel) {
     return el('div', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '5px', fontFamily: DISP, fontSize: '.72rem', letterSpacing: '.08em', textTransform: 'uppercase', color: col } },
       el('span', { style: { width: '7px', height: '7px', borderRadius: '999px', background: col, display: 'inline-block', flex: '0 0 auto' } }), txt);
   };
-  const nameCell = (r) => el('td', { style: { position: 'sticky', left: '0', zIndex: '1', background: '#000', borderRight: '2px solid ' + CYAN, borderBottom: HAIR, padding: '12px 20px 12px 16px', whiteSpace: 'nowrap' } },
+  const nameCell = (r) => el('td', { style: { position: 'sticky', left: '0', zIndex: '1', background: '#000', boxShadow: 'inset -2px 0 0 ' + CYAN, borderBottom: HAIR, padding: '12px 20px 12px 16px', whiteSpace: 'nowrap' } },
     el('div', { style: { fontFamily: DISP, fontSize: '1.35rem', letterSpacing: '.02em', textTransform: 'uppercase', lineHeight: '1.05', color: r.rep === R.champion ? RED : (r.alive ? WHITE : DIM) } },
       (r.rep === R.champion ? '☠ ' : '') + firstLast(r.rep)),
     statusPill(r));
@@ -12206,10 +12206,10 @@ function lastManStandingBoard(windowed, winLabel) {
   };
 
   // Running-total column, pinned to the right so it's always visible.
-  const totalHead = el('th', { style: { position: 'sticky', right: '0', zIndex: '2', background: '#000', borderBottom: '2px solid ' + ORANGE, borderLeft: '2px solid ' + CYAN, textAlign: 'center', padding: '11px 18px', whiteSpace: 'nowrap' } },
+  const totalHead = el('th', { style: { position: 'sticky', right: '0', top: '0', zIndex: '4', background: '#000', boxShadow: 'inset 2px 0 0 ' + CYAN + ', inset 0 -2px 0 ' + ORANGE, textAlign: 'center', padding: '11px 18px', whiteSpace: 'nowrap' } },
     el('div', { style: { fontFamily: DISP, fontSize: '1.05rem', color: CYAN, lineHeight: '1', letterSpacing: '.06em', textTransform: 'uppercase' } }, 'Total'),
     el('div', { style: { fontFamily: DISP, fontSize: '.6rem', color: WHITE, opacity: '.45', letterSpacing: '.12em', marginTop: '3px', textTransform: 'uppercase' } }, 'Running'));
-  const totalCell = (r) => el('td', { style: { position: 'sticky', right: '0', zIndex: '1', background: '#000', borderLeft: '2px solid ' + CYAN, borderBottom: HAIR, padding: '12px 18px', whiteSpace: 'nowrap', textAlign: 'center' } },
+  const totalCell = (r) => el('td', { style: { position: 'sticky', right: '0', zIndex: '1', background: '#000', boxShadow: 'inset 2px 0 0 ' + CYAN, borderBottom: HAIR, padding: '12px 18px', whiteSpace: 'nowrap', textAlign: 'center' } },
     cellBody(r.runTotal || EMPTY_RB, 'total'));
 
   const dot = (c) => el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '999px', background: c, marginRight: '6px' } });
@@ -12222,10 +12222,10 @@ function lastManStandingBoard(windowed, winLabel) {
 
   const gauntlet = el('div', { style: { borderTop: '1px solid rgba(255,255,255,.08)', background: '#000' } },
     legend,
-    el('div', { style: { overflowX: 'auto' } },
+    el('div', { style: { overflow: 'auto', maxHeight: '72vh' } },
       el('table', { style: { borderCollapse: 'collapse', width: '100%' } },
         el('thead', {}, el('tr', {},
-          el('th', { style: { position: 'sticky', left: '0', zIndex: '2', background: '#000', borderBottom: '2px solid ' + ORANGE, borderRight: '2px solid ' + CYAN, textAlign: 'left', padding: '11px 16px' } },
+          el('th', { style: { position: 'sticky', left: '0', top: '0', zIndex: '4', background: '#000', boxShadow: 'inset 0 -2px 0 ' + ORANGE + ', inset -2px 0 0 ' + CYAN, textAlign: 'left', padding: '11px 16px' } },
             el('div', { style: { fontFamily: DISP, fontSize: '.8rem', letterSpacing: '.18em', color: CYAN, textTransform: 'uppercase' } }, 'The Field')),
           ...shownIdx.map(i => headCell(R.rounds[i])), totalHead)),
         el('tbody', {}, ...rows.map(r => el('tr', {}, nameCell(r), ...shownIdx.map(i => gridCell(r, i)), totalCell(r)))))));
