@@ -12728,7 +12728,7 @@ function springStandingsCard() {
         el('span', { style: { color: '#141414' } }, '● black — not earned yet')));
 
     // ── Round tables ──
-    const CAT_COLS = [['revenue', 'Passed Rev'], ['avgPestInitial', 'Avg In.'], ['pra', 'PRA'], ['acv', 'ACV'], ['pct24', '24M %'], ['autopayPct', 'Apay %'], ['auditPct', 'Audit %']];
+    const CAT_COLS = [['avgPestInitial', 'Avg In.'], ['pra', 'PRA'], ['acv', 'ACV'], ['pct24', '24M %'], ['autopayPct', 'Apay %'], ['auditPct', 'Audit %'], ['revenue', 'Passed Rev']];
     // Formatters for the actual metric values (shown alongside each rank).
     const _usd  = (v) => '$' + Math.round(Number(v) || 0).toLocaleString();
     const _usd2 = (v) => '$' + (Number(v) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -12752,12 +12752,13 @@ function springStandingsCard() {
         const m = byOffice[b];
         return el('tr', {},
           el('td', { style: { padding: '3px 8px 3px 0', fontSize: '11.5px', fontWeight: '600', whiteSpace: 'nowrap' } }, tc(b)),
-          el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: '#666' } }, m ? _usd(m.totalRevenue) : '—'),
+          el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: '700' } }, m ? m.reps : '—'),
           ...CAT_COLS.map(([k]) => el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } },
             m ? el('span', {},
                   el('span', { style: { fontWeight: '700' } }, CAT_FMT[k](m[k])),
                   el('span', { style: { color: '#777', marginLeft: '5px', fontSize: '10px', fontWeight: '800' } }, '(' + (m.places[k] || 0) + ')'))
               : '—')),
+          el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: '#666' } }, m ? _usd(m.totalRevenue) : '—'),
           el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: '700', color: '#b03030' } }, m ? _usd(m.failedRevenue) : '—'),
           el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: '700', color: '#b03030' } }, m ? _pct(m.failedPct) : '—'));
       };
@@ -12794,8 +12795,9 @@ function springStandingsCard() {
           el('table', { style: { borderCollapse: 'collapse', flex: '1' } },
             el('thead', {}, el('tr', {},
               el('th', { style: { width: '120px' } }, ''),
-              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#666' } }, 'Total Rev'),
+              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, 'Reps'),
               ...CAT_COLS.map(([, lab]) => el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, lab)),
+              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#666' } }, 'Total Rev'),
               el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#b03030' } }, 'Failed Rev'),
               el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#b03030' } }, 'Failed %'))),
             el('tbody', {}, ...order.map(rowFor))),
@@ -13095,7 +13097,6 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
   const usd2 = (v) => '$' + (Number(v) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const pct = (v) => (v * 100).toFixed(1) + '%';
   const catDefs = [
-    { key: 'revenue',        label: 'Passed Rev',    fmt: usd },
     { key: 'avgPestInitial', label: 'Avg Pest Init', fmt: usd2 },
     { key: 'pra',            label: 'PRA',           fmt: usd },
     { key: 'acv',            label: 'ACV',           fmt: usd },
@@ -13103,6 +13104,9 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
     { key: 'autopayPct',     label: 'Autopay %',     fmt: pct },
     { key: 'auditPct',       label: 'Audit %',       fmt: pct },
   ];
+  // Passed Rev is still a SCORED category (keeps its place badge) but renders to
+  // the right with the other revenue columns: … Audit % | Passed Rev | Total Rev | Failed Rev | Failed %
+  const passedRevDef = { key: 'revenue', label: 'Passed Rev', fmt: usd };
   const placeBadge = (p) => el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, '(' + p + ')');
   const catCell = (m, def) => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
     def.fmt(m[def.key]), placeBadge(m.places[def.key]));
@@ -13208,12 +13212,13 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
         el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#1b5e20', color: '#fff' } },
           el('tr', {},
             el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Branch'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', style: { opacity: '0.85' }, title: 'Total revenue sold (everything except Sold-Not-Started) — reconciles to FieldRoutes. Not scored.' }, 'Total Rev'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps with a qualifying sale this round' }, 'Reps'),
             ...catDefs.map(d => el('th', {
               class: 'text-left px-2 py-2.5 font-bold',
-              title: d.key === 'revenue' ? 'Passed/counting revenue (passed + no-audit + pending) — this is the scored revenue.'
-                : d.key === 'auditPct' ? 'Passed Audit %: passed + no-audit + pending ÷ all accounts (incl. failed audit & last resort) — now a scored category AND the points tiebreaker' : '',
+              title: d.key === 'auditPct' ? 'Passed Audit %: passed + no-audit + pending ÷ all accounts (incl. failed audit & last resort) — now a scored category AND the points tiebreaker' : '',
             }, d.label)),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Passed/counting revenue (passed + no-audit + pending) — this is the scored revenue.' }, 'Passed Rev'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', style: { opacity: '0.85' }, title: 'Total revenue sold (matches the CRM Pending/Serviced view). Not scored.' }, 'Total Rev'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Failed Audit revenue (informational, not scored)' }, 'Failed Rev'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Failed accounts ÷ all accounts — watch this shrink as teams clean up' }, 'Failed %'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Total'),
@@ -13228,9 +13233,11 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
           },
             el('td', { class: 'px-3 py-2 font-bold whitespace-nowrap' },
               el('span', { style: { color: 'var(--text)' } }, m.office),
-              el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, '· ' + m.reps + ' reps · ' + m.n + ' accts')),
-            el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } }, usd(m.totalRevenue)),
+              el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, '· ' + m.n + ' accts')),
+            el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap font-bold' }, m.reps),
             ...catDefs.map(d => catCell(m, d)),
+            catCell(m, passedRevDef),
+            el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } }, usd(m.totalRevenue)),
             el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { color: '#c0392b' } }, usd(m.failedRevenue)),
             el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { color: '#c0392b' } }, pct(m.failedPct)),
             el('td', { class: 'px-2 py-2 text-left tabular-nums font-black' }, m.totalPoints),
@@ -15169,7 +15176,9 @@ function viewIndicators() {
   // gracefully to Branch mode otherwise.
   const rawSalesAvailable = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
   const wantTeams = state.indicatorsGroupBy === 'teams';
-  const groupBy = wantTeams && rawSalesAvailable ? 'teams' : 'branch';
+  // Comps are a BRANCH-level competition — Teams mode is locked out while Comps
+  // is on (you compete by branch, not team).
+  const groupBy = (wantTeams && rawSalesAvailable && !state.indicatorsComps) ? 'teams' : 'branch';
   // If teams mode can't run (no raw sales cached), heal the stale state so
   // labels + header colors render in branch form instead of a half-teams
   // hybrid (team colors painted onto branch columns).
@@ -15565,17 +15574,22 @@ function viewIndicators() {
             }, label);
           }),
         ),
-        // Branch / Teams group toggle
-        el('div', { class: 'pill-tabs', title: rawSalesAvailable ? '' : 'Teams mode requires a raw-sales CSV upload' },
+        // Branch / Teams group toggle. Teams is locked out in Comps mode —
+        // competitions are branch-level only.
+        el('div', { class: 'pill-tabs', title: state.indicatorsComps ? 'Competitions are branch-level — turn Comps off to view Teams' : (rawSalesAvailable ? '' : 'Teams mode requires a raw-sales CSV upload') },
           el('button', {
             'data-active': groupBy === 'branch',
             onclick: () => { state.indicatorsGroupBy = 'branch'; saveDemoData(); mountApp(); },
           }, 'Branch'),
           el('button', {
             'data-active': groupBy === 'teams',
-            disabled: !rawSalesAvailable,
-            style: rawSalesAvailable ? {} : { opacity: '0.5', cursor: 'not-allowed' },
+            disabled: !rawSalesAvailable || state.indicatorsComps,
+            style: (rawSalesAvailable && !state.indicatorsComps) ? {} : { opacity: '0.5', cursor: 'not-allowed' },
             onclick: () => {
+              if (state.indicatorsComps) {
+                toast('Competitions are branch-level — turn Comps off to view Teams', 'warn');
+                return;
+              }
               if (!rawSalesAvailable) {
                 toast('Teams mode needs a raw-sales CSV (with Rep + Subscription columns)', 'warn');
                 return;
