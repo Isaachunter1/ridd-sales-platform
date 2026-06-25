@@ -12317,20 +12317,22 @@ function springCleaningCompute(sales, branchList) {
   // pre-service cancels are already gone. Numerator = accounts NOT flagged
   // Failed Audit (passed, no-audit, and pending all count). Last Resort
   // accounts count by their actual flag, pass or fail.
-  // Also tally TOTAL revenue here for the reconcile-to-FieldRoutes column. It
-  // matches the CRM "Pending / Serviced Accounts" view: every sold account
-  // (Last Resort + Failed + the scored set) EXCEPT serviced-then-cancelled —
-  // the CRM drops those once their status flips to Cancelled. (Passed Rev still
-  // counts them; this column is informational and doesn't feed scoring.)
-  const auditTally = new Map(); // office → { tot, fail, totalRev, failRev }
+  const auditTally = new Map(); // office → { tot, fail }
   for (const s of d2dSales) {
     const b = s.office || 'UNKNOWN';
-    if (!auditTally.has(b)) auditTally.set(b, { tot: 0, fail: 0, totalRev: 0, failRev: 0 });
+    if (!auditTally.has(b)) auditTally.set(b, { tot: 0, fail: 0 });
     const t = auditTally.get(b);
     t.tot += 1;
-    if (!String(s.cancelDate || '').trim()) t.totalRev += Number(s.contractValue) || 0;  // exclude post-service cancels to match CRM
-    if (SC_FAIL_RE.test(s.customerFlags || '')) { t.fail += 1; t.failRev += Number(s.contractValue) || 0; }
+    if (SC_FAIL_RE.test(s.customerFlags || '')) t.fail += 1;
   }
+  // Revenue breakdown columns (informational): Passed Rev (scored = counting +
+  // pending) + Failed Rev (everything NOT counting — failed audit, Last Resort,
+  // and not-serviced-by-deadline) = Total Rev, so Total = Passed + Failed ties
+  // out. Pending Rev is the un-flagged subset of Passed, shown so teams can
+  // watch it clear as audits land.
+  const pendingRevByBranch = new Map(), notCountingRevByBranch = new Map();
+  for (const s of pending)  { const b = s.office || 'UNKNOWN'; pendingRevByBranch.set(b, (pendingRevByBranch.get(b) || 0) + (Number(s.contractValue) || 0)); }
+  for (const s of excluded) { const b = s.office || 'UNKNOWN'; notCountingRevByBranch.set(b, (notCountingRevByBranch.get(b) || 0) + (Number(s.contractValue) || 0)); }
 
   // Standings count BOTH passed-audit AND pending accounts — we assume a
   // pending account will pass until it's flagged Failed Audit. (Excluded =
@@ -12360,13 +12362,14 @@ function springCleaningCompute(sales, branchList) {
   const metrics = branches.map(b => {
     const m = byBranch.get(b);
     const reps = (branchReps.get(b) || new Set()).size;
-    const at = auditTally.get(b) || { tot: 0, fail: 0, totalRev: 0, failRev: 0 };
+    const at = auditTally.get(b) || { tot: 0, fail: 0 };
+    const failedRev = notCountingRevByBranch.get(b) || 0;
     return {
       office: b, reps, n: m.n,
-      totalRevenue:   at.totalRev || 0,   // all sold except SNS (reconciles to FieldRoutes)
-      failedRevenue:  at.failRev || 0,    // revenue of Failed Audit accounts (informational)
-      failedPct:      at.tot > 0 ? at.fail / at.tot : 0,  // failed accounts ÷ all accounts
-      revenue:        m.revenue,          // PASSED / counting revenue (passed + no-audit + pending)
+      revenue:        m.revenue,                         // PASSED Rev — scored (passed + no-audit + pending)
+      pendingRevenue: pendingRevByBranch.get(b) || 0,    // pending subset of Passed (informational)
+      failedRevenue:  failedRev,                         // NOT-counting rev (failed + last resort + not-serviced)
+      totalRevenue:   m.revenue + failedRev,             // Total = Passed + Failed (reconciles)
       pra:            reps > 0 ? m.revenue / reps : 0,
       avgPestInitial: m.pestCnt > 0 ? m.pestSum / m.pestCnt : 0,
       acv:            m.n > 0 ? m.cvSum / m.n : 0,
@@ -12728,7 +12731,7 @@ function springStandingsCard() {
         el('span', { style: { color: '#141414' } }, '● black — not earned yet')));
 
     // ── Round tables ──
-    const CAT_COLS = [['avgPestInitial', 'Avg In.'], ['pra', 'PRA'], ['acv', 'ACV'], ['pct24', '24M %'], ['autopayPct', 'Apay %'], ['auditPct', 'Audit %'], ['revenue', 'Passed Rev']];
+    const CAT_COLS = [['avgPestInitial', 'Avg Pest Init'], ['pra', 'PRA'], ['acv', 'ACV'], ['pct24', '24M %'], ['autopayPct', 'Apay %'], ['auditPct', 'Audit %'], ['revenue', 'Passed Rev']];
     // Formatters for the actual metric values (shown alongside each rank).
     const _usd  = (v) => '$' + Math.round(Number(v) || 0).toLocaleString();
     const _usd2 = (v) => '$' + (Number(v) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -12760,7 +12763,7 @@ function springStandingsCard() {
               : '—')),
           el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: '#666' } }, m ? _usd(m.totalRevenue) : '—'),
           el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: '700', color: '#b03030' } }, m ? _usd(m.failedRevenue) : '—'),
-          el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: '700', color: '#b03030' } }, m ? _pct(m.failedPct) : '—'));
+          el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: '700', color: '#9a7d0a' } }, m ? _usd(m.pendingRevenue) : '—'));
       };
       const rankRow = (b) => {
         const m = byOffice[b];
@@ -12799,7 +12802,7 @@ function springStandingsCard() {
               ...CAT_COLS.map(([, lab]) => el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, lab)),
               el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#666' } }, 'Total Rev'),
               el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#b03030' } }, 'Failed Rev'),
-              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#b03030' } }, 'Failed %'))),
+              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#9a7d0a' } }, 'Pending Rev'))),
             el('tbody', {}, ...order.map(rowFor))),
           el('div', { style: { background: '#9d9d97', padding: '8px 12px', minWidth: '150px', marginTop: '21px' } },
             el('div', { style: { fontSize: '10.5px', fontWeight: '900', color: '#141414', marginBottom: '4px', whiteSpace: 'nowrap' } }, 'Rd ' + (idx + 1) + ' Power Rank'),
@@ -13219,8 +13222,8 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
             }, d.label)),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Passed/counting revenue (passed + no-audit + pending) — this is the scored revenue.' }, 'Passed Rev'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', style: { opacity: '0.85' }, title: 'Total revenue sold (matches the CRM Pending/Serviced view). Not scored.' }, 'Total Rev'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Failed Audit revenue (informational, not scored)' }, 'Failed Rev'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Failed accounts ÷ all accounts — watch this shrink as teams clean up' }, 'Failed %'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Revenue NOT counting: failed audit + Last Resort (<$99) + not serviced by deadline' }, 'Failed Rev'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Pending-audit revenue (the un-flagged subset of Passed) — watch it clear as audits land' }, 'Pending Rev'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Total'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Place'),
             el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Bugs'),
@@ -13239,7 +13242,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
             catCell(m, passedRevDef),
             el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } }, usd(m.totalRevenue)),
             el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { color: '#c0392b' } }, usd(m.failedRevenue)),
-            el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { color: '#c0392b' } }, pct(m.failedPct)),
+            el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { color: '#b8860b' } }, usd(m.pendingRevenue)),
             el('td', { class: 'px-2 py-2 text-left tabular-nums font-black' }, m.totalPoints),
             el('td', { class: 'px-2 py-2 text-left tabular-nums font-bold' }, m.place),
             el('td', { class: 'px-3 py-2 text-left' }, bugBadge(m.bugs)),
