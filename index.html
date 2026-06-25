@@ -12160,46 +12160,70 @@ function lastManStandingBoard(windowed, winLabel) {
   const WINDOW = 3;
   const shownIdx = R.rounds.map((_, i) => i).slice(-WINDOW);
 
-  const headCell = (rd) => el('th', { style: { padding: '7px 10px', borderBottom: '2px solid ' + ORANGE, whiteSpace: 'nowrap', textAlign: 'center', background: '#000' } },
-    el('div', { style: { fontFamily: DISP, fontSize: '1.15rem', color: ORANGE, lineHeight: '1' } }, 'W' + rd.week),
-    el('div', { style: { fontFamily: DISP, fontSize: '.62rem', color: WHITE, opacity: '.6', letterSpacing: '.06em' } }, new Date(rd.iso + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })));
-  const nameCell = (r) => el('td', { style: { position: 'sticky', left: '0', zIndex: '1', background: '#000', borderRight: '2px solid ' + CYAN, padding: '9px 14px 9px 12px', whiteSpace: 'nowrap' } },
-    el('div', { style: { fontFamily: DISP, fontSize: '1.3rem', letterSpacing: '.02em', textTransform: 'uppercase', lineHeight: '1.05', color: (r.rep === R.champion ? RED : (r.alive ? WHITE : DIM)) } },
+  // ── Clean gauntlet renderer ───────────────────────────────────────────────
+  // Each cell: one big Total, with Passed / Pending / Failed as small colour-
+  // coded figures beneath (legend above names the colours). A thin underline
+  // marks advance (green) or elimination (red). The same body powers the pinned
+  // Running-Total column on the right.
+  const HAIR = '1px solid rgba(255,255,255,.07)';
+  const moneyTrio = (wb) => el('div', { style: { display: 'flex', gap: '13px', justifyContent: 'center', whiteSpace: 'nowrap', marginTop: '5px', fontFamily: DISP, fontSize: '.84rem', letterSpacing: '.01em' } },
+    el('span', { style: { color: wb.passed  ? GREEN  : '#2b2b2b' } }, money(wb.passed)),
+    el('span', { style: { color: wb.pending ? ORANGE : '#2b2b2b' } }, money(wb.pending)),
+    el('span', { style: { color: wb.failed  ? RED    : '#2b2b2b' } }, money(wb.failed)));
+  const cellBody = (wb, mode) => el('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center' } },
+    el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '6px' } },
+      (mode === 'out' ? el('span', { style: { color: RED, fontSize: '1rem' } }, '☠') : null),
+      el('span', { style: { fontFamily: DISP, fontWeight: '700', lineHeight: '1', fontSize: mode === 'total' ? '1.55rem' : '1.3rem', color: mode === 'out' ? DIM : WHITE, textDecoration: mode === 'out' ? 'line-through' : 'none' } }, money(wb.total))),
+    moneyTrio(wb));
+
+  const headCell = (rd) => el('th', { style: { padding: '11px 18px', borderBottom: '2px solid ' + ORANGE, whiteSpace: 'nowrap', textAlign: 'center', background: '#000' } },
+    el('div', { style: { fontFamily: DISP, fontSize: '1.05rem', color: ORANGE, lineHeight: '1', letterSpacing: '.04em' } }, 'Week ' + rd.week),
+    el('div', { style: { fontFamily: DISP, fontSize: '.64rem', color: WHITE, opacity: '.5', letterSpacing: '.1em', marginTop: '3px', textTransform: 'uppercase' } }, new Date(rd.iso + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })));
+
+  const statusPill = (r) => {
+    const champ = r.rep === R.champion;
+    const col = champ ? ORANGE : (r.alive ? GREEN : MAG);
+    const txt = champ ? 'Champion' : (r.alive ? 'Still standing' : 'Out · Wk ' + (r.elimWeek + 1));
+    return el('div', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '5px', fontFamily: DISP, fontSize: '.72rem', letterSpacing: '.08em', textTransform: 'uppercase', color: col } },
+      el('span', { style: { width: '7px', height: '7px', borderRadius: '999px', background: col, display: 'inline-block', flex: '0 0 auto' } }), txt);
+  };
+  const nameCell = (r) => el('td', { style: { position: 'sticky', left: '0', zIndex: '1', background: '#000', borderRight: '2px solid ' + CYAN, borderBottom: HAIR, padding: '12px 20px 12px 16px', whiteSpace: 'nowrap' } },
+    el('div', { style: { fontFamily: DISP, fontSize: '1.35rem', letterSpacing: '.02em', textTransform: 'uppercase', lineHeight: '1.05', color: r.rep === R.champion ? RED : (r.alive ? WHITE : DIM) } },
       (r.rep === R.champion ? '☠ ' : '') + firstLast(r.rep)),
-    el('div', { style: { fontFamily: DISP, fontSize: '.8rem', letterSpacing: '.1em', marginTop: '3px', color: r.rep === R.champion ? RED : (r.alive ? GREEN : MAG) } },
-      r.rep === R.champion ? 'CHAMPION' : (r.alive ? 'STILL STANDING' : ('✝ FELL WK ' + (r.elimWeek + 1)))));
-  // Total + Passed/Failed/Pending all on one row. strike/skull = eliminated cell.
-  const breakdownInline = (wb, strike, skull) => el('div', { style: { fontFamily: DISP, display: 'flex', alignItems: 'baseline', gap: '12px', justifyContent: 'center', whiteSpace: 'nowrap' } },
-    (skull ? el('span', { style: { color: RED, fontSize: '1.15rem', fontWeight: '700' } }, '☠') : null),
-    el('span', { style: { fontSize: '1.2rem', fontWeight: '700', color: strike ? DIM : WHITE, textDecoration: strike ? 'line-through' : 'none' } }, money(wb.total)),
-    el('span', { style: { fontSize: '.92rem', color: wb.passed ? GREEN : '#2f6f2d' } }, 'P ' + money(wb.passed)),
-    el('span', { style: { fontSize: '.92rem', color: wb.failed ? RED : '#7a2620' } }, 'F ' + money(wb.failed)),
-    el('span', { style: { fontSize: '.92rem', color: wb.pending ? ORANGE : '#7a5a1f' } }, 'Pn ' + money(wb.pending)));
+    statusPill(r));
 
   const gridCell = (r, i) => {
+    const base = { fontFamily: DISP, textAlign: 'center', padding: '12px 18px', borderRight: HAIR, borderBottom: HAIR, whiteSpace: 'nowrap', minWidth: '188px', background: '#000' };
     const c = r.cells[i];
-    const base = { fontFamily: DISP, textAlign: 'center', padding: '10px 16px', borderRight: '1px solid ' + FAINT, borderBottom: '1px solid ' + FAINT, whiteSpace: 'nowrap', minWidth: '210px' };
-    if (!c) return el('td', { style: Object.assign({}, base, { background: 'repeating-linear-gradient(45deg, rgba(255,255,255,.03) 0 5px, transparent 5px 10px)', color: '#2a2a2a', fontSize: '.95rem' }) }, '·');
+    if (!c) return el('td', { style: Object.assign({}, base, { color: '#222', fontSize: '1rem' }) }, '·');
     const wb = (weekBreak[R.rounds[i].iso] && weekBreak[R.rounds[i].iso][r.rep]) || EMPTY_RB;
-    const bg = c.advanced
-      ? { background: 'rgba(33,198,28,.10)', boxShadow: 'inset 0 -2px 0 ' + GREEN }
-      : { background: 'rgba(255,31,14,.16)' };
-    return el('td', { style: Object.assign({}, base, bg) }, breakdownInline(wb, !c.advanced, !c.advanced));
+    return el('td', { style: Object.assign({}, base, { boxShadow: 'inset 0 -3px 0 ' + (c.advanced ? GREEN : RED) }) },
+      cellBody(wb, c.advanced ? 'alive' : 'out'));
   };
 
   // Running-total column, pinned to the right so it's always visible.
-  const totalHead = el('th', { style: { position: 'sticky', right: '0', zIndex: '2', background: '#000', borderBottom: '2px solid ' + ORANGE, borderLeft: '2px solid ' + CYAN, textAlign: 'center', padding: '7px 16px', whiteSpace: 'nowrap' } },
-    el('div', { style: { fontFamily: DISP, fontSize: '.85rem', letterSpacing: '.14em', color: CYAN, textTransform: 'uppercase' } }, 'Running Total'));
-  const totalCell = (r) => el('td', { style: { position: 'sticky', right: '0', zIndex: '1', background: '#000', borderLeft: '2px solid ' + CYAN, borderBottom: '1px solid ' + FAINT, padding: '10px 16px', whiteSpace: 'nowrap', minWidth: '210px' } },
-    breakdownInline(r.runTotal || EMPTY_RB, false, false));
+  const totalHead = el('th', { style: { position: 'sticky', right: '0', zIndex: '2', background: '#000', borderBottom: '2px solid ' + ORANGE, borderLeft: '2px solid ' + CYAN, textAlign: 'center', padding: '11px 18px', whiteSpace: 'nowrap' } },
+    el('div', { style: { fontFamily: DISP, fontSize: '1.05rem', color: CYAN, lineHeight: '1', letterSpacing: '.06em', textTransform: 'uppercase' } }, 'Total'),
+    el('div', { style: { fontFamily: DISP, fontSize: '.6rem', color: WHITE, opacity: '.45', letterSpacing: '.12em', marginTop: '3px', textTransform: 'uppercase' } }, 'Running'));
+  const totalCell = (r) => el('td', { style: { position: 'sticky', right: '0', zIndex: '1', background: '#000', borderLeft: '2px solid ' + CYAN, borderBottom: HAIR, padding: '12px 18px', whiteSpace: 'nowrap', textAlign: 'center' } },
+    cellBody(r.runTotal || EMPTY_RB, 'total'));
 
-  const gauntlet = el('div', { style: { overflowX: 'auto', borderTop: '1px solid rgba(255,255,255,.08)', background: '#000' } },
-    el('table', { style: { borderCollapse: 'collapse', width: '100%' } },
-      el('thead', {}, el('tr', {},
-        el('th', { style: { position: 'sticky', left: '0', zIndex: '2', background: '#000', borderBottom: '2px solid ' + ORANGE, borderRight: '2px solid ' + CYAN, textAlign: 'left', padding: '7px 12px' } },
-          el('div', { style: { fontFamily: DISP, fontSize: '.8rem', letterSpacing: '.14em', color: CYAN, textTransform: 'uppercase' } }, 'The Field')),
-        ...shownIdx.map(i => headCell(R.rounds[i])), totalHead)),
-      el('tbody', {}, ...rows.map(r => el('tr', {}, nameCell(r), ...shownIdx.map(i => gridCell(r, i)), totalCell(r))))));
+  const dot = (c) => el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '999px', background: c, marginRight: '6px' } });
+  const legend = el('div', { style: { display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap', padding: '11px 16px', fontFamily: DISP, fontSize: '.7rem', letterSpacing: '.1em', textTransform: 'uppercase' } },
+    el('span', { style: { color: WHITE, opacity: '.45' } }, 'Weekly revenue'),
+    el('span', { style: { color: WHITE, opacity: '.85' } }, dot(GREEN), 'Passed'),
+    el('span', { style: { color: WHITE, opacity: '.85' } }, dot(ORANGE), 'Pending'),
+    el('span', { style: { color: WHITE, opacity: '.85' } }, dot(RED), 'Failed'));
+
+  const gauntlet = el('div', { style: { borderTop: '1px solid rgba(255,255,255,.08)', background: '#000' } },
+    legend,
+    el('div', { style: { overflowX: 'auto' } },
+      el('table', { style: { borderCollapse: 'collapse', width: '100%' } },
+        el('thead', {}, el('tr', {},
+          el('th', { style: { position: 'sticky', left: '0', zIndex: '2', background: '#000', borderBottom: '2px solid ' + ORANGE, borderRight: '2px solid ' + CYAN, textAlign: 'left', padding: '11px 16px' } },
+            el('div', { style: { fontFamily: DISP, fontSize: '.8rem', letterSpacing: '.18em', color: CYAN, textTransform: 'uppercase' } }, 'The Field')),
+          ...shownIdx.map(i => headCell(R.rounds[i])), totalHead)),
+        el('tbody', {}, ...rows.map(r => el('tr', {}, nameCell(r), ...shownIdx.map(i => gridCell(r, i)), totalCell(r)))))));
 
   return el('div', { class: 'card', style: { padding: '0', border: '1px solid #000', background: '#000', overflow: 'hidden' } },
     hero,
