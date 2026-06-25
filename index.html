@@ -12057,15 +12057,28 @@ function lastManStandingBoard(windowed, winLabel) {
     star(RED, 120, '64%', '58%', -12, 1),
     star(CYAN, 70, '8px', '52%', 18, .9),
 
+    // info button — rules popup (top-right), matching the other comps
+    el('button', { style: {
+        position: 'absolute', top: 'clamp(14px,2.5vw,22px)', right: 'clamp(14px,2.5vw,22px)', zIndex: '4',
+        width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255,255,255,.1)', color: WHITE,
+        border: '1px solid rgba(255,255,255,.55)', display: 'grid', placeItems: 'center', fontSize: '14px',
+        lineHeight: '1', cursor: 'pointer', padding: '0', fontWeight: '700',
+      },
+      title: 'Last Man Standing rules',
+      onmouseenter: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.22)'; },
+      onmouseleave: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; },
+      onclick: () => openLastManStandingHelpModal(winLabel),
+    }, 'ⓘ'),
+
     // headline block
     el('div', { style: { position: 'relative', zIndex: '2' } },
       el('div', { style: { fontFamily: DISP, fontSize: 'clamp(2.6rem,8vw,6rem)', color: RED, lineHeight: '.82', textTransform: 'uppercase', letterSpacing: '.005em' } }, 'Last Man Standing'),
       el('div', { style: { fontFamily: DISP, fontSize: 'clamp(1rem,2.4vw,1.7rem)', color: WHITE, textTransform: 'lowercase', letterSpacing: '.02em', marginTop: '2px' } },
-        el('span', {}, 'ridd'), el('span', { style: { opacity: '.6' } }, 'made competition series'))),
+        el('span', {}, 'ridd'), el('span', {}, 'made competition series'))),
 
     // poster blurbs — echo the flyer copy in its colors
     el('div', { style: { position: 'relative', zIndex: '2', display: 'flex', flexWrap: 'wrap', gap: 'clamp(16px,3vw,40px)', margin: 'clamp(20px,3.5vw,34px) 0 0' } },
-      blurb(MAG, ['Every Saturday', 'Until one man stands']),
+      blurb(ORANGE, ['Every Saturday', 'Until one man stands']),
       blurb(CYAN, ['Only the top half', 'advance each week']),
       blurb(GREEN, ['Every man', 'for himself'])),
 
@@ -12130,8 +12143,6 @@ function lastManStandingBoard(windowed, winLabel) {
 
   return el('div', { class: 'card', style: { padding: '0', border: '1px solid #000', background: '#000', overflow: 'hidden' } },
     hero,
-    el('div', { style: { fontFamily: DISP, fontSize: '.66rem', letterSpacing: '.12em', color: WHITE, opacity: '.5', textAlign: 'center', padding: '12px 14px 0', textTransform: 'uppercase', background: '#000' } },
-      'Saturdays only · D2D · ≥$99 initial · not failed-audit (pending counts) · Round 1 qualifier, then top 50% (round up) · ' + (winLabel || 'all dates')),
     R.rounds.length
       ? el('div', { style: { padding: '12px 0 0' } }, gauntlet)
       : el('div', { style: { fontFamily: DISP, color: MAG, textAlign: 'center', padding: '26px', fontSize: '1rem', background: '#000', textTransform: 'uppercase', letterSpacing: '.05em' } }, 'No Saturday rounds played in this window yet.'));
@@ -13084,6 +13095,44 @@ function openAvgPestRaffleHelpModal() {
       block('🏆 Avg Pest Initial', 'Every rep with 6+ qualifying accounts, ranked by Avg Initial. Sentricon / German Roach / Interior Flea services don\'t count toward the average. Post-service cancels still count once the initial ran.'),
       block('⏳ Serviced-by-Friday Rule', 'From the selected date range, an account only qualifies if it\'s been serviced by the FOLLOWING Friday after the range ends. Pending accounts that haven\'t been serviced yet don\'t count — so judge the comp (and export winners) after that Friday, on a fresh CSV upload.'),
       block('🎟️ Raffle Tickets', '$149–199 initial = 1 ticket · $200–249 = 2 tickets · $250+ = 3 tickets. Active accounts only. Sentricon / German Roach / Interior Flea are excluded. Spin the wheel to draw a winner, weighted by each rep\'s ticket count.'),
+    ),
+  );
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
+// Last Man Standing rules popup — opened from the ⓘ on the poster header.
+function openLastManStandingHelpModal(winLabel) {
+  const RED = '#FF1F0E';
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  const section = (title, ...body) => el('div', { class: 'mb-3' },
+    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: RED } }, title),
+    el('div', { class: 'text-[13px] leading-relaxed', style: { color: 'var(--text-muted)' } }, ...body));
+
+  const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: '#000' } },
+      el('div', {},
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: RED } }, 'RIDDMADE Competition Series'),
+        el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#fff', textTransform: 'uppercase' } }, 'Last Man Standing'),
+      ),
+      el('button', { class: 'text-2xl leading-none', style: { color: '#fff' }, onclick: close }, '×'),
+    ),
+    el('div', { class: 'overflow-auto px-5 py-4', style: { borderTop: '1px solid var(--border)' } },
+      section('Who competes',
+        el('div', {}, 'Door-to-Door reps only. Sales count only if made on a Saturday and the account qualifies: ≥$99 initial and not a Failed Audit. Passed, No-Audit, and still-pending accounts all count — pending is assumed passing so the bracket can run before audits land.')),
+      section('Round 1 — the qualifier',
+        el('div', {}, 'The first Saturday is a pure qualifier: every rep who lands a qualifying sale advances, no matter how small. Anyone with no qualifying sale that Saturday is out. Nobody is cut for being low in Round 1.')),
+      section('Round 2 onward — the weekly cut',
+        el('div', {}, 'Each following Saturday the survivors are ranked by that day\'s qualifying revenue and the top half advance (rounded up — odd fields round in the survivors\' favor). The bottom half is eliminated. Ties break on cumulative revenue across the competition.')),
+      section('Winning',
+        el('div', {}, 'The cut repeats every Saturday until one rep is left standing — the champion.')),
+      section('Window',
+        el('div', {}, 'Competition dates: ' + (winLabel || 'all dates') + '. Adjust with the date filter at the top.')),
     ),
   );
   overlay.append(card);
