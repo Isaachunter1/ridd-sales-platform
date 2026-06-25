@@ -12171,9 +12171,9 @@ function lastManStandingBoard(windowed, winLabel) {
   // Big white number = QUALIFIED revenue (passed + pending — what counts).
   // Trio below: Total (green), Pending (orange), Failed (red).
   const moneyTrio = (wb) => el('div', { style: { display: 'flex', gap: '13px', justifyContent: 'center', whiteSpace: 'nowrap', marginTop: '5px', fontFamily: DISP, fontSize: '.84rem', letterSpacing: '.01em' } },
-    el('span', { style: { color: WHITE,  opacity: wb.total   ? '1' : '.5' } }, money(wb.total)),
-    el('span', { style: { color: ORANGE, opacity: wb.pending ? '1' : '.5' } }, money(wb.pending)),
-    el('span', { style: { color: RED,    opacity: wb.failed  ? '1' : '.5' } }, money(wb.failed)));
+    el('span', { style: { color: WHITE,  opacity: wb.total  ? '1' : '.5' } }, money(wb.total)),
+    el('span', { style: { color: ORANGE } }, money(wb.pending)),
+    el('span', { style: { color: RED,    opacity: wb.failed ? '1' : '.5' } }, money(wb.failed)));
   const cellBody = (wb, mode) => el('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center' } },
     el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '6px' } },
       (mode === 'out' ? el('span', { style: { color: RED, fontSize: '1rem' } }, '☠') : null),
