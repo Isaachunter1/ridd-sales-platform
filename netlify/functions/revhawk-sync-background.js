@@ -130,6 +130,7 @@ SELECT
   CASE WHEN s.fieldRoutes_dateCancelled IS NULL OR s.fieldRoutes_dateCancelled LIKE '0000%'
        THEN NULL ELSE LEFT(s.fieldRoutes_dateCancelled,10) END AS subscription_date_canceled,
   s.fieldRoutes_activeText AS subscription_status,
+  s.fieldRoutes_initialStatusText AS initial_status,
   CASE WHEN s.fieldRoutes_initialStatusText='Completed'
        THEN NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00') END AS initial_service,
   appt.serviced_date AS initial_serviced_date,
