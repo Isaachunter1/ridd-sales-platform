@@ -12168,14 +12168,16 @@ function lastManStandingBoard(windowed, winLabel) {
   // marks advance (green) or elimination (red). The same body powers the pinned
   // Running-Total column on the right.
   const HAIR = '1px solid rgba(255,255,255,.07)';
+  // Big white number = QUALIFIED revenue (passed + pending — what counts).
+  // Trio below: Total (green), Pending (orange), Failed (red).
   const moneyTrio = (wb) => el('div', { style: { display: 'flex', gap: '13px', justifyContent: 'center', whiteSpace: 'nowrap', marginTop: '5px', fontFamily: DISP, fontSize: '.84rem', letterSpacing: '.01em' } },
-    el('span', { style: { color: wb.passed  ? GREEN  : '#2b2b2b' } }, money(wb.passed)),
+    el('span', { style: { color: wb.total   ? GREEN  : '#2b2b2b' } }, money(wb.total)),
     el('span', { style: { color: wb.pending ? ORANGE : '#2b2b2b' } }, money(wb.pending)),
     el('span', { style: { color: wb.failed  ? RED    : '#2b2b2b' } }, money(wb.failed)));
   const cellBody = (wb, mode) => el('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center' } },
     el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '6px' } },
       (mode === 'out' ? el('span', { style: { color: RED, fontSize: '1rem' } }, '☠') : null),
-      el('span', { style: { fontFamily: DISP, fontWeight: '700', lineHeight: '1', fontSize: mode === 'total' ? '1.55rem' : '1.3rem', color: mode === 'out' ? DIM : WHITE, textDecoration: mode === 'out' ? 'line-through' : 'none' } }, money(wb.total))),
+      el('span', { style: { fontFamily: DISP, fontWeight: '700', lineHeight: '1', fontSize: mode === 'total' ? '1.55rem' : '1.3rem', color: mode === 'out' ? DIM : WHITE, textDecoration: mode === 'out' ? 'line-through' : 'none' } }, money((wb.passed || 0) + (wb.pending || 0)))),
     moneyTrio(wb));
 
   const headCell = (rd) => el('th', { style: { padding: '11px 18px', borderBottom: '2px solid ' + ORANGE, whiteSpace: 'nowrap', textAlign: 'center', background: '#000' } },
@@ -12213,7 +12215,8 @@ function lastManStandingBoard(windowed, winLabel) {
   const dot = (c) => el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '999px', background: c, marginRight: '6px' } });
   const legend = el('div', { style: { display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap', padding: '11px 16px', fontFamily: DISP, fontSize: '.7rem', letterSpacing: '.1em', textTransform: 'uppercase' } },
     el('span', { style: { color: WHITE, opacity: '.45' } }, 'Weekly revenue'),
-    el('span', { style: { color: WHITE, opacity: '.85' } }, dot(GREEN), 'Passed'),
+    el('span', { style: { color: WHITE, opacity: '.95', fontWeight: '700' } }, dot(WHITE), 'Qualified'),
+    el('span', { style: { color: WHITE, opacity: '.85' } }, dot(GREEN), 'Total'),
     el('span', { style: { color: WHITE, opacity: '.85' } }, dot(ORANGE), 'Pending'),
     el('span', { style: { color: WHITE, opacity: '.85' } }, dot(RED), 'Failed'));
 
