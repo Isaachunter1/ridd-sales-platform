@@ -12317,12 +12317,16 @@ function springCleaningCompute(sales, branchList) {
   // pre-service cancels are already gone. Numerator = accounts NOT flagged
   // Failed Audit (passed, no-audit, and pending all count). Last Resort
   // accounts count by their actual flag, pass or fail.
-  const auditTally = new Map(); // office → { tot, fail }
+  // Also tally TOTAL revenue here (everything except Sold-Not-Started — incl.
+  // Last Resort + Failed + the scored set) so the board can show a reconcile-
+  // to-FieldRoutes total next to the Passed (counting) revenue.
+  const auditTally = new Map(); // office → { tot, fail, totalRev }
   for (const s of d2dSales) {
     const b = s.office || 'UNKNOWN';
-    if (!auditTally.has(b)) auditTally.set(b, { tot: 0, fail: 0 });
+    if (!auditTally.has(b)) auditTally.set(b, { tot: 0, fail: 0, totalRev: 0 });
     const t = auditTally.get(b);
     t.tot += 1;
+    t.totalRev += Number(s.contractValue) || 0;
     if (SC_FAIL_RE.test(s.customerFlags || '')) t.fail += 1;
   }
 
@@ -12354,10 +12358,11 @@ function springCleaningCompute(sales, branchList) {
   const metrics = branches.map(b => {
     const m = byBranch.get(b);
     const reps = (branchReps.get(b) || new Set()).size;
-    const at = auditTally.get(b) || { tot: 0, fail: 0 };
+    const at = auditTally.get(b) || { tot: 0, fail: 0, totalRev: 0 };
     return {
       office: b, reps, n: m.n,
-      revenue:        m.revenue,
+      totalRevenue:   at.totalRev || 0,   // all sold except SNS (reconciles to FieldRoutes)
+      revenue:        m.revenue,          // PASSED / counting revenue (passed + no-audit + pending)
       pra:            reps > 0 ? m.revenue / reps : 0,
       avgPestInitial: m.pestCnt > 0 ? m.pestSum / m.pestCnt : 0,
       acv:            m.n > 0 ? m.cvSum / m.n : 0,
@@ -12678,7 +12683,7 @@ function springStandingsCard() {
         el('span', { style: { color: '#141414' } }, '● black — not earned yet')));
 
     // ── Round tables ──
-    const CAT_COLS = [['revenue', 'Revenue'], ['avgPestInitial', 'Avg In.'], ['pra', 'PRA'], ['acv', 'ACV'], ['pct24', '24M %'], ['autopayPct', 'Apay %'], ['auditPct', 'Audit %']];
+    const CAT_COLS = [['revenue', 'Passed Rev'], ['avgPestInitial', 'Avg In.'], ['pra', 'PRA'], ['acv', 'ACV'], ['pct24', '24M %'], ['autopayPct', 'Apay %'], ['auditPct', 'Audit %']];
     // Formatters for the actual metric values (shown alongside each rank).
     const _usd  = (v) => '$' + Math.round(Number(v) || 0).toLocaleString();
     const _usd2 = (v) => '$' + (Number(v) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -12702,6 +12707,7 @@ function springStandingsCard() {
         const m = byOffice[b];
         return el('tr', {},
           el('td', { style: { padding: '3px 8px 3px 0', fontSize: '11.5px', fontWeight: '600', whiteSpace: 'nowrap' } }, tc(b)),
+          el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: '#666' } }, m ? _usd(m.totalRevenue) : '—'),
           ...CAT_COLS.map(([k]) => el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } },
             m ? el('span', {},
                   el('span', { style: { fontWeight: '700' } }, CAT_FMT[k](m[k])),
@@ -12741,6 +12747,7 @@ function springStandingsCard() {
           el('table', { style: { borderCollapse: 'collapse', flex: '1' } },
             el('thead', {}, el('tr', {},
               el('th', { style: { width: '120px' } }, ''),
+              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#666' } }, 'Total Rev'),
               ...CAT_COLS.map(([, lab]) => el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, lab)))),
             el('tbody', {}, ...order.map(rowFor))),
           el('div', { style: { background: '#9d9d97', padding: '8px 12px', minWidth: '150px', marginTop: '21px' } },
@@ -12958,7 +12965,7 @@ function openSpringCleaningHelpModal() {
           metric('3 · Serviced by the deadline', 'Sold in a round, it must be serviced (initial service completed) by the end of the FOLLOWING week. Weeks run Sun–Sat — e.g. sold the week of Jun 8 → serviced by Sat Jun 20. Past the deadline unserviced, or serviced late → out. Before the deadline, an unserviced account is still in play.'),
           metric('4 · Audit flag', 'Passed Audit or No Audit → counts. Failed Audit → out. No flag yet = pending, counted as assumed-passing until it\'s flagged.')),
         section('The seven categories (per branch)',
-          metric('Revenue', 'Total Contract Value sold.'),
+          metric('Passed Rev', 'The SCORED revenue — counting revenue toward the comp (passed audit + no audit + pending). A separate "Total Rev" column shows everything sold except Sold-Not-Started (incl. Last Resort + Failed) so it reconciles to FieldRoutes, but Total isn\'t scored.'),
           metric('Avg Pest Init', 'Average initial price, excluding Sentricon / German Roach / Interior Flea services.'),
           metric('PRA', 'Per Rep Average = Revenue ÷ number of reps who sold that round. Last Resort sales leave no footprint here — they add no revenue and don\'t count a rep into the denominator.'),
           metric('ACV', 'Average Contract Value per account.'),
@@ -13039,7 +13046,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
   const usd2 = (v) => '$' + (Number(v) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const pct = (v) => (v * 100).toFixed(1) + '%';
   const catDefs = [
-    { key: 'revenue',        label: 'Revenue',       fmt: usd },
+    { key: 'revenue',        label: 'Passed Rev',    fmt: usd },
     { key: 'avgPestInitial', label: 'Avg Pest Init', fmt: usd2 },
     { key: 'pra',            label: 'PRA',           fmt: usd },
     { key: 'acv',            label: 'ACV',           fmt: usd },
@@ -13146,9 +13153,11 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
         el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#1b5e20', color: '#fff' } },
           el('tr', {},
             el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Branch'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', style: { opacity: '0.85' }, title: 'Total revenue sold (everything except Sold-Not-Started) — reconciles to FieldRoutes. Not scored.' }, 'Total Rev'),
             ...catDefs.map(d => el('th', {
               class: 'text-left px-2 py-2.5 font-bold',
-              title: d.key === 'auditPct' ? 'Passed Audit %: passed + no-audit + pending ÷ all accounts (incl. failed audit & last resort) — now a scored category AND the points tiebreaker' : '',
+              title: d.key === 'revenue' ? 'Passed/counting revenue (passed + no-audit + pending) — this is the scored revenue.'
+                : d.key === 'auditPct' ? 'Passed Audit %: passed + no-audit + pending ÷ all accounts (incl. failed audit & last resort) — now a scored category AND the points tiebreaker' : '',
             }, d.label)),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Total'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Place'),
@@ -13163,6 +13172,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
             el('td', { class: 'px-3 py-2 font-bold whitespace-nowrap' },
               el('span', { style: { color: 'var(--text)' } }, m.office),
               el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, '· ' + m.reps + ' reps · ' + m.n + ' accts')),
+            el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } }, usd(m.totalRevenue)),
             ...catDefs.map(d => catCell(m, d)),
             el('td', { class: 'px-2 py-2 text-left tabular-nums font-black' }, m.totalPoints),
             el('td', { class: 'px-2 py-2 text-left tabular-nums font-bold' }, m.place),
@@ -14172,6 +14182,19 @@ function manageTeamsPanel(opts) {
     if (branchSelect) {
       filteredReps = filteredReps.filter(r => (primaryOffice(r) || '(no branch)') === branchSelect);
     }
+    // ── Sort (Name / Tier / Team) — click a column header to group. In
+    // ascending order the blanks float to the top (Untagged tier, Unassigned
+    // team) so the unassigned are easy to find.
+    const _mtSortCol = state._manageTeamsSort || 'name';
+    const _mtSortDir = state._manageTeamsSortDir || 'asc';
+    const _tierRank = (r) => { const t = getRepTier(r); return t === 'vet' ? 2 : t === 'rookie' ? 1 : 0; };
+    const _mtCmp = {
+      name: (a, b) => a.localeCompare(b),
+      tier: (a, b) => (_tierRank(a) - _tierRank(b)) || a.localeCompare(b),
+      team: (a, b) => String(getRepTeam(a) || '').localeCompare(String(getRepTeam(b) || '')) || a.localeCompare(b),
+    }[_mtSortCol] || ((a, b) => a.localeCompare(b));
+    filteredReps = filteredReps.slice().sort(_mtCmp);
+    if (_mtSortDir === 'desc') filteredReps.reverse();
     // NOTE: the search box is applied client-side (show/hide rows) so typing
     // never triggers a full re-render — see applyRepSearch() below.
 
@@ -14963,13 +14986,30 @@ function manageTeamsPanel(opts) {
       );
     }
 
+    // ── Sortable column header — click Rep / Tier / Team to sort the list.
+    const _mtSortBtn = (col, label) => el('button', {
+      class: 'text-[10px] uppercase tracking-widest font-bold cursor-pointer',
+      style: { color: _mtSortCol === col ? 'var(--accent)' : 'var(--text-muted)', background: 'transparent', border: 'none', padding: '0' },
+      title: 'Sort by ' + label,
+      onclick: () => {
+        if (state._manageTeamsSort === col) state._manageTeamsSortDir = (_mtSortDir === 'asc' ? 'desc' : 'asc');
+        else { state._manageTeamsSort = col; state._manageTeamsSortDir = 'asc'; }
+        render();
+      },
+    }, label + (_mtSortCol === col ? (_mtSortDir === 'asc' ? ' ▲' : ' ▼') : ''));
+    const sortHeader = el('div', { class: 'flex items-center justify-between gap-3 px-5 py-1.5 border-b', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+      el('div', { class: 'flex-1' }, _mtSortBtn('name', 'Rep')),
+      el('div', { class: 'flex items-center gap-4 shrink-0' },
+        _mtSortBtn('tier', 'Tier'),
+        _mtSortBtn('team', 'Team')));
+
     card.innerHTML = '';
     card.append(
       header, addBar, filterBar,
       ...(crmLinkPanel ? [crmLinkPanel] : []),
       ...(dupesPanel ? [dupesPanel] : []),
       ...(detailPanel ? [detailPanel] : []),
-      searchInput, repList,
+      searchInput, sortHeader, repList,
     );
     if (overlay) { overlay.innerHTML = ''; overlay.append(card); }
 
