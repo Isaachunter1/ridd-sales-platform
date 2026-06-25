@@ -12119,14 +12119,43 @@ function lastManStandingBoard(windowed, winLabel) {
     || b.total - a.total
     || String(a.rep).localeCompare(String(b.rep)));
 
+  // ── Per-rep revenue breakdown — Saturday sales only, same gating as Spring
+  // Cleaning (with LMS's serviced-by-Friday deadline). Sold-Not-Started is out
+  // of everything. Passed = passed/no-audit · Pending = awaiting an audit flag ·
+  // Failed = failed audit + Last Resort (<$99) + not serviced by Friday.
+  // Total = Passed + Pending + Failed (accounts for everything that's real).
+  const revBreak = {};
+  for (const s of (windowed || [])) {
+    if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
+    const d = (typeof _parseIndicatorDay === 'function') ? _parseIndicatorDay(s) : null;
+    if (!d || isNaN(d) || d.getDay() !== 6 || !s.rep) continue;                            // Saturday only
+    if (typeof _scIsSoldNotStarted === 'function' && _scIsSoldNotStarted(s)) continue;     // SNS out of everything
+    const e = revBreak[s.rep] || (revBreak[s.rep] = { total: 0, passed: 0, failed: 0, pending: 0 });
+    const cv = Number(s.contractValue) || 0;
+    let bucket;
+    if ((Number(s.initialPrice) || 0) < 99) bucket = 'failed';                             // Last Resort
+    else if (typeof lmsServicedStatus === 'function' && lmsServicedStatus(s) === 'late') bucket = 'failed';   // not serviced by Friday
+    else if (typeof scAuditPassed === 'function' && scAuditPassed(s.customerFlags)) bucket = 'passed';
+    else if (SC_FAIL_RE.test(s.customerFlags || '')) bucket = 'failed';
+    else bucket = 'pending';
+    e[bucket] += cv; e.total += cv;
+  }
+  const EMPTY_RB = { total: 0, passed: 0, failed: 0, pending: 0 };
+  rows.forEach(r => (r.rev = revBreak[r.rep] || EMPTY_RB));
+
   const headCell = (rd) => el('th', { style: { padding: '7px 10px', borderBottom: '2px solid ' + ORANGE, whiteSpace: 'nowrap', textAlign: 'center', background: '#000' } },
     el('div', { style: { fontFamily: DISP, fontSize: '1.15rem', color: ORANGE, lineHeight: '1' } }, 'W' + rd.week),
     el('div', { style: { fontFamily: DISP, fontSize: '.62rem', color: WHITE, opacity: '.6', letterSpacing: '.06em' } }, new Date(rd.iso + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })));
-  const nameCell = (r) => el('td', { style: { position: 'sticky', left: '0', zIndex: '1', background: '#000', borderRight: '2px solid ' + CYAN, padding: '7px 12px 7px 10px', whiteSpace: 'nowrap' } },
-    el('div', { style: { fontFamily: DISP, fontSize: '1rem', letterSpacing: '.02em', textTransform: 'uppercase', lineHeight: '1', color: (r.rep === R.champion ? RED : (r.alive ? WHITE : DIM)) } },
+  const nameCell = (r) => el('td', { style: { position: 'sticky', left: '0', zIndex: '1', background: '#000', borderRight: '2px solid ' + CYAN, padding: '9px 14px 9px 12px', whiteSpace: 'nowrap' } },
+    el('div', { style: { fontFamily: DISP, fontSize: '1.3rem', letterSpacing: '.02em', textTransform: 'uppercase', lineHeight: '1.05', color: (r.rep === R.champion ? RED : (r.alive ? WHITE : DIM)) } },
       (r.rep === R.champion ? '☠ ' : '') + firstLast(r.rep)),
-    el('div', { style: { fontFamily: DISP, fontSize: '.6rem', letterSpacing: '.1em', marginTop: '2px', color: r.rep === R.champion ? RED : (r.alive ? GREEN : MAG) } },
+    el('div', { style: { fontFamily: DISP, fontSize: '.8rem', letterSpacing: '.1em', marginTop: '3px', color: r.rep === R.champion ? RED : (r.alive ? GREEN : MAG) } },
       r.rep === R.champion ? 'CHAMPION' : (r.alive ? 'STILL STANDING' : ('✝ FELL WK ' + (r.elimWeek + 1)))));
+  // Revenue breakdown columns (sit between the name and the weekly grid).
+  const revHead = (label, color, edge) => el('th', { style: { padding: '7px 10px', borderBottom: '2px solid ' + ORANGE, borderRight: edge ? '2px solid ' + CYAN : 'none', whiteSpace: 'nowrap', textAlign: 'right', background: '#000' } },
+    el('div', { style: { fontFamily: DISP, fontSize: '.78rem', letterSpacing: '.06em', color, textTransform: 'uppercase', lineHeight: '1' } }, label));
+  const revCell = (val, color, strong, edge) => el('td', { style: { fontFamily: DISP, fontSize: '.98rem', textAlign: 'right', padding: '8px 10px', borderRight: edge ? '2px solid ' + CYAN : '1px solid ' + FAINT, borderBottom: '1px solid ' + FAINT, whiteSpace: 'nowrap', color: val ? color : '#3a3a3a', fontWeight: strong ? '700' : '400' } }, money(val));
+
   const gridCell = (r, i) => {
     const c = r.cells[i];
     const base = { fontFamily: DISP, fontSize: '.85rem', textAlign: 'center', padding: '7px 10px', borderRight: '1px solid ' + FAINT, borderBottom: '1px solid ' + FAINT, whiteSpace: 'nowrap' };
@@ -12141,8 +12170,11 @@ function lastManStandingBoard(windowed, winLabel) {
       el('thead', {}, el('tr', {},
         el('th', { style: { position: 'sticky', left: '0', zIndex: '2', background: '#000', borderBottom: '2px solid ' + ORANGE, borderRight: '2px solid ' + CYAN, textAlign: 'left', padding: '7px 12px' } },
           el('div', { style: { fontFamily: DISP, fontSize: '.8rem', letterSpacing: '.14em', color: CYAN, textTransform: 'uppercase' } }, 'The Field')),
+        revHead('Total', WHITE), revHead('Passed', GREEN), revHead('Failed', RED), revHead('Pending', ORANGE, true),
         ...R.rounds.map(headCell))),
-      el('tbody', {}, ...rows.map(r => el('tr', {}, nameCell(r), ...R.rounds.map((rd, i) => gridCell(r, i)))))));
+      el('tbody', {}, ...rows.map(r => el('tr', {}, nameCell(r),
+        revCell(r.rev.total, WHITE, true), revCell(r.rev.passed, GREEN), revCell(r.rev.failed, RED), revCell(r.rev.pending, ORANGE, false, true),
+        ...R.rounds.map((rd, i) => gridCell(r, i)))))));
 
   return el('div', { class: 'card', style: { padding: '0', border: '1px solid #000', background: '#000', overflow: 'hidden' } },
     hero,
