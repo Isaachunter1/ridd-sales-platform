@@ -12119,18 +12119,21 @@ function lastManStandingBoard(windowed, winLabel) {
     || b.total - a.total
     || String(a.rep).localeCompare(String(b.rep)));
 
-  // ── Per-rep revenue breakdown — Saturday sales only, same gating as Spring
+  // ── Per-rep, per-week revenue breakdown — shown inside each Saturday cell so
+  // you can read it week to week. Saturday sales only, same gating as Spring
   // Cleaning (with LMS's serviced-by-Friday deadline). Sold-Not-Started is out
   // of everything. Passed = passed/no-audit · Pending = awaiting an audit flag ·
   // Failed = failed audit + Last Resort (<$99) + not serviced by Friday.
-  // Total = Passed + Pending + Failed (accounts for everything that's real).
-  const revBreak = {};
+  // Total = Passed + Pending + Failed (everything real). Keyed weekBreak[iso][rep].
+  const weekBreak = {};
   for (const s of (windowed || [])) {
     if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
     const d = (typeof _parseIndicatorDay === 'function') ? _parseIndicatorDay(s) : null;
     if (!d || isNaN(d) || d.getDay() !== 6 || !s.rep) continue;                            // Saturday only
     if (typeof _scIsSoldNotStarted === 'function' && _scIsSoldNotStarted(s)) continue;     // SNS out of everything
-    const e = revBreak[s.rep] || (revBreak[s.rep] = { total: 0, passed: 0, failed: 0, pending: 0 });
+    const iso = d.toISOString().slice(0, 10);
+    const wk = (weekBreak[iso] || (weekBreak[iso] = {}));
+    const e = wk[s.rep] || (wk[s.rep] = { total: 0, passed: 0, failed: 0, pending: 0 });
     const cv = Number(s.contractValue) || 0;
     let bucket;
     if ((Number(s.initialPrice) || 0) < 99) bucket = 'failed';                             // Last Resort
@@ -12141,7 +12144,6 @@ function lastManStandingBoard(windowed, winLabel) {
     e[bucket] += cv; e.total += cv;
   }
   const EMPTY_RB = { total: 0, passed: 0, failed: 0, pending: 0 };
-  rows.forEach(r => (r.rev = revBreak[r.rep] || EMPTY_RB));
 
   const headCell = (rd) => el('th', { style: { padding: '7px 10px', borderBottom: '2px solid ' + ORANGE, whiteSpace: 'nowrap', textAlign: 'center', background: '#000' } },
     el('div', { style: { fontFamily: DISP, fontSize: '1.15rem', color: ORANGE, lineHeight: '1' } }, 'W' + rd.week),
@@ -12151,18 +12153,23 @@ function lastManStandingBoard(windowed, winLabel) {
       (r.rep === R.champion ? '☠ ' : '') + firstLast(r.rep)),
     el('div', { style: { fontFamily: DISP, fontSize: '.8rem', letterSpacing: '.1em', marginTop: '3px', color: r.rep === R.champion ? RED : (r.alive ? GREEN : MAG) } },
       r.rep === R.champion ? 'CHAMPION' : (r.alive ? 'STILL STANDING' : ('✝ FELL WK ' + (r.elimWeek + 1)))));
-  // Revenue breakdown columns (sit between the name and the weekly grid).
-  const revHead = (label, color, edge) => el('th', { style: { padding: '7px 10px', borderBottom: '2px solid ' + ORANGE, borderRight: edge ? '2px solid ' + CYAN : 'none', whiteSpace: 'nowrap', textAlign: 'right', background: '#000' } },
-    el('div', { style: { fontFamily: DISP, fontSize: '.78rem', letterSpacing: '.06em', color, textTransform: 'uppercase', lineHeight: '1' } }, label));
-  const revCell = (val, color, strong, edge) => el('td', { style: { fontFamily: DISP, fontSize: '.98rem', textAlign: 'right', padding: '8px 10px', borderRight: edge ? '2px solid ' + CYAN : '1px solid ' + FAINT, borderBottom: '1px solid ' + FAINT, whiteSpace: 'nowrap', color: val ? color : '#3a3a3a', fontWeight: strong ? '700' : '400' } }, money(val));
+  // Passed / Failed / Pending mini-breakdown shown under each week's total.
+  const pfpRow = (wb) => el('div', { style: { fontFamily: DISP, fontSize: '.64rem', marginTop: '4px', display: 'flex', gap: '9px', justifyContent: 'center', whiteSpace: 'nowrap', letterSpacing: '.02em' } },
+    el('span', { style: { color: wb.passed ? GREEN : '#2f6f2d' } }, 'P ' + money(wb.passed)),
+    el('span', { style: { color: wb.failed ? RED : '#7a2620' } }, 'F ' + money(wb.failed)),
+    el('span', { style: { color: wb.pending ? ORANGE : '#7a5a1f' } }, 'Pn ' + money(wb.pending)));
 
   const gridCell = (r, i) => {
     const c = r.cells[i];
-    const base = { fontFamily: DISP, fontSize: '.85rem', textAlign: 'center', padding: '7px 10px', borderRight: '1px solid ' + FAINT, borderBottom: '1px solid ' + FAINT, whiteSpace: 'nowrap' };
-    if (!c) return el('td', { style: Object.assign({}, base, { background: 'repeating-linear-gradient(45deg, rgba(255,255,255,.03) 0 5px, transparent 5px 10px)', color: '#2a2a2a' }) }, '·');
+    const base = { fontFamily: DISP, textAlign: 'center', padding: '8px 12px', borderRight: '1px solid ' + FAINT, borderBottom: '1px solid ' + FAINT, whiteSpace: 'nowrap', minWidth: '128px' };
+    if (!c) return el('td', { style: Object.assign({}, base, { background: 'repeating-linear-gradient(45deg, rgba(255,255,255,.03) 0 5px, transparent 5px 10px)', color: '#2a2a2a', fontSize: '.85rem' }) }, '·');
+    const wb = (weekBreak[R.rounds[i].iso] && weekBreak[R.rounds[i].iso][r.rep]) || EMPTY_RB;
     if (!c.advanced) return el('td', { style: Object.assign({}, base, { background: 'rgba(255,31,14,.16)', color: DIM }) },
-      el('span', { style: { color: RED } }, '☠ '), el('span', { style: { textDecoration: 'line-through' } }, money(c.rev)));
-    return el('td', { style: Object.assign({}, base, { background: 'rgba(33,198,28,.10)', color: WHITE, boxShadow: 'inset 0 -2px 0 ' + GREEN }) }, money(c.rev));
+      el('div', { style: { fontSize: '.98rem' } }, el('span', { style: { color: RED } }, '☠ '), el('span', { style: { textDecoration: 'line-through' } }, money(wb.total))),
+      pfpRow(wb));
+    return el('td', { style: Object.assign({}, base, { background: 'rgba(33,198,28,.10)', color: WHITE, boxShadow: 'inset 0 -2px 0 ' + GREEN }) },
+      el('div', { style: { fontSize: '.98rem', fontWeight: '700' } }, money(wb.total)),
+      pfpRow(wb));
   };
 
   const gauntlet = el('div', { style: { overflowX: 'auto', borderTop: '1px solid rgba(255,255,255,.08)', background: '#000' } },
@@ -12170,11 +12177,8 @@ function lastManStandingBoard(windowed, winLabel) {
       el('thead', {}, el('tr', {},
         el('th', { style: { position: 'sticky', left: '0', zIndex: '2', background: '#000', borderBottom: '2px solid ' + ORANGE, borderRight: '2px solid ' + CYAN, textAlign: 'left', padding: '7px 12px' } },
           el('div', { style: { fontFamily: DISP, fontSize: '.8rem', letterSpacing: '.14em', color: CYAN, textTransform: 'uppercase' } }, 'The Field')),
-        revHead('Total', WHITE), revHead('Passed', GREEN), revHead('Failed', RED), revHead('Pending', ORANGE, true),
         ...R.rounds.map(headCell))),
-      el('tbody', {}, ...rows.map(r => el('tr', {}, nameCell(r),
-        revCell(r.rev.total, WHITE, true), revCell(r.rev.passed, GREEN), revCell(r.rev.failed, RED), revCell(r.rev.pending, ORANGE, false, true),
-        ...R.rounds.map((rd, i) => gridCell(r, i)))))));
+      el('tbody', {}, ...rows.map(r => el('tr', {}, nameCell(r), ...R.rounds.map((rd, i) => gridCell(r, i)))))));
 
   return el('div', { class: 'card', style: { padding: '0', border: '1px solid #000', background: '#000', overflow: 'hidden' } },
     hero,
