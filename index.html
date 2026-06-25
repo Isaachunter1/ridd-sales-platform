@@ -12518,12 +12518,10 @@ async function exportSpringRepsXlsx() {
   //   • Counting Accts   = the subset that actually scored (counting + pending).
   //   • Passed Rev       = revenue from those counting/pending accounts.
   const byKey = new Map();
-  const bump = (s, isScored) => {
-    const b = s.office || 'UNKNOWN', rep = s.rep || 'Unknown', key = b + '||' + rep;
-    if (!byKey.has(key)) byKey.set(key, { branch: b, rep, qual: 0, counting: 0, rev: 0 });
-    const e = byKey.get(key);
-    e.qual += 1;
-    if (isScored) { e.counting += 1; e.rev += Number(s.contractValue) || 0; }
+  const ensure = (b, rep) => {
+    const key = b + '||' + rep;
+    if (!byKey.has(key)) byKey.set(key, { branch: b, rep, total: 0, qual: 0, counting: 0, rev: 0 });
+    return byKey.get(key);
   };
   rounds.forEach((r) => {
     const roundSales = d2dAll.filter(s => {
@@ -12532,22 +12530,26 @@ async function exportSpringRepsXlsx() {
       return iso >= r.start && iso <= r.end;
     });
     const sc = springCleaningCompute(roundSales, branchList);     // applies branch exclusions + rep market overrides
-    for (const s of [...sc.counting, ...sc.pending]) bump(s, true);
-    // Excluded ≥$99 = failed audit + not-serviced-by-deadline (Last Resort <$99
-    // leaves no footprint on the rep count, so it's filtered out here too).
-    for (const s of sc.excluded) { if ((Number(s.initialPrice) || 0) >= 99) bump(s, false); }
+    // Total = every pending/serviced account (real production, NOT Sold-Not-
+    // Started), regardless of audit flag or Last Resort — i.e. counting + pending
+    // + excluded (SNS is already dropped upstream, so it never lands here).
+    for (const s of [...sc.counting, ...sc.pending, ...sc.excluded]) ensure(s.office || 'UNKNOWN', s.rep || 'Unknown').total += 1;
+    // Qualifying = real production (≥$99, not SNS): counting/pending PLUS failed-
+    // audit / not-serviced-by-deadline. Counting = the scored subset.
+    for (const s of [...sc.counting, ...sc.pending]) { const e = ensure(s.office || 'UNKNOWN', s.rep || 'Unknown'); e.qual += 1; e.counting += 1; e.rev += Number(s.contractValue) || 0; }
+    for (const s of sc.excluded) { if ((Number(s.initialPrice) || 0) >= 99) ensure(s.office || 'UNKNOWN', s.rep || 'Unknown').qual += 1; }
   });
 
-  const rows = [['Branch', 'Rep', 'Qualifying Accts', 'Counting Accts', 'Passed Rev']];
+  const rows = [['Branch', 'Rep', 'Total Accts', 'Qualifying Accts', 'Counting Accts', 'Passed Rev']];
   const entries = [...byKey.values()]
-    .filter(e => e.counting > 0)   // qualified at least once during the competition
-    .sort((a, b) => a.branch.localeCompare(b.branch) || b.rev - a.rev || a.rep.localeCompare(b.rep));
-  entries.forEach(e => rows.push([e.branch, e.rep, e.qual, e.counting, Math.round(e.rev)]));
+    .filter(e => e.total > 0)   // any rep who sold a D2D account during the comp — surfaces zero-qualifying reps
+    .sort((a, b) => a.branch.localeCompare(b.branch) || b.rev - a.rev || b.total - a.total || a.rep.localeCompare(b.rep));
+  entries.forEach(e => rows.push([e.branch, e.rep, e.total, e.qual, e.counting, Math.round(e.rev)]));
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Reps');
   XLSX.writeFile(wb, 'RIDD-Spring-Cleaning-Reps-' + new Date().toISOString().slice(0, 10) + '.xlsx');
-  toast('Exported ' + entries.length + ' qualified reps (cumulative, 4 rounds)', 'success');
+  toast('Exported ' + entries.length + ' reps (cumulative, 4 rounds)', 'success');
 }
 
 // Breakdown popup explaining how each Spring Cleaning metric + rule works.
