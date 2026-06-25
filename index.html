@@ -11982,6 +11982,9 @@ function lastManStandingCompute(sales) {
     // passed + no-audit + pending all count; only Failed Audit and <$99 (Last
     // Resort) are excluded. Lets the comp run on recent windows before audits land.
     if (typeof springCleaningStatus === 'function' && springCleaningStatus(s) === 'excluded') continue;
+    // Sandbag guard — must be serviced by the following Friday. Past that Friday,
+    // unserviced or serviced-late accounts drop out of the round.
+    if (typeof lmsServicedStatus === 'function' && lmsServicedStatus(s) === 'late') continue;
     const iso = d.toISOString().slice(0, 10);
     (byWeek[iso] = byWeek[iso] || {});
     byWeek[iso][s.rep] = (byWeek[iso][s.rep] || 0) + (Number(s.contractValue) || 0);
@@ -12210,6 +12213,30 @@ function _scParseServiced(raw) {
 function springServicedStatus(s) {
   if (!_scServicingHasData()) return 'na';
   const deadline = springServiceDeadline(s);
+  if (!deadline) return 'open';
+  const svc = _scParseServiced(s.servicedDate);
+  if (svc) return svc <= deadline ? 'intime' : 'late';
+  return (new Date() > deadline) ? 'late' : 'open';
+}
+
+// ── Last Man Standing servicing deadline ───────────────────────────────────
+// Tighter than Spring Cleaning's: a sale must be serviced by the FOLLOWING
+// Friday after it was sold. Rounds are weekly Saturdays, so an account sold on
+// a Saturday has to be serviced by the next Friday (6 days later) for its
+// revenue to count that round. Past that Friday, unserviced or serviced-late
+// accounts drop — so a rep can't sandbag a service date into the future to pad
+// a round. Before the Friday, an unserviced account is still in play.
+function lmsServiceDeadline(s) {
+  const sold = (typeof _parseIndicatorDay === 'function') ? _parseIndicatorDay(s) : null;
+  if (!sold || isNaN(sold)) return null;
+  const dl = new Date(sold); dl.setHours(0, 0, 0, 0);
+  dl.setDate(dl.getDate() + 6);              // sold Saturday + 6 = the following Friday
+  dl.setHours(23, 59, 59, 999);
+  return dl;
+}
+function lmsServicedStatus(s) {
+  if (!_scServicingHasData()) return 'na';    // older snapshots without serviced dates — don't penalize
+  const deadline = lmsServiceDeadline(s);
   if (!deadline) return 'open';
   const svc = _scParseServiced(s.servicedDate);
   if (svc) return svc <= deadline ? 'intime' : 'late';
@@ -13129,6 +13156,8 @@ function openLastManStandingHelpModal(winLabel) {
         el('div', {}, 'The first Saturday is a pure qualifier: every rep who lands a qualifying sale advances, no matter how small. Anyone with no qualifying sale that Saturday is out. Nobody is cut for being low in Round 1.')),
       section('Round 2 onward — the weekly cut',
         el('div', {}, 'Each following Saturday the survivors are ranked by that day\'s qualifying revenue and the top half advance (rounded up — odd fields round in the survivors\' favor). The bottom half is eliminated. Ties break on cumulative revenue across the competition.')),
+      section('Serviced by Friday',
+        el('div', {}, 'For revenue to count toward a round, the account must be serviced by the Friday after it was sold — sell Saturday, service by the next Friday. That Friday is the cutoff, so when the new round opens that Saturday we can confirm exactly who advances. Accounts still unserviced, or serviced after that Friday, don\'t count — nobody can sandbag a future service date to pad a round.')),
       section('Winning',
         el('div', {}, 'The cut repeats every Saturday until one rep is left standing — the champion.')),
       section('Window',
