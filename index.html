@@ -12150,11 +12150,12 @@ function lastManStandingBoard(windowed, winLabel) {
     });
     r.runTotal = rt;
   });
-  // Order the field by the running Total revenue (the big white number), most to
-  // least — champion pinned to the top once one is decided.
+  // Order the field FIRST by who's still standing, THEN by total QUALIFIED
+  // revenue (Passed + Pending — the counting revenue) most to least.
+  const _qual = (r) => (r.runTotal.passed || 0) + (r.runTotal.pending || 0);
   rows.sort((a, b) =>
-    (b.rep === R.champion ? 1 : 0) - (a.rep === R.champion ? 1 : 0)
-    || (b.runTotal.total - a.runTotal.total)
+    (b.alive ? 1 : 0) - (a.alive ? 1 : 0)
+    || (_qual(b) - _qual(a))
     || String(a.rep).localeCompare(String(b.rep)));
   // Rolling window — show only the most recent 3 weeks as columns; the running
   // total on the right keeps the full picture as week 1 falls off in week 4, etc.
