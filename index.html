@@ -12145,6 +12145,21 @@ function lastManStandingBoard(windowed, winLabel) {
   }
   const EMPTY_RB = { total: 0, passed: 0, failed: 0, pending: 0 };
 
+  // Running cumulative total per rep across EVERY week they played — so it keeps
+  // counting even after older weeks scroll out of the rolling 3-week window.
+  rows.forEach(r => {
+    const rt = { total: 0, passed: 0, failed: 0, pending: 0 };
+    Object.keys(r.cells).forEach(k => {
+      const wb = weekBreak[R.rounds[k].iso] && weekBreak[R.rounds[k].iso][r.rep];
+      if (wb) { rt.total += wb.total; rt.passed += wb.passed; rt.failed += wb.failed; rt.pending += wb.pending; }
+    });
+    r.runTotal = rt;
+  });
+  // Rolling window — show only the most recent 3 weeks as columns; the running
+  // total on the right keeps the full picture as week 1 falls off in week 4, etc.
+  const WINDOW = 3;
+  const shownIdx = R.rounds.map((_, i) => i).slice(-WINDOW);
+
   const headCell = (rd) => el('th', { style: { padding: '7px 10px', borderBottom: '2px solid ' + ORANGE, whiteSpace: 'nowrap', textAlign: 'center', background: '#000' } },
     el('div', { style: { fontFamily: DISP, fontSize: '1.15rem', color: ORANGE, lineHeight: '1' } }, 'W' + rd.week),
     el('div', { style: { fontFamily: DISP, fontSize: '.62rem', color: WHITE, opacity: '.6', letterSpacing: '.06em' } }, new Date(rd.iso + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })));
@@ -12153,32 +12168,38 @@ function lastManStandingBoard(windowed, winLabel) {
       (r.rep === R.champion ? '☠ ' : '') + firstLast(r.rep)),
     el('div', { style: { fontFamily: DISP, fontSize: '.8rem', letterSpacing: '.1em', marginTop: '3px', color: r.rep === R.champion ? RED : (r.alive ? GREEN : MAG) } },
       r.rep === R.champion ? 'CHAMPION' : (r.alive ? 'STILL STANDING' : ('✝ FELL WK ' + (r.elimWeek + 1)))));
-  // Passed / Failed / Pending mini-breakdown shown under each week's total.
-  const pfpRow = (wb) => el('div', { style: { fontFamily: DISP, fontSize: '.64rem', marginTop: '4px', display: 'flex', gap: '9px', justifyContent: 'center', whiteSpace: 'nowrap', letterSpacing: '.02em' } },
-    el('span', { style: { color: wb.passed ? GREEN : '#2f6f2d' } }, 'P ' + money(wb.passed)),
-    el('span', { style: { color: wb.failed ? RED : '#7a2620' } }, 'F ' + money(wb.failed)),
-    el('span', { style: { color: wb.pending ? ORANGE : '#7a5a1f' } }, 'Pn ' + money(wb.pending)));
+  // Total + Passed/Failed/Pending all on one row. strike/skull = eliminated cell.
+  const breakdownInline = (wb, strike, skull) => el('div', { style: { fontFamily: DISP, display: 'flex', alignItems: 'baseline', gap: '12px', justifyContent: 'center', whiteSpace: 'nowrap' } },
+    (skull ? el('span', { style: { color: RED, fontSize: '1.15rem', fontWeight: '700' } }, '☠') : null),
+    el('span', { style: { fontSize: '1.2rem', fontWeight: '700', color: strike ? DIM : WHITE, textDecoration: strike ? 'line-through' : 'none' } }, money(wb.total)),
+    el('span', { style: { fontSize: '.92rem', color: wb.passed ? GREEN : '#2f6f2d' } }, 'P ' + money(wb.passed)),
+    el('span', { style: { fontSize: '.92rem', color: wb.failed ? RED : '#7a2620' } }, 'F ' + money(wb.failed)),
+    el('span', { style: { fontSize: '.92rem', color: wb.pending ? ORANGE : '#7a5a1f' } }, 'Pn ' + money(wb.pending)));
 
   const gridCell = (r, i) => {
     const c = r.cells[i];
-    const base = { fontFamily: DISP, textAlign: 'center', padding: '8px 12px', borderRight: '1px solid ' + FAINT, borderBottom: '1px solid ' + FAINT, whiteSpace: 'nowrap', minWidth: '128px' };
-    if (!c) return el('td', { style: Object.assign({}, base, { background: 'repeating-linear-gradient(45deg, rgba(255,255,255,.03) 0 5px, transparent 5px 10px)', color: '#2a2a2a', fontSize: '.85rem' }) }, '·');
+    const base = { fontFamily: DISP, textAlign: 'center', padding: '10px 16px', borderRight: '1px solid ' + FAINT, borderBottom: '1px solid ' + FAINT, whiteSpace: 'nowrap', minWidth: '210px' };
+    if (!c) return el('td', { style: Object.assign({}, base, { background: 'repeating-linear-gradient(45deg, rgba(255,255,255,.03) 0 5px, transparent 5px 10px)', color: '#2a2a2a', fontSize: '.95rem' }) }, '·');
     const wb = (weekBreak[R.rounds[i].iso] && weekBreak[R.rounds[i].iso][r.rep]) || EMPTY_RB;
-    if (!c.advanced) return el('td', { style: Object.assign({}, base, { background: 'rgba(255,31,14,.16)', color: DIM }) },
-      el('div', { style: { fontSize: '.98rem' } }, el('span', { style: { color: RED } }, '☠ '), el('span', { style: { textDecoration: 'line-through' } }, money(wb.total))),
-      pfpRow(wb));
-    return el('td', { style: Object.assign({}, base, { background: 'rgba(33,198,28,.10)', color: WHITE, boxShadow: 'inset 0 -2px 0 ' + GREEN }) },
-      el('div', { style: { fontSize: '.98rem', fontWeight: '700' } }, money(wb.total)),
-      pfpRow(wb));
+    const bg = c.advanced
+      ? { background: 'rgba(33,198,28,.10)', boxShadow: 'inset 0 -2px 0 ' + GREEN }
+      : { background: 'rgba(255,31,14,.16)' };
+    return el('td', { style: Object.assign({}, base, bg) }, breakdownInline(wb, !c.advanced, !c.advanced));
   };
+
+  // Running-total column, pinned to the right so it's always visible.
+  const totalHead = el('th', { style: { position: 'sticky', right: '0', zIndex: '2', background: '#000', borderBottom: '2px solid ' + ORANGE, borderLeft: '2px solid ' + CYAN, textAlign: 'center', padding: '7px 16px', whiteSpace: 'nowrap' } },
+    el('div', { style: { fontFamily: DISP, fontSize: '.85rem', letterSpacing: '.14em', color: CYAN, textTransform: 'uppercase' } }, 'Running Total'));
+  const totalCell = (r) => el('td', { style: { position: 'sticky', right: '0', zIndex: '1', background: '#000', borderLeft: '2px solid ' + CYAN, borderBottom: '1px solid ' + FAINT, padding: '10px 16px', whiteSpace: 'nowrap', minWidth: '210px' } },
+    breakdownInline(r.runTotal || EMPTY_RB, false, false));
 
   const gauntlet = el('div', { style: { overflowX: 'auto', borderTop: '1px solid rgba(255,255,255,.08)', background: '#000' } },
     el('table', { style: { borderCollapse: 'collapse', width: '100%' } },
       el('thead', {}, el('tr', {},
         el('th', { style: { position: 'sticky', left: '0', zIndex: '2', background: '#000', borderBottom: '2px solid ' + ORANGE, borderRight: '2px solid ' + CYAN, textAlign: 'left', padding: '7px 12px' } },
           el('div', { style: { fontFamily: DISP, fontSize: '.8rem', letterSpacing: '.14em', color: CYAN, textTransform: 'uppercase' } }, 'The Field')),
-        ...R.rounds.map(headCell))),
-      el('tbody', {}, ...rows.map(r => el('tr', {}, nameCell(r), ...R.rounds.map((rd, i) => gridCell(r, i)))))));
+        ...shownIdx.map(i => headCell(R.rounds[i])), totalHead)),
+      el('tbody', {}, ...rows.map(r => el('tr', {}, nameCell(r), ...shownIdx.map(i => gridCell(r, i)), totalCell(r))))));
 
   return el('div', { class: 'card', style: { padding: '0', border: '1px solid #000', background: '#000', overflow: 'hidden' } },
     hero,
