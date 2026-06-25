@@ -16224,9 +16224,9 @@ function viewIndicators() {
             );
           }
           return el('span', { class: 'flex items-center gap-1 ml-auto' },
-            el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer border', style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' }, title: 'Rename the selected competition', onclick: () => { state._indicatorRenamingComp = active.id; liveRerender(); } }, '✏️ Rename'),
+            el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer border leading-none', style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' }, title: 'Rename', onclick: () => { state._indicatorRenamingComp = active.id; liveRerender(); } }, '✏️'),
             comps.length > 1
-              ? el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer border', style: { color: '#DC2626', borderColor: 'rgba(220,38,38,.4)' }, title: 'Remove the selected competition', onclick: () => { if (window.confirm('Remove competition “' + active.name + '”? This can’t be undone.')) { deleteCompetition(active.id); liveRerender(); } } }, '🗑 Remove')
+              ? el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer border leading-none', style: { color: '#DC2626', borderColor: 'rgba(220,38,38,.4)' }, title: 'Remove', onclick: () => { if (window.confirm('Remove competition “' + active.name + '”? This can’t be undone.')) { deleteCompetition(active.id); liveRerender(); } } }, '🗑')
               : null,
           );
         })(),
