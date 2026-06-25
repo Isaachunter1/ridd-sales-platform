@@ -157,7 +157,12 @@ WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''
   -- Phantom offices lingering in the CRM (negative office IDs, e.g. -1 / -7).
   -- These aren't real branches we sold from — exclude them from the snapshot
   -- entirely so they never touch revenue, subs, or any downstream metric.
-  AND COALESCE(s.fieldRoutes_officeID, '') NOT IN ('-1', '-7')`;
+  AND COALESCE(s.fieldRoutes_officeID, '') NOT IN ('-1', '-7')
+  -- Orphaned subscriptions: the rep created a card, then DELETED the customer
+  -- (e.g. couldn't close it), but the subscription lingers in the warehouse.
+  -- FieldRoutes doesn't propagate the delete, so these would show "pending"
+  -- forever. If the customer no longer exists in the customer table, drop it.
+  AND cust.cid IS NOT NULL`;
 
 // Employee roster — one entry per PERSON. FieldRoutes stores an employee row
 // PER OFFICE and links them via fieldRoutes_linkedEmployeeIDs (a base account).
