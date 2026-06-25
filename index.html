@@ -12317,16 +12317,18 @@ function springCleaningCompute(sales, branchList) {
   // pre-service cancels are already gone. Numerator = accounts NOT flagged
   // Failed Audit (passed, no-audit, and pending all count). Last Resort
   // accounts count by their actual flag, pass or fail.
-  // Also tally TOTAL revenue here (everything except Sold-Not-Started — incl.
-  // Last Resort + Failed + the scored set) so the board can show a reconcile-
-  // to-FieldRoutes total next to the Passed (counting) revenue.
+  // Also tally TOTAL revenue here for the reconcile-to-FieldRoutes column. It
+  // matches the CRM "Pending / Serviced Accounts" view: every sold account
+  // (Last Resort + Failed + the scored set) EXCEPT serviced-then-cancelled —
+  // the CRM drops those once their status flips to Cancelled. (Passed Rev still
+  // counts them; this column is informational and doesn't feed scoring.)
   const auditTally = new Map(); // office → { tot, fail, totalRev }
   for (const s of d2dSales) {
     const b = s.office || 'UNKNOWN';
     if (!auditTally.has(b)) auditTally.set(b, { tot: 0, fail: 0, totalRev: 0 });
     const t = auditTally.get(b);
     t.tot += 1;
-    t.totalRev += Number(s.contractValue) || 0;
+    if (!String(s.cancelDate || '').trim()) t.totalRev += Number(s.contractValue) || 0;  // exclude post-service cancels to match CRM
     if (SC_FAIL_RE.test(s.customerFlags || '')) t.fail += 1;
   }
 
