@@ -12113,11 +12113,6 @@ function lastManStandingBoard(windowed, winLabel) {
   const aliveSet = new Set(R.alive);
   const rows = Object.values(reps);
   rows.forEach(r => (r.alive = aliveSet.has(r.rep)));
-  rows.sort((a, b) =>
-    (b.alive ? 1 : 0) - (a.alive ? 1 : 0)
-    || ((b.elimWeek == null ? 99 : b.elimWeek) - (a.elimWeek == null ? 99 : a.elimWeek))
-    || b.total - a.total
-    || String(a.rep).localeCompare(String(b.rep)));
 
   // ── Per-rep, per-week revenue breakdown — shown inside each Saturday cell so
   // you can read it week to week. Saturday sales only, same gating as Spring
@@ -12155,6 +12150,12 @@ function lastManStandingBoard(windowed, winLabel) {
     });
     r.runTotal = rt;
   });
+  // Order the field by the running Total revenue (the big white number), most to
+  // least — champion pinned to the top once one is decided.
+  rows.sort((a, b) =>
+    (b.rep === R.champion ? 1 : 0) - (a.rep === R.champion ? 1 : 0)
+    || (b.runTotal.total - a.runTotal.total)
+    || String(a.rep).localeCompare(String(b.rep)));
   // Rolling window — show only the most recent 3 weeks as columns; the running
   // total on the right keeps the full picture as week 1 falls off in week 4, etc.
   const WINDOW = 3;
