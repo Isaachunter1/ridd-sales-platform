@@ -12322,14 +12322,14 @@ function springCleaningCompute(sales, branchList) {
   // (Last Resort + Failed + the scored set) EXCEPT serviced-then-cancelled —
   // the CRM drops those once their status flips to Cancelled. (Passed Rev still
   // counts them; this column is informational and doesn't feed scoring.)
-  const auditTally = new Map(); // office → { tot, fail, totalRev }
+  const auditTally = new Map(); // office → { tot, fail, totalRev, failRev }
   for (const s of d2dSales) {
     const b = s.office || 'UNKNOWN';
-    if (!auditTally.has(b)) auditTally.set(b, { tot: 0, fail: 0, totalRev: 0 });
+    if (!auditTally.has(b)) auditTally.set(b, { tot: 0, fail: 0, totalRev: 0, failRev: 0 });
     const t = auditTally.get(b);
     t.tot += 1;
     if (!String(s.cancelDate || '').trim()) t.totalRev += Number(s.contractValue) || 0;  // exclude post-service cancels to match CRM
-    if (SC_FAIL_RE.test(s.customerFlags || '')) t.fail += 1;
+    if (SC_FAIL_RE.test(s.customerFlags || '')) { t.fail += 1; t.failRev += Number(s.contractValue) || 0; }
   }
 
   // Standings count BOTH passed-audit AND pending accounts — we assume a
@@ -12360,10 +12360,12 @@ function springCleaningCompute(sales, branchList) {
   const metrics = branches.map(b => {
     const m = byBranch.get(b);
     const reps = (branchReps.get(b) || new Set()).size;
-    const at = auditTally.get(b) || { tot: 0, fail: 0, totalRev: 0 };
+    const at = auditTally.get(b) || { tot: 0, fail: 0, totalRev: 0, failRev: 0 };
     return {
       office: b, reps, n: m.n,
       totalRevenue:   at.totalRev || 0,   // all sold except SNS (reconciles to FieldRoutes)
+      failedRevenue:  at.failRev || 0,    // revenue of Failed Audit accounts (informational)
+      failedPct:      at.tot > 0 ? at.fail / at.tot : 0,  // failed accounts ÷ all accounts
       revenue:        m.revenue,          // PASSED / counting revenue (passed + no-audit + pending)
       pra:            reps > 0 ? m.revenue / reps : 0,
       avgPestInitial: m.pestCnt > 0 ? m.pestSum / m.pestCnt : 0,
@@ -12488,6 +12490,47 @@ async function exportSpringCleaningXlsx(sales, branchList, winLabel) {
   toast('Exported Spring Cleaning — ' + sc.counting.length.toLocaleString() + ' counting, '
     + sc.pending.length.toLocaleString() + ' pending, ' + failedAuditRows.length.toLocaleString() + ' failed audit, '
     + lastResortRows.length.toLocaleString() + ' last resort', 'success');
+}
+
+// Rep payout list — for each ROUND, the reps who sold a qualifying (counting +
+// pending) account, grouped BY BRANCH, with their account count + passed
+// revenue. This is what the admin uses to split each round's winnings among the
+// reps who actually produced for the branch.
+async function exportSpringRepsXlsx() {
+  try { await loadXlsxLibOnce(); } catch { toast('Could not load Excel library — check your connection', 'error'); return; }
+  const XLSX = window.XLSX;
+  if (!XLSX) { toast('Excel library missing after load', 'error'); return; }
+  const comp = (typeof getActiveComp === 'function') ? getActiveComp() : null;
+  const rounds = (comp && Array.isArray(comp.rounds) && comp.rounds.length) ? comp.rounds : SPRING_DEFAULT_ROUNDS;
+  const d2dAll = (typeof indicatorSales === 'function' ? indicatorSales() : []).filter(s => _indicatorDeptOf(s) === 'd2d');
+  const branchList = [...new Set(d2dAll.map(s => s.office).filter(Boolean))];
+
+  const rows = [['Round', 'Dates', 'Branch', 'Rep', 'Accounts', 'Passed Rev']];
+  let total = 0;
+  rounds.forEach((r, idx) => {
+    const roundSales = d2dAll.filter(s => {
+      const d = _parseIndicatorDay(s); if (!d || isNaN(d)) return false;
+      const iso = d.toISOString().slice(0, 10);
+      return iso >= r.start && iso <= r.end;
+    });
+    const sc = springCleaningCompute(roundSales, branchList);     // applies branch exclusions + rep market overrides
+    const scored = [...sc.counting, ...sc.pending];               // qualifying (counting + pending) accounts
+    const byKey = new Map();
+    for (const s of scored) {
+      const b = s.office || 'UNKNOWN', rep = s.rep || 'Unknown', key = b + '||' + rep;
+      if (!byKey.has(key)) byKey.set(key, { branch: b, rep, n: 0, rev: 0 });
+      const e = byKey.get(key); e.n += 1; e.rev += Number(s.contractValue) || 0;
+    }
+    const entries = [...byKey.values()].sort((a, b) =>
+      a.branch.localeCompare(b.branch) || b.rev - a.rev || a.rep.localeCompare(b.rep));
+    entries.forEach(e => { rows.push(['Round ' + (idx + 1), r.start + ' → ' + r.end, e.branch, e.rep, e.n, Math.round(e.rev)]); total += 1; });
+    if (entries.length) rows.push([]);   // blank line between rounds
+  });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Reps by Round');
+  XLSX.writeFile(wb, 'RIDD-Spring-Cleaning-Reps-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+  toast('Exported reps by round & branch (' + total + ' rep-rounds)', 'success');
 }
 
 // Breakdown popup explaining how each Spring Cleaning metric + rule works.
@@ -12714,7 +12757,9 @@ function springStandingsCard() {
             m ? el('span', {},
                   el('span', { style: { fontWeight: '700' } }, CAT_FMT[k](m[k])),
                   el('span', { style: { color: '#777', marginLeft: '5px', fontSize: '10px', fontWeight: '800' } }, '(' + (m.places[k] || 0) + ')'))
-              : '—')));
+              : '—')),
+          el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: '700', color: '#b03030' } }, m ? _usd(m.failedRevenue) : '—'),
+          el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: '700', color: '#b03030' } }, m ? _pct(m.failedPct) : '—'));
       };
       const rankRow = (b) => {
         const m = byOffice[b];
@@ -12750,7 +12795,9 @@ function springStandingsCard() {
             el('thead', {}, el('tr', {},
               el('th', { style: { width: '120px' } }, ''),
               el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#666' } }, 'Total Rev'),
-              ...CAT_COLS.map(([, lab]) => el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, lab)))),
+              ...CAT_COLS.map(([, lab]) => el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, lab)),
+              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#b03030' } }, 'Failed Rev'),
+              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#b03030' } }, 'Failed %'))),
             el('tbody', {}, ...order.map(rowFor))),
           el('div', { style: { background: '#9d9d97', padding: '8px 12px', minWidth: '150px', marginTop: '21px' } },
             el('div', { style: { fontSize: '10.5px', fontWeight: '900', color: '#141414', marginBottom: '4px', whiteSpace: 'nowrap' } }, 'Rd ' + (idx + 1) + ' Power Rank'),
@@ -13103,6 +13150,12 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
             },
           }, '↓ Standings'),
           el('button', {
+            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+            style: { background: '#fff', color: '#1b5e20', border: '1px solid #1b5e20' },
+            title: 'Export reps who sold a qualifying account each round, by branch — for splitting winnings',
+            onclick: () => exportSpringRepsXlsx(),
+          }, '↓ Reps'),
+          el('button', {
             class: 'cursor-pointer transition hover:brightness-95',
             style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid #c9c9c0', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
             title: 'See every rep and the market they count toward — reassign for comp purposes',
@@ -13161,6 +13214,8 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
               title: d.key === 'revenue' ? 'Passed/counting revenue (passed + no-audit + pending) — this is the scored revenue.'
                 : d.key === 'auditPct' ? 'Passed Audit %: passed + no-audit + pending ÷ all accounts (incl. failed audit & last resort) — now a scored category AND the points tiebreaker' : '',
             }, d.label)),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Failed Audit revenue (informational, not scored)' }, 'Failed Rev'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Failed accounts ÷ all accounts — watch this shrink as teams clean up' }, 'Failed %'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Total'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Place'),
             el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Bugs'),
@@ -13176,6 +13231,8 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
               el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, '· ' + m.reps + ' reps · ' + m.n + ' accts')),
             el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } }, usd(m.totalRevenue)),
             ...catDefs.map(d => catCell(m, d)),
+            el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { color: '#c0392b' } }, usd(m.failedRevenue)),
+            el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { color: '#c0392b' } }, pct(m.failedPct)),
             el('td', { class: 'px-2 py-2 text-left tabular-nums font-black' }, m.totalPoints),
             el('td', { class: 'px-2 py-2 text-left tabular-nums font-bold' }, m.place),
             el('td', { class: 'px-3 py-2 text-left' }, bugBadge(m.bugs)),
