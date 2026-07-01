@@ -814,6 +814,7 @@ async function refreshIndicatorsFromCloud(force) {
     state.indicatorsUploadedAt = payload.uploadedAt;
     state.indicatorsFileName   = payload.fileName || '';
     state.indicatorsWeek = -1;
+    reactivateRecentSellers(); // bring back any Inactive rep who sold again
     saveDemoData();
     toast('Indicators refreshed — pulled the latest upload (' + (payload.fileName || 'CSV') + ')', 'success');
     mountApp();
@@ -13922,6 +13923,47 @@ function setRepActive(repName, active) {
   logActivity('team_change', { rep_name: repName, detail: repName + ' marked ' + (active ? 'Active' : 'Inactive') });
   saveDemoData();
 }
+// Auto-reactivation: any rep currently marked Inactive who has sold within the
+// coaching "silence" window (the same 30-day threshold that flags them inactive)
+// is flipped back to Active. This lets an admin safely mass-mark quiet reps
+// Inactive — the moment one sells again on a sync, they return to the
+// leaderboards + PDF. Runs after every sync/upload. Matched by name-signature so
+// the Inactive flag (Manage Teams spelling) lines up with the sales-data
+// spelling ("Last, First" vs "First Last").
+function reactivateRecentSellers() {
+  const map = state._indicatorRepActive;
+  if (!map || typeof map !== 'object') return;
+  const inactive = Object.keys(map).filter(k => map[k] === false);
+  if (!inactive.length) return;
+  const sales = state._indicatorRawSales || [];
+  if (!sales.length) return;
+  const NO_SALE_DAYS_INACTIVE = 30; // mirrors the coach's inactive-candidate rule
+  // Anchor on the dataset's most recent sale (same as the coach), and find each
+  // rep's latest sale by signature in one pass.
+  let latest = 0;
+  const lastBySig = new Map();
+  for (const s of sales) {
+    if (!s.rep) continue;
+    const d = _parseIndicatorDay(s);
+    if (!d) continue;
+    const t = d.getTime();
+    if (t > latest) latest = t;
+    const sig = _repNameSig(s.rep);
+    if (t > (lastBySig.get(sig) || 0)) lastBySig.set(sig, t);
+  }
+  if (!latest) return;
+  const cutoff = latest - NO_SALE_DAYS_INACTIVE * 86400000;
+  const revived = [];
+  for (const name of inactive) {
+    const last = lastBySig.get(_repNameSig(name));
+    if (last && last >= cutoff) { delete map[name]; revived.push(name); }
+  }
+  if (revived.length) {
+    _invalidateRepSigIndex(map);
+    revived.forEach(n => logActivity('team_change', { rep_name: n, detail: n + ' auto-reactivated — sold again within ' + NO_SALE_DAYS_INACTIVE + ' days' }));
+    if (typeof saveIndicatorState === 'function') saveIndicatorState();
+  }
+}
 
 // Manual office mapping for reps who don't have any sales rows yet (new
 // hires, quiet reps). Read in this order:
@@ -20159,6 +20201,9 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
     services: s.services,
     _rawRow: s._rawRow || null,
   }));
+
+  // Bring back any Inactive rep who sold again in this upload.
+  reactivateRecentSellers();
 
   // Auto-sync rep → office from every CSV upload. The Manage Teams modal
   // and other views show the office for each rep; reps not in the latest
