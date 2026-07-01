@@ -4877,6 +4877,7 @@ function openCoachModeModal() {
     if (!ok) return;
     if (!state._indicatorRepActive) state._indicatorRepActive = {};
     inactiveCandidates.forEach(f => { state._indicatorRepActive[f.repName] = false; });
+    _invalidateRepSigIndex(state._indicatorRepActive);
     saveDemoData(); // single write — mirrors to Supabase once in live mode
     toast('Marked ' + inactiveCandidates.length + ' rep' + (inactiveCandidates.length === 1 ? '' : 's') + ' Inactive', 'success');
     overlay.remove();
@@ -13906,13 +13907,18 @@ function repTierMeta(tierId) { return REP_TIERS.find(t => t.id === tierId); }
 function isRepActive(repName) {
   if (!repName) return true;
   const map = state._indicatorRepActive || {};
-  // Stored as `false` only for inactive reps; absence of the key = active
-  return map[repName] !== false && map[_cleanRepName(repName)] !== false;
+  // Stored as `false` only for inactive reps; absence of the key = active.
+  // Match by exact, cleaned, then name-signature (same robust matching as
+  // team/tier) so a rep marked Inactive under one spelling is still recognized
+  // under the sales-data spelling ("Last, First" vs "First Last").
+  if (map[repName] === false || map[_cleanRepName(repName)] === false) return false;
+  return _repSigIndex(map)[_repNameSig(repName)] !== false;
 }
 function setRepActive(repName, active) {
   if (!state._indicatorRepActive) state._indicatorRepActive = {};
   if (active) delete state._indicatorRepActive[repName];
   else        state._indicatorRepActive[repName] = false;
+  _invalidateRepSigIndex(state._indicatorRepActive);
   logActivity('team_change', { rep_name: repName, detail: repName + ' marked ' + (active ? 'Active' : 'Inactive') });
   saveDemoData();
 }
