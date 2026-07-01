@@ -29,3 +29,4 @@ marketing-demo.html
 # Training assets are hosted in Supabase Storage (bucket: training), not git.
 # Kept locally for convenient upload, but never committed (keeps the repo lean).
 training/
+BACKEND_with_warehouse_status.xlsx
