@@ -16030,60 +16030,8 @@ function viewIndicators() {
           el('div', { class: 'w-full max-w-[1600px] mx-auto px-4 sm:px-6' },
             el('div', { class: 'flex flex-col gap-2' },
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
-        // Department toggle (D2D / Office / Techs) — derived from sale Source,
-        // re-runs every metric below for the selected group. Teams are a
-        // Door-to-Door concept (office staff & techs have no teams), so in
-        // Teams mode every department except D2D is locked out.
-        el('div', { class: 'pill-tabs', title: 'Filter by department (from sale Source)' },
-          ...INDICATOR_DEPTS.map(([k, label]) => {
-            // Teams mode AND Comps mode are Door-to-Door concepts — lock the
-            // other departments out while either is active.
-            const locked = (groupBy === 'teams' || state.indicatorsComps) && k !== 'd2d';
-            return el('button', {
-              'data-active': (state.indicatorDept || 'all') === k,
-              disabled: locked,
-              style: locked ? { opacity: '0.4', cursor: 'not-allowed' } : {},
-              title: locked
-                ? (state.indicatorsComps
-                    ? 'Comps are Door-to-Door only — turn Comps off to view ' + label
-                    : 'Teams are Door-to-Door only — switch to Branch to view ' + label)
-                : '',
-              onclick: () => {
-                if (locked) return;
-                state.indicatorDept = k;
-                mountApp();
-              },
-            }, label);
-          }),
-        ),
-        // Branch / Teams group toggle. Teams is locked out in Comps mode —
-        // competitions are branch-level only.
-        el('div', { class: 'pill-tabs', title: state.indicatorsComps ? 'Competitions are branch-level — turn Comps off to view Teams' : (rawSalesAvailable ? '' : 'Teams mode requires a raw-sales CSV upload') },
-          el('button', {
-            'data-active': groupBy === 'branch',
-            onclick: () => { state.indicatorsGroupBy = 'branch'; mountApp(); },
-          }, 'Branch'),
-          el('button', {
-            'data-active': groupBy === 'teams',
-            disabled: !rawSalesAvailable || state.indicatorsComps,
-            style: (rawSalesAvailable && !state.indicatorsComps) ? {} : { opacity: '0.5', cursor: 'not-allowed' },
-            onclick: () => {
-              if (state.indicatorsComps) {
-                toast('Competitions are branch-level — turn Comps off to view Teams', 'warn');
-                return;
-              }
-              if (!rawSalesAvailable) {
-                toast('Teams mode needs a raw-sales CSV (with Rep + Subscription columns)', 'warn');
-                return;
-              }
-              state.indicatorsGroupBy = 'teams';
-              // Teams are Door-to-Door only — office staff & techs have no
-              // teams, so lock the department to D2D while in Teams mode.
-              state.indicatorDept = 'd2d';
-              mountApp();
-            },
-          }, 'Teams'),
-        ),
+        // Emp Type (department) and Branch/Teams grouping moved INTO the Filters
+        // panel (⛃ Filters) to match the CRM layout — no standalone pills here.
         // Weekly/Range toggle removed — the range preset dropdown drives
         // everything; This Week / Last Week presets cover the old weekly mode.
         // Week selector (weekly view only)
