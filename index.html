@@ -6412,11 +6412,11 @@ function openIndicatorRepCard(rep, allReps = []) {
                   },
                 });
                 const acv = v.count > 0 ? v.revenue / v.count : 0;
-                const descParts = [v.count + ' sale' + (v.count === 1 ? '' : 's')];
-                if (v.count > 0) descParts.push(fmt.usd0(v.revenue), 'ACV ' + fmt.usd0(acv));
+                const descLines = ['Accounts: ' + v.count];
+                if (v.count > 0) { descLines.push('Revenue: ' + fmt.usd0(v.revenue)); descLines.push('ACV: ' + fmt.usd0(acv)); }
                 attachTooltip(bar, {
-                  title: _fmtHourLabel(v.hour) + (v.hour === tr.peakHour ? ' · Peak' : ''),
-                  desc: descParts.join(' · '),
+                  title: _fmtHourLabel(v.hour) + '–' + _fmtHourLabel((v.hour + 1) % 24) + (v.hour === tr.peakHour ? ' · Peak' : ''),
+                  desc: descLines,
                 });
                 return bar;
               }),
@@ -6807,7 +6807,10 @@ function attachTooltip(target, { title, desc }) {
     const tip = ensureTooltipEl();
     tip.innerHTML = '';
     if (title) tip.append(el('strong', {}, title));
-    if (desc)  tip.append(el('span', { class: 'desc' }, desc));
+    if (desc) {
+      if (Array.isArray(desc)) desc.forEach(line => tip.append(el('div', { class: 'desc' }, line)));
+      else tip.append(el('span', { class: 'desc' }, desc));
+    }
     tip.classList.add('show');
 
     // Position above the target, centered horizontally
