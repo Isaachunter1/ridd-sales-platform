@@ -5247,10 +5247,13 @@ function _isReportableCancel(s) {
 // subscription rows stay excluded either way — those are never attrition.
 // Persisted with the rest of the indicator settings (per browser).
 function _repCancelExcluded(s) {
-  // SNS / Combined / One-Time / Renewal + config-excluded reasons are excluded
-  // no matter what; the toggle only controls whether 3-day RORs come back.
+  // 3-day RORs are governed ONLY by the "Count 3-Day RORs" header toggle — it
+  // OVERRIDES any "not attrition" config marking for them (the reason usually
+  // lives in that config too), so flipping the toggle actually moves Cancels /
+  // Cancel %. Everything else follows the standard exclusions.
+  if (_is3DayROR(s)) return !state._indicatorRepIncludeRor;
   if (_isSoldNotStarted(s) || _isCombinedSub(s) || _isOneTimeCancel(s) || _isRenewalCancel(s) || _indConfigCancelExcluded(s)) return true;
-  return state._indicatorRepIncludeRor ? false : _is3DayROR(s);
+  return false;
 }
 function _repCancelCounts(s) {
   if (!s) return false;
@@ -17222,6 +17225,20 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     if (/failed\s*audit/i.test(s.customerFlags || '')) r.auditFail = (r.auditFail || 0) + 1;
     if (s.age > 0) r.aged++;
   });
+  // 3-day RORs that indicatorSales() dropped as "never serviced" aren't in
+  // rawSales, so "Count 3-Day RORs" would only ever move the handful of serviced
+  // ones. When the toggle is ON, fold the dropped RORs (same window + team scope)
+  // into each rep's Cancels and Cancel-% base so the toggle reflects ALL RORs.
+  if (state._indicatorRepIncludeRor) {
+    const _inRaw = new Set(rawSales);
+    (state._indicatorRawSales || []).forEach(s => {
+      if (_inRaw.has(s) || !s.cancelDate || !_is3DayROR(s)) return;
+      if (!inRepScope(s)) return;
+      if (applyExclusion && isRepExcluded(s.rep)) return;
+      const r = repMap[getCanonicalRepName(s.rep || 'Unknown')];
+      if (r) { r.cancels++; r.cancelEligible++; }
+    });
+  }
   // Decorate every rep with derived metrics so we can sort on any of them.
   // `avg_pest` here mirrors the chart's per-rep formula — Sentricon, German
   // Roach, and Interior Flea are excluded.
