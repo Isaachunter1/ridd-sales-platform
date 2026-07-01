@@ -11775,6 +11775,39 @@ const REP_EXCLUDED_TEAM = 'Excluded';
 // lookups use the cleaned one (or vice versa). Normalize the keys of every
 // rep-keyed config map once per load so both sides always agree.
 function _cleanRepName(n) { return String(n || '').replace(/\s+/g, ' ').trim(); }
+// Robust rep-name matching for the rep-keyed config maps (team / tier / office).
+// Sales records store names "Last, First" while Manage Teams stores "First Last",
+// and casing/punctuation vary — so exact-key lookups miss the majority of the
+// roster (~60% in prod). _repNameSig collapses a name to an order-, case- and
+// punctuation-insensitive signature ("Dorsey, Evan" and "Evan Dorsey" → same),
+// mirroring the _nameSig logic already used for FieldRoutes matching elsewhere.
+// _repKeyedLookup does exact → cleaned → signature, in that order, so no rep who
+// resolves correctly today can change — we only RECOVER the ones that miss.
+function _repNameSig(n) {
+  return String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+}
+// Per-map signature index, memoized on the map object via a WeakMap (never
+// touches serialization). Rebuilt when the key count changes; writers
+// (setRepTeam/Tier/Office) invalidate explicitly to catch same-key value edits
+// (a rep moving teams).
+const _repSigIdxCache = new WeakMap();
+function _repSigIndex(map) {
+  if (!map || typeof map !== 'object') return {};
+  const count = Object.keys(map).length;
+  const cached = _repSigIdxCache.get(map);
+  if (cached && cached.count === count) return cached.idx;
+  const idx = Object.create(null);
+  for (const k of Object.keys(map)) { const s = _repNameSig(k); if (!(s in idx)) idx[s] = map[k]; }
+  _repSigIdxCache.set(map, { idx, count });
+  return idx;
+}
+function _repKeyedLookup(map, repName) {
+  if (!map || !repName) return '';
+  const exact = map[repName] || map[_cleanRepName(repName)];
+  if (exact) return exact;
+  return _repSigIndex(map)[_repNameSig(repName)] || '';
+}
+function _invalidateRepSigIndex(map) { if (map) _repSigIdxCache.delete(map); }
 function _normalizeRepKeyedMaps() {
   for (const field of ['_indicatorRepTeam', '_indicatorRepTier', '_indicatorRepActive', '_indicatorRepOffice', '_indicatorRepAlias']) {
     const m = state[field];
@@ -11786,6 +11819,7 @@ function _normalizeRepKeyedMaps() {
     if (field === '_indicatorRepAlias') {
       for (const k of Object.keys(m)) { if (typeof m[k] === 'string') m[k] = _cleanRepName(m[k]); }
     }
+    _invalidateRepSigIndex(m);
   }
 }
 // ── Year-scoped team assignments ──────────────────────────────────────────
@@ -11847,8 +11881,7 @@ function _hydrateTeamYears() {
 }
 function getRepTeam(repName) {
   if (!repName) return '';
-  const map = _activeTeamMap();
-  return map[repName] || map[_cleanRepName(repName)] || '';
+  return _repKeyedLookup(_activeTeamMap(), repName);
 }
 // Read a rep's team for a SPECIFIC year without disturbing the active pointer.
 function getRepTeamForYear(repName, year) {
@@ -11861,6 +11894,7 @@ function setRepTeam(repName, team) {
   const map = _activeTeamMap();
   if (!team) delete map[repName];
   else       map[repName] = team;
+  _invalidateRepSigIndex(map);
   logActivity('team_change', { rep_name: repName, detail: (team ? repName + ' assigned to team ' + team : repName + ' removed from team') + ' (' + _teamYearKey() + ')' });
   saveDemoData();
 }
@@ -13779,13 +13813,13 @@ const REP_TIERS = [
 ];
 function getRepTier(repName) {
   if (!repName) return '';
-  const map = state._indicatorRepTier || {};
-  return map[repName] || map[_cleanRepName(repName)] || '';
+  return _repKeyedLookup(state._indicatorRepTier || {}, repName);
 }
 function setRepTier(repName, tier) {
   if (!state._indicatorRepTier) state._indicatorRepTier = {};
   if (!tier) delete state._indicatorRepTier[repName];
   else       state._indicatorRepTier[repName] = tier;
+  _invalidateRepSigIndex(state._indicatorRepTier);
   logActivity('team_change', { rep_name: repName, detail: repName + (tier ? ' tagged ' + tier : ' tier cleared') });
   saveDemoData();
 }
@@ -13816,12 +13850,13 @@ function setRepActive(repName, active) {
 // who haven't sold anything yet.
 function getRepOffice(repName) {
   if (!repName) return '';
-  return (state._indicatorRepOffice || {})[repName] || '';
+  return _repKeyedLookup(state._indicatorRepOffice || {}, repName);
 }
 function setRepOffice(repName, office) {
   if (!state._indicatorRepOffice) state._indicatorRepOffice = {};
   if (!office) delete state._indicatorRepOffice[repName];
   else         state._indicatorRepOffice[repName] = office;
+  _invalidateRepSigIndex(state._indicatorRepOffice);
   saveDemoData();
 }
 
@@ -13972,10 +14007,12 @@ function mergeDuplicateRep(bad, good) {
       m[good] = m[bad];
       delete m[bad];
     }
+    _invalidateRepSigIndex(m);
   });
   // Team assignments are per-year — merge BAD→GOOD in every year's map.
   _allTeamYearMaps().forEach(m => {
     if (m[bad] !== undefined) { m[good] = m[bad]; delete m[bad]; }
+    _invalidateRepSigIndex(m);
   });
   saveDemoData();
   return changed;
@@ -14185,7 +14222,7 @@ function removeTeam(name) {
     state._indicatorTeams = state._indicatorTeams.filter(t => t !== name);
   }
   // Unassign any rep currently on that team — across every year.
-  _allTeamYearMaps().forEach(map => Object.keys(map).forEach(r => { if (map[r] === name) delete map[r]; }));
+  _allTeamYearMaps().forEach(map => { Object.keys(map).forEach(r => { if (map[r] === name) delete map[r]; }); _invalidateRepSigIndex(map); });
   // Drop from the excluded list too — no orphaned exclusion entries.
   if (Array.isArray(state._indicatorExcludedTeams)) {
     state._indicatorExcludedTeams = state._indicatorExcludedTeams.filter(t => t !== name);
@@ -14208,7 +14245,7 @@ function renameTeam(oldName, newNameRaw) {
   state._indicatorTeams = state._indicatorTeams.map(t => t === oldName ? newName : t);
   logActivity('team_change', { detail: 'Team renamed: ' + oldName + ' → ' + newName });
   // Rename in every rep assignment, across every year.
-  _allTeamYearMaps().forEach(map => Object.keys(map).forEach(r => { if (map[r] === oldName) map[r] = newName; }));
+  _allTeamYearMaps().forEach(map => { Object.keys(map).forEach(r => { if (map[r] === oldName) map[r] = newName; }); _invalidateRepSigIndex(map); });
   // Carry the rename into the modal's active filter so the filter doesn't break
   if (state._indicatorManageTeamFilter === oldName) state._indicatorManageTeamFilter = newName;
   if (state._indicatorRepTeamFilter === oldName)   state._indicatorRepTeamFilter   = newName;
@@ -19947,6 +19984,7 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
     }
   });
   if (updated > 0) {
+    _invalidateRepSigIndex(state._indicatorRepOffice);
     // Fire the same persistence pipe the team/tier maps use — localStorage
     // for the local cache + Supabase mirror. Silent on success; only
     // surfaces an error toast if the upload-time sync fails.
