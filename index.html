@@ -820,6 +820,9 @@ async function refreshIndicatorsFromCloud(force) {
   } catch (e) { console.warn('[ridd] indicators cloud refresh failed', e); }
 }
 
+// Refs of the bulk data last persisted, so config-only saves (team/tier
+// assignments etc.) can skip re-serializing the whole raw-sales array.
+let _lastBulkRawRef = null, _lastBulkDataRef = null, _lastBulkSnapCount = -1;
 function saveIndicatorState() {
   // Any settings save may change exclusions/teams — drop the sales caches.
   if (typeof _indCfgRev !== 'undefined') _indCfgRev++;
@@ -840,6 +843,17 @@ function saveIndicatorState() {
   // localStorage already has the fresh value, so the UI doesn't wait on
   // the round-trip and a network failure doesn't roll back the local save.
   saveIndicatorConfigToSupabase().catch(err => console.warn('[ridd] indicator config sync failed', err));
+  // Bulk-data persist is expensive — it serializes the entire raw-sales array
+  // (100k+ rows on a year upload). Config edits (team/tier/office assignments,
+  // exclusions, colors) only change SETTINGS, which are already saved above, so
+  // skip the bulk block unless the underlying data actually changed. Detect by
+  // reference (indicatorsData + _indicatorRawSales are rebuilt on every
+  // upload/sync) plus snapshot count (snapshots are pushed in place).
+  const _snapCount = Array.isArray(state._indicatorSnapshots) ? state._indicatorSnapshots.length : 0;
+  const _bulkUnchanged = state._indicatorRawSales === _lastBulkRawRef
+    && state.indicatorsData === _lastBulkDataRef
+    && _snapCount === _lastBulkSnapCount;
+  if (!_bulkUnchanged) {
   try {
     const data = { savedAt: new Date().toISOString() };
     // Stamp the upload time on the bulk payload so the IndexedDB restore
@@ -909,6 +923,12 @@ function saveIndicatorState() {
       console.warn('[ridd] indicator raw sales too large for localStorage — cached without raw rows; re-import the CSV after a refresh for rep-level detail', err);
       _indicatorDataSaveWarned = true;
     }
+  }
+  // Remember what we just persisted so subsequent config-only saves skip this
+  // block until the underlying data changes again.
+  _lastBulkRawRef = state._indicatorRawSales;
+  _lastBulkDataRef = state.indicatorsData;
+  _lastBulkSnapCount = _snapCount;
   }
 }
 
@@ -11774,7 +11794,19 @@ const REP_EXCLUDED_TEAM = 'Excluded';
 // team/tier/active assignments may be stored under the raw spelling while
 // lookups use the cleaned one (or vice versa). Normalize the keys of every
 // rep-keyed config map once per load so both sides always agree.
-function _cleanRepName(n) { return String(n || '').replace(/\s+/g, ' ').trim(); }
+// Memoized: called per-sale in the team/tier aggregations (100k+ calls on a
+// year upload). The result is a pure function of the input string, so caching
+// by name is always correct and never needs invalidation. Bounded so a pathological
+// dataset can't grow it without limit.
+const _cleanRepNameCache = new Map();
+function _cleanRepName(n) {
+  const key = String(n || '');
+  let v = _cleanRepNameCache.get(key);
+  if (v !== undefined) return v;
+  v = key.replace(/\s+/g, ' ').trim();
+  if (_cleanRepNameCache.size < 200000) _cleanRepNameCache.set(key, v);
+  return v;
+}
 // Robust rep-name matching for the rep-keyed config maps (team / tier / office).
 // Sales records store names "Last, First" while Manage Teams stores "First Last",
 // and casing/punctuation vary — so exact-key lookups miss the majority of the
@@ -11783,8 +11815,14 @@ function _cleanRepName(n) { return String(n || '').replace(/\s+/g, ' ').trim(); 
 // mirroring the _nameSig logic already used for FieldRoutes matching elsewhere.
 // _repKeyedLookup does exact → cleaned → signature, in that order, so no rep who
 // resolves correctly today can change — we only RECOVER the ones that miss.
+const _repNameSigCache = new Map();
 function _repNameSig(n) {
-  return String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const key = String(n || '');
+  let v = _repNameSigCache.get(key);
+  if (v !== undefined) return v;
+  v = key.toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  if (_repNameSigCache.size < 200000) _repNameSigCache.set(key, v);
+  return v;
 }
 // Per-map signature index, memoized on the map object via a WeakMap (never
 // touches serialization). Rebuilt when the key count changes; writers
@@ -15799,7 +15837,7 @@ function viewIndicators() {
         el('div', { class: 'pill-tabs', title: state.indicatorsComps ? 'Competitions are branch-level — turn Comps off to view Teams' : (rawSalesAvailable ? '' : 'Teams mode requires a raw-sales CSV upload') },
           el('button', {
             'data-active': groupBy === 'branch',
-            onclick: () => { state.indicatorsGroupBy = 'branch'; saveDemoData(); mountApp(); },
+            onclick: () => { state.indicatorsGroupBy = 'branch'; mountApp(); },
           }, 'Branch'),
           el('button', {
             'data-active': groupBy === 'teams',
@@ -15818,7 +15856,6 @@ function viewIndicators() {
               // Teams are Door-to-Door only — office staff & techs have no
               // teams, so lock the department to D2D while in Teams mode.
               state.indicatorDept = 'd2d';
-              saveDemoData();
               mountApp();
             },
           }, 'Teams'),
