@@ -15498,10 +15498,7 @@ function openIndicatorFilters(anchorEl) {
   const sources = [...new Set(raw.map(s => (s.source || '').trim()).filter(Boolean))].sort();
   const usd = v => '$' + Math.round(v || 0).toLocaleString();
   // Draft copies — committed to state only on Apply.
-  let acct = state.indicatorAcctStatus || 'pending_serviced';
   let empType = state.indicatorDept || 'all';
-  let rangePreset = state.indicatorsRangePreset || 'this_year';
-  let groupBy = state.indicatorsGroupBy || 'branch';
   const exclSvc = new Set(state.indicatorExclServiceTypes || []);
   let srcMode = (state.indicatorInclSources || []).length ? 'include'
     : ((state.indicatorExclSources || []).length ? 'exclude' : 'all');
@@ -15517,7 +15514,7 @@ function openIndicatorFilters(anchorEl) {
 
   const summary = el('span', { style: { fontSize: '11px', color: 'var(--text-subtle)' } });
   const updateSummary = () => {
-    const n = (empType !== 'all' ? 1 : 0) + (acct === 'all' ? 1 : 0) + (exclSvc.size ? 1 : 0) + ((srcMode !== 'all' && srcSel.size) ? 1 : 0);
+    const n = (empType !== 'all' ? 1 : 0) + (exclSvc.size ? 1 : 0) + ((srcMode !== 'all' && srcSel.size) ? 1 : 0);
     summary.textContent = n ? (n + ' filter' + (n === 1 ? '' : 's') + ' beyond default') : 'No extra filters';
   };
   const _sel = (value, opts, onChange) => el('select', {
@@ -15534,17 +15531,12 @@ function openIndicatorFilters(anchorEl) {
   const _field = (label, control) => el('div', {},
     el('div', { style: { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '5px' } }, label),
     control);
-  const presetOpts = (typeof indicatorPresetOptions === 'function' ? indicatorPresetOptions() : [{ id: 'this_year', label: 'This Year' }]).map(p => [p.id, p.label]);
-
   const body = el('div', { class: 'overflow-auto', style: { padding: '16px 18px' } });
   const render = () => {
     body.innerHTML = '';
-    // Top row — primary filters in a responsive grid (like FieldRoutes).
-    body.append(el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '16px' } },
-      _field('Date', _sel(rangePreset, presetOpts, v => { rangePreset = v; })),
-      _field('Group By', _sel(groupBy, [['branch', 'Office / Branch'], ['teams', 'Team']], v => { groupBy = v; })),
+    // Emp Type (Date, Group By, and Primary Metric live in the top bar now).
+    body.append(el('div', { style: { marginBottom: '16px', maxWidth: '260px' } },
       _field('Emp Type', _sel(empType, [['all', 'All'], ['d2d', 'Sales Rep'], ['office', 'Office Staff'], ['techs', 'Technician']], v => { empType = v; updateSummary(); })),
-      _field('Acct Status', _sel(acct, [['pending_serviced', 'Pending / Serviced'], ['all', 'All (incl. not-started)']], v => { acct = v; updateSummary(); })),
     ));
     // Service types + sources side by side (FieldRoutes Incl/Excl columns).
     body.append(el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' } },
@@ -15559,18 +15551,15 @@ function openIndicatorFilters(anchorEl) {
 
   const apply = () => {
     state.indicatorDept = empType;
-    state.indicatorAcctStatus = acct;
-    state.indicatorsRangePreset = rangePreset;
-    state.indicatorsGroupBy = groupBy;
     state.indicatorExclServiceTypes = [...exclSvc];
     state.indicatorInclSources = (srcMode === 'include') ? [...srcSel] : [];
     state.indicatorExclSources = (srcMode === 'exclude') ? [...srcSel] : [];
     close();
     mountApp();
   };
-  const clearAll = () => { acct = 'pending_serviced'; empType = 'all'; exclSvc.clear(); srcMode = 'all'; srcSel.clear(); render(); };
+  const clearAll = () => { empType = 'all'; exclSvc.clear(); srcMode = 'all'; srcSel.clear(); render(); };
 
-  const card = el('div', { class: 'card flex flex-col', style: { position: 'absolute', width: 'min(1040px, calc(100vw - 24px))', maxHeight: 'calc(100vh - 120px)', boxShadow: '0 12px 34px rgba(0,0,0,0.30)', overflow: 'hidden' } },
+  const card = el('div', { class: 'card flex flex-col', style: { position: 'absolute', width: 'min(720px, calc(100vw - 24px))', maxHeight: 'calc(100vh - 120px)', boxShadow: '0 12px 34px rgba(0,0,0,0.30)', overflow: 'hidden' } },
     el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '12px 16px', borderBottom: '1px solid var(--border)' } },
       el('h2', { style: { fontSize: '13px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text)' } }, 'Filters'),
       el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
@@ -16030,8 +16019,19 @@ function viewIndicators() {
           el('div', { class: 'w-full max-w-[1600px] mx-auto px-4 sm:px-6' },
             el('div', { class: 'flex flex-col gap-2' },
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
-        // Emp Type (department) and Branch/Teams grouping moved INTO the Filters
-        // panel (⛃ Filters) to match the CRM layout — no standalone pills here.
+        // Emp Type (rep type) moved INTO the Filters panel (⛃ Filters).
+        // Primary Metric — Total Revenue vs Pending/Serviced Revenue (this is the
+        // account-status filter, surfaced up top like FieldRoutes' Primary Stat).
+        el('div', { class: 'flex items-center gap-1.5' },
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, 'Metric'),
+          el('select', {
+            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            onchange: e => { state.indicatorAcctStatus = e.target.value; mountApp(); },
+          },
+            el('option', { value: 'pending_serviced', selected: (state.indicatorAcctStatus || 'pending_serviced') === 'pending_serviced' }, 'Pending / Serviced Revenue'),
+            el('option', { value: 'all', selected: (state.indicatorAcctStatus || 'pending_serviced') === 'all' }, 'Total Revenue'),
+          )),
         // Weekly/Range toggle removed — the range preset dropdown drives
         // everything; This Week / Last Week presets cover the old weekly mode.
         // Week selector (weekly view only)
@@ -16068,6 +16068,26 @@ function viewIndicators() {
             value: p.id, selected: state.indicatorsRangePreset === p.id,
           }, p.label)),
         ),
+        // Group By — Branch (Office) vs Teams, as a FieldRoutes-style dropdown.
+        // Teams needs raw sales + Comps off; an invalid pick heals to Branch.
+        el('div', { class: 'flex items-center gap-1.5' },
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, 'Group'),
+          el('select', {
+            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            title: (rawSalesAvailable && !state.indicatorsComps) ? '' : 'Teams needs a raw-sales upload and Comps off',
+            onchange: e => {
+              const v = e.target.value;
+              if (v === 'teams' && (!rawSalesAvailable || state.indicatorsComps)) {
+                toast(state.indicatorsComps ? 'Competitions are branch-level — turn Comps off for Teams' : 'Teams mode needs a raw-sales CSV', 'warn');
+                mountApp(); return;
+              }
+              state.indicatorsGroupBy = v; mountApp();
+            },
+          },
+            el('option', { value: 'branch', selected: groupBy === 'branch' }, 'Branch / Office'),
+            el('option', { value: 'teams', selected: groupBy === 'teams' }, 'Teams'),
+          )),
         // Custom date pickers — moved below the toolbar so flipping to Custom
         // doesn't reflow the controls. See the dedicated row right after the
         // closing of this toolbar div.
