@@ -4419,7 +4419,7 @@ function indicatorSales() {
   const src = state._indicatorRawSales || [];
   // CRM-style user filters (session-only; default = unfiltered, so nothing
   // changes until the user opens the Filters panel and picks something).
-  const _acct       = state.indicatorAcctStatus || 'all';
+  const _acct       = state.indicatorAcctStatus || 'pending_serviced';
   const _exclSvc    = state.indicatorExclServiceTypes || [];
   const _inclSrcArr = state.indicatorInclSources || [];
   const _exclSrcArr = state.indicatorExclSources || [];
@@ -4453,11 +4453,17 @@ function indicatorSales() {
   const _inclSrcSet = _inclSrcArr.length ? new Set(_inclSrcArr) : null;
   const _exclSrcSet = _exclSrcArr.length ? new Set(_exclSrcArr) : null;
   let all = src.filter(s => {
-    if (_isSoldNotStarted(s) || _scIsSoldNotStarted(s) || _indicatorServiceExcluded(s)) return false;
+    // Account status. Default "Pending / Serviced" drops accounts sold but never
+    // started service (cancelled BEFORE first service) — matching the CRM's
+    // Pending/Serviced status. Accounts that WERE serviced and later cancelled
+    // still count (they got service), exactly like the CRM. "All accounts" keeps
+    // the never-started ones too. (This mirrors the app's long-standing default,
+    // so nothing changes unless the user switches to "All accounts".)
+    if (_acct !== 'all' && (_isSoldNotStarted(s) || _scIsSoldNotStarted(s))) return false;
+    if (_indicatorServiceExcluded(s)) return false;
     const _s = String(s.source || '').trim();
     if (_exclSrc.has(_s)) return false;
     // ── CRM-style filters (Filters panel) ──
-    if (_acct === 'pending_serviced' && s.cancelDate) return false;              // Pending/Serviced = not cancelled
     if (_exclSvcSet && _exclSvcSet.has((s.subscription || '').trim())) return false;
     if (_inclSrcSet && !_inclSrcSet.has(_s)) return false;                       // "only these sources"
     if (_exclSrcSet && _exclSrcSet.has(_s)) return false;                        // "exclude these sources"
@@ -15424,7 +15430,7 @@ function openIndicatorFilters() {
   const sources = [...new Set(raw.map(s => (s.source || '').trim()).filter(Boolean))].sort();
   const usd = v => '$' + Math.round(v || 0).toLocaleString();
   // Draft copies — committed to state only on Apply.
-  let acct = state.indicatorAcctStatus || 'all';
+  let acct = state.indicatorAcctStatus || 'pending_serviced';
   const exclSvc = new Set(state.indicatorExclServiceTypes || []);
   let srcMode = (state.indicatorInclSources || []).length ? 'include'
     : ((state.indicatorExclSources || []).length ? 'exclude' : 'all');
@@ -15438,8 +15444,8 @@ function openIndicatorFilters() {
 
   const summary = el('span', { style: { fontSize: '11px', color: 'var(--text-subtle)' } });
   const updateSummary = () => {
-    const n = (acct !== 'all' ? 1 : 0) + (exclSvc.size ? 1 : 0) + ((srcMode !== 'all' && srcSel.size) ? 1 : 0);
-    summary.textContent = n ? (n + ' filter' + (n === 1 ? '' : 's') + ' set') : 'No filters set';
+    const n = (acct === 'all' ? 1 : 0) + (exclSvc.size ? 1 : 0) + ((srcMode !== 'all' && srcSel.size) ? 1 : 0);
+    summary.textContent = n ? (n + ' change' + (n === 1 ? '' : 's') + ' from default') : 'Default (matches CRM)';
   };
   const sectionTitle = (t, sub) => el('div', { style: { margin: '2px 0 8px' } },
     el('div', { style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '800', color: 'var(--text-muted)' } }, t),
@@ -15449,10 +15455,10 @@ function openIndicatorFilters() {
   const render = () => {
     body.innerHTML = '';
     body.append(el('div', { style: { marginBottom: '16px' } },
-      sectionTitle('Account status', 'Matches your CRM’s Acct Status filter.'),
+      sectionTitle('Account status', 'Default (Pending / Serviced) matches your CRM: it drops accounts cancelled before first service but keeps serviced-then-cancelled ones. "All" also includes never-started accounts.'),
       el('div', { class: 'pill-tabs' },
-        el('button', { 'data-active': acct === 'all', onclick: () => { acct = 'all'; render(); } }, 'All accounts'),
-        el('button', { 'data-active': acct === 'pending_serviced', onclick: () => { acct = 'pending_serviced'; render(); } }, 'Pending / Serviced only'),
+        el('button', { 'data-active': acct === 'pending_serviced', onclick: () => { acct = 'pending_serviced'; render(); } }, 'Pending / Serviced'),
+        el('button', { 'data-active': acct === 'all', onclick: () => { acct = 'all'; render(); } }, 'All (incl. not-started)'),
       )));
     body.append(el('div', { style: { marginBottom: '16px' } },
       sectionTitle('Exclude service types', 'Checked = removed from every metric. Revenue shown so the CRM’s excluded services are easy to find.'),
@@ -16039,7 +16045,7 @@ function viewIndicators() {
         // CRM-style filters (account status / service types / sources). Emp Type
         // is already the Department pills; date + grouping are already in the bar.
         (() => {
-          const activeN = ((state.indicatorAcctStatus && state.indicatorAcctStatus !== 'all') ? 1 : 0)
+          const activeN = (state.indicatorAcctStatus === 'all' ? 1 : 0)
             + ((state.indicatorExclServiceTypes || []).length ? 1 : 0)
             + ((state.indicatorInclSources || []).length ? 1 : 0)
             + ((state.indicatorExclSources || []).length ? 1 : 0);
