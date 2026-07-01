@@ -4417,11 +4417,17 @@ const _indSalesCache = { src: null, cfg: '', byKey: new Map() };
 function indicatorSales() {
   const dept = state.indicatorDept || 'all';
   const src = state._indicatorRawSales || [];
-  // Cache filtered views per dept+comps. A render calls this dozens of times
-  // and the dept toggle flips between the same four arrays — with all-time
-  // uploads, re-filtering 100k+ rows each call was most of the lag. The cache
-  // resets when the upload (array identity) or any saved config changes.
-  const cfg = _indCfgRev + '|' + (state.indicatorsComps ? 1 : 0);
+  // CRM-style user filters (session-only; default = unfiltered, so nothing
+  // changes until the user opens the Filters panel and picks something).
+  const _acct       = state.indicatorAcctStatus || 'all';
+  const _exclSvc    = state.indicatorExclServiceTypes || [];
+  const _inclSrcArr = state.indicatorInclSources || [];
+  const _exclSrcArr = state.indicatorExclSources || [];
+  // Cache filtered views per dept+comps+filters. A render calls this dozens of
+  // times; the cache resets when the upload (array identity), any saved config,
+  // or a filter changes.
+  const cfg = _indCfgRev + '|' + (state.indicatorsComps ? 1 : 0)
+    + '|' + _acct + '#' + _exclSvc.join('~') + '#' + _inclSrcArr.join('~') + '#' + _exclSrcArr.join('~');
   if (_indSalesCache.src !== src || _indSalesCache.cfg !== cfg) {
     _indSalesCache.src = src; _indSalesCache.cfg = cfg; _indSalesCache.byKey.clear();
   }
@@ -4443,7 +4449,20 @@ function indicatorSales() {
   // the sales-rep side, frozen, no appointment, initial appt cancelled, or sold
   // then cancelled before service) aren't real production, so they're stripped
   // from EVERY indicator metric. Leaves only active-pending + serviced accounts.
-  let all = src.filter(s => !_isSoldNotStarted(s) && !_scIsSoldNotStarted(s) && !_indicatorServiceExcluded(s) && !_exclSrc.has(String(s.source || '').trim()));
+  const _exclSvcSet = _exclSvc.length ? new Set(_exclSvc) : null;
+  const _inclSrcSet = _inclSrcArr.length ? new Set(_inclSrcArr) : null;
+  const _exclSrcSet = _exclSrcArr.length ? new Set(_exclSrcArr) : null;
+  let all = src.filter(s => {
+    if (_isSoldNotStarted(s) || _scIsSoldNotStarted(s) || _indicatorServiceExcluded(s)) return false;
+    const _s = String(s.source || '').trim();
+    if (_exclSrc.has(_s)) return false;
+    // ── CRM-style filters (Filters panel) ──
+    if (_acct === 'pending_serviced' && s.cancelDate) return false;              // Pending/Serviced = not cancelled
+    if (_exclSvcSet && _exclSvcSet.has((s.subscription || '').trim())) return false;
+    if (_inclSrcSet && !_inclSrcSet.has(_s)) return false;                       // "only these sources"
+    if (_exclSrcSet && _exclSrcSet.has(_s)) return false;                        // "exclude these sources"
+    return true;
+  });
   if (state.indicatorsComps) all = all.filter(s => !isRepExcluded(s.rep));
   const out = dept === 'all' ? all : all.filter(s => _indicatorDeptOf(s) === dept);
   _indSalesCache.byKey.set(dept, out);
@@ -15390,6 +15409,101 @@ function manageTeamsPanel(opts) {
   document.body.append(overlay);
 }
 
+// CRM-style filter panel for the Indicators page. Account status, service-type
+// exclusions, and source include/exclude — all session-only (reset on reload so
+// the page defaults to unfiltered). Emp Type is already the Department pills;
+// date range + Office/Team grouping already live in the toolbar. Everything
+// flows through indicatorSales(), so applying a filter updates every metric.
+function openIndicatorFilters() {
+  const raw = state._indicatorRawSales || [];
+  // Service types with revenue, so the ones to drop (e.g. the CRM's excluded
+  // services) are easy to spot.
+  const svcRev = {};
+  raw.forEach(s => { const k = (s.subscription || '').trim(); if (!k) return; svcRev[k] = (svcRev[k] || 0) + (Number(s.contractValue) || 0); });
+  const services = Object.keys(svcRev).sort((a, b) => svcRev[b] - svcRev[a]);
+  const sources = [...new Set(raw.map(s => (s.source || '').trim()).filter(Boolean))].sort();
+  const usd = v => '$' + Math.round(v || 0).toLocaleString();
+  // Draft copies — committed to state only on Apply.
+  let acct = state.indicatorAcctStatus || 'all';
+  const exclSvc = new Set(state.indicatorExclServiceTypes || []);
+  let srcMode = (state.indicatorInclSources || []).length ? 'include'
+    : ((state.indicatorExclSources || []).length ? 'exclude' : 'all');
+  const srcSel = new Set([...(state.indicatorInclSources || []), ...(state.indicatorExclSources || [])]);
+
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+  const summary = el('span', { style: { fontSize: '11px', color: 'var(--text-subtle)' } });
+  const updateSummary = () => {
+    const n = (acct !== 'all' ? 1 : 0) + (exclSvc.size ? 1 : 0) + ((srcMode !== 'all' && srcSel.size) ? 1 : 0);
+    summary.textContent = n ? (n + ' filter' + (n === 1 ? '' : 's') + ' set') : 'No filters set';
+  };
+  const sectionTitle = (t, sub) => el('div', { style: { margin: '2px 0 8px' } },
+    el('div', { style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '800', color: 'var(--text-muted)' } }, t),
+    sub ? el('div', { style: { fontSize: '11px', color: 'var(--text-subtle)', marginTop: '2px' } }, sub) : null);
+
+  const body = el('div', { class: 'overflow-auto', style: { padding: '14px 18px' } });
+  const render = () => {
+    body.innerHTML = '';
+    body.append(el('div', { style: { marginBottom: '16px' } },
+      sectionTitle('Account status', 'Matches your CRM’s Acct Status filter.'),
+      el('div', { class: 'pill-tabs' },
+        el('button', { 'data-active': acct === 'all', onclick: () => { acct = 'all'; render(); } }, 'All accounts'),
+        el('button', { 'data-active': acct === 'pending_serviced', onclick: () => { acct = 'pending_serviced'; render(); } }, 'Pending / Serviced only'),
+      )));
+    body.append(el('div', { style: { marginBottom: '16px' } },
+      sectionTitle('Exclude service types', 'Checked = removed from every metric. Revenue shown so the CRM’s excluded services are easy to find.'),
+      el('div', { style: { maxHeight: '190px', overflow: 'auto', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 8px' } },
+        ...services.map(name => el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 2px', fontSize: '12px', cursor: 'pointer' } },
+          el('input', { type: 'checkbox', checked: exclSvc.has(name), onchange: e => { if (e.target.checked) exclSvc.add(name); else exclSvc.delete(name); updateSummary(); } }),
+          el('span', { style: { flex: '1' } }, name),
+          el('span', { style: { color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' } }, usd(svcRev[name])))))));
+    body.append(el('div', {},
+      sectionTitle('Sources'),
+      el('div', { class: 'pill-tabs', style: { marginBottom: '8px' } },
+        el('button', { 'data-active': srcMode === 'all', onclick: () => { srcMode = 'all'; render(); } }, 'All sources'),
+        el('button', { 'data-active': srcMode === 'include', onclick: () => { srcMode = 'include'; render(); } }, 'Only selected'),
+        el('button', { 'data-active': srcMode === 'exclude', onclick: () => { srcMode = 'exclude'; render(); } }, 'Exclude selected'),
+      ),
+      srcMode === 'all' ? null : el('div', { style: { maxHeight: '150px', overflow: 'auto', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 8px' } },
+        ...sources.map(name => el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 2px', fontSize: '12px', cursor: 'pointer' } },
+          el('input', { type: 'checkbox', checked: srcSel.has(name), onchange: e => { if (e.target.checked) srcSel.add(name); else srcSel.delete(name); updateSummary(); } }),
+          el('span', {}, name))))));
+    updateSummary();
+  };
+  render();
+
+  const apply = () => {
+    state.indicatorAcctStatus = acct;
+    state.indicatorExclServiceTypes = [...exclSvc];
+    state.indicatorInclSources = (srcMode === 'include') ? [...srcSel] : [];
+    state.indicatorExclSources = (srcMode === 'exclude') ? [...srcSel] : [];
+    close();
+    mountApp();
+  };
+  const clearAll = () => { acct = 'all'; exclSvc.clear(); srcMode = 'all'; srcSel.clear(); render(); };
+
+  const card = el('div', { class: 'card w-full my-6 flex flex-col', style: { maxWidth: '560px', maxHeight: 'calc(100vh - 56px)' } },
+    el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '14px 18px', borderBottom: '1px solid var(--border)' } },
+      el('div', {},
+        el('div', { style: { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-subtle)', fontWeight: '700' } }, 'Indicators'),
+        el('h2', { style: { fontSize: '17px', fontWeight: '900', marginTop: '2px', color: 'var(--text)' } }, 'Filters')),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+    body,
+    el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '12px 18px', borderTop: '1px solid var(--border)' } },
+      summary,
+      el('div', { style: { display: 'flex', gap: '8px' } },
+        el('button', { class: 'rounded-lg border px-3 py-1.5 text-xs font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: clearAll }, 'Clear all'),
+        el('button', { class: 'rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer', style: { background: 'var(--accent)', color: '#0f0f0f' }, onclick: apply }, 'Apply'),
+      )),
+  );
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
 function viewIndicators() {
   if (!state.indicatorsData) state.indicatorsData = null;
   // Weekly mode retired — the preset dropdown (This Year default) drives the
@@ -15922,6 +16036,20 @@ function viewIndicators() {
         // Custom date pickers — moved below the toolbar so flipping to Custom
         // doesn't reflow the controls. See the dedicated row right after the
         // closing of this toolbar div.
+        // CRM-style filters (account status / service types / sources). Emp Type
+        // is already the Department pills; date + grouping are already in the bar.
+        (() => {
+          const activeN = ((state.indicatorAcctStatus && state.indicatorAcctStatus !== 'all') ? 1 : 0)
+            + ((state.indicatorExclServiceTypes || []).length ? 1 : 0)
+            + ((state.indicatorInclSources || []).length ? 1 : 0)
+            + ((state.indicatorExclSources || []).length ? 1 : 0);
+          return el('button', {
+            class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
+            style: { borderColor: activeN ? 'var(--accent)' : 'var(--border-2)', color: activeN ? 'var(--accent)' : 'var(--text)' },
+            onclick: () => openIndicatorFilters(),
+            title: 'Filters — account status, service types, sources (match your CRM)',
+          }, '⛃ Filters' + (activeN ? ' · ' + activeN : ''));
+        })(),
         // Manage teams (rep assignments + tier + exclusion + colors)
         el('button', {
           class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
