@@ -4329,15 +4329,28 @@ function computeRepRecords(repId, repSales) {
 // sales (different shape than logged sales), so it has its own record/trend
 // computation rather than reusing computeRepRecords.
 // ──────────────────────────────────────────────────────────────────────────
+// Memoized by the raw dateSold string — called per sale in the range-mode
+// aggregations. The returned Date is only ever read (comparisons, getFullYear),
+// never mutated, so sharing one instance per distinct date string is safe.
+const _indDayCache = new Map();
 function _parseIndicatorDay(s) {
-  const k = (s.dateSold || '').split(' ')[0].trim();
-  if (!k) return null;
-  const parts = k.split('/').map(Number);
-  if (parts.length !== 3) return null;
-  let [m, d, y] = parts;
-  if (!Number.isFinite(m) || !Number.isFinite(d) || !Number.isFinite(y)) return null;
-  if (y < 100) y += 2000;
-  return new Date(y, m - 1, d);
+  const raw = (s && s.dateSold) || '';
+  const cached = _indDayCache.get(raw);
+  if (cached !== undefined) return cached;
+  let out = null;
+  const k = raw.split(' ')[0].trim();
+  if (k) {
+    const parts = k.split('/').map(Number);
+    if (parts.length === 3) {
+      let [m, d, y] = parts;
+      if (Number.isFinite(m) && Number.isFinite(d) && Number.isFinite(y)) {
+        if (y < 100) y += 2000;
+        out = new Date(y, m - 1, d);
+      }
+    }
+  }
+  if (_indDayCache.size < 200000) _indDayCache.set(raw, out);
+  return out;
 }
 
 // ── Department classification (Indicators) ──────────────────────────────
@@ -15484,18 +15497,28 @@ function viewIndicators() {
   const rangeStartD = isRange ? new Date(rangeBounds.start + 'T00:00:00') : null;
   const rangeEndD   = isRange ? new Date(rangeBounds.end   + 'T23:59:59') : null;
   const branchData = {};
+  // Range mode: bucket the windowed sales by branch/team ONCE up front.
+  // Previously this filtered indicatorSales() and re-parsed EVERY sale's date
+  // separately for each branch/team column — O(columns × sales) per render,
+  // the main reason the Branch/Teams toggle felt slow. Now it's a single pass.
+  let _rangeGroups = null;
+  if (isRange && rawSalesAvailable) {
+    _rangeGroups = {};
+    const groupKeyOf = groupBy === 'teams'
+      ? (s) => (getRepTeam(s.rep) || 'Unassigned')
+      : (s) => s.office || 'Unknown';
+    for (const s of indicatorSales()) {
+      if (!s.rep) continue;
+      if (groupBy === 'teams' && isRepExcluded(s.rep)) continue;
+      const d = _parseIndicatorDay(s);
+      if (!d || d < rangeStartD || d > rangeEndD) continue;
+      const k = groupKeyOf(s);
+      (_rangeGroups[k] || (_rangeGroups[k] = [])).push(s);
+    }
+  }
   branches.forEach(b => {
     if (isRange && rawSalesAvailable) {
-      const groupKeyOf = groupBy === 'teams'
-        ? (s) => (getRepTeam(s.rep) || 'Unassigned')
-        : (s) => s.office || 'Unknown';
-      const ss = indicatorSales().filter(s => {
-        if (!s.rep) return false;
-        if (groupBy === 'teams' && isRepExcluded(s.rep)) return false;
-        if (groupKeyOf(s) !== b) return false;
-        const d = _parseIndicatorDay(s);
-        return d && d >= rangeStartD && d <= rangeEndD;
-      });
+      const ss = _rangeGroups[b] || [];
       if (!ss.length) { branchData[b] = null; return; }
       const count = ss.length;
       const rev = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
