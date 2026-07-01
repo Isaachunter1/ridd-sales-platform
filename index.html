@@ -15493,6 +15493,7 @@ function openIndicatorFilters(anchorEl) {
   const usd = v => '$' + Math.round(v || 0).toLocaleString();
   // Draft copies — committed to state only on Apply.
   let acct = state.indicatorAcctStatus || 'pending_serviced';
+  let empType = state.indicatorDept || 'all';
   const exclSvc = new Set(state.indicatorExclServiceTypes || []);
   let srcMode = (state.indicatorInclSources || []).length ? 'include'
     : ((state.indicatorExclSources || []).length ? 'exclude' : 'all');
@@ -15508,45 +15509,40 @@ function openIndicatorFilters(anchorEl) {
 
   const summary = el('span', { style: { fontSize: '11px', color: 'var(--text-subtle)' } });
   const updateSummary = () => {
-    const n = (acct === 'all' ? 1 : 0) + (exclSvc.size ? 1 : 0) + ((srcMode !== 'all' && srcSel.size) ? 1 : 0);
+    const n = (empType !== 'all' ? 1 : 0) + (acct === 'all' ? 1 : 0) + (exclSvc.size ? 1 : 0) + ((srcMode !== 'all' && srcSel.size) ? 1 : 0);
     summary.textContent = n ? (n + ' change' + (n === 1 ? '' : 's') + ' from default') : 'Default (matches CRM)';
   };
-  const sectionTitle = (t, sub) => el('div', { style: { margin: '2px 0 8px' } },
-    el('div', { style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '800', color: 'var(--text-muted)' } }, t),
-    sub ? el('div', { style: { fontSize: '11px', color: 'var(--text-subtle)', marginTop: '2px' } }, sub) : null);
+  // CRM-style labeled row: caption on the left, control on the right.
+  const _sel = (value, opts, onChange) => el('select', {
+    class: 'rounded-lg border px-2 py-1.5 text-xs cursor-pointer w-full',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    onchange: e => onChange(e.target.value),
+  }, ...opts.map(([v, l]) => el('option', { value: v, selected: v === value }, l)));
+  const _checklist = (items, sel, right) => el('div', { style: { maxHeight: '160px', overflow: 'auto', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 8px' } },
+    ...items.map(name => el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 2px', fontSize: '12px', cursor: 'pointer' } },
+      el('input', { type: 'checkbox', checked: sel.has(name), onchange: e => { if (e.target.checked) sel.add(name); else sel.delete(name); updateSummary(); } }),
+      el('span', { style: { flex: '1' } }, name),
+      right ? el('span', { style: { color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' } }, right(name)) : null)));
+  const _field = (label, control, hint) => el('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '12px' } },
+    el('div', { style: { width: '104px', flexShrink: '0', fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textAlign: 'right', paddingTop: '7px' } }, label),
+    el('div', { style: { flex: '1', minWidth: '0' } }, control, hint ? el('div', { style: { fontSize: '10px', color: 'var(--text-subtle)', marginTop: '3px' } }, hint) : null));
 
-  const body = el('div', { class: 'overflow-auto', style: { padding: '14px 18px' } });
+  const body = el('div', { class: 'overflow-auto', style: { padding: '16px 18px' } });
   const render = () => {
     body.innerHTML = '';
-    body.append(el('div', { style: { marginBottom: '16px' } },
-      sectionTitle('Account status', 'Default (Pending / Serviced) matches your CRM: it drops accounts cancelled before first service but keeps serviced-then-cancelled ones. "All" also includes never-started accounts.'),
-      el('div', { class: 'pill-tabs' },
-        el('button', { 'data-active': acct === 'pending_serviced', onclick: () => { acct = 'pending_serviced'; render(); } }, 'Pending / Serviced'),
-        el('button', { 'data-active': acct === 'all', onclick: () => { acct = 'all'; render(); } }, 'All (incl. not-started)'),
-      )));
-    body.append(el('div', { style: { marginBottom: '16px' } },
-      sectionTitle('Exclude service types', 'Checked = removed from every metric. Revenue shown so the CRM’s excluded services are easy to find.'),
-      el('div', { style: { maxHeight: '190px', overflow: 'auto', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 8px' } },
-        ...services.map(name => el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 2px', fontSize: '12px', cursor: 'pointer' } },
-          el('input', { type: 'checkbox', checked: exclSvc.has(name), onchange: e => { if (e.target.checked) exclSvc.add(name); else exclSvc.delete(name); updateSummary(); } }),
-          el('span', { style: { flex: '1' } }, name),
-          el('span', { style: { color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' } }, usd(svcRev[name])))))));
-    body.append(el('div', {},
-      sectionTitle('Sources'),
-      el('div', { class: 'pill-tabs', style: { marginBottom: '8px' } },
-        el('button', { 'data-active': srcMode === 'all', onclick: () => { srcMode = 'all'; render(); } }, 'All sources'),
-        el('button', { 'data-active': srcMode === 'include', onclick: () => { srcMode = 'include'; render(); } }, 'Only selected'),
-        el('button', { 'data-active': srcMode === 'exclude', onclick: () => { srcMode = 'exclude'; render(); } }, 'Exclude selected'),
-      ),
-      srcMode === 'all' ? null : el('div', { style: { maxHeight: '150px', overflow: 'auto', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 8px' } },
-        ...sources.map(name => el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 2px', fontSize: '12px', cursor: 'pointer' } },
-          el('input', { type: 'checkbox', checked: srcSel.has(name), onchange: e => { if (e.target.checked) srcSel.add(name); else srcSel.delete(name); updateSummary(); } }),
-          el('span', {}, name))))));
+    body.append(
+      _field('Emp Type', _sel(empType, [['all', 'All'], ['d2d', 'Sales Rep'], ['office', 'Office Staff'], ['techs', 'Technician']], v => { empType = v; updateSummary(); }), 'Same as the Department pills — “Sales Rep” matches the CRM.'),
+      _field('Acct Status', _sel(acct, [['pending_serviced', 'Pending / Serviced'], ['all', 'All (incl. not-started)']], v => { acct = v; updateSummary(); }), 'Default matches your CRM.'),
+      _field('Sources', _sel(srcMode, [['all', 'All sources'], ['include', 'Only selected'], ['exclude', 'Exclude selected']], v => { srcMode = v; render(); })),
+    );
+    if (srcMode !== 'all') body.append(_field('', _checklist(sources, srcSel, null)));
+    body.append(_field('Excl. Services', _checklist(services, exclSvc, usd2 => usd(svcRev[usd2])), 'Check the ones your CRM excludes (revenue shown).'));
     updateSummary();
   };
   render();
 
   const apply = () => {
+    state.indicatorDept = empType;
     state.indicatorAcctStatus = acct;
     state.indicatorExclServiceTypes = [...exclSvc];
     state.indicatorInclSources = (srcMode === 'include') ? [...srcSel] : [];
@@ -15556,7 +15552,7 @@ function openIndicatorFilters(anchorEl) {
   };
   const clearAll = () => { acct = 'all'; exclSvc.clear(); srcMode = 'all'; srcSel.clear(); render(); };
 
-  const card = el('div', { class: 'card flex flex-col', style: { position: 'absolute', width: 'min(560px, calc(100vw - 24px))', maxHeight: 'calc(100vh - 120px)', boxShadow: '0 12px 34px rgba(0,0,0,0.30)', overflow: 'hidden' } },
+  const card = el('div', { class: 'card flex flex-col', style: { position: 'absolute', width: 'min(640px, calc(100vw - 24px))', maxHeight: 'calc(100vh - 120px)', boxShadow: '0 12px 34px rgba(0,0,0,0.30)', overflow: 'hidden' } },
     el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '12px 16px', borderBottom: '1px solid var(--border)' } },
       el('h2', { style: { fontSize: '13px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text)' } }, 'Filters'),
       el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
@@ -17345,7 +17341,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     if (v >= 149) return 1;
     return 0;
   };
-  const isActiveAccount = (s) => !s.cancelDate && s.active !== 'No';
+  // Active = not cancelled AND status is Active (Frozen / Inactive / No are NOT
+  // active — a frozen account is paused, not generating recurring revenue).
+  // Robust across formats: RevHawk sends "Active"/"Frozen"; an old CSV sent
+  // "Yes"/"No".
+  const isActiveAccount = (s) => {
+    if (s.cancelDate) return false;
+    const _a = String(s.active || '').trim().toLowerCase();
+    return _a !== 'no' && _a !== 'frozen' && _a !== 'inactive';
+  };
 
   function _latestSaleDate(sales) {
     let latest = null;
