@@ -17102,6 +17102,45 @@ function viewIndicators() {
 }
 
 // ── Rep-level sections for Indicators tab ──
+// "Why Customers Cancel" — cancels aggregated by reason for the current window.
+// Shows count + lost contract value per reason, ranked, and tags each as real
+// attrition vs. excluded churn (sold-not-started, 3-day RORs, renewals, or
+// anything marked "not attrition" in Configurations). Respects the ROR toggle.
+function cancelReasonsBlock(sales) {
+  const cancels = (sales || []).filter(s => s.cancelDate);
+  if (!cancels.length) return null;
+  const usd = v => '$' + Math.round(v || 0).toLocaleString();
+  const by = {};
+  let totCount = 0, totRev = 0, attrCount = 0, attrRev = 0;
+  cancels.forEach(s => {
+    const reason = (s.cancelReason || '').trim() || 'Unspecified';
+    const rev = Number(s.contractValue) || 0;
+    const excluded = _repCancelExcluded(s);
+    const o = by[reason] || (by[reason] = { reason, count: 0, rev: 0, excluded });
+    o.count++; o.rev += rev;
+    totCount++; totRev += rev;
+    if (!excluded) { attrCount++; attrRev += rev; }
+  });
+  const rows = Object.values(by).sort((a, b) => b.count - a.count);
+  const max = Math.max(1, ...rows.map(r => r.count));
+  return el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b flex items-center justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
+      el('div', {},
+        el('h3', { class: 'text-base font-bold' }, '📉 Why Customers Cancel'),
+        el('p', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Cancels by reason (current window). Red = counts as attrition; gray = excluded churn (sold-not-started, RORs, renewals).')),
+      el('div', { class: 'text-right text-[11px]' },
+        el('div', { style: { fontWeight: '800', color: '#DC2626' } }, attrCount.toLocaleString() + ' attrition · ' + usd(attrRev) + ' lost'),
+        el('div', { style: { color: 'var(--text-subtle)', marginTop: '1px' } }, totCount.toLocaleString() + ' total cancels · ' + usd(totRev)))),
+    el('div', { style: { padding: '8px 14px 12px', maxHeight: '360px', overflow: 'auto' } },
+      ...rows.map(r => el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 0' } },
+        el('div', { style: { width: '188px', flexShrink: '0', fontSize: '12px', fontWeight: '600', color: r.excluded ? 'var(--text-subtle)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, title: r.reason }, r.reason),
+        el('div', { style: { flex: '1', minWidth: '40px', height: '14px', background: 'var(--card-2)', borderRadius: '3px', overflow: 'hidden' } },
+          el('div', { style: { height: '100%', width: Math.round((r.count / max) * 100) + '%', background: r.excluded ? 'var(--border-2)' : '#DC2626', opacity: r.excluded ? '0.6' : '0.9' } })),
+        el('div', { style: { width: '46px', textAlign: 'right', fontSize: '12px', fontWeight: '700', fontVariantNumeric: 'tabular-nums' } }, r.count),
+        el('div', { style: { width: '80px', textAlign: 'right', fontSize: '11px', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' } }, usd(r.rev)),
+        el('div', { style: { width: '62px', textAlign: 'right', fontSize: '9px', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.03em', color: r.excluded ? 'var(--text-subtle)' : '#DC2626' } }, r.excluded ? 'excluded' : 'attrition')))));
+}
+
 function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksUnfiltered, allDataUnfiltered, windowLabel) {
   // We need the raw sales data — stored alongside aggregated rows.
   // Department-scoped so the rep leaderboard matches the toggle selection.
@@ -18907,6 +18946,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       });
     }, 0);
   }
+
+  // Why Customers Cancel — reason breakdown for the current window.
+  { const _cx = cancelReasonsBlock(rawSalesAll); if (_cx) sections.push(_cx); }
 
   sections.push(
     el('div', { class: 'card overflow-hidden' },
