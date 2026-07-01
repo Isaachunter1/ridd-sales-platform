@@ -4490,7 +4490,18 @@ function _parseIndicatorTime(s) {
   if (ampm === 'PM' && h !== 12) h += 12;
   if (ampm === 'AM' && h === 12) h = 0;
   if (h < 0 || h > 23) return null;
+  // FieldRoutes' dateAdded (pulled via RevHawk) runs ~3 hours behind Eastern —
+  // its stored timezone doesn't match the branches — so raw hours make evening
+  // knocks look like afternoon. Shift each sale to its OFFICE's local time so
+  // Power Hour (and the day/hour heatmap) reflect when reps actually knock.
+  h = (h + _saleHourOffset(s.office) + 24) % 24;
   return { hour: h, minute: mn };
+}
+// Hours to add to the source timestamp to reach the office's local time. The
+// source runs ~3h behind Eastern; Destin is Central (+2), every other RIDD
+// branch is Eastern (+3). Adjust here if a branch reads an hour off.
+function _saleHourOffset(office) {
+  return /destin/i.test(String(office || '')) ? 2 : 3;
 }
 
 // 14 → "2p", 0 → "12a", 12 → "12p"
