@@ -12010,6 +12010,7 @@ const DEFAULT_COMPETITIONS = [
   { id: 'top_gun',          name: 'Top Gun', scoring: 'top_gun' },
   { id: 'spring_cleaning',  name: 'Spring Cleaning',  scoring: 'spring_cleaning' },
   { id: 'last_man_standing',name: 'Last Man Standing', scoring: 'last_man_standing' },
+  { id: 'nrla',             name: 'NRLA', scoring: 'nrla' },
   { id: 'avg_pest_initial', name: 'Avg Pest & Raffle', scoring: 'avg_pest_initial' },
 ];
 function getIndicatorCompetitions() {
@@ -12371,6 +12372,587 @@ function lastManStandingBoard(windowed, winLabel) {
     R.rounds.length
       ? el('div', { style: { padding: '12px 0 0' } }, gauntlet)
       : el('div', { style: { fontFamily: DISP, color: MAG, textAlign: 'center', padding: '26px', fontSize: '1rem', background: '#000', textTransform: 'uppercase', letterSpacing: '.05em' } }, 'No Saturday rounds played in this window yet.'));
+}
+
+// ── NRLA — National RIDD League Association ────────────────────────────────
+// Branch-vs-branch round-robin league, decoded from the 2025 workbook:
+//   • Teams = branches. Every D2D rep counts under their home branch unless
+//     the admin transfers them (👥 — same per-comp repBranchOverrides store
+//     Spring Cleaning uses, so a rep knocking one market can compete for any
+//     team).
+//   • GOAL: each team's SERVICED revenue over the baseline window, normalized
+//     to a 2-day pace (rev ÷ days × 2). Same one goal is used every round.
+//     (2025 built it as the sum of each competing rep's "2-day average" —
+//     identical math when the roster is the whole branch.)
+//   • ROUNDS: consecutive 2-day blocks starting at the season start date,
+//     skipping Sundays (2025: Jul 28-29 · 30-31 · Aug 1-2 · skip Sun · 4-5 …).
+//   • SCORE: serviced revenue sold in the round (Contract Value of accounts
+//     that have been serviced) vs the team's goal → % over/under goal.
+//   • Matchup winner = the better % vs OWN goal (levels the field between
+//     big and small branches). BYE = automatic win — verified against the
+//     2025 standings. Standings = W-L; ties broken by cumulative % vs goal.
+function isNrlaComp(comp) {
+  const c = comp || (typeof getActiveComp === 'function' ? getActiveComp() : null);
+  return !!(c && (c.scoring === 'nrla' || c.id === 'nrla' || /\bnrla\b/i.test(c.name || '')));
+}
+// Per-comp config, persisted on the competition object itself (syncs to every
+// admin like Spring Cleaning's settings do).
+function nrlaConfig(comp) {
+  const c = comp || getActiveComp(); if (!c) return null;
+  if (!c.nrla || typeof c.nrla !== 'object') c.nrla = {};
+  const n = c.nrla;
+  if (typeof n.start !== 'string') n.start = '';
+  n.rounds = Math.min(30, Math.max(1, Math.round(Number(n.rounds) || 7)));
+  if (typeof n.baselineStart !== 'string') n.baselineStart = '';
+  if (typeof n.baselineEnd !== 'string') n.baselineEnd = '';
+  if (!Array.isArray(n.teamOrder)) n.teamOrder = null;   // 🎲 shuffled matchup order
+  n.groups = Number(n.groups) === 1 ? 1 : 2;              // two groups by # of reps (poster) or one table
+  if (!n.teamNames || typeof n.teamNames !== 'object') n.teamNames = {};  // branch → display name (Ganadores, Dawgs, …)
+  if (!Array.isArray(c.excludedBranches)) c.excludedBranches = [];
+  return n;
+}
+const _nrlaDay = (isoStr) => { if (!isoStr) return null; const d = new Date(isoStr + 'T00:00'); return isNaN(d) ? null : d; };
+const _nrlaIso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+// Baseline window: explicit dates win; otherwise default to the 28 days
+// ending the day before the season starts (a trailing average, like 2025).
+function nrlaBaselineBounds(cfg) {
+  let s = _nrlaDay(cfg.baselineStart), e = _nrlaDay(cfg.baselineEnd);
+  if ((!s || !e) && cfg.start) {
+    const st = _nrlaDay(cfg.start);
+    if (st) {
+      if (!e) { e = new Date(st); e.setDate(e.getDate() - 1); }
+      if (!s) { s = new Date(e); s.setDate(s.getDate() - 27); }
+    }
+  }
+  if (!s || !e || e < s) return null;
+  return { s, e, days: Math.round((e - s) / 86400000) + 1 };
+}
+// Round windows: 2-day blocks from the start date, skipping Sundays.
+function nrlaRoundWindows(cfg) {
+  const start = _nrlaDay(cfg.start);
+  if (!start) return [];
+  const next = (d) => { const x = new Date(d); do { x.setDate(x.getDate() + 1); } while (x.getDay() === 0); return x; };
+  const rounds = [];
+  let d1 = new Date(start);
+  while (d1.getDay() === 0) d1.setDate(d1.getDate() + 1);   // never open a round on Sunday
+  for (let i = 0; i < cfg.rounds; i++) {
+    const d2 = next(d1);
+    rounds.push({ num: i + 1, d1: new Date(d1), d2: new Date(d2) });
+    d1 = next(d2);
+  }
+  return rounds;
+}
+// Circle-method round robin. Odd team counts get a BYE (null opponent). If
+// more rounds are scheduled than a single round robin holds, it cycles.
+function nrlaSchedule(teams, roundsWanted) {
+  const t = teams.slice();
+  if (t.length < 2) return [];
+  if (t.length % 2) t.push(null);
+  const n = t.length, per = n - 1, arr = t.slice(), one = [];
+  for (let r = 0; r < per; r++) {
+    const pairs = [];
+    for (let i = 0; i < n / 2; i++) pairs.push([arr[i], arr[n - 1 - i]]);
+    one.push(pairs);
+    arr.splice(1, 0, arr.pop());
+  }
+  const rounds = [];
+  for (let i = 0; i < roundsWanted; i++) rounds.push(one[i % per]);
+  return rounds;
+}
+// Serviced = the account has actually been serviced (any time — v1 has no
+// service deadline): a service on record, a serviced date, or a Serviced status.
+function nrlaServiced(s) {
+  if ((Number(s.services) || 0) > 0) return true;
+  if (typeof _scParseServiced === 'function' && _scParseServiced(s.servicedDate)) return true;
+  return /serviced/i.test(String(s.status || ''));
+}
+// Rep → team transfers (comp purposes only) — same store Spring Cleaning uses.
+function nrlaApplyOverrides(sales, comp) {
+  const ov = (comp && comp.repBranchOverrides && typeof comp.repBranchOverrides === 'object') ? comp.repBranchOverrides : {};
+  if (!Object.keys(ov).length) return sales || [];
+  return (sales || []).map(s => {
+    const o = ov[_cleanRepName(getCanonicalRepName(s.rep || ''))];
+    return (o && o !== s.office) ? { ...s, office: o } : s;
+  });
+}
+function nrlaCompute(rawSales) {
+  const comp = getActiveComp();
+  const cfg = nrlaConfig(comp);
+  const exB = new Set((comp.excludedBranches || []).map(b => String(b).toUpperCase()));
+  const offOf = (s) => String(s.office || 'UNKNOWN').toUpperCase();
+  const sales = nrlaApplyOverrides(rawSales, comp)
+    .filter(s => _indicatorDeptOf(s) === 'd2d' && !exB.has(offOf(s)));
+  const bl = nrlaBaselineBounds(cfg);
+  const windows = nrlaRoundWindows(cfg);
+  const seasonStart = windows.length ? windows[0].d1 : null;
+  const seasonEnd   = windows.length ? windows[windows.length - 1].d2 : null;
+  // Teams = branches with any D2D activity in the baseline or the season.
+  const teamSet = new Set();
+  for (const s of sales) {
+    const d = _parseIndicatorDay(s); if (!d) continue;
+    const inBl = bl && d >= bl.s && d <= bl.e;
+    const inSeason = seasonStart && d >= seasonStart && d <= seasonEnd;
+    if (inBl || inSeason) { const o = offOf(s); if (o && o !== 'UNKNOWN') teamSet.add(o); }
+  }
+  const teams = [...teamSet].sort();
+  // Goals — baseline serviced revenue → per-2-day pace. Also count the reps
+  // who produced serviced baseline revenue ("reps competing" on the board).
+  const goals = {}, blReps = {};
+  teams.forEach(t => { goals[t] = 0; blReps[t] = new Set(); });
+  if (bl) for (const s of sales) {
+    const d = _parseIndicatorDay(s);
+    if (!d || d < bl.s || d > bl.e || !nrlaServiced(s)) continue;
+    const o = offOf(s); if (!(o in goals)) continue;
+    goals[o] += Number(s.contractValue) || 0;
+    if (s.rep) blReps[o].add(s.rep);
+  }
+  teams.forEach(t => { goals[t] = bl && bl.days > 0 ? goals[t] / bl.days * 2 : 0; });
+  // Per-round serviced revenue (sold in the round's 2 days AND serviced).
+  const roundRev = windows.map(() => ({}));
+  const roundReps = windows.map(() => ({}));
+  if (windows.length) for (const s of sales) {
+    const d = _parseIndicatorDay(s);
+    if (!d || d < seasonStart || d > seasonEnd || !nrlaServiced(s)) continue;
+    for (let i = 0; i < windows.length; i++) {
+      const w = windows[i];
+      if (d >= w.d1 && d <= w.d2) {
+        const o = offOf(s);
+        roundRev[i][o] = (roundRev[i][o] || 0) + (Number(s.contractValue) || 0);
+        (roundReps[i][o] = roundReps[i][o] || new Set()).add(s.rep);
+        break;
+      }
+    }
+  }
+  // Groups — "two separate groups based on # of reps": teams ranked by
+  // baseline roster size; the bigger half (rounded up) is Group 1, the rest
+  // Group 2. Single-table mode keeps everyone in one round robin.
+  const repCount = (t) => (blReps[t] || new Set()).size;
+  let groups;
+  if (cfg.groups === 2 && teams.length >= 4) {
+    const bySize = teams.slice().sort((a, b) => repCount(b) - repCount(a) || a.localeCompare(b));
+    const cut = Math.ceil(bySize.length / 2);
+    groups = [bySize.slice(0, cut).sort(), bySize.slice(cut).sort()];
+  } else {
+    groups = [teams.slice()];
+  }
+  const teamGroup = {};
+  groups.forEach((g, gi) => g.forEach(t => { teamGroup[t] = gi + 1; }));
+  // Matchup order — a saved shuffle (🎲 on the board) wins; teams not in the
+  // saved order (a new branch, an un-excluded team) are appended so the rest
+  // of the schedule stays stable. The order applies WITHIN each group.
+  const orderWithin = (g) => {
+    if (!Array.isArray(cfg.teamOrder) || !cfg.teamOrder.length) return g;
+    const cur = new Set(g);
+    const kept = cfg.teamOrder.map(t => String(t).toUpperCase()).filter(t => cur.has(t));
+    const keptSet = new Set(kept);
+    return kept.concat(g.filter(t => !keptSet.has(t)));
+  };
+  const scheds = groups.map(g => nrlaSchedule(orderWithin(g), windows.length));
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const stand = {};
+  teams.forEach(t => { stand[t] = { team: t, w: 0, l: 0, t: 0, pctSum: 0, rev: 0, results: [] }; });
+  const rounds = windows.map((w, i) => {
+    const started = today >= w.d1;
+    const done = today > w.d2;
+    const mk = (t) => t == null ? null : (() => {
+      const rev = roundRev[i][t] || 0, g = goals[t] || 0;
+      return { team: t, rev, goal: g, pct: g > 0 ? rev / g - 1 : (rev > 0 ? 1 : 0), reps: (roundReps[i][t] || new Set()).size };
+    })();
+    const matchups = [];
+    scheds.forEach((sc, gi) => (sc[i] || []).forEach(([a, b]) => {
+      const A = mk(a), B = mk(b);
+      let winner = null;
+      if (started) {
+        if (A && !B) winner = a;                    // BYE = automatic win
+        else if (B && !A) winner = b;
+        else if (A && B && A.pct !== B.pct) winner = A.pct > B.pct ? a : b;
+      }
+      matchups.push({ a: A, b: B, winner, bye: !A || !B, group: gi + 1 });
+    }));
+    if (started) matchups.forEach(m => {
+      [m.a, m.b].forEach(side => {
+        if (!side) return;
+        const st = stand[side.team]; if (!st) return;
+        st.rev += side.rev; st.pctSum += side.pct;
+        if (!m.bye && m.winner === null) { st.t += 1; st.results.push('T'); }
+        else if (m.winner === side.team) { st.w += 1; st.results.push('W'); }
+        else { st.l += 1; st.results.push('L'); }
+      });
+    });
+    return { ...w, started, done, live: started && !done, matchups };
+  });
+  const standings = teams.map(t => stand[t])
+    .sort((a, b) => b.w - a.w || a.l - b.l || b.pctSum - a.pctSum || b.rev - a.rev);
+  const seasonDone = !!(rounds.length && rounds.every(r => r.done));
+  return { comp, cfg, bl, teams, goals, blReps, rounds, standings, seasonDone, groups, teamGroup };
+}
+
+// Rules popup for NRLA (the header ⓘ).
+function openNrlaHelpModal() {
+  const NAVY = '#0B4F9E', CREAM = '#fff';
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const block = (title, body) => el('div', { class: 'mb-3' },
+    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: NAVY } }, title),
+    el('div', { class: 'text-[13px] leading-relaxed', style: { color: 'var(--text-muted)' } }, body));
+  const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: NAVY } },
+      el('div', {},
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: CREAM, opacity: '0.8' } }, 'RIDDMADE ★ LEAGUE'),
+        el('h2', { class: 'text-lg font-black mt-0.5', style: { color: CREAM, textTransform: 'uppercase' } }, 'NRLA — Rules'),
+      ),
+      el('button', { class: 'text-2xl leading-none', style: { color: CREAM }, onclick: close }, '×'),
+    ),
+    el('div', { class: 'overflow-auto px-5 py-4' },
+      block('Format', 'Branch-vs-branch round robin. Every round is a 2-day block (Sundays skipped); each round pairs teams head-to-head, with a BYE when the team count is odd.'),
+      block('Groups', 'In two-group mode, teams are split by roster size (baseline rep count) — the bigger half is Group 1, the rest Group 2. Each group runs its own round robin and its own standings. Switch to a single table in the config strip.'),
+      block('Goal', 'Each team\'s goal = its serviced revenue over the baseline window, averaged to a 2-day pace (rev ÷ days × 2). One goal, every round — so big and small branches compete on even footing.'),
+      block('Scoring', 'A round scores the SERVICED revenue a team sold inside its 2 days (Contract Value of accounts that have been serviced). The matchup winner is the team further ABOVE (or less below) its own goal, in %.'),
+      block('Byes', 'A bye is an automatic win (matches how 2025 was scored).'),
+      block('Standings', 'Win-loss record. Ties are broken by cumulative % vs goal, then total serviced revenue.'),
+      block('Who counts', 'Sales-Rep (D2D) production only. Reps count for their home branch unless transferred with the 👥 button — transfers apply to the baseline goal AND every round.'),
+    ),
+  );
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
+// Rep → team transfer modal — NRLA flavor of the Spring Cleaning market
+// modal, writing to the same comp.repBranchOverrides store.
+function openNrlaRepMarketModal(sales) {
+  const comp = (typeof getActiveComp === 'function') ? getActiveComp() : null;
+  if (!comp) { toast('No active competition', 'error'); return; }
+  if (!comp.repBranchOverrides || typeof comp.repBranchOverrides !== 'object') comp.repBranchOverrides = {};
+  const NAVY = '#0B4F9E';
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); mountApp(); };
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  const card = el('div', { class: 'card w-full max-w-xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
+  overlay.append(card);
+  const d2d = (sales || []).filter(s => _indicatorDeptOf(s) === 'd2d' && s.rep);
+  const byRep = new Map();
+  for (const s of d2d) {
+    const name = _cleanRepName(getCanonicalRepName(s.rep));
+    let r = byRep.get(name);
+    if (!r) { r = { counts: {}, n: 0 }; byRep.set(name, r); }
+    const o = (s.office || 'UNKNOWN').toUpperCase();
+    r.counts[o] = (r.counts[o] || 0) + 1;
+    r.n++;
+  }
+  const homeOf = (r) => Object.entries(r.counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'UNKNOWN';
+  const branches = [...new Set([
+    ...d2d.map(s => (s.office || '').toUpperCase()).filter(Boolean),
+    ...Object.values(comp.repBranchOverrides).map(b => String(b).toUpperCase()),
+  ])].sort();
+  const render = () => {
+    card.innerHTML = '';
+    const q = (state._nrlaRepSearch || '').trim().toLowerCase();
+    const names = [...byRep.keys()].sort((a, b) => a.localeCompare(b)).filter(n => !q || n.toLowerCase().includes(q));
+    const movedCount = Object.keys(comp.repBranchOverrides).length;
+    const searchInput = el('input', {
+      type: 'text', value: state._nrlaRepSearch || '', placeholder: 'Search reps…',
+      class: 'w-full rounded-lg border px-3 py-2 text-sm',
+      style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
+    });
+    searchInput.addEventListener('input', (e) => { state._nrlaRepSearch = e.target.value; render(); setTimeout(() => { const el2 = card.querySelector('input'); if (el2) { el2.focus(); el2.setSelectionRange(el2.value.length, el2.value.length); } }, 0); });
+    card.append(
+      el('div', { class: 'flex items-center justify-between px-5 py-4 border-b gap-3', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('h2', { class: 'text-base font-bold' }, '👥 NRLA Team Assignments'),
+          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
+            byRep.size + ' D2D reps · ' + movedCount + ' transferred · comp purposes only')),
+        el('div', { class: 'flex items-center gap-2' },
+          movedCount > 0 && el('button', {
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+            style: { borderColor: '#DC2626', color: '#DC2626' },
+            title: 'Send every transferred rep back to their home team',
+            onclick: () => {
+              if (!confirm('Reset all ' + movedCount + ' transferred reps back to their home teams?')) return;
+              comp.repBranchOverrides = {};
+              logActivity('comp_change', { detail: 'NRLA: all rep team transfers reset' });
+              saveDemoData();
+              render();
+            },
+          }, '↺ Reset all'),
+          el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'))),
+      el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } }, searchInput),
+      el('div', { class: 'overflow-y-auto flex-1' },
+        ...names.map(name => {
+          const r = byRep.get(name);
+          const home = homeOf(r);
+          const ov = comp.repBranchOverrides[name] ? String(comp.repBranchOverrides[name]).toUpperCase() : '';
+          const effective = ov || home;
+          const sel = el('select', {
+            class: 'rounded-lg px-2 py-1.5 text-xs font-semibold cursor-pointer',
+            style: ov ? { border: '2px solid ' + NAVY, color: NAVY } : {},
+            onchange: (e) => {
+              const v = e.target.value;
+              if (!v || v === home) delete comp.repBranchOverrides[name];
+              else comp.repBranchOverrides[name] = v;
+              logActivity('comp_change', { rep_name: name, detail: (!v || v === home) ? name + ' back to home team ' + home + ' (NRLA)' : name + ' transferred to ' + v + ' (NRLA)' });
+              saveDemoData();
+              render();
+            },
+          }, ...branches.map(b => { const o = el('option', { value: b }, b + (b === home ? ' (home)' : '')); if (b === effective) o.selected = true; return o; }));
+          return el('div', { class: 'flex items-center justify-between gap-3 px-5 py-2 border-b', style: { borderColor: 'var(--border)' } },
+            el('div', { class: 'min-w-0' },
+              el('div', { class: 'text-sm font-semibold truncate' }, name,
+                ov && el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(11,79,158,.12)', color: NAVY } }, 'transferred')),
+              el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } },
+                r.n + ' acct' + (r.n === 1 ? '' : 's') + ' · knocks ' + home)),
+            sel);
+        })),
+      el('div', { class: 'px-5 py-3 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
+        'Transfers move ALL of a rep\'s production to the chosen team — baseline goal and every round. Pick the home team to undo. Synced to every admin.'));
+  };
+  render();
+  document.body.append(overlay);
+}
+
+// ── NRLA board — poster vibe: big white letters on a summer sky, hot-pink
+// copy. Groups render as separate standings tables when two-group mode is on.
+function nrlaBoard(rawSales) {
+  const R = nrlaCompute(rawSales);
+  const { cfg, bl } = R;
+  const SKY = '#0B4F9E', SKY2 = '#2F86D6', PINK = '#F2148C';
+  const DISP = "var(--font-display, 'Anton', system-ui, sans-serif)";
+  const money = (n) => '$' + Math.round(Number(n) || 0).toLocaleString();
+  const pctStr = (p) => (p >= 0 ? '+' : '') + (p * 100).toFixed(1) + '%';
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const dspan = (d1, d2) => MON[d1.getMonth()] + ' ' + d1.getDate() + '–' + (d1.getMonth() === d2.getMonth() ? '' : MON[d2.getMonth()] + ' ') + d2.getDate();
+  const rerender = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
+  const save = (detail) => { logActivity('comp_change', { detail: 'NRLA: ' + detail }); saveDemoData(); rerender(); };
+  const twoGroups = R.groups && R.groups.length === 2;
+  // Display name (Ganadores, Dawgs, …) with the branch as the fallback.
+  const nameOf = (t) => (cfg.teamNames && cfg.teamNames[t]) || t;
+  const renameTeam = (t) => {
+    const v = prompt('Display name for ' + t + ' (blank = branch name):', (cfg.teamNames && cfg.teamNames[t]) || '');
+    if (v === null) return;
+    if (!cfg.teamNames || typeof cfg.teamNames !== 'object') cfg.teamNames = {};
+    const nm = v.trim();
+    if (nm) cfg.teamNames[t] = nm; else delete cfg.teamNames[t];
+    save('team name ' + t + ' → ' + (nm || t));
+  };
+
+  // ── Hero — CSS summer sky (gradient + cloud puffs), poster letters, pink copy ──
+  const heroBg =
+    'radial-gradient(ellipse 55% 45% at 16% 82%, rgba(255,255,255,.92), rgba(255,255,255,0) 65%),' +
+    'radial-gradient(ellipse 42% 34% at 52% 96%, rgba(255,255,255,.78), rgba(255,255,255,0) 70%),' +
+    'radial-gradient(ellipse 34% 30% at 84% 62%, rgba(255,255,255,.5), rgba(255,255,255,0) 70%),' +
+    'radial-gradient(ellipse 46% 32% at 72% 14%, rgba(255,255,255,.22), rgba(255,255,255,0) 70%),' +
+    'linear-gradient(180deg, ' + SKY + ' 0%, ' + SKY2 + ' 62%, #8FC0EC 100%)';
+  const hero = el('div', { style: { background: heroBg, padding: '22px 22px 18px', position: 'relative', overflow: 'hidden' } },
+    el('div', { class: 'flex items-start justify-between gap-3 flex-wrap', style: { position: 'relative', zIndex: '1' } },
+      el('div', {},
+        el('div', { style: { fontFamily: DISP, fontSize: 'clamp(3rem,9vw,6rem)', lineHeight: '.8', color: '#fff', textTransform: 'uppercase', letterSpacing: '.1em', textShadow: '0 2px 26px rgba(10,42,82,.35)' } }, 'NRLA'),
+        el('div', { style: { fontFamily: DISP, fontSize: '.74rem', letterSpacing: '.24em', color: '#fff', textTransform: 'uppercase', marginTop: '7px', opacity: '.9' } }, 'National RIDD League Association · RIDDMADE™'),
+        twoGroups && el('div', { style: { fontFamily: DISP, color: PINK, textTransform: 'uppercase', lineHeight: '1.04', fontSize: 'clamp(1rem,2.2vw,1.4rem)', marginTop: '12px', letterSpacing: '.01em' } },
+          el('div', {}, 'Two separate groups based on # of reps —'),
+          el('div', {}, 'teams compete within their group, round robin')),
+        el('div', { class: 'flex items-center gap-2 flex-wrap', style: { marginTop: '12px' } },
+          el('span', { style: { display: 'inline-block', padding: '3px 10px', borderRadius: '999px', background: PINK, color: '#fff', fontWeight: '900', fontSize: '11px', letterSpacing: '.03em' } },
+            R.rounds.length ? '📅 ' + dspan(R.rounds[0].d1, R.rounds[R.rounds.length - 1].d2) + ' · ' + R.rounds.length + ' rounds' : '📅 schedule not set'),
+          bl && el('span', { style: { display: 'inline-block', padding: '3px 10px', borderRadius: '999px', background: 'rgba(255,255,255,.25)', color: '#fff', fontWeight: '700', fontSize: '11px' } },
+            'Goal = serviced rev ' + _nrlaIso(bl.s) + ' → ' + _nrlaIso(bl.e) + ' ÷ ' + bl.days + ' days × 2'),
+        ),
+      ),
+      el('div', { class: 'flex items-center gap-2 shrink-0' },
+        el('button', {
+          class: 'cursor-pointer transition hover:brightness-95',
+          style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
+          title: 'See every rep and the team they count toward — transfer for comp purposes',
+          onclick: () => openNrlaRepMarketModal(rawSales),
+        }, '👥'),
+        el('button', {
+          class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer',
+          style: { width: '22px', height: '22px', background: PINK, color: '#fff' },
+          title: 'How the league works',
+          onclick: () => openNrlaHelpModal(),
+        }, 'ⓘ'),
+      ),
+    ),
+  );
+
+  // ── Season / baseline config strip ──
+  const dateIn = (val, onch, titleTxt) => el('input', {
+    type: 'date', value: val || '',
+    class: 'rounded border px-2 py-1 text-xs',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    title: titleTxt || '',
+    onchange: (e) => onch(e.target.value),
+  });
+  const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
+  const cfgBar = el('div', { class: 'px-3 py-2 flex items-center gap-2 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
+    lbl('Season start'),
+    dateIn(cfg.start, v => { cfg.start = v; save('season start → ' + (v || 'unset')); }, 'First day of Round 1 (rounds are 2-day blocks, Sundays skipped)'),
+    lbl('Rounds'),
+    el('input', {
+      type: 'number', min: '1', max: '30', value: String(cfg.rounds),
+      class: 'rounded border px-2 py-1 text-xs', style: { width: '58px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { cfg.rounds = Math.min(30, Math.max(1, Math.round(Number(e.target.value) || 7))); save('rounds → ' + cfg.rounds); },
+    }),
+    lbl('Baseline'),
+    dateIn(cfg.baselineStart || (bl ? _nrlaIso(bl.s) : ''), v => { cfg.baselineStart = v; save('baseline start → ' + (v || 'auto')); }, 'Baseline window start (drives each team\'s goal)'),
+    el('span', { class: 'text-muted-' }, '→'),
+    dateIn(cfg.baselineEnd || (bl ? _nrlaIso(bl.e) : ''), v => { cfg.baselineEnd = v; save('baseline end → ' + (v || 'auto')); }, 'Baseline window end'),
+    lbl('Groups'),
+    (() => {
+      const sel = el('select', {
+        class: 'rounded border px-2 py-1 text-xs cursor-pointer',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        title: 'Two groups split by roster size (round robin within each), or one single table',
+        onchange: (e) => { cfg.groups = Number(e.target.value) === 1 ? 1 : 2; save('groups → ' + (cfg.groups === 2 ? 'two groups (by # of reps)' : 'single table')); },
+      },
+        el('option', { value: '2' }, 'Two groups (by # of reps)'),
+        el('option', { value: '1' }, 'Single table'));
+      sel.value = String(cfg.groups);
+      return sel;
+    })(),
+    el('button', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+      style: { borderColor: PINK, color: PINK },
+      title: 'Randomize who plays who each round within each group (byes reshuffle too). Saved on the comp, so every admin sees the same schedule.',
+      onclick: () => {
+        if (R.teams.length < 2) { toast('Need at least two teams to build matchups', 'error'); return; }
+        if (R.rounds.some(r => r.started) && !confirm('The season has already started — reshuffling rewrites every round\'s matchups (and their results). Shuffle anyway?')) return;
+        const order = R.teams.slice();
+        for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+        cfg.teamOrder = order;
+        save('matchups shuffled (' + order.join(' · ') + ')');
+      },
+    }, '🎲 Shuffle matchups'),
+    el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '· NRLA runs on its own schedule — the Comp Window doesn\'t apply'),
+  );
+
+  // ── Competing-team chips (same pattern as Spring Cleaning) ──
+  const comp = R.comp;
+  const chipBar = (() => {
+    const allBranches = [...new Set([...R.teams, ...(comp.excludedBranches || []).map(b => String(b).toUpperCase())])].sort();
+    if (!allBranches.length) return null;
+    const ex = new Set((comp.excludedBranches || []).map(b => String(b).toUpperCase()));
+    return el('div', { class: 'px-3 py-2 flex items-center gap-1.5 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
+      lbl('Competing'),
+      ...allBranches.map(b => {
+        const off = ex.has(b);
+        return el('button', {
+          class: 'rounded-full px-2.5 py-0.5 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
+          style: off
+            ? { background: 'transparent', color: 'var(--text-muted)', border: '1px dashed var(--border-2)', textDecoration: 'line-through' }
+            : { background: SKY, color: '#fff', border: '1px solid ' + SKY },
+          title: off ? b + ' is sitting the league out — click to include' : 'Click to pull ' + b + ' out of the league',
+          onclick: () => {
+            comp.excludedBranches = off
+              ? comp.excludedBranches.filter(x => String(x).toUpperCase() !== b)
+              : [...(comp.excludedBranches || []), b];
+            save(b + (off ? ' back in the league' : ' pulled from the league'));
+          },
+        }, b);
+      }));
+  })();
+
+  // ── Empty states ──
+  if (!cfg.start) {
+    return el('div', { class: 'card overflow-hidden' }, hero, cfgBar,
+      el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
+        'Set a season start date above to build the schedule — rounds are 2-day blocks (Sundays skipped), and each team\'s goal comes from the baseline window.'));
+  }
+  if (R.teams.length < 2) {
+    return el('div', { class: 'card overflow-hidden' }, hero, cfgBar, chipBar,
+      el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
+        'Fewer than two teams have data in the baseline / season window — nothing to schedule yet.'));
+  }
+
+  // ── Standings — one table per group (poster: "teams will compete within
+  // their group in a round robin format"). Single-table mode = one table. ──
+  const resDot = (r, i) => el('span', {
+    style: { display: 'inline-grid', placeItems: 'center', width: '16px', height: '16px', borderRadius: '4px', fontSize: '9px', fontWeight: '900', marginRight: '2px',
+      background: r === 'W' ? SKY : r === 'L' ? PINK : '#9e9e9e', color: '#fff' },
+    title: 'Round ' + (i + 1) + ': ' + (r === 'W' ? 'Win' : r === 'L' ? 'Loss' : 'Tie'),
+  }, r);
+  const teamCell = (s) => el('td', { class: 'px-2 py-2 font-bold whitespace-nowrap' },
+    el('span', {}, nameOf(s.team)),
+    cfg.teamNames[s.team] && el('span', { class: 'ml-1 text-[9px] uppercase', style: { color: 'var(--text-subtle)' } }, s.team),
+    el('button', { class: 'ml-1 cursor-pointer text-[10px]', style: { opacity: '.5' }, title: 'Rename team (display only)', onclick: () => renameTeam(s.team) }, '✏️'));
+  const standingsFor = (g, gi) => {
+    const rows = R.standings.filter(s => g.includes(s.team));
+    const playedAny = rows.some(s => s.results.length);
+    return el('div', {},
+      el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: PINK } },
+        el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } },
+          twoGroups ? 'Group ' + gi + (gi === 1 ? ' · most reps' : ' · fewer reps') : 'Standings'),
+        el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, g.length + ' teams')),
+      el('div', { class: 'overflow-x-auto' },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: SKY, color: '#fff' } },
+            el('tr', {},
+              el('th', { class: 'text-left px-3 py-2.5 font-bold' }, '#'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Team'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'W'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'L'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Rounds'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Goal per round: baseline serviced revenue ÷ days × 2' }, 'Goal / Round'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps with serviced baseline production' }, 'Reps'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Serviced revenue across played rounds' }, 'Season Serviced'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Cumulative % vs goal across played rounds (tiebreaker)' }, 'vs Goal'),
+            )),
+          el('tbody', {},
+            ...rows.map((s, i) => el('tr', {
+              class: 'border-t', style: { borderColor: 'var(--border)', background: i === 0 && playedAny ? 'rgba(242,20,140,.07)' : (i % 2 ? 'rgba(11,79,158,.04)' : 'transparent') },
+            },
+              el('td', { class: 'px-3 py-2 font-black tabular-nums' }, (i === 0 && R.seasonDone ? '🏆 ' : '') + (i + 1)),
+              teamCell(s),
+              el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: SKY } }, s.w),
+              el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: PINK } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
+              el('td', { class: 'px-2 py-2 whitespace-nowrap' }, ...(s.results.length ? s.results.map(resDot) : [el('span', { style: { color: 'var(--text-subtle)' } }, '—')])),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap' }, money(R.goals[s.team])),
+              el('td', { class: 'px-2 py-2 tabular-nums' }, (R.blReps[s.team] || new Set()).size),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, money(s.rev)),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: s.pctSum >= 0 ? SKY : PINK } }, s.results.length ? pctStr(s.pctSum) : '—'),
+            ))))));
+  };
+  const standingsBlocks = R.groups.map((g, gi) => standingsFor(g, gi + 1));
+
+  // ── Round matchup cards ──
+  const sideRow = (side, m) => {
+    if (!side) return el('div', { class: 'flex items-center justify-between px-3 py-2' },
+      el('span', { class: 'text-xs font-bold', style: { color: 'var(--text-subtle)', letterSpacing: '.08em' } }, 'BYE'),
+      el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'auto win'));
+    const won = m.winner === side.team;
+    return el('div', { class: 'flex items-center justify-between gap-2 px-3 py-2', style: won ? { background: 'rgba(242,20,140,.07)' } : {} },
+      el('div', { class: 'min-w-0' },
+        el('div', { class: 'text-xs font-black whitespace-nowrap', style: { color: won ? 'var(--text)' : 'var(--text-muted)' } }, (won ? '✓ ' : '') + nameOf(side.team)),
+        el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, 'goal ' + money(side.goal))),
+      el('div', { class: 'text-right shrink-0' },
+        el('div', { class: 'text-sm font-black tabular-nums' }, money(side.rev)),
+        el('div', { class: 'text-[10px] font-bold tabular-nums', style: { color: side.pct >= 0 ? SKY : PINK } }, pctStr(side.pct) + (side.pct >= 0 ? ' ↑' : ' ↓'))));
+  };
+  const roundCard = (rd) => {
+    const kids = [];
+    let lastG = 0;
+    rd.matchups.forEach((m, i) => {
+      if (twoGroups && m.group !== lastG) {
+        kids.push(el('div', { class: 'px-3 py-0.5 text-[9px] font-black uppercase tracking-widest', style: { color: PINK, background: 'rgba(242,20,140,.06)', borderTop: i ? '1px solid var(--border)' : 'none' } }, 'Group ' + m.group));
+        lastG = m.group;
+      }
+      kids.push(el('div', { style: (i && !twoGroups) ? { borderTop: '1px solid var(--border)' } : {} },
+        sideRow(m.a, m),
+        el('div', { style: { borderTop: '1px dashed var(--border)' } }),
+        sideRow(m.b, m)));
+    });
+    return el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: rd.live ? PINK : 'var(--border)', opacity: rd.started ? '1' : '.55' } },
+      el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: rd.live ? PINK : SKY } },
+        el('span', { class: 'text-[11px] font-black uppercase tracking-wider', style: { color: '#fff' } }, 'Round ' + rd.num + ' · ' + dspan(rd.d1, rd.d2)),
+        el('span', { class: 'text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded', style: rd.live ? { background: '#fff', color: PINK } : { background: 'rgba(255,255,255,.18)', color: '#fff' } },
+          rd.live ? '● LIVE' : rd.done ? 'FINAL' : 'UPCOMING')),
+      ...kids);
+  };
+  const roundsGrid = el('div', { class: 'p-3 grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', borderTop: '1px solid var(--border)' } },
+    ...R.rounds.map(roundCard));
+
+  return el('div', { class: 'card overflow-hidden' }, hero, cfgBar, chipBar, ...standingsBlocks, roundsGrid);
 }
 
 // ── Spring Cleaning scoring ────────────────────────────────────────────────
@@ -16424,8 +17006,9 @@ function viewIndicators() {
     })() : null),
 
     // ── Comp window — shown whenever Comps is on. Sets the date range for the
-    // selected competition (Spring Cleaning round, Avg Pest & Raffle window). ──
-    (state.indicatorsComps ? (() => {
+    // selected competition (Spring Cleaning round, Avg Pest & Raffle window).
+    // Hidden for NRLA — that league runs on its own round schedule. ──
+    (state.indicatorsComps && !isNrlaComp() ? (() => {
       const cf = state._indicatorCompFilter || (state._indicatorCompFilter = { start: '', end: '' });
       const apply = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
       const dateInput = (key) => el('input', {
@@ -16488,6 +17071,11 @@ function viewIndicators() {
         : allD2d;
       return indicatorTopGunBoard(windowedD2d, proSet);
     })() : null),
+
+    // ── NRLA — branch-vs-branch round-robin league. Runs on its own 2-day
+    // round schedule (season start + baseline set on the board itself), so
+    // the Comp Window above is intentionally not applied. ──
+    (state.indicatorsComps && isNrlaComp() ? nrlaBoard(state._indicatorRawSales || []) : null),
 
     // Avg Pest Initial / Raffle competition card, lifted to the top.
     _topCompCard,
