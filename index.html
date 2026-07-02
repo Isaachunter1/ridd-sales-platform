@@ -4422,13 +4422,14 @@ function indicatorSales() {
   // changes until the user opens the Filters panel and picks something).
   const _acct       = state.indicatorAcctStatus || 'pending_serviced';
   const _exclSvc    = state.indicatorExclServiceTypes || [];
+  const _inclSvc    = state.indicatorInclServiceTypes || [];
   const _inclSrcArr = state.indicatorInclSources || [];
   const _exclSrcArr = state.indicatorExclSources || [];
   // Cache filtered views per dept+comps+filters. A render calls this dozens of
   // times; the cache resets when the upload (array identity), any saved config,
   // or a filter changes.
   const cfg = _indCfgRev + '|' + (state.indicatorsComps ? 1 : 0)
-    + '|' + _acct + '#' + _exclSvc.join('~') + '#' + _inclSrcArr.join('~') + '#' + _exclSrcArr.join('~');
+    + '|' + _acct + '#' + _exclSvc.join('~') + '#' + _inclSvc.join('~') + '#' + _inclSrcArr.join('~') + '#' + _exclSrcArr.join('~');
   if (_indSalesCache.src !== src || _indSalesCache.cfg !== cfg) {
     _indSalesCache.src = src; _indSalesCache.cfg = cfg; _indSalesCache.byKey.clear();
   }
@@ -4451,6 +4452,7 @@ function indicatorSales() {
   // then cancelled before service) aren't real production, so they're stripped
   // from EVERY indicator metric. Leaves only active-pending + serviced accounts.
   const _exclSvcSet = _exclSvc.length ? new Set(_exclSvc) : null;
+  const _inclSvcSet = _inclSvc.length ? new Set(_inclSvc) : null;
   const _inclSrcSet = _inclSrcArr.length ? new Set(_inclSrcArr) : null;
   const _exclSrcSet = _exclSrcArr.length ? new Set(_exclSrcArr) : null;
   let all = src.filter(s => {
@@ -4465,7 +4467,9 @@ function indicatorSales() {
     const _s = String(s.source || '').trim();
     if (_exclSrc.has(_s)) return false;
     // ── CRM-style filters (Filters panel) ──
-    if (_exclSvcSet && _exclSvcSet.has((s.subscription || '').trim())) return false;
+    const _sub = (s.subscription || '').trim();
+    if (_exclSvcSet && _exclSvcSet.has(_sub)) return false;                      // "exclude these services"
+    if (_inclSvcSet && !_inclSvcSet.has(_sub)) return false;                     // "only these services"
     if (_inclSrcSet && !_inclSrcSet.has(_s)) return false;                       // "only these sources"
     if (_exclSrcSet && _exclSrcSet.has(_s)) return false;                        // "exclude these sources"
     return true;
@@ -15492,16 +15496,22 @@ function openIndicatorFilters(anchorEl) {
   const raw = state._indicatorRawSales || [];
   // Service types with revenue, so the ones to drop (e.g. the CRM's excluded
   // services) are easy to spot.
-  const svcRev = {};
-  raw.forEach(s => { const k = (s.subscription || '').trim(); if (!k) return; svcRev[k] = (svcRev[k] || 0) + (Number(s.contractValue) || 0); });
-  const services = Object.keys(svcRev).sort((a, b) => svcRev[b] - svcRev[a]);
-  const sources = [...new Set(raw.map(s => (s.source || '').trim()).filter(Boolean))].sort();
+  // Service types + sources with revenue next to each (so the big ones are easy
+  // to spot). Both lists are sorted ALPHABETICALLY.
+  const svcRev = {}, srcRev = {};
+  raw.forEach(s => {
+    const sub = (s.subscription || '').trim(); if (sub) svcRev[sub] = (svcRev[sub] || 0) + (Number(s.contractValue) || 0);
+    const src = (s.source || '').trim();       if (src) srcRev[src] = (srcRev[src] || 0) + (Number(s.contractValue) || 0);
+  });
+  const services = Object.keys(svcRev).sort((a, b) => a.localeCompare(b));
+  const sources  = Object.keys(srcRev).sort((a, b) => a.localeCompare(b));
   const usd = v => '$' + Math.round(v || 0).toLocaleString();
-  // Draft copies — committed to state only on Apply.
+  // Draft copies — committed to state only on Apply. Each of Service Types /
+  // Sources has an Include-only vs Exclude mode plus its checked set.
   let empType = state.indicatorDept || 'all';
-  const exclSvc = new Set(state.indicatorExclServiceTypes || []);
-  let srcMode = (state.indicatorInclSources || []).length ? 'include'
-    : ((state.indicatorExclSources || []).length ? 'exclude' : 'all');
+  let svcMode = (state.indicatorInclServiceTypes || []).length ? 'include' : 'exclude';
+  const svcSel = new Set([...(state.indicatorInclServiceTypes || []), ...(state.indicatorExclServiceTypes || [])]);
+  let srcMode = (state.indicatorInclSources || []).length ? 'include' : 'exclude';
   const srcSel = new Set([...(state.indicatorInclSources || []), ...(state.indicatorExclSources || [])]);
 
   // Transparent full-screen catcher so a click anywhere outside closes the
@@ -15514,7 +15524,7 @@ function openIndicatorFilters(anchorEl) {
 
   const summary = el('span', { style: { fontSize: '11px', color: 'var(--text-subtle)' } });
   const updateSummary = () => {
-    const n = (empType !== 'all' ? 1 : 0) + (exclSvc.size ? 1 : 0) + ((srcMode !== 'all' && srcSel.size) ? 1 : 0);
+    const n = (empType !== 'all' ? 1 : 0) + (svcSel.size ? 1 : 0) + (srcSel.size ? 1 : 0);
     summary.textContent = n ? (n + ' filter' + (n === 1 ? '' : 's') + ' beyond default') : 'No extra filters';
   };
   const _sel = (value, opts, onChange) => el('select', {
@@ -15538,12 +15548,21 @@ function openIndicatorFilters(anchorEl) {
     body.append(el('div', { style: { marginBottom: '16px', maxWidth: '260px' } },
       _field('Emp Type', _sel(empType, [['all', 'All'], ['d2d', 'Sales Rep'], ['office', 'Office Staff'], ['techs', 'Technician']], v => { empType = v; updateSummary(); })),
     ));
-    // Service types + sources side by side (FieldRoutes Incl/Excl columns).
+    // Service Types + Sources, each with an Include-only / Exclude toggle over
+    // an always-visible alphabetical checklist.
+    const _incExc = (label, items, mode, setMode, sel, right) => el('div', {},
+      el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '6px' } },
+        el('div', { style: { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: '700', color: 'var(--text-muted)' } }, label),
+        el('div', { class: 'pill-tabs' },
+          el('button', { 'data-active': mode === 'exclude', onclick: () => { setMode('exclude'); render(); } }, 'Exclude'),
+          el('button', { 'data-active': mode === 'include', onclick: () => { setMode('include'); render(); } }, 'Include'),
+        )),
+      el('div', { style: { fontSize: '10px', color: 'var(--text-subtle)', marginBottom: '6px' } },
+        mode === 'include' ? 'Show ONLY the checked ' + label.toLowerCase() + '.' : 'Remove the checked ' + label.toLowerCase() + '.'),
+      _checklist(items, sel, right));
     body.append(el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' } },
-      _field('Exclude Service Types', _checklist(services, exclSvc, name => usd(svcRev[name]))),
-      el('div', {},
-        _field('Sources', _sel(srcMode, [['all', 'All sources'], ['include', 'Only selected'], ['exclude', 'Exclude selected']], v => { srcMode = v; render(); })),
-        srcMode === 'all' ? null : el('div', { style: { marginTop: '8px' } }, _checklist(sources, srcSel, null))),
+      _incExc('Service Types', services, svcMode, m => { svcMode = m; }, svcSel, name => usd(svcRev[name])),
+      _incExc('Sources', sources, srcMode, m => { srcMode = m; }, srcSel, name => usd(srcRev[name])),
     ));
     updateSummary();
   };
@@ -15551,13 +15570,14 @@ function openIndicatorFilters(anchorEl) {
 
   const apply = () => {
     state.indicatorDept = empType;
-    state.indicatorExclServiceTypes = [...exclSvc];
-    state.indicatorInclSources = (srcMode === 'include') ? [...srcSel] : [];
-    state.indicatorExclSources = (srcMode === 'exclude') ? [...srcSel] : [];
+    state.indicatorInclServiceTypes = svcMode === 'include' ? [...svcSel] : [];
+    state.indicatorExclServiceTypes = svcMode === 'exclude' ? [...svcSel] : [];
+    state.indicatorInclSources = srcMode === 'include' ? [...srcSel] : [];
+    state.indicatorExclSources = srcMode === 'exclude' ? [...srcSel] : [];
     close();
     mountApp();
   };
-  const clearAll = () => { empType = 'all'; exclSvc.clear(); srcMode = 'all'; srcSel.clear(); render(); };
+  const clearAll = () => { empType = 'all'; svcMode = 'exclude'; srcMode = 'exclude'; svcSel.clear(); srcSel.clear(); render(); };
 
   const card = el('div', { class: 'card flex flex-col', style: { position: 'absolute', width: 'min(720px, calc(100vw - 24px))', maxHeight: 'calc(100vh - 120px)', boxShadow: '0 12px 34px rgba(0,0,0,0.30)', overflow: 'hidden' } },
     el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '12px 16px', borderBottom: '1px solid var(--border)' } },
@@ -16013,7 +16033,7 @@ function viewIndicators() {
             position: 'fixed', top: '60px', left: '0', right: '0', zIndex: 15,
             background: 'var(--bg)',
             borderBottom: '1px solid var(--border)',
-            paddingTop: '8px', paddingBottom: '8px',
+            paddingTop: '20px', paddingBottom: '8px',
           },
         },
           el('div', { class: 'w-full max-w-[1600px] mx-auto px-4 sm:px-6' },
