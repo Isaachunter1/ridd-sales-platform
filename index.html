@@ -12814,14 +12814,28 @@ function nrlaBoard(rawSales) {
     el('button', {
       class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
       style: { borderColor: PINK, color: PINK },
-      title: 'Randomize who plays who each round within each group (byes reshuffle too). Saved on the comp, so every admin sees the same schedule.',
+      title: 'Rotate who plays who — every press turns the round-robin wheel one seat within each group (byes rotate too), so the pairings are guaranteed to change. Saved on the comp, so every admin sees the same schedule.',
       onclick: () => {
         if (R.teams.length < 2) { toast('Need at least two teams to build matchups', 'error'); return; }
-        if (R.rounds.some(r => r.started) && !confirm('The season has already started — reshuffling rewrites every round\'s matchups (and their results). Shuffle anyway?')) return;
-        const order = R.teams.slice();
-        for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
-        cfg.teamOrder = order;
-        save('matchups shuffled (' + order.join(' · ') + ')');
+        if (R.rounds.some(r => r.started) && !confirm('The season has already started — rotating rewrites every round\'s matchups (and their results). Rotate anyway?')) return;
+        // Round-robin wheel turn, per group. Each press yields a DIFFERENT set
+        // of pairings, cycling through every combination the wheel allows.
+        //   even group → classic wheel: seat 0 fixed, everyone else slides one
+        //   odd group  → every seat cycles, so the BYE rotates between teams too
+        const rotate = (g) => {
+          if (g.length < 3) return g.slice();     // 2 teams = only one possible pairing
+          let order = g;
+          if (Array.isArray(cfg.teamOrder) && cfg.teamOrder.length) {
+            const cur = new Set(g);
+            const kept = cfg.teamOrder.map(t => String(t).toUpperCase()).filter(t => cur.has(t));
+            const keptSet = new Set(kept);
+            order = kept.concat(g.filter(t => !keptSet.has(t)));
+          }
+          if (order.length % 2) return [order[order.length - 1], ...order.slice(0, -1)];
+          return [order[0], order[order.length - 1], ...order.slice(1, -1)];
+        };
+        cfg.teamOrder = R.groups.flatMap(rotate);
+        save('matchups rotated (' + cfg.teamOrder.join(' · ') + ')');
       },
     }, '🎲 Shuffle matchups'),
     el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '· NRLA runs on its own schedule — the Comp Window doesn\'t apply'),
