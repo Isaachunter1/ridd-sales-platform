@@ -161,8 +161,15 @@ WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''
   -- Orphaned subscriptions: the rep created a card, then DELETED the customer
   -- (e.g. couldn't close it), but the subscription lingers in the warehouse.
   -- FieldRoutes doesn't propagate the delete, so these would show "pending"
-  -- forever. If the customer no longer exists in the customer table, drop it.
-  AND cust.cid IS NOT NULL`;
+  -- forever. If the customer no longer exists in the customer table, drop it —
+  -- EXCEPT recent sales: subscriptions replicate live but CUSTOMERS only batch
+  -- nightly, so a brand-new customer sold today has no customer row until
+  -- tomorrow morning. Dropping those wiped ~98% of same-day revenue off the
+  -- NRLA live board. Keep anything sold in the last 7 days; its customer
+  -- fields (name/flags/autopay) arrive blank and backfill with the nightly
+  -- batch — sales sit in Pending Rev until audit flags land, as intended.
+  AND (cust.cid IS NOT NULL
+       OR LEFT(s.fieldRoutes_dateAdded,10) >= FORMAT_DATE('%Y-%m-%d', DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)))`;
 
 // Employee roster — one entry per PERSON. FieldRoutes stores an employee row
 // PER OFFICE and links them via fieldRoutes_linkedEmployeeIDs (a base account).
