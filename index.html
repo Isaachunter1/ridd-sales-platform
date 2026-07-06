@@ -12921,15 +12921,22 @@ function openNrlaRosterModal(rawSales) {
       if (!rows.length) return null;
       const picked = new Set((cfg.rosters[t] || []).map(String));
       const hasRoster = picked.size > 0;
+      // Collapsible — sections start closed so eight branches don't make one
+      // endless list. Searching auto-expands whatever matches.
+      const open = q ? true : !!(state._nrlaRosterOpen || {})[t];
+      const toggleOpen = () => { state._nrlaRosterOpen = state._nrlaRosterOpen || {}; state._nrlaRosterOpen[t] = !open; render(); };
       return el('div', {},
-        el('div', { class: 'flex items-center justify-between px-5 py-2', style: { background: PINK, position: 'sticky', top: '0', zIndex: '1' } },
-          el('div', { class: 'text-xs font-black uppercase tracking-widest', style: { color: '#fff' } }, t),
+        el('div', { class: 'flex items-center justify-between px-5 py-2 cursor-pointer select-none', style: { background: PINK, position: 'sticky', top: '0', zIndex: '1' }, onclick: toggleOpen, title: open ? 'Collapse' : 'Expand' },
+          el('div', { class: 'text-xs font-black uppercase tracking-widest flex items-center gap-2', style: { color: '#fff' } },
+            el('span', { style: { fontSize: '10px' } }, open ? '▾' : '▸'), t,
+            el('span', { class: 'text-[10px] font-bold normal-case tracking-normal', style: { color: 'rgba(255,255,255,.75)' } }, rows.length + ' reps')),
           el('div', { class: 'flex items-center gap-2' },
             el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, hasRoster ? picked.size + ' competing' : 'everyone competes'),
             el('button', {
               class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer', style: { background: '#fff', color: PINK },
               title: 'Roster everyone currently on this team',
-              onclick: () => {
+              onclick: (e) => {
+                e.stopPropagation();
                 own.forEach(name => { Object.keys(cfg.rosters).forEach(k => { cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== name); if (!cfg.rosters[k].length) delete cfg.rosters[k]; }); });
                 cfg.rosters[t] = [...new Set([...(cfg.rosters[t] || []), ...own])].sort();
                 persist(t + ' roster → all ' + cfg.rosters[t].length + ' reps');
@@ -12938,9 +12945,9 @@ function openNrlaRosterModal(rawSales) {
             el('button', {
               class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer', style: { background: 'rgba(255,255,255,.25)', color: '#fff' },
               title: 'No roster — everyone on the branch counts',
-              onclick: () => { delete cfg.rosters[t]; persist(t + ' roster cleared — everyone competes'); },
+              onclick: (e) => { e.stopPropagation(); delete cfg.rosters[t]; persist(t + ' roster cleared — everyone competes'); },
             }, 'Clear'))),
-        ...rows.map(([name, foreign]) => {
+        ...(open ? rows : []).map(([name, foreign]) => {
           const on = picked.has(name);
           const info = repInfo.get(name) || { n: 0, counts: {} };
           const home = homeOf(info);
@@ -13032,15 +13039,9 @@ function nrlaBoard(rawSales) {
         el('button', {
           class: 'cursor-pointer transition hover:brightness-95',
           style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
-          title: 'Rosters — pick exactly which reps compete for each team (sets the PRA denominator)',
+          title: 'Rosters — pick who competes for each team and which branch each rep competes for (sets the PRA denominator)',
           onclick: () => openNrlaRosterModal(rawSales),
         }, '📋'),
-        el('button', {
-          class: 'cursor-pointer transition hover:brightness-95',
-          style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
-          title: 'See every rep and the team they count toward — transfer for comp purposes',
-          onclick: () => openNrlaRepMarketModal(rawSales),
-        }, '👥'),
         el('button', {
           class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer',
           style: { width: '22px', height: '22px', background: PINK, color: '#fff' },
