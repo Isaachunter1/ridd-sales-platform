@@ -12891,6 +12891,25 @@ function openNrlaRosterModal(rawSales) {
       if (on) cfg.rosters[t] = [...(cfg.rosters[t] || []), name].sort();
       persist(name + (on ? ' → ' + t + ' roster' : ' off the ' + t + ' roster'));
     };
+    // Reassign a rep to the branch they're COMPETING for (the row dropdown).
+    // If the target team has no roster yet, seed it with its current members
+    // first — otherwise the newcomer would become a one-man roster and knock
+    // everyone else on that team out of the comp.
+    const assignTo = (name, t2) => {
+      if (!t2 || t2 === teamOf(name)) return;
+      if (!Array.isArray(cfg.rosters[t2]) || !cfg.rosters[t2].length) {
+        cfg.rosters[t2] = [...repInfo.keys()].filter(x => x !== name && teamOf(x) === t2).sort();
+      }
+      Object.keys(cfg.rosters).forEach(k => {
+        cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== name);
+        if (!cfg.rosters[k].length) delete cfg.rosters[k];
+      });
+      cfg.rosters[t2] = [...(cfg.rosters[t2] || []), name].sort();
+      persist(name + ' reassigned → competes for ' + t2);
+    };
+    // Every branch a rep could compete for — current teams plus the flyer
+    // eight, so a brand-new branch (Joplin) is assignable before it has data.
+    const allTeamChoices = [...new Set([...teams, ...NRLA_2026_SCHEDULE.flat(2).filter(Boolean)])].sort();
     const sections = teams.map(t => {
       const own = [...repInfo.keys()].filter(name => teamOf(name) === t);
       // While searching, ALSO surface matching reps from other teams so a rep
@@ -12923,18 +12942,31 @@ function openNrlaRosterModal(rawSales) {
             }, 'Clear'))),
         ...rows.map(([name, foreign]) => {
           const on = picked.has(name);
-          const n = (repInfo.get(name) || { n: 0 }).n;
+          const info = repInfo.get(name) || { n: 0, counts: {} };
+          const home = homeOf(info);
           const cb = el('input', {
             type: 'checkbox', class: 'cursor-pointer',
             onchange: (e) => putOnRoster(name, t, e.target.checked),
           });
           cb.checked = on;
+          // Team dropdown — move this rep to the branch they're competing for.
+          const sel = el('select', {
+            class: 'rounded px-1.5 py-1 text-[11px] font-semibold cursor-pointer',
+            style: teamOf(name) !== home
+              ? { border: '2px solid ' + PINK, color: PINK, background: 'var(--card)' }
+              : { border: '1px solid var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
+            title: 'Which branch ' + name + ' competes for (moves them onto that team\'s roster)',
+            onchange: (e) => assignTo(name, e.target.value),
+            onclick: (e) => e.stopPropagation(),
+          }, ...allTeamChoices.map(b => { const o = el('option', { value: b }, b + (b === home ? ' (home)' : '')); if (b === teamOf(name)) o.selected = true; return o; }));
           return el('label', { class: 'flex items-center gap-3 px-5 py-1.5 border-b cursor-pointer', style: { borderColor: 'var(--border)' } },
             cb,
-            el('span', { class: 'text-sm font-semibold flex-1', style: (hasRoster && !on && !foreign) ? { color: 'var(--text-subtle)', textDecoration: 'line-through' } : {} },
-              name,
-              foreign && el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(11,79,158,.12)', color: '#0B4F9E' } }, 'on ' + teamOf(name))),
-            el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, n + ' acct' + (n === 1 ? '' : 's')));
+            el('span', { class: 'text-sm font-semibold flex-1 min-w-0' },
+              el('span', { style: (hasRoster && !on && !foreign) ? { color: 'var(--text-subtle)', textDecoration: 'line-through' } : {} }, name),
+              foreign && el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(242,20,140,.10)', color: PINK } }, 'on ' + teamOf(name)),
+              (teamOf(name) !== home) && el('span', { class: 'block text-[10px] font-normal', style: { color: 'var(--text-subtle)' } }, 'knocks ' + home),
+              el('span', { class: 'ml-2 text-[10px] font-normal tabular-nums', style: { color: 'var(--text-subtle)' } }, info.n + ' acct' + (info.n === 1 ? '' : 's'))),
+            sel);
         }));
     }).filter(Boolean);
     card.append(
@@ -12948,7 +12980,7 @@ function openNrlaRosterModal(rawSales) {
       el('div', { class: 'overflow-y-auto flex-1' },
         sections.length ? el('div', {}, ...sections) : el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No D2D reps found in the uploaded data yet.')),
       el('div', { class: 'px-5 py-3 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
-        'Rosters drive the baseline goal, every round\'s serviced revenue, the revenue columns, and PRA. Synced to every admin.'));
+        'Rosters are authoritative: they set who competes for each team and the PRA denominator. Use the team dropdown on a rep to move them to the branch they\'re competing for — their production follows them. Synced to every admin.'));
   };
   render();
   document.body.append(overlay);
