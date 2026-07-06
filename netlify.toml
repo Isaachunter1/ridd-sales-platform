@@ -18,7 +18,7 @@
 # scheduled function fires the background worker that pulls from BigQuery and
 # writes the fresh snapshot to Supabase.
 [functions."revhawk-sync-scheduled"]
-  schedule = "0 2 * * *"
+  schedule = "*/30 * * * *"   # every 30 min — NRLA live scoreboard (was nightly 02:00 UTC)
 
 [[headers]]
   for = "/*"

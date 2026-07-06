@@ -26419,6 +26419,25 @@ async function autoDeriveIndicatorsFromSnapshot() {
   } catch (e) { console.warn('[ridd] auto-derive indicators failed', e); state._indicatorsBuiltFromUploadId = null; }
 }
 
+// ── Live scoreboard freshness ───────────────────────────────────────────
+// The RevHawk cron lands a fresh snapshot every 30 minutes; an OPEN app also
+// checks every 10 minutes (visible tabs only) so a wallboard stays current
+// without a reload. Both are cheap no-ops when nothing new has landed —
+// autoDeriveIndicatorsFromSnapshot bails unless a newer snapshot exists, and
+// non-admin tabs just pull the cloud copy another admin already derived.
+setInterval(() => {
+  try {
+    if (document.hidden || (typeof DEMO !== 'undefined' && DEMO) || !state.profile) return;
+    if (isAdminRole(state.profile.role)) {
+      Promise.resolve(typeof loadReportingMetadata === 'function' ? loadReportingMetadata() : null)
+        .then(() => autoDeriveIndicatorsFromSnapshot())
+        .catch(e => console.warn('[ridd] live refresh failed', e));
+    } else if (typeof refreshIndicatorsFromCloud === 'function') {
+      refreshIndicatorsFromCloud().catch(() => {});
+    }
+  } catch (e) { console.warn('[ridd] live refresh tick failed', e); }
+}, 10 * 60 * 1000);
+
 // One-click RevHawk refresh behind the header sync icon. Fires the admin-gated
 // background sync, waits for the FRESH snapshot to land in Supabase, then loads
 // it into Reporting AND rebuilds Indicators from it (sale times preserved). The
