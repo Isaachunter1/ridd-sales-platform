@@ -13513,10 +13513,10 @@ function nrlaBoard(rawSales) {
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Rounds'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps competing — the roster (📋) when one is set, otherwise every rep who sold this season. The PRA denominator.' }, 'Reps'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Everything sold inside the season windows (Contract Value, all audit statuses) — Pending/Serviced accounts only; Sold-Not-Started is excluded. Click a team name for the per-rep breakdown.' }, 'Total Rev Sold'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Per-Rep Average by revenue: Total Rev Sold ÷ reps competing. Cumulative round PRA is the seeding tiebreaker.' }, 'PRA'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Passed Audit or No Audit' }, 'Passed Rev'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'No audit flag yet — clears into Passed or Failed as audits land' }, 'Pending Rev'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Failed Audit + Last Resort (<$99 initial)' }, 'Failed Rev'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Per-Rep Average by revenue: Total Rev Sold ÷ reps competing. Cumulative round PRA is the seeding tiebreaker.' }, 'PRA'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Average Contract Value: Total Rev Sold ÷ accounts sold' }, 'ACV'),
           )),
         el('tbody', {},
@@ -13533,10 +13533,10 @@ function nrlaBoard(rawSales) {
               el('td', { class: 'px-2 py-2 whitespace-nowrap' }, ...(s.results.length ? s.results.map(resDot) : [el('span', { style: { color: 'var(--text-subtle)' } }, '—')])),
               el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, reps),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(st.total)),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, reps > 0 ? money(st.total / reps) : '—'),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#1b7f3b' } }, money(st.passed)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap', style: { color: '#D97706' } }, '(' + money(st.pending) + ')'),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: REDD } }, money(st.failed)),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, reps > 0 ? money(st.total / reps) : '—'),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, st.n > 0 ? money(st.total / st.n) : '—'),
             );
           })))));
@@ -13568,10 +13568,10 @@ function nrlaBoard(rawSales) {
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Accts'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'The rep\'s own sold revenue this season' }, 'Total Rev Sold'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'The rep\'s average sold per round played — same per-round scale as the matchup PRAs' }, 'PRA'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Average Contract Value: total ÷ accounts sold' }, 'ACV'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Passed Rev'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Pending Rev'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Failed Rev'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Average Contract Value: total ÷ accounts sold' }, 'ACV'),
             )),
           el('tbody', {},
             ...top.map((r, i) => el('tr', {
@@ -13586,10 +13586,10 @@ function nrlaBoard(rawSales) {
               el('td', { class: 'px-2 py-2 tabular-nums' }, r.n),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(r.total)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, money(r.total / roundsStarted)),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, r.n > 0 ? money(r.total / r.n) : '—'),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#1b7f3b' } }, money(r.passed)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap', style: { color: '#D97706' } }, '(' + money(r.pending) + ')'),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: REDD } }, money(r.failed)),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, r.n > 0 ? money(r.total / r.n) : '—'),
             ))))));
   })();
 
