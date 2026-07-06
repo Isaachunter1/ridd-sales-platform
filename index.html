@@ -12847,7 +12847,7 @@ function openNrlaRosterModal(rawSales) {
   overlay.append(card);
   // Candidates: every D2D rep, shown under the team they currently count for.
   // Rosters are authoritative — a rostered rep sits under their ROSTER team,
-  // wherever they actually knock; everyone else under home branch / 👥 team.
+  // wherever they actually knock; everyone else under home branch.
   const d2d = nrlaApplyOverrides((rawSales || []).filter(s => _indicatorDeptOf(s) === 'd2d' && s.rep), comp);
   const repInfo = new Map();   // name → { n, counts }
   for (const s of d2d) {
@@ -12870,46 +12870,68 @@ function openNrlaRosterModal(rawSales) {
     ...[...repInfo.values()].map(homeOf).filter(t => t !== 'UNKNOWN'),
     ...Object.keys(cfg.rosters || {}).map(t => String(t).toUpperCase()),
   ])].sort();
-  const render = () => {
-    card.innerHTML = '';
+  const persist = (detail) => { logActivity('comp_change', { detail: 'NRLA: ' + detail }); saveDemoData(); renderList(); };
+  // A rep lives on at most ONE roster — adding them to a team strips them
+  // from every other team's list first.
+  const putOnRoster = (name, t, on) => {
+    Object.keys(cfg.rosters).forEach(k => {
+      cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== name);
+      if (!cfg.rosters[k].length) delete cfg.rosters[k];
+    });
+    if (on) cfg.rosters[t] = [...(cfg.rosters[t] || []), name].sort();
+    persist(name + (on ? ' → ' + t + ' roster' : ' off the ' + t + ' roster'));
+  };
+  // Reassign a rep to the branch they're COMPETING for (the row dropdown).
+  // If the target team has no roster yet, seed it with its current members
+  // first — otherwise the newcomer would become a one-man roster and knock
+  // everyone else on that team out of the comp.
+  const assignTo = (name, t2) => {
+    if (!t2 || t2 === teamOf(name)) return;
+    if (!Array.isArray(cfg.rosters[t2]) || !cfg.rosters[t2].length) {
+      cfg.rosters[t2] = [...repInfo.keys()].filter(x => x !== name && teamOf(x) === t2).sort();
+    }
+    Object.keys(cfg.rosters).forEach(k => {
+      cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== name);
+      if (!cfg.rosters[k].length) delete cfg.rosters[k];
+    });
+    cfg.rosters[t2] = [...(cfg.rosters[t2] || []), name].sort();
+    persist(name + ' reassigned → competes for ' + t2);
+  };
+  // Every branch a rep could compete for — current teams plus the flyer
+  // eight, so a brand-new branch (Joplin) is assignable before it has data.
+  const allTeamChoices = [...new Set([...teams, ...NRLA_2026_SCHEDULE.flat(2).filter(Boolean)])].sort();
+
+  // ── Static chrome — built ONCE so the search box never loses focus and
+  // typing doesn't rebuild the whole modal. Only the list re-renders. ──
+  const pickedNote = el('span', {}, '');
+  const header = el('div', { class: 'flex items-center justify-between px-5 py-4 border-b gap-3', style: { borderColor: 'var(--border)' } },
+    el('div', {},
+      el('h2', { class: 'text-base font-bold' }, '📋 NRLA Rosters — reps competing'),
+      el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
+        'Only rostered reps count for a team · a team with no roster counts everyone · ', pickedNote)),
+    el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'));
+  const searchInput = el('input', {
+    type: 'text', value: state._nrlaRosterSearch || '', placeholder: 'Search reps…',
+    class: 'w-full rounded-lg border px-3 py-2 text-sm',
+    style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
+  });
+  let searchTimer = null;
+  searchInput.addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { state._nrlaRosterSearch = e.target.value; renderList(); }, 180);
+  });
+  const listWrap = el('div', { class: 'overflow-y-auto flex-1' });
+  const footer = el('div', { class: 'px-5 py-3 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
+    'Rosters are authoritative: they set who competes for each team and the PRA denominator. Use the team dropdown on a rep to move them to the branch they\'re competing for — their production follows them. Synced to every admin.');
+  card.append(header,
+    el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } }, searchInput),
+    listWrap, footer);
+
+  const renderList = () => {
+    listWrap.innerHTML = '';
     const q = (state._nrlaRosterSearch || '').trim().toLowerCase();
     const totalPicked = Object.values(cfg.rosters || {}).reduce((a, l) => a + (Array.isArray(l) ? l.length : 0), 0);
-    const searchInput = el('input', {
-      type: 'text', value: state._nrlaRosterSearch || '', placeholder: 'Search reps…',
-      class: 'w-full rounded-lg border px-3 py-2 text-sm',
-      style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
-    });
-    searchInput.addEventListener('input', (e) => { state._nrlaRosterSearch = e.target.value; render(); setTimeout(() => { const el2 = card.querySelector('input[type=text]'); if (el2) { el2.focus(); el2.setSelectionRange(el2.value.length, el2.value.length); } }, 0); });
-    const persist = (detail) => { logActivity('comp_change', { detail: 'NRLA: ' + detail }); saveDemoData(); render(); };
-    // A rep lives on at most ONE roster — adding them to a team strips them
-    // from every other team's list first.
-    const putOnRoster = (name, t, on) => {
-      Object.keys(cfg.rosters).forEach(k => {
-        cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== name);
-        if (!cfg.rosters[k].length) delete cfg.rosters[k];
-      });
-      if (on) cfg.rosters[t] = [...(cfg.rosters[t] || []), name].sort();
-      persist(name + (on ? ' → ' + t + ' roster' : ' off the ' + t + ' roster'));
-    };
-    // Reassign a rep to the branch they're COMPETING for (the row dropdown).
-    // If the target team has no roster yet, seed it with its current members
-    // first — otherwise the newcomer would become a one-man roster and knock
-    // everyone else on that team out of the comp.
-    const assignTo = (name, t2) => {
-      if (!t2 || t2 === teamOf(name)) return;
-      if (!Array.isArray(cfg.rosters[t2]) || !cfg.rosters[t2].length) {
-        cfg.rosters[t2] = [...repInfo.keys()].filter(x => x !== name && teamOf(x) === t2).sort();
-      }
-      Object.keys(cfg.rosters).forEach(k => {
-        cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== name);
-        if (!cfg.rosters[k].length) delete cfg.rosters[k];
-      });
-      cfg.rosters[t2] = [...(cfg.rosters[t2] || []), name].sort();
-      persist(name + ' reassigned → competes for ' + t2);
-    };
-    // Every branch a rep could compete for — current teams plus the flyer
-    // eight, so a brand-new branch (Joplin) is assignable before it has data.
-    const allTeamChoices = [...new Set([...teams, ...NRLA_2026_SCHEDULE.flat(2).filter(Boolean)])].sort();
+    pickedNote.textContent = totalPicked + ' reps picked';
     const sections = teams.map(t => {
       const own = [...repInfo.keys()].filter(name => teamOf(name) === t);
       // While searching, ALSO surface matching reps from other teams so a rep
@@ -12924,7 +12946,7 @@ function openNrlaRosterModal(rawSales) {
       // Collapsible — sections start closed so eight branches don't make one
       // endless list. Searching auto-expands whatever matches.
       const open = q ? true : !!(state._nrlaRosterOpen || {})[t];
-      const toggleOpen = () => { state._nrlaRosterOpen = state._nrlaRosterOpen || {}; state._nrlaRosterOpen[t] = !open; render(); };
+      const toggleOpen = () => { state._nrlaRosterOpen = state._nrlaRosterOpen || {}; state._nrlaRosterOpen[t] = !open; renderList(); };
       return el('div', {},
         el('div', { class: 'flex items-center justify-between px-5 py-2 cursor-pointer select-none', style: { background: PINK, position: 'sticky', top: '0', zIndex: '1' }, onclick: toggleOpen, title: open ? 'Collapse' : 'Expand' },
           el('div', { class: 'text-xs font-black uppercase tracking-widest flex items-center gap-2', style: { color: '#fff' } },
@@ -12976,20 +12998,10 @@ function openNrlaRosterModal(rawSales) {
             sel);
         }));
     }).filter(Boolean);
-    card.append(
-      el('div', { class: 'flex items-center justify-between px-5 py-4 border-b gap-3', style: { borderColor: 'var(--border)' } },
-        el('div', {},
-          el('h2', { class: 'text-base font-bold' }, '📋 NRLA Rosters — reps competing'),
-          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Only rostered reps count for a team · a team with no roster counts everyone · ' + totalPicked + ' reps picked')),
-        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
-      el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } }, searchInput),
-      el('div', { class: 'overflow-y-auto flex-1' },
-        sections.length ? el('div', {}, ...sections) : el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No D2D reps found in the uploaded data yet.')),
-      el('div', { class: 'px-5 py-3 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
-        'Rosters are authoritative: they set who competes for each team and the PRA denominator. Use the team dropdown on a rep to move them to the branch they\'re competing for — their production follows them. Synced to every admin.'));
+    if (sections.length) sections.forEach(sec => listWrap.append(sec));
+    else listWrap.append(el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No D2D reps found' + (q ? ' matching “' + (state._nrlaRosterSearch || '').trim() + '”' : ' in the uploaded data yet') + '.'));
   };
-  render();
+  renderList();
   document.body.append(overlay);
 }
 
