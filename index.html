@@ -533,6 +533,7 @@
   .modal-overlay > .card { border-radius: 18px; animation: _cardIn .22s var(--ease-out); }
   @keyframes _ovlIn { from { opacity: 0; } }
   @keyframes _cardIn { from { opacity: 0; transform: translateY(10px) scale(.985); } }
+  @keyframes nrlaPulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
   /* Slim, quiet scrollbars. */
   * { scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; }
   *::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -13388,6 +13389,14 @@ function nrlaBoard(rawSales) {
           el('div', {}, R.seedN + ' Seeding Rounds · 1 Playoff Round · 1 Championship Round · 2 Days Per Round'),
           el('div', { style: { opacity: '.9' } }, 'Win rounds by having a higher Per Rep Avg than the team you\'re competing against')),
         el('div', { class: 'flex items-center gap-2 flex-wrap', style: { marginTop: '12px' } },
+          // Pulsing LIVE chip while a round is underway.
+          (() => {
+            const lr = R.rounds.find(r => r.live);
+            if (!lr) return null;
+            const t = lr.phase === 'seed' ? 'Round ' + lr.num : lr.phase === 'semi' ? 'Semifinals' : 'Championship';
+            return el('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '999px', background: GREEN, color: '#04310A', fontWeight: '900', fontSize: '11px', letterSpacing: '.03em' } },
+              el('span', { style: { animation: 'nrlaPulse 1.2s ease-in-out infinite' } }, '●'), 'LIVE · ' + t);
+          })(),
           chip(PINK, '#fff', R.rounds.length ? '📅 ' + dspan(R.rounds[0].d1, R.rounds[R.rounds.length - 1].d2) : '📅 schedule not set'),
           chip('rgba(255,255,255,.16)', '#fff', 'Branch vs Branch'),
           chip('rgba(255,255,255,.16)', '#fff', 'Updates sent daily · RIDDMADE'),
@@ -13578,51 +13587,60 @@ function nrlaBoard(rawSales) {
     draggable: 'true',
     ondragstart: (e) => { _dragSrc = { ri: dnd.ri, mi: dnd.mi, side: dnd.side }; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', 'x'); } catch (_) {} },
   } : {}) : {};
-  const sideRow = (side, m, label, dnd) => {
+  const sideRow = (side, m, label, dnd, live) => {
     if (!side) return el('div', Object.assign({ class: 'flex items-center justify-between px-3 py-2' }, _dndProps(dnd, false)),
       el('span', { class: 'text-xs font-bold', style: { color: 'var(--text-subtle)', letterSpacing: '.05em' } }, label || 'BYE'),
       el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, label ? 'TBD' : 'auto win'));
     const won = m.winner === side.team;
+    // Live rounds: the CURRENT leader glows green (nothing's final yet).
+    // Finished rounds: the winner keeps the pink stamp.
+    const hi = live ? 'rgba(47,214,47,.10)' : 'rgba(242,20,140,.07)';
+    const hiText = live ? GREEN : PINK;
     return el('div', Object.assign({
       class: 'flex items-center justify-between gap-2 px-3 py-2',
-      style: Object.assign(won ? { background: 'rgba(242,20,140,.07)' } : {}, dnd ? { cursor: 'grab' } : {}),
+      style: Object.assign(won ? { background: hi } : {}, dnd ? { cursor: 'grab' } : {}),
       title: dnd ? 'Drag onto another team in this round to swap matchups' : '',
     }, _dndProps(dnd, true)),
       el('div', { class: 'min-w-0' },
-        el('div', { class: 'text-xs font-black whitespace-nowrap', style: { color: won ? 'var(--text)' : 'var(--text-muted)' } }, (dnd ? '⠿ ' : '') + (won ? '✓ ' : '') + nameOf(side.team)),
+        el('div', { class: 'text-xs font-black whitespace-nowrap', style: { color: won ? 'var(--text)' : 'var(--text-muted)' } }, (dnd ? '⠿ ' : '') + (won ? (live ? '▲ ' : '✓ ') : '') + nameOf(side.team)),
         el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, money(side.rev) + ' · ' + side.reps + ' reps')),
       el('div', { class: 'text-right shrink-0' },
         el('div', { class: 'text-sm font-black tabular-nums' }, money(side.pra)),
-        el('div', { class: 'text-[9px] font-bold uppercase tracking-wider', style: { color: won ? PINK : 'var(--text-subtle)' } }, 'PRA')));
+        el('div', { class: 'text-[9px] font-bold uppercase tracking-wider', style: { color: won ? hiText : 'var(--text-subtle)' } }, live && won ? 'LEADS' : 'PRA')));
   };
   const roundCard = (rd, ri) => {
     const title = rd.phase === 'seed' ? 'Round ' + rd.num : rd.phase === 'semi' ? 'Semifinals' : 'Championship';
-    const headBg = rd.live ? PINK : (rd.phase === 'seed' ? REDD : '#0E1C30');
+    // Current round = GREEN, everything else = pink.
+    const headBg = rd.live ? GREEN : PINK;
+    const headFg = rd.live ? '#04310A' : '#fff';
+    const _today = new Date(); _today.setHours(0, 0, 0, 0);
+    const dayLabel = rd.live ? (_today.getTime() <= rd.d1.getTime() ? 'Day 1 of 2' : 'Final day') : null;
     const editable = rd.phase === 'seed';
     // Each matchup renders as its OWN boxed pairing with a centered VS badge,
     // so who's playing who reads at a glance.
     const kids = [];
     rd.matchups.forEach((m, i) => {
       kids.push(el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: 'var(--border)', margin: '8px' } },
-        m.tag ? el('div', { class: 'px-3 py-0.5 text-[9px] font-black uppercase tracking-widest', style: { color: REDD, background: 'rgba(232,39,27,.06)', borderBottom: '1px solid var(--border)' } }, m.tag) : null,
-        sideRow(m.a, m, m.aLabel, editable ? { ri, mi: i, side: 'a' } : null),
+        m.tag ? el('div', { class: 'px-3 py-0.5 text-[9px] font-black uppercase tracking-widest', style: { color: PINK, background: 'rgba(242,20,140,.06)', borderBottom: '1px solid var(--border)' } }, m.tag) : null,
+        sideRow(m.a, m, m.aLabel, editable ? { ri, mi: i, side: 'a' } : null, rd.live),
         el('div', { style: { position: 'relative', borderTop: '1px dashed var(--border-2)' } },
           el('span', { style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', fontSize: '8px', fontWeight: '900', letterSpacing: '.12em', background: 'var(--card)', color: 'var(--text-subtle)', padding: '1px 7px', borderRadius: '999px', border: '1px solid var(--border-2)', lineHeight: '1.2' } }, 'VS')),
-        sideRow(m.b, m, m.bLabel, editable ? { ri, mi: i, side: 'b' } : null)));
+        sideRow(m.b, m, m.bLabel, editable ? { ri, mi: i, side: 'b' } : null, rd.live)));
     });
     if (!rd.matchups.length) kids.push(el('div', { class: 'px-3 py-3 text-[11px] text-center', style: { color: 'var(--text-subtle)' } }, 'Matchups set after seeding.'));
-    return el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: rd.live ? PINK : 'var(--border)', opacity: rd.started ? '1' : '.6' } },
+    return el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: rd.live ? GREEN : 'var(--border)', boxShadow: rd.live ? '0 0 0 1px ' + GREEN + ', 0 8px 24px -16px rgba(47,214,47,.5)' : 'none', opacity: rd.started ? '1' : '.6' } },
       el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: headBg } },
-        el('span', { class: 'text-[11px] font-black uppercase tracking-wider', style: { color: '#fff' } }, title + ' · ' + dspan(rd.d1, rd.d2)),
+        el('span', { class: 'text-[11px] font-black uppercase tracking-wider', style: { color: headFg } }, title + ' · ' + dspan(rd.d1, rd.d2) + (dayLabel ? ' · ' + dayLabel : '')),
         el('div', { class: 'flex items-center gap-1.5' },
           (editable && cfg.matchups[rd.num]) ? el('button', {
             class: 'text-[9px] font-black px-1.5 py-0.5 rounded cursor-pointer',
-            style: { background: 'rgba(255,255,255,.18)', color: '#fff' },
+            style: { background: rd.live ? 'rgba(4,49,10,.18)' : 'rgba(255,255,255,.18)', color: headFg },
             title: 'Reset this round to the default schedule',
             onclick: () => { if (confirm('Reset Round ' + rd.num + ' to the default matchups?')) { delete cfg.matchups[rd.num]; save('Round ' + rd.num + ' matchups reset'); } },
           }, '↺') : null,
-          el('span', { class: 'text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded', style: rd.live ? { background: '#fff', color: PINK } : { background: 'rgba(255,255,255,.18)', color: '#fff' } },
-            rd.live ? '● LIVE' : rd.done ? 'FINAL' : 'UPCOMING'))),
+          el('span', { class: 'text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded inline-flex items-center gap-1', style: rd.live ? { background: '#04310A', color: GREEN } : { background: 'rgba(255,255,255,.18)', color: '#fff' } },
+            rd.live ? el('span', { style: { animation: 'nrlaPulse 1.2s ease-in-out infinite' } }, '●') : null,
+            rd.live ? 'LIVE' : rd.done ? 'FINAL' : 'UPCOMING'))),
       ...kids);
   };
   const roundsGrid = el('div', { class: 'p-3 grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', borderTop: '1px solid var(--border)' } },
