@@ -13487,8 +13487,7 @@ function nrlaBoard(rawSales) {
       title: 'See the individual reps contributing to ' + nameOf(s.team),
       onclick: () => openNrlaTeamRepsModal(s.team, R, nameOf),
     }, nameOf(s.team)),
-    cfg.teamNames[s.team] && el('span', { class: 'ml-1 text-[9px] uppercase', style: { color: 'var(--text-subtle)' } }, s.team),
-    el('button', { class: 'ml-1 cursor-pointer text-[10px]', style: { opacity: '.5' }, title: 'Rename team (display only)', onclick: () => renameTeam(s.team) }, '✏️'));
+    cfg.teamNames[s.team] && el('span', { class: 'ml-1 text-[9px] uppercase', style: { color: 'var(--text-subtle)' } }, s.team));
   const standingsCard = el('div', {},
     el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: PINK } },
       el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } },
