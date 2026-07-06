@@ -13136,12 +13136,33 @@ function openNrlaRosterModal(rawSales) {
   const renderList = () => {
     listWrap.innerHTML = '';
     const q = (state._nrlaRosterSearch || '').trim().toLowerCase();
+    // Teams sitting the league out (comp.excludedBranches — same store the
+    // main board's Competing chips use).
+    const exNow = new Set((comp.excludedBranches || []).map(b => String(b).toUpperCase()));
+    // Keep the Add-rep team picker in sync — no assigning reps to a benched team.
+    const _keepSel = addTeam.value;
+    addTeam.innerHTML = '';
+    allTeamChoices.filter(b => !exNow.has(b)).forEach(b => addTeam.append(el('option', { value: b }, b)));
+    if ([...addTeam.options].some(o => o.value === _keepSel)) addTeam.value = _keepSel;
     if (state._nrlaMergeSrc) listWrap.append(el('div', { class: 'px-5 py-2 flex items-center justify-between gap-2', style: { background: 'rgba(27,127,59,.10)', borderBottom: '1px solid var(--border)', position: 'sticky', top: '0', zIndex: '2' } },
       el('span', { class: 'text-xs font-bold' }, '⛓ Merging “' + state._nrlaMergeSrc + '” — click “Keep this” on the row that\'s the SAME person (that spelling wins)'),
       el('button', { class: 'text-[11px] font-bold rounded px-2 py-1 cursor-pointer border shrink-0', style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' }, onclick: () => { state._nrlaMergeSrc = null; renderList(); } }, 'Cancel')));
     const totalPicked = Object.values(cfg.rosters || {}).reduce((a, l) => a + (Array.isArray(l) ? l.length : 0), 0);
     pickedNote.textContent = totalPicked + ' reps picked';
     const sections = teams.map(t => {
+      // A benched team renders as one slim struck-through row — no roster, no
+      // reps, out of matchups and standings — with a click to bring it back.
+      if (exNow.has(t)) {
+        return el('div', { class: 'flex items-center justify-between px-5 py-2 border-b', style: { background: 'var(--card-2)', borderColor: 'var(--border)' } },
+          el('div', { class: 'text-xs font-black uppercase tracking-widest', style: { color: 'var(--text-subtle)', textDecoration: 'line-through' } }, t),
+          el('div', { class: 'flex items-center gap-2' },
+            el('span', { class: 'text-[10px] font-bold', style: { color: 'var(--text-subtle)' } }, 'sitting the league out'),
+            el('button', {
+              class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer border', style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+              title: 'Bring ' + t + ' back into the league',
+              onclick: () => { comp.excludedBranches = (comp.excludedBranches || []).filter(x => String(x).toUpperCase() !== t); persist(t + ' back in the league'); },
+            }, 'Include')));
+      }
       // Every rep appears exactly ONCE — under the team they currently count
       // for. Moving them to another team is what the row's dropdown is for.
       // Union in rostered names with NO synced sales yet (new hires added via
@@ -13166,6 +13187,16 @@ function openNrlaRosterModal(rawSales) {
             el('span', { class: 'text-[10px] font-bold normal-case tracking-normal', style: { color: 'rgba(255,255,255,.75)' } }, rows.length + ' reps')),
           el('div', { class: 'flex items-center gap-2' },
             el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, hasRoster ? picked.size + ' competing' : 'everyone competes'),
+            el('button', {
+              class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer', style: { background: 'rgba(255,255,255,.25)', color: '#fff' },
+              title: t + ' isn\'t competing this season? Pull the whole team out of the league — no matchups, no standings, no roster',
+              onclick: (e) => {
+                e.stopPropagation();
+                if (!confirm('Pull ' + t + ' out of the NRLA entirely? They\'ll disappear from matchups and standings (you can bring them back any time).')) return;
+                comp.excludedBranches = [...new Set([...(comp.excludedBranches || []), t])];
+                persist(t + ' pulled from the league — sitting out');
+              },
+            }, 'Sit out'),
             el('button', {
               class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer', style: { background: 'rgba(255,255,255,.25)', color: '#fff' },
               title: 'Add a rep who isn\'t in the synced data yet (brand-new hire) — jumps to the Add-rep bar with this team preselected',
@@ -13208,7 +13239,7 @@ function openNrlaRosterModal(rawSales) {
             title: 'Which branch ' + name + ' competes for (moves them onto that team\'s roster)',
             onchange: (e) => assignTo(name, e.target.value),
             onclick: (e) => e.stopPropagation(),
-          }, ...allTeamChoices.map(b => { const o = el('option', { value: b }, b + (b === home ? ' (home)' : '')); if (b === teamOf(name)) o.selected = true; return o; }));
+          }, ...allTeamChoices.filter(b => !exNow.has(b) || b === teamOf(name)).map(b => { const o = el('option', { value: b }, b + (b === home ? ' (home)' : '')); if (b === teamOf(name)) o.selected = true; return o; }));
           const mergeSrc = state._nrlaMergeSrc;
           const rightSide = mergeSrc
             ? (mergeSrc === name
