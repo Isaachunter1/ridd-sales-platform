@@ -12440,6 +12440,7 @@ function nrlaConfig(comp) {
   if (!n.teamNames || typeof n.teamNames !== 'object') n.teamNames = {};  // branch → display name (Ganadores, Dawgs, …)
   if (!n.rosters || typeof n.rosters !== 'object') n.rosters = {};        // team → [competing rep names]; empty = whole branch
   if (!n.matchups || typeof n.matchups !== 'object') n.matchups = {};     // roundNum → [[a,b],…] drag-and-drop overrides
+  if (!n.repIds || typeof n.repIds !== 'object') n.repIds = {};           // rep name → FieldRoutes sales-rep ID (reference / future ID matching)
   if (!Array.isArray(c.excludedBranches)) c.excludedBranches = [];
   return n;
 }
@@ -12969,27 +12970,48 @@ function openNrlaRosterModal(rawSales) {
   // ("Last, First"), pick the team, Add. Their production links up by name
   // the moment their first sale syncs.
   const addName = el('input', {
-    type: 'text', placeholder: 'New rep — name exactly as in FieldRoutes ("Last, First")…',
+    type: 'text', placeholder: 'New rep — type it like FieldRoutes shows it ("Brayden Austin" works too)…',
     class: 'flex-1 rounded-lg border px-3 py-2 text-sm min-w-0',
     style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
+  });
+  const addId = el('input', {
+    type: 'text', placeholder: 'Rep ID (optional)',
+    class: 'rounded-lg border px-2 py-2 text-xs',
+    style: { width: '110px', background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
+    title: 'FieldRoutes sales-rep ID (e.g. 19515) — stored with the rep for reference and future ID-based matching',
   });
   const addTeam = el('select', {
     class: 'rounded-lg border px-2 py-2 text-xs font-semibold cursor-pointer',
     style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
   }, ...allTeamChoices.map(b => el('option', { value: b }, b)));
   const doAdd = () => {
-    const v = (addName.value || '').trim();
-    if (!v) { addName.focus(); return; }
-    const nm = _cleanRepName(getCanonicalRepName(v));
+    const raw = (addName.value || '').trim();
+    if (!raw) { addName.focus(); return; }
+    // Sales rows write reps as "Last, First" — if the name came in FieldRoutes
+    // profile style ("Brayden Austin"), flip it. And if the rep already exists
+    // in the data under either spelling, reuse THAT exact spelling so we never
+    // create a duplicate entry.
+    const flip = (!raw.includes(',') && raw.split(/\s+/).length >= 2)
+      ? raw.split(/\s+/).slice(-1)[0] + ', ' + raw.split(/\s+/).slice(0, -1).join(' ')
+      : null;
+    const lower = new Map([...repInfo.keys()].map(k => [k.toLowerCase(), k]));
+    const typed = _cleanRepName(getCanonicalRepName(raw));
+    const nm = lower.get(typed.toLowerCase())
+      || (flip && lower.get(_cleanRepName(getCanonicalRepName(flip)).toLowerCase()))
+      || _cleanRepName(getCanonicalRepName(flip || raw));
+    const id = (addId.value || '').trim();
+    if (id) { cfg.repIds[nm] = id; }
     putOnRoster(nm, addTeam.value, true);
     state._nrlaRosterOpen = state._nrlaRosterOpen || {}; state._nrlaRosterOpen[addTeam.value] = true;
-    addName.value = '';
+    toast('Added as “' + nm + '”' + (id ? ' · ID ' + id : '') + ' → ' + addTeam.value, 'success');
+    addName.value = ''; addId.value = '';
     renderList();
   };
   addName.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAdd(); });
-  const addBar = el('div', { class: 'px-5 py-2 border-b flex items-center gap-2', style: { borderColor: 'var(--border)', background: 'rgba(242,20,140,.04)' } },
+  addId.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAdd(); });
+  const addBar = el('div', { class: 'px-5 py-2 border-b flex items-center gap-2 flex-wrap', style: { borderColor: 'var(--border)', background: 'rgba(242,20,140,.04)' } },
     el('span', { class: 'text-[10px] uppercase tracking-widest font-bold shrink-0', style: { color: PINK } }, '＋ Add rep'),
-    addName, addTeam,
+    addName, addId, addTeam,
     el('button', { class: 'rounded-lg px-3 py-2 text-xs font-bold cursor-pointer shrink-0', style: { background: PINK, color: '#fff' }, onclick: doAdd }, 'Add'));
   const footer = el('div', { class: 'px-5 py-3 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
     'Rosters are authoritative: they set who competes for each team and the PRA denominator. Use the team dropdown on a rep to move them to the branch they\'re competing for — their production follows them. New reps are matched to their sales by NAME once the sync catches up. Synced to every admin.');
@@ -13076,7 +13098,8 @@ function openNrlaRosterModal(rawSales) {
             el('span', { class: 'text-sm font-semibold flex-1 min-w-0' },
               el('span', { style: (hasRoster && !on) ? { color: 'var(--text-subtle)', textDecoration: 'line-through' } : {} }, name),
               (teamOf(name) !== home && home !== 'UNKNOWN') && el('span', { class: 'block text-[10px] font-normal', style: { color: 'var(--text-subtle)' } }, 'knocks ' + home),
-              el('span', { class: 'ml-2 text-[10px] font-normal tabular-nums', style: { color: 'var(--text-subtle)' } }, info.n ? info.n + ' acct' + (info.n === 1 ? '' : 's') : 'no synced sales yet')),
+              el('span', { class: 'ml-2 text-[10px] font-normal tabular-nums', style: { color: 'var(--text-subtle)' } }, info.n ? info.n + ' acct' + (info.n === 1 ? '' : 's') : 'no synced sales yet'),
+              cfg.repIds[name] && el('span', { class: 'ml-2 text-[9px] font-bold tabular-nums px-1 py-0.5 rounded', style: { background: 'rgba(11,79,158,.10)', color: '#0B4F9E' }, title: 'FieldRoutes sales-rep ID' }, 'ID ' + cfg.repIds[name])),
             sel);
         }));
     }).filter(Boolean);
