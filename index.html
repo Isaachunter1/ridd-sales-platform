@@ -12519,8 +12519,12 @@ function nrlaConfig(comp) {
   const n = c.nrla;
   // 2026 format (flyer): season July 6 – July 18, 4 seeding rounds, then a
   // playoff (semifinal) round and a championship round — 2 days per round.
+  // Start + End dates define the season: 2-day rounds fill the window and the
+  // LAST TWO become semifinal + championship. Update the two dates each year
+  // and the whole season lays itself out.
   if (typeof n.start !== 'string' || !n.start) n.start = '2026-07-06';
-  n.seedRounds = Math.min(12, Math.max(1, Math.round(Number(n.seedRounds) || 4)));
+  if (typeof n.end !== 'string') n.end = '2026-07-18';
+  n.seedRounds = Math.min(12, Math.max(1, Math.round(Number(n.seedRounds) || 4)));   // fallback when no end date is set
   if (!Array.isArray(n.teamOrder)) n.teamOrder = null;   // 🎲 shuffled matchup order
   n.groups = Number(n.groups) === 1 ? 1 : 2;              // two groups by # of reps (poster) or one table
   if (!n.teamNames || typeof n.teamNames !== 'object') n.teamNames = {};  // branch → display name (Ganadores, Dawgs, …)
@@ -12678,9 +12682,19 @@ function nrlaCompute(rawSales) {
     }, []);
   }
   sales = sales.filter(s => !exB.has(offOf(s)));
-  // Rounds: seeding rounds + semifinal + championship, all 2-day blocks.
-  const seedN = cfg.seedRounds;
-  const windows = nrlaRoundWindows({ start: cfg.start, rounds: seedN + 2 });
+  // Rounds fill the [start, end] window: consecutive 2-day blocks (Sundays
+  // skipped) up to the end date. The LAST TWO rounds are the playoffs
+  // (semifinal + championship); everything before them is seeding.
+  let windows;
+  if (cfg.end && _nrlaDay(cfg.end)) {
+    const endD = _nrlaDay(cfg.end);
+    windows = nrlaRoundWindows({ start: cfg.start, rounds: 30 }).filter(w => w.d2 <= endD);
+    if (!windows.length) windows = nrlaRoundWindows({ start: cfg.start, rounds: 1 });
+    windows = windows.map((w, i) => ({ ...w, num: i + 1 }));
+  } else {
+    windows = nrlaRoundWindows({ start: cfg.start, rounds: cfg.seedRounds + 2 });
+  }
+  const seedN = Math.max(1, windows.length - 2);
   const seasonStart = windows.length ? windows[0].d1 : null;
   const seasonEnd   = windows.length ? windows[windows.length - 1].d2 : null;
   // Teams = every rostered team + every branch with season activity.
@@ -13338,20 +13352,25 @@ function nrlaBoard(rawSales) {
   // ── Config strip ──
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
   const cfgBar = el('div', { class: 'px-3 py-2 flex items-center gap-2 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
-    lbl('Season start'),
+    lbl('Start date'),
     el('input', {
       type: 'date', value: cfg.start || '',
       class: 'rounded border px-2 py-1 text-xs',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       title: 'First day of Seeding Round 1 (rounds are 2-day blocks, Sundays skipped)',
-      onchange: (e) => { cfg.start = e.target.value; save('season start → ' + (e.target.value || 'unset')); },
+      onchange: (e) => { cfg.start = e.target.value; save('start date → ' + (e.target.value || 'unset')); },
     }),
-    lbl('Seeding rounds'),
+    el('span', { class: 'text-muted-' }, '→'),
+    lbl('End date'),
     el('input', {
-      type: 'number', min: '1', max: '12', value: String(cfg.seedRounds),
-      class: 'rounded border px-2 py-1 text-xs', style: { width: '58px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-      onchange: (e) => { cfg.seedRounds = Math.min(12, Math.max(1, Math.round(Number(e.target.value) || 4))); save('seeding rounds → ' + cfg.seedRounds); },
+      type: 'date', value: cfg.end || '',
+      class: 'rounded border px-2 py-1 text-xs',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      title: 'Last day of the Championship round — rounds auto-fill the window, last two become semifinal + championship. Update the two dates each year and the season lays itself out.',
+      onchange: (e) => { cfg.end = e.target.value; save('end date → ' + (e.target.value || 'unset')); },
     }),
+    el('span', { class: 'text-[11px] font-bold px-2 py-1 rounded', style: { background: 'rgba(242,20,140,.08)', color: PINK } },
+      R.rounds.length ? R.seedN + ' seeding + semifinal + championship' : 'no rounds fit'),
     el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } },
       '· drag a team onto another slot to rearrange a seeding round · semifinal + championship are scheduled automatically' + (R.usedFlyerSchedule ? ' · official 2026 matchups in effect' : '')),
   );
@@ -13516,12 +13535,15 @@ function nrlaBoard(rawSales) {
     const title = rd.phase === 'seed' ? 'Round ' + rd.num : rd.phase === 'semi' ? 'Semifinals' : 'Championship';
     const headBg = rd.live ? PINK : (rd.phase === 'seed' ? REDD : '#0E1C30');
     const editable = rd.phase === 'seed';
+    // Each matchup renders as its OWN boxed pairing with a centered VS badge,
+    // so who's playing who reads at a glance.
     const kids = [];
     rd.matchups.forEach((m, i) => {
-      if (m.tag) kids.push(el('div', { class: 'px-3 py-0.5 text-[9px] font-black uppercase tracking-widest', style: { color: REDD, background: 'rgba(232,39,27,.06)', borderTop: i ? '1px solid var(--border)' : 'none' } }, m.tag));
-      kids.push(el('div', { style: (i && !m.tag) ? { borderTop: '1px solid var(--border)' } : {} },
+      kids.push(el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: 'var(--border)', margin: '8px' } },
+        m.tag ? el('div', { class: 'px-3 py-0.5 text-[9px] font-black uppercase tracking-widest', style: { color: REDD, background: 'rgba(232,39,27,.06)', borderBottom: '1px solid var(--border)' } }, m.tag) : null,
         sideRow(m.a, m, m.aLabel, editable ? { ri, mi: i, side: 'a' } : null),
-        el('div', { style: { borderTop: '1px dashed var(--border)' } }),
+        el('div', { style: { position: 'relative', borderTop: '1px dashed var(--border-2)' } },
+          el('span', { style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', fontSize: '8px', fontWeight: '900', letterSpacing: '.12em', background: 'var(--card)', color: 'var(--text-subtle)', padding: '1px 7px', borderRadius: '999px', border: '1px solid var(--border-2)', lineHeight: '1.2' } }, 'VS')),
         sideRow(m.b, m, m.bLabel, editable ? { ri, mi: i, side: 'b' } : null)));
     });
     if (!rd.matchups.length) kids.push(el('div', { class: 'px-3 py-3 text-[11px] text-center', style: { color: 'var(--text-subtle)' } }, 'Matchups set after seeding.'));
