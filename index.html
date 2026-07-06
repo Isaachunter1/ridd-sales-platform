@@ -12,39 +12,22 @@
 <title>RIDD Sales Platform</title>
 
 <!-- ───────────────────────── STYLES ───────────────────────── -->
-<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<!-- Tailwind is PREBUILT into tailwind.css. It used to load the Play CDN —
+     a ~350KB render-blocking compiler that re-scanned the whole DOM on every
+     render, the single biggest cause of slow loads. If you add NEW utility
+     classes, rebuild with:
+       npx tailwindcss -c tailwind.config.js -i in.css -o tailwind.css --minify
+     (config mirrors the old inline tailwind.config: RIDD colors + Inter font
+     + forms/typography plugins, content: ['index.html']) -->
+<link rel="stylesheet" href="tailwind.css" />
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <!-- Leaflet powers the Geographic tab's state choropleth map. Lazy-used
      by the Reporting tab only; deferred so it doesn't block first paint. -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
 <script defer src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- Turf dissolves service-area ZIPs into the red boundary on the Geographic map. -->
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
-<script>
-  // RIDD palette as Tailwind tokens
-  tailwind.config = {
-    theme: {
-      extend: {
-        colors: {
-          smoke:      '#F3F3F3',
-          smoke2:     '#FAFAFA',
-          eerie:      '#1D1D1D',
-          eerie2:     '#262626',
-          eerie3:     '#2f2f2f',
-          lime:       '#8DC63F',
-          'lime-600': '#7bb132',
-          'lime-400': '#a4d558',
-          'lime-50':  '#F1F8E6',
-          battleship: '#757667',
-          'battle-2': '#8e8f80',
-        },
-        fontFamily: {
-          sans: ['Inter','ui-sans-serif','system-ui','-apple-system','Segoe UI','Roboto','sans-serif'],
-        },
-      },
-    },
-  };
-</script>
+<!-- (RIDD Tailwind tokens now live in the prebuilt tailwind.css — see note above.) -->
 <link rel="preconnect" href="https://rsms.me/" />
 <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -101,7 +84,17 @@
     --font-display: 'Anton', 'Inter', ui-sans-serif, system-ui, sans-serif;
   }
 
-  html { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  html {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;      /* crisp, macOS-style glyphs */
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv02','cv03','cv04','cv11';  /* Inter's cleaner alternates */
+  }
+  /* Variable Inter when available — smoother weights, sharper hinting. */
+  @supports (font-variation-settings: normal) {
+    html { font-family: 'Inter var', Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  }
   body {
     background: var(--bg);
     color: var(--text);
@@ -517,6 +510,40 @@
   @media (min-width: 641px) {
     .mobile-only { display:none !important; }
     .mobile-nav { display: none !important; }
+  }
+
+  /* ═══════════ SLEEK PASS — crisper type, softer surfaces, calmer motion ═══════════ */
+  :root { --ease-out: cubic-bezier(.22,.61,.36,1); }
+  .card { border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 12px 32px -24px rgba(0,0,0,.28); }
+  .card-2 { border-radius: 12px; }
+  button {
+    transition: background-color .15s var(--ease-out), color .15s var(--ease-out),
+                border-color .15s var(--ease-out), box-shadow .15s var(--ease-out),
+                transform .12s var(--ease-out), opacity .15s var(--ease-out), filter .15s var(--ease-out);
+  }
+  button:active { transform: scale(.97); }
+  input, select, textarea { transition: border-color .15s var(--ease-out), box-shadow .15s var(--ease-out), background-color .15s var(--ease-out); }
+  input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  /* Modals: frosted-glass overlay + gentle rise-in. */
+  .modal-overlay { backdrop-filter: blur(14px) saturate(1.15); -webkit-backdrop-filter: blur(14px) saturate(1.15); animation: _ovlIn .16s var(--ease-out); }
+  .modal-overlay > .card { border-radius: 18px; animation: _cardIn .22s var(--ease-out); }
+  @keyframes _ovlIn { from { opacity: 0; } }
+  @keyframes _cardIn { from { opacity: 0; transform: translateY(10px) scale(.985); } }
+  /* Slim, quiet scrollbars. */
+  * { scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; }
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 99px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--text-subtle); }
+  *::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
+  ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+  @media (prefers-reduced-motion: reduce) {
+    .modal-overlay, .modal-overlay > .card { animation: none; }
+    button { transition: none; }
+    button:active { transform: none; }
   }
 </style>
 
@@ -936,6 +963,21 @@ function saveIndicatorState() {
   }
 }
 
+// ── Coalesced background re-render ──────────────────────────────────────
+// The async boot loaders (settings, company goal, gz cache, IndexedDB bulk
+// restore) each used to trigger their OWN full re-render as they resolved —
+// four+ complete DOM rebuilds before the user touched anything, a big part
+// of why refreshes felt slow. Requests within a short window now collapse
+// into a single re-render, and it stays out of the way while the main
+// loading sequence is still in flight (it re-renders at the end anyway).
+let _bgRemountTimer = null;
+function scheduleBackgroundRemount() {
+  if (_bgRemountTimer) return;
+  _bgRemountTimer = setTimeout(() => {
+    _bgRemountTimer = null;
+    if (state.profile && typeof mountApp === 'function' && !_loadAndRenderInFlight) mountApp();
+  }, 120);
+}
 function loadIndicatorState() {
   // Read the new split keys first; fall back to the legacy combined key if a
   // user is loading from a state written before the split.
@@ -977,7 +1019,7 @@ function loadIndicatorState() {
         for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
         const text = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
         apply(text);
-        if (state.profile && typeof mountApp === 'function') mountApp();
+        scheduleBackgroundRemount();
       } catch (e) {
         console.warn('[ridd] compressed indicator cache unreadable', e);
       }
@@ -1004,7 +1046,7 @@ function loadIndicatorState() {
       const haveRaw = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
       if (bulk.savedAt >= lsBulkAt || !haveRaw) {
         applyObj(bulk);
-        if (state.profile && typeof mountApp === 'function') mountApp();
+        scheduleBackgroundRemount();
       }
     } catch (e) { console.warn('[ridd] IndexedDB indicator restore failed', e); }
   })();
@@ -2392,8 +2434,9 @@ async function loadAndRender() {
   mountLoading();
   try {
     await loadProfile();
-    await loadLookups();
-    await loadData();
+    // Lookups and the main data pull are independent — run them in parallel
+    // (they used to be two sequential network stages on every boot).
+    await Promise.all([loadLookups(), loadData()]);
     mountApp();
   } catch (err) {
     console.error(err);
@@ -2506,8 +2549,8 @@ async function loadData() {
   // populated state.companyLogo for instant first render.
   loadCompanyLogo().catch(err => console.warn('[ridd] company logo load skipped', err));
   loadCommissionConfig().catch(err => console.warn('[ridd] commission config load skipped', err));
-  loadCompanyGoal().then(() => { if (typeof mountApp === 'function') mountApp(); }).catch(err => console.warn('[ridd] company goal load skipped', err));
-  loadAppSettings().then(() => { if (typeof mountApp === 'function') mountApp(); }).catch(err => console.warn('[ridd] pay settings load skipped', err));
+  loadCompanyGoal().then(() => scheduleBackgroundRemount()).catch(err => console.warn('[ridd] company goal load skipped', err));
+  loadAppSettings().then(() => scheduleBackgroundRemount()).catch(err => console.warn('[ridd] pay settings load skipped', err));
   // Reporting tab metadata — admin-only, fire-and-forget. The Reporting
   // tab lazy-loads the heavy subscription rows on demand once the user
   // actually visits the tab, so this just primes the uploads list +
