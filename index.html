@@ -835,6 +835,9 @@ function saveIndicatorState() {
     const settings = { savedAt: new Date().toISOString() };
     for (const k of INDICATOR_SETTINGS_FIELDS) settings[k] = state[k];
     localStorage.setItem(INDICATORS_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    // Remember when THIS browser last saved settings — the server-config load
+    // uses it to refuse to clobber newer local work with a stale server row.
+    state._indicatorSettingsSavedAt = settings.savedAt;
   } catch (err) {
     console.warn('[ridd] failed to save indicator settings', err);
     if (typeof toast === 'function') toast('Could not save team/rep settings — localStorage may be full', 'error');
@@ -956,6 +959,9 @@ function loadIndicatorState() {
   }
   apply(localStorage.getItem(INDICATORS_DATA_STORAGE_KEY));   // bulk (overrides legacy data fields)
   apply(localStorage.getItem(INDICATORS_SETTINGS_STORAGE_KEY)); // settings (overrides legacy settings fields)
+  // Capture the settings save-stamp for the stale-server guard below.
+  try { state._indicatorSettingsSavedAt = (JSON.parse(localStorage.getItem(INDICATORS_SETTINGS_STORAGE_KEY) || 'null') || {}).savedAt || ''; }
+  catch { state._indicatorSettingsSavedAt = ''; }
   if (typeof _normalizeRepKeyedMaps === 'function') _normalizeRepKeyedMaps();
   if (typeof _hydrateTeamYears === 'function') _hydrateTeamYears();
 
@@ -1025,6 +1031,17 @@ async function loadIndicatorConfigFromSupabase() {
       Object.keys(data.rep_teams || {}).length > 0 ||
       Object.keys(data.rep_tiers || {}).length > 0
     );
+    // STALE-SERVER GUARD — if this browser saved settings AFTER the server
+    // row was written, the last sync must have failed or raced. Applying the
+    // server copy would clobber newer local work (this is exactly how roster
+    // edits got wiped once) — keep local and push it up instead.
+    const _serverAt = data && data.updated_at ? Date.parse(data.updated_at) : 0;
+    const _localAt  = state._indicatorSettingsSavedAt ? Date.parse(state._indicatorSettingsSavedAt) : 0;
+    if (hasServerData && _localAt && _serverAt && _localAt > _serverAt + 1500) {
+      console.warn('[ridd] local indicator config is newer than the server copy — pushing local up instead of applying server');
+      saveIndicatorConfigToSupabase().catch(err => console.warn('[ridd] config push-up failed', err));
+      return;
+    }
     if (hasServerData) {
       state._indicatorTeams         = Array.isArray(data.teams) ? data.teams : (state._indicatorTeams || []);
       state._indicatorTeamColors    = data.team_colors   && typeof data.team_colors   === 'object' ? data.team_colors   : (state._indicatorTeamColors || {});
@@ -1071,8 +1088,7 @@ async function loadIndicatorConfigFromSupabase() {
 // (via the caller — saveIndicatorState — so localStorage stays a fast
 // local cache). Fire-and-forget pattern means UI never blocks waiting on
 // the network; failures surface as a toast and a console warning.
-async function saveIndicatorConfigToSupabase() {
-  if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
+async function _indicatorConfigUpsertNow() {
   const payload = {
     id: 1,
     teams:         state._indicatorTeams || [],
@@ -1091,10 +1107,34 @@ async function saveIndicatorConfigToSupabase() {
     const { error } = await supabase.from('indicator_config').upsert(payload, { onConflict: 'id' });
     if (error) {
       console.warn('[ridd] indicator_config upsert failed', error);
-      if (typeof toast === 'function') toast('Saved locally — server sync failed (' + (error.message || 'unknown') + ')', 'error');
+      if (typeof toast === 'function') toast('Saved locally — server sync failed (' + (error.message || 'unknown') + '), retrying…', 'error');
+      return false;
     }
+    return true;
   } catch (err) {
     console.warn('[ridd] indicator_config save threw', err);
+    return false;
+  }
+}
+// Single-flight + trailing sync. Rapid edits (roster checkboxes, drag-and-
+// drop) used to fire DOZENS of concurrent upserts whose arrival order
+// Postgres doesn't guarantee — an early payload could land LAST and roll the
+// server copy back, and the next refresh would then clobber the local work
+// with that stale row. Now: one request in flight at a time, the payload is
+// always rebuilt from CURRENT state at send time, edits made mid-flight
+// trigger one trailing send, and failures retry (capped).
+let _indCfgUpsertBusy = false, _indCfgUpsertAgain = false, _indCfgUpsertFails = 0;
+async function saveIndicatorConfigToSupabase() {
+  if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
+  if (_indCfgUpsertBusy) { _indCfgUpsertAgain = true; return; }
+  _indCfgUpsertBusy = true;
+  try {
+    let ok = await _indicatorConfigUpsertNow();
+    while (_indCfgUpsertAgain) { _indCfgUpsertAgain = false; ok = await _indicatorConfigUpsertNow(); }
+    if (ok) _indCfgUpsertFails = 0;
+    else if (++_indCfgUpsertFails <= 5) setTimeout(() => saveIndicatorConfigToSupabase().catch(() => {}), 3000);
+  } finally {
+    _indCfgUpsertBusy = false;
   }
 }
 
