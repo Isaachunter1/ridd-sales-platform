@@ -12933,13 +12933,11 @@ function openNrlaRosterModal(rawSales) {
     const totalPicked = Object.values(cfg.rosters || {}).reduce((a, l) => a + (Array.isArray(l) ? l.length : 0), 0);
     pickedNote.textContent = totalPicked + ' reps picked';
     const sections = teams.map(t => {
+      // Every rep appears exactly ONCE — under the team they currently count
+      // for. Moving them to another team is what the row's dropdown is for.
       const own = [...repInfo.keys()].filter(name => teamOf(name) === t);
-      // While searching, ALSO surface matching reps from other teams so a rep
-      // can be checked straight onto THIS team's roster (cross-team pickup).
-      const extra = q ? [...repInfo.keys()].filter(name => name.toLowerCase().includes(q) && teamOf(name) !== t) : [];
-      const rows = own.filter(n => !q || n.toLowerCase().includes(q)).map(n => [n, false])
-        .concat(extra.map(n => [n, true]))
-        .sort((a, b) => a[0].localeCompare(b[0]));
+      const rows = own.filter(n => !q || n.toLowerCase().includes(q))
+        .sort((a, b) => a.localeCompare(b));
       if (!rows.length) return null;
       const picked = new Set((cfg.rosters[t] || []).map(String));
       const hasRoster = picked.size > 0;
@@ -12969,7 +12967,7 @@ function openNrlaRosterModal(rawSales) {
               title: 'No roster — everyone on the branch counts',
               onclick: (e) => { e.stopPropagation(); delete cfg.rosters[t]; persist(t + ' roster cleared — everyone competes'); },
             }, 'Clear'))),
-        ...(open ? rows : []).map(([name, foreign]) => {
+        ...(open ? rows : []).map((name) => {
           const on = picked.has(name);
           const info = repInfo.get(name) || { n: 0, counts: {} };
           const home = homeOf(info);
@@ -12991,8 +12989,7 @@ function openNrlaRosterModal(rawSales) {
           return el('label', { class: 'flex items-center gap-3 px-5 py-1.5 border-b cursor-pointer', style: { borderColor: 'var(--border)' } },
             cb,
             el('span', { class: 'text-sm font-semibold flex-1 min-w-0' },
-              el('span', { style: (hasRoster && !on && !foreign) ? { color: 'var(--text-subtle)', textDecoration: 'line-through' } : {} }, name),
-              foreign && el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(242,20,140,.10)', color: PINK } }, 'on ' + teamOf(name)),
+              el('span', { style: (hasRoster && !on) ? { color: 'var(--text-subtle)', textDecoration: 'line-through' } : {} }, name),
               (teamOf(name) !== home) && el('span', { class: 'block text-[10px] font-normal', style: { color: 'var(--text-subtle)' } }, 'knocks ' + home),
               el('span', { class: 'ml-2 text-[10px] font-normal tabular-nums', style: { color: 'var(--text-subtle)' } }, info.n + ' acct' + (info.n === 1 ? '' : 's'))),
             sel);
