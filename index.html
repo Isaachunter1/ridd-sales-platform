@@ -12944,6 +12944,33 @@ function openNrlaRosterModal(rawSales) {
   // Every branch a rep could compete for — current teams plus the flyer
   // eight, so a brand-new branch (Joplin) is assignable before it has data.
   const allTeamChoices = [...new Set([...teams, ...NRLA_2026_SCHEDULE.flat(2).filter(Boolean)])].sort();
+  // Fold a duplicate spelling into the real rep — wraps the app-wide
+  // mergeDuplicateRep (alias + per-rep settings), then fixes rosters and
+  // rep IDs here so the two rows collapse into one everywhere.
+  const doMerge = (bad, good) => {
+    state._nrlaMergeSrc = null;
+    if (!bad || !good || bad === good) { renderList(); return; }
+    const badTeam = rosterTeamOf(bad), goodTeam = rosterTeamOf(good);
+    Object.keys(cfg.rosters).forEach(k => {
+      cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== bad);
+      if (!cfg.rosters[k].length) delete cfg.rosters[k];
+    });
+    if (badTeam && !goodTeam) cfg.rosters[badTeam] = [...new Set([...(cfg.rosters[badTeam] || []), good])].sort();
+    if (cfg.repIds[bad]) { if (!cfg.repIds[good]) cfg.repIds[good] = cfg.repIds[bad]; delete cfg.repIds[bad]; }
+    mergeDuplicateRep(bad, good);
+    // fold the modal's cached counts so the list updates without reopening
+    const eb = repInfo.get(bad), eg = repInfo.get(good);
+    if (eb && eg) {
+      eg.n += eb.n;
+      Object.entries(eb.counts).forEach(([t2, n2]) => { eg.counts[t2] = (eg.counts[t2] || 0) + n2; });
+      Object.entries(eb.season || {}).forEach(([t2, n2]) => { eg.season[t2] = (eg.season[t2] || 0) + n2; });
+      if (eb.lastD && (!eg.lastD || eb.lastD > eg.lastD)) { eg.lastD = eb.lastD; eg.lastT = eb.lastT; }
+    } else if (eb && !eg) { repInfo.set(good, eb); }
+    repInfo.delete(bad);
+    saveDemoData();
+    toast('Merged “' + bad + '” into “' + good + '” — their sales now count as one rep everywhere', 'success');
+    renderList();
+  };
 
   // ── Static chrome — built ONCE so the search box never loses focus and
   // typing doesn't rebuild the whole modal. Only the list re-renders. ──
@@ -13023,6 +13050,9 @@ function openNrlaRosterModal(rawSales) {
   const renderList = () => {
     listWrap.innerHTML = '';
     const q = (state._nrlaRosterSearch || '').trim().toLowerCase();
+    if (state._nrlaMergeSrc) listWrap.append(el('div', { class: 'px-5 py-2 flex items-center justify-between gap-2', style: { background: 'rgba(27,127,59,.10)', borderBottom: '1px solid var(--border)', position: 'sticky', top: '0', zIndex: '2' } },
+      el('span', { class: 'text-xs font-bold' }, '⛓ Merging “' + state._nrlaMergeSrc + '” — click “Keep this” on the row that\'s the SAME person (that spelling wins)'),
+      el('button', { class: 'text-[11px] font-bold rounded px-2 py-1 cursor-pointer border shrink-0', style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' }, onclick: () => { state._nrlaMergeSrc = null; renderList(); } }, 'Cancel')));
     const totalPicked = Object.values(cfg.rosters || {}).reduce((a, l) => a + (Array.isArray(l) ? l.length : 0), 0);
     pickedNote.textContent = totalPicked + ' reps picked';
     const sections = teams.map(t => {
@@ -13041,7 +13071,7 @@ function openNrlaRosterModal(rawSales) {
       const hasRoster = picked.size > 0;
       // Collapsible — sections start closed so eight branches don't make one
       // endless list. Searching auto-expands whatever matches.
-      const open = q ? true : !!(state._nrlaRosterOpen || {})[t];
+      const open = (q || state._nrlaMergeSrc) ? true : !!(state._nrlaRosterOpen || {})[t];
       const toggleOpen = () => { state._nrlaRosterOpen = state._nrlaRosterOpen || {}; state._nrlaRosterOpen[t] = !open; renderList(); };
       return el('div', {},
         el('div', { class: 'flex items-center justify-between px-5 py-2 cursor-pointer select-none', style: { background: PINK, position: 'sticky', top: '0', zIndex: '1' }, onclick: toggleOpen, title: open ? 'Collapse' : 'Expand' },
@@ -13093,6 +13123,24 @@ function openNrlaRosterModal(rawSales) {
             onchange: (e) => assignTo(name, e.target.value),
             onclick: (e) => e.stopPropagation(),
           }, ...allTeamChoices.map(b => { const o = el('option', { value: b }, b + (b === home ? ' (home)' : '')); if (b === teamOf(name)) o.selected = true; return o; }));
+          const mergeSrc = state._nrlaMergeSrc;
+          const rightSide = mergeSrc
+            ? (mergeSrc === name
+                ? el('span', { class: 'text-[10px] font-black uppercase tracking-wider shrink-0', style: { color: PINK } }, 'merging…')
+                : el('button', {
+                    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer shrink-0',
+                    style: { background: '#1b7f3b', color: '#fff' },
+                    title: 'Keep “' + name + '” — fold “' + mergeSrc + '” and all their sales into this rep',
+                    onclick: (e) => { e.preventDefault(); e.stopPropagation(); doMerge(mergeSrc, name); },
+                  }, 'Keep this'))
+            : el('span', { class: 'flex items-center gap-1.5 shrink-0' },
+                el('button', {
+                  class: 'cursor-pointer text-[12px] px-1 rounded',
+                  style: { opacity: '.5', background: 'transparent', border: 'none' },
+                  title: 'Duplicate spelling of another rep? Merge the two — pick this one as the duplicate, then click "Keep this" on the real one',
+                  onclick: (e) => { e.preventDefault(); e.stopPropagation(); state._nrlaMergeSrc = name; renderList(); },
+                }, '⛓'),
+                sel);
           return el('label', { class: 'flex items-center gap-3 px-5 py-1.5 border-b cursor-pointer', style: { borderColor: 'var(--border)' } },
             cb,
             el('span', { class: 'text-sm font-semibold flex-1 min-w-0' },
@@ -13100,7 +13148,7 @@ function openNrlaRosterModal(rawSales) {
               (teamOf(name) !== home && home !== 'UNKNOWN') && el('span', { class: 'block text-[10px] font-normal', style: { color: 'var(--text-subtle)' } }, 'knocks ' + home),
               el('span', { class: 'ml-2 text-[10px] font-normal tabular-nums', style: { color: 'var(--text-subtle)' } }, info.n ? info.n + ' acct' + (info.n === 1 ? '' : 's') : 'no synced sales yet'),
               cfg.repIds[name] && el('span', { class: 'ml-2 text-[9px] font-bold tabular-nums px-1 py-0.5 rounded', style: { background: 'rgba(11,79,158,.10)', color: '#0B4F9E' }, title: 'FieldRoutes sales-rep ID' }, 'ID ' + cfg.repIds[name])),
-            sel);
+            rightSide);
         }));
     }).filter(Boolean);
     if (sections.length) sections.forEach(sec => listWrap.append(sec));
