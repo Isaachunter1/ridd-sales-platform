@@ -13673,7 +13673,14 @@ function nrlaBoard(rawSales) {
         sideRow(m.b, m, m.bLabel, editable ? { ri, mi: i, side: 'b' } : null, rd.live)));
     });
     if (!rd.matchups.length) kids.push(el('div', { class: 'px-3 py-3 text-[11px] text-center', style: { color: 'var(--text-subtle)' } }, 'Matchups set after seeding.'));
-    return el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: rd.live ? GREEN : 'var(--border)', boxShadow: rd.live ? '0 0 0 1px ' + GREEN + ', 0 8px 24px -16px rgba(47,214,47,.5)' : 'none', opacity: rd.started ? '1' : '.6' } },
+    // Playoff cards (Semifinals + Championship) span TWO grid columns — together
+    // they fill the row under the seeding rounds — and lay their matchups out
+    // two-across to use the width.
+    const playoff = rd.phase !== 'seed';
+    const body = playoff && rd.matchups.length
+      ? [el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' } }, ...kids)]
+      : kids;
+    return el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: rd.live ? GREEN : 'var(--border)', boxShadow: rd.live ? '0 0 0 1px ' + GREEN + ', 0 8px 24px -16px rgba(47,214,47,.5)' : 'none', opacity: rd.started ? '1' : '.6', gridColumn: playoff ? 'span 2' : 'auto' } },
       el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: headBg } },
         el('span', { class: 'text-[11px] font-black uppercase tracking-wider', style: { color: headFg } }, title + ' · ' + dspan(rd.d1, rd.d2) + (dayLabel ? ' · ' + dayLabel : '')),
         el('div', { class: 'flex items-center gap-1.5' },
@@ -13686,7 +13693,7 @@ function nrlaBoard(rawSales) {
           el('span', { class: 'text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded inline-flex items-center gap-1', style: rd.live ? { background: '#04310A', color: GREEN } : { background: 'rgba(255,255,255,.18)', color: '#fff' } },
             rd.live ? el('span', { style: { animation: 'nrlaPulse 1.2s ease-in-out infinite' } }, '●') : null,
             rd.live ? 'LIVE' : rd.done ? 'FINAL' : 'UPCOMING'))),
-      ...kids);
+      ...body);
   };
   const roundsGrid = el('div', { class: 'p-3 grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', borderTop: '1px solid var(--border)' } },
     ...R.rounds.map((rd, ri) => roundCard(rd, ri)));
