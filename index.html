@@ -947,7 +947,13 @@ function loadIndicatorState() {
     try { applyObj(JSON.parse(raw)); }
     catch (err) { console.warn('[ridd] failed to parse indicator state', err); }
   };
-  apply(localStorage.getItem(INDICATORS_STORAGE_KEY));        // legacy combined
+  // Legacy combined key: only parse it when the split keys don't exist yet
+  // (first boot after upgrading). It can be several MB and JSON.parse is
+  // synchronous — skipping it when it's redundant shaves real time off every
+  // refresh, since the split keys below override all its fields anyway.
+  if (!localStorage.getItem(INDICATORS_DATA_STORAGE_KEY) && !localStorage.getItem(INDICATORS_SETTINGS_STORAGE_KEY)) {
+    apply(localStorage.getItem(INDICATORS_STORAGE_KEY));      // legacy combined
+  }
   apply(localStorage.getItem(INDICATORS_DATA_STORAGE_KEY));   // bulk (overrides legacy data fields)
   apply(localStorage.getItem(INDICATORS_SETTINGS_STORAGE_KEY)); // settings (overrides legacy settings fields)
   if (typeof _normalizeRepKeyedMaps === 'function') _normalizeRepKeyedMaps();
@@ -3483,6 +3489,30 @@ function refreshIndSection(id) {
   host.append(build());
 }
 
+// ── White-screen safety net ────────────────────────────────────────────────
+// A crash anywhere inside a render used to leave the page blank with the only
+// clue buried in the console. Wrap every mountApp call: log the crash and show
+// the standard error screen (with its reload path) instead of a white page.
+// (Function declarations hoist, so `mountApp` is already bound here; rebinding
+// the name routes every later call site through the guard.)
+{
+  const _mountAppInner = () => mountApp; // capture lazily to dodge TDZ ordering
+  let _wrapped = false;
+  setTimeout(() => {
+    if (_wrapped) return; _wrapped = true;
+    const inner = _mountAppInner();
+    mountApp = function () {
+      try { return inner.apply(this, arguments); }
+      catch (err) {
+        console.error('[ridd] render crashed', err);
+        try { mountError(err); }
+        catch (e2) {
+          document.body.innerHTML = '<div style="padding:32px;font-family:system-ui,sans-serif"><h2 style="margin:0 0 8px">Something broke while rendering</h2><pre style="white-space:pre-wrap;color:#b91c1c">' + String((err && err.message) || err) + '</pre><button onclick="location.reload()" style="margin-top:12px;padding:8px 14px;cursor:pointer">Reload</button></div>';
+        }
+      }
+    };
+  }, 0);
+}
 function mountApp() {
   const isAdmin = isAdminRole(state.profile.role);
   const isAuditor = isAuditorRole(state.profile.role);
@@ -12401,13 +12431,14 @@ function nrlaConfig(comp) {
   const c = comp || getActiveComp(); if (!c) return null;
   if (!c.nrla || typeof c.nrla !== 'object') c.nrla = {};
   const n = c.nrla;
-  if (typeof n.start !== 'string') n.start = '';
-  n.rounds = Math.min(30, Math.max(1, Math.round(Number(n.rounds) || 7)));
-  if (typeof n.baselineStart !== 'string') n.baselineStart = '';
-  if (typeof n.baselineEnd !== 'string') n.baselineEnd = '';
+  // 2026 format (flyer): season July 6 – July 18, 4 seeding rounds, then a
+  // playoff (semifinal) round and a championship round — 2 days per round.
+  if (typeof n.start !== 'string' || !n.start) n.start = '2026-07-06';
+  n.seedRounds = Math.min(12, Math.max(1, Math.round(Number(n.seedRounds) || 4)));
   if (!Array.isArray(n.teamOrder)) n.teamOrder = null;   // 🎲 shuffled matchup order
   n.groups = Number(n.groups) === 1 ? 1 : 2;              // two groups by # of reps (poster) or one table
   if (!n.teamNames || typeof n.teamNames !== 'object') n.teamNames = {};  // branch → display name (Ganadores, Dawgs, …)
+  if (!n.rosters || typeof n.rosters !== 'object') n.rosters = {};        // team → [competing rep names]; empty = whole branch
   if (!Array.isArray(c.excludedBranches)) c.excludedBranches = [];
   return n;
 }
@@ -12475,44 +12506,80 @@ function nrlaApplyOverrides(sales, comp) {
     return (o && o !== s.office) ? { ...s, office: o } : s;
   });
 }
+// ── 2026 seeding schedule (flyer) — used verbatim whenever all eight flyer
+// teams are in play. Round 1: Jul 6-7 · R2: 8-9 · R3: 10-11 · R4: 13-14.
+const NRLA_2026_SCHEDULE = [
+  [['VIRGINIA BEACH','CHARLESTON'],['DESTIN','RALEIGH'],['DETROIT','ATLANTA'],['JOPLIN','MYRTLE BEACH']],
+  [['VIRGINIA BEACH','RALEIGH'],['MYRTLE BEACH','DETROIT'],['CHARLESTON','DESTIN'],['ATLANTA','JOPLIN']],
+  [['VIRGINIA BEACH','DETROIT'],['MYRTLE BEACH','RALEIGH'],['JOPLIN','DESTIN'],['CHARLESTON','ATLANTA']],
+  [['VIRGINIA BEACH','MYRTLE BEACH'],['DETROIT','RALEIGH'],['CHARLESTON','JOPLIN'],['ATLANTA','DESTIN']],
+];
+// Prize pool (flyer) — per rep, by final placement.
+const NRLA_PRIZE_POOL = ['®400K + Team Trip', '®325K', '®250K', '®175K', '®125K', '®100K', '®75K', '®50K'];
+const nrlaOrdinal = (n) => n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n + 'th';
+// Seeding-round pairings: the 2026 flyer schedule when it covers the field,
+// otherwise a generated round robin (which the 🎲 rotation can turn).
+function nrlaSeedSchedule(teams, seedN, cfg) {
+  const flyerTeams = [...new Set(NRLA_2026_SCHEDULE.flat(2))];
+  const cur = new Set(teams);
+  if (flyerTeams.every(t => cur.has(t))) {
+    const out = [];
+    for (let i = 0; i < seedN; i++) out.push(NRLA_2026_SCHEDULE[i % NRLA_2026_SCHEDULE.length]);
+    return { rounds: out, flyer: true };
+  }
+  let order = teams;
+  if (Array.isArray(cfg.teamOrder) && cfg.teamOrder.length) {
+    const kept = cfg.teamOrder.map(t => String(t).toUpperCase()).filter(t => cur.has(t));
+    const keptSet = new Set(kept);
+    order = kept.concat(teams.filter(t => !keptSet.has(t)));
+  }
+  return { rounds: nrlaSchedule(order, seedN), flyer: false };
+}
 function nrlaCompute(rawSales) {
   const comp = getActiveComp();
   const cfg = nrlaConfig(comp);
   const exB = new Set((comp.excludedBranches || []).map(b => String(b).toUpperCase()));
   const offOf = (s) => String(s.office || 'UNKNOWN').toUpperCase();
-  const sales = nrlaApplyOverrides(rawSales, comp)
-    .filter(s => _indicatorDeptOf(s) === 'd2d' && !exB.has(offOf(s)));
-  const bl = nrlaBaselineBounds(cfg);
-  const windows = nrlaRoundWindows(cfg);
+  let sales = nrlaApplyOverrides(rawSales, comp)
+    .filter(s => _indicatorDeptOf(s) === 'd2d');
+  // Rosters (📋) — AUTHORITATIVE team lists. A rep on a roster counts for
+  // THAT team, wherever they actually knock. A team WITH a roster counts only
+  // its rostered reps; a team without one counts everyone knocking under its
+  // banner. Drives every round, the revenue columns, and the PRA denominator.
+  const rosters = {};
+  Object.entries(cfg.rosters || {}).forEach(([t, list]) => {
+    if (Array.isArray(list) && list.length) rosters[String(t).toUpperCase()] = new Set(list.map(r => _cleanRepName(getCanonicalRepName(String(r)))));
+  });
+  const repRosterTeam = {};
+  Object.entries(rosters).forEach(([t, set]) => set.forEach(r => { if (!(r in repRosterTeam)) repRosterTeam[r] = t; }));
+  if (Object.keys(rosters).length) {
+    sales = sales.reduce((out, s) => {
+      const key = _cleanRepName(getCanonicalRepName(s.rep || ''));
+      const rt = repRosterTeam[key];
+      if (rt) { out.push(rt === offOf(s) ? s : { ...s, office: rt }); return out; }
+      if (!rosters[offOf(s)]) out.push(s);
+      return out;
+    }, []);
+  }
+  sales = sales.filter(s => !exB.has(offOf(s)));
+  // Rounds: seeding rounds + semifinal + championship, all 2-day blocks.
+  const seedN = cfg.seedRounds;
+  const windows = nrlaRoundWindows({ start: cfg.start, rounds: seedN + 2 });
   const seasonStart = windows.length ? windows[0].d1 : null;
   const seasonEnd   = windows.length ? windows[windows.length - 1].d2 : null;
-  // Teams = branches with any D2D activity in the baseline or the season.
-  const teamSet = new Set();
-  for (const s of sales) {
-    const d = _parseIndicatorDay(s); if (!d) continue;
-    const inBl = bl && d >= bl.s && d <= bl.e;
-    const inSeason = seasonStart && d >= seasonStart && d <= seasonEnd;
-    if (inBl || inSeason) { const o = offOf(s); if (o && o !== 'UNKNOWN') teamSet.add(o); }
+  // Teams = every rostered team + every branch with season activity.
+  const teamSet = new Set(Object.keys(rosters).filter(t => !exB.has(t)));
+  if (seasonStart) for (const s of sales) {
+    const d = _parseIndicatorDay(s); if (!d || d < seasonStart || d > seasonEnd) continue;
+    const o = offOf(s); if (o && o !== 'UNKNOWN') teamSet.add(o);
   }
   const teams = [...teamSet].sort();
-  // Goals — baseline serviced revenue → per-2-day pace. Also count the reps
-  // who produced serviced baseline revenue ("reps competing" on the board).
-  const goals = {}, blReps = {};
-  teams.forEach(t => { goals[t] = 0; blReps[t] = new Set(); });
-  if (bl) for (const s of sales) {
-    const d = _parseIndicatorDay(s);
-    if (!d || d < bl.s || d > bl.e || !nrlaServiced(s)) continue;
-    const o = offOf(s); if (!(o in goals)) continue;
-    goals[o] += Number(s.contractValue) || 0;
-    if (s.rep) blReps[o].add(s.rep);
-  }
-  teams.forEach(t => { goals[t] = bl && bl.days > 0 ? goals[t] / bl.days * 2 : 0; });
-  // Per-round serviced revenue (sold in the round's 2 days AND serviced).
+  // Per-round revenue (everything SOLD in the round's 2 days) + sellers.
   const roundRev = windows.map(() => ({}));
   const roundReps = windows.map(() => ({}));
   if (windows.length) for (const s of sales) {
     const d = _parseIndicatorDay(s);
-    if (!d || d < seasonStart || d > seasonEnd || !nrlaServiced(s)) continue;
+    if (!d || d < seasonStart || d > seasonEnd) continue;
     for (let i = 0; i < windows.length; i++) {
       const w = windows[i];
       if (d >= w.d1 && d <= w.d2) {
@@ -12523,97 +12590,150 @@ function nrlaCompute(rawSales) {
       }
     }
   }
-  // Groups — "two separate groups based on # of reps": teams ranked by
-  // baseline roster size; the bigger half (rounded up) is Group 1, the rest
-  // Group 2. Single-table mode keeps everyone in one round robin.
-  const repCount = (t) => (blReps[t] || new Set()).size;
-  let groups;
-  if (cfg.groups === 2 && teams.length >= 4) {
-    const bySize = teams.slice().sort((a, b) => repCount(b) - repCount(a) || a.localeCompare(b));
-    const cut = Math.ceil(bySize.length / 2);
-    groups = [bySize.slice(0, cut).sort(), bySize.slice(cut).sort()];
-  } else {
-    groups = [teams.slice()];
+  // Season revenue columns — audit-flag buckets (same tokens Spring Cleaning
+  // and Top Gun use): failed = Failed Audit or Last Resort (<$99), passed =
+  // Passed/No Audit, pending = not flagged yet.
+  const seasonStats = {};
+  teams.forEach(t => { seasonStats[t] = { total: 0, passed: 0, pending: 0, failed: 0, repSet: new Set() }; });
+  if (windows.length) for (const s of sales) {
+    const d = _parseIndicatorDay(s);
+    if (!d || d < seasonStart || d > seasonEnd) continue;
+    const st = seasonStats[offOf(s)]; if (!st) continue;
+    const cv = Number(s.contractValue) || 0;
+    st.total += cv;
+    if ((Number(s.initialPrice) || 0) < 99 || SC_FAIL_RE.test(s.customerFlags || '')) st.failed += cv;
+    else if (scAuditPassed(s.customerFlags)) st.passed += cv;
+    else st.pending += cv;
+    if (s.rep) st.repSet.add(s.rep);
   }
-  const teamGroup = {};
-  groups.forEach((g, gi) => g.forEach(t => { teamGroup[t] = gi + 1; }));
-  // Matchup order — a saved shuffle (🎲 on the board) wins; teams not in the
-  // saved order (a new branch, an un-excluded team) are appended so the rest
-  // of the schedule stays stable. The order applies WITHIN each group.
-  const orderWithin = (g) => {
-    if (!Array.isArray(cfg.teamOrder) || !cfg.teamOrder.length) return g;
-    const cur = new Set(g);
-    const kept = cfg.teamOrder.map(t => String(t).toUpperCase()).filter(t => cur.has(t));
-    const keptSet = new Set(kept);
-    return kept.concat(g.filter(t => !keptSet.has(t)));
+  // Reps competing = roster size when set, otherwise every rep who sold this
+  // season. This is the PRA denominator for every round.
+  const repsCompeting = {};
+  teams.forEach(t => { repsCompeting[t] = rosters[t] ? rosters[t].size : seasonStats[t].repSet.size; });
+  // THE METRIC (flyer): win a round by posting a higher Per-Rep Average than
+  // the team you're up against. PRA = round revenue ÷ reps competing.
+  const praOf = (t, i) => { const n = repsCompeting[t] || 0; return n > 0 ? (roundRev[i][t] || 0) / n : 0; };
+  const mk = (t, i) => t == null ? null : {
+    team: t, rev: roundRev[i][t] || 0, reps: repsCompeting[t] || 0,
+    pra: praOf(t, i), sellers: (roundReps[i][t] || new Set()).size,
   };
-  const scheds = groups.map(g => nrlaSchedule(orderWithin(g), windows.length));
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const stand = {};
-  teams.forEach(t => { stand[t] = { team: t, w: 0, l: 0, t: 0, pctSum: 0, rev: 0, results: [] }; });
-  const rounds = windows.map((w, i) => {
-    const started = today >= w.d1;
-    const done = today > w.d2;
-    const mk = (t) => t == null ? null : (() => {
-      const rev = roundRev[i][t] || 0, g = goals[t] || 0;
-      return { team: t, rev, goal: g, pct: g > 0 ? rev / g - 1 : (rev > 0 ? 1 : 0), reps: (roundReps[i][t] || new Set()).size };
-    })();
-    const matchups = [];
-    scheds.forEach((sc, gi) => (sc[i] || []).forEach(([a, b]) => {
-      const A = mk(a), B = mk(b);
+  const rounds = windows.map((w, i) => ({
+    ...w, started: today >= w.d1, done: today > w.d2, live: today >= w.d1 && today <= w.d2,
+    phase: i < seedN ? 'seed' : (i === seedN ? 'semi' : 'final'), matchups: [],
+  }));
+  // ── Seeding rounds ──
+  const sched = nrlaSeedSchedule(teams, Math.min(seedN, rounds.length), cfg);
+  const stand = {}; teams.forEach(t => { stand[t] = { team: t, w: 0, l: 0, t: 0, cumPra: 0, results: [] }; });
+  const h2h = {};   // 'A|B' (sorted) → winning team, from seeding rounds
+  for (let i = 0; i < Math.min(seedN, rounds.length); i++) {
+    const rd = rounds[i];
+    (sched.rounds[i] || []).forEach(([a, b]) => {
+      const A = mk(a, i), B = mk(b, i);
       let winner = null;
-      if (started) {
-        if (A && !B) winner = a;                    // BYE = automatic win
+      if (rd.started) {
+        if (A && !B) winner = a;                       // bye = automatic win
         else if (B && !A) winner = b;
-        else if (A && B && A.pct !== B.pct) winner = A.pct > B.pct ? a : b;
+        else if (A && B && A.pra !== B.pra) winner = A.pra > B.pra ? a : b;
       }
-      matchups.push({ a: A, b: B, winner, bye: !A || !B, group: gi + 1 });
-    }));
-    if (started) matchups.forEach(m => {
-      [m.a, m.b].forEach(side => {
-        if (!side) return;
-        const st = stand[side.team]; if (!st) return;
-        st.rev += side.rev; st.pctSum += side.pct;
-        if (!m.bye && m.winner === null) { st.t += 1; st.results.push('T'); }
-        else if (m.winner === side.team) { st.w += 1; st.results.push('W'); }
-        else { st.l += 1; st.results.push('L'); }
-      });
+      rd.matchups.push({ a: A, b: B, winner, bye: !A || !B });
+      if (rd.started) {
+        if (A && B && winner) h2h[[a, b].sort().join('|')] = winner;
+        [A, B].forEach(side => {
+          if (!side) return;
+          const st = stand[side.team]; if (!st) return;
+          st.cumPra += side.pra;
+          if (!(!A || !B) && winner === null) { st.t += 1; st.results.push('T'); }
+          else if (winner === side.team) { st.w += 1; st.results.push('W'); }
+          else { st.l += 1; st.results.push('L'); }
+        });
+      }
     });
-    return { ...w, started, done, live: started && !done, matchups };
+  }
+  // ── Seeds (flyer): 1. overall record · 2. head-to-head · 3. cumulative PRA ──
+  const standings = teams.map(t => stand[t]).sort((x, y) => {
+    if (y.w !== x.w) return y.w - x.w;
+    if (x.l !== y.l) return x.l - y.l;
+    const hw = h2h[[x.team, y.team].sort().join('|')];
+    if (hw === x.team) return -1;
+    if (hw === y.team) return 1;
+    return y.cumPra - x.cumPra || (seasonStats[y.team].total - seasonStats[x.team].total) || String(x.team).localeCompare(String(y.team));
   });
-  const standings = teams.map(t => stand[t])
-    .sort((a, b) => b.w - a.w || a.l - b.l || b.pctSum - a.pctSum || b.rev - a.rev);
+  const seeds = standings.map(s => s.team);
+  const seedingDone = rounds.slice(0, seedN).every(r => r.done) && rounds.length >= seedN;
+  // ── Playoffs: semifinal round pairs #1v#4 · #2v#3 (then #5v#8 · #6v#7 …) ──
+  const semiIdx = seedN, finalIdx = seedN + 1;
+  const semiResults = [];
+  if (rounds[semiIdx]) {
+    const rd = rounds[semiIdx];
+    const pairs = [];
+    for (let base = 0; base + 3 < seeds.length; base += 4) { pairs.push([base + 1, base + 4]); pairs.push([base + 2, base + 3]); }
+    const covered = Math.floor(seeds.length / 4) * 4;
+    for (let i = covered; i + 1 < seeds.length; i += 2) pairs.push([i + 1, i + 2]);
+    pairs.forEach(([sa, sb]) => {
+      const a = seedingDone ? seeds[sa - 1] : null, b = seedingDone ? seeds[sb - 1] : null;
+      const A = a ? mk(a, semiIdx) : null, B = b ? mk(b, semiIdx) : null;
+      let winner = null;
+      if (a && b && rd.started) winner = A.pra === B.pra ? a : (A.pra > B.pra ? a : b);  // dead tie → higher seed
+      rd.matchups.push({ a: A, b: B, winner, bye: false, aLabel: a ? null : '#' + sa + ' seed', bLabel: b ? null : '#' + sb + ' seed', tag: '#' + sa + ' vs #' + sb });
+      semiResults.push({ sa, sb, winner: rd.done ? winner : null, loser: rd.done && winner ? (winner === a ? b : a) : null });
+    });
+  }
+  // ── Championship: winners → place match, losers → the one below ──
+  const placements = [];
+  if (rounds[finalIdx]) {
+    const rd = rounds[finalIdx];
+    for (let k = 0; k + 1 < semiResults.length; k += 2) {
+      const s1 = semiResults[k], s2 = semiResults[k + 1];
+      const pTop = 2 * k + 1;                            // k=0 → 1st/3rd · k=2 → 5th/7th
+      [[s1.winner, s2.winner, 'Winner #' + s1.sa + '/#' + s1.sb, 'Winner #' + s2.sa + '/#' + s2.sb, pTop],
+       [s1.loser,  s2.loser,  'Loser #'  + s1.sa + '/#' + s1.sb, 'Loser #'  + s2.sa + '/#' + s2.sb, pTop + 2],
+      ].forEach(([x, y, xl, yl, place]) => {
+        const X = x ? mk(x, finalIdx) : null, Y = y ? mk(y, finalIdx) : null;
+        let winner = null;
+        if (x && y && rd.started) winner = X.pra === Y.pra ? x : (X.pra > Y.pra ? x : y);
+        rd.matchups.push({ a: X, b: Y, winner, bye: false, aLabel: x ? null : xl, bLabel: y ? null : yl, tag: nrlaOrdinal(place) + ' Place Match' });
+        if (x && y && rd.done && winner) {
+          placements.push({ place, team: winner, prize: NRLA_PRIZE_POOL[place - 1] || '' });
+          placements.push({ place: place + 1, team: winner === x ? y : x, prize: NRLA_PRIZE_POOL[place] || '' });
+        }
+      });
+    }
+    placements.sort((a, b) => a.place - b.place);
+  }
   const seasonDone = !!(rounds.length && rounds.every(r => r.done));
-  return { comp, cfg, bl, teams, goals, blReps, rounds, standings, seasonDone, groups, teamGroup };
+  return { comp, cfg, teams, rounds, standings, seeds, seedingDone, seedN, semiResults, placements,
+           seasonDone, seasonStats, repsCompeting, rosters, usedFlyerSchedule: sched.flyer };
 }
 
 // Rules popup for NRLA (the header ⓘ).
 function openNrlaHelpModal() {
-  const NAVY = '#0B4F9E', CREAM = '#fff';
+  const NAVY = '#0E1C30', PINK = '#F2148C';
   const overlay = el('div', { class: 'modal-overlay' });
   const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
   const key = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', key);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   const block = (title, body) => el('div', { class: 'mb-3' },
-    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: NAVY } }, title),
+    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: PINK } }, title),
     el('div', { class: 'text-[13px] leading-relaxed', style: { color: 'var(--text-muted)' } }, body));
   const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
     el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: NAVY } },
       el('div', {},
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: CREAM, opacity: '0.8' } }, 'RIDDMADE ★ LEAGUE'),
-        el('h2', { class: 'text-lg font-black mt-0.5', style: { color: CREAM, textTransform: 'uppercase' } }, 'NRLA — Rules'),
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: '#fff', opacity: '0.8' } }, 'RIDDMADE ★ Branch vs Branch'),
+        el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#fff', textTransform: 'uppercase' } }, 'NRLA — Rules'),
       ),
-      el('button', { class: 'text-2xl leading-none', style: { color: CREAM }, onclick: close }, '×'),
+      el('button', { class: 'text-2xl leading-none', style: { color: '#fff' }, onclick: close }, '×'),
     ),
     el('div', { class: 'overflow-auto px-5 py-4' },
-      block('Format', 'Branch-vs-branch round robin. Every round is a 2-day block (Sundays skipped); each round pairs teams head-to-head, with a BYE when the team count is odd.'),
-      block('Groups', 'In two-group mode, teams are split by roster size (baseline rep count) — the bigger half is Group 1, the rest Group 2. Each group runs its own round robin and its own standings. Switch to a single table in the config strip.'),
-      block('Goal', 'Each team\'s goal = its serviced revenue over the baseline window, averaged to a 2-day pace (rev ÷ days × 2). One goal, every round — so big and small branches compete on even footing.'),
-      block('Scoring', 'A round scores the SERVICED revenue a team sold inside its 2 days (Contract Value of accounts that have been serviced). The matchup winner is the team further ABOVE (or less below) its own goal, in %.'),
-      block('Byes', 'A bye is an automatic win (matches how 2025 was scored).'),
-      block('Standings', 'Win-loss record. Ties are broken by cumulative % vs goal, then total serviced revenue.'),
-      block('Who counts', 'Sales-Rep (D2D) production only. Reps count for their home branch unless transferred with the 👥 button — transfers apply to the baseline goal AND every round.'),
+      block('Format', '4 seeding rounds, 1 playoff (semifinal) round, 1 championship round. Every round is a 2-day block, Sundays skipped. 2026 season: July 6 – July 18.'),
+      block('The metric', 'Win rounds by having a higher Per Rep Average than the team you\'re competing against. PRA = the round\'s sold revenue (Contract Value) ÷ reps competing.'),
+      block('Seeding', 'After the seeding rounds, teams are ranked #1 through #8 by: 1. overall record · 2. head-to-head result · 3. total cumulative PRA.'),
+      block('Playoffs', 'Semifinals: #1 vs #4, #2 vs #3, #5 vs #8, #6 vs #7. Championship round: semifinal winners meet in the 1st (and 5th) place matches, losers in the 3rd (and 7th) — every team plays for its final placement.'),
+      block('Prize pool', 'Per rep, by final placement: 1st ®400K + Team Trip · 2nd ®325K · 3rd ®250K · 4th ®175K · 5th ®125K · 6th ®100K · 7th ®75K · 8th ®50K.'),
+      block('Who counts', 'Sales-Rep (D2D) production only. Rosters (📋) are authoritative: a rostered rep counts for THAT team wherever they knock, and a team with a roster counts only its rostered reps. Roster size is the PRA denominator. Teams without a roster count everyone on the branch (denominator = reps who sold this season).'),
+      block('Revenue columns', 'Total Rev Sold = everything sold in the season windows. Passed = Passed Audit / No Audit · Pending = not audited yet · Failed = Failed Audit + Last Resort (<$99). Informational — rounds are won on PRA.'),
+      block('Updates', 'Updates will be sent daily.'),
     ),
   );
   overlay.append(card);
@@ -12712,21 +12832,140 @@ function openNrlaRepMarketModal(sales) {
   document.body.append(overlay);
 }
 
-// ── NRLA board — poster vibe: big white letters on a summer sky, hot-pink
-// copy. Groups render as separate standings tables when two-group mode is on.
+// Competing-reps roster editor — pick exactly who competes for each team.
+// Saved on the comp (cfg.rosters, synced to every admin). A team with NO
+// roster counts everyone knocking under its banner.
+function openNrlaRosterModal(rawSales) {
+  const comp = (typeof getActiveComp === 'function') ? getActiveComp() : null;
+  if (!comp) { toast('No active competition', 'error'); return; }
+  const cfg = nrlaConfig(comp);
+  const PINK = '#F2148C';
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); mountApp(); };
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
+  overlay.append(card);
+  // Candidates: every D2D rep, shown under the team they currently count for.
+  // Rosters are authoritative — a rostered rep sits under their ROSTER team,
+  // wherever they actually knock; everyone else under home branch / 👥 team.
+  const d2d = nrlaApplyOverrides((rawSales || []).filter(s => _indicatorDeptOf(s) === 'd2d' && s.rep), comp);
+  const repInfo = new Map();   // name → { n, counts }
+  for (const s of d2d) {
+    const t = String(s.office || 'UNKNOWN').toUpperCase();
+    if (t === 'UNKNOWN') continue;
+    const name = _cleanRepName(getCanonicalRepName(s.rep));
+    let e = repInfo.get(name);
+    if (!e) { e = { n: 0, counts: {} }; repInfo.set(name, e); }
+    e.n++; e.counts[t] = (e.counts[t] || 0) + 1;
+  }
+  const homeOf = (e) => Object.entries(e.counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'UNKNOWN';
+  const rosterTeamOf = (name) => {
+    for (const [t, list] of Object.entries(cfg.rosters || {})) {
+      if (Array.isArray(list) && list.includes(name)) return String(t).toUpperCase();
+    }
+    return null;
+  };
+  const teamOf = (name) => rosterTeamOf(name) || homeOf(repInfo.get(name));
+  const teams = [...new Set([
+    ...[...repInfo.values()].map(homeOf).filter(t => t !== 'UNKNOWN'),
+    ...Object.keys(cfg.rosters || {}).map(t => String(t).toUpperCase()),
+  ])].sort();
+  const render = () => {
+    card.innerHTML = '';
+    const q = (state._nrlaRosterSearch || '').trim().toLowerCase();
+    const totalPicked = Object.values(cfg.rosters || {}).reduce((a, l) => a + (Array.isArray(l) ? l.length : 0), 0);
+    const searchInput = el('input', {
+      type: 'text', value: state._nrlaRosterSearch || '', placeholder: 'Search reps…',
+      class: 'w-full rounded-lg border px-3 py-2 text-sm',
+      style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
+    });
+    searchInput.addEventListener('input', (e) => { state._nrlaRosterSearch = e.target.value; render(); setTimeout(() => { const el2 = card.querySelector('input[type=text]'); if (el2) { el2.focus(); el2.setSelectionRange(el2.value.length, el2.value.length); } }, 0); });
+    const persist = (detail) => { logActivity('comp_change', { detail: 'NRLA: ' + detail }); saveDemoData(); render(); };
+    // A rep lives on at most ONE roster — adding them to a team strips them
+    // from every other team's list first.
+    const putOnRoster = (name, t, on) => {
+      Object.keys(cfg.rosters).forEach(k => {
+        cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== name);
+        if (!cfg.rosters[k].length) delete cfg.rosters[k];
+      });
+      if (on) cfg.rosters[t] = [...(cfg.rosters[t] || []), name].sort();
+      persist(name + (on ? ' → ' + t + ' roster' : ' off the ' + t + ' roster'));
+    };
+    const sections = teams.map(t => {
+      const own = [...repInfo.keys()].filter(name => teamOf(name) === t);
+      // While searching, ALSO surface matching reps from other teams so a rep
+      // can be checked straight onto THIS team's roster (cross-team pickup).
+      const extra = q ? [...repInfo.keys()].filter(name => name.toLowerCase().includes(q) && teamOf(name) !== t) : [];
+      const rows = own.filter(n => !q || n.toLowerCase().includes(q)).map(n => [n, false])
+        .concat(extra.map(n => [n, true]))
+        .sort((a, b) => a[0].localeCompare(b[0]));
+      if (!rows.length) return null;
+      const picked = new Set((cfg.rosters[t] || []).map(String));
+      const hasRoster = picked.size > 0;
+      return el('div', {},
+        el('div', { class: 'flex items-center justify-between px-5 py-2', style: { background: PINK, position: 'sticky', top: '0', zIndex: '1' } },
+          el('div', { class: 'text-xs font-black uppercase tracking-widest', style: { color: '#fff' } }, t),
+          el('div', { class: 'flex items-center gap-2' },
+            el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, hasRoster ? picked.size + ' competing' : 'everyone competes'),
+            el('button', {
+              class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer', style: { background: '#fff', color: PINK },
+              title: 'Roster everyone currently on this team',
+              onclick: () => {
+                own.forEach(name => { Object.keys(cfg.rosters).forEach(k => { cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== name); if (!cfg.rosters[k].length) delete cfg.rosters[k]; }); });
+                cfg.rosters[t] = [...new Set([...(cfg.rosters[t] || []), ...own])].sort();
+                persist(t + ' roster → all ' + cfg.rosters[t].length + ' reps');
+              },
+            }, 'All'),
+            el('button', {
+              class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer', style: { background: 'rgba(255,255,255,.25)', color: '#fff' },
+              title: 'No roster — everyone on the branch counts',
+              onclick: () => { delete cfg.rosters[t]; persist(t + ' roster cleared — everyone competes'); },
+            }, 'Clear'))),
+        ...rows.map(([name, foreign]) => {
+          const on = picked.has(name);
+          const n = (repInfo.get(name) || { n: 0 }).n;
+          const cb = el('input', {
+            type: 'checkbox', class: 'cursor-pointer',
+            onchange: (e) => putOnRoster(name, t, e.target.checked),
+          });
+          cb.checked = on;
+          return el('label', { class: 'flex items-center gap-3 px-5 py-1.5 border-b cursor-pointer', style: { borderColor: 'var(--border)' } },
+            cb,
+            el('span', { class: 'text-sm font-semibold flex-1', style: (hasRoster && !on && !foreign) ? { color: 'var(--text-subtle)', textDecoration: 'line-through' } : {} },
+              name,
+              foreign && el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(11,79,158,.12)', color: '#0B4F9E' } }, 'on ' + teamOf(name))),
+            el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, n + ' acct' + (n === 1 ? '' : 's')));
+        }));
+    }).filter(Boolean);
+    card.append(
+      el('div', { class: 'flex items-center justify-between px-5 py-4 border-b gap-3', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('h2', { class: 'text-base font-bold' }, '📋 NRLA Rosters — reps competing'),
+          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
+            'Only rostered reps count for a team · a team with no roster counts everyone · ' + totalPicked + ' reps picked')),
+        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+      el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } }, searchInput),
+      el('div', { class: 'overflow-y-auto flex-1' },
+        sections.length ? el('div', {}, ...sections) : el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No D2D reps found in the uploaded data yet.')),
+      el('div', { class: 'px-5 py-3 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
+        'Rosters drive the baseline goal, every round\'s serviced revenue, the revenue columns, and PRA. Synced to every admin.'));
+  };
+  render();
+  document.body.append(overlay);
+}
+
+// ── NRLA board — 2026 flyer vibe: night sky, big white letters, hot-pink and
+// signal-green copy. Seeding standings + playoff bracket + prize pool.
 function nrlaBoard(rawSales) {
   const R = nrlaCompute(rawSales);
-  const { cfg, bl } = R;
-  const SKY = '#0B4F9E', SKY2 = '#2F86D6', PINK = '#F2148C';
+  const { cfg } = R;
+  const PINK = '#F2148C', GREEN = '#2FD62F', REDD = '#E8271B', BLUE = '#3E9BE9';
   const DISP = "var(--font-display, 'Anton', system-ui, sans-serif)";
   const money = (n) => '$' + Math.round(Number(n) || 0).toLocaleString();
-  const pctStr = (p) => (p >= 0 ? '+' : '') + (p * 100).toFixed(1) + '%';
   const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const dspan = (d1, d2) => MON[d1.getMonth()] + ' ' + d1.getDate() + '–' + (d1.getMonth() === d2.getMonth() ? '' : MON[d2.getMonth()] + ' ') + d2.getDate();
   const rerender = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
   const save = (detail) => { logActivity('comp_change', { detail: 'NRLA: ' + detail }); saveDemoData(); rerender(); };
-  const twoGroups = R.groups && R.groups.length === 2;
-  // Display name (Ganadores, Dawgs, …) with the branch as the fallback.
   const nameOf = (t) => (cfg.teamNames && cfg.teamNames[t]) || t;
   const renameTeam = (t) => {
     const v = prompt('Display name for ' + t + ' (blank = branch name):', (cfg.teamNames && cfg.teamNames[t]) || '');
@@ -12737,29 +12976,33 @@ function nrlaBoard(rawSales) {
     save('team name ' + t + ' → ' + (nm || t));
   };
 
-  // ── Hero — CSS summer sky (gradient + cloud puffs), poster letters, pink copy ──
+  // ── Hero — night sky: near-black navy, faint cloud glow, power-line vibe ──
   const heroBg =
-    'radial-gradient(ellipse 55% 45% at 16% 82%, rgba(255,255,255,.92), rgba(255,255,255,0) 65%),' +
-    'radial-gradient(ellipse 42% 34% at 52% 96%, rgba(255,255,255,.78), rgba(255,255,255,0) 70%),' +
-    'radial-gradient(ellipse 34% 30% at 84% 62%, rgba(255,255,255,.5), rgba(255,255,255,0) 70%),' +
-    'radial-gradient(ellipse 46% 32% at 72% 14%, rgba(255,255,255,.22), rgba(255,255,255,0) 70%),' +
-    'linear-gradient(180deg, ' + SKY + ' 0%, ' + SKY2 + ' 62%, #8FC0EC 100%)';
+    'radial-gradient(ellipse 55% 42% at 68% 60%, rgba(255,255,255,.075), rgba(255,255,255,0) 70%),' +
+    'radial-gradient(ellipse 65% 50% at 25% 95%, rgba(255,255,255,.05), rgba(255,255,255,0) 70%),' +
+    'linear-gradient(180deg, #03070D 0%, #081221 55%, #0E1C30 100%)';
+  const chip = (bg, fg, txt, extra) => el('span', { style: Object.assign({ display: 'inline-block', padding: '3px 10px', borderRadius: '999px', background: bg, color: fg, fontWeight: '900', fontSize: '11px', letterSpacing: '.03em' }, extra || {}) }, txt);
   const hero = el('div', { style: { background: heroBg, padding: '22px 22px 18px', position: 'relative', overflow: 'hidden' } },
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap', style: { position: 'relative', zIndex: '1' } },
       el('div', {},
-        el('div', { style: { fontFamily: DISP, fontSize: 'clamp(3rem,9vw,6rem)', lineHeight: '.8', color: '#fff', textTransform: 'uppercase', letterSpacing: '.1em', textShadow: '0 2px 26px rgba(10,42,82,.35)' } }, 'NRLA'),
-        el('div', { style: { fontFamily: DISP, fontSize: '.74rem', letterSpacing: '.24em', color: '#fff', textTransform: 'uppercase', marginTop: '7px', opacity: '.9' } }, 'National RIDD League Association · RIDDMADE™'),
-        twoGroups && el('div', { style: { fontFamily: DISP, color: PINK, textTransform: 'uppercase', lineHeight: '1.04', fontSize: 'clamp(1rem,2.2vw,1.4rem)', marginTop: '12px', letterSpacing: '.01em' } },
-          el('div', {}, 'Two separate groups based on # of reps —'),
-          el('div', {}, 'teams compete within their group, round robin')),
+        el('div', { style: { fontFamily: DISP, fontSize: 'clamp(3rem,9vw,6rem)', lineHeight: '.8', color: '#fff', textTransform: 'uppercase', letterSpacing: '.1em', textShadow: '0 2px 30px rgba(0,0,0,.6)' } }, 'NRLA'),
+        el('div', { style: { fontFamily: DISP, fontSize: 'clamp(.85rem,1.8vw,1.15rem)', letterSpacing: '.06em', color: PINK, textTransform: 'none', marginTop: '7px' } }, 'National Riddmen League Association'),
+        el('div', { style: { fontFamily: DISP, color: GREEN, lineHeight: '1.1', fontSize: 'clamp(.8rem,1.6vw,1rem)', marginTop: '10px', letterSpacing: '.02em' } },
+          el('div', {}, R.seedN + ' Seeding Rounds · 1 Playoff Round · 1 Championship Round · 2 Days Per Round'),
+          el('div', { style: { opacity: '.9' } }, 'Win rounds by having a higher Per Rep Avg than the team you\'re competing against')),
         el('div', { class: 'flex items-center gap-2 flex-wrap', style: { marginTop: '12px' } },
-          el('span', { style: { display: 'inline-block', padding: '3px 10px', borderRadius: '999px', background: PINK, color: '#fff', fontWeight: '900', fontSize: '11px', letterSpacing: '.03em' } },
-            R.rounds.length ? '📅 ' + dspan(R.rounds[0].d1, R.rounds[R.rounds.length - 1].d2) + ' · ' + R.rounds.length + ' rounds' : '📅 schedule not set'),
-          bl && el('span', { style: { display: 'inline-block', padding: '3px 10px', borderRadius: '999px', background: 'rgba(255,255,255,.25)', color: '#fff', fontWeight: '700', fontSize: '11px' } },
-            'Goal = serviced rev ' + _nrlaIso(bl.s) + ' → ' + _nrlaIso(bl.e) + ' ÷ ' + bl.days + ' days × 2'),
+          chip(PINK, '#fff', R.rounds.length ? '📅 ' + dspan(R.rounds[0].d1, R.rounds[R.rounds.length - 1].d2) : '📅 schedule not set'),
+          chip('rgba(255,255,255,.16)', '#fff', 'Branch vs Branch'),
+          chip('rgba(255,255,255,.16)', '#fff', 'Updates sent daily · RIDDMADE'),
         ),
       ),
       el('div', { class: 'flex items-center gap-2 shrink-0' },
+        el('button', {
+          class: 'cursor-pointer transition hover:brightness-95',
+          style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
+          title: 'Rosters — pick exactly which reps compete for each team (sets the PRA denominator)',
+          onclick: () => openNrlaRosterModal(rawSales),
+        }, '📋'),
         el('button', {
           class: 'cursor-pointer transition hover:brightness-95',
           style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
@@ -12776,72 +13019,49 @@ function nrlaBoard(rawSales) {
     ),
   );
 
-  // ── Season / baseline config strip ──
-  const dateIn = (val, onch, titleTxt) => el('input', {
-    type: 'date', value: val || '',
-    class: 'rounded border px-2 py-1 text-xs',
-    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-    title: titleTxt || '',
-    onchange: (e) => onch(e.target.value),
-  });
+  // ── Config strip ──
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
   const cfgBar = el('div', { class: 'px-3 py-2 flex items-center gap-2 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
     lbl('Season start'),
-    dateIn(cfg.start, v => { cfg.start = v; save('season start → ' + (v || 'unset')); }, 'First day of Round 1 (rounds are 2-day blocks, Sundays skipped)'),
-    lbl('Rounds'),
     el('input', {
-      type: 'number', min: '1', max: '30', value: String(cfg.rounds),
-      class: 'rounded border px-2 py-1 text-xs', style: { width: '58px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-      onchange: (e) => { cfg.rounds = Math.min(30, Math.max(1, Math.round(Number(e.target.value) || 7))); save('rounds → ' + cfg.rounds); },
+      type: 'date', value: cfg.start || '',
+      class: 'rounded border px-2 py-1 text-xs',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      title: 'First day of Seeding Round 1 (rounds are 2-day blocks, Sundays skipped)',
+      onchange: (e) => { cfg.start = e.target.value; save('season start → ' + (e.target.value || 'unset')); },
     }),
-    lbl('Baseline'),
-    dateIn(cfg.baselineStart || (bl ? _nrlaIso(bl.s) : ''), v => { cfg.baselineStart = v; save('baseline start → ' + (v || 'auto')); }, 'Baseline window start (drives each team\'s goal)'),
-    el('span', { class: 'text-muted-' }, '→'),
-    dateIn(cfg.baselineEnd || (bl ? _nrlaIso(bl.e) : ''), v => { cfg.baselineEnd = v; save('baseline end → ' + (v || 'auto')); }, 'Baseline window end'),
-    lbl('Groups'),
-    (() => {
-      const sel = el('select', {
-        class: 'rounded border px-2 py-1 text-xs cursor-pointer',
-        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-        title: 'Two groups split by roster size (round robin within each), or one single table',
-        onchange: (e) => { cfg.groups = Number(e.target.value) === 1 ? 1 : 2; save('groups → ' + (cfg.groups === 2 ? 'two groups (by # of reps)' : 'single table')); },
-      },
-        el('option', { value: '2' }, 'Two groups (by # of reps)'),
-        el('option', { value: '1' }, 'Single table'));
-      sel.value = String(cfg.groups);
-      return sel;
-    })(),
-    el('button', {
+    lbl('Seeding rounds'),
+    el('input', {
+      type: 'number', min: '1', max: '12', value: String(cfg.seedRounds),
+      class: 'rounded border px-2 py-1 text-xs', style: { width: '58px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { cfg.seedRounds = Math.min(12, Math.max(1, Math.round(Number(e.target.value) || 4))); save('seeding rounds → ' + cfg.seedRounds); },
+    }),
+    (!R.usedFlyerSchedule ? el('button', {
       class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
       style: { borderColor: PINK, color: PINK },
-      title: 'Rotate who plays who — every press turns the round-robin wheel one seat within each group (byes rotate too), so the pairings are guaranteed to change. Saved on the comp, so every admin sees the same schedule.',
+      title: 'Rotate who plays who in the seeding rounds — every press turns the round-robin wheel one seat. (The official 2026 schedule takes over automatically when all eight flyer teams are present.)',
       onclick: () => {
         if (R.teams.length < 2) { toast('Need at least two teams to build matchups', 'error'); return; }
         if (R.rounds.some(r => r.started) && !confirm('The season has already started — rotating rewrites every round\'s matchups (and their results). Rotate anyway?')) return;
-        // Round-robin wheel turn, per group. Each press yields a DIFFERENT set
-        // of pairings, cycling through every combination the wheel allows.
-        //   even group → classic wheel: seat 0 fixed, everyone else slides one
-        //   odd group  → every seat cycles, so the BYE rotates between teams too
-        const rotate = (g) => {
-          if (g.length < 3) return g.slice();     // 2 teams = only one possible pairing
-          let order = g;
-          if (Array.isArray(cfg.teamOrder) && cfg.teamOrder.length) {
-            const cur = new Set(g);
-            const kept = cfg.teamOrder.map(t => String(t).toUpperCase()).filter(t => cur.has(t));
-            const keptSet = new Set(kept);
-            order = kept.concat(g.filter(t => !keptSet.has(t)));
-          }
-          if (order.length % 2) return [order[order.length - 1], ...order.slice(0, -1)];
-          return [order[0], order[order.length - 1], ...order.slice(1, -1)];
-        };
-        cfg.teamOrder = R.groups.flatMap(rotate);
+        const g = R.teams;
+        let order = g;
+        if (Array.isArray(cfg.teamOrder) && cfg.teamOrder.length) {
+          const cur = new Set(g);
+          const kept = cfg.teamOrder.map(t => String(t).toUpperCase()).filter(t => cur.has(t));
+          const keptSet = new Set(kept);
+          order = kept.concat(g.filter(t => !keptSet.has(t)));
+        }
+        cfg.teamOrder = (order.length % 2)
+          ? [order[order.length - 1], ...order.slice(0, -1)]
+          : [order[0], order[order.length - 1], ...order.slice(1, -1)];
         save('matchups rotated (' + cfg.teamOrder.join(' · ') + ')');
       },
-    }, '🎲 Shuffle matchups'),
-    el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '· NRLA runs on its own schedule — the Comp Window doesn\'t apply'),
+    }, '🎲 Shuffle matchups') : null),
+    el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } },
+      '· semifinal + championship rounds are scheduled automatically after seeding' + (R.usedFlyerSchedule ? ' · official 2026 matchups in effect' : '')),
   );
 
-  // ── Competing-team chips (same pattern as Spring Cleaning) ──
+  // ── Competing-team chips ──
   const comp = R.comp;
   const chipBar = (() => {
     const allBranches = [...new Set([...R.teams, ...(comp.excludedBranches || []).map(b => String(b).toUpperCase())])].sort();
@@ -12855,7 +13075,7 @@ function nrlaBoard(rawSales) {
           class: 'rounded-full px-2.5 py-0.5 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
           style: off
             ? { background: 'transparent', color: 'var(--text-muted)', border: '1px dashed var(--border-2)', textDecoration: 'line-through' }
-            : { background: SKY, color: '#fff', border: '1px solid ' + SKY },
+            : { background: '#0E1C30', color: '#fff', border: '1px solid #0E1C30' },
           title: off ? b + ' is sitting the league out — click to include' : 'Click to pull ' + b + ' out of the league',
           onclick: () => {
             comp.excludedBranches = off
@@ -12871,102 +13091,120 @@ function nrlaBoard(rawSales) {
   if (!cfg.start) {
     return el('div', { class: 'card overflow-hidden' }, hero, cfgBar,
       el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
-        'Set a season start date above to build the schedule — rounds are 2-day blocks (Sundays skipped), and each team\'s goal comes from the baseline window.'));
+        'Set a season start date above to build the schedule.'));
   }
   if (R.teams.length < 2) {
     return el('div', { class: 'card overflow-hidden' }, hero, cfgBar, chipBar,
       el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
-        'Fewer than two teams have data in the baseline / season window — nothing to schedule yet.'));
+        'Fewer than two teams have data (or rosters) in the season window — nothing to schedule yet.'));
   }
 
-  // ── Standings — one table per group (poster: "teams will compete within
-  // their group in a round robin format"). Single-table mode = one table. ──
+  // ── Seeding standings ──
   const resDot = (r, i) => el('span', {
     style: { display: 'inline-grid', placeItems: 'center', width: '16px', height: '16px', borderRadius: '4px', fontSize: '9px', fontWeight: '900', marginRight: '2px',
-      background: r === 'W' ? SKY : r === 'L' ? PINK : '#9e9e9e', color: '#fff' },
-    title: 'Round ' + (i + 1) + ': ' + (r === 'W' ? 'Win' : r === 'L' ? 'Loss' : 'Tie'),
+      background: r === 'W' ? GREEN : r === 'L' ? REDD : '#9e9e9e', color: '#fff' },
+    title: 'Seeding round ' + (i + 1) + ': ' + (r === 'W' ? 'Win' : r === 'L' ? 'Loss' : 'Tie'),
   }, r);
+  const playedAny = R.standings.some(s => s.results.length);
   const teamCell = (s) => el('td', { class: 'px-2 py-2 font-bold whitespace-nowrap' },
     el('span', {}, nameOf(s.team)),
     cfg.teamNames[s.team] && el('span', { class: 'ml-1 text-[9px] uppercase', style: { color: 'var(--text-subtle)' } }, s.team),
     el('button', { class: 'ml-1 cursor-pointer text-[10px]', style: { opacity: '.5' }, title: 'Rename team (display only)', onclick: () => renameTeam(s.team) }, '✏️'));
-  const standingsFor = (g, gi) => {
-    const rows = R.standings.filter(s => g.includes(s.team));
-    const playedAny = rows.some(s => s.results.length);
-    return el('div', {},
-      el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: PINK } },
-        el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } },
-          twoGroups ? 'Group ' + gi + (gi === 1 ? ' · most reps' : ' · fewer reps') : 'Standings'),
-        el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, g.length + ' teams')),
-      el('div', { class: 'overflow-x-auto' },
-        el('table', { class: 'w-full text-xs' },
-          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: SKY, color: '#fff' } },
-            el('tr', {},
-              el('th', { class: 'text-left px-3 py-2.5 font-bold' }, '#'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Team'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'W'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'L'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Rounds'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Goal per round: baseline serviced revenue ÷ days × 2' }, 'Goal / Round'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps with serviced baseline production' }, 'Reps'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Serviced revenue across played rounds' }, 'Season Serviced'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Cumulative % vs goal across played rounds (tiebreaker)' }, 'vs Goal'),
-            )),
-          el('tbody', {},
-            ...rows.map((s, i) => el('tr', {
-              class: 'border-t', style: { borderColor: 'var(--border)', background: i === 0 && playedAny ? 'rgba(242,20,140,.07)' : (i % 2 ? 'rgba(11,79,158,.04)' : 'transparent') },
+  const standingsCard = el('div', {},
+    el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: PINK } },
+      el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } },
+        'Seeding Standings' + (R.seedingDone ? ' · Final Seeds' : '')),
+      el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, 'record → head-to-head → cumulative PRA')),
+    el('div', { class: 'overflow-x-auto' },
+      el('table', { class: 'w-full text-xs' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#0E1C30', color: '#fff' } },
+          el('tr', {},
+            el('th', { class: 'text-left px-3 py-2.5 font-bold', title: 'Seed after the seeding rounds' }, 'Seed'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Team'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'W'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'L'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Rounds'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps competing — the roster (📋) when one is set, otherwise every rep who sold this season. The PRA denominator.' }, 'Reps'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Everything sold inside the season windows (Contract Value, all audit statuses)' }, 'Total Rev Sold'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Passed Audit or No Audit' }, 'Passed Rev'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'No audit flag yet — clears into Passed or Failed as audits land' }, 'Pending Rev'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Failed Audit + Last Resort (<$99 initial)' }, 'Failed Rev'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Per-Rep Average by revenue: Total Rev Sold ÷ reps competing. Cumulative round PRA is the seeding tiebreaker.' }, 'PRA'),
+          )),
+        el('tbody', {},
+          ...R.standings.map((s, i) => {
+            const st = R.seasonStats[s.team] || { total: 0, passed: 0, pending: 0, failed: 0 };
+            const reps = R.repsCompeting[s.team] || 0;
+            return el('tr', {
+              class: 'border-t', style: { borderColor: 'var(--border)', background: i === 0 && playedAny ? 'rgba(242,20,140,.07)' : (i % 2 ? 'rgba(14,28,48,.05)' : 'transparent') },
             },
-              el('td', { class: 'px-3 py-2 font-black tabular-nums' }, (i === 0 && R.seasonDone ? '🏆 ' : '') + (i + 1)),
+              el('td', { class: 'px-3 py-2 font-black tabular-nums' }, '#' + (i + 1)),
               teamCell(s),
-              el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: SKY } }, s.w),
-              el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: PINK } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
+              el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: GREEN } }, s.w),
+              el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: REDD } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
               el('td', { class: 'px-2 py-2 whitespace-nowrap' }, ...(s.results.length ? s.results.map(resDot) : [el('span', { style: { color: 'var(--text-subtle)' } }, '—')])),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap' }, money(R.goals[s.team])),
-              el('td', { class: 'px-2 py-2 tabular-nums' }, (R.blReps[s.team] || new Set()).size),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, money(s.rev)),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: s.pctSum >= 0 ? SKY : PINK } }, s.results.length ? pctStr(s.pctSum) : '—'),
-            ))))));
-  };
-  const standingsBlocks = R.groups.map((g, gi) => standingsFor(g, gi + 1));
+              el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, reps),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(st.total)),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#1b7f3b' } }, money(st.passed)),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap', style: { color: '#D97706' } }, '(' + money(st.pending) + ')'),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: REDD } }, money(st.failed)),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, reps > 0 ? money(st.total / reps) : '—'),
+            );
+          })))));
 
-  // ── Round matchup cards ──
-  const sideRow = (side, m) => {
+  // ── Final standings + prize pool (fills in as championship matches settle) ──
+  const prizeCard = R.placements.length ? el('div', {},
+    el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: BLUE } },
+      el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } }, 'Final Standings · Prize Pool'),
+      el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, 'per rep, by placement')),
+    el('div', { class: 'overflow-x-auto' },
+      el('table', { class: 'w-full text-xs' },
+        el('tbody', {},
+          ...R.placements.map((p, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: p.place === 1 ? 'rgba(62,155,233,.08)' : 'transparent' } },
+            el('td', { class: 'px-3 py-2 font-black whitespace-nowrap', style: { width: '70px' } }, (p.place === 1 ? '🏆 ' : '') + nrlaOrdinal(p.place)),
+            el('td', { class: 'px-2 py-2 font-bold whitespace-nowrap' }, nameOf(p.team)),
+            el('td', { class: 'px-2 py-2 tabular-nums font-black whitespace-nowrap', style: { color: BLUE } }, p.prize + ' / rep'),
+          )))))) : null;
+
+  // ── Round cards: seeding → semifinals → championship ──
+  const sideRow = (side, m, label) => {
     if (!side) return el('div', { class: 'flex items-center justify-between px-3 py-2' },
-      el('span', { class: 'text-xs font-bold', style: { color: 'var(--text-subtle)', letterSpacing: '.08em' } }, 'BYE'),
-      el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'auto win'));
+      el('span', { class: 'text-xs font-bold', style: { color: 'var(--text-subtle)', letterSpacing: '.05em' } }, label || 'BYE'),
+      el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, label ? 'TBD' : 'auto win'));
     const won = m.winner === side.team;
     return el('div', { class: 'flex items-center justify-between gap-2 px-3 py-2', style: won ? { background: 'rgba(242,20,140,.07)' } : {} },
       el('div', { class: 'min-w-0' },
         el('div', { class: 'text-xs font-black whitespace-nowrap', style: { color: won ? 'var(--text)' : 'var(--text-muted)' } }, (won ? '✓ ' : '') + nameOf(side.team)),
-        el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, 'goal ' + money(side.goal))),
+        el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, money(side.rev) + ' · ' + side.reps + ' reps')),
       el('div', { class: 'text-right shrink-0' },
-        el('div', { class: 'text-sm font-black tabular-nums' }, money(side.rev)),
-        el('div', { class: 'text-[10px] font-bold tabular-nums', style: { color: side.pct >= 0 ? SKY : PINK } }, pctStr(side.pct) + (side.pct >= 0 ? ' ↑' : ' ↓'))));
+        el('div', { class: 'text-sm font-black tabular-nums' }, money(side.pra)),
+        el('div', { class: 'text-[9px] font-bold uppercase tracking-wider', style: { color: won ? PINK : 'var(--text-subtle)' } }, 'PRA')));
   };
   const roundCard = (rd) => {
+    const title = rd.phase === 'seed' ? 'Round ' + rd.num : rd.phase === 'semi' ? 'Semifinals' : 'Championship';
+    const headBg = rd.live ? PINK : (rd.phase === 'seed' ? REDD : '#0E1C30');
     const kids = [];
-    let lastG = 0;
     rd.matchups.forEach((m, i) => {
-      if (twoGroups && m.group !== lastG) {
-        kids.push(el('div', { class: 'px-3 py-0.5 text-[9px] font-black uppercase tracking-widest', style: { color: PINK, background: 'rgba(242,20,140,.06)', borderTop: i ? '1px solid var(--border)' : 'none' } }, 'Group ' + m.group));
-        lastG = m.group;
-      }
-      kids.push(el('div', { style: (i && !twoGroups) ? { borderTop: '1px solid var(--border)' } : {} },
-        sideRow(m.a, m),
+      if (m.tag) kids.push(el('div', { class: 'px-3 py-0.5 text-[9px] font-black uppercase tracking-widest', style: { color: REDD, background: 'rgba(232,39,27,.06)', borderTop: i ? '1px solid var(--border)' : 'none' } }, m.tag));
+      kids.push(el('div', { style: (i && !m.tag) ? { borderTop: '1px solid var(--border)' } : {} },
+        sideRow(m.a, m, m.aLabel),
         el('div', { style: { borderTop: '1px dashed var(--border)' } }),
-        sideRow(m.b, m)));
+        sideRow(m.b, m, m.bLabel)));
     });
-    return el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: rd.live ? PINK : 'var(--border)', opacity: rd.started ? '1' : '.55' } },
-      el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: rd.live ? PINK : SKY } },
-        el('span', { class: 'text-[11px] font-black uppercase tracking-wider', style: { color: '#fff' } }, 'Round ' + rd.num + ' · ' + dspan(rd.d1, rd.d2)),
+    if (!rd.matchups.length) kids.push(el('div', { class: 'px-3 py-3 text-[11px] text-center', style: { color: 'var(--text-subtle)' } }, 'Matchups set after seeding.'));
+    return el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: rd.live ? PINK : 'var(--border)', opacity: rd.started ? '1' : '.6' } },
+      el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: headBg } },
+        el('span', { class: 'text-[11px] font-black uppercase tracking-wider', style: { color: '#fff' } }, title + ' · ' + dspan(rd.d1, rd.d2)),
         el('span', { class: 'text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded', style: rd.live ? { background: '#fff', color: PINK } : { background: 'rgba(255,255,255,.18)', color: '#fff' } },
           rd.live ? '● LIVE' : rd.done ? 'FINAL' : 'UPCOMING')),
       ...kids);
   };
   const roundsGrid = el('div', { class: 'p-3 grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', borderTop: '1px solid var(--border)' } },
     ...R.rounds.map(roundCard));
+  const footer = el('div', { class: 'px-3 py-2 text-center text-[10px] font-bold uppercase tracking-widest', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } },
+    'Updates will be sent daily · RIDDMADE');
 
-  return el('div', { class: 'card overflow-hidden' }, hero, cfgBar, chipBar, ...standingsBlocks, roundsGrid);
+  return el('div', { class: 'card overflow-hidden' }, hero, cfgBar, chipBar, standingsCard, prizeCard, roundsGrid, footer);
 }
 
 // ── Spring Cleaning scoring ────────────────────────────────────────────────
@@ -16480,8 +16718,8 @@ function viewIndicators() {
   // analytics. Keeps comp switching + the comp window snappy instead of
   // re-rendering several canvases each time.
   const _focusedComp = state.indicatorsComps
-    && (['spring_cleaning', 'avg_pest_initial', 'top_gun', 'last_man_standing'].includes(getActiveComp().scoring || '')
-        || isLastManStandingComp());
+    && (['spring_cleaning', 'avg_pest_initial', 'top_gun', 'last_man_standing', 'nrla'].includes(getActiveComp().scoring || '')
+        || isLastManStandingComp() || isNrlaComp());
 
   return el('div', { class: 'flex flex-col gap-5 w-full' },
 
@@ -17092,7 +17330,8 @@ function viewIndicators() {
     (state.indicatorsComps && isNrlaComp() ? nrlaBoard(state._indicatorRawSales || []) : null),
 
     // Avg Pest Initial / Raffle competition card, lifted to the top.
-    _topCompCard,
+    // Hidden on the NRLA tab — that comp shows ONLY its own dashboard.
+    (state.indicatorsComps && isNrlaComp() ? null : _topCompCard),
 
     // ── Main metrics table (click metric name to sort branches) ──
     !_focusedComp && (() => {
