@@ -11897,7 +11897,10 @@ function _cleanRepName(n) {
   const key = String(n || '');
   let v = _cleanRepNameCache.get(key);
   if (v !== undefined) return v;
-  v = key.replace(/\s+/g, ' ').trim();
+  // Collapse whitespace runs AND normalize comma spacing — FieldRoutes has
+  // exported both "Sabbach , Jacob" and "Sabbach, Jacob" for the same human,
+  // splitting one rep into two. Any comma spacing becomes ", ".
+  v = key.replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim();
   if (_cleanRepNameCache.size < 200000) _cleanRepNameCache.set(key, v);
   return v;
 }
@@ -15156,10 +15159,11 @@ function findDuplicateRepCandidates() {
 // spellings still counts as ONE rep for revenue, sales, ranking, etc.
 function getCanonicalRepName(name) {
   if (!name) return name;
-  // FieldRoutes sometimes exports doubled spaces ("Karson  Murray") —
-  // collapse whitespace so the same human can't split into two reps and
-  // team/tier lookups keyed on the clean spelling still match.
-  const clean = String(name).replace(/\s+/g, ' ').trim();
+  // FieldRoutes sometimes exports doubled spaces ("Karson  Murray") or stray
+  // comma spacing ("Sabbach , Jacob") — collapse whitespace and normalize
+  // commas to ", " so the same human can't split into two reps, and team/
+  // tier lookups keyed on the clean spelling still match.
+  const clean = String(name).replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim();
   const aliases = state._indicatorRepAlias || {};
   return aliases[clean] || aliases[name] || clean;
 }
