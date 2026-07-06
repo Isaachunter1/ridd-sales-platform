@@ -13643,8 +13643,8 @@ function nrlaBoard(rawSales) {
   } : {}) : {};
   const sideRow = (side, m, label, dnd, live) => {
     if (!side) return el('div', Object.assign({ class: 'flex items-center justify-between px-3 py-2' }, _dndProps(dnd, false)),
-      el('span', { class: 'text-xs font-bold', style: { color: 'var(--text-subtle)', letterSpacing: '.05em' } }, label || 'BYE'),
-      el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, label ? 'TBD' : 'auto win'));
+      el('span', { class: 'text-xs font-bold', style: { color: 'var(--text)', letterSpacing: '.05em' } }, label || 'BYE'),
+      el('span', { class: 'text-[10px] font-bold', style: { color: 'var(--text)' } }, label ? 'TBD' : 'auto win'));
     const won = m.winner === side.team;
     // Live rounds: the CURRENT leader glows green (nothing's final yet).
     // Finished rounds: the winner keeps the pink stamp.
@@ -13656,11 +13656,11 @@ function nrlaBoard(rawSales) {
       title: dnd ? 'Drag onto another team in this round to swap matchups' : '',
     }, _dndProps(dnd, true)),
       el('div', { class: 'min-w-0' },
-        el('div', { class: 'text-xs font-black whitespace-nowrap', style: { color: won ? 'var(--text)' : 'var(--text-muted)' } }, (dnd ? '⠿ ' : '') + (won ? (live ? '▲ ' : '✓ ') : '') + nameOf(side.team)),
-        el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, money(side.rev) + ' · ' + side.reps + ' reps')),
+        el('div', { class: 'text-xs font-black whitespace-nowrap', style: { color: 'var(--text)' } }, (dnd ? '⠿ ' : '') + (won ? (live ? '▲ ' : '✓ ') : '') + nameOf(side.team)),
+        el('div', { class: 'text-[10px] tabular-nums font-semibold', style: { color: 'var(--text)' } }, money(side.rev) + ' · ' + side.reps + ' reps')),
       el('div', { class: 'text-right shrink-0' },
-        el('div', { class: 'text-sm font-black tabular-nums' }, money(side.pra)),
-        el('div', { class: 'text-[9px] font-bold uppercase tracking-wider', style: { color: won ? hiText : 'var(--text-subtle)' } }, live && won ? 'LEADS' : 'PRA')));
+        el('div', { class: 'text-sm font-black tabular-nums', style: { color: 'var(--text)' } }, money(side.pra)),
+        el('div', { class: 'text-[9px] font-black uppercase tracking-wider', style: { color: won ? hiText : 'var(--text)' } }, live && won ? 'LEADS' : 'PRA')));
   };
   const roundCard = (rd, ri) => {
     const title = rd.phase === 'seed' ? 'Round ' + rd.num : rd.phase === 'semi' ? 'Semifinals' : 'Championship';
@@ -13674,11 +13674,11 @@ function nrlaBoard(rawSales) {
     // so who's playing who reads at a glance.
     const kids = [];
     rd.matchups.forEach((m, i) => {
-      kids.push(el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: 'var(--border)', margin: '8px' } },
-        m.tag ? el('div', { class: 'px-3 py-0.5 text-[9px] font-black uppercase tracking-widest', style: { color: PINK, background: 'rgba(242,20,140,.06)', borderBottom: '1px solid var(--border)' } }, m.tag) : null,
+      kids.push(el('div', { class: 'rounded-lg overflow-hidden', style: { border: '1.5px solid var(--text)', margin: '8px' } },
+        m.tag ? el('div', { class: 'px-3 py-0.5 text-[9px] font-black uppercase tracking-widest', style: { color: PINK, background: 'rgba(242,20,140,.06)', borderBottom: '1px solid var(--text)' } }, m.tag) : null,
         sideRow(m.a, m, m.aLabel, editable ? { ri, mi: i, side: 'a' } : null, rd.live),
-        el('div', { style: { position: 'relative', borderTop: '1px dashed var(--border-2)' } },
-          el('span', { style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', fontSize: '8px', fontWeight: '900', letterSpacing: '.12em', background: 'var(--card)', color: 'var(--text-subtle)', padding: '1px 7px', borderRadius: '999px', border: '1px solid var(--border-2)', lineHeight: '1.2' } }, 'VS')),
+        el('div', { style: { position: 'relative', borderTop: '1px dashed var(--text)' } },
+          el('span', { style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', fontSize: '8px', fontWeight: '900', letterSpacing: '.12em', background: 'var(--card)', color: 'var(--text)', padding: '1px 7px', borderRadius: '999px', border: '1px solid var(--text)', lineHeight: '1.2' } }, 'VS')),
         sideRow(m.b, m, m.bLabel, editable ? { ri, mi: i, side: 'b' } : null, rd.live)));
     });
     if (!rd.matchups.length) kids.push(el('div', { class: 'px-3 py-3 text-[11px] text-center', style: { color: 'var(--text-subtle)' } }, 'Matchups set after seeding.'));
@@ -13689,7 +13689,7 @@ function nrlaBoard(rawSales) {
     const body = playoff && rd.matchups.length
       ? [el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' } }, ...kids)]
       : kids;
-    return el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: rd.live ? GREEN : 'var(--border)', boxShadow: rd.live ? '0 0 0 1px ' + GREEN + ', 0 8px 24px -16px rgba(47,214,47,.5)' : 'none', opacity: rd.started ? '1' : '.6', gridColumn: playoff ? 'span 2' : 'auto' } },
+    return el('div', { class: 'rounded-lg overflow-hidden', style: { border: '1.5px solid ' + (rd.live ? GREEN : 'var(--text)'), boxShadow: rd.live ? '0 0 0 1px ' + GREEN + ', 0 8px 24px -16px rgba(47,214,47,.5)' : 'none', gridColumn: playoff ? 'span 2' : 'auto' } },
       el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: headBg } },
         el('span', { class: 'text-[11px] font-black uppercase tracking-wider', style: { color: headFg } }, title + ' · ' + dspan(rd.d1, rd.d2) + (dayLabel ? ' · ' + dayLabel : '')),
         el('div', { class: 'flex items-center gap-1.5' },
