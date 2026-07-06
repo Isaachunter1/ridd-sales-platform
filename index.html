@@ -12949,7 +12949,12 @@ function openNrlaRosterModal(rawSales) {
     const sections = teams.map(t => {
       // Every rep appears exactly ONCE — under the team they currently count
       // for. Moving them to another team is what the row's dropdown is for.
-      const own = [...repInfo.keys()].filter(name => teamOf(name) === t);
+      // Union in rostered names with NO synced sales yet (new hires added via
+      // "+ Add") so they don't vanish from the list.
+      const own = [...new Set([
+        ...[...repInfo.keys()].filter(name => teamOf(name) === t),
+        ...(cfg.rosters[t] || []),
+      ])];
       const rows = own.filter(n => !q || n.toLowerCase().includes(q))
         .sort((a, b) => a.localeCompare(b));
       if (!rows.length) return null;
@@ -12966,6 +12971,18 @@ function openNrlaRosterModal(rawSales) {
             el('span', { class: 'text-[10px] font-bold normal-case tracking-normal', style: { color: 'rgba(255,255,255,.75)' } }, rows.length + ' reps')),
           el('div', { class: 'flex items-center gap-2' },
             el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, hasRoster ? picked.size + ' competing' : 'everyone competes'),
+            el('button', {
+              class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer', style: { background: 'rgba(255,255,255,.25)', color: '#fff' },
+              title: 'Add a rep who isn\'t in the synced data yet (brand-new hire). Type the name EXACTLY as it appears on their sales in FieldRoutes — e.g. "Last, First" — so their production links up automatically once their first sale syncs.',
+              onclick: (e) => {
+                e.stopPropagation();
+                const v = prompt('New rep for ' + t + ' — name exactly as it appears in FieldRoutes (e.g. "Last, First"):');
+                if (!v || !v.trim()) return;
+                putOnRoster(_cleanRepName(getCanonicalRepName(v.trim())), t, true);
+                state._nrlaRosterOpen = state._nrlaRosterOpen || {}; state._nrlaRosterOpen[t] = true;
+                renderList();
+              },
+            }, '+ Add'),
             el('button', {
               class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer', style: { background: '#fff', color: PINK },
               title: 'Roster everyone currently on this team',
@@ -13004,8 +13021,8 @@ function openNrlaRosterModal(rawSales) {
             cb,
             el('span', { class: 'text-sm font-semibold flex-1 min-w-0' },
               el('span', { style: (hasRoster && !on) ? { color: 'var(--text-subtle)', textDecoration: 'line-through' } : {} }, name),
-              (teamOf(name) !== home) && el('span', { class: 'block text-[10px] font-normal', style: { color: 'var(--text-subtle)' } }, 'knocks ' + home),
-              el('span', { class: 'ml-2 text-[10px] font-normal tabular-nums', style: { color: 'var(--text-subtle)' } }, info.n + ' acct' + (info.n === 1 ? '' : 's'))),
+              (teamOf(name) !== home && home !== 'UNKNOWN') && el('span', { class: 'block text-[10px] font-normal', style: { color: 'var(--text-subtle)' } }, 'knocks ' + home),
+              el('span', { class: 'ml-2 text-[10px] font-normal tabular-nums', style: { color: 'var(--text-subtle)' } }, info.n ? info.n + ' acct' + (info.n === 1 ? '' : 's') : 'no synced sales yet')),
             sel);
         }));
     }).filter(Boolean);
