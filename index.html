@@ -12849,16 +12849,30 @@ function openNrlaRosterModal(rawSales) {
   // Rosters are authoritative — a rostered rep sits under their ROSTER team,
   // wherever they actually knock; everyone else under home branch.
   const d2d = nrlaApplyOverrides((rawSales || []).filter(s => _indicatorDeptOf(s) === 'd2d' && s.rep), comp);
-  const repInfo = new Map();   // name → { n, counts }
+  // Home = where the rep is knocking NOW: majority office during the NRLA
+  // season, then the office of their most recent sale, then the all-time
+  // majority as the last resort. (All-time alone misled — a rep who moved
+  // branches mid-year showed their OLD branch as home.)
+  const _rmWindows = nrlaRoundWindows({ start: cfg.start, rounds: cfg.seedRounds + 2 });
+  const _rmS = _rmWindows.length ? _rmWindows[0].d1 : null;
+  const _rmE = _rmWindows.length ? _rmWindows[_rmWindows.length - 1].d2 : null;
+  const repInfo = new Map();   // name → { n, counts, season, lastD, lastT }
   for (const s of d2d) {
     const t = String(s.office || 'UNKNOWN').toUpperCase();
     if (t === 'UNKNOWN') continue;
     const name = _cleanRepName(getCanonicalRepName(s.rep));
     let e = repInfo.get(name);
-    if (!e) { e = { n: 0, counts: {} }; repInfo.set(name, e); }
+    if (!e) { e = { n: 0, counts: {}, season: {}, lastD: null, lastT: '' }; repInfo.set(name, e); }
     e.n++; e.counts[t] = (e.counts[t] || 0) + 1;
+    const d = _parseIndicatorDay(s);
+    if (d && _rmS && d >= _rmS && d <= _rmE) e.season[t] = (e.season[t] || 0) + 1;
+    if (d && (!e.lastD || d > e.lastD)) { e.lastD = d; e.lastT = t; }
   }
-  const homeOf = (e) => Object.entries(e.counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'UNKNOWN';
+  const homeOf = (e) => {
+    if (!e) return 'UNKNOWN';
+    const seasonTop = Object.entries(e.season || {}).sort((a, b) => b[1] - a[1])[0]?.[0];
+    return seasonTop || e.lastT || Object.entries(e.counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'UNKNOWN';
+  };
   const rosterTeamOf = (name) => {
     for (const [t, list] of Object.entries(cfg.rosters || {})) {
       if (Array.isArray(list) && list.includes(name)) return String(t).toUpperCase();
