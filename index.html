@@ -12439,6 +12439,7 @@ function nrlaConfig(comp) {
   n.groups = Number(n.groups) === 1 ? 1 : 2;              // two groups by # of reps (poster) or one table
   if (!n.teamNames || typeof n.teamNames !== 'object') n.teamNames = {};  // branch → display name (Ganadores, Dawgs, …)
   if (!n.rosters || typeof n.rosters !== 'object') n.rosters = {};        // team → [competing rep names]; empty = whole branch
+  if (!n.matchups || typeof n.matchups !== 'object') n.matchups = {};     // roundNum → [[a,b],…] drag-and-drop overrides
   if (!Array.isArray(c.excludedBranches)) c.excludedBranches = [];
   return n;
 }
@@ -12519,21 +12520,49 @@ const NRLA_PRIZE_POOL = ['®400K + Team Trip', '®325K', '®250K', '®175K', '®
 const nrlaOrdinal = (n) => n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n + 'th';
 // Seeding-round pairings: the 2026 flyer schedule when it covers the field,
 // otherwise a generated round robin (which the 🎲 rotation can turn).
+// Drag-and-drop matchup overrides (cfg.matchups[roundNum]) win over the base
+// schedule for that round. Overrides self-heal when the team set changes:
+// vanished teams empty their slot, new teams fill empty slots or append.
+function nrlaApplyRoundOverride(basePairs, override, teams) {
+  if (!Array.isArray(override) || !override.length) return basePairs;
+  const cur = new Set(teams);
+  const seen = new Set();
+  const pairs = [];
+  override.forEach(p => {
+    if (!Array.isArray(p)) return;
+    let a = p[0] != null ? String(p[0]).toUpperCase() : null;
+    let b = p[1] != null ? String(p[1]).toUpperCase() : null;
+    if (a && (!cur.has(a) || seen.has(a))) a = null;
+    if (b && (!cur.has(b) || seen.has(b))) b = null;
+    if (a) seen.add(a);
+    if (b) seen.add(b);
+    if (a || b) pairs.push([a, b]);
+  });
+  const missing = teams.filter(t => !seen.has(t));
+  if (missing.length) {
+    pairs.forEach(p => { if (!p[0] && missing.length) p[0] = missing.shift(); if (!p[1] && missing.length) p[1] = missing.shift(); });
+    while (missing.length) pairs.push([missing.shift(), missing.length ? missing.shift() : null]);
+  }
+  return pairs.length ? pairs : basePairs;
+}
 function nrlaSeedSchedule(teams, seedN, cfg) {
   const flyerTeams = [...new Set(NRLA_2026_SCHEDULE.flat(2))];
   const cur = new Set(teams);
+  let base, flyer = false;
   if (flyerTeams.every(t => cur.has(t))) {
-    const out = [];
-    for (let i = 0; i < seedN; i++) out.push(NRLA_2026_SCHEDULE[i % NRLA_2026_SCHEDULE.length]);
-    return { rounds: out, flyer: true };
+    base = []; flyer = true;
+    for (let i = 0; i < seedN; i++) base.push(NRLA_2026_SCHEDULE[i % NRLA_2026_SCHEDULE.length]);
+  } else {
+    let order = teams;
+    if (Array.isArray(cfg.teamOrder) && cfg.teamOrder.length) {
+      const kept = cfg.teamOrder.map(t => String(t).toUpperCase()).filter(t => cur.has(t));
+      const keptSet = new Set(kept);
+      order = kept.concat(teams.filter(t => !keptSet.has(t)));
+    }
+    base = nrlaSchedule(order, seedN);
   }
-  let order = teams;
-  if (Array.isArray(cfg.teamOrder) && cfg.teamOrder.length) {
-    const kept = cfg.teamOrder.map(t => String(t).toUpperCase()).filter(t => cur.has(t));
-    const keptSet = new Set(kept);
-    order = kept.concat(teams.filter(t => !keptSet.has(t)));
-  }
-  return { rounds: nrlaSchedule(order, seedN), flyer: false };
+  const rounds = base.map((pairs, i) => nrlaApplyRoundOverride(pairs, (cfg.matchups || {})[i + 1], teams));
+  return { rounds, flyer };
 }
 function nrlaCompute(rawSales) {
   const comp = getActiveComp();
@@ -12935,10 +12964,38 @@ function openNrlaRosterModal(rawSales) {
     searchTimer = setTimeout(() => { state._nrlaRosterSearch = e.target.value; renderList(); }, 180);
   });
   const listWrap = el('div', { class: 'overflow-y-auto flex-1' });
+  // ── Add-rep bar — always visible. For brand-new hires with no synced sales
+  // yet: type the name exactly as FieldRoutes puts it on their sales
+  // ("Last, First"), pick the team, Add. Their production links up by name
+  // the moment their first sale syncs.
+  const addName = el('input', {
+    type: 'text', placeholder: 'New rep — name exactly as in FieldRoutes ("Last, First")…',
+    class: 'flex-1 rounded-lg border px-3 py-2 text-sm min-w-0',
+    style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
+  });
+  const addTeam = el('select', {
+    class: 'rounded-lg border px-2 py-2 text-xs font-semibold cursor-pointer',
+    style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
+  }, ...allTeamChoices.map(b => el('option', { value: b }, b)));
+  const doAdd = () => {
+    const v = (addName.value || '').trim();
+    if (!v) { addName.focus(); return; }
+    const nm = _cleanRepName(getCanonicalRepName(v));
+    putOnRoster(nm, addTeam.value, true);
+    state._nrlaRosterOpen = state._nrlaRosterOpen || {}; state._nrlaRosterOpen[addTeam.value] = true;
+    addName.value = '';
+    renderList();
+  };
+  addName.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAdd(); });
+  const addBar = el('div', { class: 'px-5 py-2 border-b flex items-center gap-2', style: { borderColor: 'var(--border)', background: 'rgba(242,20,140,.04)' } },
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-bold shrink-0', style: { color: PINK } }, '＋ Add rep'),
+    addName, addTeam,
+    el('button', { class: 'rounded-lg px-3 py-2 text-xs font-bold cursor-pointer shrink-0', style: { background: PINK, color: '#fff' }, onclick: doAdd }, 'Add'));
   const footer = el('div', { class: 'px-5 py-3 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
-    'Rosters are authoritative: they set who competes for each team and the PRA denominator. Use the team dropdown on a rep to move them to the branch they\'re competing for — their production follows them. Synced to every admin.');
+    'Rosters are authoritative: they set who competes for each team and the PRA denominator. Use the team dropdown on a rep to move them to the branch they\'re competing for — their production follows them. New reps are matched to their sales by NAME once the sync catches up. Synced to every admin.');
   card.append(header,
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } }, searchInput),
+    addBar,
     listWrap, footer);
 
   const renderList = () => {
@@ -12973,14 +13030,11 @@ function openNrlaRosterModal(rawSales) {
             el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, hasRoster ? picked.size + ' competing' : 'everyone competes'),
             el('button', {
               class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer', style: { background: 'rgba(255,255,255,.25)', color: '#fff' },
-              title: 'Add a rep who isn\'t in the synced data yet (brand-new hire). Type the name EXACTLY as it appears on their sales in FieldRoutes — e.g. "Last, First" — so their production links up automatically once their first sale syncs.',
+              title: 'Add a rep who isn\'t in the synced data yet (brand-new hire) — jumps to the Add-rep bar with this team preselected',
               onclick: (e) => {
                 e.stopPropagation();
-                const v = prompt('New rep for ' + t + ' — name exactly as it appears in FieldRoutes (e.g. "Last, First"):');
-                if (!v || !v.trim()) return;
-                putOnRoster(_cleanRepName(getCanonicalRepName(v.trim())), t, true);
-                state._nrlaRosterOpen = state._nrlaRosterOpen || {}; state._nrlaRosterOpen[t] = true;
-                renderList();
+                addTeam.value = t;
+                addName.focus();
               },
             }, '+ Add'),
             el('button', {
@@ -13109,29 +13163,8 @@ function nrlaBoard(rawSales) {
       class: 'rounded border px-2 py-1 text-xs', style: { width: '58px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       onchange: (e) => { cfg.seedRounds = Math.min(12, Math.max(1, Math.round(Number(e.target.value) || 4))); save('seeding rounds → ' + cfg.seedRounds); },
     }),
-    (!R.usedFlyerSchedule ? el('button', {
-      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
-      style: { borderColor: PINK, color: PINK },
-      title: 'Rotate who plays who in the seeding rounds — every press turns the round-robin wheel one seat. (The official 2026 schedule takes over automatically when all eight flyer teams are present.)',
-      onclick: () => {
-        if (R.teams.length < 2) { toast('Need at least two teams to build matchups', 'error'); return; }
-        if (R.rounds.some(r => r.started) && !confirm('The season has already started — rotating rewrites every round\'s matchups (and their results). Rotate anyway?')) return;
-        const g = R.teams;
-        let order = g;
-        if (Array.isArray(cfg.teamOrder) && cfg.teamOrder.length) {
-          const cur = new Set(g);
-          const kept = cfg.teamOrder.map(t => String(t).toUpperCase()).filter(t => cur.has(t));
-          const keptSet = new Set(kept);
-          order = kept.concat(g.filter(t => !keptSet.has(t)));
-        }
-        cfg.teamOrder = (order.length % 2)
-          ? [order[order.length - 1], ...order.slice(0, -1)]
-          : [order[0], order[order.length - 1], ...order.slice(1, -1)];
-        save('matchups rotated (' + cfg.teamOrder.join(' · ') + ')');
-      },
-    }, '🎲 Shuffle matchups') : null),
     el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } },
-      '· semifinal + championship rounds are scheduled automatically after seeding' + (R.usedFlyerSchedule ? ' · official 2026 matchups in effect' : '')),
+      '· drag a team onto another slot to rearrange a seeding round · semifinal + championship are scheduled automatically' + (R.usedFlyerSchedule ? ' · official 2026 matchups in effect' : '')),
   );
 
   // ── Competing-team chips ──
@@ -13240,40 +13273,77 @@ function nrlaBoard(rawSales) {
           )))))) : null;
 
   // ── Round cards: seeding → semifinals → championship ──
-  const sideRow = (side, m, label) => {
-    if (!side) return el('div', { class: 'flex items-center justify-between px-3 py-2' },
+  // Seeding matchups are DRAG-AND-DROP editable: grab a team and drop it on
+  // any other slot in the SAME round to swap the two. Saved per round on the
+  // comp (cfg.matchups); ↺ on the round header restores the default.
+  let _dragSrc = null;
+  const _dropSwap = (ri, mi, sideKey) => {
+    const src = _dragSrc; _dragSrc = null;
+    if (!src || src.ri !== ri || (src.mi === mi && src.side === sideKey)) return;
+    const rd = R.rounds[ri];
+    if (rd.started && !confirm('This round has already started — rearranging rewrites its matchups (and results). Move anyway?')) return;
+    const pairs = rd.matchups.map(m => [m.a ? m.a.team : null, m.b ? m.b.team : null]);
+    const get = (p) => pairs[p.mi][p.side === 'a' ? 0 : 1];
+    const put = (p, v) => { pairs[p.mi][p.side === 'a' ? 0 : 1] = v; };
+    const tmp = get(src);
+    put(src, get({ mi, side: sideKey }));
+    put({ mi, side: sideKey }, tmp);
+    cfg.matchups[rd.num] = pairs;
+    save('Round ' + rd.num + ' matchups rearranged');
+  };
+  const _dndProps = (dnd, hasTeam) => dnd ? Object.assign({
+    ondragover: (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; },
+    ondrop: (e) => { e.preventDefault(); _dropSwap(dnd.ri, dnd.mi, dnd.side); },
+  }, hasTeam ? {
+    draggable: 'true',
+    ondragstart: (e) => { _dragSrc = { ri: dnd.ri, mi: dnd.mi, side: dnd.side }; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', 'x'); } catch (_) {} },
+  } : {}) : {};
+  const sideRow = (side, m, label, dnd) => {
+    if (!side) return el('div', Object.assign({ class: 'flex items-center justify-between px-3 py-2' }, _dndProps(dnd, false)),
       el('span', { class: 'text-xs font-bold', style: { color: 'var(--text-subtle)', letterSpacing: '.05em' } }, label || 'BYE'),
       el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, label ? 'TBD' : 'auto win'));
     const won = m.winner === side.team;
-    return el('div', { class: 'flex items-center justify-between gap-2 px-3 py-2', style: won ? { background: 'rgba(242,20,140,.07)' } : {} },
+    return el('div', Object.assign({
+      class: 'flex items-center justify-between gap-2 px-3 py-2',
+      style: Object.assign(won ? { background: 'rgba(242,20,140,.07)' } : {}, dnd ? { cursor: 'grab' } : {}),
+      title: dnd ? 'Drag onto another team in this round to swap matchups' : '',
+    }, _dndProps(dnd, true)),
       el('div', { class: 'min-w-0' },
-        el('div', { class: 'text-xs font-black whitespace-nowrap', style: { color: won ? 'var(--text)' : 'var(--text-muted)' } }, (won ? '✓ ' : '') + nameOf(side.team)),
+        el('div', { class: 'text-xs font-black whitespace-nowrap', style: { color: won ? 'var(--text)' : 'var(--text-muted)' } }, (dnd ? '⠿ ' : '') + (won ? '✓ ' : '') + nameOf(side.team)),
         el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, money(side.rev) + ' · ' + side.reps + ' reps')),
       el('div', { class: 'text-right shrink-0' },
         el('div', { class: 'text-sm font-black tabular-nums' }, money(side.pra)),
         el('div', { class: 'text-[9px] font-bold uppercase tracking-wider', style: { color: won ? PINK : 'var(--text-subtle)' } }, 'PRA')));
   };
-  const roundCard = (rd) => {
+  const roundCard = (rd, ri) => {
     const title = rd.phase === 'seed' ? 'Round ' + rd.num : rd.phase === 'semi' ? 'Semifinals' : 'Championship';
     const headBg = rd.live ? PINK : (rd.phase === 'seed' ? REDD : '#0E1C30');
+    const editable = rd.phase === 'seed';
     const kids = [];
     rd.matchups.forEach((m, i) => {
       if (m.tag) kids.push(el('div', { class: 'px-3 py-0.5 text-[9px] font-black uppercase tracking-widest', style: { color: REDD, background: 'rgba(232,39,27,.06)', borderTop: i ? '1px solid var(--border)' : 'none' } }, m.tag));
       kids.push(el('div', { style: (i && !m.tag) ? { borderTop: '1px solid var(--border)' } : {} },
-        sideRow(m.a, m, m.aLabel),
+        sideRow(m.a, m, m.aLabel, editable ? { ri, mi: i, side: 'a' } : null),
         el('div', { style: { borderTop: '1px dashed var(--border)' } }),
-        sideRow(m.b, m, m.bLabel)));
+        sideRow(m.b, m, m.bLabel, editable ? { ri, mi: i, side: 'b' } : null)));
     });
     if (!rd.matchups.length) kids.push(el('div', { class: 'px-3 py-3 text-[11px] text-center', style: { color: 'var(--text-subtle)' } }, 'Matchups set after seeding.'));
     return el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: rd.live ? PINK : 'var(--border)', opacity: rd.started ? '1' : '.6' } },
       el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: headBg } },
         el('span', { class: 'text-[11px] font-black uppercase tracking-wider', style: { color: '#fff' } }, title + ' · ' + dspan(rd.d1, rd.d2)),
-        el('span', { class: 'text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded', style: rd.live ? { background: '#fff', color: PINK } : { background: 'rgba(255,255,255,.18)', color: '#fff' } },
-          rd.live ? '● LIVE' : rd.done ? 'FINAL' : 'UPCOMING')),
+        el('div', { class: 'flex items-center gap-1.5' },
+          (editable && cfg.matchups[rd.num]) ? el('button', {
+            class: 'text-[9px] font-black px-1.5 py-0.5 rounded cursor-pointer',
+            style: { background: 'rgba(255,255,255,.18)', color: '#fff' },
+            title: 'Reset this round to the default schedule',
+            onclick: () => { if (confirm('Reset Round ' + rd.num + ' to the default matchups?')) { delete cfg.matchups[rd.num]; save('Round ' + rd.num + ' matchups reset'); } },
+          }, '↺') : null,
+          el('span', { class: 'text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded', style: rd.live ? { background: '#fff', color: PINK } : { background: 'rgba(255,255,255,.18)', color: '#fff' } },
+            rd.live ? '● LIVE' : rd.done ? 'FINAL' : 'UPCOMING'))),
       ...kids);
   };
   const roundsGrid = el('div', { class: 'p-3 grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', borderTop: '1px solid var(--border)' } },
-    ...R.rounds.map(roundCard));
+    ...R.rounds.map((rd, ri) => roundCard(rd, ri)));
   const footer = el('div', { class: 'px-3 py-2 text-center text-[10px] font-bold uppercase tracking-widest', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } },
     'Updates will be sent daily · RIDDMADE');
 
