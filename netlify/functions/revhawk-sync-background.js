@@ -345,6 +345,25 @@ exports.handler = async (event) => {
     });
     if (envErr) throw new Error('envelope insert failed: ' + envErr.message);
 
+    // ── Prune old auto-sync snapshots (best-effort) ──
+    // At the every-30-min cadence the bucket would otherwise grow by ~48
+    // blobs/day. Keep the most recent 12 RevHawk snapshots (≈6 hours of
+    // history) and drop the rest. Manual CSV uploads are untouched — they
+    // don't use the 'RevHawk live sync' filename.
+    try {
+      const KEEP = 12;
+      const { data: _allSnaps } = await supabase.from('reporting_uploads')
+        .select('id, storage_path, uploaded_at')
+        .like('filename', 'RevHawk live sync%')
+        .order('uploaded_at', { ascending: false });
+      const _stale = (_allSnaps || []).slice(KEEP);
+      if (_stale.length) {
+        const _paths = _stale.map(r => r.storage_path).filter(Boolean);
+        if (_paths.length) await supabase.storage.from('reporting').remove(_paths);
+        await supabase.from('reporting_uploads').delete().in('id', _stale.map(r => r.id));
+      }
+    } catch (pruneErr) { console.warn('[revhawk-sync] snapshot prune failed', pruneErr); }
+
     // ── Employee roster → fieldroutes_employees (best-effort) ──
     // Mirror every CRM employee so the app can show "in CRM, not in app yet"
     // and provision a profile pre-filled with their email/phone. A failure
