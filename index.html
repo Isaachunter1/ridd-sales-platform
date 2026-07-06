@@ -13447,6 +13447,14 @@ function nrlaBoard(rawSales) {
             );
           })))));
 
+  // ── Prize pool legend — always visible under the standings (the full
+  // breakdown also lives in the ⓘ rules and the Final Standings card). ──
+  const prizeStrip = el('div', { class: 'px-3 py-2 flex items-center gap-x-3 gap-y-1.5 flex-wrap border-t', style: { borderColor: 'var(--border)' } },
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: BLUE } }, '💰 Prize pool · per rep'),
+    ...NRLA_PRIZE_POOL.map((p, i) => el('span', { class: 'inline-flex items-center gap-1 text-[11px] font-bold whitespace-nowrap' },
+      el('span', { style: { color: 'var(--text-subtle)' } }, nrlaOrdinal(i + 1)),
+      el('span', { style: { color: BLUE } }, p))));
+
   // ── Final standings + prize pool (fills in as championship matches settle) ──
   const prizeCard = R.placements.length ? el('div', {},
     el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: BLUE } },
@@ -13536,7 +13544,7 @@ function nrlaBoard(rawSales) {
   const footer = el('div', { class: 'px-3 py-2 text-center text-[10px] font-bold uppercase tracking-widest', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } },
     'Updates will be sent daily · RIDDMADE');
 
-  return el('div', { class: 'card overflow-hidden' }, hero, cfgBar, chipBar, standingsCard, prizeCard, roundsGrid, footer);
+  return el('div', { class: 'card overflow-hidden' }, hero, cfgBar, chipBar, standingsCard, prizeStrip, prizeCard, roundsGrid, footer);
 }
 
 // ── Spring Cleaning scoring ────────────────────────────────────────────────
