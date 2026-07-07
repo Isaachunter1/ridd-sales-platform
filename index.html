@@ -13774,6 +13774,60 @@ function nrlaBoard(rawSales, opts) {
   window.addEventListener('resize', window._nrlaStickyScroll);
   setTimeout(window._nrlaStickyScroll, 0);   // set the correct state on first paint
 
+  // ── Daily report CSV — the "Updates sent daily" deliverable: standings,
+  // every played round's results, top reps (season + latest round). One
+  // click, send it to the team. ──
+  const dailyReportCsv = () => {
+    const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const row = (...cells) => cells.map(esc).join(',');
+    const usd = (n) => Math.round(Number(n) || 0);
+    const qual = (o) => (o.passed || 0) + (o.pending || 0);
+    const L = [];
+    L.push(row('NRLA DAILY REPORT', new Date().toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })));
+    L.push(row('Last sync', syncStr));
+    L.push('');
+    L.push('SEEDING STANDINGS');
+    L.push(row('Seed', 'Team', 'W', 'L', 'T', 'Reps', 'Total Rev Sold', 'PRA', 'Passed Rev', 'Pending Rev', 'Failed Rev', 'ACV'));
+    R.standings.forEach((s, i) => {
+      const st = R.seasonStats[s.team] || { total: 0, passed: 0, pending: 0, failed: 0, n: 0 };
+      const reps = R.repsCompeting[s.team] || 0;
+      L.push(row('#' + (i + 1), nameOf(s.team), s.w, s.l, s.t || 0, reps, usd(st.total), reps ? usd((st.passed + st.pending) / reps) : '', usd(st.passed), usd(st.pending), usd(st.failed), st.n ? usd(st.total / st.n) : ''));
+    });
+    R.rounds.filter(r => r.started).slice().reverse().forEach(rd => {
+      const title = rd.phase === 'seed' ? 'ROUND ' + rd.num : rd.phase === 'semi' ? 'SEMIFINALS' : 'CHAMPIONSHIP';
+      const status = rd.live ? 'LIVE' : rd.locked ? 'FINAL' : 'AUDITING (' + rd.pendingAudits + ' pending)';
+      L.push('');
+      L.push(row(title + ' · ' + dspan(rd.d1, rd.d2), status));
+      L.push(row('Matchup', 'Team', 'PRA', 'Qualifying Rev', 'Reps', 'Result'));
+      rd.matchups.forEach(m => {
+        const tag = m.tag || ((m.a ? nameOf(m.a.team) : (m.aLabel || 'BYE')) + ' vs ' + (m.b ? nameOf(m.b.team) : (m.bLabel || 'BYE')));
+        [m.a, m.b].forEach(side => {
+          if (!side) return;
+          L.push(row(tag, nameOf(side.team), usd(side.pra), usd(side.rev), side.reps,
+            m.winner === side.team ? (rd.locked ? 'W' : 'Leading') : (m.winner ? (rd.locked ? 'L' : 'Trailing') : 'Tied')));
+        });
+      });
+    });
+    const repRows = (list, label) => {
+      L.push('');
+      L.push('TOP 10 REPS · ' + label);
+      L.push(row('#', 'Rep', 'Team', 'Accts', 'Total Rev Sold', 'Qualifying Rev', 'Passed', 'Pending', 'Failed'));
+      list.sort((a, b) => qual(b) - qual(a)).slice(0, 10).forEach((r, i) =>
+        L.push(row(i + 1, r.name, nameOf(r.team), r.n, usd(r.total), usd(qual(r)), usd(r.passed), usd(r.pending), usd(r.failed))));
+    };
+    const seasonFlat = [];
+    Object.entries(R.repStats || {}).forEach(([t, reps]) => Object.entries(reps).forEach(([name, st]) => seasonFlat.push({ name, team: t, ...st })));
+    repRows(seasonFlat, 'SEASON');
+    const startedIdx = R.rounds.map((r, i) => (r.started ? i : -1)).filter(i => i >= 0);
+    if (startedIdx.length) {
+      const li = startedIdx[startedIdx.length - 1];
+      const flat = Object.entries(R.roundRepStats[li] || {}).map(([name, st]) => ({ name, ...st }));
+      const lbl2 = R.rounds[li].phase === 'seed' ? 'ROUND ' + R.rounds[li].num : R.rounds[li].phase === 'semi' ? 'SEMIFINALS' : 'CHAMPIONSHIP';
+      repRows(flat, lbl2);
+    }
+    return L.join('\n');
+  };
+
   // ── Config strip ──
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
   const cfgBar = el('div', { class: 'px-3 py-2 flex items-center gap-2 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
@@ -13796,6 +13850,21 @@ function nrlaBoard(rawSales, opts) {
     }),
     el('span', { class: 'text-[11px] font-bold px-2 py-1 rounded', style: { background: 'rgba(242,20,140,.08)', color: PINK } },
       R.rounds.length ? R.seedN + ' seeding + semifinal + championship' : 'no rounds fit'),
+    el('button', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+      style: { borderColor: PINK, color: PINK },
+      title: 'Download tonight\'s update as a CSV — standings, every played round\'s results with PRAs, and top-10 reps (season + latest round). Best after ~9:15 PM ET when the data has settled.',
+      onclick: () => {
+        try {
+          const csv = dailyReportCsv();
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' }));
+          a.download = 'nrla-daily-' + new Date().toISOString().slice(0, 10) + '.csv';
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        } catch (e) { toast('Report failed: ' + (e && e.message || e), 'error'); }
+      },
+    }, '⬇ Daily Report'),
     el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } },
       '· drag a team onto another slot to rearrange a seeding round · semifinal + championship are scheduled automatically' + (R.usedFlyerSchedule ? ' · official 2026 matchups in effect' : '')),
   );
