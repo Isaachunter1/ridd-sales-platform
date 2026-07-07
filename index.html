@@ -12707,9 +12707,22 @@ function nrlaCompute(rawSales) {
   // EVERYTHING: revenue columns, PRA, round scores. Same Sold-Not-Started test
   // Spring Cleaning uses: real production = serviced OR Active with a Pending
   // initial appointment.
+  //
+  // SNS GRACE WINDOW: appointment records and refreshed subscription status
+  // only reach the warehouse on the NIGHTLY batch, so a brand-new sale can
+  // read "Frozen / No Appointment" here even when the CRM already shows a
+  // pending appointment (customer 164542 was exactly this). Accounts sold
+  // TODAY or YESTERDAY therefore count even if they look Sold-Not-Started;
+  // once the nightly sync has had its chance, it becomes the source of truth
+  // and the normal exclusion kicks in.
+  const _snsGrace = new Date(); _snsGrace.setHours(0, 0, 0, 0); _snsGrace.setDate(_snsGrace.getDate() - 1);
+  const _snsExcluded = (s) => {
+    if (!(typeof _scIsSoldNotStarted === 'function' && _scIsSoldNotStarted(s))) return false;
+    const d = _parseIndicatorDay(s);
+    return !(d && d >= _snsGrace);           // within grace → keep counting
+  };
   let sales = nrlaApplyOverrides(rawSales, comp)
-    .filter(s => _indicatorDeptOf(s) === 'd2d'
-      && !(typeof _scIsSoldNotStarted === 'function' && _scIsSoldNotStarted(s)));
+    .filter(s => _indicatorDeptOf(s) === 'd2d' && !_snsExcluded(s));
   // Rosters (📋) — AUTHORITATIVE team lists. A rep on a roster counts for
   // THAT team, wherever they actually knock. A team WITH a roster counts only
   // its rostered reps; a team without one counts everyone knocking under its
@@ -12930,7 +12943,7 @@ function openNrlaHelpModal() {
     el('div', { class: 'overflow-auto px-5 py-4' },
       block('Format', '4 seeding rounds, 1 playoff (semifinal) round, 1 championship round. Every round is a 2-day block, Sundays skipped. 2026 season: July 6 – July 18.'),
       block('The metric', 'Win rounds by having a higher Per Rep Average than the team you\'re competing against. PRA = the round\'s QUALIFYING revenue (Passed + Pending audit accounts, Contract Value) ÷ reps competing. Failed Audit and Last Resort (<$99) revenue never counts toward the comp.'),
-      block('What counts', 'Pending/Serviced accounts only. An account sold but never serviced — no appointment scheduled, cancelled at the door, or the initial appointment cancelled — is excluded from every number. Pending-audit accounts count as passing until flagged.'),
+      block('What counts', 'Pending/Serviced accounts only. An account sold but never serviced — no appointment scheduled, cancelled at the door, or the initial appointment cancelled — is excluded from every number. Pending-audit accounts count as passing until flagged. Grace window: accounts sold today/yesterday count even if the appointment hasn\'t reached the warehouse yet — the nightly sync is the source of truth, and the exclusion applies after it lands.'),
       block('Round lock', 'A round\'s result is provisional (AUDITING badge) until every account in it has been audited — then it locks and shows FINAL. Audits landing as Failed pull that revenue out, so a tight matchup can flip before the lock.'),
       block('Seeding', 'After the seeding rounds, teams are ranked #1 through #8 by: 1. overall record · 2. head-to-head result · 3. total cumulative PRA.'),
       block('Playoffs', 'Semifinals: #1 vs #4, #2 vs #3, #5 vs #8, #6 vs #7. Championship round: semifinal winners meet in the 1st (and 5th) place matches, losers in the 3rd (and 7th) — every team plays for its final placement.'),
