@@ -546,6 +546,23 @@
     button { transition: none; }
     button:active { transform: none; }
   }
+
+  /* ═══════════ MOBILE & TOUCH REFINEMENTS ═══════════ */
+  html { -webkit-tap-highlight-color: transparent; }
+  button, [draggable="true"] { touch-action: manipulation; }   /* no double-tap zoom delay */
+  .overflow-x-auto, .overflow-auto, .overflow-y-auto { -webkit-overflow-scrolling: touch; }
+  /* iOS zooms the whole page when focusing inputs under 16px — bump form
+     text on touch devices only; desktop sizing untouched. */
+  @media (pointer: coarse) {
+    input[type="text"], input[type="date"], input[type="number"], input[type="email"],
+    input[type="password"], input[type="search"], select, textarea { font-size: 16px; }
+  }
+  h1, h2 { text-wrap: balance; }
+  /* NRLA playoff cards: double-width on desktop grids, but collapse to a
+     normal single column on phones (a span-2 item in a 1-column auto-fill
+     grid would overflow the screen). */
+  .nrla-playoff { grid-column: span 2; }
+  @media (max-width: 700px) { .nrla-playoff { grid-column: auto; } }
 </style>
 
 <!-- Apply theme before body paints to avoid flash -->
@@ -13836,7 +13853,7 @@ function nrlaBoard(rawSales) {
     const body = playoff && rd.matchups.length
       ? [el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' } }, ...kids)]
       : kids;
-    return el('div', { class: 'rounded-lg overflow-hidden', style: { border: '1.5px solid ' + (rd.live ? GREEN : 'var(--text)'), boxShadow: rd.live ? '0 0 0 1px ' + GREEN + ', 0 8px 24px -16px rgba(47,214,47,.5)' : 'none', gridColumn: playoff ? 'span 2' : 'auto' } },
+    return el('div', { class: 'rounded-lg overflow-hidden' + (playoff ? ' nrla-playoff' : ''), style: { border: '1.5px solid ' + (rd.live ? GREEN : 'var(--text)'), boxShadow: rd.live ? '0 0 0 1px ' + GREEN + ', 0 8px 24px -16px rgba(47,214,47,.5)' : 'none' } },
       el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: headBg } },
         el('span', { class: 'text-[11px] font-black uppercase tracking-wider', style: { color: headFg } }, title + ' · ' + dspan(rd.d1, rd.d2) + (dayLabel ? ' · ' + dayLabel : '')),
         el('div', { class: 'flex items-center gap-1.5' },
