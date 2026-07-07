@@ -12962,6 +12962,7 @@ function nrlaCompute(rawSales, compOverride) {
   const _isFailedAcct = (s) => (Number(s.initialPrice) || 0) < 99 || SC_FAIL_RE.test(s.customerFlags || '');
   const _isPendingAudit = (s) => !_isFailedAcct(s) && !scAuditPassed(s.customerFlags);
   const roundRev = windows.map(() => ({}));
+  const roundRevDay = windows.map(() => ({}));     // team → [day1 qual rev, day2 qual rev]
   const roundReps = windows.map(() => ({}));
   const roundPending = windows.map(() => 0);
   const roundRepStats = windows.map(() => ({}));   // per-round per-rep buckets (rep leaderboard scope picker)
@@ -12981,7 +12982,9 @@ function nrlaCompute(rawSales, compOverride) {
         }
         if (!_isFailedAcct(s)) {
           const o = offOf(s);
-          roundRev[i][o] = (roundRev[i][o] || 0) + (Number(s.contractValue) || 0);
+          const cv1 = Number(s.contractValue) || 0;
+          roundRev[i][o] = (roundRev[i][o] || 0) + cv1;
+          (roundRevDay[i][o] = roundRevDay[i][o] || [0, 0])[d.getTime() === w.d1.getTime() ? 0 : 1] += cv1;
           (roundReps[i][o] = roundReps[i][o] || new Set()).add(s.rep);
         }
         break;
@@ -13017,9 +13020,15 @@ function nrlaCompute(rawSales, compOverride) {
   // THE METRIC (flyer): win a round by posting a higher Per-Rep Average than
   // the team you're up against. PRA = round revenue ÷ reps competing.
   const praOf = (t, i) => { const n = repsCompeting[t] || 0; return n > 0 ? (roundRev[i][t] || 0) / n : 0; };
-  const mk = (t, i) => t == null ? null : {
-    team: t, rev: roundRev[i][t] || 0, reps: repsCompeting[t] || 0,
-    pra: praOf(t, i), sellers: (roundReps[i][t] || new Set()).size,
+  const mk = (t, i) => {
+    if (t == null) return null;
+    const n = repsCompeting[t] || 0;
+    const dd = roundRevDay[i][t] || [0, 0];
+    return {
+      team: t, rev: roundRev[i][t] || 0, reps: n,
+      pra: praOf(t, i), sellers: (roundReps[i][t] || new Set()).size,
+      praD1: n > 0 ? dd[0] / n : 0, praD2: n > 0 ? dd[1] / n : 0,
+    };
   };
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const rounds = windows.map((w, i) => ({
@@ -14128,7 +14137,10 @@ function nrlaBoard(rawSales, opts) {
     }, _dndProps(dnd, true)),
       el('div', { class: 'min-w-0' },
         el('div', { class: 'text-xs font-black whitespace-nowrap', style: { color: 'var(--text)' } }, (dnd ? '⠿ ' : '') + (won ? (live ? '▲ ' : '✓ ') : '') + nameOf(side.team)),
-        el('div', { class: 'text-[10px] tabular-nums font-semibold', style: { color: 'var(--text)' } }, money(side.rev) + ' · ' + side.reps + ' reps')),
+        el('div', { class: 'text-[10px] tabular-nums font-semibold', style: { color: 'var(--text)' } }, money(side.rev) + ' · ' + side.reps + ' reps'),
+        // Day-by-day PRA split — how each of the round's two days contributed.
+        (side.praD1 || side.praD2) ? el('div', { class: 'text-[9px] tabular-nums font-bold whitespace-nowrap', style: { color: 'var(--text)', opacity: '.75' } },
+          'D1 ' + money(side.praD1) + ' · D2 ' + money(side.praD2) + ' PRA') : null),
       el('div', { class: 'text-right shrink-0' },
         el('div', { class: 'text-sm font-black tabular-nums', style: { color: 'var(--text)' } }, money(side.pra)),
         el('div', { class: 'text-[9px] font-black uppercase tracking-wider', style: { color: won ? hiText : 'var(--text)' } }, live && won ? 'LEADS' : 'PRA')));
