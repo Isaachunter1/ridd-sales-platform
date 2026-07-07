@@ -1074,14 +1074,12 @@ async function loadIndicatorConfigFromSupabase() {
       Object.keys(data.rep_teams || {}).length > 0 ||
       Object.keys(data.rep_tiers || {}).length > 0
     );
-    // STALE-SERVER GUARD — if this browser saved settings AFTER the server
-    // row was written, the last sync must have failed or raced. Applying the
-    // server copy would clobber newer local work (this is exactly how roster
-    // edits got wiped once) — keep local and push it up instead.
-    const _serverAt = data && data.updated_at ? Date.parse(data.updated_at) : 0;
-    const _localAt  = state._indicatorSettingsSavedAt ? Date.parse(state._indicatorSettingsSavedAt) : 0;
-    if (hasServerData && _localAt && _serverAt && _localAt > _serverAt + 1500) {
-      console.warn('[ridd] local indicator config is newer than the server copy — pushing local up instead of applying server');
+    // UNSYNCED-EDITS GUARD — if this browser has config edits that never made
+    // it to the server (content differs from the last synced fingerprint),
+    // applying the server copy would wipe them. Keep local, push it up.
+    // A clean browser always adopts the server copy.
+    if (hasServerData && _indCfgDirty() && isAdminRole(state.profile.role)) {
+      console.warn('[ridd] unsynced local indicator config — pushing local up instead of applying server');
       saveIndicatorConfigToSupabase().catch(err => console.warn('[ridd] config push-up failed', err));
       return;
     }
@@ -1109,6 +1107,9 @@ async function loadIndicatorConfigFromSupabase() {
       state._indicatorRepOffice     = data.rep_offices   && typeof data.rep_offices   === 'object' ? data.rep_offices   : (state._indicatorRepOffice || {});
       _normalizeRepKeyedMaps();
       if (typeof _hydrateTeamYears === 'function') _hydrateTeamYears();
+      // The server copy is now our baseline — record it so this browser
+      // counts as CLEAN until the user actually changes something here.
+      _indCfgRecordSynced(data.updated_at);
       return;
     }
     // Server row is empty (fresh install). If THIS browser has team data
@@ -1126,6 +1127,32 @@ async function loadIndicatorConfigFromSupabase() {
     console.warn('[ridd] indicator config load threw', err);
   }
 }
+
+// ── Config-sync dirty tracking ──────────────────────────────────────────
+// THE ROSTER-WIPE BUG: every save used to push this browser's ENTIRE config
+// blob to the server — including routine background saves (the auto-derived
+// snapshot every 30 minutes). Any open tab holding OLDER rosters/teams would
+// rhythmically clobber the server copy, and the admin who actually did the
+// work got their edits wiped on the next reload. Now a browser only PUSHES
+// when its config CONTENT actually changed since the last sync it saw, and
+// only APPLIES the server copy when it has no unsynced edits of its own.
+const IND_CFG_SYNC_KEY = 'ridd-ind-cfg-sync-v1';
+function _indCfgFingerprint() {
+  const s = JSON.stringify([
+    state._indicatorTeams || [], state._indicatorTeamColors || {}, state._indicatorTeamLogos || {},
+    state._indicatorExcludedTeams || [],
+    { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [] },
+    state._indicatorRepTeamByYear || {}, state._indicatorRepTier || {}, state._indicatorRepActive || {}, state._indicatorRepOffice || {},
+  ]);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return h + ':' + s.length;
+}
+function _indCfgSyncRec() { try { return JSON.parse(localStorage.getItem(IND_CFG_SYNC_KEY) || 'null'); } catch { return null; } }
+function _indCfgRecordSynced(serverAt) {
+  try { localStorage.setItem(IND_CFG_SYNC_KEY, JSON.stringify({ hash: _indCfgFingerprint(), serverAt: serverAt || new Date().toISOString() })); } catch {}
+}
+function _indCfgDirty() { const r = _indCfgSyncRec(); return !r || r.hash !== _indCfgFingerprint(); }
 
 // Push the in-memory state up to Supabase. Always also writes localStorage
 // (via the caller — saveIndicatorState — so localStorage stays a fast
@@ -1153,6 +1180,7 @@ async function _indicatorConfigUpsertNow() {
       if (typeof toast === 'function') toast('Saved locally — server sync failed (' + (error.message || 'unknown') + '), retrying…', 'error');
       return false;
     }
+    _indCfgRecordSynced(payload.updated_at);   // this content is now the shared truth
     return true;
   } catch (err) {
     console.warn('[ridd] indicator_config save threw', err);
@@ -1169,6 +1197,10 @@ async function _indicatorConfigUpsertNow() {
 let _indCfgUpsertBusy = false, _indCfgUpsertAgain = false, _indCfgUpsertFails = 0;
 async function saveIndicatorConfigToSupabase() {
   if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
+  // Nothing actually changed since the last sync this browser saw? Then
+  // DON'T touch the server — this is what stops background saves in stale
+  // tabs from clobbering another admin's fresh roster work.
+  if (!_indCfgDirty()) return;
   if (_indCfgUpsertBusy) { _indCfgUpsertAgain = true; return; }
   _indCfgUpsertBusy = true;
   try {
