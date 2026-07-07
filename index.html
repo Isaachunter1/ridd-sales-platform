@@ -12955,6 +12955,7 @@ function nrlaCompute(rawSales, compOverride) {
   const roundRev = windows.map(() => ({}));
   const roundReps = windows.map(() => ({}));
   const roundPending = windows.map(() => 0);
+  const roundRepStats = windows.map(() => ({}));   // per-round per-rep buckets (rep leaderboard scope picker)
   if (windows.length) for (const s of sales) {
     const d = _parseIndicatorDay(s);
     if (!d || d < seasonStart || d > seasonEnd) continue;
@@ -12962,6 +12963,13 @@ function nrlaCompute(rawSales, compOverride) {
       const w = windows[i];
       if (d >= w.d1 && d <= w.d2) {
         if (_isPendingAudit(s)) roundPending[i] += 1;
+        if (s.rep) {
+          const rk0 = _cleanRepName(getCanonicalRepName(s.rep));
+          const rr0 = roundRepStats[i][rk0] || (roundRepStats[i][rk0] = { team: offOf(s), n: 0, total: 0, passed: 0, pending: 0, failed: 0 });
+          const cv0 = Number(s.contractValue) || 0;
+          const b0 = _isFailedAcct(s) ? 'failed' : (scAuditPassed(s.customerFlags) ? 'passed' : 'pending');
+          rr0.n += 1; rr0.total += cv0; rr0[b0] += cv0;
+        }
         if (!_isFailedAcct(s)) {
           const o = offOf(s);
           roundRev[i][o] = (roundRev[i][o] || 0) + (Number(s.contractValue) || 0);
@@ -13092,7 +13100,7 @@ function nrlaCompute(rawSales, compOverride) {
   }
   const seasonDone = !!(rounds.length && rounds.every(r => r.done));
   return { comp, cfg, teams, rounds, standings, seeds, seedingDone, seedN, semiResults, placements,
-           seasonDone, seasonStats, repStats, repsCompeting, rosters, usedFlyerSchedule: sched.flyer };
+           seasonDone, seasonStats, repStats, roundRepStats, repsCompeting, rosters, usedFlyerSchedule: sched.flyer };
 }
 
 // Rules popup for NRLA (the header ⓘ).
@@ -13879,25 +13887,41 @@ function nrlaBoard(rawSales, opts) {
             );
           })))));
 
-  // ── Rep leaderboard — top 10 individuals by their own PRA (a single rep's
-  // PRA = their sold revenue), same eligibility and buckets as the teams. ──
+  // ── Rep leaderboard — top 10 individuals, scoped to the SEASON or any
+  // single round via the picker (top producers by round). Ranked on
+  // qualifying revenue (Passed + Pending) — failed never counts. ──
   const repBoard = (() => {
+    const roundLabel = (rd) => (rd.phase === 'seed' ? 'Round ' + rd.num : rd.phase === 'semi' ? 'Semifinals' : 'Championship') + ' · ' + dspan(rd.d1, rd.d2);
+    let scope = state._nrlaRepBoardScope == null ? 'season' : String(state._nrlaRepBoardScope);
+    if (scope !== 'season' && !R.rounds[Number(scope)]) scope = 'season';
     const flat = [];
-    Object.entries(R.repStats || {}).forEach(([t, reps]) =>
-      Object.entries(reps).forEach(([name, st]) => flat.push({ name, team: t, ...st })));
-    if (!flat.length) return null;
-    // Ranked on QUALIFYING revenue (Passed + Pending) — failed never counts.
+    if (scope === 'season') {
+      Object.entries(R.repStats || {}).forEach(([t, reps]) =>
+        Object.entries(reps).forEach(([name, st]) => flat.push({ name, team: t, ...st })));
+    } else {
+      Object.entries((R.roundRepStats || [])[Number(scope)] || {}).forEach(([name, st]) => flat.push({ name, ...st }));
+    }
     const qual = (r) => (r.passed || 0) + (r.pending || 0);
     flat.sort((a, b) => qual(b) - qual(a) || a.name.localeCompare(b.name));
     const top = flat.slice(0, 10);
     const medal = (i) => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '#' + (i + 1);
-    // Rep PRA = their production averaged per round played so far (keeps the
-    // number on the same per-round scale the matchup PRAs use).
-    const roundsStarted = Math.max(1, R.rounds.filter(r => r.started).length);
+    // Season PRA = qualifying ÷ rounds played; a single round IS one window.
+    const roundsStarted = scope === 'season' ? Math.max(1, R.rounds.filter(r => r.started).length) : 1;
+    const scopeSel = el('select', {
+      class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
+      style: { border: 'none', background: 'rgba(255,255,255,.25)', color: '#fff' },
+      title: 'Scope the leaderboard to the whole season or a single round',
+      onchange: (e) => { state._nrlaRepBoardScope = e.target.value; rerender(); },
+    },
+      (() => { const o = el('option', { value: 'season', style: { color: '#000' } }, 'Season'); if (scope === 'season') o.selected = true; return o; })(),
+      ...R.rounds.map((rd, i) => { const o = el('option', { value: String(i), style: { color: '#000' } }, roundLabel(rd)); if (scope === String(i)) o.selected = true; return o; }));
     return el('div', {},
-      el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: PINK } },
-        el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } }, 'Rep Leaderboard · Top 10'),
-        el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, 'individual PRA · season · Pending/Serviced only')),
+      el('div', { class: 'flex items-center justify-between gap-2 flex-wrap px-3 py-1.5', style: { background: PINK } },
+        el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } },
+          'Rep Leaderboard · Top 10' + (scope === 'season' ? '' : ' · ' + roundLabel(R.rounds[Number(scope)]).split(' · ')[0])),
+        el('div', { class: 'flex items-center gap-2' },
+          el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, 'qualifying rev · Pending/Serviced only'),
+          scopeSel)),
       el('div', { class: 'overflow-x-auto' },
         el('table', { class: 'w-full text-xs' },
           el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#0E1C30', color: '#fff' } },
@@ -13906,14 +13930,15 @@ function nrlaBoard(rawSales, opts) {
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Rep'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Team'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Accts'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'The rep\'s own sold revenue this season' }, 'Total Rev Sold'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'The rep\'s QUALIFYING revenue (Passed + Pending — failed never counts) averaged per round played' }, 'PRA'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'The rep\'s own sold revenue in this scope' }, 'Total Rev Sold'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Qualifying revenue (Passed + Pending — failed never counts)' + (scope === 'season' ? ' averaged per round played' : ' for this round') }, 'PRA'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Passed Rev'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Pending Rev'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Failed Rev'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Average Contract Value: total ÷ accounts sold' }, 'ACV'),
             )),
           el('tbody', {},
+            top.length ? '' : el('tr', {}, el('td', { class: 'px-3 py-4 text-center text-[11px]', colspan: '10', style: { color: 'var(--text-subtle)' } }, 'No qualifying production in this round yet.')),
             ...top.map((r, i) => el('tr', {
               class: 'border-t cursor-pointer hover:brightness-95 transition',
               style: { borderColor: 'var(--border)', background: i === 0 ? 'rgba(47,214,47,.07)' : (i % 2 ? 'rgba(14,28,48,.04)' : 'transparent') },
