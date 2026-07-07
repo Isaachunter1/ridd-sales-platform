@@ -3164,8 +3164,12 @@ function mobileBottomNav() {
   // they check between sales), admins see Calendar (they manage scheduling).
   // The other view stays reachable through the More popover.
   // Auditors only have sales access — a single Sales slot, no More menu.
+  const isRepOnly = !isAdmin && !isAuditor;
   const items = isAuditor ? [
     ['sales', 'Sales', iconSales],
+  ] : isRepOnly ? [
+    // Plain rep accounts (partner rollout): Competitions only, for now.
+    ['nrla', 'Competitions', iconTrophy],
   ] : [
     ['dashboard', 'Dashboard', iconDashboard],
     ['sales', 'Sales', iconSales],
@@ -3181,7 +3185,7 @@ function mobileBottomNav() {
       onclick: () => { state.view = k; history.replaceState(null,'',VIEW_TO_HASH[k]||'#'+k); mountApp(); },
     }, iconFn(20), el('span', {}, label))),
     // "More" button
-    !isAuditor && (() => {
+    !isAuditor && !isRepOnly && (() => {
       const moreBtn = el('button', { 'data-active': !slotKeys.has(state.view) },
         iconGrid(20), el('span', {}, 'More'));
       const popover = el('div', { class: 'more-popover card', style: { display: 'none' } },
@@ -3875,6 +3879,15 @@ function mountApp() {
     state.view = 'nrla';
     history.replaceState(null, '', VIEW_TO_HASH.nrla || '#nrla');
   }
+  // Route guard — plain rep accounts (the partner rollout) get the
+  // COMPETITIONS TAB ONLY for now. Every other view coerces there. Auditors
+  // keep their Sales tab; admins keep everything. To re-open other tabs to
+  // reps later, delete this block (and the matching nav/mobile-nav gating).
+  const isRepOnly = !isAdmin && !isAuditor;
+  if (isRepOnly && state.view !== 'nrla') {
+    state.view = 'nrla';
+    history.replaceState(null, '', VIEW_TO_HASH.nrla || '#nrla');
+  }
 
   // ── Single-column layout. The grid icon in the header is the nav menu. ──
   const shell = el('div', { class: 'min-h-screen flex flex-col' });
@@ -3882,7 +3895,10 @@ function mountApp() {
   // Nav items (admin reaches Settings via the gear icon, not the nav menu).
   // 'inside_sales' is a virtual entry — clicking it lands on the last-used
   // Inside Sales sub-tab (default Dashboard).
-  const navItems = [
+  const navItems = (!isAdmin && !isAuditor) ? [
+    // Plain rep accounts (partner rollout): Competitions only, for now.
+    ['nrla', 'Competitions', iconTrophy()],
+  ] : [
     // Auditors only have the Sales tab, so call the entry what it is.
     ['inside_sales', isAuditor ? 'Sales' : 'Inside Sales', iconSales()],
     // Competitions — every comp (NRLA, Spring Cleaning, Top Gun, …) on its
@@ -14255,14 +14271,17 @@ function viewNrlaPublic() {
         'Pulling the latest shared data — this page refreshes itself. If it never loads, an admin needs to run nrla_rep_access.sql in Supabase.')));
     return wrap;
   }
-  // Selection: defaults to the NRLA comp; stored per session. The active-comp
-  // pointer follows the selection so every board computes against the right
-  // comp's config (reps never push config, so this stays local for them).
-  let selId = state._compsTabSel || (comps.find(c => isNrlaComp(c)) || comps[0]).id;
+  // Selection order: this session's pick → the ★ DEFAULT comp (admin-set,
+  // synced to everyone — "the ongoing comp loads first") → NRLA → first.
+  // The active-comp pointer follows the selection so every board computes
+  // against the right comp's config (reps never push config, so this stays
+  // local for them).
+  let selId = state._compsTabSel
+    || (comps.find(c => c.favorite) || comps.find(c => isNrlaComp(c)) || comps[0]).id;
   if (!comps.some(c => c.id === selId)) selId = comps[0].id;
   const sel = comps.find(c => c.id === selId);
   if (getActiveCompId() !== sel.id) state._indicatorActiveCompId = sel.id;
-  // ── Comp switcher pills ──
+  // ── Comp switcher pills + admin ★ default control ──
   wrap.append(el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Competition'),
     ...comps.map(c => el('button', {
@@ -14270,8 +14289,26 @@ function viewNrlaPublic() {
       style: c.id === sel.id
         ? { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' }
         : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+      title: c.favorite ? c.name + ' — the default competition everyone lands on' : c.name,
       onclick: () => { state._compsTabSel = c.id; mountApp(); },
-    }, c.name))));
+    }, (c.favorite ? '★ ' : '') + c.name)),
+    isAdmin ? el('button', {
+      class: 'text-xs font-bold rounded-full px-3 py-1 border border-dashed cursor-pointer transition hover:brightness-95 ml-auto',
+      style: sel.favorite
+        ? { color: '#D97706', borderColor: '#D97706' }
+        : { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+      title: sel.favorite
+        ? '“' + sel.name + '” is the default — everyone lands on it when opening this tab. Click to unset.'
+        : 'Make “' + sel.name + '” the default competition everyone lands on when opening this tab',
+      onclick: () => {
+        const on = !sel.favorite;
+        comps.forEach(c => { delete c.favorite; });   // only one default at a time
+        if (on) sel.favorite = true;
+        logActivity('comp_change', { detail: on ? sel.name + ' set as the DEFAULT competition' : sel.name + ' unset as default competition' });
+        saveDemoData();                                // syncs to every user
+        mountApp();
+      },
+    }, sel.favorite ? '★ Default' : '☆ Set as default') : null));
   // ── NRLA gets its own board (runs on its own schedule — no window bar) ──
   if (isNrlaComp(sel)) {
     wrap.append(nrlaBoard(raw, { readOnly: !isAdmin, comp: sel }));
