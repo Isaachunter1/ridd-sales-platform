@@ -13470,7 +13470,14 @@ function nrlaBoard(rawSales) {
     'radial-gradient(ellipse 65% 50% at 25% 95%, rgba(255,255,255,.05), rgba(255,255,255,0) 70%),' +
     'linear-gradient(180deg, #03070D 0%, #081221 55%, #0E1C30 100%)';
   const chip = (bg, fg, txt, extra) => el('span', { style: Object.assign({ display: 'inline-block', padding: '3px 10px', borderRadius: '999px', background: bg, color: fg, fontWeight: '900', fontSize: '11px', letterSpacing: '.03em' }, extra || {}) }, txt);
-  const hero = el('div', { style: { background: heroBg, padding: '22px 22px 18px', position: 'relative', overflow: 'hidden' } },
+  // When the comp data was last synced/derived — shown BIG on the banner.
+  const syncStr = (() => {
+    const t = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt) : null;
+    return (t && !isNaN(t))
+      ? t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' + t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      : '—';
+  })();
+  const hero = el('div', { id: 'nrlaHero', style: { background: heroBg, padding: '22px 22px 18px', position: 'relative', overflow: 'hidden' } },
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap', style: { position: 'relative', zIndex: '1' } },
       el('div', {},
         el('div', { style: { fontFamily: DISP, fontSize: 'clamp(3rem,9vw,6rem)', lineHeight: '.8', color: '#fff', textTransform: 'uppercase', letterSpacing: '.1em', textShadow: '0 2px 30px rgba(0,0,0,.6)' } }, 'NRLA'),
@@ -13492,22 +13499,57 @@ function nrlaBoard(rawSales) {
           chip('rgba(255,255,255,.16)', '#fff', 'Updates sent daily · RIDDMADE'),
         ),
       ),
-      el('div', { class: 'flex items-center gap-2 shrink-0' },
-        el('button', {
-          class: 'cursor-pointer transition hover:brightness-95',
-          style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
-          title: 'Rosters — pick who competes for each team and which branch each rep competes for (sets the PRA denominator)',
-          onclick: () => openNrlaRosterModal(rawSales),
-        }, '📋'),
-        el('button', {
-          class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer',
-          style: { width: '22px', height: '22px', background: PINK, color: '#fff' },
-          title: 'How the league works',
-          onclick: () => openNrlaHelpModal(),
-        }, 'ⓘ'),
+      el('div', { class: 'flex flex-col items-end shrink-0' },
+        el('div', { class: 'flex items-center gap-2' },
+          el('button', {
+            class: 'cursor-pointer transition hover:brightness-95',
+            style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
+            title: 'Rosters — pick who competes for each team and which branch each rep competes for (sets the PRA denominator)',
+            onclick: () => openNrlaRosterModal(rawSales),
+          }, '📋'),
+          el('button', {
+            class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer',
+            style: { width: '22px', height: '22px', background: PINK, color: '#fff' },
+            title: 'How the league works',
+            onclick: () => openNrlaHelpModal(),
+          }, 'ⓘ')),
+        // BIG last-sync timestamp — the freshness of every number on the board.
+        el('div', { style: { textAlign: 'right', marginTop: '14px' } },
+          el('div', { style: { fontFamily: DISP, fontSize: '.62rem', letterSpacing: '.24em', color: PINK, textTransform: 'uppercase' } }, 'Last Sync'),
+          el('div', { style: { fontFamily: DISP, fontSize: 'clamp(1.3rem,2.8vw,2rem)', color: '#fff', lineHeight: '1', marginTop: '2px' } }, syncStr)),
       ),
     ),
   );
+
+  // ── Frozen banner — a compact NRLA strip pins below the filter bar once the
+  // hero scrolls out of view, carrying the LIVE chip + the big sync stamp. ──
+  const stickyLive = R.rounds.find(r => r.live);
+  const stickyBar = el('div', { id: 'nrlaStickyBar', style: {
+      position: 'fixed', left: '0', right: '0', top: '0', display: 'none', zIndex: '35',
+      alignItems: 'center', gap: '14px', padding: '8px 18px',
+      background: 'linear-gradient(180deg, #04080F 0%, #0A1422 100%)', boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+    } },
+    el('span', { style: { fontFamily: DISP, fontSize: '1.3rem', lineHeight: '1', color: '#fff', letterSpacing: '.08em' } }, 'NRLA'),
+    stickyLive ? el('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '2px 9px', borderRadius: '999px', background: GREEN, color: '#04310A', fontWeight: '900', fontSize: '10px', letterSpacing: '.03em' } },
+      el('span', { style: { animation: 'nrlaPulse 1.2s ease-in-out infinite' } }, '●'),
+      'LIVE · ' + (stickyLive.phase === 'seed' ? 'Round ' + stickyLive.num : stickyLive.phase === 'semi' ? 'Semifinals' : 'Championship')) : null,
+    el('span', { class: 'flex-1' }),
+    el('span', { style: { fontFamily: DISP, fontSize: '.6rem', letterSpacing: '.22em', color: PINK, textTransform: 'uppercase' } }, 'Last Sync'),
+    el('span', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1', color: '#fff' } }, syncStr));
+  // One live scroll handler app-wide (re-registered per render so it closes
+  // over nothing stale; no-ops when the NRLA board isn't on screen).
+  if (window._nrlaStickyScroll) window.removeEventListener('scroll', window._nrlaStickyScroll);
+  window._nrlaStickyScroll = () => {
+    const bar = document.getElementById('nrlaStickyBar');
+    const heroEl = document.getElementById('nrlaHero');
+    if (!bar || !heroEl) return;
+    const fixedBar = document.getElementById('indFixedBar');
+    const topOff = fixedBar ? fixedBar.getBoundingClientRect().height : 0;
+    const show = heroEl.getBoundingClientRect().bottom <= topOff;
+    bar.style.top = topOff + 'px';
+    bar.style.display = show ? 'flex' : 'none';
+  };
+  window.addEventListener('scroll', window._nrlaStickyScroll, { passive: true });
 
   // ── Config strip ──
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
@@ -13807,7 +13849,7 @@ function nrlaBoard(rawSales) {
   const footer = el('div', { class: 'px-3 py-2 text-center text-[10px] font-bold uppercase tracking-widest', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } },
     'Updates will be sent daily · RIDDMADE');
 
-  return el('div', { class: 'card overflow-hidden' }, hero, cfgBar, chipBar, standingsCard, repBoard, prizeStrip, prizeCard, roundsGrid, footer);
+  return el('div', { class: 'card overflow-hidden' }, stickyBar, hero, cfgBar, chipBar, standingsCard, repBoard, prizeStrip, prizeCard, roundsGrid, footer);
 }
 
 // ── Spring Cleaning scoring ────────────────────────────────────────────────
