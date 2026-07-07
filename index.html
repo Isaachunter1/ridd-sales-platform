@@ -13018,7 +13018,8 @@ function openNrlaRosterModal(rawSales) {
   const cfg = nrlaConfig(comp);
   const PINK = '#F2148C';
   const overlay = el('div', { class: 'modal-overlay' });
-  const close = () => { overlay.remove(); mountApp(); };
+  let _saveTimer = null;
+  const close = () => { if (_saveTimer) clearInterval(_saveTimer); overlay.remove(); mountApp(); };
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
   overlay.append(card);
@@ -13122,12 +13123,42 @@ function openNrlaRosterModal(rawSales) {
   // ── Static chrome — built ONCE so the search box never loses focus and
   // typing doesn't rebuild the whole modal. Only the list re-renders. ──
   const pickedNote = el('span', {}, '');
+  // ── Live save indicator — shows exactly where your edits stand:
+  //   Saving…  → sync to the server is in flight
+  //   Save     → unsynced changes exist (click to push right now)
+  //   ✓ Saved  → everything is on the server; every admin sees it
+  const saveBtn = el('button', { class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition shrink-0' }, '…');
+  const refreshSaveBtn = () => {
+    const busy = typeof _indCfgUpsertBusy !== 'undefined' && _indCfgUpsertBusy;
+    const dirty = typeof _indCfgDirty === 'function' && _indCfgDirty();
+    if (busy) {
+      saveBtn.textContent = 'Saving…';
+      Object.assign(saveBtn.style, { background: '#D97706', color: '#fff', border: 'none' });
+      saveBtn.title = 'Syncing to the server…';
+    } else if (dirty) {
+      saveBtn.textContent = 'Save';
+      Object.assign(saveBtn.style, { background: PINK, color: '#fff', border: 'none' });
+      saveBtn.title = 'Unsynced changes — click to push them to the server now';
+    } else {
+      saveBtn.textContent = '✓ Saved';
+      Object.assign(saveBtn.style, { background: 'transparent', color: '#1b7f3b', border: '1px solid #1b7f3b' });
+      saveBtn.title = 'Everything is saved and synced — every admin sees this roster';
+    }
+  };
+  saveBtn.addEventListener('click', () => {
+    saveDemoData();               // writes localStorage + kicks the server sync
+    refreshSaveBtn();
+  });
+  _saveTimer = setInterval(refreshSaveBtn, 500);
+  refreshSaveBtn();
   const header = el('div', { class: 'flex items-center justify-between px-5 py-4 border-b gap-3', style: { borderColor: 'var(--border)' } },
     el('div', {},
       el('h2', { class: 'text-base font-bold' }, '📋 NRLA Rosters — reps competing'),
       el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
         'Only rostered reps count for a team · a team with no roster counts everyone · ', pickedNote)),
-    el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'));
+    el('div', { class: 'flex items-center gap-2 shrink-0' },
+      saveBtn,
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')));
   const searchInput = el('input', {
     type: 'text', value: state._nrlaRosterSearch || '', placeholder: 'Search reps…',
     class: 'w-full rounded-lg border px-3 py-2 text-sm',
