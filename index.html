@@ -843,7 +843,9 @@ async function syncIndicatorsToCloud() {
 
 let _indCloudCheckedAt = 0;
 async function refreshIndicatorsFromCloud(force) {
-  if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
+  // Open to every signed-in user (was admin-only) — the rep-facing NRLA board
+  // reads the same shared dataset. Reads only; config pushes stay admin-gated.
+  if (DEMO || !state.profile) return;
   if (typeof DecompressionStream === 'undefined') return;
   if (!force && Date.now() - _indCloudCheckedAt < 120000) return; // ≤1 check / 2 min
   _indCloudCheckedAt = Date.now();
@@ -1238,6 +1240,94 @@ async function saveIndicatorConfigToSupabase() {
   } finally {
     _indCfgUpsertBusy = false;
   }
+}
+
+// ── Config history & restore ────────────────────────────────────────────
+// Every write to indicator_config is snapshotted server-side by a DB trigger
+// (indicator_config_history.sql — last 50 kept). This modal lists snapshots
+// and restores any of them: applied locally, then pushed as the new shared
+// copy (the restore makes this browser dirty, so the normal sync sends it up).
+function _applyIndicatorConfigSnapshot(data) {
+  if (!data || typeof data !== 'object') return;
+  state._indicatorTeams         = Array.isArray(data.teams) ? data.teams : [];
+  state._indicatorTeamColors    = data.team_colors  && typeof data.team_colors  === 'object' ? data.team_colors  : {};
+  state._indicatorTeamLogos     = data.team_logos   && typeof data.team_logos   === 'object' ? data.team_logos   : {};
+  state._indicatorExcludedTeams = Array.isArray(data.team_excluded) ? data.team_excluded : [];
+  if (data.competitions && typeof data.competitions === 'object') {
+    if (Array.isArray(data.competitions.list)) state._indicatorCompetitions = data.competitions.list;
+    if (data.competitions.active)              state._indicatorActiveCompId = data.competitions.active;
+    if (Array.isArray(data.competitions.removed)) state._indicatorRemovedDefaults = data.competitions.removed;
+  }
+  const rt = (data.rep_teams && typeof data.rep_teams === 'object' && !Array.isArray(data.rep_teams)) ? data.rep_teams : {};
+  const keys = Object.keys(rt);
+  const looksByYear = keys.length === 0 || keys.every(k => /^\d{4}$/.test(k) && rt[k] && typeof rt[k] === 'object');
+  state._indicatorRepTeamByYear = looksByYear ? rt : { [String(new Date().getFullYear())]: rt };
+  state._indicatorRepTier   = data.rep_tiers   && typeof data.rep_tiers   === 'object' ? data.rep_tiers   : {};
+  state._indicatorRepActive = data.rep_active  && typeof data.rep_active  === 'object' ? data.rep_active  : {};
+  state._indicatorRepOffice = data.rep_offices && typeof data.rep_offices === 'object' ? data.rep_offices : {};
+  if (typeof _normalizeRepKeyedMaps === 'function') _normalizeRepKeyedMaps();
+  if (typeof _hydrateTeamYears === 'function') _hydrateTeamYears();
+}
+async function openIndicatorConfigHistoryModal() {
+  if (!state.profile || !isAdminRole(state.profile.role)) { toast('Admins only', 'error'); return; }
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const card = el('div', { class: 'card w-full max-w-xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-center justify-between px-5 py-4 border-b', style: { borderColor: 'var(--border)' } },
+      el('div', {},
+        el('h2', { class: 'text-base font-bold' }, '🕘 Config history'),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
+          'Teams · rosters · competitions — every change, last 50 snapshots. Restore rolls the shared config back for every admin.')),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+    el('div', { class: 'p-6 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'Loading…'));
+  overlay.append(card);
+  document.body.append(overlay);
+  let rows = [];
+  try {
+    const { data, error } = await supabase.from('indicator_config_history')
+      .select('id, saved_at, updated_by, config').order('id', { ascending: false }).limit(50);
+    if (error) throw error;
+    rows = data || [];
+  } catch (err) {
+    card.lastChild.textContent = 'History unavailable — run indicator_config_history.sql in the Supabase SQL editor first. (' + ((err && err.message) || err) + ')';
+    return;
+  }
+  if (!rows.length) { card.lastChild.textContent = 'No snapshots yet — they appear as config changes are saved.'; return; }
+  const summarize = (cfg) => {
+    try {
+      const comps = (cfg.competitions && cfg.competitions.list) || [];
+      const nrla = comps.find(c => c && (c.scoring === 'nrla' || /\bnrla\b/i.test(c.name || '')));
+      const rosters = (nrla && nrla.nrla && nrla.nrla.rosters) || {};
+      const nRost = Object.values(rosters).reduce((a, l) => a + (Array.isArray(l) ? l.length : 0), 0);
+      return (cfg.teams || []).length + ' teams · ' + comps.length + ' comps · ' + nRost + ' rostered reps';
+    } catch (e) { return ''; }
+  };
+  const who = (id) => { const p = (state.allProfiles || []).find(x => x.id === id); return p ? (p.full_name || p.email || '') : ''; };
+  const body = el('div', { class: 'overflow-y-auto flex-1' });
+  rows.forEach((r, i) => {
+    const t = r.saved_at ? new Date(r.saved_at) : null;
+    const when = t ? t.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : '—';
+    body.append(el('div', { class: 'flex items-center justify-between gap-3 px-5 py-2.5 border-b', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'min-w-0' },
+        el('div', { class: 'text-sm font-bold' }, when,
+          i === 0 ? el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(47,214,47,.15)', color: '#1b7f3b' } }, 'current') : null),
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, summarize(r.config) + (who(r.updated_by) ? ' · by ' + who(r.updated_by) : ''))),
+      i === 0 ? null : el('button', {
+        class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer shrink-0',
+        style: { background: '#F2148C', color: '#fff' },
+        onclick: () => {
+          if (!confirm('Restore the config from ' + when + '? This becomes the shared copy for every admin.')) return;
+          _applyIndicatorConfigSnapshot(r.config);
+          logActivity('comp_change', { detail: 'Config restored from history snapshot ' + when });
+          saveDemoData();                        // local save; dirty → pushes to the server
+          toast('Config restored from ' + when + ' — syncing to the server…', 'success');
+          close();
+          mountApp();
+        },
+      }, 'Restore')));
+  });
+  card.replaceChild(body, card.lastChild);
 }
 
 // ── Company logo (drives the raffle-spin hub today; can be reused for
@@ -2821,6 +2911,7 @@ const TAB_TITLES = {
   competitions: 'COMPETITIONS',
   hall_of_fame: 'HALL OF FAME',
   indicators:   'INDICATORS',
+  nrla:         'NRLA',
   scorecards:   'SCORECARDS',
   reporting:    'REPORTING',
   marketing:    'MARKETING',
@@ -2830,7 +2921,7 @@ const TAB_TITLES = {
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#training':'training', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#training':'training', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -3678,6 +3769,9 @@ function mountApp() {
   const navItems = [
     // Auditors only have the Sales tab, so call the entry what it is.
     ['inside_sales', isAuditor ? 'Sales' : 'Inside Sales', iconSales()],
+    // NRLA — the live league board, visible to EVERYONE (read-only for
+    // non-admins; admins manage it from Indicators → Comps).
+    ...(isAuditor ? [] : [['nrla', 'NRLA', iconTrophy()]]),
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
     ...(isAuditor ? [] : [['commission', isAdmin ? 'Commission Calculator' : 'My Commission', iconDollar()]]),
@@ -3891,6 +3985,7 @@ function mountApp() {
     competitions: viewCompetitions,
     hall_of_fame: viewHallOfFame,
     indicators:   viewIndicators,
+    nrla:         viewNrlaPublic,
     scorecards:   viewScorecards,
     reporting:    viewReporting,
     marketing:    viewMarketing,
@@ -3911,7 +4006,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'training', 'auditing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'training', 'auditing']);
   document.querySelector('.fab')?.remove();
   if (!FAB_HIDDEN_VIEWS.has(state.view)) {
     const fab = el('button', { class: 'fab', onclick: () => openNewSaleModal() },
@@ -12721,8 +12816,8 @@ function nrlaSeedSchedule(teams, seedN, cfg) {
   const rounds = base.map((pairs, i) => nrlaApplyRoundOverride(pairs, (cfg.matchups || {})[i + 1], teams));
   return { rounds, flyer };
 }
-function nrlaCompute(rawSales) {
-  const comp = getActiveComp();
+function nrlaCompute(rawSales, compOverride) {
+  const comp = compOverride || getActiveComp();
   const cfg = nrlaConfig(comp);
   const exB = new Set((comp.excludedBranches || []).map(b => String(b).toUpperCase()));
   const offOf = (s) => String(s.office || 'UNKNOWN').toUpperCase();
@@ -13212,6 +13307,12 @@ function openNrlaRosterModal(rawSales) {
       el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
         'Only rostered reps count for a team · a team with no roster counts everyone · ', pickedNote)),
     el('div', { class: 'flex items-center gap-2 shrink-0' },
+      el('button', {
+        class: 'rounded-lg border px-2.5 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+        title: 'Config history — every saved change (teams, rosters, comps), with one-click restore',
+        onclick: () => openIndicatorConfigHistoryModal(),
+      }, '🕘'),
       saveBtn,
       el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')));
   const searchInput = el('input', {
@@ -13472,8 +13573,9 @@ function openNrlaTeamRepsModal(team, R, nameOf) {
 
 // ── NRLA board — 2026 flyer vibe: night sky, big white letters, hot-pink and
 // signal-green copy. Seeding standings + playoff bracket + prize pool.
-function nrlaBoard(rawSales) {
-  const R = nrlaCompute(rawSales);
+function nrlaBoard(rawSales, opts) {
+  const RO = !!(opts && opts.readOnly);            // rep-facing: look, don't touch
+  const R = nrlaCompute(rawSales, opts && opts.comp);
   const { cfg } = R;
   const PINK = '#F2148C', GREEN = '#2FD62F', REDD = '#E8271B', BLUE = '#3E9BE9';
   const DISP = "var(--font-display, 'Anton', system-ui, sans-serif)";
@@ -13533,7 +13635,7 @@ function nrlaBoard(rawSales) {
       ),
       el('div', { class: 'flex flex-col items-end shrink-0' },
         el('div', { class: 'flex items-center gap-2' },
-          el('button', {
+          RO ? null : el('button', {
             class: 'cursor-pointer transition hover:brightness-95',
             style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
             title: 'Rosters — pick who competes for each team and which branch each rep competes for (sets the PRA denominator)',
@@ -13843,7 +13945,7 @@ function nrlaBoard(rawSales) {
     const headFg = rd.live ? '#04310A' : '#fff';
     const _today = new Date(); _today.setHours(0, 0, 0, 0);
     const dayLabel = rd.live ? (_today.getTime() <= rd.d1.getTime() ? 'Day 1 of 2' : 'Final day') : null;
-    const editable = rd.phase === 'seed';
+    const editable = rd.phase === 'seed' && !RO;
     // Each matchup renders as its OWN boxed pairing with a centered VS badge,
     // so who's playing who reads at a glance.
     const kids = [];
@@ -13889,7 +13991,35 @@ function nrlaBoard(rawSales) {
   const footer = el('div', { class: 'px-3 py-2 text-center text-[10px] font-bold uppercase tracking-widest', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } },
     'Updates will be sent daily · RIDDMADE');
 
-  return el('div', { class: 'card overflow-hidden' }, stickyBar, hero, cfgBar, chipBar, standingsCard, repBoard, prizeStrip, prizeCard, roundsGrid, footer);
+  return el('div', { class: 'card overflow-hidden' }, stickyBar, hero,
+    RO ? null : cfgBar, RO ? null : chipBar,
+    standingsCard, repBoard, prizeStrip, prizeCard, roundsGrid, footer);
+}
+
+// ── Rep-facing NRLA page — the same board, read-only ───────────────────────
+// Data comes from the shared cloud dataset (indicators/latest.json.gz) and
+// the shared config, both readable by every signed-in user once
+// nrla_rep_access.sql has been run in Supabase.
+function viewNrlaPublic() {
+  const wrap = el('div', { class: 'flex flex-col gap-5 w-full' });
+  const comps = (typeof getIndicatorCompetitions === 'function') ? getIndicatorCompetitions() : [];
+  const comp = comps.find(c => isNrlaComp(c));
+  const raw = state._indicatorRawSales || [];
+  if (!raw.length || !comp) {
+    // Pull the shared dataset once; the refresh mounts the app when it lands.
+    if (!state._nrlaPublicPulled && typeof refreshIndicatorsFromCloud === 'function') {
+      state._nrlaPublicPulled = true;
+      refreshIndicatorsFromCloud(true).catch(e => console.warn('[ridd] NRLA public data pull failed', e));
+    }
+    wrap.append(el('div', { class: 'card p-10 text-center' },
+      el('div', { class: 'text-2xl mb-2' }, '🏆'),
+      el('div', { class: 'text-sm font-bold' }, 'Loading the league…'),
+      el('div', { class: 'text-xs mt-1', style: { color: 'var(--text-muted)' } },
+        'Pulling the latest shared data — this page refreshes itself. If it never loads, an admin needs to run nrla_rep_access.sql in Supabase.')));
+    return wrap;
+  }
+  wrap.append(nrlaBoard(raw, { readOnly: true, comp }));
+  return wrap;
 }
 
 // ── Spring Cleaning scoring ────────────────────────────────────────────────
@@ -21448,6 +21578,44 @@ function csvUploadButton(size) {
 // Parse raw CSV text — handles BOTH formats:
 //   1. Raw sales report (one row per sale: Customer, Office, Date Sold, Contract, etc.)
 //   2. Pre-aggregated indicators (Week, Branch, Sold Accounts, Revenue, etc.)
+// ── Rep-ID auto-merge ──────────────────────────────────────────────────────
+// Sales rows carry the FieldRoutes employee ID ("Sales Rep Id"). Two name
+// spellings sharing one ID are the SAME person — alias the minority
+// spelling(s) to the most common one automatically, through the same alias
+// store manual merges use. Kills duplicate-rep bugs ("Sabbach , Jacob" vs
+// "Sabbach, Jacob", "Lex" vs "Alexander") at the source, forever.
+function _autoAliasByRepId(sales) {
+  try {
+    const byId = new Map();
+    for (const s of (sales || [])) {
+      const id = s && s.repId ? String(s.repId).trim() : '';
+      if (!id || !s.rep) continue;
+      const nm = _cleanRepName(s.rep);
+      if (!nm) continue;
+      let m = byId.get(id);
+      if (!m) { m = new Map(); byId.set(id, m); }
+      m.set(nm, (m.get(nm) || 0) + 1);
+    }
+    let changed = 0;
+    byId.forEach((names) => {
+      if (names.size < 2) return;
+      const ranked = [...names.entries()].sort((a, b) => b[1] - a[1]);
+      const canonical = getCanonicalRepName(ranked[0][0]);
+      ranked.slice(1).forEach(([nm]) => {
+        if (nm === canonical) return;
+        if (!state._indicatorRepAlias) state._indicatorRepAlias = {};
+        if (state._indicatorRepAlias[nm] === canonical) return;
+        state._indicatorRepAlias[nm] = canonical;
+        changed++;
+      });
+    });
+    if (changed) {
+      console.info('[ridd] rep-ID auto-merge: ' + changed + ' duplicate spelling(s) aliased to their canonical rep');
+      if (typeof _invalidateRepSigIndex === 'function' && state._indicatorRepAlias) _invalidateRepSigIndex(state._indicatorRepAlias);
+    }
+  } catch (e) { console.warn('[ridd] rep-ID auto-merge failed', e); }
+}
+
 function parseIndicatorsCsv(text) {
   // Handle quoted CSV fields properly (commas inside quotes, etc.)
   function parseCsvLine(line) {
@@ -21502,12 +21670,16 @@ function parseIndicatorsCsv(text) {
   const iCustFlags = findCol('customer flags', 'customer flag', 'flags');
   const iServicedDate = findCol('serviced date', 'date serviced', 'service date');
   const iInitialStatus = findCol('initial status');
+  // FieldRoutes employee ID for the selling rep ("Sales Rep Id" — added by the
+  // RevHawk snapshot). Stable identity: name spellings sharing one ID are the
+  // same human. Manual CSV exports without the column parse fine (blank).
+  const iRepId = headers.findIndex(h => h.includes('rep id'));
 
   const isRawSales = iCustomer >= 0 && iDateSold >= 0 && iOffice >= 0;
 
   if (isRawSales) {
     return parseRawSalesReport(lines, headerRow, headers, {
-      iOffice, iDateSold, iContract, iInitPrice, iContractVal, iStatus, iAPay, iRep, iRecurring, iServices,
+      iOffice, iDateSold, iContract, iInitPrice, iContractVal, iStatus, iAPay, iRep, iRepId, iRecurring, iServices,
       iSub, iActive, iCancelR, iCancelD, iAge, iSource, iCustName, iCustId, iCustFlags, iServicedDate, iInitialStatus
     });
   }
@@ -21575,6 +21747,7 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
       servicedDate: cols.iServicedDate >= 0 ? (c[cols.iServicedDate] || '').trim() : '',
       initialStatus: cols.iInitialStatus >= 0 ? (c[cols.iInitialStatus] || '').trim() : '',
       rep: (c[cols.iRep] || '').trim(),
+      repId: cols.iRepId >= 0 ? (c[cols.iRepId] || '').trim() : '',
       dateSold: dateSold,
       // Preserve the full original row + the upload's header order so the
       // raffle export can dump EVERY column the user uploaded, not just the
@@ -21584,6 +21757,9 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
   }
 
   if (!sales.length) throw new Error('No valid sales rows found');
+
+  // Same human, different spellings? The FieldRoutes employee ID settles it.
+  _autoAliasByRepId(sales);
 
   // Note: 3-day RORs and Sold-Not-Started rows are NOT stripped here.
   // We keep them in the raw set so the Cancel Analysis card can still
@@ -26747,7 +26923,7 @@ function reportingSnapshotToIndicatorsCsv(rows) {
     return m[4] ? (date + ' ' + m[4]) : date;         // append 24h time when present
   };
   const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const headers = ['Office', 'Date Sold', 'Customer Id', 'Customer Name', 'Subscription', 'Active', 'Cancellation Reason', 'Cancellation Date', 'Age', 'Source', 'Contract', 'Contract Value', 'Initial Price', 'Annual Recurring Value', 'Completed Services', 'Status', 'Auto Pay', 'Sales Rep', 'Customer Flags', 'Serviced Date', 'Initial Status'];
+  const headers = ['Office', 'Date Sold', 'Customer Id', 'Customer Name', 'Subscription', 'Active', 'Cancellation Reason', 'Cancellation Date', 'Age', 'Source', 'Contract', 'Contract Value', 'Initial Price', 'Annual Recurring Value', 'Completed Services', 'Status', 'Auto Pay', 'Sales Rep', 'Sales Rep Id', 'Customer Flags', 'Serviced Date', 'Initial Status'];
   const lines = [headers.join(',')];
   for (const r of (rows || [])) {
     lines.push([
@@ -26755,7 +26931,7 @@ function reportingSnapshotToIndicatorsCsv(rows) {
       r.subscription || '', r.subscription_status || '', r.subscription_cancellation_reason || '', r.subscription_date_canceled || '',
       r.days_past_due || 0, r.subscription_source || '', r.agreement_length || 0, r.subscription_contract_value || 0, r.initial_price || 0,
       r.annual_recurring_value || 0, r.subscription_completed_services || 0, r.subscription_status || '', r.customer_auto_pay || '',
-      r.sold_by || '', r.customer_flags || '', r.initial_serviced_date || '', r.initial_status || '',
+      r.sold_by || '', r.sold_by_id || '', r.customer_flags || '', r.initial_serviced_date || '', r.initial_status || '',
     ].map(esc).join(','));
   }
   return lines.join('\n');
