@@ -13829,7 +13829,9 @@ function nrlaBoard(rawSales, opts) {
         'Fewer than two teams have data (or rosters) in the season window — nothing to schedule yet.'));
   }
 
-  // ── Seeding standings ──
+  // ── Seeding standings — revenue columns scoped to the SEASON or any single
+  // round via the picker (same as the rep leaderboard). Seeds / W / L always
+  // reflect the full seeding race; the money columns re-scope. ──
   const resDot = (r, i) => el('span', {
     style: { display: 'inline-grid', placeItems: 'center', width: '16px', height: '16px', borderRadius: '4px', fontSize: '9px', fontWeight: '900', marginRight: '2px',
       background: r === 'W' ? GREEN : r === 'L' ? REDD : '#9e9e9e', color: '#fff' },
@@ -13843,49 +13845,75 @@ function nrlaBoard(rawSales, opts) {
       onclick: () => openNrlaTeamRepsModal(s.team, R, nameOf),
     }, nameOf(s.team)),
     cfg.teamNames[s.team] && el('span', { class: 'ml-1 text-[9px] uppercase', style: { color: 'var(--text-subtle)' } }, s.team));
-  const standingsCard = el('div', {},
-    el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: PINK } },
-      el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } },
-        'Seeding Standings' + (R.seedingDone ? ' · Final Seeds' : '')),
-      el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, 'record → head-to-head → cumulative PRA')),
-    el('div', { class: 'overflow-x-auto' },
-      el('table', { class: 'w-full text-xs' },
-        el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#0E1C30', color: '#fff' } },
-          el('tr', {},
-            el('th', { class: 'text-left px-3 py-2.5 font-bold', title: 'Seed after the seeding rounds' }, 'Seed'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Team'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'W'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'L'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Rounds'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps competing — the roster (📋) when one is set, otherwise every rep who sold this season. The PRA denominator.' }, 'Reps'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Everything sold inside the season windows (Contract Value, all audit statuses) — Pending/Serviced accounts only; Sold-Not-Started is excluded. Click a team name for the per-rep breakdown.' }, 'Total Rev Sold'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Per-Rep Average on QUALIFYING revenue: (Passed + Pending) ÷ reps competing. Failed Rev never counts toward the comp. Cumulative round PRA is the seeding tiebreaker.' }, 'PRA'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Passed Audit or No Audit' }, 'Passed Rev'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'No audit flag yet — clears into Passed or Failed as audits land' }, 'Pending Rev'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Failed Audit + Last Resort (<$99 initial)' }, 'Failed Rev'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Average Contract Value: Total Rev Sold ÷ accounts sold' }, 'ACV'),
-          )),
-        el('tbody', {},
-          ...R.standings.map((s, i) => {
-            const st = R.seasonStats[s.team] || { total: 0, passed: 0, pending: 0, failed: 0 };
-            const reps = R.repsCompeting[s.team] || 0;
-            return el('tr', {
-              class: 'border-t', style: { borderColor: 'var(--border)', background: i === 0 && playedAny ? 'rgba(242,20,140,.07)' : (i % 2 ? 'rgba(14,28,48,.05)' : 'transparent') },
-            },
-              el('td', { class: 'px-3 py-2 font-black tabular-nums' }, '#' + (i + 1)),
-              teamCell(s),
-              el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: GREEN } }, s.w),
-              el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: REDD } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
-              el('td', { class: 'px-2 py-2 whitespace-nowrap' }, ...(s.results.length ? s.results.map(resDot) : [el('span', { style: { color: 'var(--text-subtle)' } }, '—')])),
-              el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, reps),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(st.total)),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, reps > 0 ? money((st.passed + st.pending) / reps) : '—'),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#1b7f3b' } }, money(st.passed)),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap', style: { color: '#D97706' } }, '(' + money(st.pending) + ')'),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: REDD } }, money(st.failed)),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, st.n > 0 ? money(st.total / st.n) : '—'),
-            );
-          })))));
+  const _roundLabelShort = (rd) => rd.phase === 'seed' ? 'Round ' + rd.num : rd.phase === 'semi' ? 'Semifinals' : 'Championship';
+  const standingsCard = (() => {
+    let scope = state._nrlaStandScope == null ? 'season' : String(state._nrlaStandScope);
+    if (scope !== 'season' && !R.rounds[Number(scope)]) scope = 'season';
+    // A round's team stats = that round's per-rep stats rolled up.
+    const roundTeamStats = {};
+    if (scope !== 'season') {
+      Object.values((R.roundRepStats || [])[Number(scope)] || {}).forEach(st => {
+        const o = roundTeamStats[st.team] || (roundTeamStats[st.team] = { total: 0, passed: 0, pending: 0, failed: 0, n: 0 });
+        o.total += st.total; o.passed += st.passed; o.pending += st.pending; o.failed += st.failed; o.n += st.n;
+      });
+    }
+    const statsFor = (team) => scope === 'season'
+      ? (R.seasonStats[team] || { total: 0, passed: 0, pending: 0, failed: 0, n: 0 })
+      : (roundTeamStats[team] || { total: 0, passed: 0, pending: 0, failed: 0, n: 0 });
+    const scopeSel = el('select', {
+      class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
+      style: { border: 'none', background: 'rgba(255,255,255,.25)', color: '#fff' },
+      title: 'Scope the revenue columns to the whole season or a single round (seeds and W-L always show the full race)',
+      onchange: (e) => { state._nrlaStandScope = e.target.value; rerender(); },
+    },
+      (() => { const o = el('option', { value: 'season', style: { color: '#000' } }, 'Season'); if (scope === 'season') o.selected = true; return o; })(),
+      ...R.rounds.map((rd, i) => { const o = el('option', { value: String(i), style: { color: '#000' } }, _roundLabelShort(rd) + ' · ' + dspan(rd.d1, rd.d2)); if (scope === String(i)) o.selected = true; return o; }));
+    return el('div', {},
+      el('div', { class: 'flex items-center justify-between gap-2 flex-wrap px-3 py-1.5', style: { background: PINK } },
+        el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } },
+          'Seeding Standings' + (R.seedingDone ? ' · Final Seeds' : '') + (scope === 'season' ? '' : ' · ' + _roundLabelShort(R.rounds[Number(scope)]))),
+        el('div', { class: 'flex items-center gap-2' },
+          el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, 'record → head-to-head → cumulative PRA'),
+          scopeSel)),
+      el('div', { class: 'overflow-x-auto' },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#0E1C30', color: '#fff' } },
+            el('tr', {},
+              el('th', { class: 'text-left px-3 py-2.5 font-bold', title: 'Seed after the seeding rounds' }, 'Seed'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Team'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'W'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'L'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Rounds'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps competing — the roster (📋) when one is set, otherwise every rep who sold this season. The PRA denominator.' }, 'Reps'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Everything sold in this scope (Contract Value, all audit statuses) — Pending/Serviced accounts only; Sold-Not-Started is excluded. Click a team name for the per-rep breakdown.' }, 'Total Rev Sold'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Per-Rep Average on QUALIFYING revenue: (Passed + Pending) ÷ reps competing. Failed Rev never counts toward the comp.' }, 'PRA'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Passed Audit or No Audit' }, 'Passed Rev'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'No audit flag yet — clears into Passed or Failed as audits land' }, 'Pending Rev'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Failed Audit + Last Resort (<$99 initial)' }, 'Failed Rev'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Average Contract Value: Total Rev Sold ÷ accounts sold' }, 'ACV'),
+            )),
+          el('tbody', {},
+            ...R.standings.map((s, i) => {
+              const st = statsFor(s.team);
+              const reps = R.repsCompeting[s.team] || 0;
+              return el('tr', {
+                class: 'border-t', style: { borderColor: 'var(--border)', background: i === 0 && playedAny ? 'rgba(242,20,140,.07)' : (i % 2 ? 'rgba(14,28,48,.05)' : 'transparent') },
+              },
+                el('td', { class: 'px-3 py-2 font-black tabular-nums' }, (i === 0 && R.seasonDone ? '🏆 ' : '') + '#' + (i + 1)),
+                teamCell(s),
+                el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: GREEN } }, s.w),
+                el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: REDD } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
+                el('td', { class: 'px-2 py-2 whitespace-nowrap' }, ...(s.results.length ? s.results.map(resDot) : [el('span', { style: { color: 'var(--text-subtle)' } }, '—')])),
+                el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, reps),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(st.total)),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, reps > 0 ? money((st.passed + st.pending) / reps) : '—'),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#1b7f3b' } }, money(st.passed)),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap', style: { color: '#D97706' } }, '(' + money(st.pending) + ')'),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: REDD } }, money(st.failed)),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, st.n > 0 ? money(st.total / st.n) : '—'),
+              );
+            })))));
+  })();
 
   // ── Rep leaderboard — top 10 individuals, scoped to the SEASON or any
   // single round via the picker (top producers by round). Ranked on
