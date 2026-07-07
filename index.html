@@ -1210,6 +1210,7 @@ async function _indicatorConfigUpsertNow() {
       return false;
     }
     _indCfgRecordSynced(payload.updated_at);   // this content is now the shared truth
+    _mirrorNrlaRostersToRows();                // stage-1 dual-write (additive, never blocks)
     return true;
   } catch (err) {
     console.warn('[ridd] indicator_config save threw', err);
@@ -1240,6 +1241,68 @@ async function saveIndicatorConfigToSupabase() {
   } finally {
     _indCfgUpsertBusy = false;
   }
+}
+
+// ── #1 STAGE 1 — normalized roster rows (dual-write) ────────────────────
+// The long-term home for rosters is a real table (indicator_rosters — see
+// indicator_rosters.sql) instead of one JSON blob: per-row writes, per-row
+// timestamps, realtime. Stage 1 = DUAL-WRITE only: every successful config
+// sync also mirrors the NRLA rosters into rows, while the blob remains the
+// source of truth. Stage 2 (after the season) cuts reads over to the rows;
+// stage 3 drops rosters from the blob. A mirror failure never affects the
+// blob save — this path is strictly additive.
+let _rosterMirrorBusy = false, _rosterMirrorAgain = false;
+async function _mirrorNrlaRostersToRows() {
+  if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
+  if (_rosterMirrorBusy) { _rosterMirrorAgain = true; return; }
+  _rosterMirrorBusy = true;
+  try {
+    do {
+      _rosterMirrorAgain = false;
+      const comps = (state._indicatorCompetitions || []).filter(c => c && typeof isNrlaComp === 'function' && isNrlaComp(c));
+      for (const comp of comps) {
+        const cfg = (comp.nrla && typeof comp.nrla === 'object') ? comp.nrla : {};
+        const rosters = (cfg.rosters && typeof cfg.rosters === 'object') ? cfg.rosters : {};
+        const repIds = (cfg.repIds && typeof cfg.repIds === 'object') ? cfg.repIds : {};
+        const rows = [];
+        Object.entries(rosters).forEach(([team, list]) => (Array.isArray(list) ? list : []).forEach(rep => rows.push({
+          comp_id: comp.id,
+          team: String(team).toUpperCase(),
+          rep_name: String(rep),
+          rep_id: repIds[rep] || null,
+          updated_by: state.profile?.id || null,
+        })));
+        window._rosterMirrorAt = Date.now();
+        const del = await supabase.from('indicator_rosters').delete().eq('comp_id', comp.id);
+        if (del.error) throw del.error;
+        if (rows.length) {
+          const ins = await supabase.from('indicator_rosters').insert(rows);
+          if (ins.error) throw ins.error;
+        }
+      }
+    } while (_rosterMirrorAgain);
+  } catch (err) {
+    console.warn('[ridd] roster row mirror skipped (run indicator_rosters.sql?)', (err && err.message) || err);
+  } finally {
+    _rosterMirrorBusy = false;
+  }
+}
+// Realtime foundation — hear other admins' roster changes the moment they
+// land (stage 2 will auto-apply them; stage 1 just tells you).
+function subscribeRosterRealtime() {
+  if ((typeof DEMO !== 'undefined' && DEMO) || window._rosterRtSub || !state.profile) return;
+  try {
+    window._rosterRtSub = supabase.channel('indicator_rosters_rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'indicator_rosters' }, () => {
+        if (Date.now() - (window._rosterMirrorAt || 0) < 10000) return;      // our own mirror
+        if (window._rosterRtToastAt && Date.now() - window._rosterRtToastAt < 30000) return;
+        window._rosterRtToastAt = Date.now();
+        if (isAdminRole(state.profile?.role) && typeof toast === 'function') {
+          toast('NRLA rosters were just updated by another admin — refresh to pull the latest', 'info');
+        }
+      })
+      .subscribe();
+  } catch (e) { console.warn('[ridd] roster realtime subscribe failed', e); }
 }
 
 // ── Config history & restore ────────────────────────────────────────────
@@ -2693,6 +2756,7 @@ async function loadData() {
   // critical path — it can finish on its own. localStorage already
   // populated state at boot, so the UI is never blank waiting on this.
   loadIndicatorConfigFromSupabase().catch(err => console.warn('[ridd] indicator config load skipped', err));
+  subscribeRosterRealtime();
   // Pull the company logo from app_settings (single row) so the upload
   // an admin did on browser A shows up on every other admin's browser
   // and on every rep's view. Fire-and-forget — localStorage already
