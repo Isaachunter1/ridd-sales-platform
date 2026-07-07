@@ -1121,7 +1121,7 @@ async function loadIndicatorConfigFromSupabase() {
       Object.keys(state._indicatorRepTier || {}).length > 0;
     if (localHasData && isAdminRole(state.profile.role)) {
       console.info('[ridd] migrating indicator config from localStorage → Supabase');
-      await saveIndicatorConfigToSupabase();
+      await _indicatorConfigUpsertNow();   // direct — bypasses the clean-skip (fresh server row)
     }
   } catch (err) {
     console.warn('[ridd] indicator config load threw', err);
@@ -1152,7 +1152,15 @@ function _indCfgSyncRec() { try { return JSON.parse(localStorage.getItem(IND_CFG
 function _indCfgRecordSynced(serverAt) {
   try { localStorage.setItem(IND_CFG_SYNC_KEY, JSON.stringify({ hash: _indCfgFingerprint(), serverAt: serverAt || new Date().toISOString() })); } catch {}
 }
-function _indCfgDirty() { const r = _indCfgSyncRec(); return !r || r.hash !== _indCfgFingerprint(); }
+function _indCfgDirty() {
+  const r = _indCfgSyncRec();
+  // No baseline yet (first boot after this fix deployed): treat as CLEAN so
+  // this browser ADOPTS the server copy instead of pushing whatever stale
+  // config it happens to hold. A baseline is recorded on that first apply,
+  // and real edits diverge from it from then on.
+  if (!r) return false;
+  return r.hash !== _indCfgFingerprint();
+}
 
 // Push the in-memory state up to Supabase. Always also writes localStorage
 // (via the caller — saveIndicatorState — so localStorage stays a fast
@@ -12737,25 +12745,41 @@ function nrlaCompute(rawSales) {
   const seedN = Math.max(1, windows.length - 2);
   const seasonStart = windows.length ? windows[0].d1 : null;
   const seasonEnd   = windows.length ? windows[windows.length - 1].d2 : null;
-  // Teams = every rostered team + every branch with season activity.
+  // Teams = every rostered team + every branch with season activity — PLUS
+  // the flyer's eight teams, always (unless benched). A brand-new branch like
+  // Joplin stays on the board at $0 before its first knock — and even before
+  // its roster syncs to another admin's browser — instead of vanishing. A $0
+  // team still plays its matchups (and loses them) like anyone else.
   const teamSet = new Set(Object.keys(rosters).filter(t => !exB.has(t)));
+  NRLA_2026_SCHEDULE.flat(2).filter(Boolean).forEach(t => { if (!exB.has(t)) teamSet.add(t); });
   if (seasonStart) for (const s of sales) {
     const d = _parseIndicatorDay(s); if (!d || d < seasonStart || d > seasonEnd) continue;
     const o = offOf(s); if (o && o !== 'UNKNOWN') teamSet.add(o);
   }
   const teams = [...teamSet].sort();
-  // Per-round revenue (everything SOLD in the round's 2 days) + sellers.
+  // COMP REVENUE GATE: only Passed-audit and Pending-audit accounts count
+  // toward round scores and PRA. Failed Audit + Last Resort (<$99) are OUT of
+  // the competition entirely (they still show in the Failed Rev column).
+  // Pending is assumed passing until flagged — so a round's result can move
+  // while audits land, which is why a round only LOCKS once every account in
+  // it has been audited (pendingAudits === 0).
+  const _isFailedAcct = (s) => (Number(s.initialPrice) || 0) < 99 || SC_FAIL_RE.test(s.customerFlags || '');
+  const _isPendingAudit = (s) => !_isFailedAcct(s) && !scAuditPassed(s.customerFlags);
   const roundRev = windows.map(() => ({}));
   const roundReps = windows.map(() => ({}));
+  const roundPending = windows.map(() => 0);
   if (windows.length) for (const s of sales) {
     const d = _parseIndicatorDay(s);
     if (!d || d < seasonStart || d > seasonEnd) continue;
     for (let i = 0; i < windows.length; i++) {
       const w = windows[i];
       if (d >= w.d1 && d <= w.d2) {
-        const o = offOf(s);
-        roundRev[i][o] = (roundRev[i][o] || 0) + (Number(s.contractValue) || 0);
-        (roundReps[i][o] = roundReps[i][o] || new Set()).add(s.rep);
+        if (_isPendingAudit(s)) roundPending[i] += 1;
+        if (!_isFailedAcct(s)) {
+          const o = offOf(s);
+          roundRev[i][o] = (roundRev[i][o] || 0) + (Number(s.contractValue) || 0);
+          (roundReps[i][o] = roundReps[i][o] || new Set()).add(s.rep);
+        }
         break;
       }
     }
@@ -12796,6 +12820,8 @@ function nrlaCompute(rawSales) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const rounds = windows.map((w, i) => ({
     ...w, started: today >= w.d1, done: today > w.d2, live: today >= w.d1 && today <= w.d2,
+    pendingAudits: roundPending[i],
+    locked: today > w.d2 && roundPending[i] === 0,   // every account audited → result locked
     phase: i < seedN ? 'seed' : (i === seedN ? 'semi' : 'final'), matchups: [],
   }));
   // ── Seeding rounds ──
@@ -12903,8 +12929,9 @@ function openNrlaHelpModal() {
     ),
     el('div', { class: 'overflow-auto px-5 py-4' },
       block('Format', '4 seeding rounds, 1 playoff (semifinal) round, 1 championship round. Every round is a 2-day block, Sundays skipped. 2026 season: July 6 – July 18.'),
-      block('The metric', 'Win rounds by having a higher Per Rep Average than the team you\'re competing against. PRA = the round\'s sold revenue (Contract Value) ÷ reps competing.'),
-      block('What counts', 'Pending/Serviced accounts only. An account sold but never serviced — no appointment scheduled, cancelled at the door, or the initial appointment cancelled — is excluded from every number (revenue columns, PRA, round scores).'),
+      block('The metric', 'Win rounds by having a higher Per Rep Average than the team you\'re competing against. PRA = the round\'s QUALIFYING revenue (Passed + Pending audit accounts, Contract Value) ÷ reps competing. Failed Audit and Last Resort (<$99) revenue never counts toward the comp.'),
+      block('What counts', 'Pending/Serviced accounts only. An account sold but never serviced — no appointment scheduled, cancelled at the door, or the initial appointment cancelled — is excluded from every number. Pending-audit accounts count as passing until flagged.'),
+      block('Round lock', 'A round\'s result is provisional (AUDITING badge) until every account in it has been audited — then it locks and shows FINAL. Audits landing as Failed pull that revenue out, so a tight matchup can flip before the lock.'),
       block('Seeding', 'After the seeding rounds, teams are ranked #1 through #8 by: 1. overall record · 2. head-to-head result · 3. total cumulative PRA.'),
       block('Playoffs', 'Semifinals: #1 vs #4, #2 vs #3, #5 vs #8, #6 vs #7. Championship round: semifinal winners meet in the 1st (and 5th) place matches, losers in the 3rd (and 7th) — every team plays for its final placement.'),
       block('Prize pool', 'Per rep, by final placement: 1st ®400K + Team Trip · 2nd ®325K · 3rd ®250K · 4th ®175K · 5th ®125K · 6th ®100K · 7th ®75K · 8th ®50K.'),
@@ -13576,7 +13603,7 @@ function nrlaBoard(rawSales) {
             el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Rounds'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps competing — the roster (📋) when one is set, otherwise every rep who sold this season. The PRA denominator.' }, 'Reps'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Everything sold inside the season windows (Contract Value, all audit statuses) — Pending/Serviced accounts only; Sold-Not-Started is excluded. Click a team name for the per-rep breakdown.' }, 'Total Rev Sold'),
-            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Per-Rep Average by revenue: Total Rev Sold ÷ reps competing. Cumulative round PRA is the seeding tiebreaker.' }, 'PRA'),
+            el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Per-Rep Average on QUALIFYING revenue: (Passed + Pending) ÷ reps competing. Failed Rev never counts toward the comp. Cumulative round PRA is the seeding tiebreaker.' }, 'PRA'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Passed Audit or No Audit' }, 'Passed Rev'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'No audit flag yet — clears into Passed or Failed as audits land' }, 'Pending Rev'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Failed Audit + Last Resort (<$99 initial)' }, 'Failed Rev'),
@@ -13596,7 +13623,7 @@ function nrlaBoard(rawSales) {
               el('td', { class: 'px-2 py-2 whitespace-nowrap' }, ...(s.results.length ? s.results.map(resDot) : [el('span', { style: { color: 'var(--text-subtle)' } }, '—')])),
               el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, reps),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(st.total)),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, reps > 0 ? money(st.total / reps) : '—'),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, reps > 0 ? money((st.passed + st.pending) / reps) : '—'),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#1b7f3b' } }, money(st.passed)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap', style: { color: '#D97706' } }, '(' + money(st.pending) + ')'),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: REDD } }, money(st.failed)),
@@ -13611,7 +13638,9 @@ function nrlaBoard(rawSales) {
     Object.entries(R.repStats || {}).forEach(([t, reps]) =>
       Object.entries(reps).forEach(([name, st]) => flat.push({ name, team: t, ...st })));
     if (!flat.length) return null;
-    flat.sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+    // Ranked on QUALIFYING revenue (Passed + Pending) — failed never counts.
+    const qual = (r) => (r.passed || 0) + (r.pending || 0);
+    flat.sort((a, b) => qual(b) - qual(a) || a.name.localeCompare(b.name));
     const top = flat.slice(0, 10);
     const medal = (i) => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '#' + (i + 1);
     // Rep PRA = their production averaged per round played so far (keeps the
@@ -13630,7 +13659,7 @@ function nrlaBoard(rawSales) {
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Team'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Accts'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'The rep\'s own sold revenue this season' }, 'Total Rev Sold'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'The rep\'s average sold per round played — same per-round scale as the matchup PRAs' }, 'PRA'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'The rep\'s QUALIFYING revenue (Passed + Pending — failed never counts) averaged per round played' }, 'PRA'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Passed Rev'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Pending Rev'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Failed Rev'),
@@ -13648,7 +13677,7 @@ function nrlaBoard(rawSales) {
               el('td', { class: 'px-2 py-2 whitespace-nowrap', style: { color: 'var(--text-muted)' } }, nameOf(r.team)),
               el('td', { class: 'px-2 py-2 tabular-nums' }, r.n),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(r.total)),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, money(r.total / roundsStarted)),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, money(qual(r) / roundsStarted)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#1b7f3b' } }, money(r.passed)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap', style: { color: '#D97706' } }, '(' + money(r.pending) + ')'),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: REDD } }, money(r.failed)),
@@ -13762,9 +13791,15 @@ function nrlaBoard(rawSales) {
             title: 'Reset this round to the default schedule',
             onclick: () => { if (confirm('Reset Round ' + rd.num + ' to the default matchups?')) { delete cfg.matchups[rd.num]; save('Round ' + rd.num + ' matchups reset'); } },
           }, '↺') : null,
-          el('span', { class: 'text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded inline-flex items-center gap-1', style: rd.live ? { background: '#04310A', color: GREEN } : { background: 'rgba(255,255,255,.18)', color: '#fff' } },
+          el('span', {
+            class: 'text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded inline-flex items-center gap-1',
+            style: rd.live ? { background: '#04310A', color: GREEN }
+              : (rd.done && !rd.locked) ? { background: '#D97706', color: '#fff' }
+              : { background: 'rgba(255,255,255,.18)', color: '#fff' },
+            title: (rd.done && !rd.locked) ? rd.pendingAudits + ' account' + (rd.pendingAudits === 1 ? '' : 's') + ' still pending audit — pending counts as passing, so this result can move until every account is audited and the round locks' : '',
+          },
             rd.live ? el('span', { style: { animation: 'nrlaPulse 1.2s ease-in-out infinite' } }, '●') : null,
-            rd.live ? 'LIVE' : rd.done ? 'FINAL' : 'UPCOMING'))),
+            rd.live ? 'LIVE' : rd.done ? (rd.locked ? 'FINAL' : 'AUDITING · ' + rd.pendingAudits) : 'UPCOMING'))),
       ...body);
   };
   const roundsGrid = el('div', { class: 'p-3 grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', borderTop: '1px solid var(--border)' } },
