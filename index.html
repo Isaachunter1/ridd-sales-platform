@@ -3018,7 +3018,7 @@ const TAB_TITLES = {
   competitions: 'COMPETITIONS',
   hall_of_fame: 'HALL OF FAME',
   indicators:   'INDICATORS',
-  nrla:         'NRLA',
+  nrla:         'COMPETITIONS',
   scorecards:   'SCORECARDS',
   reporting:    'REPORTING',
   marketing:    'MARKETING',
@@ -3885,9 +3885,9 @@ function mountApp() {
   const navItems = [
     // Auditors only have the Sales tab, so call the entry what it is.
     ['inside_sales', isAuditor ? 'Sales' : 'Inside Sales', iconSales()],
-    // NRLA — the live league board, visible to EVERYONE (read-only for
-    // non-admins; admins manage it from Indicators → Comps).
-    ...(isAuditor ? [] : [['nrla', 'NRLA', iconTrophy()]]),
+    // Competitions — every comp (NRLA, Spring Cleaning, Top Gun, …) on its
+    // own tab, visible to EVERYONE. Read-only for non-admins.
+    ...(isAuditor ? [] : [['nrla', 'Competitions', iconTrophy()]]),
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
     ...(isAuditor ? [] : [['commission', isAdmin ? 'Commission Calculator' : 'My Commission', iconDollar()]]),
@@ -14232,29 +14232,88 @@ function nrlaBoard(rawSales, opts) {
     standingsCard, repBoard, prizeStrip, prizeCard, roundsGrid, footer);
 }
 
-// ── Rep-facing NRLA page — the same board, read-only ───────────────────────
-// Data comes from the shared cloud dataset (indicators/latest.json.gz) and
-// the shared config, both readable by every signed-in user once
-// nrla_rep_access.sql has been run in Supabase.
+// ── COMPETITIONS tab — every comp under one roof ────────────────────────────
+// The old workflow (Indicators → Comps toggle) now lives on its own tab,
+// visible to everyone: pick a competition, see its board. Admins get their
+// full management controls; reps get a read-only view. Data comes from the
+// shared cloud dataset + shared config (see nrla_rep_access.sql).
 function viewNrlaPublic() {
   const wrap = el('div', { class: 'flex flex-col gap-5 w-full' });
+  const isAdmin = isAdminRole(state.profile.role);
   const comps = (typeof getIndicatorCompetitions === 'function') ? getIndicatorCompetitions() : [];
-  const comp = comps.find(c => isNrlaComp(c));
   const raw = state._indicatorRawSales || [];
-  if (!raw.length || !comp) {
+  if (!raw.length || !comps.length) {
     // Pull the shared dataset once; the refresh mounts the app when it lands.
     if (!state._nrlaPublicPulled && typeof refreshIndicatorsFromCloud === 'function') {
       state._nrlaPublicPulled = true;
-      refreshIndicatorsFromCloud(true).catch(e => console.warn('[ridd] NRLA public data pull failed', e));
+      refreshIndicatorsFromCloud(true).catch(e => console.warn('[ridd] competitions data pull failed', e));
     }
     wrap.append(el('div', { class: 'card p-10 text-center' },
       el('div', { class: 'text-2xl mb-2' }, '🏆'),
-      el('div', { class: 'text-sm font-bold' }, 'Loading the league…'),
+      el('div', { class: 'text-sm font-bold' }, 'Loading the competitions…'),
       el('div', { class: 'text-xs mt-1', style: { color: 'var(--text-muted)' } },
         'Pulling the latest shared data — this page refreshes itself. If it never loads, an admin needs to run nrla_rep_access.sql in Supabase.')));
     return wrap;
   }
-  wrap.append(nrlaBoard(raw, { readOnly: true, comp }));
+  // Selection: defaults to the NRLA comp; stored per session. The active-comp
+  // pointer follows the selection so every board computes against the right
+  // comp's config (reps never push config, so this stays local for them).
+  let selId = state._compsTabSel || (comps.find(c => isNrlaComp(c)) || comps[0]).id;
+  if (!comps.some(c => c.id === selId)) selId = comps[0].id;
+  const sel = comps.find(c => c.id === selId);
+  if (getActiveCompId() !== sel.id) state._indicatorActiveCompId = sel.id;
+  // ── Comp switcher pills ──
+  wrap.append(el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
+    el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Competition'),
+    ...comps.map(c => el('button', {
+      class: 'text-xs font-bold rounded-full px-3 py-1 border transition cursor-pointer whitespace-nowrap',
+      style: c.id === sel.id
+        ? { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' }
+        : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+      onclick: () => { state._compsTabSel = c.id; mountApp(); },
+    }, c.name))));
+  // ── NRLA gets its own board (runs on its own schedule — no window bar) ──
+  if (isNrlaComp(sel)) {
+    wrap.append(nrlaBoard(raw, { readOnly: !isAdmin, comp: sel }));
+    return wrap;
+  }
+  // ── Other comps use the session Comp Window date range, same as before ──
+  const cf = state._indicatorCompFilter || (state._indicatorCompFilter = { start: '', end: '' });
+  const applyWin = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
+  const dateInput = (key) => el('input', {
+    type: 'date', value: cf[key] || '',
+    class: 'rounded border px-2 py-1 text-xs',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    onchange: (e) => { cf[key] = e.target.value; applyWin(); },
+  });
+  wrap.append(el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
+    dateInput('start'), el('span', { class: 'text-muted-' }, '→'), dateInput('end'),
+    el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '· date range for this competition')));
+  const bounds = (cf.start && cf.end) ? { s: new Date(cf.start + 'T00:00'), e: new Date(cf.end + 'T23:59') } : null;
+  const windowed = bounds
+    ? raw.filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
+    : raw;
+  const winLabel = (cf.start && cf.end) ? cf.start + ' → ' + cf.end : 'all dates';
+  if (isSpringCleaningComp(sel)) {
+    const offices = [...new Set(windowed.filter(s => _indicatorDeptOf(s) === 'd2d').map(s => s.office).filter(Boolean))];
+    wrap.append(indicatorSpringCleaningBoard(windowed, offices, winLabel));
+    if (typeof springStandingsCard === 'function') wrap.append(springStandingsCard());
+  } else if (isLastManStandingComp(sel)) {
+    wrap.append(lastManStandingBoard(windowed, winLabel));
+  } else if ((sel.scoring || '') === 'top_gun') {
+    const allD2d = raw.filter(s => _indicatorDeptOf(s) === 'd2d');
+    const yr = new Date().getFullYear();
+    const yearD2d = allD2d.filter(s => { const d = _parseIndicatorDay(s); return d && d.getFullYear() === yr; });
+    const proSet = topGunProSet(yearD2d);
+    const windowedD2d = bounds
+      ? allD2d.filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
+      : allD2d;
+    wrap.append(indicatorTopGunBoard(windowedD2d, proSet));
+  } else {
+    wrap.append(el('div', { class: 'card p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
+      '“' + sel.name + '” still renders inside Indicators → Comps (its card is tied to the analytics pipeline). It\'ll move here next.'));
+  }
   return wrap;
 }
 
