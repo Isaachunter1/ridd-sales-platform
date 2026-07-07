@@ -3823,6 +3823,15 @@ function mountApp() {
     state.view = 'sales';
     history.replaceState(null, '', VIEW_TO_HASH.sales || '#sales');
   }
+  // Route guard — admin-only tabs. These were only ever hidden from the nav
+  // MENU; a deep-link hash could still render them. Now that non-admins can
+  // pull the shared dataset (for the NRLA page), enforce it for real: any
+  // non-admin landing on an admin view is coerced to the NRLA board.
+  const ADMIN_ONLY_VIEWS = new Set(['indicators', 'scorecards', 'reporting', 'marketing', 'admin']);
+  if (!isAdmin && ADMIN_ONLY_VIEWS.has(state.view)) {
+    state.view = 'nrla';
+    history.replaceState(null, '', VIEW_TO_HASH.nrla || '#nrla');
+  }
 
   // ── Single-column layout. The grid icon in the header is the nav menu. ──
   const shell = el('div', { class: 'min-h-screen flex flex-col' });
