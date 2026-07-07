@@ -718,6 +718,8 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_indicatorRepActive',
   '_indicatorRepOffice',
   '_indicatorRepIncludeRor',
+  '_indicatorRepIncludeOneTime',   // leaderboard cancel filter: count one-time service cancels
+  '_indicatorRepIncludeRenewals',  // leaderboard cancel filter: count renewal cancels
   '_indicatorDismissedDupes',
   '_indicatorRepAlias',
   // indicatorsGroupBy + indicatorsRangePreset intentionally NOT persisted — the
@@ -5425,12 +5427,18 @@ function _isReportableCancel(s) {
 // subscription rows stay excluded either way — those are never attrition.
 // Persisted with the rest of the indicator settings (per browser).
 function _repCancelExcluded(s) {
-  // 3-day RORs are governed ONLY by the "Count 3-Day RORs" header toggle — it
-  // OVERRIDES any "not attrition" config marking for them (the reason usually
-  // lives in that config too), so flipping the toggle actually moves Cancels /
-  // Cancel %. Everything else follows the standard exclusions.
+  // Three cancel kinds are governed by the leaderboard's "Cancel filters"
+  // dropdown — each toggle OVERRIDES any "not attrition" config marking for
+  // its kind, so flipping it actually moves Cancels / Cancel %:
+  //   · 3-Day RORs        (cancel within 3 days of sale / ROR reason)
+  //   · One-time services (the ~8 "One Time …" service types closing out)
+  //   · Renewals          (the 4 "Renewal - …" closes onto a new subscription)
+  // Sold-Not-Started and Combined-subscription rows are NEVER attrition and
+  // stay excluded regardless.
   if (_is3DayROR(s)) return !state._indicatorRepIncludeRor;
-  if (_isSoldNotStarted(s) || _isCombinedSub(s) || _isOneTimeCancel(s) || _isRenewalCancel(s) || _indConfigCancelExcluded(s)) return true;
+  if (_isOneTimeCancel(s)) return !state._indicatorRepIncludeOneTime;
+  if (_isRenewalCancel(s)) return !state._indicatorRepIncludeRenewals;
+  if (_isSoldNotStarted(s) || _isCombinedSub(s) || _indConfigCancelExcluded(s)) return true;
   return false;
 }
 function _repCancelCounts(s) {
@@ -13501,11 +13509,15 @@ function nrlaBoard(rawSales) {
     'linear-gradient(180deg, #03070D 0%, #081221 55%, #0E1C30 100%)';
   const chip = (bg, fg, txt, extra) => el('span', { style: Object.assign({ display: 'inline-block', padding: '3px 10px', borderRadius: '999px', background: bg, color: fg, fontWeight: '900', fontSize: '11px', letterSpacing: '.03em' }, extra || {}) }, txt);
   // When the comp data was last synced/derived — shown BIG on the banner.
+  // Pinned to Eastern time (most reps viewing the board are ET).
   const syncStr = (() => {
     const t = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt) : null;
-    return (t && !isNaN(t))
-      ? t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' + t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-      : '—';
+    if (!t || isNaN(t)) return '—';
+    try {
+      return t.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).replace(',', ' ·');
+    } catch (e) {
+      return t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' + t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
   })();
   const hero = el('div', { id: 'nrlaHero', style: { background: heroBg, padding: '22px 22px 18px', position: 'relative', overflow: 'hidden' } },
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap', style: { position: 'relative', zIndex: '1' } },
@@ -13568,7 +13580,13 @@ function nrlaBoard(rawSales) {
     el('span', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1', color: '#fff' } }, syncStr));
   // One live scroll handler app-wide (re-registered per render so it closes
   // over nothing stale; no-ops when the NRLA board isn't on screen).
-  if (window._nrlaStickyScroll) window.removeEventListener('scroll', window._nrlaStickyScroll);
+  // Registered on DOCUMENT with capture:true so it fires no matter WHICH
+  // element actually scrolls (the page scrolls an inner container in some
+  // layouts — a plain window listener never fired, so the bar never froze).
+  if (window._nrlaStickyScroll) {
+    document.removeEventListener('scroll', window._nrlaStickyScroll, true);
+    window.removeEventListener('resize', window._nrlaStickyScroll);
+  }
   window._nrlaStickyScroll = () => {
     const bar = document.getElementById('nrlaStickyBar');
     const heroEl = document.getElementById('nrlaHero');
@@ -13579,7 +13597,9 @@ function nrlaBoard(rawSales) {
     bar.style.top = topOff + 'px';
     bar.style.display = show ? 'flex' : 'none';
   };
-  window.addEventListener('scroll', window._nrlaStickyScroll, { passive: true });
+  document.addEventListener('scroll', window._nrlaStickyScroll, { capture: true, passive: true });
+  window.addEventListener('resize', window._nrlaStickyScroll);
+  setTimeout(window._nrlaStickyScroll, 0);   // set the correct state on first paint
 
   // ── Config strip ──
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
@@ -20369,24 +20389,52 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           })(),
         ),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          // ROR toggle — global: flips the cancel definition for the
-          // leaderboard Cancels column, Cancel %, and every rep player
-          // card opened from here. SNS / Combined rows never count.
-          el('button', {
-            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition border flex items-center gap-1.5',
-            style: state._indicatorRepIncludeRor
-              ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
-              : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-            title: 'When on, 3-Day ROR cancels count toward Cancels and Cancel % here and on every rep player card. Sold-Not-Started and Combined-subscription rows never count.',
-            onclick: () => {
-              state._indicatorRepIncludeRor = !state._indicatorRepIncludeRor;
-              saveDemoData();
-              mountApp();
+          // Cancel-filters dropdown — which normally-excluded cancel kinds
+          // COUNT toward Cancels / Cancel % on the leaderboard and every rep
+          // player card opened from it. SNS / Combined rows never count.
+          (() => {
+            const opts = [
+              ['_indicatorRepIncludeRor',      'Count 3-Day RORs',        'Cancels within 3 days of sale (Right of Rescission)'],
+              ['_indicatorRepIncludeOneTime',  'Count one-time services', 'Cancels on "One Time …" service types (completed jobs closing out)'],
+              ['_indicatorRepIncludeRenewals', 'Count renewals',          'Cancels where the customer renewed onto a new subscription (Renewal - …)'],
+            ];
+            const onCount = opts.filter(([k]) => state[k]).length;
+            const wrap = el('div', { class: 'relative' });
+            wrap.append(el('button', {
+              class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition border flex items-center gap-1.5',
+              style: onCount
+                ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+                : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+              title: 'Choose which normally-excluded cancel types COUNT toward Cancels / Cancel % here and on every rep player card. Sold-Not-Started and Combined rows never count.',
+              onclick: (e) => { e.stopPropagation(); state._repCancelMenuOpen = !state._repCancelMenuOpen; mountApp(); },
             },
-          },
-            el('span', { style: { fontSize: '13px' } }, state._indicatorRepIncludeRor ? '☑' : '☐'),
-            el('span', {}, 'Count 3-Day RORs'),
-          ),
+              el('span', {}, 'Cancel filters' + (onCount ? ' · ' + onCount + ' on' : '')),
+              el('span', { style: { fontSize: '9px' } }, state._repCancelMenuOpen ? '▴' : '▾')));
+            if (state._repCancelMenuOpen) {
+              wrap.append(el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', left: '0', minWidth: '250px', zIndex: '40', boxShadow: 'var(--shadow-lg)' } },
+                ...opts.map(([key, label, tip]) => el('button', {
+                  class: 'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+                  style: { color: 'var(--text)', background: state[key] ? 'var(--card-2)' : 'transparent' },
+                  title: tip,
+                  onclick: (e) => { e.stopPropagation(); state[key] = !state[key]; saveDemoData(); mountApp(); },
+                },
+                  el('span', { style: { fontSize: '13px' } }, state[key] ? '☑' : '☐'),
+                  el('span', {}, label))),
+                el('div', { class: 'px-2.5 pt-1.5 pb-1 text-[10px]', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)', marginTop: '4px' } },
+                  'Checked = counts as a cancel. Sold-Not-Started & Combined never count.')));
+              if (window._repCancelMenuCloser) document.removeEventListener('mousedown', window._repCancelMenuCloser);
+              window._repCancelMenuCloser = (ev) => {
+                const w = document.getElementById('rep-cancel-filter-wrap');
+                if (w && w.contains(ev.target)) return;
+                document.removeEventListener('mousedown', window._repCancelMenuCloser);
+                window._repCancelMenuCloser = null;
+                if (state._repCancelMenuOpen) { state._repCancelMenuOpen = false; mountApp(); }
+              };
+              setTimeout(() => document.addEventListener('mousedown', window._repCancelMenuCloser), 0);
+            }
+            wrap.id = 'rep-cancel-filter-wrap';
+            return wrap;
+          })(),
           // Search by rep name. mountApp() rebuilds the entire page, so
           // firing it per-keystroke is the source of the "laggy / glitchy"
           // feel on big rosters. State updates immediately (input value
