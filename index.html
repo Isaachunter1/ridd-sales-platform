@@ -563,6 +563,49 @@
      grid would overflow the screen). */
   .nrla-playoff { grid-column: span 2; }
   @media (max-width: 700px) { .nrla-playoff { grid-column: auto; } }
+
+  /* ═══════════ MODERN VIBE v2 — layered canvas + frosted header ═══════════
+     The old look was flat: white page, white cards, hard gray borders, solid
+     black top bar. Now the canvas is a soft warm off-white, cards FLOAT on
+     shadow with hairline borders, and the top bar is a frosted, translucent,
+     theme-adaptive glass bar (iOS style). Peel-back: delete this block. */
+  :root[data-theme="light"] {
+    --bg:           #F3F3F1;
+    --bg-subtle:    #ECECE9;
+    --card-2:       #F7F7F4;
+    --border:       rgba(17,17,17,.07);
+    --border-2:     rgba(17,17,17,.16);
+    --input-border: rgba(17,17,17,.16);
+    --shadow-sm:    0 1px 2px rgba(17,17,17,.03);
+    --shadow-lg:    0 24px 48px -16px rgba(17,17,17,.18);
+  }
+  :root[data-theme="dark"] {
+    --bg:           #0A0A0C;
+    --bg-subtle:    #101013;
+    --card:         #17171A;
+    --card-2:       #1D1D21;
+    --border:       rgba(255,255,255,.08);
+    --border-2:     rgba(255,255,255,.17);
+    --input-bg:     #141417;
+    --input-border: rgba(255,255,255,.17);
+  }
+  /* Cards float on the canvas instead of blending into it. */
+  .card { box-shadow: 0 1px 2px rgba(17,17,17,.04), 0 16px 40px -28px rgba(17,17,17,.25); }
+  /* Frosted, theme-adaptive top bar (was a solid black slab). */
+  .page-header {
+    background: var(--bg);
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .page-header {
+      background: color-mix(in srgb, var(--bg) 72%, transparent);
+      backdrop-filter: blur(18px) saturate(1.5);
+      -webkit-backdrop-filter: blur(18px) saturate(1.5);
+    }
+  }
+  .page-header .icon-btn { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
+  .page-header .icon-btn:hover { background: color-mix(in srgb, var(--text) 14%, transparent); }
 </style>
 
 <!-- Apply theme before body paints to avoid flash -->
