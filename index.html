@@ -3958,23 +3958,9 @@ function mountApp() {
         title: 'TV Display — fullscreen sales leaderboard',
         onclick: () => openTVDashboard(),
       }, iconTv(18)),
-      // Coach Mode icon (admin-only) — opens the panel of reps flagged for
-      // attention. Only shown inside the Indicators tab. Badge surfaces the
-      // current high+med flag count for an at-a-glance "how many reps need me?".
-      isAdmin && state.view === 'indicators' && (() => {
-        const flagCount = (typeof computeCoachFlags === 'function') ? computeCoachFlags().length : 0;
-        const btn = el('button', {
-          class: 'icon-btn show',
-          title: flagCount > 0
-            ? 'Coach Mode — ' + flagCount + ' rep' + (flagCount === 1 ? '' : 's') + ' flagged'
-            : 'Coach Mode — no reps flagged',
-          onclick: () => openCoachModeModal(),
-        }, iconCoach(18));
-        if (flagCount > 0) {
-          btn.append(el('span', { class: 'notif-badge' }, flagCount > 9 ? '9+' : String(flagCount)));
-        }
-        return btn;
-      })(),
+      // Coach Mode icon — REMOVED from the top bar for now (per Isaac, Jul
+      // 2026). The feature itself (computeCoachFlags / openCoachModeModal)
+      // is intact — restore by re-adding the icon button here.
       (() => {
         const unreadCount = (state.auditLog||[]).filter(e => isNotifEntry(e) && (!state.notifLastSeen || e.timestamp > state.notifLastSeen)).length;
         const wrap = el('div', { class: 'relative' });
