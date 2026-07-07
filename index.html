@@ -2736,6 +2736,24 @@ async function loadProfile() {
     throw new Error('This account has been deactivated. Contact an admin to restore access.');
   }
   state.profile = data;
+  // Rep TYPE for access shaping (Sales Rep → Competitions only · Office
+  // Staff → Competitions + Inside Sales). Read from the CRM roster mirror,
+  // matched on the linked employee ID or the login email (self-read policy —
+  // rep_type_access.sql). A failed lookup degrades to the most restrictive
+  // access (Sales Rep treatment).
+  state.myRepType = '';
+  if (data && !isAdminRole(data.role) && !isAuditorRole(data.role)) {
+    try {
+      let q = supabase.from('fieldroutes_employees').select('type_label');
+      q = data.fieldroutes_employee_id
+        ? q.eq('employee_id', data.fieldroutes_employee_id)
+        : q.ilike('email', data.email || '');
+      const { data: fr } = await q.limit(1).maybeSingle();
+      state.myRepType = (fr && fr.type_label) || '';
+    } catch (e) {
+      console.warn('[ridd] rep-type lookup skipped (run rep_type_access.sql?)', e);
+    }
+  }
 }
 
 // Canonical RIDD contract types. Commercial + Paid in Full are checkbox
@@ -3165,12 +3183,19 @@ function mobileBottomNav() {
   // The other view stays reachable through the More popover.
   // Auditors only have sales access — a single Sales slot, no More menu.
   const isRepOnly = !isAdmin && !isAuditor;
+  const isOfficeStaffM = isRepOnly && /office\s*staff/i.test(state.myRepType || '');
   const items = isAuditor ? [
     ['sales', 'Sales', iconSales],
-  ] : isRepOnly ? [
-    // Plain rep accounts (partner rollout): Competitions only, for now.
-    ['nrla', 'Competitions', iconTrophy],
+  ] : isRepOnly ? (isOfficeStaffM ? [
+    // Office Staff reps: Inside Sales essentials + Competitions.
+    ['dashboard', 'Dashboard', iconDashboard],
+    ['sales', 'Sales', iconSales],
+    ['pay', 'Pay', iconPay],
+    ['nrla', 'Comps', iconTrophy],
   ] : [
+    // Sales-Rep accounts: Competitions only, for now.
+    ['nrla', 'Competitions', iconTrophy],
+  ]) : [
     ['dashboard', 'Dashboard', iconDashboard],
     ['sales', 'Sales', iconSales],
     ['pay', 'Pay', iconPay],
@@ -3874,17 +3899,19 @@ function mountApp() {
   // MENU; a deep-link hash could still render them. Now that non-admins can
   // pull the shared dataset (for the NRLA page), enforce it for real: any
   // non-admin landing on an admin view is coerced to the NRLA board.
-  const ADMIN_ONLY_VIEWS = new Set(['indicators', 'scorecards', 'reporting', 'marketing', 'admin']);
+  const ADMIN_ONLY_VIEWS = new Set(['indicators', 'reporting', 'marketing', 'admin']);
   if (!isAdmin && ADMIN_ONLY_VIEWS.has(state.view)) {
     state.view = 'nrla';
     history.replaceState(null, '', VIEW_TO_HASH.nrla || '#nrla');
   }
-  // Route guard — plain rep accounts (the partner rollout) get the
-  // COMPETITIONS TAB ONLY for now. Every other view coerces there. Auditors
-  // keep their Sales tab; admins keep everything. To re-open other tabs to
-  // reps later, delete this block (and the matching nav/mobile-nav gating).
+  // Route guard — rep accounts, shaped by their CRM rep TYPE:
+  //   · Sales Rep (or unknown type) → COMPETITIONS tab only
+  //   · Office Staff               → Competitions + the Inside Sales group
+  // Auditors keep their Sales tab; admins keep everything.
   const isRepOnly = !isAdmin && !isAuditor;
-  if (isRepOnly && state.view !== 'nrla') {
+  const isOfficeStaff = isRepOnly && /office\s*staff/i.test(state.myRepType || '');
+  const repCanSee = (v) => v === 'nrla' || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
+  if (isRepOnly && !repCanSee(state.view)) {
     state.view = 'nrla';
     history.replaceState(null, '', VIEW_TO_HASH.nrla || '#nrla');
   }
@@ -3896,7 +3923,9 @@ function mountApp() {
   // 'inside_sales' is a virtual entry — clicking it lands on the last-used
   // Inside Sales sub-tab (default Dashboard).
   const navItems = (!isAdmin && !isAuditor) ? [
-    // Plain rep accounts (partner rollout): Competitions only, for now.
+    // Rep accounts: Sales Reps get Competitions only; Office Staff also get
+    // the Inside Sales group.
+    ...(isOfficeStaff ? [['inside_sales', 'Inside Sales', iconSales()]] : []),
     ['nrla', 'Competitions', iconTrophy()],
   ] : [
     // Auditors only have the Sales tab, so call the entry what it is.
