@@ -13594,33 +13594,47 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
   const secHead = (label, col, count) => el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '10px', padding: '18px 16px 8px', fontFamily: DISP, textTransform: 'uppercase' } },
     el('span', { style: { color: col, fontSize: '1.15rem', letterSpacing: '.14em' } }, label),
     el('span', { style: { color: WHITE, opacity: '.4', fontSize: '.75rem', letterSpacing: '.1em' } }, count));
-  const cleanRow = (r, rank) => {
+  // Survivor CARDS in a responsive grid — no dead middle. Rank badge top-right,
+  // week + season side by side, green underline = posted this week.
+  const cleanCard = (r, rank) => {
     const wbCur = (curRd && weekBreak[curRd.iso] && weekBreak[curRd.iso][r.rep]) || EMPTY_RB;
     const qualCur = (wbCur.passed || 0) + (wbCur.pending || 0);
     const champ = r.rep === R.champion;
-    return el('div', { style: { display: 'flex', alignItems: 'center', gap: '14px', padding: '10px 16px', borderTop: HAIR } },
-      el('span', { style: { fontFamily: DISP, color: rank <= 3 ? ORANGE : 'rgba(255,255,255,.35)', width: '34px', textAlign: 'right', fontSize: '.95rem', flex: '0 0 auto' } }, '#' + rank),
-      el('div', { style: { flex: '1', minWidth: '0' } },
-        el('div', { style: { fontFamily: DISP, fontSize: '1.15rem', textTransform: 'uppercase', color: champ ? ORANGE : WHITE, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (champ ? '👑 ' : '') + firstLast(r.rep)),
-        el('div', { style: { fontFamily: DISP, fontSize: '.62rem', letterSpacing: '.1em', color: 'rgba(255,255,255,.35)', textTransform: 'uppercase' } }, r.office || '')),
-      curRd ? el('div', { style: { textAlign: 'right', flex: '0 0 auto' } },
-        el('div', { style: { fontFamily: DISP, fontSize: '.6rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase' } }, 'Week ' + curRd.week),
-        el('div', { style: { fontFamily: DISP, fontSize: '1.2rem', color: qualCur ? GREEN : 'rgba(255,255,255,.25)' } }, money(qualCur))) : null,
-      el('div', { style: { textAlign: 'right', minWidth: '110px', flex: '0 0 auto' } },
-        el('div', { style: { fontFamily: DISP, fontSize: '.6rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase' } }, 'Season'),
-        el('div', { style: { fontFamily: DISP, fontSize: '1.2rem', color: WHITE } }, money(_qual(r)))));
+    return el('div', { style: {
+      position: 'relative', borderRadius: '12px', padding: '14px 16px 12px',
+      background: champ ? 'linear-gradient(135deg, rgba(240,172,30,.16), #101010 65%)' : '#101010',
+      border: '1px solid ' + (champ ? ORANGE : (rank <= 3 ? 'rgba(240,172,30,.45)' : 'rgba(255,255,255,.12)')),
+      boxShadow: 'inset 0 -3px 0 ' + (qualCur ? GREEN : 'rgba(255,255,255,.08)'),
+    } },
+      el('div', { style: { position: 'absolute', top: '8px', right: '12px', fontFamily: DISP, fontSize: '1.5rem', lineHeight: '1', color: rank <= 3 ? ORANGE : 'rgba(255,255,255,.18)' } }, '#' + rank),
+      el('div', { style: { fontFamily: DISP, fontSize: '1.15rem', textTransform: 'uppercase', color: champ ? ORANGE : WHITE, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '44px' } }, (champ ? '👑 ' : '') + firstLast(r.rep)),
+      el('div', { style: { fontFamily: DISP, fontSize: '.6rem', letterSpacing: '.12em', color: 'rgba(255,255,255,.35)', textTransform: 'uppercase', marginBottom: '10px' } }, r.office || '—'),
+      el('div', { style: { display: 'flex', gap: '18px' } },
+        curRd ? el('div', {},
+          el('div', { style: { fontFamily: DISP, fontSize: '.56rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase' } }, 'Week ' + curRd.week),
+          el('div', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1.1', color: qualCur ? GREEN : 'rgba(255,255,255,.25)' } }, money(qualCur))) : null,
+        el('div', {},
+          el('div', { style: { fontFamily: DISP, fontSize: '.56rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase' } }, 'Season'),
+          el('div', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1.1', color: WHITE } }, money(_qual(r))))));
   };
+  // Eliminated reps: compact name chips, grouped by exit week — a whole comp's
+  // casualties fit on one screen instead of 400 rows.
   const outGroups = {};
   outRows.forEach(r => { (outGroups[r.elimWeek] = outGroups[r.elimWeek] || []).push(r); });
-  const outSections = Object.keys(outGroups).map(Number).sort((a, b) => b - a).map(k => el('div', {},
-    el('div', { style: { padding: '14px 16px 4px', fontFamily: DISP, fontSize: '.72rem', letterSpacing: '.14em', textTransform: 'uppercase', color: MAG } },
+  const outSections = Object.keys(outGroups).map(Number).sort((a, b) => b - a).map(k => el('div', { style: { padding: '4px 16px 8px' } },
+    el('div', { style: { padding: '8px 0 6px', fontFamily: DISP, fontSize: '.72rem', letterSpacing: '.14em', textTransform: 'uppercase', color: MAG } },
       'Out · Week ' + (k + 1) + ' — ' + outGroups[k].length + ' rep' + (outGroups[k].length === 1 ? '' : 's')),
-    ...outGroups[k].sort((a, b) => _qual(b) - _qual(a)).map(r => el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '10px', padding: '6px 16px', borderTop: HAIR, opacity: '.55' } },
-      el('span', { style: { fontFamily: DISP, textTransform: 'uppercase', color: WHITE, fontSize: '.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, firstLast(r.rep)),
-      el('span', { style: { fontFamily: DISP, color: 'rgba(255,255,255,.6)', fontSize: '.9rem', whiteSpace: 'nowrap' } }, money(_qual(r)) + ' season')))));
+    el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } },
+      ...outGroups[k].sort((a, b) => _qual(b) - _qual(a)).map(r => el('span', {
+        style: { fontFamily: DISP, textTransform: 'uppercase', fontSize: '.78rem', letterSpacing: '.03em',
+                 padding: '4px 11px', borderRadius: '999px', border: '1px solid rgba(255,255,255,.14)',
+                 color: 'rgba(255,255,255,.55)', whiteSpace: 'nowrap' },
+        title: firstLast(r.rep) + ' — ' + money(_qual(r)) + ' qualified for the season · out week ' + (k + 1),
+      }, firstLast(r.rep), el('span', { style: { color: 'rgba(255,255,255,.3)', marginLeft: '7px' } }, money(_qual(r))))))));
   const cleanView = el('div', { style: { background: '#000', borderTop: '1px solid rgba(255,255,255,.08)' } },
     secHead(R.champion ? '👑 Champion' : 'Still Standing', GREEN, aliveRows.length + ' of ' + rows.length + ' reps'),
-    el('div', {}, ...aliveRows.map((r, i) => cleanRow(r, i + 1))),
+    el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(235px, 1fr))', gap: '10px', padding: '4px 16px 14px' } },
+      ...aliveRows.map((r, i) => cleanCard(r, i + 1))),
     outRows.length ? secHead('Eliminated', MAG, outRows.length + ' reps') : null,
     ...outSections,
     el('div', { style: { padding: '12px 16px 16px', fontFamily: DISP, fontSize: '.62rem', letterSpacing: '.1em', color: 'rgba(255,255,255,.35)', textTransform: 'uppercase' } },
