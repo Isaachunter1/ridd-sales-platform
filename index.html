@@ -4767,7 +4767,68 @@ function viewDashboard() {
       const newPctOfTotal = totalActual > 0 ? (ytd.new / totalActual * 100) : 50;
       const renewalPctOfTotal = totalActual > 0 ? (ytd.renewal / totalActual * 100) : 50;
 
+      // ── Department ⇄ Individual toggle — Individual shows every rep's YTD
+      // against the personal goal they set (⚙ My Settings) or an admin set
+      // for them, with the same year-pace marker as the department bars. ──
+      const goalMode = state.dashGoalMode === 'reps' ? 'reps' : 'dept';
+      const goalHeader = el('div', { class: 'flex items-center justify-between mb-2' },
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } },
+          goalMode === 'reps' ? 'Individual Revenue Goals · YTD' : 'Revenue Goals'),
+        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+          ...[['dept', 'Department'], ['reps', 'Individual']].map(([v, l]) => el('button', {
+            class: 'px-2.5 py-1 text-[11px] font-semibold transition',
+            style: goalMode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+            title: v === 'reps' ? 'Each rep\'s YTD revenue vs their individual goal' : 'Department totals vs the company goal',
+            onclick: () => { state.dashGoalMode = v; mountApp(); },
+          }, l))));
+
+      if (goalMode === 'reps') {
+        const EXCLUDE2 = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
+        const jan1 = new Date(now2.getFullYear(), 0, 1);
+        const ytdByRep = {};
+        for (const s of (state.allSales || [])) {
+          if (EXCLUDE2.has(s.audit_status)) continue;
+          const d = s.sold_date ? new Date(s.sold_date + 'T00:00') : null;
+          if (!d || isNaN(d) || d < jan1) continue;
+          ytdByRep[s.rep_id] = (ytdByRep[s.rep_id] || 0) + Number(s.revenue_amount || 0);
+        }
+        const sellers = (state.allProfiles || [])
+          .filter(p => isSellerRole(p.role) && p.is_active !== false)
+          .map(p => ({ p, goal: Number(p.annual_revenue_goal) || 0, rev: ytdByRep[p.id] || 0 }))
+          .filter(x => x.goal > 0 || x.rev > 0)
+          .sort((a, b) => (b.goal ? b.rev / b.goal : 0) - (a.goal ? a.rev / a.goal : 0) || b.rev - a.rev);
+        return el('div', { class: 'card p-5' },
+          goalHeader,
+          sellers.length === 0
+            ? el('div', { class: 'text-xs py-4 text-center', style: { color: 'var(--text-muted)' } },
+                'No individual goals yet — reps set theirs in ⚙ My Settings, or set them in Edit User.')
+            : el('div', { class: 'flex flex-col gap-3' },
+                ...sellers.map(({ p, goal, rev }) => {
+                  const pct = goal > 0 ? Math.min(100, rev / goal * 100) : 0;
+                  const delta = rev - goal * expectedPct;
+                  return el('div', {},
+                    el('div', { class: 'flex items-center justify-between mb-1 gap-2' },
+                      el('div', { class: 'flex items-center gap-2 min-w-0' },
+                        avatarNode(p.avatar_url, p.initials, 'w-6 h-6 text-[9px]'),
+                        el('span', { class: 'text-xs font-semibold truncate' }, p.full_name),
+                        goal > 0
+                          ? el('span', { class: 'text-[10px] font-bold', style: { color: delta >= 0 ? '#1b7f3b' : '#DC2626' },
+                              title: (delta >= 0 ? fmt.usd0(delta) + ' ahead of' : fmt.usd0(-delta) + ' behind') + ' even-year pace' },
+                              delta >= 0 ? '▲ ahead' : '▼ behind')
+                          : el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no goal set')),
+                      el('span', { class: 'text-[11px] font-bold tabular-nums whitespace-nowrap' },
+                        fmt.usd0(rev) + (goal > 0 ? ' / ' + fmt.usd0(goal) + ' · ' + Math.round(goal > 0 ? rev / goal * 100 : 0) + '%' : ''))),
+                    el('div', { class: 'goal-track', style: { position: 'relative' } },
+                      el('div', { style: { background: 'var(--accent)', height: '100%', width: pct.toFixed(1) + '%', borderRadius: '999px', transition: 'width .3s' } }),
+                      goal > 0 ? el('div', {
+                        title: 'Where today sits in the year',
+                        style: { position: 'absolute', top: '-2px', bottom: '-2px', left: paceMarkerPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' },
+                      }) : null));
+                })));
+      }
+
       return el('div', { class: 'card p-5' },
+        goalHeader,
         el('div', { class: 'flex flex-col gap-4' },
 
           // ── Total Revenue: distribution bar ──
@@ -15070,10 +15131,6 @@ function viewNrlaPublic() {
       el('div', { class: 'text-sm font-bold' }, 'Office Staff competitions are coming'),
       el('div', { class: 'text-xs mt-1', style: { color: 'var(--text-muted)' } },
         'Office Staff comps will live here once they\'re built.')));
-    // Office staff still get to FOLLOW the rep comp: the NRLA Rep Leaderboard
-    // rides along (read-only, with its own local scope picker).
-    const _nrla = comps.find(c => isNrlaComp(c));
-    if (_nrla) wrap.append(nrlaBoard(raw, { readOnly: !isAdmin, comp: _nrla, leaderboardOnly: true }));
     return wrap;
   }
   // Selection order: this session's pick → the ★ DEFAULT comp (admin-set,
