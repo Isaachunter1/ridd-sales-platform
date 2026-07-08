@@ -388,7 +388,10 @@ exports.handler = async (event) => {
     // Failure is non-fatal: clients keep their auto-derive as a fallback.
     let indicatorsError = null;
     try {
-      const { deriveIndicatorsPayload } = require('./lib/indicators-derive.js');
+      // Shared module lives OUTSIDE the functions dir (netlify/lib) — a
+      // subfolder inside netlify/functions gets treated as a function entry
+      // by the bundler and breaks the build.
+      const { deriveIndicatorsPayload } = require('../lib/indicators-derive.js');
       const uploadedAt = (envRow && envRow.uploaded_at) || new Date().toISOString();
       const payload = deriveIndicatorsPayload(objects, uploadedAt,
         'RevHawk sync — ' + new Date(uploadedAt).toLocaleDateString('en-US', { timeZone: 'America/New_York' }));
