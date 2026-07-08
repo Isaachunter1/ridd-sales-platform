@@ -707,7 +707,7 @@ async function callAdminSetPassword(payload) {
 // the codebase. `admin_rep` is an admin who also sells (on leaderboard, has a
 // Pay tab); `admin` is admin-only (not on leaderboard, no sales).
 const ADMIN_ROLES   = ['admin', 'admin_rep'];
-const SELLER_ROLES  = ['rep', 'admin_rep'];
+const SELLER_ROLES  = ['rep', 'rep_office', 'rep_sales', 'admin_rep'];
 const isAdminRole   = (r) => ADMIN_ROLES.includes(r);
 const isSellerRole  = (r) => SELLER_ROLES.includes(r);
 const isAuditorRole = (r) => r === 'auditor';
@@ -716,11 +716,18 @@ const isAuditorRole = (r) => r === 'auditor';
 // profile menu in sync without scattering string-cases.
 const ROLE_LABEL = {
   rep:        'Rep',
+  rep_sales:  'Rep - Sales Rep',
+  rep_office: 'Rep - Office Staff',
   admin_rep:  'Admin + Sales',
   admin:      'Admin',
   auditor:    'Auditor',
 };
 const roleLabel = (r) => ROLE_LABEL[r] || r || '';
+// Rep access flavors. The explicit roles decide directly; the legacy 'rep'
+// role falls back to the CRM rep-type lookup (state.myRepType, fetched at
+// login) so existing accounts keep working unchanged.
+const isOfficeStaffRole = (r) => r === 'rep_office'
+  || (r === 'rep' && /office\s*staff/i.test(state.myRepType || ''));
 
 // ──────────────────────────────────────────────────────────────────────────
 // Demo state persistence — keep sales/competitions alive across page reloads
@@ -2742,7 +2749,9 @@ async function loadProfile() {
   // rep_type_access.sql). A failed lookup degrades to the most restrictive
   // access (Sales Rep treatment).
   state.myRepType = '';
-  if (data && !isAdminRole(data.role) && !isAuditorRole(data.role)) {
+  // Only the LEGACY 'rep' role needs the CRM lookup — the explicit
+  // rep_sales / rep_office roles decide access on their own.
+  if (data && data.role === 'rep') {
     try {
       let q = supabase.from('fieldroutes_employees').select('type_label');
       q = data.fieldroutes_employee_id
@@ -3183,7 +3192,7 @@ function mobileBottomNav() {
   // The other view stays reachable through the More popover.
   // Auditors only have sales access — a single Sales slot, no More menu.
   const isRepOnly = !isAdmin && !isAuditor;
-  const isOfficeStaffM = isRepOnly && /office\s*staff/i.test(state.myRepType || '');
+  const isOfficeStaffM = isRepOnly && isOfficeStaffRole(state.profile?.role);
   const items = isAuditor ? [
     ['sales', 'Sales', iconSales],
   ] : isRepOnly ? (isOfficeStaffM ? [
@@ -3911,7 +3920,7 @@ function mountApp() {
   //   · Office Staff               → Competitions + the Inside Sales group
   // Auditors keep their Sales tab; admins keep everything.
   const isRepOnly = !isAdmin && !isAuditor;
-  const isOfficeStaff = isRepOnly && /office\s*staff/i.test(state.myRepType || '');
+  const isOfficeStaff = isRepOnly && isOfficeStaffRole(state.profile.role);
   const isSalesRepType = isRepOnly && !isOfficeStaff;
   const repCanSee = (v) => v === 'nrla'
     || (isSalesRepType && v === 'indicators')
@@ -24201,7 +24210,7 @@ function openTVDashboard() {
     const cg = state.companyGoal || { amount: 6000000, period: 'year' };
     const monthlyCompanyGoal = cg.period === 'year' ? cg.amount / 12 : cg.amount;
     const dailyCompanyGoal = workingDaysInMonth > 0 ? monthlyCompanyGoal / workingDaysInMonth : 0;
-    const sellerRoles = new Set(['rep', 'admin_rep']);
+    const sellerRoles = new Set(['rep', 'rep_office', 'rep_sales', 'admin_rep']);
     const activeRepCount = Math.max(1,
       (state.allProfiles || []).filter(p => p.is_active !== false && sellerRoles.has(p.role)).length
     );
@@ -35589,7 +35598,9 @@ function adminReps() {
       el('td', { class: 'px-3 py-3 text-center' }, statusChip(false)),
       el('td', { class: 'px-3 py-3 text-right' },
         el('button', { class: 'text-xs px-3 py-1.5 rounded-lg font-bold transition hover:brightness-95 whitespace-nowrap', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-          onclick: () => openUserEditor(null, { full_name: x.name, email: e.email || '', phone: e.phone || '', role: 'rep', fieldroutes_employee_id: e.employee_id }) }, '+ Add to app')));
+          onclick: () => openUserEditor(null, { full_name: x.name, email: e.email || '', phone: e.phone || '',
+            role: /office\s*staff/i.test(e.type_label || '') ? 'rep_office' : 'rep_sales',
+            fieldroutes_employee_id: e.employee_id }) }, '+ Add to app')));
   };
 
   const th = (label, align) => el('th', { class: (align || 'text-left') + ' px-3 py-3' }, label);
@@ -35995,11 +36006,14 @@ function openUserEditor(existing = null, prefill = null) {
       }),
     ),
     (() => {
+      const seedRole = existing?.role || prefill?.role || 'rep_sales';
       const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-3 py-2 text-sm' },
-        el('option', { value: 'rep',       selected: (existing?.role || 'rep') === 'rep' },  'Rep'),
-        el('option', { value: 'admin_rep', selected: existing?.role === 'admin_rep' },       'Admin + Sales'),
-        el('option', { value: 'admin',     selected: existing?.role === 'admin' },           'Admin (no sales)'),
-        el('option', { value: 'auditor',   selected: existing?.role === 'auditor' },         'Auditor'),
+        el('option', { value: 'rep_sales',  selected: seedRole === 'rep_sales' },  'Rep - Sales Rep'),
+        el('option', { value: 'rep_office', selected: seedRole === 'rep_office' }, 'Rep - Office Staff'),
+        el('option', { value: 'rep',        selected: seedRole === 'rep' },        'Rep (auto by CRM type)'),
+        el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep' },  'Admin + Sales'),
+        el('option', { value: 'admin',      selected: seedRole === 'admin' },      'Admin (no sales)'),
+        el('option', { value: 'auditor',    selected: seedRole === 'auditor' },    'Auditor'),
       );
       // Seller-only fields — only 'rep' and 'admin_rep' sell, so hide
       // Commission Bump and Annual Revenue Goal for 'admin' (no-sales)
