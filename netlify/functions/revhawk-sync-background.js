@@ -348,7 +348,16 @@ exports.handler = async (event) => {
     const objects = toObjects(schema, rows);
     if (!objects.length) return { statusCode: 200, body: JSON.stringify({ ok: false, note: 'query returned 0 rows — nothing written' }) };
 
-    const gz = zlib.gzipSync(Buffer.from(JSON.stringify(objects)));
+    // Slim the payload before shipping: drop null/empty values (readers all
+    // use `r.field ||` / `== null` patterns, so a missing key behaves exactly
+    // like null) and compress at max level. Same rows, same fields when
+    // present — just fewer bytes for every browser that downloads it.
+    for (const o of objects) {
+      for (const k of Object.keys(o)) {
+        if (o[k] === null || o[k] === undefined || o[k] === '') delete o[k];
+      }
+    }
+    const gz = zlib.gzipSync(Buffer.from(JSON.stringify(objects)), { level: 9 });
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
     const path = 'snapshots/revhawk-' + Date.now() + '.json.gz';
@@ -427,12 +436,12 @@ exports.handler = async (event) => {
     }
 
     // ── Source master list → public.sources (best-effort) ──
-    // FieldRoutes is the source of truth: a source added there appears in the
-    // app automatically, and a CRM-side hide/show carries over. fr_visible
-    // remembers the last CRM state so only a CHANGE in the CRM flips
-    // is_active — an in-app visibility override persists until then. App-only
-    // sources (no fr_source_id) are never touched. Requires the fr_* columns
-    // (fieldroutes_sources.sql); if they're missing this block just logs.
+    // STRICT MIRROR — FieldRoutes is the only place sources are managed:
+    //   • every CRM source is upserted with the CRM's visibility, every run
+    //   • any app row NOT in the CRM list is auto-hidden (not deleted — past
+    //     sales keep pointing at their source name)
+    // Requires the fr_* columns (fieldroutes_sources.sql); if they're
+    // missing this block just logs.
     let srcCount = 0, srcError = null;
     try {
       const srcRes = await runQuery(token, SRC_SQL);
@@ -449,6 +458,7 @@ exports.handler = async (event) => {
           for (const fid of String(r.fr_source_id || '').split(',')) if (fid.trim()) byFrId.set(fid.trim(), r);
           if (r.name) byName.set(r.name.trim().toLowerCase(), r);
         }
+        const touched = new Set();
         for (const fr of frSources) {
           const row = fr.ids.split(',').map(x => byFrId.get(x.trim())).find(Boolean)
                    || byName.get(fr.name.toLowerCase());
@@ -461,19 +471,23 @@ exports.handler = async (event) => {
             });
             if (error) throw new Error('insert "' + fr.name + '": ' + error.message);
           } else {
-            const patch = { fr_source_id: fr.ids, fr_synced_at: stamp };
-            if (row.fr_visible === null || row.fr_visible === undefined) {
-              // First link: adopt the CRM state as baseline WITHOUT touching
-              // the app's current visibility (preserves existing curation).
-              patch.fr_visible = fr.visible;
-            } else if (row.fr_visible !== fr.visible) {
-              patch.fr_visible = fr.visible;
-              patch.is_active = fr.visible;
-            }
-            const { error } = await supabase.from('sources').update(patch).eq('id', row.id);
+            touched.add(row.id);
+            const { error } = await supabase.from('sources').update({
+              fr_source_id: fr.ids,
+              fr_visible: fr.visible,
+              fr_synced_at: stamp,
+              is_active: fr.visible,   // CRM visibility is authoritative
+            }).eq('id', row.id);
             if (error) throw new Error('update "' + fr.name + '": ' + error.message);
           }
           srcCount++;
+        }
+        // Anything the CRM doesn't know about gets hidden (kept for history).
+        for (const r of (appSources || [])) {
+          if (touched.has(r.id) || r.is_active === false) continue;
+          const { error } = await supabase.from('sources')
+            .update({ is_active: false, fr_synced_at: stamp }).eq('id', r.id);
+          if (error) throw new Error('hide "' + r.name + '": ' + error.message);
         }
       }
     } catch (se) {

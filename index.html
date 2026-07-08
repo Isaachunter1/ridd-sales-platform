@@ -2861,6 +2861,10 @@ async function loadProfile() {
   state._realProfile = data;
   state.profile = data;
   _applyViewAsOverlay();
+  // Stamp "Last Login" for the Users tab — the APP sign-in, not FieldRoutes.
+  // Own row, one column, via the security-definer RPC in app_last_login.sql.
+  // Fire-and-forget: a failure just leaves the previous stamp in place.
+  try { Promise.resolve(supabase.rpc('touch_last_login')).catch(() => {}); } catch { /* ignore */ }
   // Rep TYPE for access shaping (Sales Rep → Competitions only · Office
   // Staff → Competitions + Inside Sales). Read from the CRM roster mirror,
   // matched on the linked employee ID or the login email (self-read policy —
@@ -36187,7 +36191,7 @@ function adminReps() {
       td(fr ? fr.type_label : null, fr ? '' : 'text-muted- italic'),      // Rep Type (CRM)
       tdM(p.phone || (fr ? fr.phone : null)),                             // Phone (profile wins, else CRM)
       tdM(p.email || (fr ? fr.email : null)),                             // Email
-      tdM(fr ? fmtLogin(fr.last_login) : null),                           // Last Login (CRM)
+      tdM(fmtLogin(p.last_login_at)),                                     // Last Login (APP sign-in, not FieldRoutes)
       tierCell(x),                                                       // Tier
       el('td', { class: 'px-3 py-3 text-center' },
         el('button', { title: active ? 'Click to deactivate' : 'Click to activate (offers a reset-link email)', onclick: () => setProfileActive(p, !active) }, statusChip(active))),
@@ -36217,7 +36221,7 @@ function adminReps() {
       td(e.type_label),                                                   // Rep Type
       tdM(e.phone),                                                       // Phone
       tdM(e.email),                                                       // Email
-      tdM(fmtLogin(e.last_login)),                                        // Last Login
+      tdM(fmtLogin(null)),                                                // Last Login (app) — no app account yet
       tierCell(x),                                                       // Tier
       el('td', { class: 'px-3 py-3 text-center' }, statusChip(false)),
       el('td', { class: 'px-3 py-3 text-right' },
@@ -36232,7 +36236,9 @@ function adminReps() {
     el('table', { class: 'w-full text-sm whitespace-nowrap' },
       el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, el('tr', {},
         th('ID'), el('th', { class: 'text-left px-4 py-3' }, 'Name'), th('User Name'), th('Access Profile'),
-        th('Rep Type'), th('Phone'), th('Email'), th('Last Login'), th('Tier'), th('Status', 'text-center'), th('', 'text-right'))),
+        th('Rep Type'), th('Phone'), th('Email'),
+        el('th', { class: 'text-left px-3 py-3', title: 'Last sign-in to the RIDD app (not FieldRoutes)' }, 'Last Login'),
+        th('Tier'), th('Status', 'text-center'), th('', 'text-right'))),
       el('tbody', {},
         (appPeople.length + rosterShown.length) === 0
           ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 11 },
@@ -36287,6 +36293,104 @@ function adminReps() {
 // editor. Pops a file picker, center-crops to the same 80×80 JPEG thumbnail the
 // editor uses, persists to the profile, and re-renders. App users only (a
 // CRM-only person has no profiles row to save to yet).
+// ── Avatar crop modal — drag + zoom behind a fixed circle guide ──────────
+// Shared by every avatar upload path. The photo sits under a circular
+// cut-out (exactly how avatars render app-wide); drag to position, slide to
+// zoom, Save exports the same compact 80×80 JPEG the old auto-crop produced.
+function openAvatarCropModal(file, onDone) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onerror = () => { URL.revokeObjectURL(url); toast('Could not read that image', 'error'); };
+  img.onload = () => {
+    const V = Math.min(300, Math.max(220, Math.floor(window.innerWidth * 0.7)));   // viewport px (square)
+    const baseScale = V / Math.min(img.width, img.height);                          // "cover" at zoom 1
+    let zoom = 1;
+    let offX = (V - img.width * baseScale) / 2;                                     // centered start
+    let offY = (V - img.height * baseScale) / 2;
+    const overlay = el('div', { class: 'modal-overlay' });
+    const close = () => { overlay.remove(); URL.revokeObjectURL(url); document.removeEventListener('keydown', key); };
+    const key = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', key);
+
+    const canvas = el('canvas', { width: String(V), height: String(V), style: { display: 'block', touchAction: 'none', cursor: 'grab' } });
+    const ctx = canvas.getContext('2d');
+    const clamp = () => {
+      const s = baseScale * zoom;
+      offX = Math.min(0, Math.max(V - img.width * s, offX));
+      offY = Math.min(0, Math.max(V - img.height * s, offY));
+    };
+    const draw = () => {
+      clamp();
+      const s = baseScale * zoom;
+      ctx.clearRect(0, 0, V, V);
+      ctx.drawImage(img, offX, offY, img.width * s, img.height * s);
+    };
+    // Drag to reposition (pointer events cover mouse + touch).
+    let drag = null;
+    canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX - offX, y: e.clientY - offY }; canvas.setPointerCapture(e.pointerId); canvas.style.cursor = 'grabbing'; });
+    canvas.addEventListener('pointermove', (e) => { if (!drag) return; offX = e.clientX - drag.x; offY = e.clientY - drag.y; draw(); });
+    const endDrag = () => { drag = null; canvas.style.cursor = 'grab'; };
+    canvas.addEventListener('pointerup', endDrag);
+    canvas.addEventListener('pointercancel', endDrag);
+
+    const zoomInput = el('input', {
+      type: 'range', min: '1', max: '3', step: '0.01', value: '1', class: 'w-full',
+      title: 'Zoom',
+      oninput: (e) => {
+        // Zoom around the viewport center so the framed subject stays put.
+        const next = parseFloat(e.target.value) || 1;
+        const s0 = baseScale * zoom, s1 = baseScale * next;
+        const cx = V / 2, cy = V / 2;
+        offX = cx - ((cx - offX) / s0) * s1;
+        offY = cy - ((cy - offY) / s0) * s1;
+        zoom = next;
+        draw();
+      },
+    });
+
+    const card = el('div', { class: 'card p-5 flex flex-col gap-4 items-center', style: { width: (V + 40) + 'px', maxWidth: '94vw' } },
+      el('div', { class: 'w-full flex items-center justify-between' },
+        el('div', {},
+          el('h2', { class: 'text-base font-bold' }, 'Position Your Photo'),
+          el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'Drag to move · slide to zoom — the circle is what everyone sees')),
+        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+      el('div', { class: 'relative rounded-xl overflow-hidden', style: { width: V + 'px', height: V + 'px', background: '#111' } },
+        canvas,
+        // Circle guide — dark everywhere except the circular window, plus a
+        // crisp ring so the crop line is unmistakable.
+        el('div', { style: { position: 'absolute', inset: '0', pointerEvents: 'none',
+          background: 'radial-gradient(circle ' + (V / 2 - 8) + 'px at 50% 50%, transparent 98%, rgba(0,0,0,.55) 100%)' } }),
+        el('div', { style: { position: 'absolute', left: '8px', top: '8px', right: '8px', bottom: '8px', pointerEvents: 'none',
+          border: '2px solid rgba(255,255,255,.9)', borderRadius: '50%', boxShadow: '0 0 0 1px rgba(0,0,0,.35)' } })),
+      el('div', { class: 'w-full flex items-center gap-3' },
+        el('span', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, '🔍'),
+        zoomInput),
+      el('div', { class: 'w-full flex gap-2 justify-end' },
+        el('button', { class: 'px-4 py-2 rounded-lg text-sm font-semibold border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: close }, 'Cancel'),
+        el('button', {
+          class: 'px-5 py-2 rounded-lg text-sm font-bold transition hover:brightness-95',
+          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          onclick: () => {
+            // Export the circle's bounding square → 80×80 JPEG (same compact
+            // size as the old auto-crop, so localStorage stays happy).
+            const SIZE = 80;
+            const s = baseScale * zoom;
+            const out = document.createElement('canvas');
+            out.width = SIZE; out.height = SIZE;
+            out.getContext('2d').drawImage(img, -offX / s, -offY / s, V / s, V / s, 0, 0, SIZE, SIZE);
+            const dataUrl = out.toDataURL('image/jpeg', 0.6);
+            close();
+            onDone(dataUrl);
+          },
+        }, 'Save Photo')));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.append(card);
+    document.body.append(overlay);
+    draw();
+  };
+  img.src = url;
+}
+
 function changeProfileAvatar(p) {
   if (!p || !p.id) return;
   const inp = document.createElement('input');
@@ -36295,22 +36399,13 @@ function changeProfileAvatar(p) {
   inp.style.display = 'none';
   inp.onchange = (e) => {
     const file = e.target.files && e.target.files[0];
-    if (!file) { inp.remove(); return; }
-    const img = new Image();
-    img.onload = async () => {
-      const SIZE = 80;
-      const canvas = document.createElement('canvas');
-      canvas.width = SIZE; canvas.height = SIZE;
-      const ctx = canvas.getContext('2d');
-      const min = Math.min(img.width, img.height);
-      const sx = (img.width - min) / 2, sy = (img.height - min) / 2;
-      ctx.drawImage(img, sx, sy, min, min, 0, 0, SIZE, SIZE);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.6); // ~3-8KB
-      URL.revokeObjectURL(img.src);
+    inp.remove();
+    if (!file) return;
+    openAvatarCropModal(file, async (dataUrl) => {
       p.avatar_url = dataUrl;
       if (state.profile && p.id === state.profile.id) state.profile.avatar_url = dataUrl;
       if (typeof DEMO !== 'undefined' && DEMO) {
-        saveDemoData(); toast('Photo updated', 'success'); inp.remove(); mountApp(); return;
+        saveDemoData(); toast('Photo updated', 'success'); mountApp(); return;
       }
       try {
         const { error } = await supabase.from('profiles').update({ avatar_url: dataUrl }).eq('id', p.id);
@@ -36321,10 +36416,8 @@ function changeProfileAvatar(p) {
         console.warn('[ridd] avatar update failed', err);
         toast('Photo save failed — ' + (err.message || err), 'error');
       }
-      inp.remove();
       mountApp();
-    };
-    img.src = URL.createObjectURL(file);
+    });
   };
   document.body.append(inp);
   inp.click();
@@ -36525,25 +36618,12 @@ function openUserEditor(existing = null, prefill = null) {
     onchange: (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      // Compress to a small 128×128 JPEG thumbnail so it fits in localStorage
-      // (raw data URLs can be 1-2MB each, blowing the 5MB localStorage cap).
-      const img = new Image();
-      img.onload = () => {
-        const SIZE = 80;  // small thumbnail — keeps localStorage usage low
-        const canvas = document.createElement('canvas');
-        canvas.width = SIZE;
-        canvas.height = SIZE;
-        const ctx = canvas.getContext('2d');
-        // Center-crop to square
-        const min = Math.min(img.width, img.height);
-        const sx = (img.width - min) / 2;
-        const sy = (img.height - min) / 2;
-        ctx.drawImage(img, sx, sy, min, min, 0, 0, SIZE, SIZE);
-        modal.avatar_url = canvas.toDataURL('image/jpeg', 0.6); // ~3-8KB per avatar
+      // Crop modal — circle guide + drag/zoom; returns the compact 80×80
+      // JPEG data URL (a few KB, safe for localStorage).
+      openAvatarCropModal(file, (dataUrl) => {
+        modal.avatar_url = dataUrl;
         renderAvatar();
-        URL.revokeObjectURL(img.src);
-      };
-      img.src = URL.createObjectURL(file);
+      });
     },
   });
 
