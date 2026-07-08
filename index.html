@@ -1471,6 +1471,36 @@ function subscribeRosterRealtime() {
   } catch (e) { console.warn('[ridd] roster realtime subscribe failed', e); }
 }
 
+// ── My-sales realtime — the transparency loop for reps ───────────────────
+// When an admin audits / stages one of MY sales, my open tab hears it and
+// toasts immediately: no more "did my sale pass?" texts. RLS scopes the feed
+// to rows the rep can read; requires sales in the realtime publication
+// (sales_realtime.sql).
+function subscribeMySalesRealtime() {
+  if ((typeof DEMO !== 'undefined' && DEMO) || window._mySalesRtSub || !state.profile) return;
+  if (isAdminRole(state.profile.role) || isAuditorRole(state.profile.role)) return;   // reps only
+  try {
+    const seen = (window._mySalesRtSeen = window._mySalesRtSeen || new Set());
+    window._mySalesRtSub = supabase.channel('my_sales_rt')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sales', filter: 'rep_id=eq.' + state.profile.id }, (payload) => {
+        const row = payload.new || {};
+        const key = row.id + ':' + row.audit_status + ':' + (row.staged_for_payroll ? 1 : 0);
+        if (seen.has(key)) return;
+        seen.add(key);
+        const who = row.customer_name || 'your sale';
+        if (row.staged_for_payroll) {
+          toast('💰 ' + who + ' just staged for payroll', 'success');
+        } else if (row.audit_status && row.audit_status !== 'pending') {
+          const nice = String(row.audit_status).replace(/_/g, ' ');
+          toast((row.audit_status === 'cancelled' || row.audit_status === 'nsf' ? '⚠ ' : '✅ ') + who + ' — audit: ' + nice, row.audit_status === 'cancelled' ? 'warn' : 'success');
+        } else return;
+        // Refresh the rep's own lists so the row they're looking at updates.
+        refreshSalesData().then(() => { if (INSIDE_SALES_TAB_KEYS.has(state.view)) mountApp(); }).catch(() => {});
+      })
+      .subscribe();
+  } catch (e) { console.warn('[ridd] my-sales realtime subscribe failed', e); }
+}
+
 // ── Config history & restore ────────────────────────────────────────────
 // Every write to indicator_config is snapshotted server-side by a DB trigger
 // (indicator_config_history.sql — last 50 kept). This modal lists snapshots
@@ -3132,6 +3162,7 @@ async function loadData() {
   // populated state at boot, so the UI is never blank waiting on this.
   loadIndicatorConfigFromSupabase().catch(err => console.warn('[ridd] indicator config load skipped', err));
   subscribeRosterRealtime();
+  subscribeMySalesRealtime();
   // Pull the company logo from app_settings (single row) so the upload
   // an admin did on browser A shows up on every other admin's browser
   // and on every rep's view. Fire-and-forget — localStorage already
@@ -8766,8 +8797,10 @@ function saleCrmVerdict(s, index) {
   if (s.crm_status) {
     return { status: s.crm_status, cv: s.crm_contract_value != null ? Number(s.crm_contract_value) : null, sub: s.crm_subscription || null, live: false };
   }
+  const idx = index || reportingCustomerIndex();
+  if (!idx || !idx.size) return { status: 'unchecked', cv: null, sub: null, live: true };   // reps have no snapshot — wait for the sync stamp
   const id = s.customer_number != null ? String(s.customer_number).trim() : '';
-  const rows = id ? (index || reportingCustomerIndex()).get(id) : null;
+  const rows = id ? idx.get(id) : null;
   if (!rows || !rows.length) return { status: 'not_found', cv: null, sub: null, live: true };
   const rev = Number(s.revenue_amount) || 0;
   const soldT = Date.parse(s.sold_date || '') || 0;
@@ -8832,8 +8865,9 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             !showBackend && headerCell('Monthly',     { sortableKey: 'monthly_amount', align: 'right' }),
             headerCell('Revenue',     { sortableKey: 'revenue_amount', align: 'right' }),
             // CRM revenue check — auto-verified against the FieldRoutes
-            // warehouse every 30 min (matched by customer #). Admin-only.
-            isAdmin && headerCell('CRM ✓'),
+            // warehouse every 30 min (matched by customer #). Reps see it on
+            // their own sales: "did my sale really go through?" answered.
+            headerCell('CRM ✓'),
             headerCell('Sold',        { sortableKey: 'sold_date' }),
             headerCell('Commissionable', { sortableKey: 'commission_date' }),
             headerCell('Status',      { sortableKey: 'audit_status' }),
@@ -8894,7 +8928,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap' }, fmt.usd(s.initial_amount)),
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap text-muted-' }, fmt.usd(s.monthly_amount)),
               el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap' }, fmt.usd(s.revenue_amount)),
-              isAdmin && el('td', { class: 'px-2 py-2 whitespace-nowrap' }, (() => {
+              el('td', { class: 'px-2 py-2 whitespace-nowrap' }, (() => {
                 const v = saleCrmVerdict(s, rptIndex);
                 const chip = (txt, bg, colr, tip) => el('span', {
                   class: 'inline-block px-2 py-0.5 rounded-full text-[10px] font-bold',
@@ -8910,6 +8944,10 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                     'Revenue differs: logged ' + fmt.usd(s.revenue_amount) + ' vs ' + fmt.usd(v.cv) + ' in the CRM'
                     + (v.sub ? ' (' + v.sub + ')' : '')
                     + ' — upsells can legitimately differ; worth a manual look.' + (v.live ? ' · live check' : ''));
+                }
+                if (v.status === 'unchecked') {
+                  return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' },
+                    title: 'The CRM auto-check runs every ~30 minutes — this sale hasn\'t been checked yet.' }, '… checking');
                 }
                 return el('span', { style: { color: 'var(--text-subtle)' }, class: 'text-[10px]',
                   title: 'Customer #' + (s.customer_number || '?') + ' isn\'t in the warehouse yet — new accounts appear within ~30 min of the CRM sync.' },
@@ -15245,9 +15283,29 @@ function nrlaBoard(rawSales, opts) {
 
   // ── Final standings + prize pool (fills in as championship matches settle) ──
   const prizeCard = R.placements.length ? el('div', {},
-    el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: BLUE } },
+    el('div', { class: 'flex items-center justify-between gap-2 px-3 py-1.5', style: { background: BLUE } },
       el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } }, 'Final Standings · Prize Pool'),
-      el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, 'per rep, by placement')),
+      el('div', { class: 'flex items-center gap-2' },
+        el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, 'per rep, by placement'),
+        RO ? null : el('button', {
+          class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
+          style: { background: 'rgba(255,255,255,.25)', color: '#fff' },
+          title: 'Payout sheet — every rostered rep with their placement and prize, ready for payroll',
+          onclick: () => {
+            const esc = (v) => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+            const L = ['Placement,Team,Rep,Prize Per Rep'];
+            R.placements.forEach(pl => {
+              const roster = R.rosters[pl.team] ? [...R.rosters[pl.team]] : Object.keys((R.repStats || {})[pl.team] || {});
+              if (!roster.length) L.push([nrlaOrdinal(pl.place), nameOf(pl.team), '(no roster set)', pl.prize].map(esc).join(','));
+              roster.sort().forEach(rn => L.push([nrlaOrdinal(pl.place), nameOf(pl.team), rn, pl.prize].map(esc).join(',')));
+            });
+            const a3 = document.createElement('a');
+            a3.href = URL.createObjectURL(new Blob([L.join('\n')], { type: 'text/csv' }));
+            a3.download = 'NRLA_Payout_Sheet_' + new Date().toISOString().slice(0, 10) + '.csv';
+            a3.click();
+            URL.revokeObjectURL(a3.href);
+          },
+        }, '⬇ Payout Sheet'))),
     el('div', { class: 'overflow-x-auto' },
       el('table', { class: 'w-full text-xs' },
         el('tbody', {},
