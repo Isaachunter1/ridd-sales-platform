@@ -8280,6 +8280,10 @@ function viewSales() {
               // (Audit 2 + Lock dropdown) plus any enriched columns from an
               // uploaded backend report so admins can decide row-by-row.
               showBackend: queueFilter === 'backend',
+              // Pending queue (admins): live CRM account columns — status,
+              // current sub, balance, aging, services done — so the backend
+              // picture is visible while the sale is still upfront-pending.
+              showCrmAccount: isAdmin && queueFilter === 'upfront',
               showReportCols: queueFilter === 'backend' && filtered.some(s => s.backend_report_uploaded_at),
               // Tint already-decided rows so they recede behind the rows still
               // needing a decision. Only applies on Pending Backend Lock.
@@ -8422,6 +8426,9 @@ function reportingBackendMatch(custNumber, index) {
     status: active.length > 0 ? 'Active' : 'Inactive',
     subscription: pick.subscription || null,
     daysPastDue: pick.days_past_due != null ? Number(pick.days_past_due) : null,
+    // Customer-level dollar balance (fieldRoutes_responsibleBalance) — same
+    // on every sub row, so read it off the pick.
+    balance: pick.responsible_balance != null ? Number(pick.responsible_balance) : null,
     completedServices: pick.subscription_completed_services != null ? Number(pick.subscription_completed_services) : null,
     cancelDate: pick.subscription_date_canceled || null,
     cancelReason: pick.subscription_cancellation_reason || null,
@@ -8454,9 +8461,11 @@ function saleCrmVerdict(s, index) {
   return { status: bestDiff <= 1 ? 'verified' : 'revenue_mismatch', cv, sub: best.subscription || null, live: true };
 }
 
-function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBackend = false, showReportCols = false, rowStyle } = {}) {
-  // Backend queue cross-references the active Reporting snapshot by customer #.
-  const rptIndex = showBackend ? reportingCustomerIndex() : null;
+function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBackend = false, showReportCols = false, showCrmAccount = false, rowStyle } = {}) {
+  // Backend queue AND the pending queue (showCrmAccount) cross-reference the
+  // active Reporting snapshot by customer #: live account status, current
+  // sub, balance, aging, services done — the backend picture, up front.
+  const rptIndex = (showBackend || showCrmAccount) ? reportingCustomerIndex() : null;
   const showRptStatus = !!(rptIndex && rptIndex.size);
   const cell = (content, extraClass = '') => el('td', {
     class: 'px-2 py-2 ' + extraClass,
@@ -8514,6 +8523,8 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             // snapshot (matched by customer #). Drives backend decisions:
             // is the account still active, behind on payment, and serviced?
             showRptStatus && headerCell('Acct Status'),
+            showRptStatus && headerCell('Live Sub'),
+            showRptStatus && headerCell('Balance',       { align: 'right' }),
             showRptStatus && headerCell('Days Past Due', { align: 'right' }),
             showRptStatus && headerCell('Svcs Done',     { align: 'right' }),
             // Enriched columns from an uploaded backend report (xlookup'd by
@@ -8604,6 +8615,15 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                         + (rpt.matchedCount > 1 ? ' \u00b7 ' + rpt.matchedCount + ' subs on file' : ''),
                     }, rpt.status)
                   : el('span', { style: { color: 'var(--text-subtle)' }, title: 'No matching customer in the active reporting snapshot' }, 'No match')),
+              showRptStatus && cell(el('span', {
+                class: 'text-muted- whitespace-nowrap max-w-[130px] truncate inline-block align-bottom',
+                title: rpt && rpt.subscription ? 'Current subscription in the CRM: ' + rpt.subscription : 'No live subscription found',
+              }, (rpt && rpt.subscription) || '\u2014')),
+              showRptStatus && el('td', {
+                class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap',
+                style: (rpt && rpt.balance > 0) ? { color: '#DC2626', fontWeight: '600' } : { color: 'var(--text-muted)' },
+                title: 'Outstanding balance on the account in the CRM',
+              }, rpt && rpt.balance != null ? fmt.usd(rpt.balance) : '\u2014'),
               showRptStatus && el('td', {
                 class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap',
                 style: (rpt && rpt.daysPastDue > 0) ? { color: '#DC2626', fontWeight: '600' } : { color: 'var(--text-muted)' },
