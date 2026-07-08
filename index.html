@@ -15228,12 +15228,46 @@ function viewNrlaPublic() {
       saveDemoData();   // syncs to every user
       mountApp();
     };
-    const addInput = isAdmin ? el('input', {
-      type: 'date', class: 'rounded border px-2 py-1 text-xs',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    // ── Admin controls: + Add day · Generate Season… · Clear all ──
+    // Generate Season builds the whole Saturday list from a start date + a
+    // round count (sized to how many reps are competing — halving each week,
+    // ⌈log₂(reps)⌉ + 1 rounds cuts the field to one winner). Add/remove
+    // individual days for holiday swaps; Clear all resets for a new year.
+    const addInput = isAdmin ? el('label', {
+      class: 'text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95 inline-flex items-center gap-1.5',
+      style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
+      title: 'Add a comp day — converts the schedule to an explicit day list you fully control',
+    }, '+ Add day', el('input', {
+      type: 'date',
+      style: { width: '0', height: '0', opacity: '0', position: 'absolute' },
       onchange: (e) => { if (e.target.value) saveDays([...effectiveDays, e.target.value]); },
-      title: 'Add a specific comp day — converts the schedule to an explicit day list',
-    }) : null;
+    })) : null;
+    const genBtn = isAdmin ? el('button', {
+      class: 'text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+      style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+      title: 'Build a fresh season: consecutive Saturdays from a start date. With ~' + (lmsR.rosterSize || 'N') + ' reps, ' + Math.max(3, Math.ceil(Math.log2(Math.max(2, lmsR.rosterSize || 16))) + 1) + ' rounds cuts the field to one winner.',
+      onclick: () => {
+        const start = prompt('First Saturday of the season (YYYY-MM-DD):', (() => {
+          const d = new Date(); d.setDate(d.getDate() + ((6 - d.getDay() + 7) % 7 || 7));
+          return d.toISOString().slice(0, 10);
+        })());
+        if (!start || !/^\d{4}-\d{2}-\d{2}$/.test(start.trim())) return;
+        const suggested = Math.max(3, Math.ceil(Math.log2(Math.max(2, lmsR.rosterSize || 16))) + 1);
+        const nRaw = prompt('How many Saturdays (rounds)? With ~' + (lmsR.rosterSize || '?') + ' reps, ' + suggested + ' rounds reaches a single winner:', String(suggested));
+        const n = Math.min(20, Math.max(1, parseInt(nRaw, 10) || 0));
+        if (!n) return;
+        const days = [];
+        const d = new Date(start.trim() + 'T12:00');
+        for (let i = 0; i < n; i++) { days.push(d.toISOString().slice(0, 10)); d.setDate(d.getDate() + 7); }
+        saveDays(days);
+      },
+    }, '⚙ Generate Season…') : null;
+    const clearBtn = (isAdmin && custom) ? el('button', {
+      class: 'text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+      style: { borderColor: 'rgba(220,38,38,.4)', color: '#DC2626' },
+      title: 'Remove ALL comp days (fresh slate for a new season). The schedule falls back to automatic Saturdays until you add days or generate a season.',
+      onclick: () => { if (confirm('Clear all Last Man Standing comp days? The schedule resets for a new season.')) saveDays(null); },
+    }, '× Clear all') : null;
     wrap.append(el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
       el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Days'),
       ...effectiveDays.map(iso => el('span', {
@@ -15245,15 +15279,11 @@ function viewNrlaPublic() {
           title: 'Remove this comp day',
           onclick: () => { const next = custom.filter(d => d !== iso); saveDays(next.length ? next : null); },
         }, '×') : null)),
-      addInput,
-      (isAdmin && custom) ? el('button', {
-        class: 'text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
-        style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-        title: 'Back to the automatic schedule: every Saturday (July 4 2026 holiday → Friday July 3 counts instead)',
-        onclick: () => saveDays(null),
-      }, '↺ Auto (Saturdays)') : null,
+      addInput, genBtn, clearBtn,
       el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } },
-        custom ? '· explicit day list — these dates ARE the rounds' : '· Saturdays · Jul 4 holiday → Fri Jul 3 counts instead')));
+        custom
+          ? '· these dates ARE the rounds — × a chip to drop it'
+          : '· auto: Saturdays with production (Jul 4 ’26 → Fri Jul 3) — add a day or generate a season to take control')));
     wrap.append(lastManStandingBoard(raw, 'scheduled comp days', sel));
     return wrap;
   }
