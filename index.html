@@ -5385,6 +5385,22 @@ const _indSalesCache = { src: null, cfg: '', byKey: new Map() };
 const FR_GLOBAL_EXCLUDED_SERVICES = new Set([
   'ACH Chargeback', 'Early Cancellation Fee', 'German Roach Initial', 'Rodent Station Removal',
 ]);
+// The FieldRoutes "Pending / Serviced Accounts" gate as a standalone
+// predicate — initial-appointment status Pending or Completed, minus the
+// global service exclusions. indicatorSales() applies it to every metric on
+// the Indicators tab; consumers that read the raw array directly (My Stats,
+// weekly recap) call it themselves so EVERYTHING on that tab reconciles with
+// the CRM's Sales Leaderboard. Comp boards keep their own comp rules.
+function frPendingServiced(s) {
+  if (!s) return false;
+  if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(s.subscription || '').trim())) return false;
+  if (_scInitialStatusHasData()) {
+    const ist = String(s.initialStatus || '').trim().toLowerCase();
+    return ist === 'pending' || ist === 'completed';
+  }
+  // Legacy snapshots without the Initial Status column.
+  return !(_isSoldNotStarted(s) || _scIsSoldNotStarted(s));
+}
 function indicatorSales() {
   const dept = state.indicatorDept || 'all';
   const src = state._indicatorRawSales || [];
@@ -5437,12 +5453,7 @@ function indicatorSales() {
     // because it also required the subscription to be Active). Older
     // snapshots without the Initial Status column fall back to the legacy
     // sold-not-started heuristic.
-    if (_acct !== 'all') {
-      if (_scInitialStatusHasData()) {
-        const _ist = String(s.initialStatus || '').trim().toLowerCase();
-        if (_ist !== 'pending' && _ist !== 'completed') return false;
-      } else if (_isSoldNotStarted(s) || _scIsSoldNotStarted(s)) return false;
-    }
+    if (_acct !== 'all' && !frPendingServiced(s)) return false;
     if (_indicatorServiceExcluded(s)) return false;
     const _s = String(s.source || '').trim();
     if (_exclSrc.has(_s)) return false;
@@ -19949,7 +19960,7 @@ function maybeShowWeeklyRecap() {
     // Same dual-path rows as My Stats: CRM dataset by name (D2D), else logged sales.
     const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const mySig = _sig(state.profile.full_name);
-    const d2d = (state._indicatorRawSales || []).filter(s => s && s.rep && _sig(getCanonicalRepName(s.rep)) === mySig)
+    const d2d = (state._indicatorRawSales || []).filter(s => s && s.rep && frPendingServiced(s) && _sig(getCanonicalRepName(s.rep)) === mySig)
       .map(s => ({ d: _parseIndicatorDay(s), rev: Number(s.contractValue) || 0 })).filter(r => r.d);
     const EXCLUDE = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
     const rows = d2d.length ? d2d : (state.mySales || []).filter(s => !EXCLUDE.has(s.audit_status))
@@ -20018,9 +20029,10 @@ function myStatsCard() {
   const now = new Date(); now.setHours(0, 0, 0, 0);
   const jan1 = new Date(now.getFullYear(), 0, 1);
 
-  // D2D path: match this rep's rows in the shared dataset by name signature.
+  // D2D path: match this rep's rows in the shared dataset by name signature,
+  // through the same FR Pending/Serviced gate as every leaderboard number.
   const d2dSales = (state._indicatorRawSales || []).filter(s =>
-    s && s.rep && _sig(getCanonicalRepName(s.rep)) === mySigName);
+    s && s.rep && frPendingServiced(s) && _sig(getCanonicalRepName(s.rep)) === mySigName);
   let rows;
   if (d2dSales.length) {
     rows = d2dSales.map(s => ({ d: _parseIndicatorDay(s), rev: Number(s.contractValue) || 0 })).filter(r => r.d);
