@@ -3342,7 +3342,7 @@ const TAB_TITLES = {
   scorecards:   'SCORECARDS',
   reporting:    'REPORTING',
   marketing:    'MARKETING',
-  commission:   'COMMISSION',
+  commission:   'SALES',
   admin:        'SETTINGS',
 };
 
@@ -3497,7 +3497,9 @@ function mobileBottomNav() {
     ['nrla', 'Comps', iconTrophy],
     ['indicators', 'Trends', iconChart],
   ] : [
-    // Sales-Rep accounts: Competitions + rep-lite Indicators.
+    // Sales-Rep accounts: Sales (their commission home) + Competitions +
+    // rep-lite Indicators.
+    ['commission', 'Sales', iconPay],
     ['nrla', 'Competitions', iconTrophy],
     ['indicators', 'Indicators', iconChart],
   ]) : [
@@ -4120,6 +4122,27 @@ const INSIDE_SALES_TAB_KEYS = new Set([...INSIDE_SALES_TABS.map(([k]) => k), 'co
 function insideSalesTabsFor(role) {
   return isAuditorRole(role) ? INSIDE_SALES_TABS.filter(([k]) => k === 'sales') : INSIDE_SALES_TABS;
 }
+// Admin-only segmented toggle between the two halves of "Sales":
+// Inside Sales (office) ⇄ D2D Sales (the commission calculator). Reps never
+// see it — their rep type decides which half IS their Sales tab.
+function salesModeToggle(mode) {
+  if (!isAdminRole(state.profile?.role)) return null;
+  const btn = (m, label) => el('button', {
+    class: 'px-3 py-1.5 text-xs font-bold transition',
+    style: mode === m ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+    onclick: () => {
+      if (m === mode) return;
+      const target = m === 'd2d'
+        ? 'commission'
+        : (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) && state._lastIsTab !== 'competitions' ? state._lastIsTab : 'dashboard');
+      state.view = target;
+      history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);
+      mountApp();
+    },
+  }, label);
+  return el('div', { class: 'inline-flex rounded-lg border overflow-hidden mr-2 shrink-0', style: { borderColor: 'var(--border-2)' } },
+    btn('inside', 'Inside Sales'), btn('d2d', 'D2D Sales'));
+}
 function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);
   // A one-tab bar is just noise — auditors land straight on Sales.
@@ -4127,6 +4150,7 @@ function insideSalesSubTabs() {
   // Static tab bar — wraps onto multiple rows on narrow/mobile screens instead
   // of becoming a horizontal scroll strip (which floated around on mobile).
   return el('div', { class: 'flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } },
+    salesModeToggle('inside'),
     ...tabs.map(([k, label]) => {
       const active = state.view === k;
       return el('button', {
@@ -4355,6 +4379,7 @@ function mountApp() {
   const isSalesRepType = isRepOnly && !isOfficeStaff;
   const repCanSee = (v) => v === 'nrla'
     || v === 'indicators'                                  // rep-lite Indicators for ALL rep types
+    || (!isOfficeStaff && v === 'commission')              // Sales Reps: "Sales" (commission home)
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
   if (isRepOnly && !repCanSee(state.view)) {
     state.view = 'nrla';
@@ -4374,20 +4399,22 @@ function mountApp() {
   // 'inside_sales' is a virtual entry — clicking it lands on the last-used
   // Inside Sales sub-tab (default Dashboard).
   const navItems = (!isAdmin && !isAuditor) ? [
-    // Rep accounts: everyone gets Competitions + rep-lite Indicators;
-    // Office Staff additionally get the Inside Sales group.
-    ...(isOfficeStaff ? [['inside_sales', 'Inside Sales', iconSales()]] : []),
+    // Rep accounts: everyone gets Competitions + rep-lite Indicators.
+    // Office Staff get the Inside Sales group; Sales Reps get "Sales" —
+    // their commission home, the D2D counterpart to Inside Sales.
+    ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]] : [['commission', 'Sales', iconDollar()]]),
     ['nrla', 'Competitions', iconTrophy()],
     ['indicators', 'Indicators', iconChart()],
   ] : [
     // Auditors only have the Sales tab, so call the entry what it is.
-    ['inside_sales', isAuditor ? 'Sales' : 'Inside Sales', iconSales()],
+    // ONE "Sales" entry for every role — admins toggle Inside Sales ⇄ D2D
+    // Sales inside the view itself (salesModeToggle).
+    ['inside_sales', 'Sales', iconSales()],
     // Competitions — every comp (NRLA, Spring Cleaning, Top Gun, …) on its
     // own tab, visible to EVERYONE. Read-only for non-admins.
     ...(isAuditor ? [] : [['nrla', 'Competitions', iconTrophy()]]),
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
-    ...(isAuditor ? [] : [['commission', isAdmin ? 'Commission Calculator' : 'My Commission', iconDollar()]]),
     ...(isAuditor ? [] : [['training', 'Training', iconClipboard()]]),
   ];
 
@@ -4631,6 +4658,10 @@ function mountApp() {
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) {
     const subTabBar = insideSalesSubTabs();
     if (subTabBar) contentWrap.append(subTabBar);
+  } else if (state.view === 'commission' && isAdmin) {
+    // D2D side of the Sales toggle — same bar position as the sub-tabs.
+    const t = salesModeToggle('d2d');
+    if (t) contentWrap.append(el('div', { class: 'flex items-center border-b mb-4 pb-2.5', style: { borderColor: 'var(--border)' } }, t));
   }
   contentWrap.append(node);
 
@@ -15318,9 +15349,21 @@ function viewNrlaPublic() {
       ? allD2d.filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
       : allD2d;
     wrap.append(indicatorTopGunBoard(windowedD2d, proSet));
+  } else if ((sel.scoring || '') === 'avg_pest_initial' || sel.id === 'avg_pest_initial') {
+    // Avg Pest & Raffle — the SAME card Indicators renders, right here.
+    // Base data mirrors the indicators pipeline: FR Pending/Serviced gate,
+    // D2D rows only. The card manages its own comp window via `cf`.
+    const _apAll = raw.filter(s => frPendingServiced(s) && _indicatorDeptOf(s) === 'd2d');
+    const _apWin = bounds
+      ? _apAll.filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
+      : _apAll;
+    wrap.append(buildAvgPestCompCard({
+      cf, allRawSales: _apAll, rawSales: _apWin, windowLabel: winLabel,
+      applyExclusion: false, rerender: () => mountApp(),
+    }));
   } else {
     wrap.append(el('div', { class: 'card p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
-      '“' + sel.name + '” still renders inside Indicators → Comps (its card is tied to the analytics pipeline). It\'ll move here next.'));
+      '“' + sel.name + '” doesn\'t have a board built yet.'));
   }
   return wrap;
 }
@@ -20172,298 +20215,11 @@ function myStatsCard() {
 }
 
 // ── Rep-level sections for Indicators tab ──
-function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksUnfiltered, allDataUnfiltered, windowLabel) {
-  // We need the raw sales data — stored alongside aggregated rows.
-  // Department-scoped so the rep leaderboard matches the toggle selection.
-  const allRawSales = indicatorSales();
-  // Match the range filter the rest of the page uses. In Range mode we keep
-  // only sales whose week falls inside the filtered indicator data; in Weekly
-  // mode the leaderboard stays YTD (because the user may want comparison).
-  const weeksInScope = isRange
-    ? new Set(data.map(r => r.week))
-    : null;
-  // Excluded-team reps are dropped only when the user is viewing the page in
-  // team mode. In branch mode (the default) every rep is included so the
-  // numbers match the underlying CSV exactly. The scope picker on the trend
-  // panel does its own per-scope filtering (team scope hides excluded reps;
-  // branch and company scopes show everyone) regardless of this flag.
-  const applyExclusion = state.indicatorsGroupBy === 'teams';
-  // Page-level filter (team exclusion + week scope). Cancel Analysis
-  // reads this version (rawSalesAll) directly so it can still surface
-  // 3-day RORs and Sold-Not-Started rows in its breakdown.
-  // Range mode scopes by EXACT sale date (matches the power-ranking table's
-  // day-precision), not by containing week.
-  const repRangeStart = (isRange && rangeBounds) ? new Date(rangeBounds.start + 'T00:00:00') : null;
-  const repRangeEnd   = (isRange && rangeBounds) ? new Date(rangeBounds.end   + 'T23:59:59') : null;
-  const inRepScope = (s) => {
-    if (!isRange || !rangeBounds) return true;
-    const d = _parseIndicatorDay(s);
-    return d && d >= repRangeStart && d <= repRangeEnd;
-  };
-  const rawSalesAll = (allRawSales || []).filter(s =>
-    (!applyExclusion || !isRepExcluded(s.rep)) && inRepScope(s));
-  // Default for every other consumer (leaderboard, records, D2D comp,
-  // PDF reports, sub-mix, rep drill-downs): EVERYTHING counts — including
-  // 3-day RORs and Sold-Not-Starteds — so the board reconciles 1:1 with
-  // the CRM's rep revenue cards. The ONLY metric that strips ROR/SNS is
-  // Cancel %, which uses its own clean denominator below and the
-  // _isReportableCancel numerator.
-  const rawSales = rawSalesAll;
-  if (!allRawSales || !allRawSales.length) {
-    // Always render a visible placeholder so admins know these tables exist
-    // and what's needed to populate them.
-    return [
-      el('div', { class: 'card p-6 text-center', style: { borderStyle: 'dashed', borderColor: 'var(--border-2)' } },
-        el('div', { class: 'text-2xl mb-2' }, '📋'),
-        el('h3', { class: 'text-base font-bold mb-1' }, 'Rep-level analytics'),
-        el('p', { class: 'text-xs text-muted- max-w-md mx-auto' },
-          'Rep Leaderboard, Cancel Analysis, Attrition by Office, and Subscription Mix tables show up here when you upload a raw-sales CSV (one row per sale, with Rep + Subscription columns). The pre-aggregated CSV doesn\'t include rep names, so these stay hidden on that import.'),
-      ),
-    ];
-  }
-
-  const sections = [];
-
-  // ── Compute rep stats ──
-  // Sales are bucketed by CANONICAL rep name — so if "Joseph Boineau"
-  // has been merged into "Joe Boineau", his CSV sales count under Joe.
-  // This means every per-rep metric (revenue, sales count, ranking,
-  // sparklines, leaderboard) treats merged reps as one — no double
-  // counting even when the CSV still references the old spelling.
-  const parseNum = (s) => parseFloat(String(s || '').replace(/[$,%]/g,'').replace(/,/g,'').trim()) || 0;
-  const repMap = {};
-  rawSales.forEach(s => {
-    const rep = getCanonicalRepName(s.rep || 'Unknown');
-    if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, sales: [], cancels: 0, cancelEligible: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
-    const r = repMap[rep];
-    r.sales.push(s);
-    r.revenue += s.contractValue;
-    // New vs renewal split (renewal sources are named "Renewal - …"). D2D has
-    // none, so newRevenue == revenue there; office staff carry both.
-    if (_indicatorIsRenewal(s)) r.renewalRevenue += s.contractValue;
-    else                        r.newRevenue += s.contractValue;
-    if (s.contract >= 18) r.multi++;
-    if (s.contract === 12) r.twelve++;
-    if (s.autoPay && s.autoPay !== 'No') r.autoPay++;
-    if (_repCancelCounts(s)) r.cancels++;
-    // Cancel % denominator: sales excluding whatever the ROR toggle
-    // currently strips — excluded rows neither count as a cancel nor pad
-    // the base. (Volume/revenue metrics above include those rows.)
-    if (!_repCancelExcluded(s)) r.cancelEligible++;
-    if (/failed\s*audit/i.test(s.customerFlags || '')) r.auditFail = (r.auditFail || 0) + 1;
-    if (s.age > 0) r.aged++;
-  });
-  // 3-day RORs that indicatorSales() dropped as "never serviced" aren't in
-  // rawSales, so "Count 3-Day RORs" would only ever move the handful of serviced
-  // ones. When the toggle is ON, fold the dropped RORs (same window + team scope)
-  // into each rep's Cancels and Cancel-% base so the toggle reflects ALL RORs.
-  if (state._indicatorRepIncludeRor) {
-    const _inRaw = new Set(rawSales);
-    (state._indicatorRawSales || []).forEach(s => {
-      if (_inRaw.has(s) || !s.cancelDate || !_is3DayROR(s)) return;
-      if (!inRepScope(s)) return;
-      if (applyExclusion && isRepExcluded(s.rep)) return;
-      const r = repMap[getCanonicalRepName(s.rep || 'Unknown')];
-      if (r) { r.cancels++; r.cancelEligible++; }
-    });
-  }
-  // Decorate every rep with derived metrics so we can sort on any of them.
-  // `avg_pest` here mirrors the chart's per-rep formula — Sentricon, German
-  // Roach, and Interior Flea are excluded.
-  const REP_AVG_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
-  // Sparkline runs off the FULL raw sales (not the range-filtered set) so
-  // the 12-week trend column stays useful even when the page range is short
-  // (e.g. "This Week" otherwise leaves the sparkline mostly empty). All
-  // other rep stats use the range-filtered sales as expected.
-  const fullRawSales = state._indicatorRawSales || [];
-  let _globalLatestDate = null;
-  for (const s of fullRawSales) {
-    const k = (s.dateSold || '').split(' ')[0].trim();
-    if (!k) continue;
-    const d = new Date(k);
-    if (!Number.isFinite(d.getTime())) continue;
-    if (!_globalLatestDate || d > _globalLatestDate) _globalLatestDate = d;
-  }
-  const _globalLastWeekStart = _globalLatestDate
-    ? (() => { const ws = new Date(_globalLatestDate); ws.setDate(ws.getDate() - ws.getDay()); return ws; })()
-    : null;
-  // Pre-bucket every rep's full-history sales by week so the sparkline can
-  // read them directly (range-filtered byWeek would zero out off-range weeks).
-  const _fullWeeklyByRep = {};
-  for (const s of fullRawSales) {
-    const dayKey = (s.dateSold || '').split(' ')[0].trim();
-    if (!dayKey) continue;
-    const d = new Date(dayKey);
-    if (!Number.isFinite(d.getTime())) continue;
-    const ws = new Date(d); ws.setDate(ws.getDate() - ws.getDay());
-    const wk = ws.toISOString().slice(0, 10);
-    const rep = s.rep || 'Unknown';
-    if (!_fullWeeklyByRep[rep]) _fullWeeklyByRep[rep] = {};
-    _fullWeeklyByRep[rep][wk] = (_fullWeeklyByRep[rep][wk] || 0) + Number(s.contractValue || 0);
-  }
-  const allReps = Object.values(repMap).map(r => {
-    const count = r.sales.length;
-    // MY % = multi-year contracts (anything other than 12 months) / all contract sales (12 + multi)
-    const ctTotal = r.twelve + r.multi;
-    const eligibleForPest = r.sales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
-    const avgPest = eligibleForPest.length > 0
-      ? eligibleForPest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / eligibleForPest.length
-      : 0;
-    // Avg Initial across ALL sales (including Sentricon / German Roach /
-    // Interior Flea) — useful for the raffle / overall pricing comp where
-    // every sale counts.
-    const avgInitial = r.sales.length > 0
-      ? r.sales.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / r.sales.length
-      : 0;
-    // Best Day / Week / Month: bucket the rep's sales by sold-DATE,
-    // sunday-anchored week, and YYYY-MM. `dateSold` is often
-    // "MM/DD/YY HH:MM AM/PM" so two sales on the same calendar day would
-    // otherwise live in different buckets and Best Day would just be the
-    // biggest single sale, not the biggest day total. Each record stores
-    // the dollar amount + a label for display, and a numeric timestamp so
-    // the column sorts by RECENCY.
-    const byDate = {}, byWeek = {}, byMonth = {};
-    r.sales.forEach(s => {
-      const dayKey = (s.dateSold || '').split(' ')[0].trim();
-      if (!dayKey) return;
-      const d = new Date(dayKey);
-      const v = Number(s.contractValue || 0);
-      byDate[dayKey] = (byDate[dayKey] || 0) + v;
-      if (!Number.isFinite(d.getTime())) return;
-      const ws = new Date(d); ws.setDate(ws.getDate() - ws.getDay());
-      const wk = ws.toISOString().slice(0, 10);
-      byWeek[wk] = (byWeek[wk] || 0) + v;
-      const mk = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-      byMonth[mk] = (byMonth[mk] || 0) + v;
-    });
-    const pickBest = (obj) => {
-      let bestKey = '', bestVal = 0;
-      for (const [k, v] of Object.entries(obj)) {
-        if (v > bestVal) { bestVal = v; bestKey = k; }
-      }
-      return { key: bestKey, value: bestVal };
-    };
-    const bD = pickBest(byDate), bW = pickBest(byWeek), bM = pickBest(byMonth);
-    const bestDayTime   = bD.key ? new Date(bD.key).getTime() : 0;
-    const bestWeekTime  = bW.key ? new Date(bW.key).getTime() : 0;
-    const bestMonthTime = bM.key ? new Date(bM.key + '-01').getTime() : 0;
-    // 12-week revenue sparkline anchored at the dataset's last week so all
-    // reps line up on the same x-axis. Each bar is the full Sun–Sat sum
-    // for that week (showing a short bar for an in-progress week is
-    // expected — it's reality, and the eye reads it).
-    const weeklyTrend12 = [];
-    const fullByWeek = _fullWeeklyByRep[r.name] || {};
-    if (_globalLastWeekStart) {
-      for (let i = 11; i >= 0; i--) {
-        const ws = new Date(_globalLastWeekStart); ws.setDate(ws.getDate() - i * 7);
-        const key = ws.toISOString().slice(0, 10);
-        weeklyTrend12.push(fullByWeek[key] || 0);
-      }
-    }
-    // trendSlope uses APPLES-TO-APPLES windows — WTD vs the same number
-    // of days last week — so the sort key + arrow on the column doesn't
-    // falsely tag a steady rep as down 40% just because today is
-    // Wednesday. See _weekToDateWindows for the rationale.
-    let thisWeek = 0, lastWeek = 0;
-    if (_globalLatestDate) {
-      const wow = _weekToDateWindows(_globalLatestDate);
-      for (const s of r.sales) {
-        const d = _parseIndicatorDay(s);
-        if (!d) continue;
-        if (d >= wow.thisStart && d < wow.thisEnd) thisWeek += Number(s.contractValue || 0);
-        else if (d >= wow.lastStart && d < wow.lastEnd) lastWeek += Number(s.contractValue || 0);
-      }
-    }
-    const trendSlope = lastWeek > 0
-      ? (thisWeek / lastWeek) - 1
-      : (thisWeek > 0 ? 1 : 0);
-    return {
-      ...r,
-      count,
-      team: getRepTeam(r.name),
-      tier: getRepTier(r.name), // 'rookie' | 'vet' | ''
-      acv: count > 0 ? r.revenue / count : 0,
-      avgPest,
-      avgInitial,
-      myPct: ctTotal > 0 ? r.multi / ctTotal : 0,
-      autoPayPct: count > 0 ? r.autoPay / count : 0,
-      cancelPct: r.cancelEligible > 0 ? r.cancels / r.cancelEligible : 0,
-      // Audit % = accounts NOT flagged Failed Audit ÷ all accounts (passed,
-      // no-audit and pending all count as good — same rule as the branch row).
-      auditPct: count > 0 ? (count - (r.auditFail || 0)) / count : 0,
-      bestDay:        bD.value,
-      bestDayDate:    bD.key,
-      bestDayTime:    Number.isFinite(bestDayTime)   ? bestDayTime   : 0,
-      bestWeek:       bW.value,
-      bestWeekStart:  bW.key,
-      bestWeekTime:   Number.isFinite(bestWeekTime)  ? bestWeekTime  : 0,
-      bestMonth:      bM.value,
-      bestMonthKey:   bM.key,
-      bestMonthTime:  Number.isFinite(bestMonthTime) ? bestMonthTime : 0,
-      weeklyTrend12,
-      trendSlope,
-    };
-  });
-
-  // ── D2D MINI-COMPS (side-by-side) — hoisted to render directly under the
-  // Branch Power Ranking chart at the top of the rep-level section.
-  // Left: Top 15 reps by Avg Pest Initial, gated to 5+ accounts (the
-  // existing door-to-door comp — top 5 win, rows 6–15 are visibility
-  // into who's close). Right: Raffle Tickets ranking with CSV export.
-  //
-  // These comps run on a SEPARATE date window from the rest of the page —
-  // they're typically a 2-week competition period, not aligned to the
-  // weekly/range filter the indicators table uses. The user picks the
-  // window via a small filter bar above the cards (default: last 2 weeks
-  // ending at the most recent sale).
-  const RAFFLE_EXCLUDE_RE = /sentricon|german\s*roach|interior\s*flea/i;
-  const AVG_PEST_MIN_ACCOUNTS = 5;
-  const ticketsForInitial = (amount) => {
-    const v = Number(amount) || 0;
-    if (v >= 250) return 3;
-    if (v >= 200) return 2;
-    if (v >= 149) return 1;
-    return 0;
-  };
-  // Active = not cancelled AND status is Active (Frozen / Inactive / No are NOT
-  // active — a frozen account is paused, not generating recurring revenue).
-  // Robust across formats: RevHawk sends "Active"/"Frozen"; an old CSV sent
-  // "Yes"/"No".
-  const isActiveAccount = (s) => {
-    if (s.cancelDate) return false;
-    const _a = String(s.active || '').trim().toLowerCase();
-    return _a !== 'no' && _a !== 'frozen' && _a !== 'inactive';
-  };
-
-  function _latestSaleDate(sales) {
-    let latest = null;
-    for (const s of sales) {
-      const d = _parseIndicatorDay(s);
-      if (d && (!latest || d > latest)) latest = d;
-    }
-    return latest;
-  }
-  // Default the comp window to the prior 2 weeks ending at the latest sale.
-  // The user always adjusts from there, so we just expose two date inputs
-  // with a sensible starting position.
-  if (!state._indicatorCompFilter || !state._indicatorCompFilter.start || !state._indicatorCompFilter.end) {
-    const latest = _latestSaleDate(allRawSales || []);
-    if (latest) {
-      const end = new Date(latest);
-      const start = new Date(latest); start.setDate(start.getDate() - 13);
-      const fmtIso = (d) => d.toISOString().slice(0, 10);
-      state._indicatorCompFilter = { start: fmtIso(start), end: fmtIso(end) };
-    } else {
-      state._indicatorCompFilter = { start: '', end: '' };
-    }
-  }
-  const cf = state._indicatorCompFilter;
-
-  // ── D2D Comp section is built inside a closure so we can swap just THIS
-  // chunk of the DOM when the date inputs change, instead of triggering a
-  // full mountApp() that re-renders Chart.js canvases (which flicker).
-  // One merged card: Avg Pest Initial ranking + raffle ticket columns.
-  function buildD2DCompSection() {
+// ── Avg Pest Initial / Raffle comp card ──────────────────────────────────
+// Standalone so BOTH homes can render it: Indicators → Comps (via the thin
+// buildD2DCompSection wrapper) and the Competitions tab. `rerender` is how
+// the card's own comp-window inputs refresh their host.
+function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExclusion, rerender }) {
     const compBounds = (cf.start && cf.end)
       ? { start: new Date(cf.start + 'T00:00'), end: new Date(cf.end + 'T23:59') }
       : null;
@@ -20550,7 +20306,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           value: cf.start,
           class: 'rounded border px-2 py-1 text-xs',
           style: { borderColor: 'var(--border-2)' },
-          onchange: (e) => { cf.start = e.target.value; replaceD2DCompSection(); },
+          onchange: (e) => { cf.start = e.target.value; rerender(); },
         }),
         el('span', { class: 'text-muted-' }, '→'),
         el('input', {
@@ -20558,7 +20314,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           value: cf.end,
           class: 'rounded border px-2 py-1 text-xs',
           style: { borderColor: 'var(--border-2)' },
-          onchange: (e) => { cf.end = e.target.value; replaceD2DCompSection(); },
+          onchange: (e) => { cf.end = e.target.value; rerender(); },
         }),
       ),
       el('div', { class: 'text-[11px] text-muted- ml-auto tabular-nums' },
@@ -20877,6 +20633,303 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Date window now lives in the shared Comp Window bar at the top.
       el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-3 p-3' }, avgInitialCard, raffleCard),
     );
+}
+
+function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksUnfiltered, allDataUnfiltered, windowLabel) {
+  // We need the raw sales data — stored alongside aggregated rows.
+  // Department-scoped so the rep leaderboard matches the toggle selection.
+  const allRawSales = indicatorSales();
+  // Match the range filter the rest of the page uses. In Range mode we keep
+  // only sales whose week falls inside the filtered indicator data; in Weekly
+  // mode the leaderboard stays YTD (because the user may want comparison).
+  const weeksInScope = isRange
+    ? new Set(data.map(r => r.week))
+    : null;
+  // Excluded-team reps are dropped only when the user is viewing the page in
+  // team mode. In branch mode (the default) every rep is included so the
+  // numbers match the underlying CSV exactly. The scope picker on the trend
+  // panel does its own per-scope filtering (team scope hides excluded reps;
+  // branch and company scopes show everyone) regardless of this flag.
+  const applyExclusion = state.indicatorsGroupBy === 'teams';
+  // Page-level filter (team exclusion + week scope). Cancel Analysis
+  // reads this version (rawSalesAll) directly so it can still surface
+  // 3-day RORs and Sold-Not-Started rows in its breakdown.
+  // Range mode scopes by EXACT sale date (matches the power-ranking table's
+  // day-precision), not by containing week.
+  const repRangeStart = (isRange && rangeBounds) ? new Date(rangeBounds.start + 'T00:00:00') : null;
+  const repRangeEnd   = (isRange && rangeBounds) ? new Date(rangeBounds.end   + 'T23:59:59') : null;
+  const inRepScope = (s) => {
+    if (!isRange || !rangeBounds) return true;
+    const d = _parseIndicatorDay(s);
+    return d && d >= repRangeStart && d <= repRangeEnd;
+  };
+  const rawSalesAll = (allRawSales || []).filter(s =>
+    (!applyExclusion || !isRepExcluded(s.rep)) && inRepScope(s));
+  // Default for every other consumer (leaderboard, records, D2D comp,
+  // PDF reports, sub-mix, rep drill-downs): EVERYTHING counts — including
+  // 3-day RORs and Sold-Not-Starteds — so the board reconciles 1:1 with
+  // the CRM's rep revenue cards. The ONLY metric that strips ROR/SNS is
+  // Cancel %, which uses its own clean denominator below and the
+  // _isReportableCancel numerator.
+  const rawSales = rawSalesAll;
+  if (!allRawSales || !allRawSales.length) {
+    // Always render a visible placeholder so admins know these tables exist
+    // and what's needed to populate them.
+    return [
+      el('div', { class: 'card p-6 text-center', style: { borderStyle: 'dashed', borderColor: 'var(--border-2)' } },
+        el('div', { class: 'text-2xl mb-2' }, '📋'),
+        el('h3', { class: 'text-base font-bold mb-1' }, 'Rep-level analytics'),
+        el('p', { class: 'text-xs text-muted- max-w-md mx-auto' },
+          'Rep Leaderboard, Cancel Analysis, Attrition by Office, and Subscription Mix tables show up here when you upload a raw-sales CSV (one row per sale, with Rep + Subscription columns). The pre-aggregated CSV doesn\'t include rep names, so these stay hidden on that import.'),
+      ),
+    ];
+  }
+
+  const sections = [];
+
+  // ── Compute rep stats ──
+  // Sales are bucketed by CANONICAL rep name — so if "Joseph Boineau"
+  // has been merged into "Joe Boineau", his CSV sales count under Joe.
+  // This means every per-rep metric (revenue, sales count, ranking,
+  // sparklines, leaderboard) treats merged reps as one — no double
+  // counting even when the CSV still references the old spelling.
+  const parseNum = (s) => parseFloat(String(s || '').replace(/[$,%]/g,'').replace(/,/g,'').trim()) || 0;
+  const repMap = {};
+  rawSales.forEach(s => {
+    const rep = getCanonicalRepName(s.rep || 'Unknown');
+    if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, sales: [], cancels: 0, cancelEligible: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
+    const r = repMap[rep];
+    r.sales.push(s);
+    r.revenue += s.contractValue;
+    // New vs renewal split (renewal sources are named "Renewal - …"). D2D has
+    // none, so newRevenue == revenue there; office staff carry both.
+    if (_indicatorIsRenewal(s)) r.renewalRevenue += s.contractValue;
+    else                        r.newRevenue += s.contractValue;
+    if (s.contract >= 18) r.multi++;
+    if (s.contract === 12) r.twelve++;
+    if (s.autoPay && s.autoPay !== 'No') r.autoPay++;
+    if (_repCancelCounts(s)) r.cancels++;
+    // Cancel % denominator: sales excluding whatever the ROR toggle
+    // currently strips — excluded rows neither count as a cancel nor pad
+    // the base. (Volume/revenue metrics above include those rows.)
+    if (!_repCancelExcluded(s)) r.cancelEligible++;
+    if (/failed\s*audit/i.test(s.customerFlags || '')) r.auditFail = (r.auditFail || 0) + 1;
+    if (s.age > 0) r.aged++;
+  });
+  // 3-day RORs that indicatorSales() dropped as "never serviced" aren't in
+  // rawSales, so "Count 3-Day RORs" would only ever move the handful of serviced
+  // ones. When the toggle is ON, fold the dropped RORs (same window + team scope)
+  // into each rep's Cancels and Cancel-% base so the toggle reflects ALL RORs.
+  if (state._indicatorRepIncludeRor) {
+    const _inRaw = new Set(rawSales);
+    (state._indicatorRawSales || []).forEach(s => {
+      if (_inRaw.has(s) || !s.cancelDate || !_is3DayROR(s)) return;
+      if (!inRepScope(s)) return;
+      if (applyExclusion && isRepExcluded(s.rep)) return;
+      const r = repMap[getCanonicalRepName(s.rep || 'Unknown')];
+      if (r) { r.cancels++; r.cancelEligible++; }
+    });
+  }
+  // Decorate every rep with derived metrics so we can sort on any of them.
+  // `avg_pest` here mirrors the chart's per-rep formula — Sentricon, German
+  // Roach, and Interior Flea are excluded.
+  const REP_AVG_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
+  // Sparkline runs off the FULL raw sales (not the range-filtered set) so
+  // the 12-week trend column stays useful even when the page range is short
+  // (e.g. "This Week" otherwise leaves the sparkline mostly empty). All
+  // other rep stats use the range-filtered sales as expected.
+  const fullRawSales = state._indicatorRawSales || [];
+  let _globalLatestDate = null;
+  for (const s of fullRawSales) {
+    const k = (s.dateSold || '').split(' ')[0].trim();
+    if (!k) continue;
+    const d = new Date(k);
+    if (!Number.isFinite(d.getTime())) continue;
+    if (!_globalLatestDate || d > _globalLatestDate) _globalLatestDate = d;
+  }
+  const _globalLastWeekStart = _globalLatestDate
+    ? (() => { const ws = new Date(_globalLatestDate); ws.setDate(ws.getDate() - ws.getDay()); return ws; })()
+    : null;
+  // Pre-bucket every rep's full-history sales by week so the sparkline can
+  // read them directly (range-filtered byWeek would zero out off-range weeks).
+  const _fullWeeklyByRep = {};
+  for (const s of fullRawSales) {
+    const dayKey = (s.dateSold || '').split(' ')[0].trim();
+    if (!dayKey) continue;
+    const d = new Date(dayKey);
+    if (!Number.isFinite(d.getTime())) continue;
+    const ws = new Date(d); ws.setDate(ws.getDate() - ws.getDay());
+    const wk = ws.toISOString().slice(0, 10);
+    const rep = s.rep || 'Unknown';
+    if (!_fullWeeklyByRep[rep]) _fullWeeklyByRep[rep] = {};
+    _fullWeeklyByRep[rep][wk] = (_fullWeeklyByRep[rep][wk] || 0) + Number(s.contractValue || 0);
+  }
+  const allReps = Object.values(repMap).map(r => {
+    const count = r.sales.length;
+    // MY % = multi-year contracts (anything other than 12 months) / all contract sales (12 + multi)
+    const ctTotal = r.twelve + r.multi;
+    const eligibleForPest = r.sales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
+    const avgPest = eligibleForPest.length > 0
+      ? eligibleForPest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / eligibleForPest.length
+      : 0;
+    // Avg Initial across ALL sales (including Sentricon / German Roach /
+    // Interior Flea) — useful for the raffle / overall pricing comp where
+    // every sale counts.
+    const avgInitial = r.sales.length > 0
+      ? r.sales.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / r.sales.length
+      : 0;
+    // Best Day / Week / Month: bucket the rep's sales by sold-DATE,
+    // sunday-anchored week, and YYYY-MM. `dateSold` is often
+    // "MM/DD/YY HH:MM AM/PM" so two sales on the same calendar day would
+    // otherwise live in different buckets and Best Day would just be the
+    // biggest single sale, not the biggest day total. Each record stores
+    // the dollar amount + a label for display, and a numeric timestamp so
+    // the column sorts by RECENCY.
+    const byDate = {}, byWeek = {}, byMonth = {};
+    r.sales.forEach(s => {
+      const dayKey = (s.dateSold || '').split(' ')[0].trim();
+      if (!dayKey) return;
+      const d = new Date(dayKey);
+      const v = Number(s.contractValue || 0);
+      byDate[dayKey] = (byDate[dayKey] || 0) + v;
+      if (!Number.isFinite(d.getTime())) return;
+      const ws = new Date(d); ws.setDate(ws.getDate() - ws.getDay());
+      const wk = ws.toISOString().slice(0, 10);
+      byWeek[wk] = (byWeek[wk] || 0) + v;
+      const mk = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      byMonth[mk] = (byMonth[mk] || 0) + v;
+    });
+    const pickBest = (obj) => {
+      let bestKey = '', bestVal = 0;
+      for (const [k, v] of Object.entries(obj)) {
+        if (v > bestVal) { bestVal = v; bestKey = k; }
+      }
+      return { key: bestKey, value: bestVal };
+    };
+    const bD = pickBest(byDate), bW = pickBest(byWeek), bM = pickBest(byMonth);
+    const bestDayTime   = bD.key ? new Date(bD.key).getTime() : 0;
+    const bestWeekTime  = bW.key ? new Date(bW.key).getTime() : 0;
+    const bestMonthTime = bM.key ? new Date(bM.key + '-01').getTime() : 0;
+    // 12-week revenue sparkline anchored at the dataset's last week so all
+    // reps line up on the same x-axis. Each bar is the full Sun–Sat sum
+    // for that week (showing a short bar for an in-progress week is
+    // expected — it's reality, and the eye reads it).
+    const weeklyTrend12 = [];
+    const fullByWeek = _fullWeeklyByRep[r.name] || {};
+    if (_globalLastWeekStart) {
+      for (let i = 11; i >= 0; i--) {
+        const ws = new Date(_globalLastWeekStart); ws.setDate(ws.getDate() - i * 7);
+        const key = ws.toISOString().slice(0, 10);
+        weeklyTrend12.push(fullByWeek[key] || 0);
+      }
+    }
+    // trendSlope uses APPLES-TO-APPLES windows — WTD vs the same number
+    // of days last week — so the sort key + arrow on the column doesn't
+    // falsely tag a steady rep as down 40% just because today is
+    // Wednesday. See _weekToDateWindows for the rationale.
+    let thisWeek = 0, lastWeek = 0;
+    if (_globalLatestDate) {
+      const wow = _weekToDateWindows(_globalLatestDate);
+      for (const s of r.sales) {
+        const d = _parseIndicatorDay(s);
+        if (!d) continue;
+        if (d >= wow.thisStart && d < wow.thisEnd) thisWeek += Number(s.contractValue || 0);
+        else if (d >= wow.lastStart && d < wow.lastEnd) lastWeek += Number(s.contractValue || 0);
+      }
+    }
+    const trendSlope = lastWeek > 0
+      ? (thisWeek / lastWeek) - 1
+      : (thisWeek > 0 ? 1 : 0);
+    return {
+      ...r,
+      count,
+      team: getRepTeam(r.name),
+      tier: getRepTier(r.name), // 'rookie' | 'vet' | ''
+      acv: count > 0 ? r.revenue / count : 0,
+      avgPest,
+      avgInitial,
+      myPct: ctTotal > 0 ? r.multi / ctTotal : 0,
+      autoPayPct: count > 0 ? r.autoPay / count : 0,
+      cancelPct: r.cancelEligible > 0 ? r.cancels / r.cancelEligible : 0,
+      // Audit % = accounts NOT flagged Failed Audit ÷ all accounts (passed,
+      // no-audit and pending all count as good — same rule as the branch row).
+      auditPct: count > 0 ? (count - (r.auditFail || 0)) / count : 0,
+      bestDay:        bD.value,
+      bestDayDate:    bD.key,
+      bestDayTime:    Number.isFinite(bestDayTime)   ? bestDayTime   : 0,
+      bestWeek:       bW.value,
+      bestWeekStart:  bW.key,
+      bestWeekTime:   Number.isFinite(bestWeekTime)  ? bestWeekTime  : 0,
+      bestMonth:      bM.value,
+      bestMonthKey:   bM.key,
+      bestMonthTime:  Number.isFinite(bestMonthTime) ? bestMonthTime : 0,
+      weeklyTrend12,
+      trendSlope,
+    };
+  });
+
+  // ── D2D MINI-COMPS (side-by-side) — hoisted to render directly under the
+  // Branch Power Ranking chart at the top of the rep-level section.
+  // Left: Top 15 reps by Avg Pest Initial, gated to 5+ accounts (the
+  // existing door-to-door comp — top 5 win, rows 6–15 are visibility
+  // into who's close). Right: Raffle Tickets ranking with CSV export.
+  //
+  // These comps run on a SEPARATE date window from the rest of the page —
+  // they're typically a 2-week competition period, not aligned to the
+  // weekly/range filter the indicators table uses. The user picks the
+  // window via a small filter bar above the cards (default: last 2 weeks
+  // ending at the most recent sale).
+  const RAFFLE_EXCLUDE_RE = /sentricon|german\s*roach|interior\s*flea/i;
+  const AVG_PEST_MIN_ACCOUNTS = 5;
+  const ticketsForInitial = (amount) => {
+    const v = Number(amount) || 0;
+    if (v >= 250) return 3;
+    if (v >= 200) return 2;
+    if (v >= 149) return 1;
+    return 0;
+  };
+  // Active = not cancelled AND status is Active (Frozen / Inactive / No are NOT
+  // active — a frozen account is paused, not generating recurring revenue).
+  // Robust across formats: RevHawk sends "Active"/"Frozen"; an old CSV sent
+  // "Yes"/"No".
+  const isActiveAccount = (s) => {
+    if (s.cancelDate) return false;
+    const _a = String(s.active || '').trim().toLowerCase();
+    return _a !== 'no' && _a !== 'frozen' && _a !== 'inactive';
+  };
+
+  function _latestSaleDate(sales) {
+    let latest = null;
+    for (const s of sales) {
+      const d = _parseIndicatorDay(s);
+      if (d && (!latest || d > latest)) latest = d;
+    }
+    return latest;
+  }
+  // Default the comp window to the prior 2 weeks ending at the latest sale.
+  // The user always adjusts from there, so we just expose two date inputs
+  // with a sensible starting position.
+  if (!state._indicatorCompFilter || !state._indicatorCompFilter.start || !state._indicatorCompFilter.end) {
+    const latest = _latestSaleDate(allRawSales || []);
+    if (latest) {
+      const end = new Date(latest);
+      const start = new Date(latest); start.setDate(start.getDate() - 13);
+      const fmtIso = (d) => d.toISOString().slice(0, 10);
+      state._indicatorCompFilter = { start: fmtIso(start), end: fmtIso(end) };
+    } else {
+      state._indicatorCompFilter = { start: '', end: '' };
+    }
+  }
+  const cf = state._indicatorCompFilter;
+
+  // ── D2D Comp section is built inside a closure so we can swap just THIS
+  // chunk of the DOM when the date inputs change, instead of triggering a
+  // full mountApp() that re-renders Chart.js canvases (which flicker).
+  // One merged card: Avg Pest Initial ranking + raffle ticket columns.
+  function buildD2DCompSection() {
+    // Extracted to buildAvgPestCompCard so the Competitions tab can render
+    // the SAME card (no more Indicators-only gatekeeping).
+    return buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExclusion, rerender: replaceD2DCompSection });
   }
 
   function replaceD2DCompSection() {
