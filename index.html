@@ -7205,7 +7205,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   function accountsTable(sales) {
     const sorted = [...sales].sort((a, b) => (a.dateSold || '').localeCompare(b.dateSold || ''));
     return el('div', { class: 'overflow-x-auto rounded border', style: { borderColor: 'var(--border)', background: 'var(--card)' } },
-      el('table', { class: 'w-full text-[11px]' },
+      el('table', { class: 'w-full text-[11px]', style: { minWidth: '900px' } },
         el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
           el('tr', { style: { background: 'var(--card-2)' } },
             el('th', { class: 'text-left px-2 py-1.5 whitespace-nowrap' }, 'Customer'),
@@ -7255,7 +7255,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                 }, cancelled ? 'Cancelled' : 'Active'),
               ),
               el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, s.cancelDate || '—'),
-              el('td', { class: 'px-2 py-1.5 text-muted- max-w-[240px] truncate', title: s.cancelReason || '' }, s.cancelReason || '—'),
+              el('td', { class: 'px-2 py-1.5 text-muted-', style: { minWidth: '150px', maxWidth: '260px', whiteSpace: 'normal', lineHeight: '1.35' }, title: s.cancelReason || '' }, s.cancelReason || '—'),
             );
           }),
         ),
@@ -7598,9 +7598,13 @@ function openIndicatorRepCard(rep, allReps = []) {
           const pct = sub.count / maxCount;
           const cancelRate = sub.count > 0 ? sub.cancels / sub.count : 0;
           const isOpen = subsExpanded === sub.name;
+          // Fixed grid so every column lines up: caret · name · bar · accts ·
+          // revenue · cancels. The bar always starts at the same x.
+          const SUB_GRID = '12px minmax(0, 1fr) clamp(110px, 24vw, 240px) 44px 84px 112px';
           const row = el('div', {
-            class: 'flex items-center gap-3 text-xs cursor-pointer rounded transition hover:brightness-95',
+            class: 'text-xs cursor-pointer rounded transition hover:brightness-95',
             style: {
+              display: 'grid', gridTemplateColumns: SUB_GRID, alignItems: 'center', columnGap: '10px',
               minHeight: ROW_HEIGHT + 'px',
               padding: '2px 4px',
               background: isOpen ? 'rgba(141,198,63,.10)' : 'transparent',
@@ -7609,24 +7613,24 @@ function openIndicatorRepCard(rep, allReps = []) {
             onclick: () => { subsExpanded = isOpen ? null : sub.name; renderBody(); },
           },
             el('span', {
-              class: 'inline-block text-muted- shrink-0',
+              class: 'inline-block text-muted-',
               style: { width: '10px', transition: 'transform .15s ease', transform: isOpen ? 'rotate(90deg)' : 'none', transformOrigin: 'center' },
             }, '▸'),
-            el('div', { class: 'truncate flex-1 min-w-0', title: sub.name }, sub.name),
-            el('div', { class: 'flex-1 max-w-[280px]', style: { background: 'var(--border)', height: '8px', borderRadius: '4px', overflow: 'hidden' } },
+            el('div', { class: 'truncate min-w-0', title: sub.name }, sub.name),
+            el('div', { style: { background: 'var(--border)', height: '8px', borderRadius: '4px', overflow: 'hidden' } },
               el('div', {
                 style: { width: (pct * 100).toFixed(1) + '%', height: '100%', background: 'var(--accent)' },
               }),
             ),
-            el('div', { class: 'tabular-nums font-semibold w-10 text-right' }, sub.count),
-            el('div', { class: 'tabular-nums text-muted- w-20 text-right' }, fmt.usd0(sub.revenue)),
+            el('div', { class: 'tabular-nums font-semibold text-right' }, sub.count),
+            el('div', { class: 'tabular-nums text-muted- text-right' }, fmt.usd0(sub.revenue)),
             sub.cancels > 0
               ? el('span', {
-                  class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0',
-                  style: { background: 'rgba(220,38,38,.10)', color: '#B91C1C' },
+                  class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded tabular-nums text-center',
+                  style: { background: 'rgba(220,38,38,.10)', color: '#B91C1C', justifySelf: 'end' },
                   title: sub.cancels + ' cancelled · ' + (cancelRate * 100).toFixed(1) + '% cancel rate',
                 }, sub.cancels + ' cncl · ' + (cancelRate * 100).toFixed(1) + '%')
-              : el('span', { class: 'text-[10px] text-muted- shrink-0' }, '0 cncl'),
+              : el('span', { class: 'text-[10px] text-muted- text-right', style: { justifySelf: 'end' } }, '0 cncl'),
           );
           if (!isOpen) return [row];
           const accounts = (scopedRep.sales || []).filter(s => ((s.subscription || '').trim() || 'Unknown') === sub.name);
@@ -20352,6 +20356,12 @@ function myStatsCard() {
   }
   const bestDay = Math.max(0, ...Object.values(byDay));
   const bestWeek = Math.max(0, ...Object.values(byWeek));
+  // Selling-day averages (YTD): only days with ≥1 sale count — days off never
+  // drag the average.
+  const _ytdDays = new Set(ytd.map(r => dayKey(r.d)));
+  const sellDays = _ytdDays.size;
+  const revPerDay = sellDays > 0 ? ytdRev / sellDays : 0;
+  const acctsPerDay = sellDays > 0 ? ytdCount / sellDays : 0;
 
   // Goal pace — where they SHOULD be today if the year tracked evenly.
   const goal = Number(p.annual_revenue_goal) || 0;
@@ -20384,7 +20394,10 @@ function myStatsCard() {
       stat('This Week', money(weekRev), null),
       stat('Streak', streak + (streak === 1 ? ' day' : ' days'), 'consecutive selling days · Sundays don\'t break it', streak >= 3 ? '#D97706' : null),
       stat('Best Day', bestDay > 0 ? money(bestDay) : '—', null),
-      stat('Best Week', bestWeek > 0 ? money(bestWeek) : '—', null)),
+      stat('Best Week', bestWeek > 0 ? money(bestWeek) : '—', null),
+      stat('Selling Days', String(sellDays), 'days with ≥1 sale · YTD'),
+      stat('$ / Selling Day', sellDays > 0 ? money(revPerDay) : '—', 'days off don\'t count'),
+      stat('Accts / Day', sellDays > 0 ? acctsPerDay.toFixed(1) : '—', 'per selling day')),
     ytdCount ? el('div', { class: 'text-[10px] mt-2', style: { color: 'var(--text-subtle)' } }, ytdCount + ' accounts YTD') : null);
 }
 
@@ -21014,7 +21027,19 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const trendSlope = lastWeek > 0
       ? (thisWeek / lastWeek) - 1
       : (thisWeek > 0 ? 1 : 0);
+    // Selling-day averages — only days the rep ACTUALLY SOLD count, so days
+    // off / skipped days never drag the average (exactly what the reps asked
+    // for; no start-date assumptions).
+    const _sellDaySet = new Set();
+    for (const s of r.sales) {
+      const d = _parseIndicatorDay(s);
+      if (d) _sellDaySet.add(d.toISOString().slice(0, 10));
+    }
+    const sellingDays = _sellDaySet.size;
     return {
+      sellingDays,
+      revPerDay:   sellingDays > 0 ? r.revenue / sellingDays : 0,
+      acctsPerDay: sellingDays > 0 ? count / sellingDays : 0,
       ...r,
       count,
       team: getRepTeam(r.name),
@@ -22088,6 +22113,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           title: 'Accounts not flagged Failed Audit ÷ all accounts (no-audit + pending count as good)',
         }, (r.auditPct * 100).toFixed(1) + '%')) },
     { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
+    // Selling-day metrics — averages over days WITH ≥1 sale only.
+    { key: 'sellingDays', label: 'Sell Days',   align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Days with at least one sale' }, fmt.int(r.sellingDays || 0)) },
+    { key: 'revPerDay',   label: '$ / Day',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average revenue per SELLING day (days off don\'t count)' }, fmt.usd0(r.revPerDay || 0)) },
+    { key: 'acctsPerDay', label: 'Accts / Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average accounts per SELLING day' }, (r.acctsPerDay || 0).toFixed(1)) },
     // Avg Pest Initial = avg of initialPrice EXCLUDING Sentricon / German Roach
     // / Interior Flea (matches the door-to-door comp). Avg Initial = avg of
     // every sale's initialPrice with no exclusions (overall pricing power).
