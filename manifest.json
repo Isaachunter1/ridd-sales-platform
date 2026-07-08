@@ -2,17 +2,14 @@
   "name": "RIDD Sales App",
   "short_name": "RIDD",
   "description": "Sales tracking, commissions, and payroll for RIDD Pest Control",
-  "start_url": "./?demo",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#1D1D1D",
   "theme_color": "#8DC63F",
   "orientation": "any",
   "icons": [
-    {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='96' fill='%231D1D1D'/%3E%3Ctext x='256' y='340' text-anchor='middle' font-family='Inter,sans-serif' font-weight='900' font-size='220' fill='%238DC63F'%3ER%3C/text%3E%3C/svg%3E",
-      "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }
