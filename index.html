@@ -7689,20 +7689,38 @@ function openRepProfileModal(repId) {
       el('button', { class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×'),
     ),
 
-    // Avatar + name + badges
+    // Avatar + name + badges. No email here (kept private to the Users tab).
+    // Clicking the avatar blows it up in a lightbox.
     el('div', { class: 'flex items-center gap-4 mb-5' },
-      avatarNode(profile.avatar_url, profile.initials, 'w-16 h-16 text-lg'),
+      (() => {
+        const av = el('button', {
+          class: 'shrink-0 rounded-full transition',
+          style: { lineHeight: '0', cursor: profile.avatar_url ? 'zoom-in' : 'default' },
+          title: profile.avatar_url ? 'Click to enlarge' : undefined,
+          onclick: () => {
+            if (!profile.avatar_url) return;
+            const lb = el('div', {
+              class: 'modal-overlay',
+              style: { zIndex: '10001', cursor: 'zoom-out' },
+              onclick: () => lb.remove(),
+            },
+              el('img', {
+                src: profile.avatar_url, alt: profile.full_name || 'Profile photo',
+                style: { width: 'min(70vw, 420px)', height: 'min(70vw, 420px)', objectFit: 'cover',
+                         borderRadius: '50%', boxShadow: '0 24px 80px rgba(0,0,0,.5)', border: '4px solid rgba(255,255,255,.9)' },
+              }),
+            );
+            document.body.append(lb);
+          },
+        }, avatarNode(profile.avatar_url, profile.initials, 'w-16 h-16 text-lg'));
+        return av;
+      })(),
       el('div', { class: 'flex-1' },
         el('div', { class: 'text-xl font-bold flex items-center gap-2 flex-wrap' },
           profile.full_name,
           ...repBadges.map(code => badgeChip(code)),
         ),
-        el('div', { class: 'text-xs text-muted- mt-0.5' },
-          // Role gets capitalized for display; the email stays in its
-          // canonical lowercase so it doesn't render as "Pere@Riddpest.Com".
-          el('span', {}, roleLabel(profile.role)),
-          (profile.email ? ' · ' + (profile.email || '').toLowerCase() : ''),
-        ),
+        el('div', { class: 'text-xs text-muted- mt-0.5' }, roleLabel(profile.role)),
       ),
     ),
 
@@ -14914,19 +14932,25 @@ function viewNrlaPublic() {
   // so far is a Sales-Rep (D2D) competition; Office Staff comps get their own
   // home here when they're built. Viewers land on their own type's tab.
   const COMP_REPTYPE_TABS = ['Sales Reps', 'Office Staff'];
-  if (!state._compsRepTypeTab) {
+  // Rep accounts are LOCKED to their own type's competitions — Sales Reps see
+  // only the D2D comps, Office Staff only the office comps (no tab switcher).
+  // Admins keep both tabs so they can watch everything.
+  const _repTabLocked = !isAdmin;
+  if (_repTabLocked || !state._compsRepTypeTab) {
     state._compsRepTypeTab = isOfficeStaffRole(state.profile.role) ? 'Office Staff' : 'Sales Reps';
   }
   const repTypeTab = COMP_REPTYPE_TABS.includes(state._compsRepTypeTab) ? state._compsRepTypeTab : 'Sales Reps';
-  wrap.append(el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
-    ...COMP_REPTYPE_TABS.map(t => {
-      const on = repTypeTab === t;
-      return el('button', {
-        class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
-        style: on ? { color: 'var(--text)', boxShadow: 'inset 0 -2px 0 var(--accent)' } : { color: 'var(--text-muted)' },
-        onclick: () => { state._compsRepTypeTab = t; mountApp(); },
-      }, t);
-    })));
+  if (!_repTabLocked) {
+    wrap.append(el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
+      ...COMP_REPTYPE_TABS.map(t => {
+        const on = repTypeTab === t;
+        return el('button', {
+          class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
+          style: on ? { color: 'var(--text)', boxShadow: 'inset 0 -2px 0 var(--accent)' } : { color: 'var(--text-muted)' },
+          onclick: () => { state._compsRepTypeTab = t; mountApp(); },
+        }, t);
+      })));
+  }
   if (repTypeTab === 'Office Staff') {
     wrap.append(el('div', { class: 'card p-10 text-center' },
       el('div', { class: 'text-2xl mb-2' }, '🏢'),
@@ -36463,9 +36487,10 @@ function openAvatarCropModal(file, onDone) {
           class: 'px-5 py-2 rounded-lg text-sm font-bold transition hover:brightness-95',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: () => {
-            // Export the circle's bounding square → 80×80 JPEG (same compact
-            // size as the old auto-crop, so localStorage stays happy).
-            const SIZE = 80;
+            // Export the circle's bounding square. 160px (≈8-15KB) — big
+            // enough that the profile-card lightbox looks clean, still small
+            // enough that a full roster of avatars loads instantly.
+            const SIZE = 160;
             const s = baseScale * zoom;
             const out = document.createElement('canvas');
             out.width = SIZE; out.height = SIZE;
