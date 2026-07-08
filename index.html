@@ -3538,8 +3538,10 @@ function mountAuth(opts = {}) {
       let logo = '';
       try { logo = localStorage.getItem(RIDD_LOGO_STORAGE_KEY) || ''; } catch { /* ignore */ }
       return /^data:image\//.test(logo)
-        ? el('img', { src: logo, alt: CFG.COMPANY_NAME, style: { height: '56px', display: 'block', marginBottom: '2px' } })
-        : el('div', { class: 'text-lime text-4xl font-display tracking-tight' }, CFG.COMPANY_NAME);
+        // brightness(0) renders the logo solid BLACK regardless of its source
+        // color — the uploaded mark is cream/white, invisible on this card.
+        ? el('img', { src: logo, alt: CFG.COMPANY_NAME, style: { height: '56px', display: 'block', marginBottom: '2px', filter: 'brightness(0)' } })
+        : el('div', { class: 'text-4xl font-display tracking-tight', style: { color: '#1D1D1D' } }, CFG.COMPANY_NAME);
     })(),
     el('div', { class: 'text-[10px] text-battleship tracking-[.22em] mb-2' }, CFG.COMPANY_TAGLINE),
     heading, subheading, emailField, passField, policyList, submitBtn, forgotBtn, inviteHint,
