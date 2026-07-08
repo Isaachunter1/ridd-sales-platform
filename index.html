@@ -33,6 +33,9 @@
 <!-- Boot-path network warmup: the app can't render until the Supabase SDK
      module arrives and the session/profile queries answer — start those
      connections during HTML parse instead of after the 1.8MB script parses. -->
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="RIDD" />
 <link rel="preconnect" href="https://esm.sh" crossorigin />
 <link rel="modulepreload" href="https://esm.sh/@supabase/supabase-js@2.45.4" />
 <link rel="preconnect" href="https://iqlrndyuiolbxhhwmsqv.supabase.co" crossorigin />
@@ -966,6 +969,7 @@ async function refreshIndicatorsFromCloud(force) {
     saveDemoData();
     toast('Indicators refreshed — pulled the latest upload (' + (payload.fileName || 'CSV') + ')', 'success');
     mountApp();
+    setTimeout(() => { try { maybeShowWeeklyRecap(); } catch { /* ignore */ } }, 800);
   } catch (e) { console.warn('[ridd] indicators cloud refresh failed', e); }
 }
 
@@ -2381,7 +2385,7 @@ const state = {
   // Calendar / shifts
   shifts: [],                  // { id, rep_id, date, start, end, slot_id, slot_start, slot_end, department, note, recurring }
   shiftSwapRequests: [],       // { id, shift_id, from_rep_id, to_rep_id, status, note, created_at, resolved_at }
-  calendarView: 'week',        // 'week' | 'month'
+  calendarView: 'month',       // 'week' | 'month' — month is the default (see-your-shifts view)
   calendarAnchor: null,        // ISO 'YYYY-MM-DD' — first day of the currently-viewed week/month window
   calendarDepartment: 'inside_sales', // 'inside_sales' | 'loyalty' — scopes the calendar to a department
   // Reporting tab — admin-only, populated by loadReportingMetadata()
@@ -2817,6 +2821,9 @@ async function loadAndRender() {
     // (they used to be two sequential network stages on every boot).
     await Promise.all([loadLookups(), loadData()]);
     mountApp();
+    // Weekly recap for reps — after the app paints. D2D reps whose dataset
+    // arrives via the async cloud pull get a second chance from that path.
+    setTimeout(() => { try { maybeShowWeeklyRecap(); } catch { /* ignore */ } }, 800);
   } catch (err) {
     console.error(err);
     mountError(err);
@@ -2829,6 +2836,16 @@ async function loadAndRender() {
 // Data loaders
 // ──────────────────────────────────────────────────────────────────────────
 async function loadProfile() {
+  // Defensive: some entry paths (password recovery, stale tabs) can get here
+  // before the auth listener has populated state.session — self-heal from
+  // the SDK instead of crashing on session.user.
+  if (!state.session) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) state.session = session;
+    } catch { /* fall through to the explicit error below */ }
+  }
+  if (!state.session) throw new Error('No active session — please sign in again.');
   const uid  = state.session.user.id;
   const user = state.session.user;
   // maybeSingle() returns null instead of throwing when no row matches —
@@ -2915,6 +2932,46 @@ async function loadLookups() {
   state.contractTypes = (contractTypes.data && contractTypes.data.length)
     ? contractTypes.data
     : DEFAULT_CONTRACT_TYPES.map(c => ({ ...c }));
+}
+
+// ── Shared calendar (shifts + swap requests) ──────────────────────────────
+// Shifts used to live only in each browser's localStorage — an admin's
+// schedule was invisible to everyone else. They now mirror through ONE
+// shared row (public.calendar_store): loaded on boot, and any local change
+// (create/delete/split/transfer/swap — every path funnels through mountApp)
+// is fingerprint-detected and pushed, debounced. Reps can write too: shift
+// swaps are rep actions.
+let _calCloudFp = null, _calPushT = null, _calLoaded = false;
+const _calFp = () => { try { return JSON.stringify([state.shifts, state.shiftSwapRequests]); } catch { return ''; } };
+async function loadCalendarFromCloud() {
+  if (DEMO || !supabase || !state.profile) return;
+  try {
+    const { data, error } = await supabase.from('calendar_store').select('data').eq('id', 1).maybeSingle();
+    if (error) { console.warn('[ridd] calendar cloud load skipped (run calendar_store.sql?)', error.message); return; }
+    const d = (data && data.data) || null;
+    if (d && Array.isArray(d.shifts)) state.shifts = d.shifts;
+    if (d && Array.isArray(d.swaps))  state.shiftSwapRequests = d.swaps;
+    _calCloudFp = _calFp();
+    _calLoaded = true;     // pushes only start once the server copy is in — no stale clobbers
+  } catch (e) { console.warn('[ridd] calendar cloud load skipped', e); }
+}
+function _calendarCloudAutoSync() {
+  if (DEMO || !supabase || !state.profile || !_calLoaded) return;
+  const fp = _calFp();
+  if (fp === _calCloudFp) return;
+  _calCloudFp = fp;
+  clearTimeout(_calPushT);
+  _calPushT = setTimeout(async () => {
+    try {
+      const { error } = await supabase.from('calendar_store').upsert({
+        id: 1,
+        data: { shifts: state.shifts || [], swaps: state.shiftSwapRequests || [] },
+        updated_by: state.profile.id,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) console.warn('[ridd] calendar cloud push failed', error.message);
+    } catch (e) { console.warn('[ridd] calendar cloud push failed', e); }
+  }, 800);
 }
 
 // ── View-as (admin role preview) ─────────────────────────────────────────
@@ -3017,6 +3074,7 @@ async function loadData() {
   // and on every rep's view. Fire-and-forget — localStorage already
   // populated state.companyLogo for instant first render.
   loadCompanyLogo().catch(err => console.warn('[ridd] company logo load skipped', err));
+  loadCalendarFromCloud().then(() => scheduleBackgroundRemount()).catch(err => console.warn('[ridd] calendar load skipped', err));
   loadCommissionConfig().catch(err => console.warn('[ridd] commission config load skipped', err));
   loadCompanyGoal().then(() => scheduleBackgroundRemount()).catch(err => console.warn('[ridd] company goal load skipped', err));
   loadAppSettings().then(() => scheduleBackgroundRemount()).catch(err => console.warn('[ridd] pay settings load skipped', err));
@@ -3149,9 +3207,19 @@ function mountAuth(opts = {}) {
           }
           const { error } = await supabase.auth.updateUser({ password });
           if (error) throw error;
+          // Make sure boot state carries the session before rendering the
+          // app. The recovery flow can reach this point without the auth
+          // listener ever having populated state.session (event-timing
+          // races) — loadProfile() would then crash on session.user and the
+          // rep would be stuck on this form until a manual refresh.
+          state.session = recSession;
+          try {
+            const { data: { session: _fresh } } = await supabase.auth.getSession();
+            if (_fresh) state.session = _fresh;
+          } catch { /* recSession already set */ }
           toast('Password updated — signing you in.', 'success');
           history.replaceState(null, '', window.location.pathname + window.location.search);
-          loadAndRender();
+          await loadAndRender();
         }
       } catch (err) {
         toast(err.message || 'Auth failed', 'error');
@@ -3241,7 +3309,15 @@ function mountAuth(opts = {}) {
   }
 
   form.append(
-    el('div', { class: 'text-lime text-4xl font-display tracking-tight' }, CFG.COMPANY_NAME),
+    // Real company logo when this browser has it cached (same cache the boot
+    // splash uses); the text wordmark only on a first-ever visit.
+    (() => {
+      let logo = '';
+      try { logo = localStorage.getItem(RIDD_LOGO_STORAGE_KEY) || ''; } catch { /* ignore */ }
+      return /^data:image\//.test(logo)
+        ? el('img', { src: logo, alt: CFG.COMPANY_NAME, style: { height: '56px', display: 'block', marginBottom: '2px' } })
+        : el('div', { class: 'text-lime text-4xl font-display tracking-tight' }, CFG.COMPANY_NAME);
+    })(),
     el('div', { class: 'text-[10px] text-battleship tracking-[.22em] mb-2' }, CFG.COMPANY_TAGLINE),
     heading, subheading, emailField, passField, policyList, submitBtn, forgotBtn, inviteHint,
   );
@@ -4029,10 +4105,12 @@ const INSIDE_SALES_TABS = [
   ['pay',          'Pay'],
   ['scorecards',   'Scorecards'],
   ['calendar',     'Calendar'],
-  ['competitions', 'Competitions'],
+  // 'competitions' sub-tab hidden — comps live on the top-level Competitions
+  // tab now. The VIEW stays reachable (deep links / legacy hash) via the key
+  // set below, it just doesn't render a sub-tab button anymore.
   ['hall_of_fame', 'Hall of Fame'],
 ];
-const INSIDE_SALES_TAB_KEYS = new Set(INSIDE_SALES_TABS.map(([k]) => k));
+const INSIDE_SALES_TAB_KEYS = new Set([...INSIDE_SALES_TABS.map(([k]) => k), 'competitions']);
 // Sales access — who gets the full Inside Sales group. Sellers (rep /
 // admin_rep, incl. loyalty reps via rep_type) and admins see everything;
 // auditors only need the Sales tab so they can audit sales. Everything
@@ -4210,6 +4288,31 @@ function openMySettingsModal() {
       el('div', { class: 'flex flex-col gap-2' },
         secLabel('Change Password'),
         pw1, pw2, policyList, pwBtn),
+      el('div', { class: 'flex flex-col gap-2' },
+        secLabel('Get the App on Your Phone'),
+        (() => {
+          const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent || '');
+          const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+          if (standalone) {
+            return el('div', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, '✓ Installed — you\'re running RIDD from your home screen.');
+          }
+          if (window._riddInstallEvt) {
+            return el('button', {
+              class: 'rounded-lg px-4 py-2 text-sm font-bold border transition hover:brightness-95 self-start',
+              style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
+              onclick: async (e) => {
+                const evt = window._riddInstallEvt;
+                window._riddInstallEvt = null;
+                e.currentTarget.disabled = true;
+                try { evt.prompt(); } catch { /* user dismissed */ }
+              },
+            }, '📲 Install on this device');
+          }
+          return el('div', { class: 'text-xs', style: { color: 'var(--text-muted)', lineHeight: '1.5' } },
+            isIOS
+              ? 'On iPhone: open this page in Safari, tap the Share button, then "Add to Home Screen" — RIDD installs like a real app.'
+              : 'Open this page in Chrome or Edge and use the browser\'s "Install app" option (⋮ menu) to put RIDD on your home screen.');
+        })()),
       el('div', { class: 'pt-3 border-t flex' , style: { borderColor: 'var(--border)' } },
         el('button', {
           class: 'text-xs font-semibold transition hover:underline',
@@ -4477,6 +4580,10 @@ function mountApp() {
   shell.append(main);
   shell.append(mobileBottomNav());
   mount(shell);
+
+  // Shared-calendar sync — every shift/swap mutation ends in a mountApp(),
+  // so this one hook catches them all (fingerprint no-ops when unchanged).
+  try { _calendarCloudAutoSync(); } catch { /* best-effort */ }
 
   // View-as pill — while previewing another role the admin tabs are hidden,
   // so this floating pill is the way back. Lives on <body>, above everything.
@@ -10637,7 +10744,7 @@ function viewCalendar() {
   const repById = Object.fromEntries(reps.map(r => [r.id, r]));
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  if (!state.calendarAnchor) state.calendarAnchor = isoDate(startOfWeek(today));
+  if (!state.calendarAnchor) state.calendarAnchor = isoDate(state.calendarView === 'week' ? startOfWeek(today) : startOfMonth(today));
   const anchor = new Date(state.calendarAnchor + 'T00:00');
 
   const deptShiftIds = new Set(deptShifts().map(s => s.id));
@@ -14773,6 +14880,12 @@ function nrlaBoard(rawSales, opts) {
             ))))));
   })();
 
+  // Leaderboard-only mode — the Office Staff comps tab embeds JUST the Rep
+  // Leaderboard card (they follow the rep comp without the full D2D board).
+  if (opts && opts.leaderboardOnly) {
+    return el('div', { class: 'card overflow-hidden' }, repBoard);
+  }
+
   // ── Prize pool legend — always visible under the standings (the full
   // breakdown also lives in the ⓘ rules and the Final Standings card). ──
   const prizeStrip = el('div', { class: 'px-3 py-2 flex items-center gap-x-3 gap-y-1.5 flex-wrap border-t', style: { borderColor: 'var(--border)' } },
@@ -14956,7 +15069,11 @@ function viewNrlaPublic() {
       el('div', { class: 'text-2xl mb-2' }, '🏢'),
       el('div', { class: 'text-sm font-bold' }, 'Office Staff competitions are coming'),
       el('div', { class: 'text-xs mt-1', style: { color: 'var(--text-muted)' } },
-        'Everything running right now is a Sales-Rep (D2D) competition — flip to the Sales Reps tab to watch those. Office Staff comps will live here once they\'re built.')));
+        'Office Staff comps will live here once they\'re built.')));
+    // Office staff still get to FOLLOW the rep comp: the NRLA Rep Leaderboard
+    // rides along (read-only, with its own local scope picker).
+    const _nrla = comps.find(c => isNrlaComp(c));
+    if (_nrla) wrap.append(nrlaBoard(raw, { readOnly: !isAdmin, comp: _nrla, leaderboardOnly: true }));
     return wrap;
   }
   // Selection order: this session's pick → the ★ DEFAULT comp (admin-set,
@@ -19726,9 +19843,176 @@ function viewIndicators() {
     // REP-LEVEL ANALYTICS (computed from raw sales if available)
     // ════════════════════════════════════════════════════════════════
     ...(_focusedComp ? [] : (_repLite
-      ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard')
+      ? [myStatsCard(), ..._repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard')]
       : _repSections)),
   );
+}
+
+// ── Weekly recap (#9) — in-app, no Slack dependency. ─────────────────────
+// First time a rep opens the app each week, a recap card pops: last week's
+// production vs the week before, best day, accounts. Shown once per ISO week
+// per browser (localStorage stamp). Admins are skipped — this is rep candy.
+function maybeShowWeeklyRecap() {
+  try {
+    if ((typeof DEMO !== 'undefined' && DEMO) || !state.profile || isAdminRole(state.profile.role)) return;
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const monday = new Date(now); monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    const weekKey = monday.toISOString().slice(0, 10);
+    const KEY = 'ridd_recap_shown_for';
+    if (localStorage.getItem(KEY) === weekKey) return;
+
+    // Same dual-path rows as My Stats: CRM dataset by name (D2D), else logged sales.
+    const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+    const mySig = _sig(state.profile.full_name);
+    const d2d = (state._indicatorRawSales || []).filter(s => s && s.rep && _sig(getCanonicalRepName(s.rep)) === mySig)
+      .map(s => ({ d: _parseIndicatorDay(s), rev: Number(s.contractValue) || 0 })).filter(r => r.d);
+    const EXCLUDE = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
+    const rows = d2d.length ? d2d : (state.mySales || []).filter(s => !EXCLUDE.has(s.audit_status))
+      .map(s => ({ d: s.sold_date ? new Date(s.sold_date + 'T00:00') : null, rev: Number(s.revenue_amount) || 0 }))
+      .filter(r => r.d && !isNaN(r.d));
+    const lastMon = new Date(monday); lastMon.setDate(monday.getDate() - 7);
+    const prevMon = new Date(monday); prevMon.setDate(monday.getDate() - 14);
+    const inWin = (r, a, b) => r.d >= a && r.d < b;
+    const lastWk = rows.filter(r => inWin(r, lastMon, monday));
+    const prevWk = rows.filter(r => inWin(r, prevMon, lastMon));
+    if (!lastWk.length && !prevWk.length) { localStorage.setItem(KEY, weekKey); return; }  // nothing to recap
+
+    localStorage.setItem(KEY, weekKey);
+    const sum = (a) => a.reduce((s, r) => s + r.rev, 0);
+    const lastRev = sum(lastWk), prevRev = sum(prevWk);
+    const byDay = {};
+    lastWk.forEach(r => { const k = r.d.toISOString().slice(0, 10); byDay[k] = (byDay[k] || 0) + r.rev; });
+    const bestDayEntry = Object.entries(byDay).sort((a, b) => b[1] - a[1])[0] || null;
+    const money = (n) => '$' + Math.round(n || 0).toLocaleString();
+    const delta = lastRev - prevRev;
+    const cheer = lastRev === 0 ? 'Fresh week, clean slate — go get one today.'
+      : delta >= 0 && prevRev > 0 ? 'Up ' + money(delta) + ' on the week before — keep the streak rolling. 🔥'
+      : delta >= 0 ? 'On the board — build on it this week. 💪'
+      : 'Down ' + money(-delta) + ' vs the week before — this week\'s the bounce-back.';
+
+    const overlay = el('div', { class: 'modal-overlay' });
+    const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+    const key = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', key);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    const statBox = (label, val) => el('div', { class: 'rounded-lg border p-3 text-center', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+      el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+      el('div', { class: 'text-lg font-bold tabular-nums mt-1' }, val));
+    overlay.append(el('div', { class: 'card w-full max-w-sm p-5 flex flex-col gap-4' },
+      el('div', { class: 'flex items-center justify-between' },
+        el('div', {},
+          el('h2', { class: 'text-lg font-bold' }, '📬 Your Week in Review'),
+          el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
+            lastMon.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' – ' +
+            new Date(monday.getTime() - 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))),
+        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+      el('div', { class: 'grid grid-cols-3 gap-2' },
+        statBox('Revenue', money(lastRev)),
+        statBox('Accounts', String(lastWk.length)),
+        statBox('Best Day', bestDayEntry ? money(bestDayEntry[1]) : '—')),
+      prevRev > 0 || lastRev > 0 ? el('div', { class: 'text-xs text-center font-semibold', style: { color: delta >= 0 ? '#1b7f3b' : '#B45309' } },
+        (prevRev > 0 ? (delta >= 0 ? '▲ ' : '▼ ') + money(Math.abs(delta)) + ' vs the week before · ' : '') + cheer) : null,
+      el('button', {
+        class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95',
+        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: close,
+      }, 'Let\'s go')));
+    document.body.append(overlay);
+  } catch (e) { console.warn('[ridd] weekly recap skipped', e); }
+}
+
+// ── My Stats — the rep's personal card at the top of their Indicators. ────
+// Goal pace uses the goal THEY set in ⚙ My Settings. Sales come from the
+// shared CRM dataset matched by name (D2D reps); office staff fall back to
+// the sales they logged in the app. Returns null when there's nothing to
+// show yet.
+function myStatsCard() {
+  const p = state.profile || {};
+  const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const mySigName = _sig(p.full_name);
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  const jan1 = new Date(now.getFullYear(), 0, 1);
+
+  // D2D path: match this rep's rows in the shared dataset by name signature.
+  const d2dSales = (state._indicatorRawSales || []).filter(s =>
+    s && s.rep && _sig(getCanonicalRepName(s.rep)) === mySigName);
+  let rows;
+  if (d2dSales.length) {
+    rows = d2dSales.map(s => ({ d: _parseIndicatorDay(s), rev: Number(s.contractValue) || 0 })).filter(r => r.d);
+  } else {
+    // Office-staff path: the sales they logged in the app.
+    const EXCLUDE = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
+    rows = (state.mySales || []).filter(s => !EXCLUDE.has(s.audit_status))
+      .map(s => ({ d: s.sold_date ? new Date(s.sold_date + 'T00:00') : null, rev: Number(s.revenue_amount) || 0 }))
+      .filter(r => r.d && !isNaN(r.d));
+  }
+  if (!rows.length && !(p.annual_revenue_goal > 0)) return null;
+
+  const ytd = rows.filter(r => r.d >= jan1);
+  const ytdRev = ytd.reduce((a, r) => a + r.rev, 0);
+  const ytdCount = ytd.length;
+  // This week (Mon–Sun window containing today).
+  const dow = (now.getDay() + 6) % 7;                       // Mon=0
+  const wkStart = new Date(now); wkStart.setDate(now.getDate() - dow);
+  const weekRev = rows.filter(r => r.d >= wkStart && r.d <= now).reduce((a, r) => a + r.rev, 0);
+  // Streak: consecutive selling DAYS (Sundays don't break it) ending today
+  // or yesterday.
+  const dayKey = (d) => d.toISOString().slice(0, 10);
+  const daysWith = new Set(rows.map(r => dayKey(r.d)));
+  let streak = 0;
+  const cur = new Date(now);
+  if (!daysWith.has(dayKey(cur))) cur.setDate(cur.getDate() - 1);   // today hasn't happened yet? start yesterday
+  for (;;) {
+    if (cur.getDay() === 0) { cur.setDate(cur.getDate() - 1); continue; }   // Sundays skip
+    if (!daysWith.has(dayKey(cur))) break;
+    streak++;
+    cur.setDate(cur.getDate() - 1);
+  }
+  // Personal bests (day + week) across everything loaded.
+  const byDay = {}, byWeek = {};
+  for (const r of rows) {
+    const dk = dayKey(r.d);
+    byDay[dk] = (byDay[dk] || 0) + r.rev;
+    const ws = new Date(r.d); ws.setDate(r.d.getDate() - ((r.d.getDay() + 6) % 7));
+    const wk = dayKey(ws);
+    byWeek[wk] = (byWeek[wk] || 0) + r.rev;
+  }
+  const bestDay = Math.max(0, ...Object.values(byDay));
+  const bestWeek = Math.max(0, ...Object.values(byWeek));
+
+  // Goal pace — where they SHOULD be today if the year tracked evenly.
+  const goal = Number(p.annual_revenue_goal) || 0;
+  const yearFrac = (now - jan1) / (new Date(now.getFullYear() + 1, 0, 1) - jan1);
+  const expected = goal * yearFrac;
+  const delta = ytdRev - expected;
+  const pct = goal > 0 ? Math.min(100, Math.round(100 * ytdRev / goal)) : 0;
+
+  const money = (n) => '$' + Math.round(n || 0).toLocaleString();
+  const stat = (label, val, sub, color) => el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+    el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+    el('div', { class: 'text-lg font-bold tabular-nums mt-1', style: color ? { color } : {} }, val),
+    sub ? el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } }, sub) : null);
+
+  return el('div', { class: 'card p-4' },
+    el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
+      el('div', { class: 'text-sm font-bold' }, '⭐ My Stats'),
+      el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
+        goal > 0 ? 'Goal set in ⚙ My Settings' : 'Set your annual goal in ⚙ My Settings to track your pace')),
+    goal > 0 ? el('div', { class: 'mb-3' },
+      el('div', { class: 'flex items-baseline justify-between text-xs mb-1' },
+        el('span', { class: 'font-semibold' }, money(ytdRev) + ' of ' + money(goal) + ' YTD'),
+        el('span', { class: 'font-bold tabular-nums', style: { color: delta >= 0 ? '#1b7f3b' : '#DC2626' } },
+          (delta >= 0 ? '▲ ' + money(delta) + ' ahead of pace' : '▼ ' + money(-delta) + ' behind pace'))),
+      el('div', { style: { height: '10px', borderRadius: '6px', background: 'var(--card-2)', overflow: 'hidden', position: 'relative' } },
+        el('div', { style: { height: '100%', width: pct + '%', background: 'var(--accent)', borderRadius: '6px' } }),
+        // Pace marker — where today sits in the year.
+        el('div', { title: 'Where today sits in the year', style: { position: 'absolute', top: '0', bottom: '0', left: Math.min(99.5, yearFrac * 100) + '%', width: '2px', background: 'var(--text)' } }))) : null,
+    el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
+      stat('This Week', money(weekRev), null),
+      stat('Streak', streak + (streak === 1 ? ' day' : ' days'), 'consecutive selling days · Sundays don\'t break it', streak >= 3 ? '#D97706' : null),
+      stat('Best Day', bestDay > 0 ? money(bestDay) : '—', null),
+      stat('Best Week', bestWeek > 0 ? money(bestWeek) : '—', null)),
+    ytdCount ? el('div', { class: 'text-[10px] mt-2', style: { color: 'var(--text-subtle)' } }, ytdCount + ' accounts YTD') : null);
 }
 
 // ── Rep-level sections for Indicators tab ──
@@ -28052,6 +28336,16 @@ async function autoDeriveIndicatorsFromSnapshot() {
     if (state.view === 'indicators') mountApp();
   } catch (e) { console.warn('[ridd] auto-derive indicators failed', e); state._indicatorsBuiltFromUploadId = null; }
 }
+
+// ── Home-screen install (#8) ──────────────────────────────────────────────
+// Chrome/Edge/Android fire beforeinstallprompt when the app is installable;
+// we stash it so ⚙ My Settings can offer a real Install button. iOS never
+// fires it — the settings sheet shows Add-to-Home-Screen instructions there.
+window._riddInstallEvt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  window._riddInstallEvt = e;
+});
 
 // ── Hover tooltips ────────────────────────────────────────────────────────
 // One styled bubble for the whole app. Anything carrying a title (every
