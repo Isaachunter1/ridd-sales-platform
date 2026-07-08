@@ -371,13 +371,36 @@ exports.handler = async (event) => {
       .upload(path, gz, { contentType: 'application/gzip', upsert: true });
     if (upErr) throw new Error('storage upload failed: ' + upErr.message);
 
-    const { error: envErr } = await supabase.from('reporting_uploads').insert({
+    const { data: envRow, error: envErr } = await supabase.from('reporting_uploads').insert({
       filename: 'RevHawk live sync — ' + new Date().toISOString().slice(0, 10),
       row_count: objects.length,
       uploaded_by: null,
       storage_path: path,
-    });
+    }).select('id, uploaded_at').single();
     if (envErr) throw new Error('envelope insert failed: ' + envErr.message);
+
+    // ── Server-side Indicators derive ──────────────────────────────────
+    // THE server is the one writer of the shared indicators dataset now.
+    // Browsers used to derive + push this blob themselves, which meant any
+    // stale open tab could clobber everyone (and phones stuck on month-old
+    // caches were "current" as far as they knew). Deriving here, from the
+    // exact rows just snapshotted, gives one authoritative copy per sync.
+    // Failure is non-fatal: clients keep their auto-derive as a fallback.
+    let indicatorsError = null;
+    try {
+      const { deriveIndicatorsPayload } = require('./lib/indicators-derive.js');
+      const uploadedAt = (envRow && envRow.uploaded_at) || new Date().toISOString();
+      const payload = deriveIndicatorsPayload(objects, uploadedAt,
+        'RevHawk sync — ' + new Date(uploadedAt).toLocaleDateString('en-US', { timeZone: 'America/New_York' }));
+      const indGz = zlib.gzipSync(Buffer.from(JSON.stringify(payload)), { level: 9 });
+      const { error: indErr } = await supabase.storage.from('reporting')
+        .upload('indicators/latest.json.gz', indGz, { contentType: 'application/gzip', upsert: true });
+      if (indErr) throw new Error(indErr.message);
+      console.log('[revhawk-sync] indicators derived server-side: ' + payload.rawSales.length + ' sales, ' + payload.indicatorsData.length + ' agg rows, ' + indGz.length + ' bytes gz');
+    } catch (ie) {
+      indicatorsError = String((ie && ie.message) || ie);
+      console.error('[revhawk-sync] server-side indicators derive failed (clients will fall back):', indicatorsError);
+    }
 
     // ── Prune old auto-sync snapshots (best-effort) ──
     // At the every-30-min cadence the bucket would otherwise grow by ~48
