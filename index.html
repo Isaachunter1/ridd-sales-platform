@@ -19465,15 +19465,32 @@ function viewIndicators() {
           isRange && el('div', { class: 'text-xs text-muted-' },
             rangeBounds.start + ' → ' + rangeBounds.end + ' · ' + weeks.length + ' week' + (weeks.length === 1 ? '' : 's')),
           ), // close inline title + date row
-          state.indicatorsUploadedAt && el('div', { class: 'text-[11px] text-muted- mt-0.5' },
-            'Last upload: ',
-            el('span', { class: 'font-semibold', style: { color: 'var(--text)' } },
-              new Date(state.indicatorsUploadedAt).toLocaleString('en-US', {
-                month: 'short', day: 'numeric', year: 'numeric',
-                hour: 'numeric', minute: '2-digit',
-              })),
-            state.indicatorsFileName ? ' · ' + state.indicatorsFileName : '',
-          ),
+          state.indicatorsUploadedAt && (() => {
+            // Self-healing freshness stamp. The dataset label ("RevHawk sync —
+            // M/D/YYYY") is written by the rebuild itself, so if the stored
+            // timestamp LAGS the label (seen after a partial state restore),
+            // the label wins: show the newest snapshot's real time for that
+            // day and quietly repair the stored value.
+            let t = new Date(state.indicatorsUploadedAt);
+            const m = /RevHawk sync — (\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(state.indicatorsFileName || '');
+            if (m) {
+              const labelDay = new Date(+m[3], +m[1] - 1, +m[2]);
+              if (isNaN(t) || t < labelDay) {
+                const up0 = (state.reportingUploads || [])[0];
+                const upT = up0 && up0.uploaded_at ? new Date(up0.uploaded_at) : null;
+                t = (upT && upT >= labelDay) ? upT : labelDay;
+                state.indicatorsUploadedAt = t.toISOString();   // repair for every other consumer
+              }
+            }
+            return el('div', { class: 'text-[11px] text-muted- mt-0.5' },
+              'Last upload: ',
+              el('span', { class: 'font-semibold', style: { color: 'var(--text)' } },
+                t.toLocaleString('en-US', {
+                  month: 'short', day: 'numeric', year: 'numeric',
+                  hour: 'numeric', minute: '2-digit',
+                })),
+              state.indicatorsFileName ? ' · ' + state.indicatorsFileName : '');
+          })(),
           ), // close left column of the title row
           el('div', { class: 'flex items-center gap-3' },
           // Power Ranking selector — pick which offices/teams are scored. Default
@@ -20224,7 +20241,8 @@ function viewIndicators() {
     // ════════════════════════════════════════════════════════════════
     ...(_focusedComp ? [] : (_repLite
       ? [
-          myStatsCard(),
+          // (My Stats card retired — the rep's own row is pinned to the top
+          // of the Rep Leaderboard instead, with their true rank.)
           // Performance Trends by Year — dept-scoped, so office staff see the
           // office book and sales reps see D2D.
           indicatorYoYTrendChart(),
@@ -22474,22 +22492,59 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           el('tbody', {},
             ...(displayReps.length === 0
               ? [el('tr', {}, el('td', { class: 'px-5 py-6 text-center text-xs text-muted-', colspan: repCols.length + 1 }, 'No reps match the current filters.'))]
-              : displayReps.map((r, i) => {
-                  return el('tr', {
-                    'data-replb': (r.name || '').toLowerCase(),
-                    class: 'border-t border- cursor-pointer transition hover:brightness-95',
-                    onclick: () => openIndicatorRepCard(r, allReps),
+              : (() => {
+                  // 📌 The signed-in rep's OWN row pinned first — bold, accent
+                  // stripe, keeps their true board rank — then the full list.
+                  const _meSig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+                  const mySig = _meSig(state.profile && state.profile.full_name);
+                  const myIdx = mySig ? displayReps.findIndex(r => _meSig(r.name) === mySig) : -1;
+                  const pinned = myIdx >= 0 ? [el('tr', {
+                    class: 'border-t cursor-pointer transition hover:brightness-95',
+                    style: { background: 'rgba(141,198,63,.10)', boxShadow: 'inset 3px 0 0 var(--accent)' },
+                    title: 'You — your live spot on the board (rank #' + (myIdx + 1) + ')',
+                    onclick: () => openIndicatorRepCard(displayReps[myIdx], allReps),
                   },
-                    el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: 'var(--accent)' } : {} }, i + 1),
-                    ...repCols.map(c => c.cell(r)),
-                  );
-                })),
+                    el('td', { class: 'pl-5 pr-2 py-2 font-black tabular-nums', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
+                    ...repCols.map(c => { const td2 = c.cell(displayReps[myIdx]); td2.style.fontWeight = '700'; return td2; }),
+                  )] : [];
+                  return [...pinned, ...displayReps.map((r, i) => {
+                    return el('tr', {
+                      'data-replb': (r.name || '').toLowerCase(),
+                      class: 'border-t border- cursor-pointer transition hover:brightness-95',
+                      onclick: () => openIndicatorRepCard(r, allReps),
+                    },
+                      el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: 'var(--accent)' } : {} }, i + 1),
+                      ...repCols.map(c => c.cell(r)),
+                    );
+                  })];
+                })()),
           ),
         ),
       ),
       // Mobile: stacked card per rep. Same data as the table, but laid out
       // top-down so it's readable on a phone without horizontal scroll.
       el('div', { class: 'sm:hidden p-3 flex flex-col gap-2' },
+        // 📌 Mobile: pinned "You" card first with the true rank.
+        ...(() => {
+          const _meSig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+          const mySig = _meSig(state.profile && state.profile.full_name);
+          const myIdx = mySig ? displayReps.findIndex(r => _meSig(r.name) === mySig) : -1;
+          if (myIdx < 0) return [];
+          const me = displayReps[myIdx];
+          return [el('div', {
+            class: 'rounded-lg border p-2.5 flex flex-col gap-1 cursor-pointer',
+            style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.10)', borderLeftWidth: '4px' },
+            onclick: () => openIndicatorRepCard(me, allReps),
+          },
+            el('div', { class: 'flex items-center gap-2' },
+              el('span', { class: 'font-black tabular-nums', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
+              el('span', { class: 'font-bold' }, me.name),
+              el('span', { class: 'ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You')),
+            el('div', { class: 'flex items-center justify-between text-[11px]' },
+              el('span', { class: 'text-muted-' }, (me.count || 0) + ' sales'),
+              el('span', { class: 'font-bold tabular-nums' }, fmt.usd0(me.revenue || 0)),
+              el('span', { class: 'text-muted- tabular-nums' }, fmt.usd0(me.revPerDay || 0) + '/day')))];
+        })(),
         ...(displayReps.length === 0
           ? [el('div', { class: 'text-center text-xs text-muted- italic py-6' }, 'No reps match the current filters.')]
           : displayReps.map((r, i) => {
