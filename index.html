@@ -3227,11 +3227,11 @@ function mobileBottomNav() {
   const items = isAuditor ? [
     ['sales', 'Sales', iconSales],
   ] : isRepOnly ? (isOfficeStaffM ? [
-    // Office Staff reps: Inside Sales essentials + Competitions.
+    // Office Staff reps: Inside Sales essentials + Competitions + Indicators.
     ['dashboard', 'Dashboard', iconDashboard],
     ['sales', 'Sales', iconSales],
-    ['pay', 'Pay', iconPay],
     ['nrla', 'Comps', iconTrophy],
+    ['indicators', 'Trends', iconChart],
   ] : [
     // Sales-Rep accounts: Competitions + rep-lite Indicators.
     ['nrla', 'Competitions', iconTrophy],
@@ -3954,7 +3954,7 @@ function mountApp() {
   const isOfficeStaff = isRepOnly && isOfficeStaffRole(state.profile.role);
   const isSalesRepType = isRepOnly && !isOfficeStaff;
   const repCanSee = (v) => v === 'nrla'
-    || (isSalesRepType && v === 'indicators')
+    || v === 'indicators'                                  // rep-lite Indicators for ALL rep types
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
   if (isRepOnly && !repCanSee(state.view)) {
     state.view = 'nrla';
@@ -3974,11 +3974,11 @@ function mountApp() {
   // 'inside_sales' is a virtual entry — clicking it lands on the last-used
   // Inside Sales sub-tab (default Dashboard).
   const navItems = (!isAdmin && !isAuditor) ? [
-    // Rep accounts: Sales Reps get Competitions + Indicators (rep-lite);
-    // Office Staff get Competitions + the Inside Sales group.
+    // Rep accounts: everyone gets Competitions + rep-lite Indicators;
+    // Office Staff additionally get the Inside Sales group.
     ...(isOfficeStaff ? [['inside_sales', 'Inside Sales', iconSales()]] : []),
     ['nrla', 'Competitions', iconTrophy()],
-    ...(isSalesRepType ? [['indicators', 'Indicators', iconChart()]] : []),
+    ['indicators', 'Indicators', iconChart()],
   ] : [
     // Auditors only have the Sales tab, so call the entry what it is.
     ['inside_sales', isAuditor ? 'Sales' : 'Inside Sales', iconSales()],
@@ -8770,7 +8770,8 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
         // the "what was sold" details change.
         const editableFields = {
           rep_id: modalState.rep_id,
-          customer_name: data.customer_name,
+          // First + Last inputs combine into the same stored field ("First Last").
+          customer_name: [String(data.customer_first || '').trim(), String(data.customer_last || '').trim()].filter(Boolean).join(' '),
           customer_number: data.customer_number || null,
           office_id: Number(data.office_id),
           service_type_id: Number(data.service_type_id),
@@ -8858,7 +8859,11 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
 
   form.append(
     el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-5' },
-      mk('Customer Name', inp('customer_name', { required: true, placeholder: 'e.g. Jane Smith', oninput: () => checkValidity() })),
+      // Customer name — split First | Last inside the same half of the row.
+      el('div', { class: 'grid grid-cols-2 gap-3' },
+        mk('First Name', inp('customer_first', { required: true, placeholder: 'e.g. Jane', oninput: () => checkValidity() })),
+        mk('Last Name',  inp('customer_last',  { required: true, placeholder: 'e.g. Smith', oninput: () => checkValidity() })),
+      ),
       mk('Customer #',    inp('customer_number', {
         required: true,
         placeholder: 'e.g. 10042',
@@ -9059,7 +9064,21 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
   // rebuildServiceOptions so the service dropdown has its filtered options.
   if (isEdit) {
     const setVal = (name, v) => { const el = form.querySelector(`[name="${name}"]`); if (el && v != null) el.value = v; };
-    setVal('customer_name', existingSale.customer_name);
+    // Split the stored name back into the First | Last inputs. Handles both
+    // "Jane Smith" and "Smith, Jane" spellings.
+    {
+      const full = String(existingSale.customer_name || '').trim();
+      let first = full, last = '';
+      if (full.includes(',')) {
+        const [l, f] = full.split(',');
+        first = (f || '').trim(); last = (l || '').trim();
+      } else {
+        const i = full.lastIndexOf(' ');
+        if (i > 0) { first = full.slice(0, i).trim(); last = full.slice(i + 1).trim(); }
+      }
+      setVal('customer_first', first);
+      setVal('customer_last', last);
+    }
     setVal('customer_number', existingSale.customer_number);
     setVal('office_id', existingSale.office_id);
     setVal('contract_type_id', existingSale.contract_type_id);
@@ -14350,6 +14369,31 @@ function viewNrlaPublic() {
       el('div', { class: 'text-sm font-bold' }, 'Loading the competitions…'),
       el('div', { class: 'text-xs mt-1', style: { color: 'var(--text-muted)' } },
         'Pulling the latest shared data — this page refreshes itself. If it never loads, an admin needs to run nrla_rep_access.sql in Supabase.')));
+    return wrap;
+  }
+  // ── Rep-type tabs — comps are organized by WHO competes. Everything built
+  // so far is a Sales-Rep (D2D) competition; Office Staff comps get their own
+  // home here when they're built. Viewers land on their own type's tab.
+  const COMP_REPTYPE_TABS = ['Sales Reps', 'Office Staff'];
+  if (!state._compsRepTypeTab) {
+    state._compsRepTypeTab = isOfficeStaffRole(state.profile.role) ? 'Office Staff' : 'Sales Reps';
+  }
+  const repTypeTab = COMP_REPTYPE_TABS.includes(state._compsRepTypeTab) ? state._compsRepTypeTab : 'Sales Reps';
+  wrap.append(el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
+    ...COMP_REPTYPE_TABS.map(t => {
+      const on = repTypeTab === t;
+      return el('button', {
+        class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
+        style: on ? { color: 'var(--text)', boxShadow: 'inset 0 -2px 0 var(--accent)' } : { color: 'var(--text-muted)' },
+        onclick: () => { state._compsRepTypeTab = t; mountApp(); },
+      }, t);
+    })));
+  if (repTypeTab === 'Office Staff') {
+    wrap.append(el('div', { class: 'card p-10 text-center' },
+      el('div', { class: 'text-2xl mb-2' }, '🏢'),
+      el('div', { class: 'text-sm font-bold' }, 'Office Staff competitions are coming'),
+      el('div', { class: 'text-xs mt-1', style: { color: 'var(--text-muted)' } },
+        'Everything running right now is a Sales-Rep (D2D) competition — flip to the Sales Reps tab to watch those. Office Staff comps will live here once they\'re built.')));
     return wrap;
   }
   // Selection order: this session's pick → the ★ DEFAULT comp (admin-set,
@@ -32561,6 +32605,7 @@ function viewAdmin() {
     ] },
     { label: 'Inside Sales Settings', items: [
       ['goals',   'Goals',          '🎯'],
+      ['sources', 'Sources',        '📣'],
       ['import',  'Import Sales',    '📥'],
       ['slack',   'Slack',          '💬'],
     ] },
@@ -32589,6 +32634,7 @@ function viewAdmin() {
     teams:   adminTeams,
     config:  adminConfigurations,
     uploads: adminUploads,
+    sources: adminSources,
     slack:   adminSlack,
     pricing: adminCommissions,   // "Commissions" — CRM commission rules by rep type
     import:  adminImport,
@@ -32697,20 +32743,9 @@ function adminConfigurations() {
         toggleRow('Active includes one-time', 'Count one-time active subs in “Subscriptions Active” (otherwise recurring only).', reportingActiveInclOneTime(), () => { setReportingActiveInclOneTime(!reportingActiveInclOneTime()); mountApp(); }),
         rule(),
         toggleRow('Exclude 3-day RORs from churn', 'Drop subs cancelled within 3 days of the sale (buyer’s remorse) from cancellation / attrition.', reportingExcludeRorChurn(), () => { setReportingExcludeRorChurn(!reportingExcludeRorChurn()); mountApp(); }),
-        rule(),
-        el('div', {},
-          el('div', { class: 'text-sm font-semibold mb-0.5' }, 'Exclude branches'),
-          el('div', { class: 'text-[11px] text-muted- mb-2' }, 'Tick a branch to exclude it from all company reporting. Ticked = excluded.'),
-          branches.length
-            ? el('div', { class: 'flex flex-col gap-1.5' },
-                ...branches.map(b => {
-                  const isExcl = excl.has(b);
-                  return el('label', { class: 'flex items-center gap-2 cursor-pointer' },
-                    el('input', { type: 'checkbox', checked: isExcl, onchange: (e) => { const s = reportingExcludedBranches(); if (e.target.checked) s.add(b); else s.delete(b); setReportingExcludedBranches(s); mountApp(); } }),
-                    el('span', { class: 'text-xs', style: isExcl ? { color: '#DC2626', textDecoration: 'line-through' } : {} }, b),
-                    isExcl ? el('span', { class: 'text-[9px] font-bold tracking-wider', style: { color: '#DC2626' } }, 'EXCLUDED') : null);
-                }))
-            : el('div', { class: 'text-xs text-muted-' }, 'No branches loaded yet — open Reporting once so the snapshot loads, then come back.')),
+        // ("Exclude branches" removed — per Isaac, there's no real case for
+        // excluding a branch from company reporting. reportingExcludedBranches
+        // plumbing kept; an empty set means nothing is excluded.)
       );
     })(),
     el('div', { class: 'flex flex-col gap-4' },
