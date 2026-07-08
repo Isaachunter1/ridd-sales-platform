@@ -20,6 +20,9 @@
 [functions."revhawk-sync-scheduled"]
   schedule = "*/30 * * * *"   # every 30 min — NRLA live scoreboard (was nightly 02:00 UTC)
 
+[functions."marketing-refresh-scheduled"]
+  schedule = "0 10 * * *"     # nightly ~5-6am ET — health-check + warm Windsor/GHL/QBO feeds
+
 [[headers]]
   for = "/*"
   [headers.values]

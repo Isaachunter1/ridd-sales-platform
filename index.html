@@ -4621,7 +4621,7 @@ function mountApp() {
       // nightly auto-sync still runs on its own.
       isAdmin && el('button', {
         class: 'icon-btn show' + (state._revhawkSyncing ? ' icon-spin' : ''),
-        title: state._revhawkSyncing ? 'Syncing…' : 'Sync — RevHawk (Reporting + Indicators) & QuickBooks',
+        title: state._revhawkSyncing ? 'Syncing…' : 'Sync everything — FieldRoutes (Reporting + Indicators + Comps), QuickBooks, Windsor ad spend & GoHighLevel leads',
         disabled: !!state._revhawkSyncing,
         onclick: (e) => syncFromRevHawk(e.currentTarget),
       }, iconSync(18)),
@@ -29001,8 +29001,12 @@ async function syncFromRevHawk(btn) {
     // QuickBooks marketing spend is served live from /api/qbo-spend (not a
     // stored snapshot), so refresh it inline — it's quick and independent of
     // the RevHawk snapshot below. Best-effort; a QBO hiccup never blocks sync.
+    // Bust every marketing feed so the next Marketing-tab open (or the QBO
+    // pull just below) grabs LIVE data past the browser + CDN caches.
+    state._mkBust = Date.now();
+    state._mkSpend = state._mkLeads = state._mkQbo = null;
     try {
-      const qr = await fetch('/api/qbo-spend');
+      const qr = await fetch('/api/qbo-spend?_=' + state._mkBust);
       const qj = qr.ok ? await qr.json() : null;
       if (qj && qj.bySourceMonth && Object.keys(qj.bySourceMonth).length) {
         state.reportingIsSpend = qj.bySourceMonth;
@@ -29912,10 +29916,11 @@ function viewMarketing() {
   }
   const wrap = el('div', { class: 'flex flex-col gap-4 w-full' });
 
-  // ── Feeds ──
-  const spendSlot = _mkFetch('_mkSpend', '/api/marketing-spend');   // { spendDaily: { ymd: [meta, google] } }
-  const leadsSlot = _mkFetch('_mkLeads', '/api/ghl-leads');         // { leadsBySource, bySourceMonth, total }
-  const qboSlot   = _mkFetch('_mkQbo',   '/api/qbo-spend');         // { bySourceMonth: { ym: { name: $ } } }
+  // ── Feeds (↻ Refresh busts the browser + CDN caches with a query param) ──
+  const _bust = state._mkBust ? ('?_=' + state._mkBust) : '';
+  const spendSlot = _mkFetch('_mkSpend', '/api/marketing-spend' + _bust);   // { spendDaily: { ymd: [meta, google] } }
+  const leadsSlot = _mkFetch('_mkLeads', '/api/ghl-leads' + _bust);         // { leadsBySource, bySourceMonth, total }
+  const qboSlot   = _mkFetch('_mkQbo',   '/api/qbo-spend' + _bust);         // { bySourceMonth: { ym: { name: $ } } }
 
   // ── Period picker ──
   const PERIODS = [['this_month', 'This Month'], ['last_month', 'Last Month'], ['last_90', 'Last 90 Days'], ['ytd', 'YTD']];
@@ -30036,12 +30041,28 @@ function viewMarketing() {
       el('h2', { class: 'text-xl font-bold' }, 'Marketing Pulse'),
       el('p', { class: 'text-xs', style: { color: 'var(--text-muted)' } },
         'Live: FieldRoutes revenue · Windsor ad spend · GoHighLevel leads · QuickBooks books')),
-    el('div', { class: 'inline-flex rounded-xl border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-      ...PERIODS.map(([k, lab]) => el('button', {
-        class: 'px-3 py-2 text-xs font-semibold transition',
-        style: period === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text)' },
-        onclick: () => { state._mkPeriod = k; mountApp(); },
-      }, lab)))));
+    el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      el('div', { class: 'inline-flex rounded-xl border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+        ...PERIODS.map(([k, lab]) => el('button', {
+          class: 'px-3 py-2 text-xs font-semibold transition',
+          style: period === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text)' },
+          onclick: () => { state._mkPeriod = k; mountApp(); },
+        }, lab))),
+      el('button', {
+        class: 'px-3 py-2 text-xs font-bold rounded-xl border transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Force-refresh all three feeds right now (bypasses the 30–60 min caches)',
+        onclick: () => { state._mkSpend = state._mkLeads = state._mkQbo = null; state._mkBust = Date.now(); mountApp(); },
+      }, '↻ Refresh'))));
+  // Pulled-at stamps — so it's always obvious how fresh each feed is.
+  (() => {
+    const stamp = (slot, name) => slot.data && slot.data.pulledAt
+      ? name + ' ' + new Date(slot.data.pulledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      : null;
+    const parts = [stamp(spendSlot, 'Windsor'), stamp(leadsSlot, 'GHL'), stamp(qboSlot, 'QuickBooks')].filter(Boolean);
+    if (parts.length) wrap.append(el('div', { class: 'text-[10px] -mt-2', style: { color: 'var(--text-subtle)' } },
+      'Feeds pulled: ' + parts.join(' · ') + ' — FieldRoutes revenue syncs every 30 min on its own'));
+  })();
 
   // ── KPI strip ──
   const cpa = mkAccounts > 0 && adSpend > 0 ? adSpend / mkAccounts : 0;
@@ -30166,10 +30187,37 @@ function viewMarketing() {
       el('h3', { class: 'text-sm font-bold' }, '📒 Books vs Platforms'),
       el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'QuickBooks “Advertising & Marketing” vs Windsor platform spend')),
     qboSlot.data
-      ? el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3' },
-          kpi('Books (QBO)', money0(qboSpend), 'this period'),
-          kpi('Platforms (Windsor)', money0(adSpend), 'Meta + Google'),
-          kpi('Gap', money0(qboSpend - adSpend), 'agency fees, vendors, LSA & everything else', Math.abs(qboSpend - adSpend) > adSpend * 0.15 ? '#B45309' : null))
+      ? el('div', {},
+          el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3' },
+            kpi('Books (QBO)', money0(qboSpend), 'this period'),
+            kpi('Platforms (Windsor)', money0(adSpend), 'Meta + Google'),
+            kpi('Gap', money0(qboSpend - adSpend), 'agency fees, vendors, LSA & everything else', Math.abs(qboSpend - adSpend) > adSpend * 0.15 ? '#B45309' : null)),
+          // Per-account breakdown — where the money actually sits in the
+          // books (branch allocations vs Executive Marketing show up HERE).
+          (() => {
+            const byAcct = {};
+            if (qboMonths) for (const [ym, entries] of Object.entries(qboMonths)) {
+              if (!/^\d{4}-\d{2}$/.test(ym)) continue;
+              const mEnd = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0);
+              const mStart = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1);
+              if (mEnd < p0 || mStart > p1) continue;
+              for (const [name, v] of Object.entries(entries)) byAcct[name] = (byAcct[name] || 0) + (Number(v) || 0);
+            }
+            const rows2 = Object.entries(byAcct).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+            if (!rows2.length) return el('p', { class: 'text-[11px] mt-3', style: { color: 'var(--text-muted)' } },
+              'No marketing expense booked in this period yet — journal entries land in the month they\'re DATED, so a reallocation dated last month shows under Last Month.');
+            const maxV = Math.max(1, ...rows2.map(([, v]) => Math.abs(v)));
+            return el('div', { class: 'mt-4 flex flex-col gap-1.5' },
+              el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'By account · ' + rows2.length),
+              ...rows2.slice(0, 14).map(([name, v]) => el('div', { class: 'flex items-center gap-3 text-xs' },
+                el('span', { class: 'truncate', style: { width: '190px', flex: '0 0 auto' } , title: name }, name),
+                el('div', { class: 'flex-1 rounded', style: { background: 'var(--border)', height: '8px', overflow: 'hidden' } },
+                  el('div', { style: { width: (Math.abs(v) / maxV * 100).toFixed(1) + '%', height: '100%', background: 'var(--accent)' } })),
+                el('span', { class: 'tabular-nums font-semibold text-right', style: { width: '86px', flex: '0 0 auto' } }, money0(v)))),
+              rows2.length > 14 ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '+ ' + (rows2.length - 14) + ' more accounts') : null,
+              el('div', { class: 'text-[10px] mt-1', style: { color: 'var(--text-subtle)' } },
+                'Entries appear in the month they\'re dated — a June-dated reallocation lives under Last Month.'));
+          })())
       : el('p', { class: 'text-xs mt-2', style: { color: 'var(--text-muted)' } },
           qboSlot.err
             ? 'QuickBooks isn\'t connected yet. One-time setup: create an Intuit app, run the OAuth flow, drop the four QBO_* env vars into Netlify (the walkthrough is at the top of netlify/functions/qbo-spend.js). Then this card reconciles your booked marketing expense against platform-reported spend — that gap is your agency fees and vendor invoices.'
