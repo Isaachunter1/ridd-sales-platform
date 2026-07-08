@@ -35344,7 +35344,7 @@ async function setProfileActive(p, active) {
 // Which rep-type tab a person belongs to. App users inherit their linked (or
 // email-matched) FieldRoutes type; otherwise infer from role.
 const REP_TYPE_TABS = ['All', 'Office Staff', 'Technician', 'Sales Rep'];
-const REP_TYPE_TAB_LABEL = { 'All': 'people', 'Office Staff': 'Office Staff', 'Technician': 'Technicians', 'Sales Rep': 'Sales Reps' };
+const REP_TYPE_TAB_LABEL = { 'All': 'All', 'Office Staff': 'Office Staff', 'Technician': 'Technicians', 'Sales Rep': 'Sales Reps' };
 
 function adminReps() {
   const host = el('div', { class: 'flex flex-col gap-4' });
