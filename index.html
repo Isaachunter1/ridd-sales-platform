@@ -715,7 +715,7 @@ const isAuditorRole = (r) => r === 'auditor';
 // role to the UI. Keeps the Users table, the editor dropdown, and the
 // profile menu in sync without scattering string-cases.
 const ROLE_LABEL = {
-  rep:        'Rep',
+  rep:        'Rep (legacy)',   // pre-migration accounts; behaves like its CRM type
   rep_sales:  'Rep - Sales Rep',
   rep_office: 'Rep - Office Staff',
   admin_rep:  'Admin + Sales',
@@ -36006,11 +36006,13 @@ function openUserEditor(existing = null, prefill = null) {
       }),
     ),
     (() => {
-      const seedRole = existing?.role || prefill?.role || 'rep_sales';
+      // No plain 'rep' option anymore — legacy 'rep' accounts preselect
+      // Rep - Sales Rep here, so saving them migrates to an explicit role.
+      let seedRole = existing?.role || prefill?.role || 'rep_sales';
+      if (seedRole === 'rep') seedRole = 'rep_sales';
       const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-3 py-2 text-sm' },
         el('option', { value: 'rep_sales',  selected: seedRole === 'rep_sales' },  'Rep - Sales Rep'),
         el('option', { value: 'rep_office', selected: seedRole === 'rep_office' }, 'Rep - Office Staff'),
-        el('option', { value: 'rep',        selected: seedRole === 'rep' },        'Rep (auto by CRM type)'),
         el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep' },  'Admin + Sales'),
         el('option', { value: 'admin',      selected: seedRole === 'admin' },      'Admin (no sales)'),
         el('option', { value: 'auditor',    selected: seedRole === 'auditor' },    'Auditor'),
