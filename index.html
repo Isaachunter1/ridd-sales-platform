@@ -539,6 +539,20 @@
 
     /* NRLA standings: pin Seed + Team while the money columns swipe */
     .nrla-standings th, .nrla-standings td { white-space: nowrap; }
+
+    /* NRLA hero on phones: the roster/ⓘ buttons + LAST SYNC stamp become one
+       tidy row under the chips (sync left, buttons right) instead of a
+       floating centered cluster. */
+    .nrla-hero-side {
+      flex-direction: row-reverse !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      width: 100%;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255,255,255,.14);
+    }
+    .nrla-hero-side > div:last-child { margin-top: 0 !important; text-align: left !important; }
     .nrla-standings th:nth-child(1), .nrla-standings td:nth-child(1) {
       position: sticky; left: 0; z-index: 2; background: var(--card);
       width: 42px; min-width: 42px; max-width: 42px;
@@ -14819,7 +14833,7 @@ function nrlaBoard(rawSales, opts) {
           chip('rgba(255,255,255,.16)', '#fff', 'Updates sent daily · RIDDMADE'),
         ),
       ),
-      el('div', { class: 'flex flex-col items-end shrink-0' },
+      el('div', { class: 'nrla-hero-side flex flex-col items-end shrink-0' },
         el('div', { class: 'flex items-center gap-2' },
           RO ? null : el('button', {
             class: 'cursor-pointer transition hover:brightness-95',
@@ -14936,23 +14950,23 @@ function nrlaBoard(rawSales, opts) {
   // ── Config strip ──
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
   const cfgBar = el('div', { class: 'px-3 py-2 flex items-center gap-2 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
-    lbl('Start date'),
+    el('span', { class: 'inline-flex items-center gap-2 whitespace-nowrap' }, lbl('Start date'),
     el('input', {
       type: 'date', value: cfg.start || '',
       class: 'rounded border px-2 py-1 text-xs',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       title: 'First day of Seeding Round 1 (rounds are 2-day blocks, Sundays skipped)',
       onchange: (e) => { cfg.start = e.target.value; save('start date → ' + (e.target.value || 'unset')); },
-    }),
+    })),
     el('span', { class: 'text-muted-' }, '→'),
-    lbl('End date'),
+    el('span', { class: 'inline-flex items-center gap-2 whitespace-nowrap' }, lbl('End date'),
     el('input', {
       type: 'date', value: cfg.end || '',
       class: 'rounded border px-2 py-1 text-xs',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       title: 'Last day of the Championship round — rounds auto-fill the window, last two become semifinal + championship. Update the two dates each year and the season lays itself out.',
       onchange: (e) => { cfg.end = e.target.value; save('end date → ' + (e.target.value || 'unset')); },
-    }),
+    })),
     el('span', { class: 'text-[11px] font-bold px-2 py-1 rounded', style: { background: 'rgba(242,20,140,.08)', color: PINK } },
       R.rounds.length ? R.seedN + ' seeding + semifinal + championship' : 'no rounds fit'),
     el('button', {
@@ -15434,39 +15448,54 @@ function viewNrlaPublic() {
       return t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' + t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     }
   })();
-  wrap.append(el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
-    el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Competition'),
-    ...comps.map(c => el('button', {
-      class: 'text-xs font-bold rounded-full px-3 py-1 border transition cursor-pointer whitespace-nowrap',
-      style: c.id === sel.id
-        ? { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' }
-        : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
-      title: c.favorite ? c.name + ' — the default competition everyone lands on' : c.name,
-      onclick: () => { state._compsTabSel = c.id; mountApp(); },
-    }, (c.favorite ? '★ ' : '') + c.name)),
-    isAdmin ? el('button', {
-      class: 'text-xs font-bold rounded-full px-3 py-1 border border-dashed cursor-pointer transition hover:brightness-95 ml-auto',
-      style: sel.favorite
-        ? { color: '#D97706', borderColor: '#D97706' }
-        : { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
-      title: sel.favorite
-        ? '“' + sel.name + '” is the default — everyone lands on it when opening this tab. Click to unset.'
-        : 'Make “' + sel.name + '” the default competition everyone lands on when opening this tab',
-      onclick: () => {
-        const on = !sel.favorite;
-        comps.forEach(c => { delete c.favorite; });   // only one default at a time
-        if (on) sel.favorite = true;
-        logActivity('comp_change', { detail: on ? sel.name + ' set as the DEFAULT competition' : sel.name + ' unset as default competition' });
-        saveDemoData();                                // syncs to every user
-        mountApp();
-      },
-    }, sel.favorite ? '★ Default' : '☆ Set as default') : null,
-    _compSyncStr ? el('div', {
-      class: (isAdmin ? '' : 'ml-auto ') + 'text-right',
-      title: 'When the FieldRoutes sync last landed — every board on this tab reads from that snapshot (refreshes every ~30 min)',
+  const _defaultBtnFor = (compact) => isAdmin ? el('button', {
+    class: compact
+      ? 'text-xs font-bold rounded-lg px-2.5 py-2 border border-dashed cursor-pointer transition hover:brightness-95 shrink-0'
+      : 'text-xs font-bold rounded-full px-3 py-1 border border-dashed cursor-pointer transition hover:brightness-95 ml-auto',
+    style: sel.favorite
+      ? { color: '#D97706', borderColor: '#D97706' }
+      : { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+    title: sel.favorite
+      ? '“' + sel.name + '” is the default — everyone lands on it when opening this tab. Click to unset.'
+      : 'Make “' + sel.name + '” the default competition everyone lands on when opening this tab',
+    onclick: () => {
+      const on = !sel.favorite;
+      comps.forEach(c => { delete c.favorite; });   // only one default at a time
+      if (on) sel.favorite = true;
+      logActivity('comp_change', { detail: on ? sel.name + ' set as the DEFAULT competition' : sel.name + ' unset as default competition' });
+      saveDemoData();                                // syncs to every user
+      mountApp();
     },
-      el('div', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Last sync'),
-      el('div', { class: 'text-[11px] font-bold tabular-nums' }, _compSyncStr)) : null));
+  }, compact ? (sel.favorite ? '★' : '☆') : (sel.favorite ? '★ Default' : '☆ Set as default')) : null;
+  const _stampFor = () => _compSyncStr ? el('div', {
+    class: 'text-right shrink-0',
+    title: 'When the FieldRoutes sync last landed — every board on this tab reads from that snapshot (refreshes every ~30 min)',
+  },
+    el('div', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Last sync'),
+    el('div', { class: 'text-[11px] font-bold tabular-nums' }, _compSyncStr)) : null;
+  wrap.append(el('div', { class: 'card p-3 flex flex-col gap-2', style: { borderLeft: '3px solid var(--text)' } },
+    // Desktop: pill row
+    el('div', { class: 'hidden sm:flex items-center gap-2 flex-wrap' },
+      el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Competition'),
+      ...comps.map(c => el('button', {
+        class: 'text-xs font-bold rounded-full px-3 py-1 border transition cursor-pointer whitespace-nowrap',
+        style: c.id === sel.id
+          ? { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' }
+          : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+        title: c.favorite ? c.name + ' — the default competition everyone lands on' : c.name,
+        onclick: () => { state._compsTabSel = c.id; mountApp(); },
+      }, (c.favorite ? '★ ' : '') + c.name)),
+      _defaultBtnFor(false),
+      _stampFor()),
+    // Mobile: one compact dropdown row (pills wrapped to 3 lines on phones)
+    el('div', { class: 'sm:hidden flex items-center gap-2' },
+      el('select', {
+        class: 'flex-1 min-w-0 rounded-lg border px-2 py-2.5 text-sm font-bold',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        onchange: (e) => { state._compsTabSel = e.target.value; mountApp(); },
+      }, ...comps.map(c => el('option', { value: c.id, selected: c.id === sel.id }, (c.favorite ? '★ ' : '') + c.name))),
+      _defaultBtnFor(true),
+      _stampFor())));
   // ── NRLA gets its own board (runs on its own schedule — no window bar) ──
   if (isNrlaComp(sel)) {
     wrap.append(nrlaBoard(raw, { readOnly: !isAdmin, comp: sel }));
