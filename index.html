@@ -13324,6 +13324,8 @@ function nrlaCompute(rawSales, compOverride) {
   // Passed/No Audit, pending = not flagged yet.
   const seasonStats = {};
   const repStats = {};             // team → { repName → per-rep season stats } (standings drill-down)
+  const accounts = [];             // every counted account (admin drill-down on the revenue columns)
+  const _roundIdxOf = (d) => { for (let i = 0; i < windows.length; i++) { if (d >= windows[i].d1 && d <= windows[i].d2) return i; } return -1; };
   teams.forEach(t => { seasonStats[t] = { total: 0, passed: 0, pending: 0, failed: 0, n: 0, repSet: new Set() }; repStats[t] = {}; });
   if (windows.length) for (const s of sales) {
     const d = _parseIndicatorDay(s);
@@ -13334,6 +13336,13 @@ function nrlaCompute(rawSales, compOverride) {
     const bucket = ((Number(s.initialPrice) || 0) < 99 || SC_FAIL_RE.test(s.customerFlags || '')) ? 'failed'
       : (scAuditPassed(s.customerFlags) ? 'passed' : 'pending');
     st.total += cv; st[bucket] += cv; st.n += 1;
+    accounts.push({
+      team: t,
+      rep: s.rep ? _cleanRepName(getCanonicalRepName(s.rep)) : '—',
+      customer: s.customer || '', customerId: s.customerId || '',
+      dateSold: s.dateSold || '', date: d,
+      revenue: cv, bucket, roundIdx: _roundIdxOf(d),
+    });
     if (s.rep) {
       st.repSet.add(s.rep);
       const rk = _cleanRepName(getCanonicalRepName(s.rep));
@@ -13446,7 +13455,7 @@ function nrlaCompute(rawSales, compOverride) {
   }
   const seasonDone = !!(rounds.length && rounds.every(r => r.done));
   return { comp, cfg, teams, rounds, standings, seeds, seedingDone, seedN, semiResults, placements,
-           seasonDone, seasonStats, repStats, roundRepStats, repsCompeting, rosters, usedFlyerSchedule: sched.flyer };
+           seasonDone, seasonStats, repStats, roundRepStats, repsCompeting, rosters, accounts, usedFlyerSchedule: sched.flyer };
 }
 
 // Rules popup for NRLA (the header ⓘ).
@@ -13991,6 +14000,117 @@ function openNrlaTeamRepsModal(team, R, nameOf) {
 
 // ── NRLA board — 2026 flyer vibe: night sky, big white letters, hot-pink and
 // signal-green copy. Seeding standings + playoff bracket + prize pool.
+// ── Admin drill-down: every account behind a revenue number ──────────────
+// kind: 'total' | 'passed' | 'pending' | 'failed' · team: branch key or null
+// (null = all teams) · scope: 'season' | round index. Accounts are collected
+// by nrlaCompute in the same pass that builds the season stats, so this list
+// always reconciles to the dollar with the cell that was clicked.
+function openNrlaAccountsModal(R, nameOf, opts) {
+  const NAVY = '#0E1C30', PINK = '#F2148C';
+  const kind  = (opts && opts.kind) || 'total';
+  const team  = (opts && opts.team) || null;
+  const scope = (opts && opts.scope) == null ? 'season' : String(opts.scope);
+  const KIND_LABEL = { total: 'Total Rev Sold', passed: 'Passed Rev', pending: 'Pending Rev', failed: 'Failed Rev' };
+  const scopeLabel = scope === 'season'
+    ? 'Season'
+    : (R.rounds[Number(scope)]
+        ? (R.rounds[Number(scope)].phase === 'seed' ? 'Round ' + R.rounds[Number(scope)].num
+           : R.rounds[Number(scope)].phase === 'semi' ? 'Semifinals' : 'Championship')
+        : 'Season');
+  const all = (R.accounts || []).filter(a =>
+    (team ? a.team === team : true)
+    && (scope === 'season' ? true : a.roundIdx === Number(scope))
+    && (kind === 'total' ? true : a.bucket === kind))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  const money2 = (v) => '$' + Math.round(v || 0).toLocaleString();
+  const BUCKET_CHIP = {
+    passed:  { t: 'Passed',  bg: 'rgba(27,127,59,.12)', c: '#1b7f3b' },
+    pending: { t: 'Pending', bg: 'rgba(217,119,6,.12)', c: '#D97706' },
+    failed:  { t: 'Failed',  bg: 'rgba(220,38,38,.10)', c: '#DC2626' },
+  };
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  const tbody = el('tbody', {});
+  const countEl = el('span', { class: 'text-[11px] font-bold', style: { color: 'rgba(255,255,255,.9)' } });
+  const renderRows = (q) => {
+    const needle = (q || '').trim().toLowerCase();
+    const rows = needle
+      ? all.filter(a => (a.customer + ' ' + a.customerId + ' ' + a.rep + ' ' + a.team).toLowerCase().includes(needle))
+      : all;
+    countEl.textContent = rows.length.toLocaleString() + ' account' + (rows.length === 1 ? '' : 's') + ' · ' + money2(rows.reduce((s, a) => s + a.revenue, 0));
+    tbody.innerHTML = '';
+    if (!rows.length) {
+      tbody.append(el('tr', {}, el('td', { class: 'px-3 py-6 text-center text-xs italic', colspan: '6', style: { color: 'var(--text-subtle)' } }, 'No accounts in this slice.')));
+      return;
+    }
+    rows.slice(0, 400).forEach((a, i) => {
+      const chip = BUCKET_CHIP[a.bucket] || BUCKET_CHIP.pending;
+      tbody.append(el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: i % 2 ? 'rgba(14,28,48,.04)' : 'transparent' } },
+        el('td', { class: 'px-3 py-2 tabular-nums', style: { color: 'var(--text-muted)' } }, a.customerId || '—'),
+        el('td', { class: 'px-2 py-2 font-semibold whitespace-nowrap' }, a.customer || '—'),
+        el('td', { class: 'px-2 py-2 whitespace-nowrap' }, a.rep),
+        el('td', { class: 'px-2 py-2 whitespace-nowrap', style: { color: 'var(--text-muted)' } }, nameOf(a.team)),
+        el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap' }, a.dateSold || (a.date ? a.date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) : '—')),
+        el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap text-right font-black' },
+          el('span', { class: 'text-[9px] font-bold uppercase px-1.5 py-0.5 rounded mr-2 align-middle', style: { background: chip.bg, color: chip.c } }, chip.t),
+          money2(a.revenue)),
+      ));
+    });
+    if (rows.length > 400) tbody.append(el('tr', {}, el('td', { class: 'px-3 py-3 text-center text-[11px] italic', colspan: '6', style: { color: 'var(--text-subtle)' } }, 'Showing top 400 by value — search to narrow, or export the CSV for everything.')));
+  };
+  const search = el('input', {
+    class: 'rounded px-2 py-1 text-[11px]', placeholder: 'Search customer / rep / ID…',
+    style: { border: 'none', background: 'rgba(255,255,255,.25)', color: '#fff', minWidth: '180px' },
+    oninput: (e) => renderRows(e.target.value),
+  });
+  const csvBtn = el('button', {
+    class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
+    style: { background: 'rgba(255,255,255,.25)', color: '#fff' },
+    title: 'Download this list as a CSV',
+    onclick: () => {
+      const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      const csv = ['Customer ID,Customer,Rep,Team,Date Sold,Status,Contract Value']
+        .concat(all.map(a => [a.customerId, a.customer, a.rep, nameOf(a.team), a.dateSold, a.bucket, a.revenue].map(esc).join(',')))
+        .join('\n');
+      const aEl = document.createElement('a');
+      aEl.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      aEl.download = ('NRLA ' + (team ? nameOf(team) + ' ' : '') + KIND_LABEL[kind] + ' ' + scopeLabel + '.csv').replace(/\s+/g, '_');
+      aEl.click();
+      URL.revokeObjectURL(aEl.href);
+    },
+  }, '⬇ CSV');
+
+  const card = el('div', { class: 'card w-full max-w-3xl overflow-hidden flex flex-col', style: { maxHeight: '84vh' } },
+    el('div', { class: 'flex items-center justify-between gap-2 flex-wrap px-4 py-2.5', style: { background: NAVY } },
+      el('div', {},
+        el('div', { style: { fontFamily: 'var(--font-display)', fontSize: '.95rem', letterSpacing: '.14em', color: '#fff', textTransform: 'uppercase' } },
+          (team ? nameOf(team) : 'All Teams') + ' · ' + KIND_LABEL[kind]),
+        el('div', { class: 'text-[10px] font-bold', style: { color: PINK } }, scopeLabel + ' · ', countEl)),
+      el('div', { class: 'flex items-center gap-2' }, search, csvBtn,
+        el('button', { class: 'text-xl leading-none', style: { color: '#fff' }, onclick: close }, '×'))),
+    el('div', { class: 'overflow-y-auto' },
+      el('table', { class: 'w-full text-xs' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: '#0E1C30', color: '#fff' } },
+          el('tr', {},
+            el('th', { class: 'text-left px-3 py-2 font-bold' }, 'Cust ID'),
+            el('th', { class: 'text-left px-2 py-2 font-bold' }, 'Customer'),
+            el('th', { class: 'text-left px-2 py-2 font-bold' }, 'Rep'),
+            el('th', { class: 'text-left px-2 py-2 font-bold' }, 'Team'),
+            el('th', { class: 'text-left px-2 py-2 font-bold' }, 'Sold'),
+            el('th', { class: 'text-right px-2 py-2 font-bold' }, 'Contract Value'))),
+        tbody)),
+    el('div', { class: 'px-4 py-2 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
+      'Pending/Serviced accounts only — Sold-Not-Started is excluded from the comp entirely. Failed = Failed Audit or Last Resort (<$99 initial); failed revenue never counts toward PRA.'));
+  renderRows('');
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
 function nrlaBoard(rawSales, opts) {
   const RO = !!(opts && opts.readOnly);            // rep-facing: look, don't touch
   const R = nrlaCompute(rawSales, opts && opts.comp);
@@ -14253,12 +14373,16 @@ function nrlaBoard(rawSales, opts) {
     title: 'Seeding round ' + (i + 1) + ': ' + (r === 'W' ? 'Win' : r === 'L' ? 'Loss' : 'Tie'),
   }, r);
   const playedAny = R.standings.some(s => s.results.length);
+  // Drill-downs are ADMIN-ONLY: reps get the board + their own local scope
+  // pickers, but team/rep/account breakdowns stay behind the admin view.
   const teamCell = (s) => el('td', { class: 'px-2 py-2 font-bold whitespace-nowrap' },
-    el('span', {
-      class: 'cursor-pointer hover:underline',
-      title: 'See the individual reps contributing to ' + nameOf(s.team),
-      onclick: () => openNrlaTeamRepsModal(s.team, R, nameOf),
-    }, nameOf(s.team)),
+    RO
+      ? el('span', {}, nameOf(s.team))
+      : el('span', {
+          class: 'cursor-pointer hover:underline',
+          title: 'See the individual reps contributing to ' + nameOf(s.team),
+          onclick: () => openNrlaTeamRepsModal(s.team, R, nameOf),
+        }, nameOf(s.team)),
     cfg.teamNames[s.team] && el('span', { class: 'ml-1 text-[9px] uppercase', style: { color: 'var(--text-subtle)' } }, s.team));
   const _roundLabelShort = (rd) => rd.phase === 'seed' ? 'Round ' + rd.num : rd.phase === 'semi' ? 'Semifinals' : 'Championship';
   const standingsCard = (() => {
@@ -14275,6 +14399,14 @@ function nrlaBoard(rawSales, opts) {
     const statsFor = (team) => scope === 'season'
       ? (R.seasonStats[team] || { total: 0, passed: 0, pending: 0, failed: 0, n: 0 })
       : (roundTeamStats[team] || { total: 0, passed: 0, pending: 0, failed: 0, n: 0 });
+    // Admin-only click-to-drill money cell → the accounts behind the number,
+    // in the same scope the picker is set to. Reps get the plain number.
+    const _drillTd = (team, kind, val, extra, color) => el('td', {
+      class: 'px-2 py-2 tabular-nums whitespace-nowrap ' + (extra || '') + (RO ? '' : ' cursor-pointer hover:underline'),
+      style: color ? { color } : {},
+      title: RO ? undefined : 'See the accounts behind this number',
+      onclick: RO ? undefined : () => openNrlaAccountsModal(R, nameOf, { team, scope, kind }),
+    }, val);
     const scopeSel = el('select', {
       class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
       style: { border: 'none', background: 'rgba(255,255,255,.25)', color: '#fff' },
@@ -14300,11 +14432,15 @@ function nrlaBoard(rawSales, opts) {
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'L'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Rounds'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps competing — the roster (📋) when one is set, otherwise every rep who sold this season. The PRA denominator.' }, 'Reps'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Everything sold in this scope (Contract Value, all audit statuses) — Pending/Serviced accounts only; Sold-Not-Started is excluded. Click a team name for the per-rep breakdown.' }, 'Total Rev Sold'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' + (RO ? '' : ' cursor-pointer hover:underline'), title: 'Everything sold in this scope (Contract Value, all audit statuses) — Pending/Serviced accounts only; Sold-Not-Started is excluded.' + (RO ? '' : ' Click for every contributing account (all teams); click a cell for one team.'),
+                onclick: RO ? undefined : () => openNrlaAccountsModal(R, nameOf, { team: null, scope, kind: 'total' }) }, 'Total Rev Sold'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Per-Rep Average on QUALIFYING revenue: (Passed + Pending) ÷ reps competing. Failed Rev never counts toward the comp.' }, 'PRA'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Passed Audit or No Audit' }, 'Passed Rev'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'No audit flag yet — clears into Passed or Failed as audits land' }, 'Pending Rev'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Failed Audit + Last Resort (<$99 initial)' }, 'Failed Rev'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' + (RO ? '' : ' cursor-pointer hover:underline'), title: 'Passed Audit or No Audit' + (RO ? '' : ' — click for the accounts (all teams)'),
+                onclick: RO ? undefined : () => openNrlaAccountsModal(R, nameOf, { team: null, scope, kind: 'passed' }) }, 'Passed Rev'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' + (RO ? '' : ' cursor-pointer hover:underline'), title: 'No audit flag yet — clears into Passed or Failed as audits land' + (RO ? '' : ' — click for the accounts (all teams)'),
+                onclick: RO ? undefined : () => openNrlaAccountsModal(R, nameOf, { team: null, scope, kind: 'pending' }) }, 'Pending Rev'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold' + (RO ? '' : ' cursor-pointer hover:underline'), title: 'Failed Audit + Last Resort (<$99 initial)' + (RO ? '' : ' — click for the accounts (all teams)'),
+                onclick: RO ? undefined : () => openNrlaAccountsModal(R, nameOf, { team: null, scope, kind: 'failed' }) }, 'Failed Rev'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Average Contract Value: Total Rev Sold ÷ accounts sold' }, 'ACV'),
             )),
           el('tbody', {},
@@ -14320,11 +14456,11 @@ function nrlaBoard(rawSales, opts) {
                 el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: REDD } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
                 el('td', { class: 'px-2 py-2 whitespace-nowrap' }, ...(s.results.length ? s.results.map(resDot) : [el('span', { style: { color: 'var(--text-subtle)' } }, '—')])),
                 el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, reps),
-                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(st.total)),
+                _drillTd(s.team, 'total',  money(st.total), 'font-black', null),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, reps > 0 ? money((st.passed + st.pending) / reps) : '—'),
-                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#1b7f3b' } }, money(st.passed)),
-                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap', style: { color: '#D97706' } }, '(' + money(st.pending) + ')'),
-                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: REDD } }, money(st.failed)),
+                _drillTd(s.team, 'passed',  money(st.passed), 'font-bold', '#1b7f3b'),
+                _drillTd(s.team, 'pending', '(' + money(st.pending) + ')', '', '#D97706'),
+                _drillTd(s.team, 'failed',  money(st.failed), 'font-bold', REDD),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, st.n > 0 ? money(st.total / st.n) : '—'),
               );
             })))));
@@ -14383,10 +14519,10 @@ function nrlaBoard(rawSales, opts) {
           el('tbody', {},
             top.length ? '' : el('tr', {}, el('td', { class: 'px-3 py-4 text-center text-[11px]', colspan: '10', style: { color: 'var(--text-subtle)' } }, 'No qualifying production in this round yet.')),
             ...top.map((r, i) => el('tr', {
-              class: 'border-t cursor-pointer hover:brightness-95 transition',
+              class: 'border-t transition' + (RO ? '' : ' cursor-pointer hover:brightness-95'),
               style: { borderColor: 'var(--border)', background: i === 0 ? 'rgba(47,214,47,.07)' : (i % 2 ? 'rgba(14,28,48,.04)' : 'transparent') },
-              title: 'See all of ' + nameOf(r.team) + '\'s reps',
-              onclick: () => openNrlaTeamRepsModal(r.team, R, nameOf),
+              title: RO ? undefined : 'See all of ' + nameOf(r.team) + '\'s reps',
+              onclick: RO ? undefined : () => openNrlaTeamRepsModal(r.team, R, nameOf),
             },
               el('td', { class: 'px-3 py-2 font-black tabular-nums whitespace-nowrap' }, medal(i)),
               el('td', { class: 'px-2 py-2 font-bold whitespace-nowrap' }, r.name),
