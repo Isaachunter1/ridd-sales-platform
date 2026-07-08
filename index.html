@@ -1265,10 +1265,25 @@ async function loadIndicatorConfigFromSupabase() {
     // it to the server (content differs from the last synced fingerprint),
     // applying the server copy would wipe them. Keep local, push it up.
     // A clean browser always adopts the server copy.
+    //
+    // STALE-DEVICE ESCAPE HATCH: only keep-local-and-push when our edits were
+    // made against the CURRENT server copy. If the server has moved past this
+    // browser's baseline, "local edits" are edits to an outdated config —
+    // pushing them would clobber newer work from other admins (this exact
+    // failure mode showed up as an admin stuck seeing only one competition).
+    // Server wins the conflict; the toast tells the admin what happened.
     if (hasServerData && _indCfgDirty() && isAdminRole(state.profile.role)) {
-      console.warn('[ridd] unsynced local indicator config — pushing local up instead of applying server');
-      saveIndicatorConfigToSupabase().catch(err => console.warn('[ridd] config push-up failed', err));
-      return;
+      const _rec = _indCfgSyncRec();
+      const _serverAt = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+      const _baseAt = _rec && _rec.serverAt ? new Date(_rec.serverAt).getTime() : 0;
+      if (!_serverAt || _serverAt <= _baseAt + 1000) {
+        console.warn('[ridd] unsynced local indicator config — pushing local up instead of applying server');
+        saveIndicatorConfigToSupabase().catch(err => console.warn('[ridd] config push-up failed', err));
+        return;
+      }
+      console.warn('[ridd] server config is NEWER than this browser\'s baseline — adopting server copy (stale local edits discarded)');
+      try { toast('Competition settings were updated elsewhere — this device now shows the latest shared config.', 'info'); } catch { /* toast not ready during boot */ }
+      // fall through: apply the server copy below
     }
     if (hasServerData) {
       state._indicatorTeams         = Array.isArray(data.teams) ? data.teams : (state._indicatorTeams || []);
@@ -1325,10 +1340,15 @@ async function loadIndicatorConfigFromSupabase() {
 // only APPLIES the server copy when it has no unsynced edits of its own.
 const IND_CFG_SYNC_KEY = 'ridd-ind-cfg-sync-v1';
 function _indCfgFingerprint() {
+  // NOTE: _indicatorActiveCompId is deliberately NOT part of the fingerprint.
+  // The Competitions tab moves that pointer whenever someone just LOOKS at a
+  // different comp — including it made every browsing admin count as having
+  // "unsynced edits", which pinned their device to a stale local config (and
+  // pushed it up). Viewing is not editing.
   const s = JSON.stringify([
     state._indicatorTeams || [], state._indicatorTeamColors || {}, state._indicatorTeamLogos || {},
     state._indicatorExcludedTeams || [],
-    { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [] },
+    { list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [] },
     state._indicatorRepTeamByYear || {}, state._indicatorRepTier || {}, state._indicatorRepActive || {}, state._indicatorRepOffice || {},
   ]);
   let h = 5381;
