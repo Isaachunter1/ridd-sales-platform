@@ -25146,9 +25146,10 @@ function openTVDashboard() {
     const repAgg = {};
     inWindow.forEach(s => {
       if (!s.rep_id) return;
-      if (!repAgg[s.rep_id]) repAgg[s.rep_id] = { id: s.rep_id, revenue: 0, count: 0 };
+      if (!repAgg[s.rep_id]) repAgg[s.rep_id] = { id: s.rep_id, revenue: 0, count: 0, sales: [] };
       repAgg[s.rep_id].revenue += Number(s.revenue_amount || 0);
       repAgg[s.rep_id].count++;
+      repAgg[s.rep_id].sales.push(s);
     });
     const profileFor = (id) => (state.allProfiles || []).find(p => p.id === id)
       || (state.profile && state.profile.id === id ? state.profile : null)
