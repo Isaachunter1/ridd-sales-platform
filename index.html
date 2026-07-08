@@ -661,11 +661,24 @@
        clears #app, so this vanishes the moment the real UI is ready. -->
   <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg)">
     <div style="display:flex;flex-direction:column;align-items:center;gap:14px">
-      <div style="font-family:var(--font-display,'Anton',system-ui,sans-serif);font-size:2.6rem;letter-spacing:.02em;color:var(--accent);line-height:1">RIDD</div>
+      <div id="splashMark" style="font-family:var(--font-display,'Anton',system-ui,sans-serif);font-size:2.6rem;letter-spacing:.02em;color:var(--accent);line-height:1">RIDD</div>
       <div style="font-size:9px;letter-spacing:.28em;color:var(--text-subtle);text-transform:uppercase">Service Above All</div>
       <span class="spinner" style="width:20px;height:20px;margin-top:4px"></span>
     </div>
   </div>
+  <script>
+    // Swap the text wordmark for the REAL company logo when this browser has
+    // it cached (the app stores the uploaded logo as a data URL under
+    // 'ridd-spin-logo-v1'). Runs before the app bundle parses, so the actual
+    // logo paints instantly; a first-ever visit falls back to the wordmark.
+    try {
+      var _splashLogo = localStorage.getItem('ridd-spin-logo-v1');
+      if (_splashLogo && /^data:image\//.test(_splashLogo)) {
+        var _mark = document.getElementById('splashMark');
+        if (_mark) { _mark.innerHTML = ''; var _img = new Image(); _img.src = _splashLogo; _img.alt = 'RIDD'; _img.style.cssText = 'height:64px;display:block'; _mark.appendChild(_img); }
+      }
+    } catch (e) { /* wordmark fallback */ }
+  </script>
 </div>
 
 <!-- Toast container -->
@@ -4090,6 +4103,115 @@ function refreshIndSection(id) {
     };
   }, 0);
 }
+// ── My Settings (non-admin gear) ──────────────────────────────────────────
+// The gear sits in the SAME header spot for every role — admins land on the
+// full Settings page, everyone else gets this focused sheet: personal goal
+// (sellers only), change password, sign out.
+function openMySettingsModal() {
+  const p = state.profile || {};
+  const seller = (typeof isSellerRole === 'function') ? isSellerRole(p.role) : true;
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const secLabel = (t) => el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t);
+
+  // ── Annual goal — writes ONLY the caller's own goal via the set_my_goal
+  // RPC (security definer, own row, one column — no open profile writes). ──
+  const goalInput = el('input', {
+    type: 'number', min: '0', step: '1000',
+    value: p.annual_revenue_goal || '',
+    placeholder: 'e.g. 500000',
+    class: 'flex-1 rounded-lg border px-3 py-2 text-sm',
+  });
+  const goalBtn = el('button', {
+    class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95 whitespace-nowrap',
+    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    onclick: async (e) => {
+      const btn = e.currentTarget;
+      const goal = Math.max(0, parseFloat(goalInput.value) || 0);
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        if (!DEMO) {
+          const { error } = await supabase.rpc('set_my_goal', { goal });
+          if (error) throw error;
+        }
+        p.annual_revenue_goal = goal;
+        if (state._realProfile) state._realProfile.annual_revenue_goal = goal;
+        const row = (state.allProfiles || []).find(x => x.id === p.id);
+        if (row) row.annual_revenue_goal = goal;
+        toast('Goal saved — $' + goal.toLocaleString() + ' for the year', 'success');
+        scheduleBackgroundRemount();
+      } catch (err) {
+        toast(/function|schema|does not exist/i.test(err.message || '')
+          ? 'Goal save failed — an admin needs to run rep_self_settings.sql in Supabase'
+          : (err.message || 'Save failed'), 'error');
+      } finally { btn.disabled = false; btn.textContent = 'Save Goal'; }
+    },
+  }, 'Save Goal');
+
+  // ── Change password — same policy + live checklist as the reset screen. ──
+  const pw1 = el('input', { type: 'password', placeholder: 'New password', autocomplete: 'new-password', class: 'w-full rounded-lg border px-3 py-2 text-sm' });
+  const pw2 = el('input', { type: 'password', placeholder: 'Confirm new password', autocomplete: 'new-password', class: 'w-full rounded-lg border px-3 py-2 text-sm' });
+  const policyList = el('div', { class: 'flex flex-col gap-1 text-[11px]' },
+    ...PASSWORD_POLICY.map(r => el('div', { 'data-req': r.label, style: { color: 'var(--text-subtle)', transition: 'color .15s' } }, '○ ' + r.label)));
+  pw1.addEventListener('input', () => {
+    PASSWORD_POLICY.forEach(r => {
+      const row = policyList.querySelector('[data-req="' + r.label + '"]');
+      if (!row) return;
+      const ok = r.test(pw1.value);
+      row.textContent = (ok ? '✓ ' : '○ ') + r.label;
+      row.style.color = ok ? '#1b7f3b' : 'var(--text-subtle)';
+    });
+  });
+  const pwBtn = el('button', {
+    class: 'rounded-lg px-4 py-2 text-sm font-bold border transition hover:brightness-95',
+    style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+    onclick: async (e) => {
+      const btn = e.currentTarget;
+      const missing = passwordPolicyErrors(pw1.value);
+      if (missing.length) { toast('Password needs: ' + missing.join(' · ').toLowerCase(), 'error'); return; }
+      if (pw1.value !== pw2.value) { toast('Passwords don\'t match', 'error'); return; }
+      if (DEMO) { toast('Demo mode — password would be updated in production', 'info'); return; }
+      btn.disabled = true; btn.textContent = 'Updating…';
+      try {
+        const { error } = await supabase.auth.updateUser({ password: pw1.value });
+        if (error) throw error;
+        pw1.value = ''; pw2.value = '';
+        pw1.dispatchEvent(new Event('input'));
+        toast('Password updated', 'success');
+      } catch (err) {
+        toast(err.message || 'Password update failed', 'error');
+      } finally { btn.disabled = false; btn.textContent = 'Update Password'; }
+    },
+  }, 'Update Password');
+
+  const card = el('div', { class: 'card w-full max-w-sm overflow-hidden flex flex-col' },
+    el('div', { class: 'flex items-center justify-between px-5 pt-5 pb-3' },
+      el('div', {},
+        el('h2', { class: 'text-lg font-bold' }, 'My Settings'),
+        el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
+          (p.full_name || '') + ' · ' + roleLabel(p.role))),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
+    el('div', { class: 'px-5 pb-5 flex flex-col gap-5' },
+      seller ? el('div', { class: 'flex flex-col gap-2' },
+        secLabel('Annual Revenue Goal ($)'),
+        el('div', { class: 'flex items-center gap-2' }, goalInput, goalBtn),
+        el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Your personal target — drives your goal pacing anywhere it shows in the app.')) : null,
+      el('div', { class: 'flex flex-col gap-2' },
+        secLabel('Change Password'),
+        pw1, pw2, policyList, pwBtn),
+      el('div', { class: 'pt-3 border-t flex' , style: { borderColor: 'var(--border)' } },
+        el('button', {
+          class: 'text-xs font-semibold transition hover:underline',
+          style: { color: '#DC2626' },
+          onclick: async () => { if (DEMO) { location.href = location.pathname; return; } await supabase.auth.signOut(); },
+        }, 'Sign out'))));
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
 function mountApp() {
   const isAdmin = isAdminRole(state.profile.role);
   const isAuditor = isAuditorRole(state.profile.role);
@@ -4207,14 +4329,16 @@ function mountApp() {
       el('div', { class: 'text-[11px] font-medium', style: { color: 'var(--text-muted)' } }, state.profile.full_name),
       el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
         roleLabel(state.profile.role) + (isAdmin ? '' : ' · ' + (state.offices.find(o => o.id === state.profile.office_id)?.name || 'no office'))),
-      el('button', {
+      // Sign out lives under the ⚙ gear for non-admins (My Settings) so the
+      // nav menu stays purely navigation; admins (and demo) keep it here too.
+      (isAdmin || DEMO) ? el('button', {
         class: 'mt-2 mb-1 text-xs transition hover:underline',
         style: { color: 'var(--text-muted)' },
         onclick: async () => {
           if (DEMO) { location.href = location.pathname; return; }
           await supabase.auth.signOut();
         },
-      }, DEMO ? 'Exit demo' : 'Sign out'),
+      }, DEMO ? 'Exit demo' : 'Sign out') : el('div', { class: 'mt-1 mb-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Sign out lives under the ⚙ icon'),
     ),
   );
 
@@ -4315,10 +4439,15 @@ function mountApp() {
         disabled: !!state._revhawkSyncing,
         onclick: (e) => syncFromRevHawk(e.currentTarget),
       }, iconSync(18)),
-      isAdmin && el('button', {
+      // Gear for EVERY role, same spot — admins land on the full Settings
+      // page; reps/auditors get My Settings (goal · password · sign out).
+      el('button', {
         class: 'icon-btn show',
-        onclick: () => { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); },
-        title: 'Settings',
+        onclick: () => {
+          if (isAdmin) { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); }
+          else openMySettingsModal();
+        },
+        title: isAdmin ? 'Settings' : 'My Settings — goal, password, sign out',
       }, iconGear(18)),
     ),
   ));
