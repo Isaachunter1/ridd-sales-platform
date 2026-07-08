@@ -1,23 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 149 123">
-  <!-- RIDD bug mark — white on the brand dark tile (from the official logo) -->
-  <rect width="149" height="123" rx="16" fill="#161A1B"/>
-  <g fill="#FFFFFF">
-    <!-- top claws: outer bars + inward tip hooks -->
-    <rect x="33" y="8" width="18" height="32"/><rect x="98" y="8" width="18" height="32"/>
-    <rect x="51" y="8" width="9" height="13"/><rect x="89" y="8" width="9" height="13"/>
-    <!-- elbows + inner verticals + nubs framing the head slot -->
-    <rect x="33" y="40" width="36" height="17"/><rect x="80" y="40" width="36" height="17"/>
-    <rect x="51" y="40" width="18" height="29"/><rect x="80" y="40" width="18" height="29"/>
-    <rect x="51" y="57" width="20" height="12"/><rect x="78" y="57" width="20" height="12"/>
-    <!-- side arms (stepped) + connectors -->
-    <rect x="20" y="55" width="13" height="10"/><rect x="116" y="55" width="13" height="10"/>
-    <rect x="10" y="65" width="23" height="23"/><rect x="116" y="65" width="23" height="23"/>
-    <rect x="33" y="63" width="18" height="17"/><rect x="98" y="63" width="18" height="17"/>
-    <!-- feet -->
-    <rect x="19" y="90" width="18" height="26"/><rect x="112" y="90" width="18" height="26"/>
-    <!-- body + separated rounded lip -->
-    <rect x="45" y="72" width="59" height="30"/>
-    <rect x="46" y="106" width="58" height="15" rx="7"/>
-    <rect x="46" y="106" width="58" height="7"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 140">
+  <!-- RIDD bug mark — exact vectors extracted from the RPS Brand Guide PDF -->
+  <rect width="140" height="140" rx="26" fill="#323230"/>
+  <g transform="translate(23.51 20.00) scale(0.8519)">
+    <path d="M87.36 117.39 L87.36 100.86 C87.35 100.74 87.34 100.59 87.34 100.44 L87.34 94.85 C87.34 94.5 87.08 94.21 86.73 94.17 L81.17 94.17 C80.79 94.2 80.51 94.51 80.51 94.91 L80.51 100.55 C80.51 104.86 77 108.36 72.68 108.36 L37.24 108.36 C32.93 108.36 29.42 104.86 29.42 100.55 L29.42 94.91 C29.42 94.51 29.13 94.2 28.74 94.17 L23.16 94.17 C22.84 94.21 22.59 94.51 22.59 94.85 L22.56 117.39 L0.78 117.39 L0.78 86.91 L4.29 86.81 L14.54 86.81 C14.92 86.81 15.22 86.51 15.22 86.13 L15.22 67.03 L0 67.03 L0 45.64 L28.77 45.64 C29.14 45.64 29.45 45.33 29.45 44.96 L29.45 37.81 L19.38 32.52 C16.97 31.25 15.47 28.77 15.47 26.05 L15.44 0 L37.23 0 L37.23 16.09 L46.07 20.86 C49.01 22.45 50.83 25.5 50.83 28.81 L50.83 45.25 C50.83 49.53 47.34 53.02 43.05 53.02 L37.49 53.02 C37.1 53.02 36.79 53.33 36.79 53.72 L36.78 86.07 C36.78 86.48 37.11 86.81 37.52 86.81 L72.41 86.81 C72.82 86.81 73.15 86.48 73.15 86.07 L73.15 60.41 C73.08 59.96 73.07 59.53 73.07 59.28 L73.07 53.7 C73.07 53.32 72.76 53.02 72.39 53.02 L66.8 53.02 C62.52 53.02 59.03 49.53 59.03 45.25 L59.03 28.81 C59.03 25.5 60.85 22.46 63.77 20.87 L73.01 15.88 L73.01 0 L94.8 0 L94.79 25.83 C94.79 28.56 93.29 31.04 90.88 32.31 L80.41 37.81 L80.41 44.96 C80.41 45.33 80.71 45.64 81.09 45.64 L109.16 45.64 L109.16 67.03 L94.7 67.03 L94.7 86.13 C94.7 86.51 95.01 86.81 95.38 86.81 L109.15 86.81 L109.15 117.39 L87.36 117.39 Z" fill="#FBF4DA"/>
   </g>
 </svg>
