@@ -89,6 +89,7 @@ cust AS (
     ANY_VALUE(fieldRoutes_zip) AS zip, ANY_VALUE(fieldRoutes_phone1) AS phone,
     ANY_VALUE(fieldRoutes_email) AS email, ANY_VALUE(fieldRoutes_aPay) AS apay,
     ANY_VALUE(fieldRoutes_responsibleBalanceAge) AS dpd,
+    ANY_VALUE(fieldRoutes_responsibleBalance) AS resp_balance,
     ANY_VALUE(fieldRoutes_customerSource) AS csource
   FROM \`${PROJECT}.${DATASET}.FieldRoutesCustomer\` GROUP BY 1
 ),
@@ -139,6 +140,7 @@ SELECT
   cust.state AS state,
   cust.zip AS zip_code,
   SAFE_CAST(cust.dpd AS INT64) AS days_past_due,
+  SAFE_CAST(cust.resp_balance AS FLOAT64) AS responsible_balance,
   CASE s.fieldRoutes_officeID ${officeCase} ELSE CONCAT('Office ', s.fieldRoutes_officeID) END AS office_name,
   SAFE_CAST(s.fieldRoutes_agreementLength AS INT64) AS agreement_length,
   SAFE_CAST(s.fieldRoutes_contractValue AS FLOAT64) AS subscription_contract_value,
