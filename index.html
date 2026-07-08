@@ -35343,8 +35343,8 @@ async function setProfileActive(p, active) {
 }
 // Which rep-type tab a person belongs to. App users inherit their linked (or
 // email-matched) FieldRoutes type; otherwise infer from role.
-const REP_TYPE_TABS = ['Office Staff', 'Technician', 'Sales Rep'];
-const REP_TYPE_TAB_LABEL = { 'Office Staff': 'Office Staff', 'Technician': 'Technicians', 'Sales Rep': 'Sales Reps' };
+const REP_TYPE_TABS = ['All', 'Office Staff', 'Technician', 'Sales Rep'];
+const REP_TYPE_TAB_LABEL = { 'All': 'people', 'Office Staff': 'Office Staff', 'Technician': 'Technicians', 'Sales Rep': 'Sales Reps' };
 
 function adminReps() {
   const host = el('div', { class: 'flex flex-col gap-4' });
@@ -35354,7 +35354,7 @@ function adminReps() {
   }
 
   // Persisted UI state: which rep-type tab, active/inactive/all, search box.
-  if (!REP_TYPE_TABS.includes(state._adminUserTypeTab)) state._adminUserTypeTab = 'Office Staff';
+  if (!REP_TYPE_TABS.includes(state._adminUserTypeTab)) state._adminUserTypeTab = 'All';
   if (state._adminUserActiveFilter == null) state._adminUserActiveFilter = 'active';
   if (state._adminUserSearch == null) state._adminUserSearch = '';
   const typeTab = state._adminUserTypeTab;
@@ -35405,7 +35405,7 @@ function adminReps() {
   });
 
   const byName = (a, b) => a.name.localeCompare(b.name);
-  const countByType = (t) => people.filter(x => x.type === t).length;
+  const countByType = (t) => t === 'All' ? people.length : people.filter(x => x.type === t).length;
 
   // ── Header ──
   host.append(el('div', { class: 'flex items-center justify-between flex-wrap gap-3' },
@@ -35453,7 +35453,7 @@ function adminReps() {
     })));
 
   // ── Active / Inactive / All + search ──
-  const inTab = people.filter(x => x.type === typeTab);
+  const inTab = typeTab === 'All' ? people : people.filter(x => x.type === typeTab);
   const aCount = inTab.filter(x => x.active).length;
   host.append(el('div', { class: 'flex items-center justify-between flex-wrap gap-2' },
     el('div', { class: 'inline-flex rounded-xl border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
