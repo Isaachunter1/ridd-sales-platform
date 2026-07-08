@@ -18779,6 +18779,13 @@ function viewIndicators() {
   const _repLite = !isAdminRole(state.profile.role);
   if (_repLite) {
     state.indicatorsComps = false;
+    // Stats default to the viewer's OWN rep type — office staff land on
+    // Office Staff stats, sales reps on Sales Rep stats. Seeds the first
+    // render only; flipping the dropdown afterward sticks for the session.
+    if (!state._indDeptDefaulted) {
+      state._indDeptDefaulted = true;
+      state.indicatorDept = isOfficeStaffRole(state.profile.role) ? 'office' : 'd2d';
+    }
     if (!(state._indicatorRawSales || []).length && !state._nrlaPublicPulled && typeof refreshIndicatorsFromCloud === 'function') {
       state._nrlaPublicPulled = true;
       refreshIndicatorsFromCloud(true).catch(() => {});
