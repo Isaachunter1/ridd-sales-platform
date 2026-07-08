@@ -1,12 +1,10 @@
 -- ────────────────────────────────────────────────────────────────────────
 -- FIELDROUTES SOURCE SYNC — the RevHawk sync (every 30 min) mirrors the
--- FieldRoutes source master list into public.sources:
+-- FieldRoutes source master list into public.sources as a STRICT MIRROR:
 --   • a source added in FieldRoutes appears in the app automatically
---   • hiding/showing a source in FieldRoutes carries over to the app
---   • an in-app visibility override sticks until FieldRoutes changes again
---     (fr_visible remembers the last CRM state — only a CRM-side CHANGE
---      flips is_active)
---   • app-only sources (no fr_source_id) are never touched
+--   • CRM visibility is authoritative — hide/show in FieldRoutes only
+--   • any app source NOT in the CRM list is hidden automatically
+--     (not deleted — past sales keep pointing at their source name)
 --
 -- Run once in the Supabase SQL editor. Re-runnable.
 -- ────────────────────────────────────────────────────────────────────────

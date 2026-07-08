@@ -2584,6 +2584,12 @@ async function boot() {
   //                         we rely on the PASSWORD_RECOVERY auth event
   //                         registered below to catch this case)
   const recoveryFromUrl = (location.hash || '').includes('type=recovery');
+  // A refresh mid-recovery used to skip the form entirely (the recovery
+  // session signs the user in), letting reps land in the app WITHOUT ever
+  // setting a password. This tab-scoped flag pins the form until the save
+  // actually succeeds.
+  let recoveryPending = false;
+  try { recoveryPending = sessionStorage.getItem('ridd_recovery_pending') === '1'; } catch { /* private mode */ }
 
   // Track whether we've shown the recovery form so a follow-up
   // SIGNED_IN event (Supabase fires both during PKCE recovery) doesn't
@@ -2592,6 +2598,7 @@ async function boot() {
   const showRecovery = () => {
     if (recoveryShown) return;
     recoveryShown = true;
+    try { sessionStorage.setItem('ridd_recovery_pending', '1'); } catch { /* private mode */ }
     mountAuth({ mode: 'recover' });
   };
 
@@ -2602,7 +2609,10 @@ async function boot() {
   supabase.auth.onAuthStateChange((event, session) => {
     state.session = session;
     if (event === 'PASSWORD_RECOVERY') { showRecovery(); return; }
-    if (recoveryShown) return; // stay on the recovery form
+    // recoveryPending: a refresh mid-recovery re-fires INITIAL_SESSION with
+    // the recovery session — without this guard the listener's async
+    // loadAndRender() would mount the app OVER the pinned set-password form.
+    if (recoveryShown || (recoveryPending && session)) return; // stay on the recovery form
     if (session) loadAndRender();
     else mountAuth();
   });
@@ -2616,12 +2626,29 @@ async function boot() {
   state.session = session;
   if (recoveryShown) return;
   if (!session) {
+    // No session → any lingering recovery flag is stale (link expired /
+    // signed out). Clear it so a later normal sign-in isn't hijacked.
+    recoveryPending = false;
+    try { sessionStorage.removeItem('ridd_recovery_pending'); } catch { /* ignore */ }
     mountAuth();
+    return;
+  }
+  if (recoveryPending) {
+    // Refresh mid-recovery: keep them on the set-password form instead of
+    // silently dropping them into the app with no password set.
+    showRecovery();
     return;
   }
   const hv2 = applyHash();
   if (hv2) state.view = hv2;
   await loadAndRender();
+  // Post-reload confirmation from the password-save handoff.
+  try {
+    if (sessionStorage.getItem('ridd_pw_saved') === '1') {
+      sessionStorage.removeItem('ridd_pw_saved');
+      toast("Password updated — you're all set.", 'success');
+    }
+  } catch { /* ignore */ }
   window.addEventListener('hashchange', () => {
     const v = applyHash();
     if (v && v !== state.view) { state.view = v; mountApp(); }
@@ -3299,21 +3326,28 @@ function mountAuth(opts = {}) {
           if (!recSession) {
             throw new Error('This reset link has expired or was already used. Request a new one, or ask an admin to set your password directly.');
           }
-          const { error } = await supabase.auth.updateUser({ password });
+          // Race a timeout against updateUser: the SDK's cross-tab auth lock
+          // can occasionally stall the call (e.g. the app open in another
+          // tab), which used to leave the button spinning forever with no
+          // feedback. Now it surfaces a clear retry message instead.
+          const { error } = await Promise.race([
+            supabase.auth.updateUser({ password }),
+            new Promise((_, rej) => setTimeout(
+              () => rej(new Error('Saving is taking too long — close any other tabs with the app open and try again.')), 12000)),
+          ]);
           if (error) throw error;
-          // Make sure boot state carries the session before rendering the
-          // app. The recovery flow can reach this point without the auth
-          // listener ever having populated state.session (event-timing
-          // races) — loadProfile() would then crash on session.user and the
-          // rep would be stuck on this form until a manual refresh.
-          state.session = recSession;
+          // Deterministic handoff: a full reload with the persisted session
+          // is exactly what a manual refresh does — and that always works.
+          // The old in-page handoff (loadAndRender) could hang or die
+          // silently, making the button look broken.
           try {
-            const { data: { session: _fresh } } = await supabase.auth.getSession();
-            if (_fresh) state.session = _fresh;
-          } catch { /* recSession already set */ }
-          toast('Password updated — signing you in.', 'success');
+            sessionStorage.removeItem('ridd_recovery_pending');
+            sessionStorage.setItem('ridd_pw_saved', '1');
+          } catch { /* private mode — reload still works */ }
+          submitBtn.innerHTML = '✓ Saved';
           history.replaceState(null, '', window.location.pathname + window.location.search);
-          await loadAndRender();
+          location.reload();
+          return;
         }
       } catch (err) {
         toast(err.message || 'Auth failed', 'error');
@@ -7103,9 +7137,14 @@ function openIndicatorRepCard(rep, allReps = []) {
     const pestEligible  = allSales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
     const avgInitial    = allSales.length     > 0 ? allSales.reduce((a, s) => a + Number(s.initialPrice || 0), 0)    / allSales.length     : 0;
     const avgPest       = pestEligible.length > 0 ? pestEligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / pestEligible.length : 0;
+    // Personal PRA — denominators are SELLING days (days with ≥1 sale), so
+    // days off don't drag the averages down.
+    const sellDays = new Set(allSales.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
     scopedStats = [
       { key: 'sales',      label: 'Sales',      value: fmt.int(count) },
       { key: 'revenue',    label: 'Revenue',    value: fmt.usd0(scopedRep.revenue || 0) },
+      { key: 'revPerDay',  label: 'Rev / Sell Day',   value: sellDays > 0 ? fmt.usd0((scopedRep.revenue || 0) / sellDays) : '—' },
+      { key: 'acctsPerDay', label: 'Accts / Sell Day', value: sellDays > 0 ? (count / sellDays).toFixed(1) : '—' },
       { key: 'acv',        label: 'ACV',        value: fmt.usd(acv) },
       // Sales Rep dept → Avg Pest Initial (excludes Sentricon / German Roach /
       // Interior Flea). Office Staff, Technician, and All → plain Avg Initial.
@@ -7213,7 +7252,9 @@ function openIndicatorRepCard(rep, allReps = []) {
 
   // ── Sub-renderers ───────────────────────────────────────────────────────
   function statsGrid() {
-    return el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-5' },
+    // auto-fit grid: 9 tiles flow 3-up on phones and up to 9-up on wide
+    // desktops without needing a grid-cols-9 utility in the static CSS.
+    return el('div', { class: 'grid gap-2 sm:gap-3 mb-5', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
       ...scopedStats.map(stat => {
         const selected = drillKey === stat.key;
         return el('div', {
@@ -7800,7 +7841,13 @@ function openIndicatorRepCard(rep, allReps = []) {
                     ? fmt.usd(s.initialPrice || 0)
                     : fmt.usd0(s.contractValue);
                   return el('tr', { class: 'border-t border-' },
-                    el('td', { class: 'pl-4 pr-2 py-2 font-medium', title: s.customer || '' }, s.customer || '—'),
+                    el('td', { class: 'pl-4 pr-2 py-2 font-medium', title: s.customer || '' },
+                      s.customer || '—',
+                      // Mobile: no room for a Cust ID column — show the ID as a
+                      // small sub-line under the name instead (hidden on ≥sm
+                      // where the dedicated column takes over).
+                      s.customerId && el('div', { class: 'sm:hidden text-[10px] font-normal tabular-nums', style: { color: 'var(--text-muted)' } }, '#' + s.customerId),
+                    ),
                     el('td', { class: 'px-2 py-2 text-muted- tabular-nums desktop-only' }, s.customerId || '—'),
                     el('td', { class: 'px-2 py-2 text-muted- max-w-[200px] truncate', title: s.subscription || '' }, s.subscription || '—'),
                     el('td', { class: 'px-2 py-2 text-muted- tabular-nums desktop-only whitespace-nowrap' }, s.dateSold || '—'),
@@ -19877,10 +19924,9 @@ function viewIndicators() {
     (_repLite || (state.indicatorsComps && isNrlaComp()) ? null : _topCompCard),
 
     // ── Main metrics table (click metric name to sort branches) ──
-    // Office-staff rep accounts get a focused view: My Stats + Rep
-    // Leaderboard only — the branch power-rankings table is D2D-oriented
-    // noise for them. Sales-rep accounts keep it.
-    !_focusedComp && !(_repLite && isOfficeStaffRole(state.profile.role)) && (() => {
+    // ALL rep accounts get the focused view now: Performance Trends + Rep
+    // Leaderboard only — the branch metrics tables are admin analysis tools.
+    !_focusedComp && !_repLite && (() => {
       // Sort state: which metric is sorting the columns, and direction
       if (!state._indicatorSort) state._indicatorSort = { key: null, asc: false };
       const sort = state._indicatorSort;
@@ -20016,7 +20062,7 @@ function viewIndicators() {
     // each cell shows the rank with #1 accented and bottom-third dimmed so
     // weak spots stand out. Power Ranking keeps its own card because it adds
     // total points + best/worst-metric callouts.
-    !_focusedComp && state.indicatorDept !== 'office' && (() => {
+    !_focusedComp && !_repLite && state.indicatorDept !== 'office' && (() => {
       // Mirrors the metrics that feed Power Ranking points so each row's rank
       // sum reconciles with the team's pts on the right-hand card. Reps is
       // intentionally omitted — it's still tracked elsewhere but rendering it
@@ -22672,19 +22718,22 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           const myIdx = mySig ? displayReps.findIndex(r => _meSig(r.name) === mySig) : -1;
           if (myIdx < 0) return [];
           const me = displayReps[myIdx];
+          const _heroMe = (label, value) => el('div', { class: 'flex flex-col items-center min-w-0' },
+            el('span', { class: 'text-[8px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
+            el('span', { class: 'text-[13px] font-bold tabular-nums truncate' }, value));
           return [el('div', {
-            class: 'rounded-lg border p-2.5 flex flex-col gap-1 cursor-pointer',
+            class: 'rounded-xl border p-3 flex flex-col gap-1.5 cursor-pointer',
             style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.10)', borderLeftWidth: '4px' },
             onclick: () => openIndicatorRepCard(me, allReps),
           },
             el('div', { class: 'flex items-center gap-2' },
-              el('span', { class: 'font-black tabular-nums', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
-              el('span', { class: 'font-bold' }, me.name),
-              el('span', { class: 'ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You')),
-            el('div', { class: 'flex items-center justify-between text-[11px]' },
-              el('span', { class: 'text-muted-' }, (me.count || 0) + ' sales'),
-              el('span', { class: 'font-bold tabular-nums' }, fmt.usd0(me.revenue || 0)),
-              el('span', { class: 'text-muted- tabular-nums' }, fmt.usd0(me.revPerDay || 0) + '/day')))];
+              el('span', { class: 'font-black tabular-nums text-[13px]', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
+              el('span', { class: 'font-bold truncate' }, me.name),
+              el('span', { class: 'ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You')),
+            el('div', { class: 'grid grid-cols-3 gap-2 rounded-lg px-2 py-1.5', style: { background: 'rgba(141,198,63,.12)' } },
+              _heroMe('Revenue', fmt.usd0(me.revenue || 0)),
+              _heroMe('Sales', fmt.int(me.count || 0)),
+              _heroMe('Rev / Day', me.revPerDay > 0 ? fmt.usd0(me.revPerDay) : '—')))];
         })(),
         ...(displayReps.length === 0
           ? [el('div', { class: 'text-center text-xs text-muted- italic py-6' }, 'No reps match the current filters.')]
@@ -22692,16 +22741,25 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               const tierMeta = repTierMeta(r.tier);
               const teamColor = r.team ? getTeamColor(r.team) : null;
               const officeName = (r.office || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-              const stat = (label, value, danger) => el('div', { class: 'flex items-center justify-between gap-1' },
-                el('span', { class: 'text-muted-' }, label),
+              // Hero tile: tiny uppercase label over a bold value — the three
+              // numbers reps actually race on, given visual priority.
+              const hero = (label, value) => el('div', { class: 'flex flex-col items-center min-w-0' },
+                el('span', { class: 'text-[8px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
+                el('span', { class: 'text-[13px] font-bold tabular-nums truncate' }, value));
+              // Secondary stat: label left / value right, two per row.
+              const stat = (label, value, danger) => el('div', { class: 'flex items-center justify-between gap-2 min-w-0' },
+                el('span', { class: 'text-muted- shrink-0' }, label),
                 el('span', {
-                  class: 'font-bold tabular-nums',
+                  class: 'font-semibold tabular-nums truncate',
                   style: danger ? { color: '#DC2626' } : {},
                 }, value),
               );
+              const _bestDayShort = r.bestDay > 0
+                ? fmt.usd0(r.bestDay) + (r.bestDayDate ? ' · ' + String(r.bestDayDate).replace(/\/\d{4}$/, '') : '')
+                : '—';
               return el('div', {
                 'data-replb': (r.name || '').toLowerCase(),
-                class: 'rounded-lg border p-2.5 flex flex-col gap-1.5 cursor-pointer transition hover:brightness-95',
+                class: 'rounded-xl border p-3 flex flex-col gap-1.5 cursor-pointer transition hover:brightness-95',
                 style: {
                   borderColor: 'var(--border)',
                   borderLeftWidth: '4px',
@@ -22711,7 +22769,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               },
                 // Top line: rank + name + tier badge
                 el('div', { class: 'flex items-center gap-2' },
-                  el('span', { class: 'font-bold tabular-nums shrink-0', style: { color: i === 0 ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + (i + 1)),
+                  el('span', { class: 'font-black tabular-nums shrink-0 text-[13px]', style: { color: i === 0 ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + (i + 1)),
                   el('span', { class: 'font-bold truncate flex-1' }, r.name),
                   tierMeta && el('span', {
                     class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0',
@@ -22719,21 +22777,24 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   }, tierMeta.label),
                 ),
                 // Team + office sub-line
-                el('div', { class: 'text-[10px] text-muted-' },
+                el('div', { class: 'text-[10px] text-muted- -mt-0.5' },
                   el('span', { style: teamColor ? { color: teamColor, fontWeight: '600' } : {} }, r.team || '—'),
                   ' · ',
                   officeName || '—',
                 ),
-                // Stats grid (3 cols, multiple rows)
-                el('div', { class: 'grid grid-cols-3 gap-x-2 gap-y-1 text-[11px] mt-1' },
-                  stat('Sales', fmt.int(r.count)),
-                  stat('Revenue', fmt.usd0(r.revenue)),
+                // Hero band: Revenue · Sales · Rev/Day
+                el('div', { class: 'grid grid-cols-3 gap-2 rounded-lg px-2 py-1.5 mt-0.5', style: { background: 'var(--card-2)' } },
+                  hero('Revenue', fmt.usd0(r.revenue)),
+                  hero('Sales', fmt.int(r.count)),
+                  hero('Rev / Day', r.revPerDay > 0 ? fmt.usd0(r.revPerDay) : '—'),
+                ),
+                // Secondary stats: 2 columns, room to breathe
+                el('div', { class: 'grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] mt-1' },
                   stat('ACV', fmt.usd(r.acv)),
-                  stat('Best Day', r.bestDay > 0 ? fmt.usd0(r.bestDay) + (r.bestDayDate ? ' · ' + r.bestDayDate : '') : '—'),
                   stat('Avg Pest', r.avgPest > 0 ? fmt.usd(r.avgPest) : '—'),
-                  stat('Avg Init', r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—'),
                   stat('MY %', (r.myPct * 100).toFixed(1) + '%'),
                   stat('Auto Pay', (r.autoPayPct * 100).toFixed(1) + '%'),
+                  stat('Best Day', _bestDayShort),
                   stat('Cancels', r.cancels > 0 ? fmt.int(r.cancels) + ' (' + (r.cancelPct * 100).toFixed(1) + '%)' : '—', r.cancelPct > 0.1),
                 ),
               );
@@ -23981,6 +24042,38 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   // Controls in this card (scope, compare, metric pickers) repaint ONLY this
   // card — shadow the global mountApp with a local section refresh.
   const mountApp = () => refreshIndSection('repTrend');
+  // Rep accounts see a FIXED YTD window: Sunday-anchored weekly buckets from
+  // Jan 1 → today (same week convention as the YoY chart), matched on the
+  // sale DATE rather than the season week so the page's date filter can't
+  // shrink or shift what a rep sees.
+  if (!isAdminRole(state.profile && state.profile.role)) {
+    const _y = new Date().getFullYear();
+    const _today = new Date(); _today.setHours(23, 59, 59, 999);
+    const _anchor = new Date(_y, 0, 1); _anchor.setDate(_anchor.getDate() - _anchor.getDay());
+    const _wkCount = Math.max(1, Math.floor((_today - _anchor) / 604800000) + 1);
+    chartBuckets = Array.from({ length: _wkCount }, (_, i) => {
+      const ws = new Date(_anchor); ws.setDate(ws.getDate() + i * 7);
+      const we = new Date(ws); we.setDate(we.getDate() + 7);
+      const label = (ws.getMonth() + 1) + '/' + ws.getDate();
+      return {
+        kind: 'week',
+        key: 'ytd-wk-' + (i + 1),
+        label,
+        match: (s) => {
+          const iso = dateSoldToIso(s.dateSold);
+          if (!iso) return false;
+          const d = new Date(iso + 'T00:00');
+          return !isNaN(d) && d >= ws && d < we;
+        },
+        cumThrough: (s) => {
+          const iso = dateSoldToIso(s.dateSold);
+          if (!iso) return false;
+          const d = new Date(iso + 'T00:00');
+          return !isNaN(d) && d >= _anchor && d < we;
+        },
+      };
+    });
+  }
   const canvasId = 'chart-rep-trend';
   const canvasWrap = el('div', { style: { position: 'relative', height: '320px', width: '100%' } });
   const canvas = el('canvas', { id: canvasId });
@@ -24523,7 +24616,18 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   // selected) the same per-metric mini-charts aggregated to a chosen scope
   // (Company / Branch / Team). The scope panel is the default empty state.
   const drillRepName = state._indicatorRepDrillDown;
-  const drillRep = drillRepName && repMap[drillRepName] ? repMap[drillRepName] : null;
+  let drillRep = drillRepName && repMap[drillRepName] ? repMap[drillRepName] : null;
+  // Rep-locked YTD mode: repMap's sales are windowed by the page date filter,
+  // which may be narrower than YTD — rebuild this rep's sales from the FULL
+  // dataset (same Pending/Serviced gate the leaderboard uses) so every YTD
+  // bucket is populated no matter what the filter says.
+  if (drillRep && !isAdminRole(state.profile && state.profile.role)) {
+    const _sigT = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+    const _mineT = _sigT(drillRep.name);
+    const _full = (state._indicatorRawSales || []).filter(s =>
+      s && s.rep && frPendingServiced(s) && _sigT(getCanonicalRepName(s.rep)) === _mineT);
+    if (_full.length) drillRep = { ...drillRep, sales: _full };
+  }
   let drillPanel;
   if (drillRep) {
     drillPanel = repDrillPanel(drillRep, chartBuckets);
@@ -26594,13 +26698,29 @@ function repDrillPanel(rep, chartBuckets) {
   const team = getRepTeam(rep.name);
   const accent = team ? getTeamColor(team) : null;
   const idPrefix = 'chart-rep-drill-' + rep.name.replace(/\s+/g, '-');
+  // Personal PRA stats — denominators are SELLING days (days with ≥1 account
+  // sold), so a day off doesn't drag the average. Computed from the panel's
+  // own sales slice so it always matches the charts below it.
+  const _totRev = rep.sales.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
+  const _sellDays = new Set(rep.sales.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
+  const _praChip = (label, value) => el('div', {
+    class: 'rounded-lg border px-2.5 py-1.5 flex flex-col min-w-0',
+    style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+    el('span', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
+    el('span', { class: 'text-sm font-bold tabular-nums' }, value));
+  const praRow = el('div', { class: 'flex flex-wrap gap-2 mb-3' },
+    _praChip('Rev / Sell Day', _sellDays > 0 ? '$' + Math.round(_totRev / _sellDays).toLocaleString() : '—'),
+    _praChip('Accts / Sell Day', _sellDays > 0 ? (rep.sales.length / _sellDays).toFixed(1) : '—'),
+    _praChip('Selling Days', String(_sellDays)),
+    _praChip('Total Accts', String(rep.sales.length)),
+  );
   return el('div', { class: 'mt-4 pt-4 border-t', style: { borderColor: 'var(--border)' } },
     el('div', { class: 'flex items-center justify-between mb-3' },
       el('div', {},
         el('h4', { class: 'text-sm font-bold' }, '👤 ' + rep.name),
         el('div', { class: 'text-[10px] text-muted- mt-0.5' },
           (rep.office || 'Unknown').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ') +
-          ' · ' + rep.sales.length + ' sales · $' + Math.round(rep.revenue).toLocaleString() + ' revenue'),
+          ' · ' + rep.sales.length + ' sales · $' + Math.round(_totRev).toLocaleString() + ' revenue'),
       ),
       el('button', {
         class: 'rounded border px-2 py-1 text-[10px] font-semibold',
@@ -26608,6 +26728,7 @@ function repDrillPanel(rep, chartBuckets) {
         onclick: () => { state._indicatorRepDrillDown = null; mountApp(); },
       }, 'Close'),
     ),
+    praRow,
     buildTrendMiniGrid(rep.sales, chartBuckets, idPrefix, accent),
   );
 }
@@ -26913,6 +27034,14 @@ function indicatorYoYTrendChart() {
     if (y === curY && wk > lastDataWeek) lastDataWeek = wk;
   }
   maxWeek = Math.min(Math.max(maxWeek, 1), 54);
+  // Rep view is YTD-only: cut the axis at the CURRENT week of year so prior
+  // years' lines don't run months past today — every year compares the same
+  // Jan-1 → now stretch. Admins keep the full-year axis.
+  if (_yoyRepOnly) {
+    const _anch = new Date(curY, 0, 1); _anch.setDate(_anch.getDate() - _anch.getDay());
+    const _curWk = Math.floor((todayMid - _anch) / 604800000) + 1;
+    maxWeek = Math.min(maxWeek, Math.max(_curWk, 1));
+  }
 
   // Office staff can split the revenue metric into Total / New / Renewal.
   const isOffice = (state.indicatorDept === 'office');
