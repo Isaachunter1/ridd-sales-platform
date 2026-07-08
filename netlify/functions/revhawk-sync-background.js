@@ -495,9 +495,69 @@ exports.handler = async (event) => {
       console.error('[revhawk-sync] source mirror skipped:', srcError);
     }
 
+    // ── CRM auto-verify: rep-logged sales ↔ warehouse subscriptions ──
+    // The app's Sales Log carries the FieldRoutes customer # on every sale.
+    // Each sync re-checks recent sales against the snapshot ALREADY in memory:
+    // match the customer, prefer subscriptions sold within ±7 days of the
+    // logged sold date, compare contract value to the logged revenue.
+    //   verified          → CRM contract value matches to the dollar
+    //   revenue_mismatch  → account found but the $ differs (upsells can
+    //                       legitimately do this — human takes a look)
+    //   not_found         → customer # not in the warehouse (yet)
+    // Best-effort: requires the crm_* columns (sales_crm_verify.sql).
+    let verifyCount = 0, verifyError = null;
+    try {
+      const since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+      const { data: appSales, error: asErr } = await supabase.from('sales')
+        .select('id, customer_number, revenue_amount, sold_date, crm_status, crm_contract_value')
+        .gte('sold_date', since);
+      if (asErr) throw new Error(asErr.message);
+      if (appSales && appSales.length) {
+        const byCust = new Map();
+        for (const r of objects) {
+          const id = r.customer_id != null ? String(r.customer_id).trim() : '';
+          if (!id) continue;
+          if (!byCust.has(id)) byCust.set(id, []);
+          byCust.get(id).push(r);
+        }
+        const stamp = new Date().toISOString();
+        for (const s of appSales) {
+          const cust = s.customer_number != null ? String(s.customer_number).trim() : '';
+          const rev = Number(s.revenue_amount) || 0;
+          let status = 'not_found', cv = null, subName = null;
+          const subs = cust ? byCust.get(cust) : null;
+          if (subs && subs.length) {
+            const soldT = Date.parse(s.sold_date || '') || 0;
+            const near = soldT ? subs.filter(r => { const t = Date.parse(r.sold_date || ''); return t && Math.abs(t - soldT) <= 7 * 86400000; }) : [];
+            const pool = near.length ? near : subs;
+            let best = pool[0], bestDiff = Infinity;
+            for (const r of pool) {
+              const v = Number(r.subscription_contract_value) || 0;
+              const d = Math.abs(v - rev);
+              if (d < bestDiff) { bestDiff = d; best = r; }
+            }
+            cv = Number(best.subscription_contract_value) || 0;
+            subName = best.subscription || null;
+            status = bestDiff <= 1 ? 'verified' : 'revenue_mismatch';
+          }
+          // Only write rows whose verdict actually changed — keeps the pass
+          // near-free once things settle.
+          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0)) continue;
+          const { error } = await supabase.from('sales').update({
+            crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp,
+          }).eq('id', s.id);
+          if (error) throw new Error(error.message);
+          verifyCount++;
+        }
+      }
+    } catch (ve) {
+      verifyError = String((ve && ve.message) || ve);
+      console.error('[revhawk-sync] sale CRM verify skipped:', verifyError);
+    }
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, sources: srcCount, srcError, storage_path: path, ms: Date.now() - started }),
+      body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, sources: srcCount, srcError, salesVerified: verifyCount, verifyError, storage_path: path, ms: Date.now() - started }),
     };
   } catch (e) {
     console.error('[revhawk-sync]', e);

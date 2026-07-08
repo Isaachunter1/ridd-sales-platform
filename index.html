@@ -8429,6 +8429,31 @@ function reportingBackendMatch(custNumber, index) {
   };
 }
 
+// CRM revenue verdict for one logged sale. The 30-min sync stamps crm_status
+// on the row (authoritative, visible to everyone); when a sale is newer than
+// the last stamp and this browser has the reporting snapshot loaded (admins),
+// fall back to a LIVE check so a just-logged sale gets its verdict instantly.
+function saleCrmVerdict(s, index) {
+  if (s.crm_status) {
+    return { status: s.crm_status, cv: s.crm_contract_value != null ? Number(s.crm_contract_value) : null, sub: s.crm_subscription || null, live: false };
+  }
+  const id = s.customer_number != null ? String(s.customer_number).trim() : '';
+  const rows = id ? (index || reportingCustomerIndex()).get(id) : null;
+  if (!rows || !rows.length) return { status: 'not_found', cv: null, sub: null, live: true };
+  const rev = Number(s.revenue_amount) || 0;
+  const soldT = Date.parse(s.sold_date || '') || 0;
+  const near = soldT ? rows.filter(r => { const t = Date.parse(r.sold_date || ''); return t && Math.abs(t - soldT) <= 7 * 86400000; }) : [];
+  const pool = near.length ? near : rows;
+  let best = pool[0], bestDiff = Infinity;
+  for (const r of pool) {
+    const v = Number(r.subscription_contract_value) || 0;
+    const d = Math.abs(v - rev);
+    if (d < bestDiff) { bestDiff = d; best = r; }
+  }
+  const cv = Number(best.subscription_contract_value) || 0;
+  return { status: bestDiff <= 1 ? 'verified' : 'revenue_mismatch', cv, sub: best.subscription || null, live: true };
+}
+
 function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBackend = false, showReportCols = false, rowStyle } = {}) {
   // Backend queue cross-references the active Reporting snapshot by customer #.
   const rptIndex = showBackend ? reportingCustomerIndex() : null;
@@ -8475,6 +8500,9 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             !showBackend && headerCell('Initial',     { sortableKey: 'initial_amount', align: 'right' }),
             !showBackend && headerCell('Monthly',     { sortableKey: 'monthly_amount', align: 'right' }),
             headerCell('Revenue',     { sortableKey: 'revenue_amount', align: 'right' }),
+            // CRM revenue check — auto-verified against the FieldRoutes
+            // warehouse every 30 min (matched by customer #). Admin-only.
+            isAdmin && headerCell('CRM ✓'),
             headerCell('Sold',        { sortableKey: 'sold_date' }),
             headerCell('Commissionable', { sortableKey: 'commission_date' }),
             headerCell('Status',      { sortableKey: 'audit_status' }),
@@ -8533,6 +8561,27 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap' }, fmt.usd(s.initial_amount)),
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap text-muted-' }, fmt.usd(s.monthly_amount)),
               el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap' }, fmt.usd(s.revenue_amount)),
+              isAdmin && el('td', { class: 'px-2 py-2 whitespace-nowrap' }, (() => {
+                const v = saleCrmVerdict(s, rptIndex);
+                const chip = (txt, bg, colr, tip) => el('span', {
+                  class: 'inline-block px-2 py-0.5 rounded-full text-[10px] font-bold',
+                  style: { background: bg, color: colr }, title: tip,
+                }, txt);
+                if (v.status === 'verified') {
+                  return chip('✓ ' + fmt.usd(v.cv), 'rgba(141,198,63,.15)', '#5F8A1F',
+                    'CRM match — the warehouse shows this contract value on customer #' + (s.customer_number || '?')
+                    + (v.sub ? ' (' + v.sub + ')' : '') + (v.live ? ' · live check' : ''));
+                }
+                if (v.status === 'revenue_mismatch') {
+                  return chip('⚠ CRM ' + fmt.usd(v.cv), 'rgba(240,172,30,.16)', '#B45309',
+                    'Revenue differs: logged ' + fmt.usd(s.revenue_amount) + ' vs ' + fmt.usd(v.cv) + ' in the CRM'
+                    + (v.sub ? ' (' + v.sub + ')' : '')
+                    + ' — upsells can legitimately differ; worth a manual look.' + (v.live ? ' · live check' : ''));
+                }
+                return el('span', { style: { color: 'var(--text-subtle)' }, class: 'text-[10px]',
+                  title: 'Customer #' + (s.customer_number || '?') + ' isn\'t in the warehouse yet — new accounts appear within ~30 min of the CRM sync.' },
+                  'not in CRM yet');
+              })()),
               cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, fmt.dateShortYear(s.sold_date))),
               cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, s.commission_date ? fmt.dateShortYear(s.commission_date) : '—')),
               cell(statusSelect(s.id)),
