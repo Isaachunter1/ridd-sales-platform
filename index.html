@@ -208,6 +208,10 @@
 
   /* Spinner */
   .spinner { display:inline-block; width:16px; height:16px; border:2px solid rgba(141,198,63,.25); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+  /* Styled hover tooltip — replaces the browser's plain title bubble app-wide */
+  .app-tip { position:fixed; z-index:10000; max-width:280px; padding:6px 10px; border-radius:8px;
+    background:#1D1D1D; color:#F3F3F3; font-size:11px; font-weight:600; line-height:1.4;
+    box-shadow:0 8px 24px rgba(0,0,0,.35); pointer-events:none; opacity:0; transition:opacity .12s; display:none; }
   @keyframes spin { to { transform:rotate(360deg); } }
   /* RevHawk sync icon spinning while a refresh is in flight */
   .icon-spin svg { animation:spin .9s linear infinite; transform-origin:50% 50%; }
@@ -27952,6 +27956,52 @@ async function autoDeriveIndicatorsFromSnapshot() {
   } catch (e) { console.warn('[ridd] auto-derive indicators failed', e); state._indicatorsBuiltFromUploadId = null; }
 }
 
+// ── Hover tooltips ────────────────────────────────────────────────────────
+// One styled bubble for the whole app. Anything carrying a title (every
+// icon-only button already does) gets a proper popup on hover instead of the
+// browser's plain delayed tooltip. The title is moved to data-tip on first
+// hover so the native bubble never doubles up; code that re-sets .title later
+// (spinners, toggles) keeps working — the next hover re-converts it.
+(() => {
+  let tipEl = null, showT = null, cur = null;
+  const hide = () => { clearTimeout(showT); showT = null; cur = null; if (tipEl) tipEl.style.opacity = '0'; };
+  const ensure = () => {
+    if (!tipEl) { tipEl = document.createElement('div'); tipEl.className = 'app-tip'; document.body.appendChild(tipEl); }
+    return tipEl;
+  };
+  document.addEventListener('pointerover', (e) => {
+    const t = e.target && e.target.closest && e.target.closest('[title], [data-tip]');
+    if (!t || t === cur) return;
+    cur = t;
+    if (t.hasAttribute('title')) { t.dataset.tip = t.getAttribute('title'); t.removeAttribute('title'); }
+    const text = t.dataset.tip;
+    if (!text) { cur = null; return; }
+    clearTimeout(showT);
+    showT = setTimeout(() => {
+      if (cur !== t) return;
+      const tip = ensure();
+      tip.textContent = t.dataset.tip;   // re-read — may have been updated
+      tip.style.display = 'block';
+      const r = t.getBoundingClientRect();
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      let x = r.left + r.width / 2 - tw / 2;
+      x = Math.max(8, Math.min(x, window.innerWidth - tw - 8));
+      let y = r.top - th - 8;
+      if (y < 8) y = r.bottom + 8;
+      tip.style.left = x + 'px'; tip.style.top = y + 'px';
+      tip.style.opacity = '1';
+    }, 250);
+  }, true);
+  document.addEventListener('pointerout', (e) => {
+    if (!cur) return;
+    const to = e.relatedTarget;
+    if (to && cur.contains(to)) return;
+    if (e.target === cur || cur.contains(e.target)) hide();
+  }, true);
+  document.addEventListener('pointerdown', hide, true);
+  window.addEventListener('scroll', hide, true);
+})();
+
 // ── Live scoreboard freshness ───────────────────────────────────────────
 // The RevHawk cron lands a fresh snapshot every 30 minutes; an OPEN app also
 // checks every 10 minutes (visible tabs only) so a wallboard stays current
@@ -35929,17 +35979,37 @@ function adminReps() {
         ? 'Synced from FieldRoutes. Active users can sign in; everyone else is in the CRM and can be added in a click. Historical sales are always kept.'
         : 'Add reps, manage their profile, assign avatars. Run a sync to pull the FieldRoutes roster.')),
     el('div', { class: 'flex items-center gap-2' },
-      el('select', {
-        class: 'rounded-xl border px-3 py-2 text-sm font-semibold cursor-pointer',
-        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-        title: 'Preview the app exactly as another role sees it. Your admin access stays — a floating pill brings you back.',
-        onchange: (e) => { const v = e.target.value; e.target.value = ''; if (v) setViewAsRole(v); },
-      },
-        el('option', { value: '' }, '\ud83d\udc41 View as\u2026'),
-        el('option', { value: 'rep_sales' },  'Rep - Sales Rep'),
-        el('option', { value: 'rep_office' }, 'Rep - Office Staff'),
-        el('option', { value: 'auditor' },    'Auditor'),
-      ),
+      // 👁 View-as — icon only; the hover tip explains it, the click opens
+      // a small role menu. Renders the app exactly as that role sees it (the
+      // floating pill brings you back to admin).
+      (() => {
+        const wrap = el('div', { class: 'relative' });
+        const menu = el('div', {
+          class: 'card',
+          style: { position: 'absolute', top: 'calc(100% + 6px)', right: '0', minWidth: '190px', padding: '6px', display: 'none', zIndex: '50', boxShadow: 'var(--shadow-lg)' },
+        },
+          el('div', { class: 'px-3 pt-1.5 pb-2 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'View the app as\u2026'),
+          ...[['rep_sales', 'Rep - Sales Rep'], ['rep_office', 'Rep - Office Staff'], ['auditor', 'Auditor']].map(([v, label]) => el('button', {
+            class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition',
+            style: { color: 'var(--text)' },
+            onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
+            onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
+            onclick: () => setViewAsRole(v),
+          }, label)));
+        const btn = el('button', {
+          class: 'icon-btn show',
+          title: 'Change rep type view',
+          onclick: () => {
+            const open = menu.style.display === 'block';
+            menu.style.display = open ? 'none' : 'block';
+            if (!open) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+              if (!wrap.contains(ev.target)) { menu.style.display = 'none'; document.removeEventListener('mousedown', closer); }
+            }), 0);
+          },
+        }, '\ud83d\udc41');
+        wrap.append(btn, menu);
+        return wrap;
+      })(),
       el('button', {
         class: 'px-4 py-2 rounded-xl font-semibold text-sm transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
@@ -35978,9 +36048,22 @@ function adminReps() {
         el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, countByType(t).toLocaleString()));
     })));
 
-  // ── Active / Inactive / All + search ──
+  // ── Active / Inactive / All + column filters + search — ONE row:
+  // status toggle on the left; ⚲ filters sit just left of the search box. ──
   const inTab = typeTab === 'All' ? people : people.filter(x => x.type === typeTab);
   const aCount = inTab.filter(x => x.active).length;
+  const F = state._adminUserFilters || (state._adminUserFilters = {});
+  const _roleOpts = [...new Set(inTab.filter(x => x.isApp).map(x => String(x.profile.role || '')))].filter(Boolean).sort();
+  const _officeOpts = [...new Set(inTab.flatMap(x => { const e = x.frEmp || x.emp; return String((e && e.office_name) || '').split(',').map(s => s.trim()).filter(Boolean); }))].sort();
+  const _fActive = ['role', 'office', 'tier'].filter(k => F[k]).length;
+  const _fSel = (key, label, opts) => el('select', {
+    class: 'rounded-lg border px-2 py-1.5 text-xs cursor-pointer',
+    style: { borderColor: F[key] ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', fontWeight: F[key] ? '700' : '400' },
+    title: 'Filter the list by ' + label.toLowerCase(),
+    onchange: (e) => { F[key] = e.target.value; mountApp(); },
+  },
+    el('option', { value: '', selected: !F[key] }, label + ' — all'),
+    ...opts.map(o => el('option', { value: o.v, selected: F[key] === o.v }, o.t)));
   host.append(el('div', { class: 'flex items-center justify-between flex-wrap gap-2' },
     el('div', { class: 'inline-flex rounded-xl border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
       ...[
@@ -35993,36 +36076,21 @@ function adminReps() {
         onclick: () => { state._adminUserActiveFilter = t.id; mountApp(); },
       }, el('span', {}, t.label),
         el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: activeFilter === t.id ? { background: 'rgba(0,0,0,.15)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t.count.toLocaleString())))),
-    el('input', {
-      class: 'rounded-xl border px-3 py-2 text-xs', style: { borderColor: 'var(--border-2)', minWidth: '220px' },
-      placeholder: 'Search ' + REP_TYPE_TAB_LABEL[typeTab] + '…', value: state._adminUserSearch,
-      oninput: (e) => { state._adminUserSearch = e.target.value; clearTimeout(state._adminUserSearchT); state._adminUserSearchT = setTimeout(mountApp, 200); },
-    })));
-
-  // ── ⚲ Column filters — Access Profile / Branch / Tier ──
-  // Slim always-visible bar; a select reads "— all" when inactive and lights
-  // up accent when set. Clear button appears only when something's filtered.
-  const F = state._adminUserFilters || (state._adminUserFilters = {});
-  const _roleOpts = [...new Set(inTab.filter(x => x.isApp).map(x => String(x.profile.role || '')))].filter(Boolean).sort();
-  const _officeOpts = [...new Set(inTab.flatMap(x => { const e = x.frEmp || x.emp; return String((e && e.office_name) || '').split(',').map(s => s.trim()).filter(Boolean); }))].sort();
-  const _fActive = ['role', 'office', 'tier'].filter(k => F[k]).length;
-  const _fSel = (key, label, opts) => el('select', {
-    class: 'rounded-lg border px-2 py-1.5 text-xs cursor-pointer',
-    style: { borderColor: F[key] ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', fontWeight: F[key] ? '700' : '400' },
-    onchange: (e) => { F[key] = e.target.value; mountApp(); },
-  },
-    el('option', { value: '', selected: !F[key] }, label + ' — all'),
-    ...opts.map(o => el('option', { value: o.v, selected: F[key] === o.v }, o.t)));
-  host.append(el('div', { class: 'flex items-center gap-2 flex-wrap' },
-    el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, '⚲ Filter'),
-    _fSel('role', 'Access Profile', [..._roleOpts.map(r => ({ v: r, t: roleLabel(r) })), { v: '__crm', t: 'In CRM (not added)' }]),
-    _fSel('office', 'Branch', _officeOpts.map(o => ({ v: o, t: o }))),
-    _fSel('tier', 'Tier', (typeof REP_TIERS !== 'undefined' ? REP_TIERS : []).map(t => ({ v: t.id, t: t.label }))),
-    _fActive ? el('button', {
-      class: 'text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition hover:brightness-95',
-      style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
-      onclick: () => { state._adminUserFilters = {}; mountApp(); },
-    }, '× Clear filters (' + _fActive + ')') : null));
+    el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      _fSel('role', 'Access Profile', [..._roleOpts.map(r => ({ v: r, t: roleLabel(r) })), { v: '__crm', t: 'In CRM (not added)' }]),
+      _fSel('office', 'Branch', _officeOpts.map(o => ({ v: o, t: o }))),
+      _fSel('tier', 'Tier', (typeof REP_TIERS !== 'undefined' ? REP_TIERS : []).map(t => ({ v: t.id, t: t.label }))),
+      _fActive ? el('button', {
+        class: 'text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition hover:brightness-95',
+        style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
+        title: 'Clear all column filters',
+        onclick: () => { state._adminUserFilters = {}; mountApp(); },
+      }, '× Clear (' + _fActive + ')') : null,
+      el('input', {
+        class: 'rounded-xl border px-3 py-2 text-xs', style: { borderColor: 'var(--border-2)', minWidth: '220px' },
+        placeholder: 'Search ' + REP_TYPE_TAB_LABEL[typeTab] + '…', value: state._adminUserSearch,
+        oninput: (e) => { state._adminUserSearch = e.target.value; clearTimeout(state._adminUserSearchT); state._adminUserSearchT = setTimeout(mountApp, 200); },
+      }))));
 
   // ── Build the filtered, capped list for this tab ──
   let list = inTab;
