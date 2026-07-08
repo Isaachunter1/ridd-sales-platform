@@ -7163,8 +7163,8 @@ function openIndicatorRepCard(rep, allReps = []) {
     scopedStats = [
       { key: 'sales',      label: 'Sales',      value: fmt.int(count) },
       { key: 'revenue',    label: 'Revenue',    value: fmt.usd0(scopedRep.revenue || 0) },
-      { key: 'revPerDay',  label: 'Rev / Sell Day',   value: sellDays > 0 ? fmt.usd0((scopedRep.revenue || 0) / sellDays) : '—' },
-      { key: 'acctsPerDay', label: 'Accts / Sell Day', value: sellDays > 0 ? (count / sellDays).toFixed(1) : '—' },
+      { key: 'revPerDay',  label: 'Revenue/Day', value: sellDays > 0 ? fmt.usd0((scopedRep.revenue || 0) / sellDays) : '—' },
+      { key: 'acctsPerDay', label: 'Accts/Day',  value: sellDays > 0 ? (count / sellDays).toFixed(1) : '—' },
       { key: 'acv',        label: 'ACV',        value: fmt.usd(acv) },
       // Sales Rep dept → Avg Pest Initial (excludes Sentricon / German Roach /
       // Interior Flea). Office Staff, Technician, and All → plain Avg Initial.
@@ -26749,8 +26749,8 @@ function repDrillPanel(rep, chartBuckets) {
     el('span', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
     el('span', { class: 'text-sm font-bold tabular-nums' }, value));
   const praRow = el('div', { class: 'flex flex-wrap gap-2 mb-3' },
-    _praChip('Rev / Sell Day', _sellDays > 0 ? '$' + Math.round(_totRev / _sellDays).toLocaleString() : '—'),
-    _praChip('Accts / Sell Day', _sellDays > 0 ? (rep.sales.length / _sellDays).toFixed(1) : '—'),
+    _praChip('Revenue/Day', _sellDays > 0 ? '$' + Math.round(_totRev / _sellDays).toLocaleString() : '—'),
+    _praChip('Accts/Day', _sellDays > 0 ? (rep.sales.length / _sellDays).toFixed(1) : '—'),
     _praChip('Selling Days', String(_sellDays)),
     _praChip('Total Accts', String(rep.sales.length)),
   );
