@@ -4440,16 +4440,15 @@ function mountApp() {
       el('div', { class: 'text-[11px] font-medium', style: { color: 'var(--text-muted)' } }, state.profile.full_name),
       el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
         roleLabel(state.profile.role) + (isAdmin ? '' : ' · ' + (state.offices.find(o => o.id === state.profile.office_id)?.name || 'no office'))),
-      // Sign out lives under the ⚙ gear for non-admins (My Settings) so the
-      // nav menu stays purely navigation; admins (and demo) keep it here too.
-      (isAdmin || DEMO) ? el('button', {
+      // Sign out lives under the ⚙ gear: non-admins → My Settings sheet,
+      // admins → bottom of the Settings sidebar. The nav menu stays purely
+      // navigation (demo keeps its exit button here).
+      DEMO ? el('button', {
         class: 'mt-2 mb-1 text-xs transition hover:underline',
         style: { color: 'var(--text-muted)' },
-        onclick: async () => {
-          if (DEMO) { location.href = location.pathname; return; }
-          await supabase.auth.signOut();
-        },
-      }, DEMO ? 'Exit demo' : 'Sign out') : el('div', { class: 'mt-1 mb-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Sign out lives under the ⚙ icon'),
+        onclick: () => { location.href = location.pathname; },
+      }, 'Exit demo') : el('div', { class: 'mt-1 mb-1 text-[10px]', style: { color: 'var(--text-subtle)' } },
+        isAdmin ? 'Sign out lives at the bottom of ⚙ Settings' : 'Sign out lives under the ⚙ icon'),
     ),
   );
 
@@ -18814,6 +18813,17 @@ function viewIndicators() {
       state._indDeptDefaulted = true;
       state.indicatorDept = isOfficeStaffRole(state.profile.role) ? 'office' : 'd2d';
     }
+    // Performance Trends defaults to the SIGNED-IN rep (they can re-scope to
+    // company/branch/team with the pickers). Waits for the dataset so the
+    // name match can actually land; runs once per session.
+    if (!state._indTrendDefaulted && (state._indicatorRawSales || []).length) {
+      state._indTrendDefaulted = true;
+      const _sigT = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+      const _mine = _sigT(state.profile.full_name);
+      const _match = [...new Set((state._indicatorRawSales || []).map(s => getCanonicalRepName(s.rep || '')).filter(Boolean))]
+        .find(n => _sigT(n) === _mine);
+      if (_match) { state._indicatorTrendScope = { type: 'company' }; state._indicatorRepDrillDown = _match; }
+    }
     if (!(state._indicatorRawSales || []).length && !state._nrlaPublicPulled && typeof refreshIndicatorsFromCloud === 'function') {
       state._nrlaPublicPulled = true;
       refreshIndicatorsFromCloud(true).catch(() => {});
@@ -19942,7 +19952,16 @@ function viewIndicators() {
     // REP-LEVEL ANALYTICS (computed from raw sales if available)
     // ════════════════════════════════════════════════════════════════
     ...(_focusedComp ? [] : (_repLite
-      ? [myStatsCard(), ..._repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard')]
+      ? [
+          myStatsCard(),
+          // Performance Trends by Year — dept-scoped, so office staff see the
+          // office book and sales reps see D2D.
+          indicatorYoYTrendChart(),
+          // Performance Trends (defaults to the signed-in rep) + Rep Leaderboard.
+          ..._repSections.filter(n => n && n.getAttribute && (
+            n.getAttribute('data-section') === 'rep-leaderboard'
+            || n.getAttribute('data-indsection') === 'repTrend')),
+        ]
       : _repSections)),
   );
 }
@@ -33681,6 +33700,18 @@ function viewAdmin() {
       el('div', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest font-semibold' + (gi > 0 ? ' mt-2' : ''), style: { color: 'var(--text-subtle)' } }, g.label),
       ...g.items.map(navBtn),
     ]),
+    // Sign out — moved from the nav menu; bottom of the Settings sidebar.
+    el('div', { class: 'mt-2 pt-2 border-t', style: { borderColor: 'var(--border)' } },
+      el('button', {
+        class: 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-left w-full',
+        style: { color: '#DC2626' },
+        onmouseenter: (e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; },
+        onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
+        onclick: async () => {
+          if (typeof DEMO !== 'undefined' && DEMO) { location.href = location.pathname; return; }
+          await supabase.auth.signOut();
+        },
+      }, 'Sign out')),
   );
 
   const sectionRenderers = {
@@ -36637,8 +36668,31 @@ function adminReps() {
   };
   // Tier filter needs repKeyForPerson, so it lands here; then split the list.
   if (F.tier) list = list.filter(x => (getRepTier(repKeyForPerson(x)) || '') === F.tier);
-  const appPeople = list.filter(x => x.isApp).sort(byName);
-  const rosterPeople = list.filter(x => !x.isApp).sort(byName);
+  // ── Click-to-sort — any column header toggles asc/desc. App users and
+  // CRM-only rows each sort within their own block (app users stay on top).
+  if (!state._adminUserSort) state._adminUserSort = { key: 'name', asc: true };
+  const _us = state._adminUserSort;
+  const _sortVal = (x, key) => {
+    const p = x.profile, e2 = x.frEmp || x.emp;
+    switch (key) {
+      case 'id':       return Number((e2 && e2.employee_id) || 0) || 0;
+      case 'username': return String((e2 && e2.username) || '').toLowerCase();
+      case 'role':     return x.isApp ? roleLabel((p && p.role) || '').toLowerCase() : '~in crm';
+      case 'reptype':  return (x.type || '').toLowerCase();
+      case 'phone':    return String((p && p.phone) || (e2 && e2.phone) || '');
+      case 'email':    return String((p && p.email) || (e2 && e2.email) || '').toLowerCase();
+      case 'tier':     return getRepTier(repKeyForPerson(x)) || '~';
+      case 'status':   return x.active ? 0 : 1;
+      default:         return (x.name || '').toLowerCase();
+    }
+  };
+  const bySort = (a, b) => {
+    const va = _sortVal(a, _us.key), vb = _sortVal(b, _us.key);
+    const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : String(va).localeCompare(String(vb));
+    return (_us.asc ? cmp : -cmp) || byName(a, b);
+  };
+  const appPeople = list.filter(x => x.isApp).sort(bySort);
+  const rosterPeople = list.filter(x => !x.isApp).sort(bySort);
   // CRM-only rows are PAGED — 25 per page with arrows under the table. The
   // page resets whenever the tab / search / filters change the list.
   const PAGE_SIZE = 25;
@@ -36737,13 +36791,20 @@ function adminReps() {
             fieldroutes_employee_id: e.employee_id }) }, '+ Add to app')));
   };
 
-  const th = (label, align) => el('th', { class: (align || 'text-left') + ' px-3 py-3' }, label);
+  const th = (label, align, key) => key
+    ? el('th', {
+        class: (align || 'text-left') + ' px-3 py-3 cursor-pointer select-none transition hover:brightness-110 whitespace-nowrap',
+        style: _us.key === key ? { color: 'var(--accent)' } : {},
+        title: 'Sort by ' + label + (_us.key === key ? (_us.asc ? ' — descending next' : ' — ascending next') : ''),
+        onclick: () => { if (_us.key === key) { _us.asc = !_us.asc; } else { _us.key = key; _us.asc = true; } mountApp(); },
+      }, label + (_us.key === key ? (_us.asc ? ' ↑' : ' ↓') : ''))
+    : el('th', { class: (align || 'text-left') + ' px-3 py-3' }, label);
   host.append(el('div', { class: 'card overflow-hidden' }, el('div', { class: 'scroll-x' },
     el('table', { class: 'w-full text-sm whitespace-nowrap' },
       el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, el('tr', {},
-        th('ID'), el('th', { class: 'text-left px-4 py-3' }, 'Name'), th('User Name'), th('Access Profile'),
-        th('Rep Type'), th('Phone'), th('Email'),
-        th('Tier'), th('Status', 'text-center'), th('', 'text-right'))),
+        th('ID', null, 'id'), th('Name', 'text-left', 'name'), th('User Name', null, 'username'), th('Access Profile', null, 'role'),
+        th('Rep Type', null, 'reptype'), th('Phone', null, 'phone'), th('Email', null, 'email'),
+        th('Tier', null, 'tier'), th('Status', 'text-center', 'status'), th('', 'text-right'))),
       el('tbody', {},
         (appPeople.length + rosterShown.length) === 0
           ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 10 },
