@@ -1,5 +1,10 @@
 [build]
   publish = "."
+  # CI gate — every push runs the full check suite (function syntax, inline
+  # script syntax, server/client derive parity, responsive-CSS coverage).
+  # A failure FAILS THE DEPLOY and the previous version stays live, so a
+  # broken commit can never reach the reps. Run locally: node tools/ci-check.js
+  command = "node tools/ci-check.js"
 
 [build.environment]
   # Netlify's deploy-artifact secret scanner matches env var VALUES
