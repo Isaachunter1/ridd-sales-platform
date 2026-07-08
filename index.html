@@ -917,13 +917,26 @@ async function refreshIndicatorsFromCloud(force) {
   if (!force && Date.now() - _indCloudCheckedAt < 120000) return; // ≤1 check / 2 min
   _indCloudCheckedAt = Date.now();
   try {
-    // Streamed download with stall watchdog + retries (see _downloadSnapshotBlob)
-    // so a dropped socket can't hang this poll forever.
-    const blob = await _downloadSnapshotBlob(INDICATORS_CLOUD_PATH).catch(() => null);
-    if (!blob) return; // nothing shared yet (or download failed — next poll retries)
+    // Streamed download with stall watchdog + retries (see _downloadSnapshotBlob),
+    // and CONDITIONAL: we remember the fingerprint (ETag) of the copy we already
+    // have, so when nothing new has landed the server answers 304 with no body.
+    // That keeps every open tab's 10-min poll effectively free at any headcount.
+    const TAG_KEY = 'ridd_ind_cloud_tag';
+    let prevTag = {};
+    try { prevTag = JSON.parse(localStorage.getItem(TAG_KEY) || '{}') || {}; } catch { /* ignore */ }
+    const r = await _downloadSnapshotBlob(INDICATORS_CLOUD_PATH, null, {
+      meta: true,
+      ifNoneMatch: prevTag.etag || undefined,
+      ifModifiedSince: prevTag.lastModified || undefined,
+    }).catch(() => null);
+    if (!r || r.notModified || !r.blob) return; // unchanged, nothing shared yet, or failed — next poll retries
+    const blob = r.blob;
     const text = await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text();
     const payload = JSON.parse(text);
     if (!payload || !Array.isArray(payload.indicatorsData)) return;
+    // Valid payload → remember its fingerprint (even if it turns out to be the
+    // same age as our local copy, there's no reason to download it again).
+    try { localStorage.setItem(TAG_KEY, JSON.stringify({ etag: r.etag || null, lastModified: r.lastModified || null })); } catch { /* ignore */ }
     const remoteAt = payload.uploadedAt ? new Date(payload.uploadedAt).getTime() : 0;
     const localAt  = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt).getTime() : 0;
     if (!remoteAt || remoteAt <= localAt) return; // local copy is current
@@ -1728,8 +1741,15 @@ async function loadReportingSubscriptions(uploadId) {
 // freezes at 15% with no way out. Fetching the storage object directly lets
 // us: show a real % from the byte stream, abort whenever no bytes arrive for
 // STALL_MS, and retry with backoff before giving up to the paged fallback.
-async function _downloadSnapshotBlob(path, onPct) {
+// Pass opts.meta:true to get { blob, etag, lastModified, notModified } back;
+// with opts.ifNoneMatch / opts.ifModifiedSince the server can answer 304
+// ("you already have this") with NO body — that's what keeps dozens of open
+// tabs polling for fresh comp data from costing real bandwidth: unless a new
+// sync actually landed, each poll is a ~200-byte round trip instead of a
+// multi-MB download.
+async function _downloadSnapshotBlob(path, onPct, opts) {
   const STALL_MS = 20000, TRIES = 3;
+  const o = opts || {};
   const url = CFG.SUPABASE_URL + '/storage/v1/object/reporting/' + String(path).split('/').map(encodeURIComponent).join('/');
   const { data: { session } = {} } = await supabase.auth.getSession();
   const token = session && session.access_token;
@@ -1740,27 +1760,37 @@ async function _downloadSnapshotBlob(path, onPct) {
     let watchdog = setTimeout(() => ctrl.abort(), STALL_MS);
     const feed = () => { clearTimeout(watchdog); watchdog = setTimeout(() => ctrl.abort(), STALL_MS); };
     try {
-      const res = await fetch(url, {
-        headers: { Authorization: 'Bearer ' + token, apikey: CFG.SUPABASE_PUBLISHABLE_KEY },
-        signal: ctrl.signal,
-        cache: 'no-store',
-      });
+      const headers = { Authorization: 'Bearer ' + token, apikey: CFG.SUPABASE_PUBLISHABLE_KEY };
+      if (o.ifNoneMatch) headers['If-None-Match'] = o.ifNoneMatch;
+      if (o.ifModifiedSince) headers['If-Modified-Since'] = o.ifModifiedSince;
+      const res = await fetch(url, { headers, signal: ctrl.signal, cache: 'no-store' });
+      if (res.status === 304) {
+        clearTimeout(watchdog);
+        return o.meta ? { blob: null, notModified: true, etag: o.ifNoneMatch || null, lastModified: o.ifModifiedSince || null } : null;
+      }
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      if (!res.body) { const b = await res.blob(); clearTimeout(watchdog); return b; }
-      const total = Number(res.headers.get('content-length')) || 0;
-      const reader = res.body.getReader();
-      const chunks = [];
-      let got = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        feed();
-        chunks.push(value);
-        got += value.byteLength;
-        if (onPct) onPct(total ? Math.min(0.99, got / total) : null, got);
+      let blob;
+      if (!res.body) {
+        blob = await res.blob();
+      } else {
+        const total = Number(res.headers.get('content-length')) || 0;
+        const reader = res.body.getReader();
+        const chunks = [];
+        let got = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          feed();
+          chunks.push(value);
+          got += value.byteLength;
+          if (onPct) onPct(total ? Math.min(0.99, got / total) : null, got);
+        }
+        blob = new Blob(chunks);
       }
       clearTimeout(watchdog);
-      return new Blob(chunks);
+      return o.meta
+        ? { blob, notModified: false, etag: res.headers.get('etag'), lastModified: res.headers.get('last-modified') }
+        : blob;
     } catch (e) {
       clearTimeout(watchdog);
       lastErr = e;
