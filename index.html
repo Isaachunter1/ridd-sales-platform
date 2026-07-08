@@ -13606,7 +13606,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
           el('div', { style: { fontFamily: DISP, fontSize: '.56rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase' } }, 'Week ' + curRd.week),
           el('div', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1.1', color: qualCur ? GREEN : 'rgba(255,255,255,.25)' } }, money(qualCur))) : null,
         el('div', {},
-          el('div', { style: { fontFamily: DISP, fontSize: '.56rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase' } }, 'Season'),
+          el('div', { style: { fontFamily: DISP, fontSize: '.56rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase' } }, 'Competition'),
           el('div', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1.1', color: WHITE } }, money(_qual(r))))));
   };
   // Eliminated reps: compact name chips, grouped by exit week — a whole comp's
@@ -13621,7 +13621,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
         style: { fontFamily: DISP, textTransform: 'uppercase', fontSize: '.98rem', letterSpacing: '.03em',
                  padding: '6px 14px', borderRadius: '999px', border: '1px solid rgba(255,255,255,.2)',
                  color: WHITE, whiteSpace: 'nowrap' },
-        title: firstLast(r.rep) + ' — ' + money(_qual(r)) + ' qualified for the season · out week ' + (k + 1),
+        title: firstLast(r.rep) + ' — ' + money(_qual(r)) + ' qualified for the competition · out week ' + (k + 1),
       }, firstLast(r.rep), el('span', { style: { color: 'rgba(255,255,255,.55)', marginLeft: '8px' } }, money(_qual(r))))))));
   const cleanView = el('div', { style: { background: '#000', borderTop: '1px solid rgba(255,255,255,.08)' } },
     secHead(R.champion ? '👑 Champion' : 'Still Standing', GREEN, aliveRows.length + ' of ' + rows.length + ' reps'),
@@ -13630,7 +13630,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
     outRows.length ? secHead('Eliminated', MAG, outRows.length + ' reps') : null,
     ...outSections,
     el('div', { style: { padding: '12px 16px 16px', fontFamily: DISP, fontSize: '.62rem', letterSpacing: '.1em', color: 'rgba(255,255,255,.35)', textTransform: 'uppercase' } },
-      'Green = qualified revenue (passed + pending) · Season = cumulative qualified'));
+      'Green = qualified revenue (passed + pending) · Competition = cumulative qualified'));
   return el('div', { class: 'card', style: { padding: '0', border: '1px solid #000', background: '#000', overflow: 'hidden' } },
     hero,
     R.rounds.length
@@ -15458,15 +15458,32 @@ function viewNrlaPublic() {
     }, '× Clear all') : null;
     wrap.append(el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
       el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Days'),
-      ...effectiveDays.map(iso => el('span', {
-        class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border inline-flex items-center gap-1.5 whitespace-nowrap',
-        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-      }, fmtDay(iso),
-        (isAdmin && custom) ? el('button', {
-          class: 'leading-none cursor-pointer', style: { color: 'var(--text-subtle)' },
-          title: 'Remove this comp day',
-          onclick: () => saveDays(custom.filter(d => d !== iso)),   // removing the last chip leaves ZERO days, not auto
-        }, '×') : null)),
+      // Every chip is EDITABLE (admin): click it to move that round to a
+      // different date — e.g. swap the July 4 Saturday to Friday July 3.
+      // × removes the day entirely. Works in auto mode too (first edit
+      // converts the schedule to an explicit list).
+      ...effectiveDays.map(iso => {
+        const dateInp = isAdmin ? el('input', {
+          type: 'date', value: iso,
+          style: { width: '0', height: '0', opacity: '0', position: 'absolute', pointerEvents: 'none' },
+          onchange: (e) => {
+            const v = e.target.value;
+            if (!v || v === iso) return;
+            saveDays(effectiveDays.map(d => (d === iso ? v : d)));
+          },
+        }) : null;
+        return el('span', {
+          class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border inline-flex items-center gap-1.5 whitespace-nowrap' + (isAdmin ? ' cursor-pointer transition hover:brightness-95' : ''),
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)', position: 'relative' },
+          title: isAdmin ? 'Click to move this comp day to a different date' : undefined,
+          onclick: isAdmin ? () => { try { dateInp.showPicker ? dateInp.showPicker() : dateInp.click(); } catch { dateInp.click(); } } : undefined,
+        }, fmtDay(iso), dateInp,
+          isAdmin ? el('button', {
+            class: 'leading-none cursor-pointer', style: { color: 'var(--text-subtle)' },
+            title: 'Remove this comp day',
+            onclick: (e) => { e.stopPropagation(); saveDays(effectiveDays.filter(d => d !== iso)); },
+          }, '×') : null);
+      }),
       addInput, genBtn, clearBtn,
       el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } },
         custom
