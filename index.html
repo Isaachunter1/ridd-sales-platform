@@ -807,6 +807,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_indicatorRepIncludeRor',
   '_indicatorRepIncludeOneTime',   // leaderboard cancel filter: count one-time service cancels
   '_indicatorRepIncludeRenewals',  // leaderboard cancel filter: count renewal cancels
+  '_repFiltersV2',                 // one-time migration stamp: include-everything defaults
   '_indicatorDismissedDupes',
   '_indicatorRepAlias',
   // indicatorsGroupBy + indicatorsRangePreset intentionally NOT persisted — the
@@ -5353,6 +5354,12 @@ function _indicatorServiceExcluded(s) {
 const _repDeptCache = new Map(); let _repDeptCacheRev = -1;
 function _indicatorDeptOf(s) {
   if (!s) return 'office';
+  // Per-sale CRM employee type ("Sales Rep Type" — carried by the snapshot)
+  // is AUTHORITATIVE: exactly the Emp. Type filter the FieldRoutes report
+  // uses, so office staff can never leak into the Sales Rep view (or vice
+  // versa). Older datasets without the column fall through to the map/source.
+  const own = String(s.repType || '').trim().toLowerCase();
+  if (own) return own === 'sales rep' ? 'd2d' : own === 'technician' ? 'techs' : 'office';
   const rep = s.rep || '';
   if (_repDeptCacheRev !== _indCfgRev) { _repDeptCache.clear(); _repDeptCacheRev = _indCfgRev; }
   let dept = _repDeptCache.get(rep);
@@ -21993,26 +22000,35 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           })(),
         ),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          // Cancel-filters dropdown — which normally-excluded cancel kinds
-          // COUNT toward Cancels / Cancel % on the leaderboard and every rep
-          // player card opened from it. SNS / Combined rows never count.
+          // Filters dropdown — everything COUNTS by default; unchecking a
+          // cancel kind EXCLUDES it from Cancels / Cancel % on the leaderboard
+          // and every rep player card. SNS / Combined rows never count.
           (() => {
+            // One-time migration: the old default EXCLUDED these three kinds.
+            // New default = include everything (uncheck to exclude).
+            if (!state._repFiltersV2) {
+              state._repFiltersV2 = true;
+              state._indicatorRepIncludeRor = true;
+              state._indicatorRepIncludeOneTime = true;
+              state._indicatorRepIncludeRenewals = true;
+              saveDemoData();
+            }
             const opts = [
               ['_indicatorRepIncludeRor',      'Count 3-Day RORs',        'Cancels within 3 days of sale (Right of Rescission)'],
               ['_indicatorRepIncludeOneTime',  'Count one-time services', 'Cancels on "One Time …" service types (completed jobs closing out)'],
               ['_indicatorRepIncludeRenewals', 'Count renewals',          'Cancels where the customer renewed onto a new subscription (Renewal - …)'],
             ];
-            const onCount = opts.filter(([k]) => state[k]).length;
+            const offCount = opts.filter(([k]) => !state[k]).length;
             const wrap = el('div', { class: 'relative' });
             wrap.append(el('button', {
               class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition border flex items-center gap-1.5',
-              style: onCount
+              style: offCount
                 ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
                 : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-              title: 'Choose which normally-excluded cancel types COUNT toward Cancels / Cancel % here and on every rep player card. Sold-Not-Started and Combined rows never count.',
+              title: 'Everything counts by default — uncheck a cancel type to exclude it from Cancels / Cancel % here and on every rep player card. Sold-Not-Started and Combined rows never count.',
               onclick: (e) => { e.stopPropagation(); state._repCancelMenuOpen = !state._repCancelMenuOpen; mountApp(); },
             },
-              el('span', {}, 'Cancel filters' + (onCount ? ' · ' + onCount + ' on' : '')),
+              el('span', {}, 'Filters' + (offCount ? ' · ' + offCount + ' excluded' : '')),
               el('span', { style: { fontSize: '9px' } }, state._repCancelMenuOpen ? '▴' : '▾')));
             if (state._repCancelMenuOpen) {
               wrap.append(el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', left: '0', minWidth: '250px', zIndex: '40', boxShadow: 'var(--shadow-lg)' } },
@@ -22025,7 +22041,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   el('span', { style: { fontSize: '13px' } }, state[key] ? '☑' : '☐'),
                   el('span', {}, label))),
                 el('div', { class: 'px-2.5 pt-1.5 pb-1 text-[10px]', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)', marginTop: '4px' } },
-                  'Checked = counts as a cancel. Sold-Not-Started & Combined never count.')));
+                  'Checked = counts (the default). Uncheck to exclude. Sold-Not-Started & Combined never count.')));
               if (window._repCancelMenuCloser) document.removeEventListener('mousedown', window._repCancelMenuCloser);
               window._repCancelMenuCloser = (ev) => {
                 const w = document.getElementById('rep-cancel-filter-wrap');
@@ -23158,12 +23174,15 @@ function parseIndicatorsCsv(text) {
   // RevHawk snapshot). Stable identity: name spellings sharing one ID are the
   // same human. Manual CSV exports without the column parse fine (blank).
   const iRepId = headers.findIndex(h => h.includes('rep id'));
+  // The selling rep's CRM employee type ("Sales Rep Type") — authoritative
+  // per-sale department: no more guessing office staff into the D2D view.
+  const iRepType = headers.findIndex(h => h.includes('rep type'));
 
   const isRawSales = iCustomer >= 0 && iDateSold >= 0 && iOffice >= 0;
 
   if (isRawSales) {
     return parseRawSalesReport(lines, headerRow, headers, {
-      iOffice, iDateSold, iContract, iInitPrice, iContractVal, iStatus, iAPay, iRep, iRepId, iRecurring, iServices,
+      iOffice, iDateSold, iContract, iInitPrice, iContractVal, iStatus, iAPay, iRep, iRepId, iRepType, iRecurring, iServices,
       iSub, iActive, iCancelR, iCancelD, iAge, iSource, iCustName, iCustId, iCustFlags, iServicedDate, iInitialStatus
     });
   }
@@ -23232,6 +23251,7 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
       initialStatus: cols.iInitialStatus >= 0 ? (c[cols.iInitialStatus] || '').trim() : '',
       rep: (c[cols.iRep] || '').trim(),
       repId: cols.iRepId >= 0 ? (c[cols.iRepId] || '').trim() : '',
+      repType: cols.iRepType >= 0 ? (c[cols.iRepType] || '').trim() : '',
       dateSold: dateSold,
       // Preserve the full original row + the upload's header order so the
       // raffle export can dump EVERY column the user uploaded, not just the
@@ -28414,7 +28434,7 @@ function reportingSnapshotToIndicatorsCsv(rows) {
     return m[4] ? (date + ' ' + m[4]) : date;         // append 24h time when present
   };
   const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const headers = ['Office', 'Date Sold', 'Customer Id', 'Customer Name', 'Subscription', 'Active', 'Cancellation Reason', 'Cancellation Date', 'Age', 'Source', 'Contract', 'Contract Value', 'Initial Price', 'Annual Recurring Value', 'Completed Services', 'Status', 'Auto Pay', 'Sales Rep', 'Sales Rep Id', 'Customer Flags', 'Serviced Date', 'Initial Status'];
+  const headers = ['Office', 'Date Sold', 'Customer Id', 'Customer Name', 'Subscription', 'Active', 'Cancellation Reason', 'Cancellation Date', 'Age', 'Source', 'Contract', 'Contract Value', 'Initial Price', 'Annual Recurring Value', 'Completed Services', 'Status', 'Auto Pay', 'Sales Rep', 'Sales Rep Id', 'Sales Rep Type', 'Customer Flags', 'Serviced Date', 'Initial Status'];
   const lines = [headers.join(',')];
   for (const r of (rows || [])) {
     lines.push([
@@ -28422,7 +28442,7 @@ function reportingSnapshotToIndicatorsCsv(rows) {
       r.subscription || '', r.subscription_status || '', r.subscription_cancellation_reason || '', r.subscription_date_canceled || '',
       r.days_past_due || 0, r.subscription_source || '', r.agreement_length || 0, r.subscription_contract_value || 0, r.initial_price || 0,
       r.annual_recurring_value || 0, r.subscription_completed_services || 0, r.subscription_status || '', r.customer_auto_pay || '',
-      r.sold_by || '', r.sold_by_id || '', r.customer_flags || '', r.initial_serviced_date || '', r.initial_status || '',
+      r.sold_by || '', r.sold_by_id || '', r.sold_by_type || '', r.customer_flags || '', r.initial_serviced_date || '', r.initial_status || '',
     ].map(esc).join(','));
   }
   return lines.join('\n');
