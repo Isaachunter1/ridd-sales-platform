@@ -13583,10 +13583,63 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
           ...shownIdx.map(i => headCell(R.rounds[i])), totalHead)),
         el('tbody', {}, ...rows.map(r => el('tr', {}, nameCell(r), ...shownIdx.map(i => gridCell(r, i)), totalCell(r)))))));
 
+  // ── CLEAN VIEW (default) — answers the one question everyone has:
+  // "am I still in?" Alive reps big on top with this week + season qualified;
+  // eliminated reps collapsed below, grouped by the week they went out. The
+  // full week-by-week money matrix stays one toggle away.
+  const curIdx = R.rounds.length - 1;
+  const curRd = R.rounds[curIdx];
+  const aliveRows = rows.filter(r => r.alive);
+  const outRows = rows.filter(r => !r.alive);
+  const secHead = (label, col, count) => el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '10px', padding: '18px 16px 8px', fontFamily: DISP, textTransform: 'uppercase' } },
+    el('span', { style: { color: col, fontSize: '1.15rem', letterSpacing: '.14em' } }, label),
+    el('span', { style: { color: WHITE, opacity: '.4', fontSize: '.75rem', letterSpacing: '.1em' } }, count));
+  const cleanRow = (r, rank) => {
+    const wbCur = (curRd && weekBreak[curRd.iso] && weekBreak[curRd.iso][r.rep]) || EMPTY_RB;
+    const qualCur = (wbCur.passed || 0) + (wbCur.pending || 0);
+    const champ = r.rep === R.champion;
+    return el('div', { style: { display: 'flex', alignItems: 'center', gap: '14px', padding: '10px 16px', borderTop: HAIR } },
+      el('span', { style: { fontFamily: DISP, color: rank <= 3 ? ORANGE : 'rgba(255,255,255,.35)', width: '34px', textAlign: 'right', fontSize: '.95rem', flex: '0 0 auto' } }, '#' + rank),
+      el('div', { style: { flex: '1', minWidth: '0' } },
+        el('div', { style: { fontFamily: DISP, fontSize: '1.15rem', textTransform: 'uppercase', color: champ ? ORANGE : WHITE, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (champ ? '👑 ' : '') + firstLast(r.rep)),
+        el('div', { style: { fontFamily: DISP, fontSize: '.62rem', letterSpacing: '.1em', color: 'rgba(255,255,255,.35)', textTransform: 'uppercase' } }, r.office || '')),
+      curRd ? el('div', { style: { textAlign: 'right', flex: '0 0 auto' } },
+        el('div', { style: { fontFamily: DISP, fontSize: '.6rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase' } }, 'Week ' + curRd.week),
+        el('div', { style: { fontFamily: DISP, fontSize: '1.2rem', color: qualCur ? GREEN : 'rgba(255,255,255,.25)' } }, money(qualCur))) : null,
+      el('div', { style: { textAlign: 'right', minWidth: '110px', flex: '0 0 auto' } },
+        el('div', { style: { fontFamily: DISP, fontSize: '.6rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase' } }, 'Season'),
+        el('div', { style: { fontFamily: DISP, fontSize: '1.2rem', color: WHITE } }, money(_qual(r)))));
+  };
+  const outGroups = {};
+  outRows.forEach(r => { (outGroups[r.elimWeek] = outGroups[r.elimWeek] || []).push(r); });
+  const outSections = Object.keys(outGroups).map(Number).sort((a, b) => b - a).map(k => el('div', {},
+    el('div', { style: { padding: '14px 16px 4px', fontFamily: DISP, fontSize: '.72rem', letterSpacing: '.14em', textTransform: 'uppercase', color: MAG } },
+      'Out · Week ' + (k + 1) + ' — ' + outGroups[k].length + ' rep' + (outGroups[k].length === 1 ? '' : 's')),
+    ...outGroups[k].sort((a, b) => _qual(b) - _qual(a)).map(r => el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '10px', padding: '6px 16px', borderTop: HAIR, opacity: '.55' } },
+      el('span', { style: { fontFamily: DISP, textTransform: 'uppercase', color: WHITE, fontSize: '.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, firstLast(r.rep)),
+      el('span', { style: { fontFamily: DISP, color: 'rgba(255,255,255,.6)', fontSize: '.9rem', whiteSpace: 'nowrap' } }, money(_qual(r)) + ' season')))));
+  const cleanView = el('div', { style: { background: '#000', borderTop: '1px solid rgba(255,255,255,.08)' } },
+    secHead(R.champion ? '👑 Champion' : 'Still Standing', GREEN, aliveRows.length + ' of ' + rows.length + ' reps'),
+    el('div', {}, ...aliveRows.map((r, i) => cleanRow(r, i + 1))),
+    outRows.length ? secHead('Eliminated', MAG, outRows.length + ' reps') : null,
+    ...outSections,
+    el('div', { style: { padding: '12px 16px 16px', fontFamily: DISP, fontSize: '.62rem', letterSpacing: '.1em', color: 'rgba(255,255,255,.35)', textTransform: 'uppercase' } },
+      'Green = qualified revenue (passed + pending) · Season = cumulative qualified · flip to Week-by-week for the full money grid'));
+  const _lmsMode = state._lmsDetailView ? 'detail' : 'clean';
+  const viewToggle = el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '6px', padding: '10px 16px 0' } },
+    ...[['clean', 'Clean view'], ['detail', 'Week-by-week']].map(([m, lab]) => el('button', {
+      style: { fontFamily: DISP, textTransform: 'uppercase', letterSpacing: '.08em', fontSize: '.68rem', padding: '6px 12px', borderRadius: '999px', cursor: 'pointer',
+        border: '1px solid ' + (_lmsMode === m ? ORANGE : 'rgba(255,255,255,.25)'),
+        background: _lmsMode === m ? ORANGE : 'transparent',
+        color: _lmsMode === m ? '#000' : 'rgba(255,255,255,.7)' },
+      title: m === 'clean' ? 'Who\'s still in — one row per rep' : 'The full week-by-week revenue grid',
+      onclick: () => { state._lmsDetailView = (m === 'detail'); mountApp(); },
+    }, lab)));
+
   return el('div', { class: 'card', style: { padding: '0', border: '1px solid #000', background: '#000', overflow: 'hidden' } },
     hero,
     R.rounds.length
-      ? el('div', { style: { padding: '12px 0 0' } }, gauntlet)
+      ? el('div', { style: { padding: '12px 0 0' } }, viewToggle, state._lmsDetailView ? gauntlet : cleanView)
       : el('div', { style: { fontFamily: DISP, color: MAG, textAlign: 'center', padding: '26px', fontSize: '1rem', background: '#000', textTransform: 'uppercase', letterSpacing: '.05em' } }, 'No Saturday rounds played in this window yet.'));
 }
 
@@ -15306,7 +15359,16 @@ function viewNrlaPublic() {
   if (!comps.some(c => c.id === selId)) selId = comps[0].id;
   const sel = comps.find(c => c.id === selId);
   if (getActiveCompId() !== sel.id) state._indicatorActiveCompId = sel.id;
-  // ── Comp switcher pills + admin ★ default control ──
+  // ── Comp switcher pills + admin ★ default control + FieldRoutes sync stamp ──
+  const _compSyncStr = (() => {
+    const t = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt) : null;
+    if (!t || isNaN(t)) return null;
+    try {
+      return t.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).replace(',', ' ·');
+    } catch (e) {
+      return t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' + t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
+  })();
   wrap.append(el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
     el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Competition'),
     ...comps.map(c => el('button', {
@@ -15333,7 +15395,13 @@ function viewNrlaPublic() {
         saveDemoData();                                // syncs to every user
         mountApp();
       },
-    }, sel.favorite ? '★ Default' : '☆ Set as default') : null));
+    }, sel.favorite ? '★ Default' : '☆ Set as default') : null,
+    _compSyncStr ? el('div', {
+      class: (isAdmin ? '' : 'ml-auto ') + 'text-right',
+      title: 'When the FieldRoutes sync last landed — every board on this tab reads from that snapshot (refreshes every ~30 min)',
+    },
+      el('div', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Last sync'),
+      el('div', { class: 'text-[11px] font-bold tabular-nums' }, _compSyncStr)) : null));
   // ── NRLA gets its own board (runs on its own schedule — no window bar) ──
   if (isNrlaComp(sel)) {
     wrap.append(nrlaBoard(raw, { readOnly: !isAdmin, comp: sel }));
