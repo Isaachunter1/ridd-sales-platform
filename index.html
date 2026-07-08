@@ -665,6 +665,27 @@
   }
   .page-header .icon-btn { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
   .page-header .icon-btn:hover { background: color-mix(in srgb, var(--text) 14%, transparent); }
+
+  /* ── Static-Tailwind gap fills ─────────────────────────────────────────
+     tailwind.css is PREBUILT; classes introduced after the last rebuild
+     silently don't exist (this is how the desktop comp switcher rendered
+     as an empty bar: `hidden sm:flex` with no sm:flex defined = hidden at
+     every width). Fills below cover every responsive utility the markup
+     uses that the prebuilt sheet lacks. If you rebuild tailwind.css, this
+     block is harmlessly redundant. */
+  @media (min-width: 640px) {
+    .sm\:flex { display: flex; }
+    .sm\:text-\[10px\] { font-size: 10px; }
+    .sm\:w-\[280px\] { width: 280px; }
+    .sm\:grid-cols-\[1fr_1fr_1\.3fr_\.7fr_auto\] { grid-template-columns: 1fr 1fr 1.3fr .7fr auto; }
+    .sm\:grid-cols-\[auto_1fr\] { grid-template-columns: auto 1fr; }
+    .sm\:grid-cols-\[auto_1fr_auto\] { grid-template-columns: auto 1fr auto; }
+  }
+  @media (min-width: 1024px) {
+    .lg\:grid-cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .lg\:grid-cols-\[3fr_7fr\] { grid-template-columns: 3fr 7fr; }
+    .lg\:w-\[440px\] { width: 440px; }
+  }
 </style>
 
 <!-- Apply theme before body paints to avoid flash -->
