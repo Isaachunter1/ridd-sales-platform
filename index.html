@@ -1010,12 +1010,16 @@ async function refreshIndicatorsFromCloud(force) {
     const _saveTag = () => { try { localStorage.setItem(TAG_KEY, JSON.stringify({ etag: r.etag || null, lastModified: r.lastModified || null })); } catch { /* ignore */ } };
     if (!remoteAt) return;
     if (remoteAt === localAt) { _saveTag(); return; }            // same dataset — remember the tag, skip the work
-    // Admins may be mid-derive with a legitimately fresher LOCAL build — only
-    // apply strictly-newer for them. Reps (and admins in View-as) have no
-    // other source: the shared copy is TRUTH, apply whenever it differs.
-    // (A phone once stuck on a Jun-13 dataset forever proved why.) The tag is
-    // deliberately NOT saved on the skip path so the next poll re-checks.
-    if (isAdminRole(state.profile && state.profile.role) && remoteAt < localAt) return;
+    // THE SERVER IS THE WRITER now — the RevHawk sync job derives and
+    // publishes the shared dataset with every snapshot. The only legitimate
+    // way for LOCAL to be ahead is a manual CSV import on an admin device
+    // (which shares itself up as it saves). Everything else — including
+    // RevHawk-stamped data with a stale or clock-skewed stamp — adopts the
+    // server copy on ANY difference. The tag is only saved on apply/match
+    // so skips keep re-checking.
+    if (remoteAt < localAt
+        && isAdminRole(state.profile && state.profile.role)
+        && !/^RevHawk sync/i.test(state.indicatorsFileName || '')) return;
     _saveTag();
     state.indicatorsData       = payload.indicatorsData;
     state._indicatorRawSales   = payload.rawSales || [];
@@ -1023,11 +1027,54 @@ async function refreshIndicatorsFromCloud(force) {
     state.indicatorsFileName   = payload.fileName || '';
     state.indicatorsWeek = -1;
     reactivateRecentSellers(); // bring back any Inactive rep who sold again
+    try { _applyIndicatorsPayloadHousekeeping(payload); } catch (hkErr) { console.warn('[ridd] payload housekeeping failed', hkErr); }
     saveDemoData();
     toast('Indicators refreshed — pulled the latest upload (' + (payload.fileName || 'CSV') + ')', 'success');
     mountApp();
     setTimeout(() => { try { maybeShowWeeklyRecap(); } catch { /* ignore */ } }, 800);
   } catch (e) { console.warn('[ridd] indicators cloud refresh failed', e); }
+}
+
+// Post-apply housekeeping — the things the local PARSE path used to do that
+// must now happen when a device APPLIES the server-derived payload instead
+// (browsers no longer parse snapshots in the normal flow).
+function _applyIndicatorsPayloadHousekeeping(payload) {
+  const raw = (payload && payload.rawSales) || [];
+  // 1. Rep-type sig map from the additive per-sale repType field. Server
+  //    payloads carry it (from the CRM's Sold By Type); this gives every
+  //    account — including reps, who never load the Reporting tab — the
+  //    authoritative department mapping.
+  try {
+    const m = {};
+    for (const s of raw) {
+      const t = (s && s.repType || '').trim();
+      if (!t || !s.rep) continue;
+      const k = _repTypeNameSig(typeof getCanonicalRepName === 'function' ? getCanonicalRepName(s.rep) : s.rep);
+      if (k && !m[k]) m[k] = t;
+    }
+    if (Object.keys(m).length) {
+      state._indicatorRepTypeBySig = Object.assign({}, state._indicatorRepTypeBySig || {}, m);
+    }
+  } catch (e) { console.warn('[ridd] rep-type map from payload failed', e); }
+  // 2. Rep → office auto-sync (admins only — it lands in shared config).
+  try {
+    if (!isAdminRole(state.profile && state.profile.role)) return;
+    const counts = {};
+    for (const s of raw) {
+      if (!s || !s.rep || !s.office) continue;
+      (counts[s.rep] = counts[s.rep] || {})[s.office] = (counts[s.rep][s.office] || 0) + 1;
+    }
+    if (!state._indicatorRepOffice) state._indicatorRepOffice = {};
+    let updated = 0;
+    for (const [rep, c] of Object.entries(counts)) {
+      const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (top && state._indicatorRepOffice[rep] !== top) { state._indicatorRepOffice[rep] = top; updated++; }
+    }
+    if (updated > 0) {
+      if (typeof _invalidateRepSigIndex === 'function') _invalidateRepSigIndex(state._indicatorRepOffice);
+      if (typeof saveIndicatorState === 'function') saveIndicatorState();
+    }
+  } catch (e) { console.warn('[ridd] rep-office merge from payload failed', e); }
 }
 
 // Refs of the bulk data last persisted, so config-only saves (team/tier
@@ -1099,43 +1146,24 @@ function saveIndicatorState() {
     if (Array.isArray(data._indicatorSnapshots) && data._indicatorSnapshots.length > 6) {
       data._indicatorSnapshots = data._indicatorSnapshots.slice(-6);
     }
-    // Mirror the full payload to IndexedDB (no 5MB cap) — primary store for
-    // all-time-sized uploads. Fire-and-forget; localStorage below still
-    // provides the fast first paint for smaller payloads.
-    _indIdbSet('bulk', data).catch(e => console.warn('[ridd] IndexedDB indicator save failed', e));
-    const json = JSON.stringify(data);
+    // IndexedDB is THE bulk store (no quota). The old localStorage paths
+    // (plain JSON → gz fallback → slim-without-rows fallback) are retired:
+    // the dataset outgrew the 5MB quota on desktops too, and each fallback
+    // was another way for a device to resurrect stale data or hold a fresh
+    // stamp with no rows. One store, one truth. The legacy localStorage
+    // bulk keys are actively removed so an old copy can never shadow IDB.
+    _indIdbSet('bulk', data).catch(e => {
+      // IDB unavailable (rare: private mode on some browsers) — fall back to
+      // the compressed localStorage path, which self-deletes when stale.
+      console.warn('[ridd] IndexedDB indicator save failed — using gz fallback', e);
+      try { _storeIndicatorDataCompressed(JSON.stringify(data)); } catch { /* memory-only session */ }
+    });
     try {
-      localStorage.setItem(INDICATORS_DATA_STORAGE_KEY, json);
+      localStorage.removeItem(INDICATORS_DATA_STORAGE_KEY);
       localStorage.removeItem(INDICATORS_DATA_GZ_KEY);
-      _indicatorDataSaveWarned = false;
-    } catch (plainErr) {
-      // Plain JSON is over quota — persist the full payload compressed in
-      // the background (≈8× smaller) so nothing is lost across refreshes.
-      _storeIndicatorDataCompressed(json);
-      throw plainErr; // still run the slim sync fallback below
-    }
+    } catch { /* ignore */ }
   } catch (err) {
-    // Over quota. Retry WITHOUT the bulk raw-sales array so aggregates,
-    // snapshots and prefs still persist — and log quietly instead of
-    // nagging with a toast on every save/page load. Raw sales come back
-    // with the next CSV import.
-    try {
-      const slim = { savedAt: new Date().toISOString() };
-      for (const k of INDICATOR_DATA_FIELDS) {
-        if (k === '_indicatorRawSales') continue;
-        slim[k] = state[k];
-      }
-      if (Array.isArray(slim._indicatorSnapshots) && slim._indicatorSnapshots.length > 6) {
-        slim._indicatorSnapshots = slim._indicatorSnapshots.slice(-6);
-      }
-      localStorage.setItem(INDICATORS_DATA_STORAGE_KEY, JSON.stringify(slim));
-    } catch (err2) {
-      console.warn('[ridd] slim indicator save also failed', err2);
-    }
-    if (!_indicatorDataSaveWarned) {
-      console.warn('[ridd] indicator raw sales too large for localStorage — cached without raw rows; re-import the CSV after a refresh for rep-level detail', err);
-      _indicatorDataSaveWarned = true;
-    }
+    console.warn('[ridd] indicator bulk save failed', err);
   }
   // Remember what we just persisted so subsequent config-only saves skip this
   // block until the underlying data changes again.
@@ -1409,6 +1437,33 @@ async function _indicatorConfigUpsertNow() {
     updated_by:    state.profile?.id || null,
   };
   try {
+    // COMPARE-AND-SWAP first (indicator_config_cas.sql): the server rejects
+    // any write based on an outdated copy, which deterministically ends the
+    // "stale device rolls back everyone's config" class of incident. Falls
+    // back to the old direct upsert until the SQL has been run.
+    const _basedOn = (_indCfgSyncRec() || {}).serverAt || null;
+    const { data: casRes, error: casErr } = await supabase
+      .rpc('save_indicator_config', { payload, based_on: _basedOn });
+    if (!casErr && casRes && casRes.ok) {
+      _indCfgRecordSynced(casRes.server_updated_at || payload.updated_at);
+      _mirrorNrlaRostersToRows();              // stage-1 dual-write (additive, never blocks)
+      return true;
+    }
+    if (!casErr && casRes && casRes.conflict) {
+      // Our edits were based on an outdated config. Server wins: adopt the
+      // current copy (the loader's escape hatch applies it since the server
+      // is past our baseline) and tell the admin to re-apply their edit.
+      console.warn('[ridd] config write rejected by CAS — server moved past this browser; adopting server copy');
+      try { toast('Settings changed on another device first — pulled the latest. Please re-apply your last change.', 'error'); } catch { /* boot */ }
+      try { await loadIndicatorConfigFromSupabase(); if (typeof mountApp === 'function') mountApp(); } catch { /* next poll heals */ }
+      return true; // handled — do NOT retry the stale payload
+    }
+    if (casErr && !/function|schema cache|does not exist|404/i.test(casErr.message || '')) {
+      console.warn('[ridd] save_indicator_config RPC failed', casErr);
+      if (typeof toast === 'function') toast('Saved locally — server sync failed (' + (casErr.message || 'unknown') + '), retrying…', 'error');
+      return false;
+    }
+    // RPC not installed yet — legacy direct upsert.
     const { error } = await supabase.from('indicator_config').upsert(payload, { onConflict: 'id' });
     if (error) {
       console.warn('[ridd] indicator_config upsert failed', error);
@@ -29340,14 +29395,20 @@ async function syncFromRevHawk(btn) {
             if (lateRows && lateRows.length) {
               state.reportingSubscriptions = lateRows;
               state.reportingSubscriptionsLoadedFor = top.id;
-              try {
-                state.indicatorsData = parseIndicatorsCsv(reportingSnapshotToIndicatorsCsv(lateRows));
-                state.indicatorsWeek = -1;
-                state.indicatorsUploadedAt = new Date().toISOString();
-                state.indicatorsFileName = 'RevHawk sync — ' + new Date().toLocaleDateString();
-                if (typeof captureIndicatorSnapshot === 'function') captureIndicatorSnapshot();
-                if (typeof syncIndicatorsToCloud === 'function') syncIndicatorsToCloud();
-              } catch (e) { console.warn('Indicators rebuild after late sync failed', e); }
+              // Server-derived blob first; local rebuild only if it's missing.
+              try { if (typeof refreshIndicatorsFromCloud === 'function') await refreshIndicatorsFromCloud(true); } catch { /* fallback below */ }
+              const _lSnapAt = Date.parse(top.uploaded_at || '') || 0;
+              const _lIndAt  = state.indicatorsUploadedAt ? Date.parse(state.indicatorsUploadedAt) : 0;
+              if (!(_lSnapAt && _lIndAt >= _lSnapAt)) {
+                try {
+                  state.indicatorsData = parseIndicatorsCsv(reportingSnapshotToIndicatorsCsv(lateRows));
+                  state.indicatorsWeek = -1;
+                  state.indicatorsUploadedAt = top.uploaded_at || new Date().toISOString();
+                  state.indicatorsFileName = 'RevHawk sync — ' + new Date().toLocaleDateString();
+                  if (typeof captureIndicatorSnapshot === 'function') captureIndicatorSnapshot();
+                  if (typeof syncIndicatorsToCloud === 'function') syncIndicatorsToCloud();
+                } catch (e) { console.warn('Indicators rebuild after late sync failed', e); }
+              }
               if (typeof saveDemoData === 'function') saveDemoData();
               toast('RevHawk sync landed — ' + lateRows.length.toLocaleString() + ' subscriptions refreshed', 'success');
               mountApp();
@@ -29371,12 +29432,19 @@ async function syncFromRevHawk(btn) {
       if (rows) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = fresh.id; }
     }
 
-    // Rebuild Indicators from the same fresh snapshot (best-effort).
-    if (rows && rows.length) {
+    // Indicators: the sync job derives + publishes the shared dataset
+    // server-side with the snapshot, so PULL that copy (single writer).
+    // Local rebuild only fires as a fallback when the server's derive
+    // failed (blob still older than this snapshot).
+    try { if (typeof refreshIndicatorsFromCloud === 'function') await refreshIndicatorsFromCloud(true); } catch { /* fallback below */ }
+    const _snapAt = Date.parse(fresh.uploaded_at || '') || 0;
+    const _indAt  = state.indicatorsUploadedAt ? Date.parse(state.indicatorsUploadedAt) : 0;
+    if (rows && rows.length && !(_snapAt && _indAt >= _snapAt)) {
       try {
+        console.warn('[ridd] server-derived indicators blob not available — rebuilding locally (fallback)');
         state.indicatorsData = parseIndicatorsCsv(reportingSnapshotToIndicatorsCsv(rows)); // also sets state._indicatorRawSales
         state.indicatorsWeek = -1;
-        state.indicatorsUploadedAt = new Date().toISOString();
+        state.indicatorsUploadedAt = fresh.uploaded_at || new Date().toISOString(); // tie to the snapshot, matching the server's stamp
         state.indicatorsFileName = 'RevHawk sync — ' + new Date().toLocaleDateString();
         if (typeof captureIndicatorSnapshot === 'function') captureIndicatorSnapshot();
         if (typeof syncIndicatorsToCloud === 'function') syncIndicatorsToCloud();
