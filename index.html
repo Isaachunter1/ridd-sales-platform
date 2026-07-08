@@ -5378,6 +5378,13 @@ const INDICATOR_DEPTS = [
 // exports and scorecard periods intentionally use the full set instead.
 let _indCfgRev = 0; // bumped on every settings save — invalidates sales caches
 const _indSalesCache = { src: null, cfg: '', byKey: new Map() };
+// FieldRoutes' "Global:" excluded service types (Sales Leaderboard report
+// config) — chargebacks/fees, plus the two service types RIDD globally
+// excludes from sales reporting. Stripped from every indicators metric so
+// the app reconciles 1:1 with the CRM report.
+const FR_GLOBAL_EXCLUDED_SERVICES = new Set([
+  'ACH Chargeback', 'Early Cancellation Fee', 'German Roach Initial', 'Rodent Station Removal',
+]);
 function indicatorSales() {
   const dept = state.indicatorDept || 'all';
   const src = state._indicatorRawSales || [];
@@ -5419,13 +5426,23 @@ function indicatorSales() {
   const _inclSrcSet = _inclSrcArr.length ? new Set(_inclSrcArr) : null;
   const _exclSrcSet = _exclSrcArr.length ? new Set(_exclSrcArr) : null;
   let all = src.filter(s => {
-    // Account status. Default "Pending / Serviced" drops accounts sold but never
-    // started service (cancelled BEFORE first service) — matching the CRM's
-    // Pending/Serviced status. Accounts that WERE serviced and later cancelled
-    // still count (they got service), exactly like the CRM. "All accounts" keeps
-    // the never-started ones too. (This mirrors the app's long-standing default,
-    // so nothing changes unless the user switches to "All accounts".)
-    if (_acct !== 'all' && (_isSoldNotStarted(s) || _scIsSoldNotStarted(s))) return false;
+    // FieldRoutes' GLOBAL report exclusions — billing artifacts, not sales.
+    // Matches the CRM Sales Leaderboard's "Global:" excluded service types so
+    // the two reconcile to the penny.
+    if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(s.subscription || '').trim())) return false;
+    // Account status. Default "Pending / Serviced" now uses FIELDROUTES' OWN
+    // definition: the account's initial-appointment status is Pending or
+    // Completed. Verified against the CRM's Sales Leaderboard to the penny
+    // (e.g. Drew Sauer $409,600.97 ✓ — the old heuristic showed $369,579
+    // because it also required the subscription to be Active). Older
+    // snapshots without the Initial Status column fall back to the legacy
+    // sold-not-started heuristic.
+    if (_acct !== 'all') {
+      if (_scInitialStatusHasData()) {
+        const _ist = String(s.initialStatus || '').trim().toLowerCase();
+        if (_ist !== 'pending' && _ist !== 'completed') return false;
+      } else if (_isSoldNotStarted(s) || _scIsSoldNotStarted(s)) return false;
+    }
     if (_indicatorServiceExcluded(s)) return false;
     const _s = String(s.source || '').trim();
     if (_exclSrc.has(_s)) return false;
@@ -20063,7 +20080,7 @@ function myStatsCard() {
 
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between flex-wrap gap-2 mb-3' },
-      el('div', { class: 'text-sm font-bold' }, '⭐ My Stats'),
+      el('div', { class: 'text-sm font-bold' }, 'My Stats'),
       el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
         goal > 0 ? 'Goal set in ⚙ My Settings' : 'Set your annual goal in ⚙ My Settings to track your pace')),
     goal > 0 ? el('div', { class: 'mb-3' },
@@ -21756,8 +21773,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           ),
         );
       } },
-    { key: 'team',       label: 'Team',     align: 'left',  defaultDir: 'asc',  cell: r => el('td', { class: 'px-2 py-2 text-muted-' }, r.team || '—') },
-    { key: 'office',     label: 'Office',   align: 'left',  defaultDir: 'asc',  cell: r => el('td', { class: 'px-2 py-2 text-muted-' }, (r.office || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ')) },
+    // Team + Office don't apply to office staff (they're not on D2D team
+    // rosters and all share the office) — dropped when that dept is scoped.
+    ...(state.indicatorDept === 'office' ? [] : [
+      { key: 'team',       label: 'Team',     align: 'left',  defaultDir: 'asc',  cell: r => el('td', { class: 'px-2 py-2 text-muted-' }, r.team || '—') },
+      { key: 'office',     label: 'Office',   align: 'left',  defaultDir: 'asc',  cell: r => el('td', { class: 'px-2 py-2 text-muted-' }, (r.office || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ')) },
+    ]),
     { key: 'count',      label: 'Sales',    align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.int(r.count)) },
     { key: 'revenue',    label: 'Revenue',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums font-semibold' }, fmt.usd0(r.revenue)) },
     // 12-week revenue sparkline with WoW slope. Sort key = trendSlope so
