@@ -917,8 +917,10 @@ async function refreshIndicatorsFromCloud(force) {
   if (!force && Date.now() - _indCloudCheckedAt < 120000) return; // ≤1 check / 2 min
   _indCloudCheckedAt = Date.now();
   try {
-    const { data: blob, error } = await supabase.storage.from('reporting').download(INDICATORS_CLOUD_PATH);
-    if (error || !blob) return; // nothing shared yet
+    // Streamed download with stall watchdog + retries (see _downloadSnapshotBlob)
+    // so a dropped socket can't hang this poll forever.
+    const blob = await _downloadSnapshotBlob(INDICATORS_CLOUD_PATH).catch(() => null);
+    if (!blob) return; // nothing shared yet (or download failed — next poll retries)
     const text = await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text();
     const payload = JSON.parse(text);
     if (!payload || !Array.isArray(payload.indicatorsData)) return;
@@ -1720,6 +1722,55 @@ function stripPhantomOffices(rows) {
 async function loadReportingSubscriptions(uploadId) {
   return stripPhantomOffices(await _loadReportingSubscriptionsRaw(uploadId));
 }
+// Streamed snapshot download with live progress, stall detection and retries.
+// supabase-js .download() is one opaque await — if the connection stalls
+// (laptop sleep, flaky wifi, dropped socket) it hangs forever and the toast
+// freezes at 15% with no way out. Fetching the storage object directly lets
+// us: show a real % from the byte stream, abort whenever no bytes arrive for
+// STALL_MS, and retry with backoff before giving up to the paged fallback.
+async function _downloadSnapshotBlob(path, onPct) {
+  const STALL_MS = 20000, TRIES = 3;
+  const url = CFG.SUPABASE_URL + '/storage/v1/object/reporting/' + String(path).split('/').map(encodeURIComponent).join('/');
+  const { data: { session } = {} } = await supabase.auth.getSession();
+  const token = session && session.access_token;
+  if (!token) throw new Error('no session for storage download');
+  let lastErr = null;
+  for (let attempt = 1; attempt <= TRIES; attempt++) {
+    const ctrl = new AbortController();
+    let watchdog = setTimeout(() => ctrl.abort(), STALL_MS);
+    const feed = () => { clearTimeout(watchdog); watchdog = setTimeout(() => ctrl.abort(), STALL_MS); };
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: 'Bearer ' + token, apikey: CFG.SUPABASE_PUBLISHABLE_KEY },
+        signal: ctrl.signal,
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      if (!res.body) { const b = await res.blob(); clearTimeout(watchdog); return b; }
+      const total = Number(res.headers.get('content-length')) || 0;
+      const reader = res.body.getReader();
+      const chunks = [];
+      let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        feed();
+        chunks.push(value);
+        got += value.byteLength;
+        if (onPct) onPct(total ? Math.min(0.99, got / total) : null, got);
+      }
+      clearTimeout(watchdog);
+      return new Blob(chunks);
+    } catch (e) {
+      clearTimeout(watchdog);
+      lastErr = e;
+      console.warn('[ridd] snapshot download attempt ' + attempt + '/' + TRIES + ' failed:', (e && e.message) || e);
+      if (attempt < TRIES) await new Promise(r => setTimeout(r, 800 * attempt));
+    }
+  }
+  throw lastErr || new Error('snapshot download failed');
+}
+
 async function _loadReportingSubscriptionsRaw(uploadId) {
   if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return [];
   if (!uploadId) return [];
@@ -1733,19 +1784,20 @@ async function _loadReportingSubscriptionsRaw(uploadId) {
   const metaU = (state.reportingUploads || []).find(u => u.id === uploadId);
   if (metaU && metaU.storage_path) {
     try {
-      reportingUploadProgress(15, 'Downloading snapshot…');
-      const { data: blob, error: dlErr } = await supabase.storage.from('reporting').download(metaU.storage_path);
-      if (!dlErr && blob) {
-        reportingUploadProgress(75, 'Unpacking…');
-        const text = (metaU.storage_path.endsWith('.gz') && typeof DecompressionStream !== 'undefined')
-          ? await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text()
-          : await blob.text();
-        const rows = JSON.parse(text);
-        reportingIdbPut(uploadId, rows); // cache locally for instant refreshes
-        reportingUploadProgress(null);
-        return rows;
-      }
-      console.warn('[ridd] storage download failed — falling back to paged load', dlErr);
+      reportingUploadProgress(5, 'Downloading snapshot…');
+      const blob = await _downloadSnapshotBlob(metaU.storage_path, (frac, bytes) => {
+        reportingUploadProgress(
+          frac == null ? 40 : 5 + Math.round(frac * 70),                     // 5 → 75
+          'Downloading snapshot… ' + (bytes / 1048576).toFixed(1) + ' MB');
+      });
+      reportingUploadProgress(80, 'Unpacking…');
+      const text = (metaU.storage_path.endsWith('.gz') && typeof DecompressionStream !== 'undefined')
+        ? await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text()
+        : await blob.text();
+      const rows = JSON.parse(text);
+      reportingIdbPut(uploadId, rows); // cache locally for instant refreshes
+      reportingUploadProgress(null);
+      return rows;
     } catch (e) { console.warn('[ridd] storage load failed — falling back to paged load', e); }
     reportingUploadProgress(null);
   }
@@ -33132,76 +33184,16 @@ function adminSources() {
       }, 'FieldRoutes')
     : el('span', {
         class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ml-2 align-middle whitespace-nowrap',
-        style: { background: 'var(--card-2)', color: 'var(--text-subtle)', border: '1px solid var(--border)' },
-        title: 'Added in the app — not found in the FieldRoutes source list.',
-      }, 'App only');
-
-  const newName = el('input', {
-    type: 'text', placeholder: 'e.g. New Channel',
-    class: 'flex-1 min-w-[200px] rounded-lg border px-3 py-2 text-sm',
-  });
-  const newRenewal = el('input', { type: 'checkbox' });
-  // Add / toggle dispatch on mode: DEMO mutates state + localStorage,
-  // live mode talks to Supabase (admin-write RLS covers it). Buttons
-  // disable while in flight so a double-click doesn't queue two writes.
-  const tryAdd = async () => {
-    const name = (newName.value || '').trim();
-    if (!name) { toast('Name is required', 'warn'); return; }
-    if (state.sources.some(s => (s.name || '').toLowerCase() === name.toLowerCase())) {
-      toast('A source with that name already exists', 'warn');
-      return;
-    }
-    addBtn.disabled = true;
-    try {
-      if (DEMO) {
-        const id = state.sources.reduce((m, s) => Math.max(m, Number(s.id) || 0), 0) + 1;
-        state.sources.push({ id, name, is_renewal: !!newRenewal.checked, is_active: true });
-        saveDemoData();
-      } else {
-        const { data, error } = await supabase
-          .from('sources')
-          .insert({ name, is_renewal: !!newRenewal.checked, is_active: true })
-          .select()
-          .single();
-        if (error) throw error;
-        state.sources.push(data);
-      }
-      newName.value = '';
-      newRenewal.checked = false;
-      mountApp();
-      toast('Added "' + name + '"', 'success');
-    } catch (err) {
-      toast('Add failed: ' + (err.message || err), 'error');
-    } finally {
-      addBtn.disabled = false;
-    }
-  };
-  newName.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tryAdd(); } });
-  const addBtn = el('button', {
-    class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95',
-    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-    onclick: tryAdd,
-  }, 'Add Source');
+        style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.25)' },
+        title: 'Not found in the FieldRoutes source list — hidden from the Sales Log automatically. Past sales that used it are unaffected.',
+      }, 'Not in CRM');
 
   return el('div', { class: 'flex flex-col gap-5' },
     el('h2', { class: 'text-xl font-bold' }, 'Sources'),
     el('p', { class: 'text-xs text-muted-' },
-      'Synced from FieldRoutes every 30 minutes — every CRM source (visible and hidden) is listed below, so add or hide sources there and verify here. ' +
-      'Visible sources feed the Source dropdown on the Sales Log; past sales keep showing whatever they were logged with. ' +
-      'The toggle still works as an in-app override — it holds until that source is changed in FieldRoutes again.'),
-
-    // Add form
-    el('div', { class: 'card p-4' },
-      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-3', style: { color: 'var(--text-subtle)' } }, 'Add an App-Only Source'),
-      el('p', { class: 'text-[11px] text-muted- mb-3' }, 'Only for channels that don’t exist in FieldRoutes — CRM sources arrive automatically.'),
-      el('div', { class: 'flex items-center gap-3 flex-wrap' },
-        newName,
-        el('label', { class: 'flex items-center gap-1.5 text-xs cursor-pointer select-none whitespace-nowrap' },
-          newRenewal, el('span', {}, 'Renewal source'),
-        ),
-        addBtn,
-      ),
-    ),
+      'Read-only mirror of the FieldRoutes source list, refreshed every 30 minutes — add or hide sources in FieldRoutes and verify here. ' +
+      'Every CRM source is shown, visible and hidden alike; visible ones feed the Source dropdown on the Sales Log. ' +
+      'Anything no longer in FieldRoutes is hidden automatically (past sales keep showing whatever they were logged with).'),
 
     // List
     el('div', { class: 'card overflow-hidden' },
@@ -33226,7 +33218,7 @@ function adminSources() {
         ),
         el('tbody', {},
           ...(sorted.length === 0
-            ? [el('tr', {}, el('td', { class: 'px-4 py-6 text-center text-xs text-muted- italic', colspan: 3 }, 'No sources yet — add one above.'))]
+            ? [el('tr', {}, el('td', { class: 'px-4 py-6 text-center text-xs text-muted- italic', colspan: 3 }, 'No sources yet — the FieldRoutes sync fills this in automatically (runs every 30 min).'))]
             : sorted.map(s => {
                 const isHidden = s.is_active === false;
                 return el('tr', {
@@ -33240,35 +33232,12 @@ function adminSources() {
                       : el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' } }, 'New'),
                   ),
                   el('td', { class: 'pr-4 pl-2 py-2.5 text-right' },
-                    el('button', {
-                      class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold transition hover:brightness-95',
+                    el('span', {
+                      class: 'inline-block rounded-lg px-3 py-1.5 text-[11px] font-bold',
                       style: isHidden
-                        ? { background: '#DC2626', color: '#fff' }
-                        : { background: 'var(--accent)', color: 'var(--accent-text)' },
-                      title: (isHidden ? 'Click to show in the Sales Log' : 'Click to hide from the Sales Log')
-                        + (s.fr_source_id ? ' — override holds until this source changes in FieldRoutes' : ''),
-                      onclick: async (e) => {
-                        const btn = e.currentTarget;
-                        const next = isHidden ? true : false;
-                        btn.disabled = true;
-                        try {
-                          if (DEMO) {
-                            s.is_active = next;
-                            saveDemoData();
-                          } else {
-                            const { error } = await supabase
-                              .from('sources')
-                              .update({ is_active: next })
-                              .eq('id', s.id);
-                            if (error) throw error;
-                            s.is_active = next;
-                          }
-                          mountApp();
-                        } catch (err) {
-                          toast('Update failed: ' + (err.message || err), 'error');
-                          btn.disabled = false;
-                        }
-                      },
+                        ? { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }
+                        : { background: 'rgba(141,198,63,.16)', color: '#5F8A1F', border: '1px solid rgba(141,198,63,.3)' },
+                      title: 'Managed in FieldRoutes — hide or show it there and it updates here within ~30 min.',
                     }, isHidden ? 'Hidden' : 'Visible'),
                   ),
                 );
