@@ -495,7 +495,7 @@
   @media (max-width: 640px) {
     .desktop-only { display:none !important; }
     .fab { bottom: 72px !important; }
-    body { padding-bottom: 60px; }
+    /* (bottom tab bar retired — no reserved space needed) */
     .search-bar { max-width: none; margin: 0 4px; }
     .notif-dropdown { width: 300px; right: -40px; }
 
@@ -4667,7 +4667,8 @@ function mountApp() {
   main.append(pageHeader, contentWrap);
 
   shell.append(main);
-  shell.append(mobileBottomNav());
+  // Mobile bottom tab bar RETIRED — the ⊞ nav menu top-left is navigation
+  // on every screen size (per Isaac: duplicate nav looked cluttered).
   mount(shell);
 
   // Shared-calendar sync — every shift/swap mutation ends in a mountApp(),
