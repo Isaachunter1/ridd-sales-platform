@@ -36210,8 +36210,15 @@ function adminReps() {
   if (F.tier) list = list.filter(x => (getRepTier(repKeyForPerson(x)) || '') === F.tier);
   const appPeople = list.filter(x => x.isApp).sort(byName);
   const rosterPeople = list.filter(x => !x.isApp).sort(byName);
-  const ROSTER_CAP = q ? 80 : 40;
-  const rosterShown = rosterPeople.slice(0, ROSTER_CAP);
+  // CRM-only rows are PAGED — 25 per page with arrows under the table. The
+  // page resets whenever the tab / search / filters change the list.
+  const PAGE_SIZE = 25;
+  const _pageSig = [typeTab, activeFilter, q, F.role || '', F.office || '', F.tier || ''].join('|');
+  if (state._adminUserPageSig !== _pageSig) { state._adminUserPageSig = _pageSig; state._adminUserRosterPage = 0; }
+  const pageCount = Math.max(1, Math.ceil(rosterPeople.length / PAGE_SIZE));
+  const page = Math.min(state._adminUserRosterPage || 0, pageCount - 1);
+  state._adminUserRosterPage = page;
+  const rosterShown = rosterPeople.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   // Tier cell. Currently writes the manual Rookie/Vet tag (shared with Manage
   // Teams). TODO: once FieldRoutes carries a rookie/vet designation, source this
   // read-only from the roster instead of the manual tag.
@@ -36316,9 +36323,25 @@ function adminReps() {
         ...appPeople.map(appRow),
         ...rosterShown.map(rosterRow))))));
 
-  if (rosterPeople.length > rosterShown.length) {
-    host.append(el('div', { class: 'text-[11px] text-muted-' },
-      'Showing ' + rosterShown.length + ' of ' + rosterPeople.length.toLocaleString() + ' CRM-only ' + REP_TYPE_TAB_LABEL[typeTab] + ' — search to narrow.'));
+  if (rosterPeople.length > PAGE_SIZE) {
+    const _pFirst = page * PAGE_SIZE + 1;
+    const _pLast = Math.min(rosterPeople.length, (page + 1) * PAGE_SIZE);
+    const pagerBtn = (label, enabled, go) => el('button', {
+      class: 'rounded-lg border px-3 py-1.5 text-xs font-bold transition' + (enabled ? ' hover:brightness-95 cursor-pointer' : ''),
+      style: enabled
+        ? { borderColor: 'var(--border-2)', color: 'var(--text)' }
+        : { borderColor: 'var(--border)', color: 'var(--text-subtle)', cursor: 'default' },
+      disabled: !enabled,
+      title: label === '‹' ? 'Previous page' : 'Next page',
+      onclick: enabled ? go : undefined,
+    }, label);
+    host.append(el('div', { class: 'flex items-center justify-between flex-wrap gap-2' },
+      el('div', { class: 'text-[11px] text-muted-' },
+        'Showing ' + _pFirst + '–' + _pLast + ' of ' + rosterPeople.length.toLocaleString() + ' CRM-only ' + REP_TYPE_TAB_LABEL[typeTab]),
+      el('div', { class: 'flex items-center gap-1' },
+        pagerBtn('‹', page > 0, () => { state._adminUserRosterPage = page - 1; mountApp(); }),
+        el('span', { class: 'text-[11px] font-semibold px-2 tabular-nums' }, 'Page ' + (page + 1) + ' of ' + pageCount),
+        pagerBtn('›', page < pageCount - 1, () => { state._adminUserRosterPage = page + 1; mountApp(); }))));
   }
 
   // ── Auto-link review (email matches) — kept as a banner above the list ──
