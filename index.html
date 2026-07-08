@@ -29293,15 +29293,53 @@ async function syncFromRevHawk(btn) {
     } catch (e) { console.warn('QBO refresh during sync failed', e); }
 
     // Poll Supabase for the new snapshot (the background job writes a new
-    // reporting_uploads row when it finishes). Up to ~3 min, every 5s.
+    // reporting_uploads row when it finishes). Up to ~5 min, every 5s.
     let fresh = null;
-    for (let i = 0; i < 36; i++) {
+    for (let i = 0; i < 60; i++) {
       await new Promise(res => setTimeout(res, 5000));
       if (typeof loadReportingMetadata === 'function') await loadReportingMetadata();
       const top = (state.reportingUploads || [])[0];
       if (top && top.id !== beforeId && (!beforeAt || (top.uploaded_at && top.uploaded_at > beforeAt))) { fresh = top; break; }
     }
-    if (!fresh) { toast('QuickBooks refreshed · RevHawk still syncing — give it another minute, then reload.', 'info'); mountApp(); return; }
+    if (!fresh) {
+      // The job can run past 5 min under BigQuery load. Don't give up and
+      // leave a stale stamp (that's how a resync "didn't update" for an
+      // admin) — keep watching once a minute for 10 more minutes and finish
+      // the rebuild automatically when the snapshot lands.
+      toast('QuickBooks refreshed · RevHawk still working — data and the sync stamp will refresh themselves when it lands.', 'info');
+      let _tries = 0;
+      const _watch = setInterval(async () => {
+        _tries++;
+        try {
+          if (typeof loadReportingMetadata === 'function') await loadReportingMetadata();
+          const top = (state.reportingUploads || [])[0];
+          if (top && top.id !== beforeId && (!beforeAt || (top.uploaded_at && top.uploaded_at > beforeAt))) {
+            clearInterval(_watch);
+            state.reportingActiveUploadId = top.id;
+            const lateRows = (typeof loadReportingSubscriptions === 'function') ? await loadReportingSubscriptions(top.id) : null;
+            if (lateRows && lateRows.length) {
+              state.reportingSubscriptions = lateRows;
+              state.reportingSubscriptionsLoadedFor = top.id;
+              try {
+                state.indicatorsData = parseIndicatorsCsv(reportingSnapshotToIndicatorsCsv(lateRows));
+                state.indicatorsWeek = -1;
+                state.indicatorsUploadedAt = new Date().toISOString();
+                state.indicatorsFileName = 'RevHawk sync — ' + new Date().toLocaleDateString();
+                if (typeof captureIndicatorSnapshot === 'function') captureIndicatorSnapshot();
+                if (typeof syncIndicatorsToCloud === 'function') syncIndicatorsToCloud();
+              } catch (e) { console.warn('Indicators rebuild after late sync failed', e); }
+              if (typeof saveDemoData === 'function') saveDemoData();
+              toast('RevHawk sync landed — ' + lateRows.length.toLocaleString() + ' subscriptions refreshed', 'success');
+              mountApp();
+            }
+          } else if (_tries >= 10) {
+            clearInterval(_watch);
+          }
+        } catch (e) { if (_tries >= 10) clearInterval(_watch); }
+      }, 60000);
+      mountApp();
+      return;
+    }
 
     // Load the new snapshot into Reporting.
     state.reportingActiveUploadId = fresh.id;
