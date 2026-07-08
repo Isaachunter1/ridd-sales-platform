@@ -529,6 +529,24 @@
       box-shadow: 2px 0 0 var(--border);
     }
     [data-section='rep-leaderboard'] table thead th:first-child { z-index: 2; background: var(--card-2); }
+
+    /* Wide tables never feel cut off: a soft right-edge fade signals there's
+       more to swipe. (Static fade — cheap and universal.) */
+    .scroll-x, .overflow-x-auto {
+      -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 22px), rgba(0,0,0,.25) 100%);
+      mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 22px), rgba(0,0,0,.25) 100%);
+    }
+
+    /* NRLA standings: pin Seed + Team while the money columns swipe */
+    .nrla-standings th:nth-child(1), .nrla-standings td:nth-child(1) {
+      position: sticky; left: 0; z-index: 2; background: var(--card);
+      width: 42px; min-width: 42px; max-width: 42px;
+    }
+    .nrla-standings th:nth-child(2), .nrla-standings td:nth-child(2) {
+      position: sticky; left: 42px; z-index: 2; background: var(--card);
+      box-shadow: 2px 0 0 var(--border);
+    }
+    .nrla-standings thead th:nth-child(1), .nrla-standings thead th:nth-child(2) { background: #0E1C30; z-index: 3; }
   }
 
   /* Momentum scrolling on every sideways-scrolling table (iOS) */
@@ -13652,7 +13670,17 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
     hero,
     R.rounds.length
       ? el('div', { style: { padding: '12px 0 0' } }, cleanView)
-      : el('div', { style: { fontFamily: DISP, color: MAG, textAlign: 'center', padding: '26px', fontSize: '1rem', background: '#000', textTransform: 'uppercase', letterSpacing: '.05em' } }, 'No Saturday rounds played in this window yet.'));
+      : el('div', { style: { fontFamily: DISP, color: MAG, textAlign: 'center', padding: '26px', fontSize: '1rem', background: '#000', textTransform: 'uppercase', letterSpacing: '.05em' } },
+          (() => {
+            const c = (typeof getActiveComp === 'function') ? (compOverride || getActiveComp()) : null;
+            const days = c && Array.isArray(c.compDays) ? c.compDays : null;
+            if (days && days.length === 0) return 'Season cleared — add comp days (admins: + Add day or Generate Season above)';
+            if (days && days.length) {
+              const future = days.filter(d => d >= new Date().toISOString().slice(0, 10)).sort()[0];
+              return 'No qualifying sales on the scheduled comp days yet' + (future ? ' — next round ' + future : '');
+            }
+            return 'No Saturday rounds played in this window yet.';
+          })()));
 }
 
 // ── NRLA — National RIDD League Association ────────────────────────────────
@@ -15018,7 +15046,7 @@ function nrlaBoard(rawSales, opts) {
     },
       (() => { const o = el('option', { value: 'season', style: { color: '#000' } }, 'Season'); if (scope === 'season') o.selected = true; return o; })(),
       ...R.rounds.map((rd, i) => { const o = el('option', { value: String(i), style: { color: '#000' } }, _roundLabelShort(rd) + ' · ' + dspan(rd.d1, rd.d2)); if (scope === String(i)) o.selected = true; return o; }));
-    return el('div', {},
+    return el('div', { class: 'nrla-standings' },
       el('div', { class: 'flex items-center justify-between gap-2 flex-wrap px-3 py-1.5', style: { background: PINK } },
         el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } },
           'Seeding Standings' + (R.seedingDone ? ' · Final Seeds' : '') + (scope === 'season' ? '' : ' · ' + _roundLabelShort(R.rounds[Number(scope)]))),
