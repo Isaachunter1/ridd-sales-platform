@@ -13254,7 +13254,9 @@ const LMS_EXTRA_DAYS = new Set(['2026-07-03']);   // counts like a Saturday
 const LMS_SKIP_DAYS  = new Set(['2026-07-04']);   // holiday — no round
 function lastManStandingCompute(sales, compOverride) {
   const _comp = compOverride || (typeof getActiveComp === 'function' ? getActiveComp() : null);
-  const _custom = (_comp && Array.isArray(_comp.compDays) && _comp.compDays.length) ? new Set(_comp.compDays) : null;
+  // An EMPTY compDays list is a real state (season cleared → zero rounds);
+  // auto-Saturdays only when the list has never been configured at all.
+  const _custom = (_comp && Array.isArray(_comp.compDays)) ? new Set(_comp.compDays) : null;
   const _isCompDay = (d, iso) => _custom
     ? _custom.has(iso)
     : ((d.getDay() === 6 || LMS_EXTRA_DAYS.has(iso)) && !LMS_SKIP_DAYS.has(iso));
@@ -13360,6 +13362,69 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
       onmouseleave: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; },
       onclick: () => openLastManStandingHelpModal(winLabel),
     }, 'ⓘ'),
+
+    // 📸 Survivors poster (admin) — downloads the rep-facing announcement
+    // as a PNG: LAST MAN STANDING + the reps who advanced out of the latest
+    // decided round. Matches the poster style already sent to reps.
+    isAdminRole(state.profile?.role) && R.rounds.length ? el('button', {
+      style: {
+        position: 'absolute', top: 'calc(clamp(14px,2.5vw,22px) + 38px)', right: 'clamp(14px,2.5vw,22px)', zIndex: '4',
+        height: '28px', borderRadius: '14px', background: 'rgba(255,255,255,.1)', color: WHITE,
+        border: '1px solid rgba(255,255,255,.55)', display: 'grid', placeItems: 'center', fontSize: '12px',
+        lineHeight: '1', cursor: 'pointer', padding: '0 10px', fontWeight: '700',
+      },
+      title: 'Download the survivors poster for the latest decided round (PNG — drop it straight in the group chat)',
+      onmouseenter: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.22)'; },
+      onmouseleave: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; },
+      onclick: () => {
+        const rd = [...R.rounds].reverse().find(r => (r.contenders || []).some(c => c.advanced));
+        if (!rd) { toast('No decided round to export yet', 'warn'); return; }
+        const survivors = rd.contenders.filter(c => c.advanced)
+          .sort((a, b) => b.rev - a.rev)
+          .map(c => firstLast(c.rep));
+        const W2 = 1080, H2 = 1920;
+        const cv = document.createElement('canvas'); cv.width = W2; cv.height = H2;
+        const x = cv.getContext('2d');
+        x.fillStyle = '#0A0A0A'; x.fillRect(0, 0, W2, H2);
+        // soft glow where the poster's cowboy silhouette sits
+        const g = x.createRadialGradient(W2 * 0.42, H2 * 0.52, 80, W2 * 0.42, H2 * 0.52, 700);
+        g.addColorStop(0, 'rgba(255,255,255,.16)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+        x.fillStyle = g; x.fillRect(0, 0, W2, H2);
+        const star = (cx, cy, r, color, rot) => {
+          x.save(); x.translate(cx, cy); x.rotate(rot || 0); x.fillStyle = color; x.beginPath();
+          for (let i = 0; i < 10; i++) {
+            const rr = i % 2 ? r * 0.45 : r;
+            const a = Math.PI / 5 * i - Math.PI / 2;
+            if (i) x.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); else x.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+          }
+          x.closePath(); x.fill(); x.restore();
+        };
+        star(230, 210, 150, '#F0AC1E', -0.12);
+        x.textAlign = 'left';
+        x.fillStyle = '#FF1F0E'; x.font = "900 66px 'Anton', 'Arial Black', sans-serif";
+        x.fillText('LAST MAN STANDING', 88, 224);
+        x.fillStyle = '#FFFFFF'; x.font = "700 30px Arial, sans-serif";
+        x.fillText('riddmade competition series', 92, 266);
+        // survivor names — auto-sized to fit however many are left
+        x.textAlign = 'center'; x.fillStyle = '#FFE600';
+        const top = 420, bottom = H2 - 420;
+        const lh = Math.max(34, Math.min(72, (bottom - top) / Math.max(1, survivors.length)));
+        x.font = "900 " + Math.round(Math.min(56, lh * 0.8)) + "px 'Anton', 'Arial Black', sans-serif";
+        survivors.forEach((n, i) => x.fillText(n, W2 / 2 + 40, top + lh * (i + 1)));
+        star(300, H2 - 250, 130, '#FF18C8', 0.1);
+        x.textAlign = 'left';
+        x.fillStyle = '#FFFFFF'; x.font = "900 56px 'Anton', 'Arial Black', sans-serif";
+        x.fillText('WEEK ' + rd.week + ' SURVIVORS', 120, H2 - 250);
+        x.font = "700 30px Arial, sans-serif";
+        x.fillText('these reps are still standing — next round Saturday!', 124, H2 - 205);
+        x.fillStyle = 'rgba(255,255,255,.5)'; x.font = "700 22px Arial, sans-serif";
+        x.fillText(survivors.length + ' of ' + rd.before + ' advance · ' + rd.iso, 124, H2 - 160);
+        const a2 = document.createElement('a');
+        a2.href = cv.toDataURL('image/png');
+        a2.download = 'LMS_Week_' + rd.week + '_Survivors.png';
+        a2.click();
+      },
+    }, '📸 Survivors') : null,
 
     // headline block
     el('div', { style: { position: 'relative', zIndex: '2' } },
@@ -14905,6 +14970,7 @@ function nrlaBoard(rawSales, opts) {
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'L'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Rounds'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps competing — the roster (📋) when one is set, otherwise every rep who sold this season. The PRA denominator.' }, 'Reps'),
+              el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Accounts sold in this scope (Pending/Serviced only)' }, 'Accts'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' + (RO ? '' : ' cursor-pointer hover:underline'), title: 'Everything sold in this scope (Contract Value, all audit statuses) — Pending/Serviced accounts only; Sold-Not-Started is excluded.' + (RO ? '' : ' Click for every contributing account (all teams); click a cell for one team.'),
                 onclick: RO ? undefined : () => openNrlaAccountsModal(R, nameOf, { team: null, scope, kind: 'total' }) }, 'Total Rev Sold'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Per-Rep Average on QUALIFYING revenue: (Passed + Pending) ÷ reps competing. Failed Rev never counts toward the comp.' }, 'PRA'),
@@ -14929,6 +14995,7 @@ function nrlaBoard(rawSales, opts) {
                 el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: REDD } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
                 el('td', { class: 'px-2 py-2 whitespace-nowrap' }, ...(s.results.length ? s.results.map(resDot) : [el('span', { style: { color: 'var(--text-subtle)' } }, '—')])),
                 el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, reps),
+                el('td', { class: 'px-2 py-2 tabular-nums' }, st.n),
                 _drillTd(s.team, 'total',  money(st.total), 'font-black', null),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, reps > 0 ? money((st.passed + st.pending) / reps) : '—'),
                 _drillTd(s.team, 'passed',  money(st.passed), 'font-bold', '#1b7f3b'),
@@ -14936,7 +15003,34 @@ function nrlaBoard(rawSales, opts) {
                 _drillTd(s.team, 'failed',  money(st.failed), 'font-bold', REDD),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, st.n > 0 ? money(st.total / st.n) : '—'),
               );
-            })))));
+            }),
+            // ── RIDD totals row — everything across all teams. The money
+            // cells drill into the all-teams account lists (⬇ CSV inside),
+            // so "all branches pending rev" is one click + one download. ──
+            (() => {
+              const tot = { total: 0, passed: 0, pending: 0, failed: 0, n: 0 };
+              let repsTot = 0;
+              R.standings.forEach(s => {
+                const st = statsFor(s.team);
+                tot.total += st.total; tot.passed += st.passed; tot.pending += st.pending;
+                tot.failed += st.failed; tot.n += st.n;
+                repsTot += R.repsCompeting[s.team] || 0;
+              });
+              return el('tr', { class: 'border-t-2', style: { borderColor: '#0E1C30', background: 'rgba(14,28,48,.08)' } },
+                el('td', { class: 'px-3 py-2' }, ''),
+                el('td', { class: 'px-2 py-2 font-black whitespace-nowrap', style: { letterSpacing: '.06em' } }, 'RIDD',
+                  el('span', { class: 'ml-1 text-[9px] uppercase font-bold', style: { color: 'var(--text-subtle)' } }, 'all teams')),
+                el('td', {}, ''), el('td', {}, ''), el('td', {}, ''),
+                el('td', { class: 'px-2 py-2 tabular-nums font-black' }, repsTot),
+                el('td', { class: 'px-2 py-2 tabular-nums font-black' }, tot.n),
+                _drillTd(null, 'total',  money(tot.total), 'font-black', null),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, repsTot > 0 ? money((tot.passed + tot.pending) / repsTot) : '—'),
+                _drillTd(null, 'passed',  money(tot.passed), 'font-black', '#1b7f3b'),
+                _drillTd(null, 'pending', '(' + money(tot.pending) + ')', 'font-black', '#D97706'),
+                _drillTd(null, 'failed',  money(tot.failed), 'font-black', REDD),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, tot.n > 0 ? money(tot.total / tot.n) : '—'),
+              );
+            })()))));
   })();
 
   // ── Rep leaderboard — top 10 individuals, scoped to the SEASON or any
@@ -15250,12 +15344,12 @@ function viewNrlaPublic() {
   // everyone via the shared comp config, same as ★ default). ──
   if (isLastManStandingComp(sel)) {
     const lmsR = lastManStandingCompute(raw, sel);
-    const custom = (Array.isArray(sel.compDays) && sel.compDays.length) ? [...sel.compDays].sort() : null;
+    const custom = Array.isArray(sel.compDays) ? [...sel.compDays].sort() : null;   // [] = cleared season (zero days)
     const effectiveDays = custom || lmsR.saturdays;
     const fmtDay = (iso) => new Date(iso + 'T12:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     const saveDays = (days) => {
       if (days) sel.compDays = [...new Set(days)].sort(); else delete sel.compDays;
-      logActivity('comp_change', { detail: 'Last Man Standing comp days ' + (days ? 'set to ' + sel.compDays.join(', ') : 'reset to auto (Saturdays)') });
+      logActivity('comp_change', { detail: 'Last Man Standing comp days ' + (days ? (sel.compDays.length ? 'set to ' + sel.compDays.join(', ') : 'CLEARED (zero days)') : 'reset to auto (Saturdays)') });
       saveDemoData();   // syncs to every user
       mountApp();
     };
@@ -15297,7 +15391,7 @@ function viewNrlaPublic() {
       class: 'text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
       style: { borderColor: 'rgba(220,38,38,.4)', color: '#DC2626' },
       title: 'Remove ALL comp days (fresh slate for a new season). The schedule falls back to automatic Saturdays until you add days or generate a season.',
-      onclick: () => { if (confirm('Clear all Last Man Standing comp days? The schedule resets for a new season.')) saveDays(null); },
+      onclick: () => { if (confirm('Clear all Last Man Standing comp days? The board goes empty until you add days or generate a season.')) saveDays([]); },
     }, '× Clear all') : null;
     wrap.append(el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
       el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Days'),
@@ -15308,12 +15402,12 @@ function viewNrlaPublic() {
         (isAdmin && custom) ? el('button', {
           class: 'leading-none cursor-pointer', style: { color: 'var(--text-subtle)' },
           title: 'Remove this comp day',
-          onclick: () => { const next = custom.filter(d => d !== iso); saveDays(next.length ? next : null); },
+          onclick: () => saveDays(custom.filter(d => d !== iso)),   // removing the last chip leaves ZERO days, not auto
         }, '×') : null)),
       addInput, genBtn, clearBtn,
       el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } },
         custom
-          ? '· these dates ARE the rounds — × a chip to drop it'
+          ? (custom.length ? '· these dates ARE the rounds — × a chip to drop it' : '· season cleared — + Add day or Generate Season to set it up')
           : '· auto: Saturdays with production (Jul 4 ’26 → Fri Jul 3) — add a day or generate a season to take control')));
     wrap.append(lastManStandingBoard(raw, 'scheduled comp days', sel));
     return wrap;
