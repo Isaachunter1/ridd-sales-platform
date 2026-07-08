@@ -538,6 +538,7 @@
     }
 
     /* NRLA standings: pin Seed + Team while the money columns swipe */
+    .nrla-standings th, .nrla-standings td { white-space: nowrap; }
     .nrla-standings th:nth-child(1), .nrla-standings td:nth-child(1) {
       position: sticky; left: 0; z-index: 2; background: var(--card);
       width: 42px; min-width: 42px; max-width: 42px;
@@ -986,12 +987,18 @@ async function refreshIndicatorsFromCloud(force) {
     const text = await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text();
     const payload = JSON.parse(text);
     if (!payload || !Array.isArray(payload.indicatorsData)) return;
-    // Valid payload → remember its fingerprint (even if it turns out to be the
-    // same age as our local copy, there's no reason to download it again).
-    try { localStorage.setItem(TAG_KEY, JSON.stringify({ etag: r.etag || null, lastModified: r.lastModified || null })); } catch { /* ignore */ }
     const remoteAt = payload.uploadedAt ? new Date(payload.uploadedAt).getTime() : 0;
     const localAt  = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt).getTime() : 0;
-    if (!remoteAt || remoteAt <= localAt) return; // local copy is current
+    const _saveTag = () => { try { localStorage.setItem(TAG_KEY, JSON.stringify({ etag: r.etag || null, lastModified: r.lastModified || null })); } catch { /* ignore */ } };
+    if (!remoteAt) return;
+    if (remoteAt === localAt) { _saveTag(); return; }            // same dataset — remember the tag, skip the work
+    // Admins may be mid-derive with a legitimately fresher LOCAL build — only
+    // apply strictly-newer for them. Reps (and admins in View-as) have no
+    // other source: the shared copy is TRUTH, apply whenever it differs.
+    // (A phone once stuck on a Jun-13 dataset forever proved why.) The tag is
+    // deliberately NOT saved on the skip path so the next poll re-checks.
+    if (isAdminRole(state.profile && state.profile.role) && remoteAt < localAt) return;
+    _saveTag();
     state.indicatorsData       = payload.indicatorsData;
     state._indicatorRawSales   = payload.rawSales || [];
     state.indicatorsUploadedAt = payload.uploadedAt;
@@ -15084,8 +15091,8 @@ function nrlaBoard(rawSales, opts) {
               },
                 el('td', { class: 'px-3 py-2 font-black tabular-nums' }, (i === 0 && R.seasonDone ? '🏆 ' : '') + '#' + (i + 1)),
                 teamCell(s),
-                el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: GREEN } }, s.w),
-                el('td', { class: 'px-2 py-2 tabular-nums font-black', style: { color: REDD } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
+                el('td', { class: 'px-2 py-2 tabular-nums font-black whitespace-nowrap', style: { color: GREEN } }, s.w),
+                el('td', { class: 'px-2 py-2 tabular-nums font-black whitespace-nowrap', style: { color: REDD } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
                 el('td', { class: 'px-2 py-2 whitespace-nowrap' }, ...(s.results.length ? s.results.map(resDot) : [el('span', { style: { color: 'var(--text-subtle)' } }, '—')])),
                 el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, reps),
                 el('td', { class: 'px-2 py-2 tabular-nums' }, st.n),
@@ -15345,6 +15352,14 @@ function viewNrlaPublic() {
   // Avg Pest & Raffle is ADMIN-ONLY — reps never see its pill or board.
   if (!isAdmin) comps = comps.filter(c => (c.scoring || c.id) !== 'avg_pest_initial' && c.id !== 'avg_pest_initial');
   const raw = state._indicatorRawSales || [];
+  // Self-heal a stale dataset: if what we're holding is >3h old, force one
+  // cloud check on open (the regular 10-min poll takes it from there).
+  if (state.indicatorsUploadedAt && !state._nrlaStaleRepull
+      && Date.now() - new Date(state.indicatorsUploadedAt).getTime() > 3 * 3600 * 1000
+      && typeof refreshIndicatorsFromCloud === 'function') {
+    state._nrlaStaleRepull = true;
+    refreshIndicatorsFromCloud(true).catch(() => {});
+  }
   if (!raw.length || !comps.length) {
     // Pull the shared dataset once; the refresh mounts the app when it lands.
     if (!state._nrlaPublicPulled && typeof refreshIndicatorsFromCloud === 'function') {
