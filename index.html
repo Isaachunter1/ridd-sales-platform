@@ -2841,7 +2841,9 @@ async function loadProfile() {
     state.session = null;
     throw new Error('This account has been deactivated. Contact an admin to restore access.');
   }
+  state._realProfile = data;
   state.profile = data;
+  _applyViewAsOverlay();
   // Rep TYPE for access shaping (Sales Rep → Competitions only · Office
   // Staff → Competitions + Inside Sales). Read from the CRM roster mirror,
   // matched on the linked employee ID or the login email (self-read policy —
@@ -2892,6 +2894,69 @@ async function loadLookups() {
   state.contractTypes = (contractTypes.data && contractTypes.data.length)
     ? contractTypes.data
     : DEFAULT_CONTRACT_TYPES.map(c => ({ ...c }));
+}
+
+// ── View-as (admin role preview) ─────────────────────────────────────────
+// Lets an admin render the app EXACTLY as another role sees it while keeping
+// their real admin session (server-side rights unchanged — RLS still sees the
+// real JWT). The preview role overlays state.profile.role; the true row stays
+// in state._realProfile and the overlay is re-applied on every profile load.
+const VIEW_AS_KEY = 'ridd_view_as_role';
+function viewAsRole() { try { return sessionStorage.getItem(VIEW_AS_KEY) || ''; } catch { return ''; } }
+function _applyViewAsOverlay() {
+  const r = viewAsRole();
+  if (state._realProfile) state.profile = r ? Object.assign({}, state._realProfile, { role: r }) : state._realProfile;
+}
+function setViewAsRole(role) {
+  const real = state._realProfile || state.profile;
+  if (!real || !isAdminRole(real.role)) return;   // only true admins may preview
+  if (!state._realProfile) state._realProfile = real;
+  try {
+    if (role) { sessionStorage.setItem(VIEW_AS_KEY, role); sessionStorage.setItem('ridd_view_as_return', state.view || 'admin'); }
+    else sessionStorage.removeItem(VIEW_AS_KEY);
+  } catch { /* private mode etc. — preview just won't survive a reload */ }
+  _applyViewAsOverlay();
+  if (!role) {
+    let back = 'admin';
+    try { back = sessionStorage.getItem('ridd_view_as_return') || 'admin'; sessionStorage.removeItem('ridd_view_as_return'); } catch { /* ignore */ }
+    state.view = back;
+  }
+  mountApp();   // route guards coerce state.view to whatever the role may see
+}
+
+// ── Targeted refreshers ──────────────────────────────────────────────────
+// Most actions write ONE table. Re-running loadData() after every save
+// (6 queries plus several fire-and-forget config loads that each schedule
+// their own remount) is what made small saves feel slow and bouncy. These
+// refresh exactly what changed: one query burst, one render.
+async function refreshSalesData() {
+  const [salesRes, lb] = await Promise.all([
+    supabase.from('sales').select('*').order('sold_date', { ascending: false }),
+    supabase.from('leaderboard').select('*'),
+  ]);
+  if (salesRes.data) {
+    state.allSales = salesRes.data;
+    state.mySales  = salesRes.data.filter(s => s.rep_id === state.profile.id);
+  }
+  if (lb.data) state.leaderboard = lb.data;
+}
+async function refreshProfilesData() {
+  const { data } = await supabase.from('profiles').select('*').order('full_name');
+  if (data) {
+    state.allProfiles = data;
+    const me = data.find(p => p.id === (state._realProfile || state.profile || {}).id);
+    if (me) { state._realProfile = me; _applyViewAsOverlay(); }
+  }
+}
+async function refreshCompetitionsData() {
+  const [comps, rules, progress] = await Promise.all([
+    supabase.from('competitions').select('*').order('start_date', { ascending: false }),
+    supabase.from('competition_rules').select('*'),
+    supabase.from('competition_progress').select('*'),
+  ]);
+  if (comps.data)    state.competitions = comps.data;
+  if (rules.data)    state.compRules    = rules.data;
+  if (progress.data) state.compProgress = progress.data;
 }
 
 async function loadData() {
@@ -2954,8 +3019,8 @@ async function loadData() {
   state.allProfiles  = profiles.data || [];
   // Re-sync state.profile from the fresh row so changes saved by openUserEditor
   // (or by another admin editing this user) are reflected without a sign-out.
-  const me = state.allProfiles.find(p => p.id === state.profile?.id);
-  if (me) state.profile = me;
+  const me = state.allProfiles.find(p => p.id === (state._realProfile || state.profile || {}).id);
+  if (me) { state._realProfile = me; state.profile = me; _applyViewAsOverlay(); }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -4273,6 +4338,27 @@ function mountApp() {
   shell.append(main);
   shell.append(mobileBottomNav());
   mount(shell);
+
+  // View-as pill — while previewing another role the admin tabs are hidden,
+  // so this floating pill is the way back. Lives on <body>, above everything.
+  const _oldViewAsPill = document.getElementById('viewAsPill');
+  if (_oldViewAsPill) _oldViewAsPill.remove();
+  if (viewAsRole() && state._realProfile && isAdminRole(state._realProfile.role)) {
+    document.body.append(el('div', {
+      id: 'viewAsPill',
+      class: 'card',
+      style: { position: 'fixed', bottom: '18px', left: '50%', transform: 'translateX(-50%)', zIndex: '9998',
+               padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '10px',
+               boxShadow: 'var(--shadow-lg)', border: '1px solid var(--accent)' },
+    },
+      el('span', { class: 'text-xs font-semibold' }, '\ud83d\udc41 Viewing as ' + ((typeof ROLE_LABEL !== 'undefined' && ROLE_LABEL[viewAsRole()]) || viewAsRole())),
+      el('button', {
+        class: 'rounded-lg px-3 py-1 text-[11px] font-bold transition hover:brightness-95',
+        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: () => setViewAsRole(''),
+      }, 'Back to Admin'),
+    ));
+  }
 
   // Render the view's body
   const view = {
@@ -8910,7 +8996,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
           const { error } = await supabase.from('sales').update(editableFields).eq('id', existingSale.id);
           if (error) throw error;
           toast('Sale updated', 'success');
-          await loadData();
+          await refreshSalesData();
           overlay.remove();
           mountApp();
           return;
@@ -8942,7 +9028,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
         if (error) throw error;
         notifySaleLogged(saleRow);
         toast('Sale logged — awaiting audit', 'success');
-        await loadData();
+        await refreshSalesData();
         if (addAnotherInput.checked) { resetFormForAnother(); return; }
         overlay.remove();
         mountApp();
@@ -9885,7 +9971,7 @@ async function stageSale(saleId) {
     }).eq('id', saleId);
     if (error) throw error;
     toast('Staged for payroll', 'success');
-    await loadData();
+    await refreshSalesData();
     mountApp();
   } catch (err) { toast(err.message || 'Failed', 'error'); }
 }
@@ -9909,7 +9995,7 @@ async function stageAllForPayroll(sales) {
     }).in('id', ids);
     if (error) throw error;
     toast(`Staged ${sales.length} sales`, 'success');
-    await loadData();
+    await refreshSalesData();
     mountApp();
   } catch (err) { toast(err.message || 'Failed', 'error'); }
 }
@@ -9968,7 +10054,7 @@ function processBackendPayroll(period, repId) {
       if (error) throw error;
       toast(`Backend payroll processed for ${eligible.length} accounts`, 'success');
       notifyPayrollRun(eligible, period, 'backend');
-      await loadData();
+      await refreshSalesData();
       mountApp();
     } catch (err) { toast(err.message || 'Failed', 'error'); }
   })();
@@ -10001,7 +10087,7 @@ function processPayroll(sales, period) {
       if (error) throw error;
       toast(`Payroll processed for ${sales.length} accounts`, 'success');
       notifyPayrollRun(sales, period, 'upfront');
-      await loadData();
+      await refreshSalesData();
       mountApp();
     } catch (err) { toast(err.message || 'Failed', 'error'); }
   })();
@@ -35122,7 +35208,7 @@ async function deleteSale(saleId) {
     const { error } = await supabase.from('sales').delete().eq('id', saleId);
     if (error) throw error;
     toast('Deleted "' + customerName + '"', 'success');
-    await loadData();
+    await refreshSalesData();
     await recomputeAllProgress();
     mountApp();
   } catch (err) {
@@ -35162,7 +35248,7 @@ async function reinstateSale(saleId) {
     }).eq('id', saleId);
     if (error) throw error;
     toast('Sale reinstated', 'success');
-    await loadData();
+    await refreshSalesData();
     await recomputeAllProgress();
     mountApp();
   } catch (err) {
@@ -35221,7 +35307,7 @@ async function auditSale(saleId, status) {
     }).eq('id', saleId);
     if (error) throw error;
     toast('Sale ' + status.replace('_', ' '), 'success');
-    await loadData();
+    await refreshSalesData();
     await recomputeAllProgress();
     mountApp();
   } catch (err) {
@@ -35268,7 +35354,7 @@ function adminCompetitions() {
               const { error } = await supabase.from('competitions').delete().eq('id', c.id);
               if (error) return toast(error.message, 'error');
               toast('Deleted', 'success');
-              await loadData();
+              await refreshCompetitionsData();
               mountApp();
             },
           }, 'Delete'),
@@ -35327,7 +35413,7 @@ function openCompEditor(existing = null) {
           if (error) throw error;
         }
         toast('Competition saved', 'success');
-        await loadData();
+        await refreshCompetitionsData();
         await recomputeAllProgress();
         overlay.remove();
         mountApp();
@@ -35524,11 +35610,23 @@ function adminReps() {
       el('p', { class: 'text-xs text-muted-' }, roster.length
         ? 'Synced from FieldRoutes. Active users can sign in; everyone else is in the CRM and can be added in a click. Historical sales are always kept.'
         : 'Add reps, manage their profile, assign avatars. Run a sync to pull the FieldRoutes roster.')),
-    el('button', {
-      class: 'px-4 py-2 rounded-xl font-semibold text-sm transition hover:brightness-95',
-      style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-      onclick: () => openUserEditor(),
-    }, '+ New user')));
+    el('div', { class: 'flex items-center gap-2' },
+      el('select', {
+        class: 'rounded-xl border px-3 py-2 text-sm font-semibold cursor-pointer',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        title: 'Preview the app exactly as another role sees it. Your admin access stays — a floating pill brings you back.',
+        onchange: (e) => { const v = e.target.value; e.target.value = ''; if (v) setViewAsRole(v); },
+      },
+        el('option', { value: '' }, '\ud83d\udc41 View as\u2026'),
+        el('option', { value: 'rep_sales' },  'Rep - Sales Rep'),
+        el('option', { value: 'rep_office' }, 'Rep - Office Staff'),
+        el('option', { value: 'auditor' },    'Auditor'),
+      ),
+      el('button', {
+        class: 'px-4 py-2 rounded-xl font-semibold text-sm transition hover:brightness-95',
+        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: () => openUserEditor(),
+      }, '+ New user'))));
 
   // ── Roster status banner — tells the admin exactly why the CRM roster is
   // empty (table missing → run the SQL; loaded 0 → run a sync; or an error). ──
@@ -35583,15 +35681,39 @@ function adminReps() {
       oninput: (e) => { state._adminUserSearch = e.target.value; clearTimeout(state._adminUserSearchT); state._adminUserSearchT = setTimeout(mountApp, 200); },
     })));
 
+  // ── ⚲ Column filters — Access Profile / Branch / Tier ──
+  // Slim always-visible bar; a select reads "— all" when inactive and lights
+  // up accent when set. Clear button appears only when something's filtered.
+  const F = state._adminUserFilters || (state._adminUserFilters = {});
+  const _roleOpts = [...new Set(inTab.filter(x => x.isApp).map(x => String(x.profile.role || '')))].filter(Boolean).sort();
+  const _officeOpts = [...new Set(inTab.flatMap(x => { const e = x.frEmp || x.emp; return String((e && e.office_name) || '').split(',').map(s => s.trim()).filter(Boolean); }))].sort();
+  const _fActive = ['role', 'office', 'tier'].filter(k => F[k]).length;
+  const _fSel = (key, label, opts) => el('select', {
+    class: 'rounded-lg border px-2 py-1.5 text-xs cursor-pointer',
+    style: { borderColor: F[key] ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', fontWeight: F[key] ? '700' : '400' },
+    onchange: (e) => { F[key] = e.target.value; mountApp(); },
+  },
+    el('option', { value: '', selected: !F[key] }, label + ' — all'),
+    ...opts.map(o => el('option', { value: o.v, selected: F[key] === o.v }, o.t)));
+  host.append(el('div', { class: 'flex items-center gap-2 flex-wrap' },
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, '⚲ Filter'),
+    _fSel('role', 'Access Profile', [..._roleOpts.map(r => ({ v: r, t: roleLabel(r) })), { v: '__crm', t: 'In CRM (not added)' }]),
+    _fSel('office', 'Branch', _officeOpts.map(o => ({ v: o, t: o }))),
+    _fSel('tier', 'Tier', (typeof REP_TIERS !== 'undefined' ? REP_TIERS : []).map(t => ({ v: t.id, t: t.label }))),
+    _fActive ? el('button', {
+      class: 'text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition hover:brightness-95',
+      style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
+      onclick: () => { state._adminUserFilters = {}; mountApp(); },
+    }, '× Clear filters (' + _fActive + ')') : null));
+
   // ── Build the filtered, capped list for this tab ──
   let list = inTab;
   if (activeFilter === 'active') list = list.filter(x => x.active);
   else if (activeFilter === 'inactive') list = list.filter(x => !x.active);
   if (q) list = list.filter(x => (x.name + ' ' + x.email).toLowerCase().includes(q));
-  const appPeople = list.filter(x => x.isApp).sort(byName);
-  const rosterPeople = list.filter(x => !x.isApp).sort(byName);
-  const ROSTER_CAP = q ? 80 : 40;
-  const rosterShown = rosterPeople.slice(0, ROSTER_CAP);
+  if (F.role) list = list.filter(x => (x.isApp ? String(x.profile.role || '') : '__crm') === F.role);
+  if (F.office) list = list.filter(x => { const e = x.frEmp || x.emp; return String((e && e.office_name) || '').split(',').map(s => s.trim()).includes(F.office); });
+  // (Tier filter is applied a few lines down, once repKeyForPerson exists.)
 
   const statusChip = (active) => el('span', { class: 'chip', style: active
     ? { background: 'rgba(141,198,63,.14)', color: '#5F8A1F', border: '1px solid rgba(141,198,63,.4)' }
@@ -35625,6 +35747,12 @@ function adminReps() {
     if (frName) { const s2 = _sig(frName); if (_repKeyBySig[s2]) return _repKeyBySig[s2]; }
     return x.name; // no match yet — key under their own name
   };
+  // Tier filter needs repKeyForPerson, so it lands here; then split the list.
+  if (F.tier) list = list.filter(x => (getRepTier(repKeyForPerson(x)) || '') === F.tier);
+  const appPeople = list.filter(x => x.isApp).sort(byName);
+  const rosterPeople = list.filter(x => !x.isApp).sort(byName);
+  const ROSTER_CAP = q ? 80 : 40;
+  const rosterShown = rosterPeople.slice(0, ROSTER_CAP);
   // Tier cell. Currently writes the manual Rookie/Vet tag (shared with Manage
   // Teams). TODO: once FieldRoutes carries a rookie/vet designation, source this
   // read-only from the roster instead of the manual tag.
@@ -35670,10 +35798,10 @@ function adminReps() {
           fr && !p.fieldroutes_employee_id ? el('div', { class: 'text-[10px]', style: { color: 'var(--accent)' } }, '↔ match — confirm to link') : null))),
       tdM(fr ? fr.username : null),                                       // User ID (CRM username)
       td(roleLabel(p.role)),                                             // Access Profile (app role)
+      td(fr ? fr.type_label : null, fr ? '' : 'text-muted- italic'),      // Rep Type (CRM)
       tdM(p.phone || (fr ? fr.phone : null)),                             // Phone (profile wins, else CRM)
       tdM(p.email || (fr ? fr.email : null)),                             // Email
       tdM(fr ? fmtLogin(fr.last_login) : null),                           // Last Login (CRM)
-      td(fr ? fr.type_label : null, fr ? '' : 'text-muted- italic'),      // Rep Type (CRM)
       tierCell(x),                                                       // Tier
       el('td', { class: 'px-3 py-3 text-center' },
         el('button', { title: active ? 'Click to deactivate' : 'Click to activate (offers a reset-link email)', onclick: () => setProfileActive(p, !active) }, statusChip(active))),
@@ -35700,10 +35828,10 @@ function adminReps() {
           e.office_name ? el('div', { class: 'text-[10px] text-muted-' }, e.office_name) : null))),
       tdM(e.username),                                                    // User ID
       el('td', { class: 'px-3 py-3 text-muted- italic' }, 'In CRM'),      // Access Profile (none yet)
+      td(e.type_label),                                                   // Rep Type
       tdM(e.phone),                                                       // Phone
       tdM(e.email),                                                       // Email
       tdM(fmtLogin(e.last_login)),                                        // Last Login
-      td(e.type_label),                                                   // Rep Type
       tierCell(x),                                                       // Tier
       el('td', { class: 'px-3 py-3 text-center' }, statusChip(false)),
       el('td', { class: 'px-3 py-3 text-right' },
@@ -35718,7 +35846,7 @@ function adminReps() {
     el('table', { class: 'w-full text-sm whitespace-nowrap' },
       el('thead', { class: 'text-[10px] uppercase tracking-widest text-muted-' }, el('tr', {},
         th('ID'), el('th', { class: 'text-left px-4 py-3' }, 'Name'), th('User Name'), th('Access Profile'),
-        th('Phone'), th('Email'), th('Last Login'), th('Rep Type'), th('Tier'), th('Status', 'text-center'), th('', 'text-right'))),
+        th('Rep Type'), th('Phone'), th('Email'), th('Last Login'), th('Tier'), th('Status', 'text-center'), th('', 'text-right'))),
       el('tbody', {},
         (appPeople.length + rosterShown.length) === 0
           ? el('tr', {}, el('td', { class: 'px-4 py-8 text-center text-xs text-muted- italic', colspan: 11 },
@@ -35904,6 +36032,9 @@ function openUserEditor(existing = null, prefill = null) {
         return;
       }
 
+      // Instant feedback — the button reads Saving… for the whole round trip.
+      const _submitBtn = form.querySelector('button[type="submit"]');
+      if (_submitBtn) { _submitBtn.disabled = true; _submitBtn.textContent = 'Saving…'; }
       try {
         if (existing) {
           const { error } = await supabase.from('profiles').update(payload).eq('id', existing.id);
@@ -35968,11 +36099,28 @@ function openUserEditor(existing = null, prefill = null) {
           logActivity('user_edited', { detail: 'Created user ' + (payload.full_name || payload.email || '') + ' — set-password email sent' });
           toast('Created — ' + payload.email + ' got an email to set their own password', 'success');
         }
-        await loadData();
+        // Surgical refresh — the server write is already confirmed, so patch
+        // the one row locally (edits) or pull just the profiles list (creates)
+        // instead of re-fetching every table. One render, no screen bouncing.
+        if (existing) {
+          Object.assign(existing, payload);
+          const _i = state.allProfiles.findIndex(p => p.id === existing.id);
+          if (_i >= 0) state.allProfiles[_i] = Object.assign({}, state.allProfiles[_i], payload);
+          if (state._realProfile && existing.id === state._realProfile.id) {
+            Object.assign(state._realProfile, payload);
+            _applyViewAsOverlay();
+          } else if (existing.id === state.profile.id) {
+            Object.assign(state.profile, payload);
+          }
+        } else {
+          await refreshProfilesData();
+        }
         overlay.remove();
         mountApp();
       } catch (err) {
         toast(err.message || 'Save failed', 'error');
+      } finally {
+        if (_submitBtn) { _submitBtn.disabled = false; _submitBtn.textContent = 'Save'; }
       }
     },
   });
