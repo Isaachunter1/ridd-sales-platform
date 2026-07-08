@@ -4808,9 +4808,13 @@ function viewDashboard() {
                   const delta = rev - goal * expectedPct;
                   return el('div', {},
                     el('div', { class: 'flex items-center justify-between mb-1 gap-2' },
-                      el('div', { class: 'flex items-center gap-2 min-w-0' },
+                      el('div', {
+                        class: 'flex items-center gap-2 min-w-0 cursor-pointer group',
+                        title: 'Open ' + (p.full_name || 'this rep') + '\'s player card',
+                        onclick: () => openRepProfileModal(p.id),
+                      },
                         avatarNode(p.avatar_url, p.initials, 'w-6 h-6 text-[9px]'),
-                        el('span', { class: 'text-xs font-semibold truncate' }, p.full_name),
+                        el('span', { class: 'text-xs font-semibold truncate group-hover:underline' }, p.full_name),
                         goal > 0
                           ? el('span', { class: 'text-[10px] font-bold', style: { color: delta >= 0 ? '#1b7f3b' : '#DC2626' },
                               title: (delta >= 0 ? fmt.usd0(delta) + ' ahead of' : fmt.usd0(-delta) + ' behind') + ' even-year pace' },
@@ -25398,38 +25402,38 @@ function openTVDashboard() {
       style: {
         flex: '1', minWidth: '0',
         padding: '18px 16px',
-        // RIDD-green TOTAL tile (was navy blue) so the top strip's
-        // headline number reads in the brand color instead of fighting
-        // it. Other office tiles stay neutral dark.
-        background: opts.isTotal ? '#2D5A14' : '#1A1A1A',
+        // TOTAL tile matches the range buttons' accent lime exactly, so
+        // the top strip reads as one brand color. Dark text for contrast
+        // (same pairing as the TODAY button). Other tiles stay dark.
+        background: opts.isTotal ? '#8DC63F' : '#1A1A1A',
         textAlign: 'center',
         borderRight: '1px solid #0A0A0A',
         position: 'relative',
       },
     },
-      el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.15em', color: opts.isTotal ? '#FFFFFF' : '#888', textTransform: 'uppercase', marginBottom: '6px' } }, label),
-      el('div', { style: { fontSize: '32px', fontWeight: '900', color: '#fff', letterSpacing: '-0.02em' } }, fmtMoney(value)),
+      el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.15em', color: opts.isTotal ? '#1D1D1D' : '#888', textTransform: 'uppercase', marginBottom: '6px' } }, label),
+      el('div', { style: { fontSize: '32px', fontWeight: '900', color: opts.isTotal ? '#1D1D1D' : '#fff', letterSpacing: '-0.02em' } }, fmtMoney(value)),
       opts.isTotal && opts.periodGoal > 0 && el('div', {
-        style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.18)' },
+        style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(0,0,0,0.22)' },
       },
         // Goal label + value (e.g. "TODAY'S GOAL · $X").
         el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '4px' } },
-          el('span', { style: { fontSize: '10px', fontWeight: '800', letterSpacing: '0.14em', color: '#D7EFB5', textTransform: 'uppercase' } }, opts.periodGoalLabel),
-          el('span', { style: { fontSize: '14px', fontWeight: '800', color: '#fff', fontVariantNumeric: 'tabular-nums' } }, fmtMoney(opts.periodGoal)),
+          el('span', { style: { fontSize: '10px', fontWeight: '800', letterSpacing: '0.14em', color: 'rgba(29,29,29,0.75)', textTransform: 'uppercase' } }, opts.periodGoalLabel),
+          el('span', { style: { fontSize: '14px', fontWeight: '800', color: '#1D1D1D', fontVariantNumeric: 'tabular-nums' } }, fmtMoney(opts.periodGoal)),
         ),
-        // Progress bar — fills lime when on/over target.
-        el('div', { style: { height: '6px', background: 'rgba(255,255,255,0.15)', borderRadius: '3px', overflow: 'hidden' } },
+        // Progress bar — dark track on the lime tile, white fill.
+        el('div', { style: { height: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '3px', overflow: 'hidden' } },
           el('div', {
             style: {
               width: opts.goalProgressPct.toFixed(1) + '%',
               height: '100%',
-              background: opts.goalProgressPct >= 100 ? '#8DC63F' : '#FFD66B',
+              background: opts.goalProgressPct >= 100 ? '#1D1D1D' : '#FFFFFF',
               transition: 'width .3s',
             },
           }),
         ),
         // Stats line: percent-to-goal + per-rep target.
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '11px', color: '#D7EFB5', fontWeight: '700', letterSpacing: '0.05em' } },
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '11px', color: 'rgba(29,29,29,0.8)', fontWeight: '700', letterSpacing: '0.05em' } },
           el('span', {}, opts.goalProgressPct.toFixed(0) + '% to goal'),
           el('span', {}, 'Per rep: ' + fmtMoney(opts.periodRepGoal)),
         ),
@@ -25448,49 +25452,55 @@ function openTVDashboard() {
       ...sortedOffices.map(o => officeCard(o.name, o.total)),
     );
 
-    // ── Roster card (left) ───────────────────────────────────────────
-    const rosterCard = (rank, rep) => el('div', {
-      style: {
-        position: 'relative',
-        display: 'flex', alignItems: 'center', gap: '16px',
-        padding: '16px 18px',
-        background: rank === 1 ? 'linear-gradient(90deg, #8DC63F22 0%, #1A1A1A 60%)' : '#1A1A1A',
-        borderRadius: '12px',
-        border: '1px solid ' + (rank === 1 ? '#8DC63F' : '#2A2A2A'),
-      },
-    },
-      // Avatar — uses the same renderer as the leaderboard so initials
-      // gracefully fill in when a rep has no uploaded photo.
-      (() => {
-        const avatar = avatarNode(rep.profile.avatar_url, rep.profile.initials || rep.profile.full_name?.slice(0, 2), 'w-14 h-14 text-base');
-        avatar.style.flexShrink = '0';
-        return avatar;
-      })(),
-      el('div', { style: { flex: '1', minWidth: '0' } },
-        el('div', { style: { fontSize: '20px', fontWeight: '800', color: '#fff', marginBottom: '4px' } }, rep.profile.full_name || 'Rep'),
-        el('div', { style: { fontSize: '12px', color: '#888' } },
-          (state.offices || []).find(o => o.id === rep.profile.office_id)?.name || '—',
-        ),
-        el('div', { style: { fontSize: '28px', fontWeight: '900', color: '#8DC63F', marginTop: '6px', letterSpacing: '-0.01em' } }, fmtMoney(rep.revenue)),
-      ),
-      el('div', {
-        style: {
-          position: 'absolute', top: '12px', right: '14px',
-          fontSize: '36px', fontWeight: '900',
-          color: rank === 1 ? '#8DC63F' : '#444',
-          lineHeight: '1',
-        },
-      }, '#' + rank),
-    );
-
+    // ── Rep table (left) — every rep's logged production this window:
+    // PFP · name · subscriptions logged · revenue · ACV · MY% (excludes
+    // one-time services) · Rec Mix% (subs ÷ all accounts). Same OTS
+    // definition as the right rail (contract types 4 + 5).
+    const _tvOts = new Set([4, 5]);
+    const repRow = (rep, rank) => {
+      const sales2 = rep.sales || [];
+      const subs2 = sales2.filter(s => !_tvOts.has(Number(s.contract_type_id)));
+      const c12 = subs2.filter(s => Number(s.contract_months) === 12).length;
+      const cMY = subs2.filter(s => Number(s.contract_months) >= 18).length;
+      const myPct = (c12 + cMY) > 0 ? (cMY / (c12 + cMY)) * 100 : 0;
+      const recMix = sales2.length > 0 ? (subs2.length / sales2.length) * 100 : 0;
+      const acv = sales2.length > 0 ? rep.revenue / sales2.length : 0;
+      const tdS = { padding: '12px 10px', fontSize: '16px', fontWeight: '700', color: '#ddd', fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: 'nowrap' };
+      return el('tr', { style: { borderTop: '1px solid #2A2A2A', background: rank === 1 ? 'linear-gradient(90deg, #8DC63F18 0%, transparent 70%)' : 'transparent' } },
+        el('td', { style: { padding: '12px 0 12px 14px', width: '46px' } }, (() => {
+          const a = avatarNode(rep.profile.avatar_url, rep.profile.initials || (rep.profile.full_name || '?').slice(0, 2), 'w-9 h-9 text-[11px]');
+          a.style.flexShrink = '0';
+          return a;
+        })()),
+        el('td', { style: { padding: '12px 10px', minWidth: '0' } },
+          el('div', { style: { fontSize: '17px', fontWeight: '800', color: rank === 1 ? '#8DC63F' : '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '220px' } }, rep.profile.full_name || 'Rep'),
+          el('div', { style: { fontSize: '11px', color: '#777' } }, (state.offices || []).find(o => o.id === rep.profile.office_id)?.name || '—')),
+        el('td', { style: tdS }, String(subs2.length)),
+        el('td', { style: { ...tdS, color: '#8DC63F', fontWeight: '900', fontSize: '17px' } }, fmtMoney(rep.revenue)),
+        el('td', { style: tdS }, fmtMoney(acv)),
+        el('td', { style: tdS }, (c12 + cMY) > 0 ? myPct.toFixed(0) + '%' : '—'),
+        el('td', { style: { ...tdS, paddingRight: '14px' } }, recMix.toFixed(0) + '%'),
+      );
+    };
+    const thS = { padding: '8px 10px', fontSize: '10px', fontWeight: '800', letterSpacing: '0.12em', color: '#777', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap' };
     const roster = el('div', {
       style: { display: 'flex', flexDirection: 'column', gap: '10px' },
     },
-      el('div', { style: { fontSize: '14px', fontWeight: '800', letterSpacing: '0.2em', color: '#888', marginBottom: '6px' } }, 'ROSTER'),
+      el('div', { style: { fontSize: '14px', fontWeight: '800', letterSpacing: '0.2em', color: '#888', marginBottom: '6px' } }, 'REPS · ' + range.label.toUpperCase()),
       ranked.length === 0
         ? el('div', { style: { padding: '30px', textAlign: 'center', color: '#666', fontStyle: 'italic', background: '#1A1A1A', borderRadius: '12px' } },
             'No sales yet for ' + range.label.toLowerCase())
-        : ranked.slice(0, 10).map((rep, i) => rosterCard(i + 1, rep)),
+        : el('div', { style: { background: '#1A1A1A', borderRadius: '12px', border: '1px solid #2A2A2A', overflow: 'auto' } },
+            el('table', { style: { width: '100%', borderCollapse: 'collapse' } },
+              el('thead', {}, el('tr', {},
+                el('th', { style: { ...thS, textAlign: 'left', paddingLeft: '14px' } }, ''),
+                el('th', { style: { ...thS, textAlign: 'left' } }, 'Rep'),
+                el('th', { style: thS, title: 'Subscriptions logged (one-time services excluded)' }, 'Subs'),
+                el('th', { style: thS }, 'Revenue'),
+                el('th', { style: thS }, 'ACV'),
+                el('th', { style: thS, title: 'Multi-year contracts ÷ (12-month + multi-year) — one-time services excluded' }, 'MY %'),
+                el('th', { style: { ...thS, paddingRight: '14px' }, title: 'Subscriptions ÷ all accounts logged' }, 'Rec Mix'))),
+              el('tbody', {}, ...ranked.map((rep, i) => repRow(rep, i + 1))))),
     );
 
     // ── Company stats card (right) ───────────────────────────────────
