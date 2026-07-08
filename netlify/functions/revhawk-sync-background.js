@@ -228,6 +228,18 @@ SELECT
 FROM g
 GROUP BY gkey`;
 
+// FieldRoutes source master list (visible AND hidden). Grouped by name because
+// the CRM can hold duplicate names under different IDs (e.g. two "Termite
+// Upsell" rows) — one app row per name, visible if ANY of its IDs is visible.
+const SRC_SQL = `
+SELECT
+  ARRAY_AGG(TRIM(fieldRoutes_source) ORDER BY SAFE_CAST(fieldRoutes_sourceID AS INT64) LIMIT 1)[SAFE_OFFSET(0)] AS name,
+  STRING_AGG(DISTINCT fieldRoutes_sourceID, ',' ORDER BY fieldRoutes_sourceID) AS source_ids,
+  MAX(CASE WHEN fieldRoutes_visible = '1' OR LOWER(fieldRoutes_visible) = 'true' THEN 1 ELSE 0 END) AS visible
+FROM \`${PROJECT}.${DATASET}.FieldRoutesCustomerSource\`
+WHERE fieldRoutes_source IS NOT NULL AND TRIM(fieldRoutes_source) != ''
+GROUP BY LOWER(TRIM(fieldRoutes_source))`;
+
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 // Service-account creds: prefer the whole JSON file in GCP_SA_JSON (JSON.parse
@@ -414,9 +426,64 @@ exports.handler = async (event) => {
       console.error('[revhawk-sync] roster upsert skipped:', rosterError);
     }
 
+    // ── Source master list → public.sources (best-effort) ──
+    // FieldRoutes is the source of truth: a source added there appears in the
+    // app automatically, and a CRM-side hide/show carries over. fr_visible
+    // remembers the last CRM state so only a CHANGE in the CRM flips
+    // is_active — an in-app visibility override persists until then. App-only
+    // sources (no fr_source_id) are never touched. Requires the fr_* columns
+    // (fieldroutes_sources.sql); if they're missing this block just logs.
+    let srcCount = 0, srcError = null;
+    try {
+      const srcRes = await runQuery(token, SRC_SQL);
+      const frSources = toObjects(srcRes.schema, srcRes.rows)
+        .filter(s => s.name)
+        .map(s => ({ name: s.name, ids: String(s.source_ids || ''), visible: String(s.visible) === '1' }));
+      if (frSources.length) {
+        const { data: appSources, error: selErr } = await supabase
+          .from('sources').select('id, name, is_active, fr_source_id, fr_visible');
+        if (selErr) throw new Error(selErr.message);
+        const stamp = new Date().toISOString();
+        const byFrId = new Map(), byName = new Map();
+        for (const r of (appSources || [])) {
+          for (const fid of String(r.fr_source_id || '').split(',')) if (fid.trim()) byFrId.set(fid.trim(), r);
+          if (r.name) byName.set(r.name.trim().toLowerCase(), r);
+        }
+        for (const fr of frSources) {
+          const row = fr.ids.split(',').map(x => byFrId.get(x.trim())).find(Boolean)
+                   || byName.get(fr.name.toLowerCase());
+          if (!row) {
+            const { error } = await supabase.from('sources').insert({
+              name: fr.name,
+              is_renewal: /renewal/i.test(fr.name),
+              is_active: fr.visible,
+              fr_source_id: fr.ids, fr_visible: fr.visible, fr_synced_at: stamp,
+            });
+            if (error) throw new Error('insert "' + fr.name + '": ' + error.message);
+          } else {
+            const patch = { fr_source_id: fr.ids, fr_synced_at: stamp };
+            if (row.fr_visible === null || row.fr_visible === undefined) {
+              // First link: adopt the CRM state as baseline WITHOUT touching
+              // the app's current visibility (preserves existing curation).
+              patch.fr_visible = fr.visible;
+            } else if (row.fr_visible !== fr.visible) {
+              patch.fr_visible = fr.visible;
+              patch.is_active = fr.visible;
+            }
+            const { error } = await supabase.from('sources').update(patch).eq('id', row.id);
+            if (error) throw new Error('update "' + fr.name + '": ' + error.message);
+          }
+          srcCount++;
+        }
+      }
+    } catch (se) {
+      srcError = String((se && se.message) || se);
+      console.error('[revhawk-sync] source mirror skipped:', srcError);
+    }
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, storage_path: path, ms: Date.now() - started }),
+      body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, sources: srcCount, srcError, storage_path: path, ms: Date.now() - started }),
     };
   } catch (e) {
     console.error('[revhawk-sync]', e);
