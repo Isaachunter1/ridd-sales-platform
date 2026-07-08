@@ -24635,18 +24635,38 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   // Drill-down panel — shows the rep clicked on the chart, or (when no rep is
   // selected) the same per-metric mini-charts aggregated to a chosen scope
   // (Company / Branch / Team). The scope panel is the default empty state.
-  const drillRepName = state._indicatorRepDrillDown;
-  let drillRep = drillRepName && repMap[drillRepName] ? repMap[drillRepName] : null;
-  // Rep-locked YTD mode: repMap's sales are windowed by the page date filter,
-  // which may be narrower than YTD — rebuild this rep's sales from the FULL
-  // dataset (same Pending/Serviced gate the leaderboard uses) so every YTD
-  // bucket is populated no matter what the filter says.
-  if (drillRep && !isAdminRole(state.profile && state.profile.role)) {
+  // Rep-locked mode: HARD-LOCK the drill to the signed-in rep, resolved fresh
+  // from the FULL dataset on every render. The old approach seeded
+  // state._indicatorRepDrillDown once per session by name-match — when that
+  // stored name went stale (or the match never landed), the panel silently
+  // fell back to the company-wide scope view, showing reps everyone's data
+  // under a "Your Performance Trends" heading.
+  const _lockedToSelf = !isAdminRole(state.profile && state.profile.role);
+  let drillRepName, drillRep;
+  if (_lockedToSelf) {
     const _sigT = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
-    const _mineT = _sigT(drillRep.name);
-    const _full = (state._indicatorRawSales || []).filter(s =>
-      s && s.rep && frPendingServiced(s) && _sigT(getCanonicalRepName(s.rep)) === _mineT);
-    if (_full.length) drillRep = { ...drillRep, sales: _full };
+    const _mineT = _sigT(state.profile && state.profile.full_name);
+    const _full = _mineT ? (state._indicatorRawSales || []).filter(s =>
+      s && s.rep && frPendingServiced(s) && _sigT(getCanonicalRepName(s.rep)) === _mineT) : [];
+    if (_full.length) {
+      drillRepName = getCanonicalRepName(_full[0].rep);
+      const _base = repMap[drillRepName] || {};
+      drillRep = {
+        ..._base,
+        name: drillRepName,
+        office: _base.office || _full[0].office || '',
+        revenue: _full.reduce((a, s) => a + (Number(s.contractValue) || 0), 0),
+        sales: _full,
+      };
+      state._indicatorRepDrillDown = drillRepName; // keep downstream labels coherent
+    } else {
+      drillRepName = null;
+      drillRep = null;
+      state._indicatorRepDrillDown = null; // triggers the friendly empty state
+    }
+  } else {
+    drillRepName = state._indicatorRepDrillDown;
+    drillRep = drillRepName && repMap[drillRepName] ? repMap[drillRepName] : null;
   }
   let drillPanel;
   if (drillRep) {
@@ -26742,11 +26762,12 @@ function repDrillPanel(rep, chartBuckets) {
           (rep.office || 'Unknown').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ') +
           ' · ' + rep.sales.length + ' sales · $' + Math.round(_totRev).toLocaleString() + ' revenue'),
       ),
-      el('button', {
+      // Reps are locked to their own view — Close would just re-open it.
+      isAdminRole(state.profile && state.profile.role) ? el('button', {
         class: 'rounded border px-2 py-1 text-[10px] font-semibold',
         style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
         onclick: () => { state._indicatorRepDrillDown = null; mountApp(); },
-      }, 'Close'),
+      }, 'Close') : null,
     ),
     praRow,
     buildTrendMiniGrid(rep.sales, chartBuckets, idPrefix, accent),
