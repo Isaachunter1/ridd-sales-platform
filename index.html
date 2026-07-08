@@ -13376,7 +13376,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
     if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
     const d = (typeof _parseIndicatorDay === 'function') ? _parseIndicatorDay(s) : null;
     if (!d || isNaN(d) || d.getDay() !== 6 || !s.rep) continue;                            // Saturday only
-    if (typeof _scIsSoldNotStarted === 'function' && _scIsSoldNotStarted(s)) continue;     // SNS out of everything
+    if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;        // FR Pending/Serviced gate — same base as the CRM report
     const iso = d.toISOString().slice(0, 10);
     const wk = (weekBreak[iso] || (weekBreak[iso] = {}));
     const e = wk[s.rep] || (wk[s.rep] = { total: 0, passed: 0, failed: 0, pending: 0 });
@@ -13669,7 +13669,7 @@ function nrlaCompute(rawSales, compOverride) {
   // design: the synced data is the source of truth at all times.)
   let sales = nrlaApplyOverrides(rawSales, comp)
     .filter(s => _indicatorDeptOf(s) === 'd2d'
-      && !(typeof _scIsSoldNotStarted === 'function' && _scIsSoldNotStarted(s)));
+      && (typeof frPendingServiced !== 'function' || frPendingServiced(s)));
   // Rosters (📋) — AUTHORITATIVE team lists. A rep on a roster counts for
   // THAT team, wherever they actually knock. A team WITH a roster counts only
   // its rostered reps; a team without one counts everyone knocking under its
@@ -14541,7 +14541,7 @@ function openNrlaAccountsModal(R, nameOf, opts) {
             el('th', { class: 'text-right px-2 py-2 font-bold' }, 'Contract Value'))),
         tbody)),
     el('div', { class: 'px-4 py-2 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
-      'Pending/Serviced accounts only — Sold-Not-Started is excluded from the comp entirely. Failed = Failed Audit or Last Resort (<$99 initial); failed revenue never counts toward PRA.'));
+      'Pending/Serviced accounts only — the CRM rule (initial appointment Pending or Completed); everything else is out of the comp entirely. Failed = Failed Audit or Last Resort (<$99 initial); failed revenue never counts toward PRA.'));
   renderRows('');
   overlay.append(card);
   document.body.append(overlay);
@@ -15419,7 +15419,7 @@ function _scIsSoldNotStarted(s) {
 //   'counting' — clears the floor AND is flagged pass
 function springCleaningStatus(s) {
   if ((Number(s.initialPrice) || 0) < 99) return 'excluded';
-  if (_scIsSoldNotStarted(s)) return 'excluded';                // not serviced & not active+pending — no audit needed
+  if (!frPendingServiced(s)) return 'excluded';                 // FR Pending/Serviced gate — same base as the CRM report
   if (springServicedStatus(s) === 'late') return 'excluded';    // not serviced by the deadline
   if (scAuditPassed(s.customerFlags)) return 'counting';        // Passed Audit OR No Audit
   if (SC_FAIL_RE.test(s.customerFlags || '')) return 'excluded';
@@ -15427,7 +15427,7 @@ function springCleaningStatus(s) {
 }
 function springCleaningReason(s) {
   if ((Number(s.initialPrice) || 0) < 99) return 'Last Resort (<$99 initial)';
-  if (_scIsSoldNotStarted(s)) return 'Sold Not Started (no active pending service)';
+  if (!frPendingServiced(s)) return 'Not Pending/Serviced in the CRM (no appointment, no-show, canceled initial, or globally excluded service)';
   if (springServicedStatus(s) === 'late') return 'Not serviced by deadline';
   if (SC_FAIL_RE.test(s.customerFlags || '')) return 'Failed audit';
   if (!scAuditPassed(s.customerFlags)) return 'Awaiting audit';
@@ -15466,7 +15466,7 @@ function springCleaningCompute(sales, branchList) {
   // Sold-Not-Started accounts (no service and not active+pending — closed at
   // the door, frozen, no appointment, etc.) are dropped here, up front, so they
   // touch NO metric — not revenue, not Audit %, not PRA. They never needed an audit.
-  const d2dSales = sales.filter(s => _indicatorDeptOf(s) === 'd2d' && !_scIsSoldNotStarted(s));
+  const d2dSales = sales.filter(s => _indicatorDeptOf(s) === 'd2d' && frPendingServiced(s));
   const counting = [], pending = [], excluded = [];
   for (const s of d2dSales) {
     const st = springCleaningStatus(s);
