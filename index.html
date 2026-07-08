@@ -2912,6 +2912,14 @@ function mountError(err) {
 // ──────────────────────────────────────────────────────────────────────────
 // AUTH (login / forgot password / set new password)
 // ──────────────────────────────────────────────────────────────────────────
+// Password policy for user-chosen passwords (the "Set a new password"
+// screen): at least 8 characters, one capital letter, one special character.
+const PASSWORD_POLICY = [
+  { label: 'At least 8 characters',           test: (p) => (p || '').length >= 8 },
+  { label: 'At least one capital letter',     test: (p) => /[A-Z]/.test(p || '') },
+  { label: 'At least one special character',  test: (p) => /[^A-Za-z0-9]/.test(p || '') },
+];
+const passwordPolicyErrors = (p) => PASSWORD_POLICY.filter(r => !r.test(p)).map(r => r.label);
 // Sign-up is intentionally absent: accounts are created when an admin invites
 // a rep (Admin → Users → Add). The invite email contains a magic link that
 // creates the auth row on first click; the rep can later set a password via
@@ -2941,6 +2949,11 @@ function mountAuth(opts = {}) {
           form.dataset.mode = 'login';
           renderMode();
         } else if (mode === 'recover') {
+          // Enforce the password policy before touching the network.
+          const missing = passwordPolicyErrors(password);
+          if (missing.length) {
+            throw new Error('Password needs: ' + missing.join(' · ').toLowerCase() + '.');
+          }
           // The reset link must have established a recovery session. If it
           // expired / was already used / opened in a different browser,
           // there's no session and updateUser would fail — surface a clear
@@ -2974,6 +2987,20 @@ function mountAuth(opts = {}) {
   const passField  = el('label', { class: 'block text-sm' },
     el('span', { class: 'text-battle-2 block mb-1' }, 'Password'),
     el('input', { name: 'password', type: 'password', required: true, minlength: 6, class: 'w-full rounded-lg border px-3 py-2', placeholder: '••••••••' }));
+  // Live policy checklist — shown only on the "Set a new password" screen.
+  const policyList = el('div', { class: 'text-[11px] flex flex-col gap-1', style: { display: 'none', lineHeight: '1.4' } },
+    ...PASSWORD_POLICY.map(r => el('div', { 'data-req': r.label, style: { color: 'var(--text-subtle)', transition: 'color .15s' } }, '○ ' + r.label)));
+  passField.querySelector('input').addEventListener('input', (e) => {
+    if (form.dataset.mode !== 'recover') return;
+    const p = e.target.value;
+    PASSWORD_POLICY.forEach(r => {
+      const row = policyList.querySelector('[data-req="' + r.label + '"]');
+      if (!row) return;
+      const ok = r.test(p);
+      row.textContent = (ok ? '✓ ' : '○ ') + r.label;
+      row.style.color = ok ? '#1b7f3b' : 'var(--text-subtle)';
+    });
+  });
   const submitBtn  = el('button', { type: 'submit', class: 'w-full rounded-lg bg-lime hover:bg-lime-600 text-eerie font-semibold py-2.5 transition' });
   const forgotBtn  = el('button', { type: 'button', class: 'text-xs text-battle-2 hover:text-lime transition',
     onclick: () => { form.dataset.mode = form.dataset.mode === 'login' ? 'forgot' : 'login'; renderMode(); } });
@@ -3014,20 +3041,24 @@ function mountAuth(opts = {}) {
       inviteHint.style.display = 'none';
     } else if (mode === 'recover') {
       heading.textContent    = 'Set a new password';
-      subheading.textContent = 'Enter the password you’d like to use from now on.';
+      subheading.textContent = 'Pick the password you’ll use from now on.';
       emailField.style.display = 'none';
       passField.style.display  = 'block';
       passField.querySelector('input').required = true;
-      submitBtn.textContent = 'Update password';
+      passField.querySelector('input').minLength = 8;
+      submitBtn.textContent = 'Set password';
       forgotBtn.style.display = 'none';
       inviteHint.style.display = 'none';
+      policyList.style.display = 'flex';
+      return;
     }
+    policyList.style.display = 'none';
   }
 
   form.append(
     el('div', { class: 'text-lime text-4xl font-display tracking-tight' }, CFG.COMPANY_NAME),
     el('div', { class: 'text-[10px] text-battleship tracking-[.22em] mb-2' }, CFG.COMPANY_TAGLINE),
-    heading, subheading, emailField, passField, submitBtn, forgotBtn, inviteHint,
+    heading, subheading, emailField, passField, policyList, submitBtn, forgotBtn, inviteHint,
   );
   renderMode();
 
@@ -35832,42 +35863,31 @@ function openUserEditor(existing = null, prefill = null) {
           logActivity('user_edited', { detail: 'Created user ' + (payload.full_name || payload.email || '') });
           toast('Created · ' + payload.email + ' can sign in with that password', 'success');
         } else {
-          // Standard magic-link invite (no password set).
-          // pending_invites only stores the columns handle_new_user() copies.
-          // commission rate, close rate target, is_active, slack_user_id all
-          // live on profiles and the admin can edit them after the rep
-          // first signs in.
-          const invitePayload = {
-            email: payload.email,
-            full_name: payload.full_name,
-            role: payload.role,
-            office_id: payload.office_id ?? null,
-            initials: payload.initials ?? null,
-            avatar_url: payload.avatar_url ?? null,
+          // No password typed on a NEW user → create the account immediately
+          // with a RANDOM throwaway password, then email a set-your-own-
+          // password link. The set screen enforces the password policy
+          // (8+ chars, a capital, a special character). This replaces the old
+          // magic-link + "now go use Forgot password" dance.
+          const _alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+          const _rnd = 'Aa1!' + Array.from(crypto.getRandomValues(new Uint8Array(20)))
+            .map(b => _alphabet[b % _alphabet.length]).join('');
+          await callAdminSetPassword({
+            mode:                'create',
+            email:               payload.email,
+            password:            _rnd,
+            full_name:           payload.full_name,
+            role:                payload.role,
+            office_id:           payload.office_id ?? null,
+            initials:            payload.initials ?? null,
+            avatar_url:          payload.avatar_url ?? null,
             annual_revenue_goal: payload.annual_revenue_goal ?? null,
-            created_by: state.profile.id,
-          };
-          const { error: insertErr } = await supabase
-            .from('pending_invites')
-            .upsert(invitePayload, { onConflict: 'email' });
-          if (insertErr) throw insertErr;
-          // Email a magic link that creates the auth user on first click.
-          // shouldCreateUser:true is the default but set explicitly so this
-          // stays correct if Supabase changes the default.
-          const { error: otpErr } = await supabase.auth.signInWithOtp({
-            email: payload.email,
-            options: {
-              shouldCreateUser: true,
-              emailRedirectTo: authEmailRedirectUrl(),
-              data: { full_name: payload.full_name },
-            },
           });
-          if (otpErr) {
-            // Roll back the invite so a retry doesn't double-up.
-            await supabase.from('pending_invites').delete().eq('email', payload.email);
-            throw otpErr;
+          if (payload.phone || payload.fieldroutes_employee_id) {
+            try { await supabase.from('profiles').update({ phone: payload.phone, fieldroutes_employee_id: payload.fieldroutes_employee_id }).eq('email', payload.email); } catch (e) { console.warn('FR link follow-up failed', e); }
           }
-          toast('Invite emailed to ' + payload.email, 'success');
+          await sendPasswordResetLink(payload.email);
+          logActivity('user_edited', { detail: 'Created user ' + (payload.full_name || payload.email || '') + ' — set-password email sent' });
+          toast('Created — ' + payload.email + ' got an email to set their own password', 'success');
         }
         await loadData();
         overlay.remove();
