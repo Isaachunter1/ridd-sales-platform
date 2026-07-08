@@ -35306,12 +35306,31 @@ async function applyFieldRoutesLink(profileId, empId) {
 }
 // Flip an app user's active state (Users screen inline toggle). Guards against
 // an admin locking themselves out.
+// One-press password-reset email — shared by the user editor's 🔑 button,
+// the row 🔑 action, and the activate flow below.
+async function sendPasswordResetLink(email) {
+  if (!email) { toast('No email on file for this user.', 'error'); return false; }
+  if (typeof DEMO !== 'undefined' && DEMO) { toast('Demo mode — would email a password reset link to ' + email, 'info'); return true; }
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: authEmailRedirectUrl() });
+    if (error) throw error;
+    toast('Reset link sent to ' + email, 'success');
+    return true;
+  } catch (err) {
+    toast(err.message || 'Could not send reset link', 'error');
+    return false;
+  }
+}
 async function setProfileActive(p, active) {
   if (p.id === state.profile?.id && !active) { toast('You can’t deactivate your own account.', 'error'); return; }
   if (typeof DEMO !== 'undefined' && DEMO) { p.is_active = active; saveDemoData(); toast(active ? 'Activated' : 'Deactivated', 'success'); mountApp(); return; }
   const { error } = await supabase.from('profiles').update({ is_active: active }).eq('id', p.id);
   if (error) { toast('Update failed: ' + error.message, 'error'); return; }
   p.is_active = active; toast(active ? 'Activated' : 'Deactivated', 'success'); mountApp();
+  // Just ACTIVATED → offer the reset-link email right here, one press.
+  if (active && p.email && confirm('Also email ' + p.email + ' a password-reset link so they can set their password?')) {
+    await sendPasswordResetLink(p.email);
+  }
 }
 // Which rep-type tab a person belongs to. App users inherit their linked (or
 // email-matched) FieldRoutes type; otherwise infer from role.
@@ -35538,8 +35557,18 @@ function adminReps() {
       td(fr ? fr.type_label : null, fr ? '' : 'text-muted- italic'),      // Rep Type (CRM)
       tierCell(x),                                                       // Tier
       el('td', { class: 'px-3 py-3 text-center' },
-        el('button', { title: active ? 'Click to deactivate' : 'Click to activate', onclick: () => setProfileActive(p, !active) }, statusChip(active))),
-      el('td', { class: 'px-3 py-3 text-right' },
+        el('button', { title: active ? 'Click to deactivate' : 'Click to activate (offers a reset-link email)', onclick: () => setProfileActive(p, !active) }, statusChip(active))),
+      el('td', { class: 'px-3 py-3 text-right whitespace-nowrap' },
+        el('button', {
+          class: 'text-xs px-2.5 py-1.5 rounded-lg border border- text-muted- hover:text-default transition mr-1.5',
+          title: 'Email ' + (p.email || 'this user') + ' a password-reset link',
+          onclick: async (e) => {
+            if (!confirm('Email ' + (p.email || 'this user') + ' a password-reset link?')) return;
+            const b = e.currentTarget; b.disabled = true;
+            await sendPasswordResetLink(p.email);
+            b.disabled = false;
+          },
+        }, '🔑'),
         el('button', { class: 'text-xs px-3 py-1.5 rounded-lg border border- text-muted- hover:text-default transition', onclick: () => openUserEditor(p) }, 'Edit')));
   };
   const rosterRow = (x) => {
