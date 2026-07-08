@@ -3193,8 +3193,9 @@ function mobileBottomNav() {
     ['pay', 'Pay', iconPay],
     ['nrla', 'Comps', iconTrophy],
   ] : [
-    // Sales-Rep accounts: Competitions only, for now.
+    // Sales-Rep accounts: Competitions + rep-lite Indicators.
     ['nrla', 'Competitions', iconTrophy],
+    ['indicators', 'Indicators', iconChart],
   ]) : [
     ['dashboard', 'Dashboard', iconDashboard],
     ['sales', 'Sales', iconSales],
@@ -3899,21 +3900,31 @@ function mountApp() {
   // MENU; a deep-link hash could still render them. Now that non-admins can
   // pull the shared dataset (for the NRLA page), enforce it for real: any
   // non-admin landing on an admin view is coerced to the NRLA board.
-  const ADMIN_ONLY_VIEWS = new Set(['indicators', 'reporting', 'marketing', 'admin']);
+  const ADMIN_ONLY_VIEWS = new Set(['reporting', 'marketing', 'admin']);
   if (!isAdmin && ADMIN_ONLY_VIEWS.has(state.view)) {
     state.view = 'nrla';
     history.replaceState(null, '', VIEW_TO_HASH.nrla || '#nrla');
   }
   // Route guard — rep accounts, shaped by their CRM rep TYPE:
-  //   · Sales Rep (or unknown type) → COMPETITIONS tab only
+  //   · Sales Rep (or unknown type) → Competitions + Indicators (rep-lite:
+  //                                   power-ranking metrics + Rep Leaderboard)
   //   · Office Staff               → Competitions + the Inside Sales group
   // Auditors keep their Sales tab; admins keep everything.
   const isRepOnly = !isAdmin && !isAuditor;
   const isOfficeStaff = isRepOnly && /office\s*staff/i.test(state.myRepType || '');
-  const repCanSee = (v) => v === 'nrla' || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
+  const isSalesRepType = isRepOnly && !isOfficeStaff;
+  const repCanSee = (v) => v === 'nrla'
+    || (isSalesRepType && v === 'indicators')
+    || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
   if (isRepOnly && !repCanSee(state.view)) {
     state.view = 'nrla';
     history.replaceState(null, '', VIEW_TO_HASH.nrla || '#nrla');
+  }
+  // Auditors never had Indicators — keep it that way now that the blanket
+  // admin gate above no longer covers it.
+  if (isAuditor && state.view === 'indicators') {
+    state.view = 'sales';
+    history.replaceState(null, '', VIEW_TO_HASH.sales || '#sales');
   }
 
   // ── Single-column layout. The grid icon in the header is the nav menu. ──
@@ -3923,10 +3934,11 @@ function mountApp() {
   // 'inside_sales' is a virtual entry — clicking it lands on the last-used
   // Inside Sales sub-tab (default Dashboard).
   const navItems = (!isAdmin && !isAuditor) ? [
-    // Rep accounts: Sales Reps get Competitions only; Office Staff also get
-    // the Inside Sales group.
+    // Rep accounts: Sales Reps get Competitions + Indicators (rep-lite);
+    // Office Staff get Competitions + the Inside Sales group.
     ...(isOfficeStaff ? [['inside_sales', 'Inside Sales', iconSales()]] : []),
     ['nrla', 'Competitions', iconTrophy()],
+    ...(isSalesRepType ? [['indicators', 'Indicators', iconChart()]] : []),
   ] : [
     // Auditors only have the Sales tab, so call the entry what it is.
     ['inside_sales', isAuditor ? 'Sales' : 'Inside Sales', iconSales()],
@@ -17894,6 +17906,18 @@ function viewIndicators() {
   // that table and skip the Chart.js-heavy power ranking / weekly charts / rep
   // analytics. Keeps comp switching + the comp window snappy instead of
   // re-rendering several canvases each time.
+  // REP-LITE — sales-rep-type accounts get Indicators trimmed to the
+  // power-ranking metrics (by-branch table + rankings/power panel) and the
+  // Rep Leaderboard. No comps mode (that lives on the Competitions tab),
+  // no charts, no admin tooling, no other rep sections.
+  const _repLite = !isAdminRole(state.profile.role);
+  if (_repLite) {
+    state.indicatorsComps = false;
+    if (!(state._indicatorRawSales || []).length && !state._nrlaPublicPulled && typeof refreshIndicatorsFromCloud === 'function') {
+      state._nrlaPublicPulled = true;
+      refreshIndicatorsFromCloud(true).catch(() => {});
+    }
+  }
   const _focusedComp = state.indicatorsComps
     && (['spring_cleaning', 'avg_pest_initial', 'top_gun', 'last_man_standing', 'nrla'].includes(getActiveComp().scoring || '')
         || isLastManStandingComp() || isNrlaComp());
@@ -18027,7 +18051,7 @@ function viewIndicators() {
         // (Filters button removed — Metric / Type / Date / Group are all up top;
         // service-type & source filters weren't needed.)
         // Manage teams (rep assignments + tier + exclusion + colors)
-        el('button', {
+        !_repLite && el('button', {
           class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: () => openManageTeamsModal(),
@@ -18037,7 +18061,7 @@ function viewIndicators() {
         // (Branch mode). buildTeamReportNode dispatches its grouping on
         // ctx.groupMode below; in Branch mode it aggregates by s.office,
         // in Teams mode it walks getRepTeam through Manage Teams.
-        el('button', {
+        !_repLite && el('button', {
           class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: () => {
@@ -18063,7 +18087,7 @@ function viewIndicators() {
         }, '📄'),
         // Highlights — reopens the same popup that shows after a CSV import
         // (YoY scoreboard, movers, records), computed from the current data.
-        el('button', {
+        !_repLite && el('button', {
           class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           title: 'Highlights — YoY scoreboard, trending reps and records from the current upload',
@@ -18075,7 +18099,7 @@ function viewIndicators() {
         }, '✨'),
         // CSV menu — import a fresh sales report or export the current
         // by-branch/team table (with a pulled-at timestamp up top).
-        (() => {
+        !_repLite && (() => {
           const hiddenImport = csvUploadButton('sm');
           hiddenImport.style.display = 'none';
           let menu = null;
@@ -18326,7 +18350,8 @@ function viewIndicators() {
           })(),
           // Comps switch — competition mode. OFF = every sale counts, zero
           // exclusions. ON = comp exclusions apply to every number below.
-          (() => {
+          // Hidden in rep-lite (comps live on the Competitions tab for reps).
+          !_repLite && (() => {
             const on = !!state.indicatorsComps;
             return el('div', {
               class: 'flex items-center gap-2 cursor-pointer select-none mb-0.5',
@@ -18508,7 +18533,8 @@ function viewIndicators() {
 
     // Avg Pest Initial / Raffle competition card, lifted to the top.
     // Hidden on the NRLA tab — that comp shows ONLY its own dashboard.
-    (state.indicatorsComps && isNrlaComp() ? null : _topCompCard),
+    // Hidden in rep-lite too.
+    (_repLite || (state.indicatorsComps && isNrlaComp()) ? null : _topCompCard),
 
     // ── Main metrics table (click metric name to sort branches) ──
     !_focusedComp && (() => {
@@ -18974,7 +19000,7 @@ function viewIndicators() {
     // (so This Week / Last Week actually graph), ≤180 days stays weekly,
     // longer ranges roll up to months — same rules as getChartBuckets.
     // Day/month axes aggregate straight from the raw sales.
-    !_focusedComp && (() => {
+    !_repLite && !_focusedComp && (() => {
       let chartData = isRange ? data : allData;
       let chartWeeks = isRange ? weeks : allWeeks;
       let chartLabels = null;
@@ -19011,7 +19037,9 @@ function viewIndicators() {
     // ════════════════════════════════════════════════════════════════
     // REP-LEVEL ANALYTICS (computed from raw sales if available)
     // ════════════════════════════════════════════════════════════════
-    ...(_focusedComp ? [] : _repSections),
+    ...(_focusedComp ? [] : (_repLite
+      ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard')
+      : _repSections)),
   );
 }
 
@@ -20837,7 +20865,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   }
 
   sections.push(
-    el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'card overflow-hidden', 'data-section': 'rep-leaderboard' },
       el('div', { class: 'px-5 py-3 border-b flex items-center justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
           el('h3', { class: 'text-base font-bold' }, 'Rep Leaderboard'),
