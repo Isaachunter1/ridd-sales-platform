@@ -30038,6 +30038,11 @@ function reportingChartData(scopeRows, serviceConfig) {
   const retiredActiveRows = scopeRows.filter(r => isActive(r) && lifecycleByName.get(r.subscription) === 'retired');
   const activeRecurring = recurringRows.filter(isActive);
   const activeSubs      = scopeRows.filter(isActive);
+  // The Active Subscriptions CHART follows the same "include one-time"
+  // toggle as the headline KPI — otherwise the KPI (recurring-only) and the
+  // donut total (all active) sit 50–100 apart on the same page.
+  const activeForCharts = (typeof reportingActiveInclOneTime === 'function' && reportingActiveInclOneTime())
+    ? activeSubs : activeRecurring;
   const realCancels     = scopeRows.filter(isRealCancel);
   const servicedRows    = scopeRows.filter(isServiced);
   // Past due = any sub with days_past_due > 0, regardless of status.
@@ -30122,7 +30127,12 @@ function reportingChartData(scopeRows, serviceConfig) {
       activeSubs:       activeSubs.length,
       activeArr,
       uniqueCustomers:  new Set(scopeRows.map(r => r.customer_id).filter(Boolean)).size,
+      // Customers with ≥1 ACTIVE sub — matches the Active Customers donut
+      // (recurring + other-active). The old KPI used uniqueCustomers, which
+      // counts every customer EVER (canceled included) under an "Active" label.
+      activeCustomers:  recurringCustomers + otherActiveCustomers,
       distinctServices: new Set(scopeRows.map(r => r.subscription).filter(Boolean)).size,
+      distinctActiveServices: new Set(activeSubs.map(r => r.subscription).filter(Boolean)).size,
       realCancels:      realCancels.length,
       cancelRate,
       pastDueAmount,
@@ -30138,7 +30148,7 @@ function reportingChartData(scopeRows, serviceConfig) {
         { label: 'Recurring customers', value: recurringCustomers },
         { label: 'Other active',        value: otherActiveCustomers },
       ],
-      activeSubs:  reportingGroupCount(activeSubs, r => r.subscription),
+      activeSubs:  reportingGroupCount(activeForCharts, r => r.subscription),
       serviced:    reportingGroupSum(servicedRows,  r => r.subscription, r => r.subscription_contract_value),
       aging:       receivablesSlices,
       pastDueOffice: reportingGroupSum(pastDueRows, r => r.office_name || 'Unspecified', r => r.subscription_contract_value),
@@ -30160,7 +30170,7 @@ function reportingChartData(scopeRows, serviceConfig) {
         source: scopeRows.filter(r => r.customer_id && (recurringCustIds.has(r.customer_id) || otherActiveCustIds.has(r.customer_id))),
         key: r => recurringCustIds.has(r.customer_id) ? 'Recurring customers' : 'Other active',
       },
-      activeSubs:    { source: activeSubs,    key: r => r.subscription },
+      activeSubs:    { source: activeForCharts, key: r => r.subscription },
       serviced:      { source: servicedRows,  key: r => r.subscription },
       aging:         { source: scopeRows,     key: r => reportingAgingBucket(r.days_past_due) },
       pastDueOffice: { source: pastDueRows,   key: r => r.office_name || 'Unspecified' },
@@ -31207,7 +31217,7 @@ function reportingOverview() {
   const COLUMN_CARDS = [
     { key: 'subs',      label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartIds: ['sources', 'agreement', 'onetimeSubs', 'retiredSubs'] },
     { key: 'active',    label: 'Subscriptions Active',    value: (reportingActiveInclOneTime() ? dataA.stats.activeSubs : dataA.stats.activeRecurring).toLocaleString(), sub: reportingActiveInclOneTime() ? 'currently in service · incl. one-time' : 'currently in service · recurring', chartIds: ['activesubs'] },
-    { key: 'customers', label: 'Customers Active',        value: dataA.stats.uniqueCustomers.toLocaleString(),               sub: dataA.stats.distinctServices + ' distinct services',                 chartIds: ['customers', 'tenure'] },
+    { key: 'customers', label: 'Customers Active',        value: (dataA.stats.activeCustomers != null ? dataA.stats.activeCustomers : dataA.stats.uniqueCustomers).toLocaleString(), sub: (dataA.stats.distinctActiveServices != null ? dataA.stats.distinctActiveServices : dataA.stats.distinctServices) + ' active services', chartIds: ['customers', 'tenure'] },
     { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice', 'serviced', 'onetimeRev'] },
     { key: 'cancels',   label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging', 'pastdue'] },
   ];
