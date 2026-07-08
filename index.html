@@ -1194,6 +1194,16 @@ function loadIndicatorState() {
   // that don't fit in localStorage at all. Applied when it's at least as
   // fresh as whatever the localStorage path produced (same save writes both,
   // so equal timestamps mean the idb copy has the full raw-sales array).
+  // COHERENCE GUARD — the freshness stamp must describe data we actually
+  // HOLD. The stamp persists in the small settings key (always saves) while
+  // raw sales live in the big bulk key (can fail quota on phones and fall
+  // back to a slim copy WITHOUT rows). On the next boot that fresh-stamp/
+  // no-data combo made the cloud refresh think this device was current and
+  // skip the fix — the "month-old board with no numbers" bug. No rows → no
+  // freshness claim; the cloud copy then applies unconditionally.
+  if (state.indicatorsUploadedAt && !(Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length)) {
+    state.indicatorsUploadedAt = null;
+  }
   const lsBulkAt = (() => {
     try { return (JSON.parse(localStorage.getItem(INDICATORS_DATA_STORAGE_KEY) || 'null') || {}).savedAt || ''; }
     catch { return ''; }
