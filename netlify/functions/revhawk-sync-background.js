@@ -167,11 +167,15 @@ WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''
   -- EXCEPT recent sales: subscriptions replicate live but CUSTOMERS only batch
   -- nightly, so a brand-new customer sold today has no customer row until
   -- tomorrow morning. Dropping those wiped ~98% of same-day revenue off the
-  -- NRLA live board. Keep anything sold in the last 7 days; its customer
-  -- fields (name/flags/autopay) arrive blank and backfill with the nightly
-  -- batch — sales sit in Pending Rev until audit flags land, as intended.
+  -- NRLA live board. Keep anything sold in the last 2 DAYS (covers the
+  -- nightly batch + one missed run); past that, a sale with no customer row
+  -- is a DELETED account's ghost — its subscription row froze in its last
+  -- replicated state ("Active/Pending") when the customer vanished from the
+  -- API, and it must fall off every board. (Was 7 days — deleted accounts
+  -- haunted comps for a week; verified against real deletions 2026-07-08:
+  -- customers 164676/164795 deleted in the CRM yet still counting.)
   AND (cust.cid IS NOT NULL
-       OR LEFT(s.fieldRoutes_dateAdded,10) >= FORMAT_DATE('%Y-%m-%d', DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)))`;
+       OR LEFT(s.fieldRoutes_dateAdded,10) >= FORMAT_DATE('%Y-%m-%d', DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY)))`;
 
 // Employee roster — one entry per PERSON. FieldRoutes stores an employee row
 // PER OFFICE and links them via fieldRoutes_linkedEmployeeIDs (a base account).
@@ -563,6 +567,16 @@ exports.handler = async (event) => {
     };
   } catch (e) {
     console.error('[revhawk-sync]', e);
+    // Ring the bell: a dead sync on a comp Saturday must not be a silent
+    // discovery. Set SLACK_SYNC_WEBHOOK in Netlify env (any Slack incoming
+    // webhook URL) and failures post there; unset = logs only.
+    try {
+      const hook = process.env.SLACK_SYNC_WEBHOOK;
+      if (hook) await fetch(hook, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '🚨 RIDD Sales App: RevHawk sync FAILED — ' + String((e && e.message) || e).slice(0, 300) + ' (boards stop updating until this recovers)' }),
+      });
+    } catch (se) { console.error('[revhawk-sync] slack alert failed', se); }
     return { statusCode: 502, body: JSON.stringify({ ok: false, error: String((e && e.message) || e) }) };
   }
 };
