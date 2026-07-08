@@ -36283,8 +36283,9 @@ function adminReps() {
       tdM(e.employee_id),                                                 // ID
       el('td', { class: 'px-4 py-3' }, el('div', { class: 'flex items-center gap-3' },
         avatarNode(null, (e.fname || '?')[0] + (e.lname || '')[0], 'w-9 h-9 text-[10px]'),
-        el('div', {}, el('div', { class: 'font-semibold' }, x.name),
-          e.office_name ? el('div', { class: 'text-[10px] text-muted-' }, e.office_name) : null))),
+        // Branch list moved off the row (it made Name eat the table) — hover
+        // the name to see which branches this person has access to.
+        el('div', { class: 'font-semibold whitespace-nowrap', title: e.office_name ? 'Branches: ' + e.office_name : undefined }, x.name))),
       tdM(e.username),                                                    // User ID
       el('td', { class: 'px-3 py-3 text-muted- italic' }, 'In CRM'),      // Access Profile (none yet)
       td(e.type_label),                                                   // Rep Type
