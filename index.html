@@ -3260,7 +3260,9 @@ const NOTIFY_STATUSES = new Set(['cancelled', 'reschedule']);
 function isNotifEntry(entry) {
   if (!entry) return false;
   if (entry.action === 'audit') return NOTIFY_STATUSES.has(entry.new_status);
-  if (entry.action === 'record_broken') return true;
+  // Record-broken alerts retired (auto-sync partial-day diffs made them fire
+  // on every refresh) — also hides any old entries still stored in the log.
+  if (entry.action === 'record_broken') return false;
   return false;
 }
 
@@ -6021,17 +6023,13 @@ function captureIndicatorSnapshot() {
   const last = state._indicatorSnapshots[state._indicatorSnapshots.length - 1];
   if (last && last.uploadedAt === snap.uploadedAt && last.fileName === snap.fileName) return;
 
-  // Diff against prior snapshot to emit "broken record" notifications.
-  // These flow into state.auditLog so they ring the bell in the top bar
-  // alongside other status-change notifications.
-  if (last) {
-    const newEntries = detectRecordBreaks(last, snap);
-    if (newEntries.length > 0) {
-      if (!Array.isArray(state.auditLog)) state.auditLog = [];
-      state.auditLog.push(...newEntries);
-      toast(newEntries.length + ' record' + (newEntries.length === 1 ? '' : 's') + ' broken — check the bell', 'success');
-    }
-  }
+  // "Records broken" notifications RETIRED. They were built for weekly CSV
+  // uploads (complete data → meaningful diffs). With the 30-min RevHawk
+  // auto-sync every snapshot is a partial-day picture, so the diff fired
+  // false "record broken" alerts on every refresh. Live records + Hall of
+  // Fame stay — they're computed from the full dataset, not from diffs.
+  // (detectRecordBreaks kept below in case this returns post-season with
+  // completed-period + audit-settled logic.)
 
   state._indicatorSnapshots.push(snap);
   // Cap snapshot history. Each snapshot stores per-rep best day / week
