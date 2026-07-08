@@ -4306,7 +4306,7 @@ function openMySettingsModal() {
                 e.currentTarget.disabled = true;
                 try { evt.prompt(); } catch { /* user dismissed */ }
               },
-            }, '📲 Install on this device');
+            }, 'Install on Device');
           }
           return el('div', { class: 'text-xs', style: { color: 'var(--text-muted)', lineHeight: '1.5' } },
             isIOS
