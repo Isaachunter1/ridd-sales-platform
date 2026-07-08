@@ -19438,7 +19438,10 @@ function viewIndicators() {
     (_repLite || (state.indicatorsComps && isNrlaComp()) ? null : _topCompCard),
 
     // ── Main metrics table (click metric name to sort branches) ──
-    !_focusedComp && (() => {
+    // Office-staff rep accounts get a focused view: My Stats + Rep
+    // Leaderboard only — the branch power-rankings table is D2D-oriented
+    // noise for them. Sales-rep accounts keep it.
+    !_focusedComp && !(_repLite && isOfficeStaffRole(state.profile.role)) && (() => {
       // Sort state: which metric is sorting the columns, and direction
       if (!state._indicatorSort) state._indicatorSort = { key: null, asc: false };
       const sort = state._indicatorSort;
