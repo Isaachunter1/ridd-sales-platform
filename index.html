@@ -336,7 +336,7 @@
     font-size: 11px;
     line-height: 1.4;
     pointer-events: none;
-    z-index: 1000;
+    z-index: 10001;  /* above modal overlays (2000) — chart tips were invisible inside the rep drill-down */
     box-shadow: 0 8px 24px rgba(0,0,0,.25);
     max-width: 240px;
     opacity: 0;
@@ -519,7 +519,20 @@
     .modal-overlay input[type='text'], .modal-overlay input[type='email'],
     .modal-overlay input[type='password'], .modal-overlay input[type='number'],
     .modal-overlay select { font-size: 16px; }
+
+    /* Wide tables: keep the REP column pinned while the metrics scroll —
+       phone users lose track of whose row they're reading otherwise. */
+    [data-section='rep-leaderboard'] table th:first-child,
+    [data-section='rep-leaderboard'] table td:first-child {
+      position: sticky; left: 0; z-index: 1;
+      background: var(--card);
+      box-shadow: 2px 0 0 var(--border);
+    }
+    [data-section='rep-leaderboard'] table thead th:first-child { z-index: 2; background: var(--card-2); }
   }
+
+  /* Momentum scrolling on every sideways-scrolling table (iOS) */
+  .scroll-x, .overflow-x-auto { -webkit-overflow-scrolling: touch; }
   @media (min-width: 641px) {
     .mobile-only { display:none !important; }
     .mobile-nav { display: none !important; }
@@ -28825,7 +28838,12 @@ window.addEventListener('beforeinstallprompt', (e) => {
     if (to && cur.contains(to)) return;
     if (e.target === cur || cur.contains(e.target)) hide();
   }, true);
-  document.addEventListener('pointerdown', hide, true);
+  document.addEventListener('pointerdown', (e) => {
+    // Touch: the tap that opens a tip also fires pointerdown — keep the tip
+    // when the press is on the tipped element itself; any other tap hides.
+    if (cur && e.target && (e.target === cur || cur.contains(e.target))) return;
+    hide();
+  }, true);
   window.addEventListener('scroll', hide, true);
 })();
 
