@@ -24476,7 +24476,12 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   const branchesAll = [...new Set((rawSales || []).map(s => s.office).filter(Boolean))].sort();
   const teamsAll = distinctTeams().filter(t => !isTeamExcluded(t));
   const repNames = Object.keys(repMap).sort();
-  const pickerRow = el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
+  const _trendRepOnly = !isAdminRole(state.profile && state.profile.role);
+  const pickerRow = _trendRepOnly
+    ? el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
+        el('h3', { class: 'text-base font-bold mr-1' }, '📈 Your Performance Trends'),
+        el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'YTD · just you'))
+    : el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
     el('h3', { class: 'text-base font-bold mr-1' }, '📈 Performance Trends'),
     pickerSel('Company', branchesAll.map(b => [b, titleCase2(b)]),
       curScope.type === 'branch' ? curScope.value : '',
@@ -24494,7 +24499,12 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
 
   return el('div', { class: 'card p-5' },
     pickerRow,
-    drillPanel,
+    // Rep-locked mode with no matched sales yet: friendly empty state instead
+    // of silently falling back to company-wide charts.
+    (_trendRepOnly && !state._indicatorRepDrillDown)
+      ? el('div', { class: 'text-xs py-6 text-center', style: { color: 'var(--text-muted)' } },
+          'No synced sales under your name yet — your trend charts appear as soon as your first accounts land in the sync.')
+      : drillPanel,
   );
 }
 
@@ -26747,7 +26757,15 @@ function indicatorYoYTrendChart() {
   const metric = state._indicatorYoYMetric || 'revenue';
   const mDef = YOY_METRICS.find(m => m[0] === metric) || YOY_METRICS[0];
   const kind = mDef[2];
-  const raw = indicatorSales();
+  let raw = indicatorSales();
+  // Rep accounts see THEIR OWN trend, not the company's — matched by name
+  // signature so "Sauer, Drew" ↔ "Drew Sauer" resolves.
+  const _yoyRepOnly = !isAdminRole(state.profile && state.profile.role);
+  if (_yoyRepOnly) {
+    const _sigY = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+    const _mineY = _sigY(state.profile.full_name);
+    raw = raw.filter(x => x.rep && _sigY(getCanonicalRepName(x.rep)) === _mineY);
+  }
   const curY = new Date().getFullYear(), prevY = curY - 1;
   const PEST_RE = /sentricon|german\s*roach|interior\s*flea/i;
 
@@ -26952,7 +26970,7 @@ function indicatorYoYTrendChart() {
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
       el('div', {},
-        el('h3', { class: 'text-sm font-bold' }, 'Performance Trends by Year'),
+        el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'Your Performance Trends by Year' : 'Performance Trends by Year'),
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
           'Weekly ' + revTypeLabel + mDef[1] + ' by week of year · one line per year (' + curY + ' solid) · hover for the YoY gap'
           + (metric === 'cancel_pct' ? ' · matched horizons: ' + prevY + ' cohorts only count cancels within the same elapsed time their ' + curY + ' counterpart has had' : ''))),
