@@ -939,6 +939,10 @@ async function _storeIndicatorDataCompressed(json) {
     _indicatorDataSaveWarned = false;
   } catch (e) {
     console.warn('[ridd] compressed indicator save failed', e);
+    // A gz copy we can no longer overwrite is worse than none: it would keep
+    // resurrecting the LAST dataset that fit, shadowing the (unlimited)
+    // IndexedDB copy on every boot. Drop it — IDB + cloud carry the data.
+    try { localStorage.removeItem(INDICATORS_DATA_GZ_KEY); } catch { /* ignore */ }
   }
 }
 
@@ -1196,8 +1200,24 @@ function loadIndicatorState() {
         const buf = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
         const text = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
-        apply(text);
-        scheduleBackgroundRemount();
+        // FRESHNESS GUARD — this async path used to apply unconditionally,
+        // racing (and losing to) the IndexedDB restore and the cloud pull.
+        // A gz copy that can no longer be refreshed (writes fail once the
+        // dataset outgrows the quota) would resurrect month-old data on
+        // every boot. Only apply when it's NOT older than what we hold;
+        // when it IS older, delete it so it can't shadow IndexedDB again.
+        let parsed = null;
+        try { parsed = JSON.parse(text); } catch { /* handled below */ }
+        const _curUp = state.indicatorsUploadedAt ? Date.parse(state.indicatorsUploadedAt) : 0;
+        const _gzUp  = parsed && parsed.indicatorsUploadedAt ? Date.parse(parsed.indicatorsUploadedAt) : 0;
+        const _haveRaw = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
+        if (parsed && _haveRaw && _curUp && _gzUp && _gzUp < _curUp) {
+          console.warn('[ridd] stale compressed indicator cache (' + parsed.indicatorsUploadedAt + ') — dropping it; IndexedDB/cloud copy wins');
+          try { localStorage.removeItem(INDICATORS_DATA_GZ_KEY); } catch { /* ignore */ }
+        } else if (parsed) {
+          applyObj(parsed);
+          scheduleBackgroundRemount();
+        }
       } catch (e) {
         console.warn('[ridd] compressed indicator cache unreadable', e);
       }
