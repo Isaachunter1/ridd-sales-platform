@@ -12784,15 +12784,27 @@ function isLastManStandingComp(comp) {
   const c = comp || (typeof getActiveComp === 'function' ? getActiveComp() : null);
   return !!(c && (c.scoring === 'last_man_standing' || c.id === 'last_man_standing' || /last\s*man\s*standing/i.test(c.name || '')));
 }
-function lastManStandingCompute(sales) {
+// LMS runs on SCHEDULED DAYS, not a free date window. Default = every
+// Saturday, with baked-in holiday swaps: July 4 2026 (a Saturday) was a
+// holiday, so THIS YEAR that round ran on FRIDAY July 3 instead. An admin-set
+// comp.compDays list (Competitions tab → Comp Days bar) overrides everything —
+// those exact dates ARE the rounds, in order.
+const LMS_EXTRA_DAYS = new Set(['2026-07-03']);   // counts like a Saturday
+const LMS_SKIP_DAYS  = new Set(['2026-07-04']);   // holiday — no round
+function lastManStandingCompute(sales, compOverride) {
+  const _comp = compOverride || (typeof getActiveComp === 'function' ? getActiveComp() : null);
+  const _custom = (_comp && Array.isArray(_comp.compDays) && _comp.compDays.length) ? new Set(_comp.compDays) : null;
+  const _isCompDay = (d, iso) => _custom
+    ? _custom.has(iso)
+    : ((d.getDay() === 6 || LMS_EXTRA_DAYS.has(iso)) && !LMS_SKIP_DAYS.has(iso));
   const dayOf = (s) => (typeof _parseIndicatorDay === 'function') ? _parseIndicatorDay(s) : ((s && s.date) || null);
   const d2d = (sales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === 'd2d' : true));
   const repOffice = {}; const roster = [];
   for (const s of d2d) { const r = s.rep; if (r && !(r in repOffice)) { repOffice[r] = s.office || ''; roster.push(r); } }
-  // Qualifying Saturday revenue per rep per Saturday.
+  // Qualifying revenue per rep per comp day.
   const byWeek = {};
   for (const s of d2d) {
-    const d = dayOf(s); if (!d || isNaN(d) || d.getDay() !== 6) continue;                      // Saturday only
+    const d = dayOf(s); if (!d || isNaN(d) || !_isCompDay(d, d.toISOString().slice(0, 10))) continue;   // scheduled comp days only
     // Qualifying gate — assume-passing, matching Spring Cleaning standings:
     // passed + no-audit + pending all count; only Failed Audit and <$99 (Last
     // Resort) are excluded. Lets the comp run on recent windows before audits land.
@@ -12835,8 +12847,8 @@ function lastManStandingCompute(sales) {
 }
 // 5-pointed star, drawn with a clip-path so it tints any color cleanly.
 const LMS_STAR_CLIP = 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)';
-function lastManStandingBoard(windowed, winLabel) {
-  const R = lastManStandingCompute(windowed);
+function lastManStandingBoard(windowed, winLabel, compOverride) {
+  const R = lastManStandingCompute(windowed, compOverride);
   // KAWS-poster palette — black canvas, vivid pops.
   const RED = '#FF1F0E', MAG = '#FF18C8', CYAN = '#13DAF2', ORANGE = '#FFA01E', GREEN = '#21C61C', WHITE = '#FFFFFF';
   const DIM = '#6E6E6E', FAINT = 'rgba(255,255,255,.06)';
@@ -14675,7 +14687,9 @@ function nrlaBoard(rawSales, opts) {
 function viewNrlaPublic() {
   const wrap = el('div', { class: 'flex flex-col gap-5 w-full' });
   const isAdmin = isAdminRole(state.profile.role);
-  const comps = (typeof getIndicatorCompetitions === 'function') ? getIndicatorCompetitions() : [];
+  let comps = (typeof getIndicatorCompetitions === 'function') ? getIndicatorCompetitions() : [];
+  // Avg Pest & Raffle is ADMIN-ONLY — reps never see its pill or board.
+  if (!isAdmin) comps = comps.filter(c => (c.scoring || c.id) !== 'avg_pest_initial' && c.id !== 'avg_pest_initial');
   const raw = state._indicatorRawSales || [];
   if (!raw.length || !comps.length) {
     // Pull the shared dataset once; the refresh mounts the app when it lands.
@@ -14758,6 +14772,49 @@ function viewNrlaPublic() {
     wrap.append(nrlaBoard(raw, { readOnly: !isAdmin, comp: sel }));
     return wrap;
   }
+  // ── Last Man Standing runs on SCHEDULED DAYS — no user-adjustable window.
+  // Reps see the schedule read-only; admins can add/remove days (synced to
+  // everyone via the shared comp config, same as ★ default). ──
+  if (isLastManStandingComp(sel)) {
+    const lmsR = lastManStandingCompute(raw, sel);
+    const custom = (Array.isArray(sel.compDays) && sel.compDays.length) ? [...sel.compDays].sort() : null;
+    const effectiveDays = custom || lmsR.saturdays;
+    const fmtDay = (iso) => new Date(iso + 'T12:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    const saveDays = (days) => {
+      if (days) sel.compDays = [...new Set(days)].sort(); else delete sel.compDays;
+      logActivity('comp_change', { detail: 'Last Man Standing comp days ' + (days ? 'set to ' + sel.compDays.join(', ') : 'reset to auto (Saturdays)') });
+      saveDemoData();   // syncs to every user
+      mountApp();
+    };
+    const addInput = isAdmin ? el('input', {
+      type: 'date', class: 'rounded border px-2 py-1 text-xs',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { if (e.target.value) saveDays([...effectiveDays, e.target.value]); },
+      title: 'Add a specific comp day — converts the schedule to an explicit day list',
+    }) : null;
+    wrap.append(el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Days'),
+      ...effectiveDays.map(iso => el('span', {
+        class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border inline-flex items-center gap-1.5 whitespace-nowrap',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+      }, fmtDay(iso),
+        (isAdmin && custom) ? el('button', {
+          class: 'leading-none cursor-pointer', style: { color: 'var(--text-subtle)' },
+          title: 'Remove this comp day',
+          onclick: () => { const next = custom.filter(d => d !== iso); saveDays(next.length ? next : null); },
+        }, '×') : null)),
+      addInput,
+      (isAdmin && custom) ? el('button', {
+        class: 'text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+        title: 'Back to the automatic schedule: every Saturday (July 4 2026 holiday → Friday July 3 counts instead)',
+        onclick: () => saveDays(null),
+      }, '↺ Auto (Saturdays)') : null,
+      el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } },
+        custom ? '· explicit day list — these dates ARE the rounds' : '· Saturdays · Jul 4 holiday → Fri Jul 3 counts instead')));
+    wrap.append(lastManStandingBoard(raw, 'scheduled comp days', sel));
+    return wrap;
+  }
   // ── Other comps use the session Comp Window date range, same as before ──
   const cf = state._indicatorCompFilter || (state._indicatorCompFilter = { start: '', end: '' });
   const applyWin = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
@@ -14780,8 +14837,6 @@ function viewNrlaPublic() {
     const offices = [...new Set(windowed.filter(s => _indicatorDeptOf(s) === 'd2d').map(s => s.office).filter(Boolean))];
     wrap.append(indicatorSpringCleaningBoard(windowed, offices, winLabel));
     if (typeof springStandingsCard === 'function') wrap.append(springStandingsCard());
-  } else if (isLastManStandingComp(sel)) {
-    wrap.append(lastManStandingBoard(windowed, winLabel));
   } else if ((sel.scoring || '') === 'top_gun') {
     const allD2d = raw.filter(s => _indicatorDeptOf(s) === 'd2d');
     const yr = new Date().getFullYear();
