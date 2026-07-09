@@ -14677,8 +14677,7 @@ function nrlaBoard(rawSales, opts) {
               });
               return el('tr', { class: 'border-t-2', style: { borderColor: '#0E1C30', background: 'rgba(14,28,48,.08)' } },
                 el('td', { class: 'px-3 py-2' }, ''),
-                el('td', { class: 'px-2 py-2 font-black whitespace-nowrap', style: { letterSpacing: '.06em' } }, 'RIDD',
-                  el('span', { class: 'ml-1 text-[9px] uppercase font-bold', style: { color: 'var(--text-subtle)' } }, 'all teams')),
+                el('td', { class: 'px-2 py-2 font-black whitespace-nowrap', style: { letterSpacing: '.06em' } }, 'RIDD'),
                 el('td', {}, ''), el('td', {}, ''),
                 el('td', { class: 'px-2 py-2 tabular-nums font-black' }, repsTot),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, repsTot > 0 ? money((tot.passed + tot.pending) / repsTot) : '—'),
