@@ -22138,9 +22138,29 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           })(),
         ),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          // Filters dropdown — everything COUNTS by default; unchecking a
-          // cancel kind EXCLUDES it from Cancels / Cancel % on the leaderboard
-          // and every rep player card. SNS / Combined rows never count.
+          // Search on the left; ONE Filters button on the right — tier,
+          // team, office, and the cancel-type toggles all live inside its
+          // panel now instead of crowding the header.
+          //
+          // Search: mountApp() rebuilds the entire page, so firing it
+          // per-keystroke felt laggy on big rosters — rows filter IN PLACE
+          // (show/hide) so the input keeps focus with zero flicker.
+          el('input', {
+            id: 'rep-leaderboard-search',
+            type: 'text',
+            placeholder: 'Search rep…',
+            value: state._indicatorRepNameSearch || '',
+            class: 'rounded-lg border px-3 py-1.5 text-xs',
+            style: { borderColor: 'var(--border-2)', minWidth: '160px' },
+            oninput: (e) => {
+              state._indicatorRepNameSearch = e.target.value;
+              const q = e.target.value.trim().toLowerCase();
+              document.querySelectorAll('[data-replb]').forEach(row => {
+                const n = row.getAttribute('data-replb') || '';
+                row.style.display = (!q || n.includes(q)) ? '' : 'none';
+              });
+            },
+          }),
           (() => {
             // One-time migration: the old default EXCLUDED these three kinds.
             // New default = include everything (uncheck to exclude).
@@ -22157,19 +22177,62 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               ['_indicatorRepIncludeRenewals', 'Count renewals',          'Cancels where the customer renewed onto a new subscription (Renewal - …)'],
             ];
             const offCount = opts.filter(([k]) => !state[k]).length;
+            const activeN = offCount + (tierFilter ? 1 : 0) + (teamFilter ? 1 : 0) + (officeFilter ? 1 : 0);
             const wrap = el('div', { class: 'relative' });
             wrap.append(el('button', {
               class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition border flex items-center gap-1.5',
-              style: offCount
+              style: activeN
                 ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
-                : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-              title: 'Everything counts by default — uncheck a cancel type to exclude it from Cancels / Cancel % here and on every rep player card. Sold-Not-Started and Combined rows never count.',
+                : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+              title: 'Tier, team, office, and cancel-type filters',
               onclick: (e) => { e.stopPropagation(); state._repCancelMenuOpen = !state._repCancelMenuOpen; mountApp(); },
             },
-              el('span', {}, 'Filters' + (offCount ? ' · ' + offCount + ' excluded' : '')),
+              el('span', {}, 'Filters' + (activeN ? ' · ' + activeN : '')),
               el('span', { style: { fontSize: '9px' } }, state._repCancelMenuOpen ? '▴' : '▾')));
             if (state._repCancelMenuOpen) {
-              wrap.append(el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', left: '0', minWidth: '250px', zIndex: '40', boxShadow: 'var(--shadow-lg)' } },
+              const secLabel = (t) => el('div', { class: 'px-2.5 pt-2 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t);
+              // Tier pills (All / Rookie / Vet / Unassigned)
+              const hasUnassignedTier = allReps.some(r => !r.tier);
+              const pillOpts = [
+                { id: '', label: 'All' },
+                ...REP_TIERS.map(t => ({ id: t.id, label: t.label, color: t.color })),
+              ];
+              if (hasUnassignedTier && isAdminRole(state.profile.role)) pillOpts.push({ id: '__unassigned__', label: 'Unassigned' });
+              const tierRow = el('div', { class: 'px-2.5 pb-1' },
+                el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+                  ...pillOpts.map(p => el('button', {
+                    class: 'px-2.5 py-1.5 text-[11px] font-semibold transition',
+                    style: tierFilter === p.id
+                      ? { background: p.color || 'var(--accent)', color: '#fff' }
+                      : { background: 'transparent', color: 'var(--text)' },
+                    onclick: (e) => { e.stopPropagation(); state._indicatorRepTierFilter = p.id; mountApp(); },
+                  }, p.label))));
+              // Team (admin roster tool — hidden from reps) + Office selects
+              const teamSel = isAdminRole(state.profile.role) ? (() => {
+                const teams = distinctTeams().filter(t => !isTeamExcluded(t));
+                const hasUnassigned = allReps.some(r => !r.team);
+                return el('select', {
+                  class: 'rounded-lg border px-3 py-1.5 text-xs cursor-pointer w-full',
+                  style: { borderColor: 'var(--border-2)' },
+                  onchange: (e) => { state._indicatorRepTeamFilter = e.target.value; mountApp(); },
+                },
+                  el('option', { value: '', selected: !teamFilter }, 'All teams'),
+                  ...teams.map(t => el('option', { value: t, selected: teamFilter === t }, t)),
+                  hasUnassigned && el('option', { value: '__unassigned__', selected: teamFilter === '__unassigned__' }, '— Unassigned —'));
+              })() : null;
+              const officeSel = el('select', {
+                class: 'rounded-lg border px-3 py-1.5 text-xs cursor-pointer w-full',
+                style: { borderColor: 'var(--border-2)' },
+                onchange: (e) => { state._indicatorRepOfficeFilter = e.target.value; mountApp(); },
+              },
+                el('option', { value: '', selected: !officeFilter }, 'All offices'),
+                ...offices.map(o => el('option', { value: o, selected: officeFilter === o },
+                  o.split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' '))));
+              wrap.append(el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', minWidth: '270px', zIndex: '40', boxShadow: 'var(--shadow-lg)' } },
+                secLabel('Tier'), tierRow,
+                teamSel && secLabel('Team'), teamSel && el('div', { class: 'px-2.5 pb-1' }, teamSel),
+                secLabel('Office'), el('div', { class: 'px-2.5 pb-1' }, officeSel),
+                secLabel('Cancel types'),
                 ...opts.map(([key, label, tip]) => el('button', {
                   class: 'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
                   style: { color: 'var(--text)', background: state[key] ? 'var(--card-2)' : 'transparent' },
@@ -22179,7 +22242,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   el('span', { style: { fontSize: '13px' } }, state[key] ? '☑' : '☐'),
                   el('span', {}, label))),
                 el('div', { class: 'px-2.5 pt-1.5 pb-1 text-[10px]', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)', marginTop: '4px' } },
-                  'Checked = counts (the default). Uncheck to exclude. Sold-Not-Started & Combined never count.')));
+                  'Checked cancel types count (the default). Uncheck to exclude. Sold-Not-Started & Combined never count.')));
               if (window._repCancelMenuCloser) document.removeEventListener('mousedown', window._repCancelMenuCloser);
               window._repCancelMenuCloser = (ev) => {
                 const w = document.getElementById('rep-cancel-filter-wrap');
@@ -22193,75 +22256,6 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             wrap.id = 'rep-cancel-filter-wrap';
             return wrap;
           })(),
-          // Search by rep name. mountApp() rebuilds the entire page, so
-          // firing it per-keystroke is the source of the "laggy / glitchy"
-          // feel on big rosters. State updates immediately (input value
-          // tracks the user) but the full re-render is debounced ~150ms
-          // after the last keystroke, then refocuses + restores cursor
-          // on the freshly rebuilt input. Casing is preserved because
-          // `value` binds to the raw state, not `nameSearch` (which is
-          // lowercased + trimmed for filtering).
-          el('input', {
-            id: 'rep-leaderboard-search',
-            type: 'text',
-            placeholder: 'Search rep…',
-            value: state._indicatorRepNameSearch || '',
-            class: 'rounded-lg border px-3 py-1.5 text-xs',
-            style: { borderColor: 'var(--border-2)', minWidth: '160px' },
-            oninput: (e) => {
-              // Filter rows IN PLACE (show/hide) — no full re-render, so the
-              // input keeps focus and there's zero flicker per keystroke.
-              state._indicatorRepNameSearch = e.target.value;
-              const q = e.target.value.trim().toLowerCase();
-              document.querySelectorAll('[data-replb]').forEach(row => {
-                const n = row.getAttribute('data-replb') || '';
-                row.style.display = (!q || n.includes(q)) ? '' : 'none';
-              });
-            },
-          }),
-          // Tier quick-filter pills (replaces the previous dropdown)
-          (() => {
-            const hasUnassigned = allReps.some(r => !r.tier);
-            const pillOpts = [
-              { id: '',             label: 'All' },
-              ...REP_TIERS.map(t => ({ id: t.id, label: t.label, color: t.color })),
-            ];
-            if (hasUnassigned && isAdminRole(state.profile.role)) pillOpts.push({ id: '__unassigned__', label: 'Unassigned' });
-            return el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-              ...pillOpts.map(p => el('button', {
-                class: 'px-2.5 py-1.5 text-[11px] font-semibold transition',
-                style: tierFilter === p.id
-                  ? { background: p.color || 'var(--accent)', color: '#fff' }
-                  : { background: 'transparent', color: 'var(--text)' },
-                onclick: () => { state._indicatorRepTierFilter = p.id; mountApp(); },
-              }, p.label)),
-            );
-          })(),
-          // Team filter (admin roster tool — hidden from reps)
-          (() => {
-            if (!isAdminRole(state.profile.role)) return null;
-            const teams = distinctTeams().filter(t => !isTeamExcluded(t)); // excluded teams' reps already filtered out upstream
-            const hasUnassigned = allReps.some(r => !r.team);
-            return el('select', {
-              class: 'rounded-lg border px-3 py-1.5 text-xs cursor-pointer',
-              style: { borderColor: 'var(--border-2)' },
-              onchange: (e) => { state._indicatorRepTeamFilter = e.target.value; mountApp(); },
-            },
-              el('option', { value: '', selected: !teamFilter }, 'All teams'),
-              ...teams.map(t => el('option', { value: t, selected: teamFilter === t }, t)),
-              hasUnassigned && el('option', { value: '__unassigned__', selected: teamFilter === '__unassigned__' }, '— Unassigned —'),
-            );
-          })(),
-          // Office filter
-          el('select', {
-            class: 'rounded-lg border px-3 py-1.5 text-xs cursor-pointer',
-            style: { borderColor: 'var(--border-2)' },
-            onchange: (e) => { state._indicatorRepOfficeFilter = e.target.value; mountApp(); },
-          },
-            el('option', { value: '', selected: !officeFilter }, 'All offices'),
-            ...offices.map(o => el('option', { value: o, selected: officeFilter === o },
-              o.split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' '))),
-          ),
         ),
       ),
       // Desktop / tablet: full table with horizontal scroll if needed.
@@ -26385,7 +26379,7 @@ async function exportTiersXlsx() {
 // Per-week values for the small-multiples grid (Revenue, Sales, ACV, Avg Pest,
 // MY %). Reused by both the per-rep drill panel and the scope (Company /
 // Branch / Team) panel — anything with a list of sales can plot against this.
-function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay) {
+function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay, opts = {}) {
   const REP_AVG_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
   const metrics = [
     { id: 'revenue',   label: 'Revenue',          isCurrency: true,  format: v => '$' + (Math.abs(v) >= 1000 ? Math.round(v/1000) + 'K' : v) },
@@ -26530,9 +26524,9 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay)
   renderChart();
   return el('div', { class: 'flex flex-col gap-2' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
-      // Legend (when an overlay is wired up) sits left; the metric picker
-      // pins to the top right of the block.
-      overlay ? null : el('div', { class: 'flex-1' }),
+      // Title (when the caller passes one, e.g. the rep's name) or the
+      // overlay legend sits left; the metric picker pins to the top right.
+      opts.titleNode || (overlay ? null : el('div', { class: 'flex-1' })),
       el('select', {
         class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
         style: { order: '99' },
@@ -26644,12 +26638,11 @@ function repDrillPanel(rep, chartBuckets) {
   // fixes "267 selling days": the chips summed the FULL 3-year dataset
   // while the charts below plot only the current year.)
   return el('div', { class: 'mt-4 pt-4 border-t', style: { borderColor: 'var(--border)' } },
-    el('div', { class: 'flex items-center justify-between mb-3' },
-      el('h4', { class: 'text-sm font-bold' }, '👤 ' + rep.name),
-      // (Close button removed — it full-re-rendered and jumped to the top.
-      // Admins switch reps via the pickers above; reps are locked anyway.)
-    ),
-    buildTrendMiniGrid(rep.sales, chartBuckets, idPrefix, accent),
+    // Name rides the same row as the metric picker (left/right aligned).
+    // (Close button removed — it full-re-rendered and jumped to the top.)
+    buildTrendMiniGrid(rep.sales, chartBuckets, idPrefix, accent, null, {
+      titleNode: el('h4', { class: 'text-sm font-bold' }, '👤 ' + rep.name),
+    }),
   );
 }
 
@@ -26996,10 +26989,26 @@ function indicatorYoYTrendChart() {
     : kind === 'pct' ? (v * 100).toFixed(1) + '%'
     : fmt.int(v);
 
-  const metricSel = el('select', {
-    class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
-    onchange: (e) => { state._indicatorYoYMetric = e.target.value; mountApp(); },
-  }, ...YOY_METRICS.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === metric) o.selected = true; return o; }));
+  // ONE dropdown — the Office-staff revenue split (Total / New / Renewal)
+  // folds into the metric list instead of living in a second select.
+  const metricSel = (() => {
+    const opts = [];
+    for (const [v, lab] of YOY_METRICS) {
+      if (v === 'revenue' && isOffice) {
+        opts.push(['revenue|total', 'Total Revenue'], ['revenue|new', 'New Revenue'], ['revenue|renewal', 'Renewal Revenue']);
+      } else opts.push([v, lab]);
+    }
+    const cur = (metric === 'revenue' && isOffice) ? 'revenue|' + revType : metric;
+    return el('select', {
+      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+      onchange: (e) => {
+        const v = e.target.value;
+        if (v.indexOf('revenue|') === 0) { state._indicatorYoYMetric = 'revenue'; state._indicatorYoYRevType = v.split('|')[1]; }
+        else state._indicatorYoYMetric = v;
+        mountApp();
+      },
+    }, ...opts.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === cur) o.selected = true; return o; }));
+  })();
 
   const cvsWrap = el('div', { style: { position: 'relative', height: '280px', width: '100%' } });
   cvsWrap.append(el('canvas', { id }));
@@ -27103,23 +27112,10 @@ function indicatorYoYTrendChart() {
     });
   }, 50);
 
-  // Revenue type selector — Office staff only, when the metric is Revenue.
-  const revSel = (isOffice && metric === 'revenue') ? el('select', {
-    class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
-    title: 'Which revenue to trend',
-    onchange: (e) => { state._indicatorYoYRevType = e.target.value; mountApp(); },
-  }, ...[['total', 'Total Revenue'], ['new', 'New Revenue'], ['renewal', 'Renewal Revenue']]
-      .map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === revType) o.selected = true; return o; })) : null;
-  const revTypeLabel = revType === 'new' ? 'New ' : revType === 'renewal' ? 'Renewal ' : '';
-
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
-      el('div', {},
-        el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'Your Performance Trends by Year' : 'Performance Trends by Year'),
-        el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
-          'Weekly ' + revTypeLabel + mDef[1] + ' by week of year · one line per year (' + curY + ' solid) · hover for the YoY gap'
-          + (metric === 'cancel_pct' ? ' · matched horizons: ' + prevY + ' cohorts only count cancels within the same elapsed time their ' + curY + ' counterpart has had' : ''))),
-      el('div', { class: 'flex items-center gap-2' }, revSel, metricSel)),
+      el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'Rep Performance Trends' : 'Performance Trends by Year'),
+      metricSel),
     cvsWrap);
 }
 
