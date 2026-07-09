@@ -4662,7 +4662,26 @@ function computeLeaderboard(tab = 'total', range = null) {
   // loyalty reps, and Admin + Sales. Auditors review and Admin (no sales)
   // manages — neither sells, so neither gets a row.
   const profilesAll = state.allProfiles.length ? state.allProfiles : [state.profile].filter(Boolean);
-  const profiles = profilesAll.filter(p => isSellerRole(p.role));
+  // OFFICE STAFF ONLY — this is the Inside Sales leaderboard; D2D sales
+  // reps have their own boards (Indicators/Competitions) and were showing
+  // up here as permanent "No sales" rows. Type resolution, best signal
+  // first: explicit role → linked CRM roster row (admins have the full
+  // roster) → own CRM type (self) → name-signature map from the shared
+  // dataset (available to every role).
+  const _isOfficeStaffProfile = (p) => {
+    if (!p) return false;
+    if (p.role === 'rep_office') return true;
+    if (p.role === 'rep_sales') return false;
+    const emp = (state.frRoster || []).find(e => String(e.employee_id) === String(p.fieldroutes_employee_id || ''));
+    if (emp && emp.type_label) return /office\s*staff/i.test(emp.type_label);
+    if (state.profile && p.id === state.profile.id && state.myRepType) return /office\s*staff/i.test(state.myRepType);
+    try {
+      const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(p.full_name || ''))];
+      if (t) return /office\s*staff/i.test(t);
+    } catch (e) { /* fall through */ }
+    return false; // unknown type — self-heals once their CRM type syncs
+  };
+  const profiles = profilesAll.filter(p => isSellerRole(p.role) && _isOfficeStaffProfile(p));
   const renewalIds = new Set(state.sources.filter(s => s.is_renewal).map(s => s.id));
   const isRenewalSale = s => renewalIds.has(s.source_id);
 
@@ -28702,6 +28721,91 @@ document.addEventListener('visibilitychange', () => {
     }
   } catch (e) { /* never break the app on wake */ }
 });
+
+// ── Pull-to-refresh (installed app) ─────────────────────────────────────
+// Standalone/home-screen mode has no browser chrome, so there's no native
+// swipe-down refresh. This recreates it: pull down from the very top of a
+// page ≥70px and release → a quick conditional sync (ETag'd — the server
+// answers "unchanged" in ~100ms, or ships fresh data when there is some).
+// Touch-only, standalone-only (regular Safari keeps its own native PTR),
+// and inert while a modal sheet is open.
+(() => {
+  const isStandalone = () =>
+    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  let startY = 0, pulling = false, armed = false, busy = false;
+  const THRESH = 70;
+  let bubble = null;
+  const ensureBubble = () => {
+    if (bubble) return bubble;
+    bubble = el('div', {
+      id: 'ptr-bubble',
+      style: {
+        position: 'fixed', left: '50%', top: 'calc(env(safe-area-inset-top, 0px) + 64px)',
+        transform: 'translateX(-50%) scale(.6)', zIndex: 4000,
+        width: '38px', height: '38px', borderRadius: '999px',
+        background: 'var(--card)', border: '1px solid var(--border-2)',
+        boxShadow: 'var(--shadow-lg)', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', fontSize: '18px', opacity: '0',
+        transition: 'opacity .12s ease, transform .12s ease', pointerEvents: 'none',
+      },
+    }, el('span', { id: 'ptr-glyph', style: { display: 'inline-block' } }, '↓'));
+    document.body.append(bubble);
+    return bubble;
+  };
+  const glyph = () => (ensureBubble(), document.getElementById('ptr-glyph'));
+  const setBubble = (dy) => {
+    const b = ensureBubble();
+    const p = Math.min(dy / THRESH, 1);
+    b.style.opacity = String(Math.min(p * 1.2, 1));
+    b.style.transform = 'translateX(-50%) scale(' + (0.6 + p * 0.4) + ')';
+    const g = glyph(); if (g) { g.textContent = '↓'; g.style.animation = ''; g.style.transform = 'rotate(' + (p * 180) + 'deg)'; }
+  };
+  const hideBubble = () => { if (bubble) { bubble.style.opacity = '0'; bubble.style.transform = 'translateX(-50%) scale(.6)'; } };
+  const spinBubble = () => {
+    const b = ensureBubble();
+    b.style.opacity = '1';
+    b.style.transform = 'translateX(-50%) scale(1)';
+    const g = glyph(); if (g) { g.textContent = '↻'; g.style.transform = ''; g.style.animation = 'spin 0.8s linear infinite'; }
+  };
+  const stopSpin = () => { const g = document.getElementById('ptr-glyph'); if (g) g.style.animation = ''; hideBubble(); };
+
+  document.addEventListener('touchstart', (e) => {
+    if (!isStandalone() || busy) return;
+    if (window.scrollY > 0) return;                                   // only from the very top
+    if (document.querySelector('.modal-overlay')) return;             // sheets scroll themselves
+    startY = e.touches[0].clientY;
+    pulling = true; armed = false;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!pulling) return;
+    const dy = e.touches[0].clientY - startY;
+    if (window.scrollY > 0 || dy < 10) { hideBubble(); armed = false; return; }
+    setBubble(dy);
+    armed = dy >= THRESH;
+  }, { passive: true });
+
+  document.addEventListener('touchend', async () => {
+    if (!pulling) return;
+    pulling = false;
+    if (!armed || busy) { hideBubble(); return; }
+    armed = false; busy = true;
+    const began = Date.now();
+    spinBubble();
+    try {
+      _indCloudCheckedAt = 0;                                         // bypass the 2-min throttle — this is an explicit gesture
+      await Promise.allSettled([
+        (typeof refreshIndicatorsFromCloud === 'function') ? refreshIndicatorsFromCloud(true) : null,
+        (typeof refreshSalesData === 'function' && state.profile && !isAdminRole(state.profile.role)) ? refreshSalesData() : null,
+      ]);
+      if (typeof mountApp === 'function') mountApp();
+    } catch (e) { console.warn('[ridd] pull-to-refresh failed', e); }
+    finally {
+      // keep the spinner visible ≥400ms so a 304 doesn't feel like a misfire
+      setTimeout(() => { stopSpin(); busy = false; }, Math.max(0, 400 - (Date.now() - began)));
+    }
+  }, { passive: true });
+})();
 
 // One-click RevHawk refresh behind the header sync icon. Fires the admin-gated
 // background sync, waits for the FRESH snapshot to land in Supabase, then loads
