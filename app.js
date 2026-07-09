@@ -6610,10 +6610,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   // by name signature so "Sauer, Drew" ↔ "Drew Sauer" resolves.
   if (!isAdminRole(state.profile && state.profile.role)) {
     const _sigG = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
-    if (_sigG(rep.name) !== _sigG(state.profile && state.profile.full_name)) {
-      if (typeof toast === 'function') toast('You can only open your own player card', 'warn');
-      return;
-    }
+    if (_sigG(rep.name) !== _sigG(state.profile && state.profile.full_name)) return;
   }
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
@@ -22162,7 +22159,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             return (allReps.length > 0 && isAdminRole(state.profile.role)) ? btn : null;
           })(),
         ),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        el('div', { class: 'flex items-center gap-2 flex-wrap flex-1 sm:flex-initial' },
           // Search on the left; ONE Filters button on the right — tier,
           // team, office, and the cancel-type toggles all live inside its
           // panel now instead of crowding the header.
@@ -22175,7 +22172,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             type: 'text',
             placeholder: 'Search rep…',
             value: state._indicatorRepNameSearch || '',
-            class: 'rounded-lg border px-3 py-1.5 text-xs',
+            class: 'rounded-lg border px-3 py-2.5 text-sm flex-1 min-w-0',
             style: { borderColor: 'var(--border-2)', minWidth: '160px' },
             oninput: (e) => {
               state._indicatorRepNameSearch = e.target.value;
@@ -22205,7 +22202,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             const activeN = offCount + (tierFilter ? 1 : 0) + (teamFilter ? 1 : 0) + (officeFilter ? 1 : 0);
             const wrap = el('div', { class: 'relative' });
             wrap.append(el('button', {
-              class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition border flex items-center gap-1.5',
+              class: 'rounded-lg px-4 py-2.5 text-sm font-bold cursor-pointer transition border flex items-center gap-1.5',
               style: activeN
                 ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
                 : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -22380,7 +22377,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               el('span', { class: 'font-bold truncate text-sm' }, me.name),
               el('span', { class: 'text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You'),
               el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(me.revenue || 0))),
-            el('div', { class: 'flex items-baseline justify-end mt-0.5' },
+            el('div', { class: 'flex items-baseline justify-between gap-2 mt-0.5' },
+              el('span', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' } }, 'View my player card →'),
               el('span', { class: 'text-[11px] text-muted-' },
                 fmt.int(me.count || 0) + ' sales' + (me.revPerDay > 0 ? ' · ' + fmt.usd0(me.revPerDay) + '/day' : ''))))];
         })(),
@@ -24480,9 +24478,11 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     drillRepName = state._indicatorRepDrillDown;
     drillRep = drillRepName && repMap[drillRepName] ? repMap[drillRepName] : null;
   }
+  const _trendTitleNode = () => el('h3', { class: 'text-base font-bold' }, '📈 Your Performance Trends');
   let drillPanel;
   if (drillRep) {
-    drillPanel = repDrillPanel(drillRep, chartBuckets);
+    drillPanel = repDrillPanel(drillRep, chartBuckets,
+      (!isAdminRole(state.profile && state.profile.role)) ? _trendTitleNode() : null);
   } else {
     if (!state._indicatorTrendScope) state._indicatorTrendScope = { type: 'company' };
     // Scope panel renders standalone — no rep overlay. Reps' numbers are
@@ -24521,10 +24521,11 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   const teamsAll = distinctTeams().filter(t => !isTeamExcluded(t));
   const repNames = Object.keys(repMap).sort();
   const _trendRepOnly = !isAdminRole(state.profile && state.profile.role);
+  // Rep-locked: no separate header row — the card title rides the same
+  // line as the metric dropdown inside the drill panel ("You" is implied,
+  // so no rep name / "YTD · just you" subtitle either).
   const pickerRow = _trendRepOnly
-    ? el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
-        el('h3', { class: 'text-base font-bold mr-1' }, '📈 Your Performance Trends'),
-        el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'YTD · just you'))
+    ? null
     : el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
     el('h3', { class: 'text-base font-bold mr-1' }, '📈 Performance Trends'),
     pickerSel('Company', branchesAll.map(b => [b, titleCase2(b)]),
@@ -24546,8 +24547,10 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     // Rep-locked mode with no matched sales yet: friendly empty state instead
     // of silently falling back to company-wide charts.
     (_trendRepOnly && !state._indicatorRepDrillDown)
-      ? el('div', { class: 'text-xs py-6 text-center', style: { color: 'var(--text-muted)' } },
-          'No synced sales under your name yet — your trend charts appear as soon as your first accounts land in the sync.')
+      ? el('div', {},
+          el('h3', { class: 'text-base font-bold mb-2' }, '📈 Your Performance Trends'),
+          el('div', { class: 'text-xs py-6 text-center', style: { color: 'var(--text-muted)' } },
+            'No synced sales under your name yet — your trend charts appear as soon as your first accounts land in the sync.'))
       : drillPanel,
   );
 }
@@ -26654,19 +26657,18 @@ function repLandingPlayerCard() {
   } catch (e) { console.warn('[ridd] rep landing card failed', e); return null; }
 }
 
-function repDrillPanel(rep, chartBuckets) {
+function repDrillPanel(rep, chartBuckets, titleNode) {
   const team = getRepTeam(rep.name);
   const accent = team ? getTeamColor(team) : null;
   const idPrefix = 'chart-rep-drill-' + rep.name.replace(/\s+/g, '-');
   // (Stats chips + office/sales/revenue sub-line removed — the player card
-  // owns those numbers, properly scoped. This panel is charts only. Also
-  // fixes "267 selling days": the chips summed the FULL 3-year dataset
-  // while the charts below plot only the current year.)
-  return el('div', { class: 'mt-4 pt-4 border-t', style: { borderColor: 'var(--border)' } },
-    // Name rides the same row as the metric picker (left/right aligned).
-    // (Close button removed — it full-re-rendered and jumped to the top.)
+  // owns those numbers, properly scoped. This panel is charts only.)
+  // titleNode: rep-locked mode passes the card's own heading so the title
+  // and metric picker share one row ("You" is implied — no name needed);
+  // admin rep-drills keep the 👤 name (and the divider above the panel).
+  return el('div', titleNode ? {} : { class: 'mt-4 pt-4 border-t', style: { borderColor: 'var(--border)' } },
     buildTrendMiniGrid(rep.sales, chartBuckets, idPrefix, accent, null, {
-      titleNode: el('h4', { class: 'text-sm font-bold' }, '👤 ' + rep.name),
+      titleNode: titleNode || el('h4', { class: 'text-sm font-bold' }, '👤 ' + rep.name),
     }),
   );
 }
@@ -27139,7 +27141,7 @@ function indicatorYoYTrendChart() {
 
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
-      el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'Rep Performance Trends' : 'Performance Trends by Year'),
+      el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'YTD Performance Trends' : 'Performance Trends by Year'),
       metricSel),
     cvsWrap);
 }
