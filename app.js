@@ -6458,7 +6458,20 @@ function computeIndicatorRecords(rep) {
   return { bestDay: pick(byDay), bestWeek: pick(byWeek), bestMonth: pick(byMonth) };
 }
 
-function computeIndicatorTrends(rep) {
+let _indTrendsCache = { rep: null, byOff: new Map() };
+function computeIndicatorTrends(rep, weekOffset = 0) {
+  // weekOffset pages the 12-week window back in time: 0 = the latest 12
+  // weeks, 1 = the 12 before those, etc. weeksHasOlder tells the caller
+  // whether another page exists so the ‹ arrow can disable at the edge.
+  //
+  // Memoized on the rep OBJECT's identity: the player card rebuilds
+  // scopedRep once per render, then four blocks (trends / power hour /
+  // heatmap / top subs) all call this — without the cache the entity
+  // cards (an office or all of RIDD = tens of thousands of sales) did
+  // the full multi-pass crunch 4× on every tap.
+  if (_indTrendsCache.rep !== rep) { _indTrendsCache.rep = rep; _indTrendsCache.byOff.clear(); }
+  const _memo = _indTrendsCache.byOff.get(weekOffset);
+  if (_memo) return _memo;
   const sales = rep?.sales || [];
   // Weekly buckets — last 12 weeks ending at the rep's most recent sale week
   const byWeek = {};
@@ -6474,13 +6487,16 @@ function computeIndicatorTrends(rep) {
     byWeek[key].revenue += Number(s.contractValue || 0);
   }
   const weeks12 = [];
+  let weeksHasOlder = false;
   if (maxDate) {
-    const lastWs = new Date(maxDate); lastWs.setDate(lastWs.getDate() - lastWs.getDay());
+    const lastWs = new Date(maxDate); lastWs.setDate(lastWs.getDate() - lastWs.getDay() - weekOffset * 12 * 7);
     for (let i = 11; i >= 0; i--) {
       const ws = new Date(lastWs); ws.setDate(ws.getDate() - i * 7);
       const key = ws.toISOString().slice(0, 10);
       weeks12.push(byWeek[key] || { weekStart: key, count: 0, revenue: 0 });
     }
+    const firstKey = weeks12[0].weekStart;
+    weeksHasOlder = Object.keys(byWeek).some(k => k < firstKey);
   }
   // Day of week — Sun..Sat
   const dow = [0, 0, 0, 0, 0, 0, 0];
@@ -6564,7 +6580,9 @@ function computeIndicatorTrends(rep) {
       else break;
     }
   }
-  return { weeks12, dow, hours, hoursRev, firstHour, lastHour, peakHour, earliest, latest, dayHourCount, dayHourRev, topSubs, currentStreak, longestStreak };
+  const _out = { weeks12, weeksHasOlder, dow, hours, hoursRev, firstHour, lastHour, peakHour, earliest, latest, dayHourCount, dayHourRev, topSubs, currentStreak, longestStreak };
+  _indTrendsCache.byOff.set(weekOffset, _out);
+  return _out;
 }
 
 // Modal player card — opened from the Indicators rep-leaderboard row click.
@@ -6594,6 +6612,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   let recordsLeaderExpanded = null;  // name of the rep whose accounts are expanded inline
   let subsExpanded = null;           // subscription name whose accounts are expanded inline
   let cardScope = 'ytd';             // CARD_SCOPE_PRESETS id — scopes ALL stats/charts in this card (YTD default)
+  let _trendWkOff = 0;               // 12-week trend paging (0 = latest window)
   let cardView = 'sales';            // 'sales' | 'retention' — retention mirrors the Auditing player card
   let retDrill = null;               // retention tile drill { label, pred }
   const isAutoPayOn = (s) => s.autoPay && s.autoPay !== 'No' && String(s.autoPay).trim() !== '';
@@ -6852,18 +6871,20 @@ function openIndicatorRepCard(rep, allReps = []) {
         }, String(d)));
       }
       return el('div', { class: 'rounded-lg border p-4 mb-5', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-        el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-2.5' },
+        // Toggle pinned top-right beside the month nav (it used to wrap
+        // under the stats line on mobile); the month stats get their own
+        // line below.
+        el('div', { class: 'flex items-center justify-between gap-2 mb-1.5' },
           el('div', { class: 'flex items-center gap-2' },
             arrow(-1, atMin),
             el('div', { class: 'text-sm font-bold', style: { minWidth: '110px', textAlign: 'center' } },
               first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })),
             arrow(1, atMax)),
-          el('div', { class: 'flex items-center gap-2 flex-wrap' },
-            el('div', { class: 'text-[11px] font-bold' },
-              monthDays + ' day' + (monthDays === 1 ? '' : 's') + ' w/ a sale',
-              el('span', { class: 'font-normal', style: { color: 'var(--text-muted)' } },
-                monthAccts ? ' · ' + monthAccts + ' accts · $' + Math.round(monthRev).toLocaleString() : '')),
-            _whenToggle())),
+          _whenToggle()),
+        el('div', { class: 'text-[11px] font-bold mb-2.5' },
+          monthDays + ' day' + (monthDays === 1 ? '' : 's') + ' w/ a sale',
+          el('span', { class: 'font-normal', style: { color: 'var(--text-muted)' } },
+            monthAccts ? ' · ' + monthAccts + ' accts · $' + Math.round(monthRev).toLocaleString() : '')),
         el('div', { class: 'grid grid-cols-7 gap-1' },
           ...['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => el('div', { class: 'text-[9px] text-muted- font-semibold text-center' }, d)),
           ...cells),
@@ -7131,35 +7152,59 @@ function openIndicatorRepCard(rep, allReps = []) {
   }
 
   function trendsBlock() {
-    const tr = computeIndicatorTrends(scopedRep);
+    const tr = computeIndicatorTrends(scopedRep, _trendWkOff);
     const maxWeek = Math.max(1, ...tr.weeks12.map(w => w.revenue));
     const maxDow  = Math.max(1, ...tr.dow);
     const maxSub  = Math.max(1, ...tr.topSubs.map(s => s.count));
     const dowLabels = ['S','M','T','W','T','F','S'];
     const accent = 'var(--accent)';
+    // Compact cash label under each bar: $850 / $4.5K / $45K
+    const cash = (v) => v <= 0 ? '' : v >= 100000 ? '$' + Math.round(v / 1000) + 'K'
+      : v >= 1000 ? '$' + (v / 1000).toFixed(1).replace(/\.0$/, '') + 'K' : '$' + Math.round(v);
+    // ‹ › page the window in 12-week steps; ‹ disables at the oldest data,
+    // › disables back at the live window.
+    const wkArrow = (glyph, disabled, onclick) => el('button', {
+      class: 'w-6 h-6 rounded-full border flex items-center justify-center text-xs font-bold transition' + (disabled ? '' : ' hover:brightness-95 cursor-pointer'),
+      style: { borderColor: 'var(--border-2)', color: disabled ? 'var(--text-subtle)' : 'var(--text)', opacity: disabled ? .45 : 1 },
+      disabled, onclick: disabled ? undefined : onclick,
+    }, glyph);
 
     return el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-5' },
-      // Weekly trend (12 weeks, revenue bars)
+      // Weekly trend (12 weeks, revenue bars, pageable)
       el('div', { class: 'rounded-lg border p-4', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-        el('div', { class: 'flex items-center justify-between mb-3' },
-          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Last 12 Weeks · Revenue'),
-          el('div', { class: 'text-[10px] text-muted-' }, tr.weeks12.length === 0 ? '' : tr.weeks12[0].weekStart + ' → ' + tr.weeks12[tr.weeks12.length - 1].weekStart),
+        el('div', { class: 'flex items-center justify-between gap-2 mb-3 flex-wrap' },
+          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' },
+            _trendWkOff === 0 ? 'Last 12 Weeks · Revenue' : '12 Weeks · Revenue'),
+          el('div', { class: 'flex items-center gap-2' },
+            wkArrow('‹', !tr.weeksHasOlder, () => { _trendWkOff++; renderBody(); }),
+            el('div', { class: 'text-[10px] text-muted- tabular-nums' }, tr.weeks12.length === 0 ? '' : tr.weeks12[0].weekStart + ' → ' + tr.weeks12[tr.weeks12.length - 1].weekStart),
+            wkArrow('›', _trendWkOff === 0, () => { _trendWkOff--; renderBody(); }),
+          ),
         ),
         tr.weeks12.length === 0
           ? el('div', { class: 'text-xs text-muted- italic py-6 text-center' }, 'No date-stamped sales yet.')
-          : el('div', { class: 'flex items-end gap-1', style: { height: '90px' } },
-              ...tr.weeks12.map(w => {
-                const h = Math.max(2, Math.round((w.revenue / maxWeek) * 90));
-                const bar = el('div', {
-                  class: 'flex-1 rounded-t transition cursor-help',
-                  style: { height: h + 'px', background: w.revenue > 0 ? accent : 'var(--border)', opacity: w.revenue > 0 ? 1 : 0.5 },
-                });
-                attachTooltip(bar, {
-                  title: w.revenue > 0 ? fmt.usd0(w.revenue) : 'No sales',
-                  desc: 'Week of ' + w.weekStart + (w.count > 0 ? ' · ' + w.count + ' sale' + (w.count === 1 ? '' : 's') : ''),
-                });
-                return bar;
-              }),
+          : el('div', {},
+              el('div', { class: 'flex items-end gap-1', style: { height: '90px' } },
+                ...tr.weeks12.map(w => {
+                  const h = Math.max(2, Math.round((w.revenue / maxWeek) * 90));
+                  const bar = el('div', {
+                    class: 'flex-1 rounded-t transition cursor-help',
+                    style: { height: h + 'px', background: w.revenue > 0 ? accent : 'var(--border)', opacity: w.revenue > 0 ? 1 : 0.5 },
+                  });
+                  attachTooltip(bar, {
+                    title: w.revenue > 0 ? fmt.usd0(w.revenue) : 'No sales',
+                    desc: 'Week of ' + w.weekStart + (w.count > 0 ? ' · ' + w.count + ' sale' + (w.count === 1 ? '' : 's') : ''),
+                  });
+                  return bar;
+                }),
+              ),
+              // Revenue figure under every bar, compact ($4.5K) so 12 fit.
+              el('div', { class: 'flex gap-1 mt-1' },
+                ...tr.weeks12.map(w => el('div', {
+                  class: 'flex-1 text-center tabular-nums font-semibold',
+                  style: { fontSize: '8px', color: w.revenue > 0 ? 'var(--text-muted)' : 'var(--text-subtle)' },
+                }, cash(w.revenue) || '·')),
+              ),
             ),
       ),
       // Day of week distribution — bars share a baseline (separate bar +
@@ -7626,7 +7671,10 @@ function openIndicatorRepCard(rep, allReps = []) {
     const scopeRangeLabel = bounds
       ? bounds.start.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) + ' – ' + bounds.end.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })
       : null;
-    return el('div', { class: 'flex items-start justify-between gap-4 mb-5' },
+    // Mobile: identity row first (with its own ×), controls wrap onto their
+    // own full-width row below — the side-by-side desktop layout squeezed
+    // the name into a one-word-per-line column on phones.
+    return el('div', { class: 'flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-5' },
       el('div', { class: 'flex items-center gap-4 flex-1 min-w-0' },
         avatarNode(null, initials, 'w-16 h-16 text-lg'),
         el('div', { class: 'flex-1 min-w-0' },
@@ -7656,8 +7704,13 @@ function openIndicatorRepCard(rep, allReps = []) {
             })(),
           ),
         ),
+        el('button', {
+          class: 'sm:hidden text-xl text-muted- transition leading-none self-start ml-auto',
+          style: { lineHeight: '1' },
+          onclick: () => overlay.remove(),
+        }, '×'),
       ),
-      el('div', { class: 'flex items-center gap-3 shrink-0' },
+      el('div', { class: 'flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap' },
         // Sales ↔ Retention view toggle — Retention mirrors the Auditing
         // player card (audits, serviced/active/cancelled revenue, attrition)
         // computed from this rep's sales in the shared dataset, so reps can
@@ -7683,12 +7736,12 @@ function openIndicatorRepCard(rep, allReps = []) {
         el('select', {
           class: 'rounded-lg border px-2.5 py-1 text-xs font-semibold cursor-pointer bg-transparent',
           style: { borderColor: 'var(--border-2)' },
-          onchange: (e) => { cardScope = e.target.value; renderBody(); },
+          onchange: (e) => { cardScope = e.target.value; _trendWkOff = 0; renderBody(); },
         },
           ...CARD_SCOPE_PRESETS.map(p => el('option', { value: p.id, selected: cardScope === p.id }, p.label)),
         ),
         el('button', {
-          class: 'text-xl text-muted- hover:text-default transition leading-none -mr-1',
+          class: 'hidden sm:block text-xl text-muted- hover:text-default transition leading-none -mr-1',
           style: { lineHeight: '1' },
           onclick: () => overlay.remove(),
         }, '×'),
@@ -19200,7 +19253,7 @@ function viewIndicators() {
           );
           const panel = el('div', {
             class: 'card',
-            style: { position: 'absolute', left: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '250px', padding: '12px', boxShadow: 'var(--shadow-lg)', display: state._indFiltersOpen ? 'block' : 'none' },
+            style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '250px', padding: '12px', boxShadow: 'var(--shadow-lg)', display: state._indFiltersOpen ? 'block' : 'none' },
           },
             el('div', { class: 'flex flex-col gap-3' },
               _fRow('Metric', metricSel),
@@ -19245,8 +19298,6 @@ function viewIndicators() {
           if (state._indFiltersOpen) bindCloser();                 // panel restored open after a filter change re-render
           return el('div', { style: { position: 'relative' } }, btn, panel);
         })(),
-        // Spacer — Filters pins left, the icon cluster pins right.
-        el('div', { class: 'flex-1' }),
         // Custom date pickers still render in their own row below this bar
         // when the Date preset is Custom (see the dedicated row after the
         // toolbar div).
@@ -19907,12 +19958,13 @@ function viewIndicators() {
     // ════════════════════════════════════════════════════════════════
     ...(_focusedComp ? [] : (_repLite
       ? [
-          // #4 — landing order for reps: YOUR player card, the leaderboard,
-          // then the trend charts.
+          // #4 — landing order for reps: YOUR player card, your trend
+          // charts, THEN the leaderboard (335 rep cards used to bury the
+          // charts at the bottom of a very long scroll).
           repLandingPlayerCard(),
-          ..._repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard'),
           indicatorYoYTrendChart(),
           ..._repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend'),
+          ..._repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard'),
         ]
       : _repSections)),
   );
@@ -22222,7 +22274,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         })(),
         ...(displayReps.length === 0
           ? [el('div', { class: 'text-center text-xs text-muted- italic py-6' }, 'No reps match the current filters.')]
-          : displayReps.map((r, i) => {
+          : (state._repLbShowAll ? displayReps : displayReps.slice(0, 25)).map((r, i) => {
               const tierMeta = repTierMeta(r.tier);
               const teamColor = r.team ? getTeamColor(r.team) : null;
               const officeName = (r.office || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
@@ -22252,12 +22304,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   }, tierMeta.label),
                   el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(r.revenue)),
                 ),
-                // Team · office left — sales pace right, under the revenue
-                el('div', { class: 'flex items-baseline justify-between gap-2 text-[10px] text-muted- mt-0.5' },
-                  el('span', { class: 'truncate' },
-                    r.team ? el('span', { style: teamColor ? { color: teamColor, fontWeight: '600' } : {} }, r.team) : null,
-                    r.team ? ' · ' : '', officeName || '—'),
-                  el('span', { class: 'shrink-0 text-[11px]' },
+                // Sales pace right under the revenue. (Team + office names
+                // dropped — the colored left border still hints the team, and
+                // multi-market office tags kept reading wrong to reps.)
+                el('div', { class: 'flex items-baseline justify-end mt-0.5' },
+                  el('span', { class: 'shrink-0 text-[11px] text-muted-' },
                     fmt.int(r.count) + ' sales' + (r.revPerDay > 0 ? ' · ' + fmt.usd0(r.revPerDay) + '/day' : '')),
                 ),
                 // One stat only — the $/day denominator, plainly labeled.
@@ -22266,7 +22317,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   iv('Days w/ a Sale:', fmt.int(r.sellingDays || 0)),
                 ),
               );
-            })),
+            }).concat(displayReps.length > 25 ? [el('button', {
+              class: 'rounded-xl border px-3 py-2.5 text-xs font-bold transition hover:brightness-95',
+              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+              onclick: (e) => { e.stopPropagation(); state._repLbShowAll = !state._repLbShowAll; mountApp(); },
+            }, state._repLbShowAll ? 'Show top 25' : 'Show all ' + displayReps.length + ' reps')] : [])),
       ),
     ),
   );
@@ -26292,11 +26347,12 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay)
   const buildMini = (metric) => {
     const id = idPrefix + '-' + metric.id;
     const wrap = el('div', { class: 'rounded-lg border p-2', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } });
-    const headEl = el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-muted)' } }, metric.label);
-    const cvsWrap = el('div', { style: { position: 'relative', height: '120px', width: '100%' } });
+    // One tall chart now (the metric dropdown above names it) instead of
+    // five stacked 120px minis — mobile reps were scrolling forever.
+    const cvsWrap = el('div', { style: { position: 'relative', height: '220px', width: '100%' } });
     const cvs = el('canvas', { id });
     cvsWrap.append(cvs);
-    wrap.append(headEl, cvsWrap);
+    wrap.append(cvsWrap);
 
     setTimeout(() => {
       if (typeof Chart === 'undefined') return;
@@ -26371,23 +26427,37 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay)
     return wrap;
   };
 
-  // When an overlay is wired up, surface a tiny legend so the reader knows
-  // which line is the scope vs which is the comparison rep.
+  // ONE chart + a metric dropdown (was a grid of five minis — each chart
+  // stacked full-width on mobile, burying everything below it). The pick
+  // persists in state._miniTrendMetric and swaps the chart in place, no
+  // full re-render, so this works inside modals too.
+  const chosen = () => metrics.find(m => m.id === (state._miniTrendMetric || 'revenue')) || metrics[0];
+  const chartHolder = el('div', {});
+  const renderChart = () => { chartHolder.innerHTML = ''; chartHolder.append(buildMini(chosen())); };
+  renderChart();
   return el('div', { class: 'flex flex-col gap-2' },
-    overlay && el('div', { class: 'flex items-center gap-4 text-[10px]', style: { color: 'var(--text-muted)' } },
-      el('div', { class: 'flex items-center gap-1.5' },
-        el('span', { style: { display: 'inline-block', width: '18px', height: '2px', background: lineColor } }),
-        el('span', {}, 'Scope'),
+    el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
+      el('select', {
+        class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+        onchange: (e) => { state._miniTrendMetric = e.target.value; renderChart(); },
+      },
+        ...metrics.map(m => el('option', { value: m.id, selected: chosen().id === m.id }, m.label)),
       ),
-      el('div', { class: 'flex items-center gap-1.5' },
-        el('span', { style: { display: 'inline-block', width: '18px', height: '0', borderTop: '2px dashed ' + overlay.color } }),
-        el('span', {}, overlay.label),
-        el('span', { class: 'text-[9px] italic', style: { color: 'var(--text-subtle)' } }, '(right axis on $ metrics)'),
+      // When an overlay is wired up, surface a tiny legend so the reader
+      // knows which line is the scope vs which is the comparison rep.
+      overlay && el('div', { class: 'flex items-center gap-4 text-[10px]', style: { color: 'var(--text-muted)' } },
+        el('div', { class: 'flex items-center gap-1.5' },
+          el('span', { style: { display: 'inline-block', width: '18px', height: '2px', background: lineColor } }),
+          el('span', {}, 'Scope'),
+        ),
+        el('div', { class: 'flex items-center gap-1.5' },
+          el('span', { style: { display: 'inline-block', width: '18px', height: '0', borderTop: '2px dashed ' + overlay.color } }),
+          el('span', {}, overlay.label),
+          el('span', { class: 'text-[9px] italic', style: { color: 'var(--text-subtle)' } }, '(right axis on $ metrics)'),
+        ),
       ),
     ),
-    el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' },
-      ...metrics.map(buildMini),
-    ),
+    chartHolder,
   );
 }
 
@@ -26448,9 +26518,13 @@ function repLandingPlayerCard() {
               class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded',
               style: { background: tierMeta.color + '22', color: tierMeta.color },
             }, tierMeta.label))),
-        el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Player card →')),
+        // Revenue lives up here beside the name (THE number) — pulled out
+        // of the tile grid so the remaining 9 tiles fill even 3-per-row
+        // rows on mobile.
+        el('div', { class: 'flex flex-col items-end shrink-0' },
+          el('span', { class: 'text-2xl leading-none font-black tabular-nums' }, fmt.usd0(revenue)),
+          el('span', { class: 'text-[11px] font-bold mt-1', style: { color: 'var(--accent)' } }, 'Player card →'))),
       el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
-        tile('Revenue', fmt.usd0(revenue)),
         tile('Sales', fmt.int(count)),
         tile('Revenue/Day', sellDays ? fmt.usd0(revenue / sellDays) : '—'),
         tile('Accts/Day', sellDays ? (count / sellDays).toFixed(1) : '—'),
