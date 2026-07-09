@@ -3782,7 +3782,14 @@ function openMySettingsModal() {
       if (DEMO) { toast('Demo mode — password would be updated in production', 'info'); return; }
       btn.disabled = true; btn.textContent = 'Updating…';
       try {
-        const { error } = await supabase.auth.updateUser({ password: pw1.value });
+        // Same guard as the reset screen: the SDK's cross-tab auth lock can
+        // stall updateUser silently (app open in another tab) — surface a
+        // clear retry message instead of an eternal "Updating…".
+        const { error } = await Promise.race([
+          supabase.auth.updateUser({ password: pw1.value }),
+          new Promise((_, rej) => setTimeout(
+            () => rej(new Error('Taking too long — close other tabs with the app open and try again.')), 12000)),
+        ]);
         if (error) throw error;
         pw1.value = ''; pw2.value = '';
         pw1.dispatchEvent(new Event('input'));
@@ -5053,6 +5060,7 @@ function _saleHourOffset(office) {
   const o = String(office || '').toLowerCase();
   if (o.includes('salt lake')) return 1;   // Mountain
   if (o.includes('destin'))    return 2;   // Central
+  if (o.includes('joplin'))    return 2;   // Central (Missouri)
   return 3;                                 // Eastern (Atlanta, Charleston, Detroit, Myrtle Beach, Raleigh, Virginia Beach)
 }
 
