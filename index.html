@@ -377,6 +377,8 @@
     width: 8px; height: 8px;
     background: var(--eerie, #1D1D1D);
   }
+  /* Flipped-below variant: arrow moves to the top edge */
+  .ridd-tooltip.below::after { bottom: auto; top: -5px; }
   :root[data-theme="light"] .ridd-tooltip { background: #1D1D1D; }
   :root[data-theme="light"] .ridd-tooltip::after { background: #1D1D1D; }
   .tooltip-trigger { cursor: help; }
@@ -717,6 +719,7 @@
     .lg\:w-\[440px\] { width: 440px; }
   }
   .max-w-\[130px\] { max-width: 130px; }
+  @media (min-width: 640px) { .sm\:w-\[240px\] { width: 240px; } }
 </style>
 
 <!-- Apply theme before body paints to avoid flash -->

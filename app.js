@@ -3353,7 +3353,7 @@ function reportingAuditing() {
         el('div', {},
           el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--accent)' } }, kindLabel),
           el('h2', { class: 'text-xl font-bold mt-0.5' }, name),
-          (org && (org.office || org.team)) ? el('div', { class: 'text-xs text-muted- mt-0.5' }, [org.office, org.team].filter(Boolean).join(' · ')) : null,
+          // (office · team line hidden — multi-market attribution confused reps)
           asOf ? el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-subtle)' } }, 'As of ' + asOf) : null),
         el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
       el('div', { class: 'p-5 overflow-auto flex flex-col gap-4' },
@@ -3375,12 +3375,15 @@ function reportingAuditing() {
           tile('Serviced', money(s.servicedRev), 'received an initial service', null, drill('Serviced revenue', _svc)),
           tile('Active', money(activeRev), 'serviced & active · incl. aging', null, drill('Active', r => _svc(r) && _act(r))),
           tile('Cancelled', money(s.cancelledRev), 'serviced then cancelled · incl. 3-day ROR', s.cancelledRev > 0 ? bad : null, drill('Cancelled', r => _svc(r) && !!r.subscription_date_canceled)),
+          tile('Cancelled · 3-Day ROR', money(rorRev), 'right-of-rescission slice of Cancelled', rorRev > 0 ? bad : null, drill('3-Day ROR', r => _svc(r) && !!r.subscription_date_canceled && typeof _reporting3dayRor === 'function' && _reporting3dayRor(r))),
           tile('Aging', money(s.agingRev), 'at-risk slice of Active', s.agingRev > 0 ? bad : null, drill('Aging', r => _svc(r) && _act(r) && (Number(r.days_past_due) || 0) >= reportingAgingDays())),
         ]),
         group('Attrition · of serviced', [
-          tile('Attrition · excl. ROR', pctS(attrExclRor), 'cancelled ÷ serviced (RORs removed)', attrExclRor == null ? null : (attrExclRor >= 0.25 ? bad : attrExclRor < 0.10 ? good : null)),
-          tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), 'cancelled ÷ serviced (incl. ROR)', attrInclRor == null ? null : (attrInclRor >= 0.25 ? bad : attrInclRor < 0.10 ? good : null)),
-          tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', cancelIfAging == null ? null : (cancelIfAging >= 0.25 ? bad : cancelIfAging < 0.10 ? good : null)),
+          // Fixed identity colors (not thresholds): green = the headline
+          // excl-ROR number, black = incl-ROR, yellow = the aging what-if.
+          tile('Attrition · excl. ROR', pctS(attrExclRor), 'cancelled ÷ serviced (RORs removed)', good),
+          tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), 'cancelled ÷ serviced (incl. ROR)', 'var(--text)'),
+          tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#D97706'),
           tile('Active retention', pctS(activeRetention), 'active ÷ serviced', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
         ])));
     overlay.append(card);
@@ -3394,31 +3397,35 @@ function reportingAuditing() {
     const passPct = passBase > 0 ? (s.passed + s.noaudit) / passBase : null;
     const activeRev = s.activeRev;
     const aP = rate(s.attr.passed), aF = rate(s.attr.failed);
+    // TOTAL row: uniform background — per-cell tints on the last row bled
+    // past the card's rounded clip and looked like a stray extra row.
+    const td0 = td;
+    const td_ = (val, o = {}) => opts.total ? td0(val, { ...o, bg: 'var(--card-2)' }) : td0(val, o);
     return el('tr', {
       class: 'border-t' + (opts.total ? '' : ' cursor-pointer hover:brightness-95 transition'),
       style: { borderColor: 'var(--border)', background: opts.total ? 'var(--card-2)' : 'transparent' },
       title: opts.total ? '' : 'Click for the ' + (opts.kind === 'rep' ? 'rep' : opts.kind === 'team' ? 'team' : 'branch') + ' card',
       onclick: opts.total ? undefined : () => openAuditCardModal(name, s, opts.kind, opts.org),
     },
-      td(name, { bold: !!opts.total }),
-      ...(opts.org ? [td(opts.org.office || '—'), td(opts.org.team || '—')] : []),
-      td(fmt.int(s.sold)),
-      td(fmt.int(s.serviced)),
-      td(fmt.int(s.activeSubs)),
-      td(s.sold > 0 ? (s.serviced / s.sold * 100).toFixed(1) + '%' : '—'),
-      td(fmt.int(auditedN)),
-      td(fmt.int(s.passed), { bg: 'rgba(141,198,63,.08)' }),
-      td(fmt.int(s.failed), { bg: s.failed > 0 ? 'rgba(220,38,38,.08)' : 'transparent' }),
-      td(fmt.int(s.noaudit)),
-      td(fmt.int(s.pending)),
-      td(money(s.soldRev)),
-      td(money(s.servicedRev)),
-      td(money(activeRev)),
-      td(money(s.cancelledRev), { bg: s.cancelledRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
-      td(money(s.agingRev), { bg: s.agingRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
-      td(passPct == null ? '—' : (passPct * 100).toFixed(1) + '%', { bg: passShade(passPct), bold: true }),
-      td(aP == null ? '—' : (aP * 100).toFixed(1) + '%'),
-      td(aF == null ? '—' : (aF * 100).toFixed(1) + '%', { bg: aF != null && aP != null && aF > aP ? 'rgba(220,38,38,.08)' : 'transparent' }),
+      td_(name, { bold: !!opts.total }),
+
+      td_(fmt.int(s.sold)),
+      td_(fmt.int(s.serviced)),
+      td_(fmt.int(s.activeSubs)),
+      td_(s.sold > 0 ? (s.serviced / s.sold * 100).toFixed(1) + '%' : '—'),
+      td_(fmt.int(auditedN)),
+      td_(fmt.int(s.passed), { bg: 'rgba(141,198,63,.08)' }),
+      td_(fmt.int(s.failed), { bg: s.failed > 0 ? 'rgba(220,38,38,.08)' : 'transparent' }),
+      td_(fmt.int(s.noaudit)),
+      td_(fmt.int(s.pending)),
+      td_(money(s.soldRev)),
+      td_(money(s.servicedRev)),
+      td_(money(activeRev)),
+      td_(money(s.cancelledRev), { bg: s.cancelledRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
+      td_(money(s.agingRev), { bg: s.agingRev > 0 ? 'rgba(220,38,38,.06)' : 'transparent' }),
+      td_(passPct == null ? '—' : (passPct * 100).toFixed(1) + '%', { bg: passShade(passPct), bold: true }),
+      td_(aP == null ? '—' : (aP * 100).toFixed(1) + '%'),
+      td_(aF == null ? '—' : (aF * 100).toFixed(1) + '%', { bg: aF != null && aP != null && aF > aP ? 'rgba(220,38,38,.08)' : 'transparent' }),
     );
   };
   // Value extractor for each sortable column. Percent/attrition use -1 for
@@ -3451,17 +3458,15 @@ function reportingAuditing() {
   };
   // kind 'rep' adds Office + Team columns (pulled per rep); both kinds show
   // the Total / Active / Aging revenue columns. Click any header to sort.
-  const statTable = (label, entries, note, kind) => {
+  const statTable = (label, entries, note, kind, headerRight) => {
     const cols = [
       { id: 'name', label: kind === 'rep' ? 'Rep' : (kind === 'team' ? 'Team' : 'Branch'), tip: kind === 'rep' ? 'Sales rep (canonical name).' : (kind === 'team' ? 'Team from Manage Teams (current Team Year). "Unassigned" = no team set.' : 'Branch / office.') },
-      ...(kind === 'rep' ? [
-        { id: 'office', label: 'Office', tip: 'The rep’s primary office — where most of their accounts were sold.' },
-        { id: 'team', label: 'Team', tip: 'The rep’s team, pulled from Manage Teams for the current Team Year. "Unassigned" = no team set for that year.' },
-      ] : []),
-      { id: 'sold', label: 'Sold (D2D)', tip: 'EVERY subscription sold in range (a customer with 2 subs counts as 2). Passed, failed, pending and no-audit all included.' },
+      // (Office/Team columns removed — the table filters below cover them;
+      // the rep card modal still shows both.)
+      { id: 'sold', label: 'Sold', tip: 'EVERY subscription sold in range (a customer with 2 subs counts as 2). Passed, failed, pending and no-audit all included. D2D production only.' },
       { id: 'serviced', label: 'Serviced', tip: 'Subscriptions that have been serviced — an initial service / at least one completed service.' },
       { id: 'activeSubs', label: 'Active', tip: 'Count of serviced subscriptions that are still active (not cancelled) — the unit behind Active Rev.' },
-      { id: 'soldServiced', label: 'Sold → Service %', tip: 'Of subscriptions sold, the share that received an initial service — serviced ÷ sold. 89% = 89% of sold subs have been serviced; the rest are sold but not yet serviced.' },
+      { id: 'soldServiced', label: 'Sold/Serviced', tip: 'Of subscriptions sold, the share that received an initial service — serviced ÷ sold. 89% = 89% of sold subs have been serviced; the rest are sold but not yet serviced.' },
       { id: 'audited', label: 'Audited', tip: 'Subscriptions with a final audit result = Passed + Failed. (Pending and No Audit are not yet audited.)' },
       { id: 'passed', label: 'Passed', tip: 'Accounts flagged "Passed Audit".' },
       { id: 'failed', label: 'Failed', tip: 'Accounts flagged "Failed Audit".' },
@@ -3491,20 +3496,33 @@ function reportingAuditing() {
       return sortState.dir === 'asc' ? c : -c;
     });
     const thSort = (c) => el('th', {
-      class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left cursor-pointer select-none hover:text-default transition',
-      style: { background: 'var(--card-2)', color: sortState.key === c.id ? 'var(--accent)' : 'var(--text-muted)' },
+      class: 'px-1.5 py-2 text-[9px] uppercase tracking-wide font-semibold text-left cursor-pointer select-none hover:text-default transition'
+        + (kind === 'rep' ? ' whitespace-nowrap' : ''),
+      style: { background: 'var(--card-2)', color: sortState.key === c.id ? 'var(--accent)' : 'var(--text-muted)', fontWeight: sortState.key === c.id ? '800' : undefined },
       title: c.tip || '',
       onclick: () => setSort(c.id),
-    }, c.label + (sortState.key === c.id ? (sortState.dir === 'asc' ? ' ↑' : ' ↓') : ''));
+    }, c.label);   // active column = accent color (no arrow, app-wide convention)
     return el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 pt-4 pb-2' },
+      el('div', { class: 'px-4 pt-4 pb-2 flex items-center justify-between gap-3 flex-wrap' },
         el('h3', { class: 'text-base font-bold' }, label),
-        note && el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, note)),
-      el('div', { class: 'overflow-x-auto' },
-        el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
+        headerRight || null),
+      el('div', { class: kind === 'rep' ? 'overflow-x-auto' : '' },
+        el('table', { class: 'w-full', style: {
+          borderCollapse: 'collapse',
+          // Branch/Team: FIXED layout — first column 110px, the rest split
+          // the remaining width evenly, so both tables' columns align
+          // vertically and nothing scrolls sideways. Rep keeps auto+scroll.
+          tableLayout: kind === 'rep' ? undefined : 'fixed',
+          fontSize: kind === 'rep' ? '11px' : '10px',
+        } },
+          kind !== 'rep' && el('colgroup', {}, el('col', { style: { width: '110px' } }), ...cols.slice(1).map(() => el('col', {}))),
           el('thead', {}, el('tr', {}, ...cols.map(thSort))),
           el('tbody', {},
-            ...sorted.map(([name, s]) => statRow(name, s, { kind, org: kind === 'rep' ? { office: repOfficeOf(name), team: repTeamOf(name) } : undefined })),
+            ...sorted.map(([name, s2]) => {
+              const tr = statRow(name, s2, { kind, org: kind === 'rep' ? { office: repOfficeOf(name), team: repTeamOf(name) } : undefined });
+              if (kind === 'rep') tr.setAttribute('data-auditrep', String(name).toLowerCase());
+              return tr;
+            }),
             statRow('TOTAL', tot, { total: true, kind, org: kind === 'rep' ? {} : undefined })))));
   };
 
@@ -3526,8 +3544,9 @@ function reportingAuditing() {
   }
 
   return el('div', { class: 'flex flex-col gap-4' },
-    // Toolbar
-    el('div', { class: 'flex items-center gap-2 flex-wrap' },
+    // Toolbar — same card treatment as the Reporting filter bars; pickers
+    // left, tools (⬇ export · 👥 manage teams) pushed right.
+    el('div', { class: 'card p-4 flex items-center gap-2 flex-wrap' },
       sel(offFilter, [['all', 'All Branches'], ...offices.map(o => [o, o])], (e) => { state.auditOffice = e.target.value; mountApp(); }),
       sel(teamFilter, [['all', 'All Teams'], ...teamsList.map(t => [t, t])], (e) => { state.auditTeam = e.target.value; mountApp(); }, 'Filter by team'),
       sel(preset, presetOpts, (e) => {
@@ -3549,29 +3568,69 @@ function reportingAuditing() {
         class: 'rounded-xl px-2 py-1.5 text-xs',
         onchange: (e) => { state.auditCustomEnd = e.target.value; mountApp(); },
       }),
+      el('div', { class: 'flex-1' }),
       el('button', {
         class: 'rounded-xl border px-3 py-2 text-xs font-semibold transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Export every in-scope D2D account (audit status, flags, revenue) to Excel \u2014 incl. a sheet of accounts with no audit flag',
         onclick: () => exportAuditingXlsx(scopedAccounts, rangeLabel),
-      }, '\u2b07 Export'),
+      }, '\u2b07'),
       el('button', {
         class: 'rounded-xl border px-3 py-2 text-xs font-semibold transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Assign reps to teams / tiers (same as the Indicators tab)',
         onclick: () => openManageTeamsModal(),
-      }, '\ud83d\udc65 Manage Teams'),
-      el('div', { class: 'text-[11px] ml-1', style: { color: 'var(--text-subtle)' } },
-        'Live from this snapshot\u2019s Customer Flags \u2014 re-upload the report to refresh.')),
+      }, '\ud83d\udc65'),
+      ),
 
     // Branch + team rollups on top, then the per-rep detail table.
     offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, 'High-level audit + revenue metrics rolled up by office.', 'branch'),
     teamFilter === 'all' && teamEntries.length > 1 && statTable('Teams · Audit Report', teamEntries, 'Same metrics rolled up by team (from Manage Teams · current Team Year).', 'team'),
-    statTable('Sales Reps · Audit Report', repEntries,
-      'Sold = distinct D2D accounts (' + rangeLabel + ') · audit result from Customer Flags · hover any column header for how it’s calculated.', 'rep'),
+    (() => {
+      // Rep-table filters (team / office / name search). Selects re-render;
+      // the search hides rows in place so the input never loses focus.
+      const fT = state._auditRepTeam || 'all';
+      const fO = state._auditRepOffice || 'all';
+      const teamsAll = [...new Set(repEntries.map(([n]) => repTeamOf(n) || 'Unassigned'))].sort();
+      const officesAll = [...new Set(repEntries.map(([n]) => repOfficeOf(n)).filter(Boolean))].sort();
+      const repEntriesFiltered = repEntries.filter(([n]) =>
+        (fT === 'all' || (repTeamOf(n) || 'Unassigned') === fT) &&
+        (fO === 'all' || repOfficeOf(n) === fO));
+      const sel = (val, opts, onpick, allLabel) => el('select', {
+        class: 'rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+        onchange: (e) => onpick(e.target.value),
+      },
+        el('option', { value: 'all', selected: val === 'all' }, allLabel),
+        ...opts.map(o => el('option', { value: o, selected: val === o },
+          o.split(' ').map(w => (w[0] || '').toUpperCase() + w.slice(1).toLowerCase()).join(' '))));
+      const controls = el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        el('input', {
+          id: 'audit-rep-search', type: 'text', placeholder: 'Search rep…',
+          value: state._auditRepSearch || '',
+          class: 'rounded-lg border px-3 py-1.5 text-xs',
+          style: { borderColor: 'var(--border-2)', minWidth: '160px' },
+          oninput: (e) => {
+            state._auditRepSearch = e.target.value;
+            const q = e.target.value.trim().toLowerCase();
+            document.querySelectorAll('[data-auditrep]').forEach(row => {
+              row.style.display = (!q || (row.getAttribute('data-auditrep') || '').includes(q)) ? '' : 'none';
+            });
+          },
+        }),
+        sel(fT, teamsAll, (v) => { state._auditRepTeam = v; mountApp(); }, 'All teams'),
+        sel(fO, officesAll, (v) => { state._auditRepOffice = v; mountApp(); }, 'All offices'));
+      const table = statTable('Sales Reps · Audit Report', repEntriesFiltered, null, 'rep', controls);
+      // re-apply a live search that was typed before this render
+      if (state._auditRepSearch) setTimeout(() => {
+        const q = state._auditRepSearch.trim().toLowerCase();
+        document.querySelectorAll('[data-auditrep]').forEach(row => {
+          row.style.display = (!q || (row.getAttribute('data-auditrep') || '').includes(q)) ? '' : 'none';
+        });
+      }, 0);
+      return table;
+    })(),
 
-    el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
-      fmt.int(acct.size) + ' D2D accounts in this snapshot · audit status, collections and attrition all derive from the Customer Report — no separate upload needed.'),
   );
 }
 
@@ -6534,7 +6593,9 @@ function openIndicatorRepCard(rep, allReps = []) {
   let recordsLeaderKey = null;       // 'bestDay' | 'bestWeek' | 'bestMonth' | null
   let recordsLeaderExpanded = null;  // name of the rep whose accounts are expanded inline
   let subsExpanded = null;           // subscription name whose accounts are expanded inline
-  let cardScope = 'all';             // CARD_SCOPE_PRESETS id — scopes ALL stats/charts in this card
+  let cardScope = 'ytd';             // CARD_SCOPE_PRESETS id — scopes ALL stats/charts in this card (YTD default)
+  let cardView = 'sales';            // 'sales' | 'retention' — retention mirrors the Auditing player card
+  let retDrill = null;               // retention tile drill { label, pred }
   const isAutoPayOn = (s) => s.autoPay && s.autoPay !== 'No' && String(s.autoPay).trim() !== '';
 
   // Scoped views — recomputed on every render via applyScope() so the
@@ -6576,12 +6637,12 @@ function openIndicatorRepCard(rep, allReps = []) {
       { key: 'sales',      label: 'Sales',      value: fmt.int(count) },
       { key: 'revenue',    label: 'Revenue',    value: fmt.usd0(scopedRep.revenue || 0) },
       { key: 'revPerDay',  label: 'Production/Day',
-        value: sellDays > 0 ? fmt.usd0((scopedRep.revenue || 0) / sellDays) + ' · ' + (count / sellDays).toFixed(1) : '—' },
+        value: sellDays > 0 ? fmt.usd0((scopedRep.revenue || 0) / sellDays) + ' / ' + (count / sellDays).toFixed(1) : '—' },
       { key: 'acv',        label: 'ACV',        value: fmt.usd(acv) },
       // Sales Rep dept → Avg Pest Initial (excludes Sentricon / German Roach /
       // Interior Flea). Office Staff, Technician, and All → plain Avg Initial.
       (state.indicatorDept === 'd2d'
-        ? { key: 'avgPest',    label: 'Avg Pest Initial', value: avgPest    > 0 ? fmt.usd(avgPest)    : '—' }
+        ? { key: 'avgPest',    label: 'Avg Pest', value: avgPest    > 0 ? fmt.usd(avgPest)    : '—' }
         : { key: 'avgInitial', label: 'Avg Initial',      value: avgInitial > 0 ? fmt.usd(avgInitial) : '—' }),
       { key: 'myPct',      label: 'MY %',       value: (myPct * 100).toFixed(1) + '%' },
       { key: 'autoPay',    label: 'Auto Pay',   value: (autoPayPct * 100).toFixed(1) + '%' },
@@ -6700,8 +6761,13 @@ function openIndicatorRepCard(rep, allReps = []) {
             renderBody();
           },
         },
-          el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold' }, stat.label),
-          el('div', { class: 'text-lg font-bold tabular-nums mt-1' }, stat.value),
+          el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold whitespace-nowrap' }, stat.label),
+          // Font scales down with value length so long figures (entity cards
+          // pool big revenue + Production/Day pairs) never clip in the tile.
+          el('div', {
+            class: (String(stat.value).length > 12 ? 'text-xs' : String(stat.value).length > 9 ? 'text-base' : 'text-lg')
+              + ' font-bold tabular-nums mt-1 whitespace-nowrap',
+          }, stat.value),
         );
       }),
     );
@@ -6714,6 +6780,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   // 3-year window; can't navigate into the future.
   let _calY = new Date().getFullYear();
   let _calM = new Date().getMonth();
+  let _acctSort = { key: 'sold', dir: 'desc' };   // accounts-table sort (click headers)
   let _calMode = 'calendar';          // 'calendar' | 'clock' — one card, two views
   let _calDrillIso = null;            // tapped day → inline account list
   const _whenToggle = () => el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)' } },
@@ -6882,20 +6949,48 @@ function openIndicatorRepCard(rep, allReps = []) {
   // every CSV-derived field so the user can investigate why each account
   // is active vs cancelled (cancel date, cancel reason, autopay, etc.).
   function accountsTable(sales) {
-    const sorted = [...sales].sort((a, b) => (a.dateSold || '').localeCompare(b.dateSold || ''));
+    // Sortable headers — click cycles desc → asc. State lives on the modal
+    // instance so it survives re-renders while the card is open.
+    const iso = (x) => (typeof dateSoldToIso === 'function' && dateSoldToIso(x.dateSold)) || '';
+    const SORTERS = {
+      customer:     (x) => (x.customer || '').toLowerCase(),
+      customerId:   (x) => Number(x.customerId) || 0,
+      subscription: (x) => (x.subscription || '').toLowerCase(),
+      value:        (x) => Number(x.contractValue) || 0,
+      autopay:      (x) => isAutoPayOn(x) ? 1 : 0,
+      status:       (x) => (x.status || '').toLowerCase(),
+      sold:         (x) => iso(x),
+      cancelDate:   (x) => x.cancelDate || '',
+      cancelReason: (x) => (x.cancelReason || '').toLowerCase(),
+    };
+    const keyFn = SORTERS[_acctSort.key] || SORTERS.sold;
+    const dirMul = _acctSort.dir === 'asc' ? 1 : -1;
+    const sorted = [...sales].sort((a, b) => {
+      const va = keyFn(a), vb = keyFn(b);
+      return (va < vb ? -1 : va > vb ? 1 : 0) * dirMul;
+    });
+    const hSort = (key, label, cls) => el('th', {
+      class: cls + ' cursor-pointer select-none hover:underline',
+      style: _acctSort.key === key ? { color: 'var(--accent)', fontWeight: '800' } : {},
+      title: 'Sort by ' + label,
+      onclick: () => {
+        _acctSort = { key, dir: _acctSort.key === key && _acctSort.dir === 'desc' ? 'asc' : 'desc' };
+        renderBody();
+      },
+    }, label);
     return el('div', { class: 'overflow-x-auto rounded border', style: { borderColor: 'var(--border)', background: 'var(--card)' } },
       el('table', { class: 'w-full text-[11px]', style: { minWidth: '760px' } },
         el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
           el('tr', { style: { background: 'var(--card-2)' } },
-            el('th', { class: 'text-left px-2 py-1.5 whitespace-nowrap' }, 'Customer'),
-            el('th', { class: 'text-left px-2 py-1.5' }, 'Cust ID'),
-            el('th', { class: 'text-left px-2 py-1.5 whitespace-nowrap' }, 'Subscription'),
-            el('th', { class: 'text-right px-2 py-1.5' }, 'Value'),
-            el('th', { class: 'text-center px-2 py-1.5' }, 'Auto Pay'),
-            el('th', { class: 'text-center px-2 py-1.5' }, 'Status'),
-            el('th', { class: 'text-left px-2 py-1.5 whitespace-nowrap' }, 'Sold'),
-            el('th', { class: 'text-left px-2 py-1.5 whitespace-nowrap' }, 'Cancel Date'),
-            el('th', { class: 'text-left px-2 py-1.5' }, 'Cancel Reason'),
+            hSort('customer',     'Customer',      'text-left px-2 py-1.5 whitespace-nowrap'),
+            hSort('customerId',   'Cust ID',       'text-left px-2 py-1.5'),
+            hSort('subscription', 'Subscription',  'text-left px-2 py-1.5 whitespace-nowrap'),
+            hSort('value',        'Value',         'text-right px-2 py-1.5'),
+            hSort('autopay',      'Auto Pay',      'text-center px-2 py-1.5'),
+            hSort('status',       'Status',        'text-center px-2 py-1.5'),
+            hSort('sold',         'Sold',          'text-left px-2 py-1.5 whitespace-nowrap'),
+            hSort('cancelDate',   'Cancel Date',   'text-left px-2 py-1.5 whitespace-nowrap'),
+            hSort('cancelReason', 'Cancel Reason', 'text-left px-2 py-1.5'),
           ),
         ),
         el('tbody', {},
@@ -7415,6 +7510,113 @@ function openIndicatorRepCard(rep, allReps = []) {
     );
   }
 
+  // ── RETENTION VIEW — mirrors the Auditing player card (Reporting →
+  // Auditing) but computed from this rep's sales in the shared indicators
+  // dataset, so reps can open it without the admin-only snapshot. Same
+  // definitions: Serviced = received an initial service (completed services
+  // > 0 or a serviced date); Active = serviced, status Active, no cancel;
+  // Aging = active & past-due beyond the configured threshold; Cancelled =
+  // serviced then cancelled (incl. 3-day ROR, split out separately); audit
+  // buckets come from Customer Flags (No Audit counts as passed). All tiles
+  // respect the scope dropdown, and clicking one drills to its accounts.
+  function retentionBlock() {
+    const all = scopedRep.sales || [];
+    const _svcR = (x) => (Number(x.services) || 0) > 0 || !!x.servicedDate;
+    const _actR = (x) => (x.status || '').toLowerCase() === 'active' && !x.cancelDate;
+    const _agingDays = (typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7;
+    const _isAging = (x) => _actR(x) && (Number(x.age) || 0) >= _agingDays;
+    const _stat = (x) => _auditStatusOf(x.customerFlags);
+    const _ror = (x) => _is3DayROR(x) && !_isSoldNotStarted(x);
+    const _realCancel = (x) => !!x.cancelDate && !_isExcludableCancel(x);
+    let sold = 0, serviced = 0, soldRev = 0, servicedRev = 0, activeRev = 0, agingRev = 0, cancelledRev = 0, frozenRev = 0, rorRev = 0;
+    const audit = { passed: 0, failed: 0, noaudit: 0, pending: 0 };
+    const attr = { passed: [0, 0], failed: [0, 0] };
+    for (const x of all) {
+      const cv = Number(x.contractValue) || 0;
+      sold++; soldRev += cv;
+      const svc = _svcR(x);
+      if (svc) {
+        serviced++; servicedRev += cv;
+        if (x.cancelDate) cancelledRev += cv;
+        else if (_actR(x)) { activeRev += cv; if (_isAging(x)) agingRev += cv; }
+        else frozenRev += cv;
+        if (_ror(x)) rorRev += cv;
+      }
+      const st = _stat(x);
+      if (st === 'pending') { if ((x.status || '').toLowerCase() !== 'frozen' && !(x.cancelDate && !svc)) audit.pending++; }
+      else audit[st]++;
+      if (st === 'passed' || st === 'failed') { attr[st][1]++; if (_realCancel(x)) attr[st][0]++; }
+    }
+    const passBase = audit.passed + audit.failed + audit.noaudit;
+    const passPct = passBase > 0 ? (audit.passed + audit.noaudit) / passBase : null;
+    const servExclRor = servicedRev - rorRev;
+    const attrExclRor = servExclRor > 0 ? (cancelledRev - rorRev) / servExclRor : null;
+    const attrInclRor = servicedRev > 0 ? cancelledRev / servicedRev : null;
+    const cancelIfAging = servicedRev > 0 ? (cancelledRev + agingRev) / servicedRev : null;
+    const activeRetention = servicedRev > 0 ? activeRev / servicedRev : null;
+    const soldSvc = sold > 0 ? serviced / sold : null;
+    const rateOf = (pair) => pair[1] > 0 ? pair[0] / pair[1] : null;
+    const pctS = (p) => p == null ? '—' : (p * 100).toFixed(1) + '%';
+    const money = (v) => v ? '$' + Math.round(v).toLocaleString() : '—';
+    const good = '#5F8A1F', bad = '#DC2626';
+    const drill = (label, pred) => () => { retDrill = (retDrill && retDrill.label === label) ? null : { label, pred }; renderBody(); };
+    const tile = (label, val, sub, color, onClick) => el('div', {
+        class: 'rounded-xl p-3' + (onClick ? ' cursor-pointer hover:brightness-95 transition' : ''),
+        style: { background: 'var(--card-2)', ...(onClick && retDrill && retDrill.label === label ? { outline: '2px solid var(--accent)' } : {}) },
+        onclick: onClick || undefined,
+        title: onClick ? 'Click to see these accounts' : undefined,
+      },
+      el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, label),
+      el('div', { class: 'text-xl font-black tabular-nums mt-0.5', style: color ? { color } : {} }, val),
+      sub ? el('div', { class: 'text-[10px] text-muted- mt-0.5' }, sub) : null);
+    const group = (title, tiles) => el('div', {},
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, title),
+      el('div', { class: 'grid grid-cols-2 sm:grid-cols-3 gap-2' }, ...tiles));
+    const drillPanel = () => {
+      if (!retDrill) return null;
+      const rows = all.filter(retDrill.pred).sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''));
+      return el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.04)' } },
+        el('div', { class: 'px-4 py-3 flex items-center justify-between gap-3 border-b', style: { borderColor: 'var(--border)' } },
+          el('div', {},
+            el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--accent)' } }, retDrill.label),
+            el('div', { class: 'text-[10px] text-muted- mt-0.5' }, rows.length + ' account' + (rows.length === 1 ? '' : 's'))),
+          el('button', { class: 'text-lg leading-none text-muted-', onclick: () => { retDrill = null; renderBody(); } }, '×')),
+        rows.length === 0
+          ? el('div', { class: 'p-4 text-center text-xs text-muted- italic' }, 'No accounts in this bucket.')
+          : el('div', { style: { maxHeight: '420px', overflowY: 'auto' } }, accountsTable(rows)));
+    };
+    return el('div', { class: 'flex flex-col gap-4' },
+      group('Production', [
+        tile('Sold', fmt.int(sold), null, null, drill('Sold', () => true)),
+        tile('Serviced', fmt.int(serviced), null, null, drill('Serviced', _svcR)),
+        tile('Sold/Serviced', pctS(soldSvc), null, soldSvc == null ? null : (soldSvc >= 0.85 ? good : soldSvc < 0.65 ? bad : null)),
+      ]),
+      group('Audit', [
+        tile('Pass %', pctS(passPct), passBase + ' audited (incl. no-audit)', passPct == null ? null : (passPct >= 0.85 ? good : passPct < 0.65 ? bad : null)),
+        tile('Passed', fmt.int(audit.passed), null, good, drill('Passed', x => _stat(x) === 'passed')),
+        tile('Failed', fmt.int(audit.failed), null, audit.failed > 0 ? bad : null, drill('Failed', x => _stat(x) === 'failed')),
+        tile('No Audit', fmt.int(audit.noaudit), 'counts as passed', null, drill('No Audit', x => _stat(x) === 'noaudit')),
+        tile('Pending', fmt.int(audit.pending), null, null, drill('Pending', x => _stat(x) === 'pending' && (x.status || '').toLowerCase() !== 'frozen' && !(x.cancelDate && !_svcR(x)))),
+        tile('Attrition on Audits: Pass / Fail', pctS(rateOf(attr.passed)) + ' / ' + pctS(rateOf(attr.failed))),
+      ]),
+      group('Revenue · contract value  (Serviced = Active + Cancelled)', [
+        tile('Sold', money(soldRev), 'all sold (incl. pre-service)', null, drill('Sold revenue', () => true)),
+        tile('Serviced', money(servicedRev), 'received an initial service', null, drill('Serviced revenue', _svcR)),
+        tile('Active', money(activeRev), 'serviced & active · incl. aging', null, drill('Active', x => _svcR(x) && _actR(x))),
+        tile('Cancelled', money(cancelledRev), 'serviced then cancelled · incl. 3-day ROR', cancelledRev > 0 ? bad : null, drill('Cancelled', x => _svcR(x) && !!x.cancelDate)),
+        tile('Cancelled · 3-Day ROR', money(rorRev), 'right-of-rescission slice of Cancelled', rorRev > 0 ? bad : null, drill('3-Day ROR', x => _svcR(x) && _ror(x))),
+        tile('Aging', money(agingRev), 'at-risk slice of Active', agingRev > 0 ? bad : null, drill('Aging', x => _svcR(x) && _isAging(x))),
+      ]),
+      group('Attrition · of serviced', [
+        tile('Attrition · excl. ROR', pctS(attrExclRor), 'cancelled ÷ serviced (RORs removed)', good),
+        tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), 'cancelled ÷ serviced (incl. ROR)', 'var(--text)'),
+        tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#D97706'),
+        tile('Active retention', pctS(activeRetention), 'active ÷ serviced', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
+      ]),
+      drillPanel() || el('div', {}),
+    );
+  }
+
   function header() {
     const tierMeta = repTierMeta(rep.tier);
     const teamColor = rep.team ? getTeamColor(rep.team) : null;
@@ -7435,15 +7637,40 @@ function openIndicatorRepCard(rep, allReps = []) {
               style: { background: tierMeta.color + '22', color: tierMeta.color },
             }, tierMeta.label),
           ),
-          el('div', { class: 'text-xs text-muted- mt-1 flex items-center gap-2 flex-wrap' },
+          el('div', { class: 'text-xs text-muted- mt-1 flex items-center gap-2 flex-wrap tabular-nums' },
             // (team + office labels removed — identity is name + tier here)
-            // Office label removed — multi-market reps kept getting tagged
-            // with whichever branch happened to lead their sales mix, which
-            // read as wrong to the rep. Team (when set) is identity enough.
+            // Selling days = days with ≥1 sale. First figure follows the
+            // scope dropdown; second is always the current calendar year.
+            (() => {
+              const scopedDays = new Set((scopedRep.sales || []).map(x => dateSoldToIso(x.dateSold)).filter(Boolean)).size;
+              const cy = String(new Date().getFullYear());
+              const cyDays = new Set((rep.sales || []).map(x => dateSoldToIso(x.dateSold)).filter(d => d && d.startsWith(cy))).size;
+              const scopeLab = (CARD_SCOPE_PRESETS.find(p => p.id === cardScope) || {}).label || 'All time';
+              return el('span', {},
+                el('b', { style: { color: 'var(--text)' } }, fmt.int(scopedDays)),
+                ' selling days · ' + scopeLab.toLowerCase() + ' ',
+                el('span', { class: 'mx-1', style: { color: 'var(--text-subtle)' } }, '·'),
+                el('b', { style: { color: 'var(--text)' } }, ' ' + fmt.int(cyDays)),
+                ' days w/ a sale in ' + cy,
+              );
+            })(),
           ),
         ),
       ),
       el('div', { class: 'flex items-center gap-3 shrink-0' },
+        // Sales ↔ Retention view toggle — Retention mirrors the Auditing
+        // player card (audits, serviced/active/cancelled revenue, attrition)
+        // computed from this rep's sales in the shared dataset, so reps can
+        // see it without the admin-only Reporting snapshot.
+        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+          ...[['sales', 'Sales'], ['retention', 'Retention']].map(([vid, lab]) => el('button', {
+            class: 'px-2.5 py-1 text-[11px] font-semibold transition',
+            style: cardView === vid
+              ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+              : { background: 'transparent', color: 'var(--text)' },
+            onclick: () => { if (cardView !== vid) { cardView = vid; retDrill = null; renderBody(); } },
+          }, lab)),
+        ),
         // Scope dropdown — every stat / chart in the modal recomputes to
         // this window. Anchored to the dataset's latest sale date so
         // "Today" means the data's latest, not the system clock. The
@@ -7473,6 +7700,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   function renderBody() {
     applyScope();  // refresh scopedRep / scopedAllRepRecords / scopedStats
     modal.innerHTML = '';
+    if (cardView === 'retention') { modal.append(header(), retentionBlock()); return; }
     modal.append(
       header(),
       statsGrid(),
@@ -7550,11 +7778,15 @@ function attachTooltip(target, { title, desc }) {
     tip.style.top  = '0px';
     const tRect = tip.getBoundingClientRect();
     const left = rect.left + rect.width / 2 - tRect.width / 2;
-    const top  = rect.top - tRect.height - 10;
+    let top  = rect.top - tRect.height - 10;
+    // Flip below the target when there's no room above — triggers near the
+    // top of the viewport were pushing the tip off-screen.
+    tip.classList.remove('below');
+    if (top < 8) { top = rect.bottom + 10; tip.classList.add('below'); }
     // Clamp to viewport
     const clampedLeft = Math.max(8, Math.min(left, window.innerWidth - tRect.width - 8));
     tip.style.left = clampedLeft + 'px';
-    tip.style.top  = top + 'px';
+    tip.style.top  = Math.max(8, Math.min(top, window.innerHeight - tRect.height - 8)) + 'px';
   };
   const hideTip = () => {
     if (_tooltipEl) _tooltipEl.classList.remove('show');
@@ -7849,7 +8081,8 @@ function leaderboardSection() {
   const repBadges = computeBadges();
 
   const setSort = (k) => { state.dashLeaderSort = k; mountApp(); };
-  const sortIndicator = (k) => state.dashLeaderSort === k ? '↓ ' : '';
+  const sortIndicator = () => '';   // arrows retired app-wide — active header is highlighted instead
+  const sortHl = (k) => state.dashLeaderSort === k ? { color: 'var(--accent)', fontWeight: '800' } : {};
 
   return el('div', { class: 'card overflow-hidden' },
     // Header with tabs
@@ -7871,13 +8104,13 @@ function leaderboardSection() {
           el('tr', {},
             el('th', { class: 'text-left pl-4 pr-1 py-2 w-8' }, '#'),
             el('th', { class: 'text-left px-2 py-2' }, 'Rep'),
-            el('th', { class: 'text-left px-2 py-2 cursor-pointer select-none hover:text-default', onclick: () => setSort('sales') }, sortIndicator('sales') + 'Sales'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', onclick: () => setSort('revenue') }, sortIndicator('revenue') + 'Revenue'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', onclick: () => setSort('initial') }, sortIndicator('initial') + 'Initial'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', onclick: () => setSort('recurring') }, sortIndicator('recurring') + 'Recurring'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', onclick: () => setSort('acv') }, sortIndicator('acv') + 'ACV'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', title: 'Multi-year contracts (18+ mo) / all contract sales', onclick: () => setSort('my_pct') }, sortIndicator('my_pct') + 'MY %'),
-            el('th', { class: 'text-right pl-2 pr-4 py-2 cursor-pointer select-none hover:text-default', title: '12/18/24-mo contracts / (contracts + one-time services)', onclick: () => setSort('rec_mix_pct') }, sortIndicator('rec_mix_pct') + 'Rec Mix %'),
+            el('th', { class: 'text-left px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('sales'), onclick: () => setSort('sales') }, 'Sales'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('revenue'), onclick: () => setSort('revenue') }, 'Revenue'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('initial'), onclick: () => setSort('initial') }, 'Initial'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('recurring'), onclick: () => setSort('recurring') }, 'Recurring'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('acv'), onclick: () => setSort('acv') }, 'ACV'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('my_pct'), title: 'Multi-year contracts (18+ mo) / all contract sales', onclick: () => setSort('my_pct') }, 'MY %'),
+            el('th', { class: 'text-right pl-2 pr-4 py-2 cursor-pointer select-none hover:text-default', style: sortHl('rec_mix_pct'), title: '12/18/24-mo contracts / (contracts + one-time services)', onclick: () => setSort('rec_mix_pct') }, 'Rec Mix %'),
           ),
         ),
         el('tbody', {},
@@ -8363,8 +8596,13 @@ function reportingBackendMatch(custNumber, index) {
     // The established live sub: most completed services, tie-broken by ARV.
     pick = pickBy(active, r => (Number(r.subscription_completed_services) || 0) * 1e6 + (Number(r.annual_recurring_value) || 0));
   } else {
-    // Inactive — surface the most recently canceled sub for context.
-    pick = pickBy(matched, r => Date.parse(r.subscription_date_canceled || '') || 0) || matched[0];
+    // Nothing active: prefer a Pending/Completed-initial sub (a frozen
+    // re-keyed ghost must never outrank its live twin), then fall back to
+    // the most recently canceled sub for context.
+    const ps = matched.filter(r => ['pending', 'completed'].includes(String(r.initial_status || '').toLowerCase()));
+    pick = ps.length
+      ? pickBy(ps, r => (Number(r.subscription_completed_services) || 0) * 1e6 + (Number(r.annual_recurring_value) || 0))
+      : (pickBy(matched, r => Date.parse(r.subscription_date_canceled || '') || 0) || matched[0]);
   }
   return {
     isActive: active.length > 0,
@@ -8426,14 +8664,15 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
     const align = typeof opts === 'string' ? 'left' : (opts.align || 'left');
     const extraClass = typeof opts === 'string' ? opts : (opts.extraClass || '');
     const isActive = sortableKey && sortKey === sortableKey;
-    const arrow = isActive ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+    const arrow = '';   // arrows retired app-wide — active header is highlighted
+    const hlStyle = isActive ? { color: 'var(--accent)', fontWeight: '800' } : {};
     const baseClass = (align === 'right' ? 'text-right' : 'text-left') + ' px-2 py-2 font-semibold whitespace-nowrap ' + extraClass;
     if (!sortableKey || !onSort) {
       return el('th', { class: baseClass }, label + arrow);
     }
     return el('th', {
       class: baseClass + ' cursor-pointer select-none hover:text-default transition',
-      style: isActive ? { color: 'var(--accent)' } : {},
+      style: hlStyle,
       onclick: () => onSort(sortableKey),
     }, label + arrow);
   };
@@ -18331,13 +18570,14 @@ function manageTeamsPanel(opts) {
     const _mtSortBtn = (col, label) => el('button', {
       class: 'text-[10px] uppercase tracking-widest font-bold cursor-pointer',
       style: { color: _mtSortCol === col ? 'var(--accent)' : 'var(--text-muted)', background: 'transparent', border: 'none', padding: '0' },
+      style: _mtSortCol === col ? { color: 'var(--accent)', fontWeight: '800' } : {},
       title: 'Sort by ' + label,
       onclick: () => {
         if (state._manageTeamsSort === col) state._manageTeamsSortDir = (_mtSortDir === 'asc' ? 'desc' : 'asc');
         else { state._manageTeamsSort = col; state._manageTeamsSortDir = 'asc'; }
         render();
       },
-    }, label + (_mtSortCol === col ? (_mtSortDir === 'asc' ? ' ▲' : ' ▼') : ''));
+    }, label);   // active column highlighted, no arrows
     const sortHeader = el('div', { class: 'flex items-center justify-between gap-3 px-5 py-1.5 border-b', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
       el('div', { class: 'flex-1' }, _mtSortBtn('name', 'Rep')),
       el('div', { class: 'flex items-center gap-4 shrink-0' },
@@ -18850,9 +19090,13 @@ function viewIndicators() {
         // edge (+6px breathing room). Reserving the bar's full height used
         // to overshoot by the bar/header overlap — dead whitespace above
         // the first table.
-        const spTop     = sp.getBoundingClientRect().top + window.scrollY;   // spacer top — independent of its own height
-        const barBottom = bar.getBoundingClientRect().bottom + window.scrollY;
-        sp.style.height = Math.max(0, barBottom + 6 - spTop) + 'px';         // spacer bottom lands 6px under the bar
+        // The bar is position:FIXED — its rect is viewport-relative and must
+        // NOT get scrollY added (doing so inflated the spacer by however far
+        // the page was scrolled when this ran → giant white void). The
+        // spacer's own top IS absolute, so it does need scrollY.
+        const spTopAbs  = sp.getBoundingClientRect().top + window.scrollY;   // absolute — constant
+        const barBottom = bar.getBoundingClientRect().bottom;                // viewport — constant for a fixed bar
+        sp.style.height = Math.max(0, barBottom + 6 - spTopAbs) + 'px';      // content clears the bar at scroll-top
       };
       setTimeout(syncBarSpacer, 0);
       if (!window._indBarResizeBound) {
@@ -18873,31 +19117,31 @@ function viewIndicators() {
           el('div', { class: 'w-full max-w-[1600px] mx-auto px-4 sm:px-6' },
             el('div', { class: 'flex flex-col gap-2' },
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
-        // Emp Type (rep type) moved INTO the Filters panel (⛃ Filters).
-        // Primary Metric — Total Revenue vs Pending/Serviced Revenue (this is the
-        // account-status filter, surfaced up top like FieldRoutes' Primary Stat).
-        // REP ACCOUNTS ARE LOCKED to Pending/Serviced: "Total Revenue" counts
-        // cancelled + sold-not-started rows too — an admin analysis lens that
-        // just makes a rep's number look bigger than anything comps or
-        // payroll will ever pay on (field-tested: it confused the first rep
-        // who found it).
-        _repLite ? (() => { state.indicatorAcctStatus = 'pending_serviced'; return null; })() :
-        el('div', { class: 'flex items-center gap-1.5' },
-          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, 'Metric'),
-          el('select', {
-            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-            onchange: e => { state.indicatorAcctStatus = e.target.value; mountApp(); },
-          },
-            el('option', { value: 'pending_serviced', selected: (state.indicatorAcctStatus || 'pending_serviced') === 'pending_serviced' }, 'Pending / Serviced Revenue'),
-            el('option', { value: 'all', selected: (state.indicatorAcctStatus || 'pending_serviced') === 'all' }, 'Total Revenue'),
-          )),
-        // Emp Type (rep type) — All / Sales Rep / Office Staff / Technician,
-        // classified from the Customer Report's "Sold By Type".
-        el('div', { class: 'flex items-center gap-1.5' },
-          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, 'Type'),
-          el('select', {
-            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+        // ⛃ FILTERS — Metric / Type / Date / Group live in ONE dropdown so
+        // the toolbar is just [Filters] ... [icon cluster]. The panel stays
+        // open across re-renders (state._indFiltersOpen) so changing several
+        // filters in a row doesn't mean re-opening it each time. The button
+        // border goes accent + shows a count when any filter is off default.
+        (() => {
+          const _fRow = (label, node) => node ? el('div', { class: 'flex flex-col gap-1' },
+            el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
+            node) : null;
+          // Primary Metric — REP ACCOUNTS ARE LOCKED to Pending/Serviced:
+          // "Total Revenue" counts cancelled + sold-not-started rows too — an
+          // admin analysis lens that just makes a rep's number look bigger
+          // than anything comps or payroll will ever pay on.
+          const metricSel = _repLite ? (() => { state.indicatorAcctStatus = 'pending_serviced'; return null; })() :
+            el('select', {
+              class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
+              style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+              onchange: e => { state.indicatorAcctStatus = e.target.value; mountApp(); },
+            },
+              el('option', { value: 'pending_serviced', selected: (state.indicatorAcctStatus || 'pending_serviced') === 'pending_serviced' }, 'Pending / Serviced Revenue'),
+              el('option', { value: 'all', selected: (state.indicatorAcctStatus || 'pending_serviced') === 'all' }, 'Total Revenue'),
+            );
+          // Emp Type — classified from the Customer Report's "Sold By Type".
+          const typeSel = el('select', {
+            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             onchange: e => { state.indicatorDept = e.target.value; mountApp(); },
           },
@@ -18905,49 +19149,41 @@ function viewIndicators() {
             el('option', { value: 'd2d', selected: state.indicatorDept === 'd2d' }, 'Sales Rep'),
             el('option', { value: 'office', selected: state.indicatorDept === 'office' }, 'Office Staff'),
             el('option', { value: 'techs', selected: state.indicatorDept === 'techs' }, 'Technician'),
-          )),
-        // Weekly/Range toggle removed — the range preset dropdown drives
-        // everything; This Week / Last Week presets cover the old weekly mode.
-        // Week selector (weekly view only)
-        !isRange && el('select', {
-          class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
-          onchange: e => { state.indicatorsWeek = Number(e.target.value); mountApp(); },
-        },
-          ...allWeeks.map(w => {
-            // Append the week's date range (e.g. "4/19-4/25") when available
-            // so the dropdown reads "Week 16 · 4/19-4/25" instead of just "Week 16".
-            const dateLabel = (allData.find(r => r.week === w)?.date || '').trim();
-            return el('option', {
-              value: w,
-              selected: w === currentWeek,
-            }, indicatorWeekLabel(w, { rows: allData }) + (dateLabel ? ' · ' + dateLabel : ''));
-          }),
-        ),
-        // Range preset (range view only)
-        isRange && el('select', {
-          class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
-          onchange: e => {
-            state.indicatorsRangePreset = e.target.value;
-            // Selecting Custom pre-fills the pickers with THIS WEEK's range as
-            // the starting point (instead of Jan 1 → today).
-            if (e.target.value === 'custom') {
-              const wk = indicatorRangeBounds('this_week');
-              state.indicatorsCustomStart = wk.start;
-              state.indicatorsCustomEnd   = wk.end;
-            }
-            mountApp();
+          );
+          // Date — range presets (weekly mode retired; This Week / Last Week
+          // presets cover it). Selecting Custom pre-fills THIS WEEK's range;
+          // the actual custom pickers render in their own row below the bar.
+          const dateSel = isRange ? el('select', {
+            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
+            onchange: e => {
+              state.indicatorsRangePreset = e.target.value;
+              if (e.target.value === 'custom') {
+                const wk = indicatorRangeBounds('this_week');
+                state.indicatorsCustomStart = wk.start;
+                state.indicatorsCustomEnd   = wk.end;
+              }
+              mountApp();
+            },
           },
-        },
-          ...indicatorPresetOptions().map(p => el('option', {
-            value: p.id, selected: state.indicatorsRangePreset === p.id,
-          }, p.label)),
-        ),
-        // Group By — Branch (Office) vs Teams, as a FieldRoutes-style dropdown.
-        // Teams needs raw sales + Comps off; an invalid pick heals to Branch.
-        el('div', { class: 'flex items-center gap-1.5' },
-          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, 'Group'),
-          el('select', {
-            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+            ...indicatorPresetOptions().map(p => el('option', {
+              value: p.id, selected: state.indicatorsRangePreset === p.id,
+            }, p.label)),
+          ) : el('select', {
+            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
+            onchange: e => { state.indicatorsWeek = Number(e.target.value); mountApp(); },
+          },
+            ...allWeeks.map(w => {
+              const dateLabel = (allData.find(r => r.week === w)?.date || '').trim();
+              return el('option', {
+                value: w,
+                selected: w === currentWeek,
+              }, indicatorWeekLabel(w, { rows: allData }) + (dateLabel ? ' · ' + dateLabel : ''));
+            }),
+          );
+          // Group By — Branch (Office) vs Teams. Teams needs raw sales +
+          // Comps off; an invalid pick heals to Branch.
+          const groupSel = el('select', {
+            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             title: (rawSalesAvailable && !state.indicatorsComps) ? '' : 'Teams needs a raw-sales upload and Comps off',
             onchange: e => {
@@ -18961,12 +19197,59 @@ function viewIndicators() {
           },
             el('option', { value: 'branch', selected: groupBy === 'branch' }, 'Branch / Office'),
             el('option', { value: 'teams', selected: groupBy === 'teams' }, 'Teams'),
-          )),
-        // Custom date pickers — moved below the toolbar so flipping to Custom
-        // doesn't reflow the controls. See the dedicated row right after the
-        // closing of this toolbar div.
-        // (Filters button removed — Metric / Type / Date / Group are all up top;
-        // service-type & source filters weren't needed.)
+          );
+          const panel = el('div', {
+            class: 'card',
+            style: { position: 'absolute', left: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '250px', padding: '12px', boxShadow: 'var(--shadow-lg)', display: state._indFiltersOpen ? 'block' : 'none' },
+          },
+            el('div', { class: 'flex flex-col gap-3' },
+              _fRow('Metric', metricSel),
+              _fRow('Type', typeSel),
+              _fRow('Date', dateSel),
+              _fRow('Group', groupSel),
+            ),
+          );
+          const nonDefault = [
+            !_repLite && (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced',
+            (state.indicatorDept || 'all') !== 'all',
+            isRange && state.indicatorsRangePreset !== 'this_year',
+            groupBy !== 'branch',
+          ].filter(Boolean).length;
+          const bindCloser = () => setTimeout(() => {
+            const closer = (ev) => {
+              document.removeEventListener('mousedown', closer);
+              if (!panel.isConnected) return;                      // re-render replaced us — a fresh closer was bound
+              if (panel.contains(ev.target) || btn.contains(ev.target)) { document.addEventListener('mousedown', closer); return; }
+              panel.style.display = 'none'; state._indFiltersOpen = false;
+            };
+            document.addEventListener('mousedown', closer);
+          }, 0);
+          const btn = el('button', {
+            class: 'relative rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95 shrink-0',
+            style: { borderColor: nonDefault ? 'var(--accent)' : 'var(--border-2)', color: 'var(--text)' },
+            title: 'Filters — Metric, Type, Date, Group',
+            onclick: (e) => {
+              e.stopPropagation();
+              const open = panel.style.display === 'block';
+              panel.style.display = open ? 'none' : 'block';
+              state._indFiltersOpen = !open;
+              if (!open) bindCloser();
+            },
+          },
+            'Filters',
+            nonDefault ? el('span', {
+              class: 'absolute tabular-nums',
+              style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '7px', background: 'var(--accent)', color: '#16321a', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
+            }, String(nonDefault)) : null,
+          );
+          if (state._indFiltersOpen) bindCloser();                 // panel restored open after a filter change re-render
+          return el('div', { style: { position: 'relative' } }, btn, panel);
+        })(),
+        // Spacer — Filters pins left, the icon cluster pins right.
+        el('div', { class: 'flex-1' }),
+        // Custom date pickers still render in their own row below this bar
+        // when the Date preset is Custom (see the dedicated row after the
+        // toolbar div).
           // Power Ranking selector — pick which offices/teams are scored. Default
           // is everyone in; deselecting keeps an office/team on the board (stats
           // still show + roll into totals) but drops it from the ranking points.
@@ -19002,8 +19285,8 @@ function viewIndicators() {
             const icon = iconTrophy();
             icon.style.width = '15px'; icon.style.height = '15px';
             const btn = el('button', {
-              class: 'relative flex items-center justify-center border cursor-pointer transition hover:brightness-95 shrink-0',
-              style: { width: '36px', height: '36px', borderRadius: '999px', color: excludedNow.size ? 'var(--accent)' : 'var(--text-muted)', borderColor: excludedNow.size ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)' },
+              class: 'relative rounded-xl px-3 py-2 border cursor-pointer transition hover:brightness-95 shrink-0 flex items-center justify-center',
+              style: { color: excludedNow.size ? 'var(--accent)' : 'var(--text)', borderColor: excludedNow.size ? 'var(--accent)' : 'var(--border-2)' },
               title: 'Power Ranking — choose which ' + noun + ' are scored (deselected ones keep their stats but earn no points)'
                 + (excludedNow.size ? ' · ' + excludedNow.size + ' ' + noun + ' out' : ''),
               onclick: (e) => {
@@ -19436,15 +19719,37 @@ function viewIndicators() {
             el('thead', {},
               el('tr', {},
                 el('th', { class: 'text-left px-3 py-2 text-[10px] uppercase tracking-wider text-muted- font-semibold sticky left-0', style: { background: 'var(--card)', zIndex: 2 } },
-                  groupBy === 'teams' ? 'Indicators · By Team' : 'Indicators · By Branch'),
-                ...sortedBranches.map((b, i) => el('th', {
-                  class: 'text-center px-3 py-2 text-[10px] uppercase tracking-wider font-bold text-white',
-                  style: { background: getGroupColor(b), minWidth: '100px' },
-                },
-                  sort.key ? (i + 1) + '. ' : '',
-                  b.split(' ').map(w => w[0] + w.slice(1).toLowerCase()).join(' '),
-                )),
-                el('th', { class: 'text-center px-3 py-2 text-[10px] uppercase tracking-wider font-bold', style: { background: '#1D1D1D', color: RIDD_COLOR, minWidth: '100px' } }, 'RIDD'),
+                  'Indicators'),
+                // Column headers click through to a pooled entity player card
+                // (branch or team, matching the grouping mode) ranked against
+                // its peer columns — same card as a rep, fed the group's sales.
+                ...sortedBranches.map((b, i) => (() => {
+                  const _lbl = b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
+                  const _canOpen = !!(_rangeGroups && (_rangeGroups[b] || []).length);
+                  return el('th', {
+                    class: 'text-center px-3 py-2 text-[10px] uppercase tracking-wider font-bold text-white' + (_canOpen ? ' cursor-pointer select-none' : ''),
+                    style: { background: getGroupColor(b), minWidth: '100px' },
+                    title: _canOpen ? 'Open the ' + _lbl + ' player card' : '',
+                    onclick: _canOpen ? () => {
+                      const peers = sortedBranches
+                        .map(x => ({ name: x.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' '), sales: _rangeGroups[x] || [] }))
+                        .filter(p => p.sales.length);
+                      openIndicatorRepCard(_scopeRep({ name: _lbl, sales: _rangeGroups[b] }, () => true), peers);
+                    } : undefined,
+                  },
+                    sort.key ? (i + 1) + '. ' : '',
+                    _lbl,
+                  );
+                })()),
+                (() => {
+                  const _all = _rangeGroups ? Object.values(_rangeGroups).flat() : [];
+                  return el('th', {
+                    class: 'text-center px-3 py-2 text-[10px] uppercase tracking-wider font-bold' + (_all.length ? ' cursor-pointer select-none' : ''),
+                    style: { background: '#1D1D1D', color: RIDD_COLOR, minWidth: '100px' },
+                    title: _all.length ? 'Open the company-wide RIDD player card' : '',
+                    onclick: _all.length ? () => openIndicatorRepCard(_scopeRep({ name: 'RIDD', sales: _all }, () => true), [{ name: 'RIDD', sales: _all }]) : undefined,
+                  }, 'RIDD');
+                })(),
               ),
             ),
             el('tbody', {},
@@ -19457,7 +19762,6 @@ function viewIndicators() {
                       style: { background: 'var(--card)', zIndex: 1, cursor: 'help', color: isSorting ? 'var(--accent)' : '' },
                     },
                       indicatorMetricLabel(m),
-                      isSorting ? (sort.asc ? ' ↑' : ' ↓') : '',
                     );
                     attachExplainer(cell, { title: indicatorMetricLabel(m), desc: indicatorMetricHelp(m.key) });
                     return cell;
@@ -19485,7 +19789,6 @@ function viewIndicators() {
                       style: { background: 'var(--card)', zIndex: 1, cursor: 'help', color: isSortingReps ? 'var(--accent)' : '' },
                     },
                       'Reps W/ A Sale',
-                      isSortingReps ? (sort.asc ? ' ↑' : ' ↓') : '',
                     );
                     attachExplainer(cell, { title: 'Reps W/ A Sale', desc: indicatorMetricHelp('reps') });
                     return cell;
@@ -19509,15 +19812,17 @@ function viewIndicators() {
                       style: { background: 'var(--card)', zIndex: 1, cursor: 'help', color: sort.key === '_points' ? 'var(--accent)' : '' },
                     },
                       'Power Rank',
-                      sort.key === '_points' ? (sort.asc ? ' ↑' : ' ↓') : '',
                     );
                     attachExplainer(cell, { title: 'Power Rank', desc: indicatorMetricHelp('_points') });
                     return cell;
                   })(),
                   ...sortedBranches.map(b => el('td', {
-                    class: 'px-3 py-2 text-center tabular-nums font-black text-base',
+                    class: 'px-3 py-2 text-center tabular-nums font-black text-base whitespace-nowrap',
                     style: rankByBranch[b] === 1 ? { color: 'var(--accent)' } : {},
-                  }, rankByBranch[b] || '—')),
+                  }, rankByBranch[b]
+                    ? el('span', {}, '#' + rankByBranch[b],
+                        el('span', { class: 'text-[10px] font-semibold text-muted- ml-1' }, (totalPoints[b] || 0) + ' pts'))
+                    : '—')),
                   el('td', {}),
                 );
               })(),
@@ -19527,333 +19832,10 @@ function viewIndicators() {
       );
     })(),
 
-    // ── Rankings matrix + Power Ranking ──
-    // Replaces the previous 6 separate ranking cards with a single compact
-    // matrix: rows = groups (sorted by power rank), columns = each metric,
-    // each cell shows the rank with #1 accented and bottom-third dimmed so
-    // weak spots stand out. Power Ranking keeps its own card because it adds
-    // total points + best/worst-metric callouts.
-    !_focusedComp && !_repLite && state.indicatorDept !== 'office' && (() => {
-      // Mirrors the metrics that feed Power Ranking points so each row's rank
-      // sum reconciles with the team's pts on the right-hand card. Reps is
-      // intentionally omitted — it's still tracked elsewhere but rendering it
-      // as a "rank" column read as confusing since reps doesn't measure
-      // performance, just team size.
-      const RANK_METRICS = ['sold_accounts', 'revenue', 'avg_initial', 'acv', 'pra', 'multi_year_pct', 'auto_pay_pct'];
-      // Short metric labels so columns stay narrow. avg_initial flips between
-      // "Initial" (branch view, no exclusions) and "Pest Initial" (team view).
-      const SHORT_LABELS = {
-        sold_accounts: 'Sold',
-        revenue: 'Revenue',
-        avg_initial: state.indicatorsGroupBy === 'teams' ? 'Pest Init' : 'Initial',
-        acv: 'ACV', pra: 'PRA',
-        multi_year_pct: 'MY %', auto_pay_pct: 'Auto Pay %',
-        reps: 'Reps',
-      };
-      const bottomThirdCutoff = Math.floor((activeBranches.length || 1) * 2 / 3);
-
-      // Best/worst metric per group for the Power Ranking card. Skip Reps
-      // since it doesn't feed points; calling it a "best metric" would be
-      // misleading (largest team isn't best, just biggest).
-      const bestWorst = {};
-      activeBranches.forEach(b => {
-        let best = null, worst = null;
-        POWER_RANKING_METRICS.forEach(m => {
-          const entry = rankings[m.key]?.find(r => r.branch === b);
-          if (!entry) return;
-          if (!best  || entry.rank < best.rank)  best  = { metric: m, rank: entry.rank };
-          if (!worst || entry.rank > worst.rank) worst = { metric: m, rank: entry.rank };
-        });
-        bestWorst[b] = { best, worst };
-      });
-
-      const matrixCard = el('div', { class: 'card overflow-hidden' },
-        el('div', { class: 'px-4 py-2 border-b flex items-center justify-between', style: { borderColor: 'var(--border)' } },
-          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Rankings · by metric'),
-          el('div', { class: 'text-[9px] uppercase tracking-widest text-muted-' }, '1 = best'),
-        ),
-        // Desktop / tablet: full table with horizontal scroll if needed.
-        el('div', { class: 'hidden sm:block scroll-x' },
-          el('table', { class: 'w-full text-[11px]' },
-            el('thead', {},
-              el('tr', { class: 'border-b', style: { borderColor: 'var(--border)' } },
-                el('th', { class: 'text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted- font-semibold sticky left-0', style: { background: 'var(--card)' } }, groupBy === 'teams' ? 'Team' : 'Branch'),
-                ...RANK_METRICS.map(key => el('th', {
-                  class: 'text-center px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted- font-semibold whitespace-nowrap',
-                }, SHORT_LABELS[key] || key)),
-              ),
-            ),
-            el('tbody', {},
-              ...powerRanking.map(b => el('tr', { class: 'border-b', style: { borderColor: 'var(--border)' } },
-                // py-1.5 matches the Power Ranking card's body rows so the
-                // two cards line up at equal heights when shown side-by-side.
-                el('td', { class: 'px-3 py-1.5 font-semibold sticky left-0 truncate', style: { background: 'var(--card)', color: getGroupColor(b) } },
-                  el('span', { class: 'inline-flex items-center gap-1.5' },
-                    groupBy === 'teams' && getTeamLogo(b) && el('img', {
-                      src: getTeamLogo(b), alt: '',
-                      style: { width: '14px', height: '14px', borderRadius: '50%', objectFit: 'cover', background: '#fff', flexShrink: '0' },
-                    }),
-                    b.split(' ').map(w => w[0] + w.slice(1).toLowerCase()).join(' '),
-                  )),
-                ...RANK_METRICS.map(key => {
-                  const entry = rankings[key]?.find(r => r.branch === b);
-                  const rank = entry?.rank;
-                  const isFirst = rank === 1;
-                  const isBottomThird = rank && rank > bottomThirdCutoff;
-                  const colorStyle = isFirst
-                    ? { color: 'var(--accent)' }
-                    : isBottomThird
-                      ? { color: 'var(--text-subtle)' }
-                      : {};
-                  return el('td', {
-                    class: 'px-2 py-1.5 text-center tabular-nums font-bold',
-                    style: colorStyle,
-                  }, rank ?? '—');
-                }),
-              )),
-            ),
-          ),
-        ),
-        // Mobile: stacked card per team. Avoids horizontal scrolling on
-        // narrow screens; metric ranks render as a 4-column mini-grid inside
-        // each team card so all 7 ranks fit at a glance.
-        el('div', { class: 'sm:hidden p-3 flex flex-col gap-2' },
-          ...powerRanking.map(b => {
-            const teamColor = getGroupColor(b);
-            return el('div', {
-              class: 'rounded-lg border p-2.5',
-              style: { borderColor: 'var(--border)', borderLeftWidth: '4px', borderLeftColor: teamColor },
-            },
-              el('div', { class: 'flex items-center gap-1.5 font-bold text-xs mb-2 truncate', style: { color: teamColor } },
-                groupBy === 'teams' && getTeamLogo(b) && el('img', {
-                  src: getTeamLogo(b), alt: '',
-                  style: { width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover', background: '#fff', flexShrink: '0' },
-                }),
-                el('span', { class: 'truncate' }, b.split(' ').map(w => w[0] + w.slice(1).toLowerCase()).join(' ')),
-              ),
-              el('div', { class: 'grid grid-cols-4 gap-x-3 gap-y-1 text-[10px]' },
-                ...RANK_METRICS.map(key => {
-                  const entry = rankings[key]?.find(r => r.branch === b);
-                  const rank = entry?.rank;
-                  const isFirst = rank === 1;
-                  const isBottomThird = rank && rank > bottomThirdCutoff;
-                  const valueColor = isFirst
-                    ? 'var(--accent)'
-                    : isBottomThird
-                      ? 'var(--text-subtle)'
-                      : 'var(--text)';
-                  return el('div', { class: 'flex items-center justify-between gap-1' },
-                    el('span', { class: 'text-muted-' }, SHORT_LABELS[key] || key),
-                    el('span', { class: 'font-bold tabular-nums', style: { color: valueColor } }, rank ?? '—'),
-                  );
-                }),
-              ),
-            );
-          }),
-        ),
-      );
-
-      // Power Ranking card — table layout matching the by-metric matrix card
-      // so the two cards read as a pair. Columns: #, Team/Branch, Reps,
-      // Pts, [Last Pts in weekly mode], Best Metric, Worst Metric.
-      // Best/Worst cells pack rank + metric label + value into a single
-      // span so the user reads "#1 Sold 165" as one phrase. The standalone
-      // Last Rank column was removed — its signal lives on the Last Pts
-      // tooltip ("had X pts (rank #Y) last week").
-      const tooltipText = 'Golf scoring — lower is better. Sum of per-metric ranks across ' + POWER_RANKING_METRICS.length + ' performance metrics (Reps W/ A Sale is shown in the matrix but excluded from points). Best possible = ' + POWER_RANKING_METRICS.length + '.';
-      // Returns a SINGLE cell — rank, metric label, and value all live in
-      // the same column so the eye reads "#1 Sold 165" as one phrase. The
-      // caller still uses spread (`...renderMetricCells(...)`) so an array
-      // makes the row composition uniform with the rest of the cells.
-      const renderMetricCells = (kind, bw, b) => {
-        const isBest = kind === 'best';
-        const accentColor = isBest ? '#5F8A1F' : '#DC2626';
-        if (!bw) {
-          return [el('td', { class: 'px-2 py-1.5 text-muted-' }, '—')];
-        }
-        const key = bw.metric.key;
-        const value = bw.metric.fmt(branchData[b]?.[key] ?? 0);
-        const tooltip = (isBest ? 'Best metric — ' : 'Worst metric — ') + b + ' is rank #' + bw.rank + ' of ' + activeBranches.length + ' on ' + bw.metric.label;
-        return [
-          el('td', { class: 'px-2 py-1.5 text-[10px]', title: tooltip },
-            el('div', { class: 'inline-flex items-center gap-1.5 whitespace-nowrap', style: { color: accentColor } },
-              el('span', { class: 'font-bold tabular-nums text-[11px]' }, '#' + bw.rank),
-              el('span', { class: 'font-bold' }, SHORT_LABELS[key] || bw.metric.label),
-              el('span', { class: 'tabular-nums' }, value),
-            ),
-          ),
-        ];
-      };
-
-      const powerHeaderCell = (label, align) => el('th', {
-        class: 'px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted- font-semibold whitespace-nowrap ' + (align === 'right' ? 'text-right' : 'text-left'),
-      }, label);
-
-      const powerCard = el('div', { class: 'card overflow-hidden', style: { borderColor: 'var(--accent)', borderWidth: '2px' } },
-        el('div', { class: 'px-4 py-2 border-b flex items-center justify-between', style: { borderColor: 'var(--accent)' } },
-          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--accent)' } }, 'Power Ranking'),
-          el('div', { class: 'text-[9px] uppercase tracking-widest text-muted-' }, POWER_RANKING_METRICS.length + ' metrics scored · low pts win'),
-        ),
-        // Desktop / tablet: full table with horizontal scroll if needed.
-        el('div', { class: 'hidden sm:block scroll-x' },
-          el('table', { class: 'w-full text-[11px]' },
-            el('thead', {},
-              el('tr', { class: 'border-b', style: { borderColor: 'var(--border)' } },
-                powerHeaderCell('#', 'left'),
-                powerHeaderCell(groupBy === 'teams' ? 'Team' : 'Branch', 'left'),
-                // Reps W/ A Sale — context column. Doesn't score points
-                // (branch size shouldn't reward you on golf scoring) but
-                // surfaces how many bodies produced the row's metrics so
-                // the manager can read efficiency at a glance.
-                powerHeaderCell('Reps', 'left'),
-                powerHeaderCell('Pts', 'left'),
-                // Last Pts only renders in weekly mode (range mode has no
-                // single "previous week" to compare against). The Last
-                // Rank column was dropped — the prev-week ranking signal
-                // already lives on the Pts column via the trend chart.
-                prevWeek != null && powerHeaderCell('Last Pts', 'left'),
-                // Best/Worst Metric headers now carry the rank inside the
-                // same cell, so we don't need separate "#" columns.
-                powerHeaderCell('Best Metric', 'left'),
-                powerHeaderCell('Worst Metric', 'left'),
-              ),
-            ),
-            el('tbody', {},
-              ...powerRanking.map((b, i) => {
-                const bw = bestWorst[b] || {};
-                const showWorst = bw.worst && bw.worst.metric.key !== bw.best?.metric.key;
-                const currentRank = i + 1;
-                const prevRank = prevRankByBranch[b];
-                const prevPts = prevPointsByBranch[b];
-                // Last Pts cell — only built in weekly mode. The standalone
-                // Last Rank column was removed; the prev-week rank still
-                // appears as a tooltip on Last Pts so the signal isn't lost.
-                let lastPtsCell = null;
-                if (prevWeek != null) {
-                  if (prevRank == null) {
-                    lastPtsCell = el('td', {
-                      class: 'px-2 py-1.5 text-muted-',
-                      title: b + ' had no data in the previous week',
-                    }, '—');
-                  } else {
-                    lastPtsCell = el('td', {
-                      class: 'px-2 py-1.5 tabular-nums',
-                      style: { color: 'var(--text-muted)' },
-                      title: b + ' had ' + prevPts + ' pts (rank #' + prevRank + ') last week',
-                    }, prevPts);
-                  }
-                }
-                const repsCount = branchData[b]?.reps || 0;
-                return el('tr', { class: 'border-b', style: { borderColor: 'var(--border)' } },
-                  el('td', { class: 'px-2 py-1.5 font-bold tabular-nums', style: { color: i === 0 ? 'var(--accent)' : 'var(--text-muted)' } }, currentRank),
-                  el('td', { class: 'px-2 py-1.5 font-semibold', style: { color: getGroupColor(b) } },
-                    el('span', { class: 'inline-flex items-center gap-1.5' },
-                      groupBy === 'teams' && getTeamLogo(b) && el('img', {
-                        src: getTeamLogo(b), alt: '',
-                        style: { width: '16px', height: '16px', borderRadius: '50%', objectFit: 'cover', background: '#fff', flexShrink: '0' },
-                      }),
-                      b.split(' ').map(w => w[0] + w.slice(1).toLowerCase()).join(' '),
-                    )),
-                  el('td', {
-                    class: 'px-2 py-1.5 tabular-nums',
-                    style: { color: 'var(--text-muted)' },
-                    title: repsCount + ' rep' + (repsCount === 1 ? '' : 's') + ' logged at least one sale in this window',
-                  }, repsCount || '—'),
-                  el('td', { class: 'px-2 py-1.5 tabular-nums font-semibold', title: tooltipText }, totalPoints[b]),
-                  lastPtsCell,
-                  ...renderMetricCells('best', bw.best, b),
-                  ...renderMetricCells('worst', showWorst ? bw.worst : null, b),
-                );
-              }),
-            ),
-          ),
-        ),
-        // Mobile: stacked card per team. Top line is rank + name + pts + Δ;
-        // a quieter "last week" line carries the prev-week pts/rank, then
-        // best/worst sit on their own lines so the metric label, value, and
-        // rank fit without horizontal scroll.
-        el('div', { class: 'sm:hidden p-3 flex flex-col gap-2' },
-          ...powerRanking.map((b, i) => {
-            const bw = bestWorst[b] || {};
-            const showWorst = bw.worst && bw.worst.metric.key !== bw.best?.metric.key;
-            const currentRank = i + 1;
-            const teamColor = getGroupColor(b);
-            const points = totalPoints[b] || 0;
-            const prevRank = prevRankByBranch[b];
-            const prevPts = prevPointsByBranch[b];
-            const delta = prevRank != null ? prevRank - currentRank : null;
-            // Last-rank pill at the top-right of the row. Color tells the
-            // direction (green = moved up, red = slipped, gray = same).
-            let lastRankPill = null;
-            if (prevWeek != null) {
-              if (prevRank == null) {
-                lastRankPill = el('span', { class: 'text-[10px] font-bold tabular-nums', style: { color: 'var(--text-muted)' } }, 'NEW');
-              } else {
-                const rankColor = delta > 0 ? '#5F8A1F' : delta < 0 ? '#DC2626' : 'var(--text-muted)';
-                lastRankPill = el('span', {
-                  class: 'text-[11px] font-bold tabular-nums',
-                  style: { color: rankColor },
-                  title: 'Last week: #' + prevRank,
-                }, 'Last #' + prevRank);
-              }
-            }
-            const metricLine = (kind, m) => {
-              if (!m) return null;
-              const isBest = kind === 'best';
-              const accentColor = isBest ? '#5F8A1F' : '#DC2626';
-              const value = m.metric.fmt(branchData[b]?.[m.metric.key] ?? 0);
-              return el('div', { class: 'flex items-center justify-between gap-2 text-[11px]', style: { color: accentColor } },
-                el('div', { class: 'flex items-center gap-1.5 min-w-0' },
-                  el('span', { class: 'font-bold shrink-0' }, '#' + m.rank),
-                  el('span', { class: 'font-bold' }, SHORT_LABELS[m.metric.key] || m.metric.label),
-                ),
-                el('span', { class: 'tabular-nums shrink-0' }, value),
-              );
-            };
-            return el('div', {
-              class: 'rounded-lg border p-2.5 flex flex-col gap-1.5',
-              style: { borderColor: 'var(--border)', borderLeftWidth: '4px', borderLeftColor: teamColor },
-            },
-              // Top row
-              el('div', { class: 'flex items-center justify-between gap-2' },
-                el('div', { class: 'flex items-center gap-2 min-w-0 flex-1' },
-                  el('span', { class: 'font-bold tabular-nums shrink-0', style: { color: i === 0 ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + currentRank),
-                  groupBy === 'teams' && getTeamLogo(b) && el('img', {
-                    src: getTeamLogo(b), alt: '',
-                    style: { width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover', background: '#fff', flexShrink: '0' },
-                  }),
-                  el('span', { class: 'font-bold truncate', style: { color: teamColor } },
-                    b.split(' ').map(w => w[0] + w.slice(1).toLowerCase()).join(' ')),
-                ),
-                el('div', { class: 'flex items-center gap-2 shrink-0' },
-                  el('span', { class: 'text-sm font-bold tabular-nums' }, points + ' pts'),
-                  lastRankPill,
-                ),
-              ),
-              // Reps W/ A Sale + last-week recap on a single muted line.
-              // Reps comes first since it sets context (how many bodies
-              // produced this score); last-week is the trend signal.
-              (() => {
-                const reps = branchData[b]?.reps || 0;
-                const repsBit = reps > 0 ? reps + ' rep' + (reps === 1 ? '' : 's') : '';
-                const lastBit = (prevWeek != null && prevRank != null)
-                  ? 'Last week: ' + prevPts + ' pts · #' + prevRank
-                  : '';
-                const parts = [repsBit, lastBit].filter(Boolean);
-                return parts.length > 0
-                  ? el('div', { class: 'text-[10px] text-muted- tabular-nums' }, parts.join(' · '))
-                  : null;
-              })(),
-              // Best / worst metric lines
-              metricLine('best', bw.best),
-              showWorst && metricLine('worst', bw.worst),
-            );
-          }),
-        ),
-      );
-
-      return el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-3' }, matrixCard, powerCard);
-    })(),
+    // (Rankings matrix + Power Ranking cards removed — the main Indicators
+    // table's Power Rank row now carries rank AND total points per column,
+    // so the two cards below were redundant. Per-metric rank detail still
+    // feeds the PDF reports via `rankings`/`powerRanking`.)
 
     // ── Charts ──
     // Granularity follows the range selector: ≤31 days plots DAILY points
@@ -19878,6 +19860,32 @@ function viewIndicators() {
           chartLabels = buckets.map(b => b.label);
           grain = buckets[0].kind === 'day' ? 'Daily' : 'Monthly';
         }
+      }
+      // TREND RULE: lines end at the last COMPLETED period. A half-filled
+      // week/month plots as a cliff-dive on every line — the live numbers
+      // belong to the tables, not the trend shape. Detect "last bucket
+      // includes today" via the bucket matcher (range mode) or the week
+      // math (weekly mode), then slice it off every chart series.
+      const _todaySale = (() => { const t = new Date(); return { dateSold: (t.getMonth() + 1) + '/' + t.getDate() + '/' + t.getFullYear() }; })();
+      let _liveTail = false;
+      if (isRange && rawAvail && rangeBounds && chartLabels) {
+        const bks = getChartBuckets(rangeBounds, allWeeks, state.indicatorsData);
+        const lb = bks[bks.length - 1];
+        _liveTail = !!(lb && lb.match && lb.match(_todaySale));
+      } else if (Array.isArray(chartWeeks) && chartWeeks.length) {
+        // weekly mode: the newest week bucket is live if any sale THIS week exists
+        const lastW = chartWeeks[chartWeeks.length - 1];
+        _liveTail = (state._indicatorRawSales || []).some(x => x && x.week === lastW && (() => {
+          const d = (typeof _parseIndicatorDay === 'function') ? _parseIndicatorDay(x) : null;
+          if (!d) return false;
+          const t = new Date(); t.setHours(0, 0, 0, 0);
+          const ws = new Date(t); ws.setDate(ws.getDate() - ws.getDay());
+          return d >= ws;
+        })());
+      }
+      if (_liveTail && chartWeeks.length > 1) {
+        chartWeeks = chartWeeks.slice(0, -1);
+        if (chartLabels) chartLabels = chartLabels.slice(0, -1);
       }
       // Office Staff hides the branch-level charts (Power Ranking / PRA /
       // Revenue) — only the YoY trend stays.
@@ -22129,11 +22137,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 // Best Day/Week/Month show which custom mode is active
                 // (date or amount) — other columns use the standard
                 // asc/desc arrow.
-                const arrow = isSorting
-                  ? (isRecordCol
-                      ? (sortDir === 'amount' ? ' · by $' : ' · by date')
-                      : (sortDir === 'asc' ? ' ↑' : ' ↓'))
-                  : '';
+                const arrow = isSorting && isRecordCol
+                  ? (sortDir === 'amount' ? ' · by $' : ' · by date')
+                  : '';   // direction arrows retired — active header is highlighted
                 const align = c.align === 'right' ? 'text-right' : 'text-left';
                 const padLeft = c.key === 'cancelPct' ? 'pl-2 pr-5' : 'px-2';
                 return el('th', {
@@ -22266,6 +22272,132 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   );
 
 
+  // ── GROUP LEADERBOARD — the player-card metrics rolled up by Team /
+  // Office / Department. Every row clicks through to a pooled entity
+  // player card (same modal as a rep — stats, records, calendar, trends,
+  // retention toggle) ranked against its PEERS: teams vs teams, offices vs
+  // offices, departments vs departments. Reads the same windowed sales as
+  // the Rep Leaderboard above so the two always reconcile. Admin-only by
+  // construction (rep-lite only lifts the 'rep-leaderboard' section).
+  sections.push((() => {
+    if (!state._indGroupKind) state._indGroupKind = 'team';
+    if (!state._indGroupSort) state._indGroupSort = { key: 'revenue', asc: false };
+    const kind = state._indGroupKind;
+    const gSort = state._indGroupSort;
+    const DEPT_LABELS = { d2d: 'Sales Rep', office: 'Office Staff', techs: 'Technician' };
+    const _pretty = (n) => String(n || '').split(' ').map(w => (w[0] || '').toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    const keyOf = kind === 'team' ? (x) => getRepTeam(x.rep) || 'Unassigned'
+                : kind === 'office' ? (x) => _pretty(x.office || 'Unknown')
+                : (x) => DEPT_LABELS[_indicatorDeptOf(x)] || 'Office Staff';
+    const groups = new Map();
+    for (const x of rawSales) {
+      const k = keyOf(x);
+      let g = groups.get(k);
+      if (!g) groups.set(k, g = { name: k, sales: [], revenue: 0, multi: 0, twelve: 0, autoPay: 0, cancels: 0, initSum: 0, repSet: new Set(), daySet: new Set() });
+      g.sales.push(x);
+      g.revenue += Number(x.contractValue) || 0;
+      if (Number(x.contract) >= 18) g.multi++;
+      if (Number(x.contract) === 12) g.twelve++;
+      if (x.autoPay && x.autoPay !== 'No') g.autoPay++;
+      if (_repCancelCounts(x)) g.cancels++;
+      g.initSum += Number(x.initialPrice) || 0;
+      g.repSet.add(getCanonicalRepName(x.rep || 'Unknown'));
+      const d = _parseIndicatorDay(x);
+      if (d) g.daySet.add(d.toISOString().slice(0, 10));
+    }
+    const gRows = [...groups.values()].map(g => {
+      const count = g.sales.length;
+      const ct = g.twelve + g.multi;
+      return {
+        name: g.name, sales: g.sales, count,
+        revenue: g.revenue,
+        reps: g.repSet.size,
+        sellDays: g.daySet.size,
+        revPerDay: g.daySet.size > 0 ? g.revenue / g.daySet.size : 0,
+        acctsPerDay: g.daySet.size > 0 ? count / g.daySet.size : 0,
+        acv: count > 0 ? g.revenue / count : 0,
+        avgInitial: count > 0 ? g.initSum / count : 0,
+        myPct: ct > 0 ? g.multi / ct : 0,
+        autoPayPct: count > 0 ? g.autoPay / count : 0,
+        cancels: g.cancels,
+      };
+    });
+    gRows.sort((a, b) => {
+      const k = gSort.key;
+      if (k === 'name') return gSort.asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+      return gSort.asc ? (a[k] || 0) - (b[k] || 0) : (b[k] || 0) - (a[k] || 0);
+    });
+    const setGSort = (k) => {
+      state._indGroupSort = gSort.key === k ? { key: k, asc: !gSort.asc } : { key: k, asc: k === 'name' };
+      mountApp();
+    };
+    const gHl = (k) => gSort.key === k ? { color: 'var(--accent)', fontWeight: '800' } : {};
+    const gTh = (label, k, left = false) => el('th', {
+      class: (left ? 'text-left' : 'text-right') + ' px-2 py-2 cursor-pointer select-none hover:text-default whitespace-nowrap',
+      style: gHl(k), onclick: () => setGSort(k),
+    }, label);
+    const openEntity = (r) => {
+      const peers = gRows.map(x => ({ name: x.name, sales: x.sales }));
+      openIndicatorRepCard(_scopeRep({ name: r.name, sales: r.sales }, () => true), peers);
+    };
+    const hdr = el('h3', { class: 'text-base font-bold' }, 'Group Leaderboard');
+    attachExplainer(hdr, {
+      title: 'Group Leaderboard',
+      desc: 'The Rep Leaderboard\u2019s sales, pooled by Team, Office, or Department over the same date window. Click any row for the group\u2019s player card \u2014 records rank the group against its peers (teams vs teams, offices vs offices), and the Retention toggle works there too.',
+    });
+    const kindNoun = kind === 'dept' ? 'departments' : kind + 's';
+    return el('div', { class: 'card overflow-hidden', 'data-section': 'group-leaderboard' },
+      el('div', { class: 'px-5 py-3 border-b flex items-center justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'flex items-center gap-3 flex-wrap' },
+          hdr,
+          el('span', { class: 'text-xs text-muted-' }, gRows.length + ' ' + kindNoun)),
+        el('div', { class: 'pill-tabs' },
+          ...[['team', 'Team'], ['office', 'Office'], ['dept', 'Department']].map(([k, lab]) => el('button', {
+            'data-active': kind === k,
+            onclick: () => { state._indGroupKind = k; mountApp(); },
+          }, lab))),
+      ),
+      el('div', { class: 'scroll-x' },
+        el('table', { class: 'w-full text-[12px]' },
+          el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
+            el('tr', {},
+              gTh(kind === 'team' ? 'Team' : kind === 'office' ? 'Office' : 'Department', 'name', true),
+              gTh('Reps', 'reps'),
+              gTh('Sales', 'count'),
+              gTh('Revenue', 'revenue'),
+              gTh('Production/Day', 'revPerDay'),
+              gTh('Days w/ a Sale', 'sellDays'),
+              gTh('ACV', 'acv'),
+              gTh('Avg Initial', 'avgInitial'),
+              gTh('MY %', 'myPct'),
+              gTh('Auto Pay', 'autoPayPct'),
+              gTh('Cancels', 'cancels'),
+            )),
+          el('tbody', {},
+            ...gRows.map((r, i) => el('tr', {
+              class: 'border-t cursor-pointer transition hover:brightness-95',
+              style: { borderColor: 'var(--border)', background: 'var(--card)' },
+              title: 'Click for the ' + (kind === 'dept' ? 'department' : kind) + ' player card',
+              onclick: () => openEntity(r),
+            },
+              el('td', { class: 'pl-4 pr-2 py-2 font-semibold whitespace-nowrap' },
+                el('span', { class: 'inline-block w-5 text-muted- tabular-nums' }, (i + 1) + '.'),
+                kind !== 'dept' ? el('span', { class: 'inline-block w-2.5 h-2.5 rounded-full mr-2', style: { background: kind === 'team' ? getTeamColor(r.name) : getGroupColor(r.name.toUpperCase()) } }) : null,
+                r.name),
+              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, fmt.int(r.reps)),
+              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, fmt.int(r.count)),
+              el('td', { class: 'text-right px-2 py-2 tabular-nums font-bold' }, fmt.usd0(r.revenue)),
+              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, fmt.usd0(r.revPerDay) + ' / ' + r.acctsPerDay.toFixed(1)),
+              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, fmt.int(r.sellDays)),
+              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, fmt.usd(r.acv)),
+              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, fmt.usd(r.avgInitial)),
+              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, (r.myPct * 100).toFixed(1) + '%'),
+              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%'),
+              el('td', { class: 'text-right pl-2 pr-4 py-2 tabular-nums' }, fmt.int(r.cancels)),
+            ))))),
+    );
+  })());
+
   // Keep the legacy `reps` reference alive for downstream sections that read it
   const reps = allReps.slice().sort((a, b) => b.sales.length - a.sales.length);
 
@@ -22292,19 +22424,36 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // understanding the full cancel mix) and excluding them (matches the
   // rest of the page). Every other indicators section always reads from
   // the trimmed `rawSales`.
-  if (state._indicatorCancelIncludeRorSns == null) state._indicatorCancelIncludeRorSns = false;
-  const cancelIncludeRorSns = state._indicatorCancelIncludeRorSns === true;
-  const cancelSrc = cancelIncludeRorSns ? rawSalesAll : rawSales;
-  // Default: only REAL cancels count — 3-day RORs, Sold-Not-Started, Combined
-  // subscriptions, One-Time services, and Renewals are all stripped (via
-  // _isReportableCancel). The header toggle lets the analyst opt back into the
-  // raw mix (everything with a cancel date) when they want to see it.
-  const isCountableCancel = (s) => cancelIncludeRorSns ? (s.cancelDate || s.active === 'No') : _isReportableCancel(s);
+  // Per-KIND includes (was one all-or-nothing toggle). Default: all off —
+  // real attrition only, matching the rest of the page.
+  if (!state._indCancelKinds) state._indCancelKinds = { ror: false, sns: false, combined: false, onetime: false, renewal: false };
+  const _k = state._indCancelKinds;
+  const CANCEL_KINDS = [
+    ['ror',      '3-Day RORs',        _is3DayROR],
+    ['sns',      'Sold, Not Started', _isSoldNotStarted],
+    ['combined', 'Combined subs',     _isCombinedSub],
+    ['onetime',  'One-Time services', _isOneTimeCancel],
+    ['renewal',  'Renewals',          _isRenewalCancel],
+  ];
+  const _kindEnabled = (s) => CANCEL_KINDS.some(([id, _l, test]) => _k[id] && test(s));
+  // Denominator: ROR/SNS ROWS are stripped from rawSales entirely, so pull
+  // from rawSalesAll but only admit the kinds that are switched on.
+  const cancelSrc = rawSalesAll.filter(s => {
+    if (_is3DayROR(s) && !_k.ror) return false;        // ROR rows only exist here — admit only when switched on
+    if (_isSoldNotStarted(s) && !_k.sns) return false; // same for Sold-Not-Started
+    return true;
+  });
+  const isCountableCancel = (s) => {
+    if (!(s.cancelDate || s.active === 'No')) return false;
+    return _isReportableCancel(s) || _kindEnabled(s);
+  };
   const allCancels = cancelSrc.filter(isCountableCancel);
-  // Count of RORs + SNS in the page-filtered set (regardless of toggle)
-  // so the toggle's badge tells the analyst what's being added or
-  // hidden when they click.
-  const rorSnsCount = rawSalesAll.filter(s => _isExcludableCancel(s) && isCountableCancel(s)).length;
+  // Per-kind counts for the dropdown badges (page-filtered, kind-tested raw).
+  const _kindCounts = {};
+  CANCEL_KINDS.forEach(([id, _l, test]) => {
+    _kindCounts[id] = rawSalesAll.filter(s => (s.cancelDate || s.active === 'No') && test(s)).length;
+  });
+  const _kindsOn = CANCEL_KINDS.filter(([id]) => _k[id]).length;
   if (allCancels.length > 0 || cancelSrc.length > 0) {
     // By reason
     const reasonCounts = {}, reasonRev = {};
@@ -22336,39 +22485,52 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       el('div', { class: 'card p-5' },
         el('div', { class: 'flex items-center justify-between flex-wrap gap-3 mb-4' },
           el('h3', { class: 'text-base font-bold' }, '🚫 Cancel Analysis'),
-          // Toggle: include / exclude 3-day RORs + Sold-Not-Started.
-          // Only this card has the option — every other section across
-          // the indicators tab always hides them. Badge surfaces the
-          // count so the analyst knows what flipping the toggle
-          // adds or removes.
-          el('button', {
-            class: 'flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95',
-            style: cancelIncludeRorSns
-              ? { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.12)', color: 'var(--accent)' }
-              : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-            title: cancelIncludeRorSns
-              ? 'Currently including 3-day RORs + Sold-Not-Started rows. Click to hide them.'
-              : 'Currently hiding 3-day RORs + Sold-Not-Started rows. Click to include them.',
-            onclick: () => {
-              state._indicatorCancelIncludeRorSns = !cancelIncludeRorSns;
-              // Clear any drill selections so they don't reference rows
-              // that disappear when the toggle flips.
-              state._indicatorSelectedReason  = null;
-              state._indicatorSelectedPackage = null;
-              state._indicatorSelectedOffice  = null;
-              state._indicatorSelectedTeam    = null;
-              mountApp();
+          // Per-kind dropdown — pick exactly which non-attrition cancel
+          // kinds to fold into this card. Everything else on the tab
+          // always excludes them.
+          (() => {
+            const wrap = el('div', { class: 'relative', id: 'cancel-kinds-wrap' });
+            wrap.append(el('button', {
+              class: 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95',
+              style: _kindsOn
+                ? { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.12)', color: 'var(--accent)' }
+                : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+              title: 'Choose which non-attrition cancel kinds to include in this card',
+              onclick: (e) => { e.stopPropagation(); state._cancelKindsMenuOpen = !state._cancelKindsMenuOpen; mountApp(); },
             },
-          },
-            el('span', { style: { fontSize: '13px' } }, cancelIncludeRorSns ? '☑' : '☐'),
-            el('span', {}, 'Include non-attrition cancels (ROR / SNS / Combined / One-Time / Renewal)'),
-            rorSnsCount > 0 && el('span', {
-              class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded font-bold',
-              style: cancelIncludeRorSns
-                ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-                : { background: 'var(--card-2)', color: 'var(--text-muted)' },
-            }, rorSnsCount),
-          ),
+              el('span', {}, 'Cancel types' + (_kindsOn ? ' · ' + _kindsOn + ' included' : ' · attrition only')),
+              el('span', { style: { fontSize: '9px' } }, state._cancelKindsMenuOpen ? '▴' : '▾')));
+            if (state._cancelKindsMenuOpen) {
+              wrap.append(el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', minWidth: '240px', zIndex: '40', boxShadow: 'var(--shadow-lg)' } },
+                ...CANCEL_KINDS.map(([id, label]) => el('button', {
+                  class: 'w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+                  style: { color: 'var(--text)', background: _k[id] ? 'var(--card-2)' : 'transparent' },
+                  onclick: (e) => {
+                    e.stopPropagation();
+                    _k[id] = !_k[id];
+                    state._indicatorSelectedReason = null; state._indicatorSelectedPackage = null;
+                    state._indicatorSelectedOffice = null; state._indicatorSelectedTeam = null;
+                    mountApp();
+                  },
+                },
+                  el('span', { class: 'flex items-center gap-2' },
+                    el('span', { style: { fontSize: '13px' } }, _k[id] ? '☑' : '☐'),
+                    el('span', {}, label)),
+                  el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, _kindCounts[id] || 0))),
+                el('div', { class: 'px-2.5 pt-1.5 pb-1 text-[10px]', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)', marginTop: '4px' } },
+                  'Unchecked = attrition only (the default everywhere else).')));
+              if (window._cancelKindsCloser) document.removeEventListener('mousedown', window._cancelKindsCloser);
+              window._cancelKindsCloser = (ev) => {
+                const w = document.getElementById('cancel-kinds-wrap');
+                if (w && w.contains(ev.target)) return;
+                document.removeEventListener('mousedown', window._cancelKindsCloser);
+                window._cancelKindsCloser = null;
+                if (state._cancelKindsMenuOpen) { state._cancelKindsMenuOpen = false; mountApp(); }
+              };
+              setTimeout(() => document.addEventListener('mousedown', window._cancelKindsCloser), 0);
+            }
+            return wrap;
+          })(),
         ),
         el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-5' },
           // By reason — click a row to drill into the customers behind it
@@ -22377,29 +22539,38 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             // Cap the list height so a long tail of one-off reasons doesn't
             // stretch the card. ~10 reasons visible; the rest scrolls inside.
             el('div', { class: 'flex flex-col gap-1', style: { maxHeight: '260px', overflowY: 'auto', paddingRight: '4px' } },
-              ...topReasons.map(([reason, cnt]) => {
-                const isSelected = state._indicatorSelectedReason === reason;
-                return el('div', {
-                  class: 'flex items-center justify-between text-xs py-1.5 border-b border- cursor-pointer transition rounded',
-                  style: isSelected
-                    ? { background: 'rgba(141,198,63,.12)', paddingLeft: '8px', paddingRight: '8px', borderBottomColor: 'transparent' }
-                    : { paddingLeft: '8px', paddingRight: '8px' },
-                  onclick: () => {
-                    state._indicatorSelectedReason = isSelected ? null : reason;
-                    mountApp();
+              ...(() => {
+                const maxCnt = Math.max(1, ...topReasons.map(([, c]) => c));
+                return topReasons.map(([reason, cnt]) => {
+                  const isSelected = state._indicatorSelectedReason === reason;
+                  const share = cnt / maxCnt;   // bar vs the biggest reason
+                  return el('div', {
+                    class: 'flex items-center justify-between text-xs py-2 cursor-pointer transition rounded-lg',
+                    style: {
+                      paddingLeft: '10px', paddingRight: '10px', marginBottom: '2px',
+                      // proportional bar painted straight into the row background
+                      background: isSelected
+                        ? 'rgba(141,198,63,.20)'
+                        : 'linear-gradient(to right, rgba(220,38,38,.09) ' + (share * 100).toFixed(1) + '%, var(--card-2) ' + (share * 100).toFixed(1) + '%)',
+                      border: '1px solid ' + (isSelected ? 'var(--accent)' : 'var(--border)'),
+                    },
+                    onclick: () => {
+                      state._indicatorSelectedReason = isSelected ? null : reason;
+                      mountApp();
+                    },
                   },
-                },
-                  el('span', { class: 'flex items-center gap-1.5' },
-                    el('span', { class: 'text-[10px]', style: { color: isSelected ? 'var(--accent)' : 'var(--text-subtle)' } }, isSelected ? '▾' : '▸'),
-                    reason,
-                  ),
-                  el('div', { class: 'flex items-center gap-3 shrink-0' },
-                    el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, _usd0(reasonRev[reason])),
-                    el('span', { class: 'text-muted-' }, (cnt / allCancels.length * 100).toFixed(1) + '%'),
-                    el('span', { class: 'font-semibold tabular-nums' }, cnt),
-                  ),
-                );
-              }),
+                    el('span', { class: 'flex items-center gap-1.5 min-w-0' },
+                      el('span', { class: 'text-[10px] shrink-0', style: { color: isSelected ? 'var(--accent)' : 'var(--text-subtle)' } }, isSelected ? '▾' : '▸'),
+                      el('span', { class: 'truncate font-medium' }, reason),
+                    ),
+                    el('div', { class: 'flex items-center gap-3 shrink-0' },
+                      el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, _usd0(reasonRev[reason])),
+                      el('span', { class: 'text-muted- tabular-nums text-[11px]', style: { minWidth: '44px', textAlign: 'right' } }, (cnt / allCancels.length * 100).toFixed(1) + '%'),
+                      el('span', { class: 'font-bold tabular-nums', style: { minWidth: '28px', textAlign: 'right' } }, cnt),
+                    ),
+                  );
+                });
+              })(),
             ),
 
             // ── Drill-down: customers for the selected reason ──
@@ -22477,29 +22648,38 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           el('div', {},
             el('h4', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-2' }, 'By Package (highest cancel rate, min 5 sales · click to drill in)'),
             el('div', { class: 'flex flex-col gap-1' },
-              ...subCancelRates.slice(0, 10).map(s => {
-                const isSelected = state._indicatorSelectedPackage === s.name;
-                return el('div', {
-                  class: 'flex items-center justify-between text-xs py-1.5 border-b border- cursor-pointer transition rounded',
-                  style: isSelected
-                    ? { background: 'rgba(141,198,63,.12)', paddingLeft: '8px', paddingRight: '8px', borderBottomColor: 'transparent' }
-                    : { paddingLeft: '8px', paddingRight: '8px' },
-                  onclick: () => {
-                    state._indicatorSelectedPackage = isSelected ? null : s.name;
-                    state._indicatorSelectedPackageReason = null; // reset drill-down when switching packages
-                    mountApp();
+              ...(() => {
+                const top10 = subCancelRates.slice(0, 10);
+                const maxRate = Math.max(0.001, ...top10.map(x => x.rate));
+                return top10.map(s => {
+                  const isSelected = state._indicatorSelectedPackage === s.name;
+                  const share = s.rate / maxRate;
+                  return el('div', {
+                    class: 'flex items-center justify-between text-xs py-2 cursor-pointer transition rounded-lg',
+                    style: {
+                      paddingLeft: '10px', paddingRight: '10px', marginBottom: '2px',
+                      background: isSelected
+                        ? 'rgba(141,198,63,.20)'
+                        : 'linear-gradient(to right, rgba(220,38,38,.09) ' + (share * 100).toFixed(1) + '%, var(--card-2) ' + (share * 100).toFixed(1) + '%)',
+                      border: '1px solid ' + (isSelected ? 'var(--accent)' : 'var(--border)'),
+                    },
+                    onclick: () => {
+                      state._indicatorSelectedPackage = isSelected ? null : s.name;
+                      state._indicatorSelectedPackageReason = null; // reset drill-down when switching packages
+                      mountApp();
+                    },
                   },
-                },
-                  el('span', { class: 'truncate max-w-[200px] flex items-center gap-1.5', title: s.name },
-                    el('span', { class: 'text-[10px]', style: { color: isSelected ? 'var(--accent)' : 'var(--text-subtle)' } }, isSelected ? '▾' : '▸'),
-                    s.name,
-                  ),
-                  el('div', { class: 'flex items-center gap-3 shrink-0' },
-                    el('span', { class: 'text-muted-' }, s.cancels + '/' + s.total),
-                    el('span', { class: 'font-semibold tabular-nums', style: s.rate > 0.1 ? { color: '#DC2626' } : {} }, (s.rate * 100).toFixed(1) + '%'),
-                  ),
-                );
-              }),
+                    el('span', { class: 'truncate max-w-[200px] flex items-center gap-1.5', title: s.name },
+                      el('span', { class: 'text-[10px] shrink-0', style: { color: isSelected ? 'var(--accent)' : 'var(--text-subtle)' } }, isSelected ? '▾' : '▸'),
+                      el('span', { class: 'truncate font-medium' }, s.name),
+                    ),
+                    el('div', { class: 'flex items-center gap-3 shrink-0' },
+                      el('span', { class: 'text-muted- tabular-nums' }, s.cancels + '/' + s.total),
+                      el('span', { class: 'font-bold tabular-nums', style: { minWidth: '48px', textAlign: 'right', color: s.rate > 0.1 ? '#DC2626' : 'var(--text)' } }, (s.rate * 100).toFixed(1) + '%'),
+                    ),
+                  );
+                });
+              })(),
             ),
 
             // ── Drill-down: cancel reasons for the selected package
@@ -22877,13 +23057,26 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const subMix = {};
   subSales.forEach(s => {
     const sub = s.subscription || 'Unknown';
-    if (!subMix[sub]) subMix[sub] = { count: 0, revenue: 0 };
-    subMix[sub].count++;
-    subMix[sub].revenue += s.contractValue;
+    if (!subMix[sub]) subMix[sub] = { count: 0, revenue: 0, cancels: 0, initSum: 0, multi: 0, twelve: 0, apOn: 0 };
+    const m = subMix[sub];
+    m.count++;
+    m.revenue += s.contractValue;
+    m.initSum += Number(s.initialPrice) || 0;
+    if (Number(s.contract) >= 18) m.multi++;
+    if (Number(s.contract) === 12) m.twelve++;
+    if (s.autoPay && s.autoPay !== 'No') m.apOn++;
+    if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) m.cancels++;
   });
   const totalSubCount = subSales.length; // includes Unknown
   const topSubscriptions = Object.entries(subMix)
-    .map(([name, v]) => ({ name, ...v, share: totalSubCount > 0 ? v.count / totalSubCount : 0 }))
+    .map(([name, v]) => ({
+      name, ...v,
+      share: totalSubCount > 0 ? v.count / totalSubCount : 0,
+      acv: v.count > 0 ? v.revenue / v.count : 0,
+      avgInit: v.count > 0 ? v.initSum / v.count : 0,
+      attr: v.count > 0 ? v.cancels / v.count : 0,
+      myPct: (v.multi + v.twelve) > 0 ? v.multi / (v.multi + v.twelve) : null,
+    }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 15);
 
@@ -22908,11 +23101,16 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       ),
       // Header row
       el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold mb-1.5' },
-        el('div', { class: 'w-[200px] sm:w-[280px] shrink-0' }, 'Subscription'),
-        el('div', { class: 'flex-1' }),
+        el('div', { class: 'w-[200px] sm:w-[240px] shrink-0' }, 'Subscription'),
+        el('div', { class: 'flex-1', style: { maxWidth: '160px' } }),
         el('div', { class: 'w-12 text-right shrink-0' }, 'Count'),
         el('div', { class: 'w-14 text-right shrink-0' }, '% Mix'),
         el('div', { class: 'w-20 text-right shrink-0' }, 'Revenue'),
+        el('div', { class: 'w-16 text-right shrink-0' }, 'ACV'),
+        el('div', { class: 'w-16 text-right shrink-0', title: 'Average initial price' }, 'Avg Init'),
+        el('div', { class: 'w-12 text-right shrink-0', title: 'Multi-year share of contract sales' }, 'MY %'),
+        el('div', { class: 'w-14 text-right shrink-0', title: 'Auto-pay share' }, 'APay'),
+        el('div', { class: 'w-14 text-right shrink-0', title: 'Reportable cancels ÷ accounts (RORs, SNS, combined, one-time and renewals excluded)' }, 'Attr %'),
       ),
       topSubscriptions.length === 0
         ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, 'No accounts in this office.')
@@ -22920,13 +23118,18 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             ...topSubscriptions.map((s, i) => {
               const barWidth = (s.share * 100).toFixed(1);
               return el('div', { class: 'flex items-center gap-3 text-xs' },
-                el('div', { class: 'w-[200px] sm:w-[280px] truncate font-medium shrink-0', title: s.name }, s.name),
-                el('div', { class: 'flex-1 h-5 rounded-full overflow-hidden', style: { background: 'var(--border)' } },
+                el('div', { class: 'w-[200px] sm:w-[240px] truncate font-medium shrink-0', title: s.name }, s.name),
+                el('div', { class: 'flex-1 h-2.5 rounded-full overflow-hidden', style: { background: 'var(--border)', maxWidth: '160px' } },
                   el('div', { style: { width: barWidth + '%', height: '100%', background: 'var(--accent)', borderRadius: '999px', transition: 'width .3s' } }),
                 ),
                 el('div', { class: 'w-12 text-right tabular-nums font-semibold shrink-0' }, fmt.int(s.count)),
                 el('div', { class: 'w-14 text-right tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, (s.share * 100).toFixed(1) + '%'),
                 el('div', { class: 'w-20 text-right tabular-nums text-muted- shrink-0' }, fmt.usd0(s.revenue)),
+                el('div', { class: 'w-16 text-right tabular-nums shrink-0' }, s.acv > 0 ? fmt.usd0(s.acv) : '—'),
+                el('div', { class: 'w-16 text-right tabular-nums shrink-0' }, s.avgInit > 0 ? fmt.usd0(s.avgInit) : '—'),
+                el('div', { class: 'w-12 text-right tabular-nums shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%'),
+                el('div', { class: 'w-14 text-right tabular-nums shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—'),
+                el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0', style: { color: s.attr >= 0.10 ? '#DC2626' : s.attr >= 0.05 ? '#D97706' : '#5F8A1F' } }, (s.attr * 100).toFixed(1) + '%'),
               );
             }),
           ),
@@ -26071,6 +26274,19 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay)
     return bucketSales.length > 0 ? rev / bucketSales.length : 0;
   };
 
+  // TREND RULE: if the LAST bucket includes today it's still filling in —
+  // slice it off so a partial period never plots as a collapse. Tested via
+  // the bucket's own matcher with a synthetic sale dated today (date-based
+  // buckets match; week-number buckets no-op harmlessly).
+  const _lastLive = (() => {
+    try {
+      const lb = chartBuckets[chartBuckets.length - 1];
+      if (!lb || !lb.match) return false;
+      const t = new Date();
+      return !!lb.match({ dateSold: (t.getMonth() + 1) + '/' + t.getDate() + '/' + t.getFullYear() });
+    } catch (e) { return false; }
+  })();
+  if (_lastLive && chartBuckets.length > 1) chartBuckets = chartBuckets.slice(0, -1);
   const labels = chartBuckets.map(b => b.label);
 
   const buildMini = (metric) => {
@@ -26253,38 +26469,16 @@ function repDrillPanel(rep, chartBuckets) {
   const team = getRepTeam(rep.name);
   const accent = team ? getTeamColor(team) : null;
   const idPrefix = 'chart-rep-drill-' + rep.name.replace(/\s+/g, '-');
-  // Personal PRA stats — denominators are SELLING days (days with ≥1 account
-  // sold), so a day off doesn't drag the average. Computed from the panel's
-  // own sales slice so it always matches the charts below it.
-  const _totRev = rep.sales.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
-  const _sellDays = new Set(rep.sales.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
-  const _praChip = (label, value) => el('div', {
-    class: 'rounded-lg border px-2.5 py-1.5 flex flex-col min-w-0',
-    style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-    el('span', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
-    el('span', { class: 'text-sm font-bold tabular-nums' }, value));
-  const praRow = el('div', { class: 'flex flex-wrap gap-2 mb-3' },
-    _praChip('Revenue/Day', _sellDays > 0 ? '$' + Math.round(_totRev / _sellDays).toLocaleString() : '—'),
-    _praChip('Accts/Day', _sellDays > 0 ? (rep.sales.length / _sellDays).toFixed(1) : '—'),
-    _praChip('Selling Days', String(_sellDays)),
-    _praChip('Total Accts', String(rep.sales.length)),
-  );
+  // (Stats chips + office/sales/revenue sub-line removed — the player card
+  // owns those numbers, properly scoped. This panel is charts only. Also
+  // fixes "267 selling days": the chips summed the FULL 3-year dataset
+  // while the charts below plot only the current year.)
   return el('div', { class: 'mt-4 pt-4 border-t', style: { borderColor: 'var(--border)' } },
     el('div', { class: 'flex items-center justify-between mb-3' },
-      el('div', {},
-        el('h4', { class: 'text-sm font-bold' }, '👤 ' + rep.name),
-        el('div', { class: 'text-[10px] text-muted- mt-0.5' },
-          (rep.office || 'Unknown').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ') +
-          ' · ' + rep.sales.length + ' sales · $' + Math.round(_totRev).toLocaleString() + ' revenue'),
-      ),
-      // Reps are locked to their own view — Close would just re-open it.
-      isAdminRole(state.profile && state.profile.role) ? el('button', {
-        class: 'rounded border px-2 py-1 text-[10px] font-semibold',
-        style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-        onclick: () => { state._indicatorRepDrillDown = null; mountApp(); },
-      }, 'Close') : null,
+      el('h4', { class: 'text-sm font-bold' }, '👤 ' + rep.name),
+      // (Close button removed — it full-re-rendered and jumped to the top.
+      // Admins switch reps via the pickers above; reps are locked anyway.)
     ),
-    praRow,
     buildTrendMiniGrid(rep.sales, chartBuckets, idPrefix, accent),
   );
 }
@@ -26668,8 +26862,15 @@ function indicatorYoYTrendChart() {
               if (metric === 'cancel_pct' && y === prevY && w > lastDataWeek) return null;
               return valOf(acc[y] && acc[y][w], y === prevY);
             });
+            // TREND RULE: the current-year line ends at the last COMPLETED
+            // week — the in-progress week plotted as a nosedive on every
+            // metric (Carson + Isaac both flagged it). Its live total still
+            // shows in the YTD diamond on the right axis.
+            const _curWkNow = (() => { const a = new Date(curY, 0, 1); a.setDate(a.getDate() - a.getDay()); return Math.floor((todayMid - a) / 604800000) + 1; })();
+            const _liveIdx = (isCur && lastDataWeek >= _curWkNow) ? _curWkNow - 1 : -1;
+            const plotVals = _liveIdx >= 0 ? vals.map((v, i) => (i >= _liveIdx ? null : v)) : vals;
             lines.push(isCur
-              ? { label: String(y), data: vals, borderColor: '#8DC63F', backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct', spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 }
+              ? { label: String(y), data: plotVals, borderColor: '#8DC63F', backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct', spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 }
               : { label: String(y), data: vals, borderColor: color, borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5, order: idx });
             // YTD dot — point only, on the secondary 'yYTD' axis.
             const ytdData = weeksAxis.map(() => null); ytdData.push(ytdValOf(y));
@@ -26697,7 +26898,8 @@ function indicatorYoYTrendChart() {
                 const s = new Date(anchor); s.setDate(s.getDate() + (w - 1) * 7);
                 const e2 = new Date(s); e2.setDate(e2.getDate() + 6);
                 const f = (d) => (d.getMonth() + 1) + '/' + d.getDate();
-                return ctx.dataset.label + ' (' + f(s) + '–' + f(e2) + '): ' + fmtVal(ctx.parsed.y);
+                const live = y === curY && todayMid >= s && todayMid <= e2 ? ' · week in progress' : '';
+                return ctx.dataset.label + ' (' + f(s) + '–' + f(e2) + '): ' + fmtVal(ctx.parsed.y) + live;
               },
               footer: (items) => {
                 const i = items[0]?.dataIndex;
@@ -29453,10 +29655,10 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
   const paintHeaders = () => {
     headRow.replaceChildren(...cols.map(c => {
       const active = c.key === sortKey;
-      const arrow = active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+      const arrow = '';
       return el('th', {
         class: (c.align === 'right' ? 'text-right' : 'text-left') + ' px-3 py-2 font-semibold cursor-pointer select-none whitespace-nowrap hover:text-default transition',
-        style: active ? { color: 'var(--text)' } : undefined,
+        style: active ? { color: 'var(--accent)', fontWeight: '800' } : undefined,
         title: 'Sort by ' + c.label,
         onclick: () => {
           if (sortKey === c.key) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
@@ -30351,25 +30553,23 @@ function reportingMethodologyBar() {
   const srcExcl = (state.reportingSourceConfig || []).filter(c => c.included === false).length;
   const reaExcl = (state.reportingCancelConfig || []).filter(c => c.counts_attrition === false).length;
 
-  const chip = (txt) => el('span', {
-    class: 'px-1.5 py-0.5 rounded text-[10px] font-semibold',
-    style: { background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-muted)' },
-  }, txt);
+  // The banner itself is retired — its full contents live in the modal,
+  // opened by the ⓘ button in the filter row below. (hidden/srcExcl/reaExcl
+  // are still computed above so this function's callers stay stable.)
+  void u; void hidden; void srcExcl; void reaExcl;
+  return null;
+}
 
-  return el('div', { class: 'card p-2.5 flex items-center gap-x-2.5 gap-y-1 flex-wrap text-[11px]', style: { background: 'var(--card-2)' } },
-    el('span', { class: 'font-bold', style: { color: 'var(--text)' } }, 'How this is calculated'),
-    u && el('span', { style: { color: 'var(--text-muted)' } },
-      'Snapshot: ' + (u.filename || 'upload') + ' · ' + (u.row_count || 0).toLocaleString() + ' subs'),
-    chip('Recurring = ' + (reportingRecurringMode() === 'arv' ? 'data-driven (ARV > $0)' : 'Lifecycle config')),
-    chip(hidden + ' hidden'),
-    chip(srcExcl + ' source' + (srcExcl === 1 ? '' : 's') + ' excluded'),
-    chip(reaExcl + ' cancel reason' + (reaExcl === 1 ? '' : 's') + ' excluded'),
-    el('button', {
-      class: 'ml-auto rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-      style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-      onclick: () => openReportingMethodologyModal(tab),
-    }, 'Details →'),
-  );
+// Compact ⓘ that opens the methodology modal (replaces the old banner).
+function reportingMethodologyInfoBtn() {
+  const tab = state.reportingSubTab;
+  if (tab === 'config' || tab === 'uploads') return null;
+  return el('button', {
+    class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer shrink-0 transition hover:brightness-95',
+    style: { width: '26px', height: '26px', background: 'var(--accent)', color: 'var(--accent-text)', alignSelf: 'flex-end', marginBottom: '4px' },
+    title: 'How these numbers are calculated — snapshot, exclusions, recurring & attrition definitions',
+    onclick: () => openReportingMethodologyModal(tab),
+  }, 'ⓘ');
 }
 
 function openReportingMethodologyModal(tab) {
@@ -30399,7 +30599,7 @@ function openReportingMethodologyModal(tab) {
     overview:   'Headline cards + donuts cover every visible sub in scope. Active = status Active with no cancel date. ARR sums Annual Recurring Value over active recurring subs.',
     geographic: 'Map + table use serviced + recurring subs only (one-time excluded). Attrition/Retention need 10+ subs in an area before a rate is shown. Retention = 1 − attrition.',
     reps:       'Per-rep counts use every visible sub in scope (sold_by). Active and ARV use the same Active + recurring rules as Overview.',
-    waterfall:  'Cohort retention counts recurring subs only, grouped by initial-service year. A cancellation with an excluded reason is treated as retained (not churn).',
+    waterfall:  'Population: recurring service types only (per the Lifecycle config), serviced subs only (retention starts at first service), after Hidden-service and excluded-source filters and branch rules. Each cell = subs of that row still active at that year\u2019s end: started on/before Dec 31 and not cancelled by then. Cancels with a reason excluded from attrition count as RETAINED, and the 3-day-ROR setting matches the Overview tab. Subscription/ARR rows are initial-service-year cohorts (all-time; the time range doesn\u2019t apply). Contract Length / Rep default to BOOK SIZE per year-end — new sales enter columns as they start — and the Cohort picker locks those rows to one start-year and follows it, a true retention curve. Rep mode shows the top 15 reps by sub count, attributed by Sold By. Colors grade each cell against the cohort size (cohort views) or the row\u2019s best year (book-size view). The Attrition % view converts each cell to 1 \u2212 survivors \u00f7 prior-year survivors (first year: \u00f7 cohort size); the Blended Attrition table compares each year\u2019s beginning-of-year book (existing cohorts only) to those SAME subs at year-end \u2014 new sales during the year never enter, and ARR mode measures it in dollars.',
     is:         'Inside Sales is a sold-date P&L: new revenue is committed-sold (auto-pay) subs by the month sold. It honors excluded Sources but, being sold-revenue, not the lifecycle/hidden/cancel rules.',
   };
 
@@ -30519,6 +30719,9 @@ function reportingDataGate() {
 // the row sets each panel needs. Shared across every data sub-tab so
 // they all filter the same way.
 function reportingScope() {
+  // Office-compare is a Waterfall-only feature now — clear it anywhere else
+  // so no tab is stranded in compare with no exit control.
+  if (state.reportingCompareMode && state.reportingSubTab !== 'waterfall') state.reportingCompareMode = false;
   const { visible } = reportingFilters();
   // Office list built from ALL dates so changing the time filter doesn't
   // make offices disappear from the picker (would be jarring if the
@@ -30547,7 +30750,9 @@ function reportingScope() {
 // Render the shared filter bar (office picker(s) + time range + compare
 // toggle + active-filter summary). Every data sub-tab calls this so
 // filter UX is consistent.
-function reportingFilterBar(scope) {
+function reportingFilterBar(scope, opts = {}) {
+  const showDate    = opts.showDate    !== false;   // default: show the time range
+  const showCompare = opts.showCompare === true;    // default: no compare button
   const { offices, office, compareOffice, inCompare, datePreset, dateStart, dateEnd, dateLabel, inDate } = scope;
 
   const officePicker = (selected, onChange, hint) => {
@@ -30566,7 +30771,8 @@ function reportingFilterBar(scope) {
   };
 
   const compareBtn = el('button', {
-    class: 'rounded-lg px-3 py-2 text-xs font-bold transition hover:brightness-95 self-end',
+    // Sized to match the pickers beside it (same font/padding as the selects)
+    class: 'rounded-lg px-3 py-2 text-sm font-semibold transition hover:brightness-95 self-end',
     style: inCompare
       ? { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border)' }
       : { background: 'var(--accent)', color: 'var(--accent-text)' },
@@ -30579,7 +30785,8 @@ function reportingFilterBar(scope) {
       }
       mountApp();
     },
-  }, inCompare ? '✕ Exit compare' : '⇄ Compare offices');
+  }, inCompare ? '✕ Exit' : 'Compare');
+  const methodologyInfo = (typeof reportingMethodologyInfoBtn === 'function') ? reportingMethodologyInfoBtn() : null;
 
   const datePresets = [
     ['all',             'All time'],
@@ -30629,9 +30836,6 @@ function reportingFilterBar(scope) {
     class: 'text-[11px] mt-1 flex items-center gap-2 flex-wrap',
     style: { color: 'var(--text-muted)' },
   },
-    el('span', { class: 'font-semibold' }, dateLabel),
-    el('span', {}, '·'),
-    el('span', {}, inDate.length.toLocaleString() + ' subs in window'),
     (dateStart || dateEnd) && el('button', {
       class: 'underline ml-1 text-[11px]',
       style: { color: 'var(--accent)', background: 'transparent', border: 'none', cursor: 'pointer' },
@@ -30649,8 +30853,10 @@ function reportingFilterBar(scope) {
       officePicker(office, (v) => { state.reportingOffice = v; mountApp(); }, inCompare ? 'Office A' : 'Office'),
       inCompare && el('div', { class: 'text-sm font-bold self-end pb-2', style: { color: 'var(--text-muted)' } }, 'vs'),
       inCompare && officePicker(compareOffice, (v) => { state.reportingCompareOffice = v; mountApp(); }, 'Office B'),
-      datePicker,
-      compareBtn,
+      showDate && datePicker,
+      showCompare && compareBtn,
+      el('div', { class: 'flex-1' }),
+      methodologyInfo,
     ),
     filterSummary,
   );
@@ -33217,12 +33423,9 @@ function reportingGeographic() {
         el('span', {}, office + ' service-area line in red — drill into the state to see it. '),
         el('b', {}, outN.toLocaleString() + ' of ' + tot.toLocaleString() + ' subs (' + (tot ? Math.round(100 * outN / tot) : 0) + '%) sit OUTSIDE the line.'),
       );
-    } else {
-      svcOutBanner = el('div', { class: 'card p-3 text-xs flex items-center gap-2 flex-wrap' },
-        redLine,
-        el('span', {}, 'Service-area lines shown in red on the ZIP map. Pick a branch in the office filter to see its out-of-area customer count.'),
-      );
     }
+    // (generic "lines shown in red" explainer retired — the red line on the
+    // map speaks for itself; the office-specific out-of-area stat stays)
   }
 
   // Metric toggle — drives map color + table emphasis. Each metric is its own
@@ -33485,7 +33688,7 @@ function reportingGeographic() {
     const isActive = sortKey === key;
     return el('th', {
       class: 'px-3 py-2 font-semibold cursor-pointer select-none' + (alignRight ? ' text-right' : ' text-left'),
-      style: { background: 'var(--card-2)' },
+      style: { background: 'var(--card-2)', color: isActive ? 'var(--accent)' : undefined, fontWeight: isActive ? '800' : undefined },
       onclick: () => {
         if (state.reportingZipSort === key) {
           state.reportingZipSortDir = state.reportingZipSortDir === 'asc' ? 'desc' : 'asc';
@@ -33495,7 +33698,7 @@ function reportingGeographic() {
         }
         mountApp();
       },
-    }, label + (isActive ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''));
+    }, label);
   };
 
   const fmtPctTable = (z) => {
@@ -33574,13 +33777,8 @@ function reportingGeographic() {
     ),
   );
 
-  const scopeNote = el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
-    'Map shows true subscriptions only: serviced + recurring (one-time services excluded) — '
-    + scopeServiced.length.toLocaleString() + ' of ' + scopeA.length.toLocaleString() + ' subs in scope.');
-
   return el('div', { class: 'flex flex-col gap-4' },
     filterBar,
-    scopeNote,
     compareNotice,
     svcOutBanner,
     metricToggle,
@@ -33693,7 +33891,7 @@ function reportingRepPerformance() {
 // earliest sold sub to today, cells are count or ARV of cohort still
 // active at year-end. Cells are color-coded by retention % so trends
 // pop visually.
-function buildReportingWaterfall(rows, mode) {
+function buildReportingWaterfall(rows, mode, cohortYear) {
   const today = new Date();
   // Consistency with Overview + Geographic attrition: cohort retention counts
   // RECURRING subs only (one-time subs don't "retain"), and a cancellation
@@ -33702,17 +33900,31 @@ function buildReportingWaterfall(rows, mode) {
   // date (null when there's no real-attrition cancel).
   const recurringByName = reportingServiceRecurringMap();
   const excludedReasons = reportingExcludedCancelReasons();
-  rows = rows.filter(r => !!recurringByName.get(r.subscription)).map(r => {
-    const realCancel = r.subscription_date_canceled
-      && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
-      ? r.subscription_date_canceled : null;
-    return { ...r, _effCancel: realCancel };
-  });
+  rows = rows
+    .filter(r => !!recurringByName.get(r.subscription))
+    .filter(r => !!r.initial_service)   // retention starts at first service — unserviced subs can't retain (they used to pad Totals without ever appearing in a year column)
+    .map(r => {
+      const realCancel = r.subscription_date_canceled
+        && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
+        && !(reportingExcludeRorChurn() && _reporting3dayRor(r))   // same ROR setting as Overview/Geographic attrition
+        ? r.subscription_date_canceled : null;
+      return { ...r, _effCancel: realCancel };
+    });
   const initYears = rows
     .map(r => r.initial_service ? new Date(r.initial_service + 'T00:00').getFullYear() : null)
     .filter(y => y && !Number.isNaN(y));
-  if (initYears.length === 0) return { rowDefs: [], years: [] };
-  const minYear = Math.min(...initYears);
+  if (initYears.length === 0) return { rowDefs: [], years: [], allYears: [], cohorted: false };
+  const allYears = [...new Set(initYears)].sort((a, b) => a - b);
+  // COHORT MODE (Contract Length / Rep): restrict the population to subs
+  // whose initial service landed in the picked year, then follow exactly
+  // that cohort across the columns — a true retention curve. Without it,
+  // those modes mix new sales into every column (book size, not decay).
+  const cohorted = !!cohortYear && cohortYear !== 'all' && (mode === 'contract' || mode === 'rep');
+  if (cohorted) {
+    const cy = Number(cohortYear);
+    rows = rows.filter(r => r.initial_service && new Date(r.initial_service + 'T00:00').getFullYear() === cy);
+  }
+  const minYear = cohorted ? Number(cohortYear) : Math.min(...initYears);
   const maxYear = today.getFullYear();
   const years = [];
   for (let y = minYear; y <= maxYear; y++) years.push(y);
@@ -33763,8 +33975,10 @@ function buildReportingWaterfall(rows, mode) {
     }
     return { id, total, byYear, rowRows };
   });
+  // (returned below with allYears + cohorted so the UI can build the picker
+  // and color against the true cohort size)
 
-  return { rowDefs, years };
+  return { rowDefs, years, allYears, cohorted };
 }
 
 // ── COMMISSION CALCULATOR ────────────────────────────────────────────────────
@@ -34274,17 +34488,40 @@ function reportingWaterfall() {
   if (gate) return gate;
   const scope = reportingScope();
   const { scopeA, scopeB, inCompare, office, compareOffice, officeLabel } = scope;
-  const filterBar = reportingFilterBar(scope);
 
   if (!state.reportingWaterfallMode) state.reportingWaterfallMode = 'subscription';
   const mode = state.reportingWaterfallMode;
+  // Time range only matters for Contract Length / Rep (it scopes which subs
+  // qualify); the cohort modes are inherently all-time. Compare offices is
+  // a Waterfall-only tool — side-by-side retention matrices.
+  const filterBar = reportingFilterBar(scope, {
+    showDate: mode === 'contract' || mode === 'rep',
+    showCompare: true,
+  });
+  // Cohort modes are all-time BY DEFINITION — and their time-range picker is
+  // hidden, so a range set on another tab must not silently shrink them.
+  // Contract/Rep modes keep the visible, user-controlled range.
+  const usesDate = mode === 'contract' || mode === 'rep';
+  const popA = usesDate ? scopeA : reportingFilterByOffice(scope.visible, office);
+  const popB = inCompare ? (usesDate ? scopeB : reportingFilterByOffice(scope.visible, compareOffice)) : null;
+  if (!state.reportingWaterfallCohort) state.reportingWaterfallCohort = 'all';
+  const cohortSel = (mode === 'contract' || mode === 'rep') ? state.reportingWaterfallCohort : 'all';
+  if (!state.reportingWaterfallView) state.reportingWaterfallView = 'counts';
+  // Attrition-% needs true cohorts: always available on Subscription/ARR;
+  // on Contract/Rep only once a cohort year is picked (book-size %s would
+  // read growth as negative attrition — nonsense).
+  const rateOK = (mode === 'subscription' || mode === 'arv') || cohortSel !== 'all';
+  const view = rateOK ? state.reportingWaterfallView : 'counts';
 
   const modes = [
     ['subscription',    'Subscription'],
-    ['arv',             'ARR ($)'],
+    ['arv',             'ARR'],
     ['contract',        'Contract Length'],
     ['rep',             'Rep'],
   ];
+
+  const waterfallA = buildReportingWaterfall(popA, mode, cohortSel);
+  const waterfallB = inCompare ? buildReportingWaterfall(popB, mode, cohortSel) : null;
 
   const modeBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Group rows by'),
@@ -34298,6 +34535,30 @@ function reportingWaterfall() {
         onclick: () => { state.reportingWaterfallMode = k; mountApp(); },
       }, label);
     }),
+    // Counts ⇄ Attrition-% view toggle (the workbook's "Aggregate Attrition
+    // Rate" triangle: each cell = 1 − survivors ÷ prior-year survivors).
+    el('div', { class: 'inline-flex rounded-lg border overflow-hidden ml-auto', style: { borderColor: 'var(--border-2)' } },
+      ...[['counts', '#'], ['rate', 'Attrition %']].map(([v, label]) => el('button', {
+        class: 'px-3 py-1.5 text-xs font-semibold transition',
+        style: view === v
+          ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+          : { color: rateOK || v === 'counts' ? 'var(--text-muted)' : 'var(--text-subtle)', background: 'var(--card)', cursor: rateOK || v === 'counts' ? 'pointer' : 'default' },
+        title: v === 'rate' && !rateOK ? 'Pick a cohort year first — book-size rows have no attrition rate' : '',
+        onclick: () => { if (v === 'counts' || rateOK) { state.reportingWaterfallView = v; mountApp(); } },
+      }, label))),
+    // Cohort-year picker — Contract Length / Rep only. "All years" = book
+    // size at each year-end; a specific year = that year's cohort followed
+    // through time (true retention).
+    (mode === 'contract' || mode === 'rep') && el('div', { class: 'flex items-center gap-1.5' },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Cohort'),
+      el('select', {
+        class: 'rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+        onchange: (e) => { state.reportingWaterfallCohort = e.target.value; mountApp(); },
+      },
+        el('option', { value: 'all', selected: cohortSel === 'all' }, 'All years (book size)'),
+        ...(waterfallA.allYears || []).map(y => el('option', { value: String(y), selected: String(cohortSel) === String(y) }, y + ' cohort')),
+      )),
   );
 
   // Cell color = retention % vs cohort total. Green → red gradient.
@@ -34306,7 +34567,7 @@ function reportingWaterfall() {
   // starting cohort, so we compare to the row's max cell instead.
   const cellColor = (rowDef, value) => {
     if (!value) return 'transparent';   // blank cell (e.g. before the cohort existed) → white, not red
-    const baseline = (mode === 'subscription' || mode === 'arv')
+    const baseline = (mode === 'subscription' || mode === 'arv' || cohortSel !== 'all')
       ? rowDef.total
       : Math.max(...Object.values(rowDef.byYear));
     if (!baseline) return 'transparent';
@@ -34348,26 +34609,112 @@ function reportingWaterfall() {
               el('td', { class: 'text-left px-2 py-2 font-bold' }, fmtCell(row.total, true)),
               ...data.years.map(y => {
                 const v = row.byYear[y] || 0;
+                if (view === 'rate') {
+                  // Workbook's Aggregate Attrition Rate: 1 − survivors ÷ the
+                  // prior year's survivors (first year: ÷ cohort size).
+                  const firstYear = (mode === 'subscription' || mode === 'arv') ? Number(row.id) : Number(cohortSel);
+                  if (y < firstYear) return el('td', { class: 'text-left px-2 py-2' }, '');
+                  const prev = y === firstYear ? row.total : (row.byYear[y - 1] || 0);
+                  if (!prev) return el('td', { class: 'text-left px-2 py-2' }, '—');
+                  const rate = 1 - v / prev;
+                  const t = Math.max(0, Math.min(1, rate / 0.5));   // 0% green → ≥50% full red
+                  return el('td', {
+                    class: 'text-left px-2 py-2 tabular-nums',
+                    style: { background: `hsl(${120 * (1 - t)}, 70%, 88%)` },
+                    title: fmtCell(v) + ' of ' + fmtCell(prev) + ' retained',
+                  }, (rate * 100).toFixed(1) + '%');
+                }
                 return el('td', {
                   class: 'text-left px-2 py-2',
                   style: { background: cellColor(row, v) },
                 }, fmtCell(v));
               }),
             )),
+            // ── TOTAL row ──
+            // Counts view: column sums (whole-book survivors per year-end).
+            // Rate view: WEIGHTED attrition per year — 1 − Σ survivors ÷
+            // Σ prior-year survivors across every cohort active that year,
+            // so big cohorts pull the blend exactly by their size.
+            (() => {
+              const firstYearFor = (row) => (mode === 'subscription' || mode === 'arv') ? Number(row.id) : Number(cohortSel);
+              const cells = data.years.map(y => {
+                if (view === 'rate') {
+                  let num = 0, den = 0;
+                  data.rowDefs.forEach(row => {
+                    const fy = firstYearFor(row);
+                    if (y < fy) return;
+                    den += y === fy ? row.total : (row.byYear[y - 1] || 0);
+                    num += row.byYear[y] || 0;
+                  });
+                  if (!den) return el('td', { class: 'text-left px-2 py-2' }, '');
+                  const rate = 1 - num / den;
+                  const t = Math.max(0, Math.min(1, rate / 0.5));
+                  return el('td', {
+                    class: 'text-left px-2 py-2 tabular-nums font-bold',
+                    style: { background: `hsl(${120 * (1 - t)}, 70%, 84%)` },
+                    title: fmtCell(num) + ' of ' + fmtCell(den) + ' retained (all cohorts, weighted)',
+                  }, (rate * 100).toFixed(1) + '%');
+                }
+                const sum = data.rowDefs.reduce((a, row) => a + (row.byYear[y] || 0), 0);
+                return el('td', { class: 'text-left px-2 py-2 font-bold' }, fmtCell(sum, true));
+              });
+              const grandTotal = data.rowDefs.reduce((a, row) => a + (row.total || 0), 0);
+              const lastY = data.years[data.years.length - 1];
+              const surviving = data.rowDefs.reduce((a, row) => a + (row.byYear[lastY] || 0), 0);
+              const totalCell = view === 'rate'
+                ? el('td', { class: 'text-left px-2 py-2 font-bold tabular-nums', title: 'Lifetime: ' + fmtCell(surviving) + ' of ' + fmtCell(grandTotal) + ' still active' },
+                    grandTotal > 0 ? ((1 - surviving / grandTotal) * 100).toFixed(1) + '%' : '—')
+                : el('td', { class: 'text-left px-2 py-2 font-bold' }, fmtCell(grandTotal, true));
+              return el('tr', { class: 'border-t-2', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+                el('td', { class: 'text-left px-3 py-2 font-black sticky left-0', style: { background: 'var(--card-2)' } },
+                  view === 'rate' ? 'WEIGHTED' : 'TOTAL'),
+                totalCell,
+                ...cells);
+            })(),
           ),
         ),
       ),
     );
   };
 
-  const waterfallA = buildReportingWaterfall(scopeA, mode);
-  const waterfallB = inCompare ? buildReportingWaterfall(scopeB, mode) : null;
+  // Blended Attrition (workbook: B.O.Y. survivors of existing cohorts vs
+  // the same subs at E.O.Y. — new sales during the year never enter).
+  const money0 = (v) => '$' + Math.round(v || 0).toLocaleString();
+  const renderBlended = (pop) => {
+    const base = buildReportingWaterfall(pop, mode === 'arv' ? 'arv' : 'subscription', 'all');
+    const rows2 = [];
+    (base.years || []).forEach((y, i) => {
+      if (i === 0) return;
+      let boy = 0, eoy = 0;
+      base.rowDefs.forEach(r => { if (Number(r.id) <= y - 1) { boy += r.byYear[y - 1] || 0; eoy += r.byYear[y] || 0; } });
+      if (!boy) return;
+      rows2.push({ y, boy, eoy, ret: eoy / boy });
+    });
+    if (!rows2.length) return null;
+    const num = mode === 'arv' ? money0 : (v) => v.toLocaleString();
+    return el('div', { class: 'card overflow-hidden shrink-0', style: { minWidth: '300px' } },
+      el('div', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest font-bold', style: { background: 'var(--card-2)', borderBottom: '1px solid var(--border)' } }, 'Blended Attrition'),
+      el('table', { class: 'w-full text-xs tabular-nums' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
+          el('tr', {},
+            ...['Year', 'B.O.Y.', 'E.O.Y.', 'Retention', 'Attrition'].map(h => el('th', { class: 'text-left px-2.5 py-1.5 font-semibold' }, h)))),
+        el('tbody', {},
+          ...rows2.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'px-2.5 py-1.5 font-semibold' }, r.y),
+            el('td', { class: 'px-2.5 py-1.5' }, num(r.boy)),
+            el('td', { class: 'px-2.5 py-1.5' }, num(r.eoy)),
+            el('td', { class: 'px-2.5 py-1.5' }, (r.ret * 100).toFixed(2) + '%'),
+            el('td', { class: 'px-2.5 py-1.5 font-bold', style: { color: (1 - r.ret) > 0.3 ? '#DC2626' : 'var(--text)' } }, ((1 - r.ret) * 100).toFixed(2) + '%'))))));
+  };
+  const renderSide = (data, pop, label) => el('div', { class: 'flex gap-4 flex-wrap items-start' },
+    el('div', { class: 'flex-1 min-w-0' }, renderMatrix(data, label)),
+    renderBlended(pop));
 
   const body = inCompare
     ? el('div', { class: 'flex flex-col gap-4' },
-        renderMatrix(waterfallA, officeLabel(office)),
-        renderMatrix(waterfallB, officeLabel(compareOffice)))
-    : renderMatrix(waterfallA);
+        renderSide(waterfallA, popA, officeLabel(office)),
+        renderSide(waterfallB, popB, officeLabel(compareOffice)))
+    : renderSide(waterfallA, popA);
 
   return el('div', { class: 'flex flex-col gap-4' }, filterBar, modeBar, body);
 }
@@ -37506,10 +37853,10 @@ function adminReps() {
   const th = (label, align, key) => key
     ? el('th', {
         class: (align || 'text-left') + ' px-3 py-3 cursor-pointer select-none transition hover:brightness-110 whitespace-nowrap',
-        style: _us.key === key ? { color: 'var(--accent)' } : {},
+        style: _us.key === key ? { color: 'var(--accent)', fontWeight: '800' } : {},
         title: 'Sort by ' + label + (_us.key === key ? (_us.asc ? ' — descending next' : ' — ascending next') : ''),
         onclick: () => { if (_us.key === key) { _us.asc = !_us.asc; } else { _us.key = key; _us.asc = true; } mountApp(); },
-      }, label + (_us.key === key ? (_us.asc ? ' ↑' : ' ↓') : ''))
+      }, label)
     : el('th', { class: (align || 'text-left') + ' px-3 py-3' }, label);
   host.append(el('div', { class: 'card overflow-hidden' }, el('div', { class: 'scroll-x' },
     el('table', { class: 'w-full text-sm whitespace-nowrap' },
