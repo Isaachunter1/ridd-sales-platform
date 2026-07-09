@@ -18681,9 +18681,11 @@ function viewIndicators() {
   // power-ranking metrics (by-branch table + rankings/power panel) and the
   // Rep Leaderboard. No comps mode (that lives on the Competitions tab),
   // no charts, no admin tooling, no other rep sections.
+  // Comps mode retired on this tab — competitions live on the Competitions
+  // tab for every role. Clears any persisted ON state so nobody's stuck.
+  state.indicatorsComps = false;
   const _repLite = !isAdminRole(state.profile.role);
   if (_repLite) {
-    state.indicatorsComps = false;
     // Stats default to the viewer's OWN rep type — office staff land on
     // Office Staff stats, sales reps on Sales Rep stats. Seeds the first
     // render only; flipping the dropdown afterward sticks for the session.
@@ -18751,6 +18753,61 @@ function viewIndicators() {
           el('div', { class: 'w-full max-w-[1600px] mx-auto px-4 sm:px-6' },
             el('div', { class: 'flex flex-col gap-2' },
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
+          // Power Ranking selector — pick which offices/teams are scored. Default
+          // is everyone in; deselecting keeps an office/team on the board (stats
+          // still show + roll into totals) but drops it from the ranking points.
+          (() => {
+            if (state.indicatorsComps) return null; // Power Ranking is comps-OFF only — hide its trophy in comp mode
+            if (!isAdminRole(state.profile.role)) return null; // admin analysis tool — reps don't need it
+            const excludedNow = rankExcludedSet();
+            const noun = groupBy === 'teams' ? 'teams' : 'offices';
+            const opts = activeBranches.filter(b => !(groupBy === 'teams' && b === 'Unassigned')).sort((a, b) => a.localeCompare(b));
+            const titleCase = (s) => s.split(' ').map(w => w ? w[0] + w.slice(1).toLowerCase() : w).join(' ');
+            const reRender = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
+            const panel = el('div', {
+              class: 'card',
+              style: { position: 'absolute', left: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '230px', maxHeight: '340px', overflowY: 'auto', padding: '6px', boxShadow: 'var(--shadow-lg)', display: 'none' },
+            },
+              el('div', { class: 'flex items-center justify-between px-2 py-1.5' },
+                el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'In Power Ranking'),
+                el('button', {
+                  class: 'text-[10px] font-semibold', style: { color: 'var(--accent)', cursor: 'pointer' },
+                  onclick: (e) => { e.stopPropagation(); if (state._indicatorRankExclude) state._indicatorRankExclude[_rankExcludeMode()] = []; saveDemoData(); reRender(); },
+                }, 'All'),
+              ),
+              ...opts.map(b => el('label', {
+                class: 'flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs',
+                style: { color: 'var(--text)' },
+                onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
+                onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
+              },
+                el('input', { type: 'checkbox', checked: !excludedNow.has(b), onchange: () => { toggleRankExcluded(b); reRender(); } }),
+                el('span', { class: 'truncate' }, titleCase(b)),
+              )),
+            );
+            const icon = iconTrophy();
+            icon.style.width = '15px'; icon.style.height = '15px';
+            const btn = el('button', {
+              class: 'relative flex items-center justify-center border cursor-pointer transition hover:brightness-95 shrink-0',
+              style: { width: '36px', height: '36px', borderRadius: '999px', color: excludedNow.size ? 'var(--accent)' : 'var(--text-muted)', borderColor: excludedNow.size ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)' },
+              title: 'Power Ranking — choose which ' + noun + ' are scored (deselected ones keep their stats but earn no points)'
+                + (excludedNow.size ? ' · ' + excludedNow.size + ' ' + noun + ' out' : ''),
+              onclick: (e) => {
+                e.stopPropagation();
+                const open = panel.style.display === 'block';
+                panel.style.display = open ? 'none' : 'block';
+                if (!open) { const closer = (ev) => { if (!panel.contains(ev.target) && !btn.contains(ev.target)) { panel.style.display = 'none'; document.removeEventListener('mousedown', closer); } }; setTimeout(() => document.addEventListener('mousedown', closer), 0); }
+              },
+            },
+              icon,
+              // Little count badge when some offices/teams are excluded.
+              excludedNow.size ? el('span', {
+                class: 'absolute tabular-nums',
+                style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '7px', background: 'var(--accent)', color: '#16321a', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
+              }, String(excludedNow.size)) : null,
+            );
+            return el('div', { style: { position: 'relative' } }, btn, panel);
+          })(),
         // Emp Type (rep type) moved INTO the Filters panel (⛃ Filters).
         // Primary Metric — Total Revenue vs Pending/Serviced Revenue (this is the
         // account-status filter, surfaced up top like FieldRoutes' Primary Stat).
@@ -19066,17 +19123,7 @@ function viewIndicators() {
         el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
           el('div', {},
           el('div', { class: 'flex items-baseline gap-2 flex-wrap' },
-          el('h1', { class: 'text-lg font-bold' }, (() => {
-            if (!isRange) return 'INDICATORS';
-            const presetLabel = indicatorPresetLabel(state.indicatorsRangePreset);
-            if (state.indicatorsRangePreset === 'custom') {
-              return `INDICATORS — ${rangeBounds.start} to ${rangeBounds.end}`;
-            }
-            return `INDICATORS — ${presetLabel}`;
-          })()),
-          !isRange && dateLabel && el('div', { class: 'text-xs text-muted-' }, dateLabel),
-          isRange && isAdminRole(state.profile.role) && el('div', { class: 'text-xs text-muted-' },
-            rangeBounds.start + ' → ' + rangeBounds.end + ' · ' + weeks.length + ' week' + (weeks.length === 1 ? '' : 's')),
+          el('h1', { class: 'text-lg font-bold' }, 'INDICATORS'),
           ), // close inline title + date row
           state.indicatorsUploadedAt && (() => {
             // Self-healing freshness stamp. The dataset label ("RevHawk sync —
@@ -19106,92 +19153,8 @@ function viewIndicators() {
           })(),
           ), // close left column of the title row
           el('div', { class: 'flex items-center gap-3' },
-          // Power Ranking selector — pick which offices/teams are scored. Default
-          // is everyone in; deselecting keeps an office/team on the board (stats
-          // still show + roll into totals) but drops it from the ranking points.
-          (() => {
-            if (state.indicatorsComps) return null; // Power Ranking is comps-OFF only — hide its trophy in comp mode
-            if (!isAdminRole(state.profile.role)) return null; // admin analysis tool — reps don't need it
-            const excludedNow = rankExcludedSet();
-            const noun = groupBy === 'teams' ? 'teams' : 'offices';
-            const opts = activeBranches.filter(b => !(groupBy === 'teams' && b === 'Unassigned')).sort((a, b) => a.localeCompare(b));
-            const titleCase = (s) => s.split(' ').map(w => w ? w[0] + w.slice(1).toLowerCase() : w).join(' ');
-            const reRender = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
-            const panel = el('div', {
-              class: 'card',
-              style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '230px', maxHeight: '340px', overflowY: 'auto', padding: '6px', boxShadow: 'var(--shadow-lg)', display: 'none' },
-            },
-              el('div', { class: 'flex items-center justify-between px-2 py-1.5' },
-                el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'In Power Ranking'),
-                el('button', {
-                  class: 'text-[10px] font-semibold', style: { color: 'var(--accent)', cursor: 'pointer' },
-                  onclick: (e) => { e.stopPropagation(); if (state._indicatorRankExclude) state._indicatorRankExclude[_rankExcludeMode()] = []; saveDemoData(); reRender(); },
-                }, 'All'),
-              ),
-              ...opts.map(b => el('label', {
-                class: 'flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs',
-                style: { color: 'var(--text)' },
-                onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
-                onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
-              },
-                el('input', { type: 'checkbox', checked: !excludedNow.has(b), onchange: () => { toggleRankExcluded(b); reRender(); } }),
-                el('span', { class: 'truncate' }, titleCase(b)),
-              )),
-            );
-            const icon = iconTrophy();
-            icon.style.width = '15px'; icon.style.height = '15px';
-            const btn = el('button', {
-              class: 'relative flex items-center justify-center rounded-lg border cursor-pointer transition hover:brightness-95 mb-0.5',
-              style: { width: '30px', height: '28px', color: excludedNow.size ? 'var(--accent)' : 'var(--text-muted)', borderColor: excludedNow.size ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)' },
-              title: 'Power Ranking — choose which ' + noun + ' are scored (deselected ones keep their stats but earn no points)'
-                + (excludedNow.size ? ' · ' + excludedNow.size + ' ' + noun + ' out' : ''),
-              onclick: (e) => {
-                e.stopPropagation();
-                const open = panel.style.display === 'block';
-                panel.style.display = open ? 'none' : 'block';
-                if (!open) { const closer = (ev) => { if (!panel.contains(ev.target) && !btn.contains(ev.target)) { panel.style.display = 'none'; document.removeEventListener('mousedown', closer); } }; setTimeout(() => document.addEventListener('mousedown', closer), 0); }
-              },
-            },
-              icon,
-              // Little count badge when some offices/teams are excluded.
-              excludedNow.size ? el('span', {
-                class: 'absolute tabular-nums',
-                style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '7px', background: 'var(--accent)', color: '#16321a', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
-              }, String(excludedNow.size)) : null,
-            );
-            return el('div', { style: { position: 'relative' } }, btn, panel);
-          })(),
-          // Comps switch — competition mode. OFF = every sale counts, zero
-          // exclusions. ON = comp exclusions apply to every number below.
-          // Hidden in rep-lite (comps live on the Competitions tab for reps).
-          !_repLite && (() => {
-            const on = !!state.indicatorsComps;
-            return el('div', {
-              class: 'flex items-center gap-2 cursor-pointer select-none mb-0.5',
-              style: { width: 'fit-content' },
-              title: 'Competition mode — applies comp exclusions to every number below',
-              onclick: (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                state.indicatorsComps = !state.indicatorsComps;
-                // Comps are Door-to-Door competitions — force the dept there.
-                if (state.indicatorsComps) state.indicatorDept = 'd2d';
-                const sx = window.scrollX, sy = window.scrollY;
-                setTimeout(() => {
-                  mountApp();
-                  requestAnimationFrame(() => window.scrollTo(sx, sy));
-                }, 0);
-              },
-            },
-              el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, 'Comps:'),
-              el('div', {
-                style: { width: '38px', height: '22px', borderRadius: '11px', background: on ? '#34C759' : 'var(--border-2)', position: 'relative', flex: 'none' },
-              },
-                el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)' } }),
-              ),
-            );
-          })(),
-          ), // close Highlights + Comps group
+
+          ), // close title-row right group (comps toggle retired — comps live on the Competitions tab)
         ),
       );
     })(),
