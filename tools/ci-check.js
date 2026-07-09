@@ -59,14 +59,17 @@ const parity = spawnSync(process.execPath, [path.join(__dirname, 'derive-parity-
 if (parity.status === 0) ok('parity test passed');
 else bad('parity test FAILED', (parity.stdout + parity.stderr).split('\n').filter(l => l.includes('✗')).join(' | ') || 'see output');
 
-// ── 4. Responsive utility coverage ──────────────────────────────────────
-console.log('\n[4/4] Tailwind responsive utility coverage');
+// ── 4. Responsive + arbitrary-value utility coverage ────────────────────
+// Prebuilt Tailwind = any class not in the sheet silently does nothing.
+// Covers responsive prefixes (sm:/md:/lg:/xl:) AND arbitrary values like
+// text-[20px] / w-[280px] — both bit us in production.
+console.log('\n[4/4] Tailwind utility coverage (responsive + arbitrary values)');
 const css = fs.readFileSync(path.join(root, 'tailwind.css'), 'utf8');
 const used = new Set();
 for (const pat of [/class:\s*'([^']*)'/g, /class:\s*"([^"]*)"/g, /class="([^"]*)"/g]) {
   for (const m of html.matchAll(pat)) {
     for (const tok of m[1].split(/\s+/)) {
-      if (/^(sm|md|lg|xl):/.test(tok)) used.add(tok);
+      if (/^(sm|md|lg|xl):/.test(tok) || /\[[^\]]+\]/.test(tok)) used.add(tok);
     }
   }
 }

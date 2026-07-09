@@ -686,6 +686,7 @@
     .lg\:grid-cols-\[3fr_7fr\] { grid-template-columns: 3fr 7fr; }
     .lg\:w-\[440px\] { width: 440px; }
   }
+  .max-w-\[130px\] { max-width: 130px; }
 </style>
 
 <!-- Apply theme before body paints to avoid flash -->
@@ -19462,6 +19463,12 @@ function viewIndicators() {
         // Emp Type (rep type) moved INTO the Filters panel (⛃ Filters).
         // Primary Metric — Total Revenue vs Pending/Serviced Revenue (this is the
         // account-status filter, surfaced up top like FieldRoutes' Primary Stat).
+        // REP ACCOUNTS ARE LOCKED to Pending/Serviced: "Total Revenue" counts
+        // cancelled + sold-not-started rows too — an admin analysis lens that
+        // just makes a rep's number look bigger than anything comps or
+        // payroll will ever pay on (field-tested: it confused the first rep
+        // who found it).
+        _repLite ? (() => { state.indicatorAcctStatus = 'pending_serviced'; return null; })() :
         el('div', { class: 'flex items-center gap-1.5' },
           el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, 'Metric'),
           el('select', {
@@ -22845,22 +22852,19 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           const myIdx = mySig ? displayReps.findIndex(r => _meSig(r.name) === mySig) : -1;
           if (myIdx < 0) return [];
           const me = displayReps[myIdx];
-          const _heroMe = (label, value) => el('div', { class: 'flex flex-col items-center min-w-0' },
-            el('span', { class: 'text-[8px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
-            el('span', { class: 'text-[13px] font-bold tabular-nums truncate' }, value));
           return [el('div', {
-            class: 'rounded-xl border p-3 flex flex-col gap-1.5 cursor-pointer',
-            style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.10)', borderLeftWidth: '4px' },
+            class: 'rounded-xl border px-3 py-2.5 flex flex-col cursor-pointer',
+            style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.08)', borderLeftWidth: '3px' },
             onclick: () => openIndicatorRepCard(me, allReps),
           },
             el('div', { class: 'flex items-center gap-2' },
-              el('span', { class: 'font-black tabular-nums text-[13px]', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
-              el('span', { class: 'font-bold truncate' }, me.name),
-              el('span', { class: 'ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You')),
-            el('div', { class: 'grid grid-cols-3 gap-2 rounded-lg px-2 py-1.5', style: { background: 'rgba(141,198,63,.12)' } },
-              _heroMe('Revenue', fmt.usd0(me.revenue || 0)),
-              _heroMe('Sales', fmt.int(me.count || 0)),
-              _heroMe('Rev / Day', me.revPerDay > 0 ? fmt.usd0(me.revPerDay) : '—')))];
+              el('span', { class: 'font-black tabular-nums text-[12px]', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
+              el('span', { class: 'font-bold truncate text-sm' }, me.name),
+              el('span', { class: 'ml-auto text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You')),
+            el('div', { class: 'flex items-baseline gap-2 mt-1' },
+              el('span', { class: 'text-xl leading-none font-black tabular-nums' }, fmt.usd0(me.revenue || 0)),
+              el('span', { class: 'text-[11px] text-muted-' },
+                fmt.int(me.count || 0) + ' sales' + (me.revPerDay > 0 ? ' · ' + fmt.usd0(me.revPerDay) + '/day' : ''))))];
         })(),
         ...(displayReps.length === 0
           ? [el('div', { class: 'text-center text-xs text-muted- italic py-6' }, 'No reps match the current filters.')]
@@ -22868,61 +22872,50 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               const tierMeta = repTierMeta(r.tier);
               const teamColor = r.team ? getTeamColor(r.team) : null;
               const officeName = (r.office || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-              // Hero tile: tiny uppercase label over a bold value — the three
-              // numbers reps actually race on, given visual priority.
-              const hero = (label, value) => el('div', { class: 'flex flex-col items-center min-w-0' },
-                el('span', { class: 'text-[8px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
-                el('span', { class: 'text-[13px] font-bold tabular-nums truncate' }, value));
-              // Secondary stat: label left / value right, two per row.
-              const stat = (label, value, danger) => el('div', { class: 'flex items-center justify-between gap-2 min-w-0' },
-                el('span', { class: 'text-muted- shrink-0' }, label),
-                el('span', {
-                  class: 'font-semibold tabular-nums truncate',
-                  style: danger ? { color: '#DC2626' } : {},
-                }, value),
-              );
-              const _bestDayShort = r.bestDay > 0
-                ? fmt.usd0(r.bestDay) + (r.bestDayDate ? ' · ' + String(r.bestDayDate).replace(/\/\d{4}$/, '') : '')
-                : '—';
+              // Inline label→value pair for the detail lines. Values keep the
+              // text color; labels recede. Dot separators, no boxes — calm.
+              const iv = (label, value, danger) => el('span', { class: 'whitespace-nowrap' },
+                el('span', { style: { color: 'var(--text-muted)' } }, label + ' '),
+                el('span', { class: 'font-semibold tabular-nums', style: danger ? { color: '#DC2626' } : {} }, value));
+              const dot = () => el('span', { style: { color: 'var(--text-subtle)' } }, ' · ');
               return el('div', {
                 'data-replb': (r.name || '').toLowerCase(),
-                class: 'rounded-xl border p-3 flex flex-col gap-1.5 cursor-pointer transition hover:brightness-95',
+                class: 'rounded-xl border px-3 py-2.5 flex flex-col cursor-pointer transition hover:brightness-95',
                 style: {
                   borderColor: 'var(--border)',
-                  borderLeftWidth: '4px',
+                  borderLeftWidth: '3px',
                   borderLeftColor: teamColor || 'var(--border-2)',
                 },
                 onclick: () => openIndicatorRepCard(r, allReps),
               },
-                // Top line: rank + name + tier badge
+                // Rank + name + tier
                 el('div', { class: 'flex items-center gap-2' },
-                  el('span', { class: 'font-black tabular-nums shrink-0 text-[13px]', style: { color: i === 0 ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + (i + 1)),
-                  el('span', { class: 'font-bold truncate flex-1' }, r.name),
+                  el('span', { class: 'font-black tabular-nums shrink-0 text-[12px]', style: { color: i === 0 ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + (i + 1)),
+                  el('span', { class: 'font-bold truncate flex-1 text-sm' }, r.name),
                   tierMeta && el('span', {
-                    class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0',
-                    style: { background: tierMeta.color + '22', color: tierMeta.color },
+                    class: 'text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0',
+                    style: { background: tierMeta.color + '18', color: tierMeta.color },
                   }, tierMeta.label),
                 ),
-                // Team + office sub-line
-                el('div', { class: 'text-[10px] text-muted- -mt-0.5' },
+                el('div', { class: 'text-[10px] text-muted-' },
                   el('span', { style: teamColor ? { color: teamColor, fontWeight: '600' } : {} }, r.team || '—'),
-                  ' · ',
-                  officeName || '—',
+                  ' · ', officeName || '—',
                 ),
-                // Hero band: Revenue · Sales · Rev/Day
-                el('div', { class: 'grid grid-cols-3 gap-2 rounded-lg px-2 py-1.5 mt-0.5', style: { background: 'var(--card-2)' } },
-                  hero('Revenue', fmt.usd0(r.revenue)),
-                  hero('Sales', fmt.int(r.count)),
-                  hero('Rev / Day', r.revPerDay > 0 ? fmt.usd0(r.revPerDay) : '—'),
+                // The number they race on — big, alone on its line
+                el('div', { class: 'flex items-baseline gap-2 mt-1' },
+                  el('span', { class: 'text-xl leading-none font-black tabular-nums' }, fmt.usd0(r.revenue)),
+                  el('span', { class: 'text-[11px] text-muted-' },
+                    fmt.int(r.count) + ' sales' + (r.revPerDay > 0 ? ' · ' + fmt.usd0(r.revPerDay) + '/day' : '')),
                 ),
-                // Secondary stats: 2 columns, room to breathe
-                el('div', { class: 'grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] mt-1' },
-                  stat('ACV', fmt.usd(r.acv)),
-                  stat('Avg Pest', r.avgPest > 0 ? fmt.usd(r.avgPest) : '—'),
-                  stat('MY %', (r.myPct * 100).toFixed(1) + '%'),
-                  stat('Auto Pay', (r.autoPayPct * 100).toFixed(1) + '%'),
-                  stat('Best Day', _bestDayShort),
-                  stat('Cancels', r.cancels > 0 ? fmt.int(r.cancels) + ' (' + (r.cancelPct * 100).toFixed(1) + '%)' : '—', r.cancelPct > 0.1),
+                // Detail lines — muted, dot-separated, no grid chrome
+                el('div', { class: 'text-[10px] mt-1.5 pt-1.5 border-t leading-relaxed', style: { borderColor: 'var(--border)' } },
+                  iv('ACV', fmt.usd0(r.acv)), dot(),
+                  iv('Pest', r.avgPest > 0 ? fmt.usd0(r.avgPest) : '—'), dot(),
+                  iv('MY', (r.myPct * 100).toFixed(0) + '%'), dot(),
+                  iv('APay', (r.autoPayPct * 100).toFixed(0) + '%'),
+                  el('br'),
+                  iv('Best day', r.bestDay > 0 ? fmt.usd0(r.bestDay) + (r.bestDayDate ? ' (' + String(r.bestDayDate).replace(/\/\d{4}$/, '') + ')' : '') : '—'), dot(),
+                  iv('Cancels', r.cancels > 0 ? fmt.int(r.cancels) + ' (' + (r.cancelPct * 100).toFixed(1) + '%)' : '—', r.cancelPct > 0.1),
                 ),
               );
             })),
