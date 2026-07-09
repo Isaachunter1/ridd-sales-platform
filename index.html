@@ -338,6 +338,12 @@
       padding-top: env(safe-area-inset-top);
       padding-bottom: env(safe-area-inset-bottom);
     }
+    /* EVERY fixed-position offset must grow by the same inset the header
+       grew by, or content tucks under it (the "cut-off dropdowns" bug):
+       main reserves the fixed header's height; the Indicators filter bar
+       pins below the header. */
+    main { padding-top: calc(76px + env(safe-area-inset-top)) !important; }
+    #indFixedBar { top: calc(60px + env(safe-area-inset-top)) !important; }
   }
 
   /* Floating tooltip (rendered to body so it escapes card overflow:hidden) */
@@ -15075,9 +15081,6 @@ function nrlaBoard(rawSales, opts) {
       el('div', {},
         el('div', { style: { fontFamily: DISP, fontSize: 'clamp(3rem,9vw,6rem)', lineHeight: '.8', color: '#fff', textTransform: 'uppercase', letterSpacing: '.1em', textShadow: '0 2px 30px rgba(0,0,0,.6)' } }, 'NRLA'),
         el('div', { style: { fontFamily: DISP, fontSize: 'clamp(.85rem,1.8vw,1.15rem)', letterSpacing: '.06em', color: PINK, textTransform: 'none', marginTop: '7px' } }, 'National Riddmen League Association'),
-        el('div', { style: { fontFamily: DISP, color: GREEN, lineHeight: '1.1', fontSize: 'clamp(.8rem,1.6vw,1rem)', marginTop: '10px', letterSpacing: '.02em' } },
-          el('div', {}, R.seedN + ' Seeding Rounds · 1 Playoff Round · 1 Championship Round · 2 Days Per Round'),
-          el('div', { style: { opacity: '.9' } }, 'Win rounds by having a higher Per Rep Avg than the team you\'re competing against')),
         el('div', { class: 'flex items-center gap-2 flex-wrap', style: { marginTop: '12px' } },
           // Pulsing LIVE chip while a round is underway.
           (() => {
@@ -15209,23 +15212,24 @@ function nrlaBoard(rawSales, opts) {
   // ── Config strip ──
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
   const cfgBar = el('div', { class: 'px-3 py-2 flex items-center gap-2 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
-    el('span', { class: 'inline-flex items-center gap-2 whitespace-nowrap' }, lbl('Start date'),
-    el('input', {
-      type: 'date', value: cfg.start || '',
-      class: 'rounded border px-2 py-1 text-xs',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-      title: 'First day of Seeding Round 1 (rounds are 2-day blocks, Sundays skipped)',
-      onchange: (e) => { cfg.start = e.target.value; save('start date → ' + (e.target.value || 'unset')); },
-    })),
-    el('span', { class: 'text-muted-' }, '→'),
-    el('span', { class: 'inline-flex items-center gap-2 whitespace-nowrap' }, lbl('End date'),
-    el('input', {
-      type: 'date', value: cfg.end || '',
-      class: 'rounded border px-2 py-1 text-xs',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-      title: 'Last day of the Championship round — rounds auto-fill the window, last two become semifinal + championship. Update the two dates each year and the season lays itself out.',
-      onchange: (e) => { cfg.end = e.target.value; save('end date → ' + (e.target.value || 'unset')); },
-    })),
+    // Start → End on ONE row at every width (was two wrapped rows on phones)
+    el('span', { class: 'inline-flex items-center gap-1.5 whitespace-nowrap' },
+      lbl('Dates'),
+      el('input', {
+        type: 'date', value: cfg.start || '',
+        class: 'rounded border px-1.5 py-1 text-xs',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '0' },
+        title: 'First day of Seeding Round 1 (rounds are 2-day blocks, Sundays skipped)',
+        onchange: (e) => { cfg.start = e.target.value; save('start date → ' + (e.target.value || 'unset')); },
+      }),
+      el('span', { class: 'text-muted-' }, '→'),
+      el('input', {
+        type: 'date', value: cfg.end || '',
+        class: 'rounded border px-1.5 py-1 text-xs',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '0' },
+        title: 'Last day of the Championship round — rounds auto-fill the window, last two become semifinal + championship. Update the two dates each year and the season lays itself out.',
+        onchange: (e) => { cfg.end = e.target.value; save('end date → ' + (e.target.value || 'unset')); },
+      })),
     el('span', { class: 'text-[11px] font-bold px-2 py-1 rounded', style: { background: 'rgba(242,20,140,.08)', color: PINK } },
       R.rounds.length ? R.seedN + ' seeding + semifinal + championship' : 'no rounds fit'),
     el('button', {
@@ -15243,8 +15247,6 @@ function nrlaBoard(rawSales, opts) {
         } catch (e) { toast('Report failed: ' + (e && e.message || e), 'error'); }
       },
     }, '⬇ Daily Report'),
-    el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } },
-      '· drag a team onto another slot to rearrange a seeding round · semifinal + championship are scheduled automatically' + (R.usedFlyerSchedule ? ' · official 2026 matchups in effect' : '')),
   );
 
   // ── Competing-team chips ──
@@ -15346,7 +15348,6 @@ function nrlaBoard(rawSales, opts) {
         el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } },
           'Seeding Standings' + (R.seedingDone ? ' · Final Seeds' : '') + (scope === 'season' ? '' : ' · ' + _roundLabelShort(R.rounds[Number(scope)]))),
         el('div', { class: 'flex items-center gap-2' },
-          el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, 'record → head-to-head → cumulative PRA'),
           scopeSel)),
       el('div', { class: 'overflow-x-auto' },
         el('table', { class: 'w-full text-xs' },
@@ -24676,7 +24677,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
               onclick: () => { state._indicatorRepChartWeek = null; mountApp(); },
             }, 'show cumulative'),
           )
-        : el('span', { class: 'text-[10px] text-muted- italic' }, 'Cumulative for the date range · click a chart point to re-rank for one week'),
+        : null,
     ),
     // Desktop / tablet: full table with horizontal scroll
     el('div', { class: 'hidden sm:block scroll-x' },
