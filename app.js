@@ -4046,8 +4046,8 @@ function mountApp() {
         const DATA_VIEWS = new Set(['indicators', 'nrla', 'competitions', 'reporting', 'scorecards', 'hall_of_fame']);
         if (!DATA_VIEWS.has(state.view)) return null;
         const txt = (typeof indicatorsSyncStampText === 'function') ? indicatorsSyncStampText() : '';
-        return txt ? el('span', { class: 'hidden sm:block text-[11px] whitespace-nowrap', style: { color: 'var(--header-text)', opacity: '.55', marginLeft: '10px', alignSelf: 'center' } },
-          'Last upload: ', el('span', { class: 'font-semibold' }, txt)) : null;
+        return txt ? el('span', { class: 'hidden sm:block text-[11px] whitespace-nowrap', style: { color: 'var(--text-muted)', marginLeft: '10px', alignSelf: 'center' } },
+          'Last upload: ', el('span', { class: 'font-semibold', style: { color: 'var(--text)' } }, txt)) : null;
       })(),
     ),
     state.view === 'sales' ? buildSearchBar() : el('div', { class: 'flex-1' }),
