@@ -254,6 +254,18 @@ function parseIndicators(text) {
 //             freshness to the snapshot so clients' "already ≥ snapshot"
 //             checks line up exactly.
 function deriveIndicatorsPayload(rows, uploadedAt, fileName) {
+  // 3-YEAR FENCE (#6) — the boards show the current year plus two prior
+  // (YoY lines, records, trends). Anything older is dead weight every
+  // phone would download, parse, hold in memory, and re-filter on every
+  // render (~16% of all rows were 2020-2023). Undated rows are kept —
+  // they can't be age-judged and the parser already handles them.
+  // To widen history, change YEARS_KEPT and redeploy.
+  const YEARS_KEPT = 3;
+  const fence = (new Date().getFullYear() - (YEARS_KEPT - 1)) + '-01-01';
+  rows = (rows || []).filter(r => {
+    const d = String((r && (r.sold_at || r.sold_date)) || '').slice(0, 10);
+    return !d || d >= fence;
+  });
   const { indicatorsData, rawSales } = parseIndicators(snapshotToIndicatorsCsv(rows));
   return {
     uploadedAt: uploadedAt,
