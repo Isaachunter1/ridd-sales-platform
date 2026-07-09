@@ -15252,7 +15252,12 @@ function nrlaBoard(rawSales, opts) {
     cfg.teamNames[s.team] && el('span', { class: 'ml-1 text-[9px] uppercase', style: { color: 'var(--text-subtle)' } }, s.team));
   const _roundLabelShort = (rd) => rd.phase === 'seed' ? 'Round ' + rd.num : rd.phase === 'semi' ? 'Semifinals' : 'Championship';
   const standingsCard = (() => {
-    let scope = state._nrlaStandScope == null ? 'season' : String(state._nrlaStandScope);
+    // Default to the LIVE round while one is running (the fight happening
+    // right now) — Season only when nothing is live or the user picked it.
+    const _liveIdxStand = (R.rounds || []).findIndex(rd => rd && rd.live);
+    let scope = state._nrlaStandScope == null
+      ? (_liveIdxStand >= 0 ? String(_liveIdxStand) : 'season')
+      : String(state._nrlaStandScope);
     if (scope !== 'season' && !R.rounds[Number(scope)]) scope = 'season';
     // A round's team stats = that round's per-rep stats rolled up.
     const roundTeamStats = {};
@@ -15366,7 +15371,11 @@ function nrlaBoard(rawSales, opts) {
   // qualifying revenue (Passed + Pending) — failed never counts. ──
   const repBoard = (() => {
     const roundLabel = (rd) => (rd.phase === 'seed' ? 'Round ' + rd.num : rd.phase === 'semi' ? 'Semifinals' : 'Championship') + ' · ' + dspan(rd.d1, rd.d2);
-    let scope = state._nrlaRepBoardScope == null ? 'season' : String(state._nrlaRepBoardScope);
+    // Same live-round default as the standings above.
+    const _liveIdxRep = (R.rounds || []).findIndex(rd => rd && rd.live);
+    let scope = state._nrlaRepBoardScope == null
+      ? (_liveIdxRep >= 0 ? String(_liveIdxRep) : 'season')
+      : String(state._nrlaRepBoardScope);
     if (scope !== 'season' && !R.rounds[Number(scope)]) scope = 'season';
     const flat = [];
     if (scope === 'season') {
