@@ -22144,7 +22144,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 // One stat only — the $/day denominator, plainly labeled.
                 // (Full stats are one tap away on the player card.)
                 el('div', { class: 'text-[10px] mt-1' },
-                  iv('Days Sold:', fmt.int(r.sellingDays || 0)),
+                  iv('Days w/ a Sale:', fmt.int(r.sellingDays || 0)),
                 ),
               );
             })),
