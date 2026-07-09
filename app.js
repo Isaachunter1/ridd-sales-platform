@@ -18760,7 +18760,14 @@ function viewIndicators() {
       const syncBarSpacer = () => {
         const bar = document.getElementById('indFixedBar');
         const sp  = document.getElementById('indBarSpacer');
-        if (bar && sp) sp.style.height = bar.getBoundingClientRect().height + 'px';
+        if (!bar || !sp) return;
+        // Reserve EXACTLY enough that content clears the fixed bar's bottom
+        // edge (+6px breathing room). Reserving the bar's full height used
+        // to overshoot by the bar/header overlap — dead whitespace above
+        // the first table.
+        const spTop     = sp.getBoundingClientRect().top + window.scrollY;   // spacer top — independent of its own height
+        const barBottom = bar.getBoundingClientRect().bottom + window.scrollY;
+        sp.style.height = Math.max(0, barBottom + 6 - spTop) + 'px';         // spacer bottom lands 6px under the bar
       };
       setTimeout(syncBarSpacer, 0);
       if (!window._indBarResizeBound) {
@@ -21510,9 +21517,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   (() => {
     const tierBuckets = { rookie: [], vet: [] };
     let untagged = 0;
+    // DOOR-TO-DOOR ONLY — rookie/vet is a knocking cohort. Office staff and
+    // technician production never counts here, no matter what the page's
+    // Type filter says: each rep's sales are re-fenced to Sales Rep dept and
+    // reps with no D2D production drop out entirely.
     Object.values(repMap).forEach(r => {
+      const d2dSales = (r.sales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === 'd2d' : true));
+      if (!d2dSales.length) return;
       const t = getRepTier(r.name);
-      if (t === 'rookie' || t === 'vet') tierBuckets[t].push(r);
+      if (t === 'rookie' || t === 'vet') tierBuckets[t].push({ ...r, sales: d2dSales });
       else untagged++;
     });
 
@@ -21546,8 +21559,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // are in the denominator) — that way "% of company" tells the
     // truth: rookie + vet won't sum to 100% when there are untagged
     // reps still selling, which is exactly the story the manager needs.
-    const companyTotalSold    = rawSales.length;
-    const companyTotalRevenue = rawSales.reduce((a, s) => a + Number(s.contractValue || 0), 0);
+    // Same D2D fence as the cohorts above — "% of co." means percent of
+    // DOOR-TO-DOOR production, not company-wide across departments.
+    const _d2dAll = (rawSales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === 'd2d' : true));
+    const companyTotalSold    = _d2dAll.length;
+    const companyTotalRevenue = _d2dAll.reduce((a, s) => a + Number(s.contractValue || 0), 0);
 
     // Side-by-side metric row — leading metric labels in the center column
     // so the two values sit symmetrically. Adds a small delta arrow per
