@@ -21706,7 +21706,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   }
 
   // ── 2. REP LEADERBOARD ──
-  if (!state._indicatorRepSort) state._indicatorRepSort = { key: 'count', dir: 'desc' };
+  if (!state._indicatorRepSort) state._indicatorRepSort = { key: 'revenue', dir: 'desc' };
+  // One-time migration: the leaderboard used to default to sales COUNT —
+  // flip stored defaults to revenue (an explicit user pick after this
+  // migration sticks like normal).
+  if (!state._repSortRevenueV1) { state._repSortRevenueV1 = true; state._indicatorRepSort = { key: 'revenue', dir: 'desc' }; saveDemoData(); }
   // Migrate legacy Best Day sort dir from the old 'desc' value to the new
   // explicit 'date' / 'amount' modes (default to date — most recent first).
   // Best Week and Best Month follow the same pattern.
@@ -22187,8 +22191,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   }, tierMeta.label),
                 ),
                 el('div', { class: 'text-[10px] text-muted-' },
-                  el('span', { style: teamColor ? { color: teamColor, fontWeight: '600' } : {} }, r.team || '—'),
-                  ' · ', officeName || '—',
+                  r.team ? el('span', { style: teamColor ? { color: teamColor, fontWeight: '600' } : {} }, r.team) : null,
+                  r.team ? ' · ' : '', officeName || '—',
                 ),
                 // The number they race on — big, alone on its line
                 el('div', { class: 'flex items-baseline gap-2 mt-1' },
@@ -22203,6 +22207,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   iv('MY', (r.myPct * 100).toFixed(0) + '%'), dot(),
                   iv('APay', (r.autoPayPct * 100).toFixed(0) + '%'),
                   el('br'),
+                  iv('Sell days', fmt.int(r.sellingDays || 0)), dot(),
                   iv('Best day', r.bestDay > 0 ? fmt.usd0(r.bestDay) + (r.bestDayDate ? ' (' + String(r.bestDayDate).replace(/\/\d{4}$/, '') + ')' : '') : '—'), dot(),
                   iv('Cancels', r.cancels > 0 ? fmt.int(r.cancels) + ' (' + (r.cancelPct * 100).toFixed(1) + '%)' : '—', r.cancelPct > 0.1),
                 ),
@@ -26189,6 +26194,7 @@ function repLandingPlayerCard() {
         tile('Avg Pest', avgPest > 0 ? fmt.usd(avgPest) : '—'),
         tile('MY %', (myPct * 100).toFixed(1) + '%'),
         tile('Auto Pay', (apay * 100).toFixed(1) + '%'),
+        tile('Sell Days', String(sellDays)),
         tile('Cancels', String(cancels)),
       ),
     );
