@@ -6707,6 +6707,81 @@ function openIndicatorRepCard(rep, allReps = []) {
     );
   }
 
+  // ── Selling-days calendar (GitHub-style) ────────────────────────────────
+  // One square per day, Jan 1 → today, colored by accounts sold that day.
+  // Makes "Days w/ a Sale" verifiable at a glance: the green squares ARE the
+  // denominator. Uses the SCOPED sales when a card scope is picked, but
+  // always renders the current year's grid.
+  function sellDaysCalendarBlock() {
+    try {
+      const yr = new Date().getFullYear();
+      const byDay = new Map();   // iso → { n, rev }
+      for (const sale of (scopedRep.sales || [])) {
+        const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(sale.dateSold) : '';
+        if (!iso || iso.slice(0, 4) !== String(yr)) continue;
+        const rec = byDay.get(iso) || { n: 0, rev: 0 };
+        rec.n += 1; rec.rev += Number(sale.contractValue) || 0;
+        byDay.set(iso, rec);
+      }
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const jan1 = new Date(yr, 0, 1);
+      const anchor0 = new Date(jan1); anchor0.setDate(anchor0.getDate() - anchor0.getDay()); // Sunday on/before Jan 1
+      const weekCount = Math.floor((today - anchor0) / 604800000) + 1;
+      const maxN = Math.max(1, ...[...byDay.values()].map(v => v.n));
+      const shade = (n) => {
+        if (!n) return 'var(--card-2)';
+        const t = Math.min(1, 0.35 + 0.65 * (n / maxN));           // 1 sale is clearly visible
+        return 'rgba(141,198,63,' + t.toFixed(2) + ')';
+      };
+      const CELL = 12, GAP = 2;
+      const monthRow = el('div', { style: { display: 'flex', gap: GAP + 'px', marginLeft: '26px', height: '12px' } });
+      const grid = el('div', { style: { display: 'flex', gap: GAP + 'px', marginTop: '2px' } });
+      // day-of-week labels (sparse)
+      const dowCol = el('div', { style: { display: 'flex', flexDirection: 'column', gap: GAP + 'px', width: '24px', marginRight: '2px' } },
+        ...['', 'M', '', 'W', '', 'F', ''].map(t => el('div', { class: 'text-[8px] text-muted- font-semibold', style: { height: CELL + 'px', lineHeight: CELL + 'px', textAlign: 'right', paddingRight: '2px' } }, t)));
+      let daysWithSale = 0, lastMonth = -1;
+      for (let w = 0; w < weekCount; w++) {
+        const col = el('div', { style: { display: 'flex', flexDirection: 'column', gap: GAP + 'px' } });
+        const weekStart = new Date(anchor0); weekStart.setDate(weekStart.getDate() + w * 7);
+        // month label above the column containing the 1st (or the first column)
+        const monthOfCol = weekStart.getMonth();
+        const showLabel = (w === 0 && weekStart >= jan1) || (monthOfCol !== lastMonth && weekStart.getDate() <= 7 && weekStart >= jan1);
+        monthRow.append(el('div', { class: 'text-[8px] text-muted- font-semibold', style: { width: CELL + 'px', overflow: 'visible', whiteSpace: 'nowrap' } },
+          showLabel ? weekStart.toLocaleDateString('en-US', { month: 'short' }) : ''));
+        if (weekStart >= jan1) lastMonth = monthOfCol;
+        for (let d = 0; d < 7; d++) {
+          const day = new Date(anchor0); day.setDate(day.getDate() + w * 7 + d);
+          const inYear = day >= jan1 && day <= today;
+          if (!inYear) { col.append(el('div', { style: { width: CELL + 'px', height: CELL + 'px' } })); continue; }
+          const iso = day.getFullYear() + '-' + String(day.getMonth() + 1).padStart(2, '0') + '-' + String(day.getDate()).padStart(2, '0');
+          const rec = byDay.get(iso);
+          if (rec) daysWithSale++;
+          col.append(el('div', {
+            class: 'cursor-help',
+            title: day.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+              + (rec ? ' — ' + rec.n + ' account' + (rec.n === 1 ? '' : 's') + ' · $' + Math.round(rec.rev).toLocaleString() : ' — no sale'),
+            style: { width: CELL + 'px', height: CELL + 'px', borderRadius: '2px', background: shade(rec ? rec.n : 0), border: '1px solid ' + (rec ? 'transparent' : 'var(--border)') },
+          }));
+        }
+        grid.append(col);
+      }
+      grid.prepend(dowCol);
+      const legend = el('div', { class: 'flex items-center gap-1.5 text-[9px] text-muted- mt-2' },
+        el('span', {}, 'none'),
+        ...[0, 0.4, 0.7, 1].map(t => el('span', { style: { width: '10px', height: '10px', borderRadius: '2px', display: 'inline-block',
+          background: t === 0 ? 'var(--card-2)' : 'rgba(141,198,63,' + (0.35 + 0.65 * t).toFixed(2) + ')', border: t === 0 ? '1px solid var(--border)' : '1px solid transparent' } })),
+        el('span', {}, 'more'));
+      return el('div', { class: 'rounded-lg border p-4 mb-5', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+        el('div', { class: 'flex items-baseline justify-between gap-2 flex-wrap mb-2' },
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } },
+            'Days with a sale · ' + yr),
+          el('div', { class: 'text-xs font-bold' }, daysWithSale + ' days')),
+        el('div', { class: 'scroll-x', style: { overflowX: 'auto', paddingBottom: '4px' } },
+          el('div', { style: { minWidth: (weekCount * (CELL + GAP) + 30) + 'px' } }, monthRow, grid)),
+        legend);
+    } catch (e) { console.warn('[ridd] sell-days calendar failed', e); return el('div', {}); }
+  }
+
   function recordCard(label, rec, formatLabel, rank, recordKey) {
     const isOpen = recordsLeaderKey === recordKey;
     const rankBadge = rank
@@ -7363,6 +7438,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     modal.append(
       header(),
       statsGrid(),
+      sellDaysCalendarBlock(),
       recordsStrip(),
       trendsBlock(),
       powerHourBlock(),
