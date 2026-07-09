@@ -289,7 +289,9 @@ async function refreshIndicatorsFromCloud(force) {
     reactivateRecentSellers(); // bring back any Inactive rep who sold again
     try { _applyIndicatorsPayloadHousekeeping(payload); } catch (hkErr) { console.warn('[ridd] payload housekeeping failed', hkErr); }
     saveDemoData();
-    toast('Indicators refreshed — pulled the latest upload (' + (payload.fileName || 'CSV') + ')', 'success');
+    // Silent by design: this fires on every open/wake as routine hygiene —
+    // the Last-sync stamp is the freshness UI, not a popup.
+    console.info('[ridd] indicators refreshed from cloud (' + (payload.fileName || 'CSV') + ')');
     mountApp();
     setTimeout(() => { try { maybeShowWeeklyRecap(); } catch { /* ignore */ } }, 800);
   } catch (e) { console.warn('[ridd] indicators cloud refresh failed', e); }
@@ -590,7 +592,6 @@ async function loadIndicatorConfigFromSupabase() {
         return;
       }
       console.warn('[ridd] server config is NEWER than this browser\'s baseline — adopting server copy (stale local edits discarded)');
-      try { toast('Competition settings were updated elsewhere — this device now shows the latest shared config.', 'info'); } catch { /* toast not ready during boot */ }
       // fall through: apply the server copy below
     }
     if (hasServerData) {
