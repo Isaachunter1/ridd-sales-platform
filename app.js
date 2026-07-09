@@ -26505,8 +26505,12 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay)
   renderChart();
   return el('div', { class: 'flex flex-col gap-2' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
+      // Legend (when an overlay is wired up) sits left; the metric picker
+      // pins to the top right of the block.
+      overlay ? null : el('div', { class: 'flex-1' }),
       el('select', {
         class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+        style: { order: '99' },
         onchange: (e) => { state._miniTrendMetric = e.target.value; renderChart(); },
       },
         ...metrics.map(m => el('option', { value: m.id, selected: chosen().id === m.id }, m.label)),
