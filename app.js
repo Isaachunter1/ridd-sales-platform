@@ -22153,9 +22153,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             el('div', { class: 'flex items-center gap-2' },
               el('span', { class: 'font-black tabular-nums text-[12px]', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
               el('span', { class: 'font-bold truncate text-sm' }, me.name),
-              el('span', { class: 'ml-auto text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You')),
-            el('div', { class: 'flex items-baseline gap-2 mt-1' },
-              el('span', { class: 'text-xl leading-none font-black tabular-nums' }, fmt.usd0(me.revenue || 0)),
+              el('span', { class: 'text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You'),
+              el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(me.revenue || 0))),
+            el('div', { class: 'flex items-baseline justify-end mt-0.5' },
               el('span', { class: 'text-[11px] text-muted-' },
                 fmt.int(me.count || 0) + ' sales' + (me.revPerDay > 0 ? ' · ' + fmt.usd0(me.revPerDay) + '/day' : ''))))];
         })(),
@@ -22181,23 +22181,22 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 },
                 onclick: () => openIndicatorRepCard(r, allReps),
               },
-                // Rank + name + tier
+                // Rank + name on the left, THE number — revenue — big on the right
                 el('div', { class: 'flex items-center gap-2' },
                   el('span', { class: 'font-black tabular-nums shrink-0 text-[12px]', style: { color: i === 0 ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + (i + 1)),
-                  el('span', { class: 'font-bold truncate flex-1 text-sm' }, r.name),
+                  el('span', { class: 'font-bold truncate text-sm' }, r.name),
                   tierMeta && el('span', {
                     class: 'text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0',
                     style: { background: tierMeta.color + '18', color: tierMeta.color },
                   }, tierMeta.label),
+                  el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(r.revenue)),
                 ),
-                el('div', { class: 'text-[10px] text-muted-' },
-                  r.team ? el('span', { style: teamColor ? { color: teamColor, fontWeight: '600' } : {} }, r.team) : null,
-                  r.team ? ' · ' : '', officeName || '—',
-                ),
-                // The number they race on — big, alone on its line
-                el('div', { class: 'flex items-baseline gap-2 mt-1' },
-                  el('span', { class: 'text-xl leading-none font-black tabular-nums' }, fmt.usd0(r.revenue)),
-                  el('span', { class: 'text-[11px] text-muted-' },
+                // Team · office left — sales pace right, under the revenue
+                el('div', { class: 'flex items-baseline justify-between gap-2 text-[10px] text-muted- mt-0.5' },
+                  el('span', { class: 'truncate' },
+                    r.team ? el('span', { style: teamColor ? { color: teamColor, fontWeight: '600' } : {} }, r.team) : null,
+                    r.team ? ' · ' : '', officeName || '—'),
+                  el('span', { class: 'shrink-0 text-[11px]' },
                     fmt.int(r.count) + ' sales' + (r.revPerDay > 0 ? ' · ' + fmt.usd0(r.revPerDay) + '/day' : '')),
                 ),
                 // Detail lines — muted, dot-separated, no grid chrome
