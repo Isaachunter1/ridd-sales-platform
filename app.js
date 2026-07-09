@@ -14375,6 +14375,21 @@ function nrlaBoard(rawSales, opts) {
             title: 'Rosters — pick who competes for each team and which branch each rep competes for (sets the PRA denominator)',
             onclick: () => openNrlaRosterModal(rawSales),
           }, '📋'),
+          RO ? null : el('button', {
+            class: 'cursor-pointer transition hover:brightness-95',
+            style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
+            title: 'Daily Report — CSV: standings, every played round\'s results with PRAs, and top-10 reps. Best after ~9:15 PM ET when the data has settled.',
+            onclick: () => {
+              try {
+                const csv = dailyReportCsv();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' }));
+                a.download = 'nrla-daily-' + new Date().toISOString().slice(0, 10) + '.csv';
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+              } catch (e) { toast('Report failed: ' + (e && e.message || e), 'error'); }
+            },
+          }, '⬇'),
           el('button', {
             class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer',
             style: { width: '22px', height: '22px', background: PINK, color: '#fff' },
@@ -14502,23 +14517,6 @@ function nrlaBoard(rawSales, opts) {
         title: 'Last day of the Championship round — rounds auto-fill the window, last two become semifinal + championship. Update the two dates each year and the season lays itself out.',
         onchange: (e) => { cfg.end = e.target.value; save('end date → ' + (e.target.value || 'unset')); },
       })),
-    el('span', { class: 'text-[11px] font-bold px-2 py-1 rounded', style: { background: 'rgba(242,20,140,.08)', color: PINK } },
-      R.rounds.length ? R.seedN + ' seeding + semifinal + championship' : 'no rounds fit'),
-    el('button', {
-      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
-      style: { borderColor: PINK, color: PINK },
-      title: 'Download tonight\'s update as a CSV — standings, every played round\'s results with PRAs, and top-10 reps (season + latest round). Best after ~9:15 PM ET when the data has settled.',
-      onclick: () => {
-        try {
-          const csv = dailyReportCsv();
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' }));
-          a.download = 'nrla-daily-' + new Date().toISOString().slice(0, 10) + '.csv';
-          a.click();
-          setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-        } catch (e) { toast('Report failed: ' + (e && e.message || e), 'error'); }
-      },
-    }, '⬇ Daily Report'),
   );
 
   // ── Competing-team chips ──
