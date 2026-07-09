@@ -14351,21 +14351,20 @@ function nrlaBoard(rawSales, opts) {
   const hero = el('div', { id: 'nrlaHero', style: { background: heroBg, padding: '22px 22px 18px', position: 'relative', overflow: 'hidden' } },
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap', style: { position: 'relative', zIndex: '1' } },
       el('div', {},
-        el('div', { style: { fontFamily: DISP, fontSize: 'clamp(3rem,9vw,6rem)', lineHeight: '.8', color: '#fff', textTransform: 'uppercase', letterSpacing: '.1em', textShadow: '0 2px 30px rgba(0,0,0,.6)' } }, 'NRLA'),
-        el('div', { style: { fontFamily: DISP, fontSize: 'clamp(.85rem,1.8vw,1.15rem)', letterSpacing: '.06em', color: PINK, textTransform: 'none', marginTop: '7px' } }, 'National Riddmen League Association'),
-        el('div', { class: 'flex items-center gap-2 flex-wrap', style: { marginTop: '12px' } },
-          // Pulsing LIVE chip while a round is underway.
+        // Title line: NRLA + the pulsing LIVE chip right beside it. The old
+        // chip row (dates / Branch vs Branch / RIDDMADE) is retired — dates
+        // live in the admin strip below, the rest was decoration.
+        el('div', { class: 'flex items-end gap-3 flex-wrap' },
+          el('div', { style: { fontFamily: DISP, fontSize: 'clamp(3rem,9vw,6rem)', lineHeight: '.8', color: '#fff', textTransform: 'uppercase', letterSpacing: '.1em', textShadow: '0 2px 30px rgba(0,0,0,.6)' } }, 'NRLA'),
           (() => {
             const lr = R.rounds.find(r => r.live);
             if (!lr) return null;
             const t = lr.phase === 'seed' ? 'Round ' + lr.num : lr.phase === 'semi' ? 'Semifinals' : 'Championship';
-            return el('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '999px', background: GREEN, color: '#04310A', fontWeight: '900', fontSize: '11px', letterSpacing: '.03em' } },
+            return el('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 12px', borderRadius: '999px', background: GREEN, color: '#04310A', fontWeight: '900', fontSize: '12px', letterSpacing: '.03em', marginBottom: '6px' } },
               el('span', { style: { animation: 'nrlaPulse 1.2s ease-in-out infinite' } }, '●'), 'LIVE · ' + t);
           })(),
-          chip(PINK, '#fff', R.rounds.length ? '📅 ' + dspan(R.rounds[0].d1, R.rounds[R.rounds.length - 1].d2) : '📅 schedule not set'),
-          chip('rgba(255,255,255,.16)', '#fff', 'Branch vs Branch'),
-          chip('rgba(255,255,255,.16)', '#fff', 'Updates sent daily · RIDDMADE'),
         ),
+        el('div', { style: { fontFamily: DISP, fontSize: 'clamp(.85rem,1.8vw,1.15rem)', letterSpacing: '.06em', color: PINK, textTransform: 'none', marginTop: '7px' } }, 'National Riddmen League Association'),
       ),
       el('div', { class: 'nrla-hero-side flex flex-col items-end shrink-0' },
         el('div', { class: 'flex items-center gap-2' },
