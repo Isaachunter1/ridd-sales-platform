@@ -6714,6 +6714,14 @@ function openIndicatorRepCard(rep, allReps = []) {
   // 3-year window; can't navigate into the future.
   let _calY = new Date().getFullYear();
   let _calM = new Date().getMonth();
+  let _calMode = 'calendar';          // 'calendar' | 'clock' — one card, two views
+  let _calDrillIso = null;            // tapped day → inline account list
+  const _whenToggle = () => el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)' } },
+    ...[['calendar', '📅 Calendar'], ['clock', '🕐 Time of day']].map(([m, label]) => el('button', {
+      class: 'px-2.5 py-1 text-[10px] font-bold transition cursor-pointer',
+      style: _calMode === m ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)', background: 'var(--card)' },
+      onclick: () => { if (_calMode !== m) { _calMode = m; _calDrillIso = null; renderBody(); } },
+    }, label)));
   function sellDaysCalendarBlock() {
     try {
       const byDay = new Map();   // iso → { n, rev }
@@ -6760,17 +6768,19 @@ function openIndicatorRepCard(rep, allReps = []) {
         const rec = byDay.get(iso);
         const future = day > now;
         const isToday = day.getTime() === now.getTime();
+        const selected = _calDrillIso === iso;
         cells.push(el('div', {
           class: 'flex items-center justify-center tabular-nums' + (rec ? ' font-bold' : ''),
           title: day.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-            + (rec ? ' — ' + rec.n + ' account' + (rec.n === 1 ? '' : 's') + ' · $' + Math.round(rec.rev).toLocaleString() : (future ? '' : ' — no sale')),
+            + (rec ? ' — ' + rec.n + ' account' + (rec.n === 1 ? '' : 's') + ' · $' + Math.round(rec.rev).toLocaleString() + ' · tap for the accounts' : (future ? '' : ' — no sale')),
+          onclick: rec ? (() => { _calDrillIso = selected ? null : iso; renderBody(); }) : undefined,
           style: {
             height: 'clamp(30px, 7vw, 40px)', borderRadius: '8px', fontSize: '12px',
             background: rec ? shade(rec.n) : 'var(--card)',
             color: rec ? '#1D2E0A' : (future ? 'var(--text-subtle)' : 'var(--text-muted)'),
-            border: isToday ? '2px solid var(--accent)' : '1px solid var(--border)',
+            border: selected ? '2px solid var(--text)' : (isToday ? '2px solid var(--accent)' : '1px solid var(--border)'),
             opacity: future ? '.45' : '1',
-            cursor: rec ? 'help' : 'default',
+            cursor: rec ? 'pointer' : 'default',
           },
         }, String(d)));
       }
@@ -6781,13 +6791,31 @@ function openIndicatorRepCard(rep, allReps = []) {
             el('div', { class: 'text-sm font-bold', style: { minWidth: '110px', textAlign: 'center' } },
               first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })),
             arrow(1, atMax)),
-          el('div', { class: 'text-[11px] font-bold' },
-            monthDays + ' day' + (monthDays === 1 ? '' : 's') + ' w/ a sale',
-            el('span', { class: 'font-normal', style: { color: 'var(--text-muted)' } },
-              monthAccts ? ' · ' + monthAccts + ' accts · $' + Math.round(monthRev).toLocaleString() : ''))),
+          el('div', { class: 'flex items-center gap-2 flex-wrap' },
+            el('div', { class: 'text-[11px] font-bold' },
+              monthDays + ' day' + (monthDays === 1 ? '' : 's') + ' w/ a sale',
+              el('span', { class: 'font-normal', style: { color: 'var(--text-muted)' } },
+                monthAccts ? ' · ' + monthAccts + ' accts · $' + Math.round(monthRev).toLocaleString() : '')),
+            _whenToggle())),
         el('div', { class: 'grid grid-cols-7 gap-1' },
           ...['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => el('div', { class: 'text-[9px] text-muted- font-semibold text-center' }, d)),
-          ...cells));
+          ...cells),
+        // Tapped day → the receipts: every account sold that day.
+        _calDrillIso && (() => {
+          const daySales = (scopedRep.sales || []).filter(x =>
+            (typeof dateSoldToIso === 'function' ? dateSoldToIso(x.dateSold) : '') === _calDrillIso)
+            .sort((a, b) => (Number(b.contractValue) || 0) - (Number(a.contractValue) || 0));
+          if (!daySales.length) return null;
+          const dTitle = new Date(_calDrillIso + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+          return el('div', { class: 'mt-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
+            el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1.5', style: { color: 'var(--text-muted)' } },
+              dTitle + ' — ' + daySales.length + ' account' + (daySales.length === 1 ? '' : 's')),
+            ...daySales.map(x => el('div', { class: 'flex items-center justify-between gap-2 text-[11px] py-1 border-b', style: { borderColor: 'var(--border)' } },
+              el('span', { class: 'truncate' }, (x.customer || '—') + (x.customerId ? ' ' : ''),
+                x.customerId ? el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, '#' + x.customerId) : null),
+              el('span', { class: 'truncate text-muted- flex-1 text-right' }, x.subscription || ''),
+              el('span', { class: 'font-bold tabular-nums shrink-0' }, fmt.usd0(x.contractValue)))));
+        })());
     } catch (e) { console.warn('[ridd] sell-days calendar failed', e); return el('div', {}); }
   }
 
@@ -7142,7 +7170,9 @@ function openIndicatorRepCard(rep, allReps = []) {
     }
     if (maxCell === 0) {
       return el('div', { class: 'rounded-lg border p-4 mb-5', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-3' }, 'Heatmap'),
+        el('div', { class: 'flex items-center justify-between gap-2 mb-3' },
+          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Time of day'),
+          _whenToggle()),
         el('div', { class: 'text-xs text-muted- italic py-6 text-center' }, 'No timestamped sales yet.'),
       );
     }
@@ -7165,11 +7195,13 @@ function openIndicatorRepCard(rep, allReps = []) {
     const gridCols = '36px repeat(' + hourCols.length + ', minmax(0, 1fr))';
     return el('div', { class: 'rounded-lg border p-4 mb-5', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
       el('div', { class: 'flex items-center justify-between mb-3 flex-wrap gap-2' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Heatmap'),
-        el('div', { class: 'text-[10px] text-muted-' }, 'Hottest: ',
-          el('span', { style: { color: 'var(--text)', fontWeight: '600' } },
-            dayLabels[hotDow] + ' ' + _fmtHourLabel(hotHour) + ' · ' + tr.dayHourCount[hotDow][hotHour] + ' sale' + (tr.dayHourCount[hotDow][hotHour] === 1 ? '' : 's')),
-        ),
+        el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Time of day'),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          el('div', { class: 'text-[10px] text-muted-' }, 'Hottest: ',
+            el('span', { style: { color: 'var(--text)', fontWeight: '600' } },
+              dayLabels[hotDow] + ' ' + _fmtHourLabel(hotHour) + ' · ' + tr.dayHourCount[hotDow][hotHour] + ' sale' + (tr.dayHourCount[hotDow][hotHour] === 1 ? '' : 's')),
+          ),
+          _whenToggle()),
       ),
       el('div', { class: 'w-full' },
         // Header row: empty corner + hour labels (same grid template as body
@@ -7444,11 +7476,10 @@ function openIndicatorRepCard(rep, allReps = []) {
     modal.append(
       header(),
       statsGrid(),
-      sellDaysCalendarBlock(),
+      (_calMode === 'calendar' ? sellDaysCalendarBlock() : dayHourHeatmapBlock()),
       recordsStrip(),
       trendsBlock(),
       powerHourBlock(),
-      dayHourHeatmapBlock(),
       topSubsBlock(),
       drillBlock() || el('div', {}),
     );
