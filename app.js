@@ -3943,13 +3943,14 @@ function mountApp() {
     history.replaceState(null, '', VIEW_TO_HASH.sales || '#sales');
   }
   // Route guard — admin-only tabs. These were only ever hidden from the nav
-  // MENU; a deep-link hash could still render them. Now that non-admins can
-  // pull the shared dataset (for the NRLA page), enforce it for real: any
-  // non-admin landing on an admin view is coerced to the NRLA board.
+  // MENU; a deep-link hash could still render them. Any non-admin landing
+  // on an admin view is coerced to Indicators — the same home a rep gets on
+  // a fresh login (this also fixes admin "View as Rep" from an admin page
+  // dumping the preview onto the NRLA board instead of the rep landing).
   const ADMIN_ONLY_VIEWS = new Set(['reporting', 'marketing', 'admin']);
   if (!isAdmin && ADMIN_ONLY_VIEWS.has(state.view)) {
-    state.view = 'nrla';
-    history.replaceState(null, '', VIEW_TO_HASH.nrla || '#nrla');
+    state.view = 'indicators';
+    history.replaceState(null, '', VIEW_TO_HASH.indicators || '#indicators');
   }
   // Route guard — rep accounts, shaped by their CRM rep TYPE:
   //   · Sales Rep (or unknown type) → Competitions + Indicators (rep-lite:
@@ -3961,6 +3962,7 @@ function mountApp() {
   const isSalesRepType = isRepOnly && !isOfficeStaff;
   const repCanSee = (v) => v === 'nrla'
     || v === 'indicators'                                  // rep-lite Indicators for ALL rep types
+    || v === 'training'                                    // placeholder for now (viewTraining gates content)
     || (!isOfficeStaff && v === 'commission')              // Sales Reps: "Sales" (commission home)
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
   if (isRepOnly && !repCanSee(state.view)) {
@@ -3989,6 +3991,7 @@ function mountApp() {
     ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]] : [['commission', 'Sales', iconDollar()]]),
     ['nrla', 'Competitions', iconTrophy()],
     ['indicators', 'Indicators', iconChart()],
+    ['training', 'Training', iconClipboard()],
   ] : [
     // Auditors only have the Sales tab, so call the entry what it is.
     // ONE "Sales" entry for every role — admins toggle Inside Sales ⇄ D2D
@@ -13594,6 +13597,65 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
   const secHead = (label, col, count) => el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '10px', padding: '18px 16px 8px', fontFamily: DISP, textTransform: 'uppercase' } },
     el('span', { style: { color: col, fontSize: '1.15rem', letterSpacing: '.14em' } }, label),
     el('span', { style: { color: WHITE, opacity: '.4', fontSize: '.75rem', letterSpacing: '.1em' } }, count));
+  const _mmdd = (iso) => new Date(iso + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+  // ── Rep drill — click any rep (survivor card or eliminated chip) for their
+  // round-by-round production: qualified / total / pending / failed per comp
+  // day, the season total, and a jump to their full player card. Settles any
+  // "wait, why am I out?" question with the receipts.
+  const openLmsRepModal = (r) => {
+    const played = R.rounds.map((rd, i) => {
+      const c = r.cells[i];
+      if (!c) return null;                                   // already out this round
+      const wb = (weekBreak[rd.iso] && weekBreak[rd.iso][r.rep]) || EMPTY_RB;
+      return { rd, c, wb, qual: (wb.passed || 0) + (wb.pending || 0) };
+    }).filter(Boolean);
+    const overlay = el('div', { class: 'modal-overlay' });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    const th2 = (lab, right) => el('th', { style: { fontFamily: DISP, fontSize: '.6rem', letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.45)', padding: '8px 10px', textAlign: right ? 'right' : 'left', whiteSpace: 'nowrap' } }, lab);
+    const td2 = (val, color, right) => el('td', { style: { fontFamily: DISP, fontSize: '.95rem', color: color || WHITE, padding: '7px 10px', textAlign: right ? 'right' : 'left', whiteSpace: 'nowrap', borderTop: HAIR } }, val);
+    const champ = r.rep === R.champion;
+    const rt = r.runTotal || EMPTY_RB;
+    const card = el('div', { class: 'card w-full max-w-lg my-8 flex flex-col', style: { background: '#0A0A0A', border: '1px solid rgba(255,255,255,.18)', maxHeight: 'calc(100vh - 64px)', overflow: 'hidden' } },
+      el('div', { style: { padding: '16px 18px 12px', borderBottom: '1px solid rgba(255,255,255,.1)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' } },
+        el('div', {},
+          el('div', { style: { fontFamily: DISP, fontSize: '1.5rem', textTransform: 'uppercase', color: champ ? ORANGE : WHITE, lineHeight: '1' } }, (champ ? '👑 ' : '') + firstLast(r.rep)),
+          el('div', { style: { fontFamily: DISP, fontSize: '.62rem', letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.4)', marginTop: '5px' } },
+            (r.office || '—') + ' · ' + (champ ? 'champion' : r.alive ? 'still standing' : 'out week ' + (r.elimWeek + 1)))),
+        el('button', { style: { color: 'rgba(255,255,255,.6)', fontSize: '22px', lineHeight: '1', background: 'none', border: 'none', cursor: 'pointer' }, onclick: () => overlay.remove() }, '×')),
+      el('div', { style: { overflowY: 'auto', padding: '4px 8px 0' } },
+        el('table', { style: { width: '100%', borderCollapse: 'collapse' } },
+          el('thead', {}, el('tr', {}, th2('Week'), th2('Qualified', true), th2('Total', true), th2('Pending', true), th2('Failed', true), th2('Result', true))),
+          el('tbody', {},
+            ...played.map(p => el('tr', {},
+              td2('Wk ' + p.rd.week + ' · ' + _mmdd(p.rd.iso), 'rgba(255,255,255,.75)'),
+              td2(money(p.qual), p.qual ? GREEN : 'rgba(255,255,255,.3)', true),
+              td2(money(p.wb.total), 'rgba(255,255,255,.75)', true),
+              td2(money(p.wb.pending), p.wb.pending ? ORANGE : 'rgba(255,255,255,.3)', true),
+              td2(money(p.wb.failed), p.wb.failed ? RED : 'rgba(255,255,255,.3)', true),
+              td2(p.c.advanced ? 'Advanced' : 'Eliminated', p.c.advanced ? GREEN : RED, true))),
+            el('tr', {},
+              td2('Season', WHITE),
+              td2(money((rt.passed || 0) + (rt.pending || 0)), GREEN, true),
+              td2(money(rt.total || 0), WHITE, true),
+              td2(money(rt.pending || 0), ORANGE, true),
+              td2(money(rt.failed || 0), RED, true),
+              td2('', WHITE, true))))),
+      el('div', { style: { padding: '12px 18px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } },
+        el('div', { style: { fontFamily: DISP, fontSize: '.58rem', letterSpacing: '.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,.35)' } },
+          'Qualified = passed + pending on the comp day · serviced by the following Friday'),
+        el('button', {
+          style: { fontFamily: DISP, fontSize: '.75rem', letterSpacing: '.08em', textTransform: 'uppercase', color: '#0A0A0A', background: GREEN, border: 'none', borderRadius: '999px', padding: '8px 14px', cursor: 'pointer' },
+          onclick: () => {
+            overlay.remove();
+            try {
+              const nm = getCanonicalRepName(r.rep);
+              openIndicatorRepCard(_enrichRepFromRawSales(nm, state._indicatorRawSales || []), []);
+            } catch (e) { toast('Player card unavailable', 'warn'); }
+          },
+        }, 'Full player card →')));
+    overlay.append(card);
+    document.body.append(overlay);
+  };
   // Survivor CARDS in a responsive grid — no dead middle. Rank badge top-right,
   // week + season side by side, green underline = posted this week.
   const cleanCard = (r, rank) => {
@@ -13601,17 +13663,20 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
     const qualCur = (wbCur.passed || 0) + (wbCur.pending || 0);
     const champ = r.rep === R.champion;
     return el('div', { style: {
-      position: 'relative', borderRadius: '12px', padding: '14px 16px 12px',
+      position: 'relative', borderRadius: '12px', padding: '14px 16px 12px', cursor: 'pointer',
       background: champ ? 'linear-gradient(135deg, rgba(240,172,30,.16), #101010 65%)' : '#101010',
       border: '1px solid ' + (champ ? ORANGE : (rank <= 3 ? 'rgba(240,172,30,.45)' : 'rgba(255,255,255,.12)')),
       boxShadow: 'inset 0 -3px 0 ' + (qualCur ? GREEN : 'rgba(255,255,255,.08)'),
-    } },
+    },
+      title: 'Week-by-week production for ' + firstLast(r.rep),
+      onclick: () => openLmsRepModal(r),
+    },
       el('div', { style: { position: 'absolute', top: '8px', right: '12px', fontFamily: DISP, fontSize: '1.5rem', lineHeight: '1', color: rank <= 3 ? ORANGE : 'rgba(255,255,255,.18)' } }, '#' + rank),
       el('div', { style: { fontFamily: DISP, fontSize: '1.15rem', textTransform: 'uppercase', color: champ ? ORANGE : WHITE, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '44px' } }, (champ ? '👑 ' : '') + firstLast(r.rep)),
       el('div', { style: { fontFamily: DISP, fontSize: '.6rem', letterSpacing: '.12em', color: 'rgba(255,255,255,.35)', textTransform: 'uppercase', marginBottom: '10px' } }, r.office || '—'),
       el('div', { style: { display: 'flex', gap: '18px' } },
         curRd ? el('div', {},
-          el('div', { style: { fontFamily: DISP, fontSize: '.56rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase' } }, 'Week ' + curRd.week),
+          el('div', { style: { fontFamily: DISP, fontSize: '.56rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase', whiteSpace: 'nowrap' } }, 'Week ' + curRd.week + ' · ' + _mmdd(curRd.iso)),
           el('div', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1.1', color: qualCur ? GREEN : 'rgba(255,255,255,.25)' } }, money(qualCur))) : null,
         el('div', {},
           el('div', { style: { fontFamily: DISP, fontSize: '.56rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase' } }, 'Competition'),
@@ -13623,13 +13688,14 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
   outRows.forEach(r => { (outGroups[r.elimWeek] = outGroups[r.elimWeek] || []).push(r); });
   const outSections = Object.keys(outGroups).map(Number).sort((a, b) => b - a).map(k => el('div', { style: { padding: '4px 16px 8px' } },
     el('div', { style: { padding: '10px 0 8px', fontFamily: DISP, fontSize: '.85rem', letterSpacing: '.14em', textTransform: 'uppercase', color: MAG } },
-      'Out · Week ' + (k + 1) + ' — ' + outGroups[k].length + ' rep' + (outGroups[k].length === 1 ? '' : 's')),
+      'Out · Week ' + (k + 1) + (R.rounds[k] ? ' · ' + _mmdd(R.rounds[k].iso) : '') + ' — ' + outGroups[k].length + ' rep' + (outGroups[k].length === 1 ? '' : 's')),
     el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } },
       ...outGroups[k].sort((a, b) => _qual(b) - _qual(a)).map(r => el('span', {
         style: { fontFamily: DISP, textTransform: 'uppercase', fontSize: '.98rem', letterSpacing: '.03em',
                  padding: '6px 14px', borderRadius: '999px', border: '1px solid rgba(255,255,255,.2)',
-                 color: WHITE, whiteSpace: 'nowrap' },
-        title: firstLast(r.rep) + ' — ' + money(_qual(r)) + ' qualified for the competition · out week ' + (k + 1),
+                 color: WHITE, whiteSpace: 'nowrap', cursor: 'pointer' },
+        title: firstLast(r.rep) + ' — ' + money(_qual(r)) + ' qualified for the competition · out week ' + (k + 1) + ' · click for week-by-week production',
+        onclick: () => openLmsRepModal(r),
       }, firstLast(r.rep), el('span', { style: { color: 'rgba(255,255,255,.55)', marginLeft: '8px' } }, money(_qual(r))))))));
   const cleanView = el('div', { style: { background: '#000', borderTop: '1px solid rgba(255,255,255,.08)' } },
     secHead(R.champion ? '👑 Champion' : 'Still Standing', GREEN, aliveRows.length + ' of ' + rows.length + ' reps'),
@@ -16580,6 +16646,8 @@ function openLastManStandingHelpModal(winLabel) {
         el('div', {}, 'For revenue to count toward a round, the account must be serviced by the Friday after it was sold — sell Saturday, service by the next Friday. That Friday is the cutoff, so when the new round opens that Saturday we can confirm exactly who advances. Accounts still unserviced, or serviced after that Friday, don\'t count — nobody can sandbag a future service date to pad a round.')),
       section('Winning',
         el('div', {}, 'The cut repeats every Saturday until one rep is left standing — the champion.')),
+      section('Checking the receipts',
+        el('div', {}, 'Click any rep — survivor card or eliminated chip — for their week-by-week production: qualified, total, pending, and failed revenue per round, plus a jump to their full player card.')),
       section('Window',
         el('div', {}, 'Competition dates: ' + (winLabel || 'all dates') + '. Adjust with the date filter at the top.')),
     ),
@@ -26517,13 +26585,12 @@ function repLandingPlayerCard() {
             tierMeta && el('span', {
               class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded',
               style: { background: tierMeta.color + '22', color: tierMeta.color },
-            }, tierMeta.label))),
-        // Revenue lives up here beside the name (THE number) — pulled out
-        // of the tile grid so the remaining 9 tiles fill even 3-per-row
-        // rows on mobile.
-        el('div', { class: 'flex flex-col items-end shrink-0' },
-          el('span', { class: 'text-2xl leading-none font-black tabular-nums' }, fmt.usd0(revenue)),
-          el('span', { class: 'text-[11px] font-bold mt-1', style: { color: 'var(--accent)' } }, 'Player card →'))),
+            }, tierMeta.label),
+            // Revenue rides right beside the name (THE number) — pulled out
+            // of the tile grid so the remaining 9 tiles fill even 3-per-row
+            // rows on mobile.
+            el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue)))),
+        el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Player card →')),
       el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
         tile('Sales', fmt.int(count)),
         tile('Revenue/Day', sellDays ? fmt.usd0(revenue / sellDays) : '—'),
@@ -30487,6 +30554,14 @@ const TRAINING_MODULES = [
 function _trainingImg(src) { return (/^https?:/.test(src) ? src : (TRAINING_ASSET_BASE + src)); }
 
 function viewTraining() {
+  // Reps see the tab (so they know it's coming) but the modules are still
+  // being built out for them — placeholder until the content is rep-ready.
+  if (!isAdminRole(state.profile && state.profile.role)) {
+    return el('div', { class: 'card p-12 text-center flex flex-col items-center gap-3 max-w-2xl mx-auto' },
+      el('div', { class: 'text-5xl' }, '🚧'),
+      el('div', { class: 'text-xl font-bold' }, 'Under Construction'),
+      el('div', { class: 'text-sm text-muted-' }, 'Training content is on the way — check back soon.'));
+  }
   const wrap = el('div', { class: 'flex flex-col gap-4 max-w-5xl mx-auto' });
   const mod = (state._trainingOpen != null) ? TRAINING_MODULES[state._trainingOpen] : null;
 
