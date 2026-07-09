@@ -450,6 +450,26 @@ function scheduleBackgroundRemount() {
     if (state.profile && typeof mountApp === 'function' && !_loadAndRenderInFlight) mountApp();
   }, 120);
 }
+// Healed "Last upload" stamp for page headers. Self-repairs a stored
+// timestamp that lags the dataset label (partial state restores), and never
+// exposes the dataset's internal filename — just the time.
+function indicatorsSyncStampText() {
+  if (!state.indicatorsUploadedAt) return '';
+  let t = new Date(state.indicatorsUploadedAt);
+  const m = /RevHawk sync — (\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(state.indicatorsFileName || '');
+  if (m) {
+    const labelDay = new Date(+m[3], +m[1] - 1, +m[2]);
+    if (isNaN(t) || t < labelDay) {
+      const up0 = (state.reportingUploads || [])[0];
+      const upT = up0 && up0.uploaded_at ? new Date(up0.uploaded_at) : null;
+      t = (upT && upT >= labelDay) ? upT : labelDay;
+      state.indicatorsUploadedAt = t.toISOString();
+    }
+  }
+  if (isNaN(t)) return '';
+  return t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 function loadIndicatorState() {
   // Read the new split keys first; fall back to the legacy combined key if a
   // user is loading from a state written before the split.
@@ -4021,6 +4041,14 @@ function mountApp() {
       gridBtn,
       navMenu,
       el('h1', { class: 'hb-topbar-title font-bold tracking-wider' }, TAB_TITLES[state.view] || ''),
+      // Freshness stamp — lives up here with the title on every data tab.
+      (() => {
+        const DATA_VIEWS = new Set(['indicators', 'nrla', 'competitions', 'reporting', 'scorecards', 'hall_of_fame']);
+        if (!DATA_VIEWS.has(state.view)) return null;
+        const txt = (typeof indicatorsSyncStampText === 'function') ? indicatorsSyncStampText() : '';
+        return txt ? el('span', { class: 'hidden sm:block text-[11px] whitespace-nowrap', style: { color: 'var(--header-text)', opacity: '.55', marginLeft: '10px', alignSelf: 'center' } },
+          'Last upload: ', el('span', { class: 'font-semibold' }, txt)) : null;
+      })(),
     ),
     state.view === 'sales' ? buildSearchBar() : el('div', { class: 'flex-1' }),
     el('div', { class: 'flex items-center gap-2' },
@@ -19117,45 +19145,7 @@ function viewIndicators() {
         // Reserve vertical space below the page header equal to the bar's
         // height since position:fixed takes it out of normal flow.
         el('div', { id: 'indBarSpacer', style: { height: barHeight + 'px' } }),
-        // Title block — scrolls with the rest of the page below the fixed bar.
-        // Flex row: title/dates on the left, Comps switch bottom-right so it
-        // sits directly above the table's RIDD column.
-        el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
-          el('div', {},
-          el('div', { class: 'flex items-baseline gap-2 flex-wrap' },
-          el('h1', { class: 'text-lg font-bold' }, 'INDICATORS'),
-          state.indicatorsUploadedAt && (() => {
-            // Self-healing freshness stamp. The dataset label ("RevHawk sync —
-            // M/D/YYYY") is written by the rebuild itself, so if the stored
-            // timestamp LAGS the label (seen after a partial state restore),
-            // the label wins: show the newest snapshot's real time for that
-            // day and quietly repair the stored value.
-            let t = new Date(state.indicatorsUploadedAt);
-            const m = /RevHawk sync — (\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(state.indicatorsFileName || '');
-            if (m) {
-              const labelDay = new Date(+m[3], +m[1] - 1, +m[2]);
-              if (isNaN(t) || t < labelDay) {
-                const up0 = (state.reportingUploads || [])[0];
-                const upT = up0 && up0.uploaded_at ? new Date(up0.uploaded_at) : null;
-                t = (upT && upT >= labelDay) ? upT : labelDay;
-                state.indicatorsUploadedAt = t.toISOString();   // repair for every other consumer
-              }
-            }
-            return el('div', { class: 'text-[11px] text-muted-' },
-              'Last upload: ',
-              el('span', { class: 'font-semibold', style: { color: 'var(--text)' } },
-                t.toLocaleString('en-US', {
-                  month: 'short', day: 'numeric', year: 'numeric',
-                  hour: 'numeric', minute: '2-digit',
-                })),
-              (state.indicatorsFileName && isAdminRole(state.profile.role)) ? ' · ' + state.indicatorsFileName : '');
-          })(),
-          ), // close inline title + stamp row
-          ), // close left column of the title row
-          el('div', { class: 'flex items-center gap-3' },
-
-          ), // close title-row right group (comps toggle retired — comps live on the Competitions tab)
-        ),
+        // (Title + freshness stamp live in the fixed page header now.)
       );
     })(),
 
