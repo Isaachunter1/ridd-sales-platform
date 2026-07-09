@@ -4393,10 +4393,11 @@ function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);
   // A one-tab bar is just noise — auditors land straight on Sales.
   if (tabs.length < 2) return null;
-  // Static tab bar — wraps onto multiple rows on narrow/mobile screens instead
-  // of becoming a horizontal scroll strip (which floated around on mobile).
-  return el('div', { class: 'flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } },
-    salesModeToggle('inside'),
+  const go = (k) => { state.view = k; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
+  // Desktop: static tab bar. Mobile: the tabs wrapped onto two cramped rows
+  // and fought the Inside/D2D toggle for space — consolidated into ONE
+  // dropdown that shows the current tab and jumps on select.
+  const tabBar = el('div', { class: 'hidden sm:flex items-center flex-wrap gap-x-1 gap-y-0' },
     ...tabs.map(([k, label]) => {
       const active = state.view === k;
       return el('button', {
@@ -4406,9 +4407,19 @@ function insideSalesSubTabs() {
           color: active ? 'var(--text)' : 'var(--text-muted)',
           marginBottom: '-1px',
         },
-        onclick: () => { state.view = k; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); },
+        onclick: () => go(k),
       }, label);
     }));
+  const tabSelect = el('div', { class: 'sm:hidden flex-1 min-w-0 py-1.5' },
+    el('select', {
+      class: 'w-full rounded-lg border px-3 py-2 text-sm font-bold',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => go(e.target.value),
+    }, ...tabs.map(([k, label]) => el('option', { value: k, selected: state.view === k }, label))));
+  return el('div', { class: 'flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } },
+    salesModeToggle('inside'),
+    tabBar,
+    tabSelect);
 }
 
 // ── Independent section re-render ─────────────────────────────────────────
@@ -13532,7 +13543,26 @@ function lastManStandingCompute(sales, compOverride) {
     ? _custom.has(iso)
     : ((d.getDay() === 6 || LMS_EXTRA_DAYS.has(iso)) && !LMS_SKIP_DAYS.has(iso));
   const dayOf = (s) => (typeof _parseIndicatorDay === 'function') ? _parseIndicatorDay(s) : ((s && s.date) || null);
-  const d2d = (sales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === 'd2d' : true));
+  // SEASON FENCE — the dataset carries multiple YEARS of history (for the
+  // YoY charts), but this comp is one season. Without this fence the roster
+  // swept in every rep who ever sold (2024/2025 ghosts piling into the
+  // "eliminated" list) and auto-Saturday mode could even mint rounds from
+  // prior years. Season year = the year of the first scheduled comp day
+  // (or the current year when running on auto-Saturdays).
+  const _seasonYear = (() => {
+    if (_custom && _custom.size) {
+      const first = [...(_custom)].sort()[0];
+      const y = Number(String(first).slice(0, 4));
+      if (y > 2000) return y;
+    }
+    return new Date().getFullYear();
+  })();
+  const _seasonStart = new Date(_seasonYear, 0, 1);
+  const d2d = (sales || []).filter(s => {
+    if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') return false;
+    const d0 = dayOf(s);
+    return d0 && !isNaN(d0) && d0 >= _seasonStart;
+  });
   const repOffice = {}; const roster = [];
   for (const s of d2d) { const r = s.rep; if (r && !(r in repOffice)) { repOffice[r] = s.office || ''; roster.push(r); } }
   // Qualifying revenue per rep per comp day.
