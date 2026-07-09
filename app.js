@@ -22141,16 +22141,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   el('span', { class: 'shrink-0 text-[11px]' },
                     fmt.int(r.count) + ' sales' + (r.revPerDay > 0 ? ' · ' + fmt.usd0(r.revPerDay) + '/day' : '')),
                 ),
-                // Detail lines — muted, dot-separated, no grid chrome
-                el('div', { class: 'text-[10px] mt-1.5 pt-1.5 border-t leading-relaxed', style: { borderColor: 'var(--border)' } },
-                  iv('ACV', fmt.usd0(r.acv)), dot(),
-                  iv('Pest', r.avgPest > 0 ? fmt.usd0(r.avgPest) : '—'), dot(),
-                  iv('MY', (r.myPct * 100).toFixed(0) + '%'), dot(),
-                  iv('APay', (r.autoPayPct * 100).toFixed(0) + '%'),
-                  el('br'),
-                  iv('Sell days', fmt.int(r.sellingDays || 0)), dot(),
-                  iv('Best day', r.bestDay > 0 ? fmt.usd0(r.bestDay) + (r.bestDayDate ? ' (' + String(r.bestDayDate).replace(/\/\d{4}$/, '') + ')' : '') : '—'), dot(),
-                  iv('Cancels', r.cancels > 0 ? fmt.int(r.cancels) + ' (' + (r.cancelPct * 100).toFixed(1) + '%)' : '—', r.cancelPct > 0.1),
+                // One stat only — the $/day denominator, plainly labeled.
+                // (Full stats are one tap away on the player card.)
+                el('div', { class: 'text-[10px] mt-1' },
+                  iv('Days Sold:', fmt.int(r.sellingDays || 0)),
                 ),
               );
             })),
