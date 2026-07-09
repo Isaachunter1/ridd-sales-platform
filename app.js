@@ -14403,43 +14403,13 @@ function nrlaBoard(rawSales, opts) {
     ),
   );
 
-  // ── Frozen banner — a compact NRLA strip pins below the filter bar once the
-  // hero scrolls out of view, carrying the LIVE chip + the big sync stamp. ──
-  const stickyLive = R.rounds.find(r => r.live);
-  const stickyBar = el('div', { id: 'nrlaStickyBar', style: {
-      position: 'fixed', left: '0', right: '0', top: '0', display: 'none', zIndex: '35',
-      alignItems: 'center', gap: '14px', padding: '8px 18px',
-      background: 'linear-gradient(180deg, #04080F 0%, #0A1422 100%)', boxShadow: '0 8px 24px rgba(0,0,0,.35)',
-    } },
-    el('span', { style: { fontFamily: DISP, fontSize: '1.3rem', lineHeight: '1', color: '#fff', letterSpacing: '.08em' } }, 'NRLA'),
-    stickyLive ? el('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '2px 9px', borderRadius: '999px', background: GREEN, color: '#04310A', fontWeight: '900', fontSize: '10px', letterSpacing: '.03em' } },
-      el('span', { style: { animation: 'nrlaPulse 1.2s ease-in-out infinite' } }, '●'),
-      'LIVE · ' + (stickyLive.phase === 'seed' ? 'Round ' + stickyLive.num : stickyLive.phase === 'semi' ? 'Semifinals' : 'Championship')) : null,
-    el('span', { class: 'flex-1' }),
-    el('span', { style: { fontFamily: DISP, fontSize: '.6rem', letterSpacing: '.22em', color: PINK, textTransform: 'uppercase' } }, 'Last Sync'),
-    el('span', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1', color: '#fff' } }, syncStr));
-  // One live scroll handler app-wide (re-registered per render so it closes
-  // over nothing stale; no-ops when the NRLA board isn't on screen).
-  // Registered on DOCUMENT with capture:true so it fires no matter WHICH
-  // element actually scrolls (the page scrolls an inner container in some
-  // layouts — a plain window listener never fired, so the bar never froze).
+  // (Frozen banner retired — it overlapped the fixed page header, and the
+  // header's own Last-upload stamp now covers scrolled-away freshness.)
   if (window._nrlaStickyScroll) {
     document.removeEventListener('scroll', window._nrlaStickyScroll, true);
     window.removeEventListener('resize', window._nrlaStickyScroll);
+    window._nrlaStickyScroll = null;
   }
-  window._nrlaStickyScroll = () => {
-    const bar = document.getElementById('nrlaStickyBar');
-    const heroEl = document.getElementById('nrlaHero');
-    if (!bar || !heroEl) return;
-    const fixedBar = document.getElementById('indFixedBar');
-    const topOff = fixedBar ? fixedBar.getBoundingClientRect().height : 0;
-    const show = heroEl.getBoundingClientRect().bottom <= topOff;
-    bar.style.top = topOff + 'px';
-    bar.style.display = show ? 'flex' : 'none';
-  };
-  document.addEventListener('scroll', window._nrlaStickyScroll, { capture: true, passive: true });
-  window.addEventListener('resize', window._nrlaStickyScroll);
-  setTimeout(window._nrlaStickyScroll, 0);   // set the correct state on first paint
 
   // ── Daily report CSV — the "Updates sent daily" deliverable: standings,
   // every played round's results, top reps (season + latest round). One
@@ -14914,7 +14884,7 @@ function nrlaBoard(rawSales, opts) {
   const footer = el('div', { class: 'px-3 py-2 text-center text-[10px] font-bold uppercase tracking-widest', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } },
     'Updates will be sent daily · RIDDMADE');
 
-  return el('div', { class: 'card overflow-hidden' }, stickyBar, hero,
+  return el('div', { class: 'card overflow-hidden' }, hero,
     RO ? null : cfgBar, RO ? null : chipBar,
     standingsCard, repBoard, prizeStrip, prizeCard, roundsGrid, footer);
 }
@@ -15021,7 +14991,7 @@ function viewNrlaPublic() {
       saveDemoData();                                // syncs to every user
       mountApp();
     },
-  }, compact ? (sel.favorite ? '★' : '☆') : (sel.favorite ? '★ Default' : '☆ Set as default')) : null;
+  }, sel.favorite ? '★' : '☆') : null;
   const _stampFor = () => _compSyncStr ? el('div', {
     class: 'text-right shrink-0',
     title: 'When the FieldRoutes sync last landed — every board on this tab reads from that snapshot (refreshes every ~30 min)',
