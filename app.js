@@ -6613,7 +6613,6 @@ function openIndicatorRepCard(rep, allReps = []) {
   let drillKey = null, drillSub = null;
   let recordsLeaderKey = null;       // 'bestDay' | 'bestWeek' | 'bestMonth' | null
   let recordsLeaderExpanded = null;  // name of the rep whose accounts are expanded inline
-  let subsExpanded = null;           // subscription name whose accounts are expanded inline
   let cardScope = 'ytd';             // CARD_SCOPE_PRESETS id — scopes ALL stats/charts in this card (YTD default)
   let _trendWkOff = 0;               // 12-week trend paging (0 = latest window)
   let cardView = 'sales';            // 'sales' | 'retention' — retention mirrors the Auditing player card
@@ -7154,6 +7153,36 @@ function openIndicatorRepCard(rep, allReps = []) {
     );
   }
 
+  // ── Chart drill popup — tap any bar / label / heatmap cell to see the
+  // actual accounts behind that number (stacks above the player card).
+  const openChartDrill = (title, list) => {
+    if (!list || !list.length) return;
+    const ov = el('div', { class: 'modal-overlay' });
+    ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+    const rev = list.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
+    ov.append(el('div', { class: 'card w-full max-w-3xl my-8 flex flex-col overflow-hidden', style: { maxHeight: 'calc(100vh - 64px)' } },
+      el('div', { class: 'px-5 py-3 flex items-start justify-between gap-3 border-b', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('div', { class: 'text-sm font-bold' }, title),
+          el('div', { class: 'text-[11px] text-muted- mt-0.5 tabular-nums' },
+            list.length + ' account' + (list.length === 1 ? '' : 's') + ' · ' + fmt.usd0(rev))),
+        el('button', { class: 'text-xl leading-none text-muted-', style: { lineHeight: '1' }, onclick: () => ov.remove() }, '×')),
+      el('div', { class: 'overflow-auto' },
+        accountsTable(list.slice().sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''))))));
+    document.body.append(ov);
+  };
+  const _salesInWeek = (weekStart) => (scopedRep.sales || []).filter(x => {
+    const d = _parseIndicatorDay(x); if (!d) return false;
+    const ws = new Date(d); ws.setDate(ws.getDate() - ws.getDay());
+    return ws.toISOString().slice(0, 10) === weekStart;
+  });
+  const _salesOnDow = (dow) => (scopedRep.sales || []).filter(x => { const d = _parseIndicatorDay(x); return d && d.getDay() === dow; });
+  const _salesAtHour = (h) => (scopedRep.sales || []).filter(x => { const t = _parseIndicatorTime(x); return t && t.hour === h; });
+  const _salesDowHour = (dow, h) => (scopedRep.sales || []).filter(x => {
+    const d = _parseIndicatorDay(x); const t = _parseIndicatorTime(x);
+    return d && t && d.getDay() === dow && t.hour === h;
+  });
+
   function trendsBlock() {
     const tr = computeIndicatorTrends(scopedRep, _trendWkOff);
     const maxWeek = Math.max(1, ...tr.weeks12.map(w => w.revenue));
@@ -7191,8 +7220,9 @@ function openIndicatorRepCard(rep, allReps = []) {
                 ...tr.weeks12.map(w => {
                   const h = Math.max(2, Math.round((w.revenue / maxWeek) * 90));
                   const bar = el('div', {
-                    class: 'flex-1 rounded-t transition cursor-help',
+                    class: 'flex-1 rounded-t transition ' + (w.count > 0 ? 'cursor-pointer' : 'cursor-help'),
                     style: { height: h + 'px', background: w.revenue > 0 ? accent : 'var(--border)', opacity: w.revenue > 0 ? 1 : 0.5 },
+                    onclick: w.count > 0 ? () => openChartDrill('Week of ' + w.weekStart, _salesInWeek(w.weekStart)) : undefined,
                   });
                   attachTooltip(bar, {
                     title: w.revenue > 0 ? fmt.usd0(w.revenue) : 'No sales',
@@ -7204,8 +7234,9 @@ function openIndicatorRepCard(rep, allReps = []) {
               // Revenue figure under every bar, compact ($4.5K) so 12 fit.
               el('div', { class: 'flex gap-1 mt-1' },
                 ...tr.weeks12.map(w => el('div', {
-                  class: 'flex-1 text-center tabular-nums font-semibold',
+                  class: 'flex-1 text-center tabular-nums font-semibold' + (w.count > 0 ? ' cursor-pointer' : ''),
                   style: { fontSize: '8px', color: w.revenue > 0 ? 'var(--text-muted)' : 'var(--text-subtle)' },
+                  onclick: w.count > 0 ? () => openChartDrill('Week of ' + w.weekStart, _salesInWeek(w.weekStart)) : undefined,
                 }, cash(w.revenue) || '·')),
               ),
             ),
@@ -7221,19 +7252,23 @@ function openIndicatorRepCard(rep, allReps = []) {
                 ...tr.dow.map((c, i) => {
                   const dayName = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][i];
                   const bar = el('div', {
-                    class: 'flex-1 rounded-t transition cursor-help',
+                    class: 'flex-1 rounded-t transition ' + (c > 0 ? 'cursor-pointer' : 'cursor-help'),
                     style: {
                       height: Math.max(2, Math.round((c / maxDow) * 70)) + 'px',
                       background: c > 0 ? accent : 'var(--border)',
                       opacity: c > 0 ? 1 : 0.4,
                     },
+                    onclick: c > 0 ? () => openChartDrill(dayName + 's', _salesOnDow(i)) : undefined,
                   });
                   attachTooltip(bar, { title: dayName, desc: c + ' sale' + (c === 1 ? '' : 's') });
                   return bar;
                 }),
               ),
               el('div', { class: 'flex gap-2 mt-1.5' },
-                ...tr.dow.map((c, i) => el('div', { class: 'flex-1 flex flex-col items-center' },
+                ...tr.dow.map((c, i) => el('div', {
+                  class: 'flex-1 flex flex-col items-center' + (c > 0 ? ' cursor-pointer' : ''),
+                  onclick: c > 0 ? () => openChartDrill(['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays'][i], _salesOnDow(i)) : undefined,
+                },
                   el('div', { class: 'text-[9px] text-muted- font-semibold' }, dowLabels[i]),
                   el('div', { class: 'text-[10px] tabular-nums font-semibold' }, c),
                 )),
@@ -7261,13 +7296,14 @@ function openIndicatorRepCard(rep, allReps = []) {
             el('div', { class: 'flex items-end gap-1', style: { height: '90px' } },
               ...visible.map(v => {
                 const bar = el('div', {
-                  class: 'flex-1 rounded-t transition cursor-help',
+                  class: 'flex-1 rounded-t transition ' + (v.count > 0 ? 'cursor-pointer' : 'cursor-help'),
                   style: {
                     height: Math.max(2, Math.round((v.count / max) * 90)) + 'px',
                     background: v.count > 0 ? accent : 'var(--border)',
                     opacity: v.count > 0 ? (v.hour === tr.peakHour ? 1 : 0.85) : 0.4,
                     outline: v.hour === tr.peakHour ? '2px solid var(--accent)' : 'none',
                   },
+                  onclick: v.count > 0 ? () => openChartDrill(_fmtHourLabel(v.hour) + '–' + _fmtHourLabel((v.hour + 1) % 24), _salesAtHour(v.hour)) : undefined,
                 });
                 const acv = v.count > 0 ? v.revenue / v.count : 0;
                 const descLines = ['Accounts: ' + v.count];
@@ -7280,7 +7316,10 @@ function openIndicatorRepCard(rep, allReps = []) {
               }),
             ),
             el('div', { class: 'flex gap-1 mt-1.5' },
-              ...visible.map(v => el('div', { class: 'flex-1 flex flex-col items-center' },
+              ...visible.map(v => el('div', {
+                class: 'flex-1 flex flex-col items-center' + (v.count > 0 ? ' cursor-pointer' : ''),
+                onclick: v.count > 0 ? () => openChartDrill(_fmtHourLabel(v.hour) + '–' + _fmtHourLabel((v.hour + 1) % 24), _salesAtHour(v.hour)) : undefined,
+              },
                 el('div', { class: 'text-[9px] text-muted- font-semibold' }, _fmtHourLabel(v.hour)),
                 el('div', { class: 'text-[10px] tabular-nums font-semibold' }, v.count),
               )),
@@ -7366,7 +7405,7 @@ function openIndicatorRepCard(rep, allReps = []) {
             const intensity = maxCell > 0 ? count / maxCell : 0;
             const isHot = (dow === hotDow && h === hotHour);
             const cell = el('div', {
-              class: 'rounded transition cursor-help',
+              class: 'rounded transition ' + (count > 0 ? 'cursor-pointer' : 'cursor-help'),
               style: {
                 height: 'clamp(22px, 4vw, 44px)',
                 background: count > 0
@@ -7375,6 +7414,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                 outline: isHot ? '2px solid var(--accent)' : 'none',
                 outlineOffset: '-1px',
               },
+              onclick: count > 0 ? () => openChartDrill(dayLabel + 's · ' + _fmtHourLabel(h) + '–' + _fmtHourLabel((h + 1) % 24), _salesDowHour(dow, h)) : undefined,
             });
             attachTooltip(cell, {
               title: dayLabel + ' ' + _fmtHourLabel(h) + (isHot ? ' · Hottest' : ''),
@@ -7419,7 +7459,6 @@ function openIndicatorRepCard(rep, allReps = []) {
         ...tr.topSubs.flatMap(sub => {
           const pct = sub.count / maxCount;
           const cancelRate = sub.count > 0 ? sub.cancels / sub.count : 0;
-          const isOpen = subsExpanded === sub.name;
           // Fixed grid so every column lines up: caret · name · bar · accts ·
           // revenue · cancels. The bar always starts at the same x.
           const SUB_GRID = '12px minmax(0, 1fr) clamp(110px, 24vw, 240px) 44px 84px 112px';
@@ -7429,15 +7468,14 @@ function openIndicatorRepCard(rep, allReps = []) {
               display: 'grid', gridTemplateColumns: SUB_GRID, alignItems: 'center', columnGap: '10px',
               minHeight: ROW_HEIGHT + 'px',
               padding: '2px 4px',
-              background: isOpen ? 'rgba(141,198,63,.10)' : 'transparent',
             },
             title: 'Click to see all ' + sub.count + ' account' + (sub.count === 1 ? '' : 's') + ' for ' + sub.name,
-            onclick: () => { subsExpanded = isOpen ? null : sub.name; renderBody(); },
+            // Accounts open in the same drill POPUP the charts use — the old
+            // inline expansion rendered a tall table inside this block's
+            // 5-row scrollbox, which trapped the scroll on mobile.
+            onclick: () => openChartDrill(sub.name, (scopedRep.sales || []).filter(x => ((x.subscription || '').trim() || 'Unknown') === sub.name)),
           },
-            el('span', {
-              class: 'inline-block text-muted-',
-              style: { width: '10px', transition: 'transform .15s ease', transform: isOpen ? 'rotate(90deg)' : 'none', transformOrigin: 'center' },
-            }, '▸'),
+            el('span', { class: 'inline-block text-muted-', style: { width: '10px' } }, '▸'),
             el('div', { class: 'truncate min-w-0', title: sub.name }, sub.name),
             el('div', { style: { background: 'var(--border)', height: '8px', borderRadius: '4px', overflow: 'hidden' } },
               el('div', {
@@ -7454,15 +7492,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                 }, sub.cancels + ' cncl · ' + (cancelRate * 100).toFixed(1) + '%')
               : el('span', { class: 'text-[10px] text-muted- text-right', style: { justifySelf: 'end' } }, '0 cncl'),
           );
-          if (!isOpen) return [row];
-          const accounts = (scopedRep.sales || []).filter(s => ((s.subscription || '').trim() || 'Unknown') === sub.name);
-          const expanded = el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.04)', padding: '8px' } },
-            el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' },
-              accounts.length + ' account' + (accounts.length === 1 ? '' : 's') + ' · ' + sub.name + ' · ' + fmt.usd0(sub.revenue) + (sub.cancels > 0 ? ' · ' + sub.cancels + ' cancelled (' + (cancelRate * 100).toFixed(1) + '%)' : ''),
-            ),
-            accountsTable(accounts),
-          );
-          return [row, expanded];
+          return [row];
         }),
       ),
     );
@@ -7690,19 +7720,14 @@ function openIndicatorRepCard(rep, allReps = []) {
           ),
           el('div', { class: 'text-xs text-muted- mt-1 flex items-center gap-2 flex-wrap tabular-nums' },
             // (team + office labels removed — identity is name + tier here)
-            // Selling days = days with ≥1 sale. First figure follows the
-            // scope dropdown; second is always the current calendar year.
+            // Selling days = days with ≥1 sale, scoped to the timeframe
+            // dropdown (which already names the window — no need to repeat
+            // a second figure here).
             (() => {
               const scopedDays = new Set((scopedRep.sales || []).map(x => dateSoldToIso(x.dateSold)).filter(Boolean)).size;
-              const cy = String(new Date().getFullYear());
-              const cyDays = new Set((rep.sales || []).map(x => dateSoldToIso(x.dateSold)).filter(d => d && d.startsWith(cy))).size;
-              const scopeLab = (CARD_SCOPE_PRESETS.find(p => p.id === cardScope) || {}).label || 'All time';
               return el('span', {},
                 el('b', { style: { color: 'var(--text)' } }, fmt.int(scopedDays)),
-                ' selling days · ' + scopeLab.toLowerCase() + ' ',
-                el('span', { class: 'mx-1', style: { color: 'var(--text-subtle)' } }, '·'),
-                el('b', { style: { color: 'var(--text)' } }, ' ' + fmt.int(cyDays)),
-                ' days w/ a sale in ' + cy,
+                ' selling days',
               );
             })(),
           ),
@@ -34907,7 +34932,10 @@ function viewAdmin() {
     onclick: () => { state.adminSection = k; mountApp(); },
   }, el('span', {}, label));
 
-  const sidebar = el('aside', { class: 'rounded-2xl p-2 flex flex-col gap-1 shrink-0', style: { background: 'var(--card)', border: '1px solid var(--border)', width: '220px' } },
+  // Desktop keeps the 220px sidebar; phones swap it for a compact section
+  // dropdown + Sign out row so the content gets the full width (the sidebar
+  // was eating half the screen and truncating every panel).
+  const sidebar = el('aside', { class: 'hidden sm:flex rounded-2xl p-2 flex-col gap-1 shrink-0', style: { background: 'var(--card)', border: '1px solid var(--border)', width: '220px' } },
     ...groups.flatMap((g, gi) => [
       el('div', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest font-semibold' + (gi > 0 ? ' mt-2' : ''), style: { color: 'var(--text-subtle)' } }, g.label),
       ...g.items.map(navBtn),
@@ -34941,7 +34969,29 @@ function viewAdmin() {
   const view = sectionRenderers[state.adminSection] || adminReps;
   const body = el('div', { class: 'flex-1 min-w-0' }, view());
 
-  return el('div', { class: 'flex gap-5 w-full' }, sidebar, body);
+  const mobileNav = el('div', { class: 'sm:hidden flex items-center gap-2' },
+    el('select', {
+      class: 'flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold cursor-pointer',
+      onchange: (e) => { state.adminSection = e.target.value; mountApp(); },
+    },
+      ...groups.map(g => el('optgroup', { label: g.label },
+        ...g.items.map(([k, label]) => {
+          const o = el('option', { value: k }, label);
+          if (state.adminSection === k) o.selected = true;
+          return o;
+        }))),
+    ),
+    el('button', {
+      class: 'rounded-xl px-3 py-2.5 text-sm font-semibold border shrink-0',
+      style: { color: '#DC2626', borderColor: 'var(--border-2)' },
+      onclick: async () => {
+        if (typeof DEMO !== 'undefined' && DEMO) { location.href = location.pathname; return; }
+        await supabase.auth.signOut();
+      },
+    }, 'Sign out'),
+  );
+
+  return el('div', { class: 'flex flex-col sm:flex-row gap-4 w-full' }, mobileNav, sidebar, body);
 }
 
 // Settings ▸ Teams — the Manage Teams roster (teams, branches, tier, active)
