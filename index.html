@@ -326,6 +326,20 @@
     color: var(--text-subtle);
   }
 
+  /* Installed app (home-screen / standalone): with viewport-fit=cover the
+     canvas runs edge-to-edge UNDER the iPhone status bar and home indicator,
+     and there's no browser chrome to push content down — so the top of every
+     screen (and modal) was getting clipped. Pad by the device's safe areas;
+     env() resolves to 0 everywhere else, so browsers are unaffected. */
+  @media all and (display-mode: standalone) {
+    .page-header { padding-top: calc(1rem + env(safe-area-inset-top)) !important; }
+    body { padding-bottom: env(safe-area-inset-bottom); }
+    .modal-overlay > * {
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+  }
+
   /* Floating tooltip (rendered to body so it escapes card overflow:hidden) */
   .ridd-tooltip {
     position: fixed;
@@ -15342,7 +15356,6 @@ function nrlaBoard(rawSales, opts) {
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Team'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'W'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'L'),
-              el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Rounds'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps competing — the roster (📋) when one is set, otherwise every rep who sold this season. The PRA denominator.' }, 'Reps'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Accounts sold in this scope (Pending/Serviced only)' }, 'Accts'),
               el('th', { class: 'text-left px-2 py-2.5 font-bold' + (RO ? '' : ' cursor-pointer hover:underline'), title: 'Everything sold in this scope (Contract Value, all audit statuses) — Pending/Serviced accounts only; Sold-Not-Started is excluded.' + (RO ? '' : ' Click for every contributing account (all teams); click a cell for one team.'),
@@ -15367,7 +15380,6 @@ function nrlaBoard(rawSales, opts) {
                 teamCell(s),
                 el('td', { class: 'px-2 py-2 tabular-nums font-black whitespace-nowrap', style: { color: GREEN } }, s.w),
                 el('td', { class: 'px-2 py-2 tabular-nums font-black whitespace-nowrap', style: { color: REDD } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
-                el('td', { class: 'px-2 py-2 whitespace-nowrap' }, ...(s.results.length ? s.results.map(resDot) : [el('span', { style: { color: 'var(--text-subtle)' } }, '—')])),
                 el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, reps),
                 el('td', { class: 'px-2 py-2 tabular-nums' }, st.n),
                 _drillTd(s.team, 'total',  money(st.total), 'font-black', null),
@@ -15394,7 +15406,7 @@ function nrlaBoard(rawSales, opts) {
                 el('td', { class: 'px-3 py-2' }, ''),
                 el('td', { class: 'px-2 py-2 font-black whitespace-nowrap', style: { letterSpacing: '.06em' } }, 'RIDD',
                   el('span', { class: 'ml-1 text-[9px] uppercase font-bold', style: { color: 'var(--text-subtle)' } }, 'all teams')),
-                el('td', {}, ''), el('td', {}, ''), el('td', {}, ''),
+                el('td', {}, ''), el('td', {}, ''),
                 el('td', { class: 'px-2 py-2 tabular-nums font-black' }, repsTot),
                 el('td', { class: 'px-2 py-2 tabular-nums font-black' }, tot.n),
                 _drillTd(null, 'total',  money(tot.total), 'font-black', null),
