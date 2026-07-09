@@ -499,9 +499,16 @@
     .search-bar { max-width: none; margin: 0 4px; }
     .notif-dropdown { width: 300px; right: -40px; }
 
-    /* Modals: use the whole screen instead of floating in 24px gutters */
-    .modal-overlay { padding: 8px 6px; }
-    .modal-overlay > * { max-width: 100% !important; margin-top: 6px !important; margin-bottom: 6px !important; }
+    /* Modals: full-screen sheets on phones — edge to edge, no floating
+       card, no double-scroll. Inline max-heights are overridden so the
+       sheet owns the whole dynamic viewport. */
+    .modal-overlay { padding: 0; }
+    .modal-overlay > * {
+      max-width: 100% !important;
+      margin: 0 !important;
+      border-radius: 0 !important;
+      max-height: 100dvh !important;
+    }
 
     /* Header: tighter so the icon cluster fits */
     .page-header { padding-left: 8px !important; padding-right: 8px !important; gap: 6px; }
@@ -515,10 +522,13 @@
     /* Nav menu shouldn't overflow short screens */
     .nav-menu { max-height: calc(100vh - 90px); overflow-y: auto; }
 
-    /* Native pickers: 16px stops iOS from zoom-jumping into the field */
-    .modal-overlay input[type='text'], .modal-overlay input[type='email'],
-    .modal-overlay input[type='password'], .modal-overlay input[type='number'],
-    .modal-overlay select { font-size: 16px; }
+    /* Native pickers: 16px stops iOS from zoom-jumping into the field.
+       Must cover ALL controls — inputs created without a type attribute
+       (most of the Sales Log form) never matched the old [type=…]
+       selectors, so iOS kept zooming and the layout stuck "too big". */
+    .modal-overlay input, .modal-overlay select, .modal-overlay textarea {
+      font-size: 16px !important;
+    }
 
     /* Wide tables: keep the REP column pinned while the metrics scroll —
        phone users lose track of whose row they're reading otherwise. */
@@ -29379,6 +29389,25 @@ setInterval(() => {
     }
   } catch (e) { console.warn('[ridd] live refresh tick failed', e); }
 }, 10 * 60 * 1000);
+
+// PHONES: background tabs get their timers throttled or suspended, and the
+// tick above deliberately skips hidden tabs — so a phone reopening the app
+// could sit on numbers up to 10 minutes old. Waking the app = check NOW.
+// (refreshIndicatorsFromCloud's internal 2-min throttle keeps rapid app
+// switching free; a phone that was pocketed for an hour gets an instant
+// refresh.) This is what makes mobile sync behave exactly like a desktop
+// tab that never sleeps.
+document.addEventListener('visibilitychange', () => {
+  try {
+    if (document.hidden || (typeof DEMO !== 'undefined' && DEMO) || !state.profile) return;
+    if (typeof refreshIndicatorsFromCloud === 'function') refreshIndicatorsFromCloud().catch(() => {});
+    if (isAdminRole(state.profile.role)) {
+      Promise.resolve(typeof loadReportingMetadata === 'function' ? loadReportingMetadata() : null)
+        .then(() => autoDeriveIndicatorsFromSnapshot())
+        .catch(() => {});
+    }
+  } catch (e) { /* never break the app on wake */ }
+});
 
 // One-click RevHawk refresh behind the header sync icon. Fires the admin-gated
 // background sync, waits for the FRESH snapshot to land in Supabase, then loads
