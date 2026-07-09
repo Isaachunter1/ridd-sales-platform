@@ -6707,78 +6707,87 @@ function openIndicatorRepCard(rep, allReps = []) {
     );
   }
 
-  // ── Selling-days calendar (GitHub-style) ────────────────────────────────
-  // One square per day, Jan 1 → today, colored by accounts sold that day.
-  // Makes "Days w/ a Sale" verifiable at a glance: the green squares ARE the
-  // denominator. Uses the SCOPED sales when a card scope is picked, but
-  // always renders the current year's grid.
+  // ── Selling-days calendar ────────────────────────────────────────────────
+  // A real month calendar, defaulting to the CURRENT month, with ‹ › arrows.
+  // Each day is shaded by accounts sold that day (tooltip: count + revenue),
+  // so "Days w/ a Sale" is verifiable at a glance. Bounded to the dataset's
+  // 3-year window; can't navigate into the future.
+  let _calY = new Date().getFullYear();
+  let _calM = new Date().getMonth();
   function sellDaysCalendarBlock() {
     try {
-      const yr = new Date().getFullYear();
       const byDay = new Map();   // iso → { n, rev }
       for (const sale of (scopedRep.sales || [])) {
         const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(sale.dateSold) : '';
-        if (!iso || iso.slice(0, 4) !== String(yr)) continue;
+        if (!iso) continue;
         const rec = byDay.get(iso) || { n: 0, rev: 0 };
         rec.n += 1; rec.rev += Number(sale.contractValue) || 0;
         byDay.set(iso, rec);
       }
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const jan1 = new Date(yr, 0, 1);
-      const anchor0 = new Date(jan1); anchor0.setDate(anchor0.getDate() - anchor0.getDay()); // Sunday on/before Jan 1
-      const weekCount = Math.floor((today - anchor0) / 604800000) + 1;
-      const maxN = Math.max(1, ...[...byDay.values()].map(v => v.n));
-      const shade = (n) => {
-        if (!n) return 'var(--card-2)';
-        const t = Math.min(1, 0.35 + 0.65 * (n / maxN));           // 1 sale is clearly visible
-        return 'rgba(141,198,63,' + t.toFixed(2) + ')';
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      const minY = now.getFullYear() - 2;
+      const atMin = _calY === minY && _calM === 0;
+      const atMax = _calY === now.getFullYear() && _calM === now.getMonth();
+      const nav = (dir) => {
+        let m = _calM + dir, y = _calY;
+        if (m < 0) { m = 11; y--; }
+        if (m > 11) { m = 0; y++; }
+        if (y < minY || (y === now.getFullYear() && m > now.getMonth()) || y > now.getFullYear()) return;
+        _calY = y; _calM = m; renderBody();
       };
-      const CELL = 12, GAP = 2;
-      const monthRow = el('div', { style: { display: 'flex', gap: GAP + 'px', marginLeft: '26px', height: '12px' } });
-      const grid = el('div', { style: { display: 'flex', gap: GAP + 'px', marginTop: '2px' } });
-      // day-of-week labels (sparse)
-      const dowCol = el('div', { style: { display: 'flex', flexDirection: 'column', gap: GAP + 'px', width: '24px', marginRight: '2px' } },
-        ...['', 'M', '', 'W', '', 'F', ''].map(t => el('div', { class: 'text-[8px] text-muted- font-semibold', style: { height: CELL + 'px', lineHeight: CELL + 'px', textAlign: 'right', paddingRight: '2px' } }, t)));
-      let daysWithSale = 0, lastMonth = -1;
-      for (let w = 0; w < weekCount; w++) {
-        const col = el('div', { style: { display: 'flex', flexDirection: 'column', gap: GAP + 'px' } });
-        const weekStart = new Date(anchor0); weekStart.setDate(weekStart.getDate() + w * 7);
-        // month label above the column containing the 1st (or the first column)
-        const monthOfCol = weekStart.getMonth();
-        const showLabel = (w === 0 && weekStart >= jan1) || (monthOfCol !== lastMonth && weekStart.getDate() <= 7 && weekStart >= jan1);
-        monthRow.append(el('div', { class: 'text-[8px] text-muted- font-semibold', style: { width: CELL + 'px', overflow: 'visible', whiteSpace: 'nowrap' } },
-          showLabel ? weekStart.toLocaleDateString('en-US', { month: 'short' }) : ''));
-        if (weekStart >= jan1) lastMonth = monthOfCol;
-        for (let d = 0; d < 7; d++) {
-          const day = new Date(anchor0); day.setDate(day.getDate() + w * 7 + d);
-          const inYear = day >= jan1 && day <= today;
-          if (!inYear) { col.append(el('div', { style: { width: CELL + 'px', height: CELL + 'px' } })); continue; }
-          const iso = day.getFullYear() + '-' + String(day.getMonth() + 1).padStart(2, '0') + '-' + String(day.getDate()).padStart(2, '0');
-          const rec = byDay.get(iso);
-          if (rec) daysWithSale++;
-          col.append(el('div', {
-            class: 'cursor-help',
-            title: day.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-              + (rec ? ' — ' + rec.n + ' account' + (rec.n === 1 ? '' : 's') + ' · $' + Math.round(rec.rev).toLocaleString() : ' — no sale'),
-            style: { width: CELL + 'px', height: CELL + 'px', borderRadius: '2px', background: shade(rec ? rec.n : 0), border: '1px solid ' + (rec ? 'transparent' : 'var(--border)') },
-          }));
-        }
-        grid.append(col);
+      const first = new Date(_calY, _calM, 1);
+      const daysInMonth = new Date(_calY, _calM + 1, 0).getDate();
+      // month stats + shade scale relative to the rep's best day THIS month
+      let monthDays = 0, monthAccts = 0, monthRev = 0, maxN = 1;
+      for (let d = 1; d <= daysInMonth; d++) {
+        const iso = _calY + '-' + String(_calM + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        const rec = byDay.get(iso);
+        if (rec) { monthDays++; monthAccts += rec.n; monthRev += rec.rev; if (rec.n > maxN) maxN = rec.n; }
       }
-      grid.prepend(dowCol);
-      const legend = el('div', { class: 'flex items-center gap-1.5 text-[9px] text-muted- mt-2' },
-        el('span', {}, 'none'),
-        ...[0, 0.4, 0.7, 1].map(t => el('span', { style: { width: '10px', height: '10px', borderRadius: '2px', display: 'inline-block',
-          background: t === 0 ? 'var(--card-2)' : 'rgba(141,198,63,' + (0.35 + 0.65 * t).toFixed(2) + ')', border: t === 0 ? '1px solid var(--border)' : '1px solid transparent' } })),
-        el('span', {}, 'more'));
+      const shade = (n) => 'rgba(141,198,63,' + Math.min(1, 0.3 + 0.7 * (n / maxN)).toFixed(2) + ')';
+      const arrow = (dir, disabled) => el('button', {
+        class: 'rounded-lg border font-bold cursor-pointer transition hover:brightness-95',
+        style: { width: '26px', height: '26px', lineHeight: '1', borderColor: 'var(--border-2)',
+                 color: disabled ? 'var(--text-subtle)' : 'var(--text)', opacity: disabled ? '.4' : '1',
+                 cursor: disabled ? 'default' : 'pointer', background: 'var(--card)' },
+        onclick: () => { if (!disabled) nav(dir); },
+      }, dir < 0 ? '‹' : '›');
+      const cells = [];
+      for (let i = 0; i < first.getDay(); i++) cells.push(el('div', {}));   // leading blanks
+      for (let d = 1; d <= daysInMonth; d++) {
+        const day = new Date(_calY, _calM, d);
+        const iso = _calY + '-' + String(_calM + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        const rec = byDay.get(iso);
+        const future = day > now;
+        const isToday = day.getTime() === now.getTime();
+        cells.push(el('div', {
+          class: 'flex items-center justify-center tabular-nums' + (rec ? ' font-bold' : ''),
+          title: day.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+            + (rec ? ' — ' + rec.n + ' account' + (rec.n === 1 ? '' : 's') + ' · $' + Math.round(rec.rev).toLocaleString() : (future ? '' : ' — no sale')),
+          style: {
+            height: 'clamp(30px, 7vw, 40px)', borderRadius: '8px', fontSize: '12px',
+            background: rec ? shade(rec.n) : 'var(--card)',
+            color: rec ? '#1D2E0A' : (future ? 'var(--text-subtle)' : 'var(--text-muted)'),
+            border: isToday ? '2px solid var(--accent)' : '1px solid var(--border)',
+            opacity: future ? '.45' : '1',
+            cursor: rec ? 'help' : 'default',
+          },
+        }, String(d)));
+      }
       return el('div', { class: 'rounded-lg border p-4 mb-5', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-        el('div', { class: 'flex items-baseline justify-between gap-2 flex-wrap mb-2' },
-          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } },
-            'Days with a sale · ' + yr),
-          el('div', { class: 'text-xs font-bold' }, daysWithSale + ' days')),
-        el('div', { class: 'scroll-x', style: { overflowX: 'auto', paddingBottom: '4px' } },
-          el('div', { style: { minWidth: (weekCount * (CELL + GAP) + 30) + 'px' } }, monthRow, grid)),
-        legend);
+        el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-2.5' },
+          el('div', { class: 'flex items-center gap-2' },
+            arrow(-1, atMin),
+            el('div', { class: 'text-sm font-bold', style: { minWidth: '110px', textAlign: 'center' } },
+              first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })),
+            arrow(1, atMax)),
+          el('div', { class: 'text-[11px] font-bold' },
+            monthDays + ' day' + (monthDays === 1 ? '' : 's') + ' w/ a sale',
+            el('span', { class: 'font-normal', style: { color: 'var(--text-muted)' } },
+              monthAccts ? ' · ' + monthAccts + ' accts · $' + Math.round(monthRev).toLocaleString() : ''))),
+        el('div', { class: 'grid grid-cols-7 gap-1' },
+          ...['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => el('div', { class: 'text-[9px] text-muted- font-semibold text-center' }, d)),
+          ...cells));
     } catch (e) { console.warn('[ridd] sell-days calendar failed', e); return el('div', {}); }
   }
 
@@ -6847,18 +6856,16 @@ function openIndicatorRepCard(rep, allReps = []) {
   function accountsTable(sales) {
     const sorted = [...sales].sort((a, b) => (a.dateSold || '').localeCompare(b.dateSold || ''));
     return el('div', { class: 'overflow-x-auto rounded border', style: { borderColor: 'var(--border)', background: 'var(--card)' } },
-      el('table', { class: 'w-full text-[11px]', style: { minWidth: '900px' } },
+      el('table', { class: 'w-full text-[11px]', style: { minWidth: '760px' } },
         el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
           el('tr', { style: { background: 'var(--card-2)' } },
             el('th', { class: 'text-left px-2 py-1.5 whitespace-nowrap' }, 'Customer'),
             el('th', { class: 'text-left px-2 py-1.5' }, 'Cust ID'),
             el('th', { class: 'text-left px-2 py-1.5 whitespace-nowrap' }, 'Subscription'),
-            el('th', { class: 'text-left px-2 py-1.5 whitespace-nowrap' }, 'Sold'),
-            el('th', { class: 'text-right px-2 py-1.5' }, 'Contract'),
-            el('th', { class: 'text-right px-2 py-1.5' }, 'Initial'),
             el('th', { class: 'text-right px-2 py-1.5' }, 'Value'),
             el('th', { class: 'text-center px-2 py-1.5' }, 'Auto Pay'),
             el('th', { class: 'text-center px-2 py-1.5' }, 'Status'),
+            el('th', { class: 'text-left px-2 py-1.5 whitespace-nowrap' }, 'Sold'),
             el('th', { class: 'text-left px-2 py-1.5 whitespace-nowrap' }, 'Cancel Date'),
             el('th', { class: 'text-left px-2 py-1.5' }, 'Cancel Reason'),
           ),
@@ -6876,9 +6883,6 @@ function openIndicatorRepCard(rep, allReps = []) {
               el('td', { class: 'px-2 py-1.5 font-medium whitespace-nowrap', title: s.customer || '' }, s.customer || '—'),
               el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums' }, s.customerId || '—'),
               el('td', { class: 'px-2 py-1.5 text-muted- max-w-[200px] truncate', title: s.subscription || '' }, s.subscription || '—'),
-              el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, s.dateSold || '—'),
-              el('td', { class: 'px-2 py-1.5 text-right text-muted- tabular-nums' }, s.contract ? s.contract + 'mo' : '—'),
-              el('td', { class: 'px-2 py-1.5 text-right tabular-nums' }, Number(s.initialPrice || 0) > 0 ? fmt.usd0(s.initialPrice) : '—'),
               el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold' }, fmt.usd0(s.contractValue)),
               el('td', { class: 'px-2 py-1.5 text-center' },
                 el('span', {
@@ -6896,6 +6900,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                     : { background: 'rgba(141,198,63,.16)', color: '#5F8A1F' },
                 }, cancelled ? 'Cancelled' : 'Active'),
               ),
+              el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || (s.dateSold || '—').split(' ')[0]),
               el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, s.cancelDate || '—'),
               el('td', { class: 'px-2 py-1.5 text-muted-', style: { minWidth: '150px', maxWidth: '260px', whiteSpace: 'normal', lineHeight: '1.35' }, title: s.cancelReason || '' }, s.cancelReason || '—'),
             );
@@ -7400,8 +7405,9 @@ function openIndicatorRepCard(rep, allReps = []) {
           ),
           el('div', { class: 'text-xs text-muted- mt-1 flex items-center gap-2 flex-wrap' },
             rep.team && el('span', { style: teamColor ? { color: teamColor, fontWeight: '600' } : {} }, rep.team),
-            rep.team && officeName && el('span', { class: 'text-muted-' }, '·'),
-            officeName && el('span', {}, officeName),
+            // Office label removed — multi-market reps kept getting tagged
+            // with whichever branch happened to lead their sales mix, which
+            // read as wrong to the rep. Team (when set) is identity enough.
           ),
         ),
       ),
