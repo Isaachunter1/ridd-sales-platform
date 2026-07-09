@@ -20,13 +20,14 @@ const { execFileSync, spawnSync } = require('child_process');
 const os = require('os');
 
 const root = path.join(__dirname, '..');
+const appJs = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 let failures = 0;
 const ok = (label) => console.log('  ✓ ' + label);
 const bad = (label, detail) => { failures++; console.error('  ✗ ' + label + (detail ? '\n    ' + detail : '')); };
 
 // ── 1. Function + lib syntax ────────────────────────────────────────────
 console.log('\n[1/4] Netlify functions syntax');
-const jsTargets = [];
+const jsTargets = ['app.js'];
 for (const dir of ['netlify/functions', 'netlify/lib', 'tools']) {
   const full = path.join(root, dir);
   if (!fs.existsSync(full)) continue;
@@ -66,8 +67,9 @@ else bad('parity test FAILED', (parity.stdout + parity.stderr).split('\n').filte
 console.log('\n[4/4] Tailwind utility coverage (responsive + arbitrary values)');
 const css = fs.readFileSync(path.join(root, 'tailwind.css'), 'utf8');
 const used = new Set();
+const classSources = html + '\n' + appJs;   // markup lives in index.html AND app.js now
 for (const pat of [/class:\s*'([^']*)'/g, /class:\s*"([^"]*)"/g, /class="([^"]*)"/g]) {
-  for (const m of html.matchAll(pat)) {
+  for (const m of classSources.matchAll(pat)) {
     for (const tok of m[1].split(/\s+/)) {
       if (/^(sm|md|lg|xl):/.test(tok) || /\[[^\]]+\]/.test(tok)) used.add(tok);
     }

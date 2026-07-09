@@ -20,7 +20,12 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.join(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+// Client code moved to app.js (external bundle); fall back to index.html
+// so the test still works on any older checkout.
+const _appPath = path.join(root, 'app.js');
+const html = fs.existsSync(_appPath)
+  ? fs.readFileSync(_appPath, 'utf8')
+  : fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
 // ── extract a top-level function from index.html by brace counting ──
 function extractFn(name) {
@@ -139,6 +144,15 @@ check('sentricon excluded from avg pest (ATLANTA agg)', (() => {
 // the same — assert the comma survived, not the quote.
 check('quoted comma name survives round-trip', serverRaw.some(s => (s.customer || '').includes('Brien, Jr')));
 check('missing date lands in week 0', serverRaw.filter(s => !s.dateSold).every(s => s.week === 0));
+
+// ── 3-year fence (#6): deriveIndicatorsPayload drops rows older than
+// currentYear-2; undated rows survive. parseIndicators itself is unfenced.
+{
+  const oldRow = { ...rows[0], sold_date: '2021-05-01', customer_id: '999', office_name: 'atlanta' };
+  const out = server.deriveIndicatorsPayload([...stripped, oldRow], '2026-07-09T00:00:00Z', 'test');
+  check('3-year fence drops 2021 rows from the payload', !out.rawSales.some(s => s.customerId === '999'));
+  check('undated rows survive the fence', out.rawSales.some(s => !s.dateSold));
+}
 
 if (failures) { console.error('\nPARITY: FAIL (' + failures + ')'); process.exit(1); }
 console.log('\nPARITY: PASS — server derive is byte-equivalent to the client parse');

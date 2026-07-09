@@ -4,7 +4,7 @@
   # script syntax, server/client derive parity, responsive-CSS coverage).
   # A failure FAILS THE DEPLOY and the previous version stays live, so a
   # broken commit can never reach the reps. Run locally: node tools/ci-check.js
-  command = "node tools/ci-check.js"
+  command = "node tools/ci-check.js && node tools/build.js"
 
 [build.environment]
   # Netlify's deploy-artifact secret scanner matches env var VALUES
@@ -42,6 +42,13 @@
   for = "/*.js"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+
+# Content-hashed app bundle: name changes when content changes, so the
+# browser may cache it forever (and reuse compiled bytecode across opens).
+[[headers]]
+  for = "/*.immutable.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
 
 [[headers]]
   for = "/*.html"
