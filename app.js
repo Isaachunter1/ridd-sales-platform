@@ -19047,7 +19047,7 @@ function viewIndicators() {
             return `INDICATORS — ${presetLabel}`;
           })()),
           !isRange && dateLabel && el('div', { class: 'text-xs text-muted-' }, dateLabel),
-          isRange && el('div', { class: 'text-xs text-muted-' },
+          isRange && isAdminRole(state.profile.role) && el('div', { class: 'text-xs text-muted-' },
             rangeBounds.start + ' → ' + rangeBounds.end + ' · ' + weeks.length + ' week' + (weeks.length === 1 ? '' : 's')),
           ), // close inline title + date row
           state.indicatorsUploadedAt && (() => {
@@ -19074,7 +19074,7 @@ function viewIndicators() {
                   month: 'short', day: 'numeric', year: 'numeric',
                   hour: 'numeric', minute: '2-digit',
                 })),
-              state.indicatorsFileName ? ' · ' + state.indicatorsFileName : '');
+              (state.indicatorsFileName && isAdminRole(state.profile.role)) ? ' · ' + state.indicatorsFileName : '');
           })(),
           ), // close left column of the title row
           el('div', { class: 'flex items-center gap-3' },
@@ -19083,6 +19083,7 @@ function viewIndicators() {
           // still show + roll into totals) but drops it from the ranking points.
           (() => {
             if (state.indicatorsComps) return null; // Power Ranking is comps-OFF only — hide its trophy in comp mode
+            if (!isAdminRole(state.profile.role)) return null; // admin analysis tool — reps don't need it
             const excludedNow = rankExcludedSet();
             const noun = groupBy === 'teams' ? 'teams' : 'offices';
             const opts = activeBranches.filter(b => !(groupBy === 'teams' && b === 'Unassigned')).sort((a, b) => a.localeCompare(b));
@@ -21894,7 +21895,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 }
               },
             }, '📄 Leaderboard PDF');
-            return allReps.length > 0 ? btn : null;
+            return (allReps.length > 0 && isAdminRole(state.profile.role)) ? btn : null;
           })(),
         ),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
@@ -21986,7 +21987,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               { id: '',             label: 'All' },
               ...REP_TIERS.map(t => ({ id: t.id, label: t.label, color: t.color })),
             ];
-            if (hasUnassigned) pillOpts.push({ id: '__unassigned__', label: 'Unassigned' });
+            if (hasUnassigned && isAdminRole(state.profile.role)) pillOpts.push({ id: '__unassigned__', label: 'Unassigned' });
             return el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
               ...pillOpts.map(p => el('button', {
                 class: 'px-2.5 py-1.5 text-[11px] font-semibold transition',
@@ -21997,8 +21998,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               }, p.label)),
             );
           })(),
-          // Team filter
+          // Team filter (admin roster tool — hidden from reps)
           (() => {
+            if (!isAdminRole(state.profile.role)) return null;
             const teams = distinctTeams().filter(t => !isTeamExcluded(t)); // excluded teams' reps already filtered out upstream
             const hasUnassigned = allReps.some(r => !r.team);
             return el('select', {
@@ -26149,10 +26151,7 @@ function repLandingPlayerCard() {
             tierMeta && el('span', {
               class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded',
               style: { background: tierMeta.color + '22', color: tierMeta.color },
-            }, tierMeta.label)),
-          el('div', { class: 'text-[11px] text-muted-' },
-            el('span', { style: teamColor ? { color: teamColor, fontWeight: '600' } : {} }, team || '—'),
-            ' · ', office || '—', ' · YTD')),
+            }, tierMeta.label))),
         el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Player card →')),
       el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
         tile('Revenue', fmt.usd0(revenue)),
