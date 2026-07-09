@@ -6575,8 +6575,8 @@ function openIndicatorRepCard(rep, allReps = []) {
     scopedStats = [
       { key: 'sales',      label: 'Sales',      value: fmt.int(count) },
       { key: 'revenue',    label: 'Revenue',    value: fmt.usd0(scopedRep.revenue || 0) },
-      { key: 'revPerDay',  label: 'Revenue/Day', value: sellDays > 0 ? fmt.usd0((scopedRep.revenue || 0) / sellDays) : '—' },
-      { key: 'acctsPerDay', label: 'Accts/Day',  value: sellDays > 0 ? (count / sellDays).toFixed(1) : '—' },
+      { key: 'revPerDay',  label: 'Production/Day',
+        value: sellDays > 0 ? fmt.usd0((scopedRep.revenue || 0) / sellDays) + ' · ' + (count / sellDays).toFixed(1) : '—' },
       { key: 'acv',        label: 'ACV',        value: fmt.usd(acv) },
       // Sales Rep dept → Avg Pest Initial (excludes Sentricon / German Roach /
       // Interior Flea). Office Staff, Technician, and All → plain Avg Initial.
@@ -7436,7 +7436,7 @@ function openIndicatorRepCard(rep, allReps = []) {
             }, tierMeta.label),
           ),
           el('div', { class: 'text-xs text-muted- mt-1 flex items-center gap-2 flex-wrap' },
-            rep.team && el('span', { style: teamColor ? { color: teamColor, fontWeight: '600' } : {} }, rep.team),
+            // (team + office labels removed — identity is name + tier here)
             // Office label removed — multi-market reps kept getting tagged
             // with whichever branch happened to lead their sales mix, which
             // read as wrong to the rep. Team (when set) is identity enough.
@@ -7476,8 +7476,8 @@ function openIndicatorRepCard(rep, allReps = []) {
     modal.append(
       header(),
       statsGrid(),
-      (_calMode === 'calendar' ? sellDaysCalendarBlock() : dayHourHeatmapBlock()),
       recordsStrip(),
+      (_calMode === 'calendar' ? sellDaysCalendarBlock() : dayHourHeatmapBlock()),
       trendsBlock(),
       powerHourBlock(),
       topSubsBlock(),
