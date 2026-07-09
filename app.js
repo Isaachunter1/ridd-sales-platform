@@ -6594,6 +6594,17 @@ function computeIndicatorTrends(rep, weekOffset = 0) {
 // preserves the full drill-down behavior the inline section had.
 function openIndicatorRepCard(rep, allReps = []) {
   if (!rep) return;
+  // PRIVACY GATE — non-admins can only open THEIR OWN card. The leaderboard
+  // still shows everyone's headline numbers, but the full card (customer
+  // names, accounts, drill-downs, retention) is admin + self only. Matched
+  // by name signature so "Sauer, Drew" ↔ "Drew Sauer" resolves.
+  if (!isAdminRole(state.profile && state.profile.role)) {
+    const _sigG = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+    if (_sigG(rep.name) !== _sigG(state.profile && state.profile.full_name)) {
+      if (typeof toast === 'function') toast('You can only open your own player card', 'warn');
+      return;
+    }
+  }
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
