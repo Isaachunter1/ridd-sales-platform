@@ -562,7 +562,12 @@ exports.handler = async (event) => {
           if (subs && subs.length) {
             const soldT = Date.parse(s.sold_date || '') || 0;
             const near = soldT ? subs.filter(r => { const t = Date.parse(r.sold_date || ''); return t && Math.abs(t - soldT) <= 7 * 86400000; }) : [];
-            const pool = near.length ? near : subs;
+            let pool = near.length ? near : subs;
+            // Re-keyed duplicates: when the rep's first entry was abandoned
+            // (initial never happened) and a live twin exists, the REAL sub
+            // is the Pending/Completed one — never verify against the ghost.
+            const ps = pool.filter(r => ['pending', 'completed'].includes(String(r.initial_status || '').toLowerCase()));
+            if (ps.length) pool = ps;
             let best = pool[0], bestDiff = Infinity;
             for (const r of pool) {
               const v = Number(r.subscription_contract_value) || 0;
