@@ -4204,9 +4204,15 @@ function mountApp() {
   const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'training', 'auditing']);
   document.querySelector('.fab')?.remove();
   if (!FAB_HIDDEN_VIEWS.has(state.view)) {
-    const fab = el('button', { class: 'fab', onclick: () => openNewSaleModal() },
-      el('span', { class: 'text-xl leading-none' }, '+'),
-      el('span', {}, 'New Sale'),
+    // Icon-only FAB — a lone + reads instantly and stops covering table
+    // rows / the pinned leaderboard footer on phones.
+    const fab = el('button', {
+      class: 'fab',
+      title: 'New Sale',
+      style: { width: '56px', height: '56px', borderRadius: '999px', padding: '0', justifyContent: 'center' },
+      onclick: () => openNewSaleModal(),
+    },
+      el('span', { class: 'text-3xl leading-none', style: { marginTop: '-2px' } }, '+'),
     );
     document.body.append(fab);
   }
