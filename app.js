@@ -2676,6 +2676,7 @@ function mountAuth(opts = {}) {
 
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<span class="spinner"></span>';
+      errLine.style.display = 'none';
       try {
         if (mode === 'login') {
           const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -2726,12 +2727,21 @@ function mountAuth(opts = {}) {
           return;
         }
       } catch (err) {
+        // Inline + toast: the toast pops top-right and is easy to miss on a
+        // phone (often behind the keyboard) — the red line under the button
+        // is impossible to miss.
+        errLine.textContent = err.message || 'Something went wrong — try again.';
+        errLine.style.display = 'block';
         toast(err.message || 'Auth failed', 'error');
       } finally {
         submitBtn.disabled = false;
         renderMode();
       }
     },
+  });
+  const errLine = el('div', {
+    class: 'text-xs font-semibold rounded-lg px-3 py-2',
+    style: { display: 'none', color: '#B91C1C', background: 'rgba(220,38,38,.08)', border: '1px solid rgba(220,38,38,.25)', lineHeight: '1.45' },
   });
 
   form.dataset.mode = initialMode;
@@ -2825,7 +2835,7 @@ function mountAuth(opts = {}) {
         : el('div', { class: 'text-4xl font-display tracking-tight', style: { color: '#1D1D1D' } }, CFG.COMPANY_NAME);
     })(),
     el('div', { class: 'text-[10px] text-battleship tracking-[.22em] mb-2' }, CFG.COMPANY_TAGLINE),
-    heading, subheading, emailField, passField, policyList, submitBtn, forgotBtn, inviteHint,
+    heading, subheading, emailField, passField, policyList, submitBtn, errLine, forgotBtn, inviteHint,
   );
   renderMode();
 
@@ -7120,16 +7130,20 @@ function openIndicatorRepCard(rep, allReps = []) {
               const isMe = row.name === rep.name;
               const isExpanded = recordsLeaderExpanded === row.name;
               const r = row.rec;
+              // PRIVACY: non-admins see the ranked totals but can only expand
+              // THEIR OWN row into accounts — other reps' customers stay
+              // hidden (same rule as the player-card gate).
+              const canExpand = isAdminRole(state.profile && state.profile.role) || isMe;
               const tr = el('tr', {
-                class: 'border-t border- cursor-pointer hover:brightness-95 transition' + (isMe ? ' js-leader-current' : ''),
+                class: 'border-t border- transition' + (isMe ? ' js-leader-current' : '') + (canExpand ? ' cursor-pointer hover:brightness-95' : ''),
                 style: isExpanded
                   ? { background: 'rgba(141,198,63,.10)', fontWeight: isMe ? '600' : '500' }
                   : (isMe ? { background: 'rgba(141,198,63,.18)', fontWeight: '600' } : {}),
-                onclick: () => { recordsLeaderExpanded = isExpanded ? null : row.name; renderBody(); },
+                onclick: canExpand ? (() => { recordsLeaderExpanded = isExpanded ? null : row.name; renderBody(); }) : undefined,
               },
                 el('td', { class: 'pl-4 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: 'var(--accent)' } : {} }, '#' + (i + 1)),
                 el('td', { class: 'px-2 py-2 whitespace-nowrap' },
-                  el('span', { class: 'inline-block w-3 text-muted- mr-1', style: { transition: 'transform .15s ease', transform: isExpanded ? 'rotate(90deg)' : 'none', display: 'inline-block' } }, '▸'),
+                  el('span', { class: 'inline-block w-3 text-muted- mr-1', style: { transition: 'transform .15s ease', transform: isExpanded ? 'rotate(90deg)' : 'none', display: 'inline-block' } }, canExpand ? '▸' : ''),
                   row.name + (isMe ? '  (this rep)' : ''),
                 ),
                 el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(r.revenue)),
@@ -37803,6 +37817,14 @@ function adminReps() {
           title: 'Change rep type view',
           onclick: () => {
             const open = menu.style.display === 'block';
+            if (!open) {
+              // Anchor to whichever side has room — right-anchored clipped
+              // off-screen when the wrapped mobile header put the eye at
+              // the LEFT edge.
+              const r = wrap.getBoundingClientRect();
+              if (r.left < 210) { menu.style.right = 'auto'; menu.style.left = '0'; }
+              else { menu.style.left = 'auto'; menu.style.right = '0'; }
+            }
             menu.style.display = open ? 'none' : 'block';
             if (!open) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
               if (!wrap.contains(ev.target)) { menu.style.display = 'none'; document.removeEventListener('mousedown', closer); }
