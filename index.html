@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
 <meta name="theme-color" content="#FFFFFF" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
@@ -108,6 +108,9 @@
     background: var(--bg);
     color: var(--text);
     transition: background-color .15s ease, color .15s ease;
+    /* Kill double-tap-to-zoom on iOS (the viewport meta blocks pinch; this
+       blocks the double-tap gesture so taps also register ~300ms faster). */
+    touch-action: manipulation;
   }
   .card {
     background: var(--card);
