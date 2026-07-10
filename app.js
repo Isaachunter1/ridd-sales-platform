@@ -4077,8 +4077,7 @@ function mountApp() {
         class: 'mt-2 mb-1 text-xs transition hover:underline',
         style: { color: 'var(--text-muted)' },
         onclick: () => { location.href = location.pathname; },
-      }, 'Exit demo') : el('div', { class: 'mt-1 mb-1 text-[10px]', style: { color: 'var(--text-subtle)' } },
-        isAdmin ? 'Sign out lives at the bottom of ⚙ Settings' : 'Sign out lives under the ⚙ icon'),
+      }, 'Exit demo') : null,
     ),
   );
 
@@ -13431,10 +13430,10 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
     // decided round. Matches the poster style already sent to reps.
     isAdminRole(state.profile?.role) && R.rounds.length ? el('button', {
       style: {
-        position: 'absolute', top: 'calc(clamp(14px,2.5vw,22px) + 38px)', right: 'clamp(14px,2.5vw,22px)', zIndex: '4',
-        height: '28px', borderRadius: '14px', background: 'rgba(255,255,255,.1)', color: WHITE,
-        border: '1px solid rgba(255,255,255,.55)', display: 'grid', placeItems: 'center', fontSize: '12px',
-        lineHeight: '1', cursor: 'pointer', padding: '0 10px', fontWeight: '700',
+        position: 'absolute', top: 'clamp(14px,2.5vw,22px)', right: 'calc(clamp(14px,2.5vw,22px) + 36px)', zIndex: '4',
+        width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255,255,255,.1)', color: WHITE,
+        border: '1px solid rgba(255,255,255,.55)', display: 'grid', placeItems: 'center', fontSize: '13px',
+        lineHeight: '1', cursor: 'pointer', padding: '0',
       },
       title: 'Download the survivors poster for the latest decided round (PNG — drop it straight in the group chat)',
       onmouseenter: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.22)'; },
@@ -13487,7 +13486,22 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
         a2.download = 'LMS_Week_' + rd.week + '_Survivors.png';
         a2.click();
       },
-    }, '📸 Survivors') : null,
+    }, '📸') : null,
+
+    // ⏳ Pending Revenue (admin) — what's still unconfirmed for a round and
+    // whether it'll make the service cutoff. Sits left of the camera.
+    isAdminRole(state.profile?.role) && R.rounds.length ? el('button', {
+      style: {
+        position: 'absolute', top: 'clamp(14px,2.5vw,22px)', right: 'calc(clamp(14px,2.5vw,22px) + 72px)', zIndex: '4',
+        width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255,255,255,.1)', color: WHITE,
+        border: '1px solid rgba(255,255,255,.55)', display: 'grid', placeItems: 'center', fontSize: '13px',
+        lineHeight: '1', cursor: 'pointer', padding: '0',
+      },
+      title: 'Pending revenue — split by whether each account is scheduled to be serviced before the round cutoff',
+      onmouseenter: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.22)'; },
+      onmouseleave: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; },
+      onclick: () => openLmsPendingModal(R.rounds.length - 1),
+    }, '⏳') : null,
 
     // headline block
     el('div', { style: { position: 'relative', zIndex: '2' } },
@@ -13537,12 +13551,22 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
   // Failed = failed audit + Last Resort (<$99) + not serviced by Friday.
   // Total = Passed + Pending + Failed (everything real). Keyed weekBreak[iso][rep].
   const weekBreak = {};
+  // Comp-day predicate MATCHES the compute: custom compDays when configured,
+  // else auto-Saturdays. (This used to hardcode Saturday-only — a custom
+  // Friday round like 7/3 advanced reps correctly but displayed $0 for
+  // everyone on the survivor cards and in the rep drill.)
+  const _wbComp = (typeof getActiveComp === 'function') ? (compOverride || getActiveComp()) : null;
+  const _wbCustom = (_wbComp && Array.isArray(_wbComp.compDays)) ? new Set(_wbComp.compDays) : null;
+  const _wbIsCompDay = (d, iso) => _wbCustom
+    ? _wbCustom.has(iso)
+    : ((d.getDay() === 6 || LMS_EXTRA_DAYS.has(iso)) && !LMS_SKIP_DAYS.has(iso));
   for (const s of (windowed || [])) {
     if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
     const d = (typeof _parseIndicatorDay === 'function') ? _parseIndicatorDay(s) : null;
-    if (!d || isNaN(d) || d.getDay() !== 6 || !s.rep) continue;                            // Saturday only
+    if (!d || isNaN(d) || !s.rep) continue;
     if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;        // FR Pending/Serviced gate — same base as the CRM report
     const iso = d.toISOString().slice(0, 10);
+    if (!_wbIsCompDay(d, iso)) continue;                                                   // scheduled comp days only
     const wk = (weekBreak[iso] || (weekBreak[iso] = {}));
     const e = wk[s.rep] || (wk[s.rep] = { total: 0, passed: 0, failed: 0, pending: 0 });
     const cv = Number(s.contractValue) || 0;
@@ -13650,6 +13674,91 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
     el('span', { style: { color: col, fontSize: '1.15rem', letterSpacing: '.14em' } }, label),
     el('span', { style: { color: WHITE, opacity: '.4', fontSize: '.75rem', letterSpacing: '.1em' } }, count));
   const _mmdd = (iso) => new Date(iso + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+  // ── ⏳ PENDING REVENUE — everything not yet confirmed for a round, split
+  // by the service cutoff (the Friday after the comp day):
+  //   · Scheduled in time — service date on/before the cutoff (or already
+  //     done): counts as pending-passing unless the audit fails.
+  //   · Unscheduled — no service date yet: counts for NOW, but flips to
+  //     failed if the cutoff passes unserviced. The watch list.
+  //   · Past the cutoff — scheduled AFTER the deadline: NOT counted as
+  //     pending (already failed) — pull the appointment up and it counts
+  //     again on the next sync.
+  const openLmsPendingModal = (startIdx) => {
+    let mIdx = Math.max(0, startIdx);
+    const overlay = el('div', { class: 'modal-overlay' });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    const card = el('div', { class: 'card w-full max-w-3xl my-8 flex flex-col overflow-hidden', style: { maxHeight: 'calc(100vh - 64px)' } });
+    overlay.append(card); document.body.append(overlay);
+    const _dOf = (d) => (d && !isNaN(d)) ? (d.getMonth() + 1) + '/' + d.getDate() : '—';
+    const render = () => {
+      card.innerHTML = '';
+      const rd = R.rounds[mIdx];
+      const pool = (windowed || []).filter(x => {
+        if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(x) !== 'd2d') return false;
+        if (typeof frPendingServiced === 'function' && !frPendingServiced(x)) return false;
+        if (!x.rep) return false;
+        const d = _parseIndicatorDay(x);
+        return d && !isNaN(d) && d.toISOString().slice(0, 10) === rd.iso;
+      }).filter(x => {
+        if ((Number(x.initialPrice) || 0) < 99) return false;                                          // Last Resort — failed for good
+        if (typeof scAuditPassed === 'function' && scAuditPassed(x.customerFlags)) return false;       // already confirmed passing
+        if (SC_FAIL_RE.test(x.customerFlags || '')) return false;                                      // failed audit — gone either way
+        return true;
+      });
+      const groups = { intime: [], open: [], late: [] };
+      pool.forEach(x => {
+        const st = (typeof lmsServicedStatus === 'function') ? lmsServicedStatus(x) : 'na';
+        (st === 'late' ? groups.late : st === 'open' ? groups.open : groups.intime).push(x);
+      });
+      const sum = (arr) => arr.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
+      const deadline = pool.length && typeof lmsServiceDeadline === 'function' ? lmsServiceDeadline(pool[0]) : null;
+      const section = (title, arr, color, note) => el('div', { class: 'mb-4' },
+        el('div', { class: 'flex items-baseline justify-between gap-2 mb-1 flex-wrap' },
+          el('div', { class: 'text-[10px] font-black uppercase tracking-widest', style: { color } }, title),
+          el('div', { class: 'text-[11px] font-bold tabular-nums', style: { color } }, arr.length + ' accts · ' + money(sum(arr)))),
+        note ? el('div', { class: 'text-[10px] mb-1.5', style: { color: 'var(--text-muted)' } }, note) : null,
+        arr.length === 0
+          ? el('div', { class: 'text-[11px] italic py-1.5', style: { color: 'var(--text-subtle)' } }, 'None.')
+          : el('div', { class: 'scroll-x rounded-lg border', style: { borderColor: 'var(--border)' } },
+              el('table', { class: 'w-full text-[11px]' },
+                el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+                  el('tr', {},
+                    el('th', { class: 'text-left pl-3 pr-2 py-1.5' }, 'Rep'),
+                    el('th', { class: 'text-left px-2 py-1.5' }, 'Cust ID'),
+                    el('th', { class: 'text-left px-2 py-1.5' }, 'Customer'),
+                    el('th', { class: 'text-right px-2 py-1.5' }, 'Contract'),
+                    el('th', { class: 'text-left pl-2 pr-3 py-1.5' }, 'Service Date'))),
+                el('tbody', {},
+                  ...arr.slice().sort((a, b) => (Number(b.contractValue) || 0) - (Number(a.contractValue) || 0)).map(x => {
+                    const svc = (typeof _scParseServiced === 'function') ? _scParseServiced(x.servicedDate) : null;
+                    return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+                      el('td', { class: 'pl-3 pr-2 py-1.5 whitespace-nowrap' }, firstLast(x.rep)),
+                      el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, x.customerId || '—'),
+                      el('td', { class: 'px-2 py-1.5 whitespace-nowrap' }, x.customer || '—'),
+                      el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold' }, money(Number(x.contractValue) || 0)),
+                      el('td', { class: 'pl-2 pr-3 py-1.5 tabular-nums whitespace-nowrap', style: { color } }, svc ? _dOf(svc) : 'not scheduled'));
+                  })))));
+      card.append(
+        el('div', { class: 'px-5 py-3 flex items-center justify-between gap-3 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
+          el('div', { class: 'flex items-center gap-2 flex-wrap' },
+            el('h2', { class: 'text-lg font-bold' }, 'Pending Revenue'),
+            el('select', {
+              class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+              style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+              onchange: (e) => { mIdx = Number(e.target.value); render(); },
+            }, ...R.rounds.map((r2, i2) => { const o = el('option', { value: String(i2) }, 'Week ' + r2.week + ' · ' + _mmdd(r2.iso)); if (i2 === mIdx) o.selected = true; return o; }))),
+          el('button', { class: 'text-xl leading-none text-muted-', style: { lineHeight: '1' }, onclick: () => overlay.remove() }, '×')),
+        el('div', { class: 'px-5 py-2 text-[11px] font-bold tabular-nums border-b flex items-center gap-4 flex-wrap', style: { borderColor: 'var(--border)' } },
+          el('span', { style: { color: '#B45309' } }, '⏳ ' + money(sum(groups.intime) + sum(groups.open)) + ' counting as pending'),
+          el('span', { style: { color: '#DC2626' } }, '🚫 ' + money(sum(groups.late)) + ' out of window'),
+          deadline ? el('span', { style: { color: 'var(--text-muted)' } }, 'service cutoff: ' + _dOf(deadline)) : null),
+        el('div', { class: 'p-4 overflow-auto' },
+          section('📅 Scheduled in time', groups.intime, '#5F8A1F', 'Service booked (or done) on/before the cutoff — stays pending until the audit lands.'),
+          section('⏳ Unscheduled — at risk', groups.open, '#B45309', 'No service date yet. Counting for now, but flips to failed if the cutoff passes unserviced.'),
+          section('🚫 Scheduled past the cutoff — not counting', groups.late, '#DC2626', 'Booked after the deadline, so already excluded. Pull the appointment up before the cutoff and it counts again on the next sync.')));
+    };
+    render();
+  };
   // ── Rep drill — click any rep (survivor card or eliminated chip) for their
   // round-by-round production: qualified / total / pending / failed per comp
   // day, the season total, and a jump to their full player card. Settles any
@@ -13710,15 +13819,42 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
   };
   // Survivor CARDS in a responsive grid — no dead middle. Rank badge top-right,
   // week + season side by side, green underline = posted this week.
+  // Card stats: NEXT round (live $ if today's a comp day, else its date),
+  // LAST round (the one that advanced them — was misread as "$0 this week"
+  // when the next Saturday hadn't happened yet), and Competition total.
+  const _isoLocal = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const _todayIso = (() => { const t = new Date(); t.setHours(0, 0, 0, 0); return _isoLocal(t); })();
+  const _lmsLiveNow = !!(curRd && curRd.iso === _todayIso);
+  const _lmsNextDay = (() => {
+    const after = curRd ? curRd.iso : '';
+    const c2 = (typeof getActiveComp === 'function') ? (compOverride || getActiveComp()) : null;
+    const days = (c2 && Array.isArray(c2.compDays)) ? c2.compDays.slice().sort() : null;
+    if (days) return days.find(d => d > after && d >= _todayIso && !(_lmsLiveNow && d === curRd.iso)) || null;
+    // auto-Saturday mode: the next Saturday after the current round / today
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    for (let k = 0; k < 15; k++) {
+      const d = new Date(t); d.setDate(d.getDate() + k);
+      const iso = _isoLocal(d);
+      if (d.getDay() === 6 && iso > after && iso >= _todayIso) return iso;
+    }
+    return null;
+  })();
   const cleanCard = (r, rank) => {
-    const wbCur = (curRd && weekBreak[curRd.iso] && weekBreak[curRd.iso][r.rep]) || EMPTY_RB;
-    const qualCur = (wbCur.passed || 0) + (wbCur.pending || 0);
     const champ = r.rep === R.champion;
+    // Last round = the round that decided their fate; when today IS a comp
+    // day the latest round is live, so "last" steps back one.
+    const lastRd = _lmsLiveNow ? (R.rounds.length > 1 ? R.rounds[R.rounds.length - 2] : null) : curRd;
+    const qualAt = (rd) => { if (!rd) return 0; const wb = (weekBreak[rd.iso] && weekBreak[rd.iso][r.rep]) || EMPTY_RB; return (wb.passed || 0) + (wb.pending || 0); };
+    const liveQual = _lmsLiveNow ? qualAt(curRd) : 0;
+    const lastQual = qualAt(lastRd);
+    const _stat = (label, val, color) => el('div', {},
+      el('div', { style: { fontFamily: DISP, fontSize: '.56rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase', whiteSpace: 'nowrap' } }, label),
+      el('div', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1.1', color, whiteSpace: 'nowrap' } }, val));
     return el('div', { style: {
       position: 'relative', borderRadius: '12px', padding: '14px 16px 12px', cursor: 'pointer',
       background: champ ? 'linear-gradient(135deg, rgba(240,172,30,.16), #101010 65%)' : '#101010',
       border: '1px solid ' + (champ ? ORANGE : (rank <= 3 ? 'rgba(240,172,30,.45)' : 'rgba(255,255,255,.12)')),
-      boxShadow: 'inset 0 -3px 0 ' + (qualCur ? GREEN : 'rgba(255,255,255,.08)'),
+      boxShadow: 'inset 0 -3px 0 ' + ((_lmsLiveNow ? liveQual : lastQual) ? GREEN : 'rgba(255,255,255,.08)'),
     },
       title: 'Week-by-week production for ' + firstLast(r.rep),
       onclick: () => openLmsRepModal(r),
@@ -13726,13 +13862,12 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
       el('div', { style: { position: 'absolute', top: '8px', right: '12px', fontFamily: DISP, fontSize: '1.5rem', lineHeight: '1', color: rank <= 3 ? ORANGE : 'rgba(255,255,255,.18)' } }, '#' + rank),
       el('div', { style: { fontFamily: DISP, fontSize: '1.15rem', textTransform: 'uppercase', color: champ ? ORANGE : WHITE, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '44px' } }, (champ ? '👑 ' : '') + firstLast(r.rep)),
       el('div', { style: { fontFamily: DISP, fontSize: '.6rem', letterSpacing: '.12em', color: 'rgba(255,255,255,.35)', textTransform: 'uppercase', marginBottom: '10px' } }, r.office || '—'),
-      el('div', { style: { display: 'flex', gap: '18px' } },
-        curRd ? el('div', {},
-          el('div', { style: { fontFamily: DISP, fontSize: '.56rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase', whiteSpace: 'nowrap' } }, 'Week ' + curRd.week + ' · ' + _mmdd(curRd.iso)),
-          el('div', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1.1', color: qualCur ? GREEN : 'rgba(255,255,255,.25)' } }, money(qualCur))) : null,
-        el('div', {},
-          el('div', { style: { fontFamily: DISP, fontSize: '.56rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase' } }, 'Competition'),
-          el('div', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1.1', color: WHITE } }, money(_qual(r))))));
+      el('div', { style: { display: 'flex', gap: '14px', flexWrap: 'wrap' } },
+        _lmsLiveNow
+          ? _stat('Live · Wk ' + curRd.week, money(liveQual), liveQual ? GREEN : 'rgba(255,255,255,.25)')
+          : (_lmsNextDay ? _stat('Next Round', _mmdd(_lmsNextDay), 'rgba(255,255,255,.55)') : null),
+        lastRd ? _stat('Last Rd · Wk ' + lastRd.week, money(lastQual), lastQual ? GREEN : 'rgba(255,255,255,.25)') : null,
+        _stat('Competition', money(_qual(r)), WHITE)));
   };
   // Eliminated reps: compact name chips, grouped by exit week — a whole comp's
   // casualties fit on one screen instead of 400 rows.
@@ -15402,8 +15537,124 @@ function nrlaBoard(rawSales, opts) {
             rd.live ? 'LIVE' : rd.done ? (rd.locked ? 'FINAL' : 'AUDITING · ' + rd.pendingAudits) : 'UPCOMING'))),
       ...body);
   };
-  const roundsGrid = el('div', { class: 'p-3 grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', borderTop: '1px solid var(--border)' } },
-    ...R.rounds.map((rd, ri) => roundCard(rd, ri)));
+  // ── ONE round card + picker (was a grid of every round) — defaults to
+  // the LIVE round; ended comps default to the most recent decided round. ──
+  const _roundTitle = (rd) => rd.phase === 'seed' ? 'Round ' + rd.num : rd.phase === 'semi' ? 'Semifinals' : 'Championship';
+  let _selIdx = state._nrlaRoundSel;
+  if (_selIdx == null || _selIdx < 0 || _selIdx >= R.rounds.length) {
+    const _li = R.rounds.findIndex(rd => rd.live);
+    let _lastDone = -1; R.rounds.forEach((rd, i) => { if (rd.done) _lastDone = i; });
+    _selIdx = _li >= 0 ? _li : (_lastDone >= 0 ? _lastDone : 0);
+  }
+  const _keepScroll = (fn) => { const sx = window.scrollX, sy = window.scrollY; fn(); setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
+  const roundPicker = el('div', { class: 'px-3 pt-3 flex items-center gap-2 flex-wrap' },
+    el('select', {
+      class: 'rounded-xl px-3 py-2 text-xs font-black uppercase tracking-wider cursor-pointer',
+      style: { border: '1.5px solid ' + (R.rounds[_selIdx] && R.rounds[_selIdx].live ? GREEN : 'var(--border-2)'), background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { const i = Number(e.target.value); _keepScroll(() => { state._nrlaRoundSel = i; }); },
+    },
+      ...R.rounds.map((rd, i) => {
+        const o = el('option', { value: String(i) }, _roundTitle(rd) + (rd.live ? ' · LIVE' : rd.done ? (rd.locked ? ' · Final' : ' · Auditing') : ''));
+        if (i === _selIdx) o.selected = true;
+        return o;
+      })));
+  // ── Accounts drill — every D2D account sold on the round's two days:
+  // time · customer · ID · contract value · rep, grouped by day. Admin-only
+  // (customer-level data stays off rep screens, same as the player cards).
+  // ── "Accounts Sold" POPUP — every D2D account on a round's days (rep ·
+  // cust id · customer · contract · time · audit chip), with round + team
+  // toggles INSIDE the modal. Local state + local re-render (no mountApp),
+  // so switching rounds/teams is instant. Admin-only — customer-level data
+  // stays off rep screens, same rule as the player cards.
+  const openNrlaAccountsModal = (startIdx) => {
+    let mIdx = startIdx, mTeam = '';
+    const overlay = el('div', { class: 'modal-overlay' });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    const card = el('div', { class: 'card w-full max-w-3xl my-8 flex flex-col overflow-hidden', style: { maxHeight: 'calc(100vh - 64px)' } });
+    overlay.append(card); document.body.append(overlay);
+    const _teamOf = (x) => getRepTeam(x.rep) || 'Unassigned';
+    const _isRoundDay = (x, day) => { if (!day || isNaN(day)) return false; const d = _parseIndicatorDay(x); return d && d.getTime() === day.getTime(); };
+    const _timeMin = (x) => { const t = _parseIndicatorTime(x); return t ? t.hour * 60 + t.minute : 24 * 60; };
+    const _timeStr = (x) => { const t = _parseIndicatorTime(x); return t ? (((t.hour % 12) || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour >= 12 ? 'p' : 'a')) : '—'; };
+    const render = () => {
+      card.innerHTML = '';
+      const rd = R.rounds[mIdx];
+      const _roundD2d = (rawSales || []).filter(x =>
+        (typeof _indicatorDeptOf !== 'function' || _indicatorDeptOf(x) === 'd2d')
+        && (_isRoundDay(x, rd.d1) || _isRoundDay(x, rd.d2)));
+      const _teams = [...new Set(_roundD2d.map(_teamOf))].sort();
+      if (mTeam && !_teams.includes(mTeam)) mTeam = '';
+      const dayBlock = (day, label) => {
+        if (!day || isNaN(day)) return null;
+        const rows = _roundD2d.filter(x => _isRoundDay(x, day) && (!mTeam || _teamOf(x) === mTeam))
+          .sort((a, b) => _timeMin(a) - _timeMin(b));
+        const rev = rows.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
+        return el('div', { class: 'mb-3' },
+          el('div', { class: 'px-3 py-1.5 text-[10px] font-black uppercase tracking-widest flex items-center justify-between', style: { background: 'var(--card-2)', borderRadius: '8px 8px 0 0', border: '1px solid var(--border)', borderBottom: 'none' } },
+            el('span', {}, label + ' · ' + day.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' })),
+            el('span', { class: 'tabular-nums' }, rows.length + ' accts · ' + money(rev))),
+          el('div', { class: 'scroll-x', style: { border: '1px solid var(--border)', borderRadius: '0 0 8px 8px' } },
+            rows.length === 0
+              ? el('div', { class: 'p-4 text-center text-xs italic', style: { color: 'var(--text-muted)' } }, 'No qualifying D2D accounts this day.')
+              : el('table', { class: 'w-full text-[11px]' },
+                  el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+                    el('tr', {},
+                      el('th', { class: 'text-left pl-3 pr-2 py-1.5' }, 'Rep'),
+                      el('th', { class: 'text-left px-2 py-1.5' }, 'Cust ID'),
+                      el('th', { class: 'text-left px-2 py-1.5' }, 'Customer'),
+                      el('th', { class: 'text-right px-2 py-1.5' }, 'Contract'),
+                      el('th', { class: 'text-left px-2 py-1.5' }, 'Time'),
+                      el('th', { class: 'text-left pl-2 pr-3 py-1.5' }, 'Audit'))),
+                  el('tbody', {},
+                    ...rows.map(x => {
+                      const _st = (typeof _auditStatusOf === 'function') ? _auditStatusOf(x.customerFlags) : 'pending';
+                      const _stMeta = _st === 'passed' ? ['Passed', '#5F8A1F', 'rgba(141,198,63,.14)']
+                        : _st === 'failed' ? ['Failed', '#B91C1C', 'rgba(220,38,38,.10)']
+                        : _st === 'noaudit' ? ['No Audit', 'var(--text-muted)', 'var(--card-2)']
+                        : ['Pending', '#B45309', 'rgba(234,88,12,.10)'];
+                      return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+                        el('td', { class: 'pl-3 pr-2 py-1.5 whitespace-nowrap' }, getCanonicalRepName(x.rep || '—'),
+                          el('span', { class: 'ml-1 text-[9px]', style: { color: 'var(--text-subtle)' } }, getRepTeam(x.rep) || '')),
+                        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, x.customerId || '—'),
+                        el('td', { class: 'px-2 py-1.5 whitespace-nowrap' }, x.customer || '—'),
+                        el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold' }, money(Number(x.contractValue) || 0)),
+                        el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap' }, _timeStr(x)),
+                        el('td', { class: 'pl-2 pr-3 py-1.5' },
+                          el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded whitespace-nowrap', style: { color: _stMeta[1], background: _stMeta[2] } }, _stMeta[0])));
+                    })))));
+      };
+      const _mSel = (val, opts, onpick, activeBorder) => el('select', {
+        class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+        style: { borderColor: activeBorder ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        onchange: (e) => onpick(e.target.value),
+      }, ...opts.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (String(v) === String(val)) o.selected = true; return o; }));
+      const sameDay = rd.d1 && rd.d2 && rd.d1.getTime() === rd.d2.getTime();
+      card.append(
+        el('div', { class: 'px-5 py-3 flex items-center justify-between gap-3 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
+          el('div', { class: 'flex items-center gap-2 flex-wrap' },
+            el('h2', { class: 'text-lg font-bold' }, 'Accounts Sold'),
+            _mSel(mIdx, R.rounds.map((r2, i2) => [i2, _roundTitle(r2) + (r2.live ? ' · LIVE' : '')]), (v) => { mIdx = Number(v); render(); }),
+            _mSel(mTeam, [['', 'All teams'], ..._teams.map(t => [t, t])], (v) => { mTeam = v; render(); }, !!mTeam)),
+          el('button', { class: 'text-xl leading-none text-muted-', style: { lineHeight: '1' }, onclick: () => overlay.remove() }, '×')),
+        el('div', { class: 'p-4 overflow-auto' },
+          dayBlock(rd.d1, 'Day 1'),
+          sameDay ? null : dayBlock(rd.d2, 'Day 2')));
+    };
+    render();
+  };
+  const roundDrillBtn = (RO || !R.rounds.length) ? null : el('button', {
+    class: 'rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest cursor-pointer transition border hover:brightness-95 whitespace-nowrap',
+    style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+    onclick: () => openNrlaAccountsModal(_selIdx),
+  }, '📋 Accounts sold');
+  roundPicker.append(roundDrillBtn || el('span', {}));
+  const roundsGrid = R.rounds.length
+    ? el('div', { style: { borderTop: '1px solid var(--border)' } },
+        roundPicker,
+        el('div', { class: 'p-3' },
+          roundCard(R.rounds[_selIdx], _selIdx)))
+    : el('div', { class: 'p-4 text-center text-[11px] font-bold uppercase tracking-widest', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } },
+        'No rounds scheduled yet.');
   const footer = el('div', { class: 'px-3 py-2 text-center text-[10px] font-bold uppercase tracking-widest', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } },
     'Updates will be sent daily · RIDDMADE');
 
@@ -16848,7 +17099,9 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
       el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#1b5e20', color: '#fff' } },
           el('tr', {},
-            el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Branch'),
+            // Branch column frozen — sticky through horizontal scroll (the
+            // green header bg carries over so rows never show through).
+            el('th', { class: 'text-left px-3 py-2.5 font-bold', style: { position: 'sticky', left: '0', zIndex: '3', background: '#1b5e20' } }, 'Branch'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps with a qualifying sale this round' }, 'Reps'),
             ...catDefs.map(d => el('th', {
               class: 'text-left px-2 py-2.5 font-bold',
@@ -16868,9 +17121,15 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
             class: 'border-t',
             style: { borderColor: 'var(--border)', background: i % 2 ? 'rgba(27,94,32,0.04)' : 'transparent' },
           },
-            el('td', { class: 'px-3 py-2 font-bold whitespace-nowrap' },
-              el('span', { style: { color: 'var(--text)' } }, m.office),
-              el('span', { class: 'ml-1 text-[10px]', style: { color: 'var(--text-subtle)' } }, '· ' + m.n + ' accts')),
+            // (accounts count dropped — the row is about the standings, and
+            // sticky cells need an OPAQUE bg; the zebra tint is baked in so
+            // scrolled columns never bleed through the frozen name.)
+            el('td', {
+              class: 'px-3 py-2 font-bold whitespace-nowrap',
+              style: { position: 'sticky', left: '0', zIndex: '1', backgroundColor: 'var(--card)',
+                       backgroundImage: i % 2 ? 'linear-gradient(rgba(27,94,32,0.04), rgba(27,94,32,0.04))' : 'none' },
+            },
+              el('span', { style: { color: 'var(--text)' } }, m.office)),
             el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap font-bold' }, m.reps),
             ...catDefs.map(d => catCell(m, d)),
             catCell(m, passedRevDef),
@@ -37888,15 +38147,59 @@ function adminReps() {
   const _officeOpts = [...new Set(inTab.flatMap(x => { const e = x.frEmp || x.emp; return String((e && e.office_name) || '').split(',').map(s => s.trim()).filter(Boolean); }))].sort();
   const _fActive = ['role', 'office', 'tier'].filter(k => F[k]).length;
   const _fSel = (key, label, opts) => el('select', {
-    class: 'rounded-lg border px-2 py-1.5 text-xs cursor-pointer',
+    class: 'rounded-lg border px-2 py-1.5 text-xs cursor-pointer w-full',
     style: { borderColor: F[key] ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', fontWeight: F[key] ? '700' : '400' },
     title: 'Filter the list by ' + label.toLowerCase(),
     onchange: (e) => { F[key] = e.target.value; mountApp(); },
   },
     el('option', { value: '', selected: !F[key] }, label + ' — all'),
     ...opts.map(o => el('option', { value: o.v, selected: F[key] === o.v }, o.t)));
-  host.append(el('div', { class: 'flex items-center justify-between flex-wrap gap-2' },
-    el('div', { class: 'inline-flex rounded-xl border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+  // ONE row: status toggle · Filters dropdown (Access Profile / Branch /
+  // Tier + Clear live inside) · search stretching to fill what's left —
+  // on phones the search wraps to its own full-width line.
+  const _filtersWrap = (() => {
+    const wrap = el('div', { class: 'relative' });
+    const _fLabel = (t) => el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold px-0.5 pb-1', style: { color: 'var(--text-subtle)' } }, t);
+    const panel = el('div', {
+      class: 'card absolute p-3 flex flex-col gap-2',
+      style: { top: 'calc(100% + 6px)', left: '0', minWidth: '250px', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._adminUserFiltersOpen ? 'flex' : 'none' },
+    },
+      el('div', {}, _fLabel('Access Profile'), _fSel('role', 'Access Profile', [..._roleOpts.map(r => ({ v: r, t: roleLabel(r) })), { v: '__crm', t: 'In CRM (not added)' }])),
+      el('div', {}, _fLabel('Branch'), _fSel('office', 'Branch', _officeOpts.map(o => ({ v: o, t: o })))),
+      el('div', {}, _fLabel('Tier'), _fSel('tier', 'Tier', (typeof REP_TIERS !== 'undefined' ? REP_TIERS : []).map(t => ({ v: t.id, t: t.label })))),
+      _fActive ? el('button', {
+        class: 'text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition hover:brightness-95',
+        style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
+        onclick: () => { state._adminUserFilters = {}; mountApp(); },
+      }, '× Clear (' + _fActive + ')') : null);
+    const btn = el('button', {
+      class: 'px-3 py-2 rounded-xl border text-xs font-semibold transition hover:brightness-95 flex items-center gap-1.5',
+      style: _fActive
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+        : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+      onclick: (e) => {
+        e.stopPropagation();
+        const open = panel.style.display === 'flex';
+        panel.style.display = open ? 'none' : 'flex';
+        state._adminUserFiltersOpen = !open;
+        if (!open) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+          if (wrap.contains(ev.target)) return;
+          panel.style.display = 'none'; state._adminUserFiltersOpen = false;
+          document.removeEventListener('mousedown', closer);
+        }), 0);
+      },
+    }, 'Filters' + (_fActive ? ' · ' + _fActive : ''), el('span', { style: { fontSize: '9px' } }, state._adminUserFiltersOpen ? '▴' : '▾'));
+    if (state._adminUserFiltersOpen) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+      if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+      if (wrap.contains(ev.target)) return;
+      panel.style.display = 'none'; state._adminUserFiltersOpen = false;
+      document.removeEventListener('mousedown', closer);
+    }), 0);
+    wrap.append(btn, panel);
+    return wrap;
+  })();
+  host.append(el('div', { class: 'flex items-center flex-wrap gap-2' },
+    el('div', { class: 'inline-flex rounded-xl border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)' } },
       ...[
         { id: 'active', label: 'Active', count: aCount },
         { id: 'inactive', label: 'Inactive', count: inTab.length - aCount },
@@ -37907,21 +38210,12 @@ function adminReps() {
         onclick: () => { state._adminUserActiveFilter = t.id; mountApp(); },
       }, el('span', {}, t.label),
         el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: activeFilter === t.id ? { background: 'rgba(0,0,0,.15)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t.count.toLocaleString())))),
-    el('div', { class: 'flex items-center gap-2 flex-wrap' },
-      _fSel('role', 'Access Profile', [..._roleOpts.map(r => ({ v: r, t: roleLabel(r) })), { v: '__crm', t: 'In CRM (not added)' }]),
-      _fSel('office', 'Branch', _officeOpts.map(o => ({ v: o, t: o }))),
-      _fSel('tier', 'Tier', (typeof REP_TIERS !== 'undefined' ? REP_TIERS : []).map(t => ({ v: t.id, t: t.label }))),
-      _fActive ? el('button', {
-        class: 'text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition hover:brightness-95',
-        style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
-        title: 'Clear all column filters',
-        onclick: () => { state._adminUserFilters = {}; mountApp(); },
-      }, '× Clear (' + _fActive + ')') : null,
-      el('input', {
-        class: 'rounded-xl border px-3 py-2 text-xs', style: { borderColor: 'var(--border-2)', minWidth: '220px' },
-        placeholder: 'Search ' + REP_TYPE_TAB_LABEL[typeTab] + '…', value: state._adminUserSearch,
-        oninput: (e) => { state._adminUserSearch = e.target.value; clearTimeout(state._adminUserSearchT); state._adminUserSearchT = setTimeout(mountApp, 200); },
-      }))));
+    _filtersWrap,
+    el('input', {
+      class: 'rounded-xl border px-3 py-2 text-xs flex-1 min-w-0', style: { borderColor: 'var(--border-2)', minWidth: '180px' },
+      placeholder: 'Search ' + REP_TYPE_TAB_LABEL[typeTab] + '…', value: state._adminUserSearch,
+      oninput: (e) => { state._adminUserSearch = e.target.value; clearTimeout(state._adminUserSearchT); state._adminUserSearchT = setTimeout(mountApp, 200); },
+    })));
 
   // ── Build the filtered, capped list for this tab ──
   let list = inTab;
