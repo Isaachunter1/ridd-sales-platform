@@ -744,10 +744,19 @@ async function _indicatorConfigUpsertNow() {
     if (!casErr && casRes && casRes.conflict) {
       // Our edits were based on an outdated config. Server wins: adopt the
       // current copy (the loader's escape hatch applies it since the server
-      // is past our baseline) and tell the admin to re-apply their edit.
+      // is past our baseline).
       console.warn('[ridd] config write rejected by CAS — server moved past this browser; adopting server copy');
-      try { toast('Settings changed on another device first — pulled the latest. Please re-apply your last change.', 'error'); } catch { /* boot */ }
+      const _preHash = _indCfgFingerprint();
       try { await loadIndicatorConfigFromSupabase(); if (typeof mountApp === 'function') mountApp(); } catch { /* next poll heals */ }
+      // Only bother the admin when adopting the server copy actually CHANGED
+      // something locally — background housekeeping saves (auto-reactivation,
+      // boot syncs) hit this race with nothing at stake, and the old red
+      // "re-apply your change" toast was pure confusion in that case.
+      try {
+        if (_indCfgFingerprint() !== _preHash) {
+          toast('Another device updated settings first — pulled the latest. If you just changed something, re-apply it.', 'warn');
+        }
+      } catch { /* boot */ }
       return true; // handled — do NOT retry the stale payload
     }
     if (casErr && !/function|schema cache|does not exist|404/i.test(casErr.message || '')) {
@@ -13723,6 +13732,19 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
     el('span', { style: { color: col, fontSize: '1.15rem', letterSpacing: '.14em' } }, label),
     el('span', { style: { color: WHITE, opacity: '.4', fontSize: '.75rem', letterSpacing: '.1em' } }, count));
   const _mmdd = (iso) => new Date(iso + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+  // Per-round placement — contenders are already ranked by that round's
+  // qualifying revenue, so index = finishing place. Powers the "why you
+  // advanced / why you were cut" context on cards + the rep drill.
+  const _lmsPlace = R.rounds.map(rd => {
+    const m = new Map();
+    (rd.contenders || []).forEach((c, i) => m.set(c.rep, { place: i + 1, of: rd.before, advanceN: rd.advanceN, qualifier: !!rd.qualifier, advanced: !!c.advanced }));
+    return m;
+  });
+  const _lmsPlaceLine = (p, rd) => {
+    if (!p || !rd) return null;
+    return 'Wk ' + rd.week + ': #' + p.place + ' of ' + p.of
+      + (p.qualifier ? ' · qualifier — any qualifying sale advances' : ' · top ' + p.advanceN + ' advance');
+  };
   // ── ⏳ PENDING REVENUE — everything not yet confirmed for a round, split
   // by the service cutoff (the Friday after the comp day):
   //   · Scheduled in time — service date on/before the cutoff (or already
@@ -13830,7 +13852,10 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
         el('div', {},
           el('div', { style: { fontFamily: DISP, fontSize: '1.5rem', textTransform: 'uppercase', color: champ ? ORANGE : WHITE, lineHeight: '1' } }, (champ ? '👑 ' : '') + firstLast(r.rep)),
           el('div', { style: { fontFamily: DISP, fontSize: '.62rem', letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.4)', marginTop: '5px' } },
-            (r.office || '—') + ' · ' + (champ ? 'champion' : r.alive ? 'still standing' : 'out week ' + (r.elimWeek + 1)))),
+            (r.office || '—') + ' · ' + (champ ? 'champion' : r.alive ? 'still standing' : (() => {
+              const pl = (_lmsPlace[r.elimWeek] || new Map()).get(r.rep);
+              return 'out week ' + (r.elimWeek + 1) + (pl ? ' · finished #' + pl.place + ' of ' + pl.of + (pl.qualifier ? ' (no qualifying sale)' : ' — top ' + pl.advanceN + ' advanced') : '');
+            })()))),
         el('button', { style: { color: 'rgba(255,255,255,.6)', fontSize: '22px', lineHeight: '1', background: 'none', border: 'none', cursor: 'pointer' }, onclick: () => overlay.remove() }, '×')),
       el('div', { style: { overflowY: 'auto', padding: '4px 8px 0' } },
         el('table', { style: { width: '100%', borderCollapse: 'collapse' } },
@@ -13842,7 +13867,11 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
               td2(money(p.wb.total), 'rgba(255,255,255,.75)', true),
               td2(money(p.wb.pending), p.wb.pending ? ORANGE : 'rgba(255,255,255,.3)', true),
               td2(money(p.wb.failed), p.wb.failed ? RED : 'rgba(255,255,255,.3)', true),
-              td2(p.c.advanced ? 'Advanced' : 'Eliminated', p.c.advanced ? GREEN : RED, true))),
+              td2((() => {
+                const pl = (_lmsPlace[R.rounds.indexOf(p.rd)] || new Map()).get(r.rep);
+                const tag = p.c.advanced ? 'Advanced' : 'Cut';
+                return pl ? '#' + pl.place + '/' + pl.of + ' · ' + tag : tag;
+              })(), p.c.advanced ? GREEN : RED, true))),
             el('tr', {},
               td2('Season', WHITE),
               td2(money((rt.passed || 0) + (rt.pending || 0)), GREEN, true),
@@ -13905,6 +13934,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
       border: '1px solid ' + (champ ? ORANGE : (rank <= 3 ? 'rgba(240,172,30,.45)' : 'rgba(255,255,255,.12)')),
       boxShadow: 'inset 0 -3px 0 ' + ((_lmsLiveNow ? liveQual : lastQual) ? GREEN : 'rgba(255,255,255,.08)'),
     },
+      'data-lms': (r.rep + ' ' + firstLast(r.rep)).toLowerCase(),
       title: 'Week-by-week production for ' + firstLast(r.rep),
       onclick: () => openLmsRepModal(r),
     },
@@ -13916,7 +13946,15 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
           ? _stat('Live · Wk ' + curRd.week, money(liveQual), liveQual ? GREEN : 'rgba(255,255,255,.25)')
           : (_lmsNextDay ? _stat('Next Round', _mmdd(_lmsNextDay), 'rgba(255,255,255,.55)') : null),
         lastRd ? _stat('Last Rd · Wk ' + lastRd.week, money(lastQual), lastQual ? GREEN : 'rgba(255,255,255,.25)') : null,
-        _stat('Competition', money(_qual(r)), WHITE)));
+        _stat('Competition', money(_qual(r)), WHITE)),
+      // Why they're still in — place taken in the deciding round + the rule.
+      (() => {
+        const ctxIdx = _lmsLiveNow ? R.rounds.length - 1 : R.rounds.length - 1;
+        const ctxRd = lastRd || R.rounds[ctxIdx];
+        const p = ctxRd ? (_lmsPlace[R.rounds.indexOf(ctxRd)] || new Map()).get(r.rep) : null;
+        const line = _lmsPlaceLine(p, ctxRd);
+        return line ? el('div', { style: { marginTop: '8px', fontFamily: DISP, fontSize: '.58rem', letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,.45)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, line) : null;
+      })());
   };
   // Eliminated reps: compact name chips, grouped by exit week — a whole comp's
   // casualties fit on one screen instead of 400 rows.
@@ -13927,6 +13965,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
       'Out · Week ' + (k + 1) + (R.rounds[k] ? ' · ' + _mmdd(R.rounds[k].iso) : '') + ' — ' + outGroups[k].length + ' rep' + (outGroups[k].length === 1 ? '' : 's')),
     el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } },
       ...outGroups[k].sort((a, b) => _qual(b) - _qual(a)).map(r => el('span', {
+        'data-lms': (r.rep + ' ' + firstLast(r.rep)).toLowerCase(),
         style: { fontFamily: DISP, textTransform: 'uppercase', fontSize: '.98rem', letterSpacing: '.03em',
                  padding: '6px 14px', borderRadius: '999px', border: '1px solid rgba(255,255,255,.2)',
                  color: WHITE, whiteSpace: 'nowrap', cursor: 'pointer' },
@@ -13934,6 +13973,20 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
         onclick: () => openLmsRepModal(r),
       }, firstLast(r.rep), el('span', { style: { color: 'rgba(255,255,255,.55)', marginLeft: '8px' } }, money(_qual(r))))))));
   const cleanView = el('div', { style: { background: '#000', borderTop: '1px solid rgba(255,255,255,.08)' } },
+    // Search — filters survivor cards AND eliminated chips in place
+    // (show/hide, no re-render, so typing never loses focus).
+    el('div', { style: { padding: '14px 16px 0' } },
+      el('input', {
+        type: 'text', placeholder: 'Search rep…',
+        class: 'rounded-lg px-3 py-2 text-xs w-full',
+        style: { maxWidth: '300px', background: '#101010', border: '1px solid rgba(255,255,255,.22)', color: '#fff' },
+        oninput: (e) => {
+          const q = e.target.value.trim().toLowerCase();
+          cleanView.querySelectorAll('[data-lms]').forEach(n => {
+            n.style.display = (!q || (n.getAttribute('data-lms') || '').includes(q)) ? '' : 'none';
+          });
+        },
+      })),
     secHead(R.champion ? '👑 Champion' : 'Still Standing', GREEN, aliveRows.length + ' of ' + rows.length + ' reps'),
     el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(235px, 1fr))', gap: '10px', padding: '4px 16px 14px' } },
       ...aliveRows.map((r, i) => cleanCard(r, i + 1))),
@@ -18284,9 +18337,15 @@ function manageTeamsPanel(opts) {
     const titleCase = (s) => (s || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 
     // Per-branch counts for the Branch filter chips (alias rows excluded,
-    // matching the other chip rows). Branch = the rep's primary office.
+    // matching the other chip rows). Branch = the rep's primary office,
+    // NORMALIZED to one canonical key — the three office sources disagree on
+    // format (CRM roster "Atlanta" / multi-office "Atlanta, Detroit" vs
+    // sales-data "ATLANTA"), which was rendering duplicate dropdown entries
+    // like "Atlanta · 2" AND "Atlanta · 283". Multi-office people count
+    // under their FIRST listed office.
+    const _normBranch = (b) => String(b || '').split(',')[0].trim().toUpperCase();
     const branchCounts = {};
-    reps.forEach(r => { if (isAlias(r)) return; const b = primaryOffice(r) || '(no branch)'; branchCounts[b] = (branchCounts[b] || 0) + 1; });
+    reps.forEach(r => { if (isAlias(r)) return; const b = _normBranch(primaryOffice(r)) || '(no branch)'; branchCounts[b] = (branchCounts[b] || 0) + 1; });
     const branchesPresent = Object.keys(branchCounts).sort();
 
     let filteredReps = reps;
@@ -18310,9 +18369,16 @@ function manageTeamsPanel(opts) {
     }
     if (typeSelect) {
       filteredReps = filteredReps.filter(r => repTypeOf(r) === typeSelect);
+    } else {
+      // DEFAULT: teams are a Sales-Rep construct — known Office Staff and
+      // Technicians stay out of the roster (accounts mis-sourced as Door to
+      // Door were sneaking techs in here). 'Unknown' types stay visible so
+      // unmatched sales reps can still be assigned. Pick the Office Staff /
+      // Technician chip to see those groups explicitly.
+      filteredReps = filteredReps.filter(r => { const t = repTypeOf(r); return t !== 'Office Staff' && t !== 'Technician'; });
     }
     if (branchSelect) {
-      filteredReps = filteredReps.filter(r => (primaryOffice(r) || '(no branch)') === branchSelect);
+      filteredReps = filteredReps.filter(r => (_normBranch(primaryOffice(r)) || '(no branch)') === branchSelect);
     }
     // ── Sort (Name / Tier / Team) — click a column header to group. In
     // ascending order the blanks float to the top (Untagged tier, Unassigned
@@ -19050,6 +19116,13 @@ function manageTeamsPanel(opts) {
         { value: 'active', label: 'Active · ' + activeCounts.active },
         { value: 'inactive', label: 'Inactive · ' + activeCounts.inactive },
       ], (v) => { state._indicatorManageActiveFilter = v; render(); }),
+      // Type defaults to Sales Reps (+ unmatched names) — teams are a
+      // Sales-Rep construct. Pick a specific type to inspect the others.
+      mkFilter('Type', typeSelect, [
+        { value: '', label: 'Sales Reps' },
+        ...repTypesPresent.filter(t => t !== 'Sales Rep').map(t => ({ value: t, label: t + ' only' })),
+        ...(repTypesPresent.includes('Sales Rep') ? [{ value: 'Sales Rep', label: 'Sales Rep (CRM-matched)' }] : []),
+      ], (v) => { state._indicatorManageTypeFilter = v; render(); }),
       mkFilter('Branch', branchSelect, [
         { value: '', label: 'All' },
         ...branchesPresent.map(b => ({ value: b, label: titleCase(b) + ' · ' + branchCounts[b] })),
@@ -35601,7 +35674,7 @@ function adminUploads() {
   const tab = state._adminSubTab;
 
   const toggle = el('div', { class: 'flex items-center gap-1 p-1 rounded-lg', style: { background: 'var(--card-2)', width: 'fit-content' } },
-    ...[['history', 'Upload History'], ['activity', 'App Activity'], ['archive', '📚 Monthly Archive']].map(([k, label]) => el('button', {
+    ...[['history', 'Upload History'], ['activity', 'App Activity'], ['archive', '📚 Monthly Archive'], ['integrity', '🧪 Data Integrity']].map(([k, label]) => el('button', {
       class: 'px-3.5 py-1.5 rounded-md text-sm font-semibold transition',
       style: tab === k
         ? { background: 'var(--card)', color: 'var(--text)', boxShadow: 'var(--shadow-sm)' }
@@ -35627,7 +35700,130 @@ function adminUploads() {
       ? adminBackup()
       : tab === 'archive'
         ? monthlyArchivePanel()
-        : reportingUploadsPanel(),
+        : tab === 'integrity'
+          ? dataIntegrityPanel()
+          : reportingUploadsPanel(),
+  );
+}
+
+// ── 🧪 DATA INTEGRITY — every judgment call the app makes, quantified. ──
+// Bridging a CRM means fallbacks and text-matching; this panel makes each
+// one VISIBLE with a count and the actual rows behind it, so "why does this
+// number look off" always has a checkable answer.
+function dataIntegrityPanel() {
+  const raw = state._indicatorRawSales || [];
+  if (!raw.length) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'No dataset loaded — hit ↻ sync first.');
+  const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const typeMap = state._indicatorRepTypeBySig || {};
+  const rosterSigs = new Set();
+  (state.frRoster || []).forEach(e => {
+    [(typeof _frEmpName === 'function') ? _frEmpName(e) : '', (typeof _frRealName === 'function') ? _frRealName(e) : '']
+      .forEach(nm => { const g = _sig(nm); if (g) rosterSigs.add(g); });
+  });
+
+  // ── compute all checks in one pass ──
+  const typeCls = { crm: 0, map: 0, fallback: 0 };
+  const fallbackRows = [];
+  const sigInfo = new Map();          // sig → { names:Set, ids:Set, n }
+  const blankRows = [];
+  let blankRev = 0;
+  const cancelCls = { explicitRor: 0, dateFallbackRor: 0, mistagSuspect: 0, unspecified: 0, total: 0 };
+  const mistagRows = [], unspecRows = [];
+  for (const x of raw) {
+    if (!x) continue;
+    if (!x.rep) { blankRows.push(x); blankRev += Number(x.contractValue) || 0; continue; }
+    // type classification source
+    if (String(x.repType || '').trim()) typeCls.crm++;
+    else if (typeMap[_sig(getCanonicalRepName(x.rep))]) typeCls.map++;
+    else { typeCls.fallback++; if (fallbackRows.length < 120) fallbackRows.push(x); }
+    // name/id collisions
+    const g = _sig(getCanonicalRepName(x.rep));
+    const inf = sigInfo.get(g) || { names: new Set(), ids: new Set(), n: 0 };
+    inf.names.add(getCanonicalRepName(x.rep)); if (String(x.repId || '').trim()) inf.ids.add(String(x.repId).trim());
+    inf.n++; sigInfo.set(g, inf);
+    // cancel classification
+    if (x.cancelDate) {
+      cancelCls.total++;
+      const reason = (x.cancelReason || '').trim();
+      const dateRor = (typeof _is3DayROR === 'function') && _is3DayROR({ ...x, cancelReason: '' });
+      if (_ROR_REASON_RE.test(reason)) cancelCls.explicitRor++;
+      else if (!reason && dateRor) cancelCls.dateFallbackRor++;
+      else if (reason && dateRor && !_SNS_REASON_RE.test(reason)) { cancelCls.mistagSuspect++; if (mistagRows.length < 120) mistagRows.push(x); }
+      if (!reason) { cancelCls.unspecified++; if (unspecRows.length < 120) unspecRows.push(x); }
+    }
+  }
+  // unmatched rep names (no CRM type AND not in roster)
+  const repTotals = new Map();
+  raw.forEach(x => { if (!x.rep) return; const k = getCanonicalRepName(x.rep); const t = repTotals.get(k) || { n: 0, rev: 0, hasType: false }; t.n++; t.rev += Number(x.contractValue) || 0; if (String(x.repType || '').trim()) t.hasType = true; repTotals.set(k, t); });
+  const unmatched = [...repTotals.entries()].filter(([name, t]) => !t.hasType && !typeMap[_sig(name)] && !rosterSigs.has(_sig(name)))
+    .sort((a, b) => b[1].rev - a[1].rev);
+  // same-sig, multiple CRM ids = two different people sharing a name
+  const collisions = [...sigInfo.entries()].filter(([, v]) => v.ids.size > 1)
+    .map(([g, v]) => ({ names: [...v.names].join(' / '), ids: [...v.ids].join(', '), n: v.n }));
+  // multi-office reps
+  const officeBySig = new Map();
+  raw.forEach(x => { if (!x.rep || !x.office) return; const g = _sig(getCanonicalRepName(x.rep)); const st = officeBySig.get(g) || { name: getCanonicalRepName(x.rep), offices: new Map() }; st.offices.set(x.office, (st.offices.get(x.office) || 0) + 1); officeBySig.set(g, st); });
+  const multiOffice = [...officeBySig.values()].filter(v => v.offices.size > 1)
+    .map(v => ({ name: v.name, offices: [...v.offices.entries()].sort((a, b) => b[1] - a[1]).map(([o, n]) => o + ' (' + n + ')').join(' · '), n: [...v.offices.values()].reduce((a, b) => a + b, 0) }))
+    .sort((a, b) => b.n - a.n);
+
+  // ── render helpers ──
+  if (!state._integrityOpen) state._integrityOpen = {};
+  const money0 = (v) => '$' + Math.round(v || 0).toLocaleString();
+  const listTable = (cols, rows) => el('div', { class: 'scroll-x rounded-lg border mt-2', style: { borderColor: 'var(--border)', maxHeight: '320px', overflowY: 'auto' } },
+    el('table', { class: 'w-full text-[11px]' },
+      el('thead', { style: { position: 'sticky', top: 0, background: 'var(--card-2)' } }, el('tr', {},
+        ...cols.map((c, i) => el('th', { class: (i === 0 ? 'text-left pl-3 pr-2' : 'text-left px-2') + ' py-1.5 text-[9px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)' } }, c)))),
+      el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        ...r.map((v, i) => el('td', { class: (i === 0 ? 'pl-3 pr-2' : 'px-2') + ' py-1.5 whitespace-nowrap' }, v)))))));
+  const saleRow = (x) => [getCanonicalRepName(x.rep || '—'), x.customerId || '—', x.customer || '—', x.office || '—', x.source || '—', money0(x.contractValue), x.dateSold || '—'];
+  const SALE_COLS = ['Rep', 'Cust ID', 'Customer', 'Office', 'Source', 'Contract', 'Sold'];
+  const check = (key, title, count, tone, note, detail) => {
+    const open = !!state._integrityOpen[key];
+    const color = tone === 'bad' ? '#DC2626' : tone === 'warn' ? '#D97706' : '#5F8A1F';
+    return el('div', { class: 'card p-4' },
+      el('div', { class: 'flex items-center gap-2.5 flex-wrap' + (detail ? ' cursor-pointer' : ''),
+        onclick: detail ? (() => { state._integrityOpen[key] = !open; mountApp(); }) : undefined },
+        el('span', { class: 'inline-block w-2.5 h-2.5 rounded-full shrink-0', style: { background: color } }),
+        el('span', { class: 'text-sm font-bold' }, title),
+        el('span', { class: 'text-sm font-black tabular-nums', style: { color } }, typeof count === 'number' ? count.toLocaleString() : count),
+        detail ? el('span', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-muted)' } }, open ? '▴ hide rows' : '▾ see rows') : null),
+      el('div', { class: 'text-[11px] mt-1', style: { color: 'var(--text-muted)' } }, note),
+      open && detail ? detail() : null);
+  };
+  const pct = (n, d) => d > 0 ? ' (' + (n / d * 100).toFixed(1) + '% of dataset)' : '';
+
+  return el('div', { class: 'flex flex-col gap-3' },
+    el('div', { class: 'text-xs text-muted-' },
+      'Every judgment call quantified against the current dataset (' + raw.length.toLocaleString() + ' rows). Green = clean, amber = worth a look, red = actively skewing numbers.'),
+    check('fallback', 'Rep type guessed from lead source', typeCls.fallback,
+      typeCls.fallback === 0 ? 'good' : (typeCls.fallback / raw.length > 0.02 ? 'bad' : 'warn'),
+      'CRM per-sale type: ' + typeCls.crm.toLocaleString() + ' · name-map: ' + typeCls.map.toLocaleString() + ' · source-guess: ' + typeCls.fallback.toLocaleString() + pct(typeCls.fallback, raw.length) + '. Guessed rows are the crack technicians slipped through — fix by getting the name matched to the CRM.',
+      typeCls.fallback ? (() => listTable(SALE_COLS, fallbackRows.map(saleRow))) : null),
+    check('unmatched', 'Rep names with no CRM match', unmatched.length,
+      unmatched.length === 0 ? 'good' : (unmatched.length > 50 ? 'bad' : 'warn'),
+      'Names in the sales data that match nobody in the FieldRoutes roster — usually spelling differences or departed reps. Resolve in Manage Teams → Link Names to CRM.' + (!(state.frRoster || []).length ? ' (Roster not loaded this session — open Settings → Users once to load it, then revisit.)' : ''),
+      unmatched.length ? (() => listTable(['Rep name', 'Sales', 'Revenue'], unmatched.slice(0, 120).map(([n, t]) => [n, String(t.n), money0(t.rev)]))) : null),
+    check('collision', 'Same name, multiple CRM employee IDs', collisions.length,
+      collisions.length === 0 ? 'good' : 'bad',
+      'Two different people may be sharing one stat line — the name signature matches but the CRM employee IDs differ. Verify and split/alias these deliberately.',
+      collisions.length ? (() => listTable(['Name variants', 'Employee IDs', 'Sales pooled'], collisions.map(c => [c.names, c.ids, String(c.n)]))) : null),
+    check('mistag', 'Quick cancels with a non-ROR reason', cancelCls.mistagSuspect,
+      cancelCls.mistagSuspect === 0 ? 'good' : 'warn',
+      'Cancelled within 3 days of sale but the typed reason says something else. The app counts these as RORs (confirmed rule: quick cancel = ROR even when mistagged) — this is the list to clean up in FieldRoutes. Cancels overall: ' + cancelCls.total.toLocaleString() + ' · explicit ROR reason: ' + cancelCls.explicitRor.toLocaleString() + ' · date-inferred ROR: ' + cancelCls.dateFallbackRor.toLocaleString() + '.',
+      cancelCls.mistagSuspect ? (() => listTable(SALE_COLS.concat('Reason'), mistagRows.map(x => saleRow(x).concat(x.cancelReason || '—')))) : null),
+    check('unspec', 'Cancels with no reason at all', cancelCls.unspecified,
+      cancelCls.unspecified === 0 ? 'good' : (cancelCls.unspecified / Math.max(1, cancelCls.total) > 0.1 ? 'bad' : 'warn'),
+      'Blank cancel reasons land in "Unspecified" on Cancel Analysis and can\u2019t be classified as ROR/renewal/etc. beyond the 3-day date rule.',
+      cancelCls.unspecified ? (() => listTable(SALE_COLS, unspecRows.map(saleRow))) : null),
+    check('blank', 'Rows with a blank rep name', blankRows.length,
+      blankRows.length === 0 ? 'good' : 'warn',
+      'Never counted in any rep metric (' + money0(blankRev) + ' of contract value sits here). Branch totals still include them.',
+      blankRows.length ? (() => listTable(SALE_COLS, blankRows.slice(0, 120).map(saleRow))) : null),
+    check('multioffice', 'Reps selling across multiple offices', multiOffice.length,
+      'good',
+      'Not an error — but their "primary branch" label (leaderboard filters, Manage Teams) is a judgment call: sales count under the account\u2019s office, the rep label follows their biggest market.',
+      multiOffice.length ? (() => listTable(['Rep', 'Offices (sales)', 'Total sales'], multiOffice.slice(0, 120).map(m => [m.name, m.offices, String(m.n)]))) : null),
   );
 }
 
