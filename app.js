@@ -19605,6 +19605,24 @@ function viewIndicators() {
           const _fRow = (label, node) => node ? el('div', { class: 'flex flex-col gap-1' },
             el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
             node) : null;
+          // STAGED edits — the selects no longer re-render the whole page on
+          // every change (each mountApp re-crunches the full tab, which made
+          // the panel feel molasses-slow). Changes collect here and the
+          // Apply button commits them with ONE re-render.
+          const _staged = {
+            acct: state.indicatorAcctStatus || 'pending_serviced',
+            dept: state.indicatorDept || 'all',
+            preset: state.indicatorsRangePreset,
+            group: state.indicatorsGroupBy || 'branch',
+          };
+          let _applyBtn = null;
+          const _markDirty = () => {
+            if (!_applyBtn) return;
+            _applyBtn.style.background = 'var(--accent)';
+            _applyBtn.style.color = 'var(--accent-text)';
+            _applyBtn.style.borderColor = 'var(--accent)';
+            _applyBtn.textContent = 'Apply changes';
+          };
           // Primary Metric — REP ACCOUNTS ARE LOCKED to Pending/Serviced:
           // "Total Revenue" counts cancelled + sold-not-started rows too — an
           // admin analysis lens that just makes a rep's number look bigger
@@ -19613,39 +19631,31 @@ function viewIndicators() {
             el('select', {
               class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
               style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-              onchange: e => { state.indicatorAcctStatus = e.target.value; mountApp(); },
+              onchange: e => { _staged.acct = e.target.value; _markDirty(); },
             },
-              el('option', { value: 'pending_serviced', selected: (state.indicatorAcctStatus || 'pending_serviced') === 'pending_serviced' }, 'Pending / Serviced Revenue'),
-              el('option', { value: 'all', selected: (state.indicatorAcctStatus || 'pending_serviced') === 'all' }, 'Total Revenue'),
+              el('option', { value: 'pending_serviced', selected: _staged.acct === 'pending_serviced' }, 'Pending / Serviced Revenue'),
+              el('option', { value: 'all', selected: _staged.acct === 'all' }, 'Total Revenue'),
             );
           // Emp Type — classified from the Customer Report's "Sold By Type".
           const typeSel = el('select', {
             class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-            onchange: e => { state.indicatorDept = e.target.value; mountApp(); },
+            onchange: e => { _staged.dept = e.target.value; _markDirty(); },
           },
-            el('option', { value: 'all', selected: (state.indicatorDept || 'all') === 'all' }, 'All'),
-            el('option', { value: 'd2d', selected: state.indicatorDept === 'd2d' }, 'Sales Rep'),
-            el('option', { value: 'office', selected: state.indicatorDept === 'office' }, 'Office Staff'),
-            el('option', { value: 'techs', selected: state.indicatorDept === 'techs' }, 'Technician'),
+            el('option', { value: 'all', selected: _staged.dept === 'all' }, 'All'),
+            el('option', { value: 'd2d', selected: _staged.dept === 'd2d' }, 'Sales Rep'),
+            el('option', { value: 'office', selected: _staged.dept === 'office' }, 'Office Staff'),
+            el('option', { value: 'techs', selected: _staged.dept === 'techs' }, 'Technician'),
           );
           // Date — range presets (weekly mode retired; This Week / Last Week
           // presets cover it). Selecting Custom pre-fills THIS WEEK's range;
           // the actual custom pickers render in their own row below the bar.
           const dateSel = isRange ? el('select', {
             class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
-            onchange: e => {
-              state.indicatorsRangePreset = e.target.value;
-              if (e.target.value === 'custom') {
-                const wk = indicatorRangeBounds('this_week');
-                state.indicatorsCustomStart = wk.start;
-                state.indicatorsCustomEnd   = wk.end;
-              }
-              mountApp();
-            },
+            onchange: e => { _staged.preset = e.target.value; _markDirty(); },
           },
             ...indicatorPresetOptions().map(p => el('option', {
-              value: p.id, selected: state.indicatorsRangePreset === p.id,
+              value: p.id, selected: _staged.preset === p.id,
             }, p.label)),
           ) : el('select', {
             class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
@@ -19665,18 +19675,11 @@ function viewIndicators() {
             class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             title: (rawSalesAvailable && !state.indicatorsComps) ? '' : 'Teams needs a raw-sales upload and Comps off',
-            onchange: e => {
-              const v = e.target.value;
-              if ((v === 'teams' || v === 'dept') && (!rawSalesAvailable || state.indicatorsComps)) {
-                toast(state.indicatorsComps ? 'Competitions are branch-level — turn Comps off first' : 'This grouping needs a raw-sales upload', 'warn');
-                mountApp(); return;
-              }
-              state.indicatorsGroupBy = v; mountApp();
-            },
+            onchange: e => { _staged.group = e.target.value; _markDirty(); },
           },
-            el('option', { value: 'branch', selected: groupBy === 'branch' }, 'Branch / Office'),
-            el('option', { value: 'teams', selected: groupBy === 'teams' }, 'Teams'),
-            el('option', { value: 'dept', selected: groupBy === 'dept' }, 'Department'),
+            el('option', { value: 'branch', selected: _staged.group === 'branch' }, 'Branch / Office'),
+            el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
+            el('option', { value: 'dept', selected: _staged.group === 'dept' }, 'Department'),
           );
           const panel = el('div', {
             class: 'card',
@@ -19687,6 +19690,29 @@ function viewIndicators() {
               _fRow('Type', typeSel),
               _fRow('Date', dateSel),
               _fRow('Group', groupSel),
+              (_applyBtn = el('button', {
+                class: 'rounded-xl px-3 py-2.5 text-xs font-bold border transition hover:brightness-95 w-full',
+                style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+                onclick: () => {
+                  if ((_staged.group === 'teams' || _staged.group === 'dept') && (!rawSalesAvailable || state.indicatorsComps)) {
+                    toast(state.indicatorsComps ? 'Competitions are branch-level — turn Comps off first' : 'This grouping needs a raw-sales upload', 'warn');
+                    return;
+                  }
+                  if (!_repLite) state.indicatorAcctStatus = _staged.acct;
+                  state.indicatorDept = _staged.dept;
+                  if (_staged.preset !== state.indicatorsRangePreset) {
+                    state.indicatorsRangePreset = _staged.preset;
+                    if (_staged.preset === 'custom') {
+                      const wk = indicatorRangeBounds('this_week');
+                      state.indicatorsCustomStart = wk.start;
+                      state.indicatorsCustomEnd   = wk.end;
+                    }
+                  }
+                  state.indicatorsGroupBy = _staged.group;
+                  state._indFiltersOpen = false;   // one commit, one render, panel closes
+                  mountApp();
+                },
+              }, 'Apply')),
             ),
           );
           const nonDefault = [
@@ -24709,6 +24735,10 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     drillRep = drillRepName && repMap[drillRepName] ? repMap[drillRepName] : null;
   }
   const _trendTitleNode = () => el('h3', { class: 'text-base font-bold' }, '📈 Your Performance Trends');
+  // Right-hand control cluster on the card's TITLE row — the Filters
+  // dropdown is appended first (below), then buildTrendMiniGrid mounts the
+  // metric picker + Compare toggle into it: Filters · Revenue · Compare.
+  const _trendControlsHost = el('div', { class: 'flex items-center gap-2 flex-wrap justify-end', style: { marginLeft: 'auto' } });
   let drillPanel;
   if (drillRep) {
     drillPanel = repDrillPanel(drillRep, chartBuckets,
@@ -24719,7 +24749,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     // dwarfed by company totals on a shared axis, so a side-by-side line
     // visually shrinks the rep's pattern. Selected reps are still plotted
     // on the upper trend chart; this panel just shows the scope.
-    drillPanel = scopeDrillPanel(state._indicatorTrendScope, rawSales || [], chartBuckets);
+    drillPanel = scopeDrillPanel(state._indicatorTrendScope, rawSales || [], chartBuckets, null, { controlsInto: _trendControlsHost });
   }
 
   // ── Slimmed layout: the old multi-line trend chart (header / chips /
@@ -24806,9 +24836,10 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
       }), 0);
       wrap.append(btn, panel);
       clampDropdownPanel(panel);
+      _trendControlsHost.prepend(wrap);   // Filters leads the right cluster
       return el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
         el('h3', { class: 'text-base font-bold mr-1' }, '📈 Metric Trends'),
-        wrap);
+        _trendControlsHost);
     })();
 
   return el('div', { class: 'card p-5' },
@@ -26819,33 +26850,38 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay,
   const chartHolder = el('div', {});
   const renderChart = () => { chartHolder.innerHTML = ''; chartHolder.append(buildMini(chosen())); };
   renderChart();
+  const metricSelect = el('select', {
+    class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+    onchange: (e) => { state._miniTrendMetric = e.target.value; renderChart(); },
+  },
+    ...metrics.map(m => el('option', { value: m.id, selected: chosen().id === m.id }, m.label)));
+  // When an overlay is wired up, surface a tiny legend so the reader knows
+  // which line is the scope vs which is the comparison rep.
+  const legendRow = overlay ? el('div', { class: 'flex items-center gap-4 text-[10px] flex-wrap', style: { color: 'var(--text-muted)' } },
+    el('div', { class: 'flex items-center gap-1.5' },
+      el('span', { style: { display: 'inline-block', width: '18px', height: '2px', background: lineColor } }),
+      el('span', {}, 'Scope'),
+    ),
+    el('div', { class: 'flex items-center gap-1.5' },
+      el('span', { style: { display: 'inline-block', width: '18px', height: '0', borderTop: '2px dashed ' + overlay.color } }),
+      el('span', {}, overlay.label),
+      el('span', { class: 'text-[9px] italic', style: { color: 'var(--text-subtle)' } }, '(right axis on $ metrics)'),
+    ),
+  ) : null;
+  // Hoisted mode: the caller owns a header row (the card title row) — the
+  // metric picker + Compare cluster mount THERE, and this block is just the
+  // legend (compare mode) + chart.
+  if (opts.controlsInto) {
+    opts.controlsInto.append(metricSelect, opts.rightNode || el('span', {}));
+    return el('div', { class: 'flex flex-col gap-2' }, legendRow, chartHolder);
+  }
+  metricSelect.style.order = '99';
   return el('div', { class: 'flex flex-col gap-2' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
-      // Title (when the caller passes one, e.g. the rep's name / the scope
-      // label) sits left; opts.rightNode (e.g. the Compare toggle) and the
-      // metric picker pin to the top right, in that order.
       opts.titleNode || (overlay ? null : el('div', { class: 'flex-1' })),
       opts.rightNode ? el('div', { class: 'flex items-center gap-2 flex-wrap', style: { order: '98', marginLeft: 'auto' } }, opts.rightNode) : null,
-      el('select', {
-        class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
-        style: { order: '99' },
-        onchange: (e) => { state._miniTrendMetric = e.target.value; renderChart(); },
-      },
-        ...metrics.map(m => el('option', { value: m.id, selected: chosen().id === m.id }, m.label)),
-      ),
-      // When an overlay is wired up, surface a tiny legend so the reader
-      // knows which line is the scope vs which is the comparison rep.
-      overlay && el('div', { class: 'flex items-center gap-4 text-[10px]', style: { color: 'var(--text-muted)' } },
-        el('div', { class: 'flex items-center gap-1.5' },
-          el('span', { style: { display: 'inline-block', width: '18px', height: '2px', background: lineColor } }),
-          el('span', {}, 'Scope'),
-        ),
-        el('div', { class: 'flex items-center gap-1.5' },
-          el('span', { style: { display: 'inline-block', width: '18px', height: '0', borderTop: '2px dashed ' + overlay.color } }),
-          el('span', {}, overlay.label),
-          el('span', { class: 'text-[9px] italic', style: { color: 'var(--text-subtle)' } }, '(right axis on $ metrics)'),
-        ),
-      ),
+      metricSelect,
+      legendRow,
     ),
     chartHolder,
   );
@@ -26949,7 +26985,7 @@ function repDrillPanel(rep, chartBuckets, titleNode) {
 // a single Team. Scope persists across reloads. Per the project rule,
 // excluded-team reps are dropped ONLY when the scope is 'team' — branch and
 // company views show every rep regardless of team-exclusion status.
-function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep) {
+function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelOpts = {}) {
   // Available branches and teams for the picker
   const branches = [...new Set((allScopedSales || []).map(s => s.office).filter(Boolean))].sort();
   const teams = distinctTeams().filter(t => !isTeamExcluded(t));
@@ -27146,7 +27182,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep) {
             color: getRepTeam(compareRep.name) ? getTeamColor(getRepTeam(compareRep.name)) : '#8DC63F',
             label: compareRep.name,
           } : null),
-      { titleNode: _scopeTitle, rightNode: scopeSelector },
+      { titleNode: _scopeTitle, rightNode: scopeSelector, controlsInto: panelOpts.controlsInto },
     ),
   );
 }
@@ -27313,23 +27349,47 @@ function indicatorYoYTrendChart() {
   })();
   const yearsWrap = (() => {
     const wrap = el('div', { class: 'relative' });
+    // STAGED — checking years just flips the checkbox (instant); Apply
+    // commits the set with ONE full re-render (each toggle used to rebuild
+    // the whole page).
+    let _stagedYears = [..._yoySelYears];
+    let _yApply = null;
+    const _yDirty = () => {
+      if (!_yApply) return;
+      _yApply.style.background = 'var(--accent)';
+      _yApply.style.color = 'var(--accent-text)';
+      _yApply.style.borderColor = 'var(--accent)';
+    };
     const panel = el('div', {
       class: 'card absolute p-1.5',
-      style: { top: 'calc(100% + 6px)', right: '0', minWidth: '150px', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyYearsOpen ? 'block' : 'none' },
+      style: { top: 'calc(100% + 6px)', right: '0', minWidth: '160px', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyYearsOpen ? 'block' : 'none' },
     },
-      ...yearsPresent.slice().sort((a, b) => b - a).map(y => el('button', {
-        class: 'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
-        style: { color: 'var(--text)', background: _yoySelYears.includes(y) ? 'var(--card-2)' : 'transparent' },
+      ...yearsPresent.slice().sort((a, b) => b - a).map(y => {
+        const glyph = el('span', { style: { fontSize: '13px' } }, _stagedYears.includes(y) ? '☑' : '☐');
+        const row = el('button', {
+          class: 'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+          style: { color: 'var(--text)', background: _stagedYears.includes(y) ? 'var(--card-2)' : 'transparent' },
+          onclick: (e) => {
+            e.stopPropagation();
+            _stagedYears = _stagedYears.includes(y) ? _stagedYears.filter(x => x !== y) : [..._stagedYears, y];
+            const on = _stagedYears.includes(y);
+            glyph.textContent = on ? '☑' : '☐';
+            row.style.background = on ? 'var(--card-2)' : 'transparent';
+            _yDirty();
+          },
+        }, glyph, el('span', {}, String(y) + (y === curY ? ' · current' : '')));
+        return row;
+      }),
+      (_yApply = el('button', {
+        class: 'w-full rounded-lg px-2.5 py-2 text-xs font-bold border transition hover:brightness-95 mt-1',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         onclick: (e) => {
           e.stopPropagation();
-          let next = _yoySelYears.includes(y) ? _yoySelYears.filter(x => x !== y) : [..._yoySelYears, y];
-          if (!next.length) next = [y];                     // never zero lines
-          state._indicatorYoYYears = next;
+          state._indicatorYoYYears = _stagedYears.length ? _stagedYears : [curY];
+          state._yoyYearsOpen = false;
           mountApp();
         },
-      },
-        el('span', { style: { fontSize: '13px' } }, _yoySelYears.includes(y) ? '☑' : '☐'),
-        el('span', {}, String(y) + (y === curY ? ' · current' : '')))));
+      }, 'Apply')));
     const btn = el('button', {
       class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer border flex items-center gap-1.5',
       style: _yoySelYears.length > 1
@@ -27463,7 +27523,7 @@ function indicatorYoYTrendChart() {
 
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
-      el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'YTD Performance Trends' : 'Performance Trends by Year'),
+      el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'YTD Performance Trends' : 'Performance Trends'),
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, yearsWrap, metricSel)),
     cvsWrap);
 }
