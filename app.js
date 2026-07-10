@@ -12731,6 +12731,9 @@ function openRaffleSpinModal(raffleSorted, totalTickets, windowLabel) {
 function getGroupColor(name) {
   if (!name) return '#666';
   if (state.indicatorsGroupBy === 'teams') return getTeamColor(name);
+  if (state.indicatorsGroupBy === 'dept') {
+    return ({ 'SALES REP': '#5F8A1F', 'OFFICE STAFF': '#2b8cbe', 'TECHNICIAN': '#B45309' })[String(name).toUpperCase()] || '#666';
+  }
   return BRANCH_COLORS[name] || BRANCH_COLORS[String(name).toUpperCase()] || '#666';
 }
 // Date-range presets for the Indicators view. Presets are anchored to the
@@ -17884,6 +17887,13 @@ function aggregateByTeam(rawSales, indicatorRowsForDates) {
   // Team view honors both team exclusions and the strict pest-subscription regex.
   return aggregateRawSalesByGroup(rawSales, s => getRepTeam(s.rep) || 'Unassigned', indicatorRowsForDates, true, TEAM_PEST_EXCLUDE);
 }
+// Department view — the three legs of the company as columns (Sales Rep /
+// Office Staff / Technician), classified per sale by _indicatorDeptOf.
+// No exclusions, plain Avg Initial (mixed service types across legs).
+const DEPT_GROUP_LABELS = { d2d: 'SALES REP', office: 'OFFICE STAFF', techs: 'TECHNICIAN' };
+function aggregateByDept(rawSales, indicatorRowsForDates) {
+  return aggregateRawSalesByGroup(rawSales, s => DEPT_GROUP_LABELS[_indicatorDeptOf(s)] || 'OFFICE STAFF', indicatorRowsForDates, false, null);
+}
 
 // Dynamic label for the avg_initial column. "Avg Pest Initial" (strips
 // Sentricon/Roach/Flea from the average) is used for the Sales Rep dept and in
@@ -19124,17 +19134,21 @@ function viewIndicators() {
   // gracefully to Branch mode otherwise.
   const rawSalesAvailable = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
   const wantTeams = state.indicatorsGroupBy === 'teams';
-  // Comps are a BRANCH-level competition — Teams mode is locked out while Comps
-  // is on (you compete by branch, not team).
-  const groupBy = (wantTeams && rawSalesAvailable && !state.indicatorsComps) ? 'teams' : 'branch';
-  // If teams mode can't run (no raw sales cached), heal the stale state so
-  // labels + header colors render in branch form instead of a half-teams
-  // hybrid (team colors painted onto branch columns).
-  if (wantTeams && !rawSalesAvailable) state.indicatorsGroupBy = 'branch';
+  const wantDept  = state.indicatorsGroupBy === 'dept';
+  // Comps are a BRANCH-level competition — Teams/Department modes are locked
+  // out while Comps is on (you compete by branch).
+  const groupBy = (rawSalesAvailable && !state.indicatorsComps)
+    ? (wantTeams ? 'teams' : wantDept ? 'dept' : 'branch')
+    : 'branch';
+  // If teams/dept mode can't run (no raw sales cached), heal the stale state
+  // so labels + header colors render in branch form instead of a hybrid.
+  if ((wantTeams || wantDept) && !rawSalesAvailable) state.indicatorsGroupBy = 'branch';
 
   let allData;
   if (groupBy === 'teams') {
     allData = aggregateByTeam(indicatorSales(), state.indicatorsData);
+  } else if (groupBy === 'dept') {
+    allData = aggregateByDept(indicatorSales(), state.indicatorsData);
   } else if (rawSalesAvailable) {
     // Re-aggregate from raw sales (rather than using the pre-computed
     // state.indicatorsData) so that Excluded reps drop out of EVERY branch
@@ -19183,6 +19197,8 @@ function viewIndicators() {
     _rangeGroups = {};
     const groupKeyOf = groupBy === 'teams'
       ? (s) => (getRepTeam(s.rep) || 'Unassigned')
+      : groupBy === 'dept'
+      ? (s) => (DEPT_GROUP_LABELS[_indicatorDeptOf(s)] || 'OFFICE STAFF')
       : (s) => s.office || 'Unknown';
     for (const s of indicatorSales()) {
       if (!s.rep) continue;
@@ -19620,8 +19636,8 @@ function viewIndicators() {
             title: (rawSalesAvailable && !state.indicatorsComps) ? '' : 'Teams needs a raw-sales upload and Comps off',
             onchange: e => {
               const v = e.target.value;
-              if (v === 'teams' && (!rawSalesAvailable || state.indicatorsComps)) {
-                toast(state.indicatorsComps ? 'Competitions are branch-level — turn Comps off for Teams' : 'Teams mode needs a raw-sales CSV', 'warn');
+              if ((v === 'teams' || v === 'dept') && (!rawSalesAvailable || state.indicatorsComps)) {
+                toast(state.indicatorsComps ? 'Competitions are branch-level — turn Comps off first' : 'This grouping needs a raw-sales upload', 'warn');
                 mountApp(); return;
               }
               state.indicatorsGroupBy = v; mountApp();
@@ -19629,6 +19645,7 @@ function viewIndicators() {
           },
             el('option', { value: 'branch', selected: groupBy === 'branch' }, 'Branch / Office'),
             el('option', { value: 'teams', selected: groupBy === 'teams' }, 'Teams'),
+            el('option', { value: 'dept', selected: groupBy === 'dept' }, 'Department'),
           );
           const panel = el('div', {
             class: 'card',
@@ -20209,6 +20226,23 @@ function viewIndicators() {
               // branch reps (same convention PRA uses for its
               // denominator — accepts the cross-branch double-count of a
               // rep who worked multiple offices in the window).
+              // % of Revenue — each column's share of the RIDD total, i.e.
+              // the weight that branch / team / department leg is pulling.
+              (() => {
+                const totRev = activeBranches.reduce((a, b) => a + (branchData[b]?.revenue || 0), 0);
+                const cell = el('td', {
+                  class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
+                  style: { background: 'var(--card)', zIndex: 1, cursor: 'help' },
+                }, '% of Revenue');
+                attachExplainer(cell, { title: '% of Revenue', desc: 'This column\u2019s revenue \u00f7 the RIDD total for the same window \u2014 the share of company production each ' + (groupBy === 'dept' ? 'department' : groupBy === 'teams' ? 'team' : 'branch') + ' is contributing.' });
+                return el('tr', { class: 'border-t border-' },
+                  cell,
+                  ...sortedBranches.map(b => el('td', { class: 'px-3 py-2 text-center tabular-nums font-semibold', style: { color: 'var(--accent)' } },
+                    (branchData[b] && totRev > 0) ? ((branchData[b].revenue || 0) / totRev * 100).toFixed(1) + '%' : '—',
+                  )),
+                  el('td', { class: 'px-3 py-2 text-center tabular-nums font-bold' }, totRev > 0 ? '100%' : '—'),
+                );
+              })(),
               (() => {
                 const isSortingReps = sort.key === 'reps';
                 const totalReps = activeBranches.reduce((a, b) => a + (branchData[b]?.reps || 0), 0);
@@ -22399,29 +22433,6 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             filteredReps.length === allReps.length
               ? filteredReps.length + ' reps'
               : filteredReps.length + ' of ' + allReps.length + ' reps'),
-          // Rookie/Vet PDF export — pulls from the unfiltered `allReps`
-          // (not the page-filter `filteredReps`) so the report reflects
-          // the full active roster regardless of which office/team pills
-          // are currently selected. Hidden when the rep list is empty.
-          (() => {
-            const btn = el('button', {
-              class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border',
-              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-              title: 'Download a PDF leaderboard: top 15 overall + top 15 rookies, with column-leading metrics highlighted',
-              onclick: async () => {
-                btn.disabled = true;
-                const original = btn.textContent;
-                btn.textContent = 'Generating…';
-                try {
-                  await downloadRookieVetPdf(allReps);
-                } finally {
-                  btn.disabled = false;
-                  btn.textContent = original;
-                }
-              },
-            }, '📄 Leaderboard PDF');
-            return (allReps.length > 0 && isAdminRole(state.profile.role)) ? btn : null;
-          })(),
         ),
         el('div', { class: 'flex items-center gap-2 flex-wrap flex-1 sm:flex-initial' },
           // Search on the left; ONE Filters button on the right — tier,
@@ -22447,6 +22458,27 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               });
             },
           }),
+          // Rookie/Vet PDF export — icon only, between search and Filters.
+          // Pulls from the unfiltered `allReps` so the report reflects the
+          // full active roster regardless of the current page filters.
+          (() => {
+            const btn = el('button', {
+              class: 'rounded-lg px-3 py-2.5 text-sm font-bold cursor-pointer transition hover:brightness-95 border shrink-0',
+              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+              title: 'Download a PDF leaderboard: top 15 overall + top 15 rookies, with column-leading metrics highlighted',
+              onclick: async () => {
+                btn.disabled = true;
+                btn.textContent = '…';
+                try {
+                  await downloadRookieVetPdf(allReps);
+                } finally {
+                  btn.disabled = false;
+                  btn.textContent = '📄';
+                }
+              },
+            }, '📄');
+            return (allReps.length > 0 && isAdminRole(state.profile.role)) ? btn : null;
+          })(),
           (() => {
             // One-time migration: the old default EXCLUDED these three kinds.
             // New default = include everything (uncheck to exclude).
@@ -22701,131 +22733,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   );
 
 
-  // ── GROUP LEADERBOARD — the player-card metrics rolled up by Team /
-  // Office / Department. Every row clicks through to a pooled entity
-  // player card (same modal as a rep — stats, records, calendar, trends,
-  // retention toggle) ranked against its PEERS: teams vs teams, offices vs
-  // offices, departments vs departments. Reads the same windowed sales as
-  // the Rep Leaderboard above so the two always reconcile. Admin-only by
-  // construction (rep-lite only lifts the 'rep-leaderboard' section).
-  sections.push((() => {
-    if (!state._indGroupKind) state._indGroupKind = 'team';
-    if (!state._indGroupSort) state._indGroupSort = { key: 'revenue', asc: false };
-    const kind = state._indGroupKind;
-    const gSort = state._indGroupSort;
-    const DEPT_LABELS = { d2d: 'Sales Rep', office: 'Office Staff', techs: 'Technician' };
-    const _pretty = (n) => String(n || '').split(' ').map(w => (w[0] || '').toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-    const keyOf = kind === 'team' ? (x) => getRepTeam(x.rep) || 'Unassigned'
-                : kind === 'office' ? (x) => _pretty(x.office || 'Unknown')
-                : (x) => DEPT_LABELS[_indicatorDeptOf(x)] || 'Office Staff';
-    const groups = new Map();
-    for (const x of rawSales) {
-      const k = keyOf(x);
-      let g = groups.get(k);
-      if (!g) groups.set(k, g = { name: k, sales: [], revenue: 0, multi: 0, twelve: 0, autoPay: 0, cancels: 0, initSum: 0, repSet: new Set(), daySet: new Set() });
-      g.sales.push(x);
-      g.revenue += Number(x.contractValue) || 0;
-      if (Number(x.contract) >= 18) g.multi++;
-      if (Number(x.contract) === 12) g.twelve++;
-      if (x.autoPay && x.autoPay !== 'No') g.autoPay++;
-      if (_repCancelCounts(x)) g.cancels++;
-      g.initSum += Number(x.initialPrice) || 0;
-      g.repSet.add(getCanonicalRepName(x.rep || 'Unknown'));
-      const d = _parseIndicatorDay(x);
-      if (d) g.daySet.add(d.toISOString().slice(0, 10));
-    }
-    const gRows = [...groups.values()].map(g => {
-      const count = g.sales.length;
-      const ct = g.twelve + g.multi;
-      return {
-        name: g.name, sales: g.sales, count,
-        revenue: g.revenue,
-        reps: g.repSet.size,
-        sellDays: g.daySet.size,
-        revPerDay: g.daySet.size > 0 ? g.revenue / g.daySet.size : 0,
-        acctsPerDay: g.daySet.size > 0 ? count / g.daySet.size : 0,
-        acv: count > 0 ? g.revenue / count : 0,
-        avgInitial: count > 0 ? g.initSum / count : 0,
-        myPct: ct > 0 ? g.multi / ct : 0,
-        autoPayPct: count > 0 ? g.autoPay / count : 0,
-        cancels: g.cancels,
-      };
-    });
-    gRows.sort((a, b) => {
-      const k = gSort.key;
-      if (k === 'name') return gSort.asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
-      return gSort.asc ? (a[k] || 0) - (b[k] || 0) : (b[k] || 0) - (a[k] || 0);
-    });
-    const setGSort = (k) => {
-      state._indGroupSort = gSort.key === k ? { key: k, asc: !gSort.asc } : { key: k, asc: k === 'name' };
-      mountApp();
-    };
-    const gHl = (k) => gSort.key === k ? { color: 'var(--accent)', fontWeight: '800' } : {};
-    const gTh = (label, k, left = false) => el('th', {
-      class: (left ? 'text-left' : 'text-right') + ' px-2 py-2 cursor-pointer select-none hover:text-default whitespace-nowrap',
-      style: gHl(k), onclick: () => setGSort(k),
-    }, label);
-    const openEntity = (r) => {
-      const peers = gRows.map(x => ({ name: x.name, sales: x.sales }));
-      openIndicatorRepCard(_scopeRep({ name: r.name, sales: r.sales }, () => true), peers);
-    };
-    const hdr = el('h3', { class: 'text-base font-bold' }, 'Group Leaderboard');
-    attachExplainer(hdr, {
-      title: 'Group Leaderboard',
-      desc: 'The Rep Leaderboard\u2019s sales, pooled by Team, Office, or Department over the same date window. Click any row for the group\u2019s player card \u2014 records rank the group against its peers (teams vs teams, offices vs offices), and the Retention toggle works there too.',
-    });
-    const kindNoun = kind === 'dept' ? 'departments' : kind + 's';
-    return el('div', { class: 'card overflow-hidden', 'data-section': 'group-leaderboard' },
-      el('div', { class: 'px-5 py-3 border-b flex items-center justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
-        el('div', { class: 'flex items-center gap-3 flex-wrap' },
-          hdr,
-          el('span', { class: 'text-xs text-muted-' }, gRows.length + ' ' + kindNoun)),
-        el('div', { class: 'pill-tabs' },
-          ...[['team', 'Team'], ['office', 'Office'], ['dept', 'Department']].map(([k, lab]) => el('button', {
-            'data-active': kind === k,
-            onclick: () => { state._indGroupKind = k; mountApp(); },
-          }, lab))),
-      ),
-      el('div', { class: 'scroll-x' },
-        el('table', { class: 'w-full text-[12px]' },
-          el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
-            el('tr', {},
-              gTh(kind === 'team' ? 'Team' : kind === 'office' ? 'Office' : 'Department', 'name', true),
-              gTh('Reps', 'reps'),
-              gTh('Sales', 'count'),
-              gTh('Revenue', 'revenue'),
-              gTh('Production/Day', 'revPerDay'),
-              gTh('Days w/ a Sale', 'sellDays'),
-              gTh('ACV', 'acv'),
-              gTh('Avg Initial', 'avgInitial'),
-              gTh('MY %', 'myPct'),
-              gTh('Auto Pay', 'autoPayPct'),
-              gTh('Cancels', 'cancels'),
-            )),
-          el('tbody', {},
-            ...gRows.map((r, i) => el('tr', {
-              class: 'border-t cursor-pointer transition hover:brightness-95',
-              style: { borderColor: 'var(--border)', background: 'var(--card)' },
-              title: 'Click for the ' + (kind === 'dept' ? 'department' : kind) + ' player card',
-              onclick: () => openEntity(r),
-            },
-              el('td', { class: 'pl-4 pr-2 py-2 font-semibold whitespace-nowrap' },
-                el('span', { class: 'inline-block w-5 text-muted- tabular-nums' }, (i + 1) + '.'),
-                kind !== 'dept' ? el('span', { class: 'inline-block w-2.5 h-2.5 rounded-full mr-2', style: { background: kind === 'team' ? getTeamColor(r.name) : getGroupColor(r.name.toUpperCase()) } }) : null,
-                r.name),
-              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, fmt.int(r.reps)),
-              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, fmt.int(r.count)),
-              el('td', { class: 'text-right px-2 py-2 tabular-nums font-bold' }, fmt.usd0(r.revenue)),
-              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, fmt.usd0(r.revPerDay) + ' / ' + r.acctsPerDay.toFixed(1)),
-              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, fmt.int(r.sellDays)),
-              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, fmt.usd(r.acv)),
-              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, fmt.usd(r.avgInitial)),
-              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, (r.myPct * 100).toFixed(1) + '%'),
-              el('td', { class: 'text-right px-2 py-2 tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%'),
-              el('td', { class: 'text-right pl-2 pr-4 py-2 tabular-nums' }, fmt.int(r.cancels)),
-            ))))),
-    );
-  })());
+  // (Group Leaderboard card retired — folded into the TOP Indicators table:
+  // the Group filter now has a Department mode, a "% of Revenue" row shows
+  // each column's weight, and column headers click through to the pooled
+  // entity player cards. One table instead of two.)
 
   // Keep the legacy `reps` reference alive for downstream sections that read it
   const reps = allReps.slice().sort((a, b) => b.sales.length - a.sales.length);
@@ -24790,21 +24701,58 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   // so no rep name / "YTD · just you" subtitle either).
   const pickerRow = _trendRepOnly
     ? null
-    : el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
-    el('h3', { class: 'text-base font-bold mr-1' }, '📈 Performance Trends'),
-    pickerSel('Company', branchesAll.map(b => [b, titleCase2(b)]),
-      curScope.type === 'branch' ? curScope.value : '',
-      (v) => setScope(v ? { type: 'branch', value: v } : { type: 'company' }, null),
-      'Company-wide, or scope the mini-charts to one branch'),
-    pickerSel('Team…', teamsAll.map(t => [t, t]),
-      curScope.type === 'team' ? curScope.value : '',
-      (v) => setScope(v ? { type: 'team', value: v } : { type: 'company' }, null),
-      'Scope the mini-charts to one team'),
-    pickerSel('Rep…', repNames.map(n => [n, n]),
-      curScope.type === 'rep' ? curScope.value : '',
-      (v) => setScope(state._indicatorTrendScope || { type: 'company' }, v || null),
-      'Drill into a single rep'),
-  );
+    : (() => {
+      // Company / Team / Rep pickers live in ONE Filters dropdown now —
+      // the title row stays clean, Compare + metric pin to the top right.
+      const _activeN = (curScope.type !== 'company' ? 1 : 0) + (state._indicatorRepDrillDown ? 1 : 0);
+      const wrap = el('div', { class: 'relative' });
+      const _fLabel = (t) => el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold pb-1', style: { color: 'var(--text-subtle)' } }, t);
+      const panel = el('div', {
+        class: 'card absolute p-3 flex flex-col gap-2.5',
+        style: { top: 'calc(100% + 6px)', left: '0', minWidth: '240px', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._trendFiltersOpen ? 'flex' : 'none' },
+      },
+        el('div', {}, _fLabel('Branch'), pickerSel('Company', branchesAll.map(b => [b, titleCase2(b)]),
+          curScope.type === 'branch' ? curScope.value : '',
+          (v) => setScope(v ? { type: 'branch', value: v } : { type: 'company' }, null),
+          'Company-wide, or scope the mini-charts to one branch')),
+        el('div', {}, _fLabel('Team'), pickerSel('Team…', teamsAll.map(t => [t, t]),
+          curScope.type === 'team' ? curScope.value : '',
+          (v) => setScope(v ? { type: 'team', value: v } : { type: 'company' }, null),
+          'Scope the mini-charts to one team')),
+        el('div', {}, _fLabel('Rep'), pickerSel('Rep…', repNames.map(n => [n, n]),
+          curScope.type === 'rep' ? curScope.value : '',
+          (v) => setScope(state._indicatorTrendScope || { type: 'company' }, v || null),
+          'Drill into a single rep')));
+      panel.querySelectorAll('select').forEach(x => { x.classList.add('w-full'); });
+      const btn = el('button', {
+        class: 'rounded-xl border px-3 py-1.5 text-xs font-semibold transition hover:brightness-95 flex items-center gap-1.5',
+        style: _activeN
+          ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+          : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Scope the charts — branch, team, or a single rep',
+        onclick: (e) => {
+          e.stopPropagation();
+          const open = panel.style.display === 'flex';
+          panel.style.display = open ? 'none' : 'flex';
+          state._trendFiltersOpen = !open;
+          if (!open) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+            if (wrap.contains(ev.target)) return;
+            panel.style.display = 'none'; state._trendFiltersOpen = false;
+            document.removeEventListener('mousedown', closer);
+          }), 0);
+        },
+      }, 'Filters' + (_activeN ? ' · ' + _activeN : ''), el('span', { style: { fontSize: '9px' } }, state._trendFiltersOpen ? '▴' : '▾'));
+      if (state._trendFiltersOpen) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+        if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+        if (wrap.contains(ev.target)) return;
+        panel.style.display = 'none'; state._trendFiltersOpen = false;
+        document.removeEventListener('mousedown', closer);
+      }), 0);
+      wrap.append(btn, panel);
+      return el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
+        el('h3', { class: 'text-base font-bold mr-1' }, '📈 Performance Trends'),
+        wrap);
+    })();
 
   return el('div', { class: 'card p-5' },
     pickerRow,
@@ -26816,9 +26764,11 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay,
   renderChart();
   return el('div', { class: 'flex flex-col gap-2' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
-      // Title (when the caller passes one, e.g. the rep's name) or the
-      // overlay legend sits left; the metric picker pins to the top right.
+      // Title (when the caller passes one, e.g. the rep's name / the scope
+      // label) sits left; opts.rightNode (e.g. the Compare toggle) and the
+      // metric picker pin to the top right, in that order.
       opts.titleNode || (overlay ? null : el('div', { class: 'flex-1' })),
+      opts.rightNode ? el('div', { class: 'flex items-center gap-2 flex-wrap', style: { order: '98', marginLeft: 'auto' } }, opts.rightNode) : null,
       el('select', {
         class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
         style: { order: '99' },
@@ -27113,17 +27063,13 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep) {
   );
 
   const idPrefix = 'chart-scope-' + scope.type + '-' + (scope.value || 'all').replace(/\s+/g, '-');
-  // Slim header — the card-level "Performance Trends" picker row above this
-  // panel carries the title, so this line just states the scope + Compare.
+  // ONE top row: scope label left · Compare toggle + metric picker pinned
+  // to the top-right corner (titleNode/rightNode ride the mini-grid's row).
+  const _scopeTitle = el('div', { class: 'flex items-baseline gap-2 flex-wrap min-w-0' },
+    scopeColor && el('span', { class: 'inline-block rounded-full self-center', style: { width: '10px', height: '10px', background: scopeColor } }),
+    el('span', { class: 'text-sm font-bold' }, label),
+    el('span', { class: 'text-[10px] text-muted-' }, sublabel));
   return el('div', { class: 'mt-2' },
-    el('div', { class: 'flex items-center justify-between mb-3 flex-wrap gap-2' },
-      el('div', { class: 'flex items-baseline gap-2 flex-wrap min-w-0' },
-        scopeColor && el('span', { class: 'inline-block rounded-full self-center', style: { width: '10px', height: '10px', background: scopeColor } }),
-        el('span', { class: 'text-sm font-bold' }, label),
-        el('span', { class: 'text-[10px] text-muted-' }, sublabel),
-      ),
-      scopeSelector,
-    ),
     buildTrendMiniGrid(scopedSales, chartBuckets, idPrefix, scopeColor,
       // Pick the overlay to draw against the primary scope's line. Priority:
       //   1. Scope-compare toggle in this panel (compareResolved) — when the
@@ -27144,6 +27090,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep) {
             color: getRepTeam(compareRep.name) ? getTeamColor(getRepTeam(compareRep.name)) : '#8DC63F',
             label: compareRep.name,
           } : null),
+      { titleNode: _scopeTitle, rightNode: scopeSelector },
     ),
   );
 }
