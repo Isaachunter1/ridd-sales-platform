@@ -2722,7 +2722,12 @@ function mountAuth(opts = {}) {
             sessionStorage.setItem('ridd_pw_saved', '1');
           } catch { /* private mode — reload still works */ }
           submitBtn.innerHTML = '✓ Saved';
-          history.replaceState(null, '', window.location.pathname + window.location.search);
+          // CLEAN url before the reload — keeping window.location.search
+          // here preserved the PKCE reset link's `?code=` param, so the
+          // reload re-ran the already-used code exchange and could bounce
+          // the rep to the login screen instead of into the app. Pin the
+          // hash to #indicators so everyone lands on the app's home tab.
+          history.replaceState(null, '', window.location.pathname + '#indicators');
           location.reload();
           return;
         }
