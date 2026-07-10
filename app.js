@@ -15696,7 +15696,10 @@ function nrlaBoard(rawSales, opts) {
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     const card = el('div', { class: 'card w-full max-w-3xl my-8 flex flex-col overflow-hidden', style: { maxHeight: 'calc(100vh - 64px)' } });
     overlay.append(card); document.body.append(overlay);
-    const _teamOf = (x) => getRepTeam(x.rep) || 'Unassigned';
+    // NRLA is branch-vs-branch — the filter (and the tag next to each rep)
+    // runs on the account's OFFICE, not Manage Teams teams.
+    const _tcOff = (o) => String(o || '').split(' ').map(w => (w[0] || '').toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    const _officeOf = (x) => _tcOff(x.office || 'Unknown');
     const _isRoundDay = (x, day) => { if (!day || isNaN(day)) return false; const d = _parseIndicatorDay(x); return d && d.getTime() === day.getTime(); };
     const _timeMin = (x) => { const t = _parseIndicatorTime(x); return t ? t.hour * 60 + t.minute : 24 * 60; };
     const _timeStr = (x) => { const t = _parseIndicatorTime(x); return t ? (((t.hour % 12) || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour >= 12 ? 'p' : 'a')) : '—'; };
@@ -15706,11 +15709,11 @@ function nrlaBoard(rawSales, opts) {
       const _roundD2d = (rawSales || []).filter(x =>
         (typeof _indicatorDeptOf !== 'function' || _indicatorDeptOf(x) === 'd2d')
         && (_isRoundDay(x, rd.d1) || _isRoundDay(x, rd.d2)));
-      const _teams = [...new Set(_roundD2d.map(_teamOf))].sort();
+      const _teams = [...new Set(_roundD2d.map(_officeOf))].sort();
       if (mTeam && !_teams.includes(mTeam)) mTeam = '';
       const dayBlock = (day, label) => {
         if (!day || isNaN(day)) return null;
-        const rows = _roundD2d.filter(x => _isRoundDay(x, day) && (!mTeam || _teamOf(x) === mTeam))
+        const rows = _roundD2d.filter(x => _isRoundDay(x, day) && (!mTeam || _officeOf(x) === mTeam))
           .sort((a, b) => _timeMin(a) - _timeMin(b));
         const rev = rows.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
         return el('div', { class: 'mb-3' },
@@ -15738,7 +15741,7 @@ function nrlaBoard(rawSales, opts) {
                         : ['Pending', '#B45309', 'rgba(234,88,12,.10)'];
                       return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
                         el('td', { class: 'pl-3 pr-2 py-1.5 whitespace-nowrap' }, getCanonicalRepName(x.rep || '—'),
-                          el('span', { class: 'ml-1 text-[9px]', style: { color: 'var(--text-subtle)' } }, getRepTeam(x.rep) || '')),
+                          el('span', { class: 'ml-1 text-[9px]', style: { color: 'var(--text-subtle)' } }, _officeOf(x))),
                         el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, x.customerId || '—'),
                         el('td', { class: 'px-2 py-1.5 whitespace-nowrap' }, x.customer || '—'),
                         el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold' }, money(Number(x.contractValue) || 0)),
@@ -15758,7 +15761,7 @@ function nrlaBoard(rawSales, opts) {
           el('div', { class: 'flex items-center gap-2 flex-wrap' },
             el('h2', { class: 'text-lg font-bold' }, 'Accounts Sold'),
             _mSel(mIdx, R.rounds.map((r2, i2) => [i2, _roundTitle(r2) + (r2.live ? ' · LIVE' : '')]), (v) => { mIdx = Number(v); render(); }),
-            _mSel(mTeam, [['', 'All teams'], ..._teams.map(t => [t, t])], (v) => { mTeam = v; render(); }, !!mTeam)),
+            _mSel(mTeam, [['', 'All offices'], ..._teams.map(t => [t, t])], (v) => { mTeam = v; render(); }, !!mTeam)),
           el('button', { class: 'text-xl leading-none text-muted-', style: { lineHeight: '1' }, onclick: () => overlay.remove() }, '×')),
         el('div', { class: 'p-4 overflow-auto' },
           dayBlock(rd.d1, 'Day 1'),
