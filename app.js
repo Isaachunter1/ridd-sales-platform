@@ -13052,7 +13052,7 @@ function indicatorMetricHelp(key) {
     ? 'COMPS ON: reps on excluded teams are removed (' + exList + ').'
     : 'Comps OFF: no comp exclusions.');
   scope.push(teamsMode
-    ? 'Teams mode: reps on excluded teams are ALWAYS removed (' + exList + '); reps with no team assignment group under "Unassigned".'
+    ? 'Teams mode: SALES REP production only (teams are a D2D construct — office staff and technician sales are excluded). Reps on excluded teams are ALWAYS removed (' + exList + '); Sales Reps with no team assignment group under "Unassigned".'
     : 'Branch mode: grouped by office; no team-based exclusions beyond the toggles above.');
   scope.push('Sales with a blank rep name are never counted.');
 
@@ -17991,7 +17991,11 @@ function aggregateByBranch(rawSales, indicatorRowsForDates) {
 }
 function aggregateByTeam(rawSales, indicatorRowsForDates) {
   // Team view honors both team exclusions and the strict pest-subscription regex.
-  return aggregateRawSalesByGroup(rawSales, s => getRepTeam(s.rep) || 'Unassigned', indicatorRowsForDates, true, TEAM_PEST_EXCLUDE);
+  // SALES REPS ONLY — teams are a D2D construct; office staff and technicians
+  // don't get team assignments, so including their sales just piled a huge
+  // fake "Unassigned" column into the view.
+  const d2d = (rawSales || []).filter(s => (typeof _indicatorDeptOf !== 'function') || _indicatorDeptOf(s) === 'd2d');
+  return aggregateRawSalesByGroup(d2d, s => getRepTeam(s.rep) || 'Unassigned', indicatorRowsForDates, true, TEAM_PEST_EXCLUDE);
 }
 // Department view — the three legs of the company as columns (Sales Rep /
 // Office Staff / Technician), classified per sale by _indicatorDeptOf.
@@ -19310,6 +19314,9 @@ function viewIndicators() {
     for (const s of indicatorSales()) {
       if (!s.rep) continue;
       if (groupBy === 'teams' && isRepExcluded(s.rep)) continue;
+      // Teams are Sales-Rep-only — office staff / technician sales never
+      // group by team (they'd all land in a bogus "Unassigned" column).
+      if (groupBy === 'teams' && typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
       const d = _parseIndicatorDay(s);
       if (!d || d < rangeStartD || d > rangeEndD) continue;
       const k = groupKeyOf(s);
