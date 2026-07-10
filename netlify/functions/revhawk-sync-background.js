@@ -401,6 +401,72 @@ exports.handler = async (event) => {
         .upload('indicators/latest.json.gz', indGz, { contentType: 'application/gzip', upsert: true });
       if (indErr) throw new Error(indErr.message);
       console.log('[revhawk-sync] indicators derived server-side: ' + payload.rawSales.length + ' sales, ' + payload.indicatorsData.length + ' agg rows, ' + indGz.length + ' bytes gz');
+
+      // ── 📚 MONTHLY METRIC ARCHIVE (best-effort) ──────────────────────
+      // Every CLOSED month missing from snapshots/ gets written as
+      // metrics-YYYY-MM.json.gz: company / per-office / per-department /
+      // per-rep rollups for that month. The first run backfills every month
+      // in the 3-year dataset; after that it's one new file per month.
+      // These blobs are never pruned — history survives the app's data
+      // fence, so year-over-year comparisons keep working forever.
+      try {
+        const { data: _snapList } = await supabase.storage.from('reporting').list('snapshots', { limit: 1000 });
+        const _have = new Set((_snapList || []).map(f => f.name));
+        const _parseDay = (ds) => { const p = String(ds || '').split(' ')[0].split('/'); if (p.length !== 3) return null; let y = Number(p[2]); if (y < 100) y += 2000; const d = new Date(y, Number(p[0]) - 1, Number(p[1])); return isNaN(d) ? null : d; };
+        const _nowNY = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        const _curPeriod = _nowNY.getFullYear() + '-' + String(_nowNY.getMonth() + 1).padStart(2, '0');
+        // Bucket the derived sales by month in one pass.
+        const _byMonth = {};
+        for (const r of payload.rawSales) {
+          const d = _parseDay(r.dateSold);
+          if (!d) continue;
+          const per = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+          if (per >= _curPeriod) continue;                       // only CLOSED months
+          (_byMonth[per] = _byMonth[per] || []).push(r);
+        }
+        const DEPT = { 'sales rep': 'Sales Rep', 'technician': 'Technician' };
+        let _written = 0;
+        for (const per of Object.keys(_byMonth).sort()) {
+          const fname = 'metrics-' + per + '.json.gz';
+          if (_have.has(fname)) continue;
+          const rows = _byMonth[per];
+          const mk = () => ({ sales: 0, revenue: 0, initSum: 0, multi: 0, twelve: 0, autoPay: 0, cancelsRaw: 0, reps: new Set() });
+          const agg = { company: mk(), byOffice: {}, byDept: {}, byRep: {} };
+          for (const r of rows) {
+            const office = r.office || 'UNKNOWN';
+            const dept = DEPT[String(r.repType || '').toLowerCase()] || 'Office Staff';
+            const rep = r.rep || 'Unknown';
+            const cv = Number(r.contractValue) || 0;
+            for (const t of [agg.company, (agg.byOffice[office] = agg.byOffice[office] || mk()), (agg.byDept[dept] = agg.byDept[dept] || mk())]) {
+              t.sales++; t.revenue += cv; t.initSum += Number(r.initialPrice) || 0;
+              if (Number(r.contract) >= 18) t.multi++;
+              if (Number(r.contract) === 12) t.twelve++;
+              if (r.autoPay && r.autoPay !== 'No') t.autoPay++;
+              if (r.cancelDate) t.cancelsRaw++;
+              t.reps.add(rep);
+            }
+            const rr = agg.byRep[rep] = agg.byRep[rep] || { sales: 0, revenue: 0, office };
+            rr.sales++; rr.revenue += cv;
+          }
+          const fin = (t) => ({ sales: t.sales, revenue: Math.round(t.revenue), acv: t.sales ? +(t.revenue / t.sales).toFixed(2) : 0, avgInitial: t.sales ? +(t.initSum / t.sales).toFixed(2) : 0, myPct: (t.multi + t.twelve) ? +(t.multi / (t.multi + t.twelve)).toFixed(4) : 0, autoPayPct: t.sales ? +(t.autoPay / t.sales).toFixed(4) : 0, cancelsRaw: t.cancelsRaw, reps: t.reps.size });
+          const snap = {
+            period: per, generatedAt: new Date().toISOString(),
+            note: 'cancelsRaw = rows carrying any cancel date as of snapshot time; attrition matures after the month closes.',
+            company: fin(agg.company),
+            byOffice: Object.fromEntries(Object.entries(agg.byOffice).map(([k, v]) => [k, fin(v)])),
+            byDept: Object.fromEntries(Object.entries(agg.byDept).map(([k, v]) => [k, fin(v)])),
+            byRep: agg.byRep,
+          };
+          const snapGz = zlib.gzipSync(Buffer.from(JSON.stringify(snap)), { level: 9 });
+          const { error: snapErr } = await supabase.storage.from('reporting')
+            .upload('snapshots/' + fname, snapGz, { contentType: 'application/gzip', upsert: false });
+          if (snapErr && !/exists|duplicate/i.test(snapErr.message || '')) throw new Error(snapErr.message);
+          _written++;
+        }
+        if (_written) console.log('[revhawk-sync] monthly archive: wrote ' + _written + ' snapshot(s)');
+      } catch (snapE) {
+        console.error('[revhawk-sync] monthly archive skipped:', String((snapE && snapE.message) || snapE));
+      }
     } catch (ie) {
       indicatorsError = String((ie && ie.message) || ie);
       console.error('[revhawk-sync] server-side indicators derive failed (clients will fall back):', indicatorsError);
@@ -463,6 +529,33 @@ exports.handler = async (event) => {
         if (delErr) console.warn('[revhawk-sync] stale roster purge failed:', delErr.message);
       }
       rosterCount = roster.length;
+
+      // ── Auto-revoke app access for CRM-inactive people (best-effort) ──
+      // A rep who quits gets deactivated in FieldRoutes; the next sync moves
+      // their app profile (rep roles ONLY — admins/auditors are never
+      // touched) to role='disabled'. The client shows an access-ended screen
+      // for that role. Re-enable from Settings → Users by assigning a role.
+      try {
+        const inactiveIds = new Set();
+        roster.forEach(e => {
+          if (e.active) return;
+          String(e.employee_ids || e.employee_id || '').split(',').forEach(id => { const t = id.trim(); if (t) inactiveIds.add(t); });
+        });
+        if (inactiveIds.size) {
+          const { data: profs, error: pErr } = await supabase.from('profiles')
+            .select('id, role, full_name, fieldroutes_employee_id')
+            .like('role', 'rep%');
+          if (pErr) throw new Error(pErr.message);
+          const toDisable = (profs || []).filter(p => p.fieldroutes_employee_id && inactiveIds.has(String(p.fieldroutes_employee_id)));
+          for (const p of toDisable) {
+            const { error: uErr } = await supabase.from('profiles').update({ role: 'disabled' }).eq('id', p.id);
+            if (uErr) console.warn('[revhawk-sync] revoke failed for', p.full_name, uErr.message);
+            else console.log('[revhawk-sync] access revoked (CRM-inactive):', p.full_name);
+          }
+        }
+      } catch (rvErr) {
+        console.error('[revhawk-sync] access revoke skipped:', String((rvErr && rvErr.message) || rvErr));
+      }
     } catch (re) {
       rosterError = String((re && re.message) || re);
       console.error('[revhawk-sync] roster upsert skipped:', rosterError);
