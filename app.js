@@ -13383,7 +13383,7 @@ function lastManStandingCompute(sales, compOverride) {
     return d0 && !isNaN(d0) && d0 >= _seasonStart;
   });
   const repOffice = {}; const roster = [];
-  for (const s of d2d) { const r = s.rep; if (r && !(r in repOffice)) { repOffice[r] = s.office || ''; roster.push(r); } }
+  for (const s of d2d) { const r = s.rep ? getCanonicalRepName(s.rep) : ''; if (r && !(r in repOffice)) { repOffice[r] = s.office || ''; roster.push(r); } }
   // Qualifying revenue per rep per comp day.
   const byWeek = {};
   for (const s of d2d) {
@@ -13397,7 +13397,8 @@ function lastManStandingCompute(sales, compOverride) {
     if (typeof lmsServicedStatus === 'function' && lmsServicedStatus(s) === 'late') continue;
     const iso = d.toISOString().slice(0, 10);
     (byWeek[iso] = byWeek[iso] || {});
-    byWeek[iso][s.rep] = (byWeek[iso][s.rep] || 0) + (Number(s.contractValue) || 0);
+    const _cn = getCanonicalRepName(s.rep);
+    byWeek[iso][_cn] = (byWeek[iso][_cn] || 0) + (Number(s.contractValue) || 0);
   }
   const saturdays = Object.keys(byWeek).sort();
   let alive = new Set(roster);
@@ -13626,7 +13627,8 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
     const iso = d.toISOString().slice(0, 10);
     if (!_wbIsCompDay(d, iso)) continue;                                                   // scheduled comp days only
     const wk = (weekBreak[iso] || (weekBreak[iso] = {}));
-    const e = wk[s.rep] || (wk[s.rep] = { total: 0, passed: 0, failed: 0, pending: 0 });
+    const _cn = getCanonicalRepName(s.rep);
+    const e = wk[_cn] || (wk[_cn] = { total: 0, passed: 0, failed: 0, pending: 0 });
     const cv = Number(s.contractValue) || 0;
     let bucket;
     if ((Number(s.initialPrice) || 0) < 99) bucket = 'failed';                             // Last Resort
@@ -23952,8 +23954,32 @@ function _autoAliasByRepId(sales) {
         changed++;
       });
     });
+    // Pass 2 — CRM-LINKED accounts. The roster groups one person's per-branch
+    // employee rows (employee_ids = every branch id). Sales under ANY of
+    // those ids belong to ONE human, so all their name spellings alias to a
+    // single canonical — a rep selling out of Atlanta AND Destin accounts
+    // (Tyler Trump) no longer splits into two contenders on comps and
+    // leaderboards. Skipped silently until the roster is loaded.
+    for (const e of (state.frRoster || [])) {
+      const ids = String(e.employee_ids || e.employee_id || '').split(',').map(x => x.trim()).filter(Boolean);
+      if (ids.length < 2) continue;
+      const names = new Map();
+      for (const id of ids) {
+        const m = byId.get(id);
+        if (m) m.forEach((n, nm) => names.set(nm, (names.get(nm) || 0) + n));
+      }
+      if (names.size < 2) continue;
+      const ranked = [...names.entries()].sort((a, b) => b[1] - a[1]);
+      const canonical = getCanonicalRepName(ranked[0][0]);
+      ranked.forEach(([nm]) => {
+        if (nm === canonical || getCanonicalRepName(nm) === canonical) return;
+        if (!state._indicatorRepAlias) state._indicatorRepAlias = {};
+        state._indicatorRepAlias[nm] = canonical;
+        changed++;
+      });
+    }
     if (changed) {
-      console.info('[ridd] rep-ID auto-merge: ' + changed + ' duplicate spelling(s) aliased to their canonical rep');
+      console.info('[ridd] rep-ID auto-merge: ' + changed + ' duplicate spelling(s)/linked account(s) aliased to their canonical rep');
       if (typeof _invalidateRepSigIndex === 'function' && state._indicatorRepAlias) _invalidateRepSigIndex(state._indicatorRepAlias);
     }
   } catch (e) { console.warn('[ridd] rep-ID auto-merge failed', e); }
@@ -38471,6 +38497,9 @@ async function loadFieldRoutesRoster(force) {
     if (error) console.warn('[fr roster] load failed:', error.message);
   } catch (e) { state.frRoster = []; state._frRosterError = String((e && e.message) || e); console.warn('[fr roster]', e); }
   finally { state._frRosterLoading = false; }
+  // Roster in hand → re-run the auto-alias pass so CRM-LINKED multi-branch
+  // accounts merge even when the roster loads after the sales data did.
+  try { if ((state.frRoster || []).length && (state._indicatorRawSales || []).length) _autoAliasByRepId(state._indicatorRawSales); } catch { /* non-fatal */ }
   return state.frRoster;
 }
 const _frEmpName  = (e) => ([(e.nickname || e.fname), e.lname].filter(Boolean).join(' ')).trim() || (e.email || ('Employee ' + e.employee_id));
