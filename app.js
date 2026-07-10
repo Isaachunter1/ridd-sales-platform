@@ -97,6 +97,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   // the current calendar year so a stale saved year can't silently change
   // team grouping app-wide. It's still remembered within a session.
   '_indicatorRepTier',
+  '_indicatorRepTierYear',    // year each tier tag was made — powers rookie auto-promotion
   '_indicatorRepTypeBySig',   // rep name-signature → "Sold By Type" from the Customer Report
   '_reportingCancelReasonsSeen', // distinct cancel reasons seen in the reporting CSV (persisted universe)
   '_reportingSourcesSeen',       // distinct lead sources seen in the reporting CSV (persisted universe)
@@ -632,6 +633,7 @@ async function loadIndicatorConfigFromSupabase() {
         // aliases meant leaderboard totals differed between admin devices.
         if (data.competitions.repAlias && typeof data.competitions.repAlias === 'object') state._indicatorRepAlias = data.competitions.repAlias;
         if (Array.isArray(data.competitions.dupesDismissed)) state._indicatorDismissedDupes = data.competitions.dupesDismissed;
+        if (data.competitions.tierYears && typeof data.competitions.tierYears === 'object') state._indicatorRepTierYear = data.competitions.tierYears;
       }
       // rep_teams may arrive as the new by-year shape ({ "2026": {rep:team} })
       // or the legacy flat shape ({ rep:team }). Detect and normalize into the
@@ -686,7 +688,7 @@ function _indCfgFingerprint() {
   const s = JSON.stringify([
     state._indicatorTeams || [], state._indicatorTeamColors || {}, state._indicatorTeamLogos || {},
     state._indicatorExcludedTeams || [],
-    { list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, dupesDismissed: state._indicatorDismissedDupes || [] },
+    { list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, dupesDismissed: state._indicatorDismissedDupes || [], tierYears: state._indicatorRepTierYear || {} },
     state._indicatorRepTeamByYear || {}, state._indicatorRepTier || {}, state._indicatorRepActive || {}, state._indicatorRepOffice || {},
   ]);
   let h = 5381;
@@ -718,7 +720,7 @@ async function _indicatorConfigUpsertNow() {
     team_colors:   state._indicatorTeamColors || {},
     team_logos:    state._indicatorTeamLogos || {},
     team_excluded: state._indicatorExcludedTeams || [],
-    competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, dupesDismissed: state._indicatorDismissedDupes || [] },
+    competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, dupesDismissed: state._indicatorDismissedDupes || [], tierYears: state._indicatorRepTierYear || {} },
     rep_teams:     state._indicatorRepTeamByYear || {},
     rep_tiers:     state._indicatorRepTier || {},
     rep_active:    state._indicatorRepActive || {},
@@ -3955,6 +3957,22 @@ function openMySettingsModal() {
 }
 
 function mountApp() {
+  // Access revoked (CRM marked the rep inactive → sync set role='disabled'):
+  // full-stop screen, nothing else renders. Admins restore access from
+  // Settings → Users by assigning a role again.
+  if (state.profile && state.profile.role === 'disabled') {
+    mount(el('div', { class: 'min-h-screen flex items-center justify-center p-6' },
+      el('div', { class: 'card p-8 max-w-sm w-full text-center flex flex-col items-center gap-3' },
+        el('div', { class: 'text-4xl' }, '🔒'),
+        el('div', { class: 'text-lg font-bold' }, 'Access deactivated'),
+        el('div', { class: 'text-sm text-muted-' }, 'This account is no longer active. If that\u2019s a mistake, reach out to your admin.'),
+        el('button', {
+          class: 'mt-2 rounded-lg px-4 py-2 text-sm font-semibold border transition hover:brightness-95',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          onclick: async () => { if (typeof DEMO !== 'undefined' && DEMO) { location.href = location.pathname; return; } await supabase.auth.signOut(); },
+        }, 'Sign out'))));
+    return;
+  }
   const isAdmin = isAdminRole(state.profile.role);
   const isAuditor = isAuditorRole(state.profile.role);
 
@@ -17522,15 +17540,62 @@ const REP_TIERS = [
   { id: 'rookie', label: 'Rookie', color: '#0EA5E9' },
   { id: 'vet',    label: 'Vet',    color: '#8DC63F' },
 ];
+// ── Tier resolution — YEAR-AWARE so tags never need redoing in January ──
+// Sales history drives the DEFAULT: a rep whose first sale year is the
+// current year reads Rookie; anyone with prior-year sales reads Vet; no
+// sales = untagged. Manual tags override:
+//   · 'vet' is forever — vets never demote.
+//   · 'rookie' applies to the year it was tagged (_indicatorRepTierYear);
+//     when that rep returns the next season they auto-promote to Vet.
+let _tierYearsCache = { src: null, map: null };
+function _repSaleYears(repName) {
+  const src = state._indicatorRawSales || [];
+  const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  if (_tierYearsCache.src !== src) {
+    const m = new Map();
+    let latestMs = 0;
+    for (const x of src) {
+      if (!x || !x.rep) continue;
+      const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(x.dateSold) : '';
+      const y = Number(String(iso).slice(0, 4));
+      if (!y) continue;
+      const ms = Date.parse(iso + 'T00:00') || 0;
+      if (ms > latestMs) latestMs = ms;
+      const k = _sig(getCanonicalRepName(x.rep));
+      const e = m.get(k);
+      if (!e) m.set(k, { min: y, max: y, lastMs: ms });
+      else { if (y < e.min) e.min = y; if (y > e.max) e.max = y; if (ms > e.lastMs) e.lastMs = ms; }
+    }
+    _tierYearsCache = { src, map: m, latestMs };
+  }
+  return _tierYearsCache.map.get(_sig(getCanonicalRepName(repName))) || null;
+}
 function getRepTier(repName) {
   if (!repName) return '';
-  return _repKeyedLookup(state._indicatorRepTier || {}, repName);
+  const tagged = _repKeyedLookup(state._indicatorRepTier || {}, repName);
+  const curY = new Date().getFullYear();
+  if (tagged === 'vet') return 'vet';
+  if (tagged === 'rookie') {
+    const ty = Number(_repKeyedLookup(state._indicatorRepTierYear || {}, repName)) || 0;
+    if (ty >= curY) return 'rookie';                       // tagged rookie THIS season — respected
+    if (ty && ty < curY) return 'vet';                     // returning rookie → auto-promoted
+    // Legacy tag with no recorded year — trust the sales history.
+    const yrs = _repSaleYears(repName);
+    return (yrs && yrs.min < curY) ? 'vet' : 'rookie';
+  }
+  if (tagged) return tagged;
+  // Untagged → sales-history default (no manual work needed).
+  const yrs = _repSaleYears(repName);
+  if (!yrs) return '';
+  return yrs.min < curY ? 'vet' : 'rookie';
 }
 function setRepTier(repName, tier) {
   if (!state._indicatorRepTier) state._indicatorRepTier = {};
-  if (!tier) delete state._indicatorRepTier[repName];
-  else       state._indicatorRepTier[repName] = tier;
+  if (!state._indicatorRepTierYear) state._indicatorRepTierYear = {};
+  if (!tier) { delete state._indicatorRepTier[repName]; delete state._indicatorRepTierYear[repName]; }
+  else       { state._indicatorRepTier[repName] = tier; state._indicatorRepTierYear[repName] = new Date().getFullYear(); }
   _invalidateRepSigIndex(state._indicatorRepTier);
+  _invalidateRepSigIndex(state._indicatorRepTierYear);
   logActivity('team_change', { rep_name: repName, detail: repName + (tier ? ' tagged ' + tier : ' tier cleared') });
   saveDemoData();
 }
@@ -17541,19 +17606,29 @@ function repTierMeta(tierId) { return REP_TIERS.find(t => t.id === tierId); }
 function isRepActive(repName) {
   if (!repName) return true;
   const map = state._indicatorRepActive || {};
-  // Stored as `false` only for inactive reps; absence of the key = active.
-  // Match by exact, cleaned, then name-signature (same robust matching as
-  // team/tier) so a rep marked Inactive under one spelling is still recognized
-  // under the sales-data spelling ("Last, First" vs "First Last").
-  if (map[repName] === false || map[_cleanRepName(repName)] === false) return false;
-  return _repSigIndex(map)[_repNameSig(repName)] !== false;
+  // Explicit pins first (exact → cleaned → name-signature): an admin's
+  // manual Active/Inactive toggle beats the auto rule in BOTH directions.
+  let explicit = map[repName];
+  if (explicit === undefined) explicit = map[_cleanRepName(repName)];
+  if (explicit === undefined) explicit = _repSigIndex(map)[_repNameSig(repName)];
+  if (explicit === false) return false;
+  if (explicit === true) return true;
+  // AUTO-INACTIVE — no sale within 75 days of the DATASET'S latest sale
+  // flips a rep Inactive automatically (roster self-cleans as reps churn;
+  // selling again self-reactivates on the next sync). Anchored to the data,
+  // not the clock, so a stale upload can't flip the whole roster.
+  const rec = _repSaleYears(repName);
+  const anchor = _tierYearsCache.latestMs || 0;
+  if (!rec || !rec.lastMs || !anchor) return false;   // never sold → inactive
+  return (anchor - rec.lastMs) <= 75 * 86400000;
 }
 function setRepActive(repName, active) {
   if (!state._indicatorRepActive) state._indicatorRepActive = {};
-  if (active) delete state._indicatorRepActive[repName];
-  else        state._indicatorRepActive[repName] = false;
+  // Tri-state now that auto-inactive exists: explicit true AND false are
+  // both stored, so a manual toggle pins the rep against the 75-day rule.
+  state._indicatorRepActive[repName] = !!active;
   _invalidateRepSigIndex(state._indicatorRepActive);
-  logActivity('team_change', { rep_name: repName, detail: repName + ' marked ' + (active ? 'Active' : 'Inactive') });
+  logActivity('team_change', { rep_name: repName, detail: repName + ' pinned ' + (active ? 'Active' : 'Inactive') });
   saveDemoData();
 }
 // Auto-reactivation: any rep currently marked Inactive who has sold within the
@@ -18253,9 +18328,10 @@ function manageTeamsPanel(opts) {
 
     const header = el('div', { class: 'flex items-center justify-between px-5 py-4 border-b gap-3', style: { borderColor: 'var(--border)' } },
       el('div', { class: 'flex-1 min-w-0' },
-        el('h2', { class: 'text-base font-bold' }, '👥 Manage Teams'),
-        el('div', { class: 'text-xs text-muted- mt-0.5' },
-          'Teams are tracked ', el('strong', {}, 'per year'), ' — the roster and ', el('strong', {}, '(unassigned)'), ' chip below reflect the selected ', el('strong', {}, 'Year'), '. Assign each rep to a team and tag as Rookie or Vet; click a team to rename it, pick a color, or toggle Exclude from metrics.'),
+        el('h2', {
+          class: 'text-base font-bold',
+          title: 'Teams are tracked per year — the roster reflects the selected Year. Tiers auto-set from sales history (first season = Rookie, returning = Vet); tagging overrides — Vet is permanent, Rookie applies to the year tagged and auto-promotes when they return. Click a team to rename it, pick a color, or toggle Exclude from metrics.',
+        }, '👥 Manage Teams'),
       ),
       el('div', { class: 'flex items-center gap-2 shrink-0' },
         // Team Year — assignments are stored per calendar year, so this picks
@@ -18947,14 +19023,14 @@ function manageTeamsPanel(opts) {
     // selected Team Year (the Year dropdown above), so switching years
     // re-scopes the whole panel. Team stays as chips since clicking a team
     // also opens its detail/edit panel.
-    const mkFilter = (label, value, opts, onChange) => el('label', { class: 'inline-flex items-center gap-1.5' },
+    const mkFilter = (label, value, opts, onChange) => el('label', { class: 'inline-flex items-center gap-1' },
       el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
       el('select', {
-        class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
-        style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)' },
+        class: 'rounded-lg border px-1.5 py-1 text-xs cursor-pointer',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)', maxWidth: '132px' },
         onchange: (e) => onChange(e.target.value),
       }, ...opts.map(o => el('option', { value: o.value, selected: value === o.value }, o.label))));
-    const filterBar = el('div', { class: 'px-5 py-2.5 border-b flex flex-wrap items-center gap-x-4 gap-y-2', style: { borderColor: 'var(--border)' } },
+    const filterBar = el('div', { class: 'px-5 py-2.5 border-b flex flex-wrap items-center gap-x-2.5 gap-y-2', style: { borderColor: 'var(--border)' } },
       mkFilter('Team', teamSelect, [
         { value: '', label: 'All · ' + reps.length },
         ...chipEntries.map(([t, n]) => ({ value: t, label: t + ' · ' + n })),
@@ -22269,7 +22345,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         el('div', {},
           el('h3', { class: 'text-base font-bold' }, '🎓 Rookie vs Vet'),
           el('p', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Cohort metrics for the current window. Set tiers in Manage Teams.'),
+            'Cohort metrics for the current window. Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override.'),
         ),
         untagged > 0 && el('div', {
           class: 'text-[10px] italic px-2 py-1 rounded',
@@ -35518,7 +35594,7 @@ function adminUploads() {
   const tab = state._adminSubTab;
 
   const toggle = el('div', { class: 'flex items-center gap-1 p-1 rounded-lg', style: { background: 'var(--card-2)', width: 'fit-content' } },
-    ...[['history', 'Upload History'], ['activity', 'App Activity']].map(([k, label]) => el('button', {
+    ...[['history', 'Upload History'], ['activity', 'App Activity'], ['archive', '📚 Monthly Archive']].map(([k, label]) => el('button', {
       class: 'px-3.5 py-1.5 rounded-md text-sm font-semibold transition',
       style: tab === k
         ? { background: 'var(--card)', color: 'var(--text)', boxShadow: 'var(--shadow-sm)' }
@@ -35542,8 +35618,101 @@ function adminUploads() {
     toggle,
     tab === 'activity'
       ? adminBackup()
-      : reportingUploadsPanel(),
+      : tab === 'archive'
+        ? monthlyArchivePanel()
+        : reportingUploadsPanel(),
   );
+}
+
+// ── 📚 Monthly Archive — the sync job writes one immutable rollup per
+// closed month (snapshots/metrics-YYYY-MM.json.gz): company, per-office,
+// per-department, and per-rep sales/revenue metrics. These files are never
+// pruned, so history survives the app's 3-year data fence.
+function monthlyArchivePanel() {
+  const host = el('div', { class: 'flex flex-col gap-3' });
+  host.append(el('div', { class: 'text-xs text-muted-' },
+    'One snapshot per closed month, written automatically by the nightly sync. History here outlives the 3-year live dataset — use it for year-over-year lookbacks.'));
+  const listWrap = el('div', { class: 'card p-3 text-xs text-muted-' }, 'Loading archive…');
+  const detailWrap = el('div', {});
+  host.append(listWrap, detailWrap);
+  const money0 = (v) => '$' + Math.round(v || 0).toLocaleString();
+  const showSnap = async (name) => {
+    detailWrap.innerHTML = '';
+    detailWrap.append(el('div', { class: 'card p-3 text-xs text-muted-' }, 'Loading ' + name + '…'));
+    try {
+      const { data: blob, error } = await supabase.storage.from('reporting').download('snapshots/' + name);
+      if (error) throw new Error(error.message);
+      const text = (typeof DecompressionStream !== 'undefined')
+        ? await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text()
+        : await blob.text();
+      const snap = JSON.parse(text);
+      const th = (lab, left) => el('th', { class: (left ? 'text-left pl-3 pr-2' : 'text-right px-2') + ' py-1.5 text-[9px] uppercase tracking-wider font-semibold', style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, lab);
+      const td = (v, left, bold) => el('td', { class: (left ? 'text-left pl-3 pr-2' : 'text-right px-2') + ' py-1.5 tabular-nums' + (bold ? ' font-bold' : '') }, v);
+      const row = (name2, m, bold) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        td(name2, true, bold), td(fmt.int(m.sales), false, bold), td(money0(m.revenue), false, bold),
+        td('$' + (m.acv || 0).toLocaleString(), false), td('$' + (m.avgInitial || 0).toLocaleString(), false),
+        td(((m.myPct || 0) * 100).toFixed(1) + '%', false), td(((m.autoPayPct || 0) * 100).toFixed(1) + '%', false),
+        td(fmt.int(m.cancelsRaw || 0), false), td(fmt.int(m.reps || 0), false));
+      const section = (title, entries) => [
+        el('tr', {}, el('td', { colspan: 9, class: 'pl-3 py-1.5 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--accent)', background: 'var(--card-2)' } }, title)),
+        ...entries.sort((a, b) => (b[1].revenue || 0) - (a[1].revenue || 0)).map(([k, m]) => row(k, m)),
+      ];
+      detailWrap.innerHTML = '';
+      detailWrap.append(el('div', { class: 'card overflow-hidden' },
+        el('div', { class: 'px-4 py-2.5 flex items-center justify-between border-b flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
+          el('div', { class: 'text-sm font-bold' }, '📚 ' + snap.period),
+          el('div', { class: 'flex items-center gap-2' },
+            el('span', { class: 'text-[10px] text-muted-' }, 'captured ' + new Date(snap.generatedAt).toLocaleDateString()),
+            el('button', {
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
+              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+              onclick: () => {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+                a.download = 'metrics-' + snap.period + '.json';
+                a.click();
+              },
+            }, '⬇ JSON'))),
+        el('div', { class: 'scroll-x', style: { maxHeight: '480px', overflowY: 'auto' } },
+          el('table', { class: 'w-full text-[11px]' },
+            el('thead', {}, el('tr', {}, th('Scope', true), th('Sales'), th('Revenue'), th('ACV'), th('Avg Init'), th('MY %'), th('APay'), th('Cancels*'), th('Reps'))),
+            el('tbody', {},
+              row('RIDD · Company', snap.company, true),
+              ...section('By Office', Object.entries(snap.byOffice || {})),
+              ...section('By Department', Object.entries(snap.byDept || {}))))),
+        el('div', { class: 'px-4 py-2 text-[10px]', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } },
+          '*Cancels = raw cancel dates as of capture time (attrition matures after month close). Per-rep totals are inside the JSON download.')));
+    } catch (e) {
+      detailWrap.innerHTML = '';
+      detailWrap.append(el('div', { class: 'card p-3 text-xs', style: { color: '#DC2626' } }, 'Could not load ' + name + ' — ' + (e.message || e)));
+    }
+  };
+  (async () => {
+    try {
+      const { data, error } = await supabase.storage.from('reporting').list('snapshots', { limit: 1000 });
+      if (error) throw new Error(error.message);
+      const files = (data || []).filter(f => /^metrics-\d{4}-\d{2}\.json\.gz$/.test(f.name)).sort((a, b) => b.name.localeCompare(a.name));
+      listWrap.innerHTML = '';
+      if (!files.length) {
+        listWrap.append(el('span', {}, 'No snapshots yet — the next nightly sync backfills every closed month in the dataset automatically.'));
+        return;
+      }
+      listWrap.className = 'card p-3 flex flex-wrap gap-1.5';
+      files.forEach((f, i) => {
+        const per = f.name.replace('metrics-', '').replace('.json.gz', '');
+        listWrap.append(el('button', {
+          class: 'rounded-full border px-3 py-1 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          onclick: () => showSnap(f.name),
+        }, new Date(per + '-01T00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })));
+        if (i === 0) showSnap(f.name);     // newest month opens by default
+      });
+    } catch (e) {
+      listWrap.innerHTML = '';
+      listWrap.append(el('span', { style: { color: '#DC2626' } }, 'Archive list failed — ' + (e.message || e)));
+    }
+  })();
+  return host;
 }
 
 // Indicators upload history — each row is one Indicators CSV import. The most
