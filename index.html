@@ -112,6 +112,9 @@
        blocks the double-tap gesture so taps also register ~300ms faster). */
     touch-action: manipulation;
   }
+  /* The PAGE never pans sideways — any content wider than the screen must
+     scroll inside its own .scroll-x container, not drag the whole app. */
+  html, body { overflow-x: hidden; max-width: 100%; }
   .card {
     background: var(--card);
     border: 1px solid var(--border);
