@@ -13974,14 +13974,24 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
       'Out · Week ' + (k + 1) + (R.rounds[k] ? ' · ' + _mmdd(R.rounds[k].iso) : '') + ' — ' + outGroups[k].length + ' rep' + (outGroups[k].length === 1 ? '' : 's')
       + (_lmsFinishPlace(k) ? ' · finish T-#' + _lmsFinishPlace(k) + ' of ' + rows.length : '')),
     el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } },
-      ...outGroups[k].sort((a, b) => _qual(b) - _qual(a)).map(r => el('span', {
-        'data-lms': (r.rep + ' ' + firstLast(r.rep)).toLowerCase(),
-        style: { fontFamily: DISP, textTransform: 'uppercase', fontSize: '.98rem', letterSpacing: '.03em',
-                 padding: '6px 14px', borderRadius: '999px', border: '1px solid rgba(255,255,255,.2)',
-                 color: WHITE, whiteSpace: 'nowrap', cursor: 'pointer' },
-        title: firstLast(r.rep) + ' — ' + money(_qual(r)) + ' qualified · out week ' + (k + 1) + (_lmsFinishPlace(k) ? ' · finished T-#' + _lmsFinishPlace(k) + ' of ' + rows.length : '') + ' · click for week-by-week production',
-        onclick: () => openLmsRepModal(r),
-      }, firstLast(r.rep), el('span', { style: { color: 'rgba(255,255,255,.55)', marginLeft: '8px' } }, money(_qual(r))))))));
+      // Sorted by the place they took in their elimination round — the top
+      // of each group is the closest miss (one spot below the cut line).
+      ...outGroups[k]
+        .map(r => ({ r, pl: (_lmsPlace[k] || new Map()).get(r.rep) || null }))
+        .sort((a, b) => (a.pl ? a.pl.place : 9999) - (b.pl ? b.pl.place : 9999) || _qual(b.r) - _qual(a.r))
+        .map(({ r, pl }) => el('span', {
+          'data-lms': (r.rep + ' ' + firstLast(r.rep)).toLowerCase(),
+          style: { fontFamily: DISP, textTransform: 'uppercase', fontSize: '.98rem', letterSpacing: '.03em',
+                   padding: '6px 14px', borderRadius: '999px', border: '1px solid rgba(255,255,255,.2)',
+                   color: WHITE, whiteSpace: 'nowrap', cursor: 'pointer' },
+          title: firstLast(r.rep) + ' — ' + money(_qual(r)) + ' qualified · out week ' + (k + 1)
+            + (pl ? ' · that round #' + pl.place + ' of ' + pl.of + ' (top ' + pl.advanceN + ' advanced' + (pl.place === pl.advanceN + 1 ? ' — ONE spot short' : '') + ')' : '')
+            + (_lmsFinishPlace(k) ? ' · finished T-#' + _lmsFinishPlace(k) + ' of ' + rows.length : '') + ' · click for week-by-week production',
+          onclick: () => openLmsRepModal(r),
+        },
+          pl ? el('span', { style: { color: pl.place === pl.advanceN + 1 ? ORANGE : MAG, marginRight: '8px', fontWeight: '900' } }, '#' + pl.place) : null,
+          firstLast(r.rep),
+          el('span', { style: { color: 'rgba(255,255,255,.55)', marginLeft: '8px' } }, money(_qual(r))))))));
   const cleanView = el('div', { style: { background: '#000', borderTop: '1px solid rgba(255,255,255,.08)' } },
     // Search — filters survivor cards AND eliminated chips in place
     // (show/hide, no re-render, so typing never loses focus).
@@ -16709,7 +16719,7 @@ function springStandingsCard() {
       const rowFor = (b) => {
         const m = byOffice[b];
         return el('tr', {},
-          el('td', { style: { padding: '3px 8px 3px 0', fontSize: '11.5px', fontWeight: '600', whiteSpace: 'nowrap' } }, tc(b)),
+          el('td', { style: { padding: '3px 8px 3px 0', fontSize: '11.5px', fontWeight: '600', whiteSpace: 'nowrap', position: 'sticky', left: '0', zIndex: 1, background: '#dddcd4' } }, tc(b)),
           el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: '700' } }, m ? m.reps : '—'),
           ...CAT_COLS.map(([k]) => el('td', { style: { padding: '3px 10px 3px 6px', fontSize: '11.5px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } },
             m ? el('span', {},
@@ -16752,7 +16762,7 @@ function springStandingsCard() {
         el('div', { style: { display: 'flex', gap: '14px', alignItems: 'flex-start', marginTop: '4px' } },
           el('table', { style: { borderCollapse: 'collapse', flex: '1' } },
             el('thead', {}, el('tr', {},
-              el('th', { style: { width: '120px' } }, ''),
+              el('th', { style: { width: '120px', minWidth: '120px', maxWidth: '120px', boxSizing: 'border-box', position: 'sticky', left: '0', zIndex: 2, background: '#dddcd4' } }, ''),
               el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, 'Reps'),
               ...CAT_COLS.map(([, lab]) => el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, lab)),
               el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#666' } }, 'Total Rev'),
@@ -17413,8 +17423,8 @@ function indicatorTopGunBoard(sales, proSet) {
                   (() => {
                     const th = (label, title) => el('th', { title: title || '', style: { padding: '6px 8px', textAlign: 'left', fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.03em', color: '#555', borderBottom: '2px solid rgba(0,0,0,0.15)', whiteSpace: 'nowrap' } }, label);
                     return el('tr', {},
-                      th('#'),
-                      th('Rep'),
+                      (() => { const t = th('#'); Object.assign(t.style, { position: 'sticky', left: '0', zIndex: 2, background: CREAM, width: '30px', minWidth: '30px', maxWidth: '30px', boxSizing: 'border-box' }); return t; })(),
+                      (() => { const t = th('Rep'); Object.assign(t.style, { position: 'sticky', left: '30px', zIndex: 2, background: CREAM }); return t; })(),
                       th('Subs', 'All subscriptions sold (every account, all audit statuses)'),
                       th('ACV', 'Avg contract value across all accounts'),
                       th('Total Rev', 'Passed + Pending + Failed (all revenue)'),
@@ -17428,8 +17438,10 @@ function indicatorTopGunBoard(sales, proSet) {
                 ),
                 el('tbody', {},
                   ...reps.map((r, i) => el('tr', { style: { borderTop: i ? '1px solid rgba(0,0,0,0.08)' : 'none', background: i < 3 ? 'rgba(190,58,43,0.06)' : 'transparent' } },
-                    el('td', { style: { padding: '5px 8px', fontWeight: '900', width: '26px', color: def.color } }, i + 1),
-                    el('td', { style: { padding: '5px 8px', fontWeight: '700', color: '#222', whiteSpace: 'nowrap' } }, r.rep),
+                    // Rank + Rep frozen — opaque bg (cream base, podium tint
+                    // layered) so scrolled columns never bleed through.
+                    el('td', { style: { padding: '5px 8px', fontWeight: '900', width: '30px', minWidth: '30px', maxWidth: '30px', boxSizing: 'border-box', color: def.color, position: 'sticky', left: '0', zIndex: 1, backgroundColor: CREAM, backgroundImage: i < 3 ? 'linear-gradient(rgba(190,58,43,0.06),rgba(190,58,43,0.06))' : 'none' } }, i + 1),
+                    el('td', { style: { padding: '5px 8px', fontWeight: '700', color: '#222', whiteSpace: 'nowrap', position: 'sticky', left: '30px', zIndex: 1, backgroundColor: CREAM, backgroundImage: i < 3 ? 'linear-gradient(rgba(190,58,43,0.06),rgba(190,58,43,0.06))' : 'none' } }, r.rep),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#222' } }, r.subs.toLocaleString()),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#222' } }, usd(r.acv)),
                     el('td', { style: { padding: '5px 8px', textAlign: 'left', fontVariantNumeric: 'tabular-nums', color: '#111', fontWeight: '900' } }, usd(r.total)),
