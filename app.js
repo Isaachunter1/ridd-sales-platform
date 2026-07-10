@@ -13740,6 +13740,12 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
     (rd.contenders || []).forEach((c, i) => m.set(c.rep, { place: i + 1, of: rd.before, advanceN: rd.advanceN, qualifier: !!rd.qualifier, advanced: !!c.advanced }));
     return m;
   });
+  // Overall FINISH place — tournament style: everyone cut in a round ties
+  // just below that round's survivors (cut when 12 advanced → T-13).
+  const _lmsFinishPlace = (elimWeek) => {
+    const rd = R.rounds[elimWeek];
+    return rd ? (rd.advanceN || 0) + 1 : null;
+  };
   const _lmsPlaceLine = (p, rd) => {
     if (!p || !rd) return null;
     return 'Wk ' + rd.week + ': #' + p.place + ' of ' + p.of
@@ -13854,7 +13860,10 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
           el('div', { style: { fontFamily: DISP, fontSize: '.62rem', letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.4)', marginTop: '5px' } },
             (r.office || '—') + ' · ' + (champ ? 'champion' : r.alive ? 'still standing' : (() => {
               const pl = (_lmsPlace[r.elimWeek] || new Map()).get(r.rep);
-              return 'out week ' + (r.elimWeek + 1) + (pl ? ' · finished #' + pl.place + ' of ' + pl.of + (pl.qualifier ? ' (no qualifying sale)' : ' — top ' + pl.advanceN + ' advanced') : '');
+              const fin = _lmsFinishPlace(r.elimWeek);
+              return 'out week ' + (r.elimWeek + 1)
+                + (fin ? ' · T-#' + fin + ' overall of ' + rows.length : '')
+                + (pl ? ' · that round #' + pl.place + ' of ' + pl.of + (pl.qualifier ? ' (no qualifying sale)' : ' — top ' + pl.advanceN + ' advanced') : '');
             })()))),
         el('button', { style: { color: 'rgba(255,255,255,.6)', fontSize: '22px', lineHeight: '1', background: 'none', border: 'none', cursor: 'pointer' }, onclick: () => overlay.remove() }, '×')),
       el('div', { style: { overflowY: 'auto', padding: '4px 8px 0' } },
@@ -13962,14 +13971,15 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
   outRows.forEach(r => { (outGroups[r.elimWeek] = outGroups[r.elimWeek] || []).push(r); });
   const outSections = Object.keys(outGroups).map(Number).sort((a, b) => b - a).map(k => el('div', { style: { padding: '4px 16px 8px' } },
     el('div', { style: { padding: '10px 0 8px', fontFamily: DISP, fontSize: '.85rem', letterSpacing: '.14em', textTransform: 'uppercase', color: MAG } },
-      'Out · Week ' + (k + 1) + (R.rounds[k] ? ' · ' + _mmdd(R.rounds[k].iso) : '') + ' — ' + outGroups[k].length + ' rep' + (outGroups[k].length === 1 ? '' : 's')),
+      'Out · Week ' + (k + 1) + (R.rounds[k] ? ' · ' + _mmdd(R.rounds[k].iso) : '') + ' — ' + outGroups[k].length + ' rep' + (outGroups[k].length === 1 ? '' : 's')
+      + (_lmsFinishPlace(k) ? ' · finish T-#' + _lmsFinishPlace(k) + ' of ' + rows.length : '')),
     el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } },
       ...outGroups[k].sort((a, b) => _qual(b) - _qual(a)).map(r => el('span', {
         'data-lms': (r.rep + ' ' + firstLast(r.rep)).toLowerCase(),
         style: { fontFamily: DISP, textTransform: 'uppercase', fontSize: '.98rem', letterSpacing: '.03em',
                  padding: '6px 14px', borderRadius: '999px', border: '1px solid rgba(255,255,255,.2)',
                  color: WHITE, whiteSpace: 'nowrap', cursor: 'pointer' },
-        title: firstLast(r.rep) + ' — ' + money(_qual(r)) + ' qualified for the competition · out week ' + (k + 1) + ' · click for week-by-week production',
+        title: firstLast(r.rep) + ' — ' + money(_qual(r)) + ' qualified · out week ' + (k + 1) + (_lmsFinishPlace(k) ? ' · finished T-#' + _lmsFinishPlace(k) + ' of ' + rows.length : '') + ' · click for week-by-week production',
         onclick: () => openLmsRepModal(r),
       }, firstLast(r.rep), el('span', { style: { color: 'rgba(255,255,255,.55)', marginLeft: '8px' } }, money(_qual(r))))))));
   const cleanView = el('div', { style: { background: '#000', borderTop: '1px solid rgba(255,255,255,.08)' } },
@@ -21195,6 +21205,29 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
       el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-3 p-3' }, avgInitialCard, raffleCard),
     );
 }
+
+// ── Avg Pest / Raffle comp helpers — MODULE scope. The comp card was
+// lifted to the top of the section builder ages ago, but these stayed
+// defined in the original (later) block — so activating the comp threw
+// "RAFFLE_EXCLUDE_RE is not defined". The later local duplicates shadow
+// these with identical values; both paths now resolve.
+const RAFFLE_EXCLUDE_RE = /sentricon|german\s*roach|interior\s*flea/i;
+const AVG_PEST_MIN_ACCOUNTS = 5;
+const ticketsForInitial = (amount) => {
+  const v = Number(amount) || 0;
+  if (v >= 250) return 3;
+  if (v >= 200) return 2;
+  if (v >= 149) return 1;
+  return 0;
+};
+// Active = not cancelled AND status is Active (Frozen / Inactive / No are
+// NOT active). Robust across formats: RevHawk sends "Active"/"Frozen"; an
+// old CSV sent "Yes"/"No".
+const isActiveAccount = (s) => {
+  if (s.cancelDate) return false;
+  const _a = String(s.active || '').trim().toLowerCase();
+  return _a !== 'no' && _a !== 'frozen' && _a !== 'inactive';
+};
 
 function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksUnfiltered, allDataUnfiltered, windowLabel) {
   // We need the raw sales data — stored alongside aggregated rows.
