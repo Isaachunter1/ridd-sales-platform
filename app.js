@@ -15692,6 +15692,7 @@ function nrlaBoard(rawSales, opts) {
   // stays off rep screens, same rule as the player cards.
   const openNrlaAccountsModal = (startIdx) => {
     let mIdx = startIdx, mTeam = '';
+    let mSort = { key: 'time', asc: true };   // default: chronological
     const overlay = el('div', { class: 'modal-overlay' });
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     const card = el('div', { class: 'card w-full max-w-3xl my-8 flex flex-col overflow-hidden', style: { maxHeight: 'calc(100vh - 64px)' } });
@@ -15713,8 +15714,22 @@ function nrlaBoard(rawSales, opts) {
       if (mTeam && !_teams.includes(mTeam)) mTeam = '';
       const dayBlock = (day, label) => {
         if (!day || isNaN(day)) return null;
+        const _sortVal = (x) => {
+          switch (mSort.key) {
+            case 'rep':      return getCanonicalRepName(x.rep || '').toLowerCase();
+            case 'custid':   return Number(x.customerId) || 0;
+            case 'customer': return String(x.customer || '').toLowerCase();
+            case 'contract': return Number(x.contractValue) || 0;
+            case 'audit':    return (typeof _auditStatusOf === 'function') ? _auditStatusOf(x.customerFlags) : '';
+            default:         return _timeMin(x);
+          }
+        };
         const rows = _roundD2d.filter(x => _isRoundDay(x, day) && (!mTeam || _officeOf(x) === mTeam))
-          .sort((a, b) => _timeMin(a) - _timeMin(b));
+          .sort((a, b) => {
+            const va = _sortVal(a), vb = _sortVal(b);
+            const c = (typeof va === 'string') ? va.localeCompare(vb) : (va - vb);
+            return mSort.asc ? c : -c;
+          });
         const rev = rows.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
         return el('div', { class: 'mb-3' },
           el('div', { class: 'px-3 py-1.5 text-[10px] font-black uppercase tracking-widest flex items-center justify-between', style: { background: 'var(--card-2)', borderRadius: '8px 8px 0 0', border: '1px solid var(--border)', borderBottom: 'none' } },
@@ -15726,12 +15741,12 @@ function nrlaBoard(rawSales, opts) {
               : el('table', { class: 'w-full text-[11px]' },
                   el('thead', { class: 'text-[9px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
                     el('tr', {},
-                      el('th', { class: 'text-left pl-3 pr-2 py-1.5' }, 'Rep'),
-                      el('th', { class: 'text-left px-2 py-1.5' }, 'Cust ID'),
-                      el('th', { class: 'text-left px-2 py-1.5' }, 'Customer'),
-                      el('th', { class: 'text-right px-2 py-1.5' }, 'Contract'),
-                      el('th', { class: 'text-left px-2 py-1.5' }, 'Time'),
-                      el('th', { class: 'text-left pl-2 pr-3 py-1.5' }, 'Audit'))),
+                      ...[['rep', 'Rep', 'text-left pl-3 pr-2'], ['custid', 'Cust ID', 'text-left px-2'], ['customer', 'Customer', 'text-left px-2'], ['contract', 'Contract', 'text-right px-2'], ['time', 'Time', 'text-left px-2'], ['audit', 'Audit', 'text-left pl-2 pr-3']].map(([k, lab, cls]) => el('th', {
+                        class: cls + ' py-1.5 cursor-pointer select-none',
+                        style: mSort.key === k ? { color: 'var(--accent)', fontWeight: '800' } : {},
+                        title: 'Sort by ' + lab.toLowerCase(),
+                        onclick: () => { mSort = mSort.key === k ? { key: k, asc: !mSort.asc } : { key: k, asc: true }; render(); },
+                      }, lab)))),
                   el('tbody', {},
                     ...rows.map(x => {
                       const _st = (typeof _auditStatusOf === 'function') ? _auditStatusOf(x.customerFlags) : 'pending';
