@@ -623,6 +623,15 @@ async function loadIndicatorConfigFromSupabase() {
         if (Array.isArray(data.competitions.list)) state._indicatorCompetitions = data.competitions.list;
         if (data.competitions.active)              state._indicatorActiveCompId = data.competitions.active;
         if (Array.isArray(data.competitions.removed)) state._indicatorRemovedDefaults = data.competitions.removed;
+        // Power-Ranking exclusions ride in this jsonb too — they used to be
+        // per-browser only, so a Salt Lake excluded on desktop still ranked
+        // on the admin's phone.
+        if (data.competitions.rankExclude && typeof data.competitions.rankExclude === 'object') state._indicatorRankExclude = data.competitions.rankExclude;
+        // Rep aliases (duplicate merges) + dismissed dupe pairs sync too —
+        // a merge is data correctness, not a view preference: per-browser
+        // aliases meant leaderboard totals differed between admin devices.
+        if (data.competitions.repAlias && typeof data.competitions.repAlias === 'object') state._indicatorRepAlias = data.competitions.repAlias;
+        if (Array.isArray(data.competitions.dupesDismissed)) state._indicatorDismissedDupes = data.competitions.dupesDismissed;
       }
       // rep_teams may arrive as the new by-year shape ({ "2026": {rep:team} })
       // or the legacy flat shape ({ rep:team }). Detect and normalize into the
@@ -677,7 +686,7 @@ function _indCfgFingerprint() {
   const s = JSON.stringify([
     state._indicatorTeams || [], state._indicatorTeamColors || {}, state._indicatorTeamLogos || {},
     state._indicatorExcludedTeams || [],
-    { list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [] },
+    { list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, dupesDismissed: state._indicatorDismissedDupes || [] },
     state._indicatorRepTeamByYear || {}, state._indicatorRepTier || {}, state._indicatorRepActive || {}, state._indicatorRepOffice || {},
   ]);
   let h = 5381;
@@ -709,7 +718,7 @@ async function _indicatorConfigUpsertNow() {
     team_colors:   state._indicatorTeamColors || {},
     team_logos:    state._indicatorTeamLogos || {},
     team_excluded: state._indicatorExcludedTeams || [],
-    competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [] },
+    competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, dupesDismissed: state._indicatorDismissedDupes || [] },
     rep_teams:     state._indicatorRepTeamByYear || {},
     rep_tiers:     state._indicatorRepTier || {},
     rep_active:    state._indicatorRepActive || {},
@@ -7854,6 +7863,25 @@ function badgeChip(code) {
     desc: def.desc,
   });
   return chip;
+}
+
+// Keep an absolutely-positioned dropdown panel INSIDE the viewport. Panels
+// anchor left/right of their button; near a screen edge that pushed them
+// off-screen (mobile especially). Call after the panel opens (or renders
+// open) — measures after paint and shifts via transform, anchor-agnostic.
+function clampDropdownPanel(panel) {
+  if (!panel) return;
+  panel.style.maxWidth = 'calc(100vw - 16px)';
+  requestAnimationFrame(() => {
+    try {
+      if (!panel.isConnected || panel.style.display === 'none') return;
+      panel.style.transform = '';
+      const r = panel.getBoundingClientRect();
+      const vw = window.innerWidth;
+      if (r.left < 8) panel.style.transform = 'translateX(' + (8 - r.left) + 'px)';
+      else if (r.right > vw - 8) panel.style.transform = 'translateX(' + ((vw - 8) - r.right) + 'px)';
+    } catch (e) { /* measurement only — never break the render */ }
+  });
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -17461,9 +17489,10 @@ function toggleRankExcluded(name) {
   if (cur.has(name)) cur.delete(name); else cur.add(name);
   state._indicatorRankExclude[mode] = [...cur];
   logActivity('config_change', { detail: 'Power Ranking ' + (cur.has(name) ? 'excluded' : 'included') + ' ' + mode + ': ' + name });
-  // Local-only persistence: the indicator_config table has no rank_exclude
-  // column, so we don't push this to the cloud (would 400 the whole sync).
+  // Shared config: exclusions ride in the competitions jsonb so every
+  // admin device agrees (was per-browser — desktop and phone disagreed).
   saveDemoData();
+  if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
 }
 
 // Excluded-team helpers now operate on the ACTIVE competition's list, so all
@@ -17744,6 +17773,7 @@ function mergeDuplicateRep(bad, good) {
     _invalidateRepSigIndex(m);
   });
   saveDemoData();
+  if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
   return changed;
 }
 
@@ -17756,6 +17786,7 @@ function dismissDuplicateRepPair(bad, good) {
   if (!state._indicatorDismissedDupes.includes(key)) {
     state._indicatorDismissedDupes.push(key);
     saveDemoData();
+    if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
   }
 }
 
@@ -19682,7 +19713,7 @@ function viewIndicators() {
               const open = panel.style.display === 'block';
               panel.style.display = open ? 'none' : 'block';
               state._indFiltersOpen = !open;
-              if (!open) bindCloser();
+              if (!open) { bindCloser(); clampDropdownPanel(panel); }
             },
           },
             'Filters',
@@ -19692,6 +19723,7 @@ function viewIndicators() {
             }, String(nonDefault)) : null,
           );
           if (state._indFiltersOpen) bindCloser();                 // panel restored open after a filter change re-render
+          clampDropdownPanel(panel);
           return el('div', { style: { position: 'relative' } }, btn, panel);
         })(),
         // Custom date pickers still render in their own row below this bar
@@ -19716,7 +19748,7 @@ function viewIndicators() {
                 el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'In Power Ranking'),
                 el('button', {
                   class: 'text-[10px] font-semibold', style: { color: 'var(--accent)', cursor: 'pointer' },
-                  onclick: (e) => { e.stopPropagation(); if (state._indicatorRankExclude) state._indicatorRankExclude[_rankExcludeMode()] = []; saveDemoData(); reRender(); },
+                  onclick: (e) => { e.stopPropagation(); if (state._indicatorRankExclude) state._indicatorRankExclude[_rankExcludeMode()] = []; saveDemoData(); if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {}); reRender(); },
                 }, 'All'),
               ),
               ...opts.map(b => el('label', {
@@ -19740,6 +19772,7 @@ function viewIndicators() {
                 e.stopPropagation();
                 const open = panel.style.display === 'block';
                 panel.style.display = open ? 'none' : 'block';
+                if (!open) clampDropdownPanel(panel);
                 if (!open) { const closer = (ev) => { if (!panel.contains(ev.target) && !btn.contains(ev.target)) { panel.style.display = 'none'; document.removeEventListener('mousedown', closer); } }; setTimeout(() => document.addEventListener('mousedown', closer), 0); }
               },
             },
@@ -22149,13 +22182,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const VET_COLOR    = '#8DC63F';
 
     const sideCell = (val, color, leader, subtitle) => el('div', {
-      class: 'flex-1 px-3 py-2 text-center',
+      class: 'flex-1 px-2 py-2 text-center min-w-0',
       style: {
         background: leader ? color + '14' : 'transparent',
         borderRadius: '8px',
       },
     },
-      el('div', { class: 'text-base font-black tabular-nums', style: { color: leader ? color : 'var(--text)' } }, val),
+      // Font shrinks on narrow screens so a full revenue figure never
+      // bleeds past the card edge.
+      el('div', { class: 'font-black tabular-nums whitespace-nowrap', style: { color: leader ? color : 'var(--text)', fontSize: 'clamp(11px, 3.4vw, 16px)' } }, val),
       // Subtitle = "X% of company" for the volume rows — shows the
       // weight each cohort carries against the whole denominator
       // (including untagged reps), so rookie + vet won't sum to 100%
@@ -22190,7 +22225,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         rSub = pctOfCo(rVal, companyTotalRevenue);
         vSub = pctOfCo(vVal, companyTotalRevenue);
       }
-      return el('div', { class: 'grid items-center gap-2 px-4 py-1.5', style: { gridTemplateColumns: '1fr 140px 1fr', borderTop: '1px solid var(--border)' } },
+      return el('div', { class: 'grid items-center gap-2 px-3 py-1.5', style: { gridTemplateColumns: 'minmax(0,1fr) minmax(72px,140px) minmax(0,1fr)', borderTop: '1px solid var(--border)' } },
         sideCell(fmtVal[key](rVal), ROOKIE_COLOR, rLead, rSub),
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-center', style: { color: 'var(--text-muted)' } }, label),
         sideCell(fmtVal[key](vVal), VET_COLOR, vLead, vSub),
@@ -22215,7 +22250,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           style: { color: 'var(--text-muted)', background: 'var(--card-2)' },
         }, untagged + ' rep' + (untagged === 1 ? '' : 's') + ' untagged · not counted here'),
       ),
-      el('div', { class: 'grid items-center gap-2 px-4', style: { gridTemplateColumns: '1fr 140px 1fr' } },
+      el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(0,1fr) minmax(72px,140px) minmax(0,1fr)' } },
         headerCell('Rookie', ROOKIE_COLOR, rookie.reps),
         el('div'),
         headerCell('Vet', VET_COLOR, vet.reps),
@@ -22546,7 +22581,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 el('option', { value: '', selected: !officeFilter }, 'All offices'),
                 ...offices.map(o => el('option', { value: o, selected: officeFilter === o },
                   o.split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' '))));
-              wrap.append(el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', minWidth: '270px', zIndex: '40', boxShadow: 'var(--shadow-lg)' } },
+              const _lbPanel = el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', minWidth: '270px', zIndex: '40', boxShadow: 'var(--shadow-lg)' } },
                 secLabel('Tier'), tierRow,
                 teamSel && secLabel('Team'), teamSel && el('div', { class: 'px-2.5 pb-1' }, teamSel),
                 secLabel('Office'), el('div', { class: 'px-2.5 pb-1' }, officeSel),
@@ -22560,7 +22595,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   el('span', { style: { fontSize: '13px' } }, state[key] ? '☑' : '☐'),
                   el('span', {}, label))),
                 el('div', { class: 'px-2.5 pt-1.5 pb-1 text-[10px]', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)', marginTop: '4px' } },
-                  'Checked cancel types count (the default). Uncheck to exclude. Sold-Not-Started & Combined never count.')));
+                  'Checked cancel types count (the default). Uncheck to exclude. Sold-Not-Started & Combined never count.'));
+              wrap.append(_lbPanel);
+              clampDropdownPanel(_lbPanel);
               if (window._repCancelMenuCloser) document.removeEventListener('mousedown', window._repCancelMenuCloser);
               window._repCancelMenuCloser = (ev) => {
                 const w = document.getElementById('rep-cancel-filter-wrap');
@@ -22872,9 +22909,23 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             return wrap;
           })(),
         ),
-        el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-5' },
+        // View switcher — the card used to stack Reasons + Packages side by
+        // side with Office and Team card grids below, a very long scroll.
+        // One sub-view renders at a time now; drills all still work.
+        (() => {
+          if (!state._cancelView) state._cancelView = 'reason';
+          return el('div', { class: 'inline-flex rounded-lg border overflow-hidden mb-4', style: { borderColor: 'var(--border-2)' } },
+            ...[['reason', 'Reasons'], ['package', 'Packages'], ['office', 'Offices'], ['team', 'Teams']].map(([v, lab]) => el('button', {
+              class: 'px-3 py-1.5 text-[11px] font-semibold transition',
+              style: state._cancelView === v
+                ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+                : { background: 'transparent', color: 'var(--text)' },
+              onclick: () => { state._cancelView = v; mountApp(); },
+            }, lab)));
+        })(),
+        el('div', { class: 'grid grid-cols-1 gap-5' },
           // By reason — click a row to drill into the customers behind it
-          el('div', {},
+          el('div', { style: { display: (state._cancelView || 'reason') === 'reason' ? '' : 'none' } },
             el('h4', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-2' }, 'By Reason (' + allCancels.length + ' cancels · ' + _usd0(totalLostRev) + ' lost · click to drill in)'),
             // Cap the list height so a long tail of one-off reasons doesn't
             // stretch the card. ~10 reasons visible; the rest scrolls inside.
@@ -22985,7 +23036,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             })(),
           ),
           // By package (highest cancel rate) — click a row to drill into its cancel reasons
-          el('div', {},
+          el('div', { style: { display: state._cancelView === 'package' ? '' : 'none' } },
             el('h4', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-2' }, 'By Package (highest cancel rate, min 5 sales · click to drill in)'),
             el('div', { class: 'flex flex-col gap-1' },
               ...(() => {
@@ -23138,7 +23189,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         ),
 
         // ── Attrition by Office (click a card to drill in) ──
-        el('div', { class: 'mt-5' },
+        el('div', { class: 'mt-2', style: { display: state._cancelView === 'office' ? '' : 'none' } },
           el('h4', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-3' }, 'Attrition by Office (click for details)'),
           el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
             ...(() => {
@@ -23261,7 +23312,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         ),
 
         // ── Attrition by Team (click a card to drill in) ──
-        el('div', { class: 'mt-5' },
+        el('div', { class: 'mt-2', style: { display: state._cancelView === 'team' ? '' : 'none' } },
           el('h4', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-3' }, 'Attrition by Team (click for details)'),
           (() => {
             const teamCancel = {};
@@ -23439,6 +23490,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             o.split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' '))),
         ),
       ),
+      // Header + rows share one horizontal scroller so the fixed columns
+      // never push the page wider than the screen on mobile.
+      el('div', { class: 'scroll-x' }, el('div', { style: { minWidth: '860px' } },
       // Header row
       el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold mb-1.5' },
         el('div', { class: 'w-[200px] sm:w-[240px] shrink-0' }, 'Subscription'),
@@ -23473,6 +23527,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               );
             }),
           ),
+      )),
     ),
   );
 
@@ -24735,6 +24790,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
           const open = panel.style.display === 'flex';
           panel.style.display = open ? 'none' : 'flex';
           state._trendFiltersOpen = !open;
+          if (!open) clampDropdownPanel(panel);
           if (!open) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
             if (wrap.contains(ev.target)) return;
             panel.style.display = 'none'; state._trendFiltersOpen = false;
@@ -24749,8 +24805,9 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
         document.removeEventListener('mousedown', closer);
       }), 0);
       wrap.append(btn, panel);
+      clampDropdownPanel(panel);
       return el('div', { class: 'flex items-center gap-2 flex-wrap mb-3' },
-        el('h3', { class: 'text-base font-bold mr-1' }, '📈 Performance Trends'),
+        el('h3', { class: 'text-base font-bold mr-1' }, '📈 Metric Trends'),
         wrap);
     })();
 
@@ -27063,12 +27120,11 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep) {
   );
 
   const idPrefix = 'chart-scope-' + scope.type + '-' + (scope.value || 'all').replace(/\s+/g, '-');
-  // ONE top row: scope label left · Compare toggle + metric picker pinned
-  // to the top-right corner (titleNode/rightNode ride the mini-grid's row).
-  const _scopeTitle = el('div', { class: 'flex items-baseline gap-2 flex-wrap min-w-0' },
-    scopeColor && el('span', { class: 'inline-block rounded-full self-center', style: { width: '10px', height: '10px', background: scopeColor } }),
-    el('span', { class: 'text-sm font-bold' }, label),
-    el('span', { class: 'text-[10px] text-muted-' }, sublabel));
+  // Compare toggle + metric picker pin to the top-right corner. (The
+  // "Company · All branches and teams · N reps…" scope line was dropped —
+  // the Filters dropdown already names the scope; compare mode's selects
+  // name their sides.)
+  const _scopeTitle = null;
   return el('div', { class: 'mt-2' },
     buildTrendMiniGrid(scopedSales, chartBuckets, idPrefix, scopeColor,
       // Pick the overlay to draw against the primary scope's line. Priority:
@@ -27248,6 +27304,60 @@ function indicatorYoYTrendChart() {
     }, ...opts.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === cur) o.selected = true; return o; }));
   })();
 
+  // Years picker — defaults to the CURRENT year only; check other years to
+  // overlay them (plotting all six by default was spaghetti).
+  const _yoySelYears = (() => {
+    const sel = Array.isArray(state._indicatorYoYYears) ? state._indicatorYoYYears.filter(y => yearsPresent.includes(y)) : [];
+    if (sel.length) return sel;
+    return yearsPresent.includes(curY) ? [curY] : yearsPresent.slice(-1);
+  })();
+  const yearsWrap = (() => {
+    const wrap = el('div', { class: 'relative' });
+    const panel = el('div', {
+      class: 'card absolute p-1.5',
+      style: { top: 'calc(100% + 6px)', right: '0', minWidth: '150px', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyYearsOpen ? 'block' : 'none' },
+    },
+      ...yearsPresent.slice().sort((a, b) => b - a).map(y => el('button', {
+        class: 'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+        style: { color: 'var(--text)', background: _yoySelYears.includes(y) ? 'var(--card-2)' : 'transparent' },
+        onclick: (e) => {
+          e.stopPropagation();
+          let next = _yoySelYears.includes(y) ? _yoySelYears.filter(x => x !== y) : [..._yoySelYears, y];
+          if (!next.length) next = [y];                     // never zero lines
+          state._indicatorYoYYears = next;
+          mountApp();
+        },
+      },
+        el('span', { style: { fontSize: '13px' } }, _yoySelYears.includes(y) ? '☑' : '☐'),
+        el('span', {}, String(y) + (y === curY ? ' · current' : '')))));
+    const btn = el('button', {
+      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer border flex items-center gap-1.5',
+      style: _yoySelYears.length > 1
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+        : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+      title: 'Pick which years to overlay',
+      onclick: (e) => {
+        e.stopPropagation();
+        const open = panel.style.display === 'block';
+        panel.style.display = open ? 'none' : 'block';
+        state._yoyYearsOpen = !open;
+        if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+          if (wrap.contains(ev.target)) return;
+          panel.style.display = 'none'; state._yoyYearsOpen = false;
+          document.removeEventListener('mousedown', closer);
+        }), 0); }
+      },
+    }, 'Years · ' + _yoySelYears.length, el('span', { style: { fontSize: '9px' } }, state._yoyYearsOpen ? '▴' : '▾'));
+    if (state._yoyYearsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+      if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+      if (wrap.contains(ev.target)) return;
+      panel.style.display = 'none'; state._yoyYearsOpen = false;
+      document.removeEventListener('mousedown', closer);
+    }), 0); }
+    wrap.append(btn, panel);
+    return wrap;
+  })();
+
   const cvsWrap = el('div', { style: { position: 'relative', height: '280px', width: '100%' } });
   cvsWrap.append(el('canvas', { id }));
   setTimeout(() => {
@@ -27271,6 +27381,7 @@ function indicatorYoYTrendChart() {
           const palette = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899'];
           const lines = [], ytdPts = [];
           yearsPresent.forEach((y) => {
+            if (!_yoySelYears.includes(y)) return;   // only the years picked in the Years dropdown plot
             const isCur = y === curY;
             const idx = curY - y; // 0 = current, 1 = prior year, …
             const color = isCur ? '#8DC63F' : (idx === 1 ? muted : palette[(idx - 2 + palette.length) % palette.length]);
@@ -27353,7 +27464,7 @@ function indicatorYoYTrendChart() {
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
       el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'YTD Performance Trends' : 'Performance Trends by Year'),
-      metricSel),
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, yearsWrap, metricSel)),
     cvsWrap);
 }
 
@@ -38129,6 +38240,7 @@ function adminReps() {
         const open = panel.style.display === 'flex';
         panel.style.display = open ? 'none' : 'flex';
         state._adminUserFiltersOpen = !open;
+        if (!open) clampDropdownPanel(panel);
         if (!open) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
           if (wrap.contains(ev.target)) return;
           panel.style.display = 'none'; state._adminUserFiltersOpen = false;
@@ -38143,6 +38255,7 @@ function adminReps() {
       document.removeEventListener('mousedown', closer);
     }), 0);
     wrap.append(btn, panel);
+    clampDropdownPanel(panel);
     return wrap;
   })();
   host.append(el('div', { class: 'flex items-center flex-wrap gap-2' },
