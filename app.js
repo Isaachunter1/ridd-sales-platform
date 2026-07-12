@@ -5137,6 +5137,7 @@ function isOfficeStaffProfile(p) {
   } catch (e) { /* fall through */ }
   return false; // unknown type — self-heals once their CRM type syncs
 }
+const _wowMemo = { pool: null, map: null };
 function computeLeaderboard(tab = 'total', range = null) {
   // Only people with sales access rank on the leaderboard: sales reps,
   // loyalty reps, and Admin + Sales. Auditors review and Admin (no sales)
@@ -5168,8 +5169,9 @@ function computeLeaderboard(tab = 'total', range = null) {
   // so the number is fair mid-week and converges to full-week by Saturday.
   // Weeks start Sunday, matching the date filter. Computed from the full
   // pool, independent of the selected range.
-  const _wowByKey = new Map();
-  {
+  let _wowByKey = (_wowMemo.pool === dashboardSales()) ? _wowMemo.map : null;
+  if (!_wowByKey) {
+    _wowByKey = new Map();
     const _iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     const now = new Date();
     const curStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
@@ -5186,6 +5188,7 @@ function computeLeaderboard(tab = 'total', range = null) {
       if (s.sold_date >= curStartIso && s.sold_date <= todayIso) o.cur += Number(s.revenue_amount || 0);
       else if (s.sold_date >= prevStartIso && s.sold_date <= prevCutIso) o.prev += Number(s.revenue_amount || 0);
     });
+    _wowMemo.pool = dashboardSales(); _wowMemo.map = _wowByKey;
   }
   const _wowOf = (key) => {
     const o = _wowByKey.get(key);
@@ -5317,7 +5320,16 @@ const BADGE_DEFS = {
 };
 
 // Returns a map { rep_id: Set([...badge codes]) }
+const _badgeMemo = { pool: null, day: null, out: null };
 function computeBadges() {
+  const _pool = dashboardSales();
+  const _day = bizTodayIso();
+  if (_badgeMemo.pool === _pool && _badgeMemo.day === _day) return _badgeMemo.out;
+  const _out = _computeBadgesUncached();
+  _badgeMemo.pool = _pool; _badgeMemo.day = _day; _badgeMemo.out = _out;
+  return _out;
+}
+function _computeBadgesUncached() {
   const badges = {};
   const add = (repId, code) => {
     if (!repId) return;
