@@ -33,6 +33,10 @@ exports.handler = async () => {
       ? { updated_at: blob.updated_at || blob.created_at || null, bytes: (blob.metadata && blob.metadata.size) || null }
       : null;
   } catch (e) { out.blobError = String((e && e.message) || e); }
+  try {
+    const { data } = await supabase.storage.from('reporting').download('indicators/sync-heartbeat.json');
+    if (data) out.lastRun = JSON.parse(await data.text());
+  } catch (e) { out.lastRun = null; }
   const newest = out.recentSnapshots && out.recentSnapshots[0] && out.recentSnapshots[0].uploaded_at;
   out.minutesSinceLastSnapshot = newest ? Math.round((Date.now() - Date.parse(newest)) / 60000) : null;
   return {
