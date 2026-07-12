@@ -9038,7 +9038,7 @@ function saleCrmVerdict(s, index) {
     if (d < bestDiff) { bestDiff = d; best = r; }
   }
   const cv = Number(best.subscription_contract_value) || 0;
-  return { status: bestDiff <= 1 ? 'verified' : 'revenue_mismatch', cv, sub: best.subscription || null, live: true };
+  return { status: bestDiff === 0 ? 'verified' : bestDiff <= 1 ? 'near_match' : 'revenue_mismatch', cv, sub: best.subscription || null, live: true };
 }
 
 function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBackend = false, showReportCols = false, showCrmAccount = false, rowStyle } = {}) {
@@ -9160,16 +9160,35 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                   class: 'inline-block px-2 py-0.5 rounded-full text-[10px] font-bold',
                   style: { background: bg, color: colr }, title: tip,
                 }, txt);
+                // Lifecycle chips (stamped hourly by the sync once
+                // sales_crm_lifecycle.sql has been run): serviced yet? paid /
+                // current? Rendered alongside the value-exactness chip so an
+                // auditor's only manual job is the signed contract.
+                const lcChips = [];
+                if (s.crm_serviced_at) lcChips.push(chip('✓ Svc', 'rgba(141,198,63,.15)', '#5F8A1F',
+                  'Initial service completed ' + s.crm_serviced_at + (s.crm_completed_services ? ' · ' + s.crm_completed_services + ' service(s) run' : '')));
+                else if (s.crm_checked_at && s.crm_serviced_at === null && s.crm_completed_services === 0) lcChips.push(chip('⏳ Svc', 'var(--card-2)', 'var(--text-muted)', 'No initial service completed yet'));
+                if (s.crm_days_past_due != null) {
+                  lcChips.push(Number(s.crm_days_past_due) > 0
+                    ? chip('⚠ ' + s.crm_days_past_due + 'd', 'rgba(220,38,38,.12)', '#B91C1C', 'Customer is ' + s.crm_days_past_due + ' day(s) past due' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : ''))
+                    : chip('✓ Paid', 'rgba(141,198,63,.15)', '#5F8A1F', 'Account is current' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : '')));
+                }
+                const withLc = (node) => lcChips.length ? el('span', { class: 'inline-flex items-center gap-1 flex-wrap' }, node, ...lcChips) : node;
                 if (v.status === 'verified') {
-                  return chip('✓ ' + fmt.usd(v.cv), 'rgba(141,198,63,.15)', '#5F8A1F',
-                    'CRM match — the warehouse shows this contract value on customer #' + (s.customer_number || '?')
-                    + (v.sub ? ' (' + v.sub + ')' : '') + (v.live ? ' · live check' : ''));
+                  return withLc(chip('✓ ' + fmt.usd(v.cv), 'rgba(141,198,63,.15)', '#5F8A1F',
+                    'EXACT CRM match — the warehouse shows this precise contract value on customer #' + (s.customer_number || '?')
+                    + (v.sub ? ' (' + v.sub + ')' : '') + (v.live ? ' · live check' : '')));
+                }
+                if (v.status === 'near_match') {
+                  const d = Math.abs((Number(s.revenue_amount) || 0) - (Number(v.cv) || 0));
+                  return withLc(chip('≈ ' + fmt.usd(v.cv), 'rgba(240,172,30,.16)', '#B45309',
+                    'Off by ' + fmt.usd(d) + ' — logged ' + fmt.usd(s.revenue_amount) + ' vs ' + fmt.usd(v.cv) + ' in the CRM. Values must be exact so commissions never over/under-pay.'));
                 }
                 if (v.status === 'revenue_mismatch') {
-                  return chip('⚠ CRM ' + fmt.usd(v.cv), 'rgba(240,172,30,.16)', '#B45309',
+                  return withLc(chip('⚠ CRM ' + fmt.usd(v.cv), 'rgba(220,38,38,.12)', '#B91C1C',
                     'Revenue differs: logged ' + fmt.usd(s.revenue_amount) + ' vs ' + fmt.usd(v.cv) + ' in the CRM'
                     + (v.sub ? ' (' + v.sub + ')' : '')
-                    + ' — upsells can legitimately differ; worth a manual look.' + (v.live ? ' · live check' : ''));
+                    + ' — upsells can legitimately differ; worth a manual look.' + (v.live ? ' · live check' : '')));
                 }
                 if (v.status === 'unchecked') {
                   return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' },
@@ -9873,10 +9892,24 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
         onchange: () => { checkValidity(); updateFooter(); },
       },
         el('option', { value: '' }, 'Select Source...'),
-        // Hidden sources (is_active === false) drop out of the dropdown but
-        // remain in state.sources so historical sales keep rendering their
-        // source name. Admin manages visibility in Settings → Sources.
-        ...state.sources.filter(o => o.is_active !== false).map(o => el('option', { value: o.id }, o.name)),
+        // MANUAL LOG IS FOR THE EXCEPTIONS ONLY — regular office-staff
+        // subscriptions auto-add from the FieldRoutes sync now, so this
+        // dropdown offers just: Organic, plus Upsell - Office / Upsell - D2D
+        // (which distinguish what TYPE of contract was upsold). When editing
+        // an older sale, its original source stays selectable. Falls back to
+        // the full active list if none of the whitelist names exist yet.
+        ...(() => {
+          const WHITELIST = /^(organic|upsell\s*-\s*(office|d2d))$/i;
+          const active = state.sources.filter(o => o.is_active !== false);
+          let opts = active.filter(o => WHITELIST.test(String(o.name || '').trim()));
+          if (!opts.length) opts = active;                       // safety: whitelist names missing → show everything
+          const curId = existingSale && existingSale.source_id;
+          if (curId && !opts.some(o => o.id === curId)) {
+            const cur = state.sources.find(o => o.id === curId);
+            if (cur) opts = [cur, ...opts];
+          }
+          return opts.map(o => el('option', { value: o.id }, o.name));
+        })(),
       )),
 
       mk('Initial ($)', initialInput),

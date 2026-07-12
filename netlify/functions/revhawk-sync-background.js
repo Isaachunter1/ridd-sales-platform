@@ -556,6 +556,105 @@ exports.handler = async (event) => {
       } catch (rvErr) {
         console.error('[revhawk-sync] access revoke skipped:', String((rvErr && rvErr.message) || rvErr));
       }
+
+      // ── 🪄 INSIDE SALES AUTO-ADD (best-effort) ──────────────────────────
+      // Office-staff-sold SUBSCRIPTIONS flow straight from FieldRoutes into
+      // the Inside Sales queue as PENDING — reps stop double-logging; only
+      // UPSELLS stay manual (they deduct from an original contract, which
+      // the CRM can't express). One row PER SUBSCRIPTION (multi-sub accounts
+      // create multiple rows). Cutoff-forward only; deduped against manual
+      // logs (exact key + the auto-verify's ±7-day/±$1 revenue match) and
+      // against prior runs. Auto rows: logged_by NULL + a notes marker, and
+      // they arrive pre-CRM-verified since they're born from the CRM.
+      try {
+        const START = process.env.INSIDE_AUTOADD_START || '2026-07-14';
+        const EXCLUDED_SVCS = new Set(['ACH Chargeback', 'Early Cancellation Fee', 'German Roach Initial', 'Rodent Station Removal']);
+        const masterOf = new Map();
+        roster.forEach(e => String(e.employee_ids || e.employee_id || '').split(',').forEach(id => { const t = id.trim(); if (t) masterOf.set(t, String(e.employee_id)); }));
+        const { data: profs2 } = await supabase.from('profiles').select('id, fieldroutes_employee_id, office_id').not('fieldroutes_employee_id', 'is', null);
+        const profByMaster = new Map((profs2 || []).map(p => [String(p.fieldroutes_employee_id), p]));
+        const pool = objects.filter(r =>
+          String(r.sold_by_type || '').trim() === 'Office Staff'
+          && r.customer_id && r.sold_date && String(r.sold_date).slice(0, 10) >= START
+          && !EXCLUDED_SVCS.has(String(r.subscription || '').trim()));
+        if (pool.length) {
+          const [exQ, offQ, svcQ, srcQ, ctQ] = await Promise.all([
+            supabase.from('sales').select('customer_number, revenue_amount, sold_date, crm_subscription').gte('sold_date', START),
+            supabase.from('offices').select('id, name'),
+            supabase.from('service_types').select('id, name'),
+            supabase.from('sources').select('id, name'),
+            supabase.from('contract_types').select('id, name'),
+          ]);
+          const norm = (x) => String(x || '').trim().toLowerCase();
+          const haveKey = new Set();
+          const haveRevenue = [];
+          (exQ.data || []).forEach(x => {
+            haveKey.add(norm(x.customer_number) + '|' + norm(x.crm_subscription) + '|' + String(x.sold_date).slice(0, 10));
+            haveRevenue.push({ cust: norm(x.customer_number), rev: Number(x.revenue_amount) || 0, t: Date.parse(String(x.sold_date)) || 0 });
+          });
+          const officeByName = new Map((offQ.data || []).map(o => [norm(o.name), o.id]));
+          const svcByName = new Map((svcQ.data || []).map(o => [norm(o.name), o.id]));
+          const srcByName = new Map((srcQ.data || []).map(o => [norm(o.name), o.id]));
+          const ctByName = new Map((ctQ.data || []).map(o => [norm(o.name), o.id]));
+          let added = 0, skippedDup = 0, skippedNoRep = 0, svcCreated = 0;
+          for (const r of pool) {
+            if (added >= 300) break;                                        // sanity cap per run
+            const soldIso = String(r.sold_date).slice(0, 10);
+            const sub = String(r.subscription || '').trim() || 'Unknown';
+            const cv = Number(r.subscription_contract_value) || 0;
+            const key = norm(r.customer_id) + '|' + norm(sub) + '|' + soldIso;
+            if (haveKey.has(key)) { skippedDup++; continue; }
+            const soldT = Date.parse(soldIso) || 0;
+            if (haveRevenue.some(h => h.cust === norm(r.customer_id) && Math.abs(h.rev - cv) <= 1 && Math.abs(h.t - soldT) <= 7 * 86400000)) { skippedDup++; continue; }
+            const master = masterOf.get(String(r.sold_by_id || '').trim());
+            const prof = master ? profByMaster.get(master) : null;
+            if (!prof) { skippedNoRep++; continue; }                        // seller has no app account — nothing to attribute to
+            let svcId = svcByName.get(norm(sub));
+            if (!svcId) {
+              // Auto-create the service type so the pipeline never silently
+              // stalls on a new CRM subscription name.
+              const ins = await supabase.from('service_types').insert({ name: sub }).select('id').maybeSingle();
+              if (ins.data && ins.data.id) { svcId = ins.data.id; svcCreated++; }
+              else { const again = await supabase.from('service_types').select('id').ilike('name', sub).maybeSingle(); svcId = again.data && again.data.id; }
+              if (svcId) svcByName.set(norm(sub), svcId);
+            }
+            if (!svcId) continue;
+            const months = Number(r.agreement_length) || 12;
+            const initial = Number(r.initial_price) || 0;
+            const monthly = Math.max(0, Math.round(((cv - initial) / 11) * 100) / 100);   // inverse of the app's revenue = initial + monthly×11
+            const { error: insErr } = await supabase.from('sales').insert({
+              rep_id: prof.id,
+              logged_by: null,                                              // origin marker: auto-added
+              customer_name: [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ') || ('Customer ' + r.customer_id),
+              customer_number: String(r.customer_id),
+              office_id: officeByName.get(norm(r.office_name)) ?? prof.office_id ?? null,
+              service_type_id: svcId,
+              source_id: srcByName.get(norm(r.subscription_source)) ?? null,
+              contract_type_id: ctByName.get(norm(months + ' Months')) ?? null,
+              contract_months: months,
+              initial_amount: initial,
+              monthly_amount: monthly,
+              num_services: null,
+              pay_per_service: false,
+              paid_in_full: false,
+              is_commercial: false,
+              revenue_amount: cv,
+              sold_date: soldIso,
+              commission_date: null,
+              notes: 'Auto-added from FieldRoutes sync',
+              audit_status: 'pending',
+              created_at: new Date().toISOString(),
+              crm_status: 'verified', crm_contract_value: cv, crm_subscription: sub, crm_checked_at: new Date().toISOString(),
+            });
+            if (insErr) { console.warn('[revhawk-sync] auto-add failed for cust ' + r.customer_id + ': ' + insErr.message); continue; }
+            haveKey.add(key); haveRevenue.push({ cust: norm(r.customer_id), rev: cv, t: soldT });
+            added++;
+          }
+          if (added || skippedNoRep || svcCreated) console.log('[revhawk-sync] inside-sales auto-add: +' + added + ' subscription(s), ' + skippedDup + ' already logged, ' + skippedNoRep + ' seller(s) with no app profile' + (svcCreated ? ', ' + svcCreated + ' service type(s) created' : ''));
+        }
+      } catch (aaErr) {
+        console.error('[revhawk-sync] inside-sales auto-add skipped:', String((aaErr && aaErr.message) || aaErr));
+      }
     } catch (re) {
       rosterError = String((re && re.message) || re);
       console.error('[revhawk-sync] roster upsert skipped:', rosterError);
@@ -634,8 +733,9 @@ exports.handler = async (event) => {
     let verifyCount = 0, verifyError = null;
     try {
       const since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+      let _lifecycleCols = true;   // flips off if sales_crm_lifecycle.sql hasn't been run
       const { data: appSales, error: asErr } = await supabase.from('sales')
-        .select('id, customer_number, revenue_amount, sold_date, crm_status, crm_contract_value')
+        .select('id, customer_number, revenue_amount, sold_date, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance')
         .gte('sold_date', since);
       if (asErr) throw new Error(asErr.message);
       if (appSales && appSales.length) {
@@ -651,6 +751,7 @@ exports.handler = async (event) => {
           const cust = s.customer_number != null ? String(s.customer_number).trim() : '';
           const rev = Number(s.revenue_amount) || 0;
           let status = 'not_found', cv = null, subName = null;
+          const lc = { serviced_at: null, completed: 0, dpd: null, balance: null };
           const subs = cust ? byCust.get(cust) : null;
           if (subs && subs.length) {
             const soldT = Date.parse(s.sold_date || '') || 0;
@@ -669,14 +770,33 @@ exports.handler = async (event) => {
             }
             cv = Number(best.subscription_contract_value) || 0;
             subName = best.subscription || null;
-            status = bestDiff <= 1 ? 'verified' : 'revenue_mismatch';
+            // EXACT-value discipline (never over/under-pay): to-the-penny
+            // match = verified; within $1 = near_match (amber — auditor
+            // eyeballs the cents); beyond that = revenue_mismatch.
+            status = bestDiff === 0 ? 'verified' : bestDiff <= 1 ? 'near_match' : 'revenue_mismatch';
+            // Lifecycle from the warehouse: serviced yet? paid / current?
+            lc.serviced_at = best.initial_serviced_date ? String(best.initial_serviced_date).slice(0, 10) : null;
+            lc.completed = Number(best.subscription_completed_services) || 0;
+            lc.dpd = (best.days_past_due === null || best.days_past_due === undefined || best.days_past_due === '') ? null : (Number(best.days_past_due) || 0);
+            lc.balance = (best.responsible_balance === null || best.responsible_balance === undefined || best.responsible_balance === '') ? null : (Math.round((Number(best.responsible_balance) || 0) * 100) / 100);
           }
-          // Only write rows whose verdict actually changed — keeps the pass
-          // near-free once things settle.
-          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0)) continue;
-          const { error } = await supabase.from('sales').update({
-            crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp,
-          }).eq('id', s.id);
+          // Only write rows whose verdict OR lifecycle actually changed —
+          // keeps the pass near-free once things settle.
+          const lcChanged = _lifecycleCols && (
+            String(s.crm_serviced_at || '') !== String(lc.serviced_at || '') ||
+            (Number(s.crm_completed_services) || 0) !== (lc.completed || 0) ||
+            (s.crm_days_past_due == null ? null : Number(s.crm_days_past_due)) !== lc.dpd ||
+            (s.crm_balance == null ? null : Number(s.crm_balance)) !== lc.balance);
+          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged) continue;
+          const upd = { crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp };
+          if (_lifecycleCols) { upd.crm_serviced_at = lc.serviced_at; upd.crm_completed_services = lc.completed; upd.crm_days_past_due = lc.dpd; upd.crm_balance = lc.balance; }
+          let { error } = await supabase.from('sales').update(upd).eq('id', s.id);
+          if (error && _lifecycleCols && /column|schema cache/i.test(error.message || '')) {
+            // sales_crm_lifecycle.sql not run yet — degrade to legacy stamp.
+            _lifecycleCols = false;
+            console.warn('[revhawk-sync] lifecycle columns missing — run sales_crm_lifecycle.sql to enable serviced/paid stamps');
+            ({ error } = await supabase.from('sales').update({ crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp }).eq('id', s.id));
+          }
           if (error) throw new Error(error.message);
           verifyCount++;
         }
