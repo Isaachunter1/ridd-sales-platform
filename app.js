@@ -4213,15 +4213,9 @@ function mountApp() {
         onclick: toggleTheme,
         title: state.theme === 'light' ? 'Switch to dark' : 'Switch to light',
       }, state.theme === 'light' ? iconMoon(18) : iconSun(18)),
-      // RevHawk sync (admin-only) — manual "pull fresh now" refresh, sits just
-      // left of Settings. Spins while the ~1-min round-trip is in flight; the
-      // nightly auto-sync still runs on its own.
-      isAdmin && el('button', {
-        class: 'icon-btn show' + (state._revhawkSyncing ? ' icon-spin' : ''),
-        title: state._revhawkSyncing ? 'Syncing…' : 'Sync everything — FieldRoutes (Reporting + Indicators + Comps), QuickBooks, Windsor ad spend & GoHighLevel leads',
-        disabled: !!state._revhawkSyncing,
-        onclick: (e) => syncFromRevHawk(e.currentTarget),
-      }, iconSync(18)),
+      // (Manual ↻ sync button retired — every manual pull was a full BigQuery
+      // scan on top of the every-30-min schedule, which was exhausting the
+      // free query quota. Data now refreshes on the schedule only.)
       // Gear for EVERY role, same spot — admins land on the full Settings
       // page; reps/auditors get My Settings (goal · password · sign out).
       el('button', {
@@ -19343,13 +19337,7 @@ function viewIndicators() {
         el('div', { class: 'text-4xl mb-3' }, '📊'),
         el('h2', { class: 'text-lg font-bold mb-2' }, 'No data yet'),
         el('p', { class: 'text-sm text-muted- mb-4 max-w-md mx-auto' },
-          _admin ? 'Indicators sync from RevHawk. Hit Sync to pull the latest — it lands in about a minute.'
-                 : 'Indicators sync automatically from RevHawk. Check back shortly.'),
-        _admin ? el('button', {
-          class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95',
-          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-          onclick: (e) => syncFromRevHawk(e.currentTarget),
-        }, '↻ Sync from RevHawk') : null,
+          'Indicators sync automatically from RevHawk every 30 minutes during the day — fresh data lands on the next run.'),
       ),
     );
   }
@@ -31529,7 +31517,7 @@ function reportingDataGate() {
   const activeId = state.reportingActiveUploadId;
   if (!activeId) {
     return el('div', { class: 'card p-12 text-center text-sm text-muted-' },
-      'No snapshot loaded. Hit the ↻ sync icon in the top bar to pull the latest from RevHawk.');
+      'No snapshot loaded yet — the scheduled sync (every 30 min during the day) pulls the latest from RevHawk automatically.');
   }
   if (state.reportingSubscriptionsLoadedFor !== activeId) {
     return el('div', { class: 'card p-12 text-center text-sm text-muted-' }, 'Loading snapshot…');
@@ -35783,7 +35771,7 @@ function adminUploads() {
     el('div', { class: 'card p-3' },
       el('div', { class: 'text-sm font-semibold mb-0.5' }, 'RevHawk live data'),
       el('div', { class: 'text-[11px] text-muted-' },
-        'Syncs automatically every evening. Need fresh numbers mid-day? Hit the ↻ sync icon in the top bar — it pulls a new snapshot and rebuilds Reporting + Indicators in about a minute.')),
+        'Syncs automatically every 30 minutes during the day (8am–11:30pm ET) and rebuilds Reporting + Indicators each run. Manual syncs are retired — each one was a full BigQuery scan against a limited monthly quota.')),
     toggle,
     tab === 'activity'
       ? adminBackup()
@@ -38697,15 +38685,10 @@ function adminReps() {
       el('div', { class: 'text-sm font-bold mb-1' }, 'FieldRoutes roster not loaded yet'),
       el('div', { class: 'text-xs text-muted-' },
         missingTable
-          ? 'The fieldroutes_employees table doesn’t exist yet — run fieldroutes_link.sql in Supabase, then hit the ↻ sync icon.'
+          ? 'The fieldroutes_employees table doesn’t exist yet — run fieldroutes_link.sql in Supabase; the next scheduled sync (every 30 min) fills it.'
           : err
             ? ('Couldn’t read the roster: ' + err)
-            : 'The table is empty. Hit the ↻ sync icon in the top bar to pull the FieldRoutes roster (about a minute).'),
-      el('button', {
-        class: 'mt-3 px-3 py-2 rounded-lg text-xs font-bold transition hover:brightness-95',
-        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        onclick: (e) => syncFromRevHawk(e.currentTarget),
-      }, '↻ Sync FieldRoutes now')));
+            : 'The table is empty — the next scheduled sync (every 30 min during the day) pulls the FieldRoutes roster automatically.')));
   }
 
   // ── Rep-type tabs ──

@@ -696,7 +696,12 @@ exports.handler = async (event) => {
     // discovery. Set SLACK_SYNC_WEBHOOK in Netlify env (any Slack incoming
     // webhook URL) and failures post there; unset = logs only.
     try {
-      const hook = process.env.SLACK_SYNC_WEBHOOK;
+      // ADMIN-ONLY alerts: SLACK_SYNC_WEBHOOK pointed at the Inside Sales
+      // channel, so every quota hiccup pinged the whole sales team. Failure
+      // alerts now post ONLY to SLACK_ADMIN_WEBHOOK (set it to a private
+      // admin channel's webhook when you want them back; unset = silent,
+      // failures still land in the Netlify function logs).
+      const hook = process.env.SLACK_ADMIN_WEBHOOK;
       if (hook) await fetch(hook, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: '🚨 RIDD Sales App: RevHawk sync FAILED — ' + String((e && e.message) || e).slice(0, 300) + ' (boards stop updating until this recovers)' }),

@@ -23,7 +23,10 @@
 # scheduled function fires the background worker that pulls from BigQuery and
 # writes the fresh snapshot to Supabase.
 [functions."revhawk-sync-scheduled"]
-  schedule = "*/30 * * * *"   # every 30 min — NRLA live scoreboard (was nightly 02:00 UTC)
+  # Every 30 min during selling hours (12:00–03:30 UTC = 8am–11:30pm ET).
+  # Overnight runs were pure BigQuery quota burn — nothing sells at 4am, and
+  # the free tier (1TB scanned/month) was getting exhausted mid-month.
+  schedule = "*/30 0-3,12-23 * * *"
 
 [functions."marketing-refresh-scheduled"]
   schedule = "0 10 * * *"     # nightly ~5-6am ET — health-check + warm Windsor/GHL/QBO feeds
