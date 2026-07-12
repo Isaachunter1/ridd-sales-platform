@@ -109,6 +109,11 @@
 
 # Admin "Sync now" — verifies the caller is an admin, then fires the sync.
 [[redirects]]
+  from = "/api/ask-data"
+  to   = "/.netlify/functions/ask-data"
+  status = 200
+
+[[redirects]]
   from = "/api/sync-status"
   to   = "/.netlify/functions/sync-status"
   status = 200
