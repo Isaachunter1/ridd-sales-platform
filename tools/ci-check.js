@@ -26,7 +26,7 @@ const ok = (label) => console.log('  ✓ ' + label);
 const bad = (label, detail) => { failures++; console.error('  ✗ ' + label + (detail ? '\n    ' + detail : '')); };
 
 // ── 1. Function + lib syntax ────────────────────────────────────────────
-console.log('\n[1/4] Netlify functions syntax');
+console.log('\n[1/5] Netlify functions syntax');
 const jsTargets = ['app.js'];
 for (const dir of ['netlify/functions', 'netlify/lib', 'tools']) {
   const full = path.join(root, dir);
@@ -42,7 +42,7 @@ for (const rel of jsTargets) {
 }
 
 // ── 2. Inline script blocks ─────────────────────────────────────────────
-console.log('\n[2/4] index.html inline <script> blocks');
+console.log('\n[2/5] index.html inline <script> blocks');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const blocks = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 blocks.forEach((b, i) => {
@@ -55,7 +55,7 @@ blocks.forEach((b, i) => {
 });
 
 // ── 3. Derive parity ────────────────────────────────────────────────────
-console.log('\n[3/4] Server/client derive parity');
+console.log('\n[3/5] Server/client derive parity');
 const parity = spawnSync(process.execPath, [path.join(__dirname, 'derive-parity-test.js')], { encoding: 'utf8' });
 if (parity.status === 0) ok('parity test passed');
 else bad('parity test FAILED', (parity.stdout + parity.stderr).split('\n').filter(l => l.includes('✗')).join(' | ') || 'see output');
@@ -64,7 +64,7 @@ else bad('parity test FAILED', (parity.stdout + parity.stderr).split('\n').filte
 // Prebuilt Tailwind = any class not in the sheet silently does nothing.
 // Covers responsive prefixes (sm:/md:/lg:/xl:) AND arbitrary values like
 // text-[20px] / w-[280px] — both bit us in production.
-console.log('\n[4/4] Tailwind utility coverage (responsive + arbitrary values)');
+console.log('\n[4/5] Tailwind utility coverage (responsive + arbitrary values)');
 const css = fs.readFileSync(path.join(root, 'tailwind.css'), 'utf8');
 const used = new Set();
 const classSources = html + '\n' + appJs;   // markup lives in index.html AND app.js now
@@ -86,6 +86,26 @@ for (const tok of [...used].sort()) {
 }
 if (missing.length === 0) ok(used.size + ' responsive utilities all defined');
 else bad('missing utilities (add to the gap-fill <style> block or rebuild tailwind.css)', missing.join(', '));
+
+// ── [5/5] MODULE-goal syntax parse ──────────────────────────────────────
+// app.js ships as <script type="module">, and module parsing is STRICTER
+// and more eager than `node --check`'s script goal: a duplicate `const`
+// inside a function body sailed through check #1 but made every browser
+// refuse the whole bundle (Jul 2026 outage — app stuck on the splash).
+// Parsing a .mjs copy uses the module goal, exactly like the browser.
+console.log('\n[5/5] Module-goal parse (what the browser actually does)');
+try {
+  const os = require('os');
+  const tmp = path.join(os.tmpdir(), 'ridd-ci-app-' + Date.now() + '.mjs');
+  fs.writeFileSync(tmp, appJs);
+  try {
+    require('child_process').execFileSync(process.execPath, ['--check', tmp], { stdio: 'pipe' });
+    ok('module parse clean');
+  } finally { try { fs.unlinkSync(tmp); } catch { /* tmp cleanup best-effort */ } }
+} catch (e) {
+  bad('module-goal parse failed (browser would reject the bundle)',
+      String((e.stderr || e.message || e)).split('\n').slice(0, 4).join('\n'));
+}
 
 // ── verdict ─────────────────────────────────────────────────────────────
 if (failures) {

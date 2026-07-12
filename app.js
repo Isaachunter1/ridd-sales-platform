@@ -28545,7 +28545,8 @@ function indicatorYoYTrendChart() {
   // start). `cancels` = all-time cancels (current-year line), `cancelsM` =
   // horizon-matched cancels (prior-year line).
   const mk = () => ({ rev: 0, revNew: 0, revRenewal: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, pestSum: 0, pestN: 0, cancels: 0, cancelsM: 0, cancelElig: 0, repSet: new Set() });
-  const acc = {}; // keyed by year → { week → bucket } — every year present
+  // (per-scope accumulators are built by buildAcc below — the first scope's
+  // maps are aliased to acc/accTier after the build)
   // ── Tier split (All / Rookies / Vets) — checkbox picker, so Rookies vs
   // Vets can overlay as separate lines. Tier is resolved PER SALE YEAR:
   // current year uses the live tier (manual tags respected); past years use
@@ -28558,7 +28559,6 @@ function indicatorYoYTrendChart() {
     return sel.length ? sel : ['all'];
   })();
   const _tierSplit = _yoySelTiers.some(t => t !== 'all');
-  const accTier = {}; // 'year|tier' → { week → bucket }
   const _tierMemo = new Map();
   const _tierOfSaleYear = (rep, y) => {
     const key = rep + '|' + y;
