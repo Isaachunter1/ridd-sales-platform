@@ -4384,7 +4384,7 @@ function mountApp() {
       // sparingly; the hourly schedule is the normal path.
       isAdmin && el('button', {
         class: 'icon-btn show' + (state._revhawkSyncing ? ' icon-spin' : ''),
-        title: state._revhawkSyncing ? 'Syncing…' : 'Manual sync — pulls fresh CRM data now (~1 min). Costs a full BigQuery scan; the hourly schedule is the normal path.',
+        title: state._revhawkSyncing ? 'Syncing…' : 'Manual sync — refreshes everything: kicks a fresh CRM pull (lands in ~1–2 min) and re-pulls app sales, config, roster, QuickBooks + marketing feeds right away. Costs a full BigQuery scan; the hourly schedule is the normal path.',
         disabled: !!state._revhawkSyncing,
         onclick: (e) => syncFromRevHawk(e.currentTarget),
       }, iconSync(18)),
@@ -30520,15 +30520,22 @@ document.addEventListener('visibilitychange', () => {
 // passed button gets a spinner + disabled state for the whole round-trip.
 async function syncFromRevHawk(btn) {
   if (state._revhawkSyncing) return;
+  if (state._revhawkLandWatch) { toast('A sync is already running — it pulls in on its own when it lands', 'info'); return; }
   if (typeof DEMO !== 'undefined' && DEMO) { toast('Live sync isn’t available in demo mode', 'info'); return; }
+  // FIRE-AND-FORGET: kick the server job and give the button back right
+  // away. The job runs 1–2+ min in the background (BigQuery scan → snapshot
+  // → derive → roster/auto-add/verify blocks) — the old blocking poll kept
+  // the button spinning that whole time. A temporary watcher below pulls the
+  // fresh dataset in the moment it lands; the global freshness watch is the
+  // backstop after that.
   state._revhawkSyncing = true;
-  if (btn) { btn.classList.add('icon-spin'); btn.disabled = true; btn.title = 'Syncing from RevHawk…'; }
+  if (btn) { btn.classList.add('icon-spin'); btn.disabled = true; btn.title = 'Starting sync…'; }
   try {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session && session.access_token;
     if (!token) { toast('Sign in required', 'error'); return; }
 
-    // Remember the newest snapshot so we can detect the new one the sync writes.
+    // Remember the newest snapshot so the watcher can spot the new one.
     const beforeTop = (state.reportingUploads || [])[0] || null;
     const beforeId = beforeTop && beforeTop.id;
     const beforeAt = beforeTop && beforeTop.uploaded_at;
@@ -30536,13 +30543,25 @@ async function syncFromRevHawk(btn) {
     const r = await fetch('/api/revhawk-sync-now', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.ok) { toast('Sync failed: ' + (j.error || ('HTTP ' + r.status)), 'error'); return; }
-    toast('Syncing… fresh numbers in about a minute', 'info');
+    toast('Sync started — fresh numbers land in a minute or two and pull in automatically', 'info');
 
-    // QuickBooks marketing spend is served live from /api/qbo-spend (not a
-    // stored snapshot), so refresh it inline — it's quick and independent of
-    // the RevHawk snapshot below. Best-effort; a QBO hiccup never blocks sync.
-    // Bust every marketing feed so the next Marketing-tab open (or the QBO
-    // pull just below) grabs LIVE data past the browser + CDN caches.
+    // While the CRM job cooks in the background, re-pull everything ELSE
+    // the app reads — cheap direct reads, all best-effort: logged sales +
+    // audit statuses, shared config (teams/tiers/comps), and the roster
+    // mirror. The shared dataset check rides along (usually 304 until the
+    // job lands; the watcher below catches the real thing).
+    try {
+      await Promise.all([
+        (typeof refreshSalesData === 'function') ? refreshSalesData().catch(() => {}) : null,
+        (typeof loadIndicatorConfigFromSupabase === 'function') ? loadIndicatorConfigFromSupabase().catch(() => {}) : null,
+        (typeof loadFieldRoutesRoster === 'function') ? loadFieldRoutesRoster(true).catch(() => {}) : null,
+        (typeof refreshIndicatorsFromCloud === 'function') ? refreshIndicatorsFromCloud(true).catch(() => {}) : null,
+      ]);
+      mountApp();
+    } catch (e) { console.warn('inline refresh during sync failed', e); }
+
+    // QuickBooks marketing spend is served live (not a stored snapshot) —
+    // refresh it inline; it’s quick and independent. Best-effort.
     state._mkBust = Date.now();
     state._mkSpend = state._mkLeads = state._mkQbo = null;
     try {
@@ -30556,97 +30575,57 @@ async function syncFromRevHawk(btn) {
       }
     } catch (e) { console.warn('QBO refresh during sync failed', e); }
 
-    // Poll Supabase for the new snapshot (the background job writes a new
-    // reporting_uploads row when it finishes). Up to ~5 min, every 5s.
-    let fresh = null;
-    for (let i = 0; i < 60; i++) {
-      await new Promise(res => setTimeout(res, 5000));
-      if (typeof loadReportingMetadata === 'function') await loadReportingMetadata();
-      const top = (state.reportingUploads || [])[0];
-      if (top && top.id !== beforeId && (!beforeAt || (top.uploaded_at && top.uploaded_at > beforeAt))) { fresh = top; break; }
-    }
-    if (!fresh) {
-      // The job can run past 5 min under BigQuery load. Don't give up and
-      // leave a stale stamp (that's how a resync "didn't update" for an
-      // admin) — keep watching once a minute for 10 more minutes and finish
-      // the rebuild automatically when the snapshot lands.
-      toast('QuickBooks refreshed · RevHawk still working — data and the sync stamp will refresh themselves when it lands.', 'info');
-      let _tries = 0;
-      const _watch = setInterval(async () => {
-        _tries++;
-        try {
-          if (typeof loadReportingMetadata === 'function') await loadReportingMetadata();
-          const top = (state.reportingUploads || [])[0];
-          if (top && top.id !== beforeId && (!beforeAt || (top.uploaded_at && top.uploaded_at > beforeAt))) {
-            clearInterval(_watch);
-            state.reportingActiveUploadId = top.id;
-            const lateRows = (typeof loadReportingSubscriptions === 'function') ? await loadReportingSubscriptions(top.id) : null;
-            if (lateRows && lateRows.length) {
-              state.reportingSubscriptions = lateRows;
-              state.reportingSubscriptionsLoadedFor = top.id;
-              // Server-derived blob first; local rebuild only if it's missing.
-              try { if (typeof refreshIndicatorsFromCloud === 'function') await refreshIndicatorsFromCloud(true); } catch { /* fallback below */ }
-              const _lSnapAt = Date.parse(top.uploaded_at || '') || 0;
-              const _lIndAt  = state.indicatorsUploadedAt ? Date.parse(state.indicatorsUploadedAt) : 0;
-              if (!(_lSnapAt && _lIndAt >= _lSnapAt)) {
-                try {
-                  state.indicatorsData = parseIndicatorsCsv(reportingSnapshotToIndicatorsCsv(lateRows));
-                  state.indicatorsWeek = -1;
-                  state.indicatorsUploadedAt = top.uploaded_at || new Date().toISOString();
-                  state.indicatorsFileName = 'RevHawk sync — ' + new Date().toLocaleDateString();
-                  if (typeof captureIndicatorSnapshot === 'function') captureIndicatorSnapshot();
-                  if (typeof syncIndicatorsToCloud === 'function') syncIndicatorsToCloud();
-                } catch (e) { console.warn('Indicators rebuild after late sync failed', e); }
-              }
-              if (typeof saveDemoData === 'function') saveDemoData();
-              toast('RevHawk sync landed — ' + lateRows.length.toLocaleString() + ' subscriptions refreshed', 'success');
-              mountApp();
-            }
-          } else if (_tries >= 10) {
-            clearInterval(_watch);
-          }
-        } catch (e) { if (_tries >= 10) clearInterval(_watch); }
-      }, 60000);
-      mountApp();
-      return;
-    }
-
-    // Load the new snapshot into Reporting.
-    state.reportingActiveUploadId = fresh.id;
-    state.reportingSubscriptions = [];
-    state.reportingSubscriptionsLoadedFor = null;
-    let rows = null;
-    if (typeof loadReportingSubscriptions === 'function') {
-      rows = await loadReportingSubscriptions(fresh.id);
-      if (rows) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = fresh.id; }
-    }
-
-    // Indicators: the sync job derives + publishes the shared dataset
-    // server-side with the snapshot, so PULL that copy (single writer).
-    // Local rebuild only fires as a fallback when the server's derive
-    // failed (blob still older than this snapshot).
-    try { if (typeof refreshIndicatorsFromCloud === 'function') await refreshIndicatorsFromCloud(true); } catch { /* fallback below */ }
-    const _snapAt = Date.parse(fresh.uploaded_at || '') || 0;
-    const _indAt  = state.indicatorsUploadedAt ? Date.parse(state.indicatorsUploadedAt) : 0;
-    if (rows && rows.length && !(_snapAt && _indAt >= _snapAt)) {
+    // Landing watch — every 20s for up to 15 min, NON-blocking (the button
+    // is already released). Applies the new snapshot to Reporting and pulls
+    // the server-derived indicators blob the moment they exist.
+    if (state._revhawkLandWatch) clearInterval(state._revhawkLandWatch);
+    let tries = 0;
+    state._revhawkLandWatch = setInterval(async () => {
+      tries++;
       try {
-        console.warn('[ridd] server-derived indicators blob not available — rebuilding locally (fallback)');
-        state.indicatorsData = parseIndicatorsCsv(reportingSnapshotToIndicatorsCsv(rows)); // also sets state._indicatorRawSales
-        state.indicatorsWeek = -1;
-        state.indicatorsUploadedAt = fresh.uploaded_at || new Date().toISOString(); // tie to the snapshot, matching the server's stamp
-        state.indicatorsFileName = 'RevHawk sync — ' + new Date().toLocaleDateString();
-        if (typeof captureIndicatorSnapshot === 'function') captureIndicatorSnapshot();
-        if (typeof syncIndicatorsToCloud === 'function') syncIndicatorsToCloud();
-      } catch (e) { console.warn('Indicators rebuild after sync failed', e); }
-    }
-    if (typeof saveDemoData === 'function') saveDemoData();
-    toast('Synced — ' + (rows ? rows.length.toLocaleString() : '0') + ' subscriptions + QuickBooks spend', 'success');
-    mountApp();
+        if (typeof loadReportingMetadata === 'function') await loadReportingMetadata();
+        const top = (state.reportingUploads || [])[0];
+        const isNew = top && top.id !== beforeId && (!beforeAt || (top.uploaded_at && top.uploaded_at > beforeAt));
+        if (isNew) {
+          clearInterval(state._revhawkLandWatch); state._revhawkLandWatch = null;
+          state.reportingActiveUploadId = top.id;
+          let rows = null;
+          if (typeof loadReportingSubscriptions === 'function') {
+            rows = await loadReportingSubscriptions(top.id);
+            if (rows) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = top.id; }
+          }
+          // Server-derived blob is the source of truth (single writer);
+          // local rebuild only fires when the server’s derive is missing.
+          try { if (typeof refreshIndicatorsFromCloud === 'function') await refreshIndicatorsFromCloud(true); } catch { /* fallback below */ }
+          const snapAt = Date.parse(top.uploaded_at || '') || 0;
+          const indAt = state.indicatorsUploadedAt ? Date.parse(state.indicatorsUploadedAt) : 0;
+          if (rows && rows.length && !(snapAt && indAt >= snapAt)) {
+            try {
+              console.warn('[ridd] server-derived indicators blob not available — rebuilding locally (fallback)');
+              state.indicatorsData = parseIndicatorsCsv(reportingSnapshotToIndicatorsCsv(rows));
+              state.indicatorsWeek = -1;
+              state.indicatorsUploadedAt = top.uploaded_at || new Date().toISOString();
+              state.indicatorsFileName = 'RevHawk sync — ' + new Date().toLocaleDateString();
+              if (typeof captureIndicatorSnapshot === 'function') captureIndicatorSnapshot();
+              if (typeof syncIndicatorsToCloud === 'function') syncIndicatorsToCloud();
+            } catch (e) { console.warn('Indicators rebuild after sync failed', e); }
+          }
+          if (typeof saveDemoData === 'function') saveDemoData();
+          toast('Fresh CRM data just landed' + (rows ? ' — ' + rows.length.toLocaleString() + ' subscriptions' : ''), 'success');
+          mountApp();
+        } else if (tries >= 45) {
+          clearInterval(state._revhawkLandWatch); state._revhawkLandWatch = null;
+          toast('Sync is taking longer than usual — if the stamp doesn’t move, check the Netlify function logs', 'info');
+        }
+      } catch (e) {
+        if (tries >= 45) { clearInterval(state._revhawkLandWatch); state._revhawkLandWatch = null; }
+      }
+    }, 20000);
   } catch (err) {
     toast('Sync failed: ' + (err && err.message || err), 'error');
   } finally {
     state._revhawkSyncing = false;
-    if (btn) { btn.classList.remove('icon-spin'); btn.disabled = false; btn.title = 'Sync from RevHawk'; }
+    if (btn) { btn.classList.remove('icon-spin'); btn.disabled = false; btn.title = 'Manual sync — refreshes everything: kicks a fresh CRM pull (lands in ~1–2 min) and re-pulls app sales, config, roster, QuickBooks + marketing feeds right away. Costs a full BigQuery scan; the hourly schedule is the normal path.'; }
   }
 }
 
