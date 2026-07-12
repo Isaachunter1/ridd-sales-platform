@@ -33,3 +33,4 @@ BACKEND_with_warehouse_status.xlsx
 
 # Deploy-time build artifact (tools/build.js regenerates per deploy)
 app-*.immutable.js
+version.json

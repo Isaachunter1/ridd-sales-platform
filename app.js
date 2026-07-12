@@ -470,6 +470,20 @@ function indicatorsSyncStampText() {
   if (isNaN(t)) return '';
   return t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
+// Is the shared dataset OVERDUE? Syncs land hourly on the hour, 8am–11pm ET
+// (paused overnight). Data older than ~100 min DURING selling hours means a
+// run failed or hasn't landed — the header stamp turns amber so staleness
+// is visible instead of silently trusted.
+function indicatorsSyncOverdue() {
+  if (!state.indicatorsUploadedAt) return false;
+  const t = new Date(state.indicatorsUploadedAt);
+  if (isNaN(t)) return false;
+  const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const h = nowET.getHours();
+  if (h < 8 || h >= 23) return false;                          // overnight pause — big gaps are normal
+  if (h === 8 && nowET.getMinutes() < 15) return false;        // give the 8:00 run time to land
+  return (Date.now() - t.getTime()) > 100 * 60 * 1000;
+}
 
 function loadIndicatorState() {
   // Read the new split keys first; fall back to the legacy combined key if a
@@ -1935,6 +1949,39 @@ function toggleTheme() {
   if (state.session || DEMO) mountApp();
 }
 
+// ── RESUME WHERE YOU LEFT OFF ────────────────────────────────────────────
+// iOS cold-launches a PWA at the manifest start_url, losing the tab you
+// were on. We save the current spot continuously; a relaunch within the
+// window restores tab + sub-tab + scroll, like a native app resume. Past
+// the window it opens fresh on the default screen.
+const RESUME_KEY = 'ridd_resume_v1';
+const RESUME_WINDOW_MS = 5 * 60 * 1000;   // "last place" survives a 5-min backgrounding
+function _saveResume() {
+  try {
+    if (!state.view) return;
+    localStorage.setItem(RESUME_KEY, JSON.stringify({
+      view: state.view, at: Date.now(), scroll: window.scrollY || 0,
+      reportingSubTab: state.reportingSubTab || null,
+      adminSection: state.adminSection || null,
+      adminSubTab: state._adminSubTab || null,
+    }));
+  } catch { /* private mode */ }
+}
+function _applyResume() {
+  try {
+    const r = JSON.parse(localStorage.getItem(RESUME_KEY) || 'null');
+    if (!r || !r.view || (Date.now() - (r.at || 0)) > RESUME_WINDOW_MS) return false;
+    state.view = r.view;
+    if (r.reportingSubTab) state.reportingSubTab = r.reportingSubTab;
+    if (r.adminSection)    state.adminSection = r.adminSection;
+    if (r.adminSubTab)     state._adminSubTab = r.adminSubTab;
+    state._resumeScroll = r.scroll || 0;
+    return true;
+  } catch { return false; }
+}
+window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') _saveResume(); });
+window.addEventListener('pagehide', _saveResume);
+
 // ──────────────────────────────────────────────────────────────────────────
 // Boot sequence
 // ──────────────────────────────────────────────────────────────────────────
@@ -1958,7 +2005,9 @@ async function boot() {
     loadDemoData();
     const hv = applyHash();
     if (hv) state.view = hv;
+    else if (_applyResume()) { /* resume within window */ }
     mountApp();
+    if (state._resumeScroll) { const y = state._resumeScroll; state._resumeScroll = 0; setTimeout(() => window.scrollTo(0, y), 400); }
     window.addEventListener('hashchange', () => {
       const v = applyHash();
       if (v && v !== state.view) { state.view = v; mountApp(); }
@@ -2035,9 +2084,30 @@ async function boot() {
     showRecovery();
     return;
   }
+  // 30-DAY RE-AUTH — light security hygiene: sessions otherwise refresh
+  // forever. Once a month the app asks for the password again (iOS keychain
+  // autofill makes it a two-tap). Clock starts at each successful sign-in.
+  if (session) {
+    try {
+      const REAUTH_MS = 30 * 86400000;
+      const la = Number(localStorage.getItem('ridd_last_auth_v1') || 0);
+      if (!la) localStorage.setItem('ridd_last_auth_v1', String(Date.now()));   // existing sessions: start the clock now
+      else if (Date.now() - la > REAUTH_MS) {
+        localStorage.removeItem('ridd_last_auth_v1');
+        await supabase.auth.signOut();
+        mountAuth();
+        try { toast('Quick security check — please sign in again.', 'info'); } catch { /* pre-toast */ }
+        return;
+      }
+    } catch { /* private mode — skip */ }
+  }
   const hv2 = applyHash();
   if (hv2) state.view = hv2;
+  else if (_applyResume()) { /* re-opened within the window → land on the last tab */ }
   await loadAndRender();
+  // Put them back at the scroll position they left (best-effort — data
+  // sections finish loading async, so a slightly different height is fine).
+  if (state._resumeScroll) { const y = state._resumeScroll; state._resumeScroll = 0; setTimeout(() => window.scrollTo(0, y), 400); }
   // Post-reload confirmation from the password-save handoff.
   try {
     if (sessionStorage.getItem('ridd_pw_saved') === '1') {
@@ -2658,7 +2728,78 @@ function mountLoading() {
     )));
 }
 
+// ── STALE-SESSION WATCHER ────────────────────────────────────────────────
+// Installed PWAs never reload on their own — reps resume the same page for
+// DAYS, running whatever bundle was live when they last opened it (why the
+// app felt "glitchy for everyone but the admin who hard-refreshes all day").
+// Poll version.json every 5 min + whenever the app comes back to the
+// foreground; when a new deploy is live, reload onto it — deferred while a
+// modal is open or the user is typing, and guarded so one new version can
+// only trigger one reload.
+(() => {
+  const _myBundle = (() => {
+    try {
+      const tag = document.querySelector('script[src*=".immutable.js"]');
+      return tag ? String(tag.getAttribute('src')).split('/').pop() : null;
+    } catch { return null; }
+  })();
+  if (!_myBundle) return;   // sandbox / plain app.js — no version to watch
+  let _reloadArmed = false;
+  const check = async () => {
+    try {
+      if (_reloadArmed) return;
+      const r = await fetch('/version.json', { cache: 'no-store' });
+      if (!r.ok) return;
+      const v = await r.json();
+      if (!v || !v.hash || v.hash === _myBundle) return;
+      let done = '';
+      try { done = sessionStorage.getItem('ridd_reloaded_for') || ''; } catch { /* private */ }
+      if (done === v.hash) return;                       // already reloaded for this build once
+      const busyTyping = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+      if (busyTyping || document.querySelector('.modal-overlay')) return;   // try again next cycle
+      _reloadArmed = true;
+      try { sessionStorage.setItem('ridd_reloaded_for', v.hash); } catch { /* private */ }
+      try { toast('App updated — refreshing…', 'info'); } catch { /* pre-boot */ }
+      setTimeout(() => location.reload(), 1200);
+    } catch { /* offline — next cycle */ }
+  };
+  setInterval(check, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(check, 800); });
+})();
+
+// ── CLIENT ERROR TELEMETRY ───────────────────────────────────────────────
+// Uncaught errors + promise rejections post to /api/client-error (→ admin
+// Slack when SLACK_ADMIN_WEBHOOK is set, Netlify logs always). Deduped per
+// message, max 5 per session — a crash loop can't spam anything.
+const _errSent = new Set();
+function _reportClientError(message, stack) {
+  try {
+    if (typeof DEMO !== 'undefined' && DEMO) return;
+    const key = String(message || '').slice(0, 120);
+    if (!key || _errSent.has(key) || _errSent.size >= 5) return;
+    _errSent.add(key);
+    const tag = document.querySelector('script[src*=".immutable.js"]');
+    fetch('/api/client-error', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: key,
+        stack: String(stack || '').slice(0, 800),
+        view: (typeof state !== 'undefined' && state.view) || '',
+        role: (typeof state !== 'undefined' && state.profile && state.profile.role) || '',
+        bundle: tag ? String(tag.getAttribute('src')).split('/').pop() : 'dev',
+        ua: navigator.userAgent,
+      }),
+    }).catch(() => { /* fire and forget */ });
+  } catch { /* never let telemetry throw */ }
+}
+window.addEventListener('error', (e) => _reportClientError(e.message, e.error && e.error.stack));
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason || {};
+  _reportClientError(r.message || String(e.reason), r.stack);
+});
+
 function mountError(err) {
+  _reportClientError('mountError: ' + (err && err.message || err), err && err.stack);
   mount(el('div', { class: 'min-h-screen flex items-center justify-center p-6' },
     el('div', { class: 'card p-6 max-w-lg' },
       el('h1', { class: 'text-lg font-semibold text-red-400 mb-2' }, 'Something went wrong'),
@@ -2701,6 +2842,7 @@ function mountAuth(opts = {}) {
         if (mode === 'login') {
           const { error } = await supabase.auth.signInWithPassword({ email, password });
           if (error) throw error;
+          try { localStorage.setItem('ridd_last_auth_v1', String(Date.now())); } catch { /* private */ }
         } else if (mode === 'forgot') {
           const { error } = await supabase.auth.resetPasswordForEmail(email, {
             redirectTo: authEmailRedirectUrl(),
@@ -2740,6 +2882,7 @@ function mountAuth(opts = {}) {
           try {
             sessionStorage.removeItem('ridd_recovery_pending');
             sessionStorage.setItem('ridd_pw_saved', '1');
+            localStorage.setItem('ridd_last_auth_v1', String(Date.now()));
           } catch { /* private mode — reload still works */ }
           submitBtn.innerHTML = '✓ Saved';
           // CLEAN url before the reload — keeping window.location.search
@@ -3982,6 +4125,7 @@ function mountApp() {
         }, 'Sign out'))));
     return;
   }
+  try { _saveResume(); } catch { /* never block a render */ }
   const isAdmin = isAdminRole(state.profile.role);
   const isAuditor = isAuditorRole(state.profile.role);
 
@@ -4158,8 +4302,14 @@ function mountApp() {
         const DATA_VIEWS = new Set(['indicators', 'nrla', 'competitions', 'reporting', 'scorecards', 'hall_of_fame']);
         if (!DATA_VIEWS.has(state.view)) return null;
         const txt = (typeof indicatorsSyncStampText === 'function') ? indicatorsSyncStampText() : '';
-        return txt ? el('span', { class: 'hidden sm:block text-[11px] whitespace-nowrap', style: { color: 'var(--text-muted)', marginLeft: '10px', alignSelf: 'center' } },
-          'Last upload: ', el('span', { class: 'font-semibold', style: { color: 'var(--text)' } }, txt)) : null;
+        const overdue = (typeof indicatorsSyncOverdue === 'function') && indicatorsSyncOverdue();
+        return txt ? el('span', {
+          class: 'hidden sm:block text-[11px] whitespace-nowrap',
+          style: { color: overdue ? '#D97706' : 'var(--text-muted)', marginLeft: '10px', alignSelf: 'center' },
+          title: overdue ? 'Data is older than the hourly sync cadence — a run may have failed (check Netlify logs)' : 'Syncs land hourly on the hour, 8am–11pm ET',
+        },
+          'Last upload: ', el('span', { class: 'font-semibold', style: { color: overdue ? '#D97706' : 'var(--text)' } }, txt),
+          overdue ? ' · overdue' : '') : null;
       })(),
     ),
     state.view === 'sales' ? buildSearchBar() : el('div', { class: 'flex-1' }),
@@ -6630,6 +6780,95 @@ function computeIndicatorTrends(rep, weekOffset = 0) {
   const _out = { weeks12, weeksHasOlder, dow, hours, hoursRev, firstHour, lastHour, peakHour, earliest, latest, dayHourCount, dayHourRev, topSubs, currentStreak, longestStreak };
   _indTrendsCache.byOff.set(weekOffset, _out);
   return _out;
+}
+
+// ── Rep home-page layout prefs — PER DEVICE (view preference, not shared
+// config): which sections show on the rep Indicators page, in what order,
+// plus an optional personal default date range. ──
+const REP_LAYOUT_KEY = 'ridd_rep_layout_v1';
+const REP_LAYOUT_SECTIONS = [
+  ['card',  'My Player Card'],
+  ['yoy',   'YTD Performance Trends'],
+  ['trend', 'Your Performance Trends'],
+  ['board', 'Rep Leaderboard'],
+];
+function _repLayoutPrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem(REP_LAYOUT_KEY) || 'null');
+    if (p && Array.isArray(p.order)) {
+      // heal: every known section appears exactly once
+      p.order = [...new Set([...p.order.filter(k => REP_LAYOUT_SECTIONS.some(([id]) => id === k)), ...REP_LAYOUT_SECTIONS.map(([id]) => id)])];
+      p.hidden = Array.isArray(p.hidden) ? p.hidden : [];
+      return p;
+    }
+  } catch { /* fresh */ }
+  return { order: REP_LAYOUT_SECTIONS.map(([id]) => id), hidden: [], dateDefault: '' };
+}
+function _saveRepLayoutPrefs(p) { try { localStorage.setItem(REP_LAYOUT_KEY, JSON.stringify(p)); } catch { /* private mode */ } }
+
+// ✏️ Customize sheet — reorder / show-hide the rep page sections and pick a
+// personal default date range. Edits apply LIVE (page re-renders behind the
+// sheet); everything is per-device so reps can't affect each other.
+function openRepCustomizeModal() {
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const card = el('div', { class: 'card w-full max-w-sm my-8 flex flex-col overflow-hidden', style: { maxHeight: 'calc(100vh - 64px)' } });
+  overlay.append(card); document.body.append(overlay);
+  const render = () => {
+    const p = _repLayoutPrefs();
+    card.innerHTML = '';
+    const arrow = (glyph, disabled, onclick) => el('button', {
+      class: 'w-7 h-7 rounded-lg border text-xs font-bold transition' + (disabled ? '' : ' hover:brightness-95 cursor-pointer'),
+      style: { borderColor: 'var(--border-2)', color: disabled ? 'var(--text-subtle)' : 'var(--text)', opacity: disabled ? .4 : 1 },
+      disabled, onclick: disabled ? undefined : onclick,
+    }, glyph);
+    const commit = (np) => { _saveRepLayoutPrefs(np); render(); mountApp(); };
+    card.append(
+      el('div', { class: 'px-5 py-3 flex items-center justify-between border-b', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('h2', { class: 'text-lg font-bold' }, '✏️ Customize My Page'),
+          el('div', { class: 'text-[11px] text-muted- mt-0.5' }, 'Just for you, on this device.')),
+        el('button', { class: 'text-xl leading-none text-muted-', style: { lineHeight: '1' }, onclick: () => overlay.remove() }, '×')),
+      el('div', { class: 'p-4 flex flex-col gap-2 overflow-auto' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Sections · order & visibility'),
+        ...p.order.map((k, i) => {
+          const label = (REP_LAYOUT_SECTIONS.find(([id]) => id === k) || [k, k])[1];
+          const hidden = p.hidden.includes(k);
+          return el('div', { class: 'flex items-center gap-2 rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)', background: hidden ? 'transparent' : 'var(--card-2)', opacity: hidden ? .55 : 1 } },
+            arrow('▲', i === 0, () => { const o = [...p.order]; [o[i - 1], o[i]] = [o[i], o[i - 1]]; commit({ ...p, order: o }); }),
+            arrow('▼', i === p.order.length - 1, () => { const o = [...p.order]; [o[i + 1], o[i]] = [o[i], o[i + 1]]; commit({ ...p, order: o }); }),
+            el('span', { class: 'text-sm font-semibold flex-1 min-w-0 truncate' }, label),
+            el('button', {
+              class: 'text-[11px] font-bold px-2 py-1 rounded-lg border transition hover:brightness-95',
+              style: hidden ? { borderColor: 'var(--border-2)', color: 'var(--text-muted)' } : { borderColor: 'var(--accent)', color: 'var(--accent)' },
+              onclick: () => {
+                const nh = hidden ? p.hidden.filter(x => x !== k) : [...p.hidden, k];
+                if (nh.length >= p.order.length) { toast('Keep at least one section visible', 'warn'); return; }
+                commit({ ...p, hidden: nh });
+              },
+            }, hidden ? 'Hidden' : 'Shown'));
+        }),
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mt-2', style: { color: 'var(--text-subtle)' } }, 'My default date range'),
+        el('select', {
+          class: 'rounded-xl px-3 py-2 text-sm font-medium cursor-pointer w-full',
+          onchange: (e) => {
+            const v = e.target.value;
+            const np = { ..._repLayoutPrefs(), dateDefault: v };
+            _saveRepLayoutPrefs(np);
+            if (v) { state.indicatorsRangePreset = v; }
+            mountApp();
+          },
+        },
+          el('option', { value: '', selected: !p.dateDefault }, 'App default (This Year)'),
+          ...INDICATOR_RANGE_PRESETS.filter(x => x.id !== 'custom').map(x =>
+            el('option', { value: x.id, selected: p.dateDefault === x.id }, x.label))),
+        el('button', {
+          class: 'mt-2 rounded-xl px-3 py-2 text-xs font-bold border transition hover:brightness-95',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+          onclick: () => { try { localStorage.removeItem(REP_LAYOUT_KEY); } catch { } state._repDateDefaultApplied = false; render(); mountApp(); },
+        }, '↺ Reset to default layout')));
+  };
+  render();
 }
 
 // Modal player card — opened from the Indicators rep-leaderboard row click.
@@ -19302,6 +19541,12 @@ function viewIndicators() {
   // Weekly mode retired — the preset dropdown (This Year default) drives the
   // whole tab. 'weekly' state from older sessions heals to range here.
   state.indicatorsView = 'range';
+  // Rep accounts: apply their ✏️ Customize default date range once per
+  // session (before any window math runs).
+  if (!isAdminRole(state.profile && state.profile.role) && !state._repDateDefaultApplied) {
+    state._repDateDefaultApplied = true;
+    try { const _pl = _repLayoutPrefs(); if (_pl.dateDefault) state.indicatorsRangePreset = _pl.dateDefault; } catch { /* fresh */ }
+  }
   // Pull the newest shared upload (any admin's) — throttled to one check
   // every 2 minutes; re-renders automatically if something fresher exists.
   refreshIndicatorsFromCloud();
@@ -19337,7 +19582,7 @@ function viewIndicators() {
         el('div', { class: 'text-4xl mb-3' }, '📊'),
         el('h2', { class: 'text-lg font-bold mb-2' }, 'No data yet'),
         el('p', { class: 'text-sm text-muted- mb-4 max-w-md mx-auto' },
-          'Indicators sync automatically from RevHawk every 30 minutes during the day — fresh data lands on the next run.'),
+          'Indicators sync automatically from RevHawk every hour on the hour during the day — fresh data lands on the next run.'),
       ),
     );
   }
@@ -19938,6 +20183,14 @@ function viewIndicators() {
           clampDropdownPanel(panel);
           return el('div', { style: { position: 'relative' } }, btn, panel);
         })(),
+        // ✏️ Customize (rep accounts) — reorder / show-hide the page
+        // sections + personal default date range, saved on this device.
+        _repLite && el('button', {
+          class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95 shrink-0',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          title: 'Customize my page — section order, visibility, default date range',
+          onclick: () => openRepCustomizeModal(),
+        }, '✏️'),
         // Custom date pickers still render in their own row below this bar
         // when the Date preset is Custom (see the dedicated row after the
         // toolbar div).
@@ -20615,15 +20868,24 @@ function viewIndicators() {
     // REP-LEVEL ANALYTICS (computed from raw sales if available)
     // ════════════════════════════════════════════════════════════════
     ...(_focusedComp ? [] : (_repLite
-      ? [
-          // #4 — landing order for reps: YOUR player card, your trend
-          // charts, THEN the leaderboard (335 rep cards used to bury the
-          // charts at the bottom of a very long scroll).
-          repLandingPlayerCard(),
-          indicatorYoYTrendChart(),
-          ..._repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend'),
-          ..._repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard'),
-        ]
+      ? (() => {
+          // Rep home page — PERSONALIZED: section order + visibility come
+          // from ✏️ Customize (per device). Default order: player card,
+          // YTD chart, weekly trend, leaderboard.
+          const prefs = _repLayoutPrefs();
+          const builders = {
+            card:  () => [repLandingPlayerCard()],
+            yoy:   () => [indicatorYoYTrendChart()],
+            trend: () => _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend'),
+            board: () => _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard'),
+          };
+          const out = [];
+          prefs.order.forEach(k => {
+            if (prefs.hidden.includes(k) || !builders[k]) return;
+            builders[k]().forEach(n => { if (n) out.push(n); });
+          });
+          return out.length ? out : [repLandingPlayerCard()];
+        })()
       : _repSections)),
   );
 }
@@ -29664,6 +29926,14 @@ function reportingSnapshotToIndicatorsCsv(rows) {
 // once per new snapshot per browser, and prefers a cloud copy another admin
 // already derived.
 async function autoDeriveIndicatorsFromSnapshot() {
+  // RETIRED — the sync job derives the shared dataset server-side on every
+  // run, so no browser rebuilds or uploads it anymore. One writer (the
+  // server), many readers (every device pulls the same blob). This client
+  // fallback predates the server derive and could race it: an admin's
+  // browser doing a heavy local rebuild + push while the server had already
+  // published a fresher copy — subtle inconsistency between users.
+  return;
+  /* eslint-disable no-unreachable */
   if ((typeof DEMO !== 'undefined' && DEMO) || !state.profile || !isAdminRole(state.profile.role)) return;
   const up = (state.reportingUploads || [])[0];                  // newest snapshot
   if (!up || !up.uploaded_at) return;
@@ -31517,7 +31787,7 @@ function reportingDataGate() {
   const activeId = state.reportingActiveUploadId;
   if (!activeId) {
     return el('div', { class: 'card p-12 text-center text-sm text-muted-' },
-      'No snapshot loaded yet — the scheduled sync (every 30 min during the day) pulls the latest from RevHawk automatically.');
+      'No snapshot loaded yet — the scheduled sync (hourly during the day) pulls the latest from RevHawk automatically.');
   }
   if (state.reportingSubscriptionsLoadedFor !== activeId) {
     return el('div', { class: 'card p-12 text-center text-sm text-muted-' }, 'Loading snapshot…');
@@ -35771,7 +36041,7 @@ function adminUploads() {
     el('div', { class: 'card p-3' },
       el('div', { class: 'text-sm font-semibold mb-0.5' }, 'RevHawk live data'),
       el('div', { class: 'text-[11px] text-muted-' },
-        'Syncs automatically every 30 minutes during the day (8am–11:30pm ET) and rebuilds Reporting + Indicators each run. Manual syncs are retired — each one was a full BigQuery scan against a limited monthly quota.')),
+        'Syncs automatically every hour on the hour during the day (8am–11pm ET) and rebuilds Reporting + Indicators each run. Manual syncs are retired — each one was a full BigQuery scan that costs real quota.')),
     toggle,
     tab === 'activity'
       ? adminBackup()
@@ -38685,10 +38955,10 @@ function adminReps() {
       el('div', { class: 'text-sm font-bold mb-1' }, 'FieldRoutes roster not loaded yet'),
       el('div', { class: 'text-xs text-muted-' },
         missingTable
-          ? 'The fieldroutes_employees table doesn’t exist yet — run fieldroutes_link.sql in Supabase; the next scheduled sync (every 30 min) fills it.'
+          ? 'The fieldroutes_employees table doesn’t exist yet — run fieldroutes_link.sql in Supabase; the next scheduled sync (hourly) fills it.'
           : err
             ? ('Couldn’t read the roster: ' + err)
-            : 'The table is empty — the next scheduled sync (every 30 min during the day) pulls the FieldRoutes roster automatically.')));
+            : 'The table is empty — the next scheduled sync (hourly during the day) pulls the FieldRoutes roster automatically.')));
   }
 
   // ── Rep-type tabs ──
