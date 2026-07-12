@@ -3257,7 +3257,7 @@ function officeDashboard(windowSales) {
 function microGoalWidget() {
   const goal = getGoalForContext();
   const dailyTarget = Math.ceil(goal.amount / 250);
-  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayKey = bizTodayIso();   // was UTC — flipped to "tomorrow" at 8pm ET
   const EXCLUDE = new Set(['cancelled','nsf','not_payable','reschedule','rejected']);
   const todayCount = dashboardSales().filter(s => s.sold_date === todayKey && !EXCLUDE.has(s.audit_status) && s.rep_id === state.profile.id).length;
   const remaining = Math.max(0, dailyTarget - todayCount);
@@ -4445,6 +4445,10 @@ function mountApp() {
     ));
   }
 
+  // Data Assistant 💬 — admin-only, created once (never re-rendered by
+  // mountApp, so a mid-question re-render can't eat what you're typing).
+  try { _ensureAskWidget(); } catch (e) { /* never block a render */ }
+
   // Render the view's body
   const view = {
     dashboard:    viewDashboard,
@@ -4765,7 +4769,7 @@ function viewDashboard() {
           ytdByRep[s.rep_id] = (ytdByRep[s.rep_id] || 0) + Number(s.revenue_amount || 0);
         }
         const sellers = (state.allProfiles || [])
-          .filter(p => isSellerRole(p.role) && p.is_active !== false)
+          .filter(p => isSellerRole(p.role) && p.is_active !== false && isOfficeStaffProfile(p))
           .map(p => ({ p, goal: Number(p.annual_revenue_goal) || 0, rev: ytdByRep[p.id] || 0 }))
           .filter(x => x.goal > 0 || x.rev > 0)
           .sort((a, b) => (b.goal ? b.rev / b.goal : 0) - (a.goal ? a.rev / a.goal : 0) || b.rev - a.rev);
@@ -5102,6 +5106,23 @@ function recentSalesTable(rows, opts = {}) {
 // ──────────────────────────────────────────────────────────────────────────
 // LEADERBOARD — computed live from profiles + sales
 // ──────────────────────────────────────────────────────────────────────────
+// Is this profile an INSIDE SALES (office staff) person? Best signal first:
+// explicit role → linked CRM roster row → own CRM type (self) → name-
+// signature map from the shared dataset. Used to scope the whole War Room
+// family (leaderboard, individual goals, Hall of Fame) to office staff.
+function isOfficeStaffProfile(p) {
+  if (!p) return false;
+  if (p.role === 'rep_office') return true;
+  if (p.role === 'rep_sales') return false;
+  const emp = frRosterRowForProfile(p);   // works even when the profile stores a branch id
+  if (emp && emp.type_label) return /office\s*staff/i.test(emp.type_label);
+  if (state.profile && p.id === state.profile.id && state.myRepType) return /office\s*staff/i.test(state.myRepType);
+  try {
+    const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(p.full_name || ''))];
+    if (t) return /office\s*staff/i.test(t);
+  } catch (e) { /* fall through */ }
+  return false; // unknown type — self-heals once their CRM type syncs
+}
 function computeLeaderboard(tab = 'total', range = null) {
   // Only people with sales access rank on the leaderboard: sales reps,
   // loyalty reps, and Admin + Sales. Auditors review and Admin (no sales)
@@ -5113,20 +5134,7 @@ function computeLeaderboard(tab = 'total', range = null) {
   // first: explicit role → linked CRM roster row (admins have the full
   // roster) → own CRM type (self) → name-signature map from the shared
   // dataset (available to every role).
-  const _isOfficeStaffProfile = (p) => {
-    if (!p) return false;
-    if (p.role === 'rep_office') return true;
-    if (p.role === 'rep_sales') return false;
-    const emp = frRosterRowForProfile(p);   // works even when the profile stores a branch id
-    if (emp && emp.type_label) return /office\s*staff/i.test(emp.type_label);
-    if (state.profile && p.id === state.profile.id && state.myRepType) return /office\s*staff/i.test(state.myRepType);
-    try {
-      const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(p.full_name || ''))];
-      if (t) return /office\s*staff/i.test(t);
-    } catch (e) { /* fall through */ }
-    return false; // unknown type — self-heals once their CRM type syncs
-  };
-  const profiles = profilesAll.filter(p => isSellerRole(p.role) && _isOfficeStaffProfile(p));
+  const profiles = profilesAll.filter(p => isSellerRole(p.role) && isOfficeStaffProfile(p));
   const renewalIds = new Set(state.sources.filter(s => s.is_renewal).map(s => s.id));
   const isRenewalSale = s => s._crmRenewal ?? renewalIds.has(s.source_id);
 
@@ -5304,7 +5312,7 @@ function computeBadges() {
   };
 
   // ── First Blood — first sale of TODAY (resets daily) ──
-  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayKey = bizTodayIso();   // business day, pinned ET
   const salesToday = dashboardSales().filter(s => s.sold_date === todayKey);
   if (salesToday.length) {
     const earliest = salesToday.reduce((a, b) => {
@@ -12691,7 +12699,10 @@ function openEditTimesSheet(assignment, slot, redraw) {
 // ──────────────────────────────────────────────────────────────────────────
 
 function viewHallOfFame() {
-  const profiles = state.allProfiles.length ? state.allProfiles : [state.profile];
+  // ACTIVE OFFICE STAFF only — this is the Inside Sales hall; D2D reps have
+  // their own boards on Indicators/Competitions.
+  const profiles = (state.allProfiles.length ? state.allProfiles : [state.profile])
+    .filter(p => p && isSellerRole(p.role) && p.is_active !== false && isOfficeStaffProfile(p));
   const byRep = groupBy(dashboardSales(), s => s.rep_id);
 
   // Compute records for every rep + overall company records
@@ -13712,6 +13723,212 @@ function frRosterRowForProfile(p) { return _frMasterMaps().rowByMaster.get(frRes
 // are the same person when their signature sets intersect.
 // CRM names export as "Last, First" — flip to "First Last" for display.
 const FR_SYSTEM_NAME_RE = /\badmin\b|\bsystem\b|fieldroutes|fr-system|\btest\b|\breferral\b|sellify|pest routes|ridd account|ridd sales|pro products|mosquito joe|clicki|pest ai|pest booker|applause/i;
+// ── CHART TOOLTIPS, APP-WIDE ─────────────────────────────────────────────
+// One HTML tooltip for every Chart.js chart: theme-aware card (blur, border,
+// shadow, CSS variables — canvas tooltips can't do any of that), color chips
+// per series, tabular numbers, viewport-clamped. Installed as the GLOBAL
+// Chart.js default; each chart's existing label/footer callbacks still shape
+// the content — this only replaces the rendering.
+const _riddTipEsc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function _riddChartTipEl() {
+  let t = document.getElementById('riddChartTip');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'riddChartTip';
+    Object.assign(t.style, {
+      position: 'fixed', pointerEvents: 'none', zIndex: '9999', opacity: '0',
+      transition: 'opacity .12s ease', maxWidth: '340px',
+      padding: '10px 13px', borderRadius: '12px',
+      border: '1px solid var(--border-2)',
+      boxShadow: '0 12px 32px rgba(0,0,0,.35)',
+      backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
+    });
+    // Solid fallback first; color-mix upgrades it where supported.
+    t.style.background = 'var(--card)';
+    t.style.background = 'color-mix(in srgb, var(--card) 90%, transparent)';
+    document.body.append(t);
+  }
+  return t;
+}
+function _riddChartTooltip(ctx) {
+  const t = _riddChartTipEl();
+  const tip = ctx.tooltip;
+  if (!tip || tip.opacity === 0) { t.style.opacity = '0'; return; }
+  const title = (tip.title || []).join(' ');
+  const items = (tip.body || []).map((b, i) => ({
+    text: b.lines.join(' '),
+    color: (tip.labelColors && tip.labelColors[i] && (tip.labelColors[i].borderColor || tip.labelColors[i].backgroundColor)) || 'var(--accent)',
+  }));
+  const footer = (tip.footer || []).join(' ');
+  const MAX = 12;
+  let html = '';
+  if (title) html += '<div style="font-weight:800;font-size:12px;margin-bottom:6px;color:var(--text);letter-spacing:.01em">' + _riddTipEsc(title) + '</div>';
+  items.slice(0, MAX).forEach(it => {
+    html += '<div style="display:flex;align-items:center;gap:7px;font-size:11.5px;line-height:1.75;color:var(--text-muted)">'
+      + '<span style="width:8px;height:8px;border-radius:3px;flex:none;background:' + _riddTipEsc(String(it.color)) + '"></span>'
+      + '<span style="font-variant-numeric:tabular-nums">' + _riddTipEsc(it.text) + '</span></div>';
+  });
+  if (items.length > MAX) html += '<div style="font-size:10px;color:var(--text-subtle);margin-top:2px">+ ' + (items.length - MAX) + ' more</div>';
+  if (footer) html += '<div style="margin-top:7px;padding-top:7px;border-top:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text)">' + _riddTipEsc(footer) + '</div>';
+  if (!html) { t.style.opacity = '0'; return; }
+  t.innerHTML = html;
+  // Position beside the caret, clamped to the viewport.
+  const rect = ctx.chart.canvas.getBoundingClientRect();
+  const w = t.offsetWidth, h = t.offsetHeight;
+  let x = rect.left + tip.caretX + 14;
+  if (x + w > window.innerWidth - 8) x = rect.left + tip.caretX - w - 14;
+  x = Math.max(8, x);
+  let y = rect.top + tip.caretY - h / 2;
+  y = Math.max(8, Math.min(y, window.innerHeight - h - 8));
+  t.style.left = x + 'px';
+  t.style.top = y + 'px';
+  t.style.opacity = '1';
+}
+// Install as the Chart.js global default the moment the (deferred) library
+// lands — every chart created afterwards inherits it automatically.
+(function _installRiddChartTooltips() {
+  const apply = () => {
+    if (typeof Chart === 'undefined') return false;
+    if (!Chart._riddTipInstalled) {
+      Chart._riddTipInstalled = true;
+      Chart.defaults.plugins.tooltip.enabled = false;
+      Chart.defaults.plugins.tooltip.external = _riddChartTooltip;
+    }
+    return true;
+  };
+  if (!apply()) {
+    const iv = setInterval(() => { if (apply()) clearInterval(iv); }, 400);
+    setTimeout(() => clearInterval(iv), 30000);
+  }
+})();
+
+// "Today" for BUSINESS data, pinned to Eastern (the company clock). Device
+// timezones vary (an MST admin, an EST rep) and UTC flips mid-evening —
+// bucketing by one canonical business day keeps every screen identical.
+// ── DATA ASSISTANT (admin-only 💬 widget, bottom right) ──────────────────
+// Packs a compact snapshot of the numbers on screen and asks the server-side
+// /api/ask-data proxy (Anthropic). The snapshot is rebuilt per question so
+// answers always reflect the live data.
+function buildAskDataContext() {
+  const out = { generatedAt: new Date().toISOString(), businessToday: bizTodayIso() };
+  const EXCLUDE = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
+  try { out.dataSyncedAt = state.indicatorsUploadedAt || null; } catch (e) { /* partial context is fine */ }
+  try { out.companyGoal = state.companyGoal || null; } catch (e) { /* ignore */ }
+  try {
+    const pool = dashboardSales().filter(s => !EXCLUDE.has(s.audit_status));
+    const today = bizTodayIso(), y = today.slice(0, 4);
+    const sum = (rows) => Math.round(rows.reduce((a, s) => a + Number(s.revenue_amount || 0), 0));
+    const since = (iso) => pool.filter(s => s.sold_date >= iso);
+    const renewalIds = new Set((state.sources || []).filter(s => s.is_renewal).map(s => s.id));
+    const isRen = (s) => s._crmRenewal ?? renewalIds.has(s.source_id);
+    const ytd = since(y + '-01-01');
+    out.insideSales = {
+      description: 'Office-staff (inside sales) CRM-synced sales + manually logged upsells — the Sales War Room data.',
+      todayRevenue: sum(pool.filter(s => s.sold_date === today)),
+      todayCount: pool.filter(s => s.sold_date === today).length,
+      mtdRevenue: sum(since(today.slice(0, 8) + '01')),
+      ytdRevenue: sum(ytd), ytdCount: ytd.length,
+      ytdNewRevenue: sum(ytd.filter(s => !isRen(s))),
+      ytdRenewalRevenue: sum(ytd.filter(isRen)),
+    };
+  } catch (e) { /* ignore */ }
+  try {
+    out.leaderboardYTD = computeLeaderboard('total').slice(0, 40).map(r => ({
+      name: r.full_name, sales: r.count, revenue: Math.round(r.revenue),
+      avgInitial: Math.round(r.initial), recurringRev: Math.round(r.recurring), acv: Math.round(r.acv),
+      bestDay: Math.round(r.best_day || 0),
+      wow: r.wow == null ? null : r.wow === Infinity ? 'new' : Math.round(r.wow * 100) + '%',
+    }));
+    out.leaderboardThisWeek = computeLeaderboard('total', getDateRange('week'))
+      .filter(r => r.count > 0)
+      .map(r => ({ name: r.full_name, sales: r.count, revenue: Math.round(r.revenue) }));
+  } catch (e) { /* ignore */ }
+  try {
+    // Whole-company view (all departments) for the CURRENT year.
+    const raw = state._indicatorRawSales || [];
+    const yNow = String(new Date().getFullYear());
+    const byDept = {};
+    for (const s of raw) {
+      const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
+      if (iso.slice(0, 4) !== yNow) continue;
+      const d = (typeof _indicatorDeptOf === 'function') ? _indicatorDeptOf(s) : 'unknown';
+      byDept[d] = (byDept[d] || 0) + (Number(s.contractValue) || 0);
+    }
+    out.companyYtdRevenueByDept = Object.fromEntries(Object.entries(byDept).map(([k, v]) => [k, Math.round(v)]));
+  } catch (e) { /* ignore */ }
+  return out;
+}
+function _ensureAskWidget() {
+  if (typeof DEMO !== 'undefined' && DEMO) return;
+  const existing = document.getElementById('askDataWidget');
+  if (!state.profile || !isAdminRole(state.profile.role) || viewAsRole()) { if (existing) existing.remove(); return; }
+  if (existing) return;   // created once; survives re-renders so typing is never interrupted
+  if (!state._askChat) state._askChat = { open: false, msgs: [], busy: false };
+  const C = state._askChat;
+  const widget = el('div', { id: 'askDataWidget', style: { position: 'fixed', right: '18px', bottom: '18px', zIndex: '9997', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '10px' } });
+  const panel = el('div', { class: 'card', style: { width: 'min(360px, calc(100vw - 36px))', height: 'min(460px, calc(100vh - 120px))', display: C.open ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow-lg)' } });
+  const msgsEl = el('div', { style: { flex: '1', overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' } });
+  const paint = () => {
+    msgsEl.innerHTML = '';
+    if (!C.msgs.length) msgsEl.append(el('div', { class: 'text-xs text-muted-', style: { padding: '8px' } },
+      'Ask about the numbers on screen — "who\'s pacing to hit goal?", "compare Pere and Drew this month", "why is renewal revenue down?" Answers come from the live synced data.'));
+    C.msgs.forEach(m => msgsEl.append(el('div', {
+      style: { alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', padding: '8px 11px', borderRadius: '12px', fontSize: '12.5px', lineHeight: '1.45', whiteSpace: 'pre-wrap',
+               background: m.role === 'user' ? 'var(--accent)' : 'var(--card-2)', color: m.role === 'user' ? 'var(--accent-text)' : 'var(--text)' },
+    }, m.content)));
+    if (C.busy) msgsEl.append(el('div', { class: 'text-xs text-muted-', style: { padding: '4px 8px' } }, 'Thinking…'));
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  };
+  const input = el('textarea', {
+    rows: '2', placeholder: 'Ask about your data…', class: 'text-xs',
+    style: { flex: '1', resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: 'var(--text)', padding: '10px 12px' },
+    onkeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } },
+  });
+  const send = async () => {
+    const q = input.value.trim();
+    if (!q || C.busy) return;
+    input.value = '';
+    C.msgs.push({ role: 'user', content: q });
+    C.busy = true; paint();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const r = await fetch('/api/ask-data', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + ((session && session.access_token) || '') },
+        body: JSON.stringify({ question: q, history: C.msgs.slice(0, -1).slice(-8), context: buildAskDataContext() }),
+      });
+      const j = await r.json().catch(() => ({}));
+      C.msgs.push({ role: 'assistant', content: (r.ok && j.answer) ? j.answer : ('⚠ ' + (j.error || ('HTTP ' + r.status))) });
+    } catch (e) { C.msgs.push({ role: 'assistant', content: '⚠ ' + ((e && e.message) || e) }); }
+    C.busy = false; paint();
+  };
+  panel.append(
+    el('div', { class: 'px-4 py-3 flex items-center justify-between border-b border-' },
+      el('div', {},
+        el('div', { class: 'text-sm font-bold' }, '💬 Data Assistant'),
+        el('div', { class: 'text-[10px] text-muted-' }, 'Answers from the live synced data · admin only')),
+      el('button', { class: 'text-xl leading-none text-muted-', onclick: () => { C.open = false; panel.style.display = 'none'; } }, '×')),
+    msgsEl,
+    el('div', { class: 'flex items-end border-t border-' },
+      input,
+      el('button', { class: 'px-4 py-2.5 text-xs font-bold cursor-pointer', style: { color: 'var(--accent)' }, onclick: send }, 'Send')));
+  const fab = el('button', {
+    title: 'Data Assistant — ask questions about the numbers on screen',
+    style: { width: '46px', height: '46px', borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-text)', fontSize: '20px', boxShadow: 'var(--shadow-lg)', cursor: 'pointer', border: 'none' },
+    onclick: () => { C.open = !C.open; panel.style.display = C.open ? 'flex' : 'none'; if (C.open) { paint(); setTimeout(() => input.focus(), 50); } },
+  }, '💬');
+  widget.append(panel, fab);
+  document.body.append(widget);
+  if (C.open) paint();
+}
+function bizTodayIso() {
+  try {
+    const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    if (/^\d{4}-\d{2}-\d{2}$/.test(p)) return p;
+  } catch (e) { /* fall through */ }
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
 function flipLastFirst(name) {
   const s = String(name || '').trim();
   const i = s.indexOf(',');
@@ -14783,6 +15000,50 @@ const _nrlaTitle = (t) => String(t || '').split(' ').map(w => w ? w[0] + w.slice
 const nrlaBranchTzOf = (cfg, t) => (cfg && cfg.branchTz && cfg.branchTz[t]) || NRLA_BRANCH_TZ[t] || 'America/New_York';
 const _nrlaTzTime = (z) => { try { return new Date().toLocaleTimeString('en-US', { timeZone: z, hour: 'numeric', minute: '2-digit' }); } catch (e) { return '—'; } };
 const _nrlaTzHour = (z) => { try { return Number(new Intl.DateTimeFormat('en-US', { timeZone: z, hour: 'numeric', hour12: false, hourCycle: 'h23' }).format(new Date())); } catch (e) { return 12; } };
+// Self-ticking branch-clock strip (one chip per time zone). Reused on the
+// hero AND the rounds header — admins click a chip to set branch time zones.
+function nrlaBranchClocks(teams, cfg, opts) {
+  const o = opts || {};
+  if (!teams || !teams.length) return null;
+  const groups = new Map();
+  teams.forEach(t => { const z = nrlaBranchTzOf(cfg, t); if (!groups.has(z)) groups.set(z, []); groups.get(z).push(t); });
+  if (!groups.size) return null;
+  const strip = el('div', { class: 'flex items-center gap-2 flex-wrap', style: o.style || {} });
+  const live = [];
+  [...groups.entries()].sort((a, b) => _nrlaTzHour(b[0]) - _nrlaTzHour(a[0])).forEach(([z, ts]) => {
+    const sun = el('span', { style: { fontSize: '10px' } }, '');
+    const timeSpan = el('span', { style: { fontWeight: '900', color: o.dark ? '#fff' : 'var(--text)' } }, '');
+    const paint = () => {
+      timeSpan.textContent = _nrlaTzTime(z);
+      const h = _nrlaTzHour(z);
+      sun.textContent = (h >= 6 && h < 21) ? '☀️' : '🌙';
+    };
+    paint();
+    live.push(paint);
+    strip.append(el('span', {
+      title: ts.map(_nrlaTitle).join(', ') + ' — local time' + (o.RO ? '' : '. Click to set branch time zones.'),
+      class: o.RO ? '' : 'cursor-pointer transition hover:brightness-110',
+      style: Object.assign({
+        display: 'inline-flex', alignItems: 'center', gap: '5px',
+        padding: o.small ? '3px 9px' : '4px 11px', borderRadius: '999px',
+        fontSize: o.small ? '10px' : '11px', whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis',
+      }, o.dark
+        ? { background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', color: 'rgba(255,255,255,.85)' }
+        : { background: 'var(--card-2)', border: '1px solid var(--border-2)', color: 'var(--text-muted)' }),
+      onclick: o.RO ? null : () => openNrlaTzModal(teams, cfg, o.save),
+    },
+      sun, timeSpan,
+      el('span', { style: { fontWeight: '900', color: '#F2148C' } }, NRLA_TZ_SHORT[z] || z),
+      el('span', { style: { opacity: '.7', overflow: 'hidden', textOverflow: 'ellipsis' } },
+        o.small ? ts.map(t => _nrlaTitle(t).split(' ').map(w => w.slice(0, 3)).join(' ')).join(' · ') : ts.map(_nrlaTitle).join(' · ')),
+    ));
+  });
+  const iv = setInterval(() => {
+    if (!strip.isConnected) { clearInterval(iv); return; }
+    live.forEach(fn => fn());
+  }, 15000);
+  return strip;
+}
 function openNrlaTzModal(teams, cfg, save) {
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
@@ -15813,44 +16074,8 @@ function nrlaBoard(rawSales, opts) {
           })(),
         ),
         el('div', { style: { fontFamily: DISP, fontSize: 'clamp(.85rem,1.8vw,1.15rem)', letterSpacing: '.06em', color: PINK, textTransform: 'none', marginTop: '7px' } }, 'National Riddmen League Association'),
-        // ── Local time in every competing market — one chip per time zone,
-        // ticking in place. When a team's day ends, this shows who still has
-        // daylight to knock and close a gap. ──
-        (() => {
-          if (!R.teams || !R.teams.length) return null;
-          const groups = new Map();
-          R.teams.forEach(t => { const z = nrlaBranchTzOf(cfg, t); if (!groups.has(z)) groups.set(z, []); groups.get(z).push(t); });
-          if (!groups.size) return null;
-          const strip = el('div', { class: 'flex items-center gap-2 flex-wrap', style: { marginTop: '11px' } });
-          const live = [];
-          // Latest local hour first (ET before CT) — reads west across the map.
-          [...groups.entries()].sort((a, b) => _nrlaTzHour(b[0]) - _nrlaTzHour(a[0])).forEach(([z, ts]) => {
-            const sun = el('span', { style: { fontSize: '10px' } }, '');
-            const timeSpan = el('span', { style: { fontWeight: '900', color: '#fff' } }, '');
-            const paint = () => {
-              timeSpan.textContent = _nrlaTzTime(z);
-              const h = _nrlaTzHour(z);
-              sun.textContent = (h >= 6 && h < 21) ? '☀️' : '🌙';
-            };
-            paint();
-            live.push(paint);
-            strip.append(el('span', {
-              title: ts.map(_nrlaTitle).join(', ') + ' — local time' + (RO ? '' : '. Click to set branch time zones.'),
-              class: RO ? '' : 'cursor-pointer transition hover:brightness-110',
-              style: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px', borderRadius: '999px', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', color: 'rgba(255,255,255,.85)', fontSize: '11px', whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' },
-              onclick: RO ? null : () => openNrlaTzModal(R.teams, cfg, save),
-            },
-              sun, timeSpan,
-              el('span', { style: { fontWeight: '900', color: PINK } }, NRLA_TZ_SHORT[z] || z),
-              el('span', { style: { opacity: '.7', overflow: 'hidden', textOverflow: 'ellipsis' } }, ts.map(_nrlaTitle).join(' · ')),
-            ));
-          });
-          const iv = setInterval(() => {
-            if (!strip.isConnected) { clearInterval(iv); return; }
-            live.forEach(fn => fn());
-          }, 15000);
-          return strip;
-        })(),
+        // Local time in every competing market — shared builder, dark variant.
+        nrlaBranchClocks(R.teams, cfg, { RO, save, dark: true, style: { marginTop: '11px' } }),
       ),
       el('div', { class: 'nrla-hero-side flex flex-col items-end shrink-0' },
         el('div', { class: 'flex items-center gap-2' },
@@ -16493,7 +16718,13 @@ function nrlaBoard(rawSales, opts) {
     style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
     onclick: () => openNrlaAccountsModal(_selIdx),
   }, '📋 Accounts sold');
-  roundPicker.append(roundDrillBtn || el('span', {}));
+  roundPicker.append(
+    roundDrillBtn || el('span', {}),
+    el('div', { class: 'flex-1' }),
+    nrlaBranchClocks(R.teams, cfg, { RO, save, small: true }) || el('span', {}),
+    el('span', { class: 'text-[10px] font-bold uppercase tracking-wider whitespace-nowrap', style: { color: 'var(--text-subtle)' }, title: 'When the board\'s data was last synced from FieldRoutes' },
+      'Synced ' + syncStr),
+  );
   const roundsGrid = R.rounds.length
     ? el('div', { style: { borderTop: '1px solid var(--border)' } },
         roundPicker,
@@ -28303,6 +28534,33 @@ function indicatorYoYTrendChart() {
   // horizon-matched cancels (prior-year line).
   const mk = () => ({ rev: 0, revNew: 0, revRenewal: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, pestSum: 0, pestN: 0, cancels: 0, cancelsM: 0, cancelElig: 0 });
   const acc = {}; // keyed by year → { week → bucket } — every year present
+  // ── Tier split (All / Rookies / Vets) — checkbox picker, so Rookies vs
+  // Vets can overlay as separate lines. Tier is resolved PER SALE YEAR:
+  // current year uses the live tier (manual tags respected); past years use
+  // sales history (first year selling = rookie that year, seller before =
+  // vet), so 2025's rookie line shows who was a rookie IN 2025.
+  const YOY_TIERS = [['all', 'All reps'], ['rookie', 'Rookies'], ['vet', 'Vets']];
+  const _yoySelTiers = (() => {
+    if (_yoyRepOnly) return ['all'];
+    const sel = Array.isArray(state._indicatorYoYTiers) ? state._indicatorYoYTiers.filter(t => YOY_TIERS.some(x => x[0] === t)) : [];
+    return sel.length ? sel : ['all'];
+  })();
+  const _tierSplit = _yoySelTiers.some(t => t !== 'all');
+  const accTier = {}; // 'year|tier' → { week → bucket }
+  const _tierMemo = new Map();
+  const _tierOfSaleYear = (rep, y) => {
+    const key = rep + '|' + y;
+    let v = _tierMemo.get(key);
+    if (v !== undefined) return v;
+    const nm = getCanonicalRepName(rep);
+    if (y === curY) v = (typeof getRepTier === 'function' && getRepTier(nm)) || '';
+    else {
+      const yrs = (typeof _repSaleYears === 'function') ? _repSaleYears(nm) : null;
+      v = !yrs ? '' : yrs.min === y ? 'rookie' : yrs.min < y ? 'vet' : '';
+    }
+    _tierMemo.set(key, v);
+    return v;
+  };
   const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
   const weekStartOf = (y, wk) => {
     const jan1 = new Date(y, 0, 1);
@@ -28323,26 +28581,35 @@ function indicatorYoYTrendChart() {
     if (wk < 1) continue;
     const ay = acc[y] || (acc[y] = {});
     const a = ay[wk] || (ay[wk] = mk());
-    const cv = Number(s.contractValue) || 0;
-    a.rev += cv;
-    if (_indicatorIsRenewal(s)) a.revRenewal += cv; else a.revNew += cv;
-    a.n++;
-    if (Number(s.contract) >= 18) a.multi++;
-    if (Number(s.contract) === 12) a.twelve++;
-    if (/failed\s*audit/i.test(s.customerFlags || '')) a.fail++;
-    a.initSum += Number(s.initialPrice) || 0;
-    if (!PEST_RE.test(s.subscription || '')) { a.pestSum += Number(s.initialPrice) || 0; a.pestN++; }
-    if (_isReportableCancel(s)) {
-      a.cancels++;
-      if (y === prevY) {
-        // Matched horizon: cutoff = prior-year week start + the elapsed
-        // time the current-year cohort has had (today − cur week start).
-        const cancelD = _parseSlashDate(s.cancelDate);
-        const cutoff = weekStartOf(prevY, wk).getTime() + Math.max(0, todayMid - weekStartOf(curY, wk));
-        if (cancelD && cancelD.getTime() <= cutoff) a.cancelsM++;
-      }
+    // Tier buckets accumulate in parallel — same math, scoped to the reps
+    // who were that tier in that year.
+    let aT = null;
+    if (_tierSplit && s.rep) {
+      const t = _tierOfSaleYear(s.rep, y);
+      if (t) { const kT = y + '|' + t; const ayT = accTier[kT] || (accTier[kT] = {}); aT = ayT[wk] || (ayT[wk] = mk()); }
     }
-    if (!_isExcludableCancel(s)) a.cancelElig++;
+    const cv = Number(s.contractValue) || 0;
+    for (const b of (aT ? [a, aT] : [a])) {
+      b.rev += cv;
+      if (_indicatorIsRenewal(s)) b.revRenewal += cv; else b.revNew += cv;
+      b.n++;
+      if (Number(s.contract) >= 18) b.multi++;
+      if (Number(s.contract) === 12) b.twelve++;
+      if (/failed\s*audit/i.test(s.customerFlags || '')) b.fail++;
+      b.initSum += Number(s.initialPrice) || 0;
+      if (!PEST_RE.test(s.subscription || '')) { b.pestSum += Number(s.initialPrice) || 0; b.pestN++; }
+      if (_isReportableCancel(s)) {
+        b.cancels++;
+        if (y === prevY) {
+          // Matched horizon: cutoff = prior-year week start + the elapsed
+          // time the current-year cohort has had (today − cur week start).
+          const cancelD = _parseSlashDate(s.cancelDate);
+          const cutoff = weekStartOf(prevY, wk).getTime() + Math.max(0, todayMid - weekStartOf(curY, wk));
+          if (cancelD && cancelD.getTime() <= cutoff) b.cancelsM++;
+        }
+      }
+      if (!_isExcludableCancel(s)) b.cancelElig++;
+    }
     if (wk > maxWeek) maxWeek = wk;
     if (y === curY && wk > lastDataWeek) lastDataWeek = wk;
   }
@@ -28382,8 +28649,9 @@ function indicatorYoYTrendChart() {
   // YTD aggregate per year — combine weeks 1..lastDataWeek into one bucket so
   // the final "YTD" dot shows each year's year-to-date total (proper ratio for
   // averages/percent, not a sum of weekly averages).
-  const _combineYTD = (year) => { const c = mk(); const ay = acc[year] || {}; for (let w = 1; w <= lastDataWeek; w++) { const a = ay[w]; if (!a) continue; for (const k in c) c[k] += (a[k] || 0); } return c; };
-  const ytdValOf = (year) => valOf(_combineYTD(year), year === prevY);
+  const _bucketsOf = (year, tier) => (!tier || tier === 'all') ? acc[year] : accTier[year + '|' + tier];
+  const _combineYTD = (year, tier) => { const c = mk(); const ay = _bucketsOf(year, tier) || {}; for (let w = 1; w <= lastDataWeek; w++) { const a = ay[w]; if (!a) continue; for (const k in c) c[k] += (a[k] || 0); } return c; };
+  const ytdValOf = (year, tier) => valOf(_combineYTD(year, tier), year === prevY);
   const fmtVal = (v) => v == null ? '—'
     : kind === 'usd' ? '$' + (metric === 'revenue' ? Math.round(v).toLocaleString() : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
     : kind === 'pct' ? (v * 100).toFixed(1) + '%'
@@ -28488,6 +28756,80 @@ function indicatorYoYTrendChart() {
     return wrap;
   })();
 
+  // Type picker — All / Rookies / Vets checkboxes (same staged-Apply UX as
+  // Years) so cohorts overlay as separate lines. Admin-only; a rep's own
+  // trend has no cohort to split.
+  const tiersWrap = _yoyRepOnly ? null : (() => {
+    const wrap = el('div', { class: 'relative' });
+    let _staged = [..._yoySelTiers];
+    let _tApply = null;
+    const _tDirty = () => {
+      if (!_tApply) return;
+      _tApply.style.background = 'var(--accent)';
+      _tApply.style.color = 'var(--accent-text)';
+      _tApply.style.borderColor = 'var(--accent)';
+    };
+    const panel = el('div', {
+      class: 'card absolute p-1.5',
+      style: { top: 'calc(100% + 6px)', right: '0', minWidth: '160px', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyTiersOpen ? 'block' : 'none' },
+    },
+      ...YOY_TIERS.map(([tid, lab]) => {
+        const glyph = el('span', { style: { fontSize: '13px' } }, _staged.includes(tid) ? '☑' : '☐');
+        const row = el('button', {
+          class: 'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+          style: { color: 'var(--text)', background: _staged.includes(tid) ? 'var(--card-2)' : 'transparent' },
+          onclick: (e) => {
+            e.stopPropagation();
+            _staged = _staged.includes(tid) ? _staged.filter(x => x !== tid) : [..._staged, tid];
+            const on = _staged.includes(tid);
+            glyph.textContent = on ? '☑' : '☐';
+            row.style.background = on ? 'var(--card-2)' : 'transparent';
+            _tDirty();
+          },
+        }, glyph, el('span', {}, lab));
+        return row;
+      }),
+      (_tApply = el('button', {
+        class: 'w-full rounded-lg px-2.5 py-2 text-xs font-bold border transition hover:brightness-95 mt-1',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        onclick: (e) => {
+          e.stopPropagation();
+          state._indicatorYoYTiers = _staged.length ? _staged : ['all'];
+          state._yoyTiersOpen = false;
+          mountApp();
+        },
+      }, 'Apply')));
+    const label = _yoySelTiers.length === 1 && _yoySelTiers[0] === 'all'
+      ? 'Type · All'
+      : 'Type · ' + _yoySelTiers.map(t => (YOY_TIERS.find(x => x[0] === t) || [])[1] || t).join(' + ');
+    const btn = el('button', {
+      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer border flex items-center gap-1.5',
+      style: _tierSplit
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+        : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+      title: 'Break the lines out by rep type — check Rookies + Vets to compare the cohorts',
+      onclick: (e) => {
+        e.stopPropagation();
+        const open = panel.style.display === 'block';
+        panel.style.display = open ? 'none' : 'block';
+        state._yoyTiersOpen = !open;
+        if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+          if (wrap.contains(ev.target)) return;
+          panel.style.display = 'none'; state._yoyTiersOpen = false;
+          document.removeEventListener('mousedown', closer);
+        }), 0); }
+      },
+    }, label, el('span', { style: { fontSize: '9px' } }, state._yoyTiersOpen ? '▴' : '▾'));
+    if (state._yoyTiersOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+      if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+      if (wrap.contains(ev.target)) return;
+      panel.style.display = 'none'; state._yoyTiersOpen = false;
+      document.removeEventListener('mousedown', closer);
+    }), 0); }
+    wrap.append(btn, panel);
+    return wrap;
+  })();
+
   const cvsWrap = el('div', { style: { position: 'relative', height: '280px', width: '100%' } });
   cvsWrap.append(el('canvas', { id }));
   setTimeout(() => {
@@ -28510,29 +28852,39 @@ function indicatorYoYTrendChart() {
           const muted = isDark ? 'rgba(255,255,255,.45)' : 'rgba(0,0,0,.35)';
           const palette = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899'];
           const lines = [], ytdPts = [];
+          const _totalSeries = _yoySelYears.length * _yoySelTiers.length;
           yearsPresent.forEach((y) => {
             if (!_yoySelYears.includes(y)) return;   // only the years picked in the Years dropdown plot
             const isCur = y === curY;
             const idx = curY - y; // 0 = current, 1 = prior year, …
-            const color = isCur ? '#8DC63F' : (idx === 1 ? muted : palette[(idx - 2 + palette.length) % palette.length]);
-            const vals = weeksAxis.map(w => {
-              if (isCur && w > lastDataWeek) return null;
-              if (metric === 'cancel_pct' && y === prevY && w > lastDataWeek) return null;
-              return valOf(acc[y] && acc[y][w], y === prevY);
+            const yColor = isCur ? '#8DC63F' : (idx === 1 ? muted : palette[(idx - 2 + palette.length) % palette.length]);
+            _yoySelTiers.forEach((tier) => {
+              // Tier recolor: when splitting, Rookies plot amber and Vets
+              // blue-violet so the cohorts read instantly; the year still
+              // shows in the label + tooltip. Single-tier 'all' keeps the
+              // classic year palette.
+              const color = tier === 'all' ? yColor : (tier === 'rookie' ? (isCur ? '#F59E0B' : '#B45309') : (isCur ? '#818CF8' : '#4F46E5'));
+              const tierLab = tier === 'all' ? '' : tier === 'rookie' ? ' · Rookies' : ' · Vets';
+              const _b = _bucketsOf(y, tier) || {};
+              const vals = weeksAxis.map(w => {
+                if (isCur && w > lastDataWeek) return null;
+                if (metric === 'cancel_pct' && y === prevY && w > lastDataWeek) return null;
+                return valOf(_b[w], y === prevY);
+              });
+              // TREND RULE: the current-year line ends at the last COMPLETED
+              // week — the in-progress week plotted as a nosedive on every
+              // metric (Carson + Isaac both flagged it). Its live total still
+              // shows in the YTD diamond on the right axis.
+              const _curWkNow = (() => { const a = new Date(curY, 0, 1); a.setDate(a.getDate() - a.getDay()); return Math.floor((todayMid - a) / 604800000) + 1; })();
+              const _liveIdx = (isCur && lastDataWeek >= _curWkNow) ? _curWkNow - 1 : -1;
+              const plotVals = _liveIdx >= 0 ? vals.map((v, i) => (i >= _liveIdx ? null : v)) : vals;
+              lines.push(isCur
+                ? { label: String(y) + tierLab, data: plotVals, borderColor: color, backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct' && _totalSeries === 1, spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 }
+                : { label: String(y) + tierLab, data: vals, borderColor: color, borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5, order: idx });
+              // YTD dot — point only, on the secondary 'yYTD' axis.
+              const ytdData = weeksAxis.map(() => null); ytdData.push(ytdValOf(y, tier));
+              ytdPts.push({ label: 'YTD ' + y + tierLab, data: ytdData, yAxisID: 'yYTD', showLine: false, borderColor: color, backgroundColor: color, pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', order: 0 });
             });
-            // TREND RULE: the current-year line ends at the last COMPLETED
-            // week — the in-progress week plotted as a nosedive on every
-            // metric (Carson + Isaac both flagged it). Its live total still
-            // shows in the YTD diamond on the right axis.
-            const _curWkNow = (() => { const a = new Date(curY, 0, 1); a.setDate(a.getDate() - a.getDay()); return Math.floor((todayMid - a) / 604800000) + 1; })();
-            const _liveIdx = (isCur && lastDataWeek >= _curWkNow) ? _curWkNow - 1 : -1;
-            const plotVals = _liveIdx >= 0 ? vals.map((v, i) => (i >= _liveIdx ? null : v)) : vals;
-            lines.push(isCur
-              ? { label: String(y), data: plotVals, borderColor: '#8DC63F', backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct', spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 }
-              : { label: String(y), data: vals, borderColor: color, borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5, order: idx });
-            // YTD dot — point only, on the secondary 'yYTD' axis.
-            const ytdData = weeksAxis.map(() => null); ytdData.push(ytdValOf(y));
-            ytdPts.push({ label: 'YTD ' + y, data: ytdData, yAxisID: 'yYTD', showLine: false, borderColor: color, backgroundColor: color, pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', order: 0 });
           });
           return lines.concat(ytdPts);
         })(),
@@ -28550,7 +28902,7 @@ function indicatorYoYTrendChart() {
               label: (ctx) => {
                 if (ctx.dataIndex >= weeksAxis.length) return ctx.dataset.label + ': ' + fmtVal(ctx.parsed.y);
                 const w = ctx.dataIndex + 1;
-                const y = Number(ctx.dataset.label);
+                const y = parseInt(ctx.dataset.label, 10);
                 const jan1 = new Date(y, 0, 1);
                 const anchor = new Date(jan1); anchor.setDate(anchor.getDate() - anchor.getDay());
                 const s = new Date(anchor); s.setDate(s.getDate() + (w - 1) * 7);
@@ -28594,7 +28946,7 @@ function indicatorYoYTrendChart() {
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
       el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'YTD Performance Trends' : 'Performance Trends'),
-      el('div', { class: 'flex items-center gap-2 flex-wrap' }, yearsWrap, metricSel)),
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, tiersWrap, yearsWrap, metricSel)),
     cvsWrap);
 }
 

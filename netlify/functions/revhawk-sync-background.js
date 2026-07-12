@@ -40,20 +40,39 @@ const PROJECT = process.env.REVHAWK_PROJECT_ID || 'revhawkdataconnect';
 const DATASET = process.env.REVHAWK_DATASET || 'org_ridd_pest_control_3f4149';
 const JOB_PROJECT = process.env.GCP_JOB_PROJECT || PROJECT;
 
-// Office id → branch name. RevHawk only stores the numeric office id, so this
-// map supplies the names the rest of the app groups by. Confirm / edit these.
+// Office id → branch name. Curated names win (they're what every report
+// groups by), but each run DISCOVERS new branches from the warehouse's
+// office table, so opening or buying a branch needs no code change — it
+// shows up under its CRM name on the next sync. Discovery failure is
+// non-fatal: this baseline keeps working exactly as before.
 const OFFICE_NAMES = {
   '1': 'Salt Lake', '6': 'Charleston', '7': 'Myrtle Beach', '10': 'Destin',
   '13': 'Atlanta', '15': 'Virginia Beach', '16': 'Raleigh', '18': 'Detroit',
   '19': 'Joplin',   // opened Jul 2026 — appeared in the warehouse 2026-07-08
 };
-const officeCase = Object.entries(OFFICE_NAMES)
+async function discoverOffices(token) {
+  try {
+    const q = `SELECT fieldRoutes_officeID AS id, fieldRoutes_officeName AS name
+               FROM \`${PROJECT}.${DATASET}.FieldRoutesOffice\`
+               WHERE fieldRoutes_officeID IS NOT NULL AND SAFE_CAST(fieldRoutes_officeID AS INT64) > 0`;
+    const r = await runQuery(token, q);
+    let added = 0;
+    for (const o of toObjects(r.schema, r.rows)) {
+      const id = String(o.id || '').trim(), nm = String(o.name || '').trim();
+      if (id && nm && !OFFICE_NAMES[id]) { OFFICE_NAMES[id] = nm; added++; }
+    }
+    if (added) console.log('[revhawk-sync] office discovery: +' + added + ' new branch(es) from the warehouse');
+  } catch (e) {
+    console.warn('[revhawk-sync] office discovery skipped:', String((e && e.message) || e).slice(0, 200));
+  }
+}
+const buildOfficeCase = () => Object.entries(OFFICE_NAMES)
   .map(([id, name]) => `WHEN '${id}' THEN '${name.replace(/'/g, "''")}'`).join(' ');
 
 // The mapping query — every column aliased to the EXACT field name
 // parseReportingCsv emits, and numeric columns SAFE_CAST so the result schema
 // types let us coerce to JS numbers. Validated against the live data.
-const SQL = `
+const buildSQL = () => `
 WITH flags AS (
   -- Customer flags drive the Auditing tab + Spring Cleaning / Last Man Standing
   -- audit gates (Passed Audit / No Audit / Failed Audit). The denormalized
@@ -142,7 +161,7 @@ SELECT
   cust.zip AS zip_code,
   SAFE_CAST(cust.dpd AS INT64) AS days_past_due,
   SAFE_CAST(cust.resp_balance AS FLOAT64) AS responsible_balance,
-  CASE s.fieldRoutes_officeID ${officeCase} ELSE CONCAT('Office ', s.fieldRoutes_officeID) END AS office_name,
+  CASE s.fieldRoutes_officeID ${buildOfficeCase()} ELSE CONCAT('Office ', s.fieldRoutes_officeID) END AS office_name,
   SAFE_CAST(s.fieldRoutes_agreementLength AS INT64) AS agreement_length,
   SAFE_CAST(s.fieldRoutes_contractValue AS FLOAT64) AS subscription_contract_value,
   SAFE_CAST(s.fieldRoutes_initialServiceTotal AS FLOAT64) AS initial_price,
@@ -363,7 +382,8 @@ exports.handler = async (event) => {
   try {
     const started = Date.now();
     const token = await getAccessToken();
-    const { schema, rows } = await runQuery(token, SQL);
+    await discoverOffices(token);   // new branches join OFFICE_NAMES before the big pull
+    const { schema, rows } = await runQuery(token, buildSQL());
     const objects = toObjects(schema, rows);
     if (!objects.length) return { statusCode: 200, body: JSON.stringify({ ok: false, note: 'query returned 0 rows — nothing written' }) };
 
@@ -696,6 +716,36 @@ exports.handler = async (event) => {
     //     sales keep pointing at their source name)
     // Requires the fr_* columns (fieldroutes_sources.sql); if they're
     // missing this block just logs.
+    // ── OFFICES MIRROR (best-effort) ─────────────────────────────────
+    // The app's `offices` table feeds the Sales Log office dropdown (and
+    // office pickers everywhere) but was hand-maintained — Joplin opened
+    // and never appeared. Every office name present in THIS run's data
+    // auto-inserts when missing, so new/bought branches just show up.
+    let officeCount = 0, officeError = null;
+    try {
+      const seen = new Set();
+      for (const r of objects) {
+        const nm = String(r.office_name || '').split(',')[0].trim();
+        if (nm && !/^Office \d+$/i.test(nm)) seen.add(nm);
+      }
+      Object.values(OFFICE_NAMES).forEach(nm => seen.add(String(nm).trim()));
+      if (seen.size) {
+        const { data: appOffices, error: offSelErr } = await supabase.from('offices').select('id, name');
+        if (offSelErr) throw new Error(offSelErr.message);
+        const have = new Set((appOffices || []).map(o => String(o.name || '').trim().toLowerCase()));
+        for (const nm of seen) {
+          if (have.has(nm.toLowerCase())) continue;
+          const { error } = await supabase.from('offices').insert({ name: nm });
+          if (error) throw new Error('insert office "' + nm + '": ' + error.message);
+          officeCount++;
+        }
+        if (officeCount) console.log('[revhawk-sync] offices mirror: +' + officeCount + ' new office(s)');
+      }
+    } catch (oe) {
+      officeError = String((oe && oe.message) || oe);
+      console.error('[revhawk-sync] offices mirror skipped:', officeError);
+    }
+
     let srcCount = 0, srcError = null;
     try {
       const srcRes = await runQuery(token, SRC_SQL);
@@ -854,7 +904,7 @@ exports.handler = async (event) => {
     await _hb({ stage: 'finished', ok: true, rows: objects.length, ms: Date.now() - started });
     return {
       statusCode: 200,
-      body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, sources: srcCount, srcError, salesVerified: verifyCount, verifyError, storage_path: path, ms: Date.now() - started }),
+      body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, sources: srcCount, srcError, officesAdded: officeCount, officeError, salesVerified: verifyCount, verifyError, storage_path: path, ms: Date.now() - started }),
     };
   } catch (e) {
     console.error('[revhawk-sync]', e);
