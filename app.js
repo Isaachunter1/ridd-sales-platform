@@ -5040,6 +5040,7 @@ function goalTicks(amount) {
   for (let i = 0; i <= 5; i++) {
     const v = step * i;
     if (v >= 1e6) out.push('$' + (v / 1e6).toFixed(v >= 5e6 ? 0 : 1) + 'M');
+    else if (v >= 1000000) out.push('$' + (v / 1000000).toFixed(v % 1000000 === 0 ? 0 : 1) + 'M');
     else if (v >= 1000) out.push('$' + Math.round(v / 1000) + 'K');
     else out.push('$' + Math.round(v));
   }
@@ -7735,7 +7736,8 @@ function openIndicatorRepCard(rep, allReps = []) {
     const dowLabels = ['S','M','T','W','T','F','S'];
     const accent = 'var(--accent)';
     // Compact cash label under each bar: $850 / $4.5K / $45K
-    const cash = (v) => v <= 0 ? '' : v >= 100000 ? '$' + Math.round(v / 1000) + 'K'
+    const cash = (v) => v <= 0 ? '' : v >= 1000000 ? '$' + (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'
+      : v >= 100000 ? '$' + Math.round(v / 1000) + 'K'
       : v >= 1000 ? '$' + (v / 1000).toFixed(1).replace(/\.0$/, '') + 'K' : '$' + Math.round(v);
     // ‹ › page the window in 12-week steps; ‹ disables at the oldest data,
     // › disables back at the live window.
@@ -23304,9 +23306,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // technician production never counts here, no matter what the page's
     // Type filter says: each rep's sales are re-fenced to Sales Rep dept and
     // reps with no D2D production drop out entirely.
+    const allBucket = [];   // every D2D seller, tagged or not — the ALL column
     Object.values(repMap).forEach(r => {
       const d2dSales = (r.sales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === 'd2d' : true));
       if (!d2dSales.length) return;
+      allBucket.push({ ...r, sales: d2dSales });
       const t = getRepTier(r.name);
       if (t === 'rookie' || t === 'vet') tierBuckets[t].push({ ...r, sales: d2dSales });
       else untagged++;
@@ -23336,6 +23340,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     };
     const rookie = aggForTier(tierBuckets.rookie);
     const vet    = aggForTier(tierBuckets.vet);
+    const alls   = aggForTier(allBucket);   // combined — includes untagged sellers
 
     // Company-wide totals for the weight % math below. Counts every
     // sale in the windowed rawSales (so untagged reps' contributions
@@ -23372,6 +23377,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 
     const ROOKIE_COLOR = '#0EA5E9';
     const VET_COLOR    = '#8DC63F';
+    const ALL_COLOR    = '#94A3B8';
 
     const sideCell = (val, color, leader, subtitle) => el('div', {
       class: 'flex-1 px-2 py-2 text-center min-w-0',
@@ -23417,10 +23423,14 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         rSub = pctOfCo(rVal, companyTotalRevenue);
         vSub = pctOfCo(vVal, companyTotalRevenue);
       }
-      return el('div', { class: 'grid items-center gap-2 px-3 py-1.5', style: { gridTemplateColumns: 'minmax(0,1fr) minmax(72px,140px) minmax(0,1fr)', borderTop: '1px solid var(--border)' } },
+      return el('div', { class: 'grid items-center gap-2 px-3 py-1.5', style: { gridTemplateColumns: 'minmax(0,1fr) minmax(72px,140px) minmax(0,1fr) minmax(0,1fr)', borderTop: '1px solid var(--border)' } },
         sideCell(fmtVal[key](rVal), ROOKIE_COLOR, rLead, rSub),
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-center', style: { color: 'var(--text-muted)' } }, label),
         sideCell(fmtVal[key](vVal), VET_COLOR, vLead, vSub),
+        // ALL — the combined cohort (rookies + vets + untagged), neutral, no
+        // leader highlight: it's the reference line the halves compare to.
+        sideCell(fmtVal[key](alls[key]), ALL_COLOR, false,
+          key === 'sold' || key === 'revenue' ? 'all D2D' : null),
       );
     };
 
@@ -23442,10 +23452,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           style: { color: 'var(--text-muted)', background: 'var(--card-2)' },
         }, untagged + ' rep' + (untagged === 1 ? '' : 's') + ' untagged · not counted here'),
       ),
-      el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(0,1fr) minmax(72px,140px) minmax(0,1fr)' } },
+      el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(0,1fr) minmax(72px,140px) minmax(0,1fr) minmax(0,1fr)' } },
         headerCell('Rookie', ROOKIE_COLOR, rookie.reps),
         el('div'),
         headerCell('Vet', VET_COLOR, vet.reps),
+        headerCell('All', ALL_COLOR, alls.reps),
       ),
       (rookie.reps === 0 && vet.reps === 0)
         ? el('div', { class: 'p-6 text-center text-xs italic', style: { color: 'var(--text-muted)' } },
@@ -25711,7 +25722,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
               grid: { color: gridColor },
               ticks: { font: { size: 10 }, color: tickColor,
                 callback: (cfg.metric === 'revenue' || cfg.metric === 'acv' || cfg.metric === 'avg_pest' || cfg.metric === 'pra')
-                  ? (v => '$' + (Math.abs(v) >= 1000 ? Math.round(v/1000) + 'K' : v))
+                  ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1).replace(/\.0M?$/, '') + 'M' : Math.abs(v) >= 1000 ? Math.round(v/1000) + 'K' : v))
                   : (cfg.metric === 'my_pct'
                       ? (v => (v * 100).toFixed(0) + '%')
                       : undefined),
@@ -28011,9 +28022,9 @@ async function exportTiersXlsx() {
 function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay, opts = {}) {
   const REP_AVG_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
   const metrics = [
-    { id: 'revenue',   label: 'Revenue',          isCurrency: true,  format: v => '$' + (Math.abs(v) >= 1000 ? Math.round(v/1000) + 'K' : v) },
+    { id: 'revenue',   label: 'Revenue',          isCurrency: true,  format: v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(2).replace(/0$/, '').replace(/\.0$/, '') + 'M' : Math.abs(v) >= 1000 ? Math.round(v/1000) + 'K' : v) },
     { id: 'count',     label: 'Sales',            isCurrency: false, format: v => String(v) },
-    { id: 'acv',       label: 'ACV',              isCurrency: true,  format: v => '$' + (Math.abs(v) >= 1000 ? Math.round(v/1000) + 'K' : v) },
+    { id: 'acv',       label: 'ACV',              isCurrency: true,  format: v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(2).replace(/0$/, '').replace(/\.0$/, '') + 'M' : Math.abs(v) >= 1000 ? Math.round(v/1000) + 'K' : v) },
     { id: 'avg_pest',  label: 'Avg Pest Initial', isCurrency: true,  format: v => '$' + Math.round(v) },
     { id: 'my_pct',    label: 'MY %',             isCurrency: false, format: v => (v * 100).toFixed(0) + '%' },
   ];
@@ -28497,6 +28508,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelO
 // week-of-year axis, Sunday-anchored like everything else).
 const YOY_METRICS = [
   ['revenue',     'Revenue',          'usd'],
+  ['pra',         'PRA',              'usd'],
   ['count',       'Sales',            'int'],
   ['acv',         'ACV',              'usd'],
   ['avg_initial', 'Avg Initial',      'usd'],
@@ -28532,7 +28544,7 @@ function indicatorYoYTrendChart() {
   // date ≤ prior-year week start + days elapsed since this year's week
   // start). `cancels` = all-time cancels (current-year line), `cancelsM` =
   // horizon-matched cancels (prior-year line).
-  const mk = () => ({ rev: 0, revNew: 0, revRenewal: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, pestSum: 0, pestN: 0, cancels: 0, cancelsM: 0, cancelElig: 0 });
+  const mk = () => ({ rev: 0, revNew: 0, revRenewal: 0, n: 0, multi: 0, twelve: 0, fail: 0, initSum: 0, pestSum: 0, pestN: 0, cancels: 0, cancelsM: 0, cancelElig: 0, repSet: new Set() });
   const acc = {}; // keyed by year → { week → bucket } — every year present
   // ── Tier split (All / Rookies / Vets) — checkbox picker, so Rookies vs
   // Vets can overlay as separate lines. Tier is resolved PER SALE YEAR:
@@ -28589,7 +28601,9 @@ function indicatorYoYTrendChart() {
       if (t) { const kT = y + '|' + t; const ayT = accTier[kT] || (accTier[kT] = {}); aT = ayT[wk] || (ayT[wk] = mk()); }
     }
     const cv = Number(s.contractValue) || 0;
+    const _repNm = s.rep ? getCanonicalRepName(s.rep) : null;
     for (const b of (aT ? [a, aT] : [a])) {
+      if (_repNm) b.repSet.add(_repNm);   // PRA denominator: unique sellers in the bucket
       b.rev += cv;
       if (_indicatorIsRenewal(s)) b.revRenewal += cv; else b.revNew += cv;
       b.n++;
@@ -28630,6 +28644,7 @@ function indicatorYoYTrendChart() {
     if (!a) return null;
     switch (metric) {
       case 'revenue':     return revType === 'new' ? a.revNew : revType === 'renewal' ? a.revRenewal : a.rev;
+      case 'pra':         return (a.repSet && a.repSet.size > 0) ? a.rev / a.repSet.size : null;
       case 'count':       return a.n;
       case 'acv':         return a.n > 0 ? a.rev / a.n : null;
       case 'avg_initial': return a.n > 0 ? a.initSum / a.n : null;
@@ -28650,10 +28665,10 @@ function indicatorYoYTrendChart() {
   // the final "YTD" dot shows each year's year-to-date total (proper ratio for
   // averages/percent, not a sum of weekly averages).
   const _bucketsOf = (year, tier) => (!tier || tier === 'all') ? acc[year] : accTier[year + '|' + tier];
-  const _combineYTD = (year, tier) => { const c = mk(); const ay = _bucketsOf(year, tier) || {}; for (let w = 1; w <= lastDataWeek; w++) { const a = ay[w]; if (!a) continue; for (const k in c) c[k] += (a[k] || 0); } return c; };
+  const _combineYTD = (year, tier) => { const c = mk(); const ay = _bucketsOf(year, tier) || {}; for (let w = 1; w <= lastDataWeek; w++) { const a = ay[w]; if (!a) continue; for (const k in c) { if (k === 'repSet') continue; c[k] += (a[k] || 0); } if (a.repSet) a.repSet.forEach(x => c.repSet.add(x)); } return c; };
   const ytdValOf = (year, tier) => valOf(_combineYTD(year, tier), year === prevY);
   const fmtVal = (v) => v == null ? '—'
-    : kind === 'usd' ? '$' + (metric === 'revenue' ? Math.round(v).toLocaleString() : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+    : kind === 'usd' ? '$' + ((metric === 'revenue' || metric === 'pra') ? Math.round(v).toLocaleString() : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
     : kind === 'pct' ? (v * 100).toFixed(1) + '%'
     : fmt.int(v);
 
@@ -29268,7 +29283,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
               callback: isRanking
                 ? undefined
                 : (['revenue', 'avg_initial', 'acv', 'pra'].includes(metricKey)
-                    ? (v => '$' + (Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : v))
+                    ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1).replace(/\.0M?$/, '') + 'M' : Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : v))
                     : (['auto_pay_pct', 'multi_year_pct'].includes(metricKey)
                         ? (v => (v * 100).toFixed(0) + '%')
                         : undefined)),
@@ -32668,7 +32683,7 @@ function reportingSubTabs() {
   const tabs = [
     ['overview',   'Overview'],
     ['geographic', 'Geographic'],
-    ['waterfall',  'Waterfall Attrition'],
+    ['waterfall',  'Retention'],
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
   ];
@@ -36615,13 +36630,14 @@ function reportingWaterfall() {
                   const t = Math.max(0, Math.min(1, rate / 0.5));   // 0% green → ≥50% full red
                   return el('td', {
                     class: 'text-left px-2 py-2 tabular-nums',
-                    style: { background: `hsl(${120 * (1 - t)}, 70%, 88%)` },
+                    style: { background: `hsl(${120 * (1 - t)}, 70%, 88%)`, color: '#111827', fontWeight: '600' },
                     title: fmtCell(v) + ' of ' + fmtCell(prev) + ' retained',
                   }, (rate * 100).toFixed(1) + '%');
                 }
+                const _bg = cellColor(row, v);
                 return el('td', {
-                  class: 'text-left px-2 py-2',
-                  style: { background: cellColor(row, v) },
+                  class: 'text-left px-2 py-2 tabular-nums',
+                  style: _bg === 'transparent' ? {} : { background: _bg, color: '#111827', fontWeight: '600' },
                 }, fmtCell(v));
               }),
             )),
@@ -36646,7 +36662,7 @@ function reportingWaterfall() {
                   const t = Math.max(0, Math.min(1, rate / 0.5));
                   return el('td', {
                     class: 'text-left px-2 py-2 tabular-nums font-bold',
-                    style: { background: `hsl(${120 * (1 - t)}, 70%, 84%)` },
+                    style: { background: `hsl(${120 * (1 - t)}, 70%, 84%)`, color: '#111827' },
                     title: fmtCell(num) + ' of ' + fmtCell(den) + ' retained (all cohorts, weighted)',
                   }, (rate * 100).toFixed(1) + '%');
                 }
@@ -36675,6 +36691,139 @@ function reportingWaterfall() {
   // Blended Attrition (workbook: B.O.Y. survivors of existing cohorts vs
   // the same subs at E.O.Y. — new sales during the year never enter).
   const money0 = (v) => '$' + Math.round(v || 0).toLocaleString();
+  // ── Attrition drill — click a year: WHO left and WHY. Same population,
+  // same effective-cancel rules as the table itself, so counts reconcile. ──
+  // Shared prep — recurring + serviced subs with the EFFECTIVE cancel date
+  // (excluded reasons / 3-day ROR don't count), identical to the waterfall.
+  const _retenEff = (pop) => {
+    const recurringByName = reportingServiceRecurringMap();
+    const excludedReasons = reportingExcludedCancelReasons();
+    return pop
+      .filter(r => !!recurringByName.get(r.subscription))
+      .filter(r => !!r.initial_service)
+      .map(r => {
+        const realCancel = r.subscription_date_canceled
+          && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
+          && !(reportingExcludeRorChurn() && _reporting3dayRor(r))
+          ? r.subscription_date_canceled : null;
+        return { ...r, _effCancel: realCancel };
+      });
+  };
+  const MONTHS_S = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  // Period-aware drill: a YEAR (blended table rows) or a single MONTH
+  // (seasonality cells). Same book/churn construction either way.
+  const openAttritionDrill = (pop, year, month) => {
+    const rows = _retenEff(pop);
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const periodStart = month ? year + '-' + pad2(month) + '-01' : year + '-01-01';
+    const inPeriod = (iso) => month ? String(iso).slice(0, 7) === year + '-' + pad2(month) : String(iso).slice(0, 4) === String(year);
+    const periodLabel = month ? MONTHS_S[month - 1] + ' ' + year : String(year);
+    const prevLabel = month ? MONTHS_S[month - 1] + ' ' + (year - 1) : String(year - 1);
+    const boyRows = rows.filter(r => r.initial_service < periodStart && (!r._effCancel || r._effCancel >= periodStart));
+    const attr = boyRows.filter(r => r._effCancel && inPeriod(r._effCancel));
+    const excluded = boyRows.filter(r => !r._effCancel && r.subscription_date_canceled && inPeriod(r.subscription_date_canceled));
+    const arrOf = (rs) => rs.reduce((a, r) => a + (Number(r.annual_recurring_value) || 0), 0);
+    const lifeMonths = (r) => {
+      const a = new Date(r.initial_service + 'T00:00'), b = new Date(String(r._effCancel || r.subscription_date_canceled) + 'T00:00');
+      return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
+    };
+    const groupBy2 = (rs, keyFn) => {
+      const m = new Map();
+      rs.forEach(r => { const k = keyFn(r) || '—'; let g = m.get(k); if (!g) { g = []; m.set(k, g); } g.push(r); });
+      return [...m.entries()].map(([k, g]) => ({ key: k, n: g.length, arr: arrOf(g), lives: g.map(lifeMonths).filter(v => v != null) }))
+        .sort((a, b) => b.n - a.n);
+    };
+    const byReason  = groupBy2(attr, r => reportingCancelReasonOf(r));
+    // Prior-period comparison — same construction one year back (same month
+    // for month drills), so each reason shows whether its BITE of the book
+    // is improving or worsening.
+    const prevStart = month ? (year - 1) + '-' + pad2(month) + '-01' : (year - 1) + '-01-01';
+    const inPrev = (iso) => month ? String(iso).slice(0, 7) === (year - 1) + '-' + pad2(month) : String(iso).slice(0, 4) === String(year - 1);
+    const boyPrev = rows.filter(r => r.initial_service < prevStart && (!r._effCancel || r._effCancel >= prevStart));
+    const attrPrev = boyPrev.filter(r => r._effCancel && inPrev(r._effCancel));
+    const prevPtsByReason = new Map(groupBy2(attrPrev, r => reportingCancelReasonOf(r))
+      .map(g => [g.key, boyPrev.length ? g.n / boyPrev.length * 100 : 0]));
+    const byService = groupBy2(attr, r => r.subscription).slice(0, 6);
+    const byOffice  = groupBy2(attr, r => r.office_name).slice(0, 6);
+    const lives = attr.map(lifeMonths).filter(v => v != null).sort((a, b) => a - b);
+    const median = lives.length ? lives[Math.floor(lives.length / 2)] : 0;
+    const under12 = lives.length ? lives.filter(v => v < 12).length / lives.length : 0;
+    const rate = boyRows.length ? attr.length / boyRows.length : 0;
+
+    const overlay = el('div', { class: 'modal-overlay' });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    const stat = (label, val, sub) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl', style: { background: 'var(--card-2)', minWidth: '110px' } },
+      el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+      el('div', { class: 'text-lg font-black tabular-nums' }, val),
+      sub && el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, sub));
+    const maxN = byReason.length ? byReason[0].n : 1;
+    const reasonRow = (g) => {
+      const avgLife = g.lives.length ? g.lives.reduce((a, b) => a + b, 0) / g.lives.length : null;
+      return el('div', { class: 'py-2 border-t border-' },
+        el('div', { class: 'flex items-center justify-between gap-2 text-xs' },
+          el('span', { class: 'font-semibold truncate' }, g.key),
+          el('span', { class: 'tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } },
+            fmt.int(g.n) + ' · ' + (attr.length ? (g.n / attr.length * 100).toFixed(1) : '0') + '% of churn · '
+            + (boyRows.length ? (g.n / boyRows.length * 100).toFixed(2) : '0') + ' pts of rate')),
+        el('div', { class: 'mt-1 rounded-full overflow-hidden', style: { height: '5px', background: 'var(--card-2)' } },
+          el('div', { style: { width: Math.max(2, g.n / maxN * 100) + '%', height: '100%', background: '#DC2626', opacity: '.75' } })),
+        el('div', { class: 'mt-0.5 text-[10px] tabular-nums flex items-center gap-2 flex-wrap', style: { color: 'var(--text-subtle)' } },
+          el('span', {}, money0(g.arr) + ' ARR lost' + (avgLife != null ? ' · avg lifetime ' + avgLife.toFixed(1) + ' mo' : '')),
+          // YoY: this reason's contribution to the attrition RATE (pts of
+          // BOY book) vs last year — normalized, so book growth can't hide
+          // a worsening reason. Red = biting harder, green = improving.
+          (() => {
+            if (!boyPrev.length) return null;
+            const nowPts = boyRows.length ? g.n / boyRows.length * 100 : 0;
+            const prevPts = prevPtsByReason.get(g.key);
+            if (prevPts == null) return el('span', { class: 'font-bold', style: { color: '#B45309' } }, 'new vs ' + prevLabel);
+            const d = nowPts - prevPts;
+            if (Math.abs(d) < 0.005) return el('span', { class: 'font-bold' }, 'flat vs ' + prevLabel);
+            return el('span', { class: 'font-bold', style: { color: d > 0 ? '#DC2626' : '#5F8A1F' } },
+              (d > 0 ? '▲ +' : '▼ −') + Math.abs(d).toFixed(2) + ' pts vs ' + prevLabel);
+          })()));
+    };
+    const miniTable = (title, groups) => el('div', { class: 'flex-1 min-w-[220px]' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, title),
+      ...groups.map(g => el('div', { class: 'flex items-center justify-between text-[11px] py-1 border-t border-' },
+        el('span', { class: 'truncate' }, g.key),
+        el('span', { class: 'tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } },
+          fmt.int(g.n) + ' · ' + (attr.length ? (g.n / attr.length * 100).toFixed(0) : '0') + '%'))));
+    const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+      el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
+        el('div', {},
+          el('h2', { class: 'text-base font-bold' }, periodLabel + ' Attrition — who left and why'),
+          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
+            'Same population and rules as the Blended table: book at period start only, excluded reasons and ROR don\u2019t count as churn.')),
+        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+      el('div', { class: 'px-4 pb-4 overflow-y-auto' },
+        el('div', { class: 'flex gap-2 flex-wrap mb-3' },
+          stat('B.O.Y. book', fmt.int(boyRows.length)),
+          stat('Churned', fmt.int(attr.length), (rate * 100).toFixed(2) + '% attrition'),
+          stat('ARR lost', money0(arrOf(attr))),
+          stat('Median lifetime', median.toFixed(1) + ' mo', Math.round(under12 * 100) + '% left within 12 mo')),
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, 'By cancellation reason'),
+        ...byReason.map(reasonRow),
+        // Reasons that churned people LAST year but nobody this year — the
+        // wins deserve visibility too.
+        (() => {
+          const gone = [...prevPtsByReason.entries()]
+            .filter(([k]) => !byReason.some(g => g.key === k))
+            .sort((a, b) => b[1] - a[1]).slice(0, 4);
+          if (!gone.length) return null;
+          return el('div', { class: 'mt-2 text-[10px]', style: { color: '#5F8A1F' } },
+            '✓ Zero churn this period from: ' + gone.map(([k, pts]) => k + ' (was ' + pts.toFixed(2) + ' pts in ' + prevLabel + ')').join(' · '));
+        })(),
+        el('div', { class: 'flex gap-5 flex-wrap mt-4' },
+          miniTable('Top services', byService),
+          miniTable('Top offices', byOffice)),
+        excluded.length > 0 && el('div', { class: 'mt-4 text-[11px] px-3 py-2 rounded-lg', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+          '+ ' + fmt.int(excluded.length) + ' cancel(s) in ' + periodLabel + ' did NOT count as churn (config-excluded reasons or 3-day ROR): '
+          + groupBy2(excluded, r => reportingCancelReasonOf(r)).slice(0, 5).map(g => g.key + ' ×' + g.n).join(' · ')),
+      ));
+    overlay.append(card);
+    document.body.append(overlay);
+  };
   const renderBlended = (pop) => {
     const base = buildReportingWaterfall(pop, mode === 'arv' ? 'arv' : 'subscription', 'all');
     const rows2 = [];
@@ -36694,16 +36843,169 @@ function reportingWaterfall() {
           el('tr', {},
             ...['Year', 'B.O.Y.', 'E.O.Y.', 'Retention', 'Attrition'].map(h => el('th', { class: 'text-left px-2.5 py-1.5 font-semibold' }, h)))),
         el('tbody', {},
-          ...rows2.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          ...rows2.map(r => el('tr', {
+            class: 'border-t cursor-pointer transition hover:brightness-95',
+            style: { borderColor: 'var(--border)' },
+            title: 'Click for ' + r.y + '\u2019s breakdown — reasons, services, offices, lifetimes',
+            onclick: () => openAttritionDrill(pop, r.y),
+          },
             el('td', { class: 'px-2.5 py-1.5 font-semibold' }, r.y),
             el('td', { class: 'px-2.5 py-1.5' }, num(r.boy)),
             el('td', { class: 'px-2.5 py-1.5' }, num(r.eoy)),
             el('td', { class: 'px-2.5 py-1.5' }, (r.ret * 100).toFixed(2) + '%'),
             el('td', { class: 'px-2.5 py-1.5 font-bold', style: { color: (1 - r.ret) > 0.3 ? '#DC2626' : 'var(--text)' } }, ((1 - r.ret) * 100).toFixed(2) + '%'))))));
   };
-  const renderSide = (data, pop, label) => el('div', { class: 'flex gap-4 flex-wrap items-start' },
-    el('div', { class: 'flex-1 min-w-0' }, renderMatrix(data, label)),
-    renderBlended(pop));
+  // ── SEASONALITY — monthly churn rate, months × years. Finds the "do we
+  // bleed customers at certain points of the year" pattern. Cell = churn ÷
+  // book at month start; click any cell for that month's reason breakdown. ──
+  const seasonalityCard = (pop, label) => {
+    const rows = _retenEff(pop);
+    if (!rows.length) return null;
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const startsByYm = {}, cancelsByYm = {}, reasonsByYm = {};
+    let minY = 9999;
+    rows.forEach(r => {
+      const sYm = String(r.initial_service).slice(0, 7);
+      startsByYm[sYm] = (startsByYm[sYm] || 0) + 1;
+      minY = Math.min(minY, Number(sYm.slice(0, 4)) || 9999);
+      if (r._effCancel) {
+        const cYm = String(r._effCancel).slice(0, 7);
+        cancelsByYm[cYm] = (cancelsByYm[cYm] || 0) + 1;
+        const rs = reasonsByYm[cYm] || (reasonsByYm[cYm] = {});
+        const reason = reportingCancelReasonOf(r);
+        rs[reason] = (rs[reason] || 0) + 1;
+      }
+    });
+    const now = new Date();
+    const curY = now.getFullYear(), curM = now.getMonth() + 1;
+    // Walk the whole book month by month so each cell's denominator is the
+    // TRUE book at that month's start (same-month starts excluded).
+    const bookAt = {};
+    let book = 0;
+    for (let y = minY; y <= curY; y++) for (let m = 1; m <= 12; m++) {
+      const ym = y + '-' + pad2(m);
+      bookAt[ym] = book;
+      book += (startsByYm[ym] || 0) - (cancelsByYm[ym] || 0);
+    }
+    const yearsShown = [];
+    for (let y = Math.max(minY, curY - 2); y <= curY; y++) yearsShown.push(y);
+    const rateOf = (y, m) => {
+      const ym = y + '-' + pad2(m);
+      const den = bookAt[ym] || 0;
+      if (!den) return null;
+      return { rate: (cancelsByYm[ym] || 0) / den, n: cancelsByYm[ym] || 0, den };
+    };
+    const heat = (rate) => {
+      const t = Math.max(0, Math.min(1, rate / 0.05));   // 5%/mo = full red
+      return `hsl(${120 * (1 - t)}, 70%, 88%)`;
+    };
+    const topReasons = (y, m) => {
+      const rs = reasonsByYm[y + '-' + pad2(m)] || {};
+      return Object.entries(rs).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => k + ' ×' + n).join(' · ');
+    };
+    const monthRow = (m) => {
+      const cells = yearsShown.map(y => {
+        if (y === curY && m > curM) return el('td', { class: 'px-2 py-1.5' }, '');
+        const v = rateOf(y, m);
+        if (!v) return el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-subtle)' } }, '—');
+        return el('td', {
+          class: 'px-2 py-1.5 tabular-nums cursor-pointer transition hover:brightness-95',
+          style: { background: heat(v.rate), color: '#111827', fontWeight: '600' },
+          title: MONTHS_S[m - 1] + ' ' + y + ': ' + v.n + ' of ' + fmt.int(v.den) + ' churned' + (topReasons(y, m) ? ' — ' + topReasons(y, m) : '') + '. Click for the full breakdown.',
+          onclick: () => openAttritionDrill(pop, y, m),
+        }, (v.rate * 100).toFixed(2) + '%', el('span', { class: 'text-[9px] ml-1', style: { opacity: '.65' } }, '(' + v.n + ')'));
+      });
+      // Seasonality signal: the month's average churn across the shown years.
+      const vals = yearsShown.map(y => (y === curY && m > curM) ? null : rateOf(y, m)).filter(v => v && v.den >= 25);
+      const avg = vals.length ? vals.reduce((a, v) => a + v.rate, 0) / vals.length : null;
+      cells.push(el('td', { class: 'px-2 py-1.5 tabular-nums font-bold', style: avg == null ? {} : { background: heat(avg), color: '#111827' } },
+        avg == null ? '—' : (avg * 100).toFixed(2) + '%'));
+      return el('tr', { class: 'border-t border-' },
+        el('td', { class: 'px-2.5 py-1.5 font-semibold' }, MONTHS_S[m - 1]), ...cells);
+    };
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
+        el('div', {},
+          el('h3', { class: 'text-sm font-bold' }, '📆 Churn Seasonality' + (label ? ' — ' + label : '')),
+          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
+            'Monthly churn rate = real-attrition cancels ÷ book at month start. The Avg column exposes the seasonal pattern; click any cell for that month\u2019s reasons.')),
+        configInfoBtn('Churn Seasonality',
+          'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Hover a cell for its top reasons; click for the full breakdown with YoY deltas.')),
+      el('div', { class: 'scroll-x' },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
+            el('tr', {},
+              el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, 'Month'),
+              ...yearsShown.map(y => el('th', { class: 'text-left px-2 py-2 font-semibold' }, String(y))),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Avg'))),
+          el('tbody', {}, ...Array.from({ length: 12 }, (_, i) => monthRow(i + 1))))));
+  };
+
+  // ── START-MONTH COHORTS — the retention side: do customers signed in
+  // April stick better than October signups? Rows = the month a customer
+  // STARTED (all years pooled); columns = survival at 3/12/24 months. ──
+  const startCohortCard = (pop, label) => {
+    const rows = _retenEff(pop);
+    if (!rows.length) return null;
+    const today = new Date();
+    const addM = (iso, n) => { const d = new Date(iso + 'T00:00'); d.setMonth(d.getMonth() + n); return d; };
+    const HORIZONS = [3, 12, 24];
+    const byMonth = Array.from({ length: 12 }, () => []);
+    rows.forEach(r => {
+      const d = new Date(r.initial_service + 'T00:00');
+      if (!isNaN(d)) byMonth[d.getMonth()].push(r);
+    });
+    const greenHeat = (pct) => `hsl(${Math.max(0, Math.min(120, pct * 120))}, 70%, 88%)`;
+    const monthRow = (m) => {
+      const cohort = byMonth[m];
+      const cells = HORIZONS.map(h => {
+        const eligible = cohort.filter(r => addM(r.initial_service, h) <= today);
+        if (eligible.length < 25) return el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-subtle)' }, title: 'Fewer than 25 subs old enough for this horizon' }, '—');
+        const kept = eligible.filter(r => !r._effCancel || new Date(r._effCancel + 'T00:00') >= addM(r.initial_service, h));
+        const pct = kept.length / eligible.length;
+        return el('td', {
+          class: 'px-2 py-1.5 tabular-nums',
+          style: { background: greenHeat(pct), color: '#111827', fontWeight: '600' },
+          title: fmt.int(kept.length) + ' of ' + fmt.int(eligible.length) + ' subs starting in ' + MONTHS_S[m] + ' (any year) still active ' + h + ' months in',
+        }, (pct * 100).toFixed(1) + '%');
+      });
+      const churned = cohort.filter(r => r._effCancel);
+      const lives = churned.map(r => {
+        const a = new Date(r.initial_service + 'T00:00'), b = new Date(r._effCancel + 'T00:00');
+        return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
+      }).filter(v => v != null).sort((a, b) => a - b);
+      const medLife = lives.length ? lives[Math.floor(lives.length / 2)] : null;
+      return el('tr', { class: 'border-t border-' },
+        el('td', { class: 'px-2.5 py-1.5 font-semibold' }, MONTHS_S[m]),
+        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.int(cohort.length)),
+        ...cells,
+        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, medLife == null ? '—' : medLife.toFixed(1) + ' mo'));
+    };
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
+        el('div', {},
+          el('h3', { class: 'text-sm font-bold' }, '🌱 Retention by Start Month' + (label ? ' — ' + label : '')),
+          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
+            'Do customers signed in April stick better than October signups? All years pooled by the month the customer STARTED.')),
+        configInfoBtn('Retention by Start Month',
+          'Each row pools every sub whose first service landed in that calendar month, across all years. The 3/12/24-month columns show the share still active that long after starting — only subs old enough for the horizon count, and months with fewer than 25 eligible subs show a dash. Median lifetime is measured on churned subs only (survivors would push it higher). Same attrition rules as everywhere: excluded reasons and 3-day ROR count as retained.')),
+      el('div', { class: 'scroll-x' },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
+            el('tr', {},
+              el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, 'Start Month'),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Subs'),
+              ...HORIZONS.map(h => el('th', { class: 'text-left px-2 py-2 font-semibold' }, h + ' Mo')),
+              el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Median lifetime of the subs that churned' }, 'Med Life'))),
+          el('tbody', {}, ...Array.from({ length: 12 }, (_, i) => monthRow(i))))));
+  };
+
+  const renderSide = (data, pop, label) => el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'flex gap-4 flex-wrap items-start' },
+      el('div', { class: 'flex-1 min-w-0' }, renderMatrix(data, label)),
+      renderBlended(pop)),
+    seasonalityCard(pop, label),
+    startCohortCard(pop, label));
 
   const body = inCompare
     ? el('div', { class: 'flex flex-col gap-4' },
