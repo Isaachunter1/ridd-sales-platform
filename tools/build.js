@@ -33,4 +33,8 @@ if (html === before) {
   process.exit(1);
 }
 fs.writeFileSync(htmlPath, html);
-console.log(`[build] app.js → ${hashedName} (${(src.length / 1024 / 1024).toFixed(2)}MB), index.html rewritten`);
+// version.json — long-lived PWA sessions poll this to learn a new deploy
+// shipped, then self-reload onto the fresh bundle (see the client's
+// version watcher). no-cache headers in netlify.toml keep it honest.
+fs.writeFileSync(path.join(root, 'version.json'), JSON.stringify({ hash: hashedName, builtAt: new Date().toISOString() }));
+console.log(`[build] app.js → ${hashedName} (${(src.length / 1024 / 1024).toFixed(2)}MB), index.html rewritten, version.json stamped`);

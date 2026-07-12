@@ -23,10 +23,11 @@
 # scheduled function fires the background worker that pulls from BigQuery and
 # writes the fresh snapshot to Supabase.
 [functions."revhawk-sync-scheduled"]
-  # Every 30 min during selling hours (12:00–03:30 UTC = 8am–11:30pm ET).
-  # Overnight runs were pure BigQuery quota burn — nothing sells at 4am, and
-  # the free tier (1TB scanned/month) was getting exhausted mid-month.
-  schedule = "*/30 0-3,12-23 * * *"
+  # Hourly on the hour during selling hours (12:00–03:00 UTC = 8am–11pm ET).
+  # Halves the BigQuery scan volume vs half-hourly; billing is enabled now,
+  # so this is cost control rather than survival. Overnight stays paused —
+  # nothing sells at 4am.
+  schedule = "0 0-3,12-23 * * *"
 
 [functions."marketing-refresh-scheduled"]
   schedule = "0 10 * * *"     # nightly ~5-6am ET — health-check + warm Windsor/GHL/QBO feeds
@@ -57,6 +58,16 @@
   for = "/*.html"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/version.json"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[redirects]]
+  from = "/api/client-error"
+  to = "/.netlify/functions/client-error"
+  status = 200
 
 [[redirects]]
   from = "/api/slack-paystub"
