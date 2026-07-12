@@ -636,7 +636,7 @@ exports.handler = async (event) => {
               monthly_amount: monthly,
               num_services: null,
               pay_per_service: false,
-              paid_in_full: false,
+              paid_in_full: cv > 0 && initial >= 0.9 * cv,   // initial invoice covers the year -> PIF
               is_commercial: false,
               revenue_amount: cv,
               sold_date: soldIso,
@@ -734,9 +734,16 @@ exports.handler = async (event) => {
     try {
       const since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
       let _lifecycleCols = true;   // flips off if sales_crm_lifecycle.sql hasn't been run
-      const { data: appSales, error: asErr } = await supabase.from('sales')
-        .select('id, customer_number, revenue_amount, sold_date, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance')
+      let { data: appSales, error: asErr } = await supabase.from('sales')
+        .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance')
         .gte('sold_date', since);
+      if (asErr && /column|schema cache/i.test(asErr.message || '')) {
+        _lifecycleCols = false;
+        console.warn('[revhawk-sync] lifecycle columns missing - run sales_crm_lifecycle.sql to enable serviced/paid stamps');
+        ({ data: appSales, error: asErr } = await supabase.from('sales')
+          .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value')
+          .gte('sold_date', since));
+      }
       if (asErr) throw new Error(asErr.message);
       if (appSales && appSales.length) {
         const byCust = new Map();
@@ -751,7 +758,7 @@ exports.handler = async (event) => {
           const cust = s.customer_number != null ? String(s.customer_number).trim() : '';
           const rev = Number(s.revenue_amount) || 0;
           let status = 'not_found', cv = null, subName = null;
-          const lc = { serviced_at: null, completed: 0, dpd: null, balance: null };
+          const lc = { serviced_at: null, completed: 0, dpd: null, balance: null, pif: false };
           const subs = cust ? byCust.get(cust) : null;
           if (subs && subs.length) {
             const soldT = Date.parse(s.sold_date || '') || 0;
@@ -779,6 +786,13 @@ exports.handler = async (event) => {
             lc.completed = Number(best.subscription_completed_services) || 0;
             lc.dpd = (best.days_past_due === null || best.days_past_due === undefined || best.days_past_due === '') ? null : (Number(best.days_past_due) || 0);
             lc.balance = (best.responsible_balance === null || best.responsible_balance === undefined || best.responsible_balance === '') ? null : (Math.round((Number(best.responsible_balance) || 0) * 100) / 100);
+            // PAID-IN-FULL auto-detect: initial invoice covers >=90% of the
+            // contract value AND no balance owing — the customer paid the
+            // year upfront. One-way stamp (never un-sets) so a later balance
+            // blip can't flap commissions.
+            lc.pif = cv > 0
+              && (Number(best.initial_price) || 0) >= 0.9 * cv
+              && (lc.balance == null || lc.balance <= 0.01);
           }
           // Only write rows whose verdict OR lifecycle actually changed —
           // keeps the pass near-free once things settle.
@@ -787,9 +801,11 @@ exports.handler = async (event) => {
             (Number(s.crm_completed_services) || 0) !== (lc.completed || 0) ||
             (s.crm_days_past_due == null ? null : Number(s.crm_days_past_due)) !== lc.dpd ||
             (s.crm_balance == null ? null : Number(s.crm_balance)) !== lc.balance);
-          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged) continue;
+          const pifChanged = lc.pif && !s.paid_in_full;
+          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged) continue;
           const upd = { crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp };
           if (_lifecycleCols) { upd.crm_serviced_at = lc.serviced_at; upd.crm_completed_services = lc.completed; upd.crm_days_past_due = lc.dpd; upd.crm_balance = lc.balance; }
+          if (pifChanged) upd.paid_in_full = true;
           let { error } = await supabase.from('sales').update(upd).eq('id', s.id);
           if (error && _lifecycleCols && /column|schema cache/i.test(error.message || '')) {
             // sales_crm_lifecycle.sql not run yet — degrade to legacy stamp.

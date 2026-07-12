@@ -9180,6 +9180,15 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                     ? chip('⚠ ' + s.crm_days_past_due + 'd', 'rgba(220,38,38,.12)', '#B91C1C', 'Customer is ' + s.crm_days_past_due + ' day(s) past due' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : ''))
                     : chip('✓ Paid', 'rgba(141,198,63,.15)', '#5F8A1F', 'Account is current' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : '')));
                 }
+                // $2k+ annualized value → auditor must confirm whether the
+                // property is commercial (commercial pays the half rate —
+                // mark it via Edit → Commercial). Clears once marked.
+                (() => {
+                  const _m = Number(s.contract_months) || 12;
+                  const _annual = _m > 12 ? (Number(s.revenue_amount) || 0) * 12 / _m : (Number(s.revenue_amount) || 0);
+                  if (_annual > 2000 && !s.is_commercial) lcChips.push(chip('⚑ Comm?', 'rgba(168,85,247,.14)', '#7C3AED',
+                    'Annualized value ' + fmt.usd(_annual) + ' is over $2,000 — confirm whether this is a commercial property. Commercial pays the commercial (half) rate; mark it via Edit → Commercial.'));
+                })();
                 const withLc = (node) => lcChips.length ? el('span', { class: 'inline-flex items-center gap-1 flex-wrap' }, node, ...lcChips) : node;
                 if (v.status === 'verified') {
                   return withLc(chip('✓ ' + fmt.usd(v.cv), 'rgba(141,198,63,.15)', '#5F8A1F',
@@ -9621,7 +9630,14 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
     onchange: () => { updateFooter(); rebuildServiceOptions(); checkValidity(); },
   },
     el('option', { value: '' }, 'Select Contract Type...'),
-    ...state.contractTypes.map(ct => el('option', { value: ct.id }, ct.name)),
+    // MANUAL LOG = UPSELLS ONLY now (regular contracts auto-add from the
+    // FieldRoutes sync with their real term). Editing an older sale keeps
+    // the full list so history stays adjustable.
+    ...(() => {
+      if (existingSale) return state.contractTypes.map(ct => el('option', { value: ct.id }, ct.name));
+      const ups = state.contractTypes.filter(ct => /upsell/i.test(String(ct.name || '')));
+      return (ups.length ? ups : state.contractTypes).map(ct => el('option', { value: ct.id }, ct.name));
+    })(),
   );
 
   // The Service dropdown is filtered by contract type:
@@ -9935,11 +9951,14 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
       mk('Commission Date', inp('commission_date', { type: 'date', value: today })),
     ),
 
-    // Checkboxes side-by-side
-    el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5' },
-      checkboxCard('Paid in Full', 'No hold on backend — full commission is paid upfront', (v) => { modalState.paid_in_full = v; updateFooter(); }, modalState.paid_in_full),
-      checkboxCard('Commercial', 'ACV > $2,000 AND is a commercial property.', (v) => { modalState.is_commercial = v; updateFooter(); }, modalState.is_commercial),
-    ),
+    // PIF + Commercial live on the EDIT/audit path only now: Paid-in-Full
+    // auto-detects from the CRM (initial payment covers ≥90% of contract
+    // value); $2k+ ACV rows get flagged in the queue and the auditor marks
+    // Commercial here — which pays the commercial (half) rate.
+    existingSale ? el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5' },
+      checkboxCard('Paid in Full', 'No hold on backend — full commission is paid upfront (auto-detected from CRM; override here)', (v) => { modalState.paid_in_full = v; updateFooter(); }, modalState.paid_in_full),
+      checkboxCard('Commercial', 'Commercial property — pays the commercial (half) rate. $2k+ ACV rows are flagged in the queue for this check.', (v) => { modalState.is_commercial = v; updateFooter(); }, modalState.is_commercial),
+    ) : null,
 
     mk('Notes',
       el('textarea', { name: 'notes', class: 'w-full rounded-lg border px-3 py-2.5 text-sm', rows: 2, placeholder: 'Optional...' }),
