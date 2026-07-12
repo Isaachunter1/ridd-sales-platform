@@ -572,7 +572,24 @@ exports.handler = async (event) => {
         const masterOf = new Map();
         roster.forEach(e => String(e.employee_ids || e.employee_id || '').split(',').forEach(id => { const t = id.trim(); if (t) masterOf.set(t, String(e.employee_id)); }));
         const { data: profs2 } = await supabase.from('profiles').select('id, fieldroutes_employee_id, office_id').not('fieldroutes_employee_id', 'is', null);
-        const profByMaster = new Map((profs2 || []).map(p => [String(p.fieldroutes_employee_id), p]));
+        // ONE HUMAN, MANY CRM ACCOUNTS: a profile may be linked to a BRANCH
+        // id rather than the group master, so index the profile under its
+        // stored id, its master, and EVERY id in its roster group — sales
+        // under any of a person's accounts attribute to the same profile
+        // (the Tyler Trump / Pere LeSueur class of split identities).
+        const profByEmp = new Map();
+        (profs2 || []).forEach(p => {
+          const pid = String(p.fieldroutes_employee_id || '').trim();
+          if (!pid) return;
+          profByEmp.set(pid, p);
+          const master = masterOf.get(pid) || pid;
+          if (!profByEmp.has(master)) profByEmp.set(master, p);
+        });
+        roster.forEach(e => {
+          const ids = String(e.employee_ids || e.employee_id || '').split(',').map(x => x.trim()).filter(Boolean);
+          const hit = ids.map(id => profByEmp.get(id)).find(Boolean);
+          if (hit) ids.forEach(id => { if (!profByEmp.has(id)) profByEmp.set(id, hit); });
+        });
         const pool = objects.filter(r =>
           String(r.sold_by_type || '').trim() === 'Office Staff'
           && r.customer_id && r.sold_date && String(r.sold_date).slice(0, 10) >= START
@@ -606,8 +623,8 @@ exports.handler = async (event) => {
             if (haveKey.has(key)) { skippedDup++; continue; }
             const soldT = Date.parse(soldIso) || 0;
             if (haveRevenue.some(h => h.cust === norm(r.customer_id) && Math.abs(h.rev - cv) <= 1 && Math.abs(h.t - soldT) <= 7 * 86400000)) { skippedDup++; continue; }
-            const master = masterOf.get(String(r.sold_by_id || '').trim());
-            const prof = master ? profByMaster.get(master) : null;
+            const soldById = String(r.sold_by_id || '').trim();
+            const prof = profByEmp.get(soldById) || profByEmp.get(masterOf.get(soldById) || '') || null;
             if (!prof) { skippedNoRep++; continue; }                        // seller has no app account — nothing to attribute to
             let svcId = svcByName.get(norm(sub));
             if (!svcId) {

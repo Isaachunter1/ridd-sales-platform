@@ -4109,6 +4109,19 @@ function openMySettingsModal() {
 }
 
 function mountApp() {
+  // ── Shared-dataset freshness watch — EVERY view, not just Indicators. ──
+  // PWAs essentially never reboot, so before this a device that sat on the
+  // War Room (or anywhere else) NEVER re-checked the cloud: the Last-upload
+  // stamp — and every CRM-backed number — froze at whatever it pulled last.
+  // The refresh itself is cheap (throttled to one conditional request per
+  // 2 minutes; 304 when nothing new landed) and re-renders only on new data.
+  if (state.profile && !DEMO && !state._indCloudWatch) {
+    state._indCloudWatch = true;
+    const _freshKick = () => { try { refreshIndicatorsFromCloud(); } catch { /* next tick retries */ } };
+    window.addEventListener('focus', _freshKick);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) _freshKick(); });
+    setInterval(_freshKick, 180000);
+  }
   // Access revoked (CRM marked the rep inactive → sync set role='disabled'):
   // full-stop screen, nothing else renders. Admins restore access from
   // Settings → Users by assigning a role again.
@@ -4509,17 +4522,28 @@ function warRoomCrmSales() {
   if (_wrBridgeCache.src === raw && _wrBridgeCache.roster === state.frRoster
       && _wrBridgeCache.profiles === state.allProfiles) return _wrBridgeCache.out;
   const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
-  // CRM employee id → app profile. Branch ids roll up to the roster master
-  // row first (multi-branch reps — the Tyler Trump class), then match the
-  // linked profile; name-signature is the fallback for unlinked accounts.
-  const masterOf = new Map();
-  (state.frRoster || []).forEach(e => String(e.employee_ids || e.employee_id || '').split(',').forEach(x => {
-    const t = x.trim(); if (t) masterOf.set(t, String(e.employee_id));
-  }));
-  const profByMaster = new Map(), profBySig = new Map();
+  // CRM employee id → app profile, in layers. A profile's stored id may be a
+  // BRANCH id rather than the group master, so every id in the person's
+  // roster group indexes to the profile; name-signature and letter-signature
+  // (with shared-token guard) mop up unlinked and variant-spelling accounts —
+  // the Tyler Trump / Pere LeSueur class of split identities.
+  const { map: masterOf, rowByMaster } = _frMasterMaps();
+  const profByEmpId = new Map(), profBySig = new Map(), profBySqueeze = new Map();
   (state.allProfiles || []).forEach(p => {
-    if (p.fieldroutes_employee_id) profByMaster.set(String(p.fieldroutes_employee_id), p.id);
-    if (p.full_name) profBySig.set(_sig(p.full_name), p.id);
+    const pid = String(p.fieldroutes_employee_id || '').trim();
+    if (pid) {
+      const master = masterOf.get(pid) || pid;
+      profByEmpId.set(pid, p.id);
+      profByEmpId.set(master, p.id);
+      const row = rowByMaster.get(master);
+      if (row) String(row.employee_ids || row.employee_id || '').split(',').forEach(x => {
+        const t = x.trim(); if (t && !profByEmpId.has(t)) profByEmpId.set(t, p.id);
+      });
+    }
+    if (p.full_name) {
+      profBySig.set(_sig(p.full_name), p.id);
+      _nameSqueezeSigs(p.full_name).forEach(sg => profBySqueeze.set(sg, p.id));
+    }
   });
   const srcIdByName = new Map((state.sources || []).map(o => [String(o.name || '').trim().toLowerCase(), o.id]));
   // CRM office strings vary ('Atlanta' / 'ATLANTA' / 'Atlanta, Detroit') —
@@ -4532,8 +4556,14 @@ function warRoomCrmSales() {
     const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
     if (!iso) return;
     const canonical = getCanonicalRepName(s.rep);
-    const master = masterOf.get(String(s.repId || '').trim());
-    const rep_id = (master && profByMaster.get(master)) || profBySig.get(_sig(canonical)) || null;
+    const empId = String(s.repId || '').trim();
+    let rep_id = (empId && (profByEmpId.get(empId) || profByEmpId.get(masterOf.get(empId) || ''))) || profBySig.get(_sig(canonical)) || null;
+    if (!rep_id) {
+      for (const sg of _nameSqueezeSigs(canonical)) {
+        const hit = profBySqueeze.get(sg);
+        if (hit) { rep_id = hit; break; }
+      }
+    }
     const t = (typeof _parseIndicatorTime === 'function') ? _parseIndicatorTime(s) : null;
     const cv = Number(s.contractValue) || 0;
     const initial = Number(s.initialPrice) || 0;
@@ -4670,9 +4700,6 @@ function viewDashboard() {
         el('input', { type: 'date', class: 'rounded-xl px-2 py-1.5 text-xs', value: state.dashCustomEnd || '', onchange: e => { state.dashCustomEnd = e.target.value; mountApp(); } }),
       ),
 
-      configInfoBtn('Sales War Room data',
-        'Live from FieldRoutes. Every number on this page — goals, sales and revenue cards, the sales feed, and the leaderboard — comes from the CRM shared dataset (office-staff sales, refreshed by the hourly sync shown in the stamp), plus manually logged upsells. Upsells count as New revenue. CRM sales by office staff without an app account count in every total but don\'t rank on the leaderboard. Contract values are exact CRM figures.'),
-
       // Office view toggle (admin only)
       isAdmin && el('button', {
         class: 'px-3 py-2 text-xs rounded-xl border transition font-medium',
@@ -4681,6 +4708,9 @@ function viewDashboard() {
           : { borderColor: 'var(--border-2)', color: 'var(--text)' },
         onclick: () => { state.dashOfficeView = !state.dashOfficeView; mountApp(); },
       }, state.dashOfficeView ? '✕ Office' : '🏢 Office'),
+
+      configInfoBtn('Sales War Room data',
+        'Live from FieldRoutes. Every number on this page — goals, sales and revenue cards, the sales feed, and the leaderboard — comes from the CRM shared dataset (office-staff sales, refreshed by the hourly sync shown in the stamp), plus manually logged upsells. Upsells count as New revenue. CRM sales by office staff without an app account count in every total but don\'t rank on the leaderboard. Contract values are exact CRM figures.'),
     ),
 
     // ─── Office dashboard (if toggled) ───
@@ -4884,7 +4914,7 @@ function viewDashboard() {
     // ─── Split: Today's Sales (30%) | Leaderboard (70%) ───
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-[3fr_7fr] gap-4' },
       todaysSalesPanel(windowSales, range),
-      leaderboardSection(),
+      leaderboardSection(range),
     ),
   );
 }
@@ -5087,7 +5117,7 @@ function computeLeaderboard(tab = 'total', range = null) {
     if (!p) return false;
     if (p.role === 'rep_office') return true;
     if (p.role === 'rep_sales') return false;
-    const emp = (state.frRoster || []).find(e => String(e.employee_id) === String(p.fieldroutes_employee_id || ''));
+    const emp = frRosterRowForProfile(p);   // works even when the profile stores a branch id
     if (emp && emp.type_label) return /office\s*staff/i.test(emp.type_label);
     if (state.profile && p.id === state.profile.id && state.myRepType) return /office\s*staff/i.test(state.myRepType);
     try {
@@ -8599,8 +8629,10 @@ function todaysSalesPanel(windowSales, range) {
   );
 }
 
-function leaderboardSection() {
-  const rows = computeLeaderboard(state.dashLeaderTab);
+function leaderboardSection(range) {
+  // Scoped to the dashboard's date filter (defaults to Today) — one filter
+  // drives the whole page: cards, feed, and leaderboard.
+  const rows = computeLeaderboard(state.dashLeaderTab, range || getDateRange(state.dashDateRange));
   const empty = rows.every(r => r.count === 0);
   const repBadges = computeBadges();
 
@@ -13525,6 +13557,41 @@ function _cleanRepName(n) {
   if (_cleanRepNameCache.size < 200000) _cleanRepNameCache.set(key, v);
   return v;
 }
+// ── ONE HUMAN, MANY CRM ACCOUNTS — shared identity resolution ────────────
+// FieldRoutes gives a person a separate employee row per branch (and the
+// roster only groups them when they share an email or linked ids), and app
+// profiles are sometimes linked to a BRANCH id instead of the group master.
+// These helpers make every id in a person's group resolve to the same
+// roster row/profile, so multi-account reps (Tyler Trump, Pere LeSueur)
+// never split anywhere in the app.
+let _frMasterCache = { roster: null, map: null, rowByMaster: null };
+function _frMasterMaps() {
+  if (_frMasterCache.roster === state.frRoster && _frMasterCache.map) return _frMasterCache;
+  const map = new Map(), rowByMaster = new Map();
+  (state.frRoster || []).forEach(e => {
+    const master = String(e.employee_id);
+    rowByMaster.set(master, e);
+    String(e.employee_ids || e.employee_id || '').split(',').forEach(x => { const t = x.trim(); if (t) map.set(t, master); });
+  });
+  _frMasterCache = { roster: state.frRoster, map, rowByMaster };
+  return _frMasterCache;
+}
+// Any of a person's branch ids → their roster MASTER id (unknown ids pass through).
+function frResolveEmpId(id) { const t = String(id == null ? '' : id).trim(); return _frMasterMaps().map.get(t) || t; }
+// A profile's roster row, even when the profile stores a branch id.
+function frRosterRowForProfile(p) { return _frMasterMaps().rowByMaster.get(frResolveEmpId(p && p.fieldroutes_employee_id)) || null; }
+// Squeeze signatures: spacing/case/punctuation-blind but ORDER-PRESERVING —
+// "Pere LeSueur" and "Pere Le Sueur" both squeeze to "perelesueur", and the
+// token-sorted variant catches "LeSueur, Pere". Unlike an anagram signature,
+// different humans can't collide ("Aidan Smith" ≠ "Nadia Smith"). Two names
+// are the same person when their signature sets intersect.
+function _nameSqueezeSigs(n) {
+  const toks = String(n || '').toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  if (!toks.length) return [];
+  const raw = toks.join('');
+  const sorted = toks.slice().sort().join('');
+  return raw === sorted ? [raw] : [raw, sorted];
+}
 // Robust rep-name matching for the rep-keyed config maps (team / tier / office).
 // Sales records store names "Last, First" while Manage Teams stores "First Last",
 // and casing/punctuation vary — so exact-key lookups miss the majority of the
@@ -14488,6 +14555,7 @@ function nrlaConfig(comp) {
   if (!n.rosters || typeof n.rosters !== 'object') n.rosters = {};        // team → [competing rep names]; empty = whole branch
   if (!n.matchups || typeof n.matchups !== 'object') n.matchups = {};     // roundNum → [[a,b],…] drag-and-drop overrides
   if (!n.repIds || typeof n.repIds !== 'object') n.repIds = {};           // rep name → FieldRoutes sales-rep ID (reference / future ID matching)
+  if (!n.branchTz || typeof n.branchTz !== 'object') n.branchTz = {};      // branch → IANA time zone (new markets set here, no code change)
   if (!Array.isArray(c.excludedBranches)) c.excludedBranches = [];
   return n;
 }
@@ -14566,6 +14634,56 @@ const NRLA_2026_SCHEDULE = [
 // Prize pool (flyer) — per rep, by final placement.
 const NRLA_PRIZE_POOL = ['®400K + Team Trip', '®325K', '®250K', '®175K', '®125K', '®100K', '®75K', '®50K'];
 const nrlaOrdinal = (n) => n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n + 'th';
+// ── Branch local time — time matters in this league: a trailing team may
+// still have daylight to knock after another market's day has ended. Known
+// branches default here; anything new falls back to Eastern until an admin
+// sets it (⏰ on the board hero → saved to the comp config, synced to all). ──
+const NRLA_BRANCH_TZ = {
+  'ATLANTA': 'America/New_York', 'DETROIT': 'America/New_York', 'RALEIGH': 'America/New_York',
+  'CHARLESTON': 'America/New_York', 'VIRGINIA BEACH': 'America/New_York', 'MYRTLE BEACH': 'America/New_York',
+  'DESTIN': 'America/Chicago',   // FL panhandle runs Central
+  'JOPLIN': 'America/Chicago',   // MO — also Central
+};
+const NRLA_TZ_SHORT = { 'America/New_York': 'ET', 'America/Chicago': 'CT', 'America/Denver': 'MT', 'America/Phoenix': 'AZ', 'America/Los_Angeles': 'PT' };
+const _nrlaTitle = (t) => String(t || '').split(' ').map(w => w ? w[0] + w.slice(1).toLowerCase() : w).join(' ');
+const nrlaBranchTzOf = (cfg, t) => (cfg && cfg.branchTz && cfg.branchTz[t]) || NRLA_BRANCH_TZ[t] || 'America/New_York';
+const _nrlaTzTime = (z) => { try { return new Date().toLocaleTimeString('en-US', { timeZone: z, hour: 'numeric', minute: '2-digit' }); } catch (e) { return '—'; } };
+const _nrlaTzHour = (z) => { try { return Number(new Intl.DateTimeFormat('en-US', { timeZone: z, hour: 'numeric', hour12: false, hourCycle: 'h23' }).format(new Date())); } catch (e) { return 12; } };
+function openNrlaTzModal(teams, cfg, save) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  const OPTS = [
+    ['America/New_York', 'Eastern (ET)'], ['America/Chicago', 'Central (CT)'],
+    ['America/Denver', 'Mountain (MT)'], ['America/Phoenix', 'Arizona (no DST)'],
+    ['America/Los_Angeles', 'Pacific (PT)'],
+  ];
+  const card = el('div', { class: 'card w-full max-w-sm my-8 overflow-hidden flex flex-col' },
+    el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
+      el('div', {},
+        el('h2', { class: 'text-base font-bold' }, '⏰ Branch time zones'),
+        el('div', { class: 'text-[11px] text-muted- mt-0.5' }, 'Drives the local-time clocks on the board. New markets default to Eastern.')),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×'),
+    ),
+    el('div', { class: 'px-4 pb-2' },
+      ...teams.map(t => el('div', { class: 'flex items-center justify-between gap-3 py-2 border-b border-' },
+        el('span', { class: 'text-sm font-semibold' }, _nrlaTitle(t)),
+        el('select', {
+          class: 'rounded-lg px-2 py-1.5 text-xs cursor-pointer',
+          onchange: (e) => { cfg.branchTz[t] = e.target.value; },
+        }, ...OPTS.map(([v, l]) => el('option', { value: v, selected: nrlaBranchTzOf(cfg, t) === v }, l))),
+      )),
+    ),
+    el('div', { class: 'p-4 pt-3' },
+      el('button', {
+        class: 'w-full rounded-xl px-4 py-2.5 text-sm font-bold transition hover:brightness-95',
+        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: () => { overlay.remove(); save('branch time zones'); },
+      }, 'Save'),
+    ),
+  );
+  overlay.append(card);
+  document.body.append(overlay);
+}
 // Seeding-round pairings: the 2026 flyer schedule when it covers the field,
 // otherwise a generated round robin (which the 🎲 rotation can turn).
 // Drag-and-drop matchup overrides (cfg.matchups[roundNum]) win over the base
@@ -15561,6 +15679,44 @@ function nrlaBoard(rawSales, opts) {
           })(),
         ),
         el('div', { style: { fontFamily: DISP, fontSize: 'clamp(.85rem,1.8vw,1.15rem)', letterSpacing: '.06em', color: PINK, textTransform: 'none', marginTop: '7px' } }, 'National Riddmen League Association'),
+        // ── Local time in every competing market — one chip per time zone,
+        // ticking in place. When a team's day ends, this shows who still has
+        // daylight to knock and close a gap. ──
+        (() => {
+          if (!R.teams || !R.teams.length) return null;
+          const groups = new Map();
+          R.teams.forEach(t => { const z = nrlaBranchTzOf(cfg, t); if (!groups.has(z)) groups.set(z, []); groups.get(z).push(t); });
+          if (!groups.size) return null;
+          const strip = el('div', { class: 'flex items-center gap-2 flex-wrap', style: { marginTop: '11px' } });
+          const live = [];
+          // Latest local hour first (ET before CT) — reads west across the map.
+          [...groups.entries()].sort((a, b) => _nrlaTzHour(b[0]) - _nrlaTzHour(a[0])).forEach(([z, ts]) => {
+            const sun = el('span', { style: { fontSize: '10px' } }, '');
+            const timeSpan = el('span', { style: { fontWeight: '900', color: '#fff' } }, '');
+            const paint = () => {
+              timeSpan.textContent = _nrlaTzTime(z);
+              const h = _nrlaTzHour(z);
+              sun.textContent = (h >= 6 && h < 21) ? '☀️' : '🌙';
+            };
+            paint();
+            live.push(paint);
+            strip.append(el('span', {
+              title: ts.map(_nrlaTitle).join(', ') + ' — local time' + (RO ? '' : '. Click to set branch time zones.'),
+              class: RO ? '' : 'cursor-pointer transition hover:brightness-110',
+              style: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px', borderRadius: '999px', background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', color: 'rgba(255,255,255,.85)', fontSize: '11px', whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' },
+              onclick: RO ? null : () => openNrlaTzModal(R.teams, cfg, save),
+            },
+              sun, timeSpan,
+              el('span', { style: { fontWeight: '900', color: PINK } }, NRLA_TZ_SHORT[z] || z),
+              el('span', { style: { opacity: '.7', overflow: 'hidden', textOverflow: 'ellipsis' } }, ts.map(_nrlaTitle).join(' · ')),
+            ));
+          });
+          const iv = setInterval(() => {
+            if (!strip.isConnected) { clearInterval(iv); return; }
+            live.forEach(fn => fn());
+          }, 15000);
+          return strip;
+        })(),
       ),
       el('div', { class: 'nrla-hero-side flex flex-col items-end shrink-0' },
         el('div', { class: 'flex items-center gap-2' },
@@ -19731,16 +19887,9 @@ function viewIndicators() {
   // Pull the newest shared upload (any admin's) — throttled to one check
   // every 2 minutes; re-renders automatically if something fresher exists.
   refreshIndicatorsFromCloud();
-  // Keep the shared dataset fresh while the tab just SITS open — without
-  // this the cloud check only ran on a re-render, so another admin's
-  // upload wouldn't appear until you clicked something. Re-checks when the
-  // window regains focus and every 3 minutes (the refresh itself is
-  // throttled to one real network check per 2 minutes).
-  if (!state._indCloudWatch) {
-    state._indCloudWatch = true;
-    window.addEventListener('focus', () => { if (state.view === 'indicators') refreshIndicatorsFromCloud(); });
-    setInterval(() => { if (state.view === 'indicators') refreshIndicatorsFromCloud(); }, 180000);
-  }
+  // (The keep-fresh watcher that used to live here is now GLOBAL — installed
+  // in mountApp for every view, since the War Room and Sales tabs read the
+  // same CRM dataset and PWAs never reboot on their own.)
   // Migration: legacy 'cumulative' becomes the new YTD-default 'range' mode
   if (state.indicatorsView === 'cumulative') state.indicatorsView = 'range';
   // Migrate old preset ids (ytd / since_mar1 / 90d / 60d / 30d) to the new
@@ -24425,6 +24574,41 @@ function _autoAliasByRepId(sales) {
         if (!state._indicatorRepAlias) state._indicatorRepAlias = {};
         state._indicatorRepAlias[nm] = canonical;
         changed++;
+      });
+    }
+    // Pass 3 — NAME-VARIANT accounts the roster could NOT group (different
+    // emails, no linked ids — the Pere LeSueur class). Spellings whose
+    // squeeze signatures intersect ("Pere LeSueur" / "Pere Le Sueur" /
+    // "LeSueur, Pere") merge into the most common spelling. Order-preserving,
+    // so different humans ("Aidan Smith" vs "Nadia Smith") can never fuse.
+    {
+      const nameCounts = new Map();
+      for (const s of (sales || [])) {
+        const nm = _cleanRepName(s && s.rep);
+        if (nm) nameCounts.set(nm, (nameCounts.get(nm) || 0) + 1);
+      }
+      const keyOwner = new Map();   // squeeze sig → group representative
+      const groups = new Map();     // representative → Map(name → count)
+      nameCounts.forEach((n, nm) => {
+        const sigs = _nameSqueezeSigs(nm);
+        if (!sigs.length) return;
+        let repKey = null;
+        for (const sg of sigs) { if (keyOwner.has(sg)) { repKey = keyOwner.get(sg); break; } }
+        if (!repKey) repKey = nm;
+        sigs.forEach(sg => keyOwner.set(sg, repKey));
+        let g = groups.get(repKey); if (!g) { g = new Map(); groups.set(repKey, g); }
+        g.set(nm, n);
+      });
+      groups.forEach((names) => {
+        if (names.size < 2) return;
+        const ranked = [...names.entries()].sort((a, b) => b[1] - a[1]);
+        const canonical = getCanonicalRepName(ranked[0][0]);
+        ranked.forEach(([nm]) => {
+          if (nm === canonical || getCanonicalRepName(nm) === canonical) return;
+          if (!state._indicatorRepAlias) state._indicatorRepAlias = {};
+          state._indicatorRepAlias[nm] = canonical;
+          changed++;
+        });
       });
     }
     if (changed) {
@@ -35659,7 +35843,7 @@ function reportingReconciliation() {
   // rep profile → the set of all their FieldRoutes employee IDs (across offices).
   const repEmpIds = new Map();
   for (const p of profiles) {
-    let row = p.fieldroutes_employee_id ? rosterById.get(p.fieldroutes_employee_id) : null;
+    let row = frRosterRowForProfile(p) || (p.fieldroutes_employee_id ? rosterById.get(p.fieldroutes_employee_id) : null);
     if (!row) row = roster.find(e => e.email && _frNormEmail(e.email) === _frNormEmail(p.email))
                   || roster.find(e => _frRealName(e) === _frNormName(p.full_name));
     if (row) repEmpIds.set(p.id, new Set(String(row.employee_ids || row.employee_id || '').split(',').map(s => s.trim()).filter(Boolean)));
@@ -39092,7 +39276,7 @@ function adminReps() {
   // match, then full-name match (covers app logins whose email differs from
   // the CRM email, e.g. cameron@riddpest.com vs crprymak@gmail.com).
   const profFrEmp = (p) => {
-    const linked = p.fieldroutes_employee_id ? rosterById.get(p.fieldroutes_employee_id) : null;
+    const linked = frRosterRowForProfile(p) || (p.fieldroutes_employee_id ? rosterById.get(p.fieldroutes_employee_id) : null);
     if (linked) return linked;
     const byEmail = roster.find(e => e.email && _frNormEmail(e.email) === _frNormEmail(p.email));
     if (byEmail) return byEmail;
