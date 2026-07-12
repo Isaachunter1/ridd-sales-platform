@@ -213,6 +213,14 @@ async function _storeIndicatorDataCompressed(json) {
 // shared `reporting` bucket at a fixed path, and the Indicators tab pulls
 // the newest copy for whoever is looking — uploads persist across users.
 const INDICATORS_CLOUD_PATH = 'indicators/latest.json.gz';
+// DATA MINIMIZATION: admins/auditors pull the full dataset; every other
+// role pulls the rep-sanitized copy (customer name/id blanked server-side).
+// Storage policy (security_rls.sql) enforces this at the database — the
+// full blob 403s for rep sessions even if someone edits this code locally.
+function _indicatorsCloudPath() {
+  const role = state.profile && state.profile.role;
+  return (isAdminRole(role) || isAuditorRole(role)) ? INDICATORS_CLOUD_PATH : 'indicators/latest-rep.json.gz';
+}
 async function syncIndicatorsToCloud() {
   if (DEMO || typeof CompressionStream === 'undefined') return;
   try {
@@ -253,10 +261,11 @@ async function refreshIndicatorsFromCloud(force) {
     // and CONDITIONAL: we remember the fingerprint (ETag) of the copy we already
     // have, so when nothing new has landed the server answers 304 with no body.
     // That keeps every open tab's 10-min poll effectively free at any headcount.
-    const TAG_KEY = 'ridd_ind_cloud_tag';
+    const _cloudPath = _indicatorsCloudPath();
+    const TAG_KEY = 'ridd_ind_cloud_tag:' + _cloudPath;
     let prevTag = {};
     try { prevTag = JSON.parse(localStorage.getItem(TAG_KEY) || '{}') || {}; } catch { /* ignore */ }
-    const r = await _downloadSnapshotBlob(INDICATORS_CLOUD_PATH, null, {
+    const r = await _downloadSnapshotBlob(_cloudPath, null, {
       meta: true,
       ifNoneMatch: prevTag.etag || undefined,
       ifModifiedSince: prevTag.lastModified || undefined,
@@ -1716,7 +1725,7 @@ const slack = {
     try {
       const res = await fetch('/api/slack-paystub', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await _apiAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           recipients: withSlack.map(p => ({ slack_user_id: p.slack_user_id, full_name: p.full_name })),
           payload,
@@ -3961,7 +3970,7 @@ function refreshIndSection(id) {
         console.error('[ridd] render crashed', err);
         try { mountError(err); }
         catch (e2) {
-          document.body.innerHTML = '<div style="padding:32px;font-family:system-ui,sans-serif"><h2 style="margin:0 0 8px">Something broke while rendering</h2><pre style="white-space:pre-wrap;color:#b91c1c">' + String((err && err.message) || err) + '</pre><button onclick="location.reload()" style="margin-top:12px;padding:8px 14px;cursor:pointer">Reload</button></div>';
+          document.body.innerHTML = '<div style="padding:32px;font-family:system-ui,sans-serif"><h2 style="margin:0 0 8px">Something broke while rendering</h2><pre style="white-space:pre-wrap;color:#b91c1c">' + String((err && err.message) || err).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) + '</pre><button onclick="location.reload()" style="margin-top:12px;padding:8px 14px;cursor:pointer">Reload</button></div>';
         }
       }
     };
@@ -4412,7 +4421,11 @@ function mountApp() {
   // content (tables, toolbars) instead scrolls inside contentWrap, so nothing
   // is hidden.
   const main = el('main', { class: 'flex-1 overflow-x-hidden pt-[76px]' });
-  const contentWrap = el('div', { class: 'p-4 sm:p-6 w-full max-w-[1600px] mx-auto overflow-x-auto' });
+  // Apple-feel: crossfade + rise ONLY when the view actually changes —
+  // in-place re-renders (filters, toggles) stay instant and steady.
+  const _viewChanged = state._lastAnimView !== state.view;
+  state._lastAnimView = state.view;
+  const contentWrap = el('div', { class: 'p-4 sm:p-6 w-full max-w-[1600px] mx-auto overflow-x-auto' + (_viewChanged ? ' view-enter' : '') });
   main.append(pageHeader, contentWrap);
 
   shell.append(main);
@@ -21512,7 +21525,9 @@ function viewIndicators() {
         if (buckets.length > 0 && buckets[0].kind !== 'week') {
           const groupFn = state.indicatorsGroupBy === 'teams'
             ? (s => getRepTeam(s.rep) || 'Unassigned')
-            : (s => s.office || 'Unknown');
+            : state.indicatorsGroupBy === 'dept'
+              ? (s => DEPT_GROUP_LABELS[_indicatorDeptOf(s)] || 'OFFICE STAFF')   // was office names — dept ranks were alphabetical ties
+              : (s => s.office || 'Unknown');
           chartData = aggregateRawSalesByBucket(indicatorSales(), groupFn, buckets,
             state.indicatorsGroupBy === 'teams', indicatorAvgInitialIsPest() ? TEAM_PEST_EXCLUDE : null);
           chartWeeks = buckets.map((b, i) => i);
@@ -21551,9 +21566,12 @@ function viewIndicators() {
       const _hideBranchCharts = state.indicatorDept === 'office';
       return el('div', { class: 'flex flex-col gap-4' },
         !_hideBranchCharts && el('div', {},
-          indicatorChart('Branch Power Ranking', chartData, branches, '_power_ranking', chartWeeks, true, chartLabels),
+          indicatorChart('Power Ranking', chartData, branches, '_power_ranking', chartWeeks, true, chartLabels),
         ),
-        !_hideBranchCharts && el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4' },
+        // Monthly/Weekly PRA + Revenue cards RETIRED (Jul 2026, per Isaac) —
+        // the Performance Trends chart covers them via its Scope picker and
+        // the Weeks/Months/Years view in the Years dropdown.
+        false && el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4' },
           indicatorChart(grain + ' PRA',     chartData, branches, 'pra',     chartWeeks, false, chartLabels),
           indicatorChart(grain + ' Revenue', chartData, branches, 'revenue', chartWeeks, false, chartLabels),
         ),
@@ -28574,12 +28592,28 @@ function indicatorYoYTrendChart() {
     return v;
   };
   const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
+  // View granularity — Weeks (Wk 1..52 per year), Months (Jan..Dec per
+  // year), or Years (one point per year, all history on one line). This
+  // absorbed the old Monthly PRA / Monthly Revenue cards.
+  const gran = ['week', 'month', 'year'].includes(state._indicatorYoYGran) ? state._indicatorYoYGran : 'week';
   const weekStartOf = (y, wk) => {
     const jan1 = new Date(y, 0, 1);
     const a = new Date(jan1); a.setDate(a.getDate() - a.getDay());
     a.setDate(a.getDate() + (wk - 1) * 7);
     return a;
   };
+  // Start of bucket b in year y, per granularity (drives the matched-horizon
+  // cancel math and the live-bucket trim).
+  const bucketStartOf = (y, b) => gran === 'week' ? weekStartOf(y, b) : gran === 'month' ? new Date(y, b - 1, 1) : new Date(y, 0, 1);
+  const bucketOfDate = (d, y) => {
+    if (gran === 'month') return d.getMonth() + 1;
+    if (gran === 'year') return 1;
+    const jan1 = new Date(y, 0, 1);
+    const anchor = new Date(jan1); anchor.setDate(anchor.getDate() - anchor.getDay());
+    return Math.floor((d - anchor) / 604800000) + 1;
+  };
+  const _curBucketNow = gran === 'month' ? (todayMid.getMonth() + 1) : gran === 'year' ? 1
+    : (() => { const a = new Date(curY, 0, 1); a.setDate(a.getDate() - a.getDay()); return Math.floor((todayMid - a) / 604800000) + 1; })();
   // ── SCOPES — the old Metric Trends card folded in here (one chart now).
   // Check Company / offices / teams / reps and each plots its own line,
   // multiplying with Years × Type like every other picker on this card. ──
@@ -28609,9 +28643,7 @@ function indicatorYoYTrendChart() {
     const y = Number(iso.slice(0, 4));
     const d = new Date(iso + 'T00:00');
     if (isNaN(d)) continue;
-    const jan1 = new Date(y, 0, 1);
-    const anchor = new Date(jan1); anchor.setDate(anchor.getDate() - anchor.getDay());
-    const wk = Math.floor((d - anchor) / 604800000) + 1;
+    const wk = bucketOfDate(d, y);
     if (wk < 1) continue;
     const ay = acc[y] || (acc[y] = {});
     const a = ay[wk] || (ay[wk] = mk());
@@ -28640,7 +28672,7 @@ function indicatorYoYTrendChart() {
           // Matched horizon: cutoff = prior-year week start + the elapsed
           // time the current-year cohort has had (today − cur week start).
           const cancelD = _parseSlashDate(s.cancelDate);
-          const cutoff = weekStartOf(prevY, wk).getTime() + Math.max(0, todayMid - weekStartOf(curY, wk));
+          const cutoff = bucketStartOf(prevY, wk).getTime() + Math.max(0, todayMid - bucketStartOf(curY, wk));
           if (cancelD && cancelD.getTime() <= cutoff) b.cancelsM++;
         }
       }
@@ -28656,14 +28688,12 @@ function indicatorYoYTrendChart() {
   let lastDataWeek = Math.max(0, ...scopeAccs.map(x => x.lastDataWeek));
   // The FIRST selected scope feeds the header numbers + YoY footer.
   const acc = scopeAccs[0].acc, accTier = scopeAccs[0].accTier;
-  maxWeek = Math.min(Math.max(maxWeek, 1), 54);
-  // Rep view is YTD-only: cut the axis at the CURRENT week of year so prior
+  maxWeek = Math.min(Math.max(maxWeek, 1), gran === 'month' ? 12 : gran === 'year' ? 1 : 54);
+  // Rep view is YTD-only: cut the axis at the CURRENT bucket so prior
   // years' lines don't run months past today — every year compares the same
   // Jan-1 → now stretch. Admins keep the full-year axis.
-  if (_yoyRepOnly) {
-    const _anch = new Date(curY, 0, 1); _anch.setDate(_anch.getDate() - _anch.getDay());
-    const _curWk = Math.floor((todayMid - _anch) / 604800000) + 1;
-    maxWeek = Math.min(maxWeek, Math.max(_curWk, 1));
+  if (_yoyRepOnly && gran !== 'year') {
+    maxWeek = Math.min(maxWeek, Math.max(_curBucketNow, 1));
   }
 
   // Office staff can split the revenue metric into Total / New / Renewal.
@@ -28735,6 +28765,7 @@ function indicatorYoYTrendChart() {
     // commits the set with ONE full re-render (each toggle used to rebuild
     // the whole page).
     let _stagedYears = [..._yoySelYears];
+    let _stagedGran = gran;
     let _yApply = null;
     const _yDirty = () => {
       if (!_yApply) return;
@@ -28742,10 +28773,33 @@ function indicatorYoYTrendChart() {
       _yApply.style.color = 'var(--accent-text)';
       _yApply.style.borderColor = 'var(--accent)';
     };
+    // "Show as" — Weeks / Months / Years granularity (absorbed the old
+    // Monthly PRA/Revenue cards). Years view plots all history on one line,
+    // so the year checkboxes below only apply to Weeks/Months.
+    const granRows = [];
+    const paintGran = () => granRows.forEach(({ row, glyph, gid }) => {
+      glyph.textContent = _stagedGran === gid ? '◉' : '○';
+      row.style.background = _stagedGran === gid ? 'var(--card-2)' : 'transparent';
+    });
+    const granRow = (gid, lab) => {
+      const glyph = el('span', { style: { fontSize: '12px' } }, '');
+      const row = el('button', {
+        class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+        style: { color: 'var(--text)' },
+        onclick: (e) => { e.stopPropagation(); _stagedGran = gid; paintGran(); _yDirty(); },
+      }, glyph, el('span', {}, lab));
+      granRows.push({ row, glyph, gid });
+      return row;
+    };
     const panel = el('div', {
       class: 'card absolute p-1.5',
-      style: { top: 'calc(100% + 6px)', right: '0', minWidth: '160px', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyYearsOpen ? 'block' : 'none' },
+      style: { top: 'calc(100% + 6px)', right: '0', minWidth: '170px', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyYearsOpen ? 'block' : 'none' },
     },
+      el('div', { class: 'px-2.5 pt-1 pb-0.5 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Show as'),
+      granRow('week', 'Weeks'),
+      granRow('month', 'Months'),
+      granRow('year', 'Years (all history)'),
+      el('div', { class: 'px-2.5 pt-2 pb-0.5 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Overlay years'),
       ...yearsPresent.slice().sort((a, b) => b - a).map(y => {
         const glyph = el('span', { style: { fontSize: '13px' } }, _stagedYears.includes(y) ? '☑' : '☐');
         const row = el('button', {
@@ -28768,10 +28822,12 @@ function indicatorYoYTrendChart() {
         onclick: (e) => {
           e.stopPropagation();
           state._indicatorYoYYears = _stagedYears.length ? _stagedYears : [curY];
+          state._indicatorYoYGran = _stagedGran;
           state._yoyYearsOpen = false;
           mountApp();
         },
       }, 'Apply')));
+    paintGran();
     const btn = el('button', {
       class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer border flex items-center gap-1.5',
       style: _yoySelYears.length > 1
@@ -28789,7 +28845,7 @@ function indicatorYoYTrendChart() {
           document.removeEventListener('mousedown', closer);
         }), 0); }
       },
-    }, 'Years · ' + _yoySelYears.length, el('span', { style: { fontSize: '9px' } }, state._yoyYearsOpen ? '▴' : '▾'));
+    }, gran === 'year' ? 'Years · all' : (gran === 'month' ? 'Months' : 'Weeks') + ' · ' + _yoySelYears.length + 'y', el('span', { style: { fontSize: '9px' } }, state._yoyYearsOpen ? '▴' : '▾'));
     if (state._yoyYearsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
       if (wrap.contains(ev.target)) return;
@@ -28993,7 +29049,8 @@ function indicatorYoYTrendChart() {
     _chartInstances[id] = new Chart(cvs.getContext('2d'), {
       type: 'line',
       data: {
-        labels: weeksAxis.map(w => 'Wk ' + w).concat('YTD'),
+        labels: gran === 'year' ? yearsPresent.map(String)
+          : (gran === 'month' ? weeksAxis.map(w => ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][w - 1] || w) : weeksAxis.map(w => 'Wk ' + w)).concat('YTD'),
         datasets: (() => {
           // One line per year present. Current year = bold green solid; prior
           // years = dashed, the immediately-prior muted and older ones colored.
@@ -29003,6 +29060,24 @@ function indicatorYoYTrendChart() {
           const palette = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899'];
           const lines = [], ytdPts = [];
           const multiScope = _yoySelScopes.length > 1 || _yoySelScopes[0].t !== 'co';
+          if (gran === 'year') {
+            // One point per year, ALL history on a single line per series —
+            // the Years checkboxes don't apply in this view.
+            const scopePalette0 = ['#8DC63F', '#0EA5E9', '#F59E0B', '#A855F7', '#EF4444', '#14B8A6', '#EC4899', '#F97316'];
+            _yoySelScopes.forEach((sc, si) => {
+              const A = scopeAccs[si];
+              const scopeLab = multiScope ? _scopeLabelOf(sc) : '';
+              _yoySelTiers.forEach((tier) => {
+                const tierLab = tier === 'all' ? '' : tier === 'rookie' ? 'Rookies' : 'Vets';
+                const label = [scopeLab, tierLab].filter(Boolean).join(' · ') || 'Company';
+                const color = multiScope ? scopePalette0[si % scopePalette0.length]
+                  : tier === 'rookie' ? '#F59E0B' : tier === 'vet' ? '#818CF8' : '#8DC63F';
+                const data = yearsPresent.map(y => { const _b = _bucketsOfIn(A, y, tier) || {}; return valOf(_b[1], y === prevY); });
+                lines.push({ label, data, borderColor: color, backgroundColor: 'rgba(141,198,63,.10)', fill: lines.length === 0 && kind !== 'pct' && _yoySelScopes.length * _yoySelTiers.length === 1, spanGaps: true, borderWidth: 3, tension: 0.25, pointRadius: 3.5, pointHoverRadius: 6 });
+              });
+            });
+            return lines;
+          }
           const _totalSeries = _yoySelYears.length * _yoySelTiers.length * _yoySelScopes.length;
           const MAX_SERIES = 14;   // beyond this the chart is spaghetti — trim scopes/years/tiers
           const scopePalette = ['#8DC63F', '#0EA5E9', '#F59E0B', '#A855F7', '#EF4444', '#14B8A6', '#EC4899', '#F97316'];
@@ -29035,8 +29110,7 @@ function indicatorYoYTrendChart() {
                 // week — the in-progress week plotted as a nosedive on every
                 // metric (Carson + Isaac both flagged it). Its live total still
                 // shows in the YTD diamond on the right axis.
-                const _curWkNow = (() => { const a = new Date(curY, 0, 1); a.setDate(a.getDate() - a.getDay()); return Math.floor((todayMid - a) / 604800000) + 1; })();
-                const _liveIdx = (isCur && lastDataWeek >= _curWkNow) ? _curWkNow - 1 : -1;
+                const _liveIdx = (isCur && lastDataWeek >= _curBucketNow) ? _curBucketNow - 1 : -1;
                 const plotVals = _liveIdx >= 0 ? vals.map((v, i) => (i >= _liveIdx ? null : v)) : vals;
                 lines.push(isCur
                   ? { label, data: plotVals, borderColor: color, backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct' && _totalSeries === 1, spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 }
@@ -29061,7 +29135,7 @@ function indicatorYoYTrendChart() {
               // Each line carries the actual Sun–Sat date range being
               // compared, e.g. "2026 (6/7–6/13): $812,440".
               label: (ctx) => {
-                if (ctx.dataIndex >= weeksAxis.length) return ctx.dataset.label + ': ' + fmtVal(ctx.parsed.y);
+                if (gran !== 'week' || ctx.dataIndex >= weeksAxis.length) return ctx.dataset.label + ': ' + fmtVal(ctx.parsed.y);
                 const w = ctx.dataIndex + 1;
                 const y = parseInt(ctx.dataset.label, 10);
                 const jan1 = new Date(y, 0, 1);
@@ -31288,7 +31362,7 @@ async function syncFromRevHawk(btn) {
     state._mkBust = Date.now();
     state._mkSpend = state._mkLeads = state._mkQbo = null;
     try {
-      const qr = await fetch('/api/qbo-spend?_=' + state._mkBust);
+      const qr = await fetch('/api/qbo-spend?_=' + state._mkBust, { headers: await _apiAuthHeaders() });
       const qj = qr.ok ? await qr.json() : null;
       if (qj && qj.bySourceMonth && Object.keys(qj.bySourceMonth).length) {
         state.reportingIsSpend = qj.bySourceMonth;
@@ -32200,11 +32274,20 @@ function reportingColorMap(slicesA, slicesB) {
 // whose FieldRoutes data was BAKED IN (stale since June).
 // ═══════════════════════════════════════════════════════════════════════════
 const MK_CACHE_MS = 30 * 60 * 1000;
+// Session bearer token for the app's own /api endpoints (they're all
+// auth-gated server-side now — closed by default, Apple style).
+async function _apiAuthHeaders(extra) {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return Object.assign({ Authorization: 'Bearer ' + ((session && session.access_token) || '') }, extra || {});
+  } catch (e) { return extra || {}; }
+}
 function _mkFetch(key, url) {
   const slot = state[key] || (state[key] = { data: null, err: null, at: 0, inflight: false });
   if (slot.inflight || (slot.at && Date.now() - slot.at < MK_CACHE_MS)) return slot;
   slot.inflight = true;
-  fetch(url, { headers: { accept: 'application/json' } })
+  _apiAuthHeaders({ accept: 'application/json' })
+    .then(h => fetch(url, { headers: h }))
     .then(r => r.json().then(j => ({ ok: r.ok, j })))
     .then(({ ok, j }) => {
       slot.at = Date.now(); slot.inflight = false;
@@ -33958,7 +34041,7 @@ function reportingLoadGhlLeads() {
   }
   state._ghlLoading = true;
   const url = '/api/ghl-leads' + (state._ghlCursor ? ('?after=' + encodeURIComponent(JSON.stringify(state._ghlCursor))) : '');
-  fetch(url, { headers: { accept: 'application/json' } })
+  _apiAuthHeaders({ accept: 'application/json' }).then(h => fetch(url, { headers: h }))
     .then(r => r.ok ? r.json() : null)
     .then(j => {
       state._ghlLoading = false;
@@ -34396,7 +34479,7 @@ function reportingInsideSales() {
     const useFile = () => fetch('/is-spend.json').then(r => r.ok ? r.json() : {})
       .then(j => { state.reportingIsSpend = j || {}; state._isSpendSource = 'file'; state._isSpendLoading = false; mountApp(); })
       .catch(() => { state.reportingIsSpend = {}; state._isSpendLoading = false; mountApp(); });
-    fetch('/api/qbo-spend').then(r => r.ok ? r.json() : null).then(j => {
+    _apiAuthHeaders().then(h => fetch('/api/qbo-spend', { headers: h })).then(r => r.ok ? r.json() : null).then(j => {
       if (j && j.bySourceMonth && Object.keys(j.bySourceMonth).length) {
         state.reportingIsSpend = j.bySourceMonth; state._isSpendSource = 'QuickBooks'; state._isSpendPulledAt = j.pulledAt; state._isSpendLoading = false; mountApp();
       } else { useFile(); }
@@ -37039,7 +37122,7 @@ function reportingWaterfall() {
         el('td', { class: 'px-2.5 py-1.5 font-semibold' }, MONTHS_S[m - 1]), ...cells);
     };
     // Header controls: every history year as a toggle chip + Table/Graph view.
-    const view = state._churnSeasonView === 'graph' ? 'graph' : 'table';
+    const view = ['graph', 'timeline'].includes(state._churnSeasonView) ? state._churnSeasonView : 'table';
     const yearChip = (y) => el('button', {
       class: 'rounded-lg px-2 py-1 text-[10px] font-bold cursor-pointer border transition hover:brightness-95',
       style: yearsShown.includes(y)
@@ -37052,7 +37135,7 @@ function reportingWaterfall() {
       },
     }, String(y));
     const viewToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-      ...[['table', 'Table'], ['graph', 'Graph']].map(([v, l]) => el('button', {
+      ...[['table', 'Table'], ['graph', 'Overlay'], ['timeline', 'Timeline']].map(([v, l]) => el('button', {
         class: 'px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition',
         style: view === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
         onclick: () => { state._churnSeasonView = v; mountApp(); },
@@ -37114,6 +37197,91 @@ function reportingWaterfall() {
       }, 50);
       return wrapEl;
     })();
+    // ── TIMELINE — one continuous monthly churn line across all history,
+    // draggable: grab the chart and pull forwards/backwards through time. ──
+    const timelineEl = (() => {
+      const pad2b = (n) => String(n).padStart(2, '0');
+      const seq = [];
+      for (let y = minY; y <= curY; y++) for (let m = 1; m <= 12; m++) {
+        if (y === curY && m > curM) break;
+        const ym = y + '-' + pad2b(m);
+        const den = bookAt[ym] || 0;
+        seq.push({ ym, label: MONTHS_S[m - 1] + ' ' + String(y).slice(2), rate: den >= 10 ? (cancelsByYm[ym] || 0) / den : null, n: cancelsByYm[ym] || 0, den });
+      }
+      while (seq.length && seq[0].rate == null) seq.shift();   // trim the pre-book era
+      const VISIBLE = Math.min(24, Math.max(6, seq.length));
+      const maxStart = Math.max(0, seq.length - VISIBLE);
+      if (state._churnPanStart == null || state._churnPanStart > maxStart) state._churnPanStart = maxStart;
+      const cid = 'chart-churn-timeline-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-');
+      const hint = el('div', { class: 'px-4 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } },
+        '↔ Drag the chart to move through time · showing ' + VISIBLE + ' months of ' + seq.length);
+      const wrapEl = el('div', { class: 'px-4 pb-4 pt-1', style: { position: 'relative', height: '260px' } },
+        el('canvas', { id: cid, style: { cursor: 'grab', touchAction: 'pan-y' } }));
+      setTimeout(() => {
+        if (typeof Chart === 'undefined') return;
+        const cvs = document.getElementById(cid);
+        if (!cvs) return;
+        if (_chartInstances[cid]) { _chartInstances[cid].destroy(); delete _chartInstances[cid]; }
+        const isDark = state.theme === 'dark';
+        const txt = isDark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)';
+        const grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+        const windowOf = (start) => seq.slice(start, start + VISIBLE);
+        const ch = new Chart(cvs.getContext('2d'), {
+          type: 'line',
+          data: {
+            labels: windowOf(state._churnPanStart).map(p => p.label),
+            datasets: [{
+              label: 'Monthly churn',
+              data: windowOf(state._churnPanStart).map(p => p.rate),
+              borderColor: '#DC2626', backgroundColor: 'rgba(220,38,38,.10)', fill: true,
+              spanGaps: true, tension: 0.3, borderWidth: 2.5, pointRadius: 2.5, pointHoverRadius: 5,
+            }],
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { display: false },
+              tooltip: { callbacks: { label: (ctx) => {
+                const p = windowOf(state._churnPanStart)[ctx.dataIndex];
+                return (ctx.parsed.y * 100).toFixed(2) + '% churn' + (p ? ' (' + p.n + ' of ' + fmt.int(p.den) + ')' : '');
+              } } },
+            },
+            scales: {
+              y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => (v * 100).toFixed(1) + '%' } },
+              x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+            },
+          },
+        });
+        _chartInstances[cid] = ch;
+        // Drag-to-pan: pixels → months via the chart area width. Updates the
+        // live chart in place (no re-render), remembers position in state.
+        let dragging = false, startX = 0, startPan = 0;
+        const repaint = () => {
+          const w = windowOf(state._churnPanStart);
+          ch.data.labels = w.map(p => p.label);
+          ch.data.datasets[0].data = w.map(p => p.rate);
+          ch.update('none');
+        };
+        cvs.addEventListener('pointerdown', (e) => {
+          dragging = true; startX = e.clientX; startPan = state._churnPanStart;
+          cvs.style.cursor = 'grabbing';
+          try { cvs.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
+        });
+        cvs.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          const pxPerMonth = (ch.chartArea ? (ch.chartArea.right - ch.chartArea.left) : cvs.clientWidth) / VISIBLE;
+          const delta = Math.round((startX - e.clientX) / Math.max(6, pxPerMonth));
+          const next = Math.max(0, Math.min(maxStart, startPan + delta));
+          if (next !== state._churnPanStart) { state._churnPanStart = next; repaint(); }
+        });
+        const endDrag = () => { dragging = false; cvs.style.cursor = 'grab'; };
+        cvs.addEventListener('pointerup', endDrag);
+        cvs.addEventListener('pointercancel', endDrag);
+        cvs.addEventListener('pointerleave', endDrag);
+      }, 50);
+      return el('div', {}, hint, wrapEl);
+    })();
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
@@ -37124,8 +37292,8 @@ function reportingWaterfall() {
           ...yearsAvail.map(yearChip),
           viewToggle,
           configInfoBtn('Churn Seasonality',
-            'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history; the Graph view plots the same numbers as lines. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
-      view === 'graph' ? graphEl : tableEl);
+            'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history; Overlay plots each selected year Jan–Dec; Timeline is one continuous line across all history — click and drag it forwards/backwards through time. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
+      view === 'graph' ? graphEl : view === 'timeline' ? timelineEl : tableEl);
   };
 
   // ── START-MONTH COHORTS — the retention side: do customers signed in

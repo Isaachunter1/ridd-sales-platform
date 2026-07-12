@@ -53,7 +53,12 @@ async function getAccessToken() {
   return j.access_token;
 }
 
-exports.handler = async () => {
+exports.handler = async (event) => {
+  // ── Auth: requires the sync secret — this endpoint runs a BigQuery query
+  // and echoes connection details; it must not be open to the internet. ──
+  const need = process.env.REVHAWK_SYNC_SECRET;
+  const got = (event && event.headers && (event.headers['x-sync-secret'] || event.headers['X-Sync-Secret'])) || '';
+  if (!need || got !== need) return { statusCode: 401, body: 'unauthorized (set x-sync-secret)' };
   const envSeen = {
     GCP_SA_JSON: !!process.env.GCP_SA_JSON,
     GCP_SA_EMAIL: !!process.env.GCP_SA_EMAIL,

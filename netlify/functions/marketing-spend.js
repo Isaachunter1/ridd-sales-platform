@@ -42,7 +42,12 @@ async function windsorDaily(apiKey, connector, from, to) {
   return out;
 }
 
-exports.handler = async () => {
+exports.handler = async (event) => {
+  // ── Auth: admins only (shared gate) — this endpoint serves company
+  // financial/operational data and was previously open to the internet. ──
+  const { requireRole } = require('../lib/auth-gate.js');
+  const gate = await requireRole(event, ['admin', 'admin_rep']);
+  if (!gate.ok) return gate.response;
   const apiKey = process.env.WINDSOR_API_KEY;
   if (!apiKey) {
     return { statusCode: 500, body: JSON.stringify({ error: 'WINDSOR_API_KEY env var not set' }) };

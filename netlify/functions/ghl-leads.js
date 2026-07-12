@@ -69,6 +69,11 @@ async function fetchJSON(url, opts) {
 // Walks GHL contacts newest->oldest via the search endpoint, hard per-request and
 // overall time bounds, and always returns 200 with whatever it gathered (+ diagnostics).
 exports.handler = async (event) => {
+  // ── Auth: admins only (shared gate) — this endpoint serves company
+  // financial/operational data and was previously open to the internet. ──
+  const { requireRole } = require('../lib/auth-gate.js');
+  const gate = await requireRole(event, ['admin', 'admin_rep']);
+  if (!gate.ok) return gate.response;
   const token = process.env.GHL_PRIVATE_TOKEN;
   const locationId = process.env.GHL_LOCATION_ID;
   if (!token || !locationId) {

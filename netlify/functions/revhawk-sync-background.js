@@ -434,6 +434,28 @@ exports.handler = async (event) => {
       if (indErr) throw new Error(indErr.message);
       console.log('[revhawk-sync] indicators derived server-side: ' + payload.rawSales.length + ' sales, ' + payload.indicatorsData.length + ' agg rows, ' + indGz.length + ' bytes gz');
 
+      // ── REP-SANITIZED copy — data minimization, Apple style. Reps need
+      // the shared dataset for leaderboards/comps, but NOT other people's
+      // customer identities. latest-rep.json.gz is the same payload with
+      // customer name/id blanked on every row; storage policy (see
+      // security_rls.sql) locks the FULL blob to admin/auditor accounts.
+      // Every metric derives from values/dates/reps, so numbers match the
+      // admin view exactly.
+      try {
+        const repPayload = Object.assign({}, payload, {
+          rawSales: payload.rawSales.map(r => {
+            const c = Object.assign({}, r);
+            delete c.customer; delete c.customerId;
+            return c;
+          }),
+        });
+        const repGz = zlib.gzipSync(Buffer.from(JSON.stringify(repPayload)), { level: 9 });
+        const { error: repErr } = await supabase.storage.from('reporting')
+          .upload('indicators/latest-rep.json.gz', repGz, { contentType: 'application/gzip', upsert: true });
+        if (repErr) console.error('[revhawk-sync] rep-sanitized blob failed:', repErr.message);
+        else console.log('[revhawk-sync] rep-sanitized blob published (' + repGz.length + ' bytes gz)');
+      } catch (repEx) { console.error('[revhawk-sync] rep-sanitized blob failed', repEx); }
+
       // ── 📚 MONTHLY METRIC ARCHIVE (best-effort) ──────────────────────
       // Every CLOSED month missing from snapshots/ gets written as
       // metrics-YYYY-MM.json.gz: company / per-office / per-department /

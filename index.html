@@ -727,6 +727,57 @@
   .max-w-\[130px\] { max-width: 130px; }
   @media (min-width: 640px) { .sm\:w-\[240px\] { width: 240px; } }
   @media (min-width: 640px) { .sm\:items-start { align-items: flex-start; } .sm\:justify-between { justify-content: space-between; } .sm\:flex-initial { flex: 0 1 auto; } }
+
+  /* ═══ APPLE-FEEL LAYER (Jul 2026) — motion, materials, touch ═══════════
+     Everything animated sits inside prefers-reduced-motion so accessibility
+     settings are honored, iOS style. */
+
+  /* No tap flash on iOS; no scroll chaining past the app. */
+  * { -webkit-tap-highlight-color: transparent; }
+  body { overscroll-behavior-y: none; }
+
+  /* Frosted header — iOS nav-bar material. Solid fallback first. */
+  .page-header {
+    background: var(--header-bg);
+    background: color-mix(in srgb, var(--header-bg) 82%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(1.5);
+    backdrop-filter: blur(14px) saturate(1.5);
+  }
+
+  /* Subtle overlay scrollbars (macOS/iOS style). */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text) 22%, transparent); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--text) 35%, transparent); border-radius: 999px; }
+
+  /* Calm, consistent focus ring — keyboard users only (focus-visible). */
+  :focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; border-radius: 6px; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    /* Press feedback — everything tappable gives a little. */
+    button:not(:disabled):active { transform: scale(.965); }
+    button { transition: transform .12s cubic-bezier(.2,.8,.4,1); }
+
+    /* Modals present like iOS sheets: dimmer fades, card springs up. */
+    .modal-overlay { animation: riddFadeIn .18s ease-out; }
+    .modal-overlay > * { animation: riddSheetUp .32s cubic-bezier(.32,.72,.28,1.06); }
+
+    /* Dropdown panels pop from their anchor. */
+    .card.absolute { animation: riddPop .16s cubic-bezier(.2,.8,.4,1); transform-origin: top; }
+
+    /* Toasts spring in from the top like iOS banners. */
+    #toasts > * { animation: riddToastIn .34s cubic-bezier(.34,1.25,.44,1); }
+
+    /* View changes crossfade + rise — set by mountApp on navigation only,
+       never on in-place re-renders. */
+    .view-enter { animation: riddViewIn .22s ease-out; }
+  }
+  @keyframes riddFadeIn  { from { opacity: 0; } }
+  @keyframes riddSheetUp { from { opacity: 0; transform: translateY(16px) scale(.98); } }
+  @keyframes riddPop     { from { opacity: 0; transform: translateY(-4px) scale(.99); } }
+  @keyframes riddToastIn { from { opacity: 0; transform: translateY(-10px) scale(.97); } }
+  @keyframes riddViewIn  { from { opacity: 0; transform: translateY(6px); } }
+
 </style>
 
 <!-- Apply theme before body paints to avoid flash -->
