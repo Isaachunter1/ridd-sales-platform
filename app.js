@@ -4299,7 +4299,9 @@ function mountApp() {
       el('h1', { class: 'hb-topbar-title font-bold tracking-wider' }, TAB_TITLES[state.view] || ''),
       // Freshness stamp — lives up here with the title on every data tab.
       (() => {
-        const DATA_VIEWS = new Set(['indicators', 'nrla', 'competitions', 'reporting', 'scorecards', 'hall_of_fame']);
+        // 'dashboard' (Sales War Room) + 'sales' joined the list now that the
+        // Inside Sales queue is CRM-fed — the stamp says how live it is.
+        const DATA_VIEWS = new Set(['indicators', 'nrla', 'competitions', 'reporting', 'scorecards', 'hall_of_fame', 'dashboard', 'sales']);
         if (!DATA_VIEWS.has(state.view)) return null;
         const txt = (typeof indicatorsSyncStampText === 'function') ? indicatorsSyncStampText() : '';
         const overdue = (typeof indicatorsSyncOverdue === 'function') && indicatorsSyncOverdue();
