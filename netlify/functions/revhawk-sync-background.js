@@ -348,6 +348,18 @@ exports.handler = async (event) => {
   const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SUPABASE_URL || !SERVICE_ROLE) return { statusCode: 500, body: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY required' };
 
+  // ── Heartbeat: tiny JSON in storage so /api/sync-status can show the last
+  // run's outcome (started / ok / the exact error) without Netlify logs. ──
+  const _hb = async (obj) => {
+    try {
+      const c = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+      await c.storage.from('reporting').upload('indicators/sync-heartbeat.json',
+        Buffer.from(JSON.stringify(Object.assign({ at: new Date().toISOString() }, obj))),
+        { contentType: 'application/json', upsert: true });
+    } catch (hbErr) { console.warn('[revhawk-sync] heartbeat write failed', hbErr && hbErr.message); }
+  };
+  await _hb({ stage: 'started' });
+
   try {
     const started = Date.now();
     const token = await getAccessToken();
@@ -839,12 +851,14 @@ exports.handler = async (event) => {
       console.error('[revhawk-sync] sale CRM verify skipped:', verifyError);
     }
 
+    await _hb({ stage: 'finished', ok: true, rows: objects.length, ms: Date.now() - started });
     return {
       statusCode: 200,
       body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, sources: srcCount, srcError, salesVerified: verifyCount, verifyError, storage_path: path, ms: Date.now() - started }),
     };
   } catch (e) {
     console.error('[revhawk-sync]', e);
+    await _hb({ stage: 'failed', ok: false, error: String((e && e.message) || e).slice(0, 500) });
     // Ring the bell: a dead sync on a comp Saturday must not be a silent
     // discovery. Set SLACK_SYNC_WEBHOOK in Netlify env (any Slack incoming
     // webhook URL) and failures post there; unset = logs only.
