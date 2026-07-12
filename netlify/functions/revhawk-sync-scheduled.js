@@ -8,12 +8,23 @@ exports.handler = async () => {
   if (!base) return { statusCode: 500, body: 'no site URL available' };
   try {
     // Background functions return 202 immediately; this just kicks it off.
-    await fetch(base + '/.netlify/functions/revhawk-sync-background', {
+    const res = await fetch(base + '/.netlify/functions/revhawk-sync-background', {
       method: 'POST',
       headers: { 'x-sync-secret': process.env.REVHAWK_SYNC_SECRET || '' },
     });
+    console.log('[revhawk-sync-scheduled] kick -> HTTP', res.status);
+    if (!res.ok && res.status !== 202) throw new Error('kick returned HTTP ' + res.status);
   } catch (e) {
     console.error('[revhawk-sync-scheduled] trigger failed', e);
+    // Silent failures blinded us once already — page the admin channel too.
+    try {
+      const hook = process.env.SLACK_ADMIN_WEBHOOK;
+      if (hook) await fetch(hook, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '🚨 RIDD scheduled sync could not start: ' + String((e && e.message) || e) }),
+      });
+    } catch { /* logs still have it */ }
   }
   return { statusCode: 200, body: 'revhawk sync triggered' };
 };
