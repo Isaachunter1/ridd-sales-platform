@@ -36890,12 +36890,17 @@ function reportingWaterfall() {
   // same effective-cancel rules as the table itself, so counts reconcile. ──
   // Shared prep — recurring + serviced subs with the EFFECTIVE cancel date
   // (excluded reasons / 3-day ROR don't count), identical to the waterfall.
+  const _retenEffCache = new Map();
   const _retenEff = (pop) => {
+    // Memoized per population array — four cards + drills share one pass
+    // instead of each re-cloning the 65k-row book.
+    const hit = _retenEffCache.get(pop);
+    if (hit) return hit;
     const recurringByName = reportingServiceRecurringMap();
     const excludedReasons = reportingExcludedCancelReasons();
-    return pop
+    const out = pop
       .filter(r => !!recurringByName.get(r.subscription))
-      .filter(r => !!r.initial_service)
+      .filter(r => !!r.initial_service && r.initial_service >= '2000-01-01')   // garbage dates can't blow up the year walks
       .map(r => {
         const realCancel = r.subscription_date_canceled
           && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
@@ -36903,6 +36908,8 @@ function reportingWaterfall() {
           ? r.subscription_date_canceled : null;
         return { ...r, _effCancel: realCancel };
       });
+    _retenEffCache.set(pop, out);
+    return out;
   };
   const MONTHS_S = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   // Period-aware drill: a YEAR (blended table rows) or a single MONTH
@@ -37140,7 +37147,7 @@ function reportingWaterfall() {
         style: view === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
         onclick: () => { state._churnSeasonView = v; mountApp(); },
       }, l)));
-    const tableEl = el('div', { class: 'scroll-x' },
+    const tableEl = () => el('div', { class: 'scroll-x' },
       el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
           el('tr', {},
@@ -37148,8 +37155,8 @@ function reportingWaterfall() {
             ...yearsShown.map(y => el('th', { class: 'text-left px-2 py-2 font-semibold' }, String(y))),
             el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Avg'))),
         el('tbody', {}, ...Array.from({ length: 12 }, (_, i) => monthRow(i + 1)))));
-    const graphEl = (() => {
-      const cid = 'chart-churn-season-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-');
+    const graphEl = () => (() => {
+      const cid = 'chart-churn-season-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
       const wrapEl = el('div', { class: 'p-4', style: { position: 'relative', height: '260px' } }, el('canvas', { id: cid }));
       setTimeout(() => {
         if (typeof Chart === 'undefined') return;
@@ -37199,7 +37206,7 @@ function reportingWaterfall() {
     })();
     // ── TIMELINE — one continuous monthly churn line across all history,
     // draggable: grab the chart and pull forwards/backwards through time. ──
-    const timelineEl = (() => {
+    const timelineEl = () => (() => {
       const pad2b = (n) => String(n).padStart(2, '0');
       const seq = [];
       for (let y = minY; y <= curY; y++) for (let m = 1; m <= 12; m++) {
@@ -37208,11 +37215,13 @@ function reportingWaterfall() {
         const den = bookAt[ym] || 0;
         seq.push({ ym, label: MONTHS_S[m - 1] + ' ' + String(y).slice(2), rate: den >= 10 ? (cancelsByYm[ym] || 0) / den : null, n: cancelsByYm[ym] || 0, den });
       }
-      while (seq.length && seq[0].rate == null) seq.shift();   // trim the pre-book era
+      let _first = 0;
+      while (_first < seq.length && seq[_first].rate == null) _first++;   // trim the pre-book era (O(n))
+      if (_first > 0) seq.splice(0, _first);
       const VISIBLE = Math.min(24, Math.max(6, seq.length));
       const maxStart = Math.max(0, seq.length - VISIBLE);
       if (state._churnPanStart == null || state._churnPanStart > maxStart) state._churnPanStart = maxStart;
-      const cid = 'chart-churn-timeline-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-');
+      const cid = 'chart-churn-timeline-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
       const hint = el('div', { class: 'px-4 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } },
         '↔ Drag the chart to move through time · showing ' + VISIBLE + ' months of ' + seq.length);
       const wrapEl = el('div', { class: 'px-4 pb-4 pt-1', style: { position: 'relative', height: '260px' } },
@@ -37293,7 +37302,7 @@ function reportingWaterfall() {
           viewToggle,
           configInfoBtn('Churn Seasonality',
             'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history; Overlay plots each selected year Jan–Dec; Timeline is one continuous line across all history — click and drag it forwards/backwards through time. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
-      view === 'graph' ? graphEl : view === 'timeline' ? timelineEl : tableEl);
+      view === 'graph' ? graphEl() : view === 'timeline' ? timelineEl() : tableEl());
   };
 
   // ── START-MONTH COHORTS — the retention side: do customers signed in
