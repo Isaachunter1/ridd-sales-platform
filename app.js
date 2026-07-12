@@ -30609,7 +30609,10 @@ async function syncFromRevHawk(btn) {
               state.indicatorsUploadedAt = top.uploaded_at || new Date().toISOString();
               state.indicatorsFileName = 'RevHawk sync — ' + new Date().toLocaleDateString();
               if (typeof captureIndicatorSnapshot === 'function') captureIndicatorSnapshot();
-              if (typeof syncIndicatorsToCloud === 'function') syncIndicatorsToCloud();
+              // NO cloud push — the server is the only writer of the shared
+              // blob. This rebuild is device-local scaffolding until the
+              // server's derive lands (found a client overwrite at 7:48pm
+              // on 7/11 via /api/sync-status — that class of race ends here).
             } catch (e) { console.warn('Indicators rebuild after sync failed', e); }
           }
           if (typeof saveDemoData === 'function') saveDemoData();

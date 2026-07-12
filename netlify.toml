@@ -27,7 +27,7 @@
   # Halves the BigQuery scan volume vs half-hourly; billing is enabled now,
   # so this is cost control rather than survival. Overnight stays paused —
   # nothing sells at 4am.
-  schedule = "0 0-3,12-23 * * *"
+  schedule = "0 * * * *"   # every hour; selling-hours window enforced in the function (ranges/lists never fired on Netlify)
 
 [functions."marketing-refresh-scheduled"]
   schedule = "0 10 * * *"     # nightly ~5-6am ET — health-check + warm Windsor/GHL/QBO feeds
