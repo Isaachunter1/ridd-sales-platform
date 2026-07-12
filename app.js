@@ -5141,6 +5141,42 @@ function computeLeaderboard(tab = 'total', range = null) {
     return d >= yearStart;
   });
 
+  // Week-over-Week % — this week's revenue vs last week's AT THE SAME POINT
+  // in the week (a Wednesday compares against last week through Wednesday),
+  // so the number is fair mid-week and converges to full-week by Saturday.
+  // Weeks start Sunday, matching the date filter. Computed from the full
+  // pool, independent of the selected range.
+  const _wowByKey = new Map();
+  {
+    const _iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const now = new Date();
+    const curStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+    const prevStart = new Date(curStart); prevStart.setDate(prevStart.getDate() - 7);
+    const curStartIso = _iso(curStart), prevStartIso = _iso(prevStart);
+    const todayIso = _iso(now);
+    const prevCut = new Date(prevStart); prevCut.setDate(prevCut.getDate() + now.getDay());
+    const prevCutIso = _iso(prevCut);
+    dashboardSales().forEach(s => {
+      if (EXCLUDE.has(s.audit_status) || !s.sold_date) return;
+      const k = s.rep_id || (s._crm && s._crmRep ? 'crm:' + s._crmRep : null);
+      if (!k) return;
+      let o = _wowByKey.get(k); if (!o) { o = { cur: 0, prev: 0 }; _wowByKey.set(k, o); }
+      if (s.sold_date >= curStartIso && s.sold_date <= todayIso) o.cur += Number(s.revenue_amount || 0);
+      else if (s.sold_date >= prevStartIso && s.sold_date <= prevCutIso) o.prev += Number(s.revenue_amount || 0);
+    });
+  }
+  const _wowOf = (key) => {
+    const o = _wowByKey.get(key);
+    if (!o) return null;
+    if (o.prev > 0) return (o.cur - o.prev) / o.prev;
+    return o.cur > 0 ? Infinity : null;   // no last-week baseline → "New"
+  };
+  const _bestDayOf = (sales) => {
+    const byDay = {};
+    sales.forEach(s => { if (s.sold_date) byDay[s.sold_date] = (byDay[s.sold_date] || 0) + Number(s.revenue_amount || 0); });
+    return Object.values(byDay).reduce((a, b) => Math.max(a, b), 0);
+  };
+
   const rows = profiles.map(p => {
     let sales = salesPool.filter(s => s.rep_id === p.id);
     if (tab === 'new')      sales = sales.filter(s => !isRenewalSale(s));
@@ -5183,6 +5219,7 @@ function computeLeaderboard(tab = 'total', range = null) {
       initials: p.initials,
       office: state.offices.find(o => o.id === p.office_id)?.name || '',
       count, revenue, initial, recurring, acv, my_pct, rec_mix_pct,
+      best_day: _bestDayOf(sales), wow: _wowOf(p.id),
     };
   });
 
@@ -5194,6 +5231,7 @@ function computeLeaderboard(tab = 'total', range = null) {
     const unmatched = new Map();
     salesPool.forEach(s => {
       if (s.rep_id != null || !s._crm || !s._crmRep) return;
+      if (FR_SYSTEM_NAME_RE.test(s._crmRep)) return;   // system/integration accounts don't rank
       let g = unmatched.get(s._crmRep); if (!g) { g = []; unmatched.set(s._crmRep, g); }
       g.push(s);
     });
@@ -5219,22 +5257,24 @@ function computeLeaderboard(tab = 'total', range = null) {
       const my_pct = cTotal > 0 ? cMY / cTotal : 0;
       const cOneTime = sales.filter(s => !Number(s.contract_months) || Number(s.contract_months) <= 1).length;
       const rec_mix_pct = (cTotal + cOneTime) > 0 ? cTotal / (cTotal + cOneTime) : 0;
+      const disp = flipLastFirst(name);   // CRM exports "Last, First"
       rows.push({
         rep_id: 'crm:' + name,           // synthetic — no app profile behind it
         _noProfile: true,
-        full_name: name,
-        first_name: name.split(' ')[0] || name,
+        full_name: disp,
+        first_name: disp,                // leaderboard shows full names for everyone
         avatar_url: null,
-        initials: name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(),
+        initials: disp.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(),
         office: (() => { const oid = sales.find(s => s.office_id)?.office_id; return state.offices.find(o => o.id === oid)?.name || ''; })(),
         count, revenue, initial, recurring, acv, my_pct, rec_mix_pct,
+        best_day: _bestDayOf(sales), wow: _wowOf('crm:' + name),
       });
     });
   }
 
   // Sort by active sort column (default: sales desc)
   const sortKey = state.dashLeaderSort;
-  const keyMap = { sales: 'count', revenue: 'revenue', initial: 'initial', recurring: 'recurring', acv: 'acv', my_pct: 'my_pct', rec_mix_pct: 'rec_mix_pct' };
+  const keyMap = { sales: 'count', revenue: 'revenue', initial: 'initial', recurring: 'recurring', acv: 'acv', my_pct: 'my_pct', rec_mix_pct: 'rec_mix_pct', best_day: 'best_day', wow: 'wow' };
   const k = keyMap[sortKey] || 'count';
   rows.sort((a, b) => (b[k] || 0) - (a[k] || 0));
   return rows;
@@ -8655,12 +8695,12 @@ function todaysSalesPanel(windowSales, range) {
           ),
         ),
         el('tbody', {},
-          // Cap the feed — CRM-backed wide ranges (This Year / All Time) can
-          // be thousands of rows; the totals above already count them all.
-          rows.slice(0, 150).map(s => {
+          // First 25 by default; Show more reveals in batches. Totals above
+          // always count every row regardless of what's rendered.
+          rows.slice(0, state._dashFeedLimit || 25).map(s => {
             const rep = state.allProfiles.find(p => p.id === s.rep_id)
               || (s._crm ? null : state.profile);
-            const crmName = s._crmRep || '';
+            const crmName = flipLastFirst(s._crmRep || '');   // CRM exports "Last, First"
             const first = rep ? (rep.full_name || '').split(' ')[0] : (crmName.split(' ')[0] || '—');
             const crmInitials = crmName ? crmName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '?';
             const timeStr = s.created_at
@@ -8683,8 +8723,11 @@ function todaysSalesPanel(windowSales, range) {
           }),
         ),
       ),
-      rows.length > 150 && el('div', { class: 'px-4 py-2 text-center text-[11px] text-muted- border-t border-' },
-        'Showing latest 150 of ' + fmt.int(rows.length) + ' — totals above include all of them'),
+      rows.length > (state._dashFeedLimit || 25) && el('button', {
+        class: 'w-full px-4 py-2.5 text-center text-xs font-semibold border-t border- cursor-pointer transition hover:brightness-95',
+        style: { color: 'var(--accent)' },
+        onclick: () => { state._dashFeedLimit = (state._dashFeedLimit || 25) + 50; mountApp(); },
+      }, 'Show more · ' + fmt.int(rows.length - (state._dashFeedLimit || 25)) + ' remaining'),
     ),
   );
 }
@@ -8727,6 +8770,8 @@ function leaderboardSection(range) {
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('initial'), title: 'Average initial invoice per sale', onclick: () => setSort('initial') }, 'Avg Initial'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('recurring'), title: 'Contract revenue only — total revenue minus one-time service revenue', onclick: () => setSort('recurring') }, 'Recurring Rev'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('acv'), title: 'Average contract value across ALL sales, one-time services included', onclick: () => setSort('acv') }, 'ACV'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('best_day'), title: 'Biggest single-day revenue inside the selected window', onclick: () => setSort('best_day') }, 'Best Day'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('wow'), title: 'This week\'s revenue vs last week at the same point in the week (weeks start Sunday)', onclick: () => setSort('wow') }, 'WoW'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('my_pct'), title: 'Multi-year contracts (18+ mo) / all contract sales', onclick: () => setSort('my_pct') }, 'MY %'),
             el('th', { class: 'text-right pl-2 pr-4 py-2 cursor-pointer select-none hover:text-default', style: sortHl('rec_mix_pct'), title: '12/18/24-mo contracts / (contracts + one-time services)', onclick: () => setSort('rec_mix_pct') }, 'Rec Mix %'),
           ),
@@ -8747,7 +8792,7 @@ function leaderboardSection(range) {
                 },
                   avatarNode(r.avatar_url, r.initials, 'w-7 h-7 text-[9px]'),
                   el('div', { class: 'flex-1 min-w-0' },
-                    el('div', { class: 'font-semibold hover:underline' }, r.first_name),
+                    el('div', { class: 'font-semibold' + (r._noProfile ? '' : ' hover:underline') }, r.full_name || r.first_name),
                     // Badges drop below the name so they don't crowd the
                     // first-name line. Hidden when the rep has none.
                     (repBadges[r.rep_id] || []).length > 0 && el('div', { class: 'flex items-center gap-1 flex-wrap mt-0.5' },
@@ -8757,13 +8802,21 @@ function leaderboardSection(range) {
                 ),
               ),
               r.count === 0
-                ? el('td', { class: 'px-2 py-2 text-subtle- italic', colspan: 7 }, 'No sales')
+                ? el('td', { class: 'px-2 py-2 text-subtle- italic', colspan: 9 }, 'No sales')
                 : [
                     el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.int(r.count)),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(r.revenue)),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.initial)),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.recurring)),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.acv)),
+                    el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.best_day)),
+                    el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold' },
+                      r.wow == null
+                        ? el('span', { class: 'text-subtle- font-normal' }, '—')
+                        : r.wow === Infinity
+                          ? el('span', { style: { color: 'var(--accent)' } }, 'New')
+                          : el('span', { style: { color: r.wow >= 0 ? 'var(--accent)' : '#DC2626' } },
+                              (r.wow >= 0 ? '↑ ' : '↓ ') + Math.round(Math.abs(r.wow) * 100) + '%')),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums' }, fmt.pct(r.my_pct)),
                     el('td', { class: 'pl-2 pr-4 py-2 text-right tabular-nums' }, fmt.pct(r.rec_mix_pct)),
                   ],
@@ -13657,6 +13710,15 @@ function frRosterRowForProfile(p) { return _frMasterMaps().rowByMaster.get(frRes
 // token-sorted variant catches "LeSueur, Pere". Unlike an anagram signature,
 // different humans can't collide ("Aidan Smith" ≠ "Nadia Smith"). Two names
 // are the same person when their signature sets intersect.
+// CRM names export as "Last, First" — flip to "First Last" for display.
+const FR_SYSTEM_NAME_RE = /\badmin\b|\bsystem\b|fieldroutes|fr-system|\btest\b|\breferral\b|sellify|pest routes|ridd account|ridd sales|pro products|mosquito joe|clicki|pest ai|pest booker|applause/i;
+function flipLastFirst(name) {
+  const s = String(name || '').trim();
+  const i = s.indexOf(',');
+  if (i === -1) return s;
+  const first = s.slice(i + 1).trim(), last = s.slice(0, i).trim();
+  return (first + ' ' + last).trim();
+}
 function _nameSqueezeSigs(n) {
   const toks = String(n || '').toLowerCase().split(/[^a-z]+/).filter(Boolean);
   if (!toks.length) return [];
@@ -26931,7 +26993,7 @@ function openTVDashboard() {
     inWindow.forEach(s => {
       // CRM sellers without an app account rank under their CRM name —
       // same rule as the War Room leaderboard.
-      const key = s.rep_id || (s._crm && s._crmRep ? 'crm:' + s._crmRep : null);
+      const key = s.rep_id || (s._crm && s._crmRep && !FR_SYSTEM_NAME_RE.test(s._crmRep) ? 'crm:' + s._crmRep : null);
       if (!key) return;
       if (!repAgg[key]) repAgg[key] = { id: key, _crmName: (!s.rep_id && s._crmRep) || null, revenue: 0, count: 0, sales: [] };
       repAgg[key].revenue += Number(s.revenue_amount || 0);
@@ -26941,7 +27003,7 @@ function openTVDashboard() {
     const profileFor = (id, agg) => (state.allProfiles || []).find(p => p.id === id)
       || (state.profile && state.profile.id === id ? state.profile : null)
       || (agg && agg._crmName
-            ? { full_name: agg._crmName, initials: agg._crmName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(), avatar_url: '', office_id: null }
+            ? (() => { const d = flipLastFirst(agg._crmName); return { full_name: d, initials: d.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(), avatar_url: '', office_id: null }; })()
             : { full_name: 'Rep', initials: '?', avatar_url: '', office_id: null });
     const ranked = Object.values(repAgg)
       .map(r => ({ ...r, profile: profileFor(r.id, r) }))
