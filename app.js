@@ -3259,7 +3259,7 @@ function microGoalWidget() {
   const dailyTarget = Math.ceil(goal.amount / 250);
   const todayKey = new Date().toISOString().slice(0, 10);
   const EXCLUDE = new Set(['cancelled','nsf','not_payable','reschedule','rejected']);
-  const todayCount = state.allSales.filter(s => s.sold_date === todayKey && !EXCLUDE.has(s.audit_status) && s.rep_id === state.profile.id).length;
+  const todayCount = dashboardSales().filter(s => s.sold_date === todayKey && !EXCLUDE.has(s.audit_status) && s.rep_id === state.profile.id).length;
   const remaining = Math.max(0, dailyTarget - todayCount);
   const hit = remaining === 0;
   return el('div', {
@@ -4486,17 +4486,120 @@ function mountApp() {
 // ──────────────────────────────────────────────────────────────────────────
 // VIEW: DASHBOARD — "SALES WAR ROOM" (matches mockup)
 // ──────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────
+// WAR ROOM DATA BRIDGE — the Inside Sales dashboard runs on CRM data.
+// ──────────────────────────────────────────────────────────────────────────
+// Source of truth: the FieldRoutes shared dataset (hourly server sync),
+// filtered to the OFFICE department, mapped into app-sale shape. On top of
+// that ride app-logged UPSELLS — the one revenue stream the CRM can't
+// express (they deduct from existing contracts). Regular app-logged rows
+// are intentionally IGNORED here: office staff historically double-logged
+// them in the CRM, and the auto-add sync now inserts the rest, so counting
+// both sides would double revenue. Upsells count as NEW revenue.
+// CRM sales by office staff without an app account count in every total
+// but carry rep_id=null, so they never rank on the leaderboard.
+let _wrBridgeCache = { src: null, roster: null, profiles: null, out: null };
+function warRoomCrmSales() {
+  const prevDept = state.indicatorDept;
+  let raw = [];
+  try { state.indicatorDept = 'office'; raw = indicatorSales(); }
+  catch (e) { raw = []; }
+  finally { state.indicatorDept = prevDept; }
+  if (!raw.length) return [];
+  if (_wrBridgeCache.src === raw && _wrBridgeCache.roster === state.frRoster
+      && _wrBridgeCache.profiles === state.allProfiles) return _wrBridgeCache.out;
+  const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  // CRM employee id → app profile. Branch ids roll up to the roster master
+  // row first (multi-branch reps — the Tyler Trump class), then match the
+  // linked profile; name-signature is the fallback for unlinked accounts.
+  const masterOf = new Map();
+  (state.frRoster || []).forEach(e => String(e.employee_ids || e.employee_id || '').split(',').forEach(x => {
+    const t = x.trim(); if (t) masterOf.set(t, String(e.employee_id));
+  }));
+  const profByMaster = new Map(), profBySig = new Map();
+  (state.allProfiles || []).forEach(p => {
+    if (p.fieldroutes_employee_id) profByMaster.set(String(p.fieldroutes_employee_id), p.id);
+    if (p.full_name) profBySig.set(_sig(p.full_name), p.id);
+  });
+  const srcIdByName = new Map((state.sources || []).map(o => [String(o.name || '').trim().toLowerCase(), o.id]));
+  // CRM office strings vary ('Atlanta' / 'ATLANTA' / 'Atlanta, Detroit') —
+  // first comma segment, uppercased, matched against app office names so
+  // the admin Office cards keep working on CRM rows.
+  const officeIdByName = new Map((state.offices || []).map(o => [String(o.name || '').split(',')[0].trim().toUpperCase(), o.id]));
+  const svcIdByName = new Map((state.serviceTypes || []).map(o => [String(o.name || '').trim().toLowerCase(), o.id]));
+  const out = [];
+  raw.forEach((s, i) => {
+    const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
+    if (!iso) return;
+    const canonical = getCanonicalRepName(s.rep);
+    const master = masterOf.get(String(s.repId || '').trim());
+    const rep_id = (master && profByMaster.get(master)) || profBySig.get(_sig(canonical)) || null;
+    const t = (typeof _parseIndicatorTime === 'function') ? _parseIndicatorTime(s) : null;
+    const cv = Number(s.contractValue) || 0;
+    const initial = Number(s.initialPrice) || 0;
+    const months = Number(s.contract) || 0;
+    out.push({
+      id: 'crm-' + i,
+      _crm: true,
+      _crmRep: canonical,
+      _crmRenewal: (typeof _indicatorIsRenewal === 'function') && _indicatorIsRenewal(s),
+      _crmService: String(s.subscription || '').trim(),
+      rep_id,
+      logged_by: null,
+      customer_name: s.customer || '',
+      customer_number: s.customerId != null ? String(s.customerId) : null,
+      office_id: officeIdByName.get(String(s.office || '').split(',')[0].trim().toUpperCase()) ?? null,
+      service_type_id: svcIdByName.get(String(s.subscription || '').trim().toLowerCase()) ?? null,
+      source_id: srcIdByName.get(String(s.source || '').trim().toLowerCase()) ?? null,
+      contract_months: months,
+      initial_amount: initial,
+      // 11 remaining billings after the initial covers month 1 — matches the
+      // auto-add sync's math, and initial + 11×monthly reconciles to CV.
+      monthly_amount: months > 1 ? Math.max(0, Math.round(((cv - initial) / 11) * 100) / 100) : 0,
+      pay_per_service: false,
+      revenue_amount: cv,
+      sold_date: iso,
+      audit_status: 'serviced',
+      created_at: iso + 'T' + (t ? String(t.hour).padStart(2, '0') + ':' + String(t.minute).padStart(2, '0') : '12:00') + ':00',
+    });
+  });
+  _wrBridgeCache = { src: raw, roster: state.frRoster, profiles: state.allProfiles, out };
+  return out;
+}
+// The combined pool every War Room metric reads: CRM rows + app upsells.
+// Falls back to the app sales table until the shared dataset has loaded
+// (with a one-time cloud kick so the room fills in without a manual refresh).
+let _dashSalesCache = { crm: null, all: null, cts: null, srcs: null, out: null };
+function dashboardSales() {
+  const crm = warRoomCrmSales();
+  if (!crm.length) {
+    if (!state._dashCrmKick && !(typeof DEMO !== 'undefined' && DEMO)
+        && typeof refreshIndicatorsFromCloud === 'function') {
+      state._dashCrmKick = true;
+      Promise.resolve(refreshIndicatorsFromCloud(true))
+        .then(() => { if (state.view === 'dashboard') mountApp(); })
+        .catch(() => { /* stamp shows the sync clock; fallback keeps rendering */ });
+    }
+    return state.allSales;
+  }
+  if (_dashSalesCache.crm === crm && _dashSalesCache.all === state.allSales
+      && _dashSalesCache.cts === state.contractTypes && _dashSalesCache.srcs === state.sources) return _dashSalesCache.out;
+  const upsellCt  = new Set((state.contractTypes || []).filter(c => /upsell/i.test(String(c.name || ''))).map(c => c.id));
+  const upsellSrc = new Set((state.sources || []).filter(o => /upsell/i.test(String(o.name || ''))).map(o => o.id));
+  const ups = (state.allSales || []).filter(s => upsellCt.has(s.contract_type_id) || upsellSrc.has(s.source_id));
+  const out = crm.concat(ups);
+  _dashSalesCache = { crm, all: state.allSales, cts: state.contractTypes, srcs: state.sources, out };
+  return out;
+}
+
 function viewDashboard() {
   const isAdmin = isAdminRole(state.profile.role);
   const range = getDateRange(state.dashDateRange);
-  // Scope: company-wide for everyone. Dashboard is a leaderboard /
-  // "what's the room doing" view, not a personal scoreboard — reps
-  // see the full set the same way admins do. (Sales tab + Pay tab
-  // still scope to state.mySales so reps can't see other reps' deal
-  // detail.) Requires Supabase RLS on `sales` to permit SELECT for
-  // all authenticated users; if it doesn't, this falls back gracefully
-  // to whatever rows the rep CAN read.
-  const salesScope = state.allSales;
+  // Scope: LIVE CRM office-staff sales + app-logged upsells for everyone
+  // (see warRoomCrmSales above). Dashboard is a "what's the room doing"
+  // view, not a personal scoreboard. Sales tab + Pay tab still scope to
+  // state.mySales so reps can't see other reps' deal detail.
+  const salesScope = dashboardSales();
   const windowSales = salesScope.filter(s => {
     const d = new Date(s.sold_date + 'T00:00');
     return d >= range.start && d <= range.end;
@@ -4508,7 +4611,7 @@ function viewDashboard() {
 
   // Renewal split via source.is_renewal
   const renewalIds = new Set(state.sources.filter(s => s.is_renewal).map(s => s.id));
-  const isRenewal  = (sale) => renewalIds.has(sale.source_id);
+  const isRenewal  = (sale) => sale._crmRenewal ?? renewalIds.has(sale.source_id);
   const approvedNew     = approved.filter(s => !isRenewal(s));
   const approvedRenewal = approved.filter(s =>  isRenewal(s));
 
@@ -4567,6 +4670,9 @@ function viewDashboard() {
         el('input', { type: 'date', class: 'rounded-xl px-2 py-1.5 text-xs', value: state.dashCustomEnd || '', onchange: e => { state.dashCustomEnd = e.target.value; mountApp(); } }),
       ),
 
+      configInfoBtn('Sales War Room data',
+        'Live from FieldRoutes. Every number on this page — goals, sales and revenue cards, the sales feed, and the leaderboard — comes from the CRM shared dataset (office-staff sales, refreshed by the hourly sync shown in the stamp), plus manually logged upsells. Upsells count as New revenue. CRM sales by office staff without an app account count in every total but don\'t rank on the leaderboard. Contract values are exact CRM figures.'),
+
       // Office view toggle (admin only)
       isAdmin && el('button', {
         class: 'px-3 py-2 text-xs rounded-xl border transition font-medium',
@@ -4622,7 +4728,7 @@ function viewDashboard() {
         const EXCLUDE2 = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
         const jan1 = new Date(now2.getFullYear(), 0, 1);
         const ytdByRep = {};
-        for (const s of (state.allSales || [])) {
+        for (const s of dashboardSales()) {
           if (EXCLUDE2.has(s.audit_status)) continue;
           const d = s.sold_date ? new Date(s.sold_date + 'T00:00') : null;
           if (!d || isNaN(d) || d < jan1) continue;
@@ -4873,14 +4979,16 @@ function getGoalForContext() {
 }
 function goalYtdRevenue(isAdmin) {
   const yearStart = new Date(new Date().getFullYear(), 0, 1);
-  const scope = isAdmin ? state.allSales : state.mySales;
+  // Everyone reads the CRM-backed pool; reps see their own slice of it.
+  const dash = dashboardSales();
+  const scope = isAdmin ? dash : dash.filter(s => s.rep_id === state.profile.id);
   const EXCLUDE_GOAL = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
   const ytd = scope.filter(s => {
     if (EXCLUDE_GOAL.has(s.audit_status)) return false;
     return new Date(s.sold_date + 'T00:00') >= yearStart;
   });
   const renewalIds = new Set(state.sources.filter(s => s.is_renewal).map(s => s.id));
-  const isR = s => renewalIds.has(s.source_id);
+  const isR = s => s._crmRenewal ?? renewalIds.has(s.source_id);
   return {
     total: sumRev(ytd),
     new: sumRev(ytd.filter(s => !isR(s))),
@@ -4990,13 +5098,13 @@ function computeLeaderboard(tab = 'total', range = null) {
   };
   const profiles = profilesAll.filter(p => isSellerRole(p.role) && _isOfficeStaffProfile(p));
   const renewalIds = new Set(state.sources.filter(s => s.is_renewal).map(s => s.id));
-  const isRenewalSale = s => renewalIds.has(s.source_id);
+  const isRenewalSale = s => s._crmRenewal ?? renewalIds.has(s.source_id);
 
   // Sales to aggregate — counts every sale that isn't cancelled/nsf/not_payable/reschedule.
   // This way the leaderboard ticks up as soon as a rep logs a sale, before audit.
   const yearStart = new Date(new Date().getFullYear(), 0, 1);
   const EXCLUDE = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
-  const salesPool = state.allSales.filter(s => {
+  const salesPool = dashboardSales().filter(s => {
     if (EXCLUDE.has(s.audit_status)) return false;
     const d = new Date(s.sold_date + 'T00:00');
     if (range) return d >= range.start && d <= range.end;
@@ -5073,7 +5181,7 @@ function computeBadges() {
 
   // ── First Blood — first sale of TODAY (resets daily) ──
   const todayKey = new Date().toISOString().slice(0, 10);
-  const salesToday = state.allSales.filter(s => s.sold_date === todayKey);
+  const salesToday = dashboardSales().filter(s => s.sold_date === todayKey);
   if (salesToday.length) {
     const earliest = salesToday.reduce((a, b) => {
       const ta = new Date(a.created_at || a.sold_date).getTime();
@@ -5085,7 +5193,7 @@ function computeBadges() {
 
   // ── Hall of Fame — company-wide bests persist until someone beats them ──
   const profiles = state.allProfiles.length ? state.allProfiles : [state.profile].filter(Boolean);
-  const byRep = groupBy(state.allSales, s => s.rep_id);
+  const byRep = groupBy(dashboardSales(), s => s.rep_id);
   let bestDayHolder = null,  bestDayRev = 0;
   let bestWeekHolder = null, bestWeekRev = 0;
   let bestMonthHolder = null, bestMonthRev = 0;
@@ -8232,7 +8340,7 @@ function attachExplainer(target, opts) {
 // ──────────────────────────────────────────────────────────────────────────
 function openRepProfileModal(repId) {
   const profile = state.allProfiles.find(p => p.id === repId) || state.profile;
-  const repSales = state.allSales.filter(s => s.rep_id === repId);
+  const repSales = dashboardSales().filter(s => s.rep_id === repId);
   const records = computeRepRecords(repId, repSales);
   const badges = computeBadges();
   const repBadges = [...(badges[repId] || [])];
@@ -8416,6 +8524,7 @@ function todaysSalesPanel(windowSales, range) {
 
   // ACV helper
   const saleAcv = (s) => {
+    if (s._crm) return Number(s.revenue_amount || 0); // CRM contract value is exact
     const init = Number(s.initial_amount || 0);
     const rec  = Number(s.monthly_amount || 0);
     if (s.pay_per_service) {
@@ -8426,6 +8535,10 @@ function todaysSalesPanel(windowSales, range) {
 
   // Resolve contract type name — prefer contract_type_id, fallback to contract_months
   const contractTypeName = (s) => {
+    if (s._crm) {
+      const m = Number(s.contract_months);
+      return m > 1 ? m + ' Months' : 'One Time Service';
+    }
     if (s.contract_type_id) {
       const ct = state.contractTypes.find(c => c.id === s.contract_type_id);
       if (ct) return ct.name;
@@ -8452,9 +8565,14 @@ function todaysSalesPanel(windowSales, range) {
           ),
         ),
         el('tbody', {},
-          rows.map(s => {
-            const rep = state.allProfiles.find(p => p.id === s.rep_id) || state.profile;
-            const first = (rep?.full_name || '').split(' ')[0];
+          // Cap the feed — CRM-backed wide ranges (This Year / All Time) can
+          // be thousands of rows; the totals above already count them all.
+          rows.slice(0, 150).map(s => {
+            const rep = state.allProfiles.find(p => p.id === s.rep_id)
+              || (s._crm ? null : state.profile);
+            const crmName = s._crmRep || '';
+            const first = rep ? (rep.full_name || '').split(' ')[0] : (crmName.split(' ')[0] || '—');
+            const crmInitials = crmName ? crmName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '?';
             const timeStr = s.created_at
               ? new Date(s.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
               : '—';
@@ -8464,17 +8582,19 @@ function todaysSalesPanel(windowSales, range) {
               el('td', { class: 'pl-4 pr-2 py-2 text-muted- tabular-nums text-[11px] whitespace-nowrap' }, timeStr),
               el('td', { class: 'px-2 py-2' },
                 el('div', { class: 'flex items-center gap-1.5' },
-                  avatarNode(rep?.avatar_url, rep?.initials, 'w-5 h-5 text-[8px]'),
+                  avatarNode(rep?.avatar_url, rep?.initials || crmInitials, 'w-5 h-5 text-[8px]'),
                   el('span', { class: 'font-medium' }, first),
                 ),
               ),
-              el('td', { class: 'px-2 py-2 text-muted- truncate max-w-[140px]' }, svcName),
+              el('td', { class: 'px-2 py-2 text-muted- truncate max-w-[140px]' }, (svcName && svcName !== '—') ? svcName : (s._crmService || '—')),
               el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap' }, ctName),
               el('td', { class: 'pr-4 pl-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap' }, fmt.usd0(saleAcv(s))),
             );
           }),
         ),
       ),
+      rows.length > 150 && el('div', { class: 'px-4 py-2 text-center text-[11px] text-muted- border-t border-' },
+        'Showing latest 150 of ' + fmt.int(rows.length) + ' — totals above include all of them'),
     ),
   );
 }
@@ -12415,7 +12535,7 @@ function openEditTimesSheet(assignment, slot, redraw) {
 
 function viewHallOfFame() {
   const profiles = state.allProfiles.length ? state.allProfiles : [state.profile];
-  const byRep = groupBy(state.allSales, s => s.rep_id);
+  const byRep = groupBy(dashboardSales(), s => s.rep_id);
 
   // Compute records for every rep + overall company records
   const repCards = profiles.map(p => {
