@@ -8632,8 +8632,10 @@ function todaysSalesPanel(windowSales, range) {
 function leaderboardSection(range) {
   // Scoped to the dashboard's date filter (defaults to Today) — one filter
   // drives the whole page: cards, feed, and leaderboard.
-  const rows = computeLeaderboard(state.dashLeaderTab, range || getDateRange(state.dashDateRange));
-  const empty = rows.every(r => r.count === 0);
+  // Only reps with a recorded sale in the selected window rank — no
+  // "No sales" filler rows (on Today that's usually just a name or two).
+  const rows = computeLeaderboard(state.dashLeaderTab, range || getDateRange(state.dashDateRange)).filter(r => r.count > 0);
+  const empty = rows.length === 0;
   const repBadges = computeBadges();
 
   const setSort = (k) => { state.dashLeaderSort = k; mountApp(); };
@@ -8710,7 +8712,7 @@ function leaderboardSection(range) {
         ),
       ),
     ),
-    empty && el('div', { class: 'px-5 py-3 text-xs text-muted- border-t border-' }, 'Year-to-date leaderboard · waiting on approved sales'),
+    empty && el('div', { class: 'px-5 py-3 text-xs text-muted- border-t border-' }, 'No sales in this window yet — first one on the board takes #1'),
   );
 }
 
