@@ -732,9 +732,10 @@
      Everything animated sits inside prefers-reduced-motion so accessibility
      settings are honored, iOS style. */
 
-  /* No tap flash on iOS; no scroll chaining past the app. */
+  /* No tap flash on iOS. (overscroll-behavior-y:none was here briefly —
+     with html+body both overflow-x:hidden it ate viewport wheel scrolling
+     in Chrome entirely. Pull-to-refresh bounce is the lesser evil.) */
   * { -webkit-tap-highlight-color: transparent; }
-  body { overscroll-behavior-y: none; }
 
   /* Frosted header — iOS nav-bar material. Solid fallback first. */
   .page-header {
