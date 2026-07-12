@@ -31730,12 +31730,13 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
               return rowEl;
             }),
             otherCount > 0 && (() => {
-              const otherLabels = sorted.slice(top).map(s => s.label);
+              const otherSlices = sorted.slice(top);   // [{label, value}] — the breakdown modal needs the values
+              const otherLabels = otherSlices.map(s => s.label);
               const clickable = !!onOtherClick;
               return el('div', {
                 class: 'flex items-center gap-2 rounded px-1 -mx-1 py-0.5' + (clickable ? ' cursor-pointer transition' : ''),
                 title: clickable ? 'Click to see the ' + otherCount + ' smaller categories combined' : undefined,
-                onclick: clickable ? () => onOtherClick(otherLabels, otherTotal) : undefined,
+                onclick: clickable ? () => onOtherClick(otherLabels, otherTotal, otherSlices, overall) : undefined,
                 onmouseenter: clickable ? (e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; } : undefined,
                 onmouseleave: clickable ? (e) => { e.currentTarget.style.background = 'transparent'; } : undefined,
               },
@@ -33267,22 +33268,56 @@ function reportingOverview() {
         formatValue: def.formatValue,
       });
     },
-    // "Other (N)" legend row → every row across the combined smaller slices,
-    // so nothing is unreachable just because it didn't make the top-6 cut.
-    onOtherClick: (otherLabels) => {
+    // "Other (N)" → BREAKDOWN FIRST (per Isaac): the smaller categories with
+    // their values relative to the chart, each clickable through to accounts;
+    // the combined account dump is one more click away at the bottom.
+    onOtherClick: (otherLabels, otherTotal, otherSlices, overall) => {
       const drill = data.drill?.[def.sliceKey];
       if (!drill) return;
-      const labelSet = new Set(otherLabels);
-      const drillRows = drill.source.filter(r => labelSet.has(drill.key(r)));
       const chartTitle = inCompare
         ? def.title + ' · ' + officeLabel(side === 'a' ? office : compareOffice)
         : def.title;
-      openReportingDrillModal({
-        chartTitle,
-        sliceLabel: 'Other — ' + otherLabels.length + ' smaller categories',
-        rows: drillRows,
-        formatValue: def.formatValue,
-      });
+      const fmtV = def.formatValue || ((v) => fmt.int(v));
+      const overlay = el('div', { class: 'modal-overlay' });
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+      const drillTo = (label) => {
+        overlay.remove();
+        const rows = drill.source.filter(r => drill.key(r) === label);
+        openReportingDrillModal({ chartTitle, sliceLabel: label, rows, formatValue: def.formatValue });
+      };
+      const maxV = otherSlices && otherSlices.length ? otherSlices[0].value : 1;
+      const rowsEls = (otherSlices || []).map(s => el('div', {
+        class: 'py-2 cursor-pointer rounded-lg px-2 -mx-2 transition hover:brightness-95 border-t border-',
+        title: 'Click to see the accounts under "' + s.label + '"',
+        onclick: () => drillTo(s.label),
+      },
+        el('div', { class: 'flex items-center justify-between gap-3 text-xs' },
+          el('span', { class: 'font-semibold truncate' }, s.label),
+          el('span', { class: 'tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } },
+            fmtV(s.value) + (overall > 0 ? ' · ' + (s.value / overall * 100).toFixed(1) + '%' : ''))),
+        el('div', { class: 'mt-1 rounded-full overflow-hidden', style: { height: '4px', background: 'var(--card-2)' } },
+          el('div', { style: { width: Math.max(2, s.value / Math.max(1, maxV) * 100) + '%', height: '100%', background: 'var(--accent)', opacity: '.8' } }))));
+      const card = el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+        el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
+          el('div', {},
+            el('h2', { class: 'text-base font-bold' }, chartTitle + ' — the other ' + otherLabels.length),
+            el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
+              fmtV(otherTotal) + ' combined' + (overall > 0 ? ' · ' + (otherTotal / overall * 100).toFixed(1) + '% of total' : '') + ' · click a category for its accounts')),
+          el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+        el('div', { class: 'px-4 pb-2 overflow-y-auto' }, ...rowsEls),
+        el('div', { class: 'p-4 pt-2' },
+          el('button', {
+            class: 'w-full rounded-xl px-4 py-2.5 text-xs font-bold border transition hover:brightness-95',
+            style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+            onclick: () => {
+              overlay.remove();
+              const labelSet = new Set(otherLabels);
+              const rows = drill.source.filter(r => labelSet.has(drill.key(r)));
+              openReportingDrillModal({ chartTitle, sliceLabel: 'Other — ' + otherLabels.length + ' smaller categories', rows, formatValue: def.formatValue });
+            },
+          }, 'View all ' + otherLabels.length + ' combined → accounts')));
+      overlay.append(card);
+      document.body.append(overlay);
     },
   });
 
