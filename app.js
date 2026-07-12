@@ -4363,9 +4363,16 @@ function mountApp() {
         onclick: toggleTheme,
         title: state.theme === 'light' ? 'Switch to dark' : 'Switch to light',
       }, state.theme === 'light' ? iconMoon(18) : iconSun(18)),
-      // (Manual ↻ sync button retired — every manual pull was a full BigQuery
-      // scan on top of the every-30-min schedule, which was exhausting the
-      // free query quota. Data now refreshes on the schedule only.)
+      // Manual ↻ sync (admin-only) — back by request, as the escape hatch
+      // when the hourly schedule hiccups. Each pull is a full BigQuery scan
+      // (real money now that billing's on), so the tooltip says so — use it
+      // sparingly; the hourly schedule is the normal path.
+      isAdmin && el('button', {
+        class: 'icon-btn show' + (state._revhawkSyncing ? ' icon-spin' : ''),
+        title: state._revhawkSyncing ? 'Syncing…' : 'Manual sync — pulls fresh CRM data now (~1 min). Costs a full BigQuery scan; the hourly schedule is the normal path.',
+        disabled: !!state._revhawkSyncing,
+        onclick: (e) => syncFromRevHawk(e.currentTarget),
+      }, iconSync(18)),
       // Gear for EVERY role, same spot — admins land on the full Settings
       // page; reps/auditors get My Settings (goal · password · sign out).
       el('button', {
