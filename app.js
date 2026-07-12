@@ -36746,10 +36746,9 @@ function reportingWaterfall() {
   // Time range only matters for Contract Length / Rep (it scopes which subs
   // qualify); the cohort modes are inherently all-time. Compare offices is
   // a Waterfall-only tool — side-by-side retention matrices.
-  const filterBar = reportingFilterBar(scope, {
-    showDate: mode === 'contract' || mode === 'rep',
-    showCompare: true,
-  });
+  // (Standalone filter bar retired — Office + Compare live on the matrix
+  // card itself now, the methodology ⓘ rides the Group-rows-by bar, and
+  // Contract/Rep keep a compact time-range select there too.)
   // Cohort modes are all-time BY DEFINITION — and their time-range picker is
   // hidden, so a range set on another tab must not silently shrink them.
   // Contract/Rep modes keep the visible, user-controlled range.
@@ -36771,6 +36770,7 @@ function reportingWaterfall() {
   const waterfallA = buildReportingWaterfall(popA, mode, cohortSel);
   const waterfallB = inCompare ? buildReportingWaterfall(popB, mode, cohortSel) : null;
 
+  const _methodologyInfo = (typeof reportingMethodologyInfoBtn === 'function') ? reportingMethodologyInfoBtn() : null;
   const modeBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Group rows by'),
     ...modes.map(([k, label]) => {
@@ -36783,6 +36783,13 @@ function reportingWaterfall() {
         onclick: () => { state.reportingWaterfallMode = k; mountApp(); },
       }, label);
     }),
+    (mode === 'contract' || mode === 'rep') && el('select', {
+      class: 'rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+      title: 'Time range (scopes which subs qualify — cohort modes are inherently all-time)',
+      onchange: (e) => { state.reportingDateRange = e.target.value; mountApp(); },
+    }, ...[['all', 'All time'], ['ytd', 'Year to date'], ['last_12_months', 'Last 12 months'], ['last_year', 'Last year']]
+      .map(([v, l]) => { const o = el('option', { value: v }, l); if ((state.reportingDateRange || 'all') === v) o.selected = true; return o; })),
     // Cohort-year picker — Contract Length / Rep only. "All years" = book
     // size at each year-end; a specific year = that year's cohort followed
     // through time (true retention).
@@ -36796,6 +36803,7 @@ function reportingWaterfall() {
         el('option', { value: 'all', selected: cohortSel === 'all' }, 'All years (book size)'),
         ...(waterfallA.allYears || []).map(y => el('option', { value: String(y), selected: String(cohortSel) === String(y) }, y + ' cohort')),
       )),
+    _methodologyInfo && el('div', { class: 'ml-auto' }, _methodologyInfo),
   );
 
   // Cell color = retention % vs cohort total. Green → red gradient.
@@ -36819,17 +36827,42 @@ function reportingWaterfall() {
   };
 
   const renderMatrix = (data, sideLabel) => {
-    if (data.rowDefs.length === 0) {
-      return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'No data for this mode.');
-    }
+    // (empty-data handling moved below the header so the Office/Compare
+    // controls never vanish — an empty office must still offer the exit)
     const rowLabel = (id) => {
       if (mode === 'subscription' || mode === 'arv') return String(id);
       if (mode === 'contract') return id === 'other' ? 'Other' : id + ' mo';
       return id; // rep name
     };
+    const _isB = sideLabel === '__B__';
+    const _officeSel = el('select', {
+      class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', minWidth: '150px' },
+      onchange: (e) => { state[_isB ? 'reportingCompareOffice' : 'reportingOffice'] = e.target.value; mountApp(); },
+    },
+      el('option', { value: 'all', selected: (_isB ? compareOffice : office) === 'all' }, 'All Offices'),
+      ...scope.offices.map(o => el('option', { value: o, selected: (_isB ? compareOffice : office) === o }, o)));
+    const _cmpBtn = el('button', {
+      class: 'rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer transition hover:brightness-95',
+      style: inCompare
+        ? { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border)' }
+        : { background: 'var(--accent)', color: 'var(--accent-text)' },
+      onclick: () => {
+        state.reportingCompareMode = !inCompare;
+        if (!inCompare && state.reportingCompareOffice === office) {
+          state.reportingCompareOffice = scope.offices.find(o => o !== office) || 'all';
+        }
+        mountApp();
+      },
+    }, inCompare ? '✕ Exit compare' : 'Compare');
     return el('div', { class: 'card overflow-hidden flex flex-col' },
-      sideLabel && el('div', { class: 'px-4 py-2 text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--accent)', borderBottom: '1px solid var(--border)' } }, sideLabel),
-      el('div', { class: 'overflow-auto' },
+      el('div', { class: 'px-3 py-2 flex items-center gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
+        _isB && el('span', { class: 'text-[10px] uppercase tracking-widest font-black', style: { color: 'var(--accent)' } }, 'vs'),
+        _officeSel,
+        !_isB && _cmpBtn),
+      data.rowDefs.length === 0
+        ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No data for this mode.')
+        : el('div', { class: 'overflow-auto' },
         el('table', { class: 'w-full text-xs tabular-nums' },
           el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
             el('tr', {},
@@ -37469,9 +37502,9 @@ function reportingWaterfall() {
           el('tbody', {}, ...bodyRows))));
   };
 
-  const renderSide = (data, pop, label) => el('div', { class: 'flex flex-col gap-4' },
+  const renderSide = (data, pop, label, sideMark) => el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex gap-4 flex-wrap items-start' },
-      el('div', { class: 'flex-1 min-w-0' }, renderMatrix(data, label)),
+      el('div', { class: 'flex-1 min-w-0' }, renderMatrix(data, sideMark)),
       renderBlended(pop)),
     seasonalityCard(pop, label),
     startCohortCard(pop, label),
@@ -37479,11 +37512,11 @@ function reportingWaterfall() {
 
   const body = inCompare
     ? el('div', { class: 'flex flex-col gap-4' },
-        renderSide(waterfallA, popA, officeLabel(office)),
-        renderSide(waterfallB, popB, officeLabel(compareOffice)))
-    : renderSide(waterfallA, popA);
+        renderSide(waterfallA, popA, officeLabel(office), '__A__'),
+        renderSide(waterfallB, popB, officeLabel(compareOffice), '__B__'))
+    : renderSide(waterfallA, popA, null, '__A__');
 
-  return el('div', { class: 'flex flex-col gap-4' }, filterBar, modeBar, body);
+  return el('div', { class: 'flex flex-col gap-4' }, modeBar, body);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
