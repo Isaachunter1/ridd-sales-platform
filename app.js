@@ -4509,8 +4509,8 @@ function mountApp() {
 // are intentionally IGNORED here: office staff historically double-logged
 // them in the CRM, and the auto-add sync now inserts the rest, so counting
 // both sides would double revenue. Upsells count as NEW revenue.
-// CRM sales by office staff without an app account count in every total
-// but carry rep_id=null, so they never rank on the leaderboard.
+// CRM sales by office staff without an app account carry rep_id=null and
+// rank on the leaderboard under their CRM name (synthetic rows).
 let _wrBridgeCache = { src: null, roster: null, profiles: null, out: null };
 function warRoomCrmSales() {
   const prevDept = state.indicatorDept;
@@ -4710,7 +4710,7 @@ function viewDashboard() {
       }, state.dashOfficeView ? '✕ Office' : '🏢 Office'),
 
       configInfoBtn('Sales War Room data',
-        'Live from FieldRoutes. Every number on this page — goals, sales and revenue cards, the sales feed, and the leaderboard — comes from the CRM shared dataset (office-staff sales, refreshed by the hourly sync shown in the stamp), plus manually logged upsells. Upsells count as New revenue. CRM sales by office staff without an app account count in every total but don\'t rank on the leaderboard. Contract values are exact CRM figures.'),
+        'Live from FieldRoutes. Every number on this page — goals, sales and revenue cards, the sales feed, and the leaderboard — comes from the CRM shared dataset (office-staff sales, refreshed by the hourly sync shown in the stamp), plus manually logged upsells. Upsells count as New revenue. Office staff without an app account still count — their CRM sales rank on the leaderboard under their CRM name. Contract values are exact CRM figures.'),
     ),
 
     // ─── Office dashboard (if toggled) ───
@@ -5148,14 +5148,22 @@ function computeLeaderboard(tab = 'total', range = null) {
 
     const count    = sales.length;
     const revenue  = sales.reduce((a, s) => a + Number(s.revenue_amount || 0), 0);
-    const initial  = sales.reduce((a, s) => a + Number(s.initial_amount || 0), 0);
-    const recurring= sales.reduce((a, s) => a + Number(s.monthly_amount || 0) * Number(s.contract_months || 0), 0);
-    const acv      = sales.reduce((a, s) => {
-      // PPS: # of services × amount per service (no initial). Non-PPS:
-      // initial + 11 monthly billings (initial covers month 1).
-      if (s.pay_per_service) return a + Number(s.num_services || 0) * Number(s.monthly_amount || 0);
-      return a + Number(s.initial_amount || 0) + Number(s.monthly_amount || 0) * 11;
+    // Initial = AVERAGE initial invoice per sale (not a sum).
+    const initial  = count ? sales.reduce((a, s) => a + Number(s.initial_amount || 0), 0) / count : 0;
+    // Recurring Rev = contract revenue only — total revenue minus one-time
+    // service revenue (a sale is one-time when it carries no contract months).
+    const oneTimeRev = sales.reduce((a, s) => {
+      const m = Number(s.contract_months);
+      if (m > 1) return a;
+      // Sentricon is always a 12-month program — a blank agreement length is
+      // a data error (flagged in the audit queue), not a one-time service.
+      const svc = String(s._crmService || nameFromId(state.serviceTypes, s.service_type_id) || '');
+      if (/sentricon/i.test(svc)) return a;
+      return a + Number(s.revenue_amount || 0);
     }, 0);
+    const recurring = Math.max(0, revenue - oneTimeRev);
+    // ACV = average value across ALL sales, one-time services included.
+    const acv = count ? revenue / count : 0;
 
     // MY% = multi-year (≥18mo, includes 36/60mo) / (12mo + multi-year)
     const c12     = sales.filter(s => Number(s.contract_months) === 12).length;
@@ -5177,6 +5185,52 @@ function computeLeaderboard(tab = 'total', range = null) {
       count, revenue, initial, recurring, acv, my_pct, rec_mix_pct,
     };
   });
+
+  // CRM office-staff sellers WITHOUT an app account rank too (Isaac: "include
+  // all revenue sold by office staff even if they're not active in the app").
+  // Bridge rows carry rep_id=null + the seller's canonical CRM name — group
+  // by name and build synthetic rows with the same math as profile rows.
+  {
+    const unmatched = new Map();
+    salesPool.forEach(s => {
+      if (s.rep_id != null || !s._crm || !s._crmRep) return;
+      let g = unmatched.get(s._crmRep); if (!g) { g = []; unmatched.set(s._crmRep, g); }
+      g.push(s);
+    });
+    unmatched.forEach((sales0, name) => {
+      let sales = sales0;
+      if (tab === 'new')      sales = sales.filter(s => !isRenewalSale(s));
+      if (tab === 'renewals') sales = sales.filter(s =>  isRenewalSale(s));
+      if (!sales.length) return;
+      const count = sales.length;
+      const revenue = sales.reduce((a, s) => a + Number(s.revenue_amount || 0), 0);
+      const initial = count ? sales.reduce((a, s) => a + Number(s.initial_amount || 0), 0) / count : 0;
+      const oneTimeRev = sales.reduce((a, s) => {
+        const m = Number(s.contract_months);
+        if (m > 1) return a;
+        if (/sentricon/i.test(String(s._crmService || ''))) return a;
+        return a + Number(s.revenue_amount || 0);
+      }, 0);
+      const recurring = Math.max(0, revenue - oneTimeRev);
+      const acv = count ? revenue / count : 0;
+      const c12 = sales.filter(s => Number(s.contract_months) === 12).length;
+      const cMY = sales.filter(s => Number(s.contract_months) >= 18).length;
+      const cTotal = c12 + cMY;
+      const my_pct = cTotal > 0 ? cMY / cTotal : 0;
+      const cOneTime = sales.filter(s => !Number(s.contract_months) || Number(s.contract_months) <= 1).length;
+      const rec_mix_pct = (cTotal + cOneTime) > 0 ? cTotal / (cTotal + cOneTime) : 0;
+      rows.push({
+        rep_id: 'crm:' + name,           // synthetic — no app profile behind it
+        _noProfile: true,
+        full_name: name,
+        first_name: name.split(' ')[0] || name,
+        avatar_url: null,
+        initials: name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(),
+        office: (() => { const oid = sales.find(s => s.office_id)?.office_id; return state.offices.find(o => o.id === oid)?.name || ''; })(),
+        count, revenue, initial, recurring, acv, my_pct, rec_mix_pct,
+      });
+    });
+  }
 
   // Sort by active sort column (default: sales desc)
   const sortKey = state.dashLeaderSort;
@@ -8564,21 +8618,27 @@ function todaysSalesPanel(windowSales, range) {
   };
 
   // Resolve contract type name — prefer contract_type_id, fallback to contract_months
+  // Four buckets only — 12 Mo / 18 Mo / 24 Mo / One-Time — for EVERY row,
+  // CRM-synced and manually logged upsells alike.
+  const _ctBucket = (m) => m >= 21 ? '24 Mo' : m >= 15 ? '18 Mo' : '12 Mo';
   const contractTypeName = (s) => {
-    if (s._crm) {
-      const m = Number(s.contract_months);
-      return m > 1 ? m + ' Months' : 'One Time Service';
-    }
-    if (s.contract_type_id) {
-      const ct = state.contractTypes.find(c => c.id === s.contract_type_id);
-      if (ct) return ct.name;
-    }
+    const svcNm = String(s._crmService || nameFromId(state.serviceTypes, s.service_type_id) || '').trim();
+    // Sentricon is ALWAYS a 12-month program (per Isaac). Anything else on a
+    // Sentricon account is a data error — the audit queue flags it.
+    if (/sentricon/i.test(svcNm)) return '12 Mo';
     const m = Number(s.contract_months);
-    if (m === 0) return 'One Time Service';
-    if (m === 12) return '12 Months';
-    if (m === 18) return '18 Months';
-    if (m === 24) return '24 Months';
-    return '—';
+    if (m > 1) return _ctBucket(m);
+    if (s._crm) {
+      // CRM has no agreement length on this subscription. Before calling it
+      // One-Time, check the service Lifecycle config — recurring services
+      // default to the 12 Mo bucket. Durable fix: set the agreement length
+      // on the sub in FieldRoutes.
+      try {
+        const rec = (typeof reportingServiceRecurringMap === 'function') ? reportingServiceRecurringMap() : null;
+        if (rec && svcNm && rec.get(svcNm)) return '12 Mo';
+      } catch (e) { /* fall through */ }
+    }
+    return 'One-Time';
   };
 
   return el('div', { class: 'card overflow-hidden flex flex-col' },
@@ -8664,9 +8724,9 @@ function leaderboardSection(range) {
             el('th', { class: 'text-left px-2 py-2' }, 'Rep'),
             el('th', { class: 'text-left px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('sales'), onclick: () => setSort('sales') }, 'Sales'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('revenue'), onclick: () => setSort('revenue') }, 'Revenue'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('initial'), onclick: () => setSort('initial') }, 'Initial'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('recurring'), onclick: () => setSort('recurring') }, 'Recurring'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('acv'), onclick: () => setSort('acv') }, 'ACV'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('initial'), title: 'Average initial invoice per sale', onclick: () => setSort('initial') }, 'Avg Initial'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('recurring'), title: 'Contract revenue only — total revenue minus one-time service revenue', onclick: () => setSort('recurring') }, 'Recurring Rev'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('acv'), title: 'Average contract value across ALL sales, one-time services included', onclick: () => setSort('acv') }, 'ACV'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('my_pct'), title: 'Multi-year contracts (18+ mo) / all contract sales', onclick: () => setSort('my_pct') }, 'MY %'),
             el('th', { class: 'text-right pl-2 pr-4 py-2 cursor-pointer select-none hover:text-default', style: sortHl('rec_mix_pct'), title: '12/18/24-mo contracts / (contracts + one-time services)', onclick: () => setSort('rec_mix_pct') }, 'Rec Mix %'),
           ),
@@ -8681,9 +8741,9 @@ function leaderboardSection(range) {
               el('td', { class: 'pl-4 pr-1 py-2 font-bold tabular-nums' + (i === 0 && r.count > 0 ? ' text-base' : ''), style: i === 0 && r.count > 0 ? { color: 'var(--accent)' } : {} }, i + 1),
               el('td', { class: 'px-2 py-2' },
                 el('div', {
-                  class: 'flex items-center gap-2 cursor-pointer',
-                  onclick: () => openRepProfileModal(r.rep_id),
-                  title: 'View ' + r.first_name + '\'s profile',
+                  class: 'flex items-center gap-2' + (r._noProfile ? '' : ' cursor-pointer'),
+                  onclick: r._noProfile ? null : () => openRepProfileModal(r.rep_id),
+                  title: r._noProfile ? (r.full_name + ' — CRM seller without an app account') : ('View ' + r.first_name + '\'s profile'),
                 },
                   avatarNode(r.avatar_url, r.initials, 'w-7 h-7 text-[9px]'),
                   el('div', { class: 'flex-1 min-w-0' },
@@ -9344,6 +9404,16 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                   const _annual = _m > 12 ? (Number(s.revenue_amount) || 0) * 12 / _m : (Number(s.revenue_amount) || 0);
                   if (_annual > 2000 && !s.is_commercial) lcChips.push(chip('⚑ Comm?', 'rgba(168,85,247,.14)', '#7C3AED',
                     'Annualized value ' + fmt.usd(_annual) + ' is over $2,000 — confirm whether this is a commercial property. Commercial pays the commercial (half) rate; mark it via Edit → Commercial.'));
+                })();
+                // Sentricon is ALWAYS a 12-month program — any other length
+                // on the account is a data error (usually a blank agreement
+                // length in FieldRoutes). Flag until the contract reads 12.
+                (() => {
+                  const _svc = String(s.crm_subscription || nameFromId(state.serviceTypes, s.service_type_id) || '');
+                  if (/sentricon/i.test(_svc) && Number(s.contract_months) !== 12) {
+                    lcChips.push(chip('⚑ Sentricon ≠ 12mo', 'rgba(245,158,11,.14)', '#B45309',
+                      'Sentricon accounts are always 12-month programs, but this one reads ' + (Number(s.contract_months) || 0) + ' month(s). Fix the agreement length in FieldRoutes (and Edit → contract here).'));
+                  }
                 })();
                 const withLc = (node) => lcChips.length ? el('span', { class: 'inline-flex items-center gap-1 flex-wrap' }, node, ...lcChips) : node;
                 if (v.status === 'verified') {
