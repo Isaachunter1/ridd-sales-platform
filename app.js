@@ -26886,7 +26886,9 @@ function openTVDashboard() {
     overlay.innerHTML = '';
     const range = computeRange();
     const EXCLUDED = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule']);
-    const allSales = (state.allSales && state.allSales.length ? state.allSales : state.mySales) || [];
+    // Same CRM-backed pool as the War Room (office-staff CRM sales + manual
+    // upsells); falls back to the app table until the dataset loads.
+    const allSales = (typeof dashboardSales === 'function' ? dashboardSales() : (state.allSales || [])) || [];
     // Filter by entry date (created_at) — when the sale was logged — not
     // sold_date. Reps frequently back-date a sold_date to the actual door
     // knock, so a sale logged today for "yesterday" should still show on
@@ -26927,17 +26929,22 @@ function openTVDashboard() {
     // only their own sales are visible).
     const repAgg = {};
     inWindow.forEach(s => {
-      if (!s.rep_id) return;
-      if (!repAgg[s.rep_id]) repAgg[s.rep_id] = { id: s.rep_id, revenue: 0, count: 0, sales: [] };
-      repAgg[s.rep_id].revenue += Number(s.revenue_amount || 0);
-      repAgg[s.rep_id].count++;
-      repAgg[s.rep_id].sales.push(s);
+      // CRM sellers without an app account rank under their CRM name —
+      // same rule as the War Room leaderboard.
+      const key = s.rep_id || (s._crm && s._crmRep ? 'crm:' + s._crmRep : null);
+      if (!key) return;
+      if (!repAgg[key]) repAgg[key] = { id: key, _crmName: (!s.rep_id && s._crmRep) || null, revenue: 0, count: 0, sales: [] };
+      repAgg[key].revenue += Number(s.revenue_amount || 0);
+      repAgg[key].count++;
+      repAgg[key].sales.push(s);
     });
-    const profileFor = (id) => (state.allProfiles || []).find(p => p.id === id)
+    const profileFor = (id, agg) => (state.allProfiles || []).find(p => p.id === id)
       || (state.profile && state.profile.id === id ? state.profile : null)
-      || { full_name: 'Rep', initials: '?', avatar_url: '', office_id: null };
+      || (agg && agg._crmName
+            ? { full_name: agg._crmName, initials: agg._crmName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(), avatar_url: '', office_id: null }
+            : { full_name: 'Rep', initials: '?', avatar_url: '', office_id: null });
     const ranked = Object.values(repAgg)
-      .map(r => ({ ...r, profile: profileFor(r.id) }))
+      .map(r => ({ ...r, profile: profileFor(r.id, r) }))
       .sort((a, b) => b.revenue - a.revenue);
 
     // Company stats — right-rail breakdown.
@@ -26947,7 +26954,15 @@ function openTVDashboard() {
     // or pay-per-service (num_services × monthly_amount).
     const totalSales   = inWindow.length;
     const OTS_CT_IDS   = new Set([4, 5]);
-    const isOts        = (s) => OTS_CT_IDS.has(Number(s.contract_type_id));
+    const isOts        = (s) => {
+      if (s._crm) {
+        // CRM rows: one-time = no agreement length — except Sentricon,
+        // which is always a 12-month program.
+        if (/sentricon/i.test(String(s._crmService || ''))) return false;
+        return !(Number(s.contract_months) > 1);
+      }
+      return OTS_CT_IDS.has(Number(s.contract_type_id));
+    };
     const subs         = inWindow.filter(s => !isOts(s));
     const otsSales     = inWindow.filter(s => isOts(s));
     const subCount     = subs.length;
@@ -26970,6 +26985,7 @@ function openTVDashboard() {
     // payment — fall back to revenue_amount when initial_amount is blank
     // (the upsell flow stores the full price in revenue_amount).
     const saleACV = (s) => {
+      if (s._crm) return Number(s.revenue_amount || 0);   // CRM contract value is exact
       if (isOts(s)) return Number(s.revenue_amount || s.initial_amount || 0);
       if (s.pay_per_service) return Number(s.num_services || 0) * Number(s.monthly_amount || 0);
       return Number(s.initial_amount || 0) + Number(s.monthly_amount || 0) * 11;
@@ -27005,10 +27021,42 @@ function openTVDashboard() {
     const today = new Date();
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const monthEnd   = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const _isoOf = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    // ── Weekend weights — LEARNED from the trailing 8 weeks ──────────
+    // The office is open 7 days, but weekends run a skeleton crew (1 rep
+    // vs ~6 on weekdays), so a flat per-day goal would hand them an
+    // impossible number. Instead of hardcoded knobs, the board measures
+    // what a Saturday and a Sunday each actually produce vs an average
+    // weekday and weights the month's days by it — hire a second weekend
+    // rep and the weights adjust themselves. $0 days count (an empty
+    // Saturday is signal). Clamped 0.1–1; 1/3 until there's at least two
+    // of that day in the history.
+    let satWeight = 0.33, sunWeight = 0.33;
+    {
+      const dayRevMap = new Map();
+      allSales.forEach(s => {
+        if (EXCLUDED.has(s.audit_status)) return;
+        const day = localDay(s.created_at) || s.sold_date;
+        if (day) dayRevMap.set(day, (dayRevMap.get(day) || 0) + Number(s.revenue_amount || 0));
+      });
+      let wkSum = 0, wkN = 0, satSum = 0, satN = 0, sunSum = 0, sunN = 0;
+      const d = new Date(today); d.setDate(d.getDate() - 1);
+      for (let i = 0; i < 56; i++, d.setDate(d.getDate() - 1)) {
+        const rev = dayRevMap.get(_isoOf(d)) || 0;
+        if (d.getDay() === 0)      { sunSum += rev; sunN++; }
+        else if (d.getDay() === 6) { satSum += rev; satN++; }
+        else                       { wkSum += rev; wkN++; }
+      }
+      const wkAvg = wkN ? wkSum / wkN : 0;
+      if (wkAvg > 0 && satN >= 2) satWeight = Math.min(1, Math.max(0.1, (satSum / satN) / wkAvg));
+      if (wkAvg > 0 && sunN >= 2) sunWeight = Math.min(1, Math.max(0.1, (sunSum / sunN) / wkAvg));
+    }
+    const dayWeight = (d) => d.getDay() === 0 ? sunWeight : d.getDay() === 6 ? satWeight : 1;
+    // Weighted "working days" in the month — a Saturday counts as a
+    // fraction of a weekday, so dailyCompanyGoal below is the WEEKDAY pace.
     let workingDaysInMonth = 0;
     for (let d = new Date(monthStart); d <= monthEnd; d.setDate(d.getDate() + 1)) {
-      // Skip Sundays; sales reps work Mon–Sat. Adjust here if your week is different.
-      if (d.getDay() !== 0) workingDaysInMonth++;
+      workingDaysInMonth += dayWeight(d);
     }
     const cg = state.companyGoal || { amount: 6000000, period: 'year' };
     const monthlyCompanyGoal = cg.period === 'year' ? cg.amount / 12 : cg.amount;
@@ -27017,26 +27065,47 @@ function openTVDashboard() {
     const activeRepCount = Math.max(1,
       (state.allProfiles || []).filter(p => p.is_active !== false && sellerRoles.has(p.role)).length
     );
-    // Count Mon–Sat working days between two ISO date strings (inclusive).
-    // Used for Quarter + Custom, since both span variable lengths.
+    // WEIGHTED working days between two ISO dates (inclusive) — weekdays
+    // count 1, Sat/Sun count their learned fractions. Used for Custom.
     const countWorkingDays = (startIso, endIso) => {
       let n = 0;
       const d = new Date(startIso + 'T00:00');
       const stop = new Date(endIso + 'T00:00');
       while (d <= stop) {
-        if (d.getDay() !== 0) n++;
+        n += dayWeight(d);
         d.setDate(d.getDate() + 1);
       }
       return n;
     };
     let periodCompanyGoal, periodRepGoal, periodGoalLabel;
     if (state._tvDashboardRange === 'today') {
-      periodCompanyGoal = dailyCompanyGoal;
-      periodRepGoal     = dailyCompanyGoal / activeRepCount;
+      // Today's Goal = what's LEFT of the monthly goal ÷ working days left
+      // in the month (today included) — a live catch-up pace. Ahead of plan
+      // → tomorrow's number eases; behind → it climbs. Floors at $0 once
+      // the month is already in the bag.
+      const todayIso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+      const monthStartIso = todayIso.slice(0, 8) + '01';
+      const mtdRevenue = allSales.reduce((a, s) => {
+        if (EXCLUDED.has(s.audit_status)) return a;
+        const day = localDay(s.created_at) || s.sold_date;
+        // Through YESTERDAY — today's own sales don't shrink today's target
+        // mid-day; the number stays fixed while the room sells against it.
+        if (!day || day < monthStartIso || day >= todayIso) return a;
+        return a + Number(s.revenue_amount || 0);
+      }, 0);
+      let workingDaysLeft = 0;   // today included — WEIGHTED (Sat/Sun count their learned fractions)
+      for (let d = new Date(today.getFullYear(), today.getMonth(), today.getDate()); d <= monthEnd; d.setDate(d.getDate() + 1)) {
+        workingDaysLeft += dayWeight(d);
+      }
+      // Remaining goal ÷ weighted days left = the weekday pace; today's goal
+      // is that pace × today's own weight (a Saturday gets its fair share).
+      const weekdayPace = workingDaysLeft > 0 ? Math.max(0, (monthlyCompanyGoal - mtdRevenue) / workingDaysLeft) : 0;
+      periodCompanyGoal = weekdayPace * dayWeight(today);
+      periodRepGoal     = periodCompanyGoal / activeRepCount;
       periodGoalLabel   = "Today's Goal";
     } else if (state._tvDashboardRange === 'week') {
-      // 6 working days in a Mon–Sat week. Adjust here if your week is different.
-      periodCompanyGoal = dailyCompanyGoal * 6;
+      // 5 weekdays + weighted Saturday + weighted Sunday.
+      periodCompanyGoal = dailyCompanyGoal * (5 + satWeight + sunWeight);
       periodRepGoal     = periodCompanyGoal / activeRepCount;
       periodGoalLabel   = "Week's Goal";
     } else if (state._tvDashboardRange === 'quarter') {
@@ -27085,6 +27154,12 @@ function openTVDashboard() {
     );
     const timeEl = el('div', { style: { fontSize: '14px', fontWeight: '600', color: '#8DC63F', letterSpacing: '0.05em' } },
       new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+    const syncEl = (() => {
+      const t = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt) : null;
+      if (!t || isNaN(t)) return null;
+      return el('div', { style: { fontSize: '11px', color: '#888', letterSpacing: '0.05em' } },
+        'CRM sync · ' + t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+    })();
     const topBar = el('div', {
       style: {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -27140,6 +27215,7 @@ function openTVDashboard() {
           }),
         ),
         livePill,
+        syncEl,
         timeEl,
         (() => {
           fsBtn = el('button', {
