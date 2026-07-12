@@ -23466,10 +23466,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     _tierCardSection = tierCard;
   })();
 
-  {
-    const _repTrendArgs = { repsToChart, repMap, allReps, rawSales, chartBuckets, cfg: repChartCfg };
-    sections.push(indSection('repTrend', () => repTrendChartCard(_repTrendArgs)));
-  }
+  // 📈 Metric Trends card RETIRED (Jul 2026, per Isaac) — merged into the
+  // Performance Trends chart above via its Scope picker (offices / teams /
+  // reps overlay with Years × Type). repTrendChartCard still powers the
+  // rep-facing "Your Performance Trends" section.
 
   // ── 2. REP LEADERBOARD ──
   if (!state._indicatorRepSort) state._indicatorRepSort = { key: 'revenue', dir: 'desc' };
@@ -28580,8 +28580,30 @@ function indicatorYoYTrendChart() {
     a.setDate(a.getDate() + (wk - 1) * 7);
     return a;
   };
-  let maxWeek = 0, lastDataWeek = 0;
-  for (const s of raw) {
+  // ── SCOPES — the old Metric Trends card folded in here (one chart now).
+  // Check Company / offices / teams / reps and each plots its own line,
+  // multiplying with Years × Type like every other picker on this card. ──
+  const _yoyOfficeOf = (s) => {
+    const o = String(s.office || '').split(',')[0].trim();
+    return o ? o.split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ') : '';
+  };
+  const _yoySelScopes = (() => {
+    if (_yoyRepOnly) return [{ t: 'co' }];
+    const sel = Array.isArray(state._indicatorYoYScopes) ? state._indicatorYoYScopes.filter(x => x && x.t) : [];
+    return sel.length ? sel : [{ t: 'co' }];
+  })();
+  const _scopeLabelOf = (sc) => sc.t === 'co' ? 'Company' : String(sc.v || '');
+  const _scopeKey = (sc) => sc.t + ':' + (sc.v || '');
+  const _scopeMatchFn = (sc) => {
+    if (sc.t === 'co') return () => true;
+    if (sc.t === 'office') return (s) => _yoyOfficeOf(s) === sc.v;
+    if (sc.t === 'team') return (s) => (typeof getRepTeam === 'function' && getRepTeam(getCanonicalRepName(s.rep))) === sc.v;
+    return (s) => getCanonicalRepName(s.rep) === sc.v;   // rep
+  };
+  const buildAcc = (rawArr) => {
+    const acc = {}, accTier = {};
+    let maxWeek = 0, lastDataWeek = 0;
+    for (const s of rawArr) {
     const iso = dateSoldToIso(s.dateSold);
     if (!iso) continue;
     const y = Number(iso.slice(0, 4));
@@ -28624,9 +28646,16 @@ function indicatorYoYTrendChart() {
       }
       if (!_isExcludableCancel(s)) b.cancelElig++;
     }
-    if (wk > maxWeek) maxWeek = wk;
-    if (y === curY && wk > lastDataWeek) lastDataWeek = wk;
-  }
+      if (wk > maxWeek) maxWeek = wk;
+      if (y === curY && wk > lastDataWeek) lastDataWeek = wk;
+    }
+    return { acc, accTier, maxWeek, lastDataWeek };
+  };
+  const scopeAccs = _yoySelScopes.map(sc => buildAcc(sc.t === 'co' ? raw : raw.filter(_scopeMatchFn(sc))));
+  let maxWeek = Math.max(0, ...scopeAccs.map(x => x.maxWeek));
+  let lastDataWeek = Math.max(0, ...scopeAccs.map(x => x.lastDataWeek));
+  // The FIRST selected scope feeds the header numbers + YoY footer.
+  const acc = scopeAccs[0].acc, accTier = scopeAccs[0].accTier;
   maxWeek = Math.min(Math.max(maxWeek, 1), 54);
   // Rep view is YTD-only: cut the axis at the CURRENT week of year so prior
   // years' lines don't run months past today — every year compares the same
@@ -28664,9 +28693,9 @@ function indicatorYoYTrendChart() {
   // YTD aggregate per year — combine weeks 1..lastDataWeek into one bucket so
   // the final "YTD" dot shows each year's year-to-date total (proper ratio for
   // averages/percent, not a sum of weekly averages).
-  const _bucketsOf = (year, tier) => (!tier || tier === 'all') ? acc[year] : accTier[year + '|' + tier];
-  const _combineYTD = (year, tier) => { const c = mk(); const ay = _bucketsOf(year, tier) || {}; for (let w = 1; w <= lastDataWeek; w++) { const a = ay[w]; if (!a) continue; for (const k in c) { if (k === 'repSet') continue; c[k] += (a[k] || 0); } if (a.repSet) a.repSet.forEach(x => c.repSet.add(x)); } return c; };
-  const ytdValOf = (year, tier) => valOf(_combineYTD(year, tier), year === prevY);
+  const _bucketsOfIn = (A, year, tier) => (!tier || tier === 'all') ? A.acc[year] : A.accTier[year + '|' + tier];
+  const _combineYTD = (A, year, tier) => { const c = mk(); const ay = _bucketsOfIn(A, year, tier) || {}; for (let w = 1; w <= lastDataWeek; w++) { const a = ay[w]; if (!a) continue; for (const k in c) { if (k === 'repSet') continue; c[k] += (a[k] || 0); } if (a.repSet) a.repSet.forEach(x => c.repSet.add(x)); } return c; };
+  const ytdValOf = (A, year, tier) => valOf(_combineYTD(A, year, tier), year === prevY);
   const fmtVal = (v) => v == null ? '—'
     : kind === 'usd' ? '$' + ((metric === 'revenue' || metric === 'pra') ? Math.round(v).toLocaleString() : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
     : kind === 'pct' ? (v * 100).toFixed(1) + '%'
@@ -28845,6 +28874,112 @@ function indicatorYoYTrendChart() {
     return wrap;
   })();
 
+  // Scope picker — the old Metric Trends filters, now living on THIS card.
+  const scopesWrap = _yoyRepOnly ? null : (() => {
+    const wrap = el('div', { class: 'relative' });
+    let _staged = _yoySelScopes.map(sc => _scopeKey(sc));
+    let _sApply = null;
+    const _sDirty = () => {
+      if (!_sApply) return;
+      _sApply.style.background = 'var(--accent)';
+      _sApply.style.color = 'var(--accent-text)';
+      _sApply.style.borderColor = 'var(--accent)';
+    };
+    const offices = [...new Set(raw.map(_yoyOfficeOf).filter(Boolean))].sort();
+    const repNames = [...new Set(raw.map(s => s.rep ? getCanonicalRepName(s.rep) : '').filter(Boolean))].sort();
+    const teams = (typeof getRepTeam === 'function')
+      ? [...new Set(repNames.map(n => getRepTeam(n)).filter(Boolean))].sort()
+      : [];
+    const rowBtn = (key, lab) => {
+      const glyph = el('span', { style: { fontSize: '13px' } }, _staged.includes(key) ? '☑' : '☐');
+      const row = el('button', {
+        class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+        style: { color: 'var(--text)', background: _staged.includes(key) ? 'var(--card-2)' : 'transparent' },
+        onclick: (e) => {
+          e.stopPropagation();
+          _staged = _staged.includes(key) ? _staged.filter(x => x !== key) : [..._staged, key];
+          const on = _staged.includes(key);
+          glyph.textContent = on ? '☑' : '☐';
+          row.style.background = on ? 'var(--card-2)' : 'transparent';
+          _sDirty();
+        },
+      }, glyph, el('span', { class: 'truncate' }, lab));
+      return row;
+    };
+    const secTitle = (t) => el('div', { class: 'px-2.5 pt-2 pb-1 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
+    const repList = el('div', {});
+    const paintReps = (q) => {
+      repList.innerHTML = '';
+      const ql = String(q || '').toLowerCase();
+      // Checked reps always show; search reveals the rest (cap 10 matches).
+      const checked = repNames.filter(n => _staged.includes('rep:' + n));
+      const matches = ql.length >= 2 ? repNames.filter(n => !checked.includes(n) && n.toLowerCase().includes(ql)).slice(0, 10) : [];
+      [...checked, ...matches].forEach(n => repList.append(rowBtn('rep:' + n, n)));
+      if (!checked.length && !matches.length) repList.append(el('div', { class: 'px-2.5 py-1.5 text-[10px]', style: { color: 'var(--text-subtle)' } }, ql.length >= 2 ? 'No matching reps' : 'Type 2+ letters to search ' + fmt.int(repNames.length) + ' reps'));
+    };
+    const repSearch = el('input', {
+      type: 'text', placeholder: 'Search reps…', autocomplete: 'off',
+      class: 'w-full rounded-lg px-2.5 py-1.5 text-xs',
+      style: { background: 'var(--card-2)', border: '1px solid var(--border-2)', color: 'var(--text)' },
+      oninput: (e) => paintReps(e.target.value),
+      onclick: (e) => e.stopPropagation(),
+    });
+    paintReps('');
+    const panel = el('div', {
+      class: 'card absolute p-1.5',
+      style: { top: 'calc(100% + 6px)', right: '0', minWidth: '230px', maxHeight: '340px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyScopesOpen ? 'block' : 'none' },
+    },
+      rowBtn('co:', 'Company (everything on this page)'),
+      offices.length ? secTitle('Offices') : null,
+      ...offices.map(o => rowBtn('office:' + o, o)),
+      teams.length ? secTitle('Teams') : null,
+      ...teams.map(t => rowBtn('team:' + t, t)),
+      secTitle('Reps'),
+      el('div', { class: 'px-1.5 pb-1' }, repSearch),
+      repList,
+      (_sApply = el('button', {
+        class: 'w-full rounded-lg px-2.5 py-2 text-xs font-bold border transition hover:brightness-95 mt-1',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        onclick: (e) => {
+          e.stopPropagation();
+          const parsed = _staged.map(k => { const i = k.indexOf(':'); return { t: k.slice(0, i), v: k.slice(i + 1) || undefined }; });
+          state._indicatorYoYScopes = parsed.length ? parsed : [{ t: 'co' }];
+          state._yoyScopesOpen = false;
+          mountApp();
+        },
+      }, 'Apply')));
+    const multi = _yoySelScopes.length > 1 || _yoySelScopes[0].t !== 'co';
+    const label = !multi ? 'Scope · Company'
+      : _yoySelScopes.length === 1 ? 'Scope · ' + _scopeLabelOf(_yoySelScopes[0])
+      : 'Scope · ' + _yoySelScopes.length;
+    const btn = el('button', {
+      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer border flex items-center gap-1.5',
+      style: multi
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+        : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+      title: 'Overlay offices, teams, or individual reps as their own lines (multiplies with Years and Type — up to 14 lines)',
+      onclick: (e) => {
+        e.stopPropagation();
+        const open = panel.style.display === 'block';
+        panel.style.display = open ? 'none' : 'block';
+        state._yoyScopesOpen = !open;
+        if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+          if (wrap.contains(ev.target)) return;
+          panel.style.display = 'none'; state._yoyScopesOpen = false;
+          document.removeEventListener('mousedown', closer);
+        }), 0); }
+      },
+    }, label, el('span', { style: { fontSize: '9px' } }, state._yoyScopesOpen ? '▴' : '▾'));
+    if (state._yoyScopesOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+      if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+      if (wrap.contains(ev.target)) return;
+      panel.style.display = 'none'; state._yoyScopesOpen = false;
+      document.removeEventListener('mousedown', closer);
+    }), 0); }
+    wrap.append(btn, panel);
+    return wrap;
+  })();
+
   const cvsWrap = el('div', { style: { position: 'relative', height: '280px', width: '100%' } });
   cvsWrap.append(el('canvas', { id }));
   setTimeout(() => {
@@ -28867,38 +29002,49 @@ function indicatorYoYTrendChart() {
           const muted = isDark ? 'rgba(255,255,255,.45)' : 'rgba(0,0,0,.35)';
           const palette = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899'];
           const lines = [], ytdPts = [];
-          const _totalSeries = _yoySelYears.length * _yoySelTiers.length;
-          yearsPresent.forEach((y) => {
-            if (!_yoySelYears.includes(y)) return;   // only the years picked in the Years dropdown plot
-            const isCur = y === curY;
-            const idx = curY - y; // 0 = current, 1 = prior year, …
-            const yColor = isCur ? '#8DC63F' : (idx === 1 ? muted : palette[(idx - 2 + palette.length) % palette.length]);
-            _yoySelTiers.forEach((tier) => {
-              // Tier recolor: when splitting, Rookies plot amber and Vets
-              // blue-violet so the cohorts read instantly; the year still
-              // shows in the label + tooltip. Single-tier 'all' keeps the
-              // classic year palette.
-              const color = tier === 'all' ? yColor : (tier === 'rookie' ? (isCur ? '#F59E0B' : '#B45309') : (isCur ? '#818CF8' : '#4F46E5'));
-              const tierLab = tier === 'all' ? '' : tier === 'rookie' ? ' · Rookies' : ' · Vets';
-              const _b = _bucketsOf(y, tier) || {};
-              const vals = weeksAxis.map(w => {
-                if (isCur && w > lastDataWeek) return null;
-                if (metric === 'cancel_pct' && y === prevY && w > lastDataWeek) return null;
-                return valOf(_b[w], y === prevY);
+          const multiScope = _yoySelScopes.length > 1 || _yoySelScopes[0].t !== 'co';
+          const _totalSeries = _yoySelYears.length * _yoySelTiers.length * _yoySelScopes.length;
+          const MAX_SERIES = 14;   // beyond this the chart is spaghetti — trim scopes/years/tiers
+          const scopePalette = ['#8DC63F', '#0EA5E9', '#F59E0B', '#A855F7', '#EF4444', '#14B8A6', '#EC4899', '#F97316'];
+          _yoySelScopes.forEach((sc, si) => {
+            const A = scopeAccs[si];
+            const scopeLab = multiScope ? ' · ' + _scopeLabelOf(sc) : '';
+            yearsPresent.forEach((y) => {
+              if (!_yoySelYears.includes(y)) return;   // only the years picked in the Years dropdown plot
+              const isCur = y === curY;
+              const idx = curY - y; // 0 = current, 1 = prior year, …
+              const yColor = isCur ? '#8DC63F' : (idx === 1 ? muted : palette[(idx - 2 + palette.length) % palette.length]);
+              _yoySelTiers.forEach((tier) => {
+                if (lines.length >= MAX_SERIES) return;
+                // Color priority: multiple SCOPES → one color per scope
+                // (years distinguished by solid vs dashed); otherwise the
+                // tier split colors (Rookies amber / Vets indigo); otherwise
+                // the classic year palette.
+                const color = multiScope
+                  ? scopePalette[si % scopePalette.length]
+                  : tier === 'all' ? yColor : (tier === 'rookie' ? (isCur ? '#F59E0B' : '#B45309') : (isCur ? '#818CF8' : '#4F46E5'));
+                const tierLab = tier === 'all' ? '' : tier === 'rookie' ? ' · Rookies' : ' · Vets';
+                const label = String(y) + tierLab + scopeLab;
+                const _b = _bucketsOfIn(A, y, tier) || {};
+                const vals = weeksAxis.map(w => {
+                  if (isCur && w > lastDataWeek) return null;
+                  if (metric === 'cancel_pct' && y === prevY && w > lastDataWeek) return null;
+                  return valOf(_b[w], y === prevY);
+                });
+                // TREND RULE: the current-year line ends at the last COMPLETED
+                // week — the in-progress week plotted as a nosedive on every
+                // metric (Carson + Isaac both flagged it). Its live total still
+                // shows in the YTD diamond on the right axis.
+                const _curWkNow = (() => { const a = new Date(curY, 0, 1); a.setDate(a.getDate() - a.getDay()); return Math.floor((todayMid - a) / 604800000) + 1; })();
+                const _liveIdx = (isCur && lastDataWeek >= _curWkNow) ? _curWkNow - 1 : -1;
+                const plotVals = _liveIdx >= 0 ? vals.map((v, i) => (i >= _liveIdx ? null : v)) : vals;
+                lines.push(isCur
+                  ? { label, data: plotVals, borderColor: color, backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct' && _totalSeries === 1, spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 }
+                  : { label, data: vals, borderColor: color, borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5, order: idx });
+                // YTD dot — point only, on the secondary 'yYTD' axis.
+                const ytdData = weeksAxis.map(() => null); ytdData.push(ytdValOf(A, y, tier));
+                ytdPts.push({ label: 'YTD ' + label, data: ytdData, yAxisID: 'yYTD', showLine: false, borderColor: color, backgroundColor: color, pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', order: 0 });
               });
-              // TREND RULE: the current-year line ends at the last COMPLETED
-              // week — the in-progress week plotted as a nosedive on every
-              // metric (Carson + Isaac both flagged it). Its live total still
-              // shows in the YTD diamond on the right axis.
-              const _curWkNow = (() => { const a = new Date(curY, 0, 1); a.setDate(a.getDate() - a.getDay()); return Math.floor((todayMid - a) / 604800000) + 1; })();
-              const _liveIdx = (isCur && lastDataWeek >= _curWkNow) ? _curWkNow - 1 : -1;
-              const plotVals = _liveIdx >= 0 ? vals.map((v, i) => (i >= _liveIdx ? null : v)) : vals;
-              lines.push(isCur
-                ? { label: String(y) + tierLab, data: plotVals, borderColor: color, backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct' && _totalSeries === 1, spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 }
-                : { label: String(y) + tierLab, data: vals, borderColor: color, borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5, order: idx });
-              // YTD dot — point only, on the secondary 'yYTD' axis.
-              const ytdData = weeksAxis.map(() => null); ytdData.push(ytdValOf(y, tier));
-              ytdPts.push({ label: 'YTD ' + y + tierLab, data: ytdData, yAxisID: 'yYTD', showLine: false, borderColor: color, backgroundColor: color, pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', order: 0 });
             });
           });
           return lines.concat(ytdPts);
@@ -28961,7 +29107,7 @@ function indicatorYoYTrendChart() {
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
       el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'YTD Performance Trends' : 'Performance Trends'),
-      el('div', { class: 'flex items-center gap-2 flex-wrap' }, tiersWrap, yearsWrap, metricSel)),
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, scopesWrap, tiersWrap, yearsWrap, metricSel)),
     cvsWrap);
 }
 
@@ -32609,7 +32755,7 @@ function openReportingMethodologyModal(tab) {
     overview:   'Headline cards + donuts cover every visible sub in scope. Active = status Active with no cancel date. ARR sums Annual Recurring Value over active recurring subs.',
     geographic: 'Map + table use serviced + recurring subs only (one-time excluded). Attrition/Retention need 10+ subs in an area before a rate is shown. Retention = 1 − attrition.',
     reps:       'Per-rep counts use every visible sub in scope (sold_by). Active and ARV use the same Active + recurring rules as Overview.',
-    waterfall:  'Population: recurring service types only (per the Lifecycle config), serviced subs only (retention starts at first service), after Hidden-service and excluded-source filters and branch rules. Each cell = subs of that row still active at that year\u2019s end: started on/before Dec 31 and not cancelled by then. Cancels with a reason excluded from attrition count as RETAINED, and the 3-day-ROR setting matches the Overview tab. Subscription/ARR rows are initial-service-year cohorts (all-time; the time range doesn\u2019t apply). Contract Length / Rep default to BOOK SIZE per year-end — new sales enter columns as they start — and the Cohort picker locks those rows to one start-year and follows it, a true retention curve. Rep mode shows the top 15 reps by sub count, attributed by Sold By. Colors grade each cell against the cohort size (cohort views) or the row\u2019s best year (book-size view). The Attrition % view converts each cell to 1 \u2212 survivors \u00f7 prior-year survivors (first year: \u00f7 cohort size); the Blended Attrition table compares each year\u2019s beginning-of-year book (existing cohorts only) to those SAME subs at year-end \u2014 new sales during the year never enter, and ARR mode measures it in dollars.',
+    waterfall:  'Population: recurring service types only (per the Lifecycle config), serviced subs only (retention starts at first service), after Hidden-service and excluded-source filters and branch rules. Each cell = subs of that row still active at that year\u2019s end: started on/before Dec 31 and not cancelled by then. Cancels with a reason excluded from attrition count as RETAINED, and the 3-day-ROR setting matches the Overview tab. Subscription/ARR rows are initial-service-year cohorts (all-time; the time range doesn\u2019t apply). Contract Length / Rep default to BOOK SIZE per year-end — new sales enter columns as they start — and the Cohort picker locks those rows to one start-year and follows it, a true retention curve. Rep mode shows the top 15 reps by sub count, attributed by Sold By. Colors grade each cell against the cohort size (cohort views) or the row\u2019s best year (book-size view). Each cell shows the count plus its share of the cohort still active, and hovering shows the step attrition vs the prior year (1 \u2212 survivors \u00f7 prior-year survivors). Contract Length groups to 12/18/24 months plus Other (odd or legacy lengths pending CRM cleanup); the Blended Attrition table compares each year\u2019s beginning-of-year book (existing cohorts only) to those SAME subs at year-end \u2014 new sales during the year never enter, and ARR mode measures it in dollars.',
     is:         'Inside Sales is a sold-date P&L: new revenue is committed-sold (auto-pay) subs by the month sold. It honors excluded Sources but, being sold-revenue, not the lifecycle/hidden/cancel rules.',
   };
 
@@ -35947,13 +36093,14 @@ function buildReportingWaterfall(rows, mode, cohortYear) {
     rowFilter = (id) => (r) => r.initial_service
       && new Date(r.initial_service + 'T00:00').getFullYear() === id;
   } else if (mode === 'contract') {
-    const lens = new Set();
-    for (const r of rows) {
-      const n = Number(r.agreement_length) || 0;
-      if (n > 0) lens.add(n);
-    }
-    rowIds = [...lens].sort((a, b) => a - b);
-    rowFilter = (id) => (r) => (Number(r.agreement_length) || 0) === id;
+    // 12/18/24 are the real products. Every other length (odd values that
+    // need CRM cleanup, legacy long terms) buckets into Other.
+    const CORE_LENS = [12, 18, 24];
+    const hasOther = rows.some(r => { const n = Number(r.agreement_length) || 0; return n > 0 && !CORE_LENS.includes(n); });
+    rowIds = hasOther ? [...CORE_LENS, 'other'] : CORE_LENS.slice();
+    rowFilter = (id) => id === 'other'
+      ? (r) => { const n = Number(r.agreement_length) || 0; return n > 0 && !CORE_LENS.includes(n); }
+      : (r) => (Number(r.agreement_length) || 0) === id;
   } else if (mode === 'rep') {
     const repCounts = new Map();
     for (const r of rows) {
@@ -36516,12 +36663,8 @@ function reportingWaterfall() {
   const popB = inCompare ? (usesDate ? scopeB : reportingFilterByOffice(scope.visible, compareOffice)) : null;
   if (!state.reportingWaterfallCohort) state.reportingWaterfallCohort = 'all';
   const cohortSel = (mode === 'contract' || mode === 'rep') ? state.reportingWaterfallCohort : 'all';
-  if (!state.reportingWaterfallView) state.reportingWaterfallView = 'counts';
-  // Attrition-% needs true cohorts: always available on Subscription/ARR;
-  // on Contract/Rep only once a cohort year is picked (book-size %s would
-  // read growth as negative attrition — nonsense).
-  const rateOK = (mode === 'subscription' || mode === 'arv') || cohortSel !== 'all';
-  const view = rateOK ? state.reportingWaterfallView : 'counts';
+  // The #/Attrition-% toggle is retired — cells show the count AND the
+  // %-of-cohort together, with the step attrition rate on hover.
 
   const modes = [
     ['subscription',    'Subscription'],
@@ -36545,17 +36688,6 @@ function reportingWaterfall() {
         onclick: () => { state.reportingWaterfallMode = k; mountApp(); },
       }, label);
     }),
-    // Counts ⇄ Attrition-% view toggle (the workbook's "Aggregate Attrition
-    // Rate" triangle: each cell = 1 − survivors ÷ prior-year survivors).
-    el('div', { class: 'inline-flex rounded-lg border overflow-hidden ml-auto', style: { borderColor: 'var(--border-2)' } },
-      ...[['counts', '#'], ['rate', 'Attrition %']].map(([v, label]) => el('button', {
-        class: 'px-3 py-1.5 text-xs font-semibold transition',
-        style: view === v
-          ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-          : { color: rateOK || v === 'counts' ? 'var(--text-muted)' : 'var(--text-subtle)', background: 'var(--card)', cursor: rateOK || v === 'counts' ? 'pointer' : 'default' },
-        title: v === 'rate' && !rateOK ? 'Pick a cohort year first — book-size rows have no attrition rate' : '',
-        onclick: () => { if (v === 'counts' || rateOK) { state.reportingWaterfallView = v; mountApp(); } },
-      }, label))),
     // Cohort-year picker — Contract Length / Rep only. "All years" = book
     // size at each year-end; a specific year = that year's cohort followed
     // through time (true retention).
@@ -36597,7 +36729,7 @@ function reportingWaterfall() {
     }
     const rowLabel = (id) => {
       if (mode === 'subscription' || mode === 'arv') return String(id);
-      if (mode === 'contract') return id + ' mo';
+      if (mode === 'contract') return id === 'other' ? 'Other' : id + ' mo';
       return id; // rep name
     };
     return el('div', { class: 'card overflow-hidden flex flex-col' },
@@ -36619,26 +36751,25 @@ function reportingWaterfall() {
               el('td', { class: 'text-left px-2 py-2 font-bold' }, fmtCell(row.total, true)),
               ...data.years.map(y => {
                 const v = row.byYear[y] || 0;
-                if (view === 'rate') {
-                  // Workbook's Aggregate Attrition Rate: 1 − survivors ÷ the
-                  // prior year's survivors (first year: ÷ cohort size).
+                // Count AND % together (the old toggle is gone): the small %
+                // is the share of the cohort still active; hovering shows the
+                // step attrition vs the prior year (the workbook's rate).
+                const cohortBase = (mode === 'subscription' || mode === 'arv' || cohortSel !== 'all') ? row.total : 0;
+                let stepTitle = '';
+                if (cohortBase) {
                   const firstYear = (mode === 'subscription' || mode === 'arv') ? Number(row.id) : Number(cohortSel);
-                  if (y < firstYear) return el('td', { class: 'text-left px-2 py-2' }, '');
-                  const prev = y === firstYear ? row.total : (row.byYear[y - 1] || 0);
-                  if (!prev) return el('td', { class: 'text-left px-2 py-2' }, '—');
-                  const rate = 1 - v / prev;
-                  const t = Math.max(0, Math.min(1, rate / 0.5));   // 0% green → ≥50% full red
-                  return el('td', {
-                    class: 'text-left px-2 py-2 tabular-nums',
-                    style: { background: `hsl(${120 * (1 - t)}, 70%, 88%)`, color: '#111827', fontWeight: '600' },
-                    title: fmtCell(v) + ' of ' + fmtCell(prev) + ' retained',
-                  }, (rate * 100).toFixed(1) + '%');
+                  if (y >= firstYear) {
+                    const prev = y === firstYear ? row.total : (row.byYear[y - 1] || 0);
+                    if (prev) stepTitle = ((1 - v / prev) * 100).toFixed(1) + '% attrition vs prior year — ' + fmtCell(v) + ' of ' + fmtCell(prev) + ' retained';
+                  }
                 }
                 const _bg = cellColor(row, v);
                 return el('td', {
                   class: 'text-left px-2 py-2 tabular-nums',
                   style: _bg === 'transparent' ? {} : { background: _bg, color: '#111827', fontWeight: '600' },
-                }, fmtCell(v));
+                  title: stepTitle,
+                }, fmtCell(v),
+                  (cohortBase > 0 && v > 0) ? el('span', { style: { fontSize: '9px', opacity: '.65', marginLeft: '4px' } }, Math.round(v / cohortBase * 100) + '%') : null);
               }),
             )),
             // ── TOTAL row ──
@@ -36647,38 +36778,19 @@ function reportingWaterfall() {
             // Σ prior-year survivors across every cohort active that year,
             // so big cohorts pull the blend exactly by their size.
             (() => {
-              const firstYearFor = (row) => (mode === 'subscription' || mode === 'arv') ? Number(row.id) : Number(cohortSel);
               const cells = data.years.map(y => {
-                if (view === 'rate') {
-                  let num = 0, den = 0;
-                  data.rowDefs.forEach(row => {
-                    const fy = firstYearFor(row);
-                    if (y < fy) return;
-                    den += y === fy ? row.total : (row.byYear[y - 1] || 0);
-                    num += row.byYear[y] || 0;
-                  });
-                  if (!den) return el('td', { class: 'text-left px-2 py-2' }, '');
-                  const rate = 1 - num / den;
-                  const t = Math.max(0, Math.min(1, rate / 0.5));
-                  return el('td', {
-                    class: 'text-left px-2 py-2 tabular-nums font-bold',
-                    style: { background: `hsl(${120 * (1 - t)}, 70%, 84%)`, color: '#111827' },
-                    title: fmtCell(num) + ' of ' + fmtCell(den) + ' retained (all cohorts, weighted)',
-                  }, (rate * 100).toFixed(1) + '%');
-                }
                 const sum = data.rowDefs.reduce((a, row) => a + (row.byYear[y] || 0), 0);
                 return el('td', { class: 'text-left px-2 py-2 font-bold' }, fmtCell(sum, true));
               });
               const grandTotal = data.rowDefs.reduce((a, row) => a + (row.total || 0), 0);
               const lastY = data.years[data.years.length - 1];
               const surviving = data.rowDefs.reduce((a, row) => a + (row.byYear[lastY] || 0), 0);
-              const totalCell = view === 'rate'
-                ? el('td', { class: 'text-left px-2 py-2 font-bold tabular-nums', title: 'Lifetime: ' + fmtCell(surviving) + ' of ' + fmtCell(grandTotal) + ' still active' },
-                    grandTotal > 0 ? ((1 - surviving / grandTotal) * 100).toFixed(1) + '%' : '—')
-                : el('td', { class: 'text-left px-2 py-2 font-bold' }, fmtCell(grandTotal, true));
+              const totalCell = el('td', {
+                class: 'text-left px-2 py-2 font-bold',
+                title: grandTotal > 0 ? 'Lifetime: ' + fmtCell(surviving) + ' of ' + fmtCell(grandTotal) + ' still active (' + Math.round(surviving / grandTotal * 100) + '%)' : '',
+              }, fmtCell(grandTotal, true));
               return el('tr', { class: 'border-t-2', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
-                el('td', { class: 'text-left px-3 py-2 font-black sticky left-0', style: { background: 'var(--card-2)' } },
-                  view === 'rate' ? 'WEIGHTED' : 'TOTAL'),
+                el('td', { class: 'text-left px-3 py-2 font-black sticky left-0', style: { background: 'var(--card-2)' } }, 'TOTAL'),
                 totalCell,
                 ...cells);
             })(),
@@ -36836,12 +36948,12 @@ function reportingWaterfall() {
     });
     if (!rows2.length) return null;
     const num = mode === 'arv' ? money0 : (v) => v.toLocaleString();
-    return el('div', { class: 'card overflow-hidden shrink-0', style: { minWidth: '300px' } },
-      el('div', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest font-bold', style: { background: 'var(--card-2)', borderBottom: '1px solid var(--border)' } }, 'Blended Attrition'),
+    return el('div', { class: 'card overflow-hidden shrink-0', style: { minWidth: '360px' } },
+      el('div', { class: 'px-3 py-2.5 text-[10px] uppercase tracking-widest font-bold', style: { background: 'var(--card-2)', borderBottom: '1px solid var(--border)' } }, 'Blended Attrition'),
       el('table', { class: 'w-full text-xs tabular-nums' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
           el('tr', {},
-            ...['Year', 'B.O.Y.', 'E.O.Y.', 'Retention', 'Attrition'].map(h => el('th', { class: 'text-left px-2.5 py-1.5 font-semibold' }, h)))),
+            ...['Year', 'B.O.Y.', 'E.O.Y.', 'Retention', 'Attrition'].map(h => el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, h)))),
         el('tbody', {},
           ...rows2.map(r => el('tr', {
             class: 'border-t cursor-pointer transition hover:brightness-95',
@@ -36849,11 +36961,11 @@ function reportingWaterfall() {
             title: 'Click for ' + r.y + '\u2019s breakdown — reasons, services, offices, lifetimes',
             onclick: () => openAttritionDrill(pop, r.y),
           },
-            el('td', { class: 'px-2.5 py-1.5 font-semibold' }, r.y),
-            el('td', { class: 'px-2.5 py-1.5' }, num(r.boy)),
-            el('td', { class: 'px-2.5 py-1.5' }, num(r.eoy)),
-            el('td', { class: 'px-2.5 py-1.5' }, (r.ret * 100).toFixed(2) + '%'),
-            el('td', { class: 'px-2.5 py-1.5 font-bold', style: { color: (1 - r.ret) > 0.3 ? '#DC2626' : 'var(--text)' } }, ((1 - r.ret) * 100).toFixed(2) + '%'))))));
+            el('td', { class: 'px-2.5 py-2 font-semibold' }, r.y),
+            el('td', { class: 'px-2.5 py-2' }, num(r.boy)),
+            el('td', { class: 'px-2.5 py-2' }, num(r.eoy)),
+            el('td', { class: 'px-2.5 py-2' }, (r.ret * 100).toFixed(2) + '%'),
+            el('td', { class: 'px-2.5 py-2 font-bold', style: { color: (1 - r.ret) > 0.3 ? '#DC2626' : 'var(--text)' } }, ((1 - r.ret) * 100).toFixed(2) + '%'))))));
   };
   // ── SEASONALITY — monthly churn rate, months × years. Finds the "do we
   // bleed customers at certain points of the year" pattern. Cell = churn ÷
@@ -36887,8 +36999,11 @@ function reportingWaterfall() {
       bookAt[ym] = book;
       book += (startsByYm[ym] || 0) - (cancelsByYm[ym] || 0);
     }
-    const yearsShown = [];
-    for (let y = Math.max(minY, curY - 2); y <= curY; y++) yearsShown.push(y);
+    const yearsAvail = [];
+    for (let y = minY; y <= curY; y++) yearsAvail.push(y);
+    let yearsShown = Array.isArray(state._churnSeasonYears) ? state._churnSeasonYears.filter(y => yearsAvail.includes(y)) : [];
+    if (!yearsShown.length) yearsShown = yearsAvail.slice(-3);
+    yearsShown = [...yearsShown].sort((a, b) => a - b);
     const rateOf = (y, m) => {
       const ym = y + '-' + pad2(m);
       const den = bookAt[ym] || 0;
@@ -36923,22 +37038,94 @@ function reportingWaterfall() {
       return el('tr', { class: 'border-t border-' },
         el('td', { class: 'px-2.5 py-1.5 font-semibold' }, MONTHS_S[m - 1]), ...cells);
     };
+    // Header controls: every history year as a toggle chip + Table/Graph view.
+    const view = state._churnSeasonView === 'graph' ? 'graph' : 'table';
+    const yearChip = (y) => el('button', {
+      class: 'rounded-lg px-2 py-1 text-[10px] font-bold cursor-pointer border transition hover:brightness-95',
+      style: yearsShown.includes(y)
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+        : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+      onclick: () => {
+        const next = yearsShown.includes(y) ? yearsShown.filter(x => x !== y) : [...yearsShown, y];
+        state._churnSeasonYears = next.length ? next : [y];
+        mountApp();
+      },
+    }, String(y));
+    const viewToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+      ...[['table', 'Table'], ['graph', 'Graph']].map(([v, l]) => el('button', {
+        class: 'px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition',
+        style: view === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+        onclick: () => { state._churnSeasonView = v; mountApp(); },
+      }, l)));
+    const tableEl = el('div', { class: 'scroll-x' },
+      el('table', { class: 'w-full text-xs' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
+          el('tr', {},
+            el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, 'Month'),
+            ...yearsShown.map(y => el('th', { class: 'text-left px-2 py-2 font-semibold' }, String(y))),
+            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Avg'))),
+        el('tbody', {}, ...Array.from({ length: 12 }, (_, i) => monthRow(i + 1)))));
+    const graphEl = (() => {
+      const cid = 'chart-churn-season-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-');
+      const wrapEl = el('div', { class: 'p-4', style: { position: 'relative', height: '260px' } }, el('canvas', { id: cid }));
+      setTimeout(() => {
+        if (typeof Chart === 'undefined') return;
+        const cvs = document.getElementById(cid);
+        if (!cvs) return;
+        if (_chartInstances[cid]) { _chartInstances[cid].destroy(); delete _chartInstances[cid]; }
+        const isDark = state.theme === 'dark';
+        const txt = isDark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)';
+        const grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+        const palette2 = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899'];
+        const dsets = yearsShown.map((y, i) => ({
+          label: String(y),
+          data: Array.from({ length: 12 }, (_, mi) => {
+            const m = mi + 1;
+            if (y === curY && m > curM) return null;
+            const v = rateOf(y, m);
+            return v ? v.rate : null;
+          }),
+          borderColor: y === curY ? '#8DC63F' : palette2[i % palette2.length],
+          backgroundColor: 'transparent',
+          borderWidth: y === curY ? 3 : 2,
+          borderDash: y === curY ? [] : [6, 4],
+          spanGaps: true, tension: 0.3, pointRadius: 2.5, pointHoverRadius: 5,
+        }));
+        _chartInstances[cid] = new Chart(cvs.getContext('2d'), {
+          type: 'line',
+          data: { labels: MONTHS_S, datasets: dsets },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 11 }, usePointStyle: true } },
+              tooltip: { callbacks: { label: (ctx) => {
+                const y = Number(ctx.dataset.label), m = ctx.dataIndex + 1;
+                const v = rateOf(y, m);
+                return ctx.dataset.label + ': ' + (ctx.parsed.y * 100).toFixed(2) + '%' + (v ? ' (' + v.n + ' of ' + fmt.int(v.den) + ')' : '');
+              } } },
+            },
+            scales: {
+              y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => (v * 100).toFixed(1) + '%' } },
+              x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 } } },
+            },
+          },
+        });
+      }, 50);
+      return wrapEl;
+    })();
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
           el('h3', { class: 'text-sm font-bold' }, '📆 Churn Seasonality' + (label ? ' — ' + label : '')),
           el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Monthly churn rate = real-attrition cancels ÷ book at month start. The Avg column exposes the seasonal pattern; click any cell for that month\u2019s reasons.')),
-        configInfoBtn('Churn Seasonality',
-          'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Hover a cell for its top reasons; click for the full breakdown with YoY deltas.')),
-      el('div', { class: 'scroll-x' },
-        el('table', { class: 'w-full text-xs' },
-          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
-            el('tr', {},
-              el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, 'Month'),
-              ...yearsShown.map(y => el('th', { class: 'text-left px-2 py-2 font-semibold' }, String(y))),
-              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Avg'))),
-          el('tbody', {}, ...Array.from({ length: 12 }, (_, i) => monthRow(i + 1))))));
+            'Monthly churn rate = real-attrition cancels ÷ book at month start. The Avg column exposes the seasonal pattern; click any table cell for that month\u2019s reasons.')),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          ...yearsAvail.map(yearChip),
+          viewToggle,
+          configInfoBtn('Churn Seasonality',
+            'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history; the Graph view plots the same numbers as lines. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
+      view === 'graph' ? graphEl : tableEl);
   };
 
   // ── START-MONTH COHORTS — the retention side: do customers signed in
@@ -37000,12 +37187,106 @@ function reportingWaterfall() {
           el('tbody', {}, ...Array.from({ length: 12 }, (_, i) => monthRow(i))))));
   };
 
+  // ── LTV — lifetime value by segment. LTV = monthly ARPU ÷ monthly churn
+  // (trailing 24 months), i.e. avg monthly recurring $ × implied lifetime.
+  // Segments: overall, contract lengths, top services, offices. ──
+  const ltvCard = (pop, label) => {
+    const rows = _retenEff(pop);
+    if (!rows.length) return null;
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const now = new Date();
+    const curYL = now.getFullYear();
+    const trailing = [];
+    for (let i = 24; i >= 1; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); trailing.push(d.getFullYear() + '-' + pad2(d.getMonth() + 1)); }
+    const segStats = (subset) => {
+      if (!subset.length) return null;
+      const startsByYm = {}, cancelsByYm = {};
+      let minY = 9999;
+      subset.forEach(r => {
+        const s = String(r.initial_service).slice(0, 7);
+        startsByYm[s] = (startsByYm[s] || 0) + 1;
+        minY = Math.min(minY, Number(s.slice(0, 4)) || 9999);
+        if (r._effCancel) { const c = String(r._effCancel).slice(0, 7); cancelsByYm[c] = (cancelsByYm[c] || 0) + 1; }
+      });
+      const bookAt = {};
+      let book = 0;
+      for (let y = minY; y <= curYL; y++) for (let m = 1; m <= 12; m++) {
+        const ym = y + '-' + pad2(m);
+        bookAt[ym] = book;
+        book += (startsByYm[ym] || 0) - (cancelsByYm[ym] || 0);
+      }
+      let bm = 0, cc = 0;
+      trailing.forEach(ym => { bm += bookAt[ym] || 0; cc += cancelsByYm[ym] || 0; });
+      const arvSubs = subset.filter(r => Number(r.annual_recurring_value) > 0);
+      const avgArv = arvSubs.length ? arvSubs.reduce((a, r) => a + Number(r.annual_recurring_value), 0) / arvSubs.length : 0;
+      const churned = subset.filter(r => r._effCancel);
+      const lives = churned.map(r => {
+        const a = new Date(r.initial_service + 'T00:00'), b = new Date(r._effCancel + 'T00:00');
+        return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
+      }).filter(v => v != null).sort((a, b) => a - b);
+      const medLife = lives.length ? lives[Math.floor(lives.length / 2)] : null;
+      const churn = bm > 0 ? cc / bm : null;
+      // Implied lifetime capped at 10 years — a near-zero churn segment
+      // otherwise prints a comedy LTV.
+      const lifeMo = churn > 0 ? Math.min(120, 1 / churn) : (churn === 0 ? 120 : null);
+      return {
+        n: subset.length, avgArv, churn, bookMonths: bm, medLife,
+        lifeMo, ltv: (lifeMo != null && avgArv > 0) ? (avgArv / 12) * lifeMo : null,
+      };
+    };
+    const segs = [];
+    segs.push({ section: 'Overall' });
+    segs.push({ name: 'All recurring subs', s: segStats(rows) });
+    segs.push({ section: 'By contract length' });
+    [12, 18, 24].forEach(L => segs.push({ name: L + ' Months', s: segStats(rows.filter(r => (Number(r.agreement_length) || 0) === L)) }));
+    segs.push({ section: 'By service (top 8 by subs)' });
+    const svcCounts = new Map();
+    rows.forEach(r => svcCounts.set(r.subscription, (svcCounts.get(r.subscription) || 0) + 1));
+    [...svcCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+      .forEach(([svc]) => segs.push({ name: svc, s: segStats(rows.filter(r => r.subscription === svc)) }));
+    segs.push({ section: 'By office' });
+    const offCounts = new Map();
+    rows.forEach(r => { const o = r.office_name || '—'; offCounts.set(o, (offCounts.get(o) || 0) + 1); });
+    [...offCounts.entries()].sort((a, b) => b[1] - a[1])
+      .forEach(([o]) => segs.push({ name: o, s: segStats(rows.filter(r => (r.office_name || '—') === o)) }));
+    const money2 = (v) => '$' + Math.round(v).toLocaleString();
+    const bodyRows = segs.map(g => {
+      if (g.section) return el('tr', {}, el('td', { colspan: 7, class: 'px-2.5 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, g.section));
+      const s = g.s;
+      const small = !s || s.n < 50 || s.bookMonths < 300;
+      return el('tr', { class: 'border-t border-' + (small ? '' : ''), style: { borderColor: 'var(--border)' } },
+        el('td', { class: 'px-2.5 py-1.5 font-semibold truncate', style: { maxWidth: '220px' } }, g.name),
+        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, s ? fmt.int(s.n) : '—'),
+        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, s && s.avgArv ? money2(s.avgArv) : '—'),
+        el('td', { class: 'px-2 py-1.5 tabular-nums' }, (s && s.churn != null && !small) ? (s.churn * 100).toFixed(2) + '%' : '—'),
+        el('td', { class: 'px-2 py-1.5 tabular-nums' }, (s && s.lifeMo != null && !small) ? s.lifeMo.toFixed(0) + ' mo' + (s.lifeMo >= 120 ? '+' : '') : '—'),
+        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, (s && s.medLife != null) ? s.medLife.toFixed(1) + ' mo' : '—'),
+        el('td', { class: 'px-2 py-1.5 tabular-nums font-black', style: (s && s.ltv != null && !small) ? { color: 'var(--accent)' } : { color: 'var(--text-subtle)' } },
+          (s && s.ltv != null && !small) ? money2(s.ltv) : (small && s && s.n ? 'small sample' : '—')));
+    });
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
+        el('div', {},
+          el('h3', { class: 'text-sm font-bold' }, '💎 Lifetime Value by Segment' + (label ? ' — ' + label : '')),
+          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
+            'LTV = (avg ARV ÷ 12) × implied lifetime, where implied lifetime = 1 ÷ trailing-24-month monthly churn.')),
+        configInfoBtn('Lifetime Value',
+          'Same population and churn rules as everything on this tab (recurring + serviced subs; excluded reasons and 3-day ROR count as retained). Monthly churn = countable cancels ÷ book-months over the TRAILING 24 MONTHS, per segment — so LTV reflects how the segment retains TODAY, not its whole history. Implied lifetime = 1 ÷ monthly churn, capped at 120 months. Avg ARV averages subs with a recurring value; LTV = monthly ARPU × implied lifetime. Median lifetime (churned subs only) is shown as the observed sanity check. Segments under 50 subs or 300 book-months show "small sample" — don\u2019t price a deal off those.')),
+      el('div', { class: 'scroll-x' },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
+            el('tr', {},
+              ...['Segment', 'Subs', 'Avg ARV', 'Mo Churn', 'Implied Life', 'Med Life (churned)', 'LTV'].map((h, i) => el('th', { class: 'text-left py-2 font-semibold ' + (i === 0 ? 'px-2.5' : 'px-2') }, h)))),
+          el('tbody', {}, ...bodyRows))));
+  };
+
   const renderSide = (data, pop, label) => el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex gap-4 flex-wrap items-start' },
       el('div', { class: 'flex-1 min-w-0' }, renderMatrix(data, label)),
       renderBlended(pop)),
     seasonalityCard(pop, label),
-    startCohortCard(pop, label));
+    startCohortCard(pop, label),
+    ltvCard(pop, label));
 
   const body = inCompare
     ? el('div', { class: 'flex flex-col gap-4' },
