@@ -737,13 +737,24 @@
      in Chrome entirely. Pull-to-refresh bounce is the lesser evil.) */
   * { -webkit-tap-highlight-color: transparent; }
 
-  /* Frosted header — iOS nav-bar material. Solid fallback first. */
+  /* Frosted header — iOS nav-bar material. Solid fallback first.
+     DARK mode: dark glass. LIGHT mode: light glass with dark content —
+     a translucent BLACK bar over a white page just reads as mud. */
   .page-header {
     background: var(--header-bg);
     background: color-mix(in srgb, var(--header-bg) 82%, transparent);
     -webkit-backdrop-filter: blur(14px) saturate(1.5);
     backdrop-filter: blur(14px) saturate(1.5);
   }
+  :root[data-theme="light"] .page-header {
+    background: #FBFBFA;
+    background: color-mix(in srgb, #FFFFFF 72%, transparent);
+    color: var(--text);
+    border-bottom: 1px solid rgba(0,0,0,.08);
+    box-shadow: 0 1px 12px rgba(0,0,0,.04);
+  }
+  :root[data-theme="light"] .page-header .icon-btn { background: rgba(0,0,0,.05); color: var(--text); }
+  :root[data-theme="light"] .page-header .icon-btn:hover { background: rgba(0,0,0,.10); }
 
   /* Subtle overlay scrollbars (macOS/iOS style). */
   ::-webkit-scrollbar { width: 8px; height: 8px; }
