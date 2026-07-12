@@ -94,6 +94,11 @@ function collectMarketing(rows, monthsByCol, out) {
 }
 
 exports.handler = async (event) => {
+  // ── Auth: admins only (shared gate) — this endpoint serves company
+  // financial/operational data and was previously open to the internet. ──
+  const { requireRole } = require('../lib/auth-gate.js');
+  const gate = await requireRole(event, ['admin', 'admin_rep']);
+  if (!gate.ok) return gate.response;
   const needed = ['QBO_CLIENT_ID', 'QBO_CLIENT_SECRET', 'QBO_REALM_ID'];
   const missing = needed.filter(k => !process.env[k]);
   if (missing.length) return { statusCode: 500, body: JSON.stringify({ error: 'Missing env vars: ' + missing.join(', ') + ' (see qbo-spend.js setup notes)' }) };

@@ -35,6 +35,11 @@
 //   { sent: <number>, failed: <number>, errors: { [slack_user_id]: "reason" } }
 
 exports.handler = async (event) => {
+  // ── Auth: admins only (shared gate) — this endpoint serves company
+  // the company Slack bot (anyone could DM the team) and was previously open to the internet. ──
+  const { requireRole } = require('../lib/auth-gate.js');
+  const gate = await requireRole(event, ['admin', 'admin_rep']);
+  if (!gate.ok) return gate.response;
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'POST only' }) };
   }

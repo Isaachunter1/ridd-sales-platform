@@ -64,6 +64,19 @@
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
 
+# ── Security headers (Apple mindset: closed by default) ─────────────────
+# frame-ancestors: no site may iframe the app (clickjacking); nosniff stops
+# MIME confusion; referrer trimmed; browser features the app never uses are
+# declared off. HSTS is handled by Netlify's TLS defaults.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    Content-Security-Policy = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+
 [[redirects]]
   from = "/api/client-error"
   to = "/.netlify/functions/client-error"
