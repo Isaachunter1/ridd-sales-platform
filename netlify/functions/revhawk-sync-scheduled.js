@@ -4,6 +4,15 @@
 // budget to pull from BigQuery and write the snapshot) and returns immediately.
 
 exports.handler = async () => {
+  // Selling-hours window, enforced HERE in Eastern time — the cron itself is
+  // a plain "every hour on the hour" because Netlify silently never fired
+  // our range/list expression ("0 0-3,12-23 * * *"): zero scheduled runs,
+  // discovered via /api/sync-status. Runs 8am–11pm ET; skips otherwise.
+  const etHour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false, hourCycle: 'h23' }).format(new Date()));
+  if (!(etHour >= 8 && etHour <= 23)) {
+    console.log('[revhawk-sync-scheduled] outside selling hours (ET hour ' + etHour + ') — skipping');
+    return { statusCode: 200, body: 'outside selling hours — skipped' };
+  }
   const base = process.env.URL || process.env.DEPLOY_PRIME_URL || process.env.DEPLOY_URL;
   if (!base) return { statusCode: 500, body: 'no site URL available' };
   try {
