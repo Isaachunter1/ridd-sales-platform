@@ -37504,6 +37504,16 @@ const IMPORT_TYPES = {
       audit_status: 'pending',
     }),
   },
+  upsells: {
+    label: 'Upsells',
+    short: 'Upsells',
+    description: 'Inside Sales upsell revenue — the one thing FieldRoutes can\u2019t express. Lands as Pending for manual audit. Use a contract-type column with Upsell - Office / Upsell - D2D to say which contract was upsold (defaults to Upsell - Office); source defaults to Organic when blank.',
+    icon: '⤴️',
+    accent: '#7C3AED',
+    apply: () => ({
+      audit_status: 'pending',
+    }),
+  },
 };
 
 // ── Import helpers ─────────────────────────────────────────────────────────
@@ -37692,7 +37702,11 @@ function buildSaleFromImportRow(row, mapping, importType, opts = {}) {
   if (!soldDate) errors.push('Sold date missing or unparseable');
 
   const sourceText = get('source');
-  const source = _matchImportSource(sourceText);
+  let source = _matchImportSource(sourceText);
+  if (!source && importType === 'upsells') {
+    // Upsell CSVs rarely carry a lead source — default to Organic.
+    source = state.sources.find(o => /^organic$/i.test(String(o.name || '').trim()) && o.is_active !== false) || null;
+  }
   if (!source) errors.push('Unknown source: "' + (sourceText || '(blank)') + '"');
 
   const serviceText = get('service_type');
@@ -37714,7 +37728,12 @@ function buildSaleFromImportRow(row, mapping, importType, opts = {}) {
   const officeId = office?.id ?? profile?.office_id ?? null;
 
   const contractTypeText = get('contract_type');
-  const contractType = contractTypeText ? _matchImportContractType(contractTypeText) : null;
+  let contractType = contractTypeText ? _matchImportContractType(contractTypeText) : null;
+  if (!contractType && importType === 'upsells') {
+    // Upsell imports default to Upsell - Office when the CSV doesn't say —
+    // include a contract-type column with "Upsell - D2D" to override.
+    contractType = state.contractTypes.find(ct => /upsell\s*-\s*office/i.test(String(ct.name || ''))) || null;
+  }
 
   const numServices = _parseImportNum(get('num_services'));
   const pps = _parseImportBool(get('pay_per_service'));
@@ -37801,7 +37820,8 @@ function adminImport() {
       el('p', { class: 'text-xs text-muted-' }, 'Bulk-load CSVs into the right lifecycle stage. Column mappings are saved per import type — re-import the same shape and it auto-fills.'),
     ),
 
-    el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-4' },
+    el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-4' },
+      tile('upsells'),
       tile('historical'),
       tile('pending_backend'),
       tile('pending_upfront'),
@@ -38085,9 +38105,41 @@ function openImportSalesModal(importType) {
     );
   }
 
-  function commitImport(allResults) {
+  async function commitImport(allResults) {
     const ok = allResults.filter(r => r.errors.length === 0);
     const errored = allResults.filter(r => r.errors.length > 0);
+
+    if (!(typeof DEMO !== 'undefined' && DEMO)) {
+      // PRODUCTION: write to the database (this used to only push into
+      // local state — imported rows silently vanished on the next data
+      // refresh). Chunked insert; any failure aborts with the DB's error.
+      try {
+        const rows = ok.map(r => r.sale);
+        for (let i = 0; i < rows.length; i += 200) {
+          const { error } = await supabase.from('sales').insert(rows.slice(i, i + 200));
+          if (error) throw new Error(error.message + (i ? ' (rows before #' + i + ' WERE saved)' : ''));
+        }
+        for (const r of ok) {
+          logActivity('sale_logged', {
+            customer_name: r.sale.customer_name, new_status: r.sale.audit_status,
+            rep_name: state.allProfiles.find(p => p.id === r.sale.rep_id)?.full_name,
+            detail: 'Imported · ' + meta.short,
+          });
+        }
+        await refreshSalesData();
+      } catch (e) {
+        toast('Import failed: ' + (e.message || e), 'error');
+        return;
+      }
+      state.importMappings[importType] = { ...wiz.mapping };
+      state.importHistory.push({ timestamp: new Date().toISOString(), type: importType, fileName: wiz.fileName, imported: ok.length, errored: errored.length });
+      saveDemoData();
+      wiz.summary = { imported: ok.length, errored: errored.length, errors: errored.slice(0, 50) };
+      wiz.step = 'done';
+      render();
+      toast('Imported ' + ok.length + ' sale' + (ok.length === 1 ? '' : 's'), 'success');
+      return;
+    }
 
     let nextId = Math.max(0, ...state.allSales.map(s => s.id || 0));
     for (const r of ok) {
