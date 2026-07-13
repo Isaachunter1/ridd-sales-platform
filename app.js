@@ -38176,6 +38176,82 @@ function reportingWaterfall() {
       wrap.append(btn, panel);
       return wrap;
     })();
+    // YoY — stack the selected years Jan–Dec on ONE axis so the same months
+    // line up (this is the old Overlay, reborn inside the Graph view). Color
+    // = year; when multiple series are picked, dash pattern = series.
+    const yoyOn = !!state._churnYoY;
+    const yoyBtn = el('button', {
+      class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
+      style: yoyOn
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+        : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+      title: 'Overlay the selected years Jan–Dec on the same axis — same months stack for year-over-year reading',
+      onclick: () => { state._churnYoY = !state._churnYoY; mountApp(); },
+    }, 'YoY');
+    const yoyEl = () => (() => {
+      const TOTAL_KEY = '__total__';
+      const selSeries = (Array.isArray(state._churnSeries) && state._churnSeries.length)
+        ? state._churnSeries.filter(k => k === TOTAL_KEY || reasonTotals.some(([r]) => r === k))
+        : [TOTAL_KEY];
+      const yrs = (graphYearsSel.length ? graphYearsSel : yearsAvail.slice(-3)).slice().sort((a, b) => a - b);
+      const nameOf = (k) => k === TOTAL_KEY ? 'Total churn' : k;
+      const valOf = (key, y, m) => {
+        if (y === curY && m > curM) return null;
+        const ym = y + '-' + pad2(m);
+        const den = bookAt[ym] || 0;
+        if (den < 10) return null;
+        return (key === TOTAL_KEY ? (cancelsByYm[ym] || 0) : ((reasonsByYm[ym] || {})[key] || 0)) / den;
+      };
+      const cid = 'chart-churn-yoy-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
+      const palette2 = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899', '#6366f1', '#84cc16'];
+      const DASHES = [[], [6, 4], [2, 3], [10, 4, 2, 4]];
+      const hint = el('div', { class: 'px-4 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } },
+        'Jan–Dec, one line per year — same months stack for YoY' + (selSeries.length > 1 ? ' · dash pattern = series' : ' · ' + nameOf(selSeries[0])));
+      const wrapEl = el('div', { class: 'px-4 pb-4 pt-1', style: { position: 'relative', height: '280px' } }, el('canvas', { id: cid }));
+      setTimeout(() => {
+        if (typeof Chart === 'undefined') return;
+        const cvs = document.getElementById(cid);
+        if (!cvs) return;
+        if (_chartInstances[cid]) { _chartInstances[cid].destroy(); delete _chartInstances[cid]; }
+        const isDark = state.theme === 'dark';
+        const txt = isDark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)';
+        const grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+        const dsets = [];
+        yrs.forEach((y, yi) => selSeries.forEach((key, si) => dsets.push({
+          label: String(y) + (selSeries.length > 1 ? ' · ' + nameOf(key) : ''),
+          data: Array.from({ length: 12 }, (_, mi) => valOf(key, y, mi + 1)),
+          borderColor: y === curY ? '#8DC63F' : palette2[yi % palette2.length],
+          backgroundColor: 'transparent',
+          borderWidth: y === curY ? 3 : 2,
+          borderDash: DASHES[si % DASHES.length],
+          spanGaps: true, tension: 0.3, pointRadius: 2.5, pointHoverRadius: 5, pointHitRadius: 10,
+          _year: y, _key: key,
+        })));
+        _chartInstances[cid] = new Chart(cvs.getContext('2d'), {
+          type: 'line',
+          data: { labels: MONTHS_S, datasets: dsets },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: true },
+            plugins: {
+              legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 }, usePointStyle: true } },
+              tooltip: { callbacks: { label: (ctx) => {
+                const y = ctx.dataset._year, key = ctx.dataset._key, m = ctx.dataIndex + 1;
+                const ym = y + '-' + pad2(m);
+                const den = bookAt[ym] || 0;
+                const n = key === TOTAL_KEY ? (cancelsByYm[ym] || 0) : ((reasonsByYm[ym] || {})[key] || 0);
+                return ctx.dataset.label + ': ' + (ctx.parsed.y * 100).toFixed(2) + '% (' + n + ' of ' + fmt.int(den) + ')';
+              } } },
+            },
+            scales: {
+              y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => (v * 100).toFixed(1) + '%' } },
+              x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 } } },
+            },
+          },
+        });
+      }, 50);
+      return el('div', {}, hint, wrapEl);
+    })();
     const timelineEl = () => (() => {
       const TOTAL_KEY = '__total__';
       const selSeries = (Array.isArray(state._churnSeries) && state._churnSeries.length)
@@ -38320,12 +38396,13 @@ function reportingWaterfall() {
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
           view === 'timeline' ? graphYearsDrop : yearsDrop,
           view === 'timeline' ? seriesDrop : null,
-          view === 'timeline' ? windowSel : null,
-          view === 'timeline' ? trendBtn : null,
+          (view === 'timeline' && !yoyOn) ? windowSel : null,
+          (view === 'timeline' && !yoyOn) ? trendBtn : null,
+          view === 'timeline' ? yoyBtn : null,
           viewToggle,
           configInfoBtn('Churn Seasonality',
             'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history to the table. The Graph is the continuous month-by-month view — filter it to specific years (they plot back-to-back), pick series (the total churn rate and/or individual cancellation reasons, whose lines are their share of the monthly rate and sum to the total), set the visible window (12/24/36 months or all history), and click-drag to move through time. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
-      view === 'timeline' ? timelineEl() : tableEl());
+      view === 'timeline' ? (yoyOn ? yoyEl() : timelineEl()) : tableEl());
   };
 
   // ── START-MONTH COHORTS — the retention side: do customers signed in
