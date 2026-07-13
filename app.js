@@ -5018,6 +5018,24 @@ function viewDashboard() {
           }, l))));
 
       if (goalMode === 'reps') {
+        // ── Seasonal pace (per Isaac): "even pace" is wrong for this
+        // business — July carries ~5× January. The year-shape comes from
+        // the Goals tab's monthly NEW allocation (falls back to the IS
+        // seasonal curve), so a rep is judged against the months as
+        // they're actually weighted, and today's catch-up number asks for
+        // more during the busy season.
+        const _shape = (() => {
+          const m = Array.isArray(g.monthly_new) && g.monthly_new.length === 12 ? g.monthly_new.map(Number) : null;
+          const arr = (m && m.some(v => v > 0)) ? m : (typeof IS_SEASONAL !== 'undefined' ? IS_SEASONAL : Array(12).fill(1));
+          const tot = arr.reduce((a, b) => a + (b || 0), 0) || 1;
+          return arr.map(v => (v || 0) / tot);
+        })();
+        const _mi = now2.getMonth();
+        const _dim = new Date(now2.getFullYear(), _mi + 1, 0).getDate();
+        const seasonalPct = _shape.slice(0, _mi).reduce((a, b) => a + b, 0) + _shape[_mi] * (now2.getDate() / _dim);
+        const seasonalPctMonthEnd = _shape.slice(0, _mi + 1).reduce((a, b) => a + b, 0);
+        const _daysLeftMonth = _dim - now2.getDate() + 1;   // today included
+        const seasonalMarkerPct = Math.min(100, seasonalPct * 100);
         const EXCLUDE2 = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
         const jan1 = new Date(now2.getFullYear(), 0, 1);
         const ytdByRep = {};
@@ -5040,7 +5058,13 @@ function viewDashboard() {
             : el('div', { class: 'flex flex-col gap-3' },
                 ...sellers.map(({ p, goal, rev }) => {
                   const pct = goal > 0 ? Math.min(100, rev / goal * 100) : 0;
-                  const delta = rev - goal * expectedPct;
+                  // Seasonal pace: where this rep SHOULD be given how the
+                  // year is weighted (not day-of-year ÷ 365).
+                  const delta = rev - goal * seasonalPct;
+                  // Today's number: what to sell EACH remaining day of this
+                  // month (today included) to be exactly on the seasonal
+                  // pace at month-end. Ahead → it shrinks; behind → climbs.
+                  const todayNeed = goal > 0 ? Math.max(0, (goal * seasonalPctMonthEnd - rev) / _daysLeftMonth) : 0;
                   return el('div', {},
                     el('div', { class: 'flex items-center justify-between mb-1 gap-2' },
                       el('div', {
@@ -5052,7 +5076,7 @@ function viewDashboard() {
                         el('span', { class: 'text-xs font-semibold truncate group-hover:underline' }, p.full_name),
                         goal > 0
                           ? el('span', { class: 'text-[10px] font-bold', style: { color: delta >= 0 ? '#1b7f3b' : '#DC2626' },
-                              title: (delta >= 0 ? fmt.usd0(delta) + ' ahead of' : fmt.usd0(-delta) + ' behind') + ' even-year pace' },
+                              title: (delta >= 0 ? fmt.usd0(delta) + ' ahead of' : fmt.usd0(-delta) + ' behind') + ' the seasonal pace (year shape from the Goals tab\'s monthly allocation)' },
                               delta >= 0 ? '▲ ahead' : '▼ behind')
                           : el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no goal set')),
                       el('span', { class: 'text-[11px] font-bold tabular-nums whitespace-nowrap' },
@@ -5060,9 +5084,13 @@ function viewDashboard() {
                     el('div', { class: 'goal-track', style: { position: 'relative' } },
                       el('div', { style: { background: 'var(--accent)', height: '100%', width: pct.toFixed(1) + '%', borderRadius: '999px', transition: 'width .3s' } }),
                       goal > 0 ? el('div', {
-                        title: 'Where today sits in the year',
-                        style: { position: 'absolute', top: '-2px', bottom: '-2px', left: paceMarkerPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' },
-                      }) : null));
+                        title: 'Where today sits on the SEASONAL plan — ' + (seasonalPct * 100).toFixed(1) + '% of the year\'s weighted goal should be sold by today',
+                        style: { position: 'absolute', top: '-2px', bottom: '-2px', left: seasonalMarkerPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' },
+                      }) : null),
+                    goal > 0 && el('div', { class: 'text-[10px] mt-0.5 tabular-nums', style: { color: delta >= 0 ? 'var(--text-muted)' : '#DC2626' } },
+                      todayNeed > 0
+                        ? '🎯 ' + fmt.usd0(todayNeed) + '/day through month-end to be on seasonal pace'
+                        : '✓ month covered — anything sold now banks ahead of pace'));
                 })));
       }
 
@@ -10540,14 +10568,14 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
       mk('Commission Date', inp('commission_date', { type: 'date', value: today })),
     ),
 
-    // PIF + Commercial live on the EDIT/audit path only now: Paid-in-Full
-    // auto-detects from the CRM (initial payment covers ≥90% of contract
-    // value); $2k+ ACV rows get flagged in the queue and the auditor marks
-    // Commercial here — which pays the commercial (half) rate.
-    existingSale ? el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5' },
+    // PIF + Commercial are back on the NEW-sale path too (per Isaac) — the
+    // rep logging the sale knows both at signing time. They still auto-detect
+    // downstream (PIF from CRM payments, $2k+ ACV commercial flag in the
+    // queue), so these are the early manual call, not the only gate.
+    el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5' },
       checkboxCard('Paid in Full', 'No hold on backend — full commission is paid upfront (auto-detected from CRM; override here)', (v) => { modalState.paid_in_full = v; updateFooter(); }, modalState.paid_in_full),
       checkboxCard('Commercial', 'Commercial property — pays the commercial (half) rate. $2k+ ACV rows are flagged in the queue for this check.', (v) => { modalState.is_commercial = v; updateFooter(); }, modalState.is_commercial),
-    ) : null,
+    ),
 
     mk('Notes',
       el('textarea', { name: 'notes', class: 'w-full rounded-lg border px-3 py-2.5 text-sm', rows: 2, placeholder: 'Optional...' }),
