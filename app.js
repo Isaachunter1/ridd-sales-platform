@@ -265,11 +265,19 @@ async function refreshIndicatorsFromCloud(force) {
     const TAG_KEY = 'ridd_ind_cloud_tag:' + _cloudPath;
     let prevTag = {};
     try { prevTag = JSON.parse(localStorage.getItem(TAG_KEY) || '{}') || {}; } catch { /* ignore */ }
-    const r = await _downloadSnapshotBlob(_cloudPath, null, {
+    let r = await _downloadSnapshotBlob(_cloudPath, null, {
       meta: true,
       ifNoneMatch: prevTag.etag || undefined,
       ifModifiedSince: prevTag.lastModified || undefined,
     }).catch(() => null);
+    // REP-BLOB FALLBACK: if the sanitized copy doesn't exist yet (it only
+    // publishes on a successful sync run), fall back to the full blob so a
+    // fresh device is never data-blind. Storage policy may 403 this for
+    // reps once applied — that's fine, the next successful sync creates
+    // the rep blob and this path stops firing.
+    if ((!r || (!r.blob && !r.notModified)) && _cloudPath !== INDICATORS_CLOUD_PATH) {
+      r = await _downloadSnapshotBlob(INDICATORS_CLOUD_PATH, null, { meta: true }).catch(() => null);
+    }
     if (!r || r.notModified || !r.blob) return; // unchanged, nothing shared yet, or failed — next poll retries
     const blob = r.blob;
     const text = await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text();
