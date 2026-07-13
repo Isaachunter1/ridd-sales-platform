@@ -31864,13 +31864,20 @@ function reportingFlaggedActive(rows, isActive) {
 // Null/blank reason normalizes to 'Unspecified' to match the donut grouping.
 // Normalize a cancel reason for matching/consolidation — collapse whitespace,
 // trim, lowercase. So "Moved", "moved " and "Moved" all reconcile to one.
-function _normCancelReason(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase(); }
+// Normalize a cancel reason for matching: collapse whitespace, lowercase,
+// and strip trailing punctuation — the CRM carries both "Unspecified." and
+// "Unspecified", and "Sales Rep Error " with a trailing space. Without this,
+// a Configurations choice can silently miss a variant spelling.
+function _normCancelReason(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '').toLowerCase(); }
 function reportingExcludedCancelReasons() {
   const cfg = state.reportingCancelConfig || [];
   return new Set(cfg.filter(c => c.counts_attrition === false).map(c => _normCancelReason(c.reason)));
 }
 function reportingCancelReasonOf(r) {
-  return r.subscription_cancellation_reason || 'Unspecified';
+  // Tidy for display/grouping too — otherwise "Unspecified." and
+  // "Unspecified" chart as two different reasons.
+  const raw = String(r.subscription_cancellation_reason || '').replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '');
+  return raw || 'Unspecified';
 }
 
 // Lead sources the admin marked as NOT counting (Configurations tab). Subs
