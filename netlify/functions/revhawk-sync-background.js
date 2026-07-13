@@ -923,7 +923,7 @@ exports.handler = async (event) => {
       console.error('[revhawk-sync] sale CRM verify skipped:', verifyError);
     }
 
-    await _hb({ stage: 'finished', ok: true, rows: objects.length, ms: Date.now() - started });
+    await _hb({ stage: 'finished', ok: true, rows: objects.length, ms: Date.now() - started, indicatorsError: indicatorsError || undefined, officeError: officeError || undefined, srcError: srcError || undefined, verifyError: verifyError || undefined });
     return {
       statusCode: 200,
       body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, sources: srcCount, srcError, officesAdded: officeCount, officeError, salesVerified: verifyCount, verifyError, storage_path: path, ms: Date.now() - started }),
