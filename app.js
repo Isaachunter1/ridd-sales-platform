@@ -37792,7 +37792,9 @@ function reportingWaterfall() {
         el('td', { class: 'px-2.5 py-1.5 font-semibold' }, MONTHS_S[m - 1]), ...cells);
     };
     // Header controls: every history year as a toggle chip + Table/Graph view.
-    const view = ['graph', 'timeline', 'reasons'].includes(state._churnSeasonView) ? (state._churnSeasonView === 'reasons' ? 'timeline' : state._churnSeasonView) : 'table';
+    // Overlay + Timeline merged into one Graph view — any legacy stored
+    // value ('graph' was Overlay, 'reasons' pre-merge) lands on it.
+    const view = ['graph', 'timeline', 'reasons'].includes(state._churnSeasonView) ? 'timeline' : 'table';
     const yearsDrop = (() => {
       const wrap = el('div', { class: 'relative' });
       const panel = el('div', {
@@ -37841,7 +37843,7 @@ function reportingWaterfall() {
       return wrap;
     })();
     const viewToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-      ...[['table', 'Table'], ['graph', 'Overlay'], ['timeline', 'Timeline']].map(([v, l]) => el('button', {
+      ...[['table', 'Table'], ['timeline', 'Graph']].map(([v, l]) => el('button', {
         class: 'px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition',
         style: view === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
         onclick: () => { state._churnSeasonView = v; mountApp(); },
@@ -37854,55 +37856,6 @@ function reportingWaterfall() {
             ...yearsShown.map(y => el('th', { class: 'text-left px-2 py-2 font-semibold' }, String(y))),
             el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Avg'))),
         el('tbody', {}, ...Array.from({ length: 12 }, (_, i) => monthRow(i + 1)))));
-    const graphEl = () => (() => {
-      const cid = 'chart-churn-season-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
-      const wrapEl = el('div', { class: 'p-4', style: { position: 'relative', height: '260px' } }, el('canvas', { id: cid }));
-      setTimeout(() => {
-        if (typeof Chart === 'undefined') return;
-        const cvs = document.getElementById(cid);
-        if (!cvs) return;
-        if (_chartInstances[cid]) { _chartInstances[cid].destroy(); delete _chartInstances[cid]; }
-        const isDark = state.theme === 'dark';
-        const txt = isDark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)';
-        const grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
-        const palette2 = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899'];
-        const dsets = yearsShown.map((y, i) => ({
-          label: String(y),
-          data: Array.from({ length: 12 }, (_, mi) => {
-            const m = mi + 1;
-            if (y === curY && m > curM) return null;
-            const v = rateOf(y, m);
-            return v ? v.rate : null;
-          }),
-          borderColor: y === curY ? '#8DC63F' : palette2[i % palette2.length],
-          backgroundColor: 'transparent',
-          borderWidth: y === curY ? 3 : 2,
-          borderDash: y === curY ? [] : [6, 4],
-          spanGaps: true, tension: 0.3, pointRadius: 2.5, pointHoverRadius: 5,
-        }));
-        _chartInstances[cid] = new Chart(cvs.getContext('2d'), {
-          type: 'line',
-          data: { labels: MONTHS_S, datasets: dsets },
-          options: {
-            responsive: true, maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-              legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 11 }, usePointStyle: true } },
-              tooltip: { callbacks: { label: (ctx) => {
-                const y = Number(ctx.dataset.label), m = ctx.dataIndex + 1;
-                const v = rateOf(y, m);
-                return ctx.dataset.label + ': ' + (ctx.parsed.y * 100).toFixed(2) + '%' + (v ? ' (' + v.n + ' of ' + fmt.int(v.den) + ')' : '');
-              } } },
-            },
-            scales: {
-              y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => (v * 100).toFixed(1) + '%' } },
-              x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 } } },
-            },
-          },
-        });
-      }, 50);
-      return wrapEl;
-    })();
     // ── TIMELINE — one continuous monthly churn line across all history,
     // draggable: grab the chart and pull forwards/backwards through time. ──
     // ── REASONS — MoM churn-rate contribution per cancellation reason:
@@ -37991,6 +37944,67 @@ function reportingWaterfall() {
       title: 'Overlay a least-squares trendline per series, fit to the visible window',
       onclick: () => { state._churnTrend = !state._churnTrend; mountApp(); },
     }, '📈 Trend');
+    // Years filter for the Graph view — restrict the timeline to specific
+    // years (empty = all history). Selected years plot back-to-back.
+    const graphYearsSel = (Array.isArray(state._churnGraphYears) ? state._churnGraphYears.filter(y => yearsAvail.includes(y)) : []);
+    const graphYearsDrop = (() => {
+      const wrap = el('div', { class: 'relative' });
+      const isAll = graphYearsSel.length === 0;
+      const rowFor = (y) => {
+        const on = isAll || graphYearsSel.includes(y);
+        return el('button', {
+          class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+          style: { color: 'var(--text)', background: (!isAll && on) ? 'var(--card-2)' : 'transparent' },
+          onclick: (e) => {
+            e.stopPropagation();
+            // From "All": clicking a year narrows to just that year.
+            // Otherwise toggle; emptying the list goes back to All.
+            const next = isAll ? [y] : (on ? graphYearsSel.filter(x => x !== y) : [...graphYearsSel, y]);
+            state._churnGraphYears = next;
+            state._churnGraphYearsOpen = true;
+            state._churnPanStart = null;
+            mountApp();
+          },
+        }, el('span', { style: { fontSize: '13px' } }, on ? '☑' : '☐'), el('span', {}, String(y)));
+      };
+      const panel = el('div', {
+        class: 'card absolute p-1.5',
+        style: { top: 'calc(100% + 6px)', right: '0', minWidth: '140px', maxHeight: '280px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._churnGraphYearsOpen ? 'block' : 'none' },
+      },
+        el('button', {
+          class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+          style: { color: 'var(--text)', background: isAll ? 'var(--card-2)' : 'transparent' },
+          onclick: (e) => { e.stopPropagation(); state._churnGraphYears = []; state._churnGraphYearsOpen = true; state._churnPanStart = null; mountApp(); },
+        }, el('span', { style: { fontSize: '13px' } }, isAll ? '☑' : '☐'), el('span', {}, 'All years')),
+        el('div', { class: 'px-2.5 pt-2 pb-0.5 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Specific years'),
+        ...yearsAvail.slice().sort((a, b) => b - a).map(rowFor));
+      const btn = el('button', {
+        class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
+        style: !isAll
+          ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+          : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Restrict the graph to specific years (they plot back-to-back); All = the full history',
+        onclick: (e) => {
+          e.stopPropagation();
+          const open = panel.style.display === 'block';
+          panel.style.display = open ? 'none' : 'block';
+          state._churnGraphYearsOpen = !open;
+          if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+            if (wrap.contains(ev.target)) return;
+            panel.style.display = 'none'; state._churnGraphYearsOpen = false;
+            document.removeEventListener('mousedown', closer);
+          }), 0); }
+        },
+      }, 'Years · ' + (isAll ? 'All' : graphYearsSel.length), el('span', { style: { fontSize: '9px' } }, state._churnGraphYearsOpen ? '▴' : '▾'));
+      if (state._churnGraphYearsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+        if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+        if (wrap.contains(ev.target)) return;
+        panel.style.display = 'none'; state._churnGraphYearsOpen = false;
+        document.removeEventListener('mousedown', closer);
+      }), 0); }
+      wrap.append(btn, panel);
+      return wrap;
+    })();
     const timelineEl = () => (() => {
       const TOTAL_KEY = '__total__';
       const selSeries = (Array.isArray(state._churnSeries) && state._churnSeries.length)
@@ -37998,8 +38012,10 @@ function reportingWaterfall() {
         : [TOTAL_KEY];
       const pad2b = (n) => String(n).padStart(2, '0');
       const seq = [];
+      const _yrsFilter = graphYearsSel.length ? graphYearsSel : null;
       for (let y = minY; y <= curY; y++) for (let m = 1; m <= 12; m++) {
         if (y === curY && m > curM) break;
+        if (_yrsFilter && !_yrsFilter.includes(y)) continue;
         const ym = y + '-' + pad2b(m);
         const den = bookAt[ym] || 0;
         seq.push({ ym, label: MONTHS_S[m - 1] + ' ' + String(y).slice(2), den, n: cancelsByYm[ym] || 0 });
@@ -38131,13 +38147,14 @@ function reportingWaterfall() {
           el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
             'Monthly churn rate = real-attrition cancels ÷ book at month start. The Avg column exposes the seasonal pattern; click any table cell for that month\u2019s reasons.')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          view === 'timeline' ? seriesDrop : yearsDrop,
+          view === 'timeline' ? graphYearsDrop : yearsDrop,
+          view === 'timeline' ? seriesDrop : null,
           view === 'timeline' ? windowSel : null,
           view === 'timeline' ? trendBtn : null,
           viewToggle,
           configInfoBtn('Churn Seasonality',
-            'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history; Overlay plots each selected year Jan–Dec; Timeline is the continuous month-by-month view — pick series (the total churn rate and/or individual cancellation reasons, whose lines are their share of the monthly rate and sum to the total), set the visible window (12/24/36 months or all history for YoY reading), and click-drag to move through time. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
-      view === 'graph' ? graphEl() : view === 'timeline' ? timelineEl() : tableEl());
+            'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history to the table. The Graph is the continuous month-by-month view — filter it to specific years (they plot back-to-back), pick series (the total churn rate and/or individual cancellation reasons, whose lines are their share of the monthly rate and sum to the total), set the visible window (12/24/36 months or all history), and click-drag to move through time. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
+      view === 'timeline' ? timelineEl() : tableEl());
   };
 
   // ── START-MONTH COHORTS — the retention side: do customers signed in
