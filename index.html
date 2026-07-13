@@ -111,7 +111,7 @@
   }
   /* The PAGE never pans sideways — any content wider than the screen must
      scroll inside its own .scroll-x container, not drag the whole app. */
-  html, body { overflow-x: hidden; max-width: 100%; }
+  html, body { overflow-x: hidden; max-width: 100%; overscroll-behavior-x: none; }  /* no sideways rubber-band / swipe-nav on trackpads (X only — the -y variant froze wheel scroll once) */
   .card {
     background: var(--card);
     border: 1px solid var(--border);
