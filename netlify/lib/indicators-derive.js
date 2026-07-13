@@ -186,7 +186,8 @@ function parseIndicators(text) {
     const multiYears = ss.filter(s => s.contract >= 18).length;
     const twelveMonth = ss.filter(s => s.contract === 12).length;
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
-    const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length; // (parity: computed, unused — same as client)
+    const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
+    const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
     const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
 
     const weekStartDate = new Date(weekStart.getTime() + g.week * 7 * 86400000);
@@ -205,6 +206,8 @@ function parseIndicators(text) {
       avg_initial: avgInit,
       avg_initial_count: avgInitCount,
       auto_pay_pct: count > 0 ? autoPayCount / count : 0,
+      audit_fail: auditFail,
+      last_resort: lastResort,
       multi_years: multiYears,
       twelve_month: twelveMonth,
       reps: uniqueReps,
