@@ -423,117 +423,29 @@ exports.handler = async (event) => {
     if (envErr) throw new Error('envelope insert failed: ' + envErr.message);
 
     await _stage('snapshot-uploaded');
-    // ── Server-side Indicators derive ──────────────────────────────────
-    // THE server is the one writer of the shared indicators dataset now.
-    // Browsers used to derive + push this blob themselves, which meant any
-    // stale open tab could clobber everyone (and phones stuck on month-old
-    // caches were "current" as far as they knew). Deriving here, from the
-    // exact rows just snapshotted, gives one authoritative copy per sync.
-    // Failure is non-fatal: clients keep their auto-derive as a fallback.
+    // ── Server-side Indicators derive → DERIVE WORKER ───────────────────
+    // Moved to its own background invocation with a FRESH ~1GB: stacking the
+    // derive's JSON/gzip spike on this run's 90k-row memory OOM-killed the
+    // process (heartbeat frozen at 'snapshot-uploaded', Netlify auto-retried,
+    // dataset stale for days — Jul 2026 outage). Fire-and-forget kick; the
+    // worker writes its own heartbeat (indicators/derive-heartbeat.json)
+    // surfaced as lastDerive in /api/sync-status.
     let indicatorsError = null;
     try {
-      // Shared module lives OUTSIDE the functions dir (netlify/lib) — a
-      // subfolder inside netlify/functions gets treated as a function entry
-      // by the bundler and breaks the build.
-      const { deriveIndicatorsPayload } = require('../lib/indicators-derive.js');
-      const uploadedAt = (envRow && envRow.uploaded_at) || new Date().toISOString();
-      const payload = deriveIndicatorsPayload(objects, uploadedAt,
-        'RevHawk sync — ' + new Date(uploadedAt).toLocaleDateString('en-US', { timeZone: 'America/New_York' }));
-      const indGz = zlib.gzipSync(Buffer.from(JSON.stringify(payload)), { level: 6 });
-      const { error: indErr } = await supabase.storage.from('reporting')
-        .upload('indicators/latest.json.gz', indGz, { contentType: 'application/gzip', upsert: true });
-      if (indErr) throw new Error(indErr.message);
-      console.log('[revhawk-sync] indicators derived server-side: ' + payload.rawSales.length + ' sales, ' + payload.indicatorsData.length + ' agg rows, ' + indGz.length + ' bytes gz');
-
-      // ── REP-SANITIZED copy — data minimization, Apple style. Reps need
-      // the shared dataset for leaderboards/comps, but NOT other people's
-      // customer identities. latest-rep.json.gz is the same payload with
-      // customer name/id blanked on every row; storage policy (see
-      // security_rls.sql) locks the FULL blob to admin/auditor accounts.
-      // Every metric derives from values/dates/reps, so numbers match the
-      // admin view exactly.
-      try {
-        await _stage('derive-published');
-        // Strip customer identity DURING stringify — no 90k-row clone (the
-        // clone was a prime OOM suspect: runs died mid-flight with the
-        // heartbeat stuck on "started").
-        const repJson = JSON.stringify(payload, (k, v) => (k === 'customer' || k === 'customerId') ? undefined : v);
-        const repGz = zlib.gzipSync(Buffer.from(repJson), { level: 6 });
-        const { error: repErr } = await supabase.storage.from('reporting')
-          .upload('indicators/latest-rep.json.gz', repGz, { contentType: 'application/gzip', upsert: true });
-        if (repErr) console.error('[revhawk-sync] rep-sanitized blob failed:', repErr.message);
-        else console.log('[revhawk-sync] rep-sanitized blob published (' + repGz.length + ' bytes gz)');
-      } catch (repEx) { console.error('[revhawk-sync] rep-sanitized blob failed', repEx); }
-
-      await _stage('rep-blob-published');
-      // ── 📚 MONTHLY METRIC ARCHIVE (best-effort) ──────────────────────
-      // Every CLOSED month missing from snapshots/ gets written as
-      // metrics-YYYY-MM.json.gz: company / per-office / per-department /
-      // per-rep rollups for that month. The first run backfills every month
-      // in the 3-year dataset; after that it's one new file per month.
-      // These blobs are never pruned — history survives the app's data
-      // fence, so year-over-year comparisons keep working forever.
-      try {
-        const { data: _snapList } = await supabase.storage.from('reporting').list('snapshots', { limit: 1000 });
-        const _have = new Set((_snapList || []).map(f => f.name));
-        const _parseDay = (ds) => { const p = String(ds || '').split(' ')[0].split('/'); if (p.length !== 3) return null; let y = Number(p[2]); if (y < 100) y += 2000; const d = new Date(y, Number(p[0]) - 1, Number(p[1])); return isNaN(d) ? null : d; };
-        const _nowNY = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-        const _curPeriod = _nowNY.getFullYear() + '-' + String(_nowNY.getMonth() + 1).padStart(2, '0');
-        // Bucket the derived sales by month in one pass.
-        const _byMonth = {};
-        for (const r of payload.rawSales) {
-          const d = _parseDay(r.dateSold);
-          if (!d) continue;
-          const per = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-          if (per >= _curPeriod) continue;                       // only CLOSED months
-          (_byMonth[per] = _byMonth[per] || []).push(r);
-        }
-        const DEPT = { 'sales rep': 'Sales Rep', 'technician': 'Technician' };
-        let _written = 0;
-        for (const per of Object.keys(_byMonth).sort()) {
-          const fname = 'metrics-' + per + '.json.gz';
-          if (_have.has(fname)) continue;
-          const rows = _byMonth[per];
-          const mk = () => ({ sales: 0, revenue: 0, initSum: 0, multi: 0, twelve: 0, autoPay: 0, cancelsRaw: 0, reps: new Set() });
-          const agg = { company: mk(), byOffice: {}, byDept: {}, byRep: {} };
-          for (const r of rows) {
-            const office = r.office || 'UNKNOWN';
-            const dept = DEPT[String(r.repType || '').toLowerCase()] || 'Office Staff';
-            const rep = r.rep || 'Unknown';
-            const cv = Number(r.contractValue) || 0;
-            for (const t of [agg.company, (agg.byOffice[office] = agg.byOffice[office] || mk()), (agg.byDept[dept] = agg.byDept[dept] || mk())]) {
-              t.sales++; t.revenue += cv; t.initSum += Number(r.initialPrice) || 0;
-              if (Number(r.contract) >= 18) t.multi++;
-              if (Number(r.contract) === 12) t.twelve++;
-              if (r.autoPay && r.autoPay !== 'No') t.autoPay++;
-              if (r.cancelDate) t.cancelsRaw++;
-              t.reps.add(rep);
-            }
-            const rr = agg.byRep[rep] = agg.byRep[rep] || { sales: 0, revenue: 0, office };
-            rr.sales++; rr.revenue += cv;
-          }
-          const fin = (t) => ({ sales: t.sales, revenue: Math.round(t.revenue), acv: t.sales ? +(t.revenue / t.sales).toFixed(2) : 0, avgInitial: t.sales ? +(t.initSum / t.sales).toFixed(2) : 0, myPct: (t.multi + t.twelve) ? +(t.multi / (t.multi + t.twelve)).toFixed(4) : 0, autoPayPct: t.sales ? +(t.autoPay / t.sales).toFixed(4) : 0, cancelsRaw: t.cancelsRaw, reps: t.reps.size });
-          const snap = {
-            period: per, generatedAt: new Date().toISOString(),
-            note: 'cancelsRaw = rows carrying any cancel date as of snapshot time; attrition matures after the month closes.',
-            company: fin(agg.company),
-            byOffice: Object.fromEntries(Object.entries(agg.byOffice).map(([k, v]) => [k, fin(v)])),
-            byDept: Object.fromEntries(Object.entries(agg.byDept).map(([k, v]) => [k, fin(v)])),
-            byRep: agg.byRep,
-          };
-          const snapGz = zlib.gzipSync(Buffer.from(JSON.stringify(snap)), { level: 6 });
-          const { error: snapErr } = await supabase.storage.from('reporting')
-            .upload('snapshots/' + fname, snapGz, { contentType: 'application/gzip', upsert: false });
-          if (snapErr && !/exists|duplicate/i.test(snapErr.message || '')) throw new Error(snapErr.message);
-          _written++;
-        }
-        if (_written) console.log('[revhawk-sync] monthly archive: wrote ' + _written + ' snapshot(s)');
-      } catch (snapE) {
-        console.error('[revhawk-sync] monthly archive skipped:', String((snapE && snapE.message) || snapE));
-      }
+      const base = process.env.URL || process.env.DEPLOY_PRIME_URL || process.env.DEPLOY_URL;
+      if (!base) throw new Error('no site URL to reach the derive worker');
+      const _uploadedAt = (envRow && envRow.uploaded_at) || new Date().toISOString();
+      const kick = await fetch(base + '/.netlify/functions/derive-worker-background', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-sync-secret': process.env.REVHAWK_SYNC_SECRET || '' },
+        body: JSON.stringify({ path, uploadedAt: _uploadedAt }),
+      });
+      console.log('[revhawk-sync] derive worker kick -> HTTP', kick.status);
+      if (!kick.ok && kick.status !== 202) throw new Error('worker kick HTTP ' + kick.status);
+      await _stage('derive-worker-kicked');
     } catch (ie) {
       indicatorsError = String((ie && ie.message) || ie);
-      console.error('[revhawk-sync] server-side indicators derive failed (clients will fall back):', indicatorsError);
+      console.error('[revhawk-sync] derive worker kick failed:', indicatorsError);
     }
 
     // ── Prune old auto-sync snapshots (best-effort) ──
