@@ -2111,8 +2111,8 @@ async function boot() {
     } catch { /* private mode — skip */ }
   }
   const hv2 = applyHash();
-  if (hv2) state.view = hv2;
-  else if (_applyResume()) { /* re-opened within the window → land on the last tab */ }
+  if (hv2) { state.view = hv2; state._navChosen = true; }
+  else if (_applyResume()) { state._navChosen = true; /* re-opened within the window → land on the last tab */ }
   await loadAndRender();
   // Put them back at the scroll position they left (best-effort — data
   // sections finish loading async, so a slightly different height is fine).
@@ -2415,6 +2415,10 @@ async function loadAndRender() {
     // Lookups and the main data pull are independent — run them in parallel
     // (they used to be two sequential network stages on every boot).
     await Promise.all([loadLookups(), loadData()]);
+    // Default landing by REP TYPE (no explicit hash/resume): office staff →
+    // Inside Sales dashboard, technicians → Technicians, D2D reps → D2D
+    // Sales, auditors → Sales queue. Admins keep the dashboard.
+    if (!state._navChosen) state.view = defaultViewFor(state.profile);
     mountApp();
     // Weekly recap for reps — after the app paints. D2D reps whose dataset
     // arrives via the async cloud pull get a second chance from that path.
@@ -2650,14 +2654,24 @@ async function loadData() {
   // them this select returns just one row — same as state.profile.
   const profilesQuery = supabase.from('profiles').select('*').order('full_name');
 
-  const [salesRes, comps, rules, progress, leaderboard, profiles] = await Promise.all([
-    salesQuery,
-    supabase.from('competitions').select('*').order('start_date', { ascending: false }),
-    supabase.from('competition_rules').select('*'),
-    supabase.from('competition_progress').select('*'),
-    supabase.from('leaderboard').select('*'),
-    profilesQuery,
-  ]);
+  // CRITICAL PATH = what the default view needs: the user's sales + names.
+  // Competitions/rules/progress + the legacy leaderboard table hydrate
+  // right after first paint instead of holding the splash hostage.
+  const [salesRes, profiles] = await Promise.all([salesQuery, profilesQuery]);
+  setTimeout(() => {
+    Promise.all([
+      supabase.from('competitions').select('*').order('start_date', { ascending: false }),
+      supabase.from('competition_rules').select('*'),
+      supabase.from('competition_progress').select('*'),
+      supabase.from('leaderboard').select('*'),
+    ]).then(([comps, rules, progress, leaderboard]) => {
+      if (comps.data)      state.competitions = comps.data;
+      if (rules.data)      state.compRules    = rules.data;
+      if (progress.data)   state.compProgress = progress.data;
+      if (leaderboard.data) state.leaderboard = leaderboard.data;
+      if (['competitions', 'nrla', 'hall_of_fame'].includes(state.view)) mountApp();
+    }).catch(err => console.warn('[ridd] comps hydrate skipped', err));
+  }, 0);
   // Indicator teams/tiers live on the server now (public.indicator_config).
   // Pulled outside the Promise.all so it isn't gated by the first-load
   // critical path — it can finish on its own. localStorage already
@@ -2687,10 +2701,10 @@ async function loadData() {
   // see their own rows on the Sales tab + Pay tab, while the Dashboard
   // still has access to allSales for the company view.
   state.mySales      = state.allSales.filter(s => s.rep_id === state.profile.id);
-  state.competitions = comps.data || [];
-  state.compRules    = rules.data || [];
-  state.compProgress = progress.data || [];
-  state.leaderboard  = leaderboard.data || [];
+  state.competitions = state.competitions || [];
+  state.compRules    = state.compRules    || [];
+  state.compProgress = state.compProgress || [];
+  state.leaderboard  = state.leaderboard  || [];
   state.allProfiles  = profiles.data || [];
   // Re-sync state.profile from the fresh row so changes saved by openUserEditor
   // (or by another admin editing this user) are reflected without a sign-out.
@@ -4198,6 +4212,23 @@ function mountApp() {
     state.view = 'sales';
     history.replaceState(null, '', VIEW_TO_HASH.sales || '#sales');
   }
+  // ── ONE SALES WORLD PER REP TYPE (per Isaac): office staff live in the
+  // Inside Sales group only, technicians in Technicians only, D2D reps in
+  // D2D Sales only. Switching between them stays an admin function (the
+  // toggle already renders admin-only); this guard enforces it on deep
+  // links and stale resumes too. Competitions stays open to everyone.
+  if (!isAdmin && !isAuditor && state.profile) {
+    const _grp = repTypeGroup(state.profile);
+    const _isTabNotComp = INSIDE_SALES_TAB_KEYS.has(state.view) && state.view !== 'competitions';
+    let _redir = null;
+    if (_grp === 'office' && (state.view === 'techs' || state.view === 'commission')) _redir = 'dashboard';
+    else if (_grp === 'tech' && (_isTabNotComp || state.view === 'commission')) _redir = 'techs';
+    else if (_grp === 'd2d' && (_isTabNotComp || state.view === 'techs')) _redir = 'commission';
+    if (_redir) {
+      state.view = _redir;
+      history.replaceState(null, '', VIEW_TO_HASH[_redir] || '#' + _redir);
+    }
+  }
   // Route guard — admin-only tabs. These were only ever hidden from the nav
   // MENU; a deep-link hash could still render them. Any non-admin landing
   // on an admin view is coerced to Indicators — the same home a rep gets on
@@ -4685,6 +4716,23 @@ function dashboardSales() {
 
 // Is this profile a TECHNICIAN? Same resolution ladder as office staff:
 // linked CRM roster row → own CRM type → shared-dataset name-signature map.
+// Which half of the Sales world does this person belong to? Drives the
+// default landing view AND which sales tab they're allowed to see.
+function repTypeGroup(p) {
+  if (!p) return null;
+  if (isAdminRole(p.role)) return 'admin';
+  if (isAuditorRole(p.role)) return 'auditor';
+  if (isTechProfile(p)) return 'tech';
+  if (isOfficeStaffProfile(p)) return 'office';
+  return 'd2d';
+}
+function defaultViewFor(p) {
+  const g = repTypeGroup(p);
+  return g === 'tech' ? 'techs'
+    : g === 'd2d' ? 'commission'
+    : g === 'auditor' ? 'sales'
+    : 'dashboard';
+}
 function isTechProfile(p) {
   if (!p) return false;
   const emp = frRosterRowForProfile(p);
