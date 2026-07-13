@@ -4126,7 +4126,44 @@ function mountApp() {
   // 2 minutes; 304 when nothing new landed) and re-renders only on new data.
   if (state.profile && !DEMO && !state._indCloudWatch) {
     state._indCloudWatch = true;
-    const _freshKick = () => { try { refreshIndicatorsFromCloud(); } catch { /* next tick retries */ } };
+    // APP-TABLE refresher rides the same clock: the Sales/Pay/audit views
+    // read the app database (logged sales, audit statuses, auto-added rows),
+    // which only updated on explicit actions — the CRM dataset auto-synced
+    // but the sales table sat stale. Throttled to one pull per 2 minutes,
+    // hidden tabs skip, and it only re-renders when the data actually
+    // changed (fingerprint) so it can never eat what you're typing.
+    let _appDataAt = 0, _appDataBusy = false;
+    const _appDataFp = () => {
+      const rows = state.allSales || [];
+      let latest = '';
+      const byStatus = {};
+      for (const s of rows) {
+        const k = (s.updated_at || s.created_at || '');
+        if (k > latest) latest = k;
+        byStatus[s.audit_status] = (byStatus[s.audit_status] || 0) + 1;   // catches an OLD row's audit flip too
+      }
+      return rows.length + '|' + latest + '|' + Object.entries(byStatus).sort().map(([k, v]) => k + v).join(',');
+    };
+    const _refreshAppData = async () => {
+      if (_appDataBusy || document.hidden) return;
+      if (Date.now() - _appDataAt < 120000) return;
+      _appDataAt = Date.now(); _appDataBusy = true;
+      try {
+        const before = _appDataFp();
+        await refreshSalesData();
+        if (_appDataFp() !== before) {
+          // Data moved — repaint unless the user is mid-modal or typing.
+          const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+          const modalOpen = !!document.querySelector('.modal-overlay');
+          if (!typing && !modalOpen) mountApp();
+        }
+      } catch (e) { /* next tick retries */ }
+      finally { _appDataBusy = false; }
+    };
+    const _freshKick = () => {
+      try { refreshIndicatorsFromCloud(); } catch { /* next tick retries */ }
+      try { _refreshAppData(); } catch { /* next tick retries */ }
+    };
     window.addEventListener('focus', _freshKick);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) _freshKick(); });
     setInterval(_freshKick, 180000);
@@ -4323,8 +4360,8 @@ function mountApp() {
       (() => {
         // 'dashboard' (Sales War Room) + 'sales' joined the list now that the
         // Inside Sales queue is CRM-fed — the stamp says how live it is.
-        const DATA_VIEWS = new Set(['indicators', 'nrla', 'competitions', 'reporting', 'scorecards', 'hall_of_fame', 'dashboard', 'sales']);
-        if (!DATA_VIEWS.has(state.view)) return null;
+        // Shown on EVERY tab (per Isaac) — the whole app rides the same
+        // hourly sync, so freshness is always relevant.
         const txt = (typeof indicatorsSyncStampText === 'function') ? indicatorsSyncStampText() : '';
         const overdue = (typeof indicatorsSyncOverdue === 'function') && indicatorsSyncOverdue();
         return txt ? el('span', {
@@ -4498,7 +4535,8 @@ function mountApp() {
   // (those tabs aren't sales-input contexts)
   const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'training', 'auditing']);
   document.querySelector('.fab')?.remove();
-  if (!FAB_HIDDEN_VIEWS.has(state.view)) {
+  const _adminDial = state.profile && isAdminRole(state.profile.role) && !viewAsRole() && !(typeof DEMO !== 'undefined' && DEMO);
+  if (!FAB_HIDDEN_VIEWS.has(state.view) && !_adminDial) {
     // Icon-only FAB — a lone + reads instantly and stops covering table
     // rows / the pinned leaderboard footer on phones.
     const fab = el('button', {
@@ -8800,9 +8838,9 @@ function leaderboardSection(range) {
           el('tr', {},
             el('th', { class: 'text-left pl-4 pr-1 py-2 w-8' }, '#'),
             el('th', { class: 'text-left px-2 py-2' }, 'Rep'),
-            el('th', { class: 'text-left px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('sales'), onclick: () => setSort('sales') }, 'Sales'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('revenue'), onclick: () => setSort('revenue') }, 'Revenue'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('sales'), onclick: () => setSort('sales') }, 'Sales'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('initial'), title: 'Average initial invoice per sale', onclick: () => setSort('initial') }, 'Avg Initial'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('revenue'), onclick: () => setSort('revenue') }, 'Revenue'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('recurring'), title: 'Contract revenue only — total revenue minus one-time service revenue', onclick: () => setSort('recurring') }, 'Recurring Rev'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('acv'), title: 'Average contract value across ALL sales, one-time services included', onclick: () => setSort('acv') }, 'ACV'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('best_day'), title: 'Biggest single-day revenue inside the selected window', onclick: () => setSort('best_day') }, 'Best Day'),
@@ -8839,9 +8877,9 @@ function leaderboardSection(range) {
               r.count === 0
                 ? el('td', { class: 'px-2 py-2 text-subtle- italic', colspan: 9 }, 'No sales')
                 : [
-                    el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.int(r.count)),
-                    el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(r.revenue)),
+                    el('td', { class: 'px-2 py-2 text-right tabular-nums' }, fmt.int(r.count)),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.initial)),
+                    el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(r.revenue)),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.recurring)),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.acv)),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.best_day)),
@@ -13939,12 +13977,31 @@ function _ensureAskWidget() {
     el('div', { class: 'flex items-end border-t border-' },
       input,
       el('button', { class: 'px-4 py-2.5 text-xs font-bold cursor-pointer', style: { color: 'var(--accent)' }, onclick: send }, 'Send')));
+  // ── Speed dial: ONE floating button fans out to the two actions (the
+  // separate + FAB and 💬 used to stack on top of each other). ──
+  const optBtn = (icon, labelTxt, onPick) => el('button', {
+    class: 'flex items-center gap-2.5 rounded-full pl-3 pr-4 py-2.5 text-xs font-bold cursor-pointer transition hover:brightness-95',
+    style: { background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border-2)', boxShadow: 'var(--shadow-lg)' },
+    onclick: onPick,
+  }, el('span', { style: { fontSize: '16px' } }, icon), labelTxt);
+  let dialOpen = false;
+  const fabIcon = el('span', { style: { fontSize: '26px', lineHeight: '1', transition: 'transform .18s ease', display: 'inline-block', marginTop: '-2px' } }, '+');
+  const dial = el('div', { style: { display: 'none', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' } });
+  const setDial = (v) => { dialOpen = v; dial.style.display = v ? 'flex' : 'none'; fabIcon.style.transform = v ? 'rotate(45deg)' : 'none'; };
+  dial.append(
+    optBtn('💬', 'RIDD AI Agent', () => { setDial(false); C.open = true; panel.style.display = 'flex'; paint(); setTimeout(() => input.focus(), 50); }),
+    optBtn('🛒', 'New Sale', () => { setDial(false); if (typeof openNewSaleModal === 'function') openNewSaleModal(); }),
+  );
   const fab = el('button', {
-    title: 'Data Assistant — ask questions about the numbers on screen',
-    style: { width: '46px', height: '46px', borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-text)', fontSize: '20px', boxShadow: 'var(--shadow-lg)', cursor: 'pointer', border: 'none' },
-    onclick: () => { C.open = !C.open; panel.style.display = C.open ? 'flex' : 'none'; if (C.open) { paint(); setTimeout(() => input.focus(), 50); } },
-  }, '💬');
-  widget.append(panel, fab);
+    title: 'New Sale · RIDD AI Agent',
+    style: { width: '54px', height: '54px', borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'var(--shadow-lg)', cursor: 'pointer', border: 'none', display: 'grid', placeItems: 'center' },
+    onclick: () => {
+      if (C.open) { C.open = false; panel.style.display = 'none'; setDial(false); return; }
+      setDial(!dialOpen);
+    },
+  }, fabIcon);
+  document.addEventListener('mousedown', (e) => { if (dialOpen && !widget.contains(e.target)) setDial(false); });
+  widget.append(panel, dial, fab);
   document.body.append(widget);
   if (C.open) paint();
 }
@@ -23453,9 +23510,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         rSub = pctOfCo(rVal, companyTotalRevenue);
         vSub = pctOfCo(vVal, companyTotalRevenue);
       }
-      return el('div', { class: 'grid items-center gap-2 px-3 py-1.5', style: { gridTemplateColumns: 'minmax(0,1fr) minmax(72px,140px) minmax(0,1fr) minmax(0,1fr)', borderTop: '1px solid var(--border)' } },
+      return el('div', { class: 'grid items-center gap-2 px-3 py-1.5', style: { gridTemplateColumns: 'minmax(88px,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)', borderTop: '1px solid var(--border)' } },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
         sideCell(fmtVal[key](rVal), ROOKIE_COLOR, rLead, rSub),
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold text-center', style: { color: 'var(--text-muted)' } }, label),
         sideCell(fmtVal[key](vVal), VET_COLOR, vLead, vSub),
         // ALL — the combined cohort (rookies + vets + untagged), neutral, no
         // leader highlight: it's the reference line the halves compare to.
@@ -23473,7 +23530,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const tierCard = el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('h3', { class: 'text-base font-bold' }, '🎓 Rookie vs Vet'),
+          el('h3', { class: 'text-base font-bold' }, '🎓 Tier Metrics'),
           el('p', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
             'Cohort metrics for the current window. Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override.'),
         ),
@@ -23482,9 +23539,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           style: { color: 'var(--text-muted)', background: 'var(--card-2)' },
         }, untagged + ' rep' + (untagged === 1 ? '' : 's') + ' untagged · not counted here'),
       ),
-      el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(0,1fr) minmax(72px,140px) minmax(0,1fr) minmax(0,1fr)' } },
-        headerCell('Rookie', ROOKIE_COLOR, rookie.reps),
+      el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(88px,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)' } },
         el('div'),
+        headerCell('Rookie', ROOKIE_COLOR, rookie.reps),
         headerCell('Vet', VET_COLOR, vet.reps),
         headerCell('All', ALL_COLOR, alls.reps),
       ),
@@ -37118,13 +37175,19 @@ function reportingWaterfall() {
     });
     if (!rows2.length) return null;
     const num = mode === 'arv' ? money0 : (v) => v.toLocaleString();
+    // First matrix year has no blended row (no prior-year book) — a ghost row
+    // keeps year N horizontally aligned with the matrix's year N.
+    const firstYear = (base.years || [])[0];
     return el('div', { class: 'card overflow-hidden shrink-0', style: { minWidth: '360px' } },
-      el('div', { class: 'px-3 py-2.5 text-[10px] uppercase tracking-widest font-bold', style: { background: 'var(--card-2)', borderBottom: '1px solid var(--border)' } }, 'Blended Attrition'),
+      el('div', { class: 'px-3 text-[10px] uppercase tracking-widest font-bold flex items-center', style: { background: 'var(--card-2)', borderBottom: '1px solid var(--border)', height: '48px' } }, 'Blended Attrition'),
       el('table', { class: 'w-full text-xs tabular-nums' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
           el('tr', {},
             ...['Year', 'B.O.Y.', 'E.O.Y.', 'Retention', 'Attrition'].map(h => el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, h)))),
         el('tbody', {},
+          firstYear != null && el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'px-2.5 py-2 font-semibold', style: { color: 'var(--text-subtle)' } }, firstYear),
+            el('td', { class: 'px-2.5 py-2', style: { color: 'var(--text-subtle)' }, colspan: 4, title: 'First cohort year — no beginning-of-year book to churn against yet' }, 'cohort start')),
           ...rows2.map(r => el('tr', {
             class: 'border-t cursor-pointer transition hover:brightness-95',
             style: { borderColor: 'var(--border)' },
@@ -37209,20 +37272,56 @@ function reportingWaterfall() {
         el('td', { class: 'px-2.5 py-1.5 font-semibold' }, MONTHS_S[m - 1]), ...cells);
     };
     // Header controls: every history year as a toggle chip + Table/Graph view.
-    const view = ['graph', 'timeline'].includes(state._churnSeasonView) ? state._churnSeasonView : 'table';
-    const yearChip = (y) => el('button', {
-      class: 'rounded-lg px-2 py-1 text-[10px] font-bold cursor-pointer border transition hover:brightness-95',
-      style: yearsShown.includes(y)
-        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
-        : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-      onclick: () => {
-        const next = yearsShown.includes(y) ? yearsShown.filter(x => x !== y) : [...yearsShown, y];
-        state._churnSeasonYears = next.length ? next : [y];
-        mountApp();
+    const view = ['graph', 'timeline', 'reasons'].includes(state._churnSeasonView) ? state._churnSeasonView : 'table';
+    const yearsDrop = (() => {
+      const wrap = el('div', { class: 'relative' });
+      const panel = el('div', {
+        class: 'card absolute p-1.5',
+        style: { top: 'calc(100% + 6px)', right: '0', minWidth: '130px', maxHeight: '260px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._churnYearsOpen ? 'block' : 'none' },
       },
-    }, String(y));
+        ...yearsAvail.slice().sort((a, b) => b - a).map(y => {
+          const on = yearsShown.includes(y);
+          return el('button', {
+            class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+            style: { color: 'var(--text)', background: on ? 'var(--card-2)' : 'transparent' },
+            onclick: (e) => {
+              e.stopPropagation();
+              const next = on ? yearsShown.filter(x => x !== y) : [...yearsShown, y];
+              state._churnSeasonYears = next.length ? next : [y];
+              state._churnYearsOpen = true;   // keep the panel open while picking
+              mountApp();
+            },
+          }, el('span', { style: { fontSize: '13px' } }, on ? '☑' : '☐'), el('span', {}, String(y)));
+        }));
+      const btn = el('button', {
+        class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
+        style: yearsShown.length > 1
+          ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+          : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Pick which years show as columns / overlay lines',
+        onclick: (e) => {
+          e.stopPropagation();
+          const open = panel.style.display === 'block';
+          panel.style.display = open ? 'none' : 'block';
+          state._churnYearsOpen = !open;
+          if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+            if (wrap.contains(ev.target)) return;
+            panel.style.display = 'none'; state._churnYearsOpen = false;
+            document.removeEventListener('mousedown', closer);
+          }), 0); }
+        },
+      }, 'Years · ' + yearsShown.length, el('span', { style: { fontSize: '9px' } }, state._churnYearsOpen ? '▴' : '▾'));
+      if (state._churnYearsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+        if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+        if (wrap.contains(ev.target)) return;
+        panel.style.display = 'none'; state._churnYearsOpen = false;
+        document.removeEventListener('mousedown', closer);
+      }), 0); }
+      wrap.append(btn, panel);
+      return wrap;
+    })();
     const viewToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-      ...[['table', 'Table'], ['graph', 'Overlay'], ['timeline', 'Timeline']].map(([v, l]) => el('button', {
+      ...[['table', 'Table'], ['graph', 'Overlay'], ['timeline', 'Timeline'], ['reasons', 'Reasons']].map(([v, l]) => el('button', {
         class: 'px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition',
         style: view === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
         onclick: () => { state._churnSeasonView = v; mountApp(); },
@@ -37371,6 +37470,149 @@ function reportingWaterfall() {
       }, 50);
       return el('div', {}, hint, wrapEl);
     })();
+    // ── REASONS — MoM churn-rate contribution per cancellation reason:
+    // each line = that reason's cancels ÷ book at month start, so lines are
+    // comparable as the book grows and they SUM to the total monthly rate. ──
+    const reasonTotals = (() => {
+      const t = new Map();
+      Object.values(reasonsByYm).forEach(rs => Object.entries(rs).forEach(([k, n]) => t.set(k, (t.get(k) || 0) + n)));
+      return [...t.entries()].sort((a, b) => b[1] - a[1]);
+    })();
+    const selReasons = (() => {
+      const all = reasonTotals.map(([k]) => k);
+      const sel = Array.isArray(state._churnReasonSel) ? state._churnReasonSel.filter(r => all.includes(r)) : [];
+      return sel.length ? sel : all.slice(0, 5);   // default: top 5 by volume
+    })();
+    const reasonsDrop = (() => {
+      const wrap = el('div', { class: 'relative' });
+      const panel = el('div', {
+        class: 'card absolute p-1.5',
+        style: { top: 'calc(100% + 6px)', right: '0', minWidth: '240px', maxHeight: '300px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._churnReasonsOpen ? 'block' : 'none' },
+      },
+        ...reasonTotals.map(([r, n]) => {
+          const on = selReasons.includes(r);
+          return el('button', {
+            class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+            style: { color: 'var(--text)', background: on ? 'var(--card-2)' : 'transparent' },
+            onclick: (e) => {
+              e.stopPropagation();
+              const next = on ? selReasons.filter(x => x !== r) : [...selReasons, r];
+              state._churnReasonSel = next.length ? next : [r];
+              state._churnReasonsOpen = true;
+              mountApp();
+            },
+          }, el('span', { style: { fontSize: '13px' } }, on ? '☑' : '☐'),
+             el('span', { class: 'flex-1 truncate' }, r),
+             el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, fmt.int(n)));
+        }));
+      const btn = el('button', {
+        class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Pick which cancellation reasons plot as lines',
+        onclick: (e) => {
+          e.stopPropagation();
+          const open = panel.style.display === 'block';
+          panel.style.display = open ? 'none' : 'block';
+          state._churnReasonsOpen = !open;
+          if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+            if (wrap.contains(ev.target)) return;
+            panel.style.display = 'none'; state._churnReasonsOpen = false;
+            document.removeEventListener('mousedown', closer);
+          }), 0); }
+        },
+      }, 'Reasons · ' + selReasons.length, el('span', { style: { fontSize: '9px' } }, state._churnReasonsOpen ? '▴' : '▾'));
+      if (state._churnReasonsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+        if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+        if (wrap.contains(ev.target)) return;
+        panel.style.display = 'none'; state._churnReasonsOpen = false;
+        document.removeEventListener('mousedown', closer);
+      }), 0); }
+      wrap.append(btn, panel);
+      return wrap;
+    })();
+    const reasonsEl = () => (() => {
+      const pad2b = (n) => String(n).padStart(2, '0');
+      const seq = [];
+      for (let y = minY; y <= curY; y++) for (let m = 1; m <= 12; m++) {
+        if (y === curY && m > curM) break;
+        const ym = y + '-' + pad2b(m);
+        const den = bookAt[ym] || 0;
+        seq.push({ ym, label: MONTHS_S[m - 1] + ' ' + String(y).slice(2), den });
+      }
+      let _first = 0;
+      while (_first < seq.length && (seq[_first].den || 0) < 10) _first++;
+      if (_first > 0) seq.splice(0, _first);
+      const VISIBLE = Math.min(24, Math.max(6, seq.length));
+      const maxStart = Math.max(0, seq.length - VISIBLE);
+      if (state._churnPanStart == null || state._churnPanStart > maxStart) state._churnPanStart = maxStart;
+      const cid = 'chart-churn-reasons-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
+      const palette = ['#DC2626', '#0EA5E9', '#F59E0B', '#A855F7', '#14B8A6', '#EC4899', '#8DC63F', '#F97316', '#6366F1', '#84CC16'];
+      const hint = el('div', { class: 'px-4 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } },
+        '↔ Drag to move through time · each line = that reason\u2019s share of the monthly churn rate · lines sum to the total');
+      const wrapEl = el('div', { class: 'px-4 pb-4 pt-1', style: { position: 'relative', height: '280px' } },
+        el('canvas', { id: cid, style: { cursor: 'grab', touchAction: 'pan-y' } }));
+      setTimeout(() => {
+        if (typeof Chart === 'undefined') return;
+        const cvs = document.getElementById(cid);
+        if (!cvs) return;
+        if (_chartInstances[cid]) { _chartInstances[cid].destroy(); delete _chartInstances[cid]; }
+        const isDark = state.theme === 'dark';
+        const txt = isDark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)';
+        const grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+        const windowOf = (start) => seq.slice(start, start + VISIBLE);
+        const dsFor = (start) => selReasons.map((r, i) => ({
+          label: r,
+          data: windowOf(start).map(p => p.den >= 10 ? ((reasonsByYm[p.ym] || {})[r] || 0) / p.den : null),
+          borderColor: palette[i % palette.length], backgroundColor: 'transparent',
+          spanGaps: true, tension: 0.3, borderWidth: 2, pointRadius: 2, pointHoverRadius: 5,
+        }));
+        const ch = new Chart(cvs.getContext('2d'), {
+          type: 'line',
+          data: { labels: windowOf(state._churnPanStart).map(p => p.label), datasets: dsFor(state._churnPanStart) },
+          options: {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 }, usePointStyle: true } },
+              tooltip: { callbacks: { label: (ctx) => {
+                const p = windowOf(state._churnPanStart)[ctx.dataIndex];
+                const n = p ? ((reasonsByYm[p.ym] || {})[ctx.dataset.label] || 0) : 0;
+                return ctx.dataset.label + ': ' + (ctx.parsed.y * 100).toFixed(2) + '% (' + n + ' of ' + fmt.int(p ? p.den : 0) + ')';
+              } } },
+            },
+            scales: {
+              y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => (v * 100).toFixed(1) + '%' } },
+              x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+            },
+          },
+        });
+        _chartInstances[cid] = ch;
+        let dragging = false, startX = 0, startPan = 0;
+        const repaint = () => {
+          const w = windowOf(state._churnPanStart);
+          ch.data.labels = w.map(p => p.label);
+          ch.data.datasets = dsFor(state._churnPanStart);
+          ch.update('none');
+        };
+        cvs.addEventListener('pointerdown', (e) => {
+          dragging = true; startX = e.clientX; startPan = state._churnPanStart;
+          cvs.style.cursor = 'grabbing';
+          try { cvs.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
+        });
+        cvs.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          const pxPerMonth = (ch.chartArea ? (ch.chartArea.right - ch.chartArea.left) : cvs.clientWidth) / VISIBLE;
+          const delta = Math.round((startX - e.clientX) / Math.max(6, pxPerMonth));
+          const next = Math.max(0, Math.min(maxStart, startPan + delta));
+          if (next !== state._churnPanStart) { state._churnPanStart = next; repaint(); }
+        });
+        const endDrag = () => { dragging = false; cvs.style.cursor = 'grab'; };
+        cvs.addEventListener('pointerup', endDrag);
+        cvs.addEventListener('pointercancel', endDrag);
+        cvs.addEventListener('pointerleave', endDrag);
+      }, 50);
+      return el('div', {}, hint, wrapEl);
+    })();
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
@@ -37378,11 +37620,11 @@ function reportingWaterfall() {
           el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
             'Monthly churn rate = real-attrition cancels ÷ book at month start. The Avg column exposes the seasonal pattern; click any table cell for that month\u2019s reasons.')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          ...yearsAvail.map(yearChip),
+          view === 'reasons' ? reasonsDrop : yearsDrop,
           viewToggle,
           configInfoBtn('Churn Seasonality',
-            'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history; Overlay plots each selected year Jan–Dec; Timeline is one continuous line across all history — click and drag it forwards/backwards through time. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
-      view === 'graph' ? graphEl() : view === 'timeline' ? timelineEl() : tableEl());
+            'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history; Overlay plots each selected year Jan–Dec; Timeline is one continuous line across all history — click and drag it forwards/backwards through time. Reasons plots each selected cancellation reason\u2019s monthly contribution to the churn rate (its cancels ÷ book at month start), so the lines are comparable as the book grows and sum to the total rate; pick reasons from the dropdown, drag to pan. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
+      view === 'graph' ? graphEl() : view === 'timeline' ? timelineEl() : view === 'reasons' ? reasonsEl() : tableEl());
   };
 
   // ── START-MONTH COHORTS — the retention side: do customers signed in
