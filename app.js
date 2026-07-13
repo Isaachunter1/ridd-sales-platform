@@ -16912,11 +16912,13 @@ function nrlaBoard(rawSales, opts) {
       const _roundD2d = (rawSales || []).filter(x =>
         (typeof _indicatorDeptOf !== 'function' || _indicatorDeptOf(x) === 'd2d')
         && (_isRoundDay(x, rd.d1) || _isRoundDay(x, rd.d2))
-        // Sold-Not-Started cancels are stripped (per Isaac): they were never
-        // real accounts and need no audit — the comp already excludes their
-        // revenue. Cancels that REMAIN here are the ones worth eyes (3-day
-        // RORs and the like).
-        && !(typeof _isSoldNotStarted === 'function' && _isSoldNotStarted(x)));
+        // EXACT same population gate as the comp itself (frPendingServiced):
+        // Sold-Not-Started reasons, cancelled/no-showed initial appointments,
+        // frozen-no-service — all outside the comp, so none of them belong on
+        // the audit list either. This is what makes the round card's pending
+        // count and this list's Pending chips reconcile 1:1. 3-day RORs pass
+        // the gate and stay — those DO count.
+        && (typeof frPendingServiced !== 'function' || frPendingServiced(x)));
       const _teams = [...new Set(_roundD2d.map(_officeOf))].sort();
       if (mTeam && !_teams.includes(mTeam)) mTeam = '';
       const dayBlock = (day, label) => {
