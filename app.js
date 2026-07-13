@@ -3023,7 +3023,7 @@ function mountAuth(opts = {}) {
 // MAIN APP SHELL
 // ──────────────────────────────────────────────────────────────────────────
 const TAB_TITLES = {
-  dashboard:    'SALES WAR ROOM',
+  dashboard:    'SALES',
   sales:        'SALES',
   pay:          'PAY STUB',
   calendar:     'CALENDAR',
@@ -3040,7 +3040,7 @@ const TAB_TITLES = {
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#training':'training', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#techs':'techs', '#training':'training', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -3885,14 +3885,16 @@ function salesModeToggle(mode) {
       if (m === mode) return;
       const target = m === 'd2d'
         ? 'commission'
-        : (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) && state._lastIsTab !== 'competitions' ? state._lastIsTab : 'dashboard');
+        : m === 'techs'
+          ? 'techs'
+          : (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) && state._lastIsTab !== 'competitions' ? state._lastIsTab : 'dashboard');
       state.view = target;
       history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);
       mountApp();
     },
   }, label);
   return el('div', { class: 'inline-flex rounded-lg border overflow-hidden mr-2 shrink-0', style: { borderColor: 'var(--border-2)' } },
-    btn('inside', 'Inside Sales'), btn('d2d', 'D2D Sales'));
+    btn('inside', 'Inside Sales'), btn('d2d', 'D2D Sales'), btn('techs', 'Technicians'));
 }
 function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);
@@ -4513,6 +4515,7 @@ function mountApp() {
     reporting:    viewReporting,
     marketing:    viewMarketing,
     commission:   viewCommission,
+    techs:        viewTechs,
     training:     viewTraining,
     admin:        viewAdmin,
   }[state.view];
@@ -4528,12 +4531,15 @@ function mountApp() {
     // D2D side of the Sales toggle — same bar position as the sub-tabs.
     const t = salesModeToggle('d2d');
     if (t) contentWrap.append(el('div', { class: 'flex items-center border-b mb-4 pb-2.5', style: { borderColor: 'var(--border)' } }, t));
+  } else if (state.view === 'techs' && isAdmin) {
+    const t = salesModeToggle('techs');
+    if (t) contentWrap.append(el('div', { class: 'flex items-center border-b mb-4 pb-2.5', style: { borderColor: 'var(--border)' } }, t));
   }
   contentWrap.append(node);
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'training', 'auditing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'techs', 'training', 'auditing']);
   document.querySelector('.fab')?.remove();
   const _adminDial = state.profile && isAdminRole(state.profile.role) && !viewAsRole() && !(typeof DEMO !== 'undefined' && DEMO);
   if (!FAB_HIDDEN_VIEWS.has(state.view) && !_adminDial) {
@@ -4677,6 +4683,123 @@ function dashboardSales() {
   return out;
 }
 
+// Is this profile a TECHNICIAN? Same resolution ladder as office staff:
+// linked CRM roster row → own CRM type → shared-dataset name-signature map.
+function isTechProfile(p) {
+  if (!p) return false;
+  const emp = frRosterRowForProfile(p);
+  if (emp && emp.type_label) return /technician/i.test(emp.type_label);
+  if (state.profile && p.id === state.profile.id && state.myRepType) return /technician/i.test(state.myRepType);
+  try {
+    const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(p.full_name || ''))];
+    if (t) return /technician/i.test(t);
+  } catch (e) { /* fall through */ }
+  return false;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// VIEW: TECHNICIANS — Service Pro upsells. CRM rows with source
+// "Upsell - Service Pro" are the live production feed (they sync hourly);
+// techs manually log their upsells here too — same reasoning as inside
+// sales: the manual log is the commission ledger of the original deal.
+// ──────────────────────────────────────────────────────────────────────────
+const TECH_UPSELL_SRC_RE = /^upsell\s*-\s*service\s*pro$/i;
+let _techBridgeCache = { src: null, out: null };
+function techUpsellRows() {
+  let raw = [];
+  const prevDept = state.indicatorDept;
+  try { state.indicatorDept = 'all'; raw = indicatorSales(); }
+  catch (e) { raw = []; }
+  finally { state.indicatorDept = prevDept; }
+  if (_techBridgeCache.src === raw && _techBridgeCache.out) return _techBridgeCache.out;
+  const out = raw.filter(s => TECH_UPSELL_SRC_RE.test(String(s.source || '').trim()));
+  _techBridgeCache = { src: raw, out };
+  return out;
+}
+function viewTechs() {
+  const isAdmin = isAdminRole(state.profile.role);
+  if (!isAdmin && !isTechProfile(state.profile)) {
+    return el('div', { class: 'card p-10 text-center text-sm text-muted-' },
+      'The Technicians tab is for Service Pros and admins. If you should have access, ask an admin to link your account to your CRM technician profile (Settings → Users).');
+  }
+  const range = getDateRange(state._techRange || 'today');
+  const all = techUpsellRows();
+  const inRange = all.filter(s => {
+    const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
+    if (!iso) return false;
+    const d = new Date(iso + 'T00:00');
+    return !isNaN(d) && d >= range.start && d <= range.end;
+  });
+  const revenue = inRange.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
+  // Leaderboard: every SELLER of a Service Pro upsell in range, by CRM
+  // name — techs without app accounts rank too (same rule as Inside Sales).
+  const byTech = new Map();
+  inRange.forEach(s => {
+    const nm = flipLastFirst(getCanonicalRepName(s.rep || '—'));
+    if (FR_SYSTEM_NAME_RE.test(nm)) return;
+    let t = byTech.get(nm); if (!t) { t = { n: 0, rev: 0 }; byTech.set(nm, t); }
+    t.n++; t.rev += Number(s.contractValue) || 0;
+  });
+  const board = [...byTech.entries()].map(([nm, t]) => ({ nm, ...t })).sort((a, b) => b.rev - a.rev);
+  const rangeSel = el('select', {
+    class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+    onchange: (e) => { state._techRange = e.target.value; mountApp(); },
+  }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This Week'], ['month', 'This Month'], ['year', 'This Year'], ['all', 'All Time']]
+    .map(([v, l]) => { const o = el('option', { value: v }, l); if ((state._techRange || 'today') === v) o.selected = true; return o; }));
+  const myUpsells = (state.mySales || []).filter(s => {
+    const src2 = state.sources.find(o => o.id === s.source_id);
+    return src2 && TECH_UPSELL_SRC_RE.test(String(src2.name || ''));
+  });
+  return el('div', { class: 'flex flex-col gap-5 w-full' },
+    el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      el('button', {
+        class: 'flex-1 min-w-0 rounded-xl px-5 py-2.5 text-sm font-bold transition hover:brightness-95',
+        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: () => { state._saleFormPreset = 'tech'; openNewSaleModal(); state._saleFormPreset = null; },   // modal builds synchronously — consume then clear
+      }, '+ Log Upsell'),
+      rangeSel,
+      configInfoBtn('Technicians data',
+        'Live from FieldRoutes: every subscription with source "Upsell - Service Pro" (the technicians\u2019 dedicated upsell source), refreshed by the hourly sync. Technicians ALSO log their upsells manually with the + button — the manual log is the commission record of the original deal, exactly like Inside Sales. Techs without app accounts still rank here under their CRM name.')),
+    el('div', { class: 'grid grid-cols-2 gap-4' },
+      el('div', { class: 'card p-4 sm:p-5 text-center' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Upsells'),
+        el('div', { class: 'font-display text-3xl sm:text-4xl mt-1' }, fmt.int(inRange.length))),
+      el('div', { class: 'card p-4 sm:p-5 text-center' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Upsell Revenue'),
+        el('div', { class: 'font-display text-3xl sm:text-4xl mt-1' }, fmt.usd0(revenue)))),
+    el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between' },
+        el('h2', { class: 'text-base font-bold' }, 'Service Pro Leaderboard'),
+        el('span', { class: 'text-xs text-muted-' }, board.length + ' techs')),
+      board.length === 0
+        ? el('div', { class: 'p-10 text-center text-sm text-muted-' }, 'No Service Pro upsells in this window yet — first one on the board takes #1.')
+        : el('div', { class: 'scroll-x' },
+            el('table', { class: 'w-full text-[12px]' },
+              el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
+                el('tr', {},
+                  el('th', { class: 'text-left pl-4 pr-2 py-2 w-8' }, '#'),
+                  el('th', { class: 'text-left px-2 py-2' }, 'Technician'),
+                  el('th', { class: 'text-right px-2 py-2' }, 'Upsells'),
+                  el('th', { class: 'text-right pl-2 pr-4 py-2' }, 'Revenue'))),
+              el('tbody', {},
+                ...board.slice(0, 50).map((r, i) => el('tr', { class: 'border-t border-' },
+                  el('td', { class: 'pl-4 pr-2 py-2 font-bold tabular-nums' + (i === 0 ? ' text-base' : ''), style: i === 0 ? { color: 'var(--accent)' } : {} }, i + 1),
+                  el('td', { class: 'px-2 py-2 font-semibold' }, r.nm),
+                  el('td', { class: 'px-2 py-2 text-right tabular-nums' }, fmt.int(r.n)),
+                  el('td', { class: 'pl-2 pr-4 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(r.rev)))))))),
+    !isAdmin && el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b border-' }, el('h2', { class: 'text-base font-bold' }, 'My Logged Upsells')),
+      myUpsells.length === 0
+        ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'Nothing logged yet — tap + Log Upsell after your next one.')
+        : el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+            el('tbody', {}, ...myUpsells.slice(0, 25).map(s => el('tr', { class: 'border-t border-' },
+              el('td', { class: 'pl-4 pr-2 py-2 tabular-nums text-muted-' }, s.sold_date),
+              el('td', { class: 'px-2 py-2 font-semibold' }, s.customer_name || '—'),
+              el('td', { class: 'px-2 py-2 text-muted-' }, nameFromId(state.serviceTypes, s.service_type_id)),
+              el('td', { class: 'pl-2 pr-4 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(s.revenue_amount))))))),
+    ));
+}
+
 function viewDashboard() {
   const isAdmin = isAdminRole(state.profile.role);
   const range = getDateRange(state.dashDateRange);
@@ -4764,8 +4887,8 @@ function viewDashboard() {
         onclick: () => { state.dashOfficeView = !state.dashOfficeView; mountApp(); },
       }, state.dashOfficeView ? '✕ Office' : '🏢 Office'),
 
-      configInfoBtn('Sales War Room data',
-        'Live from FieldRoutes. Every number on this page — goals, sales and revenue cards, the sales feed, and the leaderboard — comes from the CRM shared dataset (office-staff sales, refreshed by the hourly sync shown in the stamp), plus manually logged upsells. Upsells count as New revenue. Office staff without an app account still count — their CRM sales rank on the leaderboard under their CRM name. Contract values are exact CRM figures.'),
+      configInfoBtn('Sales data',
+        'Live from FieldRoutes. Every number on this page — goals, sales and revenue cards, the sales feed, and the leaderboard — comes from the CRM shared dataset (office-staff sales, refreshed by the hourly sync shown in the stamp), plus manually logged UPSELL rows (the one thing the CRM can\'t express). Reps manually log every sale for the pay/audit ledger — those logs are the commission record of the ORIGINAL contract — but regular logged sales are not re-counted here, since the CRM already carries them. Upsells count as New revenue. Office staff without an app account still count — their CRM sales rank under their CRM name. Contract values are exact CRM figures.'),
     ),
 
     // ─── Office dashboard (if toggled) ───
@@ -9982,11 +10105,15 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
     onchange: () => { updateFooter(); rebuildServiceOptions(); checkValidity(); },
   },
     el('option', { value: '' }, 'Select Contract Type...'),
-    // MANUAL LOG = UPSELLS ONLY now (regular contracts auto-add from the
-    // FieldRoutes sync with their real term). Editing an older sale keeps
-    // the full list so history stays adjustable.
+    // FULL LIST (Jul 2026 reversal): reps manually log EVERY sale again —
+    // the manual log is the commission record of the ORIGINAL contract,
+    // because CRM subscriptions get modified later (technician upsells etc.)
+    // and paying off the live CRM value would overpay.
+    // TECH PRESET: technicians only log UPSELLS, so their add form trims to
+    // the upsell contract types (edit mode always keeps the full list).
     ...(() => {
-      if (existingSale) return state.contractTypes.map(ct => el('option', { value: ct.id }, ct.name));
+      const techMode = !existingSale && (state._saleFormPreset === 'tech' || isTechProfile(state.profile));
+      if (!techMode) return state.contractTypes.map(ct => el('option', { value: ct.id }, ct.name));
       const ups = state.contractTypes.filter(ct => /upsell/i.test(String(ct.name || '')));
       return (ups.length ? ups : state.contractTypes).map(ct => el('option', { value: ct.id }, ct.name));
     })(),
@@ -10267,17 +10394,18 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
         onchange: () => { checkValidity(); updateFooter(); },
       },
         el('option', { value: '' }, 'Select Source...'),
-        // MANUAL LOG IS FOR THE EXCEPTIONS ONLY — regular office-staff
-        // subscriptions auto-add from the FieldRoutes sync now, so this
-        // dropdown offers just: Organic, plus Upsell - Office / Upsell - D2D
-        // (which distinguish what TYPE of contract was upsold). When editing
-        // an older sale, its original source stays selectable. Falls back to
-        // the full active list if none of the whitelist names exist yet.
+        // FULL ACTIVE LIST (Jul 2026 reversal — manual logging is back for
+        // every sale). Editing an older sale keeps its original source
+        // selectable even if the CRM has since hidden it. TECH PRESET:
+        // technicians see only their dedicated "Upsell - Service Pro" source.
         ...(() => {
-          const WHITELIST = /^(organic|upsell\s*-\s*(office|d2d))$/i;
           const active = state.sources.filter(o => o.is_active !== false);
-          let opts = active.filter(o => WHITELIST.test(String(o.name || '').trim()));
-          if (!opts.length) opts = active;                       // safety: whitelist names missing → show everything
+          let opts = active;
+          const techMode = !existingSale && (state._saleFormPreset === 'tech' || isTechProfile(state.profile));
+          if (techMode) {
+            const sp = active.filter(o => /^upsell\s*-\s*service\s*pro$/i.test(String(o.name || '').trim()));
+            if (sp.length) opts = sp;
+          }
           const curId = existingSale && existingSale.source_id;
           if (curId && !opts.some(o => o.id === curId)) {
             const cur = state.sources.find(o => o.id === curId);
@@ -16722,7 +16850,12 @@ function nrlaBoard(rawSales, opts) {
       const rd = R.rounds[mIdx];
       const _roundD2d = (rawSales || []).filter(x =>
         (typeof _indicatorDeptOf !== 'function' || _indicatorDeptOf(x) === 'd2d')
-        && (_isRoundDay(x, rd.d1) || _isRoundDay(x, rd.d2)));
+        && (_isRoundDay(x, rd.d1) || _isRoundDay(x, rd.d2))
+        // Sold-Not-Started cancels are stripped (per Isaac): they were never
+        // real accounts and need no audit — the comp already excludes their
+        // revenue. Cancels that REMAIN here are the ones worth eyes (3-day
+        // RORs and the like).
+        && !(typeof _isSoldNotStarted === 'function' && _isSoldNotStarted(x)));
       const _teams = [...new Set(_roundD2d.map(_officeOf))].sort();
       if (mTeam && !_teams.includes(mTeam)) mTeam = '';
       const dayBlock = (day, label) => {
@@ -32839,6 +32972,7 @@ function viewReporting() {
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
+    state.reportingSubTab === 'services'   ? reportingServices() :
     state.reportingSubTab === 'auditing'   ? reportingAuditing() :
                                               reportingOverview(),
   );
@@ -32983,6 +33117,7 @@ function reportingSubTabs() {
     ['overview',   'Overview'],
     ['geographic', 'Geographic'],
     ['waterfall',  'Retention'],
+    ['services',   'Services'],
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
   ];
@@ -34134,6 +34269,7 @@ function reportingIsPacer() {
 // background calls and survives reloads.
 function reportingLoadGhlLeads() {
   if (state._ghlLoading || state._ghlDone) return;
+  if (state._ghlFailAt && Date.now() - state._ghlFailAt < 120000) return;   // failed page → 2-min cooldown, not a render loop
   // Restore a prior session's accumulated pull before the first network call.
   if (state.reportingGhlLeads == null && !state._ghlRestored) {
     state._ghlRestored = true;
@@ -34149,7 +34285,8 @@ function reportingLoadGhlLeads() {
     .then(r => r.ok ? r.json() : null)
     .then(j => {
       state._ghlLoading = false;
-      if (!j) { state.reportingGhlLeads = state.reportingGhlLeads || {}; mountApp(); return; }
+      if (!j) { state._ghlFailAt = Date.now(); state.reportingGhlLeads = state.reportingGhlLeads || {}; mountApp(); return; }
+      state._ghlFailAt = 0;
       const acc = (state.reportingGhlLeads && state.reportingGhlLeads.bySourceMonth)
         ? state.reportingGhlLeads : { bySourceMonth: {}, leadsBySource: {}, contacts: [], total: 0 };
       const bsm = j.bySourceMonth || {};
@@ -34166,7 +34303,7 @@ function reportingLoadGhlLeads() {
       mountApp();
       if (!state._ghlDone) setTimeout(reportingLoadGhlLeads, 500); // keep gathering older months
     })
-    .catch(() => { state._ghlLoading = false; state.reportingGhlLeads = state.reportingGhlLeads || {}; mountApp(); });
+    .catch(() => { state._ghlLoading = false; state._ghlFailAt = Date.now(); state.reportingGhlLeads = state.reportingGhlLeads || {}; mountApp(); });
 }
 function reportingRefreshGhlLeads() {
   state.reportingGhlLeads = null; state._ghlCursor = null; state._ghlDone = false; state._ghlRestored = true; state._ghlLoading = false;
@@ -36827,6 +36964,205 @@ function reportingReconciliation() {
     missing.length > 200 ? el('div', { class: 'text-[11px] text-muted-' }, 'Showing the 200 most recent of ' + missing.length.toLocaleString() + '.') : null);
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// REPORTING · SERVICES — what we sell WHERE. Three reads (per Isaac):
+//   1. Service Mix — every service type with Active / Cancelled counts.
+//   2. Where a service lives — per-area counts + penetration for one service.
+//   3. Add-on attach by area — % of customers holding 2+ subscriptions,
+//      with the area's most common add-on, to spot where add-ons thrive.
+// ──────────────────────────────────────────────────────────────────────────
+function reportingServices() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+  const { visible } = reportingFilters();
+  const scope = reportingScope();
+  const office = state.reportingOffice || 'all';
+  const rows = reportingFilterByOffice(visible, office);
+  const isActive = (r) => (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
+  const zip5 = (r) => String(r.zip_code || '').trim().slice(0, 5) || '—';
+  const areaMode = state._svcAreaMode || 'office';
+  const areaOf = (r) => areaMode === 'zip' ? zip5(r)
+    : areaMode === 'county' ? ((r.county || '—') + (r.state ? ', ' + r.state : ''))
+    : areaMode === 'state' ? (r.state || '—')
+    : (r.office_name || '—');
+
+  // ── Single pass: per-service totals, per-area totals, per-area-service ──
+  const bySvc = new Map();          // svc → {a, c, arr}
+  const byArea = new Map();         // area → {total, active}
+  const byAreaSvc = new Map();      // area|svc → {a, c}
+  const custSubs = new Map();       // customer → Set(svc)  (add-on analysis)
+  const custArea = new Map();
+  rows.forEach(r => {
+    const svc = r.subscription || '—';
+    const area = areaOf(r);
+    const act = isActive(r);
+    let s = bySvc.get(svc); if (!s) { s = { a: 0, c: 0, arr: 0 }; bySvc.set(svc, s); }
+    act ? s.a++ : s.c++;
+    if (act) s.arr += Number(r.annual_recurring_value) || 0;
+    let ar = byArea.get(area); if (!ar) { ar = { total: 0, active: 0 }; byArea.set(area, ar); }
+    ar.total++; if (act) ar.active++;
+    const k = area + '|' + svc;
+    let as = byAreaSvc.get(k); if (!as) { as = { a: 0, c: 0 }; byAreaSvc.set(k, as); }
+    act ? as.a++ : as.c++;
+    const cid = String(r.customer_id || '');
+    if (cid && act) {
+      let set = custSubs.get(cid); if (!set) { set = new Set(); custSubs.set(cid, set); }
+      set.add(svc);
+      custArea.set(cid, area);
+    }
+  });
+  const svcList = [...bySvc.entries()].sort((x, y) => (y[1].a + y[1].c) - (x[1].a + x[1].c));
+  const money0s = (v) => '$' + Math.round(v || 0).toLocaleString();
+
+  // ── Controls ──
+  const areaSel = el('select', {
+    class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+    onchange: (e) => { state._svcAreaMode = e.target.value; mountApp(); },
+  }, ...[['office', 'By Office'], ['county', 'By County'], ['zip', 'By Zip'], ['state', 'By State']]
+    .map(([v, l]) => { const o = el('option', { value: v }, l); if (areaMode === v) o.selected = true; return o; }));
+  const officeSel = el('select', {
+    class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+    onchange: (e) => { state.reportingOffice = e.target.value; mountApp(); },
+  },
+    el('option', { value: 'all', selected: office === 'all' }, 'All Offices'),
+    ...scope.offices.map(o => el('option', { value: o, selected: office === o }, o)));
+
+  const drillSvc = (svc, areaFilter) => {
+    const subset = rows.filter(r => (r.subscription || '—') === svc && (!areaFilter || areaOf(r) === areaFilter));
+    openReportingDrillModal({ chartTitle: 'Service: ' + svc, sliceLabel: areaFilter ? areaFilter : 'All areas', rows: subset, formatValue: (v) => fmt.int(v) });
+  };
+
+  // ── Card 1 · Service Mix ──
+  if (!state._svcSort) state._svcSort = { key: 'total', dir: 'desc' };
+  const sSort = state._svcSort;
+  const svcRows = svcList.map(([svc, s]) => ({ svc, a: s.a, c: s.c, total: s.a + s.c, arr: s.arr, cxl: (s.a + s.c) > 0 ? s.c / (s.a + s.c) : 0 }));
+  svcRows.sort((x, y) => { const d = (x[sSort.key] < y[sSort.key] ? -1 : x[sSort.key] > y[sSort.key] ? 1 : 0); return sSort.dir === 'asc' ? d : -d; });
+  const th = (key, label, tip) => el('th', {
+    class: 'text-left py-2 font-semibold cursor-pointer select-none ' + (key === 'svc' ? 'px-3' : 'px-2'),
+    style: sSort.key === key ? { color: 'var(--accent)', fontWeight: '800' } : {},
+    title: tip || ('Sort by ' + label),
+    onclick: () => { state._svcSort = { key, dir: sSort.key === key ? (sSort.dir === 'desc' ? 'asc' : 'desc') : (key === 'svc' ? 'asc' : 'desc') }; mountApp(); },
+  }, label);
+  const mixCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
+      el('div', {},
+        el('h3', { class: 'text-sm font-bold' }, '🧾 Service Mix' + (office === 'all' ? '' : ' — ' + office)),
+        el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
+          fmt.int(rows.length) + ' subscriptions · click a service for its accounts')),
+      configInfoBtn('Service Mix',
+        'Every service type in the current scope with its Active and Cancelled subscription counts. Active = status Active with no cancel date; everything else counts as Cancelled/inactive. ARR sums the annual recurring value of ACTIVE subs only. Hidden services and excluded sources (Configurations) are filtered out, matching the rest of Reporting.')),
+    el('div', { class: 'scroll-x', style: { maxHeight: '420px', overflowY: 'auto' } },
+      el('table', { class: 'w-full text-xs tabular-nums' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)' } },
+          el('tr', {}, th('svc', 'Service'), th('a', 'Active'), th('c', 'Cancelled'), th('total', 'Total'), th('cxl', 'Cancel %'), th('arr', 'Active ARR'))),
+        el('tbody', {},
+          ...svcRows.map(r => el('tr', {
+            class: 'border-t border- cursor-pointer transition hover:brightness-95',
+            onclick: () => drillSvc(r.svc),
+          },
+            el('td', { class: 'px-3 py-1.5 font-semibold truncate', style: { maxWidth: '260px' } }, r.svc),
+            el('td', { class: 'px-2 py-1.5', style: { color: '#5F8A1F', fontWeight: '600' } }, fmt.int(r.a)),
+            el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-muted)' } }, fmt.int(r.c)),
+            el('td', { class: 'px-2 py-1.5 font-bold' }, fmt.int(r.total)),
+            el('td', { class: 'px-2 py-1.5', style: r.cxl > 0.4 ? { color: '#DC2626', fontWeight: '700' } : { color: 'var(--text-muted)' } }, (r.cxl * 100).toFixed(1) + '%'),
+            el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-muted)' } }, money0s(r.arr))))))));
+
+  // ── Card 2 · Where a service lives ──
+  const svcNames = svcList.map(([svc]) => svc);
+  const selSvc = svcNames.includes(state._svcFocus) ? state._svcFocus : (svcNames[0] || '');
+  const focusSel = el('select', {
+    class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', maxWidth: '240px' },
+    onchange: (e) => { state._svcFocus = e.target.value; mountApp(); },
+  }, ...svcNames.map(sv => { const o = el('option', { value: sv }, sv); if (sv === selSvc) o.selected = true; return o; }));
+  const areaRows = [...byArea.entries()]
+    .map(([area, ar]) => {
+      const as = byAreaSvc.get(area + '|' + selSvc) || { a: 0, c: 0 };
+      return { area, a: as.a, c: as.c, n: as.a + as.c, book: ar.total, pen: ar.total > 0 ? (as.a + as.c) / ar.total : 0 };
+    })
+    .filter(r => r.n > 0)
+    .sort((x, y) => y.n - x.n)
+    .slice(0, 15);
+  const maxPen = areaRows.reduce((m, r) => Math.max(m, r.pen), 0.0001);
+  const whereCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
+      el('div', {},
+        el('h3', { class: 'text-sm font-bold' }, '📍 Where It Lives'),
+        el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
+          'Top areas for the picked service — the bar is PENETRATION (share of that area\u2019s book), so hot zips stand out even when they\u2019re small')),
+      el('div', { class: 'flex items-center gap-2' }, focusSel,
+        configInfoBtn('Where It Lives',
+          'For the selected service: the areas (by the grouping picked up top) with the most subscriptions of it, active + cancelled. Penetration = this service\u2019s subs ÷ ALL subs in that area — a 20% zip means one in five subscriptions there is this service. Click a row for those accounts.'))),
+    el('div', { class: 'p-3 flex flex-col gap-1' },
+      ...(areaRows.length ? areaRows.map(r => el('div', {
+        class: 'py-1.5 px-2 -mx-1 rounded-lg cursor-pointer transition hover:brightness-95',
+        onclick: () => drillSvc(selSvc, r.area),
+        title: r.area + ': ' + fmt.int(r.n) + ' of ' + fmt.int(r.book) + ' subs in this area are ' + selSvc,
+      },
+        el('div', { class: 'flex items-center justify-between gap-2 text-xs' },
+          el('span', { class: 'font-semibold truncate' }, r.area),
+          el('span', { class: 'tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } },
+            fmt.int(r.a) + ' active · ' + fmt.int(r.c) + ' cxl · ' + (r.pen * 100).toFixed(1) + '% of area')),
+        el('div', { class: 'mt-1 rounded-full overflow-hidden', style: { height: '5px', background: 'var(--card-2)' } },
+          el('div', { style: { width: Math.max(2, r.pen / maxPen * 100) + '%', height: '100%', background: 'var(--accent)', opacity: '.85' } })))) : [el('div', { class: 'p-6 text-center text-xs', style: { color: 'var(--text-muted)' } }, 'No subscriptions for this service in scope.')])));
+
+  // ── Card 3 · Add-on attach by area ──
+  const areaAttach = new Map();     // area → {cust, multi, addOns: Map}
+  custSubs.forEach((set, cid) => {
+    const area = custArea.get(cid) || '—';
+    let a = areaAttach.get(area); if (!a) { a = { cust: 0, multi: 0, addOns: new Map() }; areaAttach.set(area, a); }
+    a.cust++;
+    if (set.size >= 2) {
+      a.multi++;
+      // every sub beyond the customer's biggest service counts as an add-on
+      const arr = [...set];
+      const primary = arr.reduce((best, sv) => ((bySvc.get(sv) || {}).a || 0) > ((bySvc.get(best) || {}).a || 0) ? sv : best, arr[0]);
+      arr.forEach(sv => { if (sv !== primary) a.addOns.set(sv, (a.addOns.get(sv) || 0) + 1); });
+    }
+  });
+  const attachRows = [...areaAttach.entries()]
+    .map(([area, a]) => {
+      const top = [...a.addOns.entries()].sort((x, y) => y[1] - x[1])[0];
+      return { area, cust: a.cust, multi: a.multi, rate: a.cust > 0 ? a.multi / a.cust : 0, top: top ? top[0] + ' ×' + top[1] : '—' };
+    })
+    .filter(r => r.cust >= 25)
+    .sort((x, y) => y.rate - x.rate);
+  const companyAttach = (() => { let c = 0, m = 0; custSubs.forEach(set => { c++; if (set.size >= 2) m++; }); return c > 0 ? m / c : 0; })();
+  const attachCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
+      el('div', {},
+        el('h3', { class: 'text-sm font-bold' }, '➕ Add-On Attach by Area'),
+        el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
+          'Company attach rate: ' + (companyAttach * 100).toFixed(1) + '% of active customers hold 2+ subscriptions — areas above that are your add-on hotbeds')),
+      configInfoBtn('Add-On Attach',
+        'Per area: how many ACTIVE customers hold two or more subscriptions (attach rate), and the most common add-on there. A customer\u2019s \u201Cprimary\u201D is their most widely-sold service; everything else they hold counts as an add-on. Areas with fewer than 25 active customers are hidden. Green = above the company attach rate.')),
+    el('div', { class: 'scroll-x', style: { maxHeight: '380px', overflowY: 'auto' } },
+      el('table', { class: 'w-full text-xs tabular-nums' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)' } },
+          el('tr', {},
+            el('th', { class: 'text-left px-3 py-2 font-semibold' }, areaMode === 'zip' ? 'Zip' : areaMode === 'county' ? 'County' : areaMode === 'state' ? 'State' : 'Office'),
+            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Customers'),
+            el('th', { class: 'text-left px-2 py-2 font-semibold' }, '2+ Subs'),
+            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Attach %'),
+            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Top Add-On'))),
+        el('tbody', {},
+          ...attachRows.map(r => el('tr', { class: 'border-t border-' },
+            el('td', { class: 'px-3 py-1.5 font-semibold' }, r.area),
+            el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-muted)' } }, fmt.int(r.cust)),
+            el('td', { class: 'px-2 py-1.5' }, fmt.int(r.multi)),
+            el('td', { class: 'px-2 py-1.5 font-bold', style: { color: r.rate >= companyAttach ? '#5F8A1F' : 'var(--text-muted)' } }, (r.rate * 100).toFixed(1) + '%'),
+            el('td', { class: 'px-2 py-1.5 truncate', style: { maxWidth: '220px', color: 'var(--text-muted)' } }, r.top)))))));
+
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Group areas'),
+      areaSel, officeSel),
+    mixCard,
+    el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, whereCard, attachCard));
+}
+
 function reportingWaterfall() {
   const gate = reportingDataGate();
   if (gate) return gate;
@@ -36844,9 +37180,11 @@ function reportingWaterfall() {
   // Cohort modes are all-time BY DEFINITION — and their time-range picker is
   // hidden, so a range set on another tab must not silently shrink them.
   // Contract/Rep modes keep the visible, user-controlled range.
-  const usesDate = mode === 'contract' || mode === 'rep';
-  const popA = usesDate ? scopeA : reportingFilterByOffice(scope.visible, office);
-  const popB = inCompare ? (usesDate ? scopeB : reportingFilterByOffice(scope.visible, compareOffice)) : null;
+  // ALL modes are all-time (per Isaac: "cohorts are by year — that's how we
+  // look at them"). The shared Time-range picker no longer applies here; it
+  // was collapsing Contract Length to one column when another tab sat on YTD.
+  const popA = reportingFilterByOffice(scope.visible, office);
+  const popB = inCompare ? reportingFilterByOffice(scope.visible, compareOffice) : null;
   if (!state.reportingWaterfallCohort) state.reportingWaterfallCohort = 'all';
   const cohortSel = (mode === 'contract' || mode === 'rep') ? state.reportingWaterfallCohort : 'all';
   // The #/Attrition-% toggle is retired — cells show the count AND the
@@ -36875,13 +37213,6 @@ function reportingWaterfall() {
         onclick: () => { state.reportingWaterfallMode = k; mountApp(); },
       }, label);
     }),
-    (mode === 'contract' || mode === 'rep') && el('select', {
-      class: 'rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
-      title: 'Time range (scopes which subs qualify — cohort modes are inherently all-time)',
-      onchange: (e) => { state.reportingDateRange = e.target.value; mountApp(); },
-    }, ...[['all', 'All time'], ['ytd', 'Year to date'], ['last_12_months', 'Last 12 months'], ['last_year', 'Last year']]
-      .map(([v, l]) => { const o = el('option', { value: v }, l); if ((state.reportingDateRange || 'all') === v) o.selected = true; return o; })),
     // Cohort-year picker — Contract Length / Rep only. "All years" = book
     // size at each year-end; a specific year = that year's cohort followed
     // through time (true retention).
@@ -36895,7 +37226,35 @@ function reportingWaterfall() {
         el('option', { value: 'all', selected: cohortSel === 'all' }, 'All years (book size)'),
         ...(waterfallA.allYears || []).map(y => el('option', { value: String(y), selected: String(cohortSel) === String(y) }, y + ' cohort')),
       )),
-    _methodologyInfo && el('div', { class: 'ml-auto' }, _methodologyInfo),
+    el('div', { class: 'ml-auto flex items-center gap-2' },
+      // Row-level export of EXACTLY what this tab counts — for reconciling
+      // against the hand-built workbook (diff by Customer ID + Subscription).
+      el('button', {
+        class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Download the exact population this tab counts (after all filters), one row per subscription',
+        onclick: () => {
+          try {
+            const rows = _retenEff(popA);
+            const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+            const cols = ['customer_id', 'last_name', 'first_name', 'subscription', 'initial_service', 'subscription_status', 'subscription_date_canceled', 'subscription_cancellation_reason', 'counted_cancel', 'annual_recurring_value', 'agreement_length', 'subscription_source', 'office_name'];
+            const lines = [cols.join(',')];
+            rows.forEach(r => lines.push([
+              r.customer_id, r.last_name, r.first_name, r.subscription, r.initial_service,
+              r.subscription_status, r.subscription_date_canceled || '', reportingCancelReasonOf(r),
+              r._effCancel || '', r.annual_recurring_value || 0, r.agreement_length || '',
+              r.subscription_source || '', r.office_name || '',
+            ].map(esc).join(',')));
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv' }));
+            a.download = 'ridd-retention-population-' + new Date().toISOString().slice(0, 10) + '.csv';
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+            toast('Exported ' + rows.length.toLocaleString() + ' subscriptions — the exact set this tab counts', 'success');
+          } catch (e) { toast('Export failed: ' + ((e && e.message) || e), 'error'); }
+        },
+      }, '⬇ Export population'),
+      _methodologyInfo),
   );
 
   // Cell color = retention % vs cohort total. Green → red gradient.
@@ -36972,11 +37331,13 @@ function reportingWaterfall() {
               ...data.years.map(y => {
                 const v = row.byYear[y] || 0;
                 // Count AND % together (the old toggle is gone): the small %
-                // is the share of the cohort still active; hovering shows the
-                // step attrition vs the prior year (the workbook's rate).
-                const cohortBase = (mode === 'subscription' || mode === 'arv' || cohortSel !== 'all') ? row.total : 0;
+                // is the cell ÷ the row's all-time total — on cohort views
+                // that's "share of the cohort still active"; on Contract/Rep
+                // book views it's "share of everything this row ever had
+                // still active at that year-end". Hover = step attrition.
+                const cohortBase = row.total;
                 let stepTitle = '';
-                if (cohortBase) {
+                if (cohortBase && (mode === 'subscription' || mode === 'arv' || cohortSel !== 'all')) {
                   const firstYear = (mode === 'subscription' || mode === 'arv') ? Number(row.id) : Number(cohortSel);
                   if (y >= firstYear) {
                     const prev = y === firstYear ? row.total : (row.byYear[y - 1] || 0);
@@ -37272,7 +37633,7 @@ function reportingWaterfall() {
         el('td', { class: 'px-2.5 py-1.5 font-semibold' }, MONTHS_S[m - 1]), ...cells);
     };
     // Header controls: every history year as a toggle chip + Table/Graph view.
-    const view = ['graph', 'timeline', 'reasons'].includes(state._churnSeasonView) ? state._churnSeasonView : 'table';
+    const view = ['graph', 'timeline', 'reasons'].includes(state._churnSeasonView) ? (state._churnSeasonView === 'reasons' ? 'timeline' : state._churnSeasonView) : 'table';
     const yearsDrop = (() => {
       const wrap = el('div', { class: 'relative' });
       const panel = el('div', {
@@ -37321,7 +37682,7 @@ function reportingWaterfall() {
       return wrap;
     })();
     const viewToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-      ...[['table', 'Table'], ['graph', 'Overlay'], ['timeline', 'Timeline'], ['reasons', 'Reasons']].map(([v, l]) => el('button', {
+      ...[['table', 'Table'], ['graph', 'Overlay'], ['timeline', 'Timeline']].map(([v, l]) => el('button', {
         class: 'px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition',
         style: view === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
         onclick: () => { state._churnSeasonView = v; mountApp(); },
@@ -37385,91 +37746,6 @@ function reportingWaterfall() {
     })();
     // ── TIMELINE — one continuous monthly churn line across all history,
     // draggable: grab the chart and pull forwards/backwards through time. ──
-    const timelineEl = () => (() => {
-      const pad2b = (n) => String(n).padStart(2, '0');
-      const seq = [];
-      for (let y = minY; y <= curY; y++) for (let m = 1; m <= 12; m++) {
-        if (y === curY && m > curM) break;
-        const ym = y + '-' + pad2b(m);
-        const den = bookAt[ym] || 0;
-        seq.push({ ym, label: MONTHS_S[m - 1] + ' ' + String(y).slice(2), rate: den >= 10 ? (cancelsByYm[ym] || 0) / den : null, n: cancelsByYm[ym] || 0, den });
-      }
-      let _first = 0;
-      while (_first < seq.length && seq[_first].rate == null) _first++;   // trim the pre-book era (O(n))
-      if (_first > 0) seq.splice(0, _first);
-      const VISIBLE = Math.min(24, Math.max(6, seq.length));
-      const maxStart = Math.max(0, seq.length - VISIBLE);
-      if (state._churnPanStart == null || state._churnPanStart > maxStart) state._churnPanStart = maxStart;
-      const cid = 'chart-churn-timeline-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
-      const hint = el('div', { class: 'px-4 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } },
-        '↔ Drag the chart to move through time · showing ' + VISIBLE + ' months of ' + seq.length);
-      const wrapEl = el('div', { class: 'px-4 pb-4 pt-1', style: { position: 'relative', height: '260px' } },
-        el('canvas', { id: cid, style: { cursor: 'grab', touchAction: 'pan-y' } }));
-      setTimeout(() => {
-        if (typeof Chart === 'undefined') return;
-        const cvs = document.getElementById(cid);
-        if (!cvs) return;
-        if (_chartInstances[cid]) { _chartInstances[cid].destroy(); delete _chartInstances[cid]; }
-        const isDark = state.theme === 'dark';
-        const txt = isDark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)';
-        const grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
-        const windowOf = (start) => seq.slice(start, start + VISIBLE);
-        const ch = new Chart(cvs.getContext('2d'), {
-          type: 'line',
-          data: {
-            labels: windowOf(state._churnPanStart).map(p => p.label),
-            datasets: [{
-              label: 'Monthly churn',
-              data: windowOf(state._churnPanStart).map(p => p.rate),
-              borderColor: '#DC2626', backgroundColor: 'rgba(220,38,38,.10)', fill: true,
-              spanGaps: true, tension: 0.3, borderWidth: 2.5, pointRadius: 2.5, pointHoverRadius: 5,
-            }],
-          },
-          options: {
-            responsive: true, maintainAspectRatio: false, animation: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-              legend: { display: false },
-              tooltip: { callbacks: { label: (ctx) => {
-                const p = windowOf(state._churnPanStart)[ctx.dataIndex];
-                return (ctx.parsed.y * 100).toFixed(2) + '% churn' + (p ? ' (' + p.n + ' of ' + fmt.int(p.den) + ')' : '');
-              } } },
-            },
-            scales: {
-              y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => (v * 100).toFixed(1) + '%' } },
-              x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
-            },
-          },
-        });
-        _chartInstances[cid] = ch;
-        // Drag-to-pan: pixels → months via the chart area width. Updates the
-        // live chart in place (no re-render), remembers position in state.
-        let dragging = false, startX = 0, startPan = 0;
-        const repaint = () => {
-          const w = windowOf(state._churnPanStart);
-          ch.data.labels = w.map(p => p.label);
-          ch.data.datasets[0].data = w.map(p => p.rate);
-          ch.update('none');
-        };
-        cvs.addEventListener('pointerdown', (e) => {
-          dragging = true; startX = e.clientX; startPan = state._churnPanStart;
-          cvs.style.cursor = 'grabbing';
-          try { cvs.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
-        });
-        cvs.addEventListener('pointermove', (e) => {
-          if (!dragging) return;
-          const pxPerMonth = (ch.chartArea ? (ch.chartArea.right - ch.chartArea.left) : cvs.clientWidth) / VISIBLE;
-          const delta = Math.round((startX - e.clientX) / Math.max(6, pxPerMonth));
-          const next = Math.max(0, Math.min(maxStart, startPan + delta));
-          if (next !== state._churnPanStart) { state._churnPanStart = next; repaint(); }
-        });
-        const endDrag = () => { dragging = false; cvs.style.cursor = 'grab'; };
-        cvs.addEventListener('pointerup', endDrag);
-        cvs.addEventListener('pointercancel', endDrag);
-        cvs.addEventListener('pointerleave', endDrag);
-      }, 50);
-      return el('div', {}, hint, wrapEl);
-    })();
     // ── REASONS — MoM churn-rate contribution per cancellation reason:
     // each line = that reason's cancels ÷ book at month start, so lines are
     // comparable as the book grows and they SUM to the total monthly rate. ──
@@ -37483,72 +37759,103 @@ function reportingWaterfall() {
       const sel = Array.isArray(state._churnReasonSel) ? state._churnReasonSel.filter(r => all.includes(r)) : [];
       return sel.length ? sel : all.slice(0, 5);   // default: top 5 by volume
     })();
-    const reasonsDrop = (() => {
+    const seriesDrop = (() => {
+      const TOTAL_KEY = '__total__';
       const wrap = el('div', { class: 'relative' });
+      const selNow = (Array.isArray(state._churnSeries) && state._churnSeries.length)
+        ? state._churnSeries.filter(k => k === TOTAL_KEY || reasonTotals.some(([r]) => r === k))
+        : [TOTAL_KEY];
+      const rowFor = (key, labelTxt, count) => {
+        const on = selNow.includes(key);
+        return el('button', {
+          class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+          style: { color: 'var(--text)', background: on ? 'var(--card-2)' : 'transparent' },
+          onclick: (e) => {
+            e.stopPropagation();
+            const next = on ? selNow.filter(x => x !== key) : [...selNow, key];
+            state._churnSeries = next.length ? next : [TOTAL_KEY];
+            state._churnSeriesOpen = true;
+            mountApp();
+          },
+        }, el('span', { style: { fontSize: '13px' } }, on ? '☑' : '☐'),
+           el('span', { class: 'flex-1 truncate' }, labelTxt),
+           count != null && el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, fmt.int(count)));
+      };
       const panel = el('div', {
         class: 'card absolute p-1.5',
-        style: { top: 'calc(100% + 6px)', right: '0', minWidth: '240px', maxHeight: '300px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._churnReasonsOpen ? 'block' : 'none' },
+        style: { top: 'calc(100% + 6px)', right: '0', minWidth: '250px', maxHeight: '320px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._churnSeriesOpen ? 'block' : 'none' },
       },
-        ...reasonTotals.map(([r, n]) => {
-          const on = selReasons.includes(r);
-          return el('button', {
-            class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
-            style: { color: 'var(--text)', background: on ? 'var(--card-2)' : 'transparent' },
-            onclick: (e) => {
-              e.stopPropagation();
-              const next = on ? selReasons.filter(x => x !== r) : [...selReasons, r];
-              state._churnReasonSel = next.length ? next : [r];
-              state._churnReasonsOpen = true;
-              mountApp();
-            },
-          }, el('span', { style: { fontSize: '13px' } }, on ? '☑' : '☐'),
-             el('span', { class: 'flex-1 truncate' }, r),
-             el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, fmt.int(n)));
-        }));
+        rowFor(TOTAL_KEY, 'Total churn rate', null),
+        el('div', { class: 'px-2.5 pt-2 pb-0.5 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'By cancellation reason'),
+        ...reasonTotals.map(([r, n]) => rowFor(r, r, n)));
       const btn = el('button', {
         class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
-        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-        title: 'Pick which cancellation reasons plot as lines',
+        style: selNow.length > 1 || selNow[0] !== TOTAL_KEY
+          ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+          : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Pick what plots: the total churn rate and/or individual cancellation reasons (reason lines sum to the total)',
         onclick: (e) => {
           e.stopPropagation();
           const open = panel.style.display === 'block';
           panel.style.display = open ? 'none' : 'block';
-          state._churnReasonsOpen = !open;
+          state._churnSeriesOpen = !open;
           if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
             if (wrap.contains(ev.target)) return;
-            panel.style.display = 'none'; state._churnReasonsOpen = false;
+            panel.style.display = 'none'; state._churnSeriesOpen = false;
             document.removeEventListener('mousedown', closer);
           }), 0); }
         },
-      }, 'Reasons · ' + selReasons.length, el('span', { style: { fontSize: '9px' } }, state._churnReasonsOpen ? '▴' : '▾'));
-      if (state._churnReasonsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+      }, 'Series · ' + selNow.length, el('span', { style: { fontSize: '9px' } }, state._churnSeriesOpen ? '▴' : '▾'));
+      if (state._churnSeriesOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
         if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
         if (wrap.contains(ev.target)) return;
-        panel.style.display = 'none'; state._churnReasonsOpen = false;
+        panel.style.display = 'none'; state._churnSeriesOpen = false;
         document.removeEventListener('mousedown', closer);
       }), 0); }
       wrap.append(btn, panel);
       return wrap;
     })();
-    const reasonsEl = () => (() => {
+    // Window (zoom) — widen to 36mo/All and the seasonal humps stack up for
+    // YoY reading; drag still pans within the window.
+    const windowSel = el('select', {
+      class: 'rounded-lg border px-2 py-1.5 text-[11px] font-bold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      title: 'How many months are visible at once',
+      onchange: (e) => { state._churnWindow = e.target.value; state._churnPanStart = null; mountApp(); },
+    }, ...[['12', '12 mo'], ['24', '24 mo'], ['36', '36 mo'], ['all', 'All']]
+      .map(([v, l]) => { const o = el('option', { value: v }, l); if (String(state._churnWindow || 'all') === v) o.selected = true; return o; }));
+    const trendBtn = el('button', {
+      class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
+      style: state._churnTrend
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+        : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+      title: 'Overlay a least-squares trendline per series, fit to the visible window',
+      onclick: () => { state._churnTrend = !state._churnTrend; mountApp(); },
+    }, '📈 Trend');
+    const timelineEl = () => (() => {
+      const TOTAL_KEY = '__total__';
+      const selSeries = (Array.isArray(state._churnSeries) && state._churnSeries.length)
+        ? state._churnSeries.filter(k => k === TOTAL_KEY || reasonTotals.some(([r]) => r === k))
+        : [TOTAL_KEY];
       const pad2b = (n) => String(n).padStart(2, '0');
       const seq = [];
       for (let y = minY; y <= curY; y++) for (let m = 1; m <= 12; m++) {
         if (y === curY && m > curM) break;
         const ym = y + '-' + pad2b(m);
         const den = bookAt[ym] || 0;
-        seq.push({ ym, label: MONTHS_S[m - 1] + ' ' + String(y).slice(2), den });
+        seq.push({ ym, label: MONTHS_S[m - 1] + ' ' + String(y).slice(2), den, n: cancelsByYm[ym] || 0 });
       }
       let _first = 0;
       while (_first < seq.length && (seq[_first].den || 0) < 10) _first++;
       if (_first > 0) seq.splice(0, _first);
-      const VISIBLE = Math.min(24, Math.max(6, seq.length));
+      const winPref = state._churnWindow || 'all';
+      const VISIBLE = winPref === 'all' ? Math.max(6, seq.length) : Math.min(Number(winPref) || 24, Math.max(6, seq.length));
       const maxStart = Math.max(0, seq.length - VISIBLE);
       if (state._churnPanStart == null || state._churnPanStart > maxStart) state._churnPanStart = maxStart;
-      const cid = 'chart-churn-reasons-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
-      const palette = ['#DC2626', '#0EA5E9', '#F59E0B', '#A855F7', '#14B8A6', '#EC4899', '#8DC63F', '#F97316', '#6366F1', '#84CC16'];
+      const cid = 'chart-churn-timeline-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
+      const palette = ['#0EA5E9', '#F59E0B', '#A855F7', '#14B8A6', '#EC4899', '#8DC63F', '#F97316', '#6366F1', '#84CC16', '#EF4444'];
       const hint = el('div', { class: 'px-4 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } },
-        '↔ Drag to move through time · each line = that reason\u2019s share of the monthly churn rate · lines sum to the total');
+        '↔ Drag to move through time · showing ' + VISIBLE + ' of ' + seq.length + ' months · reason lines are their share of the monthly rate and sum to the total');
       const wrapEl = el('div', { class: 'px-4 pb-4 pt-1', style: { position: 'relative', height: '280px' } },
         el('canvas', { id: cid, style: { cursor: 'grab', touchAction: 'pan-y' } }));
       setTimeout(() => {
@@ -37560,29 +37867,74 @@ function reportingWaterfall() {
         const txt = isDark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)';
         const grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
         const windowOf = (start) => seq.slice(start, start + VISIBLE);
-        const dsFor = (start) => selReasons.map((r, i) => ({
-          label: r,
-          data: windowOf(start).map(p => p.den >= 10 ? ((reasonsByYm[p.ym] || {})[r] || 0) / p.den : null),
-          borderColor: palette[i % palette.length], backgroundColor: 'transparent',
-          spanGaps: true, tension: 0.3, borderWidth: 2, pointRadius: 2, pointHoverRadius: 5,
-        }));
+        // Least-squares fit over the visible window's non-null points →
+        // a straight dashed line showing the direction of travel.
+        const trendOf = (vals) => {
+          const pts = vals.map((v, x) => [x, v]).filter(([, v]) => v != null);
+          if (pts.length < 3) return null;
+          const n = pts.length;
+          const sx = pts.reduce((a, [x]) => a + x, 0), sy = pts.reduce((a, [, v]) => a + v, 0);
+          const sxx = pts.reduce((a, [x]) => a + x * x, 0), sxy = pts.reduce((a, [x, v]) => a + x * v, 0);
+          const den = n * sxx - sx * sx;
+          if (!den) return null;
+          const m = (n * sxy - sx * sy) / den, b = (sy - m * sx) / n;
+          return { line: vals.map((_, x) => m * x + b), slope: m };
+        };
+        const dsBase = (start) => selSeries.map((key, i) => key === TOTAL_KEY
+          ? {
+              label: 'Total churn',
+              data: windowOf(start).map(p => p.den >= 10 ? p.n / p.den : null),
+              borderColor: '#DC2626', backgroundColor: 'rgba(220,38,38,.10)', fill: selSeries.length === 1,
+              spanGaps: true, tension: 0.3, borderWidth: 2.5, pointRadius: 2, pointHoverRadius: 5, pointHitRadius: 10, order: 0,
+            }
+          : {
+              label: key,
+              data: windowOf(start).map(p => p.den >= 10 ? ((reasonsByYm[p.ym] || {})[key] || 0) / p.den : null),
+              borderColor: palette[i % palette.length], backgroundColor: 'transparent',
+              spanGaps: true, tension: 0.3, borderWidth: 2, pointRadius: 1.5, pointHoverRadius: 5, pointHitRadius: 10, order: 1,
+            });
+        const dsFor = (start) => {
+          const base = dsBase(start);
+          if (!state._churnTrend) return base;
+          const trends = [];
+          base.forEach(d => {
+            const t = trendOf(d.data);
+            if (!t) return;
+            trends.push({
+              label: d.label + ' trend',
+              data: t.line,
+              borderColor: d.borderColor, backgroundColor: 'transparent',
+              borderDash: [5, 5], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 0,
+              fill: false, tension: 0, order: 2, _slope: t.slope,
+            });
+          });
+          return base.concat(trends);
+        };
         const ch = new Chart(cvs.getContext('2d'), {
           type: 'line',
           data: { labels: windowOf(state._churnPanStart).map(p => p.label), datasets: dsFor(state._churnPanStart) },
           options: {
             responsive: true, maintainAspectRatio: false, animation: false,
-            interaction: { mode: 'index', intersect: false },
+            // Tooltip only when the cursor (or a tap) is ON a dot — not
+            // anywhere in the plot. mode stays 'index' so hitting one dot
+            // still shows every series for that month.
+            interaction: { mode: 'index', intersect: true },
             plugins: {
-              legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 }, usePointStyle: true } },
+              legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 }, usePointStyle: true, filter: (item) => !/ trend$/.test(item.text) } },
               tooltip: { callbacks: { label: (ctx) => {
+                if (/ trend$/.test(ctx.dataset.label)) {
+                  const sl = (ctx.dataset._slope || 0) * 100;
+                  return ctx.dataset.label + ': ' + (sl >= 0 ? '▲ +' : '▼ −') + Math.abs(sl).toFixed(3) + ' pts/mo';
+                }
                 const p = windowOf(state._churnPanStart)[ctx.dataIndex];
-                const n = p ? ((reasonsByYm[p.ym] || {})[ctx.dataset.label] || 0) : 0;
-                return ctx.dataset.label + ': ' + (ctx.parsed.y * 100).toFixed(2) + '% (' + n + ' of ' + fmt.int(p ? p.den : 0) + ')';
+                if (!p) return ctx.dataset.label + ': ' + (ctx.parsed.y * 100).toFixed(2) + '%';
+                const n = ctx.dataset.label === 'Total churn' ? p.n : ((reasonsByYm[p.ym] || {})[ctx.dataset.label] || 0);
+                return ctx.dataset.label + ': ' + (ctx.parsed.y * 100).toFixed(2) + '% (' + n + ' of ' + fmt.int(p.den) + ')';
               } } },
             },
             scales: {
               y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => (v * 100).toFixed(1) + '%' } },
-              x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+              x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: VISIBLE > 30 ? 24 : 12 } },
             },
           },
         });
@@ -37602,7 +37954,7 @@ function reportingWaterfall() {
         cvs.addEventListener('pointermove', (e) => {
           if (!dragging) return;
           const pxPerMonth = (ch.chartArea ? (ch.chartArea.right - ch.chartArea.left) : cvs.clientWidth) / VISIBLE;
-          const delta = Math.round((startX - e.clientX) / Math.max(6, pxPerMonth));
+          const delta = Math.round((startX - e.clientX) / Math.max(4, pxPerMonth));
           const next = Math.max(0, Math.min(maxStart, startPan + delta));
           if (next !== state._churnPanStart) { state._churnPanStart = next; repaint(); }
         });
@@ -37620,11 +37972,13 @@ function reportingWaterfall() {
           el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
             'Monthly churn rate = real-attrition cancels ÷ book at month start. The Avg column exposes the seasonal pattern; click any table cell for that month\u2019s reasons.')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          view === 'reasons' ? reasonsDrop : yearsDrop,
+          view === 'timeline' ? seriesDrop : yearsDrop,
+          view === 'timeline' ? windowSel : null,
+          view === 'timeline' ? trendBtn : null,
           viewToggle,
           configInfoBtn('Churn Seasonality',
-            'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history; Overlay plots each selected year Jan–Dec; Timeline is one continuous line across all history — click and drag it forwards/backwards through time. Reasons plots each selected cancellation reason\u2019s monthly contribution to the churn rate (its cancels ÷ book at month start), so the lines are comparable as the book grows and sum to the total rate; pick reasons from the dropdown, drag to pan. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
-      view === 'graph' ? graphEl() : view === 'timeline' ? timelineEl() : view === 'reasons' ? reasonsEl() : tableEl());
+            'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history; Overlay plots each selected year Jan–Dec; Timeline is the continuous month-by-month view — pick series (the total churn rate and/or individual cancellation reasons, whose lines are their share of the monthly rate and sum to the total), set the visible window (12/24/36 months or all history for YoY reading), and click-drag to move through time. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
+      view === 'graph' ? graphEl() : view === 'timeline' ? timelineEl() : tableEl());
   };
 
   // ── START-MONTH COHORTS — the retention side: do customers signed in
@@ -37683,7 +38037,35 @@ function reportingWaterfall() {
               el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Subs'),
               ...HORIZONS.map(h => el('th', { class: 'text-left px-2 py-2 font-semibold' }, h + ' Mo')),
               el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Median lifetime of the subs that churned' }, 'Med Life'))),
-          el('tbody', {}, ...Array.from({ length: 12 }, (_, i) => monthRow(i))))));
+          el('tbody', {},
+            ...Array.from({ length: 12 }, (_, i) => monthRow(i)),
+            // ── ALL row — the whole book pooled, so each horizon column is
+            // the true WEIGHTED average (kept ÷ eligible across every month,
+            // not an average of the monthly averages). ──
+            (() => {
+              const cells = HORIZONS.map(h => {
+                const eligible = rows.filter(r => addM(r.initial_service, h) <= today);
+                if (eligible.length < 25) return el('td', { class: 'px-2 py-2', style: { color: 'var(--text-subtle)' } }, '—');
+                const kept = eligible.filter(r => !r._effCancel || new Date(r._effCancel + 'T00:00') >= addM(r.initial_service, h));
+                const pct = kept.length / eligible.length;
+                return el('td', {
+                  class: 'px-2 py-2 tabular-nums font-black',
+                  style: { background: greenHeat(pct), color: '#111827' },
+                  title: fmt.int(kept.length) + ' of ' + fmt.int(eligible.length) + ' subs (all start months pooled) still active ' + h + ' months in',
+                }, (pct * 100).toFixed(1) + '%');
+              });
+              const churned = rows.filter(r => r._effCancel);
+              const lives = churned.map(r => {
+                const a = new Date(r.initial_service + 'T00:00'), b = new Date(r._effCancel + 'T00:00');
+                return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
+              }).filter(v => v != null).sort((a, b) => a - b);
+              const medLife = lives.length ? lives[Math.floor(lives.length / 2)] : null;
+              return el('tr', { class: 'border-t-2', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+                el('td', { class: 'px-2.5 py-2 font-black' }, 'ALL'),
+                el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, fmt.int(rows.length)),
+                ...cells,
+                el('td', { class: 'px-2 py-2 tabular-nums', style: { color: 'var(--text-muted)' } }, medLife == null ? '—' : medLife.toFixed(1) + ' mo'));
+            })()))));
   };
 
   // ── LTV — lifetime value by segment. LTV = monthly ARPU ÷ monthly churn
@@ -37749,7 +38131,40 @@ function reportingWaterfall() {
     [...offCounts.entries()].sort((a, b) => b[1] - a[1])
       .forEach(([o]) => segs.push({ name: o, s: segStats(rows.filter(r => (r.office_name || '—') === o)) }));
     const money2 = (v) => '$' + Math.round(v).toLocaleString();
-    const bodyRows = segs.map(g => {
+    // Column sort (click a header) — rows re-order WITHIN their section so
+    // Overall / contract / service / office groups stay intact.
+    const _sort = state._ltvSort || null;
+    let segsSorted = segs;
+    if (_sort && _sort.key) {
+      const valFor = (g) => {
+        if (!g.s) return _sort.key === 'name' ? g.name : -Infinity;
+        switch (_sort.key) {
+          case 'name':  return g.name;
+          case 'n':     return g.s.n;
+          case 'arv':   return g.s.avgArv || 0;
+          case 'churn': return g.s.churn == null ? -Infinity : g.s.churn;
+          case 'life':  return g.s.lifeMo == null ? -Infinity : g.s.lifeMo;
+          case 'med':   return g.s.medLife == null ? -Infinity : g.s.medLife;
+          case 'ltv':   return g.s.ltv == null ? -Infinity : g.s.ltv;
+          default: return 0;
+        }
+      };
+      const out = [];
+      let buf = [];
+      const flush = () => {
+        if (!buf.length) return;
+        buf.sort((a, b) => {
+          const va = valFor(a), vb = valFor(b);
+          const c = (typeof va === 'string' || typeof vb === 'string') ? String(va).localeCompare(String(vb)) : (va - vb);
+          return _sort.dir === 'asc' ? c : -c;
+        });
+        out.push(...buf); buf = [];
+      };
+      segs.forEach(g => { if (g.section) { flush(); out.push(g); } else buf.push(g); });
+      flush();
+      segsSorted = out;
+    }
+    const bodyRows = segsSorted.map(g => {
       if (g.section) return el('tr', {}, el('td', { colspan: 7, class: 'px-2.5 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, g.section));
       const s = g.s;
       const small = !s || s.n < 50 || s.bookMonths < 300;
@@ -37766,7 +38181,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, '💎 Lifetime Value by Segment' + (label ? ' — ' + label : '')),
+          el('h3', { class: 'text-sm font-bold' }, '💎 LTV' + (label ? ' — ' + label : '')),
           el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
             'LTV = (avg ARV ÷ 12) × implied lifetime, where implied lifetime = 1 ÷ trailing-24-month monthly churn.')),
         configInfoBtn('Lifetime Value',
@@ -37775,7 +38190,16 @@ function reportingWaterfall() {
         el('table', { class: 'w-full text-xs' },
           el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
             el('tr', {},
-              ...['Segment', 'Subs', 'Avg ARV', 'Mo Churn', 'Implied Life', 'Med Life (churned)', 'LTV'].map((h, i) => el('th', { class: 'text-left py-2 font-semibold ' + (i === 0 ? 'px-2.5' : 'px-2') }, h)))),
+              ...[['name', 'Segment'], ['n', 'Subs'], ['arv', 'Avg ARV'], ['churn', 'Mo Churn'], ['life', 'Implied Life'], ['med', 'Med Life (churned)'], ['ltv', 'LTV']].map(([k, h], i) => el('th', {
+                class: 'text-left py-2 font-semibold cursor-pointer select-none hover:text-default ' + (i === 0 ? 'px-2.5' : 'px-2'),
+                style: (_sort && _sort.key === k) ? { color: 'var(--accent)', fontWeight: '800' } : {},
+                title: 'Sort by ' + h + ' (within each section)',
+                onclick: () => {
+                  const cur = state._ltvSort || {};
+                  state._ltvSort = { key: k, dir: cur.key === k ? (cur.dir === 'desc' ? 'asc' : 'desc') : (k === 'name' ? 'asc' : 'desc') };
+                  mountApp();
+                },
+              }, h)))),
           el('tbody', {}, ...bodyRows))));
   };
 

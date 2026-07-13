@@ -621,7 +621,13 @@ exports.handler = async (event) => {
       // against prior runs. Auto rows: logged_by NULL + a notes marker, and
       // they arrive pre-CRM-verified since they're born from the CRM.
       try {
-        const START = process.env.INSIDE_AUTOADD_START || '2026-07-14';
+        // AUTO-ADD DISABLED (Jul 2026 reversal): reps manually log every sale
+        // again — the manual log is the commission record of the ORIGINAL
+        // contract, and CRM subscriptions mutate later (technician upsells)
+        // which would overpay commissions. The pipeline stays wired: set
+        // INSIDE_AUTOADD_START (YYYY-MM-DD) in Netlify env to re-enable.
+        const START = process.env.INSIDE_AUTOADD_START || '';
+        if (!START) throw Object.assign(new Error('auto-add disabled (no INSIDE_AUTOADD_START)'), { _skip: true });
         const EXCLUDED_SVCS = new Set(['ACH Chargeback', 'Early Cancellation Fee', 'German Roach Initial', 'Rodent Station Removal']);
         const masterOf = new Map();
         roster.forEach(e => String(e.employee_ids || e.employee_id || '').split(',').forEach(id => { const t = id.trim(); if (t) masterOf.set(t, String(e.employee_id)); }));
