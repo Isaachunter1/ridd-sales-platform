@@ -13868,6 +13868,10 @@ const INDICATOR_METRICS = [
   { key: 'multi_year_pct', label: 'Multi Year %',     fmt: v => (v * 100).toFixed(1) + '%' },
   { key: 'auto_pay_pct',   label: 'Auto Pay %',       fmt: v => (v * 100).toFixed(1) + '%' },
   { key: 'audit_pct',      label: 'Audit %',          fmt: v => (v * 100).toFixed(1) + '%' },
+  // Last Resort % — accounts with an initial under $99 ÷ all accounts. A
+  // pricing-quality signal for the Sales Rep dept only; like Audit %, it is
+  // context, NOT a Power Ranking scorer.
+  { key: 'last_resort_pct', label: 'Last Resort %',    fmt: v => (v * 100).toFixed(1) + '%' },
 ];
 
 // EXACT calculation breakdown for each Power-Ranking-table row, built live
@@ -13914,6 +13918,7 @@ function indicatorMetricHelp(key) {
     multi_year_pct: 'COUNT(contract LONGER than 12 months) ÷ [COUNT(contract = 12 months) + COUNT(contract longer than 12)]. Sales with any other term (0, blank, month-to-month) are excluded from BOTH numerator and denominator.',
     auto_pay_pct:   'COUNT(Auto-Pay field set and not "No") ÷ Sold Accounts.',
     audit_pct:      'COUNT(accounts NOT flagged "Failed Audit" in Customer Flags) ÷ Sold Accounts. Passed, No Audit, and not-yet-audited accounts all count as good.',
+    last_resort_pct:'COUNT(accounts with Initial Service Price under $99) ÷ Sold Accounts. A pricing-quality signal — context only, NOT scored for Power Rank.',
     reps:           'COUNT of unique rep names with at least one in-scope sale. Context only — NOT scored for Power Rank; used as the denominator for PRA.',
     _points:        'Each group is ranked 1–N on the 7 scored rows (Sold Accounts, Revenue, Avg Initial, ACV, PRA, Multi-Year %, Auto-Pay %). Power Rank = SUM of those 7 ranks; lowest total = #1. Reps W/ A Sale is NOT scored. Ties keep their summed totals.',
   };
@@ -19275,6 +19280,7 @@ function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, 
     const twelveMonth = ss.filter(s => Number(s.contract) === 12).length;
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
     const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
+    const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
     const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
     const meta = weekMeta[g.week] || {};
     return {
@@ -19288,6 +19294,7 @@ function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, 
       avg_initial_count: pest.length,
       auto_pay_pct: count > 0 ? autoPayCount / count : 0,
       audit_fail: auditFail, // accounts flagged Failed Audit (for Audit % rollups)
+      last_resort: lastResort, // accounts with initial < $99 (for Last Resort % rollups)
       multi_years: multiYears,
       twelve_month: twelveMonth,
       reps: uniqueReps,
@@ -19323,6 +19330,7 @@ function aggregateRawSalesByBucket(rawSales, getGroupKey, buckets, applyExclusio
     const twelveMonth = ss.filter(s => Number(s.contract) === 12).length;
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
     const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
+    const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
     const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
     return {
       week: g.week,
@@ -19335,6 +19343,7 @@ function aggregateRawSalesByBucket(rawSales, getGroupKey, buckets, applyExclusio
       avg_initial_count: pest.length,
       auto_pay_pct: count > 0 ? autoPayCount / count : 0,
       audit_fail: auditFail, // accounts flagged Failed Audit (for Audit % rollups)
+      last_resort: lastResort, // accounts with initial < $99 (for Last Resort % rollups)
       multi_years: multiYears,
       twelve_month: twelveMonth,
       reps: uniqueReps,
@@ -20732,6 +20741,7 @@ function viewIndicators() {
       // Audit % = accounts NOT flagged "Failed Audit" ÷ all accounts. Without
       // this the range view left audit_pct undefined → the column rendered NaN%.
       const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
+      const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
       const reps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
       branchData[b] = {
         sold_accounts: count,
@@ -20745,6 +20755,7 @@ function viewIndicators() {
         multi_year_pct: (twelve + multi) > 0 ? multi / (twelve + multi) : 0,
         auto_pay_pct: count > 0 ? autoPayCount / count : 0,
         audit_pct: count > 0 ? (count - auditFail) / count : 0,
+        last_resort_pct: count > 0 ? lastResort / count : 0,
         reps,
       };
       return;
@@ -20786,6 +20797,7 @@ function viewIndicators() {
     const autoPay = rows.reduce((a, r) => a + r.auto_pay_pct * r.sold_accounts, 0) / (sold || 1);
     // Audit % = accounts NOT flagged Failed Audit ÷ all accounts in window.
     const auditFail = rows.reduce((a, r) => a + (r.audit_fail || 0), 0);
+    const lastResort = rows.reduce((a, r) => a + (r.last_resort || 0), 0);
     // Multi Year % = count(18+24 month) / count(12+18+24 month contracts)
     const contractTotal = twelve + multi;
     branchData[b] = {
@@ -20800,6 +20812,7 @@ function viewIndicators() {
       multi_year_pct: contractTotal > 0 ? multi / contractTotal : 0,
       auto_pay_pct: autoPay,
       audit_pct: sold > 0 ? (sold - auditFail) / sold : 0,
+      last_resort_pct: sold > 0 ? lastResort / sold : 0,
       reps: reps,
     };
   });
@@ -20827,7 +20840,7 @@ function viewIndicators() {
       riddTotal[m.key] = totalW > 0
         ? activeBranches.reduce((a, b) => a + (branchData[b]?.avg_initial || 0) * weightOf(b), 0) / totalW
         : 0;
-    } else if (m.key === 'auto_pay_pct' || m.key === 'appruv_pct' || m.key === 'multi_year_pct' || m.key === 'audit_pct') {
+    } else if (m.key === 'auto_pay_pct' || m.key === 'appruv_pct' || m.key === 'multi_year_pct' || m.key === 'audit_pct' || m.key === 'last_resort_pct') {
       const totalSold = activeBranches.reduce((a, b) => a + (branchData[b]?.sold_accounts || 0), 0);
       riddTotal[m.key] = totalSold > 0
         ? activeBranches.reduce((a, b) => a + (branchData[b]?.[m.key] || 0) * (branchData[b]?.sold_accounts || 0), 0) / totalSold
@@ -20867,7 +20880,7 @@ function viewIndicators() {
   // Audit % is shown in the table for context but intentionally NOT scored —
   // it's a quality flag, not a selling-effectiveness signal, so it shouldn't
   // move a branch/team up or down the Power Ranking.
-  const POWER_RANKING_METRICS = INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue' && m.key !== 'audit_pct');
+  const POWER_RANKING_METRICS = INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue' && m.key !== 'audit_pct' && m.key !== 'last_resort_pct');
   const worstRank = rankableBranches.length;
   const totalPoints = {};
   rankableBranches.forEach(b => {
@@ -21696,8 +21709,8 @@ function viewIndicators() {
       const _deptT = state.indicatorDept || 'all';
       const tableMetrics = INDICATOR_METRICS.filter(m => {
         if (m.key === 'new_revenue' || m.key === 'renewal_revenue') return _deptT === 'office';
-        // Audit % only appears on the Sales Rep tab — hidden for All, Office, Technician.
-        if (m.key === 'audit_pct') return _deptT === 'd2d';
+        // Audit % + Last Resort % only appear on the Sales Rep tab — hidden for All, Office, Technician.
+        if (m.key === 'audit_pct' || m.key === 'last_resort_pct') return _deptT === 'd2d';
         if (_deptT === 'office' && m.key === 'pra') return false;
         return true;
       });
@@ -25549,6 +25562,7 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
     const twelveMonth = ss.filter(s => s.contract === 12).length; // 12 month contracts
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
     const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
+    const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
     const uniqueReps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
 
     // Date label for this week
@@ -25568,6 +25582,8 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
       avg_initial: avgInit,
       avg_initial_count: avgInitCount, // # of accounts the avg was computed over (Sentricon excluded)
       auto_pay_pct: count > 0 ? autoPayCount / count : 0,
+      audit_fail: auditFail,
+      last_resort: lastResort,
       multi_years: multiYears,
       twelve_month: twelveMonth,
       reps: uniqueReps,
@@ -29662,7 +29678,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
         rankBranches.forEach(b => pts[b] = 0);
         // Audit % excluded from scoring (shown in the table only) — keep this in
         // lockstep with POWER_RANKING_METRICS so the trend matches the table.
-        INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue' && m.key !== 'audit_pct').forEach(m => {
+        INDICATOR_METRICS.filter(m => m.key !== 'reps' && m.key !== 'new_revenue' && m.key !== 'renewal_revenue' && m.key !== 'audit_pct' && m.key !== 'last_resort_pct').forEach(m => {
           const sorted = rankBranches.slice().sort((a, b) => (weekData[b]?.[m.key] || 0) - (weekData[a]?.[m.key] || 0));
           sorted.forEach((b, i) => { pts[b] += i + 1; });
         });

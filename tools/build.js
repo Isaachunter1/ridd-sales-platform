@@ -26,9 +26,12 @@ fs.writeFileSync(path.join(root, hashedName), src);
 const htmlPath = path.join(root, 'index.html');
 let html = fs.readFileSync(htmlPath, 'utf8');
 const before = html;
-html = html.replace('<script type="module" src="app.js"></script>',
+// Idempotent: match the pristine src="app.js" tag OR a hashed reference a
+// previous local build left behind (committing a locally-built index.html
+// once took the Netlify build down — the exact-string replace found nothing).
+html = html.replace(/<script type="module" src="app(?:-[0-9a-f]{8}\.immutable)?\.js"><\/script>/,
                     `<script type="module" src="${hashedName}"></script>`);
-if (html === before) {
+if (html === before && !html.includes(`src="${hashedName}"`)) {
   console.error('[build] FATAL: app.js script tag not found in index.html — reference not rewritten');
   process.exit(1);
 }
