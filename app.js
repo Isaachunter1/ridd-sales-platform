@@ -18385,7 +18385,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
           el('div', { style: { fontWeight: '900', fontSize: '30px', letterSpacing: '-0.02em', color: '#141414', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
           el('div', { style: { fontWeight: '800', fontSize: '10.5px', letterSpacing: '0.06em', color: '#141414', marginTop: '3px', textTransform: 'uppercase' } },
             'Team Quality Based Competition by RIDDMADE™'),
-          el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: '#1b5e20', color: '#fff', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, '📅 ' + indicatorCompWindowStr()),
+          indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: '#1b5e20', color: '#fff', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, '📅 ' + indicatorCompWindowStr()),
           indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#3a5a2a', marginTop: '4px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
         ),
         el('div', { class: 'sc-sweep-track', title: 'Sweepin\' up' },
@@ -18733,7 +18733,7 @@ function indicatorTopGunBoard(sales, proSet) {
               onclick: () => openTopGunHelpModal(),
             }, 'ⓘ'),
           ),
-          el('div', { style: { display: 'inline-block', padding: '3px 10px', borderRadius: '999px', background: CREAM, color: BLUE, fontWeight: '900', fontSize: '11px', letterSpacing: '0.02em', whiteSpace: 'nowrap' } }, '📅 ' + indicatorCompWindowStr()),
+          indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', padding: '3px 10px', borderRadius: '999px', background: CREAM, color: BLUE, fontWeight: '900', fontSize: '11px', letterSpacing: '0.02em', whiteSpace: 'nowrap' } }, '📅 ' + indicatorCompWindowStr()),
         ),
       ),
     ),
@@ -22458,7 +22458,7 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
             el('div', {},
               el('div', { style: { fontWeight: '900', fontSize: '20px', letterSpacing: '-0.01em', color: '#1D1D1D', textTransform: 'uppercase', lineHeight: '1' } }, 'Avg Pest Initial Competitions'),
               el('div', { style: { fontWeight: '800', fontSize: '10px', letterSpacing: '0.08em', color: '#1D1D1D', opacity: '0.8', marginTop: '3px', textTransform: 'uppercase' } }, 'Door-to-Door · by RIDDMADE™'),
-              el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: '#1D1D1D', color: '#8DC63F', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, '📅 ' + indicatorCompWindowStr()),
+              indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: '#1D1D1D', color: '#8DC63F', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, '📅 ' + indicatorCompWindowStr()),
               indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#1D1D1D', opacity: '0.7', marginTop: '3px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
             ),
           ),
@@ -24987,12 +24987,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // never push the page wider than the screen on mobile.
       el('div', { class: 'scroll-x' }, el('div', { style: { minWidth: '860px' } },
       // Header row
-      el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold mb-1.5' },
+      el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5' },
         el('div', { class: 'w-[200px] sm:w-[240px] shrink-0' }, 'Subscription'),
-        el('div', { class: 'flex-1', style: { maxWidth: '160px' } }),
-        el('div', { class: 'w-12 text-right shrink-0' }, 'Count'),
+        el('div', { class: 'flex-1' }),   // bar track stretches with the card now — no dead gutter
+        el('div', { class: 'w-14 text-right shrink-0' }, 'Count'),
         el('div', { class: 'w-14 text-right shrink-0' }, '% Mix'),
-        el('div', { class: 'w-20 text-right shrink-0' }, 'Revenue'),
+        el('div', { class: 'w-24 text-right shrink-0' }, 'Revenue'),
         el('div', { class: 'w-16 text-right shrink-0' }, 'ACV'),
         el('div', { class: 'w-16 text-right shrink-0', title: 'Average initial price' }, 'Avg Init'),
         el('div', { class: 'w-12 text-right shrink-0', title: 'Multi-year share of contract sales' }, 'MY %'),
@@ -25001,24 +25001,29 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       ),
       topSubscriptions.length === 0
         ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, 'No accounts in this office.')
-        : el('div', { class: 'flex flex-col gap-1.5' },
-            ...topSubscriptions.map((s, i) => {
-              const barWidth = (s.share * 100).toFixed(1);
-              return el('div', { class: 'flex items-center gap-3 text-xs' },
+        : el('div', { class: 'flex flex-col' },
+            ...(() => {
+              // Bars scale to the BIGGEST subscription (relative), so the #1
+              // row runs full width and the rest read proportionally — the
+              // absolute-share bars were near-invisible slivers.
+              const maxShare = topSubscriptions.reduce((m, s) => Math.max(m, s.share), 0.0001);
+              return topSubscriptions.map((s, i) => el('div', {
+                class: 'flex items-center gap-3 text-xs py-1.5 transition hover:brightness-95 rounded' + (i > 0 ? ' border-t border-' : ''),
+              },
                 el('div', { class: 'w-[200px] sm:w-[240px] truncate font-medium shrink-0', title: s.name }, s.name),
-                el('div', { class: 'flex-1 h-2.5 rounded-full overflow-hidden', style: { background: 'var(--border)', maxWidth: '160px' } },
-                  el('div', { style: { width: barWidth + '%', height: '100%', background: 'var(--accent)', borderRadius: '999px', transition: 'width .3s' } }),
+                el('div', { class: 'flex-1 h-2 rounded-full overflow-hidden', style: { background: 'var(--card-2)' } },
+                  el('div', { style: { width: Math.max(1.5, s.share / maxShare * 100) + '%', height: '100%', background: 'var(--accent)', borderRadius: '999px', opacity: String(0.45 + 0.55 * (s.share / maxShare)), transition: 'width .3s' } }),
                 ),
-                el('div', { class: 'w-12 text-right tabular-nums font-semibold shrink-0' }, fmt.int(s.count)),
+                el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0' }, fmt.int(s.count)),
                 el('div', { class: 'w-14 text-right tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, (s.share * 100).toFixed(1) + '%'),
-                el('div', { class: 'w-20 text-right tabular-nums text-muted- shrink-0' }, fmt.usd0(s.revenue)),
-                el('div', { class: 'w-16 text-right tabular-nums shrink-0' }, s.acv > 0 ? fmt.usd0(s.acv) : '—'),
-                el('div', { class: 'w-16 text-right tabular-nums shrink-0' }, s.avgInit > 0 ? fmt.usd0(s.avgInit) : '—'),
-                el('div', { class: 'w-12 text-right tabular-nums shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%'),
-                el('div', { class: 'w-14 text-right tabular-nums shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—'),
+                el('div', { class: 'w-24 text-right tabular-nums shrink-0 font-semibold' }, fmt.usd0(s.revenue)),
+                el('div', { class: 'w-16 text-right tabular-nums text-muted- shrink-0' }, s.acv > 0 ? fmt.usd0(s.acv) : '—'),
+                el('div', { class: 'w-16 text-right tabular-nums text-muted- shrink-0' }, s.avgInit > 0 ? fmt.usd0(s.avgInit) : '—'),
+                el('div', { class: 'w-12 text-right tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%'),
+                el('div', { class: 'w-14 text-right tabular-nums text-muted- shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—'),
                 el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0', style: { color: s.attr >= 0.10 ? '#DC2626' : s.attr >= 0.05 ? '#D97706' : '#5F8A1F' } }, (s.attr * 100).toFixed(1) + '%'),
-              );
-            }),
+              ));
+            })(),
           ),
       )),
     ),
@@ -29118,6 +29123,7 @@ function indicatorYoYTrendChart() {
         }), 0); }
       },
     }, gran === 'year' ? 'Years · all' : (gran === 'month' ? 'Months' : 'Weeks') + ' · ' + _yoySelYears.length + 'y', el('span', { style: { fontSize: '9px' } }, state._yoyYearsOpen ? '▴' : '▾'));
+    // (value text kept as-is — the fixed "View" label is added at render)
     if (state._yoyYearsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
       if (wrap.contains(ev.target)) return;
@@ -29172,8 +29178,8 @@ function indicatorYoYTrendChart() {
         },
       }, 'Apply')));
     const label = _yoySelTiers.length === 1 && _yoySelTiers[0] === 'all'
-      ? 'Type · All'
-      : 'Type · ' + _yoySelTiers.map(t => (YOY_TIERS.find(x => x[0] === t) || [])[1] || t).join(' + ');
+      ? 'All'
+      : _yoySelTiers.map(t => (YOY_TIERS.find(x => x[0] === t) || [])[1] || t).join(' + ');
     const btn = el('button', {
       class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer border flex items-center gap-1.5',
       style: _tierSplit
@@ -29277,9 +29283,9 @@ function indicatorYoYTrendChart() {
         },
       }, 'Apply')));
     const multi = _yoySelScopes.length > 1 || _yoySelScopes[0].t !== 'co';
-    const label = !multi ? 'Scope · Company'
-      : _yoySelScopes.length === 1 ? 'Scope · ' + _scopeLabelOf(_yoySelScopes[0])
-      : 'Scope · ' + _yoySelScopes.length;
+    const label = !multi ? 'Company'
+      : _yoySelScopes.length === 1 ? _scopeLabelOf(_yoySelScopes[0])
+      : _yoySelScopes.length + ' selected';
     const btn = el('button', {
       class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer border flex items-center gap-1.5',
       style: multi
@@ -29453,7 +29459,13 @@ function indicatorYoYTrendChart() {
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
       el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'YTD Performance Trends' : 'Performance Trends'),
-      el('div', { class: 'flex items-center gap-2 flex-wrap' }, scopesWrap, tiersWrap, yearsWrap, metricSel)),
+      (() => {
+        const _lbl = (text, node) => node && el('div', { class: 'flex items-center gap-1.5' },
+          el('span', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, text),
+          node);
+        return el('div', { class: 'flex items-center gap-3 flex-wrap' },
+          _lbl('Scope', scopesWrap), _lbl('Type', tiersWrap), _lbl('View', yearsWrap), _lbl('Metric', metricSel));
+      })()),
     cvsWrap);
 }
 
