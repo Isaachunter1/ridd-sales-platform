@@ -37913,12 +37913,20 @@ function reportingWaterfall() {
                 // book views it's "share of everything this row ever had
                 // still active at that year-end". Hover = step attrition.
                 const cohortBase = row.total;
+                // The inline % is the STEP ATTRITION vs the prior year-end
+                // (per Isaac — "attrition on the BOY cohort"); the share of
+                // the cohort still active moved into the hover.
                 let stepTitle = '';
+                let stepPct = null;
                 if (cohortBase && (mode === 'subscription' || mode === 'arv' || cohortSel !== 'all')) {
                   const firstYear = (mode === 'subscription' || mode === 'arv') ? Number(row.id) : Number(cohortSel);
                   if (y >= firstYear) {
                     const prev = y === firstYear ? row.total : (row.byYear[y - 1] || 0);
-                    if (prev) stepTitle = ((1 - v / prev) * 100).toFixed(1) + '% attrition vs prior year — ' + fmtCell(v) + ' of ' + fmtCell(prev) + ' retained';
+                    if (prev) {
+                      stepPct = (1 - v / prev) * 100;
+                      stepTitle = stepPct.toFixed(1) + '% attrition vs prior year — ' + fmtCell(v) + ' of ' + fmtCell(prev) + ' retained'
+                        + (v > 0 ? ' · ' + Math.round(v / cohortBase * 100) + '% of the original cohort still active' : '');
+                    }
                   }
                 }
                 const _bg = cellColor(row, v);
@@ -37927,7 +37935,10 @@ function reportingWaterfall() {
                   style: _bg === 'transparent' ? {} : { background: _bg, color: '#111827', fontWeight: '600' },
                   title: stepTitle,
                 }, fmtCell(v),
-                  (cohortBase > 0 && v > 0) ? el('span', { style: { fontSize: '9px', opacity: '.65', marginLeft: '4px' } }, Math.round(v / cohortBase * 100) + '%') : null);
+                  stepPct != null && v > 0
+                    ? el('span', { style: { fontSize: '9px', marginLeft: '4px', fontWeight: '700', color: stepPct > 0 ? '#B91C1C' : '#1b7f3b', opacity: '.85' } },
+                        (stepPct >= 0 ? '−' : '+') + Math.abs(stepPct).toFixed(1) + '%')
+                    : (cohortBase > 0 && v > 0) ? el('span', { style: { fontSize: '9px', opacity: '.65', marginLeft: '4px' } }, Math.round(v / cohortBase * 100) + '%') : null);
               }),
             )),
             // ── TOTAL row ──
