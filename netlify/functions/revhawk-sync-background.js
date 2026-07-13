@@ -385,8 +385,15 @@ exports.handler = async (event) => {
     const started = Date.now();
     const token = await getAccessToken();
     await discoverOffices(token);   // new branches join OFFICE_NAMES before the big pull
-    const { schema, rows } = await runQuery(token, buildSQL());
-    const objects = toObjects(schema, rows);
+    // MEMORY: BigQuery's raw REST rows (~90k × verbose {f:[{v:..}]} cells)
+    // are 2-3× the size of the parsed objects and were pinned for the WHOLE
+    // run — the function sat at ~800MB before the derive even started and
+    // got OOM-killed mid-flight. Parse, then drop the raw response so GC
+    // reclaims it before the heavy stages.
+    let _q = await runQuery(token, buildSQL());
+    const objects = toObjects(_q.schema, _q.rows);
+    _q = null;
+    if (global.gc) { try { global.gc(); } catch (e) { /* not exposed */ } }
     if (!objects.length) return { statusCode: 200, body: JSON.stringify({ ok: false, note: 'query returned 0 rows — nothing written' }) };
 
     // Slim the payload before shipping: drop null/empty values (readers all
