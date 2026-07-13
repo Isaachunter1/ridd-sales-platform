@@ -2837,6 +2837,24 @@ window.addEventListener('unhandledrejection', (e) => {
   _reportClientError(r.message || String(e.reason), r.stack);
 });
 
+// ── DESKTOP ZOOM/PAN LOCK — the app is an app, not a document ───────────
+// Mobile pinch-zoom is already off (viewport meta + touch-action). Desktop
+// still zoomed via trackpad pinch (delivered as ctrl+wheel), Safari gesture
+// events, and Cmd/Ctrl +/−/0. All blocked here — EXCEPT inside a Leaflet
+// map, where pinch/scroll zoom is the whole point.
+(() => {
+  const inMap = (t) => !!(t && t.closest && t.closest('.leaflet-container'));
+  window.addEventListener('wheel', (e) => {
+    if (e.ctrlKey && !inMap(e.target)) e.preventDefault();   // trackpad pinch / ctrl+scroll zoom
+  }, { passive: false });
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(t =>
+    window.addEventListener(t, (e) => { if (!inMap(e.target)) e.preventDefault(); }, { passive: false }));
+  window.addEventListener('keydown', (e) => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (['+', '-', '=', '_', '0'].includes(e.key)) e.preventDefault();  // keyboard browser zoom
+  });
+})();
+
 function mountError(err) {
   _reportClientError('mountError: ' + (err && err.message || err), err && err.stack);
   mount(el('div', { class: 'min-h-screen flex items-center justify-center p-6' },
@@ -32245,6 +32263,85 @@ function openReportingArrCombineModal(data, chartTitle) {
   document.body.append(overlay);
 }
 
+// ── AREA REPORT CARD (per Isaac) — clicking a ZIP/county leads with "how
+// does this area COMPARE": each metric's value, rank among peers, and a
+// percentile bar, plus a best/worst read at a glance. The raw customer
+// table is behind the button at the bottom.
+function openReportingAreaStatsModal({ area, peers, kind }) {
+  const label = kind === 'County' ? ((area.county || 'Unknown') + ' County') : ('ZIP ' + area.zip);
+  const title = label + (area.state ? ' · ' + area.state : '');
+  const peerNoun = kind === 'County' ? 'counties' : 'ZIPs';
+  const all = (peers && peers.length ? peers : [area]);
+  const METRICS = [
+    { label: 'Customers',        val: (a) => a.customers,   fmt: (v) => fmt.int(v),   better: 'high' },
+    { label: 'Subscriptions',    val: (a) => a.subs,        fmt: (v) => fmt.int(v),   better: 'high' },
+    { label: 'Total ARV',        val: (a) => a.arv,         fmt: (v) => fmt.usd0(v),  better: 'high' },
+    { label: 'Contract revenue', val: (a) => a.contract,    fmt: (v) => fmt.usd0(v),  better: 'high' },
+    { label: 'ACV',              val: (a) => a.avgContract, fmt: (v) => fmt.usd0(v),  better: 'high' },
+    { label: 'Retention',        val: (a) => a.attritionEligible ? (1 - a.cancelRate) : null, fmt: (v) => (v * 100).toFixed(1) + '%', better: 'high' },
+    { label: 'Attrition',        val: (a) => a.attritionEligible ? a.cancelRate : null,       fmt: (v) => (v * 100).toFixed(1) + '%', better: 'low' },
+  ];
+  const rowsEls = [];
+  const pcts = [];
+  METRICS.forEach(m => {
+    const mine = m.val(area);
+    const eligible = all.filter(a => m.val(a) != null);
+    if (mine == null || eligible.length < 2) {
+      rowsEls.push(el('div', { class: 'py-2 border-t border- flex items-center justify-between gap-3 text-xs' },
+        el('span', { class: 'font-semibold' }, m.label),
+        el('span', { style: { color: 'var(--text-subtle)' } }, mine == null ? '< 10 subs — not rated' : m.fmt(mine))));
+      return;
+    }
+    const sorted = eligible.map(a => m.val(a)).sort((a, b) => m.better === 'low' ? a - b : b - a);
+    const rank = sorted.findIndex(v => v === mine) + 1;
+    const pct = eligible.length > 1 ? (eligible.length - rank) / (eligible.length - 1) : 1;
+    pcts.push(pct);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const tone = pct >= 0.67 ? '#5F8A1F' : pct <= 0.33 ? '#DC2626' : '#B45309';
+    rowsEls.push(el('div', { class: 'py-2 border-t border-' },
+      el('div', { class: 'flex items-center justify-between gap-3 text-xs' },
+        el('span', { class: 'font-semibold' }, m.label),
+        el('span', { class: 'tabular-nums' },
+          el('b', {}, m.fmt(mine)),
+          el('span', { style: { color: 'var(--text-muted)' } }, '  ·  median ' + m.fmt(median)))),
+      el('div', { class: 'flex items-center gap-2 mt-1' },
+        el('div', { class: 'flex-1 rounded-full overflow-hidden', style: { height: '4px', background: 'var(--card-2)' } },
+          el('div', { style: { width: Math.max(2, pct * 100) + '%', height: '100%', background: tone } })),
+        el('span', { class: 'text-[10px] font-bold tabular-nums whitespace-nowrap', style: { color: tone } },
+          '#' + rank + ' of ' + eligible.length))));
+  });
+  const avgPct = pcts.length ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
+  const standing = avgPct == null ? null
+    : avgPct >= 0.8 ? ['One of your best ' + peerNoun, '#5F8A1F']
+    : avgPct >= 0.55 ? ['Above the pack', '#5F8A1F']
+    : avgPct >= 0.45 ? ['Middle of the pack', '#B45309']
+    : avgPct >= 0.2 ? ['Below the pack', '#B45309']
+    : ['One of your weakest ' + peerNoun, '#DC2626'];
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const card = el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
+      el('div', {},
+        el('h2', { class: 'text-base font-bold' }, title),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
+          'vs ' + all.length.toLocaleString() + ' ' + peerNoun + ' in this view · bars = percentile (right = best)'),
+        standing && el('div', { class: 'text-[11px] font-bold mt-1', style: { color: standing[1] } },
+          (avgPct >= 0.5 ? '▲ ' : '▼ ') + standing[0] + ' — better than ' + Math.round(avgPct * 100) + '% overall')),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+    el('div', { class: 'px-4 pb-2 overflow-y-auto' }, ...rowsEls),
+    el('div', { class: 'p-4 pt-2' },
+      el('button', {
+        class: 'w-full rounded-xl px-4 py-2.5 text-xs font-bold border transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        onclick: () => {
+          overlay.remove();
+          openReportingDrillModal({ chartTitle: title, sliceLabel: label, rows: area.rows || [], formatValue: fmt.usd0 });
+        },
+      }, 'View all ' + (area.rows || []).length.toLocaleString() + ' customers →')));
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
 function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) {
   const overlay = el('div', { class: 'modal-overlay' });
   const closeKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeKey); } };
@@ -35619,7 +35716,15 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
   const byZip = new Map();
   for (const z of zipsInState) byZip.set(String(z.zip), z);
 
-  loadReportingZipGeo(stateCode).then(geo => {
+  // Branches cross state lines (Savannah = GA+SC, Myrtle Beach = SC+NC), so
+  // the drill may carry neighbor-state ZIPs — load every state present and
+  // merge the boundary files into one layer.
+  const _geoStates = [...new Set(zipsInState.map(z => z.state))].filter(s => REPORTING_STATE_CODE_TO_NAME[s]);
+  if (REPORTING_STATE_CODE_TO_NAME[stateCode] && !_geoStates.includes(stateCode)) _geoStates.unshift(stateCode);
+  Promise.all(_geoStates.map(loadReportingZipGeo)).then(_parts => {
+    const _feats = [];
+    _parts.forEach(g => { if (g && g.features) _feats.push(...g.features); });
+    const geo = _feats.length ? { type: 'FeatureCollection', features: _feats } : null;
     if (!geo) {
       container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;gap:6px;"><div>ZIP boundary data unavailable for this state.</div><div style="font-size:11px;">Fall back to the table below for ZIP-level breakdowns.</div></div>';
       return;
@@ -35740,11 +35845,16 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
   }).addTo(map);
   setTimeout(() => { try { map.invalidateSize(); } catch (e) { /* torn down */ } }, 400);
 
-  // Normalized county name → aggregate, for this state only.
+  // Keyed on state-FIPS + normalized name — the drill can include
+  // neighbor-state counties (cross-border branches) and county names
+  // repeat across states (every state has a Washington).
   const byCounty = new Map();
-  for (const c of countiesInState) byCounty.set(reportingNormCounty(c.county), c);
+  const _cKey = (fips, name) => (fips || '??') + '|' + reportingNormCounty(name);
+  for (const c of countiesInState) byCounty.set(_cKey(REPORTING_STATE_CODE_TO_FIPS[c.state], c.county), c);
 
   const stateFips = REPORTING_STATE_CODE_TO_FIPS[stateCode];
+  const _drillFips = new Set(countiesInState.map(c => REPORTING_STATE_CODE_TO_FIPS[c.state]).filter(Boolean));
+  if (stateFips) _drillFips.add(stateFips);
 
   loadReportingCountyGeo().then(geo => {
     if (!geo || !geo.features) {
@@ -35755,8 +35865,8 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
     // Filter the national file down to this state's counties so the layer
     // is small and name collisions across states can't happen.
     const featureState = (f) => (f.properties && f.properties.STATE) || String(f.id || '').slice(0, 2);
-    const stateFeatures = stateFips
-      ? geo.features.filter(f => featureState(f) === stateFips)
+    const stateFeatures = _drillFips.size
+      ? geo.features.filter(f => _drillFips.has(featureState(f)))
       : geo.features;
     const fc = { type: 'FeatureCollection', features: stateFeatures };
 
@@ -35779,7 +35889,7 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
 
     const layer = L.geoJSON(fc, {
       style: (feature) => {
-        const c = byCounty.get(reportingNormCounty(feature.properties.NAME));
+        const c = byCounty.get(_cKey(featureState(feature), feature.properties.NAME));
         const isHighlight = normalizedTarget && reportingNormCounty(feature.properties.NAME) === normalizedTarget;
         const v = countyMetricFor(c);
         return {
@@ -35792,7 +35902,7 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
       onEachFeature: (feature, layerObj) => {
         const name = feature.properties.NAME || 'County';
         const norm = reportingNormCounty(name);
-        const c = byCounty.get(norm);
+        const c = byCounty.get(_cKey(featureState(feature), name));
         const isHighlight = normalizedTarget && norm === normalizedTarget;
         if (isHighlight) highlightedPolygon = layerObj;
         if (!c) {
@@ -35827,7 +35937,12 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
     // Same zip-based service boundary, overlaid on the county view. Needs the
     // ZIP geometry (counties don't carry it), so we pull the state's ZIP geo.
     if (serviceZips && serviceZips.size) {
-      loadReportingZipGeo(stateCode).then(zipGeo => drawReportingServiceBoundary(map, zipGeo, serviceZips));
+      const _bStates = [..._drillFips.size ? new Set(countiesInState.map(c => c.state)) : new Set([stateCode])].filter(s => REPORTING_STATE_CODE_TO_NAME[s]);
+      Promise.all(_bStates.map(loadReportingZipGeo)).then(_zps => {
+        const _zf = [];
+        _zps.forEach(g => { if (g && g.features) _zf.push(...g.features); });
+        if (_zf.length) drawReportingServiceBoundary(map, { type: 'FeatureCollection', features: _zf }, serviceZips);
+      });
     }
   });
 }
@@ -36318,18 +36433,30 @@ function reportingGeographic() {
     state.reportingHighlightedZip = null;
     mountApp();
   };
+  // FULL-BRANCH DRILLS (per Isaac): offices cross state lines — Savannah
+  // covers GA+SC, Myrtle Beach SC+NC — so a state drill includes every ZIP /
+  // county belonging to an office with presence in that state, not just the
+  // ones inside the border.
+  const zipsForState = (code) => {
+    const officesIn = new Set();
+    for (const z of agg.zips) if (z.state === code) for (const r of z.rows) if (r.office_name) officesIn.add(r.office_name);
+    return agg.zips.filter(z => z.state === code || z.rows.some(r => officesIn.has(r.office_name)));
+  };
+  const countiesForState = (code) => {
+    const officesIn = new Set();
+    for (const c of agg.counties) if (c.state === code) for (const r of c.rows) if (r.office_name) officesIn.add(r.office_name);
+    return agg.counties.filter(c => c.state === code || c.rows.some(r => officesIn.has(r.office_name)));
+  };
+  // Area click → HIGH-LEVEL COMPARISON first (rank vs peers per metric);
+  // the customer table is one click deeper inside that modal.
   const onZipClick = (z) => {
-    // Service Types tab → top-10 service breakdown popup instead of the
-    // generic per-sub drill.
     if (metricKey === 'service') {
       openReportingServicesModal(z, 'ZIP ' + z.zip + ' · ' + (z.state || ''));
       return;
     }
-    openReportingDrillModal({
-      chartTitle: 'ZIP ' + z.zip + ' · ' + (z.state || ''),
-      sliceLabel: z.zip,
-      rows: z.rows,
-      formatValue: fmt.usd0,
+    openReportingAreaStatsModal({
+      area: z, kind: 'ZIP',
+      peers: (mapLevel === 'state' && drilledState) ? zipsForState(drilledState) : agg.zips,
     });
   };
   const onCountyClick = (c) => {
@@ -36337,11 +36464,9 @@ function reportingGeographic() {
       openReportingServicesModal(c, (c.county || 'Unknown') + ' County · ' + (c.state || ''));
       return;
     }
-    openReportingDrillModal({
-      chartTitle: (c.county || 'Unknown') + ' County · ' + (c.state || ''),
-      sliceLabel: c.county || 'Unknown',
-      rows: c.rows,
-      formatValue: fmt.usd0,
+    openReportingAreaStatsModal({
+      area: c, kind: 'County',
+      peers: (mapLevel === 'state' && drilledState) ? countiesForState(drilledState) : agg.counties,
     });
   };
 
@@ -36359,7 +36484,7 @@ function reportingGeographic() {
     }
     if (mapLevel === 'state' && drilledState) {
       if (drillBy === 'county') {
-        const countiesInState = agg.counties.filter(c => c.state === drilledState);
+        const countiesInState = countiesForState(drilledState);
         initReportingCountyMap(
           mapId, drilledState, countiesInState,
           metricKey, activeMetric.label, activeMetric.fmt,
@@ -36369,7 +36494,7 @@ function reportingGeographic() {
           svcColorMap,
         );
       } else {
-        const zipsInState = agg.zips.filter(z => z.state === drilledState);
+        const zipsInState = zipsForState(drilledState);
         initReportingZipMap(
           mapId, drilledState, zipsInState,
           metricKey, activeMetric.label, activeMetric.fmt,
@@ -36394,10 +36519,10 @@ function reportingGeographic() {
     ? scopeServiced.filter(r => (r.state || '') === drilledState)
     : [];
   const zipsInDrilledState = mapLevel === 'state' && drilledState
-    ? agg.zips.filter(z => z.state === drilledState)
+    ? zipsForState(drilledState)
     : [];
   const countiesInDrilledState = mapLevel === 'state' && drilledState
-    ? agg.counties.filter(c => c.state === drilledState)
+    ? countiesForState(drilledState)
     : [];
 
   // Segmented By ZIP / By County toggle — only sensible once drilled into a
@@ -36540,7 +36665,7 @@ function reportingGeographic() {
       el('div', { class: 'min-w-0' },
         el('h2', { class: 'text-lg font-bold' }, breakdown.title),
         el('p', { class: 'text-xs text-muted- mt-0.5' },
-          sortedItems.length.toLocaleString() + ' distinct ' + breakdown.nounPlural + ' · click a column to sort · click a row to drill into its subs'),
+          sortedItems.length.toLocaleString() + ' distinct ' + breakdown.nounPlural + ' · click a column to sort · click a row to see how it compares (customers are one click deeper)'),
       ),
       el('button', {
         class: 'shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
@@ -36580,11 +36705,10 @@ function reportingGeographic() {
               }
               breakdown.applyHighlight(it);
               mountApp();
-              openReportingDrillModal({
-                chartTitle: breakdown.drillTitle(it),
-                sliceLabel: breakdown.cellLabel(it),
-                rows: it.rows,
-                formatValue: fmt.usd0,
+              openReportingAreaStatsModal({
+                area: it,
+                kind: breakdown.labelKey === 'county' ? 'County' : 'ZIP',
+                peers: breakdown.items,
               });
             },
           },
@@ -36602,6 +36726,58 @@ function reportingGeographic() {
     ),
   );
 
+  // ── State-by-state summary (country level only) ─────────────────────
+  // Answers "how does THIS branch do in NC vs SC?" — set the office filter
+  // and each row is that branch's book within one state. Attrition/retention
+  // uses the same 10-sub floor as everywhere else on the tab.
+  const stateSummaryTable = (mapLevel !== 'state') ? (() => {
+    const rows = Object.entries(agg.states || {})
+      .filter(([code]) => code && code !== 'Unknown')
+      .map(([code, s]) => ({ code, name: REPORTING_STATE_CODE_TO_NAME[code] || code, ...s }))
+      .sort((a, b) => b.subs - a.subs);
+    if (rows.length < 2) return null;
+    const floor = (agg.attritionMinSubs || 10);
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'p-4 border-b', style: { borderColor: 'var(--border)' } },
+        el('h2', { class: 'text-lg font-bold' }, 'State breakdown'),
+        el('p', { class: 'text-xs text-muted- mt-0.5' },
+          office === 'all'
+            ? 'Whole company by state — set the Office filter above to read one branch across state lines (e.g. Myrtle Beach: NC vs SC).'
+            : officeLabel(office) + '\u2019s book split by state — cross-border comparison for this branch only. Click a row to drill in.')),
+      el('div', { class: 'overflow-x-auto' },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+            el('tr', {},
+              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'State'),
+              el('th', { class: 'px-3 py-2 text-right font-semibold' }, 'Customers'),
+              el('th', { class: 'px-3 py-2 text-right font-semibold' }, 'Subs'),
+              el('th', { class: 'px-3 py-2 text-right font-semibold' }, 'Active'),
+              el('th', { class: 'px-3 py-2 text-right font-semibold' }, 'ACV'),
+              el('th', { class: 'px-3 py-2 text-right font-semibold' }, 'Total ARV'),
+              el('th', { class: 'px-3 py-2 text-right font-semibold' }, 'Cancels'),
+              el('th', { class: 'px-3 py-2 text-right font-semibold' }, isRetention ? 'Retention %' : 'Attrition %'))),
+          el('tbody', {},
+            ...rows.map(s => {
+              const rated = s.subs >= floor;
+              const v = isRetention ? (1 - s.cancelRate) : s.cancelRate;
+              return el('tr', {
+                class: 'border-t cursor-pointer hover:brightness-95 transition tabular-nums',
+                style: { borderColor: 'var(--border)' },
+                title: 'Drill into ' + s.name,
+                onclick: () => onStateClick(s.code),
+              },
+                el('td', { class: 'px-3 py-2 font-semibold' }, s.name),
+                el('td', { class: 'px-3 py-2 text-right' }, s.customers.toLocaleString()),
+                el('td', { class: 'px-3 py-2 text-right' }, s.subs.toLocaleString()),
+                el('td', { class: 'px-3 py-2 text-right' }, s.active.toLocaleString()),
+                el('td', { class: 'px-3 py-2 text-right' }, '$' + Math.round(s.avgContract).toLocaleString()),
+                el('td', { class: 'px-3 py-2 text-right' }, '$' + Math.round(s.arv).toLocaleString()),
+                el('td', { class: 'px-3 py-2 text-right' }, s.cancellations.toLocaleString()),
+                el('td', { class: 'px-3 py-2 text-right font-semibold', style: rated && !isRetention && s.cancelRate > 0.25 ? { color: '#DC2626' } : {} },
+                  rated ? (v * 100).toFixed(1) + '%' : el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '< ' + floor + ' subs')));
+            })))));
+  })() : null;
+
   return el('div', { class: 'flex flex-col gap-4' },
     filterBar,
     compareNotice,
@@ -36610,6 +36786,7 @@ function reportingGeographic() {
     svcLegend,
     breadcrumb,
     el('div', { class: 'card overflow-hidden' }, mapEl),
+    stateSummaryTable,
     breakdownTable,
   );
 }
