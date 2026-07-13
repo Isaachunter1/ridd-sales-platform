@@ -16956,10 +16956,17 @@ function nrlaBoard(rawSales, opts) {
                       }, lab)))),
                   el('tbody', {},
                     ...rows.map(x => {
-                      const _st = (typeof _auditStatusOf === 'function') ? _auditStatusOf(x.customerFlags) : 'pending';
+                      // Chip mirrors the COMP's audit semantics (same rules as
+                      // the round card's pending count): under-$99 = Last
+                      // Resort, out of the comp with no audit needed — it
+                      // must NOT read "Pending" here while the card has
+                      // already written it off (card said 5, chips said 30).
+                      let _st = (typeof _auditStatusOf === 'function') ? _auditStatusOf(x.customerFlags) : 'pending';
+                      if (_st === 'pending' && (Number(x.initialPrice) || 0) < 99) _st = 'lastresort';
                       const _stMeta = _st === 'passed' ? ['Passed', '#5F8A1F', 'rgba(141,198,63,.14)']
                         : _st === 'failed' ? ['Failed', '#B91C1C', 'rgba(220,38,38,.10)']
                         : _st === 'noaudit' ? ['No Audit', 'var(--text-muted)', 'var(--card-2)']
+                        : _st === 'lastresort' ? ['Last Resort', 'var(--text-muted)', 'var(--card-2)']
                         : ['Pending', '#B45309', 'rgba(234,88,12,.10)'];
                       return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
                         el('td', { class: 'pl-3 pr-2 py-1.5 whitespace-nowrap' }, getCanonicalRepName(x.rep || '—'),
