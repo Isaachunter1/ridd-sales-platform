@@ -16442,7 +16442,7 @@ function nrlaBoard(rawSales, opts) {
           RO ? null : el('button', {
             class: 'cursor-pointer transition hover:brightness-95',
             style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
-            title: 'Daily Report — CSV: standings, every played round\'s results with PRAs, and top-10 reps. Best after ~9:15 PM ET when the data has settled.',
+            title: 'Export — CSV: one row per counted account with its round, team, rep, customer ID, audit status, and contract value. Built for XLOOKUP fact-checks against the CRM.',
             onclick: () => {
               try {
                 const csv = dailyReportCsv();
@@ -16476,57 +16476,28 @@ function nrlaBoard(rawSales, opts) {
     window._nrlaStickyScroll = null;
   }
 
-  // ── Daily report CSV — the "Updates sent daily" deliverable: standings,
-  // every played round's results, top reps (season + latest round). One
-  // click, send it to the team. ──
+  // ── Daily report CSV — a FLAT customer list by round (per Isaac): one
+  // header row + one row per counted account, built for XLOOKUP fact-checks
+  // against the CRM. No section headers, no rollups — those live on the
+  // board itself.
   const dailyReportCsv = () => {
     const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const row = (...cells) => cells.map(esc).join(',');
-    const usd = (n) => Math.round(Number(n) || 0);
-    const qual = (o) => (o.passed || 0) + (o.pending || 0);
-    const L = [];
-    L.push(row('NRLA DAILY REPORT', new Date().toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })));
-    L.push(row('Last sync', syncStr));
-    L.push('');
-    L.push('SEEDING STANDINGS');
-    L.push(row('Seed', 'Team', 'W', 'L', 'T', 'Reps', 'Total Rev Sold', 'PRA', 'Passed Rev', 'Pending Rev', 'Failed Rev', 'ACV'));
-    R.standings.forEach((s, i) => {
-      const st = R.seasonStats[s.team] || { total: 0, passed: 0, pending: 0, failed: 0, n: 0 };
-      const reps = R.repsCompeting[s.team] || 0;
-      L.push(row('#' + (i + 1), nameOf(s.team), s.w, s.l, s.t || 0, reps, usd(st.total), reps ? usd((st.passed + st.pending) / reps) : '', usd(st.passed), usd(st.pending), usd(st.failed), st.n ? usd(st.total / st.n) : ''));
-    });
-    R.rounds.filter(r => r.started).slice().reverse().forEach(rd => {
-      const title = rd.phase === 'seed' ? 'ROUND ' + rd.num : rd.phase === 'semi' ? 'SEMIFINALS' : 'CHAMPIONSHIP';
-      const status = rd.live ? 'LIVE' : rd.locked ? 'FINAL' : 'AUDITING (' + rd.pendingAudits + ' pending)';
-      L.push('');
-      L.push(row(title + ' · ' + dspan(rd.d1, rd.d2), status));
-      L.push(row('Matchup', 'Team', 'PRA', 'Qualifying Rev', 'Reps', 'Result'));
-      rd.matchups.forEach(m => {
-        const tag = m.tag || ((m.a ? nameOf(m.a.team) : (m.aLabel || 'BYE')) + ' vs ' + (m.b ? nameOf(m.b.team) : (m.bLabel || 'BYE')));
-        [m.a, m.b].forEach(side => {
-          if (!side) return;
-          L.push(row(tag, nameOf(side.team), usd(side.pra), usd(side.rev), side.reps,
-            m.winner === side.team ? (rd.locked ? 'W' : 'Leading') : (m.winner ? (rd.locked ? 'L' : 'Trailing') : 'Tied')));
-        });
-      });
-    });
-    const repRows = (list, label) => {
-      L.push('');
-      L.push('TOP 10 REPS · ' + label);
-      L.push(row('#', 'Rep', 'Team', 'Accts', 'Total Rev Sold', 'Qualifying Rev', 'Passed', 'Pending', 'Failed'));
-      list.sort((a, b) => qual(b) - qual(a)).slice(0, 10).forEach((r, i) =>
-        L.push(row(i + 1, r.name, nameOf(r.team), r.n, usd(r.total), usd(qual(r)), usd(r.passed), usd(r.pending), usd(r.failed))));
+    const roundLabel = (i) => {
+      if (i < 0 || !R.rounds[i]) return 'Off-round';
+      const rd = R.rounds[i];
+      return rd.phase === 'seed' ? 'Round ' + (rd.num || (i + 1)) : rd.phase === 'semi' ? 'Semifinals' : 'Championship';
     };
-    const seasonFlat = [];
-    Object.entries(R.repStats || {}).forEach(([t, reps]) => Object.entries(reps).forEach(([name, st]) => seasonFlat.push({ name, team: t, ...st })));
-    repRows(seasonFlat, 'SEASON');
-    const startedIdx = R.rounds.map((r, i) => (r.started ? i : -1)).filter(i => i >= 0);
-    if (startedIdx.length) {
-      const li = startedIdx[startedIdx.length - 1];
-      const flat = Object.entries(R.roundRepStats[li] || {}).map(([name, st]) => ({ name, ...st }));
-      const lbl2 = R.rounds[li].phase === 'seed' ? 'ROUND ' + R.rounds[li].num : R.rounds[li].phase === 'semi' ? 'SEMIFINALS' : 'CHAMPIONSHIP';
-      repRows(flat, lbl2);
-    }
+    const dIso = (d) => d instanceof Date && !isNaN(d) ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') : '';
+    const wSpan = (i) => (i >= 0 && R.rounds[i]) ? dIso(R.rounds[i].d1) + ' to ' + dIso(R.rounds[i].d2) : '';
+    const L = [row('Round', 'Round Window', 'Team', 'Rep', 'Customer ID', 'Customer', 'Date Sold', 'Audit Status', 'Contract Value')];
+    (R.accounts || []).slice()
+      .sort((a, b) => (a.roundIdx - b.roundIdx) || String(a.team).localeCompare(String(b.team)) || String(a.dateSold).localeCompare(String(b.dateSold)))
+      .forEach(a => L.push(row(
+        roundLabel(a.roundIdx), wSpan(a.roundIdx), nameOf(a.team), a.rep,
+        a.customerId, a.customer, a.dateSold,
+        a.bucket === 'failed' ? 'Failed / Last Resort' : a.bucket === 'passed' ? 'Passed' : 'Pending',
+        Math.round(Number(a.revenue) || 0))));
     return L.join('\n');
   };
 
