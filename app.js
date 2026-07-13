@@ -37947,12 +37947,25 @@ function reportingWaterfall() {
         if (y === curY && m > curM) return el('td', { class: 'px-2 py-1.5' }, '');
         const v = rateOf(y, m);
         if (!v) return el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-subtle)' } }, '—');
+        // Current month is PARTIAL — project the full-month pace so it reads
+        // against complete months: cancels ÷ days elapsed × days in month.
+        let pace = null;
+        if (y === curY && m === curM) {
+          const nowNY = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          const dayNum = nowNY.getDate();
+          const daysInM = new Date(y, m, 0).getDate();
+          if (dayNum >= 3 && dayNum < daysInM) pace = (v.n / dayNum * daysInM) / v.den;   // too noisy the first couple days
+        }
         return el('td', {
           class: 'px-2 py-1.5 tabular-nums cursor-pointer transition hover:brightness-95',
-          style: { background: heat(v.rate), color: '#111827', fontWeight: '600' },
-          title: MONTHS_S[m - 1] + ' ' + y + ': ' + v.n + ' of ' + fmt.int(v.den) + ' churned' + (topReasons(y, m) ? ' — ' + topReasons(y, m) : '') + '. Click for the full breakdown.',
+          style: { background: heat(pace != null ? pace : v.rate), color: '#111827', fontWeight: '600' },
+          title: MONTHS_S[m - 1] + ' ' + y + ': ' + v.n + ' of ' + fmt.int(v.den) + ' churned'
+            + (pace != null ? ' so far — trending to ' + (pace * 100).toFixed(2) + '% at the current pace (~' + Math.round(pace * v.den) + ' cancels by month-end)' : '')
+            + (topReasons(y, m) ? ' — ' + topReasons(y, m) : '') + '. Click for the full breakdown.',
           onclick: () => openAttritionDrill(pop, y, m),
-        }, (v.rate * 100).toFixed(2) + '%', el('span', { class: 'text-[9px] ml-1', style: { opacity: '.65' } }, '(' + v.n + ')'));
+        }, (v.rate * 100).toFixed(2) + '%', el('span', { class: 'text-[9px] ml-1', style: { opacity: '.65' } }, '(' + v.n + ')'),
+          pace != null && el('div', { class: 'text-[9px] font-bold', style: { opacity: '.75', marginTop: '1px' } },
+            '→ ' + (pace * 100).toFixed(2) + '% pace'));
       });
       // Seasonality signal: the month's average churn across the shown years.
       const vals = yearsShown.map(y => (y === curY && m > curM) ? null : rateOf(y, m)).filter(v => v && v.den >= 25);
