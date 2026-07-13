@@ -19107,6 +19107,65 @@ function findDuplicateRepCandidates() {
 // name; otherwise returns `name` unchanged. Used at every per-rep
 // aggregation point so a rep that appears in the CSV under two
 // spellings still counts as ONE rep for revenue, sales, ranking, etc.
+// Where a rep SOLD — per-office counts, revenue, and date spans, plus their
+// most recent accounts. Answers "which offices did this rep sell in, how
+// much, and when" from Manage Teams (click the rep's name).
+function openRepWhereSoldModal(repName) {
+  const canonical = getCanonicalRepName(repName);
+  const sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const mySig = sig(canonical);
+  const rows = (state._indicatorRawSales || []).filter(s => s.rep && sig(getCanonicalRepName(s.rep)) === mySig
+    && (typeof frPendingServiced !== 'function' || frPendingServiced(s)));
+  const iso = (s) => (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
+  const byOffice = new Map();
+  rows.forEach(s => {
+    const o = String(s.office || 'UNKNOWN').split(',')[0].trim().toUpperCase();
+    let g = byOffice.get(o); if (!g) { g = { n: 0, rev: 0, first: '9999', last: '' }; byOffice.set(o, g); }
+    g.n++; g.rev += Number(s.contractValue) || 0;
+    const d = iso(s);
+    if (d) { if (d < g.first) g.first = d; if (d > g.last) g.last = d; }
+  });
+  const offices2 = [...byOffice.entries()].map(([o, g]) => ({ o, ...g })).sort((a, b) => b.rev - a.rev);
+  const fmtD = (d) => d && d !== '9999' ? new Date(d + 'T00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—';
+  const recent = rows.slice().sort((a, b) => iso(b).localeCompare(iso(a))).slice(0, 15);
+  const titleCase2 = (t) => String(t).split(' ').map(w => w ? w[0] + w.slice(1).toLowerCase() : w).join(' ');
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
+      el('div', {},
+        el('h2', { class: 'text-base font-bold' }, canonical + ' — where they sold'),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
+          fmt.int(rows.length) + ' pending/serviced accounts · ' + fmt.usd0(rows.reduce((a, s) => a + (Number(s.contractValue) || 0), 0)) + ' total')),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+    el('div', { class: 'px-4 pb-4 overflow-y-auto' },
+      offices2.length === 0
+        ? el('div', { class: 'p-6 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No pending/serviced accounts in the loaded dataset.')
+        : el('table', { class: 'w-full text-xs tabular-nums mb-3' },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
+              el('tr', {},
+                el('th', { class: 'text-left py-1.5 pr-2' }, 'Office'),
+                el('th', { class: 'text-right px-2 py-1.5' }, 'Accounts'),
+                el('th', { class: 'text-right px-2 py-1.5' }, 'Revenue'),
+                el('th', { class: 'text-right pl-2 py-1.5' }, 'First → Last'))),
+            el('tbody', {},
+              ...offices2.map(g => el('tr', { class: 'border-t border-' },
+                el('td', { class: 'py-1.5 pr-2 font-semibold' }, titleCase2(g.o)),
+                el('td', { class: 'px-2 py-1.5 text-right' }, fmt.int(g.n)),
+                el('td', { class: 'px-2 py-1.5 text-right font-semibold' }, fmt.usd0(g.rev)),
+                el('td', { class: 'pl-2 py-1.5 text-right whitespace-nowrap', style: { color: 'var(--text-muted)' } }, fmtD(g.first) + ' → ' + fmtD(g.last)))))),
+      recent.length > 0 && el('div', {},
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, 'Most recent accounts'),
+        el('table', { class: 'w-full text-[11px] tabular-nums' },
+          el('tbody', {},
+            ...recent.map(s => el('tr', { class: 'border-t border-' },
+              el('td', { class: 'py-1 pr-2 whitespace-nowrap', style: { color: 'var(--text-muted)' } }, fmtD(iso(s))),
+              el('td', { class: 'px-2 py-1 font-semibold' }, titleCase2(String(s.office || '—').split(',')[0])),
+              el('td', { class: 'px-2 py-1 truncate', style: { maxWidth: '160px', color: 'var(--text-muted)' } }, s.customer || s.subscription || '—'),
+              el('td', { class: 'pl-2 py-1 text-right font-semibold' }, fmt.usd0(Number(s.contractValue) || 0)))))))));
+  overlay.append(card);
+  document.body.append(overlay);
+}
 function getCanonicalRepName(name) {
   if (!name) return name;
   // FieldRoutes sometimes exports doubled spaces ("Karson  Murray") or stray
@@ -20289,8 +20348,10 @@ function manageTeamsPanel(opts) {
         },
           el('div', { class: 'flex items-center gap-2 min-w-0 flex-1' },
             el('span', {
-              class: 'font-medium truncate',
+              class: 'font-medium truncate' + (isAlias ? '' : ' cursor-pointer hover:underline'),
               style: isAlias ? { textDecoration: 'line-through', color: 'var(--text-muted)' } : {},
+              title: isAlias ? undefined : 'Where did ' + repName + ' sell? Offices, amounts, and dates',
+              onclick: isAlias ? undefined : () => openRepWhereSoldModal(repName),
             }, repName),
             // Merged-into badge — clear visual signal that this row is
             // a dupe rolled into the canonical, not a real second rep.
