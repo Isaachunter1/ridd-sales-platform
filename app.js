@@ -32153,11 +32153,31 @@ function openReportingArrCombineModal(data, chartTitle) {
   const totalArr = slices.reduce((a, s) => a + s.value, 0);
   const sel = new Set();
   let q = '';
+  let sortKey = 'arr';   // 'arr' (default, biggest first) or 'name' (A→Z)
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const summaryEl = el('div', {});
   const listEl = el('div', { class: 'px-4 pb-2 overflow-y-auto flex-1' });
-  const visible = () => slices.filter(s => !q || s.label.toLowerCase().includes(q));
+  const visible = () => {
+    const vis = slices.filter(s => !q || s.label.toLowerCase().includes(q));
+    return sortKey === 'name'
+      ? vis.sort((a, b) => a.label.localeCompare(b.label))
+      : vis.sort((a, b) => b.value - a.value);
+  };
+  // Sortable header row — click Service for A→Z, ARR for biggest-first.
+  const headerEl = el('div', {});
+  const renderHeader = () => {
+    headerEl.innerHTML = '';
+    const th = (key, txt, cls) => el('button', {
+      class: 'text-[9px] uppercase tracking-widest font-bold cursor-pointer select-none transition hover:brightness-75 ' + (cls || ''),
+      style: { color: sortKey === key ? 'var(--accent)' : 'var(--text-subtle)', background: 'none', border: 'none', padding: '0' },
+      title: key === 'name' ? 'Sort alphabetically' : 'Sort by ARR (biggest first)',
+      onclick: () => { sortKey = key; renderHeader(); renderList(); },
+    }, txt + (sortKey === key ? (key === 'name' ? ' ▲' : ' ▼') : ''));
+    headerEl.append(el('div', { class: 'px-4 pb-1.5 flex items-center justify-between gap-3' },
+      el('div', { class: 'pl-6' }, th('name', 'Service')),
+      th('arr', 'Subs · ARR · Share', 'text-right')));
+  };
   const renderSummary = () => {
     summaryEl.innerHTML = '';
     const picked = slices.filter(s => sel.has(s.label));
@@ -32176,7 +32196,7 @@ function openReportingArrCombineModal(data, chartTitle) {
     listEl.innerHTML = '';
     const vis = visible();
     if (!vis.length) { listEl.append(el('div', { class: 'p-6 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No service types match.')); return; }
-    const maxV = vis[0].value;
+    const maxV = vis.reduce((a, s) => Math.max(a, s.value), 1);
     vis.forEach(s => {
       const on = sel.has(s.label);
       listEl.append(el('div', {
@@ -32216,8 +32236,10 @@ function openReportingArrCombineModal(data, chartTitle) {
       searchBox,
       quickBtn('Select shown', () => { visible().forEach(s => sel.add(s.label)); renderSummary(); renderList(); }),
       quickBtn('Clear', () => { sel.clear(); renderSummary(); renderList(); })),
+    headerEl,
     listEl);
   renderSummary();
+  renderHeader();
   renderList();
   overlay.append(card);
   document.body.append(overlay);
