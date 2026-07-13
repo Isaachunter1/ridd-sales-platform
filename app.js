@@ -35498,19 +35498,28 @@ let _mapLibsPromise = null;
 function ensureMapLibs() {
   if (typeof L !== 'undefined' && typeof turf !== 'undefined') return Promise.resolve();
   if (_mapLibsPromise) return _mapLibsPromise;
-  if (!document.querySelector('link[href*="leaflet.css"]')) {
-    const css = document.createElement('link');
-    css.rel = 'stylesheet';
-    css.href = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(css);
-  }
   const script = (url) => new Promise((res, rej) => {
     const s = document.createElement('script');
     s.src = url; s.async = true;
     s.onload = res; s.onerror = () => rej(new Error('map lib failed to load: ' + url));
     document.head.appendChild(s);
   });
+  // The CSS must be IN before any L.map() runs — Leaflet measures the
+  // container and positions tiles at init, and doing that against an
+  // unstyled layout leaves a permanently gray map. So the stylesheet is
+  // part of the same promise the map render waits on.
+  const style = () => new Promise((res) => {
+    if (document.querySelector('link[href*="leaflet.css"]')) return res();
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';
+    css.onload = res;
+    css.onerror = res;                      // styling worst-case beats never rendering
+    setTimeout(res, 4000);                  // never hang the map on a slow stylesheet
+    document.head.appendChild(css);
+  });
   _mapLibsPromise = Promise.all([
+    style(),
     script('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js'),
     script('https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js'),
   ]).catch((e) => { _mapLibsPromise = null; throw e; });   // allow retry on a flaky connection
@@ -35599,10 +35608,12 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
     scrollWheelZoom: true,
   });
   container._leafletMap = map;
-  L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap, © CartoDB',
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap, © CARTO',
+    subdomains: 'abcd',
     maxZoom: 14,
   }).addTo(map);
+  setTimeout(() => { try { map.invalidateSize(); } catch (e) { /* torn down */ } }, 400);
 
   // Build a quick ZIP→aggregate lookup for the state's data.
   const byZip = new Map();
@@ -35722,10 +35733,12 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
     scrollWheelZoom: true,
   });
   container._leafletMap = map;
-  L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap, © CartoDB',
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap, © CARTO',
+    subdomains: 'abcd',
     maxZoom: 14,
   }).addTo(map);
+  setTimeout(() => { try { map.invalidateSize(); } catch (e) { /* torn down */ } }, 400);
 
   // Normalized county name → aggregate, for this state only.
   const byCounty = new Map();
@@ -36077,10 +36090,12 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
   });
   container._leafletMap = map;
 
-  L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap, © CartoDB',
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap, © CARTO',
+    subdomains: 'abcd',
     maxZoom: 10,
   }).addTo(map);
+  setTimeout(() => { try { map.invalidateSize(); } catch (e) { /* torn down */ } }, 400);
 
   loadReportingStatesGeo().then(geo => {
     if (!geo) return;
