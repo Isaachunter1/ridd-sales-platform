@@ -35563,22 +35563,36 @@ function reportingStateZipUrl(code) {
 // Lazy-load a single state's ZIP boundaries. Cached on window so
 // re-renders (metric toggle, filter changes) don't re-fetch the same
 // 1-5MB payload.
+// Fetch with a deadline — a hung connection to a boundary CDN used to leave
+// the map on "Loading…" forever with zero signal.
+async function _geoFetchJson(url, timeoutMs) {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const t = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs || 60000) : null;
+  try {
+    const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  } finally { if (t) clearTimeout(t); }
+}
 async function loadReportingZipGeo(stateCode) {
   if (!stateCode) return null;
   window._reportingZipGeoCache = window._reportingZipGeoCache || {};
   if (window._reportingZipGeoCache[stateCode]) return window._reportingZipGeoCache[stateCode];
   const url = reportingStateZipUrl(stateCode);
   if (!url) return null;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const geo = await res.json();
-    window._reportingZipGeoCache[stateCode] = geo;
-    return geo;
-  } catch (e) {
-    console.warn('[ridd] zip GeoJSON load failed for ' + stateCode, e);
-    return null;
+  // Primary (raw.githubusercontent) + a mirror of the same repo — corporate
+  // networks and extensions sometimes block one but not the other.
+  const urls = [url, url.replace('https://raw.githubusercontent.com/', 'https://cdn.statically.io/gh/')];
+  for (const u of urls) {
+    try {
+      const geo = await _geoFetchJson(u, 90000);
+      window._reportingZipGeoCache[stateCode] = geo;
+      return geo;
+    } catch (e) {
+      console.warn('[ridd] zip GeoJSON failed for ' + stateCode + ' via ' + u.split('/')[2], e && e.message);
+    }
   }
+  return null;
 }
 
 // Normalize a county name so CSV values match GeoJSON polygon names. The
@@ -35637,16 +35651,18 @@ function reportingNormCounty(name) {
 // there's no reliable per-state county GeoJSON CDN the way there is for ZIPs.
 async function loadReportingCountyGeo() {
   if (window._reportingCountyGeo) return window._reportingCountyGeo;
-  try {
-    const res = await fetch('https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const geo = await res.json();
-    window._reportingCountyGeo = geo;
-    return geo;
-  } catch (e) {
-    console.warn('[ridd] county GeoJSON load failed', e);
-    return null;
+  const urls = [
+    'https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json',
+    'https://cdn.statically.io/gh/plotly/datasets/master/geojson-counties-fips.json',
+  ];
+  for (const u of urls) {
+    try {
+      const geo = await _geoFetchJson(u, 90000);
+      window._reportingCountyGeo = geo;
+      return geo;
+    } catch (e) { console.warn('[ridd] county GeoJSON failed via ' + u.split('/')[2], e && e.message); }
   }
+  return null;
 }
 
 // Render a state-level ZIP choropleth. Same color logic as the country
@@ -35711,25 +35727,32 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
     maxZoom: 14,
   }).addTo(map);
   setTimeout(() => { try { map.invalidateSize(); } catch (e) { /* torn down */ } }, 400);
+  // Provisional view so tiles paint IMMEDIATELY — the old code set no
+  // center at all until the boundaries arrived, which reads as "broken
+  // gray box" during a multi-MB download. fitBounds refines it below.
+  try { map.setView([37.5, -85], 5); } catch (e) { /* fine */ }
 
   // Build a quick ZIP→aggregate lookup for the state's data.
   const byZip = new Map();
   for (const z of zipsInState) byZip.set(String(z.zip), z);
 
   // Branches cross state lines (Savannah = GA+SC, Myrtle Beach = SC+NC), so
-  // the drill may carry neighbor-state ZIPs — load every state present and
-  // merge the boundary files into one layer.
+  // the drill may carry neighbor-state ZIPs. Files render INCREMENTALLY —
+  // the drilled state paints the moment its file lands, neighbors layer in
+  // after — with a visible progress pill (the states' ZIP files run 3-30MB
+  // each; an all-or-nothing merge looked exactly like a dead map).
   const _geoStates = [...new Set(zipsInState.map(z => z.state))].filter(s => REPORTING_STATE_CODE_TO_NAME[s]);
-  if (REPORTING_STATE_CODE_TO_NAME[stateCode] && !_geoStates.includes(stateCode)) _geoStates.unshift(stateCode);
-  Promise.all(_geoStates.map(loadReportingZipGeo)).then(_parts => {
-    const _feats = [];
-    _parts.forEach(g => { if (g && g.features) _feats.push(...g.features); });
-    const geo = _feats.length ? { type: 'FeatureCollection', features: _feats } : null;
-    if (!geo) {
-      container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;gap:6px;"><div>ZIP boundary data unavailable for this state.</div><div style="font-size:11px;">Fall back to the table below for ZIP-level breakdowns.</div></div>';
-      return;
-    }
+  {
+    const i = _geoStates.indexOf(stateCode);
+    if (i > 0) { _geoStates.splice(i, 1); _geoStates.unshift(stateCode); }
+    else if (i < 0 && REPORTING_STATE_CODE_TO_NAME[stateCode]) _geoStates.unshift(stateCode);
+  }
+  const _statusEl = document.createElement('div');
+  _statusEl.style.cssText = 'position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:800;background:rgba(29,29,29,.78);color:#fff;font-size:11px;padding:4px 12px;border-radius:999px;pointer-events:none;white-space:nowrap;';
+  _statusEl.textContent = 'Loading ZIP boundaries (' + _geoStates.length + ' state file' + (_geoStates.length === 1 ? '' : 's') + ')…';
+  container.appendChild(_statusEl);
 
+  (() => {
     // Quintile scale across just this state's zips so the color spread
     // is meaningful inside the state (one big zip doesn't dominate).
     const zipMetricFor = (z) => {
@@ -35756,6 +35779,7 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
     let highlightedPolygon = null;
     const normalizedTarget = highlightZip ? String(highlightZip).padStart(5, '0') : null;
 
+    const addGeoLayer = (geo, isFirst) => {
     const layer = L.geoJSON(geo, {
       style: (feature) => {
         // OpenDataDE uses ZCTA5CE10 as the 5-digit zip property name.
@@ -35802,18 +35826,43 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
         });
       },
     }).addTo(map);
-    if (highlightedPolygon) {
-      try {
-        map.fitBounds(highlightedPolygon.getBounds(), { padding: [60, 60], maxZoom: 12 });
-        highlightedPolygon.bringToFront();
-        highlightedPolygon.openTooltip();
-      } catch {}
-    } else {
-      try { map.fitBounds(layer.getBounds(), { padding: [20, 20] }); } catch {}
-    }
+      if (highlightedPolygon && highlightedPolygon._map) {
+        try {
+          map.fitBounds(highlightedPolygon.getBounds(), { padding: [60, 60], maxZoom: 12 });
+          highlightedPolygon.bringToFront();
+          highlightedPolygon.openTooltip();
+        } catch (e) { /* fine */ }
+      } else if (isFirst) {
+        try { map.fitBounds(layer.getBounds(), { padding: [20, 20] }); } catch (e) { /* fine */ }
+      }
+    };
 
-    drawReportingServiceBoundary(map, geo, serviceZips);
-  });
+    let _okCount = 0, _pending = _geoStates.length;
+    const _allFeats = [];
+    _geoStates.forEach((code, idx) => {
+      loadReportingZipGeo(code).then(g => {
+        // A re-render may have replaced the map while this file was in
+        // flight — never draw onto a superseded instance.
+        if (container._leafletMap !== map) return;
+        _pending--;
+        if (g && g.features && g.features.length) {
+          _okCount++;
+          _allFeats.push(...g.features);
+          addGeoLayer(g, idx === 0 || _okCount === 1);
+        }
+        if (_pending > 0) {
+          _statusEl.textContent = 'Loading ZIP boundaries — ' + (_geoStates.length - _pending) + ' of ' + _geoStates.length + ' states in…';
+        } else {
+          _statusEl.remove();
+          if (!_okCount) {
+            container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;gap:6px;"><div>ZIP boundary data could not be downloaded (network blocked or timed out).</div><div style="font-size:11px;">The table below has the same ZIP-level numbers.</div></div>';
+            return;
+          }
+          if (_allFeats.length) drawReportingServiceBoundary(map, { type: 'FeatureCollection', features: _allFeats }, serviceZips);
+        }
+      });
+    });
+  })();
 }
 
 // Render a state-level COUNTY choropleth — the county-mode sibling of
