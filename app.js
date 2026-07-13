@@ -492,14 +492,22 @@ function indicatorsSyncStampText() {
 // run failed or hasn't landed — the header stamp turns amber so staleness
 // is visible instead of silently trusted.
 function indicatorsSyncOverdue() {
-  if (!state.indicatorsUploadedAt) return false;
+  return indicatorsSyncStaleness() !== null;
+}
+// Two-tier staleness: 'amber' (>100 min — one run missed) escalates to
+// 'red' (>4 h — multiple consecutive failures, someone should look NOW).
+function indicatorsSyncStaleness() {
+  if (!state.indicatorsUploadedAt) return null;
   const t = new Date(state.indicatorsUploadedAt);
-  if (isNaN(t)) return false;
+  if (isNaN(t)) return null;
   const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const h = nowET.getHours();
-  if (h < 8 || h >= 23) return false;                          // overnight pause — big gaps are normal
-  if (h === 8 && nowET.getMinutes() < 15) return false;        // give the 8:00 run time to land
-  return (Date.now() - t.getTime()) > 100 * 60 * 1000;
+  if (h < 8 || h >= 23) return null;                           // overnight pause — big gaps are normal
+  if (h === 8 && nowET.getMinutes() < 15) return null;         // give the 8:00 run time to land
+  const age = Date.now() - t.getTime();
+  if (age > 4 * 60 * 60 * 1000) return 'red';
+  if (age > 100 * 60 * 1000) return 'amber';
+  return null;
 }
 
 function loadIndicatorState() {
@@ -4404,14 +4412,17 @@ function mountApp() {
         // Shown on EVERY tab (per Isaac) — the whole app rides the same
         // hourly sync, so freshness is always relevant.
         const txt = (typeof indicatorsSyncStampText === 'function') ? indicatorsSyncStampText() : '';
-        const overdue = (typeof indicatorsSyncOverdue === 'function') && indicatorsSyncOverdue();
+        const lvl = (typeof indicatorsSyncStaleness === 'function') ? indicatorsSyncStaleness() : null;
+        const c = lvl === 'red' ? '#DC2626' : lvl === 'amber' ? '#D97706' : null;
         return txt ? el('span', {
           class: 'hidden sm:block text-[11px] whitespace-nowrap',
-          style: { color: overdue ? '#D97706' : 'var(--text-muted)', marginLeft: '10px', alignSelf: 'center' },
-          title: overdue ? 'Data is older than the hourly sync cadence — a run may have failed (check Netlify logs)' : 'Syncs land hourly on the hour, 8am–11pm ET',
+          style: { color: c || 'var(--text-muted)', marginLeft: '10px', alignSelf: 'center', fontWeight: lvl === 'red' ? '700' : '' },
+          title: lvl === 'red' ? 'Data is over 4 hours old during selling hours — multiple syncs have failed. Check /api/sync-status and Netlify logs.'
+            : lvl === 'amber' ? 'Data is older than the hourly sync cadence — a run may have failed (check Netlify logs)'
+            : 'Syncs land hourly on the hour, 8am–11pm ET',
         },
-          'Last upload: ', el('span', { class: 'font-semibold', style: { color: overdue ? '#D97706' : 'var(--text)' } }, txt),
-          overdue ? ' · overdue' : '') : null;
+          'Last upload: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, txt),
+          lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '') : null;
       })(),
     ),
     state.view === 'sales' ? buildSearchBar() : el('div', { class: 'flex-1' }),
@@ -7688,11 +7699,30 @@ function openIndicatorRepCard(rep, allReps = []) {
           return el('div', { class: 'mt-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
             el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1.5', style: { color: 'var(--text-muted)' } },
               dTitle + ' — ' + daySales.length + ' account' + (daySales.length === 1 ? '' : 's')),
-            ...daySales.map(x => el('div', { class: 'flex items-center justify-between gap-2 text-[11px] py-1 border-b', style: { borderColor: 'var(--border)' } },
-              el('span', { class: 'truncate' }, (x.customer || '—') + (x.customerId ? ' ' : ''),
-                x.customerId ? el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, '#' + x.customerId) : null),
-              el('span', { class: 'truncate text-muted- flex-1 text-right' }, x.subscription || ''),
-              el('span', { class: 'font-bold tabular-nums shrink-0' }, fmt.usd0(x.contractValue)))));
+            ...daySales.map(x => {
+              // Audit chip: Passed / No Audit → green, Failed → red, else Pending.
+              const _fl = x.customerFlags || '';
+              const _audit = SC_FAIL_RE.test(_fl) ? ['Failed', '#DC2626', 'rgba(220,38,38,.12)']
+                : SC_PASS_RE.test(_fl) ? ['Passed', '#5F8A1F', 'rgba(141,198,63,.18)']
+                : SC_NOAUDIT_RE.test(_fl) ? ['No Audit', '#5F8A1F', 'rgba(141,198,63,.14)']
+                : ['Pending', '#B45309', 'rgba(245,158,11,.14)'];
+              const _ct = Number(x.contract) || 0;
+              const _init = Number(x.initialPrice) || 0;
+              return el('div', { class: 'flex items-center justify-between gap-2 text-[11px] py-1.5 border-b', style: { borderColor: 'var(--border)' } },
+                el('div', { class: 'min-w-0 flex-1' },
+                  el('div', { class: 'truncate' }, (x.customer || '—') + (x.customerId ? ' ' : ''),
+                    x.customerId ? el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, '#' + x.customerId) : null),
+                  el('div', { class: 'truncate text-[10px]', style: { color: 'var(--text-muted)' } }, x.subscription || '')),
+                el('div', { class: 'flex items-center gap-2 shrink-0 tabular-nums' },
+                  el('span', { class: 'text-[10px]', style: { color: 'var(--text-muted)' }, title: 'Contract length' }, _ct ? _ct + ' mo' : '—'),
+                  el('span', { class: 'text-[10px]', style: { color: 'var(--text-muted)' }, title: 'Initial service price' }, _init ? fmt.usd0(_init) + ' init' : '—'),
+                  el('span', {
+                    class: 'text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full',
+                    style: { color: _audit[1], background: _audit[2] },
+                    title: 'Audit status',
+                  }, _audit[0]),
+                  el('span', { class: 'font-bold' }, fmt.usd0(x.contractValue))));
+            }));
         })());
     } catch (e) { console.warn('[ridd] sell-days calendar failed', e); return el('div', {}); }
   }
@@ -35350,6 +35380,34 @@ async function loadReportingZipGeo(stateCode) {
 // "Salt Lake"; punctuation and spacing also vary ("St. Louis" / "St Louis",
 // "DeKalb" / "De Kalb"). We strip the trailing descriptor word, then drop
 // everything that isn't a letter or digit so the two sides line up.
+// Map stack (Leaflet + Turf, ~700KB combined) loads ON DEMAND the first
+// time a geographic view renders. It used to ship as deferred tags on every
+// page load — most sessions never open the map, so everyone paid the
+// download tax for a tab few visit. The CSS goes in immediately (cheap);
+// scripts resolve one shared promise so concurrent renders don't double-inject.
+let _mapLibsPromise = null;
+function ensureMapLibs() {
+  if (typeof L !== 'undefined' && typeof turf !== 'undefined') return Promise.resolve();
+  if (_mapLibsPromise) return _mapLibsPromise;
+  if (!document.querySelector('link[href*="leaflet.css"]')) {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(css);
+  }
+  const script = (url) => new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = url; s.async = true;
+    s.onload = res; s.onerror = () => rej(new Error('map lib failed to load: ' + url));
+    document.head.appendChild(s);
+  });
+  _mapLibsPromise = Promise.all([
+    script('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js'),
+    script('https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js'),
+  ]).catch((e) => { _mapLibsPromise = null; throw e; });   // allow retry on a flaky connection
+  return _mapLibsPromise;
+}
+
 function reportingNormCounty(name) {
   let s = String(name == null ? '' : name).toLowerCase().trim();
   s = s.replace(/\s+(county|parish|borough|census area|city and borough|municipality|municipio)\s*$/,'');
@@ -36167,8 +36225,12 @@ function reportingGeographic() {
   // (up to 1s) in case Leaflet's deferred script hasn't loaded yet.
   let attempt = 0;
   const tryInit = () => {
-    if (typeof L === 'undefined') {
-      if (attempt++ < 10) setTimeout(tryInit, 200);
+    if (typeof L === 'undefined' || typeof turf === 'undefined') {
+      // First geographic render: pull the map stack now, re-init when it
+      // lands. The attempt cap only bounds the DOM-not-ready fallback.
+      ensureMapLibs()
+        .then(() => { if (attempt++ < 20) tryInit(); })
+        .catch((e) => console.warn('[ridd] map libraries unavailable', e && e.message));
       return;
     }
     if (mapLevel === 'state' && drilledState) {

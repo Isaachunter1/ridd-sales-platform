@@ -33,16 +33,6 @@
   schedule = "0 10 * * *"     # nightly ~5-6am ET — health-check + warm Windsor/GHL/QBO feeds
 
 [[headers]]
-  for = "/*"
-  [headers.values]
-    # SAMEORIGIN (not DENY) so the in-app Marketing tab can iframe /marketing.html.
-    # Still blocks cross-site framing / clickjacking from other origins.
-    X-Frame-Options = "SAMEORIGIN"
-    X-Content-Type-Options = "nosniff"
-    Referrer-Policy = "strict-origin-when-cross-origin"
-    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
-
-[[headers]]
   for = "/*.js"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
@@ -65,17 +55,20 @@
     Cache-Control = "no-cache, no-store, must-revalidate"
 
 # ── Security headers (Apple mindset: closed by default) ─────────────────
-# frame-ancestors: no site may iframe the app (clickjacking); nosniff stops
-# MIME confusion; referrer trimmed; browser features the app never uses are
-# declared off. HSTS is handled by Netlify's TLS defaults.
+# THE single security-header block for /* — there used to be two, and
+# Netlify comma-joins duplicate headers ("DENY, SAMEORIGIN"), which browsers
+# handle unpredictably. SAMEORIGIN / 'self' (not DENY/'none') because the
+# in-app Marketing tab iframes /marketing.html; cross-site framing is still
+# blocked. HSTS pinned explicitly — one year, subdomains included.
 [[headers]]
   for = "/*"
   [headers.values]
-    X-Frame-Options = "DENY"
+    X-Frame-Options = "SAMEORIGIN"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
-    Content-Security-Policy = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+    Content-Security-Policy = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
 
 [[redirects]]
   from = "/api/client-error"
