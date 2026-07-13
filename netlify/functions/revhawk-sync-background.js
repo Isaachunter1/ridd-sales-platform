@@ -377,7 +377,9 @@ exports.handler = async (event) => {
         { contentType: 'application/json', upsert: true });
     } catch (hbErr) { console.warn('[revhawk-sync] heartbeat write failed', hbErr && hbErr.message); }
   };
-  await _hb({ stage: 'started' });
+  const _mb = () => Math.round(process.memoryUsage().rss / 1048576) + 'MB';
+  const _stage = (name) => { console.log('[revhawk-sync] stage:', name, _mb()); return _hb({ stage: name, rss: _mb() }); };
+  await _stage('started');
 
   try {
     const started = Date.now();
@@ -396,9 +398,10 @@ exports.handler = async (event) => {
         if (o[k] === null || o[k] === undefined || o[k] === '') delete o[k];
       }
     }
-    const gz = zlib.gzipSync(Buffer.from(JSON.stringify(objects)), { level: 9 });
+    const gz = zlib.gzipSync(Buffer.from(JSON.stringify(objects)), { level: 6 });
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
+    await _stage('queried:' + objects.length + 'rows');
     const path = 'snapshots/revhawk-' + Date.now() + '.json.gz';
     const { error: upErr } = await supabase.storage.from('reporting')
       .upload(path, gz, { contentType: 'application/gzip', upsert: true });
@@ -412,6 +415,7 @@ exports.handler = async (event) => {
     }).select('id, uploaded_at').single();
     if (envErr) throw new Error('envelope insert failed: ' + envErr.message);
 
+    await _stage('snapshot-uploaded');
     // ── Server-side Indicators derive ──────────────────────────────────
     // THE server is the one writer of the shared indicators dataset now.
     // Browsers used to derive + push this blob themselves, which meant any
@@ -428,7 +432,7 @@ exports.handler = async (event) => {
       const uploadedAt = (envRow && envRow.uploaded_at) || new Date().toISOString();
       const payload = deriveIndicatorsPayload(objects, uploadedAt,
         'RevHawk sync — ' + new Date(uploadedAt).toLocaleDateString('en-US', { timeZone: 'America/New_York' }));
-      const indGz = zlib.gzipSync(Buffer.from(JSON.stringify(payload)), { level: 9 });
+      const indGz = zlib.gzipSync(Buffer.from(JSON.stringify(payload)), { level: 6 });
       const { error: indErr } = await supabase.storage.from('reporting')
         .upload('indicators/latest.json.gz', indGz, { contentType: 'application/gzip', upsert: true });
       if (indErr) throw new Error(indErr.message);
@@ -442,20 +446,19 @@ exports.handler = async (event) => {
       // Every metric derives from values/dates/reps, so numbers match the
       // admin view exactly.
       try {
-        const repPayload = Object.assign({}, payload, {
-          rawSales: payload.rawSales.map(r => {
-            const c = Object.assign({}, r);
-            delete c.customer; delete c.customerId;
-            return c;
-          }),
-        });
-        const repGz = zlib.gzipSync(Buffer.from(JSON.stringify(repPayload)), { level: 9 });
+        await _stage('derive-published');
+        // Strip customer identity DURING stringify — no 90k-row clone (the
+        // clone was a prime OOM suspect: runs died mid-flight with the
+        // heartbeat stuck on "started").
+        const repJson = JSON.stringify(payload, (k, v) => (k === 'customer' || k === 'customerId') ? undefined : v);
+        const repGz = zlib.gzipSync(Buffer.from(repJson), { level: 6 });
         const { error: repErr } = await supabase.storage.from('reporting')
           .upload('indicators/latest-rep.json.gz', repGz, { contentType: 'application/gzip', upsert: true });
         if (repErr) console.error('[revhawk-sync] rep-sanitized blob failed:', repErr.message);
         else console.log('[revhawk-sync] rep-sanitized blob published (' + repGz.length + ' bytes gz)');
       } catch (repEx) { console.error('[revhawk-sync] rep-sanitized blob failed', repEx); }
 
+      await _stage('rep-blob-published');
       // ── 📚 MONTHLY METRIC ARCHIVE (best-effort) ──────────────────────
       // Every CLOSED month missing from snapshots/ gets written as
       // metrics-YYYY-MM.json.gz: company / per-office / per-department /
@@ -511,7 +514,7 @@ exports.handler = async (event) => {
             byDept: Object.fromEntries(Object.entries(agg.byDept).map(([k, v]) => [k, fin(v)])),
             byRep: agg.byRep,
           };
-          const snapGz = zlib.gzipSync(Buffer.from(JSON.stringify(snap)), { level: 9 });
+          const snapGz = zlib.gzipSync(Buffer.from(JSON.stringify(snap)), { level: 6 });
           const { error: snapErr } = await supabase.storage.from('reporting')
             .upload('snapshots/' + fname, snapGz, { contentType: 'application/gzip', upsert: false });
           if (snapErr && !/exists|duplicate/i.test(snapErr.message || '')) throw new Error(snapErr.message);
@@ -749,6 +752,7 @@ exports.handler = async (event) => {
     // office pickers everywhere) but was hand-maintained — Joplin opened
     // and never appeared. Every office name present in THIS run's data
     // auto-inserts when missing, so new/bought branches just show up.
+    await _stage('archive-done');
     let officeCount = 0, officeError = null;
     try {
       const seen = new Set();
@@ -774,6 +778,7 @@ exports.handler = async (event) => {
       console.error('[revhawk-sync] offices mirror skipped:', officeError);
     }
 
+    await _stage('offices-mirrored');
     let srcCount = 0, srcError = null;
     try {
       const srcRes = await runQuery(token, SRC_SQL);
