@@ -5738,12 +5738,17 @@ const FR_GLOBAL_EXCLUDED_SERVICES = new Set([
 function frPendingServiced(s) {
   if (!s) return false;
   if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(s.subscription || '').trim())) return false;
+  // Sold-Not-Started CANCELLATION REASON always excludes (per Isaac) — even
+  // when the initial appointment still reads "Pending" in the CRM. These
+  // were never real accounts: no comp metric counts them, no audit list
+  // shows them. 3-day RORs are NOT excluded here — those DO count.
+  if (_isSoldNotStarted(s)) return false;
   if (_scInitialStatusHasData()) {
     const ist = String(s.initialStatus || '').trim().toLowerCase();
     return ist === 'pending' || ist === 'completed';
   }
   // Legacy snapshots without the Initial Status column.
-  return !(_isSoldNotStarted(s) || _scIsSoldNotStarted(s));
+  return !_scIsSoldNotStarted(s);
 }
 function indicatorSales() {
   const dept = state.indicatorDept || 'all';
