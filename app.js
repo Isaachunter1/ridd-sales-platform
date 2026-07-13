@@ -32140,6 +32140,89 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
 // (customer + office for identity, ARV + contract $ for revenue, past
 // due + cancel info for risk). The modal closes on background click,
 // the × button, or Escape.
+// ── ARR COMBINER (per Isaac) — the "Recurring Annual Value by Service"
+// card's drill. Not a customer table: a picker where you check off service
+// types (search "sentricon", Select shown) and read their COMBINED active
+// ARR, sub count, and share of the book, live.
+function openReportingArrCombineModal(data, chartTitle) {
+  const slices = (data.slices && data.slices.rarr ? data.slices.rarr : []).filter(s => s.value > 0)
+    .slice().sort((a, b) => b.value - a.value);
+  const drill = data.drill && data.drill.rarr;
+  const subCount = new Map();
+  if (drill) drill.source.forEach(r => { const k = drill.key(r); subCount.set(k, (subCount.get(k) || 0) + 1); });
+  const totalArr = slices.reduce((a, s) => a + s.value, 0);
+  const sel = new Set();
+  let q = '';
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const summaryEl = el('div', {});
+  const listEl = el('div', { class: 'px-4 pb-2 overflow-y-auto flex-1' });
+  const visible = () => slices.filter(s => !q || s.label.toLowerCase().includes(q));
+  const renderSummary = () => {
+    summaryEl.innerHTML = '';
+    const picked = slices.filter(s => sel.has(s.label));
+    const arr = picked.reduce((a, s) => a + s.value, 0);
+    const subs = picked.reduce((a, s) => a + (subCount.get(s.label) || 0), 0);
+    summaryEl.append(el('div', { class: 'mx-4 mb-2 rounded-xl p-3', style: { background: 'var(--card-2)' } },
+      el('div', { class: 'flex items-baseline justify-between gap-3 flex-wrap' },
+        el('div', {},
+          el('div', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Combined ARR — ' + picked.length + ' service type' + (picked.length === 1 ? '' : 's')),
+          el('div', { class: 'text-xl font-bold tabular-nums' }, picked.length ? fmt.usd0(arr) : '—')),
+        picked.length > 0 && el('div', { class: 'text-right text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } },
+          el('div', {}, fmt.int(subs) + ' active subs'),
+          el('div', {}, totalArr > 0 ? (arr / totalArr * 100).toFixed(1) + '% of active ARR' : '')))));
+  };
+  const renderList = () => {
+    listEl.innerHTML = '';
+    const vis = visible();
+    if (!vis.length) { listEl.append(el('div', { class: 'p-6 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No service types match.')); return; }
+    const maxV = vis[0].value;
+    vis.forEach(s => {
+      const on = sel.has(s.label);
+      listEl.append(el('div', {
+        class: 'py-2 px-2 -mx-2 rounded-lg cursor-pointer transition hover:brightness-95 border-t border-',
+        onclick: () => { on ? sel.delete(s.label) : sel.add(s.label); renderSummary(); renderList(); },
+      },
+        el('div', { class: 'flex items-center gap-2.5 text-xs' },
+          el('span', { style: { fontSize: '14px', color: on ? 'var(--accent)' : 'var(--text-subtle)' } }, on ? '☑' : '☐'),
+          el('span', { class: 'font-semibold truncate flex-1' }, s.label),
+          el('span', { class: 'tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } },
+            fmt.int(subCount.get(s.label) || 0) + ' subs · ' + fmt.usd0(s.value)
+            + (totalArr > 0 ? ' · ' + (s.value / totalArr * 100).toFixed(1) + '%' : ''))),
+        el('div', { class: 'mt-1 ml-6 rounded-full overflow-hidden', style: { height: '3px', background: 'var(--card-2)' } },
+          el('div', { style: { width: Math.max(1.5, s.value / Math.max(1, maxV) * 100) + '%', height: '100%', background: on ? 'var(--accent)' : 'var(--text-subtle)', opacity: on ? '.9' : '.35' } }))));
+    });
+  };
+  const searchBox = el('input', {
+    class: 'w-full rounded-lg border px-3 py-2 text-xs',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    placeholder: 'Search service types — e.g. "sentricon"…',
+    oninput: (e) => { q = String(e.target.value || '').toLowerCase().trim(); renderList(); },
+  });
+  const quickBtn = (labelTxt, fn) => el('button', {
+    class: 'rounded-lg border px-2.5 py-1.5 text-[10px] font-bold cursor-pointer transition hover:brightness-95 whitespace-nowrap',
+    style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+    onclick: fn,
+  }, labelTxt);
+  const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
+      el('div', {},
+        el('h2', { class: 'text-base font-bold' }, (chartTitle || 'Recurring Annual Value') + ' — combine services'),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
+          'Check off service types to see their combined active ARR. Search, then "Select shown" to grab a whole family at once.')),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+    summaryEl,
+    el('div', { class: 'px-4 pb-2 flex items-center gap-2' },
+      searchBox,
+      quickBtn('Select shown', () => { visible().forEach(s => sel.add(s.label)); renderSummary(); renderList(); }),
+      quickBtn('Clear', () => { sel.clear(); renderSummary(); renderList(); })),
+    listEl);
+  renderSummary();
+  renderList();
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
 function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) {
   const overlay = el('div', { class: 'modal-overlay' });
   const closeKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeKey); } };
@@ -33583,7 +33666,11 @@ function reportingOverview() {
 
   // Each chart definition fired through both offices when in compare mode.
   const chartDefs = [
-    { id: 'rarr',       title: 'Recurring Annual Value by Service', subline: 'Sum of Annual Recurring Value · active subs',           totalLabel: 'Active ARV',          formatValue: fmt.usd0, sliceKey: 'rarr' },
+    { id: 'rarr',       title: 'Recurring Annual Value by Service', subline: 'Sum of Annual Recurring Value · active subs',           totalLabel: 'Active ARV',          formatValue: fmt.usd0, sliceKey: 'rarr',
+      footer: (d) => ({
+        label: '🧮 Combine service types → total ARR',
+        onClick: () => openReportingArrCombineModal(d, 'Recurring Annual Value by Service'),
+      }) },
     { id: 'rarrOffice', title: 'Recurring Annual Value by Office',  subline: 'Sum of Annual Recurring Value · active subs',           totalLabel: 'Active ARV',          formatValue: fmt.usd0, sliceKey: 'rarrOffice' },
     { id: 'customers',  title: 'Active Customers',         subline: 'Distinct customers with at least one active sub',       totalLabel: 'Active customers',    sliceKey: 'customers' },
     { id: 'activesubs', title: 'Active Subscriptions',     subline: 'Currently in service · by subscription type',           totalLabel: 'Active subs',         sliceKey: 'activeSubs' },
