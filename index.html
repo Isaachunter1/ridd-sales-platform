@@ -21,12 +21,9 @@
      + forms/typography plugins, content: ['index.html']) -->
 <link rel="stylesheet" href="tailwind.css" />
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<!-- Leaflet powers the Geographic tab's state choropleth map. Lazy-used
-     by the Reporting tab only; deferred so it doesn't block first paint. -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-<script defer src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-<!-- Turf dissolves service-area ZIPs into the red boundary on the Geographic map. -->
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+<!-- Leaflet + Turf (the Geographic map stack, ~700KB) now load ON DEMAND
+     from app.js (ensureMapLibs) the first time a map view renders — they
+     no longer download on every page load. -->
 <!-- (RIDD Tailwind tokens now live in the prebuilt tailwind.css — see note above.) -->
 <link rel="preconnect" href="https://rsms.me/" />
 <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
