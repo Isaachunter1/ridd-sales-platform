@@ -34063,6 +34063,94 @@ function reportingNextBest() {
             list.length > 300 ? el('tr', {}, el('td', { class: 'px-3 py-3 text-center text-[11px] italic', colspan: 6, style: { color: 'var(--text-subtle)' } }, 'Showing top 300 by expected value — export the CSV for all ' + list.length.toLocaleString() + '.')) : null)))));
 }
 
+function reportingRenewals() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+  const { visible } = reportingFilters();
+  const office = state.reportingOffice || 'all';
+  const rows = reportingFilterByOffice(visible, office);
+  const now = new Date();
+  const isActive = (r) => (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
+  const expiring = [], past = [];
+  rows.forEach(r => {
+    if (!isActive(r)) return;
+    const len = Number(r.agreement_length) || 0;
+    if (len <= 1) return;
+    const d = new Date(String(r.initial_service) + 'T00:00');
+    if (isNaN(d)) return;
+    const mo = (now - d) / 2629800000;
+    const rec = {
+      id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', state: r.state || '',
+      svc: r.subscription, arv: Number(r.annual_recurring_value) || 0, len, mo,
+      toGo: len - mo, pastBy: mo - len,
+      autopay: /^(y|yes|true|1)/i.test(String(r.customer_auto_pay || '')),
+      pastDue: Number(r.days_past_due) || 0,
+    };
+    if (mo >= len - 2 && mo < len) expiring.push(rec);
+    else if (mo >= len) past.push(rec);
+  });
+  expiring.sort((a, b) => a.toGo - b.toGo || b.arv - a.arv);
+  past.sort((a, b) => b.arv - a.arv);
+  const arrOf = (L) => L.reduce((a, x) => a + x.arv, 0);
+  const exportBtn = (L, name, extraHdr, extraFn) => el('button', {
+    class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    onclick: () => _reportingCsvDownload(name,
+      ['Customer ID', 'Customer', 'Office', 'State', 'Service', 'ARV', 'Term (mo)', 'Months In', extraHdr, 'Auto Pay', 'Days Past Due'],
+      L.map(x => [x.id, x.name, x.office, x.state, x.svc, Math.round(x.arv), x.len, x.mo.toFixed(1), extraFn(x), x.autopay ? 'Yes' : 'No', x.pastDue])),
+  }, '⬇ Export (' + L.length.toLocaleString() + ')');
+  const listCard = (title, blurb, L, cols, emptyMsg) => el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'p-4 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', {},
+        el('h3', { class: 'text-sm font-bold' }, title),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, blurb),
+        el('div', { class: 'text-xs font-black tabular-nums mt-1' }, L.length.toLocaleString() + ' contracts · ' + fmt.usd0(arrOf(L)) + ' ARR')),
+      cols.btn),
+    L.length === 0
+      ? el('div', { class: 'p-6 text-center text-xs', style: { color: 'var(--text-muted)' } }, emptyMsg)
+      : el('div', { class: 'overflow-x-auto', style: { maxHeight: '420px' } },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+            el('tr', {},
+              el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Customer'),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Office'),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Service'),
+              el('th', { class: 'text-right px-2 py-2 font-semibold' }, 'ARV'),
+              el('th', { class: 'text-right px-2 py-2 font-semibold' }, 'Term'),
+              el('th', { class: 'text-right px-2 py-2 font-semibold' }, cols.lastHdr),
+              el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Flags'))),
+          el('tbody', {},
+            ...L.slice(0, 250).map(x => el('tr', { class: 'border-t tabular-nums', style: { borderColor: 'var(--border)' } },
+              el('td', { class: 'px-3 py-2' },
+                el('div', { class: 'font-semibold' }, x.name),
+                el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + x.id)),
+              el('td', { class: 'px-2 py-2 whitespace-nowrap' }, _titleCaseWords(x.office)),
+              el('td', { class: 'px-2 py-2' }, x.svc),
+              el('td', { class: 'px-2 py-2 text-right font-semibold' }, fmt.usd0(x.arv)),
+              el('td', { class: 'px-2 py-2 text-right' }, x.len + ' mo'),
+              el('td', { class: 'px-2 py-2 text-right font-bold whitespace-nowrap', style: { color: cols.lastColor(x) } }, cols.lastVal(x)),
+              el('td', { class: 'px-3 py-2 text-[10px]', style: { color: 'var(--text-muted)' } },
+                [!x.autopay ? 'no autopay' : null, x.pastDue > 0 ? x.pastDue + 'd past due' : null].filter(Boolean).join(' · ') || '—'))),
+            L.length > 250 ? el('tr', {}, el('td', { class: 'px-3 py-3 text-center text-[11px] italic', colspan: 7, style: { color: 'var(--text-subtle)' } }, 'Showing 250 — export the CSV for all ' + L.length.toLocaleString() + '.')) : null))));
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'card p-4' },
+      el('h2', { class: 'text-lg font-bold' }, '🔁 Renewals'),
+      el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
+        'Outbound renewals are our best-retaining production (89.6% 12-mo survival, $989 avg ARV) — this is the call list. Window opens 2 months before the contract ends: month 10 on a 12, month 16 on an 18, month 22 on a 24. Pitch the 24-month re-sign with the free add-ons.')),
+    listCard('Renewal window — final 2 months of term',
+      'Call these FIRST — sorted by how soon the contract ends, then ARV.',
+      expiring,
+      { btn: exportBtn(expiring, 'renewals-expiring.csv', 'Months To Term End', (x) => x.toGo.toFixed(1)),
+        lastHdr: 'Ends in', lastVal: (x) => x.toGo.toFixed(1) + ' mo', lastColor: (x) => x.toGo < 1 ? '#DC2626' : '#D97706' },
+      'Nothing entering the renewal window right now.'),
+    listCard('Past term — rolled over, never re-signed',
+      'Contract completed and still active month-to-month. Zero commitment protecting this ARR — biggest tickets first.',
+      past,
+      { btn: exportBtn(past, 'renewals-past-term.csv', 'Months Past Term', (x) => x.pastBy.toFixed(1)),
+        lastHdr: 'Past term', lastVal: (x) => '+' + x.pastBy.toFixed(1) + ' mo', lastColor: () => '#DC2626' },
+      'No active contracts past their term.'));
+}
+
 function reportingSubTabs() {
   const tabs = [
     ['overview',   'Overview'],
@@ -38411,13 +38499,14 @@ function reportingWaterfall() {
   // suite, Customer Health (churn defense), and Next Best Service (attach).
   const _sec = state._retenSection || 'retention';
   const _secBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
-    ...[['retention', '📊 Retention'], ['health', '❤️‍🩹 Customer Health'], ['nextbest', '🎯 Next Best Service']].map(([k, l]) => el('button', {
+    ...[['retention', '📊 Retention'], ['health', '❤️‍🩹 Customer Health'], ['nextbest', '🎯 Next Best Service'], ['renewals', '🔁 Renewals']].map(([k, l]) => el('button', {
       class: 'px-3 py-1.5 rounded-lg text-xs font-bold transition hover:brightness-95',
       style: _sec === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
       onclick: () => { state._retenSection = k; mountApp(); },
     }, l)));
   if (_sec === 'health')   return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingCustomerHealth());
   if (_sec === 'nextbest') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingNextBest());
+  if (_sec === 'renewals') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingRenewals());
   const scope = reportingScope();
   const { scopeA, scopeB, inCompare, office, compareOffice, officeLabel } = scope;
 
