@@ -11837,9 +11837,18 @@ function deptShifts() {
   return state.shifts.filter(s => shiftDept(s) === d);
 }
 function slotIdFor(slotStart, slotEnd) { return slotStart + '-' + slotEnd; }
+// On a company holiday the default is NO reps working — pre-existing /
+// recurring shifts are suppressed; only shifts explicitly created on the
+// holiday itself (holiday_ok) show (per Isaac: "if I manually want to add
+// them back, I will").
+function _shiftVisibleOn(iso) {
+  const hol = companyHolidayFor(iso);
+  return (s) => !hol || !!s.holiday_ok;
+}
 function shiftSlotsForDate(iso) {
   const groups = {};
-  deptShifts().filter(s => s.date === iso).forEach(s => {
+  const vis = _shiftVisibleOn(iso);
+  deptShifts().filter(s => s.date === iso && vis(s)).forEach(s => {
     const key = slotIdFor(s.slot_start, s.slot_end);
     if (!groups[key]) {
       groups[key] = {
@@ -11861,8 +11870,9 @@ function slotTemplate(iso, slotId) {
   return { slot_id: slotId, slot_start: start, slot_end: end, label: `${fmtTime(start)} – ${fmtTime(end)}` };
 }
 function assignmentsForSlot(iso, slotId) {
+  const vis = _shiftVisibleOn(iso);
   return deptShifts()
-    .filter(s => s.date === iso && s.slot_id === slotId)
+    .filter(s => s.date === iso && s.slot_id === slotId && vis(s))
     .sort((a, b) => a.start.localeCompare(b.start));
 }
 
@@ -12322,7 +12332,7 @@ function renderMonthGrid(anchor, today, meId, repById) {
         const holiday = companyHolidayFor(iso);
         const slots = shiftSlotsForDate(iso);
         const cell = el('div', {
-          class: 'p-1.5 border-r border-b flex flex-col gap-1 relative' + (isAdmin && !holiday ? ' cursor-pointer' : ''),
+          class: 'p-1.5 border-r border-b flex flex-col gap-1 relative' + (isAdmin ? ' cursor-pointer' : ''),
           style: {
             borderColor: 'var(--border)',
             borderRightWidth: (idx + 1) % 7 === 0 ? '0' : '1px',
@@ -12330,16 +12340,16 @@ function renderMonthGrid(anchor, today, meId, repById) {
             background: holiday ? 'rgba(242,20,140,0.05)' : isToday ? 'rgba(141,198,63,0.14)' : 'transparent',
             boxShadow: isToday ? 'inset 0 0 0 2px var(--accent)' : 'none',
           },
-          onclick: (isAdmin && !holiday) ? () => openNewShiftModal(iso) : null,
+          onclick: isAdmin ? () => openNewShiftModal(iso) : null,
         },
           holiday && el('div', {
             class: 'text-[9px] font-black uppercase tracking-widest rounded-md px-1.5 py-1 pointer-events-none',
             style: { background: 'rgba(242,20,140,.12)', color: '#C2185B' },
-            title: 'Company holiday — office closed. Shifts are not scheduled on this day.',
+            title: 'Company holiday — nobody is scheduled by default. Click the day to add reps manually if you need coverage.',
           }, '🎉 ' + holiday),
           el('div', { class: 'flex items-center justify-between mb-0.5 pointer-events-none' },
             el('div', { class: 'text-xs font-bold', style: { color: isToday ? 'var(--accent)' : 'var(--text)' } }, String(d.getDate())),
-            isAdmin && !holiday && el('span', {
+            isAdmin && el('span', {
               class: 'inline-flex items-center justify-center rounded-full text-[12px] font-bold leading-none',
               style: {
                 width: '18px', height: '18px',
@@ -12590,10 +12600,7 @@ function openNewShiftModal(defaultIso, opts = {}) {
       onclick: () => {
         if (formState.start >= formState.end) { toast('End time must be after start time', 'warn'); return; }
         if (formState.rep_ids.size === 0)     { toast('Pick at least one rep', 'warn'); return; }
-        if (formState.mode === 'single') {
-          const _hol = companyHolidayFor(formState.start_date);
-          if (_hol) { toast(_hol + ' — company holiday, office closed. Pick another day.', 'warn'); return; }
-        }
+
         if (formState.mode === 'range' && formState.days.size === 0) {
           toast('Pick at least one day of the week', 'warn'); return;
         }
@@ -12631,6 +12638,7 @@ function openNewShiftModal(defaultIso, opts = {}) {
               end:   formState.end,
               note: '',
               recurring: formState.mode === 'range',
+              holiday_ok: !!companyHolidayFor(dIso),   // explicitly added ON a holiday
               department: dept,
             });
             added += 1;
