@@ -8678,7 +8678,11 @@ function openIndicatorRepCard(rep, allReps = []) {
       (_calMode === 'calendar' ? sellDaysCalendarBlock() : dayHourHeatmapBlock()),
       trendsBlock(),
       powerHourBlock(),
-      topSubsBlock(),
+      // Full Subscription Mix table (same one as the Indicators page),
+      // scoped to this rep's accounts in the current date scope.
+      (scopedRep.sales && scopedRep.sales.length)
+        ? el('div', { class: 'mb-5' }, indicatorSubscriptionMixCard(scopedRep.sales, { subtitleSuffix: ' · ' + (rep.name || 'this rep') }))
+        : topSubsBlock(),
       drillBlock() || el('div', {}),
     );
     // When the records leaderboard is open, scroll the current rep's row
@@ -24577,660 +24581,59 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // Rookie vs Vet lives directly under the Records card (built earlier).
   if (_tierCardSection && state.indicatorDept !== 'office') sections.push(_tierCardSection);
 
-  // ── 3. CANCEL ANALYSIS ──
-  // The ONLY section that can read `rawSalesAll` (with 3-day RORs +
-  // Sold-Not-Started rows still in it). A toggle in the header lets the
-  // analyst flip between including those rows (default — useful for
-  // understanding the full cancel mix) and excluding them (matches the
-  // rest of the page). Every other indicators section always reads from
-  // the trimmed `rawSales`.
-  // Per-KIND includes (was one all-or-nothing toggle). Default: all off —
-  // real attrition only, matching the rest of the page.
-  if (!state._indCancelKinds) state._indCancelKinds = { ror: false, sns: false, combined: false, onetime: false, renewal: false };
-  const _k = state._indCancelKinds;
-  const CANCEL_KINDS = [
-    ['ror',      '3-Day RORs',        _is3DayROR],
-    ['sns',      'Sold, Not Started', _isSoldNotStarted],
-    ['combined', 'Combined subs',     _isCombinedSub],
-    ['onetime',  'One-Time services', _isOneTimeCancel],
-    ['renewal',  'Renewals',          _isRenewalCancel],
-  ];
-  const _kindEnabled = (s) => CANCEL_KINDS.some(([id, _l, test]) => _k[id] && test(s));
-  // Denominator: ROR/SNS ROWS are stripped from rawSales entirely, so pull
-  // from rawSalesAll but only admit the kinds that are switched on.
-  const cancelSrc = rawSalesAll.filter(s => {
-    if (_is3DayROR(s) && !_k.ror) return false;        // ROR rows only exist here — admit only when switched on
-    if (_isSoldNotStarted(s) && !_k.sns) return false; // same for Sold-Not-Started
-    return true;
-  });
-  const isCountableCancel = (s) => {
-    if (!(s.cancelDate || s.active === 'No')) return false;
-    return _isReportableCancel(s) || _kindEnabled(s);
-  };
-  const allCancels = cancelSrc.filter(isCountableCancel);
-  // Per-kind counts for the dropdown badges (page-filtered, kind-tested raw).
-  const _kindCounts = {};
-  CANCEL_KINDS.forEach(([id, _l, test]) => {
-    _kindCounts[id] = rawSalesAll.filter(s => (s.cancelDate || s.active === 'No') && test(s)).length;
-  });
-  const _kindsOn = CANCEL_KINDS.filter(([id]) => _k[id]).length;
-  if (allCancels.length > 0 || cancelSrc.length > 0) {
-    // By reason
-    const reasonCounts = {}, reasonRev = {};
-    allCancels.forEach(s => {
-      const reason = (s.cancelReason || 'Unspecified').trim();
-      reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
-      reasonRev[reason]    = (reasonRev[reason] || 0) + (Number(s.contractValue) || 0);
-    });
-    const topReasons = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]);
-    const totalLostRev = Object.values(reasonRev).reduce((a, b) => a + b, 0);
-    const _usd0 = v => '$' + Math.round(v || 0).toLocaleString();
+  // ── 3. (Cancel Analysis card retired — per Isaac. Reasons live in the
+  // Retention tab's drills; package/office/team attrition lives in the
+  // Sales Mix table below via its Attr % column and group switcher.) ──
 
-    // By package (cancel rate per subscription) — numerator and
-    // denominator both read from the toggle-aware cancelSrc so the rate
-    // the analyst sees here matches the rest of this card.
-    const subStats = {};
-    cancelSrc.forEach(s => {
-      const sub = s.subscription || 'Unknown';
-      if (!subStats[sub]) subStats[sub] = { total: 0, cancels: 0 };
-      subStats[sub].total++;
-      if (isCountableCancel(s)) subStats[sub].cancels++;
-    });
-    const subCancelRates = Object.entries(subStats)
-      .filter(([_, v]) => v.total >= 5) // min 5 sales to show
-      .map(([name, v]) => ({ name, ...v, rate: v.cancels / v.total }))
-      .sort((a, b) => b.rate - a.rate);
-
-    sections.push(
-      el('div', { class: 'card p-5' },
-        el('div', { class: 'flex items-center justify-between flex-wrap gap-3 mb-4' },
-          el('h3', { class: 'text-base font-bold' }, '🚫 Cancel Analysis'),
-          // Per-kind dropdown — pick exactly which non-attrition cancel
-          // kinds to fold into this card. Everything else on the tab
-          // always excludes them.
-          (() => {
-            const wrap = el('div', { class: 'relative', id: 'cancel-kinds-wrap' });
-            wrap.append(el('button', {
-              class: 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95',
-              style: _kindsOn
-                ? { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.12)', color: 'var(--accent)' }
-                : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-              title: 'Choose which non-attrition cancel kinds to include in this card',
-              onclick: (e) => { e.stopPropagation(); state._cancelKindsMenuOpen = !state._cancelKindsMenuOpen; mountApp(); },
-            },
-              el('span', {}, 'Cancel types' + (_kindsOn ? ' · ' + _kindsOn + ' included' : ' · attrition only')),
-              el('span', { style: { fontSize: '9px' } }, state._cancelKindsMenuOpen ? '▴' : '▾')));
-            if (state._cancelKindsMenuOpen) {
-              wrap.append(el('div', { class: 'card absolute p-1.5', style: { top: 'calc(100% + 6px)', right: '0', minWidth: '240px', zIndex: '40', boxShadow: 'var(--shadow-lg)' } },
-                ...CANCEL_KINDS.map(([id, label]) => el('button', {
-                  class: 'w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
-                  style: { color: 'var(--text)', background: _k[id] ? 'var(--card-2)' : 'transparent' },
-                  onclick: (e) => {
-                    e.stopPropagation();
-                    _k[id] = !_k[id];
-                    state._indicatorSelectedReason = null; state._indicatorSelectedPackage = null;
-                    state._indicatorSelectedOffice = null; state._indicatorSelectedTeam = null;
-                    mountApp();
-                  },
-                },
-                  el('span', { class: 'flex items-center gap-2' },
-                    el('span', { style: { fontSize: '13px' } }, _k[id] ? '☑' : '☐'),
-                    el('span', {}, label)),
-                  el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, _kindCounts[id] || 0))),
-                el('div', { class: 'px-2.5 pt-1.5 pb-1 text-[10px]', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)', marginTop: '4px' } },
-                  'Unchecked = attrition only (the default everywhere else).')));
-              if (window._cancelKindsCloser) document.removeEventListener('mousedown', window._cancelKindsCloser);
-              window._cancelKindsCloser = (ev) => {
-                const w = document.getElementById('cancel-kinds-wrap');
-                if (w && w.contains(ev.target)) return;
-                document.removeEventListener('mousedown', window._cancelKindsCloser);
-                window._cancelKindsCloser = null;
-                if (state._cancelKindsMenuOpen) { state._cancelKindsMenuOpen = false; mountApp(); }
-              };
-              setTimeout(() => document.addEventListener('mousedown', window._cancelKindsCloser), 0);
-            }
-            return wrap;
-          })(),
-        ),
-        // View switcher — the card used to stack Reasons + Packages side by
-        // side with Office and Team card grids below, a very long scroll.
-        // One sub-view renders at a time now; drills all still work.
-        (() => {
-          if (!state._cancelView) state._cancelView = 'reason';
-          return el('div', { class: 'inline-flex rounded-lg border overflow-hidden mb-4', style: { borderColor: 'var(--border-2)' } },
-            ...[['reason', 'Reasons'], ['package', 'Packages'], ['office', 'Offices'], ['team', 'Teams']].map(([v, lab]) => el('button', {
-              class: 'px-3 py-1.5 text-[11px] font-semibold transition',
-              style: state._cancelView === v
-                ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-                : { background: 'transparent', color: 'var(--text)' },
-              onclick: () => { state._cancelView = v; mountApp(); },
-            }, lab)));
-        })(),
-        el('div', { class: 'grid grid-cols-1 gap-5' },
-          // By reason — click a row to drill into the customers behind it
-          el('div', { style: { display: (state._cancelView || 'reason') === 'reason' ? '' : 'none' } },
-            el('h4', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-2' }, 'By Reason (' + allCancels.length + ' cancels · ' + _usd0(totalLostRev) + ' lost · click to drill in)'),
-            // Cap the list height so a long tail of one-off reasons doesn't
-            // stretch the card. ~10 reasons visible; the rest scrolls inside.
-            el('div', { class: 'flex flex-col gap-1', style: { maxHeight: '260px', overflowY: 'auto', paddingRight: '4px' } },
-              ...(() => {
-                const maxCnt = Math.max(1, ...topReasons.map(([, c]) => c));
-                return topReasons.map(([reason, cnt]) => {
-                  const isSelected = state._indicatorSelectedReason === reason;
-                  const share = cnt / maxCnt;   // bar vs the biggest reason
-                  return el('div', {
-                    class: 'flex items-center justify-between text-xs py-2 cursor-pointer transition rounded-lg',
-                    style: {
-                      paddingLeft: '10px', paddingRight: '10px', marginBottom: '2px',
-                      // proportional bar painted straight into the row background
-                      background: isSelected
-                        ? 'rgba(141,198,63,.20)'
-                        : 'linear-gradient(to right, rgba(220,38,38,.09) ' + (share * 100).toFixed(1) + '%, var(--card-2) ' + (share * 100).toFixed(1) + '%)',
-                      border: '1px solid ' + (isSelected ? 'var(--accent)' : 'var(--border)'),
-                    },
-                    onclick: () => {
-                      state._indicatorSelectedReason = isSelected ? null : reason;
-                      mountApp();
-                    },
-                  },
-                    el('span', { class: 'flex items-center gap-1.5 min-w-0' },
-                      el('span', { class: 'text-[10px] shrink-0', style: { color: isSelected ? 'var(--accent)' : 'var(--text-subtle)' } }, isSelected ? '▾' : '▸'),
-                      el('span', { class: 'truncate font-medium' }, reason),
-                    ),
-                    el('div', { class: 'flex items-center gap-3 shrink-0' },
-                      el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, _usd0(reasonRev[reason])),
-                      el('span', { class: 'text-muted- tabular-nums text-[11px]', style: { minWidth: '44px', textAlign: 'right' } }, (cnt / allCancels.length * 100).toFixed(1) + '%'),
-                      el('span', { class: 'font-bold tabular-nums', style: { minWidth: '28px', textAlign: 'right' } }, cnt),
-                    ),
-                  );
-                });
-              })(),
-            ),
-
-            // ── Drill-down: customers for the selected reason ──
-            (() => {
-              const reason = state._indicatorSelectedReason;
-              if (!reason) return el('div', {});
-              const matches = allCancels
-                .filter(s => (s.cancelReason || 'Unspecified').trim() === reason)
-                .sort((a, b) => (b.cancelDate || '').localeCompare(a.cancelDate || ''));
-
-              // Mini package-share breakdown so you can see which packages are pulling this reason
-              const pkgCnt = {};
-              matches.forEach(s => {
-                const p = s.subscription || 'Unknown';
-                pkgCnt[p] = (pkgCnt[p] || 0) + 1;
-              });
-              const pkgRows = Object.entries(pkgCnt).sort((a, b) => b[1] - a[1]).slice(0, 5);
-
-              return el('div', { class: 'mt-3 rounded-lg border p-3', style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.06)' } },
-                el('div', { class: 'flex items-center justify-between mb-2' },
-                  el('div', {},
-                    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--accent)' } }, 'Customers · ' + reason),
-                    el('div', { class: 'text-[10px] text-muted- mt-0.5' }, matches.length + ' account' + (matches.length === 1 ? '' : 's')),
-                  ),
-                  el('div', { class: 'flex items-center gap-1.5' },
-                    el('button', {
-                      class: 'rounded border px-2 py-0.5 text-[10px] font-semibold',
-                      style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-                      title: 'Copy all customer IDs to clipboard',
-                      onclick: (e) => {
-                        e.stopPropagation();
-                        const text = matches.map(s => s.customerId || s.customer || '').filter(Boolean).join('\n');
-                        try { navigator.clipboard.writeText(text); toast('Copied ' + matches.length + ' customers', 'success'); }
-                        catch (_) { toast('Copy failed', 'error'); }
-                      },
-                    }, 'Copy'),
-                    el('button', {
-                      class: 'rounded border px-2 py-0.5 text-[10px] font-semibold',
-                      style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-                      onclick: () => { state._indicatorSelectedReason = null; mountApp(); },
-                    }, 'Close'),
-                  ),
-                ),
-                pkgRows.length > 1 && el('div', { class: 'flex flex-wrap gap-1.5 mb-2' },
-                  ...pkgRows.map(([name, cnt]) => el('span', {
-                    class: 'text-[10px] rounded-full px-2 py-0.5',
-                    style: { background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-muted)' },
-                    title: name,
-                  }, name + ' · ' + cnt)),
-                ),
-                el('div', { class: 'scroll-x', style: { maxHeight: '240px', overflowY: 'auto' } },
-                  el('table', { class: 'w-full text-[11px]' },
-                    el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted- sticky top-0', style: { background: 'var(--card)' } },
-                      el('tr', {},
-                        el('th', { class: 'text-left pl-2 pr-2 py-1.5 font-semibold' }, 'Cust ID'),
-                        el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Package'),
-                        el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Office'),
-                        el('th', { class: 'text-left pl-2 pr-2 py-1.5 font-semibold' }, 'Cancelled'),
-                      ),
-                    ),
-                    el('tbody', {},
-                      ...matches.map(s => el('tr', { class: 'border-t border-' },
-                        el('td', { class: 'pl-2 pr-2 py-1.5 font-medium tabular-nums' }, s.customerId || s.customer || '—'),
-                        el('td', { class: 'px-2 py-1.5 truncate max-w-[120px]', title: s.subscription }, s.subscription || '—'),
-                        el('td', { class: 'px-2 py-1.5 text-muted-' }, (s.office || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ') || '—'),
-                        el('td', { class: 'pl-2 pr-2 py-1.5 text-muted- tabular-nums' }, s.cancelDate || '—'),
-                      )),
-                    ),
-                  ),
-                ),
-              );
-            })(),
-          ),
-          // By package (highest cancel rate) — click a row to drill into its cancel reasons
-          el('div', { style: { display: state._cancelView === 'package' ? '' : 'none' } },
-            el('h4', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-2' }, 'By Package (highest cancel rate, min 5 sales · click to drill in)'),
-            el('div', { class: 'flex flex-col gap-1' },
-              ...(() => {
-                const top10 = subCancelRates.slice(0, 10);
-                const maxRate = Math.max(0.001, ...top10.map(x => x.rate));
-                return top10.map(s => {
-                  const isSelected = state._indicatorSelectedPackage === s.name;
-                  const share = s.rate / maxRate;
-                  return el('div', {
-                    class: 'flex items-center justify-between text-xs py-2 cursor-pointer transition rounded-lg',
-                    style: {
-                      paddingLeft: '10px', paddingRight: '10px', marginBottom: '2px',
-                      background: isSelected
-                        ? 'rgba(141,198,63,.20)'
-                        : 'linear-gradient(to right, rgba(220,38,38,.09) ' + (share * 100).toFixed(1) + '%, var(--card-2) ' + (share * 100).toFixed(1) + '%)',
-                      border: '1px solid ' + (isSelected ? 'var(--accent)' : 'var(--border)'),
-                    },
-                    onclick: () => {
-                      state._indicatorSelectedPackage = isSelected ? null : s.name;
-                      state._indicatorSelectedPackageReason = null; // reset drill-down when switching packages
-                      mountApp();
-                    },
-                  },
-                    el('span', { class: 'truncate max-w-[200px] flex items-center gap-1.5', title: s.name },
-                      el('span', { class: 'text-[10px] shrink-0', style: { color: isSelected ? 'var(--accent)' : 'var(--text-subtle)' } }, isSelected ? '▾' : '▸'),
-                      el('span', { class: 'truncate font-medium' }, s.name),
-                    ),
-                    el('div', { class: 'flex items-center gap-3 shrink-0' },
-                      el('span', { class: 'text-muted- tabular-nums' }, s.cancels + '/' + s.total),
-                      el('span', { class: 'font-bold tabular-nums', style: { minWidth: '48px', textAlign: 'right', color: s.rate > 0.1 ? '#DC2626' : 'var(--text)' } }, (s.rate * 100).toFixed(1) + '%'),
-                    ),
-                  );
-                });
-              })(),
-            ),
-
-            // ── Drill-down: cancel reasons for the selected package
-            //     (renders inside the column so it sits side-by-side with the
-            //     By-Reason drill on the left at the same width)
-            (() => {
-              const pkg = state._indicatorSelectedPackage;
-              if (!pkg) return el('div', {});
-              const pkgCancels = allCancels.filter(s => (s.subscription || 'Unknown') === pkg);
-              if (pkgCancels.length === 0) {
-                return el('div', { class: 'mt-3 rounded-lg border p-3 text-xs text-muted-', style: { borderColor: 'var(--border)', borderStyle: 'dashed' } },
-                  el('div', { class: 'flex items-center justify-between' },
-                    el('span', {}, 'No cancels recorded for ', el('strong', {}, pkg), '.'),
-                    el('button', {
-                      class: 'text-[11px] underline',
-                      onclick: () => { state._indicatorSelectedPackage = null; mountApp(); },
-                    }, 'Close'),
-                  ),
-                );
-              }
-              const pkgReasonCounts = {};
-              pkgCancels.forEach(s => {
-                const reason = (s.cancelReason || 'Unspecified').trim();
-                pkgReasonCounts[reason] = (pkgReasonCounts[reason] || 0) + 1;
-              });
-              const pkgReasons = Object.entries(pkgReasonCounts).sort((a, b) => b[1] - a[1]);
-              const maxCnt = pkgReasons[0]?.[1] || 1;
-              const selectedReason = state._indicatorSelectedPackageReason;
-              return el('div', { class: 'mt-3 rounded-lg border p-3', style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.06)' } },
-                el('div', { class: 'flex items-center justify-between mb-2' },
-                  el('div', {},
-                    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--accent)' } }, 'Cancel Reasons · ' + pkg),
-                    el('div', { class: 'text-[10px] text-muted- mt-0.5' }, pkgCancels.length + ' cancels · click a reason to drill in'),
-                  ),
-                  el('button', {
-                    class: 'rounded border px-2 py-0.5 text-[10px] font-semibold',
-                    style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-                    onclick: () => {
-                      state._indicatorSelectedPackage = null;
-                      state._indicatorSelectedPackageReason = null;
-                      mountApp();
-                    },
-                  }, 'Close'),
-                ),
-                el('div', { class: 'flex flex-col gap-1' },
-                  ...pkgReasons.map(([reason, cnt]) => {
-                    const pct = (cnt / pkgCancels.length * 100);
-                    const isReasonSelected = selectedReason === reason;
-                    return el('div', {
-                      class: 'flex items-center gap-2 text-xs cursor-pointer rounded transition hover:brightness-95',
-                      style: isReasonSelected
-                        ? { background: 'rgba(141,198,63,.15)', padding: '2px 4px' }
-                        : { padding: '2px 4px' },
-                      onclick: () => {
-                        state._indicatorSelectedPackageReason = isReasonSelected ? null : reason;
-                        mountApp();
-                      },
-                    },
-                      el('span', { class: 'text-[10px] shrink-0', style: { color: isReasonSelected ? 'var(--accent)' : 'var(--text-subtle)', width: '10px' } }, isReasonSelected ? '▾' : '▸'),
-                      el('div', { class: 'truncate font-medium flex-1 min-w-0', title: reason }, reason),
-                      el('div', { class: 'w-8 text-right tabular-nums font-semibold shrink-0' }, cnt),
-                      el('div', { class: 'w-12 text-right tabular-nums text-muted- shrink-0' }, pct.toFixed(1) + '%'),
-                    );
-                  }),
-                ),
-
-                // ── Customer list for the selected (package, reason) ──
-                (() => {
-                  if (!selectedReason) return el('div', {});
-                  const matches = pkgCancels.filter(s =>
-                    (s.cancelReason || 'Unspecified').trim() === selectedReason
-                  ).sort((a, b) => (b.cancelDate || '').localeCompare(a.cancelDate || ''));
-                  return el('div', { class: 'mt-3 rounded-lg border p-2', style: { borderColor: 'var(--border)', background: 'var(--card)' } },
-                    el('div', { class: 'flex items-center justify-between mb-2 px-1' },
-                      el('div', {},
-                        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--accent)' } }, 'Customers · ' + selectedReason),
-                        el('div', { class: 'text-[10px] text-muted- mt-0.5' }, matches.length + ' account' + (matches.length === 1 ? '' : 's')),
-                      ),
-                      el('button', {
-                        class: 'rounded border px-2 py-0.5 text-[10px] font-semibold',
-                        style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-                        title: 'Copy all customer IDs to clipboard',
-                        onclick: (e) => {
-                          e.stopPropagation();
-                          const text = matches.map(s => s.customerId || s.customer || '').filter(Boolean).join('\n');
-                          try { navigator.clipboard.writeText(text); toast('Copied ' + matches.length + ' customer IDs', 'success'); }
-                          catch (_) { toast('Copy failed', 'error'); }
-                        },
-                      }, 'Copy'),
-                    ),
-                    el('div', { class: 'scroll-x', style: { maxHeight: '240px', overflowY: 'auto' } },
-                      el('table', { class: 'w-full text-[11px]' },
-                        el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted- sticky top-0', style: { background: 'var(--card)' } },
-                          el('tr', {},
-                            el('th', { class: 'text-left pl-2 pr-2 py-1.5 font-semibold' }, 'Cust ID'),
-                            el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Office'),
-                            el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Rep'),
-                            el('th', { class: 'text-left pl-2 pr-2 py-1.5 font-semibold' }, 'Cancelled'),
-                          ),
-                        ),
-                        el('tbody', {},
-                          ...matches.map(s => el('tr', { class: 'border-t border-' },
-                            el('td', { class: 'pl-2 pr-2 py-1.5 font-medium tabular-nums' }, s.customerId || s.customer || '—'),
-                            el('td', { class: 'px-2 py-1.5 text-muted-' }, (s.office || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ') || '—'),
-                            el('td', { class: 'px-2 py-1.5 truncate max-w-[100px]', title: s.rep }, s.rep || '—'),
-                            el('td', { class: 'pl-2 pr-2 py-1.5 text-muted- tabular-nums' }, s.cancelDate || '—'),
-                          )),
-                        ),
-                      ),
-                    ),
-                  );
-                })(),
-              );
-            })(),
-          ),
-        ),
-
-        // ── Attrition by Office (click a card to drill in) ──
-        el('div', { class: 'mt-2', style: { display: state._cancelView === 'office' ? '' : 'none' } },
-          el('h4', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-3' }, 'Attrition by Office (click for details)'),
-          el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
-            ...(() => {
-              const officeCancel = {};
-              cancelSrc.forEach(s => {
-                const o = s.office || 'Unknown';
-                if (!officeCancel[o]) officeCancel[o] = { total: 0, cancels: 0 };
-                officeCancel[o].total++;
-                if (isCountableCancel(s)) officeCancel[o].cancels++;
-              });
-              return Object.entries(officeCancel)
-                .map(([name, v]) => ({ name, ...v, rate: v.total > 0 ? v.cancels / v.total : 0 }))
-                .sort((a, b) => b.rate - a.rate)
-                .map(o => {
-                  const isSelected = state._indicatorSelectedOffice === o.name;
-                  return el('div', {
-                    class: 'card-2 rounded-xl border p-4 text-center cursor-pointer transition hover:brightness-95',
-                    style: isSelected
-                      ? { borderColor: 'var(--accent)', borderWidth: '2px', background: 'rgba(141,198,63,.08)' }
-                      : { borderColor: 'var(--border)', borderWidth: '1px' },
-                    onclick: () => {
-                      state._indicatorSelectedOffice = isSelected ? null : o.name;
-                      mountApp();
-                    },
-                  },
-                    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: BRANCH_COLORS[o.name.toUpperCase()] || 'var(--text-muted)' } }, o.name),
-                    el('div', { class: 'text-2xl font-black tabular-nums', style: o.rate > 0.05 ? { color: '#DC2626' } : {} }, (o.rate * 100).toFixed(1) + '%'),
-                    el('div', { class: 'text-[10px] text-muted- mt-1 tabular-nums' }, o.cancels + ' cancels / ' + o.total + ' sales'),
-                  );
-                });
-            })(),
-          ),
-
-          // ── Drill-down: cancel reasons + reps for the selected office ──
-          (() => {
-            const office = state._indicatorSelectedOffice;
-            if (!office) return el('div', {});
-            const officeAll = cancelSrc.filter(s => (s.office || 'Unknown') === office);
-            const officeCancels = officeAll.filter(isCountableCancel);
-            if (officeCancels.length === 0) {
-              return el('div', { class: 'mt-4 rounded-lg border p-4 text-xs text-muted-', style: { borderColor: 'var(--border)', borderStyle: 'dashed' } },
-                el('div', { class: 'flex items-center justify-between' },
-                  el('span', {}, 'No cancels recorded for ', el('strong', { style: { color: BRANCH_COLORS[office.toUpperCase()] || 'var(--text)' } }, office), '.'),
-                  el('button', { class: 'text-[11px] underline', onclick: () => { state._indicatorSelectedOffice = null; mountApp(); } }, 'Close'),
-                ),
-              );
-            }
-
-            // Cancel reasons for this office
-            const reasonCnt = {};
-            officeCancels.forEach(s => {
-              const reason = (s.cancelReason || 'Unspecified').trim();
-              reasonCnt[reason] = (reasonCnt[reason] || 0) + 1;
-            });
-            const reasonRows = Object.entries(reasonCnt).sort((a, b) => b[1] - a[1]);
-            const maxReason = reasonRows[0]?.[1] || 1;
-
-            // Reps in this office: total sales, cancels, cancel rate, share of total cancels
-            const repCnt = {};
-            officeAll.forEach(s => {
-              const rep = s.rep || 'Unknown';
-              if (!repCnt[rep]) repCnt[rep] = { name: rep, total: 0, cancels: 0 };
-              repCnt[rep].total++;
-              if (isCountableCancel(s)) repCnt[rep].cancels++;
-            });
-            const repRows = Object.values(repCnt)
-              .map(r => ({ ...r, rate: r.total > 0 ? r.cancels / r.total : 0, share: r.cancels / officeCancels.length }))
-              .filter(r => r.cancels > 0)
-              .sort((a, b) => b.cancels - a.cancels);
-
-            return el('div', { class: 'mt-4 rounded-lg border p-4', style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.06)' } },
-              el('div', { class: 'flex items-center justify-between mb-3' },
-                el('div', {},
-                  el('h4', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: 'var(--accent)' } },
-                    office + ' · cancel breakdown'),
-                  el('div', { class: 'text-[10px] text-muted- mt-0.5' },
-                    officeCancels.length + ' cancels · ' + officeAll.length + ' total sales · ' + (officeCancels.length / officeAll.length * 100).toFixed(1) + '% attrition'),
-                ),
-                el('button', {
-                  class: 'rounded-lg border px-2 py-1 text-[10px] font-semibold',
-                  style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-                  onclick: () => { state._indicatorSelectedOffice = null; mountApp(); },
-                }, 'Close'),
-              ),
-              el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-5' },
-                // Cancel reasons
-                el('div', {},
-                  el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, 'Cancel reasons'),
-                  el('div', { class: 'flex flex-col gap-1.5' },
-                    ...reasonRows.map(([reason, cnt]) => {
-                      const pct = (cnt / officeCancels.length * 100);
-                      return el('div', { class: 'flex items-center gap-3 text-xs' },
-                        el('div', { class: 'w-[140px] truncate font-medium shrink-0', title: reason }, reason),
-                        el('div', { class: 'flex-1 h-4 rounded-full overflow-hidden', style: { background: 'var(--border)' } },
-                          el('div', { style: { width: (cnt / maxReason * 100).toFixed(1) + '%', height: '100%', background: 'var(--accent)', borderRadius: '999px', transition: 'width .3s' } }),
-                        ),
-                        el('div', { class: 'w-8 text-right tabular-nums font-semibold shrink-0' }, cnt),
-                        el('div', { class: 'w-12 text-right tabular-nums text-muted- shrink-0' }, pct.toFixed(1) + '%'),
-                      );
-                    }),
-                  ),
-                ),
-                // Reps with cancel weight
-                el('div', {},
-                  el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, 'Reps (sorted by cancel count)'),
-                  el('div', { class: 'flex flex-col gap-1' },
-                    ...repRows.map(r => el('div', { class: 'flex items-center justify-between text-xs py-1 border-b border-' },
-                      el('span', { class: 'truncate max-w-[140px] font-medium', title: r.name }, r.name),
-                      el('div', { class: 'flex items-center gap-3 shrink-0' },
-                        el('span', { class: 'text-muted- tabular-nums' }, r.cancels + '/' + r.total),
-                        el('span', { class: 'font-semibold tabular-nums', style: r.rate > 0.1 ? { color: '#DC2626' } : {} }, (r.rate * 100).toFixed(1) + '%'),
-                        el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--accent)', minWidth: '36px', textAlign: 'right' }, title: 'Share of office cancels' }, (r.share * 100).toFixed(0) + '% wt'),
-                      ),
-                    )),
-                  ),
-                ),
-              ),
-            );
-          })(),
-        ),
-
-        // ── Attrition by Team (click a card to drill in) ──
-        el('div', { class: 'mt-2', style: { display: state._cancelView === 'team' ? '' : 'none' } },
-          el('h4', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-3' }, 'Attrition by Team (click for details)'),
-          (() => {
-            const teamCancel = {};
-            cancelSrc.forEach(s => {
-              const t = getRepTeam(s.rep) || 'Unassigned';
-              if (!teamCancel[t]) teamCancel[t] = { name: t, total: 0, cancels: 0, reps: new Set() };
-              teamCancel[t].total++;
-              if (s.rep) teamCancel[t].reps.add(s.rep);
-              if (isCountableCancel(s)) teamCancel[t].cancels++;
-            });
-            const teamRows = Object.values(teamCancel)
-              .map(t => ({ ...t, repCount: t.reps.size, rate: t.total > 0 ? t.cancels / t.total : 0 }))
-              .sort((a, b) => b.rate - a.rate);
-            if (teamRows.length === 0) {
-              return el('div', { class: 'text-xs text-muted- italic py-3 text-center' },
-                'No team assignments yet — use Manage Teams to tag reps with a team.');
-            }
-            return el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
-              ...teamRows.map(t => {
-                const isSelected = state._indicatorSelectedTeam === t.name;
-                const tColor = getTeamColor(t.name);
-                return el('div', {
-                  class: 'card-2 rounded-xl border p-4 text-center cursor-pointer transition hover:brightness-95',
-                  style: isSelected
-                    ? { borderColor: tColor, borderWidth: '2px', background: tColor + '14' /* ~8% opacity */ }
-                    : { borderColor: 'var(--border)', borderWidth: '1px', borderLeft: '4px solid ' + tColor },
-                  onclick: () => {
-                    state._indicatorSelectedTeam = isSelected ? null : t.name;
-                    mountApp();
-                  },
-                },
-                  el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: tColor } }, t.name),
-                  el('div', { class: 'text-2xl font-black tabular-nums', style: t.rate > 0.05 ? { color: '#DC2626' } : {} }, (t.rate * 100).toFixed(1) + '%'),
-                  el('div', { class: 'text-[10px] text-muted- mt-1 tabular-nums' }, t.cancels + ' cancels / ' + t.total + ' sales · ' + t.repCount + ' rep' + (t.repCount === 1 ? '' : 's')),
-                );
-              }),
-            );
-          })(),
-
-          // Drill-down: cancel reasons + reps for the selected team
-          (() => {
-            const teamName = state._indicatorSelectedTeam;
-            if (!teamName) return el('div', {});
-            const teamSales   = cancelSrc.filter(s => (getRepTeam(s.rep) || 'Unassigned') === teamName);
-            const teamCancels = teamSales.filter(isCountableCancel);
-            if (teamCancels.length === 0) {
-              return el('div', { class: 'mt-4 rounded-lg border p-4 text-xs text-muted-', style: { borderColor: 'var(--border)', borderStyle: 'dashed' } },
-                el('div', { class: 'flex items-center justify-between' },
-                  el('span', {}, 'No cancels recorded for ', el('strong', {}, teamName), '.'),
-                  el('button', { class: 'text-[11px] underline', onclick: () => { state._indicatorSelectedTeam = null; mountApp(); } }, 'Close'),
-                ),
-              );
-            }
-            const reasonCnt = {};
-            teamCancels.forEach(s => {
-              const reason = (s.cancelReason || 'Unspecified').trim();
-              reasonCnt[reason] = (reasonCnt[reason] || 0) + 1;
-            });
-            const reasonRows = Object.entries(reasonCnt).sort((a, b) => b[1] - a[1]);
-            const maxReason = reasonRows[0]?.[1] || 1;
-            const repCnt = {};
-            teamSales.forEach(s => {
-              const rep = s.rep || 'Unknown';
-              if (!repCnt[rep]) repCnt[rep] = { name: rep, total: 0, cancels: 0 };
-              repCnt[rep].total++;
-              if (isCountableCancel(s)) repCnt[rep].cancels++;
-            });
-            const repRows = Object.values(repCnt)
-              .map(r => ({ ...r, rate: r.total > 0 ? r.cancels / r.total : 0, share: r.cancels / teamCancels.length }))
-              .filter(r => r.cancels > 0)
-              .sort((a, b) => b.cancels - a.cancels);
-            const drillColor = getTeamColor(teamName);
-            return el('div', { class: 'mt-4 rounded-lg border p-4', style: { borderColor: drillColor, background: drillColor + '0F' /* ~6% opacity */ } },
-              el('div', { class: 'flex items-center justify-between mb-3' },
-                el('div', {},
-                  el('h4', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: drillColor } },
-                    teamName + ' · cancel breakdown'),
-                  el('div', { class: 'text-[10px] text-muted- mt-0.5' },
-                    teamCancels.length + ' cancels · ' + teamSales.length + ' total sales · ' + (teamCancels.length / teamSales.length * 100).toFixed(1) + '% attrition'),
-                ),
-                el('button', {
-                  class: 'rounded-lg border px-2 py-1 text-[10px] font-semibold',
-                  style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-                  onclick: () => { state._indicatorSelectedTeam = null; mountApp(); },
-                }, 'Close'),
-              ),
-              el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-5' },
-                el('div', {},
-                  el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, 'Cancel reasons'),
-                  el('div', { class: 'flex flex-col gap-1.5' },
-                    ...reasonRows.map(([reason, cnt]) => {
-                      const pct = (cnt / teamCancels.length * 100);
-                      return el('div', { class: 'flex items-center gap-3 text-xs' },
-                        el('div', { class: 'w-[140px] truncate font-medium shrink-0', title: reason }, reason),
-                        el('div', { class: 'flex-1 h-4 rounded-full overflow-hidden', style: { background: 'var(--border)' } },
-                          el('div', { style: { width: (cnt / maxReason * 100).toFixed(1) + '%', height: '100%', background: 'var(--accent)', borderRadius: '999px', transition: 'width .3s' } }),
-                        ),
-                        el('div', { class: 'w-8 text-right tabular-nums font-semibold shrink-0' }, cnt),
-                        el('div', { class: 'w-12 text-right tabular-nums text-muted- shrink-0' }, pct.toFixed(1) + '%'),
-                      );
-                    }),
-                  ),
-                ),
-                el('div', {},
-                  el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, 'Reps (sorted by cancel count)'),
-                  el('div', { class: 'flex flex-col gap-1' },
-                    ...repRows.map(r => el('div', { class: 'flex items-center justify-between text-xs py-1 border-b border-' },
-                      el('span', { class: 'truncate max-w-[140px] font-medium', title: r.name }, r.name),
-                      el('div', { class: 'flex items-center gap-3 shrink-0' },
-                        el('span', { class: 'text-muted- tabular-nums' }, r.cancels + '/' + r.total),
-                        el('span', { class: 'font-semibold tabular-nums', style: r.rate > 0.1 ? { color: '#DC2626' } : {} }, (r.rate * 100).toFixed(1) + '%'),
-                        el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--accent)', minWidth: '36px', textAlign: 'right' }, title: 'Share of team cancels' }, (r.share * 100).toFixed(0) + '% wt'),
-                      ),
-                    )),
-                  ),
-                ),
-              ),
-            );
-          })(),
-        ),
-
-      ),
-    );
-  }
-
-  // ── SUBSCRIPTION MIX ──
+  // ── SALES MIX (was Subscription Mix) — one table, three row dimensions:
+  // Subscriptions, Offices, Teams (the Offices/Teams views absorbed from
+  // the retired Cancel Analysis card; Attr % column covers the cancel-rate
+  // job). Table itself lives in indicatorSubscriptionMixCard, shared with
+  // the rep player cards. ──
   if (state._indicatorSubMixOffice == null) state._indicatorSubMixOffice = '';
-  const subOfficeFilter = state._indicatorSubMixOffice;
+  const mixGroup = ['office', 'team'].includes(state._indicatorMixGroup) ? state._indicatorMixGroup : 'subscription';
+  const subOfficeFilter = mixGroup === 'subscription' ? state._indicatorSubMixOffice : '';
   const subOffices = [...new Set(rawSales.map(s => s.office).filter(Boolean))].sort();
   const subSales = subOfficeFilter
     ? rawSales.filter(s => s.office === subOfficeFilter)
     : rawSales;
+  const _mixTC = (o) => String(o || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  const mixGroupTabs = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+    ...[['subscription', 'Subscriptions'], ['office', 'Offices'], ['team', 'Teams']].map(([v, l]) => el('button', {
+      class: 'px-2.5 py-1.5 text-[11px] font-semibold transition',
+      style: mixGroup === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+      onclick: () => { state._indicatorMixGroup = v; mountApp(); },
+    }, l)));
+  sections.push(indicatorSubscriptionMixCard(subSales, {
+    keyOf: mixGroup === 'office' ? (s) => _mixTC(s.office || 'Unknown')
+      : mixGroup === 'team' ? (s) => (typeof getRepTeam === 'function' && getRepTeam(s.rep)) || 'Unassigned'
+      : null,
+    firstCol: mixGroup === 'office' ? 'Office' : mixGroup === 'team' ? 'Team' : 'Subscription',
+    subtitleSuffix: subOfficeFilter ? ' in ' + _mixTC(subOfficeFilter) : '',
+    headerExtra: el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      mixGroupTabs,
+      mixGroup === 'subscription' ? el('select', {
+        class: 'rounded-lg border px-3 py-1.5 text-xs cursor-pointer',
+        style: { borderColor: 'var(--border-2)' },
+        onchange: e => { state._indicatorSubMixOffice = e.target.value; mountApp(); },
+      },
+        el('option', { value: '', selected: !subOfficeFilter }, 'All offices'),
+        ...subOffices.map(o => el('option', { value: o, selected: subOfficeFilter === o }, _mixTC(o))),
+      ) : null),
+  }));
+
+  return sections;
+}
+
+// ── Sales Mix table — shared by the Indicators page (grouped by
+// Subscription / Office / Team) and the rep player cards (scoped to one
+// rep's accounts). Same columns whatever the grouping: Count, % Mix,
+// Revenue, ACV, Avg Init, MY %, Auto-pay, Attr %. ──
+function indicatorSubscriptionMixCard(subSales, opts = {}) {
+  const keyOf = opts.keyOf || ((s) => s.subscription || 'Unknown');
   const subMix = {};
   subSales.forEach(s => {
-    const sub = s.subscription || 'Unknown';
+    const sub = keyOf(s);
     if (!subMix[sub]) subMix[sub] = { count: 0, revenue: 0, cancels: 0, initSum: 0, multi: 0, twelve: 0, apOn: 0 };
     const m = subMix[sub];
     m.count++;
@@ -25254,31 +24657,22 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     .sort((a, b) => b.count - a.count)
     .slice(0, 15);
 
-  sections.push(
-    el('div', { class: 'card p-5' },
+  return el('div', { class: 'card p-5' },
       el('div', { class: 'flex items-center justify-between mb-4 flex-wrap gap-3' },
         el('div', {},
-          el('h3', { class: 'text-base font-bold' }, '📦 Subscription Mix'),
+          el('h3', { class: 'text-base font-bold' }, opts.title || '📦 Sales Mix'),
           el('span', { class: 'text-xs text-muted-' },
             '% weight = share of ' + fmt.int(totalSubCount) + ' account' + (totalSubCount === 1 ? '' : 's') +
-            (subOfficeFilter ? ' in ' + (subOfficeFilter.split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ')) : '')),
+            (opts.subtitleSuffix || '')),
         ),
-        el('select', {
-          class: 'rounded-lg border px-3 py-1.5 text-xs cursor-pointer',
-          style: { borderColor: 'var(--border-2)' },
-          onchange: e => { state._indicatorSubMixOffice = e.target.value; mountApp(); },
-        },
-          el('option', { value: '', selected: !subOfficeFilter }, 'All offices'),
-          ...subOffices.map(o => el('option', { value: o, selected: subOfficeFilter === o },
-            o.split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' '))),
-        ),
+        opts.headerExtra || null,
       ),
       // Header + rows share one horizontal scroller so the fixed columns
       // never push the page wider than the screen on mobile.
       el('div', { class: 'scroll-x' }, el('div', { style: { minWidth: '860px' } },
       // Header row
       el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5' },
-        el('div', { class: 'w-[200px] sm:w-[240px] shrink-0' }, 'Subscription'),
+        el('div', { class: 'w-[200px] sm:w-[240px] shrink-0' }, opts.firstCol || 'Subscription'),
         el('div', { class: 'flex-1' }),   // bar track stretches with the card now — no dead gutter
         el('div', { class: 'w-14 text-right shrink-0' }, 'Count'),
         el('div', { class: 'w-14 text-right shrink-0' }, '% Mix'),
@@ -25316,10 +24710,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             })(),
           ),
       )),
-    ),
-  );
-
-  return sections;
+    );
 }
 
 // CSV upload button
