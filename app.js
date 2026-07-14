@@ -33623,6 +33623,8 @@ function viewReporting() {
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
+    state.reportingSubTab === 'health'     ? reportingCustomerHealth() :
+    state.reportingSubTab === 'nextbest'   ? reportingNextBest() :
     state.reportingSubTab === 'services'   ? reportingServices() :
     state.reportingSubTab === 'auditing'   ? reportingAuditing() :
                                               reportingOverview(),
@@ -33763,11 +33765,306 @@ function formatSnapshotLabel(u) {
   return date + ' — ' + name + ' (' + (u.row_count || 0).toLocaleString() + ' rows)';
 }
 
+// ── Service FAMILIES — a subscription name can span several ("Pest Mole
+// Mosquito 6"). Used by Next Best Service + Customer Health.
+const _SVC_FAMS = [
+  ['Termite', /sentricon|termite/i], ['German Roach', /german\s*roach/i],
+  ['Mosquito', /mosquito/i], ['Rodent', /rodent/i], ['Mole', /mole/i],
+  ['Snake', /snake/i], ['Carpenter Bee', /carpenter\s*bee/i], ['Flea', /flea/i],
+];
+function svcFamiliesOf(name) {
+  const out = [];
+  for (const [fam, re] of _SVC_FAMS) if (re.test(String(name || ''))) out.push(fam);
+  if (!out.length || /(^|\s)pest(\s|$)/i.test(String(name || ''))) out.unshift('Pest');
+  return [...new Set(out)];
+}
+const _custDisplayName = (r) => {
+  const n = [r.first_name, r.last_name].filter(Boolean).join(' ').trim();
+  return n ? n.split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join(' ') : ('#' + r.customer_id);
+};
+function _reportingCsvDownload(fname, header, rows) {
+  const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const csv = [header.map(esc).join(',')].concat(rows.map(r => r.map(esc).join(','))).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv' }));
+  a.download = fname;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+// ═══ CUSTOMER HEALTH — churn defense. Scores every ACTIVE customer on the
+// known churn drivers (measured on this book) and hands the office a ranked
+// save-call list before the cancel happens. ═══
+function reportingCustomerHealth() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+  const { visible } = reportingFilters();
+  const office = state.reportingOffice || 'all';
+  const rows = reportingFilterByOffice(visible, office);
+  const now = new Date();
+  const isActive = (r) => (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
+  const zip5 = (r) => String(r.zip_code || '').trim().slice(0, 5);
+  const moSince = (iso) => { const d = new Date(String(iso) + 'T00:00'); return isNaN(d) ? null : (now - d) / 2629800000; };
+  const excludedReasons = reportingExcludedCancelReasons();
+  const counted = (r) => r.subscription_date_canceled && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)));
+
+  // Context churn rates — which ZIPs and service families bite hardest.
+  const zipStat = new Map(), famStat = new Map();
+  let allN = 0, allC = 0;
+  rows.forEach(r => {
+    const z = zip5(r);
+    const zs = zipStat.get(z) || { n: 0, c: 0 }; zs.n++; if (counted(r)) zs.c++; zipStat.set(z, zs);
+    svcFamiliesOf(r.subscription).forEach(f => {
+      const fs = famStat.get(f) || { n: 0, c: 0 }; fs.n++; if (counted(r)) fs.c++; famStat.set(f, fs);
+    });
+    allN++; if (counted(r)) allC++;
+  });
+  const baseRate = allN ? allC / allN : 0;
+  const riskyZip = (z) => { const s = zipStat.get(z); return !!(s && s.n >= 20 && s.c / s.n > baseRate * 1.25); };
+  const riskyFam = (f) => { const s = famStat.get(f); return !!(s && s.n >= 100 && s.c / s.n > baseRate * 1.15); };
+
+  // One record per ACTIVE customer.
+  const byCust = new Map();
+  rows.forEach(r => {
+    if (!isActive(r) || !r.customer_id) return;
+    let c = byCust.get(r.customer_id);
+    if (!c) { c = { id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', zip: zip5(r), state: r.state || '', subs: [], arr: 0, fams: new Set(), pastDue: 0, autopay: false, oldest: null, renewal: false }; byCust.set(r.customer_id, c); }
+    c.subs.push(r.subscription);
+    c.arr += Number(r.annual_recurring_value) || 0;
+    svcFamiliesOf(r.subscription).forEach(f => c.fams.add(f));
+    c.pastDue = Math.max(c.pastDue, Number(r.days_past_due) || 0);
+    if (/^(y|yes|true|1)/i.test(String(r.customer_auto_pay || ''))) c.autopay = true;
+    const mo = moSince(r.initial_service);
+    if (mo != null && (c.oldest == null || mo > c.oldest)) c.oldest = mo;
+    const len = Number(r.agreement_length) || 0;
+    if (len > 1 && mo != null && mo >= len - 2 && mo <= len + 1) c.renewal = true;
+  });
+
+  const scored = [];
+  byCust.forEach(c => {
+    let score = 0; const why = [];
+    if (c.pastDue >= 60)      { score += 40; why.push(c.pastDue + 'd past due'); }
+    else if (c.pastDue >= 30) { score += 30; why.push(c.pastDue + 'd past due'); }
+    else if (c.pastDue > 0)   { score += 15; why.push(c.pastDue + 'd past due'); }
+    if (!c.autopay)           { score += 15; why.push('no autopay'); }
+    if (c.fams.size <= 1)     { score += 10; why.push('single service'); }
+    if (c.oldest != null && c.oldest >= 3 && c.oldest <= 14) { score += 10; why.push('danger-zone tenure (' + c.oldest.toFixed(0) + ' mo)'); }
+    if (c.renewal)            { score += 15; why.push('renewal window'); }
+    if (riskyZip(c.zip))      { score += 10; why.push('high-churn ZIP'); }
+    if ([...c.fams].some(riskyFam)) { score += 10; why.push('high-churn service'); }
+    c.score = Math.min(100, score); c.why = why;
+    c.bucket = c.score >= 65 ? 'critical' : c.score >= 40 ? 'atrisk' : c.score >= 20 ? 'watch' : 'healthy';
+    scored.push(c);
+  });
+  scored.sort((a, b) => b.score - a.score || b.arr - a.arr);
+
+  const BUCKETS = [
+    ['critical', 'Critical', '#DC2626'], ['atrisk', 'At Risk', '#D97706'],
+    ['watch', 'Watch', '#B45309'], ['healthy', 'Healthy', '#5F8A1F'],
+  ];
+  const bucketAgg = {};
+  BUCKETS.forEach(([k]) => bucketAgg[k] = { n: 0, arr: 0 });
+  scored.forEach(c => { bucketAgg[c.bucket].n++; bucketAgg[c.bucket].arr += c.arr; });
+  const sel = state._healthBucket || 'critical';
+  const q = String(state._healthQ || '').toLowerCase();
+  const list = scored.filter(c => (sel === 'all' || c.bucket === sel) && (!q || (c.name + ' ' + c.id + ' ' + c.office).toLowerCase().includes(q)));
+
+  const exportBtn = el('button', {
+    class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    title: 'Download the filtered list as a call sheet (CSV)',
+    onclick: () => _reportingCsvDownload('customer-health-' + sel + '.csv',
+      ['Customer ID', 'Customer', 'Office', 'State', 'ZIP', 'Health Score', 'Bucket', 'ARR', 'Services', 'Months Active', 'Past Due Days', 'Auto Pay', 'Risk Factors'],
+      list.map(c => [c.id, c.name, c.office, c.state, c.zip, c.score, c.bucket, Math.round(c.arr), c.subs.join(' | '), c.oldest != null ? c.oldest.toFixed(1) : '', c.pastDue, c.autopay ? 'Yes' : 'No', c.why.join('; ')])),
+  }, '⬇ Export call list (' + list.length.toLocaleString() + ')');
+
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'card p-4' },
+      el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
+        el('div', {},
+          el('h2', { class: 'text-lg font-bold' }, '❤️‍🩹 Customer Health'),
+          el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
+            'Every active customer, scored on the churn drivers measured in OUR book — past due balance, no autopay, single service, danger-zone tenure (months 3–14), renewal window, high-churn ZIP / service. Call the top of this list before they cancel.')),
+        exportBtn),
+      el('div', { class: 'grid gap-3 mt-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' } },
+        ...BUCKETS.map(([k, label, color]) => el('button', {
+          class: 'rounded-xl p-3 text-left transition hover:brightness-95 cursor-pointer',
+          style: { background: 'var(--card-2)', border: sel === k ? '2px solid ' + color : '2px solid transparent' },
+          onclick: () => { state._healthBucket = k; mountApp(); },
+        },
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color } }, label),
+          el('div', { class: 'text-xl font-black tabular-nums' }, bucketAgg[k].n.toLocaleString()),
+          el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.usd0(bucketAgg[k].arr) + ' ARR'))),
+        el('button', {
+          class: 'rounded-xl p-3 text-left transition hover:brightness-95 cursor-pointer',
+          style: { background: 'var(--card-2)', border: sel === 'all' ? '2px solid var(--accent)' : '2px solid transparent' },
+          onclick: () => { state._healthBucket = 'all'; mountApp(); },
+        },
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-muted)' } }, 'All'),
+          el('div', { class: 'text-xl font-black tabular-nums' }, scored.length.toLocaleString()),
+          el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, 'active customers')))),
+    el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'p-3 border-b flex items-center gap-2', style: { borderColor: 'var(--border)' } },
+        el('input', {
+          class: 'flex-1 rounded-lg border px-3 py-2 text-xs',
+          style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          placeholder: 'Search name / ID / office…', value: state._healthQ || '',
+          oninput: (e) => { state._healthQ = e.target.value; clearTimeout(state._healthQt); state._healthQt = setTimeout(() => mountApp(), 350); },
+        })),
+      el('div', { class: 'overflow-x-auto', style: { maxHeight: '560px' } },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+            el('tr', {},
+              el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Score'),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Customer'),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Office'),
+              el('th', { class: 'text-right px-2 py-2 font-semibold' }, 'ARR'),
+              el('th', { class: 'text-right px-2 py-2 font-semibold' }, 'Tenure'),
+              el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Why'))),
+          el('tbody', {},
+            ...list.slice(0, 300).map(c => {
+              const color = c.bucket === 'critical' ? '#DC2626' : c.bucket === 'atrisk' ? '#D97706' : c.bucket === 'watch' ? '#B45309' : '#5F8A1F';
+              return el('tr', { class: 'border-t tabular-nums', style: { borderColor: 'var(--border)' } },
+                el('td', { class: 'px-3 py-2 font-black', style: { color } }, c.score),
+                el('td', { class: 'px-2 py-2' },
+                  el('div', { class: 'font-semibold' }, c.name),
+                  el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + c.id + ' · ' + [...c.fams].join(', '))),
+                el('td', { class: 'px-2 py-2 whitespace-nowrap' }, titleCase(String(c.office))),
+                el('td', { class: 'px-2 py-2 text-right font-semibold' }, fmt.usd0(c.arr)),
+                el('td', { class: 'px-2 py-2 text-right whitespace-nowrap' }, c.oldest != null ? c.oldest.toFixed(0) + ' mo' : '—'),
+                el('td', { class: 'px-3 py-2', style: { color: 'var(--text-muted)' } }, c.why.join(' · ') || '—'));
+            }),
+            list.length > 300 ? el('tr', {}, el('td', { class: 'px-3 py-3 text-center text-[11px] italic', colspan: 6, style: { color: 'var(--text-subtle)' } }, 'Showing top 300 — export the CSV for all ' + list.length.toLocaleString() + '.')) : null)))));
+}
+
+// ═══ NEXT BEST SERVICE — the attach engine. Multi-service customers retain
+// 13 pts better; this ranks WHO to pitch WHAT, from what similar customers
+// actually bought together. ═══
+function reportingNextBest() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+  const { visible } = reportingFilters();
+  const office = state.reportingOffice || 'all';
+  const rows = reportingFilterByOffice(visible, office);
+  const isActive = (r) => (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
+
+  // Customer → active family set + meta; family → avg ARV + office prevalence.
+  const byCust = new Map();
+  const famArv = new Map();   // fam → { sum, n }
+  rows.forEach(r => {
+    if (!isActive(r) || !r.customer_id) return;
+    let c = byCust.get(r.customer_id);
+    if (!c) { c = { id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', state: r.state || '', zip: String(r.zip_code || '').slice(0, 5), fams: new Set(), arr: 0 }; byCust.set(r.customer_id, c); }
+    c.arr += Number(r.annual_recurring_value) || 0;
+    svcFamiliesOf(r.subscription).forEach(f => {
+      c.fams.add(f);
+      const fa = famArv.get(f) || { sum: 0, n: 0 }; fa.sum += Number(r.annual_recurring_value) || 0; fa.n++; famArv.set(f, fa);
+    });
+  });
+  const customers = [...byCust.values()];
+  // Co-occurrence: P(B | A) across customers; office prevalence of each fam.
+  const famCount = new Map(), pair = new Map(), offFam = new Map(), offCount = new Map();
+  customers.forEach(c => {
+    const fams = [...c.fams];
+    fams.forEach(a => {
+      famCount.set(a, (famCount.get(a) || 0) + 1);
+      fams.forEach(b => { if (a !== b) { const k = a + '→' + b; pair.set(k, (pair.get(k) || 0) + 1); } });
+    });
+    offCount.set(c.office, (offCount.get(c.office) || 0) + 1);
+    fams.forEach(f => { const k = c.office + '|' + f; offFam.set(k, (offFam.get(k) || 0) + 1); });
+  });
+  const pOf = (a, b) => { const n = famCount.get(a) || 0; return n >= 25 ? (pair.get(a + '→' + b) || 0) / n : 0; };
+  const famAvgArv = (f) => { const s = famArv.get(f); return s && s.n ? s.sum / s.n : 0; };
+  const allFams = [..._SVC_FAMS.map(x => x[0]), 'Pest'].filter(f => (famCount.get(f) || 0) >= 25);
+
+  // Score every customer's best missing family.
+  const opps = [];
+  customers.forEach(c => {
+    let best = null;
+    allFams.forEach(b => {
+      if (c.fams.has(b)) return;
+      const co = Math.max(...[...c.fams].map(a => pOf(a, b)), 0);
+      const local = (offFam.get(c.office + '|' + b) || 0) / Math.max(1, offCount.get(c.office) || 0);
+      const conf = 0.7 * co + 0.3 * local;
+      if (conf > 0.02 && (!best || conf > best.conf)) best = { fam: b, conf, arv: famAvgArv(b) };
+    });
+    if (best) opps.push({ ...c, rec: best.fam, conf: best.conf, estArv: best.arv, value: best.conf * best.arv });
+  });
+  opps.sort((a, b) => b.value - a.value);
+
+  // Attach matrix — the strongest pairs, for strategy (not per-customer).
+  const pairs = [];
+  allFams.forEach(a => allFams.forEach(b => { if (a !== b) { const p = pOf(a, b); if (p > 0.03) pairs.push({ a, b, p, n: famCount.get(a) || 0 }); } }));
+  pairs.sort((x, y) => y.p - x.p);
+
+  const famFilter = state._nbFam || 'all';
+  const list = opps.filter(o => famFilter === 'all' || o.rec === famFilter);
+  const singles = customers.filter(c => c.fams.size <= 1).length;
+  const estIf10 = list.slice(0, Math.ceil(list.length * 0.1)).reduce((a, o) => a + o.estArv, 0);
+
+  const exportBtn = el('button', {
+    class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    title: 'Download the filtered opportunity list (CSV) — hand it to techs / office staff as a pitch sheet',
+    onclick: () => _reportingCsvDownload('next-best-service' + (famFilter === 'all' ? '' : '-' + famFilter.toLowerCase().replace(/\s+/g, '-')) + '.csv',
+      ['Customer ID', 'Customer', 'Office', 'State', 'ZIP', 'Current ARR', 'Owns', 'Recommended Service', 'Confidence %', 'Est ARV / yr'],
+      list.map(o => [o.id, o.name, o.office, o.state, o.zip, Math.round(o.arr), [...o.fams].join(' | '), o.rec, (o.conf * 100).toFixed(1), Math.round(o.estArv)])),
+  }, '⬇ Export pitch list (' + list.length.toLocaleString() + ')');
+
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'card p-4' },
+      el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
+        el('div', {},
+          el('h2', { class: 'text-lg font-bold' }, '🎯 Next Best Service'),
+          el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
+            'What similar customers actually bought together, turned into a per-customer pitch. Multi-service customers retain 13 pts better — every conversion here is new ARR that also protects the base ARR. ' +
+            singles.toLocaleString() + ' single-service customers in scope; a 10% hit rate on the top decile ≈ ' + fmt.usd0(estIf10) + ' new ARR.')),
+        exportBtn),
+      // Attach matrix — top pairs
+      el('div', { class: 'mt-3' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, 'Strongest attach patterns (P(also owns B | owns A))'),
+        el('div', { class: 'flex gap-2 flex-wrap' },
+          ...pairs.slice(0, 8).map(pr => el('div', { class: 'rounded-lg px-2.5 py-1.5 text-[11px]', style: { background: 'var(--card-2)' } },
+            el('b', {}, pr.a), ' → ', el('b', {}, pr.b),
+            el('span', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, '  ' + (pr.p * 100).toFixed(1) + '% · ' + fmt.usd0(famAvgArv(pr.b)) + ' avg ARV')))))),
+    el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'p-3 border-b flex items-center gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Recommend'),
+        ...['all'].concat(allFams).map(f => el('button', {
+          class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold transition hover:brightness-95',
+          style: famFilter === f ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
+          onclick: () => { state._nbFam = f; mountApp(); },
+        }, f === 'all' ? 'All' : f))),
+      el('div', { class: 'overflow-x-auto', style: { maxHeight: '560px' } },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+            el('tr', {},
+              el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Customer'),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Office'),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Owns'),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Pitch'),
+              el('th', { class: 'text-right px-2 py-2 font-semibold' }, 'Confidence'),
+              el('th', { class: 'text-right px-3 py-2 font-semibold' }, 'Est ARV/yr'))),
+          el('tbody', {},
+            ...list.slice(0, 300).map(o => el('tr', { class: 'border-t tabular-nums', style: { borderColor: 'var(--border)' } },
+              el('td', { class: 'px-3 py-2' },
+                el('div', { class: 'font-semibold' }, o.name),
+                el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + o.id + ' · ' + fmt.usd0(o.arr) + ' current ARR')),
+              el('td', { class: 'px-2 py-2 whitespace-nowrap' }, titleCase(String(o.office))),
+              el('td', { class: 'px-2 py-2', style: { color: 'var(--text-muted)' } }, [...o.fams].join(', ')),
+              el('td', { class: 'px-2 py-2 font-bold', style: { color: 'var(--accent)' } }, o.rec),
+              el('td', { class: 'px-2 py-2 text-right' }, (o.conf * 100).toFixed(0) + '%'),
+              el('td', { class: 'px-3 py-2 text-right font-semibold' }, fmt.usd0(o.estArv)))),
+            list.length > 300 ? el('tr', {}, el('td', { class: 'px-3 py-3 text-center text-[11px] italic', colspan: 6, style: { color: 'var(--text-subtle)' } }, 'Showing top 300 by expected value — export the CSV for all ' + list.length.toLocaleString() + '.')) : null)))));
+}
+
 function reportingSubTabs() {
   const tabs = [
     ['overview',   'Overview'],
     ['geographic', 'Geographic'],
     ['waterfall',  'Retention'],
+    ['health',     'Health'],
+    ['nextbest',   'Next Best'],
     ['services',   'Services'],
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
@@ -37090,6 +37387,113 @@ function reportingGeographic() {
             })))));
   })() : null;
 
+  // ── 🎯 TERRITORY INTELLIGENCE — per-ZIP classification from presence,
+  // retention, and momentum. Fortress = defend, Fix = churn problem inside
+  // a big footprint, Rising = momentum, Whitespace = knock targets (weak
+  // presence in a county where our book already retains well). ──
+  const territoryCard = (() => {
+    const zipsPool = (mapLevel === 'state' && drilledState) ? zipsInDrilledState : agg.zips;
+    const zs = zipsPool.filter(z => z.zip && z.zip !== 'Unknown' && z.subs >= 3);
+    if (zs.length < 8) return null;
+    const now3 = new Date();
+    const iso = (d) => d.toISOString().slice(0, 10);
+    const cut12 = iso(new Date(now3.getFullYear() - 1, now3.getMonth(), now3.getDate()));
+    const cut24 = iso(new Date(now3.getFullYear() - 2, now3.getMonth(), now3.getDate()));
+    const scoredZips = zs.map(z => {
+      let new12 = 0, prev12 = 0;
+      z.rows.forEach(r => {
+        const i0 = String(r.initial_service || '');
+        if (i0 >= cut12) new12++;
+        else if (i0 >= cut24) prev12++;
+      });
+      return { z, new12, prev12, momentum: prev12 >= 3 ? (new12 - prev12) / prev12 : (new12 >= 5 ? 1 : 0) };
+    });
+    const subsSorted = scoredZips.map(s => s.z.subs).sort((a, b) => a - b);
+    const pctl = (v) => subsSorted.length > 1 ? subsSorted.filter(x => x <= v).length / subsSorted.length : 0.5;
+    const rated = scoredZips.filter(s => s.z.attritionEligible);
+    const cxlSorted = rated.map(s => s.z.cancelRate).sort((a, b) => a - b);
+    const medCxl = cxlSorted.length ? cxlSorted[Math.floor(cxlSorted.length / 2)] : 0.3;
+    // County strength = avg cancel rate across its rated ZIPs.
+    const countyC = new Map();
+    rated.forEach(s => {
+      const k = (s.z.state || '') + '|' + (s.z.rows[0] && s.z.rows[0].county || '');
+      const o = countyC.get(k) || { sum: 0, n: 0 }; o.sum += s.z.cancelRate; o.n++; countyC.set(k, o);
+    });
+    scoredZips.forEach(s => {
+      const p = pctl(s.z.subs);
+      const goodRet = s.z.attritionEligible ? s.z.cancelRate <= medCxl : null;
+      const k = (s.z.state || '') + '|' + (s.z.rows[0] && s.z.rows[0].county || '');
+      const cs = countyC.get(k);
+      s.countyStrong = !!(cs && cs.n >= 2 && cs.sum / cs.n <= medCxl);
+      s.cls = (p >= 0.6 && goodRet === false && s.z.cancelRate > medCxl * 1.3) ? 'fix'
+        : (p >= 0.6 && goodRet !== false) ? 'fortress'
+        : (s.momentum >= 0.3 && s.new12 >= 5) ? 'rising'
+        : (p < 0.45 && s.countyStrong) ? 'whitespace'
+        : 'steady';
+      // Knock score: strong county + room to grow + momentum.
+      s.knock = (s.countyStrong ? 40 : 0) + (1 - p) * 35 + Math.max(0, Math.min(1, s.momentum)) * 25;
+    });
+    const CLS = [
+      ['fortress', '🏰 Fortress', '#5F8A1F', 'Big footprint, healthy retention — defend + attach'],
+      ['rising', '📈 Rising', '#0EA5E9', 'New starts up 30%+ YoY — feed these routes'],
+      ['whitespace', '🎯 Whitespace', '#A855F7', 'Thin presence in a county that retains well — knock here'],
+      ['fix', '🩹 Fix first', '#DC2626', 'Big footprint, churn above 1.3× median — service problem, not a sales problem'],
+      ['steady', '· Steady', '#9aa0a6', 'Nothing remarkable either way'],
+    ];
+    const counts = {}; CLS.forEach(([k]) => counts[k] = 0);
+    scoredZips.forEach(s => counts[s.cls]++);
+    const knocks = scoredZips.filter(s => s.cls === 'whitespace' || (s.cls === 'rising' && s.countyStrong))
+      .sort((a, b) => b.knock - a.knock);
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'p-4 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('h2', { class: 'text-lg font-bold' }, '🎯 Territory Intelligence'),
+          el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
+            'Every ZIP in scope (3+ subs), classified by footprint size, retention vs the median, and 12-month momentum. The knock list = thin ZIPs inside counties where our book already sticks — sell where we already know it works.')),
+        el('button', {
+          class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          onclick: () => _reportingCsvDownload('territory-intelligence.csv',
+            ['ZIP', 'State', 'County', 'Class', 'Knock Score', 'Subs', 'Customers', 'ARR', 'Attrition %', 'New Starts 12mo', 'Prior 12mo', 'Momentum %'],
+            scoredZips.slice().sort((a, b) => b.knock - a.knock).map(s => [s.z.zip, s.z.state, (s.z.rows[0] && s.z.rows[0].county) || '', s.cls, Math.round(s.knock), s.z.subs, s.z.customers, Math.round(s.z.arv), s.z.attritionEligible ? (s.z.cancelRate * 100).toFixed(1) : '', s.new12, s.prev12, (s.momentum * 100).toFixed(0)])),
+        }, '⬇ Export all ' + scoredZips.length.toLocaleString() + ' ZIPs')),
+      el('div', { class: 'p-4 flex gap-2 flex-wrap' },
+        ...CLS.map(([k, label, color, desc]) => el('div', { class: 'rounded-xl px-3 py-2', style: { background: 'var(--card-2)' }, title: desc },
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color } }, label),
+          el('div', { class: 'text-lg font-black tabular-nums' }, counts[k]))),
+      ),
+      knocks.length > 0 && el('div', { class: 'px-4 pb-4' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, 'Top knock targets'),
+        el('div', { class: 'overflow-x-auto' },
+          el('table', { class: 'w-full text-xs' },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
+              el('tr', {},
+                el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'ZIP'),
+                el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'County'),
+                el('th', { class: 'text-right px-2 py-1.5 font-semibold' }, 'Knock score'),
+                el('th', { class: 'text-right px-2 py-1.5 font-semibold' }, 'Subs today'),
+                el('th', { class: 'text-right px-2 py-1.5 font-semibold' }, 'New starts 12mo'),
+                el('th', { class: 'text-right px-2 py-1.5 font-semibold' }, 'County retention'))),
+            el('tbody', {},
+              ...knocks.slice(0, 15).map(s => el('tr', {
+                class: 'border-t tabular-nums cursor-pointer hover:brightness-95 transition', style: { borderColor: 'var(--border)' },
+                title: 'Click to highlight this ZIP on the map',
+                onclick: () => {
+                  if (s.z.state) { state.reportingMapLevel = 'state'; state.reportingMapState = s.z.state; }
+                  state.reportingDrillBy = 'zip';
+                  state.reportingHighlightedZip = s.z.zip;
+                  state.reportingHighlightedCounty = null;
+                  mountApp();
+                },
+              },
+                el('td', { class: 'px-2 py-1.5 font-bold' }, s.z.zip + ' · ' + (s.z.state || '')),
+                el('td', { class: 'px-2 py-1.5' }, ((s.z.rows[0] && s.z.rows[0].county) || '—')),
+                el('td', { class: 'px-2 py-1.5 text-right font-black', style: { color: '#A855F7' } }, Math.round(s.knock)),
+                el('td', { class: 'px-2 py-1.5 text-right' }, s.z.subs),
+                el('td', { class: 'px-2 py-1.5 text-right' }, s.new12 + (s.prev12 ? ' (was ' + s.prev12 + ')' : '')),
+                el('td', { class: 'px-2 py-1.5 text-right', style: { color: '#5F8A1F', fontWeight: '700' } }, s.countyStrong ? 'strong' : '—'))))))));
+  })();
+
   return el('div', { class: 'flex flex-col gap-4' },
     filterBar,
     compareNotice,
@@ -37099,6 +37503,7 @@ function reportingGeographic() {
     breadcrumb,
     el('div', { class: 'card overflow-hidden' }, mapEl),
     stateSummaryTable,
+    territoryCard,
     breakdownTable,
   );
 }
