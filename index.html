@@ -111,7 +111,34 @@
   }
   /* The PAGE never pans sideways — any content wider than the screen must
      scroll inside its own .scroll-x container, not drag the whole app. */
-  html, body { overflow-x: hidden; max-width: 100%; overscroll-behavior-x: none; }  /* no sideways rubber-band / swipe-nav on trackpads (X only — the -y variant froze wheel scroll once) */
+  html, body { overflow-x: hidden; max-width: 100%; overscroll-behavior-x: none; }
+
+  /* ── Mobile polish (per Isaac, Jul 2026) — the two loudest offenders were
+     the month calendar (7 columns of 120px cells on a 380px screen) and the
+     Revenue Goals card at the top of Sales. General rules below keep dense
+     desktop layouts breathable on phones without touching desktop. */
+  @media (max-width: 640px) {
+    /* Calendar month grid: shallow cells, tiny type, chips collapse to the
+       count badge — tap the day for detail (that flow already exists). */
+    .cal-month-cell { min-height: 58px !important; padding: 3px !important; }
+    .cal-month-cell .cal-slot-bar { padding: 3px 4px !important; border-radius: 6px; }
+    .cal-month-cell .cal-slot-bar > div:first-child span:first-child { font-size: 8px !important; letter-spacing: 0 !important; }
+    .cal-month-cell .cal-rep-chips { display: none !important; }           /* chips → count badge only */
+    .cal-month-cell .cal-slot-bar > div:last-child.text-\[11px\] { display: none !important; } /* "No reps" hint */
+    /* Revenue Goals card: let crowded rows wrap with breathing room and
+       keep the big money figures from colliding with their labels. */
+    .rev-goal-card .flex.items-center.justify-between { flex-wrap: wrap; row-gap: 2px; }
+    .rev-goal-card { padding: 14px !important; }
+    /* Cards: slightly tighter default padding so content wins the width. */
+    .card.p-5 { padding: 14px; }
+    /* Modals: use the full phone width instead of floating with margins. */
+    .modal-overlay .card { max-width: calc(100vw - 16px) !important; margin-top: 12px; margin-bottom: 12px; }
+    /* Pill tab groups scroll sideways instead of wrapping into a pile. */
+    .pill-tabs { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+    /* Stat tiles built with inline minWidth flex rows stack cleaner. */
+    .flex.gap-2.flex-wrap > .flex-1[style*="min-width: 105px"],
+    .flex.gap-2.flex-wrap > .flex-1[style*="minWidth"] { min-width: 46% !important; }
+  }  /* no sideways rubber-band / swipe-nav on trackpads (X only — the -y variant froze wheel scroll once) */
   .card {
     background: var(--card);
     border: 1px solid var(--border);

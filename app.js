@@ -5065,7 +5065,7 @@ function viewDashboard() {
           .map(p => ({ p, goal: Number(p.annual_revenue_goal) || 0, rev: ytdByRep[p.id] || 0 }))
           .filter(x => x.goal > 0 || x.rev > 0)
           .sort((a, b) => (b.goal ? b.rev / b.goal : 0) - (a.goal ? a.rev / a.goal : 0) || b.rev - a.rev);
-        return el('div', { class: 'card p-5' },
+        return el('div', { class: 'card p-5 rev-goal-card' },
           goalHeader,
           sellers.length === 0
             ? el('div', { class: 'text-xs py-4 text-center', style: { color: 'var(--text-muted)' } },
@@ -5109,7 +5109,7 @@ function viewDashboard() {
                 })));
       }
 
-      return el('div', { class: 'card p-5' },
+      return el('div', { class: 'card p-5 rev-goal-card' },
         goalHeader,
         el('div', { class: 'flex flex-col gap-4' },
 
@@ -12080,7 +12080,7 @@ function renderSlotBar(iso, slot, meId, repById, opts = {}) {
   const includesMe = assigns.some(a => a.rep_id === meId);
   return el('button', {
     'data-slot-bar': 'true',
-    class: 'w-full text-left rounded-lg border transition hover:brightness-95 p-2 flex flex-col gap-1',
+    class: 'cal-slot-bar w-full text-left rounded-lg border transition hover:brightness-95 p-2 flex flex-col gap-1',
     style: includesMe
       ? { borderColor: 'var(--accent)', background: 'rgba(141,198,63,0.10)', color: 'var(--text)' }
       : { borderColor: 'var(--border)', background: 'var(--card-2)', color: 'var(--text)' },
@@ -12093,7 +12093,7 @@ function renderSlotBar(iso, slot, meId, repById, opts = {}) {
     ),
     assigns.length === 0
       ? el('div', { class: 'text-[11px] italic', style: { color: 'var(--text-subtle)' } }, 'No reps · click to add')
-      : el('div', { class: 'flex flex-wrap gap-1' },
+      : el('div', { class: 'cal-rep-chips flex flex-wrap gap-1' },
           ...assigns.map(a => {
             const rep = repById[a.rep_id];
             const isPartial = a.start !== slot.slot_start || a.end !== slot.slot_end;
@@ -12332,7 +12332,7 @@ function renderMonthGrid(anchor, today, meId, repById) {
         const holiday = companyHolidayFor(iso);
         const slots = shiftSlotsForDate(iso);
         const cell = el('div', {
-          class: 'p-1.5 border-r border-b flex flex-col gap-1 relative' + (isAdmin ? ' cursor-pointer' : ''),
+          class: 'cal-month-cell p-1.5 border-r border-b flex flex-col gap-1 relative' + (isAdmin ? ' cursor-pointer' : ''),
           style: {
             borderColor: 'var(--border)',
             borderRightWidth: (idx + 1) % 7 === 0 ? '0' : '1px',
