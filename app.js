@@ -15693,16 +15693,20 @@ function nrlaCompute(rawSales, compOverride) {
         && [a, b].every(t => m.teams.some(x => String(x).toUpperCase() === String(t).toUpperCase())));
       const wi = mu ? mu.windowRound : i;              // which window scores this matchup
       const startedEff = mu ? rounds[wi].started : rd.started;
+      // A make-up counts NOTHING until its window is over — no provisional
+      // W/L while both teams are still out competing (per Isaac): the result
+      // stays blank, not a tie, and standings ignore it entirely.
+      const muPending = !!(mu && !rounds[wi].done);
       const A = mk(a, wi), B = mk(b, wi);
       let winner = null;
-      if (startedEff) {
+      if (startedEff && !muPending) {
         if (A && !B) winner = a;                       // bye = automatic win
         else if (B && !A) winner = b;
         else if (A && B && A.pra !== B.pra) winner = A.pra > B.pra ? a : b;
       }
-      rd.matchups.push({ a: A, b: B, winner, bye: !A || !B,
-        tag: mu ? ('Make-up · played ' + _muDspan(rounds[wi]) + (rounds[wi].live ? ' · LIVE' : '')) : undefined });
-      if (startedEff) {
+      rd.matchups.push({ a: A, b: B, winner, bye: !A || !B, _muPending: muPending,
+        tag: mu ? ('Make-up · ' + (muPending ? 'IN PROGRESS ' : 'played ') + _muDspan(rounds[wi])) : undefined });
+      if (startedEff && !muPending) {
         if (A && B && winner) h2h[[a, b].sort().join('|')] = winner;
         [A, B].forEach(side => {
           if (!side) return;
@@ -16696,7 +16700,7 @@ function nrlaBoard(rawSales, opts) {
           if (!side) continue;
           const other = m.a && m.a.team === team ? m.b : m.a;
           const opp = other ? other.team : null;   // null = bye
-          if (!m.winner) return { res: rd.live ? '·' : 'T', opp };
+          if (!m.winner) return { res: (rd.live || m._muPending) ? '·' : 'T', opp };
           return { res: m.winner === team ? 'W' : 'L', opp };
         }
         return null;   // not in this round
