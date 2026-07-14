@@ -38037,6 +38037,11 @@ function reportingWaterfall() {
     const median = lives.length ? lives[Math.floor(lives.length / 2)] : 0;
     const under12 = lives.length ? lives.filter(v => v < 12).length / lives.length : 0;
     const rate = boyRows.length ? attr.length / boyRows.length : 0;
+    // Early losses — acquired AND lost inside this period. A PE analyst
+    // wants this visible next to (never inside) the churn rate: it's the
+    // sales-quality bridge between our BoY churn and a BI tool's raw
+    // "total ARR lost" number.
+    const earlyLosses = rows.filter(r => inPeriod(r.initial_service) && r._effCancel && inPeriod(r._effCancel));
 
     const overlay = el('div', { class: 'modal-overlay' });
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
@@ -38077,19 +38082,57 @@ function reportingWaterfall() {
         el('span', { class: 'truncate' }, g.key),
         el('span', { class: 'tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } },
           fmt.int(g.n) + ' · ' + (attr.length ? (g.n / attr.length * 100).toFixed(0) : '0') + '%'))));
+    // ⬇ Reconciliation export — EVERY sub with a cancel date in this period,
+    // flagged counted / not-counted-and-why. Built to line up row-by-row
+    // against an external BI's churn widget (RevHawk) via Customer ID.
+    const exportPeriodCsv = () => {
+      const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+      const countedIds = new Set(attr);
+      const L = [['Customer ID', 'Subscription', 'Office', 'State', 'Cancellation Reason', 'Initial Service', 'Date Canceled', 'Effective Cancel', 'ARV', 'Counted As Churn', 'Why Not'].map(esc).join(',')];
+      let n = 0;
+      rows.forEach(r => {
+        const rawCxl = r.subscription_date_canceled;
+        const eff = r._effCancel;
+        const inP = (eff && inPeriod(eff)) || (rawCxl && inPeriod(rawCxl));
+        if (!inP) return;
+        let counted = countedIds.has(r), why = '';
+        if (!counted) {
+          if (!eff) why = 'reason excluded from attrition (or ROR)';
+          else if (r.initial_service >= periodStart) why = 'started inside the period (not in the BoY book)';
+          else if (eff && !inPeriod(eff) && rawCxl && inPeriod(rawCxl)) why = 'effective cancel falls in a different period';
+          else why = 'outside this drill\u2019s population';
+        }
+        n++;
+        L.push([r.customer_id, r.subscription, r.office_name, r.state, reportingCancelReasonOf(r), r.initial_service, rawCxl || '', eff || '', Math.round(Number(r.annual_recurring_value) || 0), counted ? 'YES' : 'no', why].map(esc).join(','));
+      });
+      if (!n) return toast('No cancels found in ' + periodLabel, 'warn');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['\ufeff' + L.join('\n')], { type: 'text/csv' }));
+      a.download = ('churn-reconciliation-' + periodLabel).replace(/\s+/g, '-').toLowerCase() + '.csv';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    };
     const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
       el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
         el('div', {},
           el('h2', { class: 'text-base font-bold' }, periodLabel + ' Attrition — who left and why'),
           el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
             'Same population and rules as the Blended table: book at period start only, excluded reasons and ROR don\u2019t count as churn.')),
-        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+        el('div', { class: 'flex items-center gap-2' },
+          el('button', {
+            class: 'rounded-lg border px-2.5 py-1.5 text-[10px] font-bold cursor-pointer transition hover:brightness-95 whitespace-nowrap',
+            style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+            title: 'CSV of EVERY cancel dated in this period — counted or not, with the reason it was excluded. XLOOKUP it against RevHawk / the CRM by Customer ID.',
+            onclick: exportPeriodCsv,
+          }, '⬇ Reconcile CSV'),
+          el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×'))),
       el('div', { class: 'px-4 pb-4 overflow-y-auto' },
         el('div', { class: 'flex gap-2 flex-wrap mb-3' },
           stat('B.O.Y. book', fmt.int(boyRows.length)),
           stat('Churned', fmt.int(attr.length), (rate * 100).toFixed(2) + '% attrition'),
           stat('ARR lost', money0(arrOf(attr))),
-          stat('Median lifetime', median.toFixed(1) + ' mo', Math.round(under12 * 100) + '% left within 12 mo')),
+          stat('Median lifetime', median.toFixed(1) + ' mo', Math.round(under12 * 100) + '% left within 12 mo'),
+          earlyLosses.length > 0 && stat('Early losses', fmt.int(earlyLosses.length), money0(arrOf(earlyLosses)) + ' ARR — sold & lost inside ' + periodLabel + ' · sales quality, NOT in the churn rate')),
         el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, 'By cancellation reason'),
         ...byReason.map(reasonRow),
         // Reasons that churned people LAST year but nobody this year — the
@@ -38164,22 +38207,33 @@ function reportingWaterfall() {
       minY = Math.min(minY, Number(sYm.slice(0, 4)) || 9999);
       if (r._effCancel) {
         const cYm = String(r._effCancel).slice(0, 7);
-        cancelsByYm[cYm] = (cancelsByYm[cYm] || 0) + 1;
-        const rs = reasonsByYm[cYm] || (reasonsByYm[cYm] = {});
-        const reason = reportingCancelReasonOf(r);
-        rs[reason] = (rs[reason] || 0) + 1;
+        // PE-standard churn: only subs that EXISTED at the month's start
+        // count — an account acquired and lost inside the same month is a
+        // sales-quality event, not book erosion. (The denominator already
+        // excluded same-month starts; the numerator now matches, so these
+        // cells agree exactly with the click-through drill.)
+        if (sYm < cYm) {
+          cancelsByYm[cYm] = (cancelsByYm[cYm] || 0) + 1;
+          const rs = reasonsByYm[cYm] || (reasonsByYm[cYm] = {});
+          const reason = reportingCancelReasonOf(r);
+          rs[reason] = (rs[reason] || 0) + 1;
+        }
       }
     });
     const now = new Date();
     const curY = now.getFullYear(), curM = now.getMonth() + 1;
     // Walk the whole book month by month so each cell's denominator is the
-    // TRUE book at that month's start (same-month starts excluded).
+    // TRUE book at that month's start (same-month starts excluded). The walk
+    // subtracts ALL cancels (including same-month acquire-lose, which the
+    // churn numerator excludes) so the running book stays honest.
+    const allCancelsByYm = {};
+    rows.forEach(r => { if (r._effCancel) { const k = String(r._effCancel).slice(0, 7); allCancelsByYm[k] = (allCancelsByYm[k] || 0) + 1; } });
     const bookAt = {};
     let book = 0;
     for (let y = minY; y <= curY; y++) for (let m = 1; m <= 12; m++) {
       const ym = y + '-' + pad2(m);
       bookAt[ym] = book;
-      book += (startsByYm[ym] || 0) - (cancelsByYm[ym] || 0);
+      book += (startsByYm[ym] || 0) - (allCancelsByYm[ym] || 0);
     }
     const yearsAvail = [];
     for (let y = minY; y <= curY; y++) yearsAvail.push(y);
@@ -38672,7 +38726,7 @@ function reportingWaterfall() {
           view === 'timeline' ? yoyBtn : null,
           viewToggle,
           configInfoBtn('Churn Seasonality',
-            'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start (subs started that same month are not in the denominator). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history to the table. The Graph is the continuous month-by-month view — filter it to specific years (they plot back-to-back), pick series (the total churn rate and/or individual cancellation reasons, whose lines are their share of the monthly rate and sum to the total), set the visible window (12/24/36 months or all history), and click-drag to move through time. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
+            'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start \u2014 subs started that same month are excluded from BOTH sides (an account acquired and lost in one month is a sales-quality event, not book churn; the month drill lists those separately as Early Losses). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history to the table. The Graph is the continuous month-by-month view — filter it to specific years (they plot back-to-back), pick series (the total churn rate and/or individual cancellation reasons, whose lines are their share of the monthly rate and sum to the total), set the visible window (12/24/36 months or all history), and click-drag to move through time. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
       view === 'timeline' ? (yoyOn ? yoyEl() : timelineEl()) : tableEl());
   };
 
