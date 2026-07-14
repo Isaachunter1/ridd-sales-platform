@@ -15672,20 +15672,37 @@ function nrlaCompute(rawSales, compOverride) {
   }));
   // ── Seeding rounds ──
   const sched = nrlaSeedSchedule(teams, Math.min(seedN, rounds.length), cfg);
+  // MAKE-UP MATCHES (one-offs) — a matchup that couldn't be played in its
+  // scheduled window gets REPLAYED inside another round's dates: the
+  // ORIGINAL round's result for those two teams is scored from the make-up
+  // window instead. Both teams' production in that window ALSO counts for
+  // their regularly scheduled matchup — they're fighting two opponents at
+  // once. Jul 2026: Joplin was moving markets during Round 1, so Myrtle
+  // Beach vs Joplin replays over Round 4's dates (Jul 13–14) and counts as
+  // the ROUND 1 result.
+  const NRLA_MAKEUPS = [
+    { round: 0, teams: ['MYRTLE BEACH', 'JOPLIN'], windowRound: 3 },
+  ];
+  const _muDspan = (w) => (w.d1.getMonth() + 1) + '/' + w.d1.getDate() + '–' + (w.d2.getMonth() + 1) + '/' + w.d2.getDate();
   const stand = {}; teams.forEach(t => { stand[t] = { team: t, w: 0, l: 0, t: 0, cumPra: 0, results: [] }; });
   const h2h = {};   // 'A|B' (sorted) → winning team, from seeding rounds
   for (let i = 0; i < Math.min(seedN, rounds.length); i++) {
     const rd = rounds[i];
     (sched.rounds[i] || []).forEach(([a, b]) => {
-      const A = mk(a, i), B = mk(b, i);
+      const mu = NRLA_MAKEUPS.find(m => m.round === i && rounds[m.windowRound] && a && b
+        && [a, b].every(t => m.teams.some(x => String(x).toUpperCase() === String(t).toUpperCase())));
+      const wi = mu ? mu.windowRound : i;              // which window scores this matchup
+      const startedEff = mu ? rounds[wi].started : rd.started;
+      const A = mk(a, wi), B = mk(b, wi);
       let winner = null;
-      if (rd.started) {
+      if (startedEff) {
         if (A && !B) winner = a;                       // bye = automatic win
         else if (B && !A) winner = b;
         else if (A && B && A.pra !== B.pra) winner = A.pra > B.pra ? a : b;
       }
-      rd.matchups.push({ a: A, b: B, winner, bye: !A || !B });
-      if (rd.started) {
+      rd.matchups.push({ a: A, b: B, winner, bye: !A || !B,
+        tag: mu ? ('Make-up · played ' + _muDspan(rounds[wi]) + (rounds[wi].live ? ' · LIVE' : '')) : undefined });
+      if (startedEff) {
         if (A && B && winner) h2h[[a, b].sort().join('|')] = winner;
         [A, B].forEach(side => {
           if (!side) return;
