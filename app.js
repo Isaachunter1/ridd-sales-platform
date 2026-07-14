@@ -32546,7 +32546,7 @@ function openReportingSliceStatsModal({ chartTitle, sliceLabel, rows, siblings, 
     rows.forEach(r => { const k = keyFn(r) || '—'; m.set(k, (m.get(k) || 0) + 1); });
     return [...m.entries()].map(([k, c]) => ({ k, c })).sort((a, b) => b.c - a.c);
   };
-  const byOffice = groupTop(r => titleCase(String(r.office_name || '—')));
+  const byOffice = groupTop(r => _titleCaseWords(r.office_name || '—'));
   const bySvc = groupTop(r => r.subscription);
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
@@ -33623,9 +33623,9 @@ function viewReporting() {
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
-    state.reportingSubTab === 'health'     ? reportingCustomerHealth() :
-    state.reportingSubTab === 'nextbest'   ? reportingNextBest() :
-    state.reportingSubTab === 'services'   ? reportingServices() :
+    // 'services' retired as a top tab; 'health'/'nextbest' fold into
+    // Retention — legacy persisted values land there too.
+    (state.reportingSubTab === 'health' || state.reportingSubTab === 'nextbest' || state.reportingSubTab === 'services') ? reportingWaterfall() :
     state.reportingSubTab === 'auditing'   ? reportingAuditing() :
                                               reportingOverview(),
   );
@@ -33778,6 +33778,9 @@ function svcFamiliesOf(name) {
   if (!out.length || /(^|\s)pest(\s|$)/i.test(String(name || ''))) out.unshift('Pest');
   return [...new Set(out)];
 }
+function _titleCaseWords(s) {
+  return String(s == null ? '' : s).split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
+}
 const _custDisplayName = (r) => {
   const n = [r.first_name, r.last_name].filter(Boolean).join(' ').trim();
   return n ? n.split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join(' ') : ('#' + r.customer_id);
@@ -33929,7 +33932,7 @@ function reportingCustomerHealth() {
                 el('td', { class: 'px-2 py-2' },
                   el('div', { class: 'font-semibold' }, c.name),
                   el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + c.id + ' · ' + [...c.fams].join(', '))),
-                el('td', { class: 'px-2 py-2 whitespace-nowrap' }, titleCase(String(c.office))),
+                el('td', { class: 'px-2 py-2 whitespace-nowrap' }, _titleCaseWords(c.office)),
                 el('td', { class: 'px-2 py-2 text-right font-semibold' }, fmt.usd0(c.arr)),
                 el('td', { class: 'px-2 py-2 text-right whitespace-nowrap' }, c.oldest != null ? c.oldest.toFixed(0) + ' mo' : '—'),
                 el('td', { class: 'px-3 py-2', style: { color: 'var(--text-muted)' } }, c.why.join(' · ') || '—'));
@@ -34050,7 +34053,7 @@ function reportingNextBest() {
               el('td', { class: 'px-3 py-2' },
                 el('div', { class: 'font-semibold' }, o.name),
                 el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + o.id + ' · ' + fmt.usd0(o.arr) + ' current ARR')),
-              el('td', { class: 'px-2 py-2 whitespace-nowrap' }, titleCase(String(o.office))),
+              el('td', { class: 'px-2 py-2 whitespace-nowrap' }, _titleCaseWords(o.office)),
               el('td', { class: 'px-2 py-2', style: { color: 'var(--text-muted)' } }, [...o.fams].join(', ')),
               el('td', { class: 'px-2 py-2 font-bold', style: { color: 'var(--accent)' } }, o.rec),
               el('td', { class: 'px-2 py-2 text-right' }, (o.conf * 100).toFixed(0) + '%'),
@@ -34063,9 +34066,6 @@ function reportingSubTabs() {
     ['overview',   'Overview'],
     ['geographic', 'Geographic'],
     ['waterfall',  'Retention'],
-    ['health',     'Health'],
-    ['nextbest',   'Next Best'],
-    ['services',   'Services'],
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
   ];
@@ -38405,6 +38405,17 @@ function reportingServices() {
 function reportingWaterfall() {
   const gate = reportingDataGate();
   if (gate) return gate;
+  // Retention hosts three sections now (per Isaac): the retention analytics
+  // suite, Customer Health (churn defense), and Next Best Service (attach).
+  const _sec = state._retenSection || 'retention';
+  const _secBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
+    ...[['retention', '📊 Retention'], ['health', '❤️‍🩹 Customer Health'], ['nextbest', '🎯 Next Best Service']].map(([k, l]) => el('button', {
+      class: 'px-3 py-1.5 rounded-lg text-xs font-bold transition hover:brightness-95',
+      style: _sec === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
+      onclick: () => { state._retenSection = k; mountApp(); },
+    }, l)));
+  if (_sec === 'health')   return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingCustomerHealth());
+  if (_sec === 'nextbest') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingNextBest());
   const scope = reportingScope();
   const { scopeA, scopeB, inCompare, office, compareOffice, officeLabel } = scope;
 
@@ -39628,7 +39639,7 @@ function reportingWaterfall() {
         renderSide(waterfallB, popB, officeLabel(compareOffice), '__B__'))
     : renderSide(waterfallA, popA, null, '__A__');
 
-  return el('div', { class: 'flex flex-col gap-4' }, modeBar, body);
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
