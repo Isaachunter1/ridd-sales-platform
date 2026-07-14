@@ -33016,18 +33016,20 @@ function reportingChartData(scopeRows, serviceConfig) {
   }
   const tenureSlices = REPORTING_TENURE_ORDER.map(k => ({ label: k, value: tenureCounts.get(k) || 0 }));
 
-  // Agreement length mix: subs grouped by agreement_length (months),
-  // ordered by months ascending (12 → 18 → 24 → 36 → …). Zero/null
+  // Agreement length mix: 12 / 18 / 24 are the real products — everything
+  // else (6, 13, 36, legacy oddballs) rolls into one "Other" slice (per
+  // Isaac; matches the retention waterfall's contract buckets). Zero/null
   // lengths are dropped — they don't represent a real contract term.
-  const agreementMap = new Map();
+  const agreementMap = new Map([['12 mo', 0], ['18 mo', 0], ['24 mo', 0], ['Other', 0]]);
   for (const r of scopeRows) {
     const months = Number(r.agreement_length) || 0;
     if (months <= 0) continue;
-    agreementMap.set(months, (agreementMap.get(months) || 0) + 1);
+    const key = (months === 12 || months === 18 || months === 24) ? months + ' mo' : 'Other';
+    agreementMap.set(key, (agreementMap.get(key) || 0) + 1);
   }
   const agreementSlices = [...agreementMap.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([months, count]) => ({ label: months + ' mo', value: count }));
+    .filter(([, count]) => count > 0)
+    .map(([label, count]) => ({ label, value: count }));
 
   return {
     stats: {
@@ -33085,7 +33087,7 @@ function reportingChartData(scopeRows, serviceConfig) {
       aging:         { source: scopeRows,     key: r => reportingAgingBucket(r.days_past_due) },
       pastDueOffice: { source: pastDueRows,   key: r => r.office_name || 'Unspecified' },
       tenure:        { source: scopeRows,     key: r => reportingTenureBucket(r.initial_service, today) },
-      agreement:     { source: scopeRows.filter(r => (Number(r.agreement_length) || 0) > 0), key: r => (Number(r.agreement_length) || 0) + ' mo' },
+      agreement:     { source: scopeRows.filter(r => (Number(r.agreement_length) || 0) > 0), key: r => { const m = Number(r.agreement_length) || 0; return (m === 12 || m === 18 || m === 24) ? m + ' mo' : 'Other'; } },
       cancels:       { source: realCancels,   key: r => r.subscription_cancellation_reason || 'Unspecified' },
       sources:       { source: scopeRows,     key: r => r.subscription_source || 'Unspecified' },
       onetimeSubs:   { source: oneTimeRows,   key: r => r.subscription || 'Unspecified' },
