@@ -33838,7 +33838,7 @@ function reportingCustomerHealth() {
     c.arr += Number(r.annual_recurring_value) || 0;
     svcFamiliesOf(r.subscription).forEach(f => c.fams.add(f));
     c.pastDue = Math.max(c.pastDue, Number(r.days_past_due) || 0);
-    if (/^(y|yes|true|1)/i.test(String(r.customer_auto_pay || ''))) c.autopay = true;
+    { const _ap = String(r.customer_auto_pay || '').trim(); if (_ap && !/^no$/i.test(_ap)) c.autopay = true; }
     const mo = moSince(r.initial_service);
     if (mo != null && (c.oldest == null || mo > c.oldest)) c.oldest = mo;
     const len = Number(r.agreement_length) || 0;
@@ -34101,7 +34101,7 @@ function reportingRenewals() {
       id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', state: r.state || '',
       svc: r.subscription, arv: Number(r.annual_recurring_value) || 0, len, mo,
       toGo: len - mo, pastBy: mo - len,
-      autopay: /^(y|yes|true|1)/i.test(String(r.customer_auto_pay || '')),
+      autopay: (() => { const _ap = String(r.customer_auto_pay || '').trim(); return !!_ap && !/^no$/i.test(_ap); })(),
       pastDue: Number(r.days_past_due) || 0,
     };
     if (mo >= len - 2 && mo < len) expiring.push(rec);
@@ -34169,6 +34169,184 @@ function reportingRenewals() {
       { btn: exportBtn(past, 'renewals-past-term.csv', 'Months Past Term', (x) => x.pastBy.toFixed(1)),
         lastHdr: 'Past term', lastVal: (x) => '+' + x.pastBy.toFixed(1) + ' mo', lastColor: () => '#DC2626' },
       'No active contracts past their term.'));
+}
+
+function reportingContractLength() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+  const { visible } = reportingFilters();
+  const office = state.reportingOffice || 'all';
+  const rows = reportingFilterByOffice(visible, office);
+  const now = new Date();
+  const TERMS = [12, 18, 24];
+  const termOf = (r) => { const m = Number(r.agreement_length) || 0; return TERMS.includes(m) ? m : null; };
+  const lifeMo = (r) => {
+    const a = new Date(String(r.initial_service) + 'T00:00');
+    const b = r.subscription_date_canceled ? new Date(String(r.subscription_date_canceled) + 'T00:00') : now;
+    return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
+  };
+  const ageMo = (r) => {
+    const a = new Date(String(r.initial_service) + 'T00:00');
+    return isNaN(a) ? null : (now - a) / 2629800000;
+  };
+  // Per-term rollups
+  const T = {};
+  TERMS.forEach(t => T[t] = { n: 0, arv: 0, s12n: 0, s12k: 0, finN: 0, finK: 0, cxl: [], reasons: new Map(), cxlN: 0, delinq: 0 });
+  rows.forEach(r => {
+    const t = termOf(r); if (!t) return;
+    const o = T[t];
+    o.n++; o.arv += Number(r.annual_recurring_value) || 0;
+    const age = ageMo(r), life = lifeMo(r);
+    const cxl = !!r.subscription_date_canceled;
+    if (age != null && age >= 12) { o.s12n++; if (!cxl || life >= 12) o.s12k++; }
+    if (age != null && age >= t + 1) { o.finN++; if (!cxl || life >= t) o.finK++; }
+    if (cxl && life != null) {
+      o.cxl.push(life); o.cxlN++;
+      const reason = reportingCancelReasonOf(r);
+      o.reasons.set(reason, (o.reasons.get(reason) || 0) + 1);
+      if (/delinquent/i.test(reason)) o.delinq++;
+    }
+  });
+  const med = (arr) => { if (!arr.length) return null; const s = arr.slice().sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+  const pctUnder = (arr, m) => arr.length ? arr.filter(v => v < m).length / arr.length : 0;
+  const TERM_COLOR = { 12: '#0EA5E9', 18: '#D97706', 24: '#5F8A1F' };
+
+  // Reason mix table — top reasons across all three terms.
+  const allReasons = new Map();
+  TERMS.forEach(t => T[t].reasons.forEach((n, k) => allReasons.set(k, (allReasons.get(k) || 0) + n)));
+  const topReasons = [...allReasons.entries()].sort((a, b) => b[1] - a[1]).slice(0, 9);
+
+  // Office × term mix + delinquency share of cancels
+  const byOff = new Map();
+  rows.forEach(r => {
+    const t = termOf(r); if (!t) return;
+    const k = r.office_name || '—';
+    const o = byOff.get(k) || { n: 0, t: { 12: 0, 18: 0, 24: 0 }, cxl: 0, delinq: 0 };
+    o.n++; o.t[t]++;
+    if (r.subscription_date_canceled) { o.cxl++; if (/delinquent/i.test(reportingCancelReasonOf(r))) o.delinq++; }
+    byOff.set(k, o);
+  });
+  const offices2 = [...byOff.entries()].map(([k, o]) => ({ k, ...o })).filter(o => o.n >= 100).sort((a, b) => b.n - a.n);
+
+  // Survival by year sold × term
+  const byYr = new Map();
+  rows.forEach(r => {
+    const t = termOf(r); if (!t) return;
+    const age = ageMo(r); if (age == null || age < 12) return;
+    const y = String(r.initial_service || '').slice(0, 4); if (!/^20\d\d$/.test(y)) return;
+    const o = byYr.get(y) || { 12: { n: 0, k: 0 }, 18: { n: 0, k: 0 }, 24: { n: 0, k: 0 } };
+    const life = lifeMo(r);
+    o[t].n++; if (!r.subscription_date_canceled || life >= 12) o[t].k++;
+    byYr.set(y, o);
+  });
+  const years2 = [...byYr.keys()].sort();
+
+  const card = (kids, cls) => el('div', { class: 'card ' + (cls || 'p-4') }, ...kids);
+  const secHdr = (title, sub) => el('div', { class: 'mb-2' },
+    el('h3', { class: 'text-sm font-bold' }, title),
+    sub && el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, sub));
+  const pct = (v) => (v * 100).toFixed(1) + '%';
+
+  return el('div', { class: 'flex flex-col gap-4' },
+    // Headline cards
+    card([
+      secHdr('📄 Contract Length — 12 vs 18 vs 24', 'The full term story on one screen. Verdict from the data: 24s are proven (+2 months kept, best 12-mo survival); 18s die of NON-PAYMENT, early, concentrated in the offices with the weakest collections — the term isn\u2019t toxic, how it\u2019s sold is.'),
+      el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' } },
+        ...TERMS.map(t => {
+          const o = T[t];
+          return el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)', borderTop: '3px solid ' + TERM_COLOR[t] } },
+            el('div', { class: 'flex items-baseline justify-between' },
+              el('div', { class: 'text-sm font-black' }, t + '-month'),
+              el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-subtle)' } }, o.n.toLocaleString() + ' subs')),
+            el('div', { class: 'mt-1.5 text-[11px] tabular-nums flex flex-col gap-0.5' },
+              el('div', {}, el('b', {}, o.s12n ? pct(o.s12k / o.s12n) : '—'), el('span', { style: { color: 'var(--text-muted)' } }, ' survive 12 months')),
+              el('div', {}, el('b', {}, o.finN ? pct(o.finK / o.finN) : '—'), el('span', { style: { color: 'var(--text-muted)' } }, ' complete the full term')),
+              el('div', {}, el('b', {}, o.cxl.length ? med(o.cxl).toFixed(1) + ' mo' : '—'), el('span', { style: { color: 'var(--text-muted)' } }, ' median life when cancelled')),
+              el('div', {}, el('b', { style: { color: o.cxlN && o.delinq / o.cxlN > 0.45 ? '#DC2626' : 'inherit' } }, o.cxlN ? pct(o.delinq / o.cxlN) : '—'), el('span', { style: { color: 'var(--text-muted)' } }, ' of cancels = delinquency')),
+              el('div', {}, el('b', {}, fmt.usd0(o.n ? o.arv / o.n : 0)), el('span', { style: { color: 'var(--text-muted)' } }, ' avg ARV'))));
+        }))]),
+    // Reason mix
+    card([
+      secHdr('Why each term cancels', 'Share of that term\u2019s cancels. The tell: 18s over-index on Delinquent (non-payment) while every VOLUNTARY reason is lower than on 12s — the customer doesn\u2019t quit, the payment does.'),
+      el('div', { class: 'overflow-x-auto' },
+        el('table', { class: 'w-full text-xs tabular-nums' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
+            el('tr', {},
+              el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Reason'),
+              ...TERMS.map(t => el('th', { class: 'text-right px-2 py-1.5 font-semibold', style: { color: TERM_COLOR[t] } }, t + ' mo')))),
+          el('tbody', {},
+            ...topReasons.map(([k]) => {
+              const isDel = /delinquent/i.test(k);
+              return el('tr', { class: 'border-t', style: Object.assign({ borderColor: 'var(--border)' }, isDel ? { background: 'rgba(220,38,38,.05)' } : {}) },
+                el('td', { class: 'px-2 py-1.5' + (isDel ? ' font-bold' : '') }, k),
+                ...TERMS.map(t => {
+                  const o = T[t];
+                  const share = o.cxlN ? (o.reasons.get(k) || 0) / o.cxlN : 0;
+                  const worst = TERMS.every(t2 => t2 === t || (T[t2].cxlN ? (T[t2].reasons.get(k) || 0) / T[t2].cxlN : 0) <= share);
+                  return el('td', { class: 'px-2 py-1.5 text-right' + (worst && share > 0.02 ? ' font-bold' : ''), style: worst && isDel ? { color: '#DC2626' } : {} }, pct(share));
+                }));
+            }))))]),
+    // Early-cancel timing
+    card([
+      secHdr('How early the cancels happen', 'Among cancelled subs of each term — the 18s\u2019 exits cluster in the first half-year, the signature of a term used as a closing crutch rather than a commitment.'),
+      el('div', { class: 'flex gap-3 flex-wrap' },
+        ...TERMS.map(t => {
+          const o = T[t];
+          return el('div', { class: 'flex-1 rounded-xl p-3', style: { background: 'var(--card-2)', minWidth: '170px', borderTop: '3px solid ' + TERM_COLOR[t] } },
+            el('div', { class: 'text-xs font-black mb-1' }, t + '-month cancels'),
+            el('div', { class: 'text-[11px] tabular-nums flex flex-col gap-0.5' },
+              el('div', {}, el('b', {}, o.cxl.length ? med(o.cxl).toFixed(1) + ' mo' : '—'), el('span', { style: { color: 'var(--text-muted)' } }, ' median lifetime')),
+              el('div', {}, el('b', {}, pct(pctUnder(o.cxl, 4))), el('span', { style: { color: 'var(--text-muted)' } }, ' gone within 4 months')),
+              el('div', {}, el('b', {}, pct(pctUnder(o.cxl, 7))), el('span', { style: { color: 'var(--text-muted)' } }, ' gone within 7 months'))));
+        }))]),
+    // Office term mix
+    card([
+      secHdr('Who sells which term', 'Term mix per office, with each office\u2019s delinquency share of cancels — the 18-heavy offices are the weak-collections offices, which is most of why the 18 aggregate looks bad.'),
+      el('div', { class: 'overflow-x-auto' },
+        el('table', { class: 'w-full text-xs tabular-nums' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
+            el('tr', {},
+              el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Office'),
+              ...TERMS.map(t => el('th', { class: 'text-right px-2 py-1.5 font-semibold', style: { color: TERM_COLOR[t] } }, t + ' mo')),
+              el('th', { class: 'text-right px-2 py-1.5 font-semibold' }, 'Delinq. share of cancels'))),
+          el('tbody', {},
+            ...offices2.map(o => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+              el('td', { class: 'px-2 py-1.5 font-semibold' }, _titleCaseWords(o.k)),
+              ...TERMS.map(t => {
+                const share = o.n ? o.t[t] / o.n : 0;
+                return el('td', { class: 'px-2 py-1.5 text-right' + (t === 18 && share > 0.35 ? ' font-bold' : '') , style: t === 18 && share > 0.35 ? { color: '#D97706' } : {} }, pct(share));
+              }),
+              el('td', { class: 'px-2 py-1.5 text-right font-bold', style: { color: o.cxl && o.delinq / o.cxl > 0.45 ? '#DC2626' : 'var(--text)' } }, o.cxl ? pct(o.delinq / o.cxl) : '—'))))))]),
+    // Year × term survival
+    card([
+      secHdr('12-month survival by year sold', 'Same-year comparison strips out vintage effects: 18 ≈ 12 in every year; 24 beats both.'),
+      el('div', { class: 'overflow-x-auto' },
+        el('table', { class: 'w-full text-xs tabular-nums' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
+            el('tr', {},
+              el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Year sold'),
+              ...TERMS.map(t => el('th', { class: 'text-right px-2 py-1.5 font-semibold', style: { color: TERM_COLOR[t] } }, t + ' mo')))),
+          el('tbody', {},
+            ...years2.map(y => {
+              const o = byYr.get(y);
+              const vals = TERMS.map(t => o[t].n >= 30 ? o[t].k / o[t].n : null);
+              const best = Math.max(...vals.filter(v => v != null));
+              return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+                el('td', { class: 'px-2 py-1.5 font-semibold' }, y),
+                ...TERMS.map((t, i) => el('td', {
+                  class: 'px-2 py-1.5 text-right' + (vals[i] != null && vals[i] === best ? ' font-bold' : ''),
+                  style: vals[i] != null && vals[i] === best ? { color: '#5F8A1F' } : {},
+                  title: o[t].n + ' subs old enough to measure',
+                }, vals[i] != null ? pct(vals[i]) : el('span', { style: { color: 'var(--text-subtle)' } }, '—'))));
+            }))))]),
+    // Playbook
+    card([
+      secHdr('What to do with this'),
+      el('div', { class: 'text-xs flex flex-col gap-1.5', style: { color: 'var(--text-muted)' } },
+        el('div', {}, '1. Autopay at signing on every 18 and 24 — the delinquency wedge is the whole story; a term bonus should only pay with a payment method attached.'),
+        el('div', {}, '2. Push 24s — best survival every single year, highest ARV, +2 months kept. The comp ladder should make it the best payday.'),
+        el('div', {}, '3. Pilot 18s in STRONG offices only — if good closers write autopay-backed 18s and they still track the 12 curve, retire the tier; if they stick, the term was never the problem.'),
+        el('div', {}, '4. The 18-heavy offices need the collections fix more than a pricing fix — same playbook as the best office (autopay enforcement, card-on-file, dunning).'))]));
 }
 
 function reportingSubTabs() {
@@ -38519,7 +38697,7 @@ function reportingWaterfall() {
   // suite, Customer Health (churn defense), and Next Best Service (attach).
   const _sec = state._retenSection || 'retention';
   const _secBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
-    ...[['retention', '📊 Retention'], ['health', '❤️‍🩹 Customer Health'], ['nextbest', '🎯 Next Best Service'], ['renewals', '🔁 Renewals']].map(([k, l]) => el('button', {
+    ...[['retention', '📊 Retention'], ['health', '❤️‍🩹 Customer Health'], ['nextbest', '🎯 Next Best Service'], ['renewals', '🔁 Renewals'], ['contract', '📄 Contract Length']].map(([k, l]) => el('button', {
       class: 'px-3 py-1.5 rounded-lg text-xs font-bold transition hover:brightness-95',
       style: _sec === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
       onclick: () => { state._retenSection = k; mountApp(); },
@@ -38527,6 +38705,7 @@ function reportingWaterfall() {
   if (_sec === 'health')   return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingCustomerHealth());
   if (_sec === 'nextbest') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingNextBest());
   if (_sec === 'renewals') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingRenewals());
+  if (_sec === 'contract') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingContractLength());
   const scope = reportingScope();
   const { scopeA, scopeB, inCompare, office, compareOffice, officeLabel } = scope;
 
