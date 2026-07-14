@@ -4533,6 +4533,20 @@ function mountApp() {
   const _viewChanged = state._lastAnimView !== state.view;
   state._lastAnimView = state.view;
   const contentWrap = el('div', { class: 'p-4 sm:p-6 w-full max-w-[1600px] mx-auto overflow-x-auto' + (_viewChanged ? ' view-enter' : '') });
+  // Mobile freshness line — the header stamp is hidden below the sm
+  // breakpoint (no room next to the icon cluster), so phones get the same
+  // stamp as the first content line on every tab instead.
+  (() => {
+    const txt = (typeof indicatorsSyncStampText === 'function') ? indicatorsSyncStampText() : '';
+    if (!txt) return;
+    const lvl = (typeof indicatorsSyncStaleness === 'function') ? indicatorsSyncStaleness() : null;
+    const c = lvl === 'red' ? '#DC2626' : lvl === 'amber' ? '#D97706' : 'var(--text-muted)';
+    contentWrap.append(el('div', {
+      class: 'sm:hidden text-[10px] tabular-nums -mt-1 mb-2',
+      style: { color: c, fontWeight: lvl ? '700' : '500' },
+      title: 'Syncs land hourly on the hour, 8am–11pm ET',
+    }, '↻ Last sync: ' + txt + (lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '')));
+  })();
   main.append(pageHeader, contentWrap);
 
   shell.append(main);
@@ -9096,8 +9110,8 @@ function leaderboardSection(range) {
       el('table', { class: 'w-full text-[12px]' },
         el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
           el('tr', {},
-            el('th', { class: 'text-left pl-4 pr-1 py-2 w-8' }, '#'),
-            el('th', { class: 'text-left px-2 py-2' }, 'Rep'),
+            el('th', { class: 'text-left pl-4 pr-1 py-2', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 2, minWidth: '40px', width: '40px' } }, '#'),
+            el('th', { class: 'text-left px-2 py-2', style: { position: 'sticky', left: '40px', background: 'var(--card)', zIndex: 2 } }, 'Rep'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('sales'), onclick: () => setSort('sales') }, 'Sales'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('initial'), title: 'Average initial invoice per sale', onclick: () => setSort('initial') }, 'Avg Initial'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('revenue'), onclick: () => setSort('revenue') }, 'Revenue'),
@@ -9116,8 +9130,11 @@ function leaderboardSection(range) {
               class: 'border-t border- hover:brightness-95 transition',
               style: isMe ? { background: 'rgba(141,198,63,.08)' } : {},
             },
-              el('td', { class: 'pl-4 pr-1 py-2 font-bold tabular-nums' + (i === 0 && r.count > 0 ? ' text-base' : ''), style: i === 0 && r.count > 0 ? { color: 'var(--accent)' } : {} }, i + 1),
-              el('td', { class: 'px-2 py-2' },
+              el('td', {
+                class: 'pl-4 pr-1 py-2 font-bold tabular-nums' + (i === 0 && r.count > 0 ? ' text-base' : ''),
+                style: Object.assign({ position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1, minWidth: '40px' }, i === 0 && r.count > 0 ? { color: 'var(--accent)' } : {}),
+              }, i + 1),
+              el('td', { class: 'px-2 py-2', style: { position: 'sticky', left: '40px', background: 'var(--card)', zIndex: 1 } },
                 el('div', {
                   class: 'flex items-center gap-2' + (r._noProfile ? '' : ' cursor-pointer'),
                   onclick: r._noProfile ? null : () => openRepProfileModal(r.rep_id),
@@ -15555,6 +15572,7 @@ function nrlaCompute(rawSales, compOverride) {
   const roundRevDay = windows.map(() => ({}));     // team → [day1 qual rev, day2 qual rev]
   const roundReps = windows.map(() => ({}));
   const roundPending = windows.map(() => 0);
+  const roundBuckets = windows.map(() => ({}));    // team → { passed, pending, failed } contract $
   const roundRepStats = windows.map(() => ({}));   // per-round per-rep buckets (rep leaderboard scope picker)
   if (windows.length) for (const s of sales) {
     const d = _parseIndicatorDay(s);
@@ -15569,6 +15587,13 @@ function nrlaCompute(rawSales, compOverride) {
           const cv0 = Number(s.contractValue) || 0;
           const b0 = _isFailedAcct(s) ? 'failed' : (scAuditPassed(s.customerFlags) ? 'passed' : 'pending');
           rr0.n += 1; rr0.total += cv0; rr0[b0] += cv0;
+        }
+        {
+          const oB = offOf(s);
+          const cvB = Number(s.contractValue) || 0;
+          const bB = _isFailedAcct(s) ? 'failed' : (scAuditPassed(s.customerFlags) ? 'passed' : 'pending');
+          const tb = roundBuckets[i][oB] || (roundBuckets[i][oB] = { passed: 0, pending: 0, failed: 0 });
+          tb[bB] += cvB;
         }
         if (!_isFailedAcct(s)) {
           const o = offOf(s);
@@ -15623,10 +15648,12 @@ function nrlaCompute(rawSales, compOverride) {
     if (t == null) return null;
     const n = repsCompeting[t] || 0;
     const dd = roundRevDay[i][t] || [0, 0];
+    const bk = roundBuckets[i][t] || { passed: 0, pending: 0, failed: 0 };
     return {
       team: t, rev: roundRev[i][t] || 0, reps: n,
       pra: praOf(t, i), sellers: (roundReps[i][t] || new Set()).size,
       praD1: n > 0 ? dd[0] / n : 0, praD2: n > 0 ? dd[1] / n : 0,
+      buckets: bk, totalRev: bk.passed + bk.pending + bk.failed,
     };
   };
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -16859,7 +16886,23 @@ function nrlaBoard(rawSales, opts) {
     }, _dndProps(dnd, true)),
       el('div', { class: 'min-w-0' },
         el('div', { class: 'text-xs font-black whitespace-nowrap', style: { color: 'var(--text)' } }, (dnd ? '⠿ ' : '') + (won ? (live ? '▲ ' : '✓ ') : '') + nameOf(side.team)),
-        el('div', { class: 'text-[10px] tabular-nums font-semibold', style: { color: 'var(--text)' } }, money(side.rev) + ' · ' + side.reps + ' reps'),
+        el('div', {
+          class: 'text-[10px] tabular-nums font-semibold',
+          style: { color: 'var(--text)' },
+          title: 'Total revenue sold in this round (all audit buckets) · reps competing',
+        }, money(side.totalRev != null ? side.totalRev : side.rev) + ' total · ' + side.reps + ' reps'),
+        // Audit-bucket split — Passed / Pending / Failed contract $ for the
+        // round. Passed + Pending = the qualifying revenue PRA runs on.
+        side.buckets ? el('div', {
+          class: 'text-[9px] tabular-nums font-bold whitespace-nowrap',
+          style: { color: 'var(--text)', opacity: '.8' },
+          title: 'Passed ' + money(side.buckets.passed) + ' · Pending ' + money(side.buckets.pending) + ' · Failed ' + money(side.buckets.failed) + ' — Passed + Pending = qualifying revenue (' + money(side.rev) + ')',
+        },
+          el('span', { style: { color: GREEN } }, '✓' + money(side.buckets.passed)),
+          ' · ',
+          el('span', {}, '⏳' + money(side.buckets.pending)),
+          ' · ',
+          el('span', { style: { color: '#FF5A5A' } }, '✗' + money(side.buckets.failed))) : null,
         // Day-by-day PRA split — how each of the round's two days contributed.
         (side.praD1 || side.praD2) ? el('div', { class: 'text-[9px] tabular-nums font-bold whitespace-nowrap', style: { color: 'var(--text)', opacity: '.75' } },
           'D1 ' + money(side.praD1) + ' · D2 ' + money(side.praD2) + ' PRA') : null),
@@ -32348,6 +32391,91 @@ function openReportingAreaStatsModal({ area, peers, kind }) {
   document.body.append(overlay);
 }
 
+function openReportingSliceStatsModal({ chartTitle, sliceLabel, rows, siblings, formatValue }) {
+  const fmtV = formatValue || ((v) => fmt.int(v));
+  const n = rows.length;
+  const excludedReasons = reportingExcludedCancelReasons();
+  const isCxl = (r) => !!r.subscription_date_canceled;
+  const countedCxl = rows.filter(r => isCxl(r) && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r))));
+  const activeRows = rows.filter(r => (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled);
+  const customers = new Set(rows.map(r => r.customer_id).filter(Boolean)).size;
+  const arrActive = activeRows.reduce((a, r) => a + (Number(r.annual_recurring_value) || 0), 0);
+  const contract = rows.reduce((a, r) => a + (Number(r.subscription_contract_value) || 0), 0);
+  const lifeMo = (r) => {
+    const a = new Date(String(r.initial_service) + 'T00:00');
+    const b = r.subscription_date_canceled ? new Date(String(r.subscription_date_canceled) + 'T00:00') : new Date();
+    return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
+  };
+  const lives = rows.map(lifeMo).filter(v => v != null).sort((a, b) => a - b);
+  const medianLife = lives.length ? lives[Math.floor(lives.length / 2)] : null;
+  // Mostly-cancelled slice (e.g. a Cancellation Reasons wedge) → loss framing.
+  const cxlSlice = n > 0 && rows.filter(isCxl).length / n > 0.95;
+  // Rank among the chart's own slices, on the chart's own metric.
+  const sibs = (siblings || []).filter(s => s.value > 0).slice().sort((a, b) => b.value - a.value);
+  const myIdx = sibs.findIndex(s => s.label === sliceLabel);
+  const sibTotal = sibs.reduce((a, s) => a + s.value, 0);
+  const myVal = myIdx >= 0 ? sibs[myIdx].value : null;
+  const groupTop = (keyFn) => {
+    const m = new Map();
+    rows.forEach(r => { const k = keyFn(r) || '—'; m.set(k, (m.get(k) || 0) + 1); });
+    return [...m.entries()].map(([k, c]) => ({ k, c })).sort((a, b) => b.c - a.c);
+  };
+  const byOffice = groupTop(r => titleCase(String(r.office_name || '—')));
+  const bySvc = groupTop(r => r.subscription);
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const stat = (label, val, sub) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl', style: { background: 'var(--card-2)', minWidth: '105px' } },
+    el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+    el('div', { class: 'text-base font-black tabular-nums' }, val),
+    sub && el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, sub));
+  const miniBars = (title, groups) => {
+    if (groups.length < 2) return null;
+    const top = groups.slice(0, 5);
+    const maxC = top[0].c;
+    return el('div', { class: 'flex-1', style: { minWidth: '210px' } },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, title),
+      ...top.map(g => el('div', { class: 'py-1 border-t border-' },
+        el('div', { class: 'flex items-center justify-between text-[11px]' },
+          el('span', { class: 'truncate' }, g.k),
+          el('span', { class: 'tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } }, fmt.int(g.c) + ' · ' + Math.round(g.c / n * 100) + '%')),
+        el('div', { class: 'mt-0.5 rounded-full overflow-hidden', style: { height: '3px', background: 'var(--card-2)' } },
+          el('div', { style: { width: Math.max(2, g.c / maxC * 100) + '%', height: '100%', background: 'var(--accent)', opacity: '.7' } })))),
+      groups.length > 5 && el('div', { class: 'text-[10px] mt-1', style: { color: 'var(--text-subtle)' } }, '+ ' + (groups.length - 5) + ' more'));
+  };
+  const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
+      el('div', {},
+        el('h2', { class: 'text-base font-bold' }, sliceLabel),
+        el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
+          chartTitle + (myIdx >= 0 ? ' · #' + (myIdx + 1) + ' of ' + sibs.length : '')
+          + (myVal != null && sibTotal > 0 ? ' · ' + (myVal / sibTotal * 100).toFixed(1) + '% of the chart (' + fmtV(myVal) + ')' : ''))),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+    el('div', { class: 'px-4 pb-2 overflow-y-auto' },
+      el('div', { class: 'flex gap-2 flex-wrap mb-3' },
+        stat('Subs', fmt.int(n), fmt.int(customers) + ' customers'),
+        cxlSlice
+          ? stat('ARR lost', fmt.usd0(rows.reduce((a, r) => a + (Number(r.annual_recurring_value) || 0), 0)))
+          : stat('Active ARR', fmt.usd0(arrActive), fmt.int(activeRows.length) + ' active subs'),
+        stat('ACV', n ? fmt.usd0(contract / n) : '—', fmt.usd0(contract) + ' total contract'),
+        cxlSlice
+          ? stat('Median lifetime', medianLife != null ? medianLife.toFixed(1) + ' mo' : '—', lives.length ? Math.round(lives.filter(v => v < 12).length / lives.length * 100) + '% left within 12 mo' : '')
+          : stat('Attrition', n ? (countedCxl.length / n * 100).toFixed(1) + '%' : '—', fmt.int(countedCxl.length) + ' counted cancels · lifetime' + (medianLife != null ? ' · median ' + medianLife.toFixed(1) + ' mo' : ''))),
+      el('div', { class: 'flex gap-5 flex-wrap' },
+        miniBars('By office', byOffice),
+        miniBars('By service', bySvc))),
+    el('div', { class: 'p-4 pt-2' },
+      el('button', {
+        class: 'w-full rounded-xl px-4 py-2.5 text-xs font-bold border transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        onclick: () => {
+          overlay.remove();
+          openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue });
+        },
+      }, 'View all ' + fmt.int(n) + ' customers →')));
+  overlay.append(card);
+  document.body.append(overlay);
+}
+
 function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) {
   const overlay = el('div', { class: 'modal-overlay' });
   const closeKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeKey); } };
@@ -33854,10 +33982,13 @@ function reportingOverview() {
       const chartTitle = inCompare
         ? def.title + ' · ' + officeLabel(side === 'a' ? office : compareOffice)
         : def.title;
-      openReportingDrillModal({
+      // Analysis first (per Isaac) — the raw customer table is one click
+      // deeper inside the report card.
+      openReportingSliceStatsModal({
         chartTitle,
         sliceLabel,
         rows: drillRows,
+        siblings: data.slices[def.sliceKey],
         formatValue: def.formatValue,
       });
     },
@@ -33876,7 +34007,7 @@ function reportingOverview() {
       const drillTo = (label) => {
         overlay.remove();
         const rows = drill.source.filter(r => drill.key(r) === label);
-        openReportingDrillModal({ chartTitle, sliceLabel: label, rows, formatValue: def.formatValue });
+        openReportingSliceStatsModal({ chartTitle, sliceLabel: label, rows, siblings: data.slices[def.sliceKey], formatValue: def.formatValue });
       };
       const maxV = otherSlices && otherSlices.length ? otherSlices[0].value : 1;
       const rowsEls = (otherSlices || []).map(s => el('div', {
