@@ -13170,7 +13170,7 @@ function viewHallOfFame() {
   const deptRecords = (() => {
     const raw = state._indicatorRawSales || [];
     if (!raw.length || typeof _indicatorDeptOf !== 'function') return null;
-    const GROUPS = [['all', '🏢 RIDD — Whole Company'], ['office', '☎️ Inside Sales'], ['d2d', '🚪 Sales Reps (D2D)'], ['techs', '🔧 Technicians']];
+    const GROUPS = [['all', '🏢 RIDD — Whole Company'], ['office', '☎️ Inside Sales · new only'], ['d2d', '🚪 Sales Reps (D2D)'], ['techs', '🔧 Technicians']];
     const acc = {};
     GROUPS.forEach(([g]) => acc[g] = { day: {}, week: {}, month: {} });
     raw.forEach(s => {
@@ -13183,8 +13183,14 @@ function viewHallOfFame() {
       const wk = ws.getFullYear() + '-' + String(ws.getMonth() + 1).padStart(2, '0') + '-' + String(ws.getDate()).padStart(2, '0');
       const mo = iso.slice(0, 7);
       const dept = _indicatorDeptOf(s);
+      // Inside Sales records are NEW business only (per Isaac) — renewal
+      // production (Renewal - Outbound / Inbound / Loyalty / Service Pro
+      // Upsell) is a different motion and would drown the record board.
+      // RIDD company-wide still counts everything.
+      const isRen = (typeof _indicatorIsRenewal === 'function') && _indicatorIsRenewal(s);
       [dept, 'all'].forEach(g => {
         const a = acc[g]; if (!a) return;
+        if (g === 'office' && isRen) return;
         a.day[iso] = (a.day[iso] || 0) + cv;
         a.week[wk] = (a.week[wk] || 0) + cv;
         a.month[mo] = (a.month[mo] || 0) + cv;
