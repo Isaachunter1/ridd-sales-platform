@@ -5023,7 +5023,7 @@ function viewDashboard() {
       const goalMode = state.dashGoalMode === 'reps' ? 'reps' : 'dept';
       const goalHeader = el('div', { class: 'flex items-center justify-between mb-2' },
         el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } },
-          goalMode === 'reps' ? 'Individual Revenue Goals · YTD' : 'Revenue Goals'),
+          goalMode === 'reps' ? 'Individual Revenue Pacer · YTD' : 'Revenue Pacer'),
         el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
           ...[['dept', 'Department'], ['reps', 'Individual']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-semibold transition',
@@ -5160,27 +5160,60 @@ function viewDashboard() {
             const pct = bar.target > 0 ? Math.min(1, bar.actual / bar.target) : 0;
             const paceDiff = bar.target > 0 ? ((pct - expectedPct) / (expectedPct || 0.01) * 100) : 0;
             const paceAhead = paceDiff >= 0;
+            // Monthly catch-up (per Isaac): what this department must sell per
+            // day, rest of THIS month, to be back on the year plan by
+            // month-end. Uses the Goals tab's monthly allocation (seasonal).
+            const _monthly = bar.label.startsWith('New') ? g.monthly_new : g.monthly_renewal;
+            let needLine = null;
+            if (Array.isArray(_monthly) && _monthly.length === 12 && bar.target > 0) {
+              const _mi = now2.getMonth();
+              const _dim = new Date(now2.getFullYear(), _mi + 1, 0).getDate();
+              const _daysLeft = _dim - now2.getDate() + 1;
+              const _target = _monthly.slice(0, _mi + 1).reduce((a, b) => a + (b || 0), 0);
+              const _needTotal = _target - bar.actual;
+              if (_needTotal > 0) {
+                needLine = el('div', { class: 'text-[10px] tabular-nums mt-1 font-semibold', style: { color: '#DC2626' } },
+                  '🎯 ' + fmt.usd0(_needTotal / _daysLeft) + '/day through month-end (' + fmt.usd0(_needTotal) + ' to go) to be back on the seasonal plan');
+              } else {
+                needLine = el('div', { class: 'text-[10px] tabular-nums mt-1 font-semibold', style: { color: '#5F8A1F' } },
+                  '✓ month covered through ' + now2.toLocaleDateString('en-US', { month: 'long' }) + ' — ' + fmt.usd0(-_needTotal) + ' ahead of the seasonal plan');
+              }
+            }
             return el('div', {},
-              el('div', { class: 'flex items-center justify-between mb-1' },
-                el('div', { class: 'flex items-center gap-2' },
+              // ONE line on every screen size (label + % left, money + pace
+              // chip right; the chip drops before the money wraps).
+              el('div', { class: 'flex items-center justify-between mb-1 gap-2', style: { flexWrap: 'nowrap', minWidth: 0 } },
+                el('div', { class: 'flex items-center gap-1.5 shrink-0' },
                   el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: bar.color } }),
-                  el('span', { class: 'text-sm font-semibold' }, bar.label),
-                  el('span', { class: 'text-sm font-bold', style: { color: bar.color } }, ' ' + fmt.pct(pct)),
+                  el('span', { class: 'text-sm font-semibold whitespace-nowrap' }, bar.label),
+                  el('span', { class: 'text-sm font-bold whitespace-nowrap hidden sm:inline', style: { color: bar.color } }, fmt.pct(pct)),
                 ),
-                el('div', { class: 'flex items-center gap-2' },
-                  el('span', { class: 'text-xs tabular-nums' },
+                el('div', { class: 'flex items-center gap-2 min-w-0 justify-end' },
+                  el('span', { class: 'text-xs tabular-nums whitespace-nowrap' },
                     el('span', { class: 'font-semibold' }, fmt.usd0(bar.actual)),
                     el('span', { class: 'text-muted-' }, ' / '),
                     el('span', { class: 'font-bold' }, fmt.usd0(bar.target)),
                   ),
                   el('span', {
-                    class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap',
+                    class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap hidden sm:inline',
                     style: {
                       background: paceAhead ? 'rgba(141,198,63,.12)' : 'rgba(220,38,38,.08)',
                       color: paceAhead ? '#5F8A1F' : '#DC2626',
                     },
                   }, (paceAhead ? '+' : '') + paceDiff.toFixed(1) + '%'),
                 ),
+              ),
+              // Mobile: % + pace chip get their own tiny line under the label
+              // row instead of forcing a mid-row wrap.
+              el('div', { class: 'flex items-center gap-2 mb-1 sm:hidden' },
+                el('span', { class: 'text-xs font-bold', style: { color: bar.color } }, fmt.pct(pct)),
+                el('span', {
+                  class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full',
+                  style: {
+                    background: paceAhead ? 'rgba(141,198,63,.12)' : 'rgba(220,38,38,.08)',
+                    color: paceAhead ? '#5F8A1F' : '#DC2626',
+                  },
+                }, (paceAhead ? '+' : '') + paceDiff.toFixed(1) + '% vs year pace'),
               ),
               el('div', { class: 'goal-track', style: { position: 'relative' } },
                 el('div', { style: { background: bar.color, height: '100%', borderRadius: '999px', transition: 'width .3s', width: (pct * 100).toFixed(2) + '%' } }),
@@ -5196,6 +5229,7 @@ function viewDashboard() {
               el('div', { class: 'goal-ticks mt-1' },
                 ...goalTicks(bar.target).map(t => el('span', {}, t)),
               ),
+              needLine,
             );
           }),
         ),
