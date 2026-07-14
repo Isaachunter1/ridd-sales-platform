@@ -11901,11 +11901,74 @@ function repInitials(rep) {
   return (rep?.full_name || '').split(/\s+/).filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase() || '?';
 }
 
+// ── COMPANY HOLIDAYS (per Isaac) — New Year's, Memorial Day, July 4th,
+// Labor Day, Thanksgiving, Black Friday, Christmas Eve, Christmas. Weekend
+// holidays observe on the nearest weekday (Sat → Friday before, Sun →
+// Monday after). Calendar marks these as Holiday and skips them when
+// fanning out recurring shifts.
+const _holidayCache = {};
+function _companyHolidays(year) {
+  if (_holidayCache[year]) return _holidayCache[year];
+  const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const nthWeekday = (month, weekday, n) => {   // n-th <weekday> of month (0-based month)
+    const d = new Date(year, month, 1);
+    let count = 0;
+    while (true) { if (d.getDay() === weekday) { count++; if (count === n) return d; } d.setDate(d.getDate() + 1); }
+  };
+  const lastWeekday = (month, weekday) => {
+    const d = new Date(year, month + 1, 0);
+    while (d.getDay() !== weekday) d.setDate(d.getDate() - 1);
+    return d;
+  };
+  const observe = (d) => {   // Sat → Friday before · Sun → Monday after
+    const o = new Date(d);
+    if (o.getDay() === 6) o.setDate(o.getDate() - 1);
+    else if (o.getDay() === 0) o.setDate(o.getDate() + 1);
+    return o;
+  };
+  const thanksgiving = nthWeekday(10, 4, 4);   // 4th Thursday of November
+  const blackFriday = new Date(thanksgiving); blackFriday.setDate(thanksgiving.getDate() + 1);
+  const list = [
+    ["New Year's Day", observe(new Date(year, 0, 1))],
+    ['Memorial Day', lastWeekday(4, 1)],                    // last Monday of May
+    ['Independence Day', observe(new Date(year, 6, 4))],
+    ['Labor Day', nthWeekday(8, 1, 1)],                     // 1st Monday of September
+    ['Thanksgiving', thanksgiving],
+    ['Black Friday', blackFriday],
+    ['Christmas Eve', observe(new Date(year, 11, 24))],
+    ['Christmas Day', observe(new Date(year, 11, 25))],
+  ];
+  const map = {};
+  // Christmas Eve/Day can observe onto the same weekday (e.g. 24th = Sat →
+  // Fri 23rd while 25th = Sun → Mon 26th is fine; but 25th = Sat → Fri 24th
+  // collides with Eve). Nudge a collision one weekday earlier.
+  list.forEach(([name, d]) => {
+    let k = iso(d);
+    while (map[k]) { const nd = new Date(d); nd.setDate(nd.getDate() - (nd.getDay() === 1 ? 3 : 1)); d = nd; k = iso(d); }
+    map[k] = name;
+  });
+  _holidayCache[year] = map;
+  return map;
+}
+function companyHolidayFor(isoStr) {
+  const y = Number(String(isoStr).slice(0, 4));
+  if (!y) return null;
+  // Jan 1 can observe into the prior year (Dec 31) — check neighbors too.
+  return _companyHolidays(y)[isoStr] || _companyHolidays(y + 1)[isoStr] || null;
+}
+
+// The calendar is an Inside Sales scheduling tool — ACTIVE OFFICE STAFF
+// only (per Isaac). D2D reps and technicians never appear on shifts.
+function calendarEligibleProfiles(fallback) {
+  const all = state.allProfiles.length ? state.allProfiles : [fallback].filter(Boolean);
+  const staff = all.filter(p => p && p.is_active !== false && isSellerRole(p.role) && isOfficeStaffProfile(p));
+  return staff.length ? staff : all.filter(p => p && p.is_active !== false);
+}
 function viewCalendar() {
   const me = state.profile;
   const meId = me.id;
   const isAdmin = isAdminRole(me.role);
-  const reps = state.allProfiles.length ? state.allProfiles : [me];
+  const reps = calendarEligibleProfiles(me);
   const repById = Object.fromEntries(reps.map(r => [r.id, r]));
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -12080,7 +12143,8 @@ function renderWeekGrid(anchor, today, meId, repById) {
       const iso = isoDate(d);
       return el('div', {
         class: 'flex-1 p-3 text-center',
-        style: { background: iso === todayIso ? 'rgba(141,198,63,0.08)' : 'transparent',
+        style: { background: iso === todayIso ? 'rgba(141,198,63,0.16)' : 'transparent',
+                 boxShadow: iso === todayIso ? 'inset 0 0 0 2px var(--accent)' : 'none',
                  color: iso === todayIso ? 'var(--accent)' : 'var(--text-muted)' },
       },
         el('div', {}, dayNames[d.getDay()]),
@@ -12125,7 +12189,7 @@ function renderWeekGrid(anchor, today, meId, repById) {
       style: {
         height: gridHeight + 'px',
         borderLeft: '1px solid var(--border)',
-        background: iso === todayIso ? 'rgba(141,198,63,0.04)' : 'transparent',
+        background: iso === todayIso ? 'rgba(141,198,63,0.12)' : 'transparent',
       },
       onclick: isAdmin ? (e) => {
         // Ignore clicks on existing shift blocks — those handle their own click
@@ -12255,20 +12319,27 @@ function renderMonthGrid(anchor, today, meId, repById) {
         }
         const iso = isoDate(d);
         const isToday = iso === todayIso;
+        const holiday = companyHolidayFor(iso);
         const slots = shiftSlotsForDate(iso);
         const cell = el('div', {
-          class: 'p-1.5 border-r border-b flex flex-col gap-1 relative' + (isAdmin ? ' cursor-pointer' : ''),
+          class: 'p-1.5 border-r border-b flex flex-col gap-1 relative' + (isAdmin && !holiday ? ' cursor-pointer' : ''),
           style: {
             borderColor: 'var(--border)',
             borderRightWidth: (idx + 1) % 7 === 0 ? '0' : '1px',
             minHeight: '120px',
-            background: isToday ? 'rgba(141,198,63,0.06)' : 'transparent',
+            background: holiday ? 'rgba(242,20,140,0.05)' : isToday ? 'rgba(141,198,63,0.14)' : 'transparent',
+            boxShadow: isToday ? 'inset 0 0 0 2px var(--accent)' : 'none',
           },
-          onclick: isAdmin ? () => openNewShiftModal(iso) : null,
+          onclick: (isAdmin && !holiday) ? () => openNewShiftModal(iso) : null,
         },
+          holiday && el('div', {
+            class: 'text-[9px] font-black uppercase tracking-widest rounded-md px-1.5 py-1 pointer-events-none',
+            style: { background: 'rgba(242,20,140,.12)', color: '#C2185B' },
+            title: 'Company holiday — office closed. Shifts are not scheduled on this day.',
+          }, '🎉 ' + holiday),
           el('div', { class: 'flex items-center justify-between mb-0.5 pointer-events-none' },
             el('div', { class: 'text-xs font-bold', style: { color: isToday ? 'var(--accent)' : 'var(--text)' } }, String(d.getDate())),
-            isAdmin && el('span', {
+            isAdmin && !holiday && el('span', {
               class: 'inline-flex items-center justify-center rounded-full text-[12px] font-bold leading-none',
               style: {
                 width: '18px', height: '18px',
@@ -12347,8 +12418,7 @@ function resolveSwap(requestId, decision) {
 // ── Create-shift modal: pick days, times, reps, then fan out assignments ──
 function openNewShiftModal(defaultIso, opts = {}) {
   if (!isAdminRole(state.profile.role)) return;
-  const allReps = state.allProfiles.length ? state.allProfiles : [state.profile];
-  const reps = allReps.filter(r => r.is_active !== false); // hide inactive from assignable list
+  const reps = calendarEligibleProfiles(state.profile); // active office staff only
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
@@ -12520,6 +12590,10 @@ function openNewShiftModal(defaultIso, opts = {}) {
       onclick: () => {
         if (formState.start >= formState.end) { toast('End time must be after start time', 'warn'); return; }
         if (formState.rep_ids.size === 0)     { toast('Pick at least one rep', 'warn'); return; }
+        if (formState.mode === 'single') {
+          const _hol = companyHolidayFor(formState.start_date);
+          if (_hol) { toast(_hol + ' — company holiday, office closed. Pick another day.', 'warn'); return; }
+        }
         if (formState.mode === 'range' && formState.days.size === 0) {
           toast('Pick at least one day of the week', 'warn'); return;
         }
@@ -12534,7 +12608,9 @@ function openNewShiftModal(defaultIso, opts = {}) {
           const start = new Date(formState.start_date + 'T00:00');
           const until = new Date(start); until.setDate(start.getDate() + 7 * RECURRENCE_WEEKS);
           for (let d = new Date(start); d <= until; d.setDate(d.getDate() + 1)) {
-            if (formState.days.has(d.getDay())) dates.push(isoDate(d));
+            if (!formState.days.has(d.getDay())) continue;
+            if (companyHolidayFor(isoDate(d))) continue;   // company holiday — day off
+            dates.push(isoDate(d));
           }
         }
         const dept = currentDepartment();
@@ -12554,7 +12630,7 @@ function openNewShiftModal(defaultIso, opts = {}) {
               start: formState.start,
               end:   formState.end,
               note: '',
-              recurring: false,
+              recurring: formState.mode === 'range',
               department: dept,
             });
             added += 1;
@@ -12592,9 +12668,11 @@ function findRecurringSiblings(assignment, scope) {
   }
   const dow = new Date(assignment.date + 'T00:00').getDay();
   const dept = shiftDept(assignment);
+  // Pattern-based series membership — the recurring flag lied on shifts the
+  // New Shift modal fanned out, so we match the schedule itself: same rep,
+  // same slot, same department, same weekday, this date forward.
   return state.shifts.filter(s =>
-    isRecurring(s)
-    && shiftDept(s) === dept
+    shiftDept(s) === dept
     && s.slot_id === assignment.slot_id
     && s.rep_id === assignment.rep_id
     && s.date    >= assignment.date
@@ -12611,7 +12689,8 @@ function applyRecurringChange(assignment, label, applyFn, redraw) {
     if (toastMsg) toast(toastMsg, 'success');
     redraw();
   };
-  if (!isRecurring(assignment)) {
+  const series = findRecurringSiblings(assignment, 'all');
+  if (series.length <= 1) {
     commit('this', `${label}d`);
     return;
   }
@@ -12626,18 +12705,18 @@ function applyRecurringChange(assignment, label, applyFn, redraw) {
     ),
     el('div', { class: 'px-5 py-4 flex flex-col gap-3' },
       el('p', { class: 'text-sm' },
-        `This shift repeats every ${weekday}. Are you sure you want to adjust it?`),
+        `This shift is scheduled on ${series.length} ${weekday}s (this one + ${series.length - 1} upcoming).`),
       el('div', { class: 'flex flex-col gap-2' },
         el('button', {
           class: 'rounded-lg px-4 py-2.5 text-sm font-bold text-left',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: () => { overlay.remove(); commit('this', `Only ${dateLabel} updated`); },
-        }, `Only this shift · ${dateLabel}`),
+        }, `Only this day · ${dateLabel}`),
         el('button', {
           class: 'rounded-lg px-4 py-2.5 text-sm font-semibold border text-left',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-          onclick: () => { overlay.remove(); commit('all', `All upcoming ${weekday}s updated`); },
-        }, `All upcoming ${weekday}s`),
+          style: { borderColor: '#DC2626', color: '#DC2626' },
+          onclick: () => { overlay.remove(); commit('all', `${series.length} ${weekday} shifts updated`); },
+        }, `This + all ${series.length - 1} upcoming ${weekday}s`),
       ),
     ),
   );
@@ -12653,9 +12732,9 @@ function openSlotModal(iso, slotId) {
     const slot = slotTemplate(iso, slotId);
     if (!slot) { overlay.remove(); return; }
     // Full roster (used for looking up names on already-assigned reps, even if deactivated later).
-    // Active roster is used for things the admin can still *assign to* now.
+    // Assignable roster = active OFFICE STAFF only (calendar is an Inside Sales tool).
     const allReps    = state.allProfiles.length ? state.allProfiles : [state.profile];
-    const activeReps = allReps.filter(r => r.is_active !== false);
+    const activeReps = calendarEligibleProfiles(state.profile);
     const meId = state.profile.id;
     const isAdmin = isAdminRole(state.profile.role);
     const repById = Object.fromEntries(allReps.map(r => [r.id, r]));
@@ -13076,11 +13155,73 @@ function viewHallOfFame() {
     bestMonth: repCards.reduce((a, r) => r.bestMonth.revenue > (a?.revenue || 0) ? { rep: r.profile, ...r.bestMonth } : a, null),
   };
 
+  // ── DEPARTMENT RECORDS — best day / week / month of TOTAL production
+  // per department (and the whole company), from the shared CRM dataset.
+  // Etched in stone (per Isaac): the number to beat next. Live-computed,
+  // so a record broken today shows the moment the sync lands.
+  const deptRecords = (() => {
+    const raw = state._indicatorRawSales || [];
+    if (!raw.length || typeof _indicatorDeptOf !== 'function') return null;
+    const GROUPS = [['all', '🏢 RIDD — Whole Company'], ['office', '☎️ Inside Sales'], ['d2d', '🚪 Sales Reps (D2D)'], ['techs', '🔧 Technicians']];
+    const acc = {};
+    GROUPS.forEach(([g]) => acc[g] = { day: {}, week: {}, month: {} });
+    raw.forEach(s => {
+      const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
+      if (!iso) return;
+      const cv = Number(s.contractValue) || 0;
+      const d = new Date(iso + 'T00:00');
+      if (isNaN(d)) return;
+      const ws = new Date(d); ws.setDate(d.getDate() - d.getDay());
+      const wk = ws.getFullYear() + '-' + String(ws.getMonth() + 1).padStart(2, '0') + '-' + String(ws.getDate()).padStart(2, '0');
+      const mo = iso.slice(0, 7);
+      const dept = _indicatorDeptOf(s);
+      [dept, 'all'].forEach(g => {
+        const a = acc[g]; if (!a) return;
+        a.day[iso] = (a.day[iso] || 0) + cv;
+        a.week[wk] = (a.week[wk] || 0) + cv;
+        a.month[mo] = (a.month[mo] || 0) + cv;
+      });
+    });
+    const best = (obj) => { let k = null, v = 0; for (const kk in obj) if (obj[kk] > v) { v = obj[kk]; k = kk; } return k ? { k, v } : null; };
+    return GROUPS.map(([g, label]) => ({ g, label, day: best(acc[g].day), week: best(acc[g].week), month: best(acc[g].month) }))
+      .filter(r => r.day);
+  })();
+  const _todayIso2 = (typeof bizTodayIso === 'function') ? bizTodayIso() : new Date().toISOString().slice(0, 10);
+  const _fmtRecDate = (kind, k) => {
+    if (kind === 'month') { const [y, m] = k.split('-'); return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }
+    const d = new Date(k + 'T00:00');
+    return (kind === 'week' ? 'Week of ' : '') + d.toLocaleDateString('en-US', { weekday: kind === 'day' ? 'short' : undefined, month: 'short', day: 'numeric', year: 'numeric' });
+  };
+  const _recFresh = (kind, k) => {
+    if (kind === 'day') return k === _todayIso2;
+    if (kind === 'month') return k === _todayIso2.slice(0, 7);
+    const d = new Date(_todayIso2 + 'T00:00'); const ws = new Date(d); ws.setDate(d.getDate() - d.getDay());
+    return k === ws.getFullYear() + '-' + String(ws.getMonth() + 1).padStart(2, '0') + '-' + String(ws.getDate()).padStart(2, '0');
+  };
+  const deptRecordRow = (label, kind, rec) => rec && el('div', { class: 'flex items-center justify-between gap-2 py-1.5 border-t border-' },
+    el('div', {},
+      el('div', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, label),
+      el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, _fmtRecDate(kind, rec.k))),
+    el('div', { class: 'text-right' },
+      el('div', { class: 'text-base font-black tabular-nums' }, fmt.usd0(rec.v)),
+      _recFresh(kind, rec.k) && el('div', { class: 'text-[9px] font-black uppercase tracking-widest', style: { color: 'var(--accent)' } }, '🔥 set ' + (kind === 'day' ? 'today' : 'this ' + kind))));
+
   return el('div', { class: 'flex flex-col gap-6 w-full' },
     el('div', {},
       el('h1', { class: 'text-3xl font-bold' }, 'Hall of Fame'),
       el('p', { class: 'text-sm text-muted- mt-1' }, 'Personal bests. Beat them, break them, earn a badge.'),
     ),
+
+    // ── Department records — total production, all-time in the dataset ──
+    deptRecords && el('div', {},
+      el('h2', { class: 'text-lg font-semibold mb-1' }, 'Department Records'),
+      el('p', { class: 'text-xs text-muted- mb-3' }, 'Total production records — every sale by everyone in the department, from the shared CRM dataset. This is the number to beat.'),
+      el('div', { class: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3' },
+        ...deptRecords.map(r => el('div', { class: 'card p-4' },
+          el('div', { class: 'text-xs font-black mb-1' }, r.label),
+          deptRecordRow('Best Day', 'day', r.day),
+          deptRecordRow('Best Week', 'week', r.week),
+          deptRecordRow('Best Month', 'month', r.month))))),
 
     // Company records podium
     companyBest.bestDay && el('div', {},
