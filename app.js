@@ -34071,7 +34071,19 @@ function reportingRenewals() {
   const rows = reportingFilterByOffice(visible, office);
   const now = new Date();
   const isActive = (r) => (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
+  // ALREADY RENEWED (per Isaac): a customer holding ANY active subscription
+  // from one of the four Renewal sources (Outbound / Inbound / Loyalty /
+  // Service Pro Upsell) has been renewed — renewed once means DONE, they
+  // never appear on a renewal call list again (not even the renewal sub
+  // near its own term end — e.g. Cheryl Supko #59628).
+  const RENEWAL_SRC_RE = /^renewal\s*-/i;
+  const renewedCust = new Set();
+  rows.forEach(r => {
+    if (!isActive(r) || !r.customer_id) return;
+    if (RENEWAL_SRC_RE.test(String(r.subscription_source || ''))) renewedCust.add(r.customer_id);
+  });
   const expiring = [], past = [];
+  let renewedN = 0, renewedArr = 0;
   rows.forEach(r => {
     if (!isActive(r)) return;
     const len = Number(r.agreement_length) || 0;
@@ -34079,6 +34091,12 @@ function reportingRenewals() {
     const d = new Date(String(r.initial_service) + 'T00:00');
     if (isNaN(d)) return;
     const mo = (now - d) / 2629800000;
+    // Renewed once → off the list for good.
+    const inWindow = mo >= len - 2;
+    if (inWindow && renewedCust.has(r.customer_id)) {
+      renewedN++; renewedArr += Number(r.annual_recurring_value) || 0;
+      return;
+    }
     const rec = {
       id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', state: r.state || '',
       svc: r.subscription, arv: Number(r.annual_recurring_value) || 0, len, mo,
@@ -34136,7 +34154,9 @@ function reportingRenewals() {
     el('div', { class: 'card p-4' },
       el('h2', { class: 'text-lg font-bold' }, '🔁 Renewals'),
       el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
-        'Outbound renewals are our best-retaining production (89.6% 12-mo survival, $989 avg ARV) — this is the call list. Window opens 2 months before the contract ends: month 10 on a 12, month 16 on an 18, month 22 on a 24. Pitch the 24-month re-sign with the free add-ons.')),
+        'Outbound renewals are our best-retaining production (89.6% 12-mo survival, $989 avg ARV) — this is the call list. Window opens 2 months before the contract ends: month 10 on a 12, month 16 on an 18, month 22 on a 24. Customers holding ANY "Renewal - …" subscription have been renewed and never appear here again — one renewal is the goal, not a cycle. Pitch the 24-month re-sign with the free add-ons.'),
+      renewedN > 0 && el('div', { class: 'text-[11px] font-bold tabular-nums mt-1.5', style: { color: '#5F8A1F' } },
+        '✓ ' + renewedN.toLocaleString() + ' contracts at/past term already renewed via a Renewal source (' + fmt.usd0(renewedArr) + ' ARR) — excluded from the lists below.')),
     listCard('Renewal window — final 2 months of term',
       'Call these FIRST — sorted by how soon the contract ends, then ARV.',
       expiring,
