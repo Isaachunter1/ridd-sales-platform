@@ -16694,10 +16694,12 @@ function nrlaBoard(rawSales, opts) {
         for (const m of rd.matchups) {
           const side = [m.a, m.b].find(x => x && x.team === team);
           if (!side) continue;
-          if (!m.winner) return rd.live ? '·' : 'T';
-          return m.winner === team ? 'W' : 'L';
+          const other = m.a && m.a.team === team ? m.b : m.a;
+          const opp = other ? other.team : null;   // null = bye
+          if (!m.winner) return { res: rd.live ? '·' : 'T', opp };
+          return { res: m.winner === team ? 'W' : 'L', opp };
         }
-        return null;   // bye / not in this round
+        return null;   // not in this round
       };
       const shortLbl = (rd) => rd.phase === 'seed' ? 'R' + rd.num : rd.phase === 'semi' ? 'SF' : 'FINAL';
       return el('div', { class: 'nrla-standings' },
@@ -16711,6 +16713,8 @@ function nrlaBoard(rawSales, opts) {
               el('tr', {},
                 el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Seed'),
                 el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Team'),
+                el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'W'),
+                el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'L'),
                 ...started.map(({ rd }) => el('th', {
                   class: 'text-right px-2 py-2.5 font-bold whitespace-nowrap',
                   title: _roundLabelShort(rd) + ' · ' + dspan(rd.d1, rd.d2) + (rd.live ? ' · LIVE' : '') + ' — Total Rev Sold that round; green = won, red = lost',
@@ -16722,20 +16726,26 @@ function nrlaBoard(rawSales, opts) {
               },
                 el('td', { class: 'px-3 py-2 font-black tabular-nums' }, (i === 0 && R.seasonDone ? '🏆 ' : '') + '#' + (i + 1)),
                 teamCell(s),
+                el('td', { class: 'px-2 py-2 tabular-nums font-black whitespace-nowrap', style: { color: GREEN } }, s.w),
+                el('td', { class: 'px-2 py-2 tabular-nums font-black whitespace-nowrap', style: { color: REDD } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
                 ...started.map(({ rd, i: ri }, idx) => {
                   const st = revByRound[idx][s.team];
-                  const res = resultOf(rd, s.team);
+                  const r0 = resultOf(rd, s.team);
+                  const res = r0 && r0.res;
+                  const oppName = r0 ? (r0.opp ? nameOf(r0.opp) : 'BYE') : null;
                   const col = res === 'W' ? '#1b7f3b' : res === 'L' ? REDD : null;
                   return el('td', {
                     class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap font-bold' + (RO || !st ? '' : ' cursor-pointer hover:underline'),
                     style: col ? { color: col } : {},
-                    title: _roundLabelShort(rd) + ': ' + (res === 'W' ? 'Won' : res === 'L' ? 'Lost' : res === 'T' ? 'Tied' : res === '·' ? 'In progress' : 'Bye')
+                    title: _roundLabelShort(rd) + (oppName ? ' vs ' + oppName : '') + ': ' + (res === 'W' ? 'Won' : res === 'L' ? 'Lost' : res === 'T' ? 'Tied' : res === '·' ? 'In progress' : 'Bye')
                       + (st ? ' · ' + money(st.total) + ' total · ' + money(st.passed + st.pending) + ' qualifying · ' + st.n + ' accts' : ' · no production')
                       + (RO || !st ? '' : ' — click for the accounts'),
                     onclick: (RO || !st) ? undefined : () => openNrlaAccountsModal(R, nameOf, { team: s.team, scope: String(ri), kind: 'total' }),
                   },
-                    st ? money(st.total) : '—',
-                    res && res !== '·' ? el('span', { class: 'ml-1 text-[9px] font-black', style: { opacity: '.8' } }, res) : null);
+                    el('div', {},
+                      st ? money(st.total) : '—',
+                      res && res !== '·' ? el('span', { class: 'ml-1 text-[9px] font-black', style: { opacity: '.8' } }, res) : null),
+                    r0 ? el('div', { class: 'text-[8px] font-bold uppercase tracking-wide', style: { opacity: '.6' } }, 'vs ' + oppName) : null);
                 }),
                 el('td', { class: 'px-2 py-2 text-right tabular-nums font-black whitespace-nowrap' }, money((R.seasonStats[s.team] || {}).total || 0)))),
               (() => {
@@ -16747,6 +16757,7 @@ function nrlaBoard(rawSales, opts) {
                 return el('tr', { class: 'border-t-2', style: { borderColor: '#0E1C30', background: 'rgba(14,28,48,.08)' } },
                   el('td', { class: 'px-3 py-2' }, ''),
                   el('td', { class: 'px-2 py-2 font-black whitespace-nowrap', style: { letterSpacing: '.06em' } }, 'RIDD'),
+                  el('td', {}, ''), el('td', {}, ''),
                   ...cells,
                   el('td', { class: 'px-2 py-2 text-right tabular-nums font-black whitespace-nowrap' }, money(seasonTot)));
               })()))));
