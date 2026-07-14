@@ -4717,6 +4717,7 @@ function warRoomCrmSales() {
       _crmRep: canonical,
       _crmRenewal: (typeof _indicatorIsRenewal === 'function') && _indicatorIsRenewal(s),
       _crmService: String(s.subscription || '').trim(),
+      _crmAutoPay: !!(s.autoPay && s.autoPay !== 'No'),
       rep_id,
       logged_by: null,
       customer_name: s.customer || '',
@@ -5523,6 +5524,9 @@ function computeLeaderboard(tab = 'total', range = null) {
     // REC MIX% = contract sales / (contract sales + one-time)
     const cOneTime = sales.filter(s => !Number(s.contract_months) || Number(s.contract_months) <= 1).length;
     const rec_mix_pct = (cTotal + cOneTime) > 0 ? cTotal / (cTotal + cOneTime) : 0;
+    // Auto Pay % — CRM rows only (manual upsell logs don't carry the field).
+    const _apRows = sales.filter(s => s._crm);
+    const auto_pay_pct = _apRows.length ? _apRows.filter(s => s._crmAutoPay).length / _apRows.length : null;
 
     return {
       rep_id: p.id,
@@ -5531,7 +5535,7 @@ function computeLeaderboard(tab = 'total', range = null) {
       avatar_url: p.avatar_url,
       initials: p.initials,
       office: state.offices.find(o => o.id === p.office_id)?.name || '',
-      count, revenue, initial, recurring, acv, my_pct, rec_mix_pct,
+      count, revenue, initial, recurring, acv, my_pct, rec_mix_pct, auto_pay_pct,
       best_day: _bestDayOf(sales), wow: _wowOf(p.id),
     };
   });
@@ -5570,6 +5574,8 @@ function computeLeaderboard(tab = 'total', range = null) {
       const my_pct = cTotal > 0 ? cMY / cTotal : 0;
       const cOneTime = sales.filter(s => !Number(s.contract_months) || Number(s.contract_months) <= 1).length;
       const rec_mix_pct = (cTotal + cOneTime) > 0 ? cTotal / (cTotal + cOneTime) : 0;
+      const _apRows = sales.filter(s => s._crm);
+      const auto_pay_pct = _apRows.length ? _apRows.filter(s => s._crmAutoPay).length / _apRows.length : null;
       const disp = flipLastFirst(name);   // CRM exports "Last, First"
       rows.push({
         rep_id: 'crm:' + name,           // synthetic — no app profile behind it
@@ -5579,7 +5585,7 @@ function computeLeaderboard(tab = 'total', range = null) {
         avatar_url: null,
         initials: disp.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(),
         office: (() => { const oid = sales.find(s => s.office_id)?.office_id; return state.offices.find(o => o.id === oid)?.name || ''; })(),
-        count, revenue, initial, recurring, acv, my_pct, rec_mix_pct,
+        count, revenue, initial, recurring, acv, my_pct, rec_mix_pct, auto_pay_pct,
         best_day: _bestDayOf(sales), wow: _wowOf('crm:' + name),
       });
     });
@@ -5587,7 +5593,7 @@ function computeLeaderboard(tab = 'total', range = null) {
 
   // Sort by active sort column (default: sales desc)
   const sortKey = state.dashLeaderSort;
-  const keyMap = { sales: 'count', revenue: 'revenue', initial: 'initial', recurring: 'recurring', acv: 'acv', my_pct: 'my_pct', rec_mix_pct: 'rec_mix_pct', best_day: 'best_day', wow: 'wow' };
+  const keyMap = { sales: 'count', revenue: 'revenue', initial: 'initial', recurring: 'recurring', acv: 'acv', my_pct: 'my_pct', rec_mix_pct: 'rec_mix_pct', auto_pay: 'auto_pay_pct', wow: 'wow' };
   const k = keyMap[sortKey] || 'count';
   rows.sort((a, b) => (b[k] || 0) - (a[k] || 0));
   return rows;
@@ -9117,7 +9123,7 @@ function leaderboardSection(range) {
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('revenue'), onclick: () => setSort('revenue') }, 'Revenue'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('recurring'), title: 'Contract revenue only — total revenue minus one-time service revenue', onclick: () => setSort('recurring') }, 'Recurring Rev'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('acv'), title: 'Average contract value across ALL sales, one-time services included', onclick: () => setSort('acv') }, 'ACV'),
-            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('best_day'), title: 'Biggest single-day revenue inside the selected window', onclick: () => setSort('best_day') }, 'Best Day'),
+            el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('auto_pay'), title: 'Sales on auto-pay \u00f7 CRM-synced sales (manual upsell logs don\'t carry the field)', onclick: () => setSort('auto_pay') }, 'Auto Pay %'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('wow'), title: 'This week\'s revenue vs last week at the same point in the week (weeks start Sunday)', onclick: () => setSort('wow') }, 'WoW'),
             el('th', { class: 'text-right px-2 py-2 cursor-pointer select-none hover:text-default', style: sortHl('my_pct'), title: 'Multi-year contracts (18+ mo) / all contract sales', onclick: () => setSort('my_pct') }, 'MY %'),
             el('th', { class: 'text-right pl-2 pr-4 py-2 cursor-pointer select-none hover:text-default', style: sortHl('rec_mix_pct'), title: '12/18/24-mo contracts / (contracts + one-time services)', onclick: () => setSort('rec_mix_pct') }, 'Rec Mix %'),
@@ -9159,7 +9165,8 @@ function leaderboardSection(range) {
                     el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(r.revenue)),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.recurring)),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.acv)),
-                    el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(r.best_day)),
+                    el('td', { class: 'px-2 py-2 text-right tabular-nums text-muted-' },
+                      r.auto_pay_pct == null ? '\u2014' : fmt.pct(r.auto_pay_pct)),
                     el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold' },
                       r.wow == null
                         ? el('span', { class: 'text-subtle- font-normal' }, '—')
@@ -16637,6 +16644,16 @@ function nrlaBoard(rawSales, opts) {
       title: RO ? undefined : 'See the accounts behind this number',
       onclick: RO ? undefined : () => openNrlaAccountsModal(R, nameOf, { team, scope, kind }),
     }, val);
+    // Standings ⇄ By Round toggle (per Isaac): By Round turns the columns
+    // into one revenue column per played round — how each round ended, at
+    // a full glance.
+    const view = state._nrlaStandView === 'rounds' ? 'rounds' : 'stand';
+    const viewToggle = el('div', { class: 'inline-flex rounded overflow-hidden', style: { background: 'rgba(255,255,255,.25)' } },
+      ...[['stand', 'Standings'], ['rounds', 'By Round']].map(([v, l]) => el('button', {
+        class: 'px-2 py-1 text-[10px] font-black cursor-pointer',
+        style: view === v ? { background: '#fff', color: PINK } : { color: '#fff', background: 'transparent' },
+        onclick: () => { state._nrlaStandView = v; rerender(); },
+      }, l)));
     const scopeSel = el('select', {
       class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
       style: { border: 'none', background: 'rgba(255,255,255,.25)', color: '#fff' },
@@ -16645,12 +16662,84 @@ function nrlaBoard(rawSales, opts) {
     },
       (() => { const o = el('option', { value: 'season', style: { color: '#000' } }, 'Season'); if (scope === 'season') o.selected = true; return o; })(),
       ...R.rounds.map((rd, i) => { const o = el('option', { value: String(i), style: { color: '#000' } }, _roundLabelShort(rd) + ' · ' + dspan(rd.d1, rd.d2)); if (scope === String(i)) o.selected = true; return o; }));
+    // ── BY-ROUND VIEW — one revenue column per played round ──
+    if (view === 'rounds') {
+      const started = R.rounds.map((rd, i) => ({ rd, i })).filter(x => x.rd.started);
+      const revByRound = started.map(({ i }) => {
+        const m = {};
+        Object.values((R.roundRepStats || [])[i] || {}).forEach(st => {
+          const o = m[st.team] || (m[st.team] = { total: 0, passed: 0, pending: 0, failed: 0, n: 0 });
+          o.total += st.total; o.passed += st.passed; o.pending += st.pending; o.failed += st.failed; o.n += st.n;
+        });
+        return m;
+      });
+      const resultOf = (rd, team) => {
+        for (const m of rd.matchups) {
+          const side = [m.a, m.b].find(x => x && x.team === team);
+          if (!side) continue;
+          if (!m.winner) return rd.live ? '·' : 'T';
+          return m.winner === team ? 'W' : 'L';
+        }
+        return null;   // bye / not in this round
+      };
+      const shortLbl = (rd) => rd.phase === 'seed' ? 'R' + rd.num : rd.phase === 'semi' ? 'SF' : 'FINAL';
+      return el('div', { class: 'nrla-standings' },
+        el('div', { class: 'flex items-center justify-between gap-2 flex-wrap px-3 py-1.5', style: { background: PINK } },
+          el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } },
+            'Standings · By Round'),
+          viewToggle),
+        el('div', { class: 'overflow-x-auto' },
+          el('table', { class: 'w-full text-xs' },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#0E1C30', color: '#fff' } },
+              el('tr', {},
+                el('th', { class: 'text-left px-3 py-2.5 font-bold' }, 'Seed'),
+                el('th', { class: 'text-left px-2 py-2.5 font-bold' }, 'Team'),
+                ...started.map(({ rd }) => el('th', {
+                  class: 'text-right px-2 py-2.5 font-bold whitespace-nowrap',
+                  title: _roundLabelShort(rd) + ' · ' + dspan(rd.d1, rd.d2) + (rd.live ? ' · LIVE' : '') + ' — Total Rev Sold that round; green = won, red = lost',
+                }, shortLbl(rd) + (rd.live ? ' ●' : ''))),
+                el('th', { class: 'text-right px-2 py-2.5 font-bold', title: 'Total Rev Sold across the whole season' }, 'Season'))),
+            el('tbody', {},
+              ...R.standings.map((s, i) => el('tr', {
+                class: 'border-t', style: { borderColor: 'var(--border)', background: i === 0 && playedAny ? 'rgba(242,20,140,.07)' : (i % 2 ? 'rgba(14,28,48,.05)' : 'transparent') },
+              },
+                el('td', { class: 'px-3 py-2 font-black tabular-nums' }, (i === 0 && R.seasonDone ? '🏆 ' : '') + '#' + (i + 1)),
+                teamCell(s),
+                ...started.map(({ rd, i: ri }, idx) => {
+                  const st = revByRound[idx][s.team];
+                  const res = resultOf(rd, s.team);
+                  const col = res === 'W' ? '#1b7f3b' : res === 'L' ? REDD : null;
+                  return el('td', {
+                    class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap font-bold' + (RO || !st ? '' : ' cursor-pointer hover:underline'),
+                    style: col ? { color: col } : {},
+                    title: _roundLabelShort(rd) + ': ' + (res === 'W' ? 'Won' : res === 'L' ? 'Lost' : res === 'T' ? 'Tied' : res === '·' ? 'In progress' : 'Bye')
+                      + (st ? ' · ' + money(st.total) + ' total · ' + money(st.passed + st.pending) + ' qualifying · ' + st.n + ' accts' : ' · no production')
+                      + (RO || !st ? '' : ' — click for the accounts'),
+                    onclick: (RO || !st) ? undefined : () => openNrlaAccountsModal(R, nameOf, { team: s.team, scope: String(ri), kind: 'total' }),
+                  },
+                    st ? money(st.total) : '—',
+                    res && res !== '·' ? el('span', { class: 'ml-1 text-[9px] font-black', style: { opacity: '.8' } }, res) : null);
+                }),
+                el('td', { class: 'px-2 py-2 text-right tabular-nums font-black whitespace-nowrap' }, money((R.seasonStats[s.team] || {}).total || 0)))),
+              (() => {
+                const cells = started.map((_x, idx) => {
+                  const tot = Object.values(revByRound[idx]).reduce((a, o) => a + o.total, 0);
+                  return el('td', { class: 'px-2 py-2 text-right tabular-nums font-black whitespace-nowrap' }, money(tot));
+                });
+                const seasonTot = R.standings.reduce((a, s) => a + ((R.seasonStats[s.team] || {}).total || 0), 0);
+                return el('tr', { class: 'border-t-2', style: { borderColor: '#0E1C30', background: 'rgba(14,28,48,.08)' } },
+                  el('td', { class: 'px-3 py-2' }, ''),
+                  el('td', { class: 'px-2 py-2 font-black whitespace-nowrap', style: { letterSpacing: '.06em' } }, 'RIDD'),
+                  ...cells,
+                  el('td', { class: 'px-2 py-2 text-right tabular-nums font-black whitespace-nowrap' }, money(seasonTot)));
+              })()))));
+    }
     return el('div', { class: 'nrla-standings' },
       el('div', { class: 'flex items-center justify-between gap-2 flex-wrap px-3 py-1.5', style: { background: PINK } },
         el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } },
-          'Seeding Standings' + (R.seedingDone ? ' · Final Seeds' : '') + (scope === 'season' ? '' : ' · ' + _roundLabelShort(R.rounds[Number(scope)]))),
+          'Standings' + (R.seedingDone ? ' · Final Seeds' : '') + (scope === 'season' ? '' : ' · ' + _roundLabelShort(R.rounds[Number(scope)]))),
         el('div', { class: 'flex items-center gap-2' },
-          scopeSel)),
+          viewToggle, scopeSel)),
       el('div', { class: 'overflow-x-auto' },
         el('table', { class: 'w-full text-xs' },
           el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#0E1C30', color: '#fff' } },
