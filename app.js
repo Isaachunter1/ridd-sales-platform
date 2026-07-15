@@ -5168,15 +5168,32 @@ function viewDashboard() {
             if (Array.isArray(_monthly) && _monthly.length === 12 && bar.target > 0) {
               const _mi = now2.getMonth();
               const _dim = new Date(now2.getFullYear(), _mi + 1, 0).getDate();
-              const _daysLeft = _dim - now2.getDate() + 1;
+              // Remaining WEEKDAYS this month (today included, company
+              // holidays skipped) — the number reps actually sell against.
+              let _weekdaysLeft = 0;
+              for (let _d = now2.getDate(); _d <= _dim; _d++) {
+                const _dt = new Date(now2.getFullYear(), _mi, _d);
+                const _dow = _dt.getDay();
+                if (_dow === 0 || _dow === 6) continue;
+                const _iso2 = _dt.getFullYear() + '-' + String(_mi + 1).padStart(2, '0') + '-' + String(_d).padStart(2, '0');
+                if (typeof companyHolidayFor === 'function' && companyHolidayFor(_iso2)) continue;
+                _weekdaysLeft++;
+              }
               const _target = _monthly.slice(0, _mi + 1).reduce((a, b) => a + (b || 0), 0);
               const _needTotal = _target - bar.actual;
-              if (_needTotal > 0) {
-                needLine = el('div', { class: 'text-[10px] tabular-nums mt-1 font-semibold', style: { color: '#DC2626' } },
-                  '🎯 ' + fmt.usd0(_needTotal / _daysLeft) + '/day through month-end (' + fmt.usd0(_needTotal) + ' to go) to be back on the seasonal plan');
-              } else {
+              if (_needTotal > 0 && _weekdaysLeft > 0) {
+                // Framed as a daily GOAL, not a deficit (per Isaac): the
+                // weekday number that lands the seasonal month, plus a 10%
+                // stretch so hitting "goal" means beating plan.
+                const _dayGoal = (_needTotal / _weekdaysLeft) * 1.10;
+                needLine = el('div', { class: 'text-[10px] tabular-nums mt-1 font-semibold', style: { color: 'var(--text)' } },
+                  el('span', { style: { color: bar.color } }, '🎯 Weekday goal: '),
+                  fmt.usd0(_dayGoal) + '/day',
+                  el('span', { class: 'font-normal', style: { color: 'var(--text-muted)' } },
+                    ' · lands ' + now2.toLocaleDateString('en-US', { month: 'long' }) + '\u2019s seasonal target with a 10% cushion (' + _weekdaysLeft + ' selling days left)'));
+              } else if (_needTotal <= 0) {
                 needLine = el('div', { class: 'text-[10px] tabular-nums mt-1 font-semibold', style: { color: '#5F8A1F' } },
-                  '✓ month covered through ' + now2.toLocaleDateString('en-US', { month: 'long' }) + ' — ' + fmt.usd0(-_needTotal) + ' ahead of the seasonal plan');
+                  '✓ ' + now2.toLocaleDateString('en-US', { month: 'long' }) + ' covered — ' + fmt.usd0(-_needTotal) + ' ahead of the seasonal plan');
               }
             }
             return el('div', {},
