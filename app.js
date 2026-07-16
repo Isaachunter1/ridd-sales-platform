@@ -5168,32 +5168,28 @@ function viewDashboard() {
             if (Array.isArray(_monthly) && _monthly.length === 12 && bar.target > 0) {
               const _mi = now2.getMonth();
               const _dim = new Date(now2.getFullYear(), _mi + 1, 0).getDate();
-              // Remaining WEEKDAYS this month (today included, company
-              // holidays skipped) — the number reps actually sell against.
-              let _weekdaysLeft = 0;
-              for (let _d = now2.getDate(); _d <= _dim; _d++) {
+              // Weekday goal (per Isaac): THIS month's seasonal target ÷ ALL
+              // of its weekdays (company holidays off) — a fixed daily
+              // number for the whole month. Weekends are bonus revenue on
+              // top; no year-deficit catch-up baked in.
+              let _weekdaysInMonth = 0;
+              for (let _d = 1; _d <= _dim; _d++) {
                 const _dt = new Date(now2.getFullYear(), _mi, _d);
                 const _dow = _dt.getDay();
                 if (_dow === 0 || _dow === 6) continue;
                 const _iso2 = _dt.getFullYear() + '-' + String(_mi + 1).padStart(2, '0') + '-' + String(_d).padStart(2, '0');
                 if (typeof companyHolidayFor === 'function' && companyHolidayFor(_iso2)) continue;
-                _weekdaysLeft++;
+                _weekdaysInMonth++;
               }
-              const _target = _monthly.slice(0, _mi + 1).reduce((a, b) => a + (b || 0), 0);
-              const _needTotal = _target - bar.actual;
-              if (_needTotal > 0 && _weekdaysLeft > 0) {
-                // Framed as a daily GOAL, not a deficit (per Isaac): the
-                // weekday number that lands the seasonal month, plus a 10%
-                // stretch so hitting "goal" means beating plan.
-                const _dayGoal = (_needTotal / _weekdaysLeft) * 1.10;
+              const _monTarget = Number(_monthly[_mi]) || 0;
+              const _monLabel = now2.toLocaleDateString('en-US', { month: 'long' });
+              if (_monTarget > 0 && _weekdaysInMonth > 0) {
+                const _dayGoal = _monTarget / _weekdaysInMonth;
                 needLine = el('div', { class: 'text-[10px] tabular-nums mt-1 font-semibold', style: { color: 'var(--text)' } },
                   el('span', { style: { color: bar.color } }, '🎯 Weekday goal: '),
                   fmt.usd0(_dayGoal) + '/day',
                   el('span', { class: 'font-normal', style: { color: 'var(--text-muted)' } },
-                    ' · lands ' + now2.toLocaleDateString('en-US', { month: 'long' }) + '\u2019s seasonal target with a 10% cushion (' + _weekdaysLeft + ' selling days left)'));
-              } else if (_needTotal <= 0) {
-                needLine = el('div', { class: 'text-[10px] tabular-nums mt-1 font-semibold', style: { color: '#5F8A1F' } },
-                  '✓ ' + now2.toLocaleDateString('en-US', { month: 'long' }) + ' covered — ' + fmt.usd0(-_needTotal) + ' ahead of the seasonal plan');
+                    ' · ' + _monLabel + ' target ' + fmt.usd0(_monTarget) + ' ÷ ' + _weekdaysInMonth + ' weekdays · weekends are bonus'));
               }
             }
             return el('div', {},
