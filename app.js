@@ -1356,7 +1356,10 @@ async function _downloadSnapshotBlob(path, onPct, opts) {
 }
 
 async function _loadReportingSubscriptionsRaw(uploadId) {
-  if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return [];
+  if (DEMO || !state.profile) return [];
+  // Admins + office staff (Work Queues run on this snapshot — office staff
+  // are internal and work customer records all day; D2D field reps stay out).
+  if (!isAdminRole(state.profile.role) && !(typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile))) return [];
   if (!uploadId) return [];
 
   // Fast local cache first — instant on refresh when the snapshot is unchanged.
@@ -4794,12 +4797,32 @@ function dashboardSales() {
     return state.allSales;
   }
   if (_dashSalesCache.crm === crm && _dashSalesCache.all === state.allSales
-      && _dashSalesCache.cts === state.contractTypes && _dashSalesCache.srcs === state.sources) return _dashSalesCache.out;
+      && _dashSalesCache.cts === state.contractTypes && _dashSalesCache.srcs === state.sources
+      && _dashSalesCache.day === ((typeof bizTodayIso === 'function') ? bizTodayIso() : _dashSalesCache.day)) return _dashSalesCache.out;
   const upsellCt  = new Set((state.contractTypes || []).filter(c => /upsell/i.test(String(c.name || ''))).map(c => c.id));
   const upsellSrc = new Set((state.sources || []).filter(o => /upsell/i.test(String(o.name || ''))).map(o => o.id));
   const ups = (state.allSales || []).filter(s => upsellCt.has(s.contract_type_id) || upsellSrc.has(s.source_id));
-  const out = crm.concat(ups);
-  _dashSalesCache = { crm, all: state.allSales, cts: state.contractTypes, srcs: state.sources, out };
+  // ── OPTIMISTIC TODAY (bottleneck fix): a sale logged at 2:14 shows on the
+  // boards at 2:14 — not at the next hourly sync. Today's app-logged rows
+  // with NO CRM counterpart yet ride along flagged _pendingSync; the moment
+  // the CRM row lands (matched by customer # or name, same day) the logged
+  // row steps aside, so totals never double-count. Scope: TODAY only —
+  // yesterday's unmatched logs are data problems, not sync lag.
+  const _todayIso = (typeof bizTodayIso === 'function') ? bizTodayIso() : new Date().toISOString().slice(0, 10);
+  const _sqz = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const _crmNumsToday = new Set(), _crmNamesToday = new Set();
+  crm.forEach(s => { if (s.sold_date === _todayIso) { if (s.customer_number) _crmNumsToday.add(String(s.customer_number)); if (s.customer_name) _crmNamesToday.add(_sqz(s.customer_name)); } });
+  const _upIds = new Set(ups.map(u => u.id));
+  const _EXCL_OPT = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
+  const pend = (state.allSales || []).filter(s =>
+    s.sold_date === _todayIso
+    && !_upIds.has(s.id)
+    && !_EXCL_OPT.has(s.audit_status)
+    && !(s.customer_number && _crmNumsToday.has(String(s.customer_number)))
+    && !(s.customer_name && _crmNamesToday.has(_sqz(s.customer_name)))
+  ).map(s => Object.assign({}, s, { _pendingSync: true }));
+  const out = crm.concat(ups, pend);
+  _dashSalesCache = { crm, all: state.allSales, cts: state.contractTypes, srcs: state.sources, out, day: _todayIso };
   return out;
 }
 
@@ -5141,12 +5164,17 @@ function viewDashboard() {
                         avatarNode(p.avatar_url, p.initials, 'w-6 h-6 text-[9px]'),
                         el('span', { class: 'text-xs font-semibold truncate group-hover:underline' }, p.full_name),
                         goal > 0
-                          ? el('span', { class: 'text-[10px] font-bold', style: { color: delta >= 0 ? '#1b7f3b' : '#DC2626' },
+                          ? el('span', { class: 'text-[10px] font-bold whitespace-nowrap', style: { color: delta >= 0 ? '#1b7f3b' : '#DC2626' },
                               title: (delta >= 0 ? fmt.usd0(delta) + ' ahead of' : fmt.usd0(-delta) + ' behind') + ' the seasonal pace (year shape from the Goals tab\'s monthly allocation)' },
                               delta >= 0 ? '▲ ahead' : '▼ behind')
-                          : el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no goal set')),
+                          : el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no goal set'),
+                        // Month-end seasonal target (per Isaac) — the number
+                        // this rep should have banked by the end of THIS month.
+                        goal > 0 ? el('span', { class: 'text-[10px] tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' },
+                            title: 'Where the seasonal plan says this rep should be by month-end (' + (seasonalPctMonthEnd * 100).toFixed(1) + '% of the annual goal)' },
+                          'target ' + fmt.usd0(goal * seasonalPctMonthEnd) + ' by ' + now2.toLocaleDateString('en-US', { month: 'short' }) + ' end') : null),
                       el('span', { class: 'text-[11px] font-bold tabular-nums whitespace-nowrap' },
-                        fmt.usd0(rev) + (goal > 0 ? ' / ' + fmt.usd0(goal) + ' · ' + Math.round(goal > 0 ? rev / goal * 100 : 0) + '%' : ''),
+                        fmt.usd0(rev) + (goal > 0 ? ' / ' + fmt.usd0(goal) + ' · ' + Math.round(rev / goal * 100) + '%' : ''),
                         (renByRep[p.id] || 0) > 0 ? el('span', { class: 'font-normal', style: { color: 'var(--text-subtle)' }, title: 'Renewal production — real revenue, but individual goals are NEW-revenue goals' }, '  +' + fmt.usd0(renByRep[p.id]) + ' renewal') : null)),
                     el('div', { class: 'goal-track', style: { position: 'relative' } },
                       el('div', { style: { background: 'var(--accent)', height: '100%', width: pct.toFixed(1) + '%', borderRadius: '999px', transition: 'width .3s' } }),
@@ -9199,6 +9227,11 @@ function todaysSalesPanel(windowSales, range) {
               ? new Date(s.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
               : '—';
             const svcName = nameFromId(state.serviceTypes, s.service_type_id);
+            const pendingChip = s._pendingSync ? el('span', {
+              class: 'inline-block ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold align-middle',
+              style: { background: 'rgba(245,158,11,.14)', color: '#B45309' },
+              title: 'Logged just now — counted immediately; the CRM copy replaces this row on the next hourly sync.',
+            }, '⏳ syncing') : null;
             const ctName  = contractTypeName(s);
             return el('tr', { class: 'border-t border-' },
               el('td', { class: 'pl-4 pr-2 py-2 text-muted- tabular-nums text-[11px] whitespace-nowrap' }, timeStr),
@@ -9208,7 +9241,7 @@ function todaysSalesPanel(windowSales, range) {
                   el('span', { class: 'font-medium' }, first),
                 ),
               ),
-              el('td', { class: 'px-2 py-2 text-muted- truncate max-w-[140px]' }, (svcName && svcName !== '—') ? svcName : (s._crmService || '—')),
+              el('td', { class: 'px-2 py-2 text-muted- truncate max-w-[140px]' }, (svcName && svcName !== '—') ? svcName : (s._crmService || '—'), pendingChip),
               el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap' }, ctName),
               el('td', { class: 'pr-4 pl-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap' }, fmt.usd0(saleAcv(s))),
             );
@@ -9473,7 +9506,9 @@ function viewSales() {
   // the active column. Default: newest first by created_at (FIFO inverted).
   if (!state._salesSort) state._salesSort = { key: 'created_at', dir: 'desc' };
   const sortKey = state._salesSort.key;
-  const sortDir = state._salesSort.dir;
+  // Pending audit queue works OLDEST-FIRST by default (a pipeline, not a
+  // feed) — until the user clicks a column, which takes over as usual.
+  const sortDir = (queueFilter === 'upfront' && !state._salesSortTouched && sortKey === 'created_at') ? 'asc' : state._salesSort.dir;
   const sortVal = (s, key) => {
     switch (key) {
       case 'customer_name':   return (s.customer_name || '').toLowerCase();
@@ -9632,6 +9667,7 @@ function viewSales() {
                 ? (s) => lockOf(s) !== 'pending' ? { opacity: '.55', background: 'var(--bg-subtle)' } : null
                 : null,
               onSort: (key) => {
+                state._salesSortTouched = true;   // user took over — stop the oldest-first default
                 if (state._salesSort.key === key) {
                   state._salesSort.dir = state._salesSort.dir === 'asc' ? 'desc' : 'asc';
                 } else {
@@ -9806,7 +9842,11 @@ function saleCrmVerdict(s, index) {
     if (d < bestDiff) { bestDiff = d; best = r; }
   }
   const cv = Number(best.subscription_contract_value) || 0;
-  return { status: bestDiff === 0 ? 'verified' : bestDiff <= 1 ? 'near_match' : 'revenue_mismatch', cv, sub: best.subscription || null, live: true };
+  return { status: bestDiff === 0 ? 'verified' : bestDiff <= 1 ? 'near_match' : 'revenue_mismatch', cv, sub: best.subscription || null, live: true,
+    // Post-sale truth: did the CRM copy of this sale get CANCELLED after we
+    // audited/paid it? Surfaced as a queue chip so pay reconciliation isn't manual.
+    crmCancelled: best.subscription_date_canceled || null,
+    crmCancelReason: best.subscription_date_canceled ? reportingCancelReasonOf(best) : null };
 }
 
 function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBackend = false, showReportCols = false, showCrmAccount = false, rowStyle } = {}) {
@@ -9960,6 +10000,19 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                       'Sentricon accounts are always 12-month programs, but this one reads ' + (Number(s.contract_months) || 0) + ' month(s). Fix the agreement length in FieldRoutes (and Edit → contract here).'));
                   }
                 })();
+                // ↩ CRM copy cancelled AFTER this sale cleared audit — the
+                // commission may need a clawback; don't let it hide.
+                if (v.crmCancelled && !['cancelled', 'nsf', 'not_payable', 'rejected'].includes(s.audit_status)) {
+                  lcChips.push(chip('↩ CRM cancelled', 'rgba(220,38,38,.14)', '#B91C1C',
+                    'The CRM subscription behind this sale was cancelled ' + String(v.crmCancelled).slice(0, 10)
+                    + (v.crmCancelReason ? ' (' + v.crmCancelReason + ')' : '') + ' — review the commission on this row.'));
+                }
+                // ⏱ Queue aging — how long this row has waited for an audit.
+                if (s.audit_status === 'pending') {
+                  const _ageD = Math.floor((Date.now() - (Date.parse(s.created_at || s.sold_date) || Date.now())) / 86400000);
+                  if (_ageD >= 3) lcChips.push(chip('⏱ ' + _ageD + 'd', _ageD >= 10 ? 'rgba(220,38,38,.12)' : 'rgba(245,158,11,.14)', _ageD >= 10 ? '#B91C1C' : '#B45309',
+                    'Waiting on audit for ' + _ageD + ' days'));
+                }
                 const withLc = (node) => lcChips.length ? el('span', { class: 'inline-flex items-center gap-1 flex-wrap' }, node, ...lcChips) : node;
                 if (v.status === 'verified') {
                   return withLc(chip('✓ ' + fmt.usd(v.cv), 'rgba(141,198,63,.15)', '#5F8A1F',
@@ -33558,7 +33611,8 @@ function reportingCustomerHealth() {
   rows.forEach(r => {
     if (!isActive(r) || !r.customer_id) return;
     let c = byCust.get(r.customer_id);
-    if (!c) { c = { id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', zip: zip5(r), state: r.state || '', subs: [], arr: 0, fams: new Set(), pastDue: 0, autopay: false, oldest: null, renewal: false }; byCust.set(r.customer_id, c); }
+    if (!c) { c = { id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', zip: zip5(r), state: r.state || '', phone: r.phone || '', email: r.email || '', subs: [], arr: 0, fams: new Set(), pastDue: 0, autopay: false, oldest: null, renewal: false }; byCust.set(r.customer_id, c); }
+    if (!c.phone && r.phone) c.phone = r.phone;
     c.subs.push(r.subscription);
     c.arr += Number(r.annual_recurring_value) || 0;
     svcFamiliesOf(r.subscription).forEach(f => c.fams.add(f));
@@ -33613,8 +33667,8 @@ function reportingCustomerHealth() {
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     title: 'Download the filtered list as a call sheet (CSV)',
     onclick: () => _reportingCsvDownload('customer-health-' + sel + '.csv',
-      ['Customer ID', 'Customer', 'Office', 'State', 'ZIP', 'Health Score', 'Bucket', 'ARR', 'Services', 'Months Active', 'Past Due Days', 'Auto Pay', 'Pays On Time (No APay)', 'Risk Factors'],
-      list.map(c => [c.id, c.name, c.office, c.state, c.zip, c.score, c.bucket, Math.round(c.arr), c.subs.join(' | '), c.oldest != null ? c.oldest.toFixed(1) : '', c.pastDue, c.autopay ? 'Yes' : 'No', c.flags.apayEasy ? 'YES' : '', c.why.join('; ')])),
+      ['Customer ID', 'Customer', 'Phone', 'Email', 'Office', 'State', 'ZIP', 'Health Score', 'Bucket', 'ARR', 'Services', 'Months Active', 'Past Due Days', 'Auto Pay', 'Pays On Time (No APay)', 'Risk Factors'],
+      list.map(c => [c.id, c.name, c.phone, c.email, c.office, c.state, c.zip, c.score, c.bucket, Math.round(c.arr), c.subs.join(' | '), c.oldest != null ? c.oldest.toFixed(1) : '', c.pastDue, c.autopay ? 'Yes' : 'No', c.flags.apayEasy ? 'YES' : '', c.why.join('; ')])),
   }, '⬇ Export call list (' + list.length.toLocaleString() + ')');
 
   return el('div', { class: 'flex flex-col gap-4' },
@@ -33690,7 +33744,8 @@ function reportingCustomerHealth() {
                 el('td', { class: 'px-3 py-2 font-black', style: { color } }, c.score),
                 el('td', { class: 'px-2 py-2' },
                   el('div', { class: 'font-semibold' }, c.name),
-                  el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + c.id + ' · ' + [...c.fams].join(', '))),
+                  el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + c.id + ' · ' + [...c.fams].join(', ')),
+                  c.phone ? el('a', { href: 'tel:' + String(c.phone).replace(/[^0-9+]/g, ''), class: 'text-[11px] font-bold tabular-nums', style: { color: 'var(--accent)' } }, c.phone) : null),
                 el('td', { class: 'px-2 py-2 whitespace-nowrap' }, _titleCaseWords(c.office)),
                 el('td', { class: 'px-2 py-2 text-right font-semibold' }, fmt.usd0(c.arr)),
                 el('td', { class: 'px-2 py-2 text-right whitespace-nowrap' }, c.oldest != null ? c.oldest.toFixed(0) + ' mo' : '—'),
@@ -33716,7 +33771,8 @@ function reportingNextBest() {
   rows.forEach(r => {
     if (!isActive(r) || !r.customer_id) return;
     let c = byCust.get(r.customer_id);
-    if (!c) { c = { id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', state: r.state || '', zip: String(r.zip_code || '').slice(0, 5), fams: new Set(), arr: 0 }; byCust.set(r.customer_id, c); }
+    if (!c) { c = { id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', state: r.state || '', zip: String(r.zip_code || '').slice(0, 5), phone: r.phone || '', fams: new Set(), arr: 0 }; byCust.set(r.customer_id, c); }
+    if (!c.phone && r.phone) c.phone = r.phone;
     c.arr += Number(r.annual_recurring_value) || 0;
     svcFamiliesOf(r.subscription).forEach(f => {
       c.fams.add(f);
@@ -33769,8 +33825,8 @@ function reportingNextBest() {
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     title: 'Download the filtered opportunity list (CSV) — hand it to techs / office staff as a pitch sheet',
     onclick: () => _reportingCsvDownload('next-best-service' + (famFilter === 'all' ? '' : '-' + famFilter.toLowerCase().replace(/\s+/g, '-')) + '.csv',
-      ['Customer ID', 'Customer', 'Office', 'State', 'ZIP', 'Current ARR', 'Owns', 'Recommended Service', 'Confidence %', 'Est ARV / yr'],
-      list.map(o => [o.id, o.name, o.office, o.state, o.zip, Math.round(o.arr), [...o.fams].join(' | '), o.rec, (o.conf * 100).toFixed(1), Math.round(o.estArv)])),
+      ['Customer ID', 'Customer', 'Phone', 'Office', 'State', 'ZIP', 'Current ARR', 'Owns', 'Recommended Service', 'Confidence %', 'Est ARV / yr'],
+      list.map(o => [o.id, o.name, o.phone, o.office, o.state, o.zip, Math.round(o.arr), [...o.fams].join(' | '), o.rec, (o.conf * 100).toFixed(1), Math.round(o.estArv)])),
   }, '⬇ Export pitch list (' + list.length.toLocaleString() + ')');
 
   return el('div', { class: 'flex flex-col gap-4' },
@@ -33811,7 +33867,8 @@ function reportingNextBest() {
             ...list.slice(0, 300).map(o => el('tr', { class: 'border-t tabular-nums', style: { borderColor: 'var(--border)' } },
               el('td', { class: 'px-3 py-2' },
                 el('div', { class: 'font-semibold' }, o.name),
-                el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + o.id + ' · ' + fmt.usd0(o.arr) + ' current ARR')),
+                el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + o.id + ' · ' + fmt.usd0(o.arr) + ' current ARR'),
+                o.phone ? el('a', { href: 'tel:' + String(o.phone).replace(/[^0-9+]/g, ''), class: 'text-[11px] font-bold tabular-nums', style: { color: 'var(--accent)' } }, o.phone) : null),
               el('td', { class: 'px-2 py-2 whitespace-nowrap' }, _titleCaseWords(o.office)),
               el('td', { class: 'px-2 py-2', style: { color: 'var(--text-muted)' } }, [...o.fams].join(', ')),
               el('td', { class: 'px-2 py-2 font-bold', style: { color: 'var(--accent)' } }, o.rec),
@@ -33854,6 +33911,7 @@ function reportingRenewals() {
     }
     const rec = {
       id: r.customer_id, name: _custDisplayName(r), office: r.office_name || '—', state: r.state || '',
+      phone: r.phone || '', email: r.email || '',
       svc: r.subscription, arv: Number(r.annual_recurring_value) || 0, len, mo,
       toGo: len - mo, pastBy: mo - len,
       autopay: (() => { const _ap = String(r.customer_auto_pay || '').trim(); return !!_ap && !/^no$/i.test(_ap); })(),
@@ -33894,8 +33952,8 @@ function reportingRenewals() {
     class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     onclick: () => _reportingCsvDownload(name,
-      ['Customer ID', 'Customer Name', 'Office Name', 'Subscription Type', 'ARV', 'Contract', 'Months In', extraHdr, 'Auto Pay', 'Days Past Due', 'Attempts', 'Office Rep', 'Result', 'Notes'],
-      L.map(x => { const g = logOf(x); return [x.id, x.name, x.office, x.svc, Math.round(x.arv), x.len, x.mo.toFixed(1), extraFn(x), x.autopay ? 'Yes' : 'No', x.pastDue, g.attempts || '', g.worked_by || '', g.result || '', g.notes || '']; })),
+      ['Customer ID', 'Customer Name', 'Phone', 'Email', 'Office Name', 'Subscription Type', 'ARV', 'Contract', 'Months In', extraHdr, 'Auto Pay', 'Days Past Due', 'Attempts', 'Office Rep', 'Result', 'Notes'],
+      L.map(x => { const g = logOf(x); return [x.id, x.name, x.phone, x.email, x.office, x.svc, Math.round(x.arv), x.len, x.mo.toFixed(1), extraFn(x), x.autopay ? 'Yes' : 'No', x.pastDue, g.attempts || '', g.worked_by || '', g.result || '', g.notes || '']; })),
   }, '⬇ Export (' + L.length.toLocaleString() + ')');
 
   const workCells = (x) => {
@@ -33955,7 +34013,8 @@ function reportingRenewals() {
                 el('td', { class: 'px-3 py-1.5' },
                   el('div', { class: 'font-semibold' }, x.name),
                   el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
-                    '#' + x.id + (x.autopay ? '' : ' · no autopay') + (x.pastDue > 0 ? ' · ' + x.pastDue + 'd past due' : ''))),
+                    '#' + x.id + (x.autopay ? '' : ' · no autopay') + (x.pastDue > 0 ? ' · ' + x.pastDue + 'd past due' : '')),
+                  x.phone ? el('a', { href: 'tel:' + String(x.phone).replace(/[^0-9+]/g, ''), class: 'text-[11px] font-bold tabular-nums', style: { color: 'var(--accent)' } }, x.phone) : null),
                 el('td', { class: 'px-2 py-1.5 whitespace-nowrap' }, _titleCaseWords(x.office)),
                 el('td', { class: 'px-2 py-1.5' }, x.svc),
                 el('td', { class: 'px-2 py-1.5 text-right font-semibold' }, fmt.usd0(x.arv)),
@@ -40012,6 +40071,135 @@ function viewAdmin() {
   return el('div', { class: 'flex flex-col sm:flex-row gap-4 w-full' }, mobileNav, sidebar, body);
 }
 
+// ═══ Settings ▸ Data Hygiene — the anomaly hunts that used to live in
+// one-off spreadsheets, permanent. Each check names the CRM fix; every
+// list exports for whoever cleans it up. Runs on the live snapshot.
+function adminDataHygiene() {
+  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
+  // Lazy-load the snapshot rows (same pattern as Configurations).
+  const activeId = state.reportingActiveUploadId;
+  if (activeId && state.reportingSubscriptionsLoadedFor !== activeId
+      && typeof loadReportingSubscriptions === 'function' && !state._hygRowsLoading) {
+    state._hygRowsLoading = true;
+    loadReportingSubscriptions(activeId).then(rows => {
+      state._hygRowsLoading = false;
+      if (state.reportingActiveUploadId !== activeId || rows == null) return;
+      state.reportingSubscriptions = rows;
+      state.reportingSubscriptionsLoadedFor = activeId;
+      if (state.view === 'admin' && state.adminSection === 'hygiene') mountApp();
+    }).catch(() => { state._hygRowsLoading = false; });
+  }
+  if (!(state.reportingSubscriptions || []).length) {
+    return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, state._hygRowsLoading ? 'Loading the snapshot…' : 'No snapshot loaded yet.');
+  }
+  const { all, isRecurring, isActive } = reportingFilters();
+  const _iso = (v) => String(v || '').slice(0, 10);
+  const BASE_COLS = ['Customer ID', 'Customer', 'Phone', 'Office', 'Subscription', 'Status', 'Initial Service', 'Date Canceled', 'Cancel Reason', 'ARV', 'Agreement Length'];
+  const baseRow = (r) => [r.customer_id, _custDisplayName(r), r.phone || '', r.office_name, r.subscription, r.subscription_status, _iso(r.initial_service), _iso(r.subscription_date_canceled), reportingCancelReasonOf(r), Math.round(Number(r.annual_recurring_value) || 0), r.agreement_length];
+
+  const checks = [];
+  // 1. Cancel dated BEFORE the initial service — impossible timeline.
+  checks.push({
+    id: 'timewarp', icon: '⏱', title: 'Cancelled before initial service',
+    fix: 'Impossible dates — someone backdated a cancel or the initial-service date is wrong. Correct the dates in FieldRoutes.',
+    rows: all.filter(r => r.subscription_date_canceled && r.initial_service && _iso(r.subscription_date_canceled) < _iso(r.initial_service)),
+    sev: 'high',
+  });
+  // 2. Cancels with no usable reason.
+  checks.push({
+    id: 'noreason', icon: '❓', title: 'Cancels with blank / Unspecified reason',
+    fix: 'Unexplainable churn — make the cancellation reason mandatory in FieldRoutes and backfill these.',
+    rows: all.filter(r => r.subscription_date_canceled && /^(unspecified)?$/i.test(reportingCancelReasonOf(r).trim())),
+    sev: 'med',
+  });
+  // 3. Active recurring subs carrying $0 ARV.
+  checks.push({
+    id: 'zeroarv', icon: '💤', title: 'Active recurring subs with $0 ARV',
+    fix: 'A recurring service billing nothing — frozen billing, a bad price, or a sub that should be one-time / closed.',
+    rows: all.filter(r => isActive(r) && isRecurring(r) && (Number(r.annual_recurring_value) || 0) <= 0),
+    sev: 'med',
+  });
+  // 4. Nonstandard agreement lengths on recurring subs.
+  checks.push({
+    id: 'oddterm', icon: '📄', title: 'Nonstandard agreement length (not 12 / 18 / 24)',
+    fix: 'Legacy or fat-fingered terms (0, 6, 13, 36…). They pollute term analytics — the products are 12/18/24.',
+    rows: all.filter(r => { const m = Number(r.agreement_length) || 0; return isRecurring(r) && isActive(r) && ![12, 18, 24].includes(m); }),
+    sev: 'low',
+  });
+  // 5. Duplicate ACTIVE subs — same customer, same service, twice.
+  checks.push({
+    id: 'dupes', icon: '👯', title: 'Duplicate active subscriptions',
+    fix: 'Same customer, same service type, active twice — usually a re-sign that never closed the old sub. Merge/close in FieldRoutes.',
+    rows: (() => {
+      const seen = new Map(), dupes = [];
+      all.forEach(r => {
+        if (!isActive(r) || !r.customer_id) return;
+        const k = r.customer_id + '|' + String(r.subscription || '').toLowerCase();
+        if (seen.has(k)) { if (seen.get(k) !== 'flagged') { dupes.push(seen.get(k)); seen.set(k, 'flagged'); } dupes.push(r); }
+        else seen.set(k, r);
+      });
+      return dupes;
+    })(),
+    sev: 'med',
+  });
+  // 6. Cancel-reason spelling variants (same reason, different strings).
+  const variantRows = (() => {
+    const byNorm = new Map();
+    all.forEach(r => {
+      if (!r.subscription_date_canceled) return;
+      const raw = String(r.subscription_cancellation_reason || '').trim();
+      if (!raw) return;
+      const k = _normCancelReason(raw);
+      let g = byNorm.get(k); if (!g) { g = new Map(); byNorm.set(k, g); }
+      g.set(raw, (g.get(raw) || 0) + 1);
+    });
+    const out = [];
+    byNorm.forEach((g, k) => { if (g.size > 1) out.push({ norm: k, variants: [...g.entries()] }); });
+    return out;
+  })();
+  checks.push({
+    id: 'variants', icon: '🔤', title: 'Cancel-reason spelling variants',
+    fix: 'The same reason spelled multiple ways in the CRM pick-list (trailing spaces, punctuation). The app normalizes them, but cleaning the source list stops the drift.',
+    rows: [], custom: variantRows,
+    sev: 'low',
+  });
+
+  const SEV = { high: '#DC2626', med: '#D97706', low: '#6B7280' };
+  const total = checks.reduce((a, c) => a + (c.custom ? c.custom.length : c.rows.length), 0);
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'card p-4' },
+      el('h2', { class: 'text-lg font-bold' }, '🧹 Data Hygiene'),
+      el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
+        'The anomaly hunts, made permanent — every check runs on the live snapshot each time you open this page. Each card names the fix in FieldRoutes; exports go to whoever cleans it up. Goal: every count reads 0.'),
+      el('div', { class: 'text-sm font-black tabular-nums mt-1.5', style: { color: total > 0 ? '#D97706' : '#5F8A1F' } },
+        total > 0 ? total.toLocaleString() + ' rows need attention across ' + checks.filter(c => (c.custom ? c.custom.length : c.rows.length) > 0).length + ' checks' : '✓ All clean')),
+    ...checks.map(c => {
+      const n = c.custom ? c.custom.length : c.rows.length;
+      const isOpen = state._hygOpen === c.id;
+      return el('div', { class: 'card p-4' + (n > 0 && !c.custom ? ' cursor-pointer' : ''), onclick: (n > 0 && !c.custom) ? () => { state._hygOpen = isOpen ? null : c.id; mountApp(); } : undefined },
+        el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
+          el('div', { class: 'min-w-0' },
+            el('div', { class: 'flex items-center gap-2' },
+              el('span', {}, c.icon),
+              el('h3', { class: 'text-sm font-bold' }, c.title),
+              el('span', { class: 'text-sm font-black tabular-nums px-2 py-0.5 rounded-full', style: { background: n > 0 ? SEV[c.sev] + '18' : 'rgba(141,198,63,.14)', color: n > 0 ? SEV[c.sev] : '#5F8A1F' } }, n.toLocaleString()),
+              (n > 0 && !c.custom) ? el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, isOpen ? '▴ close' : '▾ view rows') : null),
+            el('p', { class: 'text-[11px] mt-1', style: { color: 'var(--text-muted)' } }, c.fix))),
+        // Inline row table (per Isaac — no exports, just look through them).
+        (isOpen && !c.custom && n > 0) ? el('div', { class: 'mt-3 overflow-x-auto', style: { maxHeight: '380px', overflowY: 'auto' }, onclick: (e) => e.stopPropagation() },
+          el('table', { class: 'w-full text-[11px] tabular-nums' },
+            el('thead', { class: 'text-[9px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+              el('tr', {}, ...BASE_COLS.map(h => el('th', { class: 'text-left px-2 py-1.5 font-semibold whitespace-nowrap' }, h)))),
+            el('tbody', {},
+              ...c.rows.slice(0, 400).map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+                ...baseRow(r).map((v, i) => el('td', { class: 'px-2 py-1.5' + (i === 1 ? ' font-semibold' : '') + ' whitespace-nowrap' }, String(v ?? ''))))),
+              c.rows.length > 400 ? el('tr', {}, el('td', { class: 'px-2 py-2 text-center italic', colspan: BASE_COLS.length, style: { color: 'var(--text-subtle)' } }, 'Showing 400 of ' + c.rows.length.toLocaleString())) : null))) : null,
+        c.custom && c.custom.length > 0 ? el('div', { class: 'mt-2 flex flex-col gap-1' },
+          ...c.custom.slice(0, 12).map(v => el('div', { class: 'text-[11px] tabular-nums', style: { color: 'var(--text-muted)' } },
+            v.variants.map(([raw, cnt]) => '"' + raw + '" ×' + cnt).join('  ·  ')))) : null);
+    }));
+}
+
 // Settings ▸ Teams — the Manage Teams roster (teams, branches, tier, active)
 // embedded as a tab. Same UI as the modal launched from the Audit view; both
 // share manageTeamsPanel(). Editing here writes through to the same per-year
@@ -40131,7 +40319,7 @@ function adminUploads() {
   const tab = state._adminSubTab;
 
   const toggle = el('div', { class: 'flex items-center gap-1 p-1 rounded-lg', style: { background: 'var(--card-2)', width: 'fit-content' } },
-    ...[['history', 'Upload History'], ['activity', 'App Activity'], ['archive', '📚 Monthly Archive'], ['integrity', '🧪 Data Integrity']].map(([k, label]) => el('button', {
+    ...[['history', 'Upload History'], ['activity', 'App Activity'], ['archive', '📚 Monthly Archive'], ['integrity', '🧪 Data Integrity'], ['hygiene', '🧹 Data Hygiene']].map(([k, label]) => el('button', {
       class: 'px-3.5 py-1.5 rounded-md text-sm font-semibold transition',
       style: tab === k
         ? { background: 'var(--card)', color: 'var(--text)', boxShadow: 'var(--shadow-sm)' }
@@ -40159,7 +40347,9 @@ function adminUploads() {
         ? monthlyArchivePanel()
         : tab === 'integrity'
           ? dataIntegrityPanel()
-          : reportingUploadsPanel(),
+          : tab === 'hygiene'
+            ? adminDataHygiene()
+            : reportingUploadsPanel(),
   );
 }
 
@@ -40879,7 +41069,7 @@ function adminPricing(opts = {}) {
 
   const persist = () => { saveDemoData(); saveAppSettings(); };
 
-  return el('div', { class: 'flex flex-col gap-5 max-w-4xl w-full' },
+  return el('div', { class: 'flex flex-col gap-5 max-w-4xl w-full commission-config' },
     opts.embedded ? null : el('h2', { class: 'text-xl font-bold' }, 'Pricing'),
 
     // ── Status-based pay rules ──
