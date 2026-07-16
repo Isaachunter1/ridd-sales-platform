@@ -736,6 +736,11 @@
      uses that the prebuilt sheet lacks. If you rebuild tailwind.css, this
      block is harmlessly redundant. */
   .order-1 { order: 1; } .order-2 { order: 2; }
+  /* Commissions settings: left-justify the configurable rows (per Isaac) —
+     labels and their inputs sit together on the left instead of spanning
+     the full card width. */
+  .commission-config .justify-between { justify-content: flex-start !important; gap: 18px; }
+  .commission-config input { text-align: left !important; }
   @media (min-width: 1024px) { .lg\:order-1 { order: 1; } .lg\:order-2 { order: 2; } }
   @media (min-width: 640px) {
     .sm\:flex { display: flex; }
