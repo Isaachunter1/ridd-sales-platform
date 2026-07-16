@@ -3088,6 +3088,7 @@ const TAB_TITLES = {
   calendar:     'CALENDAR',
   competitions: 'COMPETITIONS',
   hall_of_fame: 'HALL OF FAME',
+  queues:       'QUEUES',
   indicators:   'INDICATORS',
   nrla:         'COMPETITIONS',
   scorecards:   'SCORECARDS',
@@ -3099,7 +3100,7 @@ const TAB_TITLES = {
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#techs':'techs', '#training':'training', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#queues':'queues', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#techs':'techs', '#training':'training', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -4266,7 +4267,7 @@ function mountApp() {
   // group (they audit sales, they don't sell). Any other Inside Sales
   // view (deep-link hash, stale _lastIsTab, default 'dashboard' on boot)
   // is coerced to Sales before render.
-  if (isAuditor && INSIDE_SALES_TAB_KEYS.has(state.view) && state.view !== 'sales') {
+  if (isAuditor && ((INSIDE_SALES_TAB_KEYS.has(state.view) && state.view !== 'sales') || state.view === 'queues')) {
     state.view = 'sales';
     history.replaceState(null, '', VIEW_TO_HASH.sales || '#sales');
   }
@@ -4282,6 +4283,8 @@ function mountApp() {
     if (_grp === 'office' && (state.view === 'techs' || state.view === 'commission')) _redir = 'dashboard';
     else if (_grp === 'tech' && (_isTabNotComp || state.view === 'commission')) _redir = 'techs';
     else if (_grp === 'd2d' && (_isTabNotComp || state.view === 'techs')) _redir = 'commission';
+    // Work Queues is an OFFICE STAFF tool (call lists carry customer identity).
+    if (state.view === 'queues' && _grp !== 'office') _redir = _grp === 'tech' ? 'techs' : 'commission';
     if (_redir) {
       state.view = _redir;
       history.replaceState(null, '', VIEW_TO_HASH[_redir] || '#' + _redir);
@@ -4334,6 +4337,7 @@ function mountApp() {
     // Office Staff get the Inside Sales group; Sales Reps get "Sales" —
     // their commission home, the D2D counterpart to Inside Sales.
     ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]] : [['commission', 'Sales', iconDollar()]]),
+    ...(isOfficeStaff ? [['queues', 'Queues', iconClipboard()]] : []),
     ['nrla', 'Competitions', iconTrophy()],
     ['indicators', 'Indicators', iconChart()],
     ['training', 'Training', iconClipboard()],
@@ -4347,6 +4351,7 @@ function mountApp() {
     ...(isAuditor ? [] : [['nrla', 'Competitions', iconTrophy()]]),
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
+    ...(isAdmin ? [['queues',        'Queues',        iconClipboard()]] : []),
     ...(isAuditor ? [] : [['training', 'Training', iconClipboard()]]),
   ];
 
@@ -4615,6 +4620,7 @@ function mountApp() {
     calendar:     viewCalendar,
     competitions: viewCompetitions,
     hall_of_fame: viewHallOfFame,
+    queues: viewQueues,
     indicators:   viewIndicators,
     nrla:         viewNrlaPublic,
     scorecards:   viewScorecards,
@@ -33785,16 +33791,15 @@ function reportingNextBest() {
 function reportingRenewals() {
   const gate = reportingDataGate();
   if (gate) return gate;
+  _renewalLogLoad();   // shared disposition log (Supabase; local fallback)
   const { visible } = reportingFilters();
   const office = state.reportingOffice || 'all';
   const rows = reportingFilterByOffice(visible, office);
   const now = new Date();
   const isActive = (r) => (r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled;
   // ALREADY RENEWED (per Isaac): a customer holding ANY active subscription
-  // from one of the four Renewal sources (Outbound / Inbound / Loyalty /
-  // Service Pro Upsell) has been renewed — renewed once means DONE, they
-  // never appear on a renewal call list again (not even the renewal sub
-  // near its own term end — e.g. Cheryl Supko #59628).
+  // from one of the four Renewal sources has been renewed — renewed once
+  // means DONE, they never appear on a renewal call list again.
   const RENEWAL_SRC_RE = /^renewal\s*-/i;
   const renewedCust = new Set();
   rows.forEach(r => {
@@ -33810,7 +33815,6 @@ function reportingRenewals() {
     const d = new Date(String(r.initial_service) + 'T00:00');
     if (isNaN(d)) return;
     const mo = (now - d) / 2629800000;
-    // Renewed once → off the list for good.
     const inWindow = mo >= len - 2;
     if (inWindow && renewedCust.has(r.customer_id)) {
       renewedN++; renewedArr += Number(r.annual_recurring_value) || 0;
@@ -33829,67 +33833,184 @@ function reportingRenewals() {
   expiring.sort((a, b) => a.toGo - b.toGo || b.arv - a.arv);
   past.sort((a, b) => b.arv - a.arv);
   const arrOf = (L) => L.reduce((a, x) => a + x.arv, 0);
+
+  // ── Disposition working layer (modeled on Isaac's tracking sheet) ──
+  const LOG = state._renewalLog || {};
+  const logOf = (x) => LOG[String(x.id)] || {};
+  const RESULTS = ['Resigned', 'Not Interested', 'No Answer', 'Follow Up'];
+  const RESULT_COLOR = { 'Resigned': '#5F8A1F', 'Not Interested': '#DC2626', 'No Answer': '#D97706', 'Follow Up': '#0EA5E9' };
+  const disp = state._renewalDisp || 'towork';
+  const matchDisp = (x) => {
+    const r = logOf(x).result || '';
+    if (disp === 'all') return true;
+    if (disp === 'towork') return !r || r === 'Follow Up' || r === 'No Answer';
+    return r === disp;
+  };
+  const chipDefs = [['towork', '📞 To work'], ['Follow Up', '🔵 Follow Up'], ['No Answer', '🟡 No Answer'], ['Resigned', '✅ Resigned'], ['Not Interested', '❌ Not Interested'], ['all', 'All']];
+  const allRecs = expiring.concat(past);
+  const chipCount = (k) => k === 'all' ? allRecs.length
+    : k === 'towork' ? allRecs.filter(x => { const r = logOf(x).result || ''; return !r || r === 'Follow Up' || r === 'No Answer'; }).length
+    : allRecs.filter(x => (logOf(x).result || '') === k).length;
+  const chips = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
+    ...chipDefs.map(([k, l]) => el('button', {
+      class: 'px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95',
+      style: disp === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
+      onclick: () => { state._renewalDisp = k; mountApp(); },
+    }, l + ' · ' + chipCount(k).toLocaleString())));
+
   const exportBtn = (L, name, extraHdr, extraFn) => el('button', {
     class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     onclick: () => _reportingCsvDownload(name,
-      ['Customer ID', 'Customer', 'Office', 'State', 'Service', 'ARV', 'Term (mo)', 'Months In', extraHdr, 'Auto Pay', 'Days Past Due'],
-      L.map(x => [x.id, x.name, x.office, x.state, x.svc, Math.round(x.arv), x.len, x.mo.toFixed(1), extraFn(x), x.autopay ? 'Yes' : 'No', x.pastDue])),
+      ['Customer ID', 'Customer Name', 'Office Name', 'Subscription Type', 'ARV', 'Contract', 'Months In', extraHdr, 'Auto Pay', 'Days Past Due', 'Attempts', 'Office Rep', 'Result', 'Notes'],
+      L.map(x => { const g = logOf(x); return [x.id, x.name, x.office, x.svc, Math.round(x.arv), x.len, x.mo.toFixed(1), extraFn(x), x.autopay ? 'Yes' : 'No', x.pastDue, g.attempts || '', g.worked_by || '', g.result || '', g.notes || '']; })),
   }, '⬇ Export (' + L.length.toLocaleString() + ')');
-  const listCard = (title, blurb, L, cols, emptyMsg) => el('div', { class: 'card overflow-hidden' },
+
+  const workCells = (x) => {
+    const g = logOf(x);
+    const sel = el('select', {
+      class: 'rounded-lg border px-1.5 py-1 text-[11px] font-semibold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: RESULT_COLOR[g.result] || 'var(--text)', maxWidth: '116px' },
+      onchange: (e) => { _renewalLogSave(x.id, { result: e.target.value }); mountApp(); },
+    },
+      el('option', { value: '', selected: !g.result }, '— result —'),
+      ...RESULTS.map(rz => { const o = el('option', { value: rz }, rz); if (g.result === rz) o.selected = true; return o; }));
+    const attempts = el('div', { class: 'flex items-center gap-1' },
+      el('span', { class: 'tabular-nums font-bold text-[11px]', style: { minWidth: '14px', textAlign: 'right' } }, String(g.attempts || 0)),
+      el('button', {
+        class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-black cursor-pointer transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Log a call attempt (stamps you + today)',
+        onclick: () => { _renewalLogSave(x.id, { attempts: (Number(g.attempts) || 0) + 1 }); mountApp(); },
+      }, '+1'));
+    const notes = el('input', {
+      class: 'rounded-lg border px-2 py-1 text-[11px]',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '170px' },
+      placeholder: 'notes…', value: g.notes || '',
+      onchange: (e) => _renewalLogSave(x.id, { notes: e.target.value }),
+    });
+    return { sel, attempts, notes, workedBy: g.worked_by || '' };
+  };
+
+  const listCard = (title, blurb, L0, cols, emptyMsg) => {
+    const L = L0.filter(matchDisp);
+    return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'p-4 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {},
         el('h3', { class: 'text-sm font-bold' }, title),
         el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, blurb),
         el('div', { class: 'text-xs font-black tabular-nums mt-1' }, L.length.toLocaleString() + ' contracts · ' + fmt.usd0(arrOf(L)) + ' ARR')),
-      cols.btn),
+      cols.btn(L)),
     L.length === 0
       ? el('div', { class: 'p-6 text-center text-xs', style: { color: 'var(--text-muted)' } }, emptyMsg)
-      : el('div', { class: 'overflow-x-auto', style: { maxHeight: '420px' } },
+      : el('div', { class: 'overflow-x-auto', style: { maxHeight: '480px' } },
         el('table', { class: 'w-full text-xs' },
-          el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)', zIndex: 2 } },
             el('tr', {},
               el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Customer'),
               el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Office'),
               el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Service'),
               el('th', { class: 'text-right px-2 py-2 font-semibold' }, 'ARV'),
-              el('th', { class: 'text-right px-2 py-2 font-semibold' }, 'Term'),
               el('th', { class: 'text-right px-2 py-2 font-semibold' }, cols.lastHdr),
-              el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Flags'))),
+              el('th', { class: 'text-right px-2 py-2 font-semibold', title: 'Call attempts logged' }, 'Att.'),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Result'),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Notes'),
+              el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Rep'))),
           el('tbody', {},
-            ...L.slice(0, 250).map(x => el('tr', { class: 'border-t tabular-nums', style: { borderColor: 'var(--border)' } },
-              el('td', { class: 'px-3 py-2' },
-                el('div', { class: 'font-semibold' }, x.name),
-                el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + x.id)),
-              el('td', { class: 'px-2 py-2 whitespace-nowrap' }, _titleCaseWords(x.office)),
-              el('td', { class: 'px-2 py-2' }, x.svc),
-              el('td', { class: 'px-2 py-2 text-right font-semibold' }, fmt.usd0(x.arv)),
-              el('td', { class: 'px-2 py-2 text-right' }, x.len + ' mo'),
-              el('td', { class: 'px-2 py-2 text-right font-bold whitespace-nowrap', style: { color: cols.lastColor(x) } }, cols.lastVal(x)),
-              el('td', { class: 'px-3 py-2 text-[10px]', style: { color: 'var(--text-muted)' } },
-                [!x.autopay ? 'no autopay' : null, x.pastDue > 0 ? x.pastDue + 'd past due' : null].filter(Boolean).join(' · ') || '—'))),
-            L.length > 250 ? el('tr', {}, el('td', { class: 'px-3 py-3 text-center text-[11px] italic', colspan: 7, style: { color: 'var(--text-subtle)' } }, 'Showing 250 — export the CSV for all ' + L.length.toLocaleString() + '.')) : null))));
+            ...L.slice(0, 250).map(x => {
+              const w = workCells(x);
+              return el('tr', { class: 'border-t tabular-nums', style: { borderColor: 'var(--border)' } },
+                el('td', { class: 'px-3 py-1.5' },
+                  el('div', { class: 'font-semibold' }, x.name),
+                  el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
+                    '#' + x.id + (x.autopay ? '' : ' · no autopay') + (x.pastDue > 0 ? ' · ' + x.pastDue + 'd past due' : ''))),
+                el('td', { class: 'px-2 py-1.5 whitespace-nowrap' }, _titleCaseWords(x.office)),
+                el('td', { class: 'px-2 py-1.5' }, x.svc),
+                el('td', { class: 'px-2 py-1.5 text-right font-semibold' }, fmt.usd0(x.arv)),
+                el('td', { class: 'px-2 py-1.5 text-right font-bold whitespace-nowrap', style: { color: cols.lastColor(x) } }, cols.lastVal(x)),
+                el('td', { class: 'px-2 py-1.5 text-right' }, w.attempts),
+                el('td', { class: 'px-2 py-1.5' }, w.sel),
+                el('td', { class: 'px-2 py-1.5' }, w.notes),
+                el('td', { class: 'px-3 py-1.5 text-[10px] whitespace-nowrap', style: { color: 'var(--text-muted)' } }, w.workedBy ? w.workedBy.split(' ')[0] : '—'));
+            }),
+            L.length > 250 ? el('tr', {}, el('td', { class: 'px-3 py-3 text-center text-[11px] italic', colspan: 9, style: { color: 'var(--text-subtle)' } }, 'Showing 250 — export the CSV for all ' + L.length.toLocaleString() + '.')) : null))));
+  };
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-4' },
       el('h2', { class: 'text-lg font-bold' }, '🔁 Renewals'),
-      el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
-        'Outbound renewals are our best-retaining production (89.6% 12-mo survival, $989 avg ARV) — this is the call list. Window opens 2 months before the contract ends: month 10 on a 12, month 16 on an 18, month 22 on a 24. Customers holding ANY "Renewal - …" subscription have been renewed and never appear here again — one renewal is the goal, not a cycle. Pitch the 24-month re-sign with the free add-ons.'),
+      el('p', { class: 'text-xs mt-0.5 mb-2', style: { color: 'var(--text-muted)' } },
+        'The call list refreshes itself from the CRM every hour — no more manual list pulls. Window opens 2 months before term end (month 10/16/22). Dispositions, attempts, and notes save instantly and are shared across every agent (same fields as the old tracking sheet). Customers holding any "Renewal - …" subscription never appear here.'),
+      chips,
       renewedN > 0 && el('div', { class: 'text-[11px] font-bold tabular-nums mt-1.5', style: { color: '#5F8A1F' } },
-        '✓ ' + renewedN.toLocaleString() + ' contracts at/past term already renewed via a Renewal source (' + fmt.usd0(renewedArr) + ' ARR) — excluded from the lists below.')),
+        '✓ ' + renewedN.toLocaleString() + ' contracts at/past term already renewed via a Renewal source (' + fmt.usd0(renewedArr) + ' ARR) — excluded.'),
+      // ── Results scoreboard — computed from the disposition log itself.
+      (() => {
+        const entries = Object.values(state._renewalLog || {}).filter(e => e && e.result);
+        if (entries.length < 3) return null;
+        const cnt = {}; entries.forEach(e => cnt[e.result] = (cnt[e.result] || 0) + 1);
+        const worked = entries.length;
+        const resigned = cnt['Resigned'] || 0;
+        const byAgent = {};
+        entries.forEach(e => {
+          const a = (e.worked_by || '—').split(' ')[0];
+          const o = byAgent[a] || (byAgent[a] = { n: 0, r: 0, att: 0 });
+          o.n++; if (e.result === 'Resigned') o.r++; o.att += Number(e.attempts) || 0;
+        });
+        const agents = Object.entries(byAgent).sort((a, b) => b[1].r - a[1].r).slice(0, 6);
+        return el('div', { class: 'mt-3 rounded-xl p-3', style: { background: 'var(--card-2)' } },
+          el('div', { class: 'flex items-baseline gap-3 flex-wrap' },
+            el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Results so far'),
+            el('div', { class: 'text-xs tabular-nums' },
+              el('b', { style: { color: '#5F8A1F' } }, resigned.toLocaleString() + ' resigned'),
+              el('span', { style: { color: 'var(--text-muted)' } }, ' of ' + worked.toLocaleString() + ' worked (' + (worked ? (resigned / worked * 100).toFixed(0) : 0) + '%) · '
+                + (cnt['Not Interested'] || 0) + ' not interested · ' + (cnt['No Answer'] || 0) + ' no answer · ' + (cnt['Follow Up'] || 0) + ' follow-ups open'))),
+          agents.length > 1 && el('div', { class: 'flex gap-x-4 gap-y-1 flex-wrap mt-1.5 text-[11px] tabular-nums' },
+            ...agents.map(([a, o]) => el('span', {},
+              el('b', {}, a), el('span', { style: { color: 'var(--text-muted)' } }, ': ' + o.r + '/' + o.n + ' resigned' + (o.att ? ' · ' + o.att + ' calls' : ''))))));
+      })()),
     listCard('Renewal window — final 2 months of term',
       'Call these FIRST — sorted by how soon the contract ends, then ARV.',
       expiring,
-      { btn: exportBtn(expiring, 'renewals-expiring.csv', 'Months To Term End', (x) => x.toGo.toFixed(1)),
+      { btn: (L) => exportBtn(L, 'renewals-expiring.csv', 'Months To Term End', (x) => x.toGo.toFixed(1)),
         lastHdr: 'Ends in', lastVal: (x) => x.toGo.toFixed(1) + ' mo', lastColor: (x) => x.toGo < 1 ? '#DC2626' : '#D97706' },
-      'Nothing entering the renewal window right now.'),
+      'Nothing here under this disposition filter.'),
     listCard('Past term — rolled over, never re-signed',
       'Contract completed and still active month-to-month. Zero commitment protecting this ARR — biggest tickets first.',
       past,
-      { btn: exportBtn(past, 'renewals-past-term.csv', 'Months Past Term', (x) => x.pastBy.toFixed(1)),
+      { btn: (L) => exportBtn(L, 'renewals-past-term.csv', 'Months Past Term', (x) => x.pastBy.toFixed(1)),
         lastHdr: 'Past term', lastVal: (x) => '+' + x.pastBy.toFixed(1) + ' mo', lastColor: () => '#DC2626' },
-      'No active contracts past their term.'));
+      'Nothing here under this disposition filter.'));
 }
 
+// ── Renewal disposition log — shared across agents. Supabase table
+// `renewal_worklog` (see renewal_worklog.sql); localStorage keeps a local
+// copy so the tab works offline / pre-migration.
+function _renewalLogLoad() {
+  if (state._renewalLogLoaded) return;
+  state._renewalLogLoaded = true;
+  state._renewalLog = state._renewalLog || {};
+  try { const ls = localStorage.getItem('ridd_renewal_log_v1'); if (ls) Object.assign(state._renewalLog, JSON.parse(ls)); } catch (e) { /* fresh */ }
+  if (typeof DEMO !== 'undefined' && DEMO) return;
+  if (!supabase || !state.profile) return;
+  supabase.from('renewal_worklog').select('*').then(({ data, error }) => {
+    if (error) { console.warn('[renewals] worklog load failed (run renewal_worklog.sql?)', error.message); return; }
+    (data || []).forEach(r => { state._renewalLog[String(r.customer_id)] = r; });
+    if (state.reportingSubTab === 'waterfall' && state._retenSection === 'renewals') mountApp();
+  });
+}
+function _renewalLogSave(custId, patch) {
+  state._renewalLog = state._renewalLog || {};
+  const key = String(custId);
+  const row = Object.assign({ customer_id: key, attempts: 0, result: '', notes: '' }, state._renewalLog[key] || {}, patch,
+    { worked_by: (state.profile && state.profile.full_name) || '', updated_at: new Date().toISOString() });
+  state._renewalLog[key] = row;
+  try { localStorage.setItem('ridd_renewal_log_v1', JSON.stringify(state._renewalLog)); } catch (e) { /* quota */ }
+  if (typeof DEMO !== 'undefined' && DEMO) return;
+  if (!supabase || !state.profile) return;
+  supabase.from('renewal_worklog').upsert(row, { onConflict: 'customer_id' }).then(({ error }) => {
+    if (error) { console.warn('[renewals] worklog save failed (run renewal_worklog.sql?)', error.message); toast('Saved locally — server sync failed (run renewal_worklog.sql)', 'warn'); }
+  });
+}
 function reportingContractLength() {
   const gate = reportingDataGate();
   if (gate) return gate;
@@ -34066,6 +34187,47 @@ function reportingContractLength() {
         el('div', {}, '2. Push 24s — best survival every single year, highest ARV, +2 months kept. The comp ladder should make it the best payday.'),
         el('div', {}, '3. Pilot 18s in STRONG offices only — if good closers write autopay-backed 18s and they still track the 12 curve, retire the tier; if they stick, the term was never the problem.'),
         el('div', {}, '4. The 18-heavy offices need the collections fix more than a pricing fix — same playbook as the best office (autopay enforcement, card-on-file, dunning).'))]));
+}
+
+// ═══ WORK QUEUES — the office-staff home for the three call lists
+// (Renewals · Customer Health · Next Best). Same components the admin
+// Retention tab uses; this view just gives agents a direct door without
+// opening the rest of Reporting. Admins see it too (oversight).
+function viewQueues() {
+  // Reporting rows lazy-load exactly like the backend audit queue does.
+  if (state.reportingActiveUploadId
+      && state.reportingSubscriptionsLoadedFor !== state.reportingActiveUploadId
+      && typeof loadReportingSubscriptions === 'function' && !state._queuesRowsLoading) {
+    state._queuesRowsLoading = true;
+    loadReportingSubscriptions(state.reportingActiveUploadId).then(rows => {
+      state._queuesRowsLoading = false;
+      if (rows == null || state.reportingActiveUploadId == null) return;
+      state.reportingSubscriptions = rows;
+      state.reportingSubscriptionsLoadedFor = state.reportingActiveUploadId;
+      if (state.view === 'queues') mountApp();
+    }).catch(() => { state._queuesRowsLoading = false; });
+  }
+  const sec = ['health', 'nextbest'].includes(state._queuesSection) ? state._queuesSection : 'renewals';
+  const pills = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
+    ...[['renewals', '🔁 Renewals'], ['health', '❤️‍🩹 Customer Health'], ['nextbest', '🎯 Next Best Service']].map(([k, l]) => el('button', {
+      class: 'px-3 py-1.5 rounded-lg text-xs font-bold transition hover:brightness-95',
+      style: sec === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
+      onclick: () => { state._queuesSection = k; mountApp(); },
+    }, l)));
+  let body;
+  if (state._queuesRowsLoading && state.reportingSubscriptionsLoadedFor !== state.reportingActiveUploadId) {
+    body = el('div', { class: 'card p-12 text-center text-sm text-muted-' }, 'Loading the customer book…');
+  } else {
+    body = sec === 'health' ? reportingCustomerHealth() : sec === 'nextbest' ? reportingNextBest() : reportingRenewals();
+  }
+  return el('div', { class: 'flex flex-col gap-4 w-full' },
+    el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
+      el('div', {},
+        el('h1', { class: 'text-2xl font-bold' }, 'Work Queues'),
+        el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
+          'Who to call and why — renewals entering their window, at-risk customers to save, and cross-sell pitches. Lists refresh from the CRM hourly; dispositions are shared across the whole team.')),
+      pills),
+    body);
 }
 
 function reportingSubTabs() {
