@@ -2760,11 +2760,22 @@ function mountConfigMissing() {
 }
 
 function mountLoading() {
-  mount(el('div', { class: 'min-h-screen flex items-center justify-center' },
-    el('div', { class: 'flex items-center gap-3 text-battle-2' },
-      el('span', { class: 'spinner' }),
-      'Loading…'
-    )));
+  // ONE loading screen (per Isaac): if the static HTML boot splash (RIDD ·
+  // Service Above All) is still on screen, leave it alone — replacing it
+  // with a different "Loading…" spinner read as two loading screens. When
+  // the splash is already gone (mid-session re-auth), render the SAME
+  // splash markup so the brand screen is the only loader anywhere.
+  if (document.getElementById('splashMark')) return;
+  let logoImg = null;
+  try {
+    const logo = localStorage.getItem('ridd-spin-logo-v1') || '';
+    if (/^data:image\//.test(logo)) logoImg = el('img', { src: logo, alt: 'RIDD', style: { height: '64px', display: 'block' } });
+  } catch (e) { /* wordmark fallback */ }
+  mount(el('div', { class: 'min-h-screen flex items-center justify-center', style: { background: 'var(--bg)' } },
+    el('div', { class: 'flex flex-col items-center', style: { gap: '14px' } },
+      logoImg || el('div', { style: { fontFamily: "var(--font-display,'Anton',system-ui,sans-serif)", fontSize: '2.6rem', letterSpacing: '.02em', color: 'var(--accent)', lineHeight: '1' } }, 'RIDD'),
+      el('div', { style: { fontSize: '9px', letterSpacing: '.28em', color: 'var(--text-subtle)', textTransform: 'uppercase' } }, 'Service Above All'),
+      el('span', { class: 'spinner', style: { width: '20px', height: '20px', marginTop: '4px' } }))));
 }
 
 // ── STALE-SESSION WATCHER ────────────────────────────────────────────────
@@ -33523,17 +33534,21 @@ function reportingCustomerHealth() {
 
   const scored = [];
   byCust.forEach(c => {
-    let score = 0; const why = [];
-    if (c.pastDue >= 60)      { score += 40; why.push(c.pastDue + 'd past due'); }
-    else if (c.pastDue >= 30) { score += 30; why.push(c.pastDue + 'd past due'); }
-    else if (c.pastDue > 0)   { score += 15; why.push(c.pastDue + 'd past due'); }
-    if (!c.autopay)           { score += 15; why.push('no autopay'); }
-    if (c.fams.size <= 1)     { score += 10; why.push('single service'); }
-    if (c.oldest != null && c.oldest >= 3 && c.oldest <= 14) { score += 10; why.push('danger-zone tenure (' + c.oldest.toFixed(0) + ' mo)'); }
-    if (c.renewal)            { score += 15; why.push('renewal window'); }
-    if (riskyZip(c.zip))      { score += 10; why.push('high-churn ZIP'); }
-    if ([...c.fams].some(riskyFam)) { score += 10; why.push('high-churn service'); }
-    c.score = Math.min(100, score); c.why = why;
+    let score = 0; const why = []; const flags = {};
+    if (c.pastDue >= 60)      { score += 40; why.push(c.pastDue + 'd past due'); flags.pastdue = true; }
+    else if (c.pastDue >= 30) { score += 30; why.push(c.pastDue + 'd past due'); flags.pastdue = true; }
+    else if (c.pastDue > 0)   { score += 15; why.push(c.pastDue + 'd past due'); flags.pastdue = true; }
+    if (!c.autopay)           { score += 15; why.push('no autopay'); flags.apay = true; }
+    if (c.fams.size <= 1)     { score += 10; why.push('single service'); flags.single = true; }
+    if (c.oldest != null && c.oldest >= 3 && c.oldest <= 14) { score += 10; why.push('danger-zone tenure (' + c.oldest.toFixed(0) + ' mo)'); flags.danger = true; }
+    if (c.renewal)            { score += 15; why.push('renewal window'); flags.renewal = true; }
+    if (riskyZip(c.zip))      { score += 10; why.push('high-churn ZIP'); flags.zip = true; }
+    if ([...c.fams].some(riskyFam)) { score += 10; why.push('high-churn service'); flags.svc = true; }
+    // Golden autopay conversion: pays reliably by hand (zero past due, 3+
+    // months tenure) but no autopay — the easiest "flip them on" ask.
+    // (True "billing method on file" isn't in the CRM export yet.)
+    if (flags.apay && c.pastDue === 0 && (c.oldest || 0) >= 3) { flags.apayEasy = true; why.push('pays on time — easy autopay ask'); }
+    c.score = Math.min(100, score); c.why = why; c.flags = flags;
     c.bucket = c.score >= 65 ? 'critical' : c.score >= 40 ? 'atrisk' : c.score >= 20 ? 'watch' : 'healthy';
     scored.push(c);
   });
@@ -33548,15 +33563,20 @@ function reportingCustomerHealth() {
   scored.forEach(c => { bucketAgg[c.bucket].n++; bucketAgg[c.bucket].arr += c.arr; });
   const sel = state._healthBucket || 'critical';
   const q = String(state._healthQ || '').toLowerCase();
-  const list = scored.filter(c => (sel === 'all' || c.bucket === sel) && (!q || (c.name + ' ' + c.id + ' ' + c.office).toLowerCase().includes(q)));
+  const factor = state._healthFactor || 'all';
+  const list = scored.filter(c => (sel === 'all' || c.bucket === sel)
+    && (factor === 'all' || c.flags[factor])
+    && (!q || (c.name + ' ' + c.id + ' ' + c.office).toLowerCase().includes(q)));
+  // APay breakout: golden conversions (reliable manual payers) sort first.
+  if (factor === 'apay') list.sort((a, b) => (b.flags.apayEasy ? 1 : 0) - (a.flags.apayEasy ? 1 : 0) || b.arr - a.arr);
 
   const exportBtn = el('button', {
     class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     title: 'Download the filtered list as a call sheet (CSV)',
     onclick: () => _reportingCsvDownload('customer-health-' + sel + '.csv',
-      ['Customer ID', 'Customer', 'Office', 'State', 'ZIP', 'Health Score', 'Bucket', 'ARR', 'Services', 'Months Active', 'Past Due Days', 'Auto Pay', 'Risk Factors'],
-      list.map(c => [c.id, c.name, c.office, c.state, c.zip, c.score, c.bucket, Math.round(c.arr), c.subs.join(' | '), c.oldest != null ? c.oldest.toFixed(1) : '', c.pastDue, c.autopay ? 'Yes' : 'No', c.why.join('; ')])),
+      ['Customer ID', 'Customer', 'Office', 'State', 'ZIP', 'Health Score', 'Bucket', 'ARR', 'Services', 'Months Active', 'Past Due Days', 'Auto Pay', 'Pays On Time (No APay)', 'Risk Factors'],
+      list.map(c => [c.id, c.name, c.office, c.state, c.zip, c.score, c.bucket, Math.round(c.arr), c.subs.join(' | '), c.oldest != null ? c.oldest.toFixed(1) : '', c.pastDue, c.autopay ? 'Yes' : 'No', c.flags.apayEasy ? 'YES' : '', c.why.join('; ')])),
   }, '⬇ Export call list (' + list.length.toLocaleString() + ')');
 
   return el('div', { class: 'flex flex-col gap-4' },
@@ -33585,9 +33605,32 @@ function reportingCustomerHealth() {
           el('div', { class: 'text-xl font-black tabular-nums' }, scored.length.toLocaleString()),
           el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, 'active customers')))),
     el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'p-3 border-b flex items-center gap-2', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'p-3 border-b flex flex-col gap-2', style: { borderColor: 'var(--border)' } },
+        // Factor breakouts (per Isaac) — one chip per risk driver; the APay
+        // chip surfaces the golden "pays on time, just flip autopay on" list.
+        (() => {
+          const F = [
+            ['all', 'All factors'], ['pastdue', '💸 Past due'], ['apay', '💳 No autopay'],
+            ['single', '1️⃣ Single service'], ['danger', '⏳ Danger zone'], ['renewal', '🔁 Renewal window'],
+            ['zip', '📍 High-churn ZIP'], ['svc', '🧪 High-churn service'],
+          ];
+          const inBucket = scored.filter(c => (sel === 'all' || c.bucket === sel));
+          const cnt = (k) => k === 'all' ? inBucket.length : inBucket.filter(c => c.flags[k]).length;
+          return el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
+            ...F.map(([k, l]) => el('button', {
+              class: 'px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95',
+              style: factor === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
+              onclick: () => { state._healthFactor = k; mountApp(); },
+            }, l + ' · ' + cnt(k).toLocaleString())));
+        })(),
+        factor === 'apay' && (() => {
+          const easy = list.filter(c => c.flags.apayEasy);
+          return el('div', { class: 'text-[11px] font-semibold', style: { color: '#5F8A1F' } },
+            '💡 ' + easy.length.toLocaleString() + ' of these pay reliably by hand (zero past due, 3+ months in) — the easiest autopay conversions, sorted to the top. ' +
+            fmt.usd0(easy.reduce((a, c) => a + c.arr, 0)) + ' ARR protected if they flip.');
+        })(),
         el('input', {
-          class: 'flex-1 rounded-lg border px-3 py-2 text-xs',
+          class: 'w-full rounded-lg border px-3 py-2 text-xs',
           style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
           placeholder: 'Search name / ID / office…', value: state._healthQ || '',
           oninput: (e) => { state._healthQ = e.target.value; clearTimeout(state._healthQt); state._healthQt = setTimeout(() => mountApp(), 350); },
