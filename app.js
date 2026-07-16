@@ -5265,9 +5265,11 @@ function viewDashboard() {
     ]),
 
     // ─── Split: Today's Sales (30%) | Leaderboard (70%) ───
+    // Mobile stacks LEADERBOARD first (per Isaac) — CSS order flips below
+    // the lg breakpoint; desktop keeps feed-left / leaderboard-right.
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-[3fr_7fr] gap-4' },
-      todaysSalesPanel(windowSales, range),
-      leaderboardSection(range),
+      el('div', { class: 'order-2 lg:order-1 min-w-0' }, todaysSalesPanel(windowSales, range)),
+      el('div', { class: 'order-1 lg:order-2 min-w-0' }, leaderboardSection(range)),
     ),
   );
 }
