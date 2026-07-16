@@ -735,6 +735,8 @@
      every width). Fills below cover every responsive utility the markup
      uses that the prebuilt sheet lacks. If you rebuild tailwind.css, this
      block is harmlessly redundant. */
+  .order-1 { order: 1; } .order-2 { order: 2; }
+  @media (min-width: 1024px) { .lg\:order-1 { order: 1; } .lg\:order-2 { order: 2; } }
   @media (min-width: 640px) {
     .sm\:flex { display: flex; }
     .sm\:inline { display: inline; }
