@@ -50,16 +50,21 @@ async function callAdminSetPassword(payload) {
 // the codebase. `admin_rep` is an admin who also sells (on leaderboard, has a
 // Pay tab); `admin` is admin-only (not on leaderboard, no sales).
 const ADMIN_ROLES   = ['admin', 'admin_rep'];
-const SELLER_ROLES  = ['rep', 'rep_office', 'rep_sales', 'admin_rep'];
+const SELLER_ROLES  = ['rep', 'rep_office', 'rep_sales', 'rep_partner', 'admin_rep'];
 const isAdminRole   = (r) => ADMIN_ROLES.includes(r);
 const isSellerRole  = (r) => SELLER_ROLES.includes(r);
 const isAuditorRole = (r) => r === 'auditor';
+// Rep - Partner: a D2D rep who LEADS a team. Same permissions as a Sales
+// Rep everywhere, plus: they can open the player cards of reps on THEIR
+// team (leaderboard + records) — never the whole company.
+const isPartnerRole = (r) => r === 'rep_partner';
 // Human-readable label for any role enum value, used wherever we render a
 // role to the UI. Keeps the Users table, the editor dropdown, and the
 // profile menu in sync without scattering string-cases.
 const ROLE_LABEL = {
   rep:        'Rep (legacy)',   // pre-migration accounts; behaves like its CRM type
   rep_sales:  'Rep - Sales Rep',
+  rep_partner:'Rep - Partner',
   rep_office: 'Rep - Office Staff',
   admin_rep:  'Admin + Sales',
   admin:      'Admin',
@@ -5062,7 +5067,7 @@ function viewDashboard() {
       const goalMode = state.dashGoalMode === 'reps' ? 'reps' : 'dept';
       const goalHeader = el('div', { class: 'flex items-center justify-between mb-2' },
         el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } },
-          goalMode === 'reps' ? 'Individual Revenue Pacer · YTD' : 'Revenue Pacer'),
+          goalMode === 'reps' ? 'Individual Revenue Pacer · YTD new revenue' : 'Revenue Pacer'),
         el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
           ...[['dept', 'Department'], ['reps', 'Individual']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-semibold transition',
@@ -5092,12 +5097,19 @@ function viewDashboard() {
         const seasonalMarkerPct = Math.min(100, seasonalPct * 100);
         const EXCLUDE2 = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
         const jan1 = new Date(now2.getFullYear(), 0, 1);
-        const ytdByRep = {};
+        // Goals are NEW-revenue goals (per Isaac) — split each rep's YTD so
+        // the bar races new business only; renewal production shows as a
+        // muted "+$X renewal" so it isn't invisible, just not goal credit.
+        const _renIds = new Set((state.sources || []).filter(s => s.is_renewal).map(s => s.id));
+        const _isRenS = (s) => s._crmRenewal ?? _renIds.has(s.source_id);
+        const ytdByRep = {}, renByRep = {};
         for (const s of dashboardSales()) {
           if (EXCLUDE2.has(s.audit_status)) continue;
           const d = s.sold_date ? new Date(s.sold_date + 'T00:00') : null;
           if (!d || isNaN(d) || d < jan1) continue;
-          ytdByRep[s.rep_id] = (ytdByRep[s.rep_id] || 0) + Number(s.revenue_amount || 0);
+          const amt = Number(s.revenue_amount || 0);
+          if (_isRenS(s)) renByRep[s.rep_id] = (renByRep[s.rep_id] || 0) + amt;
+          else ytdByRep[s.rep_id] = (ytdByRep[s.rep_id] || 0) + amt;
         }
         const sellers = (state.allProfiles || [])
           .filter(p => isSellerRole(p.role) && p.is_active !== false && isOfficeStaffProfile(p))
@@ -5134,7 +5146,8 @@ function viewDashboard() {
                               delta >= 0 ? '▲ ahead' : '▼ behind')
                           : el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no goal set')),
                       el('span', { class: 'text-[11px] font-bold tabular-nums whitespace-nowrap' },
-                        fmt.usd0(rev) + (goal > 0 ? ' / ' + fmt.usd0(goal) + ' · ' + Math.round(goal > 0 ? rev / goal * 100 : 0) + '%' : ''))),
+                        fmt.usd0(rev) + (goal > 0 ? ' / ' + fmt.usd0(goal) + ' · ' + Math.round(goal > 0 ? rev / goal * 100 : 0) + '%' : ''),
+                        (renByRep[p.id] || 0) > 0 ? el('span', { class: 'font-normal', style: { color: 'var(--text-subtle)' }, title: 'Renewal production — real revenue, but individual goals are NEW-revenue goals' }, '  +' + fmt.usd0(renByRep[p.id]) + ' renewal') : null)),
                     el('div', { class: 'goal-track', style: { position: 'relative' } },
                       el('div', { style: { background: 'var(--accent)', height: '100%', width: pct.toFixed(1) + '%', borderRadius: '999px', transition: 'width .3s' } }),
                       goal > 0 ? el('div', {
@@ -5504,7 +5517,7 @@ function recentSalesTable(rows, opts = {}) {
 function isOfficeStaffProfile(p) {
   if (!p) return false;
   if (p.role === 'rep_office') return true;
-  if (p.role === 'rep_sales') return false;
+  if (p.role === 'rep_sales' || p.role === 'rep_partner') return false;
   const emp = frRosterRowForProfile(p);   // works even when the profile stores a branch id
   if (emp && emp.type_label) return /office\s*staff/i.test(emp.type_label);
   if (state.profile && p.id === state.profile.id && state.myRepType) return /office\s*staff/i.test(state.myRepType);
@@ -7539,16 +7552,36 @@ function openRepCustomizeModal() {
 // Mirrors the dashboard's openRepProfileModal layout (avatar/header, stats
 // grid, records strip) but works off the raw-CSV-derived rep object and
 // preserves the full drill-down behavior the inline section had.
+// ── Rep-detail visibility — one gate for player cards + record expansions.
+// Admin: anyone. Self: always. Rep - Partner: also reps on THEIR OWN team.
+// Everyone else: self only.
+function canViewRepDetails(repName, repTeam) {
+  const me = state.profile;
+  if (!me) return false;
+  if (isAdminRole(me.role)) return true;
+  const _sigG = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  if (_sigG(repName) === _sigG(me.full_name)) return true;
+  if (isPartnerRole(me.role) && typeof getRepTeam === 'function') {
+    // Partner's team: resolve their dataset name by signature, then look up
+    // the team assignment (same maps Manage Teams writes).
+    let myTeam = getRepTeam(me.full_name) || '';
+    if (!myTeam && Array.isArray(state._indicatorRawSales)) {
+      const mySig = _sigG(me.full_name);
+      const match = (state._indicatorRawSales.find(s => s && s.rep && _sigG(getCanonicalRepName(s.rep)) === mySig) || {}).rep;
+      if (match) myTeam = getRepTeam(getCanonicalRepName(match)) || '';
+    }
+    const theirTeam = repTeam || getRepTeam(repName) || (typeof getCanonicalRepName === 'function' ? getRepTeam(getCanonicalRepName(repName)) : '');
+    return !!(myTeam && theirTeam && myTeam === theirTeam);
+  }
+  return false;
+}
 function openIndicatorRepCard(rep, allReps = []) {
   if (!rep) return;
-  // PRIVACY GATE — non-admins can only open THEIR OWN card. The leaderboard
-  // still shows everyone's headline numbers, but the full card (customer
-  // names, accounts, drill-downs, retention) is admin + self only. Matched
-  // by name signature so "Sauer, Drew" ↔ "Drew Sauer" resolves.
-  if (!isAdminRole(state.profile && state.profile.role)) {
-    const _sigG = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
-    if (_sigG(rep.name) !== _sigG(state.profile && state.profile.full_name)) return;
-  }
+  // PRIVACY GATE — admin: anyone · self: always · Rep - Partner: their own
+  // team's reps too (they manage them) · everyone else: self only. The
+  // leaderboard still shows headline numbers for all; the full card
+  // (accounts, drill-downs, retention) is what's gated.
+  if (!canViewRepDetails(rep.name, rep.team)) return;
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
@@ -8083,10 +8116,9 @@ function openIndicatorRepCard(rep, allReps = []) {
               const isMe = row.name === rep.name;
               const isExpanded = recordsLeaderExpanded === row.name;
               const r = row.rec;
-              // PRIVACY: non-admins see the ranked totals but can only expand
-              // THEIR OWN row into accounts — other reps' customers stay
-              // hidden (same rule as the player-card gate).
-              const canExpand = isAdminRole(state.profile && state.profile.role) || isMe;
+              // PRIVACY: same gate as the player card — admin: anyone,
+              // self: always, Rep - Partner: their own team's reps.
+              const canExpand = canViewRepDetails(row.name, row.team);
               const tr = el('tr', {
                 class: 'border-t border- transition' + (isMe ? ' js-leader-current' : '') + (canExpand ? ' cursor-pointer hover:brightness-95' : ''),
                 style: isExpanded
@@ -27646,7 +27678,7 @@ function openTVDashboard() {
     const cg = state.companyGoal || { amount: 6000000, period: 'year' };
     const monthlyCompanyGoal = cg.period === 'year' ? cg.amount / 12 : cg.amount;
     const dailyCompanyGoal = workingDaysInMonth > 0 ? monthlyCompanyGoal / workingDaysInMonth : 0;
-    const sellerRoles = new Set(['rep', 'rep_office', 'rep_sales', 'admin_rep']);
+    const sellerRoles = new Set(['rep', 'rep_office', 'rep_sales', 'rep_partner', 'admin_rep']);
     const activeRepCount = Math.max(1,
       (state.allProfiles || []).filter(p => p.is_active !== false && sellerRoles.has(p.role)).length
     );
@@ -33314,7 +33346,7 @@ function viewReporting() {
     reportingMethodologyBar(),
     isMarketing                            ? reportingMarketingPnl() :
     state.reportingSubTab === 'is'         ? reportingMarketingPnl() :
-    state.reportingSubTab === 'config'     ? el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()) :
+    state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingAuditExportCard(), el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel())) :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
@@ -34228,6 +34260,77 @@ function viewQueues() {
           'Who to call and why — renewals entering their window, at-risk customers to save, and cross-sell pitches. Lists refresh from the CRM hourly; dispositions are shared across the whole team.')),
       pills),
     body);
+}
+
+// ═══ FULL-POPULATION AUDIT EXPORT (per Isaac) — every subscription row in
+// the snapshot, raw CRM fields PLUS every classification the app applies
+// (visible/hidden, recurring, serviced, active, counted-cancel + why not,
+// ROR, one-time, retention population). Built to XLOOKUP against a manual
+// CRM export by Customer ID + Subscription to find where reporting is
+// right — and where it isn't.
+function reportingAuditExportCard() {
+  const gate = reportingDataGate();
+  if (gate) return null;   // config panels render their own empty states
+  return el('div', { class: 'card p-4 flex items-start justify-between gap-3 flex-wrap' },
+    el('div', {},
+      el('h3', { class: 'text-sm font-bold' }, '🔍 Reporting audit export'),
+      el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
+        'Every row in the snapshot — including hidden/excluded ones — with the raw CRM fields AND every judgment the app makes about the row (visible, recurring, active, counted as churn + the reason it isn\u2019t, ROR, retention population). XLOOKUP it against a manual CRM export by Customer ID to reconcile.')),
+    el('button', {
+      class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95 shrink-0',
+      style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+      onclick: () => {
+        const { all, isHidden, isRecurring, isActive, isRealCancel } = reportingFilters();
+        const excludedSources = reportingExcludedSources();
+        const excludedReasons = reportingExcludedCancelReasons();
+        const rorOn = reportingExcludeRorChurn();
+        const rows = all.map(r => {
+          const hidden = isHidden(r);
+          const srcExcl = excludedSources.has(reportingSourceOf(r));
+          const visible = !hidden && !srcExcl;
+          const rec = isRecurring(r);
+          const serviced = (Number(r.subscription_completed_services) || 0) > 0 || !!r.initial_service;
+          const ror = !!(r.subscription_date_canceled && typeof _reporting3dayRor === 'function' && _reporting3dayRor(r));
+          const reasonExcl = !!(r.subscription_date_canceled && excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r))));
+          const counted = isRealCancel(r);
+          let whyNot = '';
+          if (r.subscription_date_canceled && !counted) {
+            whyNot = !rec ? 'not recurring (one-time/lifecycle)'
+              : (rorOn && ror) ? '3-day ROR'
+              : reasonExcl ? 'reason excluded in Configurations'
+              : !visible ? (hidden ? 'service type hidden' : 'source excluded') : 'other';
+          }
+          return [
+            r.customer_id, r.last_name, r.first_name, r.office_name, r.state, r.county, r.zip_code,
+            r.subscription, r.subscription_source, r.sold_by, r.sold_by_type, r.sold_date,
+            r.initial_service, r.subscription_completed_services, r.subscription_status,
+            r.subscription_date_canceled, reportingCancelReasonOf(r),
+            r.agreement_length, r.recurring_frequency,
+            r.annual_recurring_value, r.subscription_contract_value, r.initial_price,
+            r.days_past_due, r.customer_auto_pay, r.customer_flags,
+            visible ? 'Yes' : (hidden ? 'No — hidden service' : 'No — excluded source'),
+            rec ? 'Yes' : 'No',
+            serviced ? 'Yes' : 'No',
+            isActive(r) ? 'Yes' : 'No',
+            (visible && rec && serviced) ? 'Yes' : 'No',
+            r.subscription_date_canceled ? (counted ? 'Yes' : 'No') : '',
+            whyNot, ror ? 'Yes' : '',
+          ];
+        });
+        _reportingCsvDownload('reporting-audit-export.csv', [
+          'Customer ID', 'Last Name', 'First Name', 'Office', 'State', 'County', 'Zip',
+          'Subscription', 'Source', 'Sold By', 'Sold By Type', 'Sold Date',
+          'Initial Service', 'Completed Services', 'Status',
+          'Date Canceled', 'Cancel Reason',
+          'Agreement Length', 'Frequency',
+          'ARV', 'Contract Value', 'Initial Price',
+          'Days Past Due', 'Auto Pay', 'Customer Flags',
+          'App: Visible', 'App: Recurring', 'App: Serviced', 'App: Active',
+          'App: In Retention Population', 'App: Counted As Churn', 'App: Why Not Counted', 'App: 3-Day ROR',
+        ], rows);
+        toast('Exported ' + rows.length.toLocaleString() + ' rows', 'success');
+      },
+    }, '⬇ Export full audit table'));
 }
 
 function reportingSubTabs() {
@@ -42970,7 +43073,7 @@ function adminReps() {
           style: { position: 'absolute', top: 'calc(100% + 6px)', right: '0', minWidth: '190px', padding: '6px', display: 'none', zIndex: '50', boxShadow: 'var(--shadow-lg)' },
         },
           el('div', { class: 'px-3 pt-1.5 pb-2 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'View the app as\u2026'),
-          ...[['rep_sales', 'Rep - Sales Rep'], ['rep_office', 'Rep - Office Staff'], ['auditor', 'Auditor']].map(([v, label]) => el('button', {
+          ...[['rep_sales', 'Rep - Sales Rep'], ['rep_partner', 'Rep - Partner'], ['rep_office', 'Rep - Office Staff'], ['auditor', 'Auditor']].map(([v, label]) => el('button', {
             class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition',
             style: { color: 'var(--text)' },
             onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
@@ -43801,6 +43904,7 @@ function openUserEditor(existing = null, prefill = null) {
       if (seedRole === 'rep') seedRole = 'rep_sales';
       const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-3 py-2 text-sm' },
         el('option', { value: 'rep_sales',  selected: seedRole === 'rep_sales' },  'Rep - Sales Rep'),
+        el('option', { value: 'rep_partner', selected: seedRole === 'rep_partner' }, 'Rep - Partner (team lead)'),
         el('option', { value: 'rep_office', selected: seedRole === 'rep_office' }, 'Rep - Office Staff'),
         el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep' },  'Admin + Sales'),
         el('option', { value: 'admin',      selected: seedRole === 'admin' },      'Admin (no sales)'),
