@@ -16634,38 +16634,70 @@ function openNrlaTeamRepsModal(team, R, nameOf) {
   const key = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', key);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  const stats = (R.repStats || {})[team] || {};
-  const rosterSet = R.rosters && R.rosters[team] ? [...R.rosters[team]] : [];
-  const rows = [...new Set([...Object.keys(stats), ...rosterSet])]
-    .map(n => ({ name: n, ...(stats[n] || { n: 0, total: 0, passed: 0, pending: 0, failed: 0 }) }))
-    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
-  const teamTotal = rows.reduce((a, r) => a + r.total, 0);
   const th = (t2, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-bold ' + (right ? 'text-right' : 'text-left'), style: { background: '#0E1C30', color: '#fff', position: 'sticky', top: '0' } }, t2);
   const td = (v, right, style) => el('td', { class: 'px-3 py-1.5 text-xs tabular-nums whitespace-nowrap ' + (right ? 'text-right' : ''), style: style || {} }, v);
-  const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
-    el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: PINK } },
-      el('div', {},
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'rgba(255,255,255,.8)' } }, 'NRLA · rep contributions'),
-        el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#fff', textTransform: 'uppercase' } }, (nameOf ? nameOf(team) : team)),
-        el('div', { class: 'text-[11px] font-bold', style: { color: 'rgba(255,255,255,.9)' } },
-          rows.length + ' reps · ' + money(teamTotal) + ' season total · Pending/Serviced accounts only')),
-      el('button', { class: 'text-2xl leading-none', style: { color: '#fff' }, onclick: close }, '×')),
-    el('div', { class: 'overflow-auto flex-1' },
-      el('table', { class: 'w-full' },
-        el('thead', {}, el('tr', {}, th('#'), th('Rep'), th('Accts', true), th('Total Rev Sold', true), th('Passed', true), th('Pending', true), th('Failed', true), th('% of Team', true))),
-        el('tbody', {}, ...rows.map((r, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: i % 2 ? 'rgba(14,28,48,.04)' : 'transparent' } },
-          td(String(i + 1)),
-          el('td', { class: 'px-3 py-1.5 text-xs font-bold whitespace-nowrap' }, r.name,
-            r.n === 0 ? el('span', { class: 'ml-2 text-[9px] uppercase', style: { color: 'var(--text-subtle)' } }, 'no production yet') : null),
-          td(String(r.n), true),
-          td(money(r.total), true, { fontWeight: '800' }),
-          td(money(r.passed), true, { color: '#1b7f3b' }),
-          td('(' + money(r.pending) + ')', true, { color: '#D97706' }),
-          td(money(r.failed), true, { color: '#E8271B' }),
-          td(teamTotal > 0 ? ((r.total / teamTotal) * 100).toFixed(1) + '%' : '—', true, { color: BLUE, fontWeight: '700' }))))
-      )),
-    el('div', { class: 'px-5 py-2.5 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
-      'Sold-Not-Started accounts (never serviced and no pending appointment — cancelled at the door, no appt scheduled, or appt cancelled) are excluded from every number. Passed = Passed/No Audit · Pending = not audited yet · Failed = Failed Audit + Last Resort (<$99).'));
+  const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
+  // Season ⇄ per-round scope (per Isaac) — re-renders in place.
+  let scope = 'season';
+  const _roundLbl = (rd) => (rd.phase === 'seed' ? 'Round ' + rd.num : rd.phase === 'semi' ? 'Semifinals' : 'Championship');
+  const _dspan2 = (d1, d2) => (d1.getMonth() + 1) + '/' + d1.getDate() + '–' + (d2.getMonth() + 1) + '/' + d2.getDate();
+  const render = () => {
+    const stats = scope === 'season'
+      ? ((R.repStats || {})[team] || {})
+      : (() => {   // round stats are keyed rep → { team, … } across ALL teams
+          const src2 = (R.roundRepStats || [])[Number(scope)] || {};
+          const out = {};
+          Object.entries(src2).forEach(([n, st]) => { if (st.team === team) out[n] = st; });
+          return out;
+        })();
+    const rosterSet = R.rosters && R.rosters[team] ? [...R.rosters[team]] : [];
+    const rows = [...new Set([...Object.keys(stats), ...(scope === 'season' ? rosterSet : [])])]
+      .map(n => ({ name: n, ...(stats[n] || { n: 0, total: 0, passed: 0, pending: 0, failed: 0 }) }))
+      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+    const teamTotal = rows.reduce((a, r) => a + r.total, 0);
+    const scopeSel = el('select', {
+      class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
+      style: { border: 'none', background: 'rgba(255,255,255,.25)', color: '#fff' },
+      title: 'Season, or a single round',
+      onchange: (e) => { scope = e.target.value; render(); },
+    },
+      (() => { const o = el('option', { value: 'season', style: { color: '#000' } }, 'Season'); if (scope === 'season') o.selected = true; return o; })(),
+      ...(R.rounds || []).map((rd, i) => {
+        if (!rd.started) return null;
+        const o = el('option', { value: String(i), style: { color: '#000' } }, _roundLbl(rd) + ' · ' + _dspan2(rd.d1, rd.d2));
+        if (scope === String(i)) o.selected = true; return o;
+      }).filter(Boolean));
+    card.innerHTML = '';
+    card.append(
+      el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: PINK } },
+        el('div', {},
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'rgba(255,255,255,.8)' } }, 'NRLA · rep contributions'),
+          el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#fff', textTransform: 'uppercase' } }, (nameOf ? nameOf(team) : team)),
+          el('div', { class: 'text-[11px] font-bold', style: { color: 'rgba(255,255,255,.9)' } },
+            rows.length + ' reps · ' + money(teamTotal) + (scope === 'season' ? ' season total' : ' in ' + _roundLbl(R.rounds[Number(scope)])) + ' · Pending/Serviced accounts only')),
+        el('div', { class: 'flex items-center gap-2' },
+          scopeSel,
+          el('button', { class: 'text-2xl leading-none', style: { color: '#fff' }, onclick: close }, '×'))),
+      el('div', { class: 'overflow-auto flex-1' },
+        el('table', { class: 'w-full' },
+          el('thead', {}, el('tr', {}, th('#'), th('Rep'), th('Accts', true), th('Total Rev Sold', true), th('Passed', true), th('Pending', true), th('Failed', true), th('% of Team', true))),
+          el('tbody', {},
+            rows.length === 0 ? el('tr', {}, el('td', { class: 'px-3 py-6 text-center text-xs italic', colspan: '8', style: { color: 'var(--text-subtle)' } }, 'No production from this team in this round.')) : '',
+            ...rows.map((r, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: i % 2 ? 'rgba(14,28,48,.04)' : 'transparent' } },
+            td(String(i + 1)),
+            el('td', { class: 'px-3 py-1.5 text-xs font-bold whitespace-nowrap' }, r.name,
+              r.n === 0 ? el('span', { class: 'ml-2 text-[9px] uppercase', style: { color: 'var(--text-subtle)' } }, 'no production yet') : null),
+            td(String(r.n), true),
+            td(money(r.total), true, { fontWeight: '800' }),
+            td(money(r.passed), true, { color: '#1b7f3b' }),
+            td('(' + money(r.pending) + ')', true, { color: '#D97706' }),
+            td(money(r.failed), true, { color: '#E8271B' }),
+            td(teamTotal > 0 ? ((r.total / teamTotal) * 100).toFixed(1) + '%' : '—', true, { color: BLUE, fontWeight: '700' }))))
+        )),
+      el('div', { class: 'px-5 py-2.5 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
+        'Sold-Not-Started accounts (never serviced and no pending appointment — cancelled at the door, no appt scheduled, or appt cancelled) are excluded from every number. Passed = Passed/No Audit · Pending = not audited yet · Failed = Failed Audit + Last Resort (<$99).'));
+  };
+  render();
   overlay.append(card);
   document.body.append(overlay);
 }
