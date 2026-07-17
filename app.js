@@ -17222,7 +17222,12 @@ function nrlaBoard(rawSales, opts) {
     }
     const qual = (r) => (r.passed || 0) + (r.pending || 0);
     flat.sort((a, b) => qual(b) - qual(a) || a.name.localeCompare(b.name));
-    const top = flat.slice(0, 10);
+    // Team filter (per Isaac): All teams = the Top 10 race; one team = EVERY
+    // rep on that team + a totals row, so team revenue reconciles against
+    // the standings table row-by-row.
+    const teamFilter = state._nrlaRepBoardTeam && R.teams.includes(state._nrlaRepBoardTeam) ? state._nrlaRepBoardTeam : 'all';
+    const filtered = teamFilter === 'all' ? flat : flat.filter(r => r.team === teamFilter);
+    const top = teamFilter === 'all' ? filtered.slice(0, 10) : filtered;
     const medal = (i) => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '#' + (i + 1);
     // Season PRA = qualifying ÷ rounds played; a single round IS one window.
     const roundsStarted = scope === 'season' ? Math.max(1, R.rounds.filter(r => r.started).length) : 1;
@@ -17234,12 +17239,25 @@ function nrlaBoard(rawSales, opts) {
     },
       (() => { const o = el('option', { value: 'season', style: { color: '#000' } }, 'Season'); if (scope === 'season') o.selected = true; return o; })(),
       ...R.rounds.map((rd, i) => { const o = el('option', { value: String(i), style: { color: '#000' } }, roundLabel(rd)); if (scope === String(i)) o.selected = true; return o; }));
+    const teamSel = el('select', {
+      class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
+      style: { border: 'none', background: 'rgba(255,255,255,.25)', color: '#fff' },
+      title: 'All teams = Top 10 race · pick a team to see EVERY rep on it with team totals (data check)',
+      onchange: (e) => { state._nrlaRepBoardTeam = e.target.value; rerender(); },
+    },
+      (() => { const o = el('option', { value: 'all', style: { color: '#000' } }, 'All teams · Top 10'); if (teamFilter === 'all') o.selected = true; return o; })(),
+      ...R.teams.slice().sort((a, b) => nameOf(a).localeCompare(nameOf(b))).map(t => {
+        const o = el('option', { value: t, style: { color: '#000' } }, nameOf(t));
+        if (teamFilter === t) o.selected = true; return o;
+      }));
     return el('div', { class: 'nrla-standings' },   // same mobile sticky #/Rep columns as the standings table
       el('div', { class: 'flex items-center justify-between gap-2 flex-wrap px-3 py-1.5', style: { background: PINK } },
         el('span', { style: { fontFamily: DISP, fontSize: '.82rem', letterSpacing: '.16em', color: '#fff', textTransform: 'uppercase' } },
-          'Rep Leaderboard · Top 10' + (scope === 'season' ? '' : ' · ' + roundLabel(R.rounds[Number(scope)]).split(' · ')[0])),
+          (teamFilter === 'all' ? 'Rep Leaderboard · Top 10' : 'Rep Leaderboard · ' + nameOf(teamFilter) + ' · all ' + top.length + ' reps')
+          + (scope === 'season' ? '' : ' · ' + roundLabel(R.rounds[Number(scope)]).split(' · ')[0])),
         el('div', { class: 'flex items-center gap-2' },
           el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, 'qualifying rev · Pending/Serviced only'),
+          teamSel,
           scopeSel)),
       el('div', { class: 'overflow-x-auto' },
         el('table', { class: 'w-full text-xs' },
@@ -17274,7 +17292,23 @@ function nrlaBoard(rawSales, opts) {
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: REDD } }, money(r.failed)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, r.n > 0 ? money(r.total / r.n) : '—'),
               el('td', { class: 'px-2 py-2 tabular-nums' }, r.n),
-            ))))));
+            )),
+            // Team totals row (team filter only) — must reconcile with the
+            // standings table's row for this team in the same scope.
+            (teamFilter !== 'all' && top.length) ? (() => {
+              const t = top.reduce((a, r) => ({ total: a.total + (r.total || 0), passed: a.passed + (r.passed || 0), pending: a.pending + (r.pending || 0), failed: a.failed + (r.failed || 0), n: a.n + (r.n || 0), q: a.q + qual(r) }), { total: 0, passed: 0, pending: 0, failed: 0, n: 0, q: 0 });
+              return el('tr', { class: 'border-t-2', style: { borderColor: '#0E1C30', background: 'rgba(14,28,48,.08)' } },
+                el('td', { class: 'px-3 py-2' }, ''),
+                el('td', { class: 'px-2 py-2 font-black whitespace-nowrap', style: { letterSpacing: '.06em' } }, 'TEAM TOTAL'),
+                el('td', {}, ''),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, money(t.q / roundsStarted)),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(t.total)),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: '#1b7f3b' } }, money(t.passed)),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: '#D97706' } }, '(' + money(t.pending) + ')'),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: REDD } }, money(t.failed)),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, t.n > 0 ? money(t.total / t.n) : '—'),
+                el('td', { class: 'px-2 py-2 tabular-nums font-black' }, t.n));
+            })() : null))));
   })();
 
   // Leaderboard-only mode — the Office Staff comps tab embeds JUST the Rep
