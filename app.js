@@ -4298,6 +4298,15 @@ function openMySettingsModal() {
         el('div', { class: 'flex items-center gap-2' }, goalInput, goalBtn),
         el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Your personal target — drives your goal pacing anywhere it shows in the app.')) : null,
       el('div', { class: 'flex flex-col gap-2' },
+        secLabel('Time Zone'),
+        el('select', {
+          class: 'w-full rounded-lg border px-3 py-2 text-sm',
+          style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          onchange: (e) => { setUserTzPref(e.target.value); toast('Time zone updated', 'success'); scheduleBackgroundRemount(); },
+        }, ...USER_TZ_CHOICES.map(([v, label]) => el('option', { value: v, selected: userTzPref() === v }, label))),
+        el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
+          'Affects time displays like Today\u2019s Sales. Auto = Mountain (Utah) for office staff; D2D sale times always show in the selling office\u2019s local time.')),
+      el('div', { class: 'flex flex-col gap-2' },
         secLabel('Change Password'),
         pw1, pw2, policyList, pwBtn),
       el('div', { class: 'flex flex-col gap-2' },
@@ -4971,6 +4980,7 @@ function warRoomCrmSales() {
       _crmRenewal: (typeof _indicatorIsRenewal === 'function') && _indicatorIsRenewal(s),
       _crmService: String(s.subscription || '').trim(),
       _crmAutoPay: !!(s.autoPay && s.autoPay !== 'No'),
+      _crmOffice: String(s.office || ''),
       rep_id,
       logged_by: null,
       customer_name: s.customer || '',
@@ -6320,6 +6330,29 @@ function _parseIndicatorTime(s) {
 // Hours to add to the source timestamp to reach the office's local time. The
 // source runs ~3h behind Eastern; Destin is Central (+2), every other RIDD
 // branch is Eastern (+3). Adjust here if a branch reads an hour off.
+// ── User display timezone ─────────────────────────────────────────────────
+// 'auto' = role default: office staff see MOUNTAIN (the Utah call center's
+// clock, per Isaac); D2D reps see each sale in the SELLING OFFICE's local
+// time (unchanged). The per-user override lives in My Settings (gear).
+const USER_TZ_KEY = 'ridd_user_tz';
+const USER_TZ_CHOICES = [
+  ['auto', 'Auto — role default'],
+  ['America/New_York', 'Eastern (ET)'],
+  ['America/Chicago', 'Central (CT)'],
+  ['America/Denver', 'Mountain (MT)'],
+  ['America/Phoenix', 'Arizona (AZ)'],
+  ['America/Los_Angeles', 'Pacific (PT)'],
+];
+function userTzPref() { try { return localStorage.getItem(USER_TZ_KEY) || 'auto'; } catch { return 'auto'; } }
+function setUserTzPref(v) { try { localStorage.setItem(USER_TZ_KEY, v); } catch { /* private mode */ } }
+// Hours to ADD to the raw FieldRoutes clock per zone — same convention as
+// _saleHourOffset below (Mountain = +1), so CRM wall-clocks convert between
+// zones by simple offset difference.
+const _TZ_RAW_OFFSET = { 'America/New_York': 3, 'America/Chicago': 2, 'America/Denver': 1, 'America/Phoenix': 1, 'America/Los_Angeles': 0 };
+const _TZ_SHORT = { 'America/New_York': 'ET', 'America/Chicago': 'CT', 'America/Denver': 'MT', 'America/Phoenix': 'AZ', 'America/Los_Angeles': 'PT' };
+// Zone the inside-sales (War Room) clocks display in: user override → Mountain.
+function warRoomTz() { const p = userTzPref(); return _TZ_RAW_OFFSET[p] != null ? p : 'America/Denver'; }
+
 function _saleHourOffset(office) {
   const o = String(office || '').toLowerCase();
   if (o.includes('salt lake')) return 1;   // Mountain
@@ -9475,7 +9508,7 @@ function todaysSalesPanel(windowSales, range) {
       el('table', { class: 'w-full text-[12px]' },
         el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
           el('tr', {},
-            el('th', { class: 'text-left pl-4 pr-2 py-1.5 font-semibold' }, 'Time'),
+            el('th', { class: 'text-left pl-4 pr-2 py-1.5 font-semibold', title: 'Change your time zone under the gear → My Settings' }, 'Time · ' + (_TZ_SHORT[warRoomTz()] || 'MT')),
             el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Rep'),
             el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Service'),
             el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Contract'),
@@ -9491,9 +9524,22 @@ function todaysSalesPanel(windowSales, range) {
             const crmName = flipLastFirst(s._crmRep || '');   // CRM exports "Last, First"
             const first = rep ? (rep.full_name || '').split(' ')[0] : (crmName.split(' ')[0] || '—');
             const crmInitials = crmName ? crmName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '?';
-            const timeStr = s.created_at
-              ? new Date(s.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-              : '—';
+            // CRM rows carry a FLOATING office-local wall-clock (built in the
+            // bridge) — shift it into the display zone by offset difference.
+            // App-logged rows carry a real UTC timestamp — format directly.
+            const _dispTz = warRoomTz();
+            let timeStr = '—';
+            if (s._crm && s.created_at) {
+              const m = String(s.created_at).match(/T(\d{2}):(\d{2})/);
+              if (m) {
+                const shift = (_TZ_RAW_OFFSET[_dispTz] ?? 1) - _saleHourOffset(s._crmOffice);
+                const h = (Number(m[1]) + shift + 24) % 24;
+                timeStr = (h % 12 || 12) + ':' + m[2] + ' ' + (h >= 12 ? 'PM' : 'AM');
+              }
+            } else if (s.created_at) {
+              try { timeStr = new Date(s.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: _dispTz }); }
+              catch (e) { timeStr = new Date(s.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); }
+            }
             const svcName = nameFromId(state.serviceTypes, s.service_type_id);
             const pendingChip = s._pendingSync ? el('span', {
               class: 'inline-block ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold align-middle',
@@ -38838,7 +38884,7 @@ function viewD2dDashboard() {
         el('div', { class: 'text-xs text-muted- tabular-nums' }, listRows.length + ' · ' + fmt.usd0(listRows.reduce((a, s) => a + (Number(s.contractValue) || 0), 0)))),
       listRows.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-          ...[...(showDate ? ['Date'] : []), 'Time', 'Rep', 'Service', 'Mo', 'Initial', 'APay', 'Value'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap' }, h)))),
+          ...[...(showDate ? ['Date'] : []), 'Time', 'Rep', 'Service', 'Mo', 'Initial', 'APay', 'Value'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap', title: h === 'Time' ? 'Selling office\u2019s local time' : '' }, h)))),
         el('tbody', {}, ...listRows.slice(0, LIST_CAP).map(s => {
           const nm = getCanonicalRepName(s.rep);
           const t = _parseIndicatorTime(s);
