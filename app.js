@@ -5937,6 +5937,54 @@ function computeLeaderboard(tab = 'total', range = null) {
     });
   }
 
+  // ── RECONCILIATION ROW — whatever the board still hasn't attributed rolls
+  // into ONE "House / System" row: CRM rows sold by system / integration
+  // accounts (Referral, Pest Booker, RIDD Account, …) and rows whose app
+  // profile was deleted. The tiles count these, so without this row the
+  // pinned RIDD totals could never equal the revenue cards (per Isaac:
+  // every FieldRoutes dollar has to land somewhere visible).
+  {
+    const covered = new Set(profiles.map(p => p.id));
+    let sales = salesPool.filter(s => {
+      if (s.rep_id != null) return !covered.has(s.rep_id);
+      return !(s._crm && s._crmRep && !FR_SYSTEM_NAME_RE.test(s._crmRep));
+    });
+    if (tab === 'new')      sales = sales.filter(s => !isRenewalSale(s));
+    if (tab === 'renewals') sales = sales.filter(s =>  isRenewalSale(s));
+    if (sales.length) {
+      const count = sales.length;
+      const revenue = sales.reduce((a, s) => a + Number(s.revenue_amount || 0), 0);
+      const initial = count ? sales.reduce((a, s) => a + Number(s.initial_amount || 0), 0) / count : 0;
+      const oneTimeRev = sales.reduce((a, s) => {
+        const m = Number(s.contract_months);
+        if (m > 1) return a;
+        if (/sentricon/i.test(String(s._crmService || ''))) return a;
+        return a + Number(s.revenue_amount || 0);
+      }, 0);
+      const recurring = Math.max(0, revenue - oneTimeRev);
+      const acv = count ? revenue / count : 0;
+      const c12 = sales.filter(s => Number(s.contract_months) === 12).length;
+      const cMY = sales.filter(s => Number(s.contract_months) >= 18).length;
+      const cTotal = c12 + cMY;
+      const cOneTime = sales.filter(s => !Number(s.contract_months) || Number(s.contract_months) <= 1).length;
+      const _apRows = sales.filter(s => s._crm);
+      rows.push({
+        rep_id: 'crm:__house__',
+        _noProfile: true,
+        full_name: 'House / System',
+        first_name: 'House / System',
+        avatar_url: null,
+        initials: '🔧',
+        office: '',
+        count, revenue, initial, recurring, ots: oneTimeRev, acv,
+        my_pct: cTotal > 0 ? cMY / cTotal : 0,
+        rec_mix_pct: (cTotal + cOneTime) > 0 ? cTotal / (cTotal + cOneTime) : 0,
+        auto_pay_pct: _apRows.length ? _apRows.filter(s => s._crmAutoPay).length / _apRows.length : null,
+        best_day: _bestDayOf(sales), wow: null,
+      });
+    }
+  }
+
   // Sort by active sort column (default: sales desc)
   const sortKey = state.dashLeaderSort;
   const keyMap = { sales: 'count', revenue: 'revenue', initial: 'initial', recurring: 'recurring', ots: 'ots', acv: 'acv', my_pct: 'my_pct', rec_mix_pct: 'rec_mix_pct', auto_pay: 'auto_pay_pct' };
