@@ -4905,19 +4905,15 @@ if (!window._riddFitWired) {
 let _wrBridgeCache = { src: null, roster: null, profiles: null, out: null };
 function warRoomCrmSales() {
   const prevDept = state.indicatorDept;
-  const prevAcct = state.indicatorAcctStatus;
   let raw = [];
-  try {
-    state.indicatorDept = 'office';
-    // SOLD basis (per Isaac): the War Room speaks the CRM leaderboard's
-    // language — every account sold in the window counts, including ones
-    // that cancelled before their first service. The Pending/Serviced gate
-    // (which strips those) stays the default everywhere else (Indicators).
-    state.indicatorAcctStatus = 'all';
-    raw = indicatorSales();
-  }
+  // PENDING/SERVICED basis (per Isaac, after trying sold-basis): the War
+  // Room counts real production — FieldRoutes' own Pending/Serviced gate
+  // applies, so accounts that closed before ever being serviced don't
+  // count. A CRM leaderboard run WITHOUT that account-status filter will
+  // read ~2% higher; that delta is sold-not-started rows, not a bug.
+  try { state.indicatorDept = 'office'; raw = indicatorSales(); }
   catch (e) { raw = []; }
-  finally { state.indicatorDept = prevDept; state.indicatorAcctStatus = prevAcct; }
+  finally { state.indicatorDept = prevDept; }
   if (!raw.length) return [];
   if (_wrBridgeCache.src === raw && _wrBridgeCache.roster === state.frRoster
       && _wrBridgeCache.profiles === state.allProfiles) return _wrBridgeCache.out;
