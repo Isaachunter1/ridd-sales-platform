@@ -4167,6 +4167,7 @@ function refreshIndSection(id) {
   }
   host.innerHTML = '';
   host.append(build());
+  if (typeof fitCardNumbers === 'function') requestAnimationFrame(fitCardNumbers);
 }
 
 // ── White-screen safety net ────────────────────────────────────────────────
@@ -4844,6 +4845,46 @@ function mountApp() {
     );
     document.body.append(fab);
   }
+
+  // Big-number overflow guard — see fitCardNumbers below. Runs after the
+  // frame paints so measurements see the final layout.
+  requestAnimationFrame(fitCardNumbers);
+}
+
+// ── Overflow guard for display numbers ─────────────────────────────────────
+// On squeezed desktop widths (and small phones) a long figure like
+// "$34,928,722" in a stat card can bleed past the card edge — the display
+// font doesn't wrap (no spaces) and the tiles are width-constrained. Rather
+// than hand-tuning every card, this pass measures every display-font number
+// inside a card after each render and shrinks just the overflowing ones
+// until they fit (floor 11px). Reset-first so growing the window restores
+// full size. Wired to mountApp + debounced window resize.
+function fitCardNumbers() {
+  try {
+    const els = document.querySelectorAll('.card .font-display, .stat-tile .font-display');
+    // Pass 1: undo anything a previous pass shrank (so resizes can re-grow).
+    els.forEach(n => {
+      if (n.dataset.fitPrev != null) { n.style.fontSize = n.dataset.fitPrev; delete n.dataset.fitPrev; }
+    });
+    // Pass 2: shrink whatever overflows now.
+    els.forEach(n => {
+      if (!n.clientWidth) return;                       // hidden / display:none
+      if (n.scrollWidth <= n.clientWidth + 1) return;   // fits fine
+      const prev = n.style.fontSize || '';
+      let size = parseFloat(getComputedStyle(n).fontSize) || 16;
+      let guard = 0;
+      while (n.scrollWidth > n.clientWidth + 1 && size > 11 && guard++ < 14) {
+        size *= 0.93;
+        n.style.fontSize = size.toFixed(1) + 'px';
+      }
+      n.dataset.fitPrev = prev;
+    });
+  } catch (e) { /* a measurement hiccup must never break a render */ }
+}
+if (!window._riddFitWired) {
+  window._riddFitWired = true;
+  let _fitT;
+  window.addEventListener('resize', () => { clearTimeout(_fitT); _fitT = setTimeout(fitCardNumbers, 150); });
 }
 
 // ──────────────────────────────────────────────────────────────────────────
