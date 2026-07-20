@@ -4905,10 +4905,19 @@ if (!window._riddFitWired) {
 let _wrBridgeCache = { src: null, roster: null, profiles: null, out: null };
 function warRoomCrmSales() {
   const prevDept = state.indicatorDept;
+  const prevAcct = state.indicatorAcctStatus;
   let raw = [];
-  try { state.indicatorDept = 'office'; raw = indicatorSales(); }
+  try {
+    state.indicatorDept = 'office';
+    // SOLD basis (per Isaac): the War Room speaks the CRM leaderboard's
+    // language — every account sold in the window counts, including ones
+    // that cancelled before their first service. The Pending/Serviced gate
+    // (which strips those) stays the default everywhere else (Indicators).
+    state.indicatorAcctStatus = 'all';
+    raw = indicatorSales();
+  }
   catch (e) { raw = []; }
-  finally { state.indicatorDept = prevDept; }
+  finally { state.indicatorDept = prevDept; state.indicatorAcctStatus = prevAcct; }
   if (!raw.length) return [];
   if (_wrBridgeCache.src === raw && _wrBridgeCache.roster === state.frRoster
       && _wrBridgeCache.profiles === state.allProfiles) return _wrBridgeCache.out;
