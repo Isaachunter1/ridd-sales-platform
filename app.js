@@ -5776,7 +5776,6 @@ function computeLeaderboard(tab = 'total', range = null) {
   // first: explicit role → linked CRM roster row (admins have the full
   // roster) → own CRM type (self) → name-signature map from the shared
   // dataset (available to every role).
-  const profiles = profilesAll.filter(p => isSellerRole(p.role) && isOfficeStaffProfile(p));
   const renewalIds = new Set(state.sources.filter(s => s.is_renewal).map(s => s.id));
   const isRenewalSale = s => s._crmRenewal ?? renewalIds.has(s.source_id);
 
@@ -5790,6 +5789,13 @@ function computeLeaderboard(tab = 'total', range = null) {
     if (range) return d >= range.start && d <= range.end;
     return d >= yearStart;
   });
+  // Rank rows: current office-staff sellers PLUS anyone — active or not —
+  // who has revenue in the pool (per Isaac: a rep going inactive must not
+  // drop their production off the board, or the pinned RIDD totals drift
+  // away from the revenue tiles). Disabled/former reps only appear when
+  // they actually have sales in the window.
+  const _poolRepIds = new Set(salesPool.map(s => s.rep_id).filter(Boolean));
+  const profiles = profilesAll.filter(p => (isSellerRole(p.role) && isOfficeStaffProfile(p)) || _poolRepIds.has(p.id));
 
   // Week-over-Week % — this week's revenue vs last week's AT THE SAME POINT
   // in the week (a Wednesday compares against last week through Wednesday),
