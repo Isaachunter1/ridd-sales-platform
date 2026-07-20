@@ -7,9 +7,105 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 const CFG = window.RIDD_CONFIG;
 const hasConfig = CFG.SUPABASE_PUBLISHABLE_KEY && !CFG.SUPABASE_PUBLISHABLE_KEY.includes('PASTE_');
 const DEMO = new URLSearchParams(location.search).has('demo') || location.hash === '#demo';
-const supabase = hasConfig
+const _sbReal = hasConfig
   ? createClient(CFG.SUPABASE_URL, CFG.SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: true, autoRefreshToken: true } })
   : null;
+
+// ── SANDBOX MODE (admin) ──────────────────────────────────────────────────
+// Born from a real incident: rep counts were being edited live while
+// partners had the app open and watched the numbers move. Sandbox lets an
+// admin work against LIVE data while every write is intercepted client-side
+// and dropped — changes render locally (in-memory state updates as normal)
+// but never reach Supabase, so nobody else sees a thing. Session-scoped:
+// refresh/exit restores live truth. NOTE: this is a safety catch for the
+// admin's own hands, not a security boundary — the JWT stays a real admin.
+const SANDBOX_KEY = 'ridd_sandbox_mode';
+function sandboxOn() { try { return sessionStorage.getItem(SANDBOX_KEY) === '1'; } catch { return false; } }
+function sandboxStart() {
+  const real = state._realProfile || state.profile;
+  if (!real || !isAdminRole(real.role)) return;
+  try { sessionStorage.setItem(SANDBOX_KEY, '1'); } catch { /* private mode */ }
+  mountApp();
+}
+function sandboxExit() {
+  try { sessionStorage.removeItem(SANDBOX_KEY); } catch { /* ignore */ }
+  // Full reload — the cleanest way to throw away every sandboxed in-memory
+  // change and re-pull the live truth.
+  location.reload();
+}
+// Chainable no-op that quacks like a Postgrest builder: any method returns
+// itself, awaiting resolves { data: [], error: null } so callers' error
+// checks pass and their UI proceeds as if the save landed.
+function _sandboxBuilder() {
+  const p = new Proxy(function () {}, {
+    get(_t, prop) {
+      if (prop === 'then') return (res, rej) => Promise.resolve({ data: [], error: null, count: 0, status: 200, statusText: 'OK (sandbox)' }).then(res, rej);
+      if (prop === 'catch') return () => p;
+      if (prop === 'finally') return (f) => { try { f && f(); } catch { /* ignore */ } return p; };
+      if (prop === Symbol.toStringTag) return 'SandboxBuilder';
+      return () => p;
+    },
+    apply() { return p; },
+  });
+  return p;
+}
+const _SANDBOX_TABLE_WRITES = new Set(['insert', 'update', 'upsert', 'delete']);
+const _SANDBOX_STORAGE_WRITES = new Set(['upload', 'update', 'uploadToSignedUrl', 'remove', 'move', 'copy', 'createSignedUploadUrl']);
+const supabase = _sbReal && new Proxy(_sbReal, {
+  get(t, prop) {
+    if (prop === 'from') return (table) => {
+      const qb = t.from(table);
+      if (!sandboxOn()) return qb;
+      return new Proxy(qb, {
+        get(qt, m) {
+          if (_SANDBOX_TABLE_WRITES.has(m)) return () => _sandboxBuilder();
+          const v = qt[m];
+          return typeof v === 'function' ? v.bind(qt) : v;
+        },
+      });
+    };
+    if (prop === 'rpc') return (...args) => sandboxOn() ? _sandboxBuilder() : t.rpc(...args);
+    if (prop === 'storage') {
+      const st = t.storage;
+      if (!sandboxOn()) return st;
+      return new Proxy(st, {
+        get(stt, sp) {
+          if (sp === 'from') return (bucket) => {
+            const b = stt.from(bucket);
+            return new Proxy(b, {
+              get(bt, m) {
+                if (_SANDBOX_STORAGE_WRITES.has(m)) return async () => ({ data: { path: 'sandbox' }, error: null });
+                const v = bt[m];
+                return typeof v === 'function' ? v.bind(bt) : v;
+              },
+            });
+          };
+          const v = stt[sp];
+          return typeof v === 'function' ? v.bind(stt) : v;
+        },
+      });
+    }
+    const v = t[prop];
+    return typeof v === 'function' ? v.bind(t) : v;
+  },
+});
+// Mutating calls to our Netlify functions (password sets, Slack posts,
+// manual sync triggers) are writes too — sandbox swallows them with a fake
+// 200. GETs (sync status, spend, version) pass through; the client-error
+// logger stays live so sandbox crashes still reach us.
+{
+  const _realFetch = window.fetch.bind(window);
+  window.fetch = (url, opts) => {
+    try {
+      const u = String(url || '');
+      const method = String((opts && opts.method) || 'GET').toUpperCase();
+      if (sandboxOn() && method !== 'GET' && /^\/(api|\.netlify)\//.test(u) && !u.startsWith('/api/client-error')) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, sandbox: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+    } catch { /* fall through to the real fetch */ }
+    return _realFetch(url, opts);
+  };
+}
 
 // Resolve the URL we should bake into Supabase auth emails (invites,
 // password resets). When the admin happens to be on localhost the
@@ -3103,12 +3199,13 @@ const TAB_TITLES = {
   reporting:    'REPORTING',
   marketing:    'MARKETING',
   commission:   'SALES',
+  d2d_dashboard: 'SALES',
   admin:        'SETTINGS',
 };
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#queues':'queues', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#techs':'techs', '#training':'training', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#queues':'queues', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#techs':'techs', '#training':'training', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -3946,6 +4043,14 @@ const INSIDE_SALES_TABS = [
   ['hall_of_fame', 'Hall of Fame'],
 ];
 const INSIDE_SALES_TAB_KEYS = new Set([...INSIDE_SALES_TABS.map(([k]) => k), 'competitions']);
+// ── D2D SALES GROUP (per Isaac) — the door-to-door mirror of the Inside
+// Sales world: Dashboard (war room on CRM D2D rows) · Sales (accounts list)
+// · Pay (the commission calculator / My Commission, now a sub-tab).
+const D2D_SALES_TABS = [
+  ['d2d_dashboard', 'Dashboard'],
+  ['commission',    'Pay'],
+];
+const D2D_SALES_TAB_KEYS = new Set(D2D_SALES_TABS.map(([k]) => k));
 // Sales access — who gets the full Inside Sales group. Sellers (rep /
 // admin_rep, incl. loyalty reps via rep_type) and admins see everything;
 // auditors only need the Sales tab so they can audit sales. Everything
@@ -3965,7 +4070,7 @@ function salesModeToggle(mode) {
     onclick: () => {
       if (m === mode) return;
       const target = m === 'd2d'
-        ? 'commission'
+        ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
         : m === 'techs'
           ? 'techs'
           : (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) && state._lastIsTab !== 'competitions' ? state._lastIsTab : 'dashboard');
@@ -4006,6 +4111,35 @@ function insideSalesSubTabs() {
     }, ...tabs.map(([k, label]) => el('option', { value: k, selected: state.view === k }, label))));
   return el('div', { class: 'flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } },
     salesModeToggle('inside'),
+    tabBar,
+    tabSelect);
+}
+// D2D counterpart — same bar, same mobile dropdown consolidation, with the
+// admin Inside/D2D/Techs toggle riding in front.
+function d2dSalesSubTabs() {
+  const tabs = D2D_SALES_TABS;
+  const go = (k) => { state.view = k; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
+  const tabBar = el('div', { class: 'hidden sm:flex items-center flex-wrap gap-x-1 gap-y-0' },
+    ...tabs.map(([k, label]) => {
+      const active = state.view === k;
+      return el('button', {
+        class: 'px-3 sm:px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
+        style: {
+          borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+          color: active ? 'var(--text)' : 'var(--text-muted)',
+          marginBottom: '-1px',
+        },
+        onclick: () => go(k),
+      }, label);
+    }));
+  const tabSelect = el('div', { class: 'sm:hidden flex-1 min-w-0 py-1.5' },
+    el('select', {
+      class: 'w-full rounded-lg border px-3 py-2 text-sm font-bold',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => go(e.target.value),
+    }, ...tabs.map(([k, label]) => el('option', { value: k, selected: state.view === k }, label))));
+  return el('div', { class: 'flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } },
+    salesModeToggle('d2d'),
     tabBar,
     tabSelect);
 }
@@ -4275,7 +4409,7 @@ function mountApp() {
   // group (they audit sales, they don't sell). Any other Inside Sales
   // view (deep-link hash, stale _lastIsTab, default 'dashboard' on boot)
   // is coerced to Sales before render.
-  if (isAuditor && ((INSIDE_SALES_TAB_KEYS.has(state.view) && state.view !== 'sales') || state.view === 'queues')) {
+  if (isAuditor && ((INSIDE_SALES_TAB_KEYS.has(state.view) && state.view !== 'sales') || state.view === 'queues' || D2D_SALES_TAB_KEYS.has(state.view))) {
     state.view = 'sales';
     history.replaceState(null, '', VIEW_TO_HASH.sales || '#sales');
   }
@@ -4287,12 +4421,14 @@ function mountApp() {
   if (!isAdmin && !isAuditor && state.profile) {
     const _grp = repTypeGroup(state.profile);
     const _isTabNotComp = INSIDE_SALES_TAB_KEYS.has(state.view) && state.view !== 'competitions';
+    const _isD2dTab = D2D_SALES_TAB_KEYS.has(state.view);
+    const _d2dHome = D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard';
     let _redir = null;
-    if (_grp === 'office' && (state.view === 'techs' || state.view === 'commission')) _redir = 'dashboard';
-    else if (_grp === 'tech' && (_isTabNotComp || state.view === 'commission')) _redir = 'techs';
-    else if (_grp === 'd2d' && (_isTabNotComp || state.view === 'techs')) _redir = 'commission';
+    if (_grp === 'office' && (state.view === 'techs' || _isD2dTab)) _redir = 'dashboard';
+    else if (_grp === 'tech' && (_isTabNotComp || _isD2dTab)) _redir = 'techs';
+    else if (_grp === 'd2d' && (_isTabNotComp || state.view === 'techs')) _redir = _d2dHome;
     // Work Queues is an OFFICE STAFF tool (call lists carry customer identity).
-    if (state.view === 'queues' && _grp !== 'office') _redir = _grp === 'tech' ? 'techs' : 'commission';
+    if (state.view === 'queues' && _grp !== 'office') _redir = _grp === 'tech' ? 'techs' : _d2dHome;
     if (_redir) {
       state.view = _redir;
       history.replaceState(null, '', VIEW_TO_HASH[_redir] || '#' + _redir);
@@ -4319,13 +4455,16 @@ function mountApp() {
   const repCanSee = (v) => v === 'nrla'
     || v === 'indicators'                                  // rep-lite Indicators for ALL rep types
     || v === 'training'                                    // placeholder for now (viewTraining gates content)
-    || (!isOfficeStaff && v === 'commission')              // Sales Reps: "Sales" (commission home)
+    || (!isOfficeStaff && D2D_SALES_TAB_KEYS.has(v))       // Sales Reps: the D2D Sales group
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
   if (isRepOnly && !repCanSee(state.view)) {
-    // Reps' home = Indicators: their own player card + the leaderboard.
-    // (Was the Competitions board; comps stay one tap away in the nav.)
-    state.view = 'indicators';
-    history.replaceState(null, '', VIEW_TO_HASH.indicators || '#indicators');
+    // Home per rep type (per Isaac): Sales Reps land in their D2D Sales
+    // group; office staff on their Sales world; others keep Indicators.
+    const _home = isSalesRepType
+      ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
+      : isOfficeStaff ? 'sales' : 'indicators';
+    state.view = _home;
+    history.replaceState(null, '', VIEW_TO_HASH[_home] || '#' + _home);
   }
   // Auditors never had Indicators — keep it that way now that the blanket
   // admin gate above no longer covers it.
@@ -4344,7 +4483,7 @@ function mountApp() {
     // Rep accounts: everyone gets Competitions + rep-lite Indicators.
     // Office Staff get the Inside Sales group; Sales Reps get "Sales" —
     // their commission home, the D2D counterpart to Inside Sales.
-    ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]] : [['commission', 'Sales', iconDollar()]]),
+    ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]] : [['d2d_group', 'Sales', iconDollar()]]),
     ...(isOfficeStaff ? [['queues', 'Queues', iconClipboard()]] : []),
     ['nrla', 'Competitions', iconTrophy()],
     ['indicators', 'Indicators', iconChart()],
@@ -4387,7 +4526,9 @@ function mountApp() {
     ),
     // Nav items
     ...navItems.map(([k, label, icon]) => {
-      const active = k === 'inside_sales' ? INSIDE_SALES_TAB_KEYS.has(state.view) : state.view === k;
+      const active = k === 'inside_sales' ? INSIDE_SALES_TAB_KEYS.has(state.view)
+        : k === 'd2d_group' ? D2D_SALES_TAB_KEYS.has(state.view)
+        : state.view === k;
       return el('button', {
         class: 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition',
         style: active
@@ -4398,7 +4539,9 @@ function mountApp() {
         onclick: () => {
           const target = k === 'inside_sales'
             ? (isAuditor ? 'sales' : (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) ? state._lastIsTab : 'dashboard'))
-            : k;
+            : k === 'd2d_group'
+              ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
+              : k;
           state.view = target;
           history.replaceState(null, '', VIEW_TO_HASH[target] || '#' + target);
           mountApp();
@@ -4615,6 +4758,28 @@ function mountApp() {
       }, 'Back to Admin'),
     ));
   }
+  // Sandbox pill — always visible while sandboxed so there's never a doubt
+  // about whether a change was real. Stacks above the view-as pill when
+  // both are active (sandbox + previewing a role is a supported combo).
+  const _oldSandboxPill = document.getElementById('sandboxPill');
+  if (_oldSandboxPill) _oldSandboxPill.remove();
+  if (typeof sandboxOn === 'function' && sandboxOn()) {
+    const _stacked = !!document.getElementById('viewAsPill');
+    document.body.append(el('div', {
+      id: 'sandboxPill',
+      class: 'card',
+      style: { position: 'fixed', bottom: _stacked ? '64px' : '18px', left: '50%', transform: 'translateX(-50%)', zIndex: '9998',
+               padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '10px',
+               boxShadow: 'var(--shadow-lg)', border: '1px solid #F59E0B', background: 'rgba(245,158,11,.10)' },
+    },
+      el('span', { class: 'text-xs font-semibold' }, '\ud83e\uddea Sandbox \u2014 changes are NOT being saved'),
+      el('button', {
+        class: 'rounded-lg px-3 py-1 text-[11px] font-bold transition hover:brightness-95',
+        style: { background: '#F59E0B', color: '#fff' },
+        onclick: () => sandboxExit(),
+      }, 'Exit & discard'),
+    ));
+  }
 
   // Data Assistant 💬 — admin-only, created once (never re-rendered by
   // mountApp, so a mid-question re-render can't eat what you're typing).
@@ -4635,11 +4800,13 @@ function mountApp() {
     reporting:    viewReporting,
     marketing:    viewMarketing,
     commission:   viewCommission,
+    d2d_dashboard: viewD2dDashboard,
     techs:        viewTechs,
     training:     viewTraining,
     admin:        viewAdmin,
   }[state.view];
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
+  if (D2D_SALES_TAB_KEYS.has(state.view)) state._lastD2dTab = state.view;
   const node = view();
   node.classList.add('fade-in');
   // Inside Sales views get the consolidated sub-tab bar above the content
@@ -4647,10 +4814,10 @@ function mountApp() {
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) {
     const subTabBar = insideSalesSubTabs();
     if (subTabBar) contentWrap.append(subTabBar);
-  } else if (state.view === 'commission' && isAdmin) {
-    // D2D side of the Sales toggle — same bar position as the sub-tabs.
-    const t = salesModeToggle('d2d');
-    if (t) contentWrap.append(el('div', { class: 'flex items-center border-b mb-4 pb-2.5', style: { borderColor: 'var(--border)' } }, t));
+  } else if (D2D_SALES_TAB_KEYS.has(state.view)) {
+    // D2D Sales group — its own sub-tab bar (admin toggle rides in front).
+    const subTabBar = d2dSalesSubTabs();
+    if (subTabBar) contentWrap.append(subTabBar);
   } else if (state.view === 'techs' && isAdmin) {
     const t = salesModeToggle('techs');
     if (t) contentWrap.append(el('div', { class: 'flex items-center border-b mb-4 pb-2.5', style: { borderColor: 'var(--border)' } }, t));
@@ -4659,7 +4826,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'techs', 'training', 'auditing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'techs', 'training', 'auditing']);
   document.querySelector('.fab')?.remove();
   // + FAB is OFFICE STAFF only (per Isaac) — admins don't log sales from a
   // floating button, and the retired AI speed-dial no longer replaces it.
@@ -4841,7 +5008,7 @@ function repTypeGroup(p) {
 function defaultViewFor(p) {
   const g = repTypeGroup(p);
   return g === 'tech' ? 'techs'
-    : g === 'd2d' ? 'commission'
+    : g === 'd2d' ? 'd2d_dashboard'
     : g === 'auditor' ? 'sales'
     : g === 'office' ? 'sales'   // office staff open straight into the Sales tab (per Isaac)
     : 'dashboard';
@@ -5265,11 +5432,13 @@ function viewDashboard() {
               const _monLabel = now2.toLocaleDateString('en-US', { month: 'long' });
               if (_monTarget > 0 && _weekdaysInMonth > 0) {
                 const _dayGoal = _monTarget / _weekdaysInMonth;
-                needLine = el('div', { class: 'text-[10px] tabular-nums mt-1 font-semibold', style: { color: 'var(--text)' } },
+                needLine = el('div', {
+                  class: 'text-[10px] tabular-nums mt-1 font-semibold',
+                  style: { color: 'var(--text)' },
+                  title: _monLabel + ' target ' + fmt.usd0(_monTarget) + ' ÷ ' + _weekdaysInMonth + ' weekdays (holidays off) · weekends are bonus',
+                },
                   el('span', { style: { color: bar.color } }, '🎯 Weekday goal: '),
-                  fmt.usd0(_dayGoal) + '/day',
-                  el('span', { class: 'font-normal', style: { color: 'var(--text-muted)' } },
-                    ' · ' + _monLabel + ' target ' + fmt.usd0(_monTarget) + ' ÷ ' + _weekdaysInMonth + ' weekdays · weekends are bonus'));
+                  fmt.usd0(_dayGoal) + '/day');
               }
             }
             return el('div', {},
@@ -5280,13 +5449,11 @@ function viewDashboard() {
                   el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: bar.color } }),
                   el('span', { class: 'text-sm font-semibold whitespace-nowrap' }, bar.label),
                   el('span', { class: 'text-sm font-bold whitespace-nowrap hidden sm:inline', style: { color: bar.color } }, fmt.pct(pct)),
+                  // Goal rides next to the % (per Isaac)
+                  el('span', { class: 'text-xs tabular-nums font-bold whitespace-nowrap hidden sm:inline', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd0(bar.target)),
                 ),
                 el('div', { class: 'flex items-center gap-2 min-w-0 justify-end' },
-                  el('span', { class: 'text-xs tabular-nums whitespace-nowrap' },
-                    el('span', { class: 'font-semibold' }, fmt.usd0(bar.actual)),
-                    el('span', { class: 'text-muted-' }, ' / '),
-                    el('span', { class: 'font-bold' }, fmt.usd0(bar.target)),
-                  ),
+                  el('span', { class: 'text-xs tabular-nums whitespace-nowrap font-semibold' }, fmt.usd0(bar.actual)),
                   el('span', {
                     class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap hidden sm:inline',
                     style: {
@@ -5296,10 +5463,11 @@ function viewDashboard() {
                   }, (paceAhead ? '+' : '') + paceDiff.toFixed(1) + '%'),
                 ),
               ),
-              // Mobile: % + pace chip get their own tiny line under the label
-              // row instead of forcing a mid-row wrap.
+              // Mobile: % + goal + pace chip on their own tiny line under the
+              // label row instead of forcing a mid-row wrap.
               el('div', { class: 'flex items-center gap-2 mb-1 sm:hidden' },
                 el('span', { class: 'text-xs font-bold', style: { color: bar.color } }, fmt.pct(pct)),
+                el('span', { class: 'text-[11px] tabular-nums font-bold', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd0(bar.target)),
                 el('span', {
                   class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full',
                   style: {
@@ -9303,6 +9471,32 @@ function leaderboardSection(range) {
           ),
         ),
         el('tbody', {},
+          // ── RIDD totals — the whole department under the current filter,
+          // pinned as the first row (per Isaac) so reps race a visible bar.
+          (() => {
+            if (!rows.length) return null;
+            const t = rows.reduce((a, r) => ({
+              count: a.count + (r.count || 0), revenue: a.revenue + (r.revenue || 0),
+              recurring: a.recurring + (r.recurring || 0), ots: a.ots + (r.ots || 0),
+              initSum: a.initSum + (r.initial || 0) * (r.count || 0),
+              myW: a.myW + (r.my_pct || 0) * (r.count || 0), mixW: a.mixW + (r.rec_mix_pct || 0) * (r.count || 0),
+              apW: a.apW + (r.auto_pay_pct != null ? r.auto_pay_pct * (r.count || 0) : 0),
+              apN: a.apN + (r.auto_pay_pct != null ? (r.count || 0) : 0),
+            }), { count: 0, revenue: 0, recurring: 0, ots: 0, initSum: 0, myW: 0, mixW: 0, apW: 0, apN: 0 });
+            const stick = (left) => ({ position: 'sticky', left, background: 'var(--card-2)', zIndex: 1 });
+            return el('tr', { class: 'border-b-2 tabular-nums font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+              el('td', { class: 'pl-4 pr-1 py-2', style: Object.assign({ minWidth: '40px' }, stick('0')) }, '🏢'),
+              el('td', { class: 'px-2 py-2 whitespace-nowrap', style: stick('40px') }, 'RIDD'),
+              el('td', { class: 'px-2 py-2 text-right' }, fmt.int(t.count)),
+              el('td', { class: 'px-2 py-2 text-right' }, t.count ? fmt.usd0(t.initSum / t.count) : '—'),
+              el('td', { class: 'px-2 py-2 text-right' }, fmt.usd0(t.revenue)),
+              el('td', { class: 'px-2 py-2 text-right' }, fmt.usd0(t.recurring)),
+              el('td', { class: 'px-2 py-2 text-right' }, t.ots > 0 ? fmt.usd0(t.ots) : '\u2014'),
+              el('td', { class: 'px-2 py-2 text-right' }, t.count ? fmt.usd0(t.revenue / t.count) : '—'),
+              el('td', { class: 'px-2 py-2 text-right' }, t.apN ? fmt.pct(t.apW / t.apN) : '\u2014'),
+              el('td', { class: 'px-2 py-2 text-right' }, t.count ? fmt.pct(t.myW / t.count) : '—'),
+              el('td', { class: 'pl-2 pr-4 py-2 text-right' }, t.count ? fmt.pct(t.mixW / t.count) : '—'));
+          })(),
           rows.map((r, i) => {
             const isMe = r.rep_id === state.profile.id;
             return el('tr', {
@@ -16884,6 +17078,42 @@ function nrlaBoard(rawSales, opts) {
           RO ? null : el('button', {
             class: 'cursor-pointer transition hover:brightness-95',
             style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
+            title: 'Archive the season — freezes final standings, placements, per-rep stats and the payout math into a permanent record (Supabase + a JSON download), then optionally clears rosters & matchup overrides for a fresh season.',
+            onclick: async () => {
+              if (!confirm('Archive the season as it stands right now? Standings, placements, rep stats, and payout math get frozen into a permanent record.')) return;
+              const passedCount2 = {};
+              (R.accounts || []).forEach(a => { if (a.bucket === 'passed' && a.rep && a.rep !== '—') passedCount2[a.rep] = (passedCount2[a.rep] || 0) + 1; });
+              const archive = {
+                archived_at: new Date().toISOString(),
+                season_year: new Date().getFullYear(),
+                standings: R.standings.map((s, i) => ({ seed: i + 1, team: nameOf(s.team), w: s.w, l: s.l, t: s.t || 0, stats: R.seasonStats[s.team] ? { total: Math.round(R.seasonStats[s.team].total), passed: Math.round(R.seasonStats[s.team].passed), pending: Math.round(R.seasonStats[s.team].pending), failed: Math.round(R.seasonStats[s.team].failed), accts: R.seasonStats[s.team].n } : null })),
+                placements: (R.placements || []).map(p => ({ place: p.place, team: nameOf(p.team), prize: p.prize })),
+                rep_stats: Object.fromEntries(Object.entries(R.repStats || {}).map(([t, reps]) => [nameOf(t), Object.fromEntries(Object.entries(reps).map(([n, st]) => [n, { accts: st.n, total: Math.round(st.total), passed: Math.round(st.passed), pending: Math.round(st.pending), failed: Math.round(st.failed), passed_accts: passedCount2[n] || 0, payout_qualified: (passedCount2[n] || 0) >= 4 }]))])),
+              };
+              // Permanent copy in Supabase (app_settings, keyed by year+stamp)…
+              try {
+                if (!(typeof DEMO !== 'undefined' && DEMO) && supabase) {
+                  await supabase.from('app_settings').upsert({ key: 'nrla_archive_' + archive.season_year, value: archive }, { onConflict: 'key' });
+                }
+              } catch (e) { console.warn('[nrla] archive upsert failed', e); }
+              // …and a local JSON download either way.
+              const aEl = document.createElement('a');
+              aEl.href = URL.createObjectURL(new Blob([JSON.stringify(archive, null, 2)], { type: 'application/json' }));
+              aEl.download = 'nrla-season-archive-' + archive.season_year + '.json';
+              aEl.click();
+              setTimeout(() => URL.revokeObjectURL(aEl.href), 5000);
+              toast('Season archived (' + archive.standings.length + ' teams, ' + Object.keys(archive.rep_stats).length + ' rosters)', 'success');
+              // Optional fresh-season reset — archive is safely saved first.
+              if (confirm('Season archived. ALSO clear the matchup overrides and rosters so next season starts clean? (Team assignments and the archive itself are untouched.)')) {
+                if (cfg.matchups) cfg.matchups = {};
+                if (cfg.rosters) cfg.rosters = {};
+                save('Season archived — matchups & rosters cleared for the new season');
+              }
+            },
+          }, '🏁'),
+          RO ? null : el('button', {
+            class: 'cursor-pointer transition hover:brightness-95',
+            style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
             title: 'Export — CSV: one row per counted account with its round, team, rep, customer ID, audit status, and contract value. Built for XLOOKUP fact-checks against the CRM.',
             onclick: () => {
               try {
@@ -17366,14 +17596,24 @@ function nrlaBoard(rawSales, opts) {
         RO ? null : el('button', {
           class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
           style: { background: 'rgba(255,255,255,.25)', color: '#fff' },
-          title: 'Payout sheet — every rostered rep with their placement and prize, ready for payroll',
+          title: 'Payout sheet — every rostered rep listed; 4+ PASSED-audit accounts on the season qualifies for the prize (per Isaac)',
           onclick: () => {
             const esc = (v) => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
-            const L = ['Placement,Team,Rep,Prize Per Rep'];
+            // Qualification: 4+ passed-audit accounts across the season.
+            // Everyone still appears on the sheet — unqualified rows carry
+            // their count and $0 so payroll sees WHY, not just who.
+            const MIN_PASSED = 4;
+            const passedCount = {};
+            (R.accounts || []).forEach(a => { if (a.bucket === 'passed' && a.rep && a.rep !== '—') passedCount[a.rep] = (passedCount[a.rep] || 0) + 1; });
+            const L = ['Placement,Team,Rep,Passed Audit Accts,Qualified (4+ passed),Prize Per Rep'];
             R.placements.forEach(pl => {
               const roster = R.rosters[pl.team] ? [...R.rosters[pl.team]] : Object.keys((R.repStats || {})[pl.team] || {});
-              if (!roster.length) L.push([nrlaOrdinal(pl.place), nameOf(pl.team), '(no roster set)', pl.prize].map(esc).join(','));
-              roster.sort().forEach(rn => L.push([nrlaOrdinal(pl.place), nameOf(pl.team), rn, pl.prize].map(esc).join(',')));
+              if (!roster.length) L.push([nrlaOrdinal(pl.place), nameOf(pl.team), '(no roster set)', '', '', pl.prize].map(esc).join(','));
+              roster.sort().forEach(rn => {
+                const pc = passedCount[rn] || 0;
+                const q = pc >= MIN_PASSED;
+                L.push([nrlaOrdinal(pl.place), nameOf(pl.team), rn, pc, q ? 'YES' : 'no', q ? pl.prize : '$0'].map(esc).join(','));
+              });
             });
             const a3 = document.createElement('a');
             a3.href = URL.createObjectURL(new Blob([L.join('\n')], { type: 'text/csv' }));
@@ -22610,8 +22850,9 @@ function maybeShowWeeklyRecap() {
     // daily and land straight on the Sales tab; the popup is D2D rep candy.
     if (typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile)) return;
     const now = new Date(); now.setHours(0, 0, 0, 0);
-    const monday = new Date(now); monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-    const weekKey = monday.toISOString().slice(0, 10);
+    // Company week runs Sunday–Saturday (per Isaac) — key on the Sunday.
+    const sunday = new Date(now); sunday.setDate(now.getDate() - now.getDay());
+    const weekKey = sunday.toISOString().slice(0, 10);
     const KEY = 'ridd_recap_shown_for';
     if (localStorage.getItem(KEY) === weekKey) return;
 
@@ -22706,8 +22947,8 @@ function myStatsCard() {
   const ytd = rows.filter(r => r.d >= jan1);
   const ytdRev = ytd.reduce((a, r) => a + r.rev, 0);
   const ytdCount = ytd.length;
-  // This week (Mon–Sun window containing today).
-  const dow = (now.getDay() + 6) % 7;                       // Mon=0
+  // This week (Sun–Sat window containing today — company week).
+  const dow = now.getDay();                                 // Sun=0
   const wkStart = new Date(now); wkStart.setDate(now.getDate() - dow);
   const weekRev = rows.filter(r => r.d >= wkStart && r.d <= now).reduce((a, r) => a + r.rev, 0);
   // Streak: consecutive selling DAYS (Sundays don't break it) ending today
@@ -22728,7 +22969,7 @@ function myStatsCard() {
   for (const r of rows) {
     const dk = dayKey(r.d);
     byDay[dk] = (byDay[dk] || 0) + r.rev;
-    const ws = new Date(r.d); ws.setDate(r.d.getDate() - ((r.d.getDay() + 6) % 7));
+    const ws = new Date(r.d); ws.setDate(r.d.getDate() - r.d.getDay());   // Sun–Sat week
     const wk = dayKey(ws);
     byWeek[wk] = (byWeek[wk] || 0) + r.rev;
   }
@@ -30097,11 +30338,13 @@ function viewHistory({ embedded = false } = {}) {
 
 const SCORECARD_DEFAULT_TEMPLATE = {
   name: 'Inside Sales',
+  // Close-heavy split (per Isaac): the selling skill carries the most
+  // weight, call audits stay meaningful, accuracy and attendance follow.
   metrics: [
+    { id: 'close_pct',  label: 'Close %',              weight: 0.35, source: 'manual' },
+    { id: 'audit',      label: 'Audit Score (Calls)',  weight: 0.30, source: 'manual' },
+    { id: 'accuracy',   label: 'Accuracy Score',       weight: 0.20, source: 'manual' },
     { id: 'attendance', label: 'Attendance Score',     weight: 0.15, source: 'attendance' },
-    { id: 'close_pct',  label: 'Close %',              weight: 0.25, source: 'manual' },
-    { id: 'accuracy',   label: 'Accuracy Score',       weight: 0.25, source: 'manual' },
-    { id: 'audit',      label: 'Audit Score (Calls)',  weight: 0.35, source: 'manual' },
   ],
   attendance: {
     // workingDays is computed dynamically from the scorecard period
@@ -30150,6 +30393,15 @@ function getScorecardTemplate() {
     metrics:    Array.isArray(saved.metrics) && saved.metrics.length ? saved.metrics : SCORECARD_DEFAULT_TEMPLATE.metrics,
     attendance: saved.attendance || SCORECARD_DEFAULT_TEMPLATE.attendance,
   };
+  // One-time migration: a saved template still carrying the ORIGINAL default
+  // weights (15/25/25/35) was never customized — upgrade it to the new
+  // close-heavy split. Custom weights are always left alone.
+  {
+    const w = Object.fromEntries((merged.metrics || []).map(m => [m.id, Number(m.weight)]));
+    if (merged.metrics.length === 4 && w.attendance === 0.15 && w.close_pct === 0.25 && w.accuracy === 0.25 && w.audit === 0.35) {
+      merged.metrics = SCORECARD_DEFAULT_TEMPLATE.metrics.map(m => ({ ...m }));
+    }
+  }
   // Upgrade legacy penalties (no `unit` field). For the three baked-in
   // IDs we adopt the latest defaults (so a user who never customized
   // gets the new percent-based deductions automatically). Anything with
@@ -30301,9 +30553,13 @@ function viewScorecards() {
   // to one row. They can read scores their manager has set and the
   // coaching notes, but the template editor is admin-only (gated below).
   const isAdmin = isAdminRole(state.profile?.role);
+  // Scorecards are an INSIDE SALES tool (per Isaac) — the admin roster shows
+  // office-staff reps only, not D2D reps / techs / admins.
   const allProfiles = (state.allProfiles || []).filter(p => p && p.is_active !== false);
   const roster = isAdmin
-    ? allProfiles.slice().sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+    ? allProfiles.filter(p => !isAdminRole(p.role) && !isAuditorRole(p.role)
+        && typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(p))
+        .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
     : allProfiles.filter(p => p.id === state.profile?.id);
 
   // ── Header strip ──────────────────────────────────────────────────
@@ -31451,6 +31707,27 @@ function reportingAgingDays() { try { const v = parseInt(localStorage.getItem('r
 function setReportingAgingDays(n) { try { localStorage.setItem('ridd_rpt_aging_days', String(Math.max(0, parseInt(n, 10) || 0))); } catch {} }
 function reportingExcludeRorChurn() { try { return localStorage.getItem('ridd_rpt_excl_ror') === '1'; } catch { return false; } }
 function setReportingExcludeRorChurn(b) { try { localStorage.setItem('ridd_rpt_excl_ror', b ? '1' : '0'); } catch {} }
+// ── Retention population rules — the app-side build of the workbook's manual
+// Steps 4–6 (default ON so the Retention tab matches the hand report):
+//   · renewal-source subs are continuations of an existing customer, not new
+//     book entries — counting them double-counts the relationship AND flatters
+//     retention (they're recent + overwhelmingly active)
+//   · $0-paying subs aren't real book
+//   · Frozen with ≤1 completed service = a quiet death: no cancel date ever
+//     lands, so left in they'd count as "retained" forever
+function retenExclRenewalSubs()   { try { return localStorage.getItem('ridd_reten_excl_renewals') !== '0'; } catch { return true; } }
+function setRetenExclRenewalSubs(b)   { try { localStorage.setItem('ridd_reten_excl_renewals', b ? '1' : '0'); } catch {} }
+function retenExclZeroPay()       { try { return localStorage.getItem('ridd_reten_excl_zeropay') !== '0'; } catch { return true; } }
+function setRetenExclZeroPay(b)       { try { localStorage.setItem('ridd_reten_excl_zeropay', b ? '1' : '0'); } catch {} }
+function retenExclFrozenOneSvc()  { try { return localStorage.getItem('ridd_reten_excl_frozen1') !== '0'; } catch { return true; } }
+function setRetenExclFrozenOneSvc(b)  { try { localStorage.setItem('ridd_reten_excl_frozen1', b ? '1' : '0'); } catch {} }
+// One test, shared by the Retention tab prep + its population export.
+function retenPopulationExcluded(r) {
+  if (retenExclRenewalSubs() && reportingSourceClass(r.subscription_source) === 'renewal') return 'renewal sub';
+  if (retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0) return '$0 paying';
+  if (retenExclFrozenOneSvc() && /frozen/i.test(String(r.subscription_status || '')) && (Number(r.subscription_completed_services) || 0) <= 1) return 'frozen, 1 service';
+  return null;
+}
 function reportingActiveInclOneTime() { try { return localStorage.getItem('ridd_rpt_active_onetime') === '1'; } catch { return false; } }
 function setReportingActiveInclOneTime(b) { try { localStorage.setItem('ridd_rpt_active_onetime', b ? '1' : '0'); } catch {} }
 function reportingExcludedBranches() { try { return new Set(JSON.parse(localStorage.getItem('ridd_rpt_excl_branches') || '[]')); } catch { return new Set(); } }
@@ -33541,7 +33818,7 @@ function openReportingMethodologyModal(tab) {
     overview:   'Headline cards + donuts cover every visible sub in scope. Active = status Active with no cancel date. ARR sums Annual Recurring Value over active recurring subs.',
     geographic: 'Map + table use serviced + recurring subs only (one-time excluded). Attrition/Retention need 10+ subs in an area before a rate is shown. Retention = 1 − attrition.',
     reps:       'Per-rep counts use every visible sub in scope (sold_by). Active and ARV use the same Active + recurring rules as Overview.',
-    waterfall:  'Population: recurring service types only (per the Lifecycle config), serviced subs only (retention starts at first service), after Hidden-service and excluded-source filters and branch rules. Each cell = subs of that row still active at that year\u2019s end: started on/before Dec 31 and not cancelled by then. Cancels with a reason excluded from attrition count as RETAINED, and the 3-day-ROR setting matches the Overview tab. Subscription/ARR rows are initial-service-year cohorts (all-time; the time range doesn\u2019t apply). Contract Length / Rep default to BOOK SIZE per year-end — new sales enter columns as they start — and the Cohort picker locks those rows to one start-year and follows it, a true retention curve. Rep mode shows the top 15 reps by sub count, attributed by Sold By. Colors grade each cell against the cohort size (cohort views) or the row\u2019s best year (book-size view). Each cell shows the count plus its share of the cohort still active, and hovering shows the step attrition vs the prior year (1 \u2212 survivors \u00f7 prior-year survivors). Contract Length groups to 12/18/24 months plus Other (odd or legacy lengths pending CRM cleanup); the Blended Attrition table compares each year\u2019s beginning-of-year book (existing cohorts only) to those SAME subs at year-end \u2014 new sales during the year never enter, and ARR mode measures it in dollars.',
+    waterfall:  'Population: recurring service types only (per the Lifecycle config), serviced subs only (retention starts at first service), after Hidden-service and excluded-source filters, branch rules, and the Retention-population rules from Configurations (renewal subs, $0 payers, and frozen-\u22641-service subs are excluded by default \u2014 the workbook\u2019s manual Steps 4\u20136). Each cell = subs of that row still active at that year\u2019s end: started on/before Dec 31 and not cancelled by then. Cancels with a reason excluded from attrition count as RETAINED, and the 3-day-ROR setting matches the Overview tab. Subscription/ARR rows are initial-service-year cohorts (all-time; the time range doesn\u2019t apply). Contract Length / Rep default to BOOK SIZE per year-end — new sales enter columns as they start — and the Cohort picker locks those rows to one start-year and follows it, a true retention curve. Rep mode shows the top 15 reps by sub count, attributed by Sold By. Colors grade each cell against the cohort size (cohort views) or the row\u2019s best year (book-size view). Each cell shows the count plus its share of the cohort still active, and hovering shows the step attrition vs the prior year (1 \u2212 survivors \u00f7 prior-year survivors). Contract Length groups to 12/18/24 months plus Other (odd or legacy lengths pending CRM cleanup); the Blended Attrition table compares each year\u2019s beginning-of-year book (existing cohorts only) to those SAME subs at year-end \u2014 new sales during the year never enter, and ARR mode measures it in dollars.',
     is:         'Inside Sales is a sold-date P&L: new revenue is committed-sold (auto-pay) subs by the month sold. It honors excluded Sources but, being sold-revenue, not the lifecycle/hidden/cancel rules.',
   };
 
@@ -38117,7 +38394,7 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
   const empIds = new Set(String(emp.employee_ids || emp.employee_id || '').split(',').map(s => s.trim()).filter(Boolean));
   const cv = (r) => Number(r.subscription_contract_value) || 0;
   const catOf = (r) => cfg.serviceCategories[r.subscription] || 'unclassified';
-  const rows = (state.reportingSubscriptions || []).filter(r => {
+  const rows0 = (state.reportingSubscriptions || []).filter(r => {
     if (!empIds.has(String(r.sold_by_id || '').trim())) return false;
     const sd = Date.parse(r.sold_date || String(r.sold_at || '').slice(0, 10));
     if (isNaN(sd)) return false;
@@ -38125,6 +38402,27 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
     if (endMs && sd > endMs) return false;
     return true;
   });
+  // ── Canonical gates — the SAME configurations the rest of the app runs on,
+  // so Pay reconciles with Indicators/Reporting instead of raw CRM rows:
+  //   · FieldRoutes global excluded services (billing artifacts, not sales)
+  //   · excluded lead sources (Settings → Configurations)
+  //   · renewal-source subs (continuations — not D2D commissionable revenue)
+  //   · sold-not-started (initial appt neither Pending nor Completed — the
+  //     account never became real; blank status = legacy snapshot, passes)
+  // Gated rows are counted + shown, never silently dropped.
+  const _exclSrcSet = (typeof reportingExcludedSources === 'function') ? reportingExcludedSources() : new Set();
+  const gates = { global: { n: 0, rev: 0 }, source: { n: 0, rev: 0 }, renewal: { n: 0, rev: 0 }, sns: { n: 0, rev: 0 } };
+  const _gate = (k, v) => { gates[k].n++; gates[k].rev += v; };
+  const rows = [];
+  for (const r of rows0) {
+    const v = cv(r);
+    if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(r.subscription || '').trim())) { _gate('global', v); continue; }
+    if (_exclSrcSet.has(String(r.subscription_source || '').trim())) { _gate('source', v); continue; }
+    if (typeof reportingSourceClass === 'function' && reportingSourceClass(r.subscription_source) === 'renewal') { _gate('renewal', v); continue; }
+    const ist = String(r.initial_status || '').toLowerCase();
+    if (ist && ist !== 'pending' && ist !== 'completed') { _gate('sns', v); continue; }
+    rows.push(r);
+  }
   let pestRev = 0, bundleRev = 0, ancRev = 0, exclRev = 0, unclRev = 0;
   const unclassified = new Map();
   for (const r of rows) {
@@ -38150,8 +38448,18 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
   if (myPct > MY.hiPct) multiYearAmt = rev18 * (MY.rate18 / 100) + rev24 * (MY.rate24 / 100);
   else if (myPct >= MY.loPct) multiYearAmt = 0;
   else multiYearAmt = -(payableRev * (MY.penalty / 100));
-  // Account stats
-  const canceled = rows.filter(r => r.subscription_date_canceled);
+  // Account stats — cancels follow the canonical churn rules: reasons
+  // excluded in Settings → Configurations (Combined etc.) don't count.
+  const _exclReasons = (typeof reportingExcludedCancelReasons === 'function') ? reportingExcludedCancelReasons() : new Set();
+  const _reasonOf = (r) => (typeof _normCancelReason === 'function' && typeof reportingCancelReasonOf === 'function')
+    ? _normCancelReason(reportingCancelReasonOf(r)) : String(r.subscription_cancellation_reason || '').trim().toLowerCase();
+  const canceledAll = rows.filter(r => r.subscription_date_canceled);
+  const reasonExcl = canceledAll.filter(r => _exclReasons.has(_reasonOf(r)));
+  const canceled = canceledAll.filter(r => !_exclReasons.has(_reasonOf(r)));
+  // Quality stats — same conventions as the boards: APay = autopay field
+  // present and not the literal "No"; Last Resort = initial under $99.
+  const apayN = rows.filter(r => r.customer_auto_pay && r.customer_auto_pay !== 'No').length;
+  const lastResort = rows.filter(r => (Number(r.initial_price) || 0) < 99).length;
   const ror = canceled.filter(r => { const s = Date.parse(r.sold_date), c = Date.parse(r.subscription_date_canceled); return !isNaN(s) && !isNaN(c) && (c - s) >= 0 && (c - s) / 86400000 <= 3; });
   const afterLock = lockMs ? canceled.filter(r => { const c = Date.parse(r.subscription_date_canceled); return !isNaN(c) && c > lockMs; }) : [];
   const agingDays = (typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7;
@@ -38171,6 +38479,7 @@ function commissionCompute(emp, startMs, endMs, lockMs) {
     overrides, rent, paidYtd, other, audit, payPeriods, totalCommission, netDue, biWeekly,
     sold, canceled: canceled.length, ror: ror.length, afterLock: afterLock.length,
     withBalance: withBalance.length, finalAttrCount, finalAttrition: sold > 0 ? finalAttrCount / sold * 100 : 0,
+    rawMatched: rows0.length, gates, reasonExcl: reasonExcl.length, apayN, lastResort,
   };
 }
 
@@ -38214,6 +38523,9 @@ function commissionRenderCards(B, repName) {
     statRow('Canceled Accounts', B.canceled + '  (' + pct(B.sold ? B.canceled / B.sold * 100 : 0) + ')', B.canceled ? '#DC2626' : null),
     statRow('Accounts with Balance', B.withBalance + '  (' + pct(B.sold ? B.withBalance / B.sold * 100 : 0) + ')'),
     statRow('Multi-Year %', pct(B.myPct)),
+    B.apayN != null ? statRow('AutoPay %', pct(B.sold ? B.apayN / B.sold * 100 : 0)) : null,
+    B.lastResort != null ? statRow('Last Resort (<$99 initial)', B.lastResort + '  (' + pct(B.sold ? B.lastResort / B.sold * 100 : 0) + ')', B.lastResort ? '#D97706' : null) : null,
+    B.reasonExcl != null && B.reasonExcl > 0 ? statRow('Cancels w/ excluded reason (not counted)', B.reasonExcl) : null,
     statRow('Total 3-Day Right of Rescission', B.ror),
     statRow('Accounts Canceled After Lock Date', B.afterLock),
     el('div', { class: 'flex items-center justify-between px-3 py-2.5', style: { borderTop: '2px solid var(--text)', background: 'var(--text)', color: 'var(--bg)' } },
@@ -38227,10 +38539,227 @@ function commissionSnapshot(R, emp, period) {
   const keys = ['pestRev', 'bundleRev', 'ancRev', 'payableRev', 'pestRate', 'ancRate', 'bundleRate',
     'pestComm', 'bundleComm', 'ancComm', 'overrides', 'multiYearAmt', 'totalCommission',
     'rent', 'paidYtd', 'other', 'audit', 'netDue', 'biWeekly', 'payPeriods',
-    'sold', 'canceled', 'withBalance', 'myPct', 'ror', 'afterLock', 'finalAttrition'];
+    'sold', 'canceled', 'withBalance', 'myPct', 'ror', 'afterLock', 'finalAttrition',
+    'rawMatched', 'gates', 'reasonExcl', 'apayN', 'lastResort'];
   const o = { name: _frEmpName(emp), period, at: new Date().toISOString() };
   for (const k of keys) o[k] = R[k];
   return o;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// D2D SALES GROUP — Dashboard + Sales sub-tabs (Pay = viewCommission below).
+// Runs entirely on the CRM shared dataset filtered to the D2D department;
+// same privacy model as Indicators: headline leaderboard for everyone, the
+// full rep card gated by canViewRepDetails (admin: anyone · self: always ·
+// partner: own team).
+// ──────────────────────────────────────────────────────────────────────────
+function d2dRawSales() {
+  const prevDept = state.indicatorDept;
+  let raw = [];
+  try { state.indicatorDept = 'd2d'; raw = indicatorSales(); }
+  catch (e) { raw = []; }
+  finally { state.indicatorDept = prevDept; }
+  return raw;
+}
+// One-time cloud kick so a fresh login fills in without a manual refresh.
+function _d2dKickIfEmpty() {
+  if ((state._indicatorRawSales || []).length) return false;
+  if (!state._d2dCrmKick && !(typeof DEMO !== 'undefined' && DEMO) && typeof refreshIndicatorsFromCloud === 'function') {
+    state._d2dCrmKick = true;
+    Promise.resolve(refreshIndicatorsFromCloud(true))
+      .then(() => { if (D2D_SALES_TAB_KEYS.has(state.view)) mountApp(); })
+      .catch(() => {});
+  }
+  return true;
+}
+function _d2dIso(s) { return (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || ''; }
+function _d2dTodayIso() { return (typeof bizTodayIso === 'function') ? bizTodayIso() : new Date().toISOString().slice(0, 10); }
+
+function viewD2dDashboard() {
+  const wrap = el('div', { class: 'flex flex-col gap-4 w-full' });
+  const loading = _d2dKickIfEmpty();
+  const raw = d2dRawSales();
+  if (!raw.length) {
+    wrap.append(el('div', { class: 'card p-10 text-center text-sm text-muted-' },
+      loading ? 'Loading the CRM dataset…' : 'No D2D sales in the CRM snapshot yet — hit the ↻ sync icon.'));
+    return wrap;
+  }
+  const todayIso = _d2dTodayIso();
+  // Company week: Sunday–Saturday (Sunday is day 1).
+  const _td = new Date(todayIso + 'T12:00:00');
+  const _ws = new Date(_td); _ws.setDate(_td.getDate() - _td.getDay());
+  const weekStartIso = _ws.toISOString().slice(0, 10);
+  const monthIso = todayIso.slice(0, 7);
+  const yearIso = todayIso.slice(0, 4);
+  const _yd = new Date(_td); _yd.setDate(_td.getDate() - 1);
+  const yesterdayIso = _yd.toISOString().slice(0, 10);
+  const inRange = (iso, r) => r === 'today' ? iso === todayIso
+    : r === 'yesterday' ? iso === yesterdayIso
+    : r === 'week' ? (iso >= weekStartIso && iso <= todayIso)
+    : r === 'month' ? iso.slice(0, 7) === monthIso
+    : iso.slice(0, 4) === yearIso;
+
+  // ── Hero tiles: Today · This Week · This Month · This Year ──
+  const tile = (label, rows) => {
+    const cv = rows.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
+    return el('div', { class: 'card p-4 min-w-0' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, label),
+      el('div', { class: 'text-2xl font-display tabular-nums mt-1' }, fmt.usd0(cv)),
+      el('div', { class: 'text-xs text-muted- tabular-nums' }, rows.length + (rows.length === 1 ? ' account' : ' accounts')));
+  };
+  const byRange = (r) => raw.filter(s => { const iso = _d2dIso(s); return iso && inRange(iso, r); });
+  wrap.append(el('div', { class: 'grid grid-cols-2 lg:grid-cols-4 gap-3' },
+    tile('Today', byRange('today')), tile('This Week', byRange('week')),
+    tile('This Month', byRange('month')), tile('This Year', byRange('year'))));
+
+  // ── One range for the whole tab: pills up top drive standings,
+  // leaderboard AND the sales list below (per Isaac). ──
+  if (!state._d2dLbRange) state._d2dLbRange = 'today';
+  const lbHost = el('div', { class: 'flex flex-col gap-4' });
+  const buildBoards = () => {
+    const r = state._d2dLbRange;
+    const rows = byRange(r);
+    const byRep = new Map();
+    const PEST_EXCL = /sentricon|german\s*roach|interior\s*flea/i;   // Avg Pest Init formula (matches player cards)
+    rows.forEach(s => {
+      const nm = getCanonicalRepName(s.rep);
+      if (!nm) return;
+      const o = byRep.get(nm) || { name: nm, n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0 };
+      o.n++; o.cv += Number(s.contractValue) || 0;
+      if (s.autoPay && s.autoPay !== 'No') o.apay++;
+      o.init += Number(s.initialPrice) || 0;
+      if (!PEST_EXCL.test(String(s.subscription || ''))) { o.pestN++; o.pestInit += Number(s.initialPrice) || 0; }
+      const _mo = Number(s.contract) || 0;
+      if (_mo >= 18) o.multi++; else if (_mo === 12) o.twelve++;
+      if ((Number(s.initialPrice) || 0) < 99) o.lastResort++;   // Last Resort — same <$99 rule as Indicators/LMS
+      byRep.set(nm, o);
+    });
+    const reps = [...byRep.values()].sort((a, b) => b.cv - a.cv);
+    const _sigMe = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+    const meSig = _sigMe(state.profile?.full_name);
+    const pill = (key, label) => el('button', {
+      class: 'px-3 py-1.5 text-xs font-bold rounded-full transition whitespace-nowrap',
+      style: state._d2dLbRange === key ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
+      onclick: () => { state._d2dLbRange = key; lbHost.innerHTML = ''; lbHost.append(buildBoards()); },
+    }, label);
+    const pillBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
+      pill('today', 'Today'), pill('yesterday', 'Yesterday'), pill('week', 'Week'), pill('month', 'Month'), pill('year', 'Year'));
+    const lbCard = el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'font-display text-lg' }, 'Rep Leaderboard')),
+      reps.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+        el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+          ...['#', 'Rep', 'Team', 'Accts', 'Revenue', 'ACV', 'MY %', 'APay %', 'Avg Initial', 'Avg Pest Init', 'Last Resort %'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap', title: h === 'MY %' ? 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)' : h === 'Last Resort %' ? 'Accounts under $99 initial \u00f7 all accounts' : '' }, h)))),
+        el('tbody', {}, ...reps.slice(0, 100).map((o, i) => {
+          const team = getRepTeam(o.name) || '';
+          const clickable = canViewRepDetails(o.name, team);
+          const isMe = _sigMe(o.name) === meSig;
+          return el('tr', {
+            class: 'border-t' + (clickable ? ' cursor-pointer' : ''),
+            style: { borderColor: 'var(--border)', background: isMe ? 'rgba(141,198,63,.08)' : '' },
+            title: clickable ? 'Open player card' : '',
+            onclick: clickable ? () => openIndicatorRepCard(_enrichRepFromRawSales(o.name, state._indicatorRawSales || []), []) : undefined,
+            onmouseenter: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = 'var(--card-2)'; } : undefined,
+            onmouseleave: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = isMe ? 'rgba(141,198,63,.08)' : ''; } : undefined,
+          },
+            el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, String(i + 1)),
+            el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, o.name + (isMe ? ' · You' : '')),
+            el('td', { class: 'px-4 py-2 text-muted- whitespace-nowrap' }, team || '—'),
+            el('td', { class: 'px-4 py-2 tabular-nums' }, String(o.n)),
+            el('td', { class: 'px-4 py-2 tabular-nums font-semibold' }, fmt.usd0(o.cv)),
+            el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(o.n ? o.cv / o.n : 0)),
+            el('td', { class: 'px-4 py-2 tabular-nums' }, ((o.multi + o.twelve) ? Math.round(o.multi / (o.multi + o.twelve) * 100) : 0) + '%'),
+            el('td', { class: 'px-4 py-2 tabular-nums' }, (o.n ? Math.round(o.apay / o.n * 100) : 0) + '%'),
+            el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(o.n ? o.init / o.n : 0)),
+            el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(o.pestN ? o.pestInit / o.pestN : 0)),
+            el('td', { class: 'px-4 py-2 tabular-nums', style: (o.n && o.lastResort / o.n >= 0.2) ? { color: '#DC2626', fontWeight: '600' } : {} }, (o.n ? (o.lastResort / o.n * 100).toFixed(1) : '0.0') + '%'));
+        }))))
+        : el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No sales in this range yet.'));
+    // Standings: by OFFICE (default) or by TEAM — toggle in the card header.
+    // Office comes from each rep's most-recent sale row in the range.
+    if (!state._d2dStandingsBy) state._d2dStandingsBy = 'office';
+    const byOfficeOfRep = new Map();
+    rows.forEach(s => {
+      const nm = getCanonicalRepName(s.rep);
+      if (nm && !byOfficeOfRep.has(nm)) byOfficeOfRep.set(nm, String(s.office || '').split(',')[0].trim());
+    });
+    const groupOf = (name) => state._d2dStandingsBy === 'office'
+      ? (byOfficeOfRep.get(name) || 'Unassigned')
+      : (getRepTeam(name) || 'Unassigned');
+    const byTeam = new Map();
+    reps.forEach(o => {
+      const t = groupOf(o.name);
+      const x = byTeam.get(t) || { team: t, n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, reps: 0, multi: 0, twelve: 0, lastResort: 0 };
+      x.n += o.n; x.cv += o.cv; x.apay += o.apay; x.init += o.init; x.pestInit += o.pestInit; x.pestN += o.pestN;
+      x.multi += o.multi; x.twelve += o.twelve; x.lastResort += o.lastResort;
+      x.reps++;   // PRA denominator: reps with ≥1 sale in the range (same convention as Best PRA Day)
+      byTeam.set(t, x);
+    });
+    const teams = [...byTeam.values()].sort((a, b) => b.cv - a.cv);
+    const standingsBtn = (key, label) => el('button', {
+      class: 'px-3 py-1.5 text-xs font-bold transition',
+      style: state._d2dStandingsBy === key ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+      onclick: () => { state._d2dStandingsBy = key; lbHost.innerHTML = ''; lbHost.append(buildBoards()); },
+    }, label);
+    const teamCard = teams.length > 1 ? el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'font-display text-lg' }, state._d2dStandingsBy === 'office' ? 'Office Standings' : 'Team Standings'),
+        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+          standingsBtn('office', 'By Office'), standingsBtn('team', 'By Team'))),
+      el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+        el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+          ...[['#'], [state._d2dStandingsBy === 'office' ? 'Office' : 'Team'], ['Accts'], ['Revenue'], ['PRA', 'Per Rep Average \u2014 revenue \u00f7 reps with a sale in this range'], ['ACV'], ['MY %', 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)'], ['APay %'], ['Avg Initial'], ['Avg Pest Init'], ['Last Resort %', 'Accounts under $99 initial \u00f7 all accounts']].map(([h, tip]) => el('th', { class: 'px-4 py-2 whitespace-nowrap', title: tip || '' }, h)))),
+        el('tbody', {}, ...teams.map((t, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, String(i + 1)),
+          el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, t.team),
+          el('td', { class: 'px-4 py-2 tabular-nums' }, String(t.n)),
+          el('td', { class: 'px-4 py-2 tabular-nums font-semibold' }, fmt.usd0(t.cv)),
+          el('td', { class: 'px-4 py-2 tabular-nums font-semibold', title: t.reps + ' active rep' + (t.reps === 1 ? '' : 's') }, fmt.usd0(t.reps ? t.cv / t.reps : 0)),
+          el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(t.n ? t.cv / t.n : 0)),
+          el('td', { class: 'px-4 py-2 tabular-nums' }, ((t.multi + t.twelve) ? Math.round(t.multi / (t.multi + t.twelve) * 100) : 0) + '%'),
+          el('td', { class: 'px-4 py-2 tabular-nums' }, (t.n ? Math.round(t.apay / t.n * 100) : 0) + '%'),
+          el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(t.n ? t.init / t.n : 0)),
+          el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(t.pestN ? t.pestInit / t.pestN : 0)),
+          el('td', { class: 'px-4 py-2 tabular-nums' }, (t.n ? (t.lastResort / t.n * 100).toFixed(1) : '0.0') + '%')))))))
+      : null;
+    // ── Sales list for the selected range ──
+    const RANGE_TITLES = { today: "Today's Sales", yesterday: "Yesterday's Sales", week: "This Week's Sales", month: "This Month's Sales", year: "This Year's Sales" };
+    const listRows = rows.slice().sort((a, b) => {
+      const d = _d2dIso(b).localeCompare(_d2dIso(a));
+      if (d) return d;
+      const ta = _parseIndicatorTime(a), tb = _parseIndicatorTime(b);
+      return ((tb ? tb.hour * 60 + tb.minute : -1) - (ta ? ta.hour * 60 + ta.minute : -1));
+    });
+    const showDate = r !== 'today' && r !== 'yesterday';
+    const LIST_CAP = 100;
+    const salesCard = el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 flex items-center justify-between border-b', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'font-display text-lg' }, RANGE_TITLES[r] || 'Sales'),
+        el('div', { class: 'text-xs text-muted- tabular-nums' }, listRows.length + ' · ' + fmt.usd0(listRows.reduce((a, s) => a + (Number(s.contractValue) || 0), 0)))),
+      listRows.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+        el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+          ...[...(showDate ? ['Date'] : []), 'Time', 'Rep', 'Service', 'Mo', 'Initial', 'APay', 'Value'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap' }, h)))),
+        el('tbody', {}, ...listRows.slice(0, LIST_CAP).map(s => {
+          const nm = getCanonicalRepName(s.rep);
+          const t = _parseIndicatorTime(s);
+          const apay = !!(s.autoPay && s.autoPay !== 'No');
+          return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            ...(showDate ? [el('td', { class: 'px-4 py-2 tabular-nums text-muted- whitespace-nowrap' }, _d2dIso(s))] : []),
+            el('td', { class: 'px-4 py-2 tabular-nums text-muted- whitespace-nowrap' }, t ? ((t.hour % 12 || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour < 12 ? 'a' : 'p')) : '—'),
+            el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, nm),
+            el('td', { class: 'px-4 py-2 whitespace-nowrap' }, String(s.subscription || '—')),
+            el('td', { class: 'px-4 py-2 tabular-nums' }, String(Number(s.contract) || '—')),
+            el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(Number(s.initialPrice) || 0)),
+            el('td', { class: 'px-4 py-2 font-bold', style: { color: apay ? '#5F8A1F' : '#DC2626' } }, apay ? 'Y' : 'N'),
+            el('td', { class: 'px-4 py-2 tabular-nums font-semibold' }, fmt.usd0(Number(s.contractValue) || 0)));
+        }))))
+        : el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No D2D sales in this range yet' + (r === 'today' ? ' — knock on.' : '.')),
+      listRows.length > LIST_CAP ? el('div', { class: 'px-4 py-2 text-xs text-muted- border-t', style: { borderColor: 'var(--border)' } }, 'Showing the latest ' + LIST_CAP + ' of ' + listRows.length + '.') : null);
+    return el('div', { class: 'flex flex-col gap-4' }, pillBar, teamCard, lbCard, salesCard);
+  };
+  lbHost.append(buildBoards());
+  wrap.append(lbHost);
+  return wrap;
 }
 
 function viewCommission() {
@@ -38401,7 +38930,7 @@ function commissionCalculator() {
       el('div', { class: 'flex items-end justify-between flex-wrap gap-3' },
         el('div', {},
           el('h1', { class: 'text-2xl font-bold' }, 'Commission Calculator'),
-          el('p', { class: 'text-xs text-muted-' }, 'Sales Reps from live FieldRoutes; Office Staff from Inside Sales logged in-app. Pick a rep and period; rates & rules are saved for everyone.')),
+          el('p', { class: 'text-xs text-muted-' }, 'Sales Reps from live FieldRoutes (canonical gates: global excluded services, excluded sources, renewals out, sold-not-started out); Office Staff from Inside Sales logged in-app. Pick a rep and period; rates & rules are saved for everyone.')),
         el('div', { class: 'flex items-end gap-2 flex-wrap' },
           el('label', { class: 'block' }, lblO('Rep'), repSelectO),
           el('label', { class: 'block' }, lblO('Sold from'), dateInputO(state._commStart, v => state._commStart = v)),
@@ -38466,7 +38995,7 @@ function commissionCalculator() {
     el('div', { class: 'flex items-end justify-between flex-wrap gap-3' },
       el('div', {},
         el('h1', { class: 'text-2xl font-bold' }, 'Commission Calculator'),
-        el('p', { class: 'text-xs text-muted-' }, 'Sales Reps from live FieldRoutes; Office Staff from Inside Sales logged in-app. Pick a rep and period; rates & rules are saved for everyone.')),
+        el('p', { class: 'text-xs text-muted-' }, 'Sales Reps from live FieldRoutes (canonical gates: global excluded services, excluded sources, renewals out, sold-not-started out); Office Staff from Inside Sales logged in-app. Pick a rep and period; rates & rules are saved for everyone.')),
       el('div', { class: 'flex items-end gap-2 flex-wrap' },
         el('label', { class: 'block' }, lbl('Sales Rep'), repSelect),
         el('label', { class: 'block' }, lbl('Sold from'), dateInput(state._commStart, v => state._commStart = v)),
@@ -38477,7 +39006,25 @@ function commissionCalculator() {
         R.sold === 0 ? el('div', { class: 'card p-3 text-xs', style: { borderLeft: '3px solid var(--accent)' } },
           el('b', { style: { color: 'var(--text)' } }, 'No sales matched this rep in the window.'),
           el('span', { class: 'text-muted-' }, ' Try widening the dates, re-syncing, or confirming the rep’s FieldRoutes link on Settings → Users. Once accounts show up, map their service types to split the revenue.')) : null,
-        breakdown, stats),
+        breakdown, stats,
+        // Transparency card: what the canonical gates removed and why —
+        // these rows exist in the CRM but are NOT commissionable here.
+        (() => {
+          const g = R.gates;
+          if (!g) return null;
+          const money = (n) => '$' + Math.round(n || 0).toLocaleString();
+          const parts = [
+            g.global.n ? [g.global.n + ' billing artifact' + (g.global.n === 1 ? '' : 's') + ' (global excluded services)', g.global.rev] : null,
+            g.source.n ? [g.source.n + ' from excluded lead sources', g.source.rev] : null,
+            g.renewal.n ? [g.renewal.n + ' renewal-source sub' + (g.renewal.n === 1 ? '' : 's'), g.renewal.rev] : null,
+            g.sns.n ? [g.sns.n + ' sold-not-started (initial never ran)', g.sns.rev] : null,
+          ].filter(Boolean);
+          if (!parts.length) return null;
+          return el('div', { class: 'card p-3 text-xs', style: { borderLeft: '3px solid #D97706' } },
+            el('b', { style: { color: 'var(--text)' } }, 'Excluded from pay (' + (R.rawMatched - R.sold) + ' of ' + R.rawMatched + ' CRM rows): '),
+            el('span', { class: 'text-muted-' }, parts.map(([t, v]) => t + ' · ' + money(v)).join(' — ') +
+              '. Same rules as Indicators/Reporting (Settings → Configurations).'));
+        })()),
       el('div', { class: 'flex flex-col gap-4 flex-1 w-full min-w-0' }, ratesPanel, manualPanel)));  // right: per-rep override + deductions (type rules live in Settings → Commissions)
 }
 
@@ -39049,15 +39596,17 @@ function reportingWaterfall() {
   // (excluded reasons / 3-day ROR don't count), identical to the waterfall.
   const _retenEffCache = new Map();
   const _retenEff = (pop) => {
-    // Memoized per population array — four cards + drills share one pass
-    // instead of each re-cloning the 65k-row book.
+    // Memoized per population array + rules — four cards + drills share one
+    // pass instead of each re-cloning the 65k-row book.
+    const _rulesKey = (retenExclRenewalSubs() ? 'R' : '') + (retenExclZeroPay() ? 'Z' : '') + (retenExclFrozenOneSvc() ? 'F' : '');
     const hit = _retenEffCache.get(pop);
-    if (hit) return hit;
+    if (hit && hit._rulesKey === _rulesKey) return hit;
     const recurringByName = reportingServiceRecurringMap();
     const excludedReasons = reportingExcludedCancelReasons();
     const out = pop
       .filter(r => !!recurringByName.get(r.subscription))
       .filter(r => !!r.initial_service && r.initial_service >= '2000-01-01')   // garbage dates can't blow up the year walks
+      .filter(r => !retenPopulationExcluded(r))   // workbook Steps 4–6 (Configurations → Reporting rules)
       .map(r => {
         const realCancel = r.subscription_date_canceled
           && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
@@ -39065,6 +39614,7 @@ function reportingWaterfall() {
           ? r.subscription_date_canceled : null;
         return { ...r, _effCancel: realCancel };
       });
+    out._rulesKey = _rulesKey;
     _retenEffCache.set(pop, out);
     return out;
   };
@@ -40363,6 +40913,13 @@ function adminConfigurations() {
         toggleRow('Active includes one-time', 'Count one-time active subs in “Subscriptions Active” (otherwise recurring only).', reportingActiveInclOneTime(), () => { setReportingActiveInclOneTime(!reportingActiveInclOneTime()); mountApp(); }),
         rule(),
         toggleRow('Exclude 3-day RORs from churn', 'Drop subs cancelled within 3 days of the sale (buyer’s remorse) from cancellation / attrition.', reportingExcludeRorChurn(), () => { setReportingExcludeRorChurn(!reportingExcludeRorChurn()); mountApp(); }),
+        rule(),
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-1', style: { color: 'var(--text-subtle)' } }, 'Retention population (workbook Steps 4–6)'),
+        toggleRow('Exclude renewal subscriptions', 'Renewal-source subs are continuations of an existing customer, not new book — counting them double-counts the relationship.', retenExclRenewalSubs(), () => { setRetenExclRenewalSubs(!retenExclRenewalSubs()); mountApp(); }),
+        rule(),
+        toggleRow('Exclude $0-paying subs', 'Subs with $0 annual recurring value drop from the retention book.', retenExclZeroPay(), () => { setRetenExclZeroPay(!retenExclZeroPay()); mountApp(); }),
+        rule(),
+        toggleRow('Exclude frozen subs with ≤1 service', 'Quiet deaths — frozen right after the initial, no cancel date ever lands, so they would count as retained forever.', retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); }),
         // ("Exclude branches" removed — per Isaac, there's no real case for
         // excluding a branch from company reporting. reportingExcludedBranches
         // plumbing kept; an empty set means nothing is excluded.)
@@ -43335,7 +43892,17 @@ function adminReps() {
             onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
             onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
             onclick: () => setViewAsRole(v),
-          }, label)));
+          }, label)),
+          // ── Sandbox: live data in, no writes out ──
+          el('div', { class: 'px-3 pt-2 pb-1 mt-1 border-t text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } }, 'Demo / rehearse'),
+          el('button', {
+            class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition',
+            style: { color: 'var(--text)' },
+            title: 'Work against live data while every save is dropped \u2014 partners keep seeing the real app untouched. Refresh or Exit restores live.',
+            onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
+            onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
+            onclick: () => { sandboxOn() ? sandboxExit() : sandboxStart(); },
+          }, sandboxOn() ? '\ud83e\uddea Exit Sandbox Mode' : '\ud83e\uddea Sandbox Mode (nothing saves)'));
         const btn = el('button', {
           class: 'icon-btn show',
           title: 'Change rep type view',
