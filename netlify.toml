@@ -86,6 +86,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/commission-email"
+  to   = "/.netlify/functions/commission-email"
+  status = 200
+
+[[redirects]]
   from = "/api/marketing-spend"
   to   = "/.netlify/functions/marketing-spend"
   status = 200

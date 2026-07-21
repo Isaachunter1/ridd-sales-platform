@@ -1191,6 +1191,30 @@ function commissionConfig() {
     multiYear:         Object.assign({}, COMMISSION_MY_DEFAULT, c.multiYear || {}), // legacy company-wide fallback
     manual:            c.manual || {},            // { [empId]: { overrides, rent, paidYtd, other, audit, payPeriods } } — shared
     published:         c.published || {},         // { [empId]: { ...breakdown, period, at } } — what reps see
+    upfrontTypeRules:  c.upfrontTypeRules || {},  // { [repType]: { pest, bundle, anc } } — UPFRONT rate defaults (fractions)
+    upfrontRepRates:   c.upfrontRepRates || {},   // { [empId]: { pest, bundle, anc } } — per-rep upfront override
+  };
+}
+// Upfront pay model — category rates paid on contract value off the top
+// (the old season pay-stub tool: Pest 60% / Bundle 48% / Ancillary 30%).
+// Backend ("holistic") rates live in typeRules above; these are separate.
+const UPFRONT_RATE_DEFAULT = { pest: 0.60, bundle: 0.48, anc: 0.30 };
+function upfrontRulesForType(typeLabel) {
+  const t = commissionConfig().upfrontTypeRules[typeLabel] || {};
+  return {
+    pest:   t.pest   != null ? Number(t.pest)   : UPFRONT_RATE_DEFAULT.pest,
+    bundle: t.bundle != null ? Number(t.bundle) : UPFRONT_RATE_DEFAULT.bundle,
+    anc:    t.anc    != null ? Number(t.anc)    : UPFRONT_RATE_DEFAULT.anc,
+  };
+}
+function upfrontRatesFor(empId, typeLabel) {
+  const base = upfrontRulesForType(typeLabel);
+  const r = commissionConfig().upfrontRepRates[empId] || {};
+  return {
+    pest:   r.pest   != null ? Number(r.pest)   : base.pest,
+    bundle: r.bundle != null ? Number(r.bundle) : base.bundle,
+    anc:    r.anc    != null ? Number(r.anc)    : base.anc,
+    overridden: (r.pest != null || r.bundle != null || r.anc != null),
   };
 }
 // The rule set for a rep TYPE — type config layered over company defaults.
@@ -2036,7 +2060,7 @@ const state = {
   reportingDateStart: '',          // ISO yyyy-mm-dd (only used when range='custom')
   reportingDateEnd: '',            // ISO yyyy-mm-dd (only used when range='custom')
   reportingWaterfallMode: 'subscription', // 'subscription' | 'arv' | 'contract' | 'rep'
-  reportingGeoMetric: 'acv',       // 'acv' | 'customers' | 'attrition' — drives map + table emphasis
+  reportingGeoMetric: 'customers', // default map metric (per Isaac) — distinct customer count, not subs
   reportingZipSort: 'subs',        // sort column for the ZIP table on Geographic tab
   reportingZipSortDir: 'desc',     // 'asc' | 'desc'
   reportingMapLevel: 'country',    // 'country' | 'state' — drives which choropleth renders
@@ -3200,12 +3224,13 @@ const TAB_TITLES = {
   marketing:    'MARKETING',
   commission:   'SALES',
   d2d_dashboard: 'SALES',
+  d2d_upfront:  'SALES',
   admin:        'SETTINGS',
 };
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#queues':'queues', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#techs':'techs', '#training':'training', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#queues':'queues', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'d2d_upfront', '#techs':'techs', '#training':'training', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -4048,6 +4073,7 @@ const INSIDE_SALES_TAB_KEYS = new Set([...INSIDE_SALES_TABS.map(([k]) => k), 'co
 // · Pay (the commission calculator / My Commission, now a sub-tab).
 const D2D_SALES_TABS = [
   ['d2d_dashboard', 'Dashboard'],
+  ['d2d_upfront',   'Upfront'],
   ['commission',    'Pay'],
 ];
 const D2D_SALES_TAB_KEYS = new Set(D2D_SALES_TABS.map(([k]) => k));
@@ -4811,6 +4837,7 @@ function mountApp() {
     marketing:    viewMarketing,
     commission:   viewCommission,
     d2d_dashboard: viewD2dDashboard,
+    d2d_upfront:  viewD2dUpfront,
     techs:        viewTechs,
     training:     viewTraining,
     admin:        viewAdmin,
@@ -4836,7 +4863,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'techs', 'training', 'auditing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_upfront', 'techs', 'training', 'auditing']);
   document.querySelector('.fab')?.remove();
   // + FAB is OFFICE STAFF only (per Isaac) — admins don't log sales from a
   // floating button, and the retired AI speed-dial no longer replaces it.
@@ -6386,6 +6413,13 @@ const _TZ_SHORT = { 'America/New_York': 'ET', 'America/Chicago': 'CT', 'America/
 // Zone the inside-sales (War Room) clocks display in: user override → Mountain.
 function warRoomTz() { const p = userTzPref(); return _TZ_RAW_OFFSET[p] != null ? p : 'America/Denver'; }
 
+// Short zone label for a sale's office — pairs with _saleHourOffset below.
+function _officeTzShort(office) {
+  const o = String(office || '').toLowerCase();
+  if (o.includes('salt lake')) return 'MT';
+  if (o.includes('destin') || o.includes('joplin')) return 'CT';
+  return 'ET';
+}
 function _saleHourOffset(office) {
   const o = String(office || '').toLowerCase();
   if (o.includes('salt lake')) return 1;   // Mountain
@@ -35999,7 +36033,11 @@ function reportingIsPacer() {
     if (isExcl.has(src || 'Unspecified')) continue;
     if (reportingSourceClass(src) !== 'new') continue;      // NEW only — exclude renewals AND upsells
     if (!reportingIsOfficeStaff(r)) continue;               // Office Staff (rep type) only — excludes Sales Reps
-    if (!r.initial_service && r.subscription_date_canceled) continue;  // pending or serviced initial only (drop sold-not-started / cancelled-before-initial)
+    // FieldRoutes' own Pending/Serviced gate — initial appt Pending or
+    // Completed, same rule as Indicators (per Isaac). Blank status = legacy
+    // snapshot → fall back to the old sold-not-started heuristic.
+    const _ist = String(r.initial_status || '').toLowerCase();
+    if (_ist ? (_ist !== 'pending' && _ist !== 'completed') : (!r.initial_service && r.subscription_date_canceled)) continue;
     act[Number(String(sd).slice(5, 7)) - 1] += Number(r.subscription_contract_value) || 0;
   }
   // Annual goal: whatever's in the box (persisted locally), else the model goal.
@@ -36144,6 +36182,9 @@ function reportingMktgSpendRevChart() {
   const isExcl = reportingExcludedSources();
   const nowY = new Date().getFullYear();
   const curY = String(nowY), prevY = String(nowY - 1);
+  // SAME revenue series as the Inside Sales Pacer (per Isaac): new
+  // office-staff CONTRACT revenue, Pending/Serviced gate — no autopay
+  // requirement, no ARR. The two charts must tell one story.
   const revByYM = {};
   for (const r of rows) {
     const sd = r.sold_date; if (!sd) continue;
@@ -36151,9 +36192,10 @@ function reportingMktgSpendRevChart() {
     if (isExcl.has(src || 'Unspecified')) continue;
     if (reportingSourceClass(src) !== 'new') continue;  // NEW business only (exclude renewals + upsells)
     if (!reportingIsOfficeStaff(r)) continue;
-    if (!(r.customer_auto_pay && String(r.customer_auto_pay).trim())) continue;
+    const _ist = String(r.initial_status || '').toLowerCase();
+    if (_ist ? (_ist !== 'pending' && _ist !== 'completed') : (!r.initial_service && r.subscription_date_canceled)) continue;
     const ym = sd.slice(0, 7);
-    revByYM[ym] = (revByYM[ym] || 0) + (Number(r.annual_recurring_value) || 0);
+    revByYM[ym] = (revByYM[ym] || 0) + (Number(r.subscription_contract_value) || 0);
   }
   const spendByYM = {};
   for (const ym in SP) { let s = 0; for (const ch in SP[ym]) s += SP[ym][ch] || 0; spendByYM[ym] = s; }
@@ -36186,9 +36228,34 @@ function reportingMktgSpendRevChart() {
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } } }, scales: { x: { ticks: { color: txt }, grid: { color: grid } }, y: { beginAtZero: true, ticks: { color: txt, callback: v => '$' + (v >= 1000 ? (v / 1000) + 'k' : v) }, grid: { color: grid } } } },
     });
   }, 50);
+  const _spendStamp = state._isSpendSource === 'QuickBooks'
+    ? 'QuickBooks · pulled ' + (state._isSpendPulledAt ? new Date(state._isSpendPulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'just now')
+    : state._isSpendSource === 'file' ? '\u26a0 static snapshot \u2014 QuickBooks feed unavailable' : 'loading spend\u2026';
+  const _spendRefresh = el('button', {
+    class: 'text-[11px] font-semibold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text-muted)' },
+    title: 'Re-pull marketing spend from QuickBooks now (bypasses the 1-hour cache)',
+    onclick: async (e) => {
+      const b = e.currentTarget; b.disabled = true; b.textContent = '\u23f3 pulling\u2026';
+      try {
+        const h = await _apiAuthHeaders();
+        const r = await fetch('/api/qbo-spend?_=' + Date.now(), { headers: h });
+        const j = r.ok ? await r.json() : null;
+        if (j && j.bySourceMonth && Object.keys(j.bySourceMonth).length) {
+          state.reportingIsSpend = j.bySourceMonth; state._isSpendSource = 'QuickBooks'; state._isSpendPulledAt = j.pulledAt;
+          toast('QuickBooks spend refreshed', 'success');
+        } else toast('QuickBooks pull failed \u2014 check the qbo-spend function logs', 'error');
+      } catch (err) { toast('QuickBooks pull failed: ' + ((err && err.message) || err), 'error'); }
+      mountApp();
+    },
+  }, '\u21bb QuickBooks');
   return el('div', { class: 'card p-4' },
-    el('h3', { class: 'text-base font-bold mb-1' }, 'Marketing Spend vs Inside Sales Revenue'),
-    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Year-over-year by month · bars = marketing spend (shown only for months with verified QuickBooks data) · lines = new recurring revenue (ARR), office-staff sold · ' + curY + ' solid vs ' + prevY + ' dashed'),
+    el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
+      el('h3', { class: 'text-base font-bold' }, 'Marketing Spend vs Inside Sales Revenue'),
+      el('div', { class: 'flex items-center gap-2' },
+        el('span', { class: 'text-[10px]', style: { color: state._isSpendSource === 'file' ? '#D97706' : 'var(--text-subtle)' } }, _spendStamp),
+        _spendRefresh)),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Year-over-year by month · bars = marketing spend (months with verified QuickBooks data only) · lines = new contract revenue, office-staff sold, Pending/Serviced — same series as the pacer · ' + curY + ' solid vs ' + prevY + ' dashed'),
     cvsWrap,
   );
 }
@@ -38924,7 +38991,7 @@ function viewD2dDashboard() {
           const apay = !!(s.autoPay && s.autoPay !== 'No');
           return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             ...(showDate ? [el('td', { class: 'px-4 py-2 tabular-nums text-muted- whitespace-nowrap' }, _d2dIso(s))] : []),
-            el('td', { class: 'px-4 py-2 tabular-nums text-muted- whitespace-nowrap' }, t ? ((t.hour % 12 || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour < 12 ? 'a' : 'p')) : '—'),
+            el('td', { class: 'px-4 py-2 tabular-nums text-muted- whitespace-nowrap' }, t ? ((t.hour % 12 || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour < 12 ? 'a' : 'p') + ' ' + _officeTzShort(s.office)) : '—'),
             el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, nm),
             el('td', { class: 'px-4 py-2 whitespace-nowrap' }, String(s.subscription || '—')),
             el('td', { class: 'px-4 py-2 tabular-nums' }, String(Number(s.contract) || '—')),
@@ -38939,6 +39006,231 @@ function viewD2dDashboard() {
   lbHost.append(buildBoards());
   wrap.append(lbHost);
   return wrap;
+}
+
+// ── D2D UPFRONT PAY — the season pay-stub model, live from FieldRoutes ─────
+// Category rates paid on contract value off the top (Pest / Bundle /
+// Ancillary), mirroring the old stub tool. Same row pool + canonical gates
+// as commissionCompute, so Upfront and Pay (backend) always reconcile on
+// accounts — they just price them differently.
+function viewD2dUpfront() {
+  const money = (n) => { const v = Math.round((n || 0) * 100) / 100; return (v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 }); };
+  const pctS = (n) => (Math.round((n || 0) * 10) / 10) + '%';
+  if (!isAdminRole(state.profile?.role)) {
+    return el('div', { class: 'flex flex-col gap-4 w-full' },
+      el('h1', { class: 'text-2xl font-bold' }, 'Upfront Pay'),
+      el('div', { class: 'card p-10 text-center text-sm text-muted-' },
+        'Your upfront pay stub will live here — your admin runs and publishes it. Check the Pay tab for your published commission.'));
+  }
+  // Roster: CRM Sales Reps (same source as the calculator).
+  if (state.frRoster == null && !state._frRosterLoading) loadFieldRoutesRoster().then(() => { if (state.view === 'd2d_upfront') mountApp(); });
+  const roster = state.frRoster || [];
+  const salesReps = roster.filter(e => e.type_label === 'Sales Rep').sort((a, b) => _frEmpName(a).localeCompare(_frEmpName(b)));
+  if (!salesReps.length) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No Sales Reps in the roster yet — run a sync first.');
+  if (!state._commEmpId || !salesReps.find(e => e.employee_id === state._commEmpId)) state._commEmpId = salesReps[0].employee_id;
+  const emp = salesReps.find(e => e.employee_id === state._commEmpId);
+  // CRM snapshot on demand (identical guard to the calculator).
+  const activeId = state.reportingActiveUploadId;
+  if (!activeId) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No CRM snapshot yet — hit the ↻ sync icon to pull FieldRoutes, then come back.');
+  if (state.reportingSubscriptionsLoadedFor !== activeId) {
+    loadReportingSubscriptions(activeId).then(rows => { if (rows && state.reportingActiveUploadId === activeId) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = activeId; mountApp(); } });
+    return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Loading the CRM snapshot…');
+  }
+  const yr = new Date().getFullYear();
+  if (state._commStart == null) state._commStart = yr + '-01-01';
+  if (state._commEnd == null)   state._commEnd = new Date().toISOString().slice(0, 10);
+  const startMs = state._commStart ? Date.parse(state._commStart) : 0;
+  const endMs   = state._commEnd ? Date.parse(state._commEnd) + 86399000 : 0;
+
+  const R = commissionCompute(emp, startMs, endMs, 0);   // same pool, same gates
+  const typeLabel = emp.type_label || 'Sales Rep';
+  const U = upfrontRatesFor(emp.employee_id, typeLabel);
+  const man = commissionManual(emp.employee_id);
+  const saveMan = (patch) => { setCommissionManual(emp.employee_id, Object.assign({}, man, patch)); mountApp(); };
+  const saveU = (patch) => { const c = commissionConfig(); c.upfrontRepRates = Object.assign({}, c.upfrontRepRates); c.upfrontRepRates[emp.employee_id] = Object.assign({}, c.upfrontRepRates[emp.employee_id], patch); saveCommissionConfig(c); mountApp(); };
+  const clearU = () => { const c = commissionConfig(); c.upfrontRepRates = Object.assign({}, c.upfrontRepRates); delete c.upfrontRepRates[emp.employee_id]; saveCommissionConfig(c); mountApp(); };
+
+  const pestPay = R.pestRev * U.pest, bundlePay = R.bundleRev * U.bundle, ancPay = R.ancRev * U.anc;
+  const upOverrides = Number(man.upfrontOverrides) || 0;
+  const upDeduct = Number(man.upfrontDeduct) || 0;
+  // D2D pays out WEEKLY (per Isaac) — 52 periods, own field (the Pay tab's
+  // 26 bi-weekly periods are an inside-sales thing).
+  const payPeriods = Number(man.upfrontPayPeriods) || 52;
+  const totalUpfront = pestPay + bundlePay + ancPay + upOverrides;
+  const netDue = totalUpfront - upDeduct;
+  const weeklyPay = payPeriods ? netDue / payPeriods : netDue;
+  // Account stats — canceled per canonical rules + frozen from the pool.
+  const frozenN = R.rows.filter(r => /frozen/i.test(String(r.subscription_status || '')) && !r.subscription_date_canceled).length;
+  const lostN = R.canceled + frozenN;
+  const activeN = Math.max(0, R.sold - lostN);
+
+  const stat = (label, val, sub, edge) => el('div', { class: 'card p-4 min-w-0', style: edge ? { borderLeft: '3px solid ' + edge } : {} },
+    el('div', { class: 'text-2xl font-display tabular-nums' }, val),
+    el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mt-0.5' }, label),
+    sub ? el('div', { class: 'text-[10px] text-muted-' }, sub) : null);
+  const lblS = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
+  const dateInput = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-3 py-2 text-sm', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
+  const repSelect = el('select', { class: 'rounded-xl border px-3 py-2 text-sm font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
+    ...salesReps.map(e => el('option', { value: e.employee_id, selected: e.employee_id === state._commEmpId }, _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : ''))));
+  const rateField = (label, frac, key) => el('label', { class: 'block' }, lblS(label),
+    el('div', { class: 'flex items-center gap-1' },
+      el('input', { type: 'number', step: '1', min: '0', max: '100', value: Math.round(frac * 1000) / 10,
+        class: 'w-full rounded-lg border px-2 py-1.5 text-sm text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
+        onchange: (e) => saveU({ [key]: (parseFloat(e.target.value) || 0) / 100 }) }),
+      el('span', { class: 'text-xs text-muted-' }, '%')));
+  const numField = (label, val, onCommit) => el('label', { class: 'block' }, lblS(label),
+    el('input', { type: 'number', step: '0.01', value: (val == null ? '' : val),
+      class: 'w-full rounded-lg border px-2 py-1.5 text-sm text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
+      onchange: (e) => onCommit(e.target.value) }));
+
+  const earnRow = (label, rev, rate, pay) => el('div', { class: 'flex items-center justify-between gap-3 px-3 py-2.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
+    el('div', { class: 'min-w-0' },
+      el('div', { class: 'font-semibold' }, label),
+      el('div', { class: 'text-[11px] text-muted- tabular-nums' }, money(rev) + ' revenue')),
+    el('div', { class: 'flex items-center gap-3 shrink-0' },
+      el('span', { class: 'text-xs font-bold px-2 py-1 rounded-lg tabular-nums', style: { background: 'var(--card-2)' } }, Math.round(rate * 100) + '%'),
+      el('span', { class: 'tabular-nums font-bold', style: { minWidth: '90px', textAlign: 'right' } }, money(pay))));
+
+  const earnings = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-3 py-2 font-display text-xl', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Upfront Earnings'),
+    earnRow('Personal Pest', R.pestRev, U.pest, pestPay),
+    earnRow('Personal Bundle', R.bundleRev, U.bundle, bundlePay),
+    earnRow('Personal Ancillary', R.ancRev, U.anc, ancPay),
+    el('div', { class: 'flex items-center justify-between px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)' } },
+      el('span', {}, 'Overrides (downline)'), el('span', { class: 'tabular-nums' }, money(upOverrides))),
+    el('div', { class: 'flex items-center justify-between px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)' } },
+      el('span', {}, 'Deductions'), el('span', { class: 'tabular-nums' }, money(-upDeduct))),
+    el('div', { class: 'flex items-center justify-between px-3 py-2.5', style: { borderTop: '2px solid var(--text)', background: 'rgba(141,198,63,.18)' } },
+      el('span', { class: 'font-display text-lg' }, 'NET DUE'), el('span', { class: 'font-display text-lg tabular-nums' }, money(netDue))),
+    el('div', { class: 'flex items-center justify-between px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)', background: 'rgba(59,130,246,.08)' } },
+      el('span', { class: 'font-semibold' }, 'Weekly Pay (÷ ' + payPeriods + ')'), el('span', { class: 'tabular-nums font-semibold' }, money(weeklyPay))),
+    R.unclRev > 0 ? el('div', { class: 'px-3 py-2 text-[11px]', style: { borderTop: '1px solid var(--border)', color: '#D97706' } },
+      '⚠ ' + money(R.unclRev) + ' in unmapped service types earns $0 here — map them in Settings → Commissions.') : null);
+
+  const ratesPanel = el('div', { class: 'card p-4' },
+    el('div', { class: 'flex items-center justify-between gap-2 mb-1' },
+      el('div', { class: 'text-sm font-bold' }, 'Upfront rates · ' + _frEmpName(emp)),
+      U.overridden ? el('button', { class: 'text-[11px] rounded px-2 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: clearU }, 'Reset to default') : null),
+    el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Paid on contract value, off the top. These are separate from the backend (Pay tab) rates. Editing here overrides just this rep.'),
+    el('div', { class: 'grid grid-cols-3 gap-3' },
+      rateField('Pest %', U.pest, 'pest'), rateField('Bundle %', U.bundle, 'bundle'), rateField('Ancillary %', U.anc, 'anc')));
+
+  const manualPanel = el('div', { class: 'card p-4' },
+    el('div', { class: 'text-sm font-bold mb-3' }, 'This run — overrides & deductions'),
+    el('div', { class: 'grid grid-cols-2 sm:grid-cols-3 gap-3' },
+      numField('Overrides (downline)', man.upfrontOverrides, v => saveMan({ upfrontOverrides: v })),
+      numField('Deductions', man.upfrontDeduct, v => saveMan({ upfrontDeduct: v })),
+      numField('Pay Periods (weekly)', man.upfrontPayPeriods == null ? 52 : man.upfrontPayPeriods, v => saveMan({ upfrontPayPeriods: v }))),
+    el('div', { class: 'text-[11px] text-muted- mt-2' }, 'Deductions entered as a positive number. D2D pays weekly — 52 periods by default.'));
+
+  return el('div', { class: 'flex flex-col gap-4 w-full' },
+    el('div', { class: 'flex items-end justify-between flex-wrap gap-3' },
+      el('div', {},
+        el('h1', { class: 'text-2xl font-bold' }, 'Upfront Pay'),
+        el('p', { class: 'text-xs text-muted-' }, 'The season pay-stub model — live from FieldRoutes with the same gates as the Pay tab, priced at upfront rates.')),
+      el('div', { class: 'flex items-end gap-2 flex-wrap' },
+        el('label', { class: 'block' }, lblS('Sales Rep'), repSelect),
+        // Weekly pay periods (Sun–Sat company weeks) — picking one sets the
+        // Sold from/to dates; manual dates still work for odd ranges.
+        (() => {
+          const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+          const now = new Date(); now.setHours(0, 0, 0, 0);
+          const curSun = new Date(now); curSun.setDate(now.getDate() - now.getDay());
+          const fmtD = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const opts = [];
+          for (let i = 0; i < 10; i++) {
+            const s = new Date(curSun); s.setDate(curSun.getDate() - i * 7);
+            const e = new Date(s); e.setDate(s.getDate() + 6);
+            opts.push({ v: iso(s) + '|' + iso(e), label: (i === 0 ? 'This week · ' : i === 1 ? 'Last week · ' : '') + fmtD(s) + ' – ' + fmtD(e) });
+          }
+          const yr0 = now.getFullYear() + '-01-01';
+          const curVal = state._commStart + '|' + state._commEnd;
+          return el('label', { class: 'block' }, lblS('Pay period'),
+            el('select', {
+              class: 'rounded-xl border px-3 py-2 text-sm font-medium',
+              style: { borderColor: 'var(--border-2)' },
+              onchange: (e) => {
+                const v = e.target.value; if (!v) return;
+                const [s, en] = v.split('|');
+                state._commStart = s; state._commEnd = en; mountApp();
+              },
+            },
+              el('option', { value: '', selected: curVal !== (yr0 + '|' + iso(now)) && !opts.find(o => o.v === curVal) }, 'Custom…'),
+              el('option', { value: yr0 + '|' + iso(now), selected: curVal === (yr0 + '|' + iso(now)) }, 'YTD'),
+              ...opts.map(o => el('option', { value: o.v, selected: o.v === curVal }, o.label))));
+        })(),
+        el('label', { class: 'block' }, lblS('Sold from'), dateInput(state._commStart, v => state._commStart = v)),
+        el('label', { class: 'block' }, lblS('Sold to'), dateInput(state._commEnd, v => state._commEnd = v)),
+        // ── RUN COMMISSIONS — computes every Sales Rep for this period,
+        // publishes their result, and emails each rep at the address on
+        // their FieldRoutes account. Admin-JWT-gated server side.
+        el('button', {
+          class: 'rounded-xl px-4 py-2 text-sm font-bold transition hover:brightness-95 whitespace-nowrap',
+          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          title: 'Compute every rep for this period, publish, and email each rep at their FieldRoutes address',
+          onclick: async (e) => {
+            const btn = e.currentTarget;
+            const periodLabel = state._commStart + ' → ' + state._commEnd;
+            const withEmail = salesReps.filter(x => /@/.test(String(x.email || '')));
+            const noEmail = salesReps.length - withEmail.length;
+            if (!confirm('Run commissions for ' + periodLabel + '?\n\n' + salesReps.length + ' Sales Reps will be computed and published; ' + withEmail.length + ' will be emailed at their FieldRoutes address' + (noEmail ? ' (' + noEmail + ' have no email on file and will be skipped)' : '') + '.')) return;
+            btn.disabled = true; const orig = btn.textContent;
+            const esc = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+            const recipients = [];
+            let computed = 0;
+            try {
+              for (const rep of salesReps) {
+                btn.textContent = 'Computing ' + (++computed) + '/' + salesReps.length + '…';
+                const Rr = commissionCompute(rep, startMs, endMs, 0);
+                if (!Rr.sold) continue;   // nothing sold this period — no stub, no email
+                const Ur = upfrontRatesFor(rep.employee_id, rep.type_label || 'Sales Rep');
+                try { await publishCommissionResult(rep.employee_id, commissionSnapshot(Rr, rep, periodLabel), periodLabel); } catch (pubErr) { /* email still goes */ }
+                if (!/@/.test(String(rep.email || ''))) continue;
+                const rowsHtml = [
+                  ['Pest', Rr.pestRev, Ur.pest], ['Bundle', Rr.bundleRev, Ur.bundle], ['Ancillary', Rr.ancRev, Ur.anc],
+                ].map(([lb, rev, rate]) => '<tr><td style="padding:6px 10px;border-top:1px solid #eee">' + lb + '</td><td style="padding:6px 10px;border-top:1px solid #eee;text-align:right">' + money(rev) + '</td><td style="padding:6px 10px;border-top:1px solid #eee;text-align:right">' + Math.round(rate * 100) + '%</td><td style="padding:6px 10px;border-top:1px solid #eee;text-align:right"><b>' + money(rev * rate) + '</b></td></tr>').join('');
+                const upTotal = Rr.pestRev * Ur.pest + Rr.bundleRev * Ur.bundle + Rr.ancRev * Ur.anc;
+                recipients.push({
+                  email: String(rep.email).trim(),
+                  name: _frEmpName(rep),
+                  subject: 'RIDD Commission · ' + periodLabel,
+                  html: '<div style="font-family:Arial,sans-serif;max-width:520px">'
+                    + '<h2 style="margin:0 0 4px">RIDD — Commission Run</h2>'
+                    + '<div style="color:#666;font-size:13px;margin-bottom:14px">' + esc(_frEmpName(rep)) + ' · sold ' + esc(periodLabel) + '</div>'
+                    + '<table style="border-collapse:collapse;width:100%;font-size:14px"><tr style="text-align:left;color:#888;font-size:11px;text-transform:uppercase"><th style="padding:6px 10px">Category</th><th style="padding:6px 10px;text-align:right">Revenue</th><th style="padding:6px 10px;text-align:right">Rate</th><th style="padding:6px 10px;text-align:right">Pay</th></tr>'
+                    + rowsHtml
+                    + '<tr><td colspan="3" style="padding:8px 10px;border-top:2px solid #222"><b>Upfront total</b></td><td style="padding:8px 10px;border-top:2px solid #222;text-align:right"><b>' + money(upTotal) + '</b></td></tr></table>'
+                    + '<div style="font-size:13px;color:#444;margin-top:12px">' + Rr.sold + ' accounts sold · MY ' + (Math.round(Rr.myPct * 10) / 10) + '% · open the RIDD Sales app → Sales → Pay for your full published breakdown.</div>'
+                    + '</div>',
+                });
+              }
+              if (!recipients.length) { toast('Nothing to send — no reps with sales and an email this period', 'warn'); return; }
+              btn.textContent = 'Emailing ' + recipients.length + '…';
+              const h = await _apiAuthHeaders({ 'Content-Type': 'application/json' });
+              const res = await fetch('/api/commission-email', { method: 'POST', headers: h, body: JSON.stringify({ period: periodLabel, recipients }) });
+              const j = await res.json().catch(() => null);
+              if (res.ok && j && j.ok) {
+                toast('Commissions run — ' + j.sent + ' email' + (j.sent === 1 ? '' : 's') + ' sent' + (j.failed && j.failed.length ? ' · ' + j.failed.length + ' failed (see function logs)' : ''), j.failed && j.failed.length ? 'warn' : 'success');
+              } else {
+                toast('Emails failed: ' + ((j && j.error) || ('HTTP ' + res.status)) + ' — check RESEND_API_KEY / COMMISSION_FROM_EMAIL in Netlify', 'error');
+              }
+            } catch (err) {
+              toast('Run failed: ' + ((err && err.message) || err), 'error');
+            } finally { btn.disabled = false; btn.textContent = orig; }
+          },
+        }, '▶ Run Commissions'))),
+    el('div', { class: 'grid grid-cols-2 lg:grid-cols-4 gap-3' },
+      stat('Net Due (period)', money(netDue), 'take-home after deductions', '#8DC63F'),
+      stat('Weekly Pay', money(weeklyPay), 'across ' + payPeriods + ' weekly periods'),
+      stat('Accounts Sold', String(R.sold), money(R.payableRev) + ' payable revenue'),
+      stat('Active Accounts', String(activeN), null, '#8DC63F'),
+      stat('Canceled / Frozen', lostN + ' (' + pctS(R.sold ? lostN / R.sold * 100 : 0) + ')', R.canceled + ' canceled · ' + frozenN + ' frozen', lostN ? '#DC2626' : null),
+      stat('With Balance', R.withBalance + ' (' + pctS(R.sold ? R.withBalance / R.sold * 100 : 0) + ')'),
+      stat('Multi-Year Rate', pctS(R.myPct)),
+      stat('AutoPay %', pctS(R.sold ? (R.apayN || 0) / R.sold * 100 : 0))),
+    el('div', { class: 'flex flex-col lg:flex-row gap-5 items-start' },
+      el('div', { class: 'flex flex-col gap-4 w-full lg:w-[440px] lg:shrink-0' }, earnings),
+      el('div', { class: 'flex flex-col gap-4 flex-1 w-full min-w-0' }, ratesPanel, manualPanel)));
 }
 
 function viewCommission() {
