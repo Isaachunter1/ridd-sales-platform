@@ -5567,6 +5567,39 @@ function viewDashboard() {
       ['New Revenue',     fmt.usd0(newRevenue)],
       ['Renewal Revenue', fmt.usd0(renewalRevenue)],
     ]),
+    // Admin-only reconcile export — the EXACT rows behind the tiles above,
+    // one per sale, for diffing against the CRM leaderboard's "Show Table"
+    // (join on Customer #). Ends the "why are these $40K apart" guessing.
+    isAdmin ? el('div', { class: 'flex justify-end', style: { marginTop: '-8px' } },
+      el('button', {
+        class: 'text-[11px] font-semibold underline cursor-pointer',
+        style: { color: 'var(--text-muted)', background: 'none', border: 'none' },
+        title: 'Download the exact rows these tiles count (current range) — diff against the CRM leaderboard table',
+        onclick: () => {
+          try {
+            const esc = (v) => { const t = String(v == null ? '' : v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+            const cols = ['customer_number', 'customer_name', 'rep', 'sold_date', 'revenue', 'class', 'service', 'origin'];
+            const lines = [cols.join(',')];
+            approved.forEach(s => {
+              const rep = state.allProfiles.find(p => p.id === s.rep_id);
+              lines.push([
+                s.customer_number || '', s.customer_name || '',
+                rep ? rep.full_name : flipLastFirst(s._crmRep || ''),
+                s.sold_date || '', Number(s.revenue_amount || 0),
+                (s._crmRenewal ?? renewalIds.has(s.source_id)) ? 'renewal' : 'new',
+                s._crmService || nameFromId(state.serviceTypes, s.service_type_id) || '',
+                s._crm ? 'crm' : (s._pendingSync ? 'app-pending' : 'app'),
+              ].map(esc).join(','));
+            });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv' }));
+            a.download = 'ridd-warroom-rows-' + new Date().toISOString().slice(0, 10) + '.csv';
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+            toast('Exported ' + approved.length.toLocaleString() + ' rows — the exact set the tiles count', 'success');
+          } catch (e) { toast('Export failed: ' + ((e && e.message) || e), 'error'); }
+        },
+      }, '⬇ Reconcile export (tile rows)')) : null,
 
     // ─── Split: Today's Sales (30%) | Leaderboard (70%) ───
     // Mobile stacks LEADERBOARD first (per Isaac) — CSS order flips below
