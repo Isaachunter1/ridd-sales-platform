@@ -5366,7 +5366,6 @@ function viewDashboard() {
         const _dim = new Date(now2.getFullYear(), _mi + 1, 0).getDate();
         const seasonalPct = _shape.slice(0, _mi).reduce((a, b) => a + b, 0) + _shape[_mi] * (now2.getDate() / _dim);
         const seasonalPctMonthEnd = _shape.slice(0, _mi + 1).reduce((a, b) => a + b, 0);
-        const _daysLeftMonth = _dim - now2.getDate() + 1;   // today included
         const seasonalMarkerPct = Math.min(100, seasonalPct * 100);
         const EXCLUDE2 = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
         const jan1 = new Date(now2.getFullYear(), 0, 1);
@@ -5400,10 +5399,21 @@ function viewDashboard() {
                   // Seasonal pace: where this rep SHOULD be given how the
                   // year is weighted (not day-of-year ÷ 365).
                   const delta = rev - goal * seasonalPct;
-                  // Today's number: what to sell EACH remaining day of this
-                  // month (today included) to be exactly on the seasonal
-                  // pace at month-end. Ahead → it shrinks; behind → climbs.
-                  const todayNeed = goal > 0 ? Math.max(0, (goal * seasonalPctMonthEnd - rev) / _daysLeftMonth) : 0;
+                  // The number that matters (per Isaac): what to sell each
+                  // remaining SELLING DAY of the YEAR (Mon–Sat, company
+                  // holidays off) to land the ANNUAL goal — not a get-back-
+                  // on-pace-by-month-end figure.
+                  const _daysLeftYear = (() => {
+                    let n = 0;
+                    const d = new Date(now2); d.setHours(12, 0, 0, 0);
+                    while (d.getFullYear() === now2.getFullYear()) {
+                      const iso = d.toISOString().slice(0, 10);
+                      if (d.getDay() !== 0 && !(typeof companyHolidayFor === 'function' && companyHolidayFor(iso))) n++;
+                      d.setDate(d.getDate() + 1);
+                    }
+                    return Math.max(1, n);
+                  })();
+                  const todayNeed = goal > 0 ? Math.max(0, (goal - rev) / _daysLeftYear) : 0;
                   return el('div', {},
                     el('div', { class: 'flex items-center justify-between mb-1 gap-2' },
                       el('div', {
@@ -5432,10 +5442,13 @@ function viewDashboard() {
                         title: 'Where today sits on the SEASONAL plan — ' + (seasonalPct * 100).toFixed(1) + '% of the year\'s weighted goal should be sold by today',
                         style: { position: 'absolute', top: '-2px', bottom: '-2px', left: seasonalMarkerPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' },
                       }) : null),
-                    goal > 0 && el('div', { class: 'text-[10px] mt-0.5 tabular-nums', style: { color: delta >= 0 ? 'var(--text-muted)' : '#DC2626' } },
+                    goal > 0 && el('div', {
+                      class: 'text-[10px] mt-0.5 tabular-nums', style: { color: delta >= 0 ? 'var(--text-muted)' : '#DC2626' },
+                      title: fmt.usd0(Math.max(0, goal - rev)) + ' left to the annual goal \u00f7 ' + _daysLeftYear + ' selling days (Mon\u2013Sat, holidays off) left this year',
+                    },
                       todayNeed > 0
-                        ? '🎯 ' + fmt.usd0(todayNeed) + '/day through month-end to be on seasonal pace'
-                        : '✓ month covered — anything sold now banks ahead of pace'));
+                        ? '\ud83c\udfaf ' + fmt.usd0(todayNeed) + '/day rest of year to hit the annual goal'
+                        : '\u2713 annual goal hit \u2014 everything from here is gravy'));
                 })));
       }
 
