@@ -39050,10 +39050,18 @@ function viewD2dUpfront() {
     return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'Loading the CRM snapshot…');
   }
   const yr = new Date().getFullYear();
-  if (state._commStart == null) state._commStart = yr + '-01-01';
-  if (state._commEnd == null)   state._commEnd = new Date().toISOString().slice(0, 10);
-  const startMs = state._commStart ? Date.parse(state._commStart) : 0;
-  const endMs   = state._commEnd ? Date.parse(state._commEnd) + 86399000 : 0;
+  // Default period: the PREVIOUS completed week (Sun–Sat) — payroll runs on
+  // the week that just closed (per Isaac). Own state, so the Pay tab's YTD
+  // default stays untouched.
+  if (state._upfrontStart == null || state._upfrontEnd == null) {
+    const _n = new Date(); _n.setHours(12, 0, 0, 0);
+    const _sun = new Date(_n); _sun.setDate(_n.getDate() - _n.getDay() - 7);
+    const _sat = new Date(_sun); _sat.setDate(_sun.getDate() + 6);
+    state._upfrontStart = _sun.toISOString().slice(0, 10);
+    state._upfrontEnd = _sat.toISOString().slice(0, 10);
+  }
+  const startMs = state._upfrontStart ? Date.parse(state._upfrontStart) : 0;
+  const endMs   = state._upfrontEnd ? Date.parse(state._upfrontEnd) + 86399000 : 0;
 
   const R = commissionCompute(emp, startMs, endMs, 0);   // same pool, same gates
   const typeLabel = emp.type_label || 'Sales Rep';
@@ -39157,7 +39165,7 @@ function viewD2dUpfront() {
             opts.push({ v: iso(s) + '|' + iso(e), label: (i === 0 ? 'This week · ' : i === 1 ? 'Last week · ' : '') + fmtD(s) + ' – ' + fmtD(e) });
           }
           const yr0 = now.getFullYear() + '-01-01';
-          const curVal = state._commStart + '|' + state._commEnd;
+          const curVal = state._upfrontStart + '|' + state._upfrontEnd;
           return el('label', { class: 'block' }, lblS('Pay period'),
             el('select', {
               class: 'rounded-xl border px-3 py-2 text-sm font-medium',
@@ -39165,15 +39173,15 @@ function viewD2dUpfront() {
               onchange: (e) => {
                 const v = e.target.value; if (!v) return;
                 const [s, en] = v.split('|');
-                state._commStart = s; state._commEnd = en; mountApp();
+                state._upfrontStart = s; state._upfrontEnd = en; mountApp();
               },
             },
               el('option', { value: '', selected: curVal !== (yr0 + '|' + iso(now)) && !opts.find(o => o.v === curVal) }, 'Custom…'),
               el('option', { value: yr0 + '|' + iso(now), selected: curVal === (yr0 + '|' + iso(now)) }, 'YTD'),
               ...opts.map(o => el('option', { value: o.v, selected: o.v === curVal }, o.label))));
         })(),
-        el('label', { class: 'block' }, lblS('Sold from'), dateInput(state._commStart, v => state._commStart = v)),
-        el('label', { class: 'block' }, lblS('Sold to'), dateInput(state._commEnd, v => state._commEnd = v)),
+        el('label', { class: 'block' }, lblS('Sold from'), dateInput(state._upfrontStart, v => state._upfrontStart = v)),
+        el('label', { class: 'block' }, lblS('Sold to'), dateInput(state._upfrontEnd, v => state._upfrontEnd = v)),
         // ── RUN COMMISSIONS — computes every Sales Rep for this period,
         // publishes their result, and emails each rep at the address on
         // their FieldRoutes account. Admin-JWT-gated server side.
@@ -39183,7 +39191,7 @@ function viewD2dUpfront() {
           title: 'Compute every rep for this period, publish, and email each rep at their FieldRoutes address',
           onclick: async (e) => {
             const btn = e.currentTarget;
-            const periodLabel = state._commStart + ' → ' + state._commEnd;
+            const periodLabel = state._upfrontStart + ' → ' + state._upfrontEnd;
             const withEmail = salesReps.filter(x => /@/.test(String(x.email || '')));
             const noEmail = salesReps.length - withEmail.length;
             if (!confirm('Run commissions for ' + periodLabel + '?\n\n' + salesReps.length + ' Sales Reps will be computed and published; ' + withEmail.length + ' will be emailed at their FieldRoutes address' + (noEmail ? ' (' + noEmail + ' have no email on file and will be skipped)' : '') + '.')) return;
@@ -39243,7 +39251,53 @@ function viewD2dUpfront() {
       stat('AutoPay %', pctS(R.sold ? (R.apayN || 0) / R.sold * 100 : 0))),
     el('div', { class: 'flex flex-col lg:flex-row gap-5 items-start' },
       el('div', { class: 'flex flex-col gap-4 w-full lg:w-[440px] lg:shrink-0' }, earnings),
-      el('div', { class: 'flex flex-col gap-4 flex-1 w-full min-w-0' }, ratesPanel, manualPanel)));
+      el('div', { class: 'flex flex-col gap-4 flex-1 w-full min-w-0' }, ratesPanel, manualPanel)),
+    // ── The accounts behind the numbers — every account sold in the period,
+    // matched to its category / rate / pay so the run can be verified row
+    // by row before commissions go out.
+    (() => {
+      const cats = commissionConfig().serviceCategories;
+      const catOf = (r) => cats[r.subscription] || 'unclassified';
+      const CAT_LBL = { pest: 'Pest', bundle: 'Bundle', ancillary: 'Ancillary', exclude: 'Excluded', unclassified: 'Unmapped' };
+      const rateOf = (c) => c === 'pest' ? U.pest : c === 'bundle' ? U.bundle : c === 'ancillary' ? U.anc : 0;
+      const rowsSorted = R.rows.slice().sort((x, y) => String(y.sold_date || '').localeCompare(String(x.sold_date || '')));
+      const CAP = 250;
+      const statusCell = (r) => r.subscription_date_canceled
+        ? el('span', { class: 'text-xs font-bold', style: { color: '#DC2626' }, title: String(r.subscription_cancellation_reason || 'Cancelled') + ' · ' + r.subscription_date_canceled }, 'Canceled')
+        : /frozen/i.test(String(r.subscription_status || ''))
+          ? el('span', { class: 'text-xs font-bold', style: { color: '#D97706' } }, 'Frozen')
+          : el('span', { class: 'text-xs font-bold', style: { color: '#5F8A1F' } }, 'Active');
+      const payTotal = rowsSorted.reduce((a, r) => a + (Number(r.subscription_contract_value) || 0) * rateOf(catOf(r)), 0);
+      return el('div', { class: 'card overflow-hidden' },
+        el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
+          el('div', { class: 'font-display text-lg' }, 'Accounts in this run · ' + _frEmpName(emp)),
+          el('div', { class: 'text-xs text-muted- tabular-nums' }, rowsSorted.length + ' accounts · ' + money(payTotal) + ' upfront pay')),
+        rowsSorted.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+          el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+            ...['Sold', 'Customer', 'Service', 'Category', 'Contract Value', 'Rate', 'Pay', 'Status'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap' }, h)))),
+          el('tbody', {}, ...rowsSorted.slice(0, CAP).map(r => {
+            const c = catOf(r);
+            const cv2 = Number(r.subscription_contract_value) || 0;
+            const rate = rateOf(c);
+            return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+              el('td', { class: 'px-4 py-2 tabular-nums text-muted- whitespace-nowrap' }, String(r.sold_date || '').slice(0, 10)),
+              el('td', { class: 'px-4 py-2 whitespace-nowrap' },
+                el('span', { class: 'font-semibold' }, [r.last_name, r.first_name].filter(Boolean).join(', ') || '—'),
+                r.customer_id ? el('span', { class: 'text-muted- text-xs' }, ' #' + r.customer_id) : null),
+              el('td', { class: 'px-4 py-2 whitespace-nowrap' }, String(r.subscription || '—')),
+              el('td', { class: 'px-4 py-2 whitespace-nowrap' },
+                el('span', { class: 'text-xs font-bold px-2 py-0.5 rounded-full', style: c === 'unclassified'
+                  ? { background: 'rgba(245,158,11,.14)', color: '#B45309' }
+                  : c === 'exclude' ? { background: 'var(--card-2)', color: 'var(--text-subtle)' }
+                  : { background: 'rgba(141,198,63,.12)', color: '#5F8A1F' } }, CAT_LBL[c] || c)),
+              el('td', { class: 'px-4 py-2 tabular-nums' }, money(cv2)),
+              el('td', { class: 'px-4 py-2 tabular-nums' }, rate ? Math.round(rate * 100) + '%' : '—'),
+              el('td', { class: 'px-4 py-2 tabular-nums font-semibold' }, rate ? money(cv2 * rate) : '—'),
+              el('td', { class: 'px-4 py-2' }, statusCell(r)));
+          }))))
+          : el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No accounts sold in this period.'),
+        rowsSorted.length > CAP ? el('div', { class: 'px-4 py-2 text-xs text-muted- border-t', style: { borderColor: 'var(--border)' } }, 'Showing the latest ' + CAP + ' of ' + rowsSorted.length + '.') : null);
+    })());
 }
 
 function viewCommission() {
@@ -41872,7 +41926,7 @@ function goalMonthlyCard(g, persist) {
               el('td', { class: 'px-3 py-1.5 text-left' }, cell(g.monthly_renewal, m)),
               el('td', { class: 'px-3 py-1.5 text-left tabular-nums' }, usd(rv / loyReps)),
               el('td', { class: 'px-3 py-1.5 text-left tabular-nums font-semibold' }, usd(nv + rv)));
-          }))),
+          })),
         el('tfoot', {},
           el('tr', { style: { borderTop: '2px solid var(--border)', background: 'var(--card-2)' } },
             el('td', { class: 'px-3 py-2 text-left text-muted-' }, '100%'),
@@ -41882,7 +41936,7 @@ function goalMonthlyCard(g, persist) {
             el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totNew / isReps)),
             el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totRen)),
             el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totRen / loyReps)),
-            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totNew + totRen))))));
+            el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, usd(totNew + totRen)))))));
 }
 
 // Helper card for the Goals section — shows target, YTD actual, and a mini progress bar

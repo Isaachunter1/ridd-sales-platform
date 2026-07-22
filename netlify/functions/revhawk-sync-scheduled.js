@@ -39,15 +39,16 @@ exports.handler = async () => {
   // SUCCEEDED but a worker that died mid-flight (OOM): every hourly kick
   // returned 202, yet the dataset sat stale for two days. So after kicking,
   // check how old the published dataset actually is. This run's own sync
-  // won't have landed yet, so the age reflects the PREVIOUS hour's outcome —
-  // >150 min during selling hours means at least one full cycle failed.
+  // won't have landed yet, so the age reflects the PREVIOUS cycle's outcome —
+  // at the 30-min cadence, >90 min during selling hours means at least two
+  // full cycles failed (or Netlify silently dropped the cron expression).
   try {
     const hook = process.env.SLACK_ADMIN_WEBHOOK;
     if (hook) {
       const st = await (await fetch(base + '/api/sync-status')).json();
       const stamp = st && st.indicatorsBlob && st.indicatorsBlob.updated_at;
       const ageMin = stamp ? Math.round((Date.now() - Date.parse(stamp)) / 60000) : null;
-      if (ageMin == null || ageMin > 150) {
+      if (ageMin == null || ageMin > 90) {
         const lastStage = (st && st.lastRun && st.lastRun.stage) || 'unknown';
         const deriveStage = (st && st.lastDerive && st.lastDerive.stage) || 'unknown';
         await fetch(hook, {
