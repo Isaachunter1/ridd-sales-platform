@@ -23,11 +23,12 @@
 # scheduled function fires the background worker that pulls from BigQuery and
 # writes the fresh snapshot to Supabase.
 [functions."revhawk-sync-scheduled"]
-  # Hourly on the hour during selling hours (12:00–03:00 UTC = 8am–11pm ET).
-  # Halves the BigQuery scan volume vs half-hourly; billing is enabled now,
-  # so this is cost control rather than survival. Overnight stays paused —
-  # nothing sells at 4am.
-  schedule = "0 * * * *"   # every hour; selling-hours window enforced in the function (ranges/lists never fired on Netlify)
+  # Every 30 min during selling hours (per Isaac — the Sales tabs double as
+  # rep dashboards and hourly felt slow). NOTE: this consciously re-doubles
+  # the BigQuery scan volume we once halved for cost control; if the GCP
+  # bill creeps, dial back to "0 * * * *". Overnight stays paused — the
+  # function skips outside 8am–11pm ET.
+  schedule = "*/30 * * * *"  # plain step only — Netlify silently ignored range/list cron expressions
 
 [functions."marketing-refresh-scheduled"]
   schedule = "0 10 * * *"     # nightly ~5-6am ET — health-check + warm Windsor/GHL/QBO feeds
