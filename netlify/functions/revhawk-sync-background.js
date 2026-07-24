@@ -390,6 +390,27 @@ exports.handler = async (event) => {
     // run — the function sat at ~800MB before the derive even started and
     // got OOM-killed mid-flight. Parse, then drop the raw response so GC
     // reclaims it before the heavy stages.
+    // ── One-time schema probe (harmless, ~1s): does the mirror carry a
+    // DELETION marker? FieldRoutes-deleted customers leave orphan rows the
+    // app must exclude by hand today (Settings → Configurations → Deleted
+    // CRM accounts). If a column like is_deleted / _fivetran_deleted /
+    // active exists on Customer/Subscription, the sync can filter orphans
+    // automatically and the manual list dies. Check the function logs for
+    // "[schema-probe]" after a run, then remove or act on it.
+    try {
+      const probe = await runQuery(token,
+        `SELECT table_name, column_name FROM \`${PROJECT}.${DATASET}\`.INFORMATION_SCHEMA.COLUMNS ` +
+        `WHERE table_name IN ('FieldRoutesCustomer','FieldRoutesSubscription') ` +
+        `AND (LOWER(column_name) LIKE '%delet%' OR LOWER(column_name) LIKE '%active%' OR LOWER(column_name) LIKE '%status%' OR LOWER(column_name) LIKE '%updated%' OR LOWER(column_name) LIKE '%_synced%' OR LOWER(column_name) LIKE '%batch%')`);
+      const cols = (probe.rows || []).map(r => r.f.map(c => c.v).join('.'));
+      console.log('[schema-probe] deletion-marker candidates:', JSON.stringify(cols));
+      // Full table inventory — tells us what ELSE the mirror carries that the
+      // app doesn't use yet (tickets / ticket line items / payments / etc.).
+      const tbls = await runQuery(token,
+        `SELECT table_name FROM \`${PROJECT}.${DATASET}\`.INFORMATION_SCHEMA.TABLES ORDER BY table_name`);
+      console.log('[schema-probe] dataset tables:', JSON.stringify((tbls.rows || []).map(r => r.f[0].v)));
+    } catch (e) { console.warn('[schema-probe] failed (non-fatal):', e && e.message); }
+
     let _q = await runQuery(token, buildSQL());
     const objects = toObjects(_q.schema, _q.rows);
     _q = null;
