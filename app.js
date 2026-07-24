@@ -202,6 +202,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_indicatorRepTypeBySig',   // rep name-signature → "Sold By Type" from the Customer Report
   '_reportingCancelReasonsSeen', // distinct cancel reasons seen in the reporting CSV (persisted universe)
   '_reportingSourcesSeen',       // distinct lead sources seen in the reporting CSV (persisted universe)
+  'indicatorDeletedCustIds',     // customer IDs DELETED in FieldRoutes (orphans in the RevHawk mirror) — excluded app-wide
   '_indicatorTeams',
   '_indicatorExcludedTeams',
   '_indicatorRankExclude',    // { branch:[...], teams:[...] } — kept on the board but out of Power Ranking
@@ -1407,7 +1408,9 @@ function stripPhantomOffices(rows) {
   return Array.isArray(rows) ? rows.filter(r => !PHANTOM_OFFICE_NAMES.has(String(r && r.office_name || '').trim())) : rows;
 }
 async function loadReportingSubscriptions(uploadId) {
-  return stripPhantomOffices(await _loadReportingSubscriptionsRaw(uploadId));
+  const rows = stripPhantomOffices(await _loadReportingSubscriptionsRaw(uploadId));
+  const del = deletedCustIdSet();
+  return del.size ? rows.filter(r => !del.has(String(r.customer_id != null ? r.customer_id : ''))) : rows;
 }
 // Streamed snapshot download with live progress, stall detection and retries.
 // supabase-js .download() is one opaque await — if the connection stalls
@@ -6309,6 +6312,14 @@ function frPendingServiced(s) {
   // Legacy snapshots without the Initial Status column.
   return !_scIsSoldNotStarted(s);
 }
+// Customers DELETED inside FieldRoutes leave orphan rows in the RevHawk
+// mirror (the CRM's live reports drop them, the warehouse keeps them). The
+// mirror carries no deletion marker, so this admin-maintained ID list
+// (Settings → Configurations) is the source of truth — excluded from EVERY
+// dataset so app numbers align with the CRM exactly.
+function deletedCustIdSet() {
+  return new Set((state.indicatorDeletedCustIds || []).map(x => String(x).trim()).filter(Boolean));
+}
 function indicatorSales() {
   const dept = state.indicatorDept || 'all';
   const src = state._indicatorRawSales || [];
@@ -6323,7 +6334,8 @@ function indicatorSales() {
   // times; the cache resets when the upload (array identity), any saved config,
   // or a filter changes.
   const cfg = _indCfgRev + '|' + (state.indicatorsComps ? 1 : 0)
-    + '|' + _acct + '#' + _exclSvc.join('~') + '#' + _inclSvc.join('~') + '#' + _inclSrcArr.join('~') + '#' + _exclSrcArr.join('~');
+    + '|' + _acct + '#' + _exclSvc.join('~') + '#' + _inclSvc.join('~') + '#' + _inclSrcArr.join('~') + '#' + _exclSrcArr.join('~')
+    + '#' + (state.indicatorDeletedCustIds || []).join('~');
   if (_indSalesCache.src !== src || _indSalesCache.cfg !== cfg) {
     _indSalesCache.src = src; _indSalesCache.cfg = cfg; _indSalesCache.byKey.clear();
   }
@@ -6349,7 +6361,10 @@ function indicatorSales() {
   const _inclSvcSet = _inclSvc.length ? new Set(_inclSvc) : null;
   const _inclSrcSet = _inclSrcArr.length ? new Set(_inclSrcArr) : null;
   const _exclSrcSet = _exclSrcArr.length ? new Set(_exclSrcArr) : null;
+  const _delSet = deletedCustIdSet();
   let all = src.filter(s => {
+    // Deleted-in-CRM orphans (see deletedCustIdSet above) never count.
+    if (_delSet.size && _delSet.has(String(s.customerId != null ? s.customerId : ''))) return false;
     // FieldRoutes' GLOBAL report exclusions — billing artifacts, not sales.
     // Matches the CRM Sales Leaderboard's "Global:" excluded service types so
     // the two reconcile to the penny.
@@ -41458,6 +41473,39 @@ function adminConfigurations() {
         toggleRow('Exclude $0-paying subs', 'Subs with $0 annual recurring value drop from the retention book.', retenExclZeroPay(), () => { setRetenExclZeroPay(!retenExclZeroPay()); mountApp(); }),
         rule(),
         toggleRow('Exclude frozen subs with ≤1 service', 'Quiet deaths — frozen right after the initial, no cancel date ever lands, so they would count as retained forever.', retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); }),
+        rule(),
+        // ── Deleted-in-CRM accounts — orphan rows the RevHawk mirror keeps ──
+        (() => {
+          const cur = (state.indicatorDeletedCustIds || []).join(', ');
+          const ta = el('textarea', {
+            rows: '2', placeholder: 'e.g. 154844, 149539, 148260…',
+            class: 'w-full rounded-lg border px-3 py-2 text-xs tabular-nums',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', resize: 'vertical' },
+          }, cur);
+          return el('div', { class: 'py-1' },
+            el('div', { class: 'text-sm font-semibold' }, 'Deleted CRM accounts'),
+            el('div', { class: 'text-[11px] text-muted- mb-2' }, 'Customer IDs deleted inside FieldRoutes. The warehouse mirror keeps their old rows, so without this list the app counts revenue the CRM no longer shows. Excluded from EVERY dataset, for every user.'),
+            ta,
+            el('div', { class: 'flex items-center justify-between mt-1.5' },
+              el('span', { class: 'text-[10px] text-muted-' }, (state.indicatorDeletedCustIds || []).length + ' excluded'),
+              el('button', {
+                class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+                style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+                onclick: () => {
+                  const ids = [...new Set(String(ta.value || '').split(/[\s,;]+/).map(x => x.trim()).filter(x => /^\d+$/.test(x)))];
+                  state.indicatorDeletedCustIds = ids;
+                  // Live-filter the in-memory snapshot so every open tab view
+                  // reflects it now, not after the next snapshot load.
+                  const del = deletedCustIdSet();
+                  if (del.size && Array.isArray(state.reportingSubscriptions)) {
+                    state.reportingSubscriptions = state.reportingSubscriptions.filter(r => !del.has(String(r.customer_id != null ? r.customer_id : '')));
+                  }
+                  saveIndicatorState();
+                  toast(ids.length + ' deleted account' + (ids.length === 1 ? '' : 's') + ' excluded app-wide', 'success');
+                  mountApp();
+                },
+              }, 'Save list')));
+        })(),
         // ("Exclude branches" removed — per Isaac, there's no real case for
         // excluding a branch from company reporting. reportingExcludedBranches
         // plumbing kept; an empty set means nothing is excluded.)
