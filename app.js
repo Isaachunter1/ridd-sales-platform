@@ -41145,70 +41145,111 @@ function reportingWaterfall() {
   // population + effective-cancel rules as everything else on this tab.
   // Cohort-year rows keep the comparison honest (Last Resort sales skew
   // recent, so a single blended % would flatter them).
-  const lastResortCard = (pop, label) => {
-    const rows = _retenEff(pop).filter(r => r.initial_price != null && r.initial_price !== '' && isFinite(Number(r.initial_price)));
-    if (rows.length < 20) return null;
-    const unknownN = _retenEff(pop).length - rows.length;
-    const isLR = (r) => Number(r.initial_price) < 99;
-    const pctS2 = (a, n) => n ? ((a / n) * 100).toFixed(1) + '%' : '—';
-    const medLife = (rs) => {
-      const l = rs.filter(r => r._effCancel).map(r => {
-        const a = new Date(String(r.initial_service) + 'T00:00'), b = new Date(String(r._effCancel) + 'T00:00');
-        return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
-      }).filter(v => v != null).sort((x, y) => x - y);
-      return l.length ? l[Math.floor(l.length / 2)] : null;
+  // ── ATTRITION TRENDS — Performance-Trends-style chart for churn (per
+  // Isaac): monthly attrition rate, year-over-year lines, with a metric
+  // picker where Last Resort is one of the views. Same math as the
+  // seasonality grid (cancels ÷ true book at month start, same-month
+  // acquire-lose excluded), just drawn as lines.
+  const LAST_RESORT_START = '2026-06-05';
+  const attritionTrendsCard = (pop, label) => {
+    const rows = _retenEff(pop);
+    if (!rows.length) return null;
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const _isLR = (r) => Number(r.initial_price) < 99 && String(r.sold_date || r.initial_service || '') >= LAST_RESORT_START;
+    const SEGS = {
+      all: { label: 'Attrition % — All accounts', fn: () => true },
+      lr:  { label: 'Attrition % — Last Resort (<$99, since Jun 5)', fn: _isLR },
+      std: { label: 'Attrition % — Standard accounts', fn: (r) => !_isLR(r) },
+      cmp: { label: 'This year: All vs Last Resort vs Standard', fn: null },
     };
-    const years = [...new Set(rows.map(r => String(r.initial_service).slice(0, 4)))].sort();
-    const yearRows = years.map(y => {
-      const yr = rows.filter(r => String(r.initial_service).slice(0, 4) === y);
-      const lr = yr.filter(isLR), st = yr.filter(r => !isLR(r));
-      const lrA = lr.filter(r => !r._effCancel).length, stA = st.filter(r => !r._effCancel).length;
-      const dl = (lr.length && st.length) ? (lrA / lr.length - stA / st.length) * 100 : null;
-      return { y, lrN: lr.length, lrA, stN: st.length, stA, dl };
-    }).filter(r => r.lrN + r.stN > 0);
-    const lrAll = rows.filter(isLR), stAll = rows.filter(r => !isLR(r));
-    const lrAct = lrAll.filter(r => !r._effCancel).length, stAct = stAll.filter(r => !r._effCancel).length;
-    const lrPct = lrAll.length ? lrAct / lrAll.length : 0, stPct = stAll.length ? stAct / stAll.length : 0;
-    const dAll = (lrPct - stPct) * 100;
-    const lrMed = medLife(lrAll), stMed = medLife(stAll);
-    const td2 = (v, extra) => el('td', { class: 'px-2.5 py-2 tabular-nums ' + (extra || '') }, v);
-    return el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
+    const seg = SEGS[state._retTrendSeg] ? state._retTrendSeg : 'all';
+    // Monthly churn-rate lookup for an arbitrary subset — book-walk identical
+    // to the seasonality card.
+    const rateFnFor = (subsetFn) => {
+      const rs = rows.filter(subsetFn);
+      if (!rs.length) return () => null;
+      const startsByYm = {}, cancelsByYm = {}, allCancelsByYm = {};
+      let minY = 9999;
+      rs.forEach(r => {
+        const sYm = String(r.initial_service).slice(0, 7);
+        startsByYm[sYm] = (startsByYm[sYm] || 0) + 1;
+        minY = Math.min(minY, Number(sYm.slice(0, 4)) || 9999);
+        if (r._effCancel) {
+          const cYm = String(r._effCancel).slice(0, 7);
+          allCancelsByYm[cYm] = (allCancelsByYm[cYm] || 0) + 1;
+          if (sYm < cYm) cancelsByYm[cYm] = (cancelsByYm[cYm] || 0) + 1;
+        }
+      });
+      if (minY === 9999) return () => null;
+      const bookAt = {};
+      let book = 0;
+      const curY0 = new Date().getFullYear();
+      for (let y = minY; y <= curY0; y++) for (let m = 1; m <= 12; m++) {
+        const ym = y + '-' + pad2(m);
+        bookAt[ym] = book;
+        book += (startsByYm[ym] || 0) - (allCancelsByYm[ym] || 0);
+      }
+      return (y, m) => {
+        const ym = y + '-' + pad2(m);
+        const den = bookAt[ym] || 0;
+        if (den < 10) return null;                       // tiny book = noise
+        return (cancelsByYm[ym] || 0) / den * 100;
+      };
+    };
+    const now = new Date(), curY = now.getFullYear(), curM = now.getMonth() + 1;
+    const clip = (y, m, v) => (y === curY && m >= curM) ? null : v;   // current month partial → drop
+    const MONTH_LBL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    let datasets = [];
+    const isDark = state.theme === 'dark';
+    const gray = isDark ? '#6b6b63' : '#B8B8AE';
+    if (seg === 'cmp') {
+      const fAll = rateFnFor(() => true), fLr = rateFnFor(_isLR), fStd = rateFnFor((r) => !_isLR(r));
+      const mk = (f) => MONTH_LBL.map((_, i) => clip(curY, i + 1, f(curY, i + 1)));
+      datasets = [
+        { label: 'All ' + curY, data: mk(fAll), borderColor: isDark ? '#E6E6DC' : '#1D1D1D', backgroundColor: isDark ? '#E6E6DC' : '#1D1D1D' },
+        { label: 'Last Resort', data: mk(fLr), borderColor: '#DC2626', backgroundColor: '#DC2626' },
+        { label: 'Standard', data: mk(fStd), borderColor: '#8DC63F', backgroundColor: '#8DC63F' },
+      ];
+    } else {
+      const f = rateFnFor(SEGS[seg].fn);
+      const years = [curY - 2, curY - 1, curY];
+      datasets = years.map((y, yi) => ({
+        label: String(y),
+        data: MONTH_LBL.map((_, i) => clip(y, i + 1, f(y, i + 1))),
+        borderColor: yi === 2 ? '#8DC63F' : gray,
+        backgroundColor: yi === 2 ? '#8DC63F' : gray,
+        borderDash: yi === 0 ? [3, 3] : yi === 1 ? [6, 4] : [],
+      })).filter(d => d.data.some(v => v != null));
+    }
+    const id = 'retAttrTrends' + (label ? '_' + String(label).replace(/\W/g, '') : '');
+    const cvsWrap = el('div', { style: { position: 'relative', height: '240px', width: '100%' } });
+    cvsWrap.append(el('canvas', { id }));
+    setTimeout(() => {
+      if (typeof Chart === 'undefined') return;
+      const cvsEl = document.getElementById(id); if (!cvsEl) return;
+      if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
+      const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+      _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
+        type: 'line',
+        data: { labels: MONTH_LBL, datasets: datasets.map(d => ({ ...d, borderWidth: 2, tension: 0.3, fill: false, pointRadius: 2, spanGaps: false })) },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } } },
+          scales: { x: { ticks: { color: txt }, grid: { color: grid } },
+                    y: { beginAtZero: true, ticks: { color: txt, callback: v => v + '%' }, grid: { color: grid } } } },
+      });
+    }, 50);
+    return el('div', { class: 'card p-4' },
+      el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, '🚪 Last Resort Retention' + (label ? ' — ' + label : '')),
+          el('h3', { class: 'text-sm font-bold' }, '📉 Attrition Trends' + (label ? ' — ' + label : '')),
           el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Accounts sold under $99 initial vs $99+ — still active today, by first-service cohort year. Same population + churn rules as this whole tab.'
-            + (unknownN > 0 ? ' ' + fmt.int(unknownN) + ' subs without an initial price excluded.' : ''))),
-        el('div', { class: 'text-xs font-bold px-2.5 py-1.5 rounded-lg tabular-nums', style: dAll >= 0
-          ? { background: 'rgba(141,198,63,.14)', color: '#5F8A1F' }
-          : { background: 'rgba(220,38,38,.10)', color: '#DC2626' } },
-          (dAll >= 0 ? 'LR retains BETTER by ' : 'LR retains WORSE by ') + Math.abs(dAll).toFixed(1) + ' pts')),
-      el('div', { class: 'scroll-x' },
-        el('table', { class: 'w-full text-xs tabular-nums' },
-          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
-            el('tr', {},
-              ...['Cohort', 'LR Subs', 'LR Active %', 'Standard Subs', 'Std Active %', 'Δ (LR − Std)'].map(h => el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, h)))),
-          el('tbody', {},
-            ...yearRows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-              td2(r.y, 'font-semibold'),
-              td2(fmt.int(r.lrN)),
-              td2(pctS2(r.lrA, r.lrN)),
-              td2(fmt.int(r.stN)),
-              td2(pctS2(r.stA, r.stN)),
-              el('td', { class: 'px-2.5 py-2 tabular-nums font-bold', style: { color: r.dl == null ? 'var(--text-subtle)' : r.dl >= 0 ? '#5F8A1F' : '#DC2626' } },
-                r.dl == null ? '—' : (r.dl >= 0 ? '+' : '') + r.dl.toFixed(1) + ' pts'))),
-            el('tr', { class: 'border-t-2 font-bold', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
-              td2('ALL', 'font-black'),
-              td2(fmt.int(lrAll.length)),
-              td2(pctS2(lrAct, lrAll.length)),
-              td2(fmt.int(stAll.length)),
-              td2(pctS2(stAct, stAll.length)),
-              el('td', { class: 'px-2.5 py-2 tabular-nums font-black', style: { color: dAll >= 0 ? '#5F8A1F' : '#DC2626' } },
-                (dAll >= 0 ? '+' : '') + dAll.toFixed(1) + ' pts'))))),
-      el('div', { class: 'px-4 py-2 text-[11px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
-        'Median lifetime of churned subs — Last Resort: ' + (lrMed != null ? lrMed.toFixed(1) + ' mo' : '—')
-        + ' · Standard: ' + (stMed != null ? stMed.toFixed(1) + ' mo' : '—')
-        + '. Read the per-cohort rows, not just ALL — Last Resort sales skew recent, which flatters their blended number.'));
+            'Monthly churn ÷ book at month start — same rules as the seasonality grid. Last Resort = <$99 initial sold since the program began (Jun 5 2026); months with a book under 10 subs are blanked.')),
+        el('select', {
+          class: 'rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer',
+          style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          onchange: (e) => { state._retTrendSeg = e.target.value; mountApp(); },
+        }, ...Object.entries(SEGS).map(([k, s]) => el('option', { value: k, selected: seg === k }, s.label)))),
+      cvsWrap);
   };
 
   const renderSide = (data, pop, label, sideMark) => el('div', { class: 'flex flex-col gap-4' },
@@ -41216,7 +41257,7 @@ function reportingWaterfall() {
       el('div', { class: 'flex-1 min-w-0' }, renderMatrix(data, sideMark)),
       renderBlended(pop)),
     seasonalityCard(pop, label),
-    lastResortCard(pop, label),
+    attritionTrendsCard(pop, label),
     startCohortCard(pop, label),
     ltvCard(pop, label));
 
