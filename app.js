@@ -41156,13 +41156,18 @@ function reportingWaterfall() {
     if (!rows.length) return null;
     const pad2 = (n) => String(n).padStart(2, '0');
     const _isLR = (r) => Number(r.initial_price) < 99 && String(r.sold_date || r.initial_service || '') >= LAST_RESORT_START;
-    const SEGS = {
-      all: { label: 'Attrition % — All accounts', fn: () => true },
-      lr:  { label: 'Attrition % — Last Resort (<$99, since Jun 5)', fn: _isLR },
-      std: { label: 'Attrition % — Standard accounts', fn: (r) => !_isLR(r) },
-      cmp: { label: 'Compare: Baseline vs Last Resort vs Standard', fn: null },
-    };
-    const seg = SEGS[state._retTrendSeg] ? state._retTrendSeg : 'all';
+    // Metric pills — MULTI-SELECT (per Isaac): overlay any mix of series.
+    // Color = metric, dash = year. Baseline = avg monthly attrition across
+    // the selected PRIOR years, all accounts.
+    const METRICS = [
+      ['all',  'All',         (r) => true],
+      ['lr',   'Last Resort', _isLR],
+      ['std',  'Standard',    (r) => !_isLR(r)],
+      ['base', 'Baseline'],
+    ];
+    const _validSegs = new Set(METRICS.map(([k]) => k));
+    let segsSel = Array.isArray(state._retTrendSegs) ? state._retTrendSegs.filter(k => _validSegs.has(k)) : [];
+    if (!segsSel.length) segsSel = ['all'];
     // Monthly churn-rate lookup for an arbitrary subset — book-walk identical
     // to the seasonality card.
     const rateFnFor = (subsetFn) => {
@@ -41210,34 +41215,30 @@ function reportingWaterfall() {
     let datasets = [];
     const isDark = state.theme === 'dark';
     const gray = isDark ? '#6b6b63' : '#B8B8AE';
-    const YR_COLORS = ['#8DC63F', '#3B82F6', '#D97706', '#DC2626', '#9333EA', '#0D9488'];
-    if (seg === 'cmp') {
-      // Compare view: this year's All / Last Resort / Standard, PLUS the
-      // baseline — the average monthly attrition across the selected PRIOR
-      // years (all accounts), i.e. what the book normally does.
-      const fAll = rateFnFor(() => true), fLr = rateFnFor(_isLR), fStd = rateFnFor((r) => !_isLR(r));
-      const mk = (f) => MONTH_LBL.map((_, i) => clip(curY, i + 1, f(curY, i + 1)));
+    const SEG_COLORS = { all: isDark ? '#E6E6DC' : '#1D1D1D', lr: '#DC2626', std: '#8DC63F' };
+    const _dashFor = (y) => y === curY ? [] : (curY - y === 1 ? [6, 4] : [3, 3]);
+    // Baseline: one dashed gray line — the selected PRIOR years averaged
+    // (all accounts). Needs at least one pre-current year selected.
+    if (segsSel.includes('base')) {
+      const fAll = rateFnFor(() => true);
       const baseYears = yearsSel.filter(y => y < curY);
-      const baseline = MONTH_LBL.map((_, i) => {
-        const vals = baseYears.map(y => fAll(y, i + 1)).filter(v => v != null);
-        return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-      });
-      datasets = [
-        baseYears.length ? { label: 'Baseline avg ' + baseYears[0] + '–' + baseYears[baseYears.length - 1], data: baseline, borderColor: gray, backgroundColor: gray, borderDash: [6, 4] } : null,
-        { label: 'All ' + curY, data: mk(fAll), borderColor: isDark ? '#E6E6DC' : '#1D1D1D', backgroundColor: isDark ? '#E6E6DC' : '#1D1D1D' },
-        { label: 'Last Resort', data: mk(fLr), borderColor: '#DC2626', backgroundColor: '#DC2626' },
-        { label: 'Standard', data: mk(fStd), borderColor: '#8DC63F', backgroundColor: '#8DC63F' },
-      ].filter(Boolean);
-    } else {
-      const f = rateFnFor(SEGS[seg].fn);
-      datasets = yearsSel.map((y, yi) => ({
-        label: String(y),
-        data: MONTH_LBL.map((_, i) => clip(y, i + 1, f(y, i + 1))),
-        borderColor: y === curY ? '#8DC63F' : YR_COLORS[(yi + 1) % YR_COLORS.length],
-        backgroundColor: y === curY ? '#8DC63F' : YR_COLORS[(yi + 1) % YR_COLORS.length],
-        borderDash: y === curY ? [] : [6, 4],
-      })).filter(d => d.data.some(v => v != null));
+      if (baseYears.length) {
+        const baseline = MONTH_LBL.map((_, i) => {
+          const vals = baseYears.map(y => fAll(y, i + 1)).filter(v => v != null);
+          return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+        });
+        datasets.push({ label: 'Baseline avg ' + baseYears[0] + (baseYears.length > 1 ? '–' + baseYears[baseYears.length - 1] : ''), data: baseline, borderColor: gray, backgroundColor: gray, borderDash: [6, 4], borderWidth: 3 });
+      }
     }
+    METRICS.forEach(([k, lbl, fn]) => {
+      if (k === 'base' || !segsSel.includes(k)) return;
+      const f = rateFnFor(fn);
+      yearsSel.forEach(y => {
+        const data = MONTH_LBL.map((_, i) => clip(y, i + 1, f(y, i + 1)));
+        if (!data.some(v => v != null)) return;
+        datasets.push({ label: lbl + ' ' + y, data, borderColor: SEG_COLORS[k], backgroundColor: SEG_COLORS[k], borderDash: _dashFor(y) });
+      });
+    });
     const id = 'retAttrTrends' + (label ? '_' + String(label).replace(/\W/g, '') : '');
     const cvsWrap = el('div', { style: { position: 'relative', height: '240px', width: '100%' } });
     cvsWrap.append(el('canvas', { id }));
@@ -41275,11 +41276,20 @@ function reportingWaterfall() {
                 mountApp();
               },
             }, String(y)))),
-          el('select', {
-            class: 'rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-            onchange: (e) => { state._retTrendSeg = e.target.value; mountApp(); },
-          }, ...Object.entries(SEGS).map(([k, s]) => el('option', { value: k, selected: seg === k }, s.label))))),
+          el('div', { class: 'flex items-center gap-1 flex-wrap' },
+            ...METRICS.map(([k, lbl]) => el('button', {
+              class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition',
+              style: segsSel.includes(k)
+                ? { background: k === 'lr' ? '#DC2626' : k === 'std' ? '#8DC63F' : 'var(--text)', color: k === 'std' ? '#1D1D1D' : 'var(--bg)' }
+                : { background: 'var(--card-2)', color: 'var(--text-muted)' },
+              title: k === 'base' ? 'Average monthly attrition across the selected prior years (all accounts)' : k === 'lr' ? '<$99 initial, sold since Jun 5 2026' : '',
+              onclick: () => {
+                const cur = new Set(segsSel);
+                if (cur.has(k)) { if (cur.size > 1) cur.delete(k); } else cur.add(k);
+                state._retTrendSegs = [...cur];
+                mountApp();
+              },
+            }, (segsSel.includes(k) ? '\u2713 ' : '') + lbl))))),
       cvsWrap);
   };
 
