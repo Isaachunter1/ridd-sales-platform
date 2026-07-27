@@ -22838,8 +22838,10 @@ function viewIndicators() {
       const _deptT = state.indicatorDept || 'all';
       const tableMetrics = INDICATOR_METRICS.filter(m => {
         if (m.key === 'new_revenue' || m.key === 'renewal_revenue') return _deptT === 'office';
-        // Audit % + Last Resort % only appear on the Sales Rep tab — hidden for All, Office, Technician.
-        if (m.key === 'audit_pct' || m.key === 'last_resort_pct') return _deptT === 'd2d';
+        // Audit % only appears on the Sales Rep tab; Last Resort % shows for
+        // EVERY dept in both branch + team views (per Isaac) — context only,
+        // still not a Power Ranking scorer.
+        if (m.key === 'audit_pct') return _deptT === 'd2d';
         if (_deptT === 'office' && m.key === 'pra') return false;
         return true;
       });
