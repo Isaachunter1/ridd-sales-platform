@@ -41160,7 +41160,7 @@ function reportingWaterfall() {
       all: { label: 'Attrition % — All accounts', fn: () => true },
       lr:  { label: 'Attrition % — Last Resort (<$99, since Jun 5)', fn: _isLR },
       std: { label: 'Attrition % — Standard accounts', fn: (r) => !_isLR(r) },
-      cmp: { label: 'This year: All vs Last Resort vs Standard', fn: null },
+      cmp: { label: 'Compare: Baseline vs Last Resort vs Standard', fn: null },
     };
     const seg = SEGS[state._retTrendSeg] ? state._retTrendSeg : 'all';
     // Monthly churn-rate lookup for an arbitrary subset — book-walk identical
@@ -41199,26 +41199,43 @@ function reportingWaterfall() {
     const now = new Date(), curY = now.getFullYear(), curM = now.getMonth() + 1;
     const clip = (y, m, v) => (y === curY && m >= curM) ? null : v;   // current month partial → drop
     const MONTH_LBL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    // Year picker — every year the population has first-service data for.
+    let _minY = 9999;
+    rows.forEach(r => { const y = Number(String(r.initial_service).slice(0, 4)); if (y > 2000) _minY = Math.min(_minY, y); });
+    const yearsAvail = [];
+    for (let y = _minY; y <= curY; y++) yearsAvail.push(y);
+    let yearsSel = Array.isArray(state._retTrendYears) ? state._retTrendYears.filter(y => yearsAvail.includes(y)) : [];
+    if (!yearsSel.length) yearsSel = yearsAvail.slice(-3);
+    yearsSel = [...yearsSel].sort((a, b) => a - b);
     let datasets = [];
     const isDark = state.theme === 'dark';
     const gray = isDark ? '#6b6b63' : '#B8B8AE';
+    const YR_COLORS = ['#8DC63F', '#3B82F6', '#D97706', '#DC2626', '#9333EA', '#0D9488'];
     if (seg === 'cmp') {
+      // Compare view: this year's All / Last Resort / Standard, PLUS the
+      // baseline — the average monthly attrition across the selected PRIOR
+      // years (all accounts), i.e. what the book normally does.
       const fAll = rateFnFor(() => true), fLr = rateFnFor(_isLR), fStd = rateFnFor((r) => !_isLR(r));
       const mk = (f) => MONTH_LBL.map((_, i) => clip(curY, i + 1, f(curY, i + 1)));
+      const baseYears = yearsSel.filter(y => y < curY);
+      const baseline = MONTH_LBL.map((_, i) => {
+        const vals = baseYears.map(y => fAll(y, i + 1)).filter(v => v != null);
+        return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+      });
       datasets = [
+        baseYears.length ? { label: 'Baseline avg ' + baseYears[0] + '–' + baseYears[baseYears.length - 1], data: baseline, borderColor: gray, backgroundColor: gray, borderDash: [6, 4] } : null,
         { label: 'All ' + curY, data: mk(fAll), borderColor: isDark ? '#E6E6DC' : '#1D1D1D', backgroundColor: isDark ? '#E6E6DC' : '#1D1D1D' },
         { label: 'Last Resort', data: mk(fLr), borderColor: '#DC2626', backgroundColor: '#DC2626' },
         { label: 'Standard', data: mk(fStd), borderColor: '#8DC63F', backgroundColor: '#8DC63F' },
-      ];
+      ].filter(Boolean);
     } else {
       const f = rateFnFor(SEGS[seg].fn);
-      const years = [curY - 2, curY - 1, curY];
-      datasets = years.map((y, yi) => ({
+      datasets = yearsSel.map((y, yi) => ({
         label: String(y),
         data: MONTH_LBL.map((_, i) => clip(y, i + 1, f(y, i + 1))),
-        borderColor: yi === 2 ? '#8DC63F' : gray,
-        backgroundColor: yi === 2 ? '#8DC63F' : gray,
-        borderDash: yi === 0 ? [3, 3] : yi === 1 ? [6, 4] : [],
+        borderColor: y === curY ? '#8DC63F' : YR_COLORS[(yi + 1) % YR_COLORS.length],
+        backgroundColor: y === curY ? '#8DC63F' : YR_COLORS[(yi + 1) % YR_COLORS.length],
+        borderDash: y === curY ? [] : [6, 4],
       })).filter(d => d.data.some(v => v != null));
     }
     const id = 'retAttrTrends' + (label ? '_' + String(label).replace(/\W/g, '') : '');
@@ -41244,11 +41261,25 @@ function reportingWaterfall() {
           el('h3', { class: 'text-sm font-bold' }, '📉 Attrition Trends' + (label ? ' — ' + label : '')),
           el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
             'Monthly churn ÷ book at month start — same rules as the seasonality grid. Last Resort = <$99 initial sold since the program began (Jun 5 2026); months with a book under 10 subs are blanked.')),
-        el('select', {
-          class: 'rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer',
-          style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-          onchange: (e) => { state._retTrendSeg = e.target.value; mountApp(); },
-        }, ...Object.entries(SEGS).map(([k, s]) => el('option', { value: k, selected: seg === k }, s.label)))),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          // Year multi-select pills — drive the YoY lines AND the compare
+          // view's baseline (prior selected years averaged).
+          el('div', { class: 'flex items-center gap-1 flex-wrap' },
+            ...yearsAvail.map(y => el('button', {
+              class: 'px-2 py-1 rounded-lg text-[11px] font-bold transition',
+              style: yearsSel.includes(y) ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
+              onclick: () => {
+                const cur = new Set(yearsSel);
+                if (cur.has(y)) { if (cur.size > 1) cur.delete(y); } else cur.add(y);
+                state._retTrendYears = [...cur].sort((a, b) => a - b);
+                mountApp();
+              },
+            }, String(y)))),
+          el('select', {
+            class: 'rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            onchange: (e) => { state._retTrendSeg = e.target.value; mountApp(); },
+          }, ...Object.entries(SEGS).map(([k, s]) => el('option', { value: k, selected: seg === k }, s.label))))),
       cvsWrap);
   };
 
