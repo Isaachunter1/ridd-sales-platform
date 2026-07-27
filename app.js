@@ -22836,7 +22836,7 @@ function viewIndicators() {
       // New / Renewal revenue split; every other dept hides the split and keeps
       // PRA + Audit %.
       const _deptT = state.indicatorDept || 'all';
-      const tableMetrics = INDICATOR_METRICS.filter(m => {
+      const _visibleMetrics = INDICATOR_METRICS.filter(m => {
         if (m.key === 'new_revenue' || m.key === 'renewal_revenue') return _deptT === 'office';
         // Audit % only appears on the Sales Rep tab; Last Resort % shows for
         // EVERY dept in both branch + team views (per Isaac) — context only,
@@ -22845,6 +22845,11 @@ function viewIndicators() {
         if (_deptT === 'office' && m.key === 'pra') return false;
         return true;
       });
+      // SCORED metrics on top, CONTEXT metrics below a bold cutoff line
+      // (per Isaac) — the same exclusion set Power Rank scoring uses.
+      const _PR_CTX = new Set(['new_revenue', 'renewal_revenue', 'audit_pct', 'last_resort_pct']);
+      const tableMetrics = [..._visibleMetrics.filter(m => !_PR_CTX.has(m.key)), ..._visibleMetrics.filter(m => _PR_CTX.has(m.key))];
+      const _prDividerAt = _visibleMetrics.some(m => _PR_CTX.has(m.key)) ? tableMetrics.filter(m => !_PR_CTX.has(m.key)).length : null;
       return el('div', { class: 'card overflow-hidden' },
         el('div', { class: 'scroll-x' },
           el('table', { class: 'w-full text-[12px]' },
@@ -22885,9 +22890,17 @@ function viewIndicators() {
               ),
             ),
             el('tbody', {},
-              ...tableMetrics.map(m => {
+              ...tableMetrics.flatMap((m, _mi) => {
                 const isSorting = sort.key === m.key;
-                return el('tr', { class: 'border-t border-' + (isSorting ? ' font-bold' : '') },
+                // Bold cutoff: everything above counts toward Power Rank,
+                // everything below is context.
+                const _divider = (_prDividerAt != null && _mi === _prDividerAt) ? [el('tr', {},
+                  el('td', {
+                    colspan: String(sortedBranches.length + 2),
+                    class: 'px-3 py-1 text-[9px] uppercase tracking-widest font-bold select-none',
+                    style: { borderTop: '3px solid var(--text)', background: 'var(--card-2)', color: 'var(--text-muted)' },
+                  }, '\u25b2 counted in Power Rank \u00b7 \u25bc context only'))] : [];
+                return [..._divider, el('tr', { class: 'border-t border-' + (isSorting ? ' font-bold' : '') },
                   (() => {
                     const cell = el('td', {
                       class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
@@ -22902,7 +22915,7 @@ function viewIndicators() {
                     branchData[b] ? m.fmt(branchData[b][m.key]) : '—',
                   )),
                   el('td', { class: 'px-3 py-2 text-center tabular-nums font-bold' }, m.fmt(riddTotal[m.key])),
-                );
+                )];
               }),
               // Reps W/ A Sale row — context, not a scored metric. Sits
               // between the scored metrics and the Power Rank row so the
@@ -41128,11 +41141,82 @@ function reportingWaterfall() {
           el('tbody', {}, ...bodyRows))));
   };
 
+  // ── LAST RESORT RETENTION — do <$99-initial accounts stick worse? Same
+  // population + effective-cancel rules as everything else on this tab.
+  // Cohort-year rows keep the comparison honest (Last Resort sales skew
+  // recent, so a single blended % would flatter them).
+  const lastResortCard = (pop, label) => {
+    const rows = _retenEff(pop).filter(r => r.initial_price != null && r.initial_price !== '' && isFinite(Number(r.initial_price)));
+    if (rows.length < 20) return null;
+    const unknownN = _retenEff(pop).length - rows.length;
+    const isLR = (r) => Number(r.initial_price) < 99;
+    const pctS2 = (a, n) => n ? ((a / n) * 100).toFixed(1) + '%' : '—';
+    const medLife = (rs) => {
+      const l = rs.filter(r => r._effCancel).map(r => {
+        const a = new Date(String(r.initial_service) + 'T00:00'), b = new Date(String(r._effCancel) + 'T00:00');
+        return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
+      }).filter(v => v != null).sort((x, y) => x - y);
+      return l.length ? l[Math.floor(l.length / 2)] : null;
+    };
+    const years = [...new Set(rows.map(r => String(r.initial_service).slice(0, 4)))].sort();
+    const yearRows = years.map(y => {
+      const yr = rows.filter(r => String(r.initial_service).slice(0, 4) === y);
+      const lr = yr.filter(isLR), st = yr.filter(r => !isLR(r));
+      const lrA = lr.filter(r => !r._effCancel).length, stA = st.filter(r => !r._effCancel).length;
+      const dl = (lr.length && st.length) ? (lrA / lr.length - stA / st.length) * 100 : null;
+      return { y, lrN: lr.length, lrA, stN: st.length, stA, dl };
+    }).filter(r => r.lrN + r.stN > 0);
+    const lrAll = rows.filter(isLR), stAll = rows.filter(r => !isLR(r));
+    const lrAct = lrAll.filter(r => !r._effCancel).length, stAct = stAll.filter(r => !r._effCancel).length;
+    const lrPct = lrAll.length ? lrAct / lrAll.length : 0, stPct = stAll.length ? stAct / stAll.length : 0;
+    const dAll = (lrPct - stPct) * 100;
+    const lrMed = medLife(lrAll), stMed = medLife(stAll);
+    const td2 = (v, extra) => el('td', { class: 'px-2.5 py-2 tabular-nums ' + (extra || '') }, v);
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
+        el('div', {},
+          el('h3', { class: 'text-sm font-bold' }, '🚪 Last Resort Retention' + (label ? ' — ' + label : '')),
+          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
+            'Accounts sold under $99 initial vs $99+ — still active today, by first-service cohort year. Same population + churn rules as this whole tab.'
+            + (unknownN > 0 ? ' ' + fmt.int(unknownN) + ' subs without an initial price excluded.' : ''))),
+        el('div', { class: 'text-xs font-bold px-2.5 py-1.5 rounded-lg tabular-nums', style: dAll >= 0
+          ? { background: 'rgba(141,198,63,.14)', color: '#5F8A1F' }
+          : { background: 'rgba(220,38,38,.10)', color: '#DC2626' } },
+          (dAll >= 0 ? 'LR retains BETTER by ' : 'LR retains WORSE by ') + Math.abs(dAll).toFixed(1) + ' pts')),
+      el('div', { class: 'scroll-x' },
+        el('table', { class: 'w-full text-xs tabular-nums' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
+            el('tr', {},
+              ...['Cohort', 'LR Subs', 'LR Active %', 'Standard Subs', 'Std Active %', 'Δ (LR − Std)'].map(h => el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, h)))),
+          el('tbody', {},
+            ...yearRows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+              td2(r.y, 'font-semibold'),
+              td2(fmt.int(r.lrN)),
+              td2(pctS2(r.lrA, r.lrN)),
+              td2(fmt.int(r.stN)),
+              td2(pctS2(r.stA, r.stN)),
+              el('td', { class: 'px-2.5 py-2 tabular-nums font-bold', style: { color: r.dl == null ? 'var(--text-subtle)' : r.dl >= 0 ? '#5F8A1F' : '#DC2626' } },
+                r.dl == null ? '—' : (r.dl >= 0 ? '+' : '') + r.dl.toFixed(1) + ' pts'))),
+            el('tr', { class: 'border-t-2 font-bold', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+              td2('ALL', 'font-black'),
+              td2(fmt.int(lrAll.length)),
+              td2(pctS2(lrAct, lrAll.length)),
+              td2(fmt.int(stAll.length)),
+              td2(pctS2(stAct, stAll.length)),
+              el('td', { class: 'px-2.5 py-2 tabular-nums font-black', style: { color: dAll >= 0 ? '#5F8A1F' : '#DC2626' } },
+                (dAll >= 0 ? '+' : '') + dAll.toFixed(1) + ' pts'))))),
+      el('div', { class: 'px-4 py-2 text-[11px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
+        'Median lifetime of churned subs — Last Resort: ' + (lrMed != null ? lrMed.toFixed(1) + ' mo' : '—')
+        + ' · Standard: ' + (stMed != null ? stMed.toFixed(1) + ' mo' : '—')
+        + '. Read the per-cohort rows, not just ALL — Last Resort sales skew recent, which flatters their blended number.'));
+  };
+
   const renderSide = (data, pop, label, sideMark) => el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex gap-4 flex-wrap items-start' },
       el('div', { class: 'flex-1 min-w-0' }, renderMatrix(data, sideMark)),
       renderBlended(pop)),
     seasonalityCard(pop, label),
+    lastResortCard(pop, label),
     startCohortCard(pop, label),
     ltvCard(pop, label));
 
