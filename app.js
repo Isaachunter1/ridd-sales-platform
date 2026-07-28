@@ -18203,7 +18203,8 @@ function mysteryBoxDayStats(day) {
   const byRep = new Map();
   for (const s of raw) {
     if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
-    if ((typeof dateSoldToIso === 'function' ? dateSoldToIso(s.dateSold) : '') !== day.date) continue;
+    const _iso = (typeof dateSoldToIso === 'function' ? dateSoldToIso(s.dateSold) : '');
+    if (!_iso || _iso < day.from || _iso > day.to) continue;
     if (typeof springCleaningStatus === 'function' && springCleaningStatus(s) === 'excluded') continue;
     const nm = getCanonicalRepName(s.rep);
     if (!nm) continue;
@@ -18489,22 +18490,53 @@ function mysteryBoxSection(isAdmin) {
   const opened = _mbOpenedMap();
   const mine = state.profile ? boxes.filter(b => b.profile_id === state.profile.id) : [];
   const nodes = [];
-  // ── Poster header — RIDDMADE® MYSTERY BOX. The 𝕽 doubles as the hidden
-  // PRIZE button (admin): click it → an input appears to add a prize to the
-  // pool; click again → it's just the logo. Nobody watching a recording
-  // knows it's a control.
-  nodes.push(el('div', { class: 'card p-5' },
-    el('div', { class: 'flex items-center justify-between gap-3' },
-      el('div', {},
-        el('div', { class: 'text-[10px] font-black', style: { letterSpacing: '.25em' } }, 'RIDDMADE\u00ae'),
-        el('div', { class: 'font-display text-4xl leading-none mt-1' }, 'MYSTERY BOX')),
-      el('div', {
-        style: { fontSize: '54px', lineHeight: '1', fontFamily: 'serif', cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none' },
-        title: isAdmin ? 'Add a prize' : '',
-        onclick: isAdmin ? (() => { state._mbPrizeOpen = !state._mbPrizeOpen; mountApp(); }) : undefined,
-      }, '\ud835\udd7d')),
-    (isAdmin && state._mbPrizeOpen) ? (() => {
-      // Incentive list — add / remove; the Arm dropdown selects from these.
+  mine.forEach(b => {
+    const isOpened = !!opened[b.id];
+    nodes.push(el('div', { class: 'card p-4 flex items-center justify-between gap-3 flex-wrap', style: { borderLeft: '3px solid #8DC63F' } },
+      el('div', { class: 'flex items-center gap-3 min-w-0' },
+        el('div', { style: { fontSize: '34px' } }, isOpened ? '🎉' : '🎁'),
+        el('div', { class: 'min-w-0' },
+          el('div', { class: 'font-display text-lg' }, isOpened ? 'You won: ' + _mbDec(b.prize) : 'You have a Mystery Box!'),
+          el('div', { class: 'text-xs text-muted-' }, isOpened ? 'Opened ' + new Date(opened[b.id]).toLocaleDateString() + ' — see your admin to claim.' : 'Tap to open it. No takebacks.'))),
+      !isOpened ? el('button', {
+        class: 'rounded-xl px-4 py-2.5 text-sm font-bold transition hover:brightness-95',
+        style: { background: '#8DC63F', color: '#1D1D1D' },
+        onclick: () => openMysteryBoxOverlay(b),
+      }, 'Open the box') : null));
+  });
+  // ── Date bar + qualification table (per Isaac: one date, one table,
+  // rookies vs vets distinguished; goals are the revenue metric). ──
+  const goals = state._mbGoals || { rookie: 1500, vet: 2000 };
+  const todayIso = (typeof bizTodayIso === 'function') ? bizTodayIso() : new Date().toISOString().slice(0, 10);
+  // Date RANGE — defaults to a one-day window (today), but multi-day box
+  // comps are a thing, so both ends are pickable.
+  let mbFrom = state._mbDateFrom || todayIso;
+  let mbTo = state._mbDateTo || mbFrom;
+  if (mbTo < mbFrom) mbTo = mbFrom;
+  const dayStats = mysteryBoxDayStats({ from: mbFrom, to: mbTo, rookie: goals.rookie, vet: goals.vet });
+  const qualified = dayStats.filter(r => r.qualified);
+  const belowN = dayStats.length - qualified.length;
+  const _dayName = (iso, opts) => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', opts || { weekday: 'long', month: 'long', day: 'numeric' });
+  const dLbl = mbFrom === mbTo ? _dayName(mbFrom)
+    : _dayName(mbFrom, { month: 'short', day: 'numeric' }) + ' \u2013 ' + _dayName(mbTo, { month: 'short', day: 'numeric' });
+  const _mbSyncStr = (() => {
+    const t2 = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt) : null;
+    if (!t2 || isNaN(t2)) return null;
+    try { return t2.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).replace(',', ' \u00b7'); }
+    catch (e) { return t2.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); }
+  })();
+  const goalIn = (key, val) => el('input', {
+    type: 'number', value: String(val),
+    class: 'rounded px-2 py-1 text-xs tabular-nums font-bold',
+    style: { width: '80px', background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)' },
+    onchange: (e) => { const g = { ...goals, [key]: Number(e.target.value) || 0 }; _mbSaveCfg({ goals: g }); mountApp(); },
+  });
+  // ── ONE top bar: brand · boxes earned · tier split · Spin · 𝕽 (the
+  // hidden prize-list toggle). Condensed from the old masthead + winners
+  // cards (per Isaac). ──
+  {
+    const qR = qualified.filter(r => r.tier === 'rookie'), qV = qualified.filter(r => r.tier !== 'rookie');
+    const prizeEditor = (isAdmin && state._mbPrizeOpen) ? (() => {
       const pin = el('input', {
         type: 'text', placeholder: 'New incentive\u2026',
         class: 'rounded-lg border px-3 py-2 text-sm flex-1 min-w-0',
@@ -18515,7 +18547,7 @@ function mysteryBoxSection(isAdmin) {
       return el('div', { class: 'mt-3 pt-3', style: { borderTop: '1px solid var(--border)' } },
         poolNow.length ? (() => {
           const odds = state._mbOdds || {};
-          const total = poolNow.reduce((a, p) => a + (Number(odds[p]) || 0), 0);
+          const total = poolNow.reduce((a2, p) => a2 + (Number(odds[p]) || 0), 0);
           return el('div', { class: 'flex flex-col mb-2' },
             ...poolNow.map((p, i) => el('div', { class: 'flex items-center justify-between gap-2 py-1.5 text-sm', style: { borderBottom: '1px solid var(--border)' } },
               el('span', { class: 'font-semibold min-w-0 truncate' }, p),
@@ -18540,8 +18572,7 @@ function mysteryBoxSection(isAdmin) {
                 }, '\u2715')))),
             el('div', { class: 'flex items-center justify-end gap-1 pt-1.5 text-[11px] tabular-nums font-bold', style: { color: total === 100 ? '#5F8A1F' : '#D97706' } },
               'Total ' + total + '%' + (total === 100 ? ' \u2713' : ' \u2014 should sum to 100')));
-        })()
-          : el('div', { class: 'text-xs text-muted- mb-2' }, 'No incentives yet \u2014 add the ones boxes can reveal.'),
+        })() : el('div', { class: 'text-xs text-muted- mb-2' }, 'No incentives yet \u2014 add the ones boxes can reveal.'),
         el('div', { class: 'flex items-center gap-2' },
           pin,
           el('button', {
@@ -18554,77 +18585,60 @@ function mysteryBoxSection(isAdmin) {
               mountApp();
             },
           }, '+ Add')));
-    })() : null));
-  // ── Rep-facing: your boxes ──
-  mine.forEach(b => {
-    const isOpened = !!opened[b.id];
-    nodes.push(el('div', { class: 'card p-4 flex items-center justify-between gap-3 flex-wrap', style: { borderLeft: '3px solid #8DC63F' } },
-      el('div', { class: 'flex items-center gap-3 min-w-0' },
-        el('div', { style: { fontSize: '34px' } }, isOpened ? '🎉' : '🎁'),
-        el('div', { class: 'min-w-0' },
-          el('div', { class: 'font-display text-lg' }, isOpened ? 'You won: ' + _mbDec(b.prize) : 'You have a Mystery Box!'),
-          el('div', { class: 'text-xs text-muted-' }, isOpened ? 'Opened ' + new Date(opened[b.id]).toLocaleDateString() + ' — see your admin to claim.' : 'Tap to open it. No takebacks.'))),
-      !isOpened ? el('button', {
-        class: 'rounded-xl px-4 py-2.5 text-sm font-bold transition hover:brightness-95',
-        style: { background: '#8DC63F', color: '#1D1D1D' },
-        onclick: () => openMysteryBoxOverlay(b),
-      }, 'Open the box') : null));
-  });
-  // ── Date bar + qualification table (per Isaac: one date, one table,
-  // rookies vs vets distinguished; goals are the revenue metric). ──
-  const goals = state._mbGoals || { rookie: 1500, vet: 2000 };
-  const todayIso = (typeof bizTodayIso === 'function') ? bizTodayIso() : new Date().toISOString().slice(0, 10);
-  const mbDate = state._mbDate || todayIso;
-  const dayStats = mysteryBoxDayStats({ date: mbDate, rookie: goals.rookie, vet: goals.vet });
-  const qualified = dayStats.filter(r => r.qualified);
-  const belowN = dayStats.length - qualified.length;
-  const dLbl = new Date(mbDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-  const goalIn = (key, val) => el('input', {
-    type: 'number', value: String(val),
-    class: 'rounded px-2 py-1 text-xs tabular-nums font-bold',
-    style: { width: '80px', background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)' },
-    onchange: (e) => { const g = { ...goals, [key]: Number(e.target.value) || 0 }; _mbSaveCfg({ goals: g }); mountApp(); },
-  });
-  // Winners summary card (per Isaac) — count + date at a glance.
-  {
-    const qR = qualified.filter(r => r.tier === 'rookie'), qV = qualified.filter(r => r.tier !== 'rookie');
-    nodes.push(el('div', { class: 'card p-4 flex items-center justify-between gap-3 flex-wrap', style: qualified.length ? { borderLeft: '3px solid #8DC63F' } : {} },
-      el('div', { class: 'flex items-center gap-3' },
-        el('div', { style: { fontSize: '34px' } }, '🎁'),
+    })() : null;
+    nodes.push(el('div', { class: 'card p-4', style: qualified.length ? { borderLeft: '3px solid #8DC63F' } : {} },
+      el('div', { class: 'flex items-center justify-between gap-4 flex-wrap' },
         el('div', {},
+          el('div', { class: 'text-[9px] font-black', style: { letterSpacing: '.25em' } }, 'RIDDMADE\u00ae'),
+          el('div', { class: 'font-display text-3xl leading-none' }, 'MYSTERY BOX')),
+        el('div', { class: 'text-center' },
           el('div', { class: 'font-display text-2xl leading-none' }, qualified.length + ' BOX' + (qualified.length === 1 ? '' : 'ES') + ' EARNED'),
-          el('div', { class: 'text-xs text-muted- mt-1' }, dLbl))),
-      el('div', { class: 'flex items-center gap-3' },
-        el('div', { class: 'text-right' },
-          el('div', { class: 'text-sm font-bold' },
-            el('span', { style: { color: '#3B82F6' } }, qV.length + ' veteran' + (qV.length === 1 ? '' : 's')),
-            el('span', { class: 'text-muted- font-normal' }, ' · '),
-            el('span', { style: { color: '#DC2626' } }, qR.length + ' rookie' + (qR.length === 1 ? '' : 's'))),
-          qualified.length ? el('div', { class: 'text-xs text-muted- tabular-nums mt-0.5' }, fmt.usd0(qualified.reduce((a, r) => a + r.rev, 0)) + ' sold by winners') : null),
-        isAdmin ? el('button', {
-          class: 'text-[11px] font-semibold px-2 py-1 rounded-lg border shrink-0', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-          title: 'Run a spin — rolls a prize from the incentive list by its percentages',
-          onclick: () => {
-            const rolled = _mbRollPrize();
-            if (!rolled) { toast('Add incentives first — click the \ud835\udd7d up top', 'warn'); return; }
-            openMysteryBoxOverlay({ id: '__spin__', prize: _mbEnc(rolled) });
-          },
-        }, '\u25b6 Spin') : null)));
+          el('div', { class: 'text-xs text-muted- mt-1' }, dLbl)),
+        el('div', { class: 'flex items-center gap-3' },
+          el('div', { class: 'text-right' },
+            el('div', { class: 'text-sm font-bold' },
+              el('span', { style: { color: '#3B82F6' } }, qV.length + ' veteran' + (qV.length === 1 ? '' : 's')),
+              el('span', { class: 'text-muted- font-normal' }, ' · '),
+              el('span', { style: { color: '#DC2626' } }, qR.length + ' rookie' + (qR.length === 1 ? '' : 's'))),
+            qualified.length ? el('div', { class: 'text-xs text-muted- tabular-nums mt-0.5' }, fmt.usd0(qualified.reduce((a2, r) => a2 + r.rev, 0)) + ' sold by winners') : null),
+          isAdmin ? el('button', {
+            class: 'text-[11px] font-semibold px-2 py-1 rounded-lg border shrink-0', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+            title: 'Run a spin — rolls a prize from the incentive list by its percentages',
+            onclick: () => {
+              const rolled = _mbRollPrize();
+              if (!rolled) { toast('Add incentives first — click the \ud835\udd7d', 'warn'); return; }
+              openMysteryBoxOverlay({ id: '__spin__', prize: _mbEnc(rolled) });
+            },
+          }, '\u25b6 Spin') : null,
+          el('div', {
+            style: { fontSize: '38px', lineHeight: '1', fontFamily: 'serif', cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none' },
+            title: isAdmin ? 'Incentive list' : '',
+            onclick: isAdmin ? (() => { state._mbPrizeOpen = !state._mbPrizeOpen; mountApp(); }) : undefined,
+          }, '\ud835\udd7d'))),
+      prizeEditor));
   }
   nodes.push(el('div', { class: 'card overflow-hidden' },
     // Black requirement bar — the poster look, with the date picker in it.
     el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-3', style: { background: 'var(--text)', color: 'var(--bg)' } },
       el('div', { class: 'flex items-center gap-3 flex-wrap' },
-        el('input', {
-          type: 'date', value: mbDate,
-          class: 'rounded px-2 py-1.5 text-xs font-bold cursor-pointer',
-          style: { background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)', colorScheme: 'dark' },
-          // Custom-styled date inputs hide the native picker icon — open it
-          // explicitly so a tap anywhere on the field works.
-          onclick: (e) => { try { e.currentTarget.showPicker(); } catch (err) { /* older browsers fall back to typing */ } },
-          onchange: (e) => { if (e.target.value) { state._mbDate = e.target.value; mountApp(); } },
-        }),
-        el('div', { class: 'font-black uppercase tracking-wide text-sm' }, (mbDate === todayIso ? '🔴 ' : '') + dLbl)),
+        (() => {
+          const dateIn = (val, onCommit) => el('input', {
+            type: 'date', value: val,
+            class: 'rounded px-2 py-1.5 text-xs font-bold cursor-pointer',
+            style: { background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)', colorScheme: 'dark' },
+            // Custom-styled date inputs hide the native picker icon — open it
+            // explicitly so a tap anywhere on the field works.
+            onclick: (e) => { try { e.currentTarget.showPicker(); } catch (err) { /* older browsers fall back to typing */ } },
+            onchange: (e) => { if (e.target.value) { onCommit(e.target.value); mountApp(); } },
+          });
+          return el('div', { class: 'flex items-center gap-1.5' },
+            dateIn(mbFrom, (v) => { state._mbDateFrom = v; if (!state._mbDateTo || state._mbDateTo < v) state._mbDateTo = v; }),
+            el('span', { class: 'text-xs font-bold', style: { opacity: '.6' } }, '\u2013'),
+            dateIn(mbTo, (v) => { state._mbDateTo = v; if (state._mbDateFrom && state._mbDateFrom > v) state._mbDateFrom = v; }));
+        })(),
+        el('div', {},
+          el('div', { class: 'font-black uppercase tracking-wide text-sm' }, dLbl),
+          _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : null)),
       el('div', { class: 'text-right' },
         el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie), ' Sold Revenue (Passed Audit)'),
         el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet), ' Sold Revenue (Passed Audit)'))),
@@ -18645,7 +18659,6 @@ function mysteryBoxSection(isAdmin) {
             ...grp.map(r => {
               const _sig2 = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
               const prof = (state.allProfiles || []).find(p => _sig2(p.full_name) === _sig2(r.name));
-              const armed = (state._mysteryBoxes || []).some(bx => prof && bx.profile_id === prof.id && String(bx.created_at || '').slice(0, 10) >= mbDate);
               return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'rgba(141,198,63,.05)' } },
                 el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, r.name),
                 el('td', { class: 'px-4 py-2' }, el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded', style: r.tier === 'rookie' ? { background: 'rgba(220,38,38,.1)', color: '#DC2626' } : { background: 'rgba(59,130,246,.1)', color: '#3B82F6' } }, r.tier === 'rookie' ? 'R' : 'V')),
@@ -18655,7 +18668,7 @@ function mysteryBoxSection(isAdmin) {
             }),
           ];
         }))))
-      : el('div', { class: 'p-8 text-center text-sm text-muted-' }, mbDate > todayIso ? 'That day hasn\u2019t happened yet.' : 'No reps hit the bar on this day' + (dayStats.length ? ' \u2014 ' + dayStats.length + ' sold below it.' : '.')),
+      : el('div', { class: 'p-8 text-center text-sm text-muted-' }, mbFrom > todayIso ? 'That window hasn\u2019t started yet.' : 'No reps hit the bar in this window' + (dayStats.length ? ' \u2014 ' + dayStats.length + ' sold below it.' : '.')),
     qualified.length && belowN > 0 ? el('div', { class: 'px-4 py-2 text-[11px] text-muted- border-t', style: { borderColor: 'var(--border)' } }, belowN + ' more rep' + (belowN === 1 ? '' : 's') + ' sold on this day but under the bar.') : null));
   return nodes.length ? el('div', { class: 'flex flex-col gap-4' }, ...nodes) : null;
 }
