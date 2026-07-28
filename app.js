@@ -18284,10 +18284,9 @@ function openMysteryBoxOverlay(box) {
   const hint = el('div', { class: 'text-xs mt-1', style: { color: 'rgba(255,255,255,.55)', textAlign: 'center' } }, 'Spin left or right \u00b7 tap the one that feels lucky');
   // Odds legend — the pool with its percentages, icybox-style. Pure show:
   // the outcome is already locked, but the odds ARE the real arming odds.
-  const _poolL = state._mbPool || [], _oddsL = state._mbOdds || {};
+  const _poolL = state._mbPool || [];
   const legend = _poolL.length ? el('div', { class: 'flex items-center justify-center gap-2 flex-wrap mt-3', style: { maxWidth: '640px', margin: '12px auto 0' } },
-    ..._poolL.map(p => el('span', { class: 'text-[11px] font-bold px-2.5 py-1 rounded-full', style: { background: 'rgba(255,255,255,.1)', color: 'rgba(255,255,255,.85)' } },
-      p + (Number(_oddsL[p]) ? ' \u00b7 ' + _oddsL[p] + '%' : '')))) : null;
+    ..._poolL.map(p => el('span', { class: 'text-[11px] font-bold px-2.5 py-1 rounded-full', style: { background: 'rgba(255,255,255,.1)', color: 'rgba(255,255,255,.85)' } }, p))) : null;
   // ── IcyBox-style 3D CAROUSEL: the boxes stand on a floor and orbit in
   // depth — front box big and lit, the rest receding smaller and dimmer
   // behind it. Drag left/right to spin the carousel (momentum on release),
@@ -18351,7 +18350,7 @@ function openMysteryBoxOverlay(box) {
   for (let i = 0; i < N; i++) {
     const b = el('div', {
       style: { position: 'absolute', left: '50%', top: '50%', cursor: 'pointer', transition: 'opacity .3s', willChange: 'transform, filter' },
-    }, _mbGiftEl(112));
+    }, _mbGiftEl(148));
     boxEls.push(b);
     ring.append(b);
   }
@@ -18645,7 +18644,7 @@ function mysteryBoxSection(isAdmin) {
     // Qualified reps — grouped Veterans / Rookies.
     dayStats.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
       el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-        ...['Rep', 'Tier', 'Accts', 'Revenue', 'Goal'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap' }, h)))),
+        ...['Rep', 'Tier', 'Accts', 'Revenue', 'Progress'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap' }, h)))),
       el('tbody', {},
         ...[['vet', 'VETERANS'], ['rookie', 'ROOKIES'], ['chasing_vet', 'CHASING \u00b7 VETERANS'], ['chasing_rookie', 'CHASING \u00b7 ROOKIES']].flatMap(([tk, tlbl]) => {
           const _isRk = (r) => r.tier === 'rookie';
@@ -18657,8 +18656,8 @@ function mysteryBoxSection(isAdmin) {
           return [
             el('tr', {}, el('td', {
               colspan: '5',
-              class: 'px-4 py-1.5 text-[10px] font-black uppercase tracking-widest',
-              style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
+              class: 'px-4 py-2 text-sm font-black uppercase tracking-widest',
+              style: { background: 'var(--card-2)', color: 'var(--text)' },
             }, tlbl + ' \u00b7 ' + fmt.usd0(/rookie/.test(tk) ? goals.rookie : goals.vet) + (tk.startsWith('chasing') ? ' bar' : ''))),
             ...grp.map(r => {
               const _sig2 = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
@@ -18671,7 +18670,7 @@ function mysteryBoxSection(isAdmin) {
                 el('td', { class: 'px-4 py-2 tabular-nums' }, String(r.n)),
                 el('td', { class: 'px-4 py-2 tabular-nums font-bold' }, fmt.usd0(r.rev)),
                 isQ
-                  ? el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, fmt.usd0(r.goal))
+                  ? el('td', { class: 'px-4 py-2 text-xs font-bold', style: { color: '#5F8A1F' } }, '\ud83c\udf81 earned')
                   : el('td', { class: 'px-4 py-2 whitespace-nowrap', style: { minWidth: '160px' } },
                       el('div', { class: 'flex items-center gap-2' },
                         el('div', { style: { flex: '1', minWidth: '60px', height: '5px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
