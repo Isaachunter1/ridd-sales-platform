@@ -18611,10 +18611,10 @@ function mysteryBoxSection(isAdmin) {
             },
           }, '\u25b6 Spin') : null,
           el('div', {
-            style: { fontSize: '44px', lineHeight: '1', fontFamily: "'Old English Text MT','UnifrakturMaguntia',serif", cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none', marginTop: '-4px' },
+            style: { fontSize: '44px', lineHeight: '1', fontFamily: "'Old English Text MT',serif", cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none', marginTop: '-4px' },
             title: isAdmin ? 'Incentive list' : '',
             onclick: isAdmin ? (() => { state._mbPrizeOpen = !state._mbPrizeOpen; mountApp(); }) : undefined,
-          }, 'R'))),
+          }, '\ud835\udd7d'))),
       prizeEditor));
   }
   nodes.push(el('div', { class: 'card overflow-hidden' },
@@ -18643,33 +18643,43 @@ function mysteryBoxSection(isAdmin) {
         el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie), ' Sold Revenue (Passed Audit)'),
         el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet), ' Sold Revenue (Passed Audit)'))),
     // Qualified reps — grouped Veterans / Rookies.
-    qualified.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+    dayStats.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
       el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
         ...['Rep', 'Tier', 'Accts', 'Revenue', 'Goal'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap' }, h)))),
       el('tbody', {},
-        ...[['vet', 'VETERANS'], ['rookie', 'ROOKIES']].flatMap(([tk, tlbl]) => {
-          const grp = qualified.filter(r => (tk === 'rookie' ? r.tier === 'rookie' : r.tier !== 'rookie'));
+        ...[['vet', 'VETERANS'], ['rookie', 'ROOKIES'], ['chasing', 'CHASING THE BOX']].flatMap(([tk, tlbl]) => {
+          const grp = tk === 'chasing'
+            ? dayStats.filter(r => !r.qualified).sort((a2, b2) => (b2.goal ? b2.rev / b2.goal : 0) - (a2.goal ? a2.rev / a2.goal : 0))
+            : qualified.filter(r => (tk === 'rookie' ? r.tier === 'rookie' : r.tier !== 'rookie'));
           if (!grp.length) return [];
           return [
             el('tr', {}, el('td', {
               colspan: '5',
               class: 'px-4 py-1.5 text-[10px] font-black uppercase tracking-widest',
               style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
-            }, tlbl + ' · ' + fmt.usd0(tk === 'rookie' ? goals.rookie : goals.vet))),
+            }, tk === 'chasing' ? tlbl : tlbl + ' · ' + fmt.usd0(tk === 'rookie' ? goals.rookie : goals.vet))),
             ...grp.map(r => {
               const _sig2 = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
               const prof = (state.allProfiles || []).find(p => _sig2(p.full_name) === _sig2(r.name));
-              return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'rgba(141,198,63,.05)' } },
+              const isQ = r.qualified;
+              const pctTo = r.goal > 0 ? Math.min(100, r.rev / r.goal * 100) : 0;
+              return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: isQ ? 'rgba(141,198,63,.05)' : '', opacity: isQ ? '' : '.92' } },
                 el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, r.name),
                 el('td', { class: 'px-4 py-2' }, el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded', style: r.tier === 'rookie' ? { background: 'rgba(220,38,38,.1)', color: '#DC2626' } : { background: 'rgba(59,130,246,.1)', color: '#3B82F6' } }, r.tier === 'rookie' ? 'R' : 'V')),
                 el('td', { class: 'px-4 py-2 tabular-nums' }, String(r.n)),
                 el('td', { class: 'px-4 py-2 tabular-nums font-bold' }, fmt.usd0(r.rev)),
-                el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, fmt.usd0(r.goal)));
+                isQ
+                  ? el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, fmt.usd0(r.goal))
+                  : el('td', { class: 'px-4 py-2 whitespace-nowrap', style: { minWidth: '160px' } },
+                      el('div', { class: 'flex items-center gap-2' },
+                        el('div', { style: { flex: '1', minWidth: '60px', height: '5px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
+                          el('div', { style: { width: pctTo.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: pctTo >= 75 ? '#8DC63F' : pctTo >= 40 ? '#D97706' : 'var(--border-2)' } })),
+                        el('span', { class: 'text-xs tabular-nums font-bold whitespace-nowrap', style: { color: pctTo >= 75 ? '#5F8A1F' : 'var(--text-muted)' } },
+                          fmt.usd0(Math.max(0, r.goal - r.rev)) + ' to go'))));
             }),
           ];
         }))))
-      : el('div', { class: 'p-8 text-center text-sm text-muted-' }, mbFrom > todayIso ? 'That window hasn\u2019t started yet.' : 'No reps hit the bar in this window' + (dayStats.length ? ' \u2014 ' + dayStats.length + ' sold below it.' : '.')),
-    qualified.length && belowN > 0 ? el('div', { class: 'px-4 py-2 text-[11px] text-muted- border-t', style: { borderColor: 'var(--border)' } }, belowN + ' more rep' + (belowN === 1 ? '' : 's') + ' sold on this day but under the bar.') : null));
+      : el('div', { class: 'p-8 text-center text-sm text-muted-' }, mbFrom > todayIso ? 'That window hasn\u2019t started yet.' : 'No qualifying sales in this window yet.')));
   return nodes.length ? el('div', { class: 'flex flex-col gap-4' }, ...nodes) : null;
 }
 
