@@ -18232,8 +18232,9 @@ function _mbEnsureStyles() {
 .mb-strip{overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;cursor:grab}
 .mb-strip::-webkit-scrollbar{display:none}
 .mb-strip.dragging{cursor:grabbing;scroll-snap-type:none !important}
-@keyframes mbLid { 0%{transform:rotateX(0)} 100%{transform:rotateX(-108deg)} }
-@keyframes mbRise { 0%{transform:translateX(-50%) translateY(50px) scale(.4);opacity:0} 100%{transform:translateX(-50%) translateY(-135px) scale(1);opacity:1} }
+@keyframes mbLid { 0%{transform:rotateX(0);opacity:1} 45%{transform:rotateX(-88deg);opacity:1} 80%{transform:rotateX(-142deg);opacity:.55} 100%{transform:rotateX(-168deg);opacity:0} }
+@keyframes mbFlash { 0%{opacity:0} 35%{opacity:.85} 100%{opacity:0} }
+@keyframes mbRise { 0%{transform:translateX(-50%) translateY(46px) scale(.5);opacity:0} 65%{opacity:1} 82%{transform:translateX(-50%) translateY(-146px) scale(1.03)} 100%{transform:translateX(-50%) translateY(-135px) scale(1);opacity:1} }
 @keyframes mbFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-12px)} }
 @keyframes mbGlowPulse { 0%,100%{opacity:.5;transform:translate(-50%,-50%) scale(1)} 50%{opacity:.85;transform:translate(-50%,-50%) scale(1.12)} }
 @keyframes mbSceneIn { 0%{opacity:0;transform:scale(.92)} 100%{opacity:1;transform:scale(1)} }`;
@@ -18309,14 +18310,16 @@ function openMysteryBoxOverlay(box) {
       el('div', { style: { position: 'absolute', left: '7%', bottom: '30%', opacity: '.18', filter: 'blur(1.5px)', transform: 'scale(.8) rotate(-6deg)' } }, _mbGiftEl(96)),
       el('div', { style: { position: 'absolute', right: '7%', bottom: '32%', opacity: '.18', filter: 'blur(1.5px)', transform: 'scale(.75) rotate(5deg)' } }, _mbGiftEl(96)));
     const BW = 250, BH = 150, LID = 78;
-    const hero = el('div', { style: { position: 'absolute', left: '50%', bottom: '16%', transform: 'translateX(-50%)', width: BW + 'px', height: (BH + LID) + 'px', transformStyle: 'preserve-3d' } });
+    const hero = el('div', { style: { position: 'absolute', left: '50%', bottom: '16%', transform: 'translateX(-50%)', width: BW + 'px', height: (BH + LID) + 'px', transformStyle: 'preserve-3d', perspective: '650px' } });
+    // Light flash from the mouth of the box as the lid clears it.
+    hero.append(el('div', { style: { position: 'absolute', left: '8%', top: (LID - 20) + 'px', width: '84%', height: '54px', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(196,255,130,.9) 0%, rgba(141,198,63,.4) 45%, transparent 75%)', opacity: '0', animation: 'mbFlash .7s ease-out 1.05s forwards', filter: 'blur(6px)', zIndex: 5, pointerEvents: 'none' } }));
     hero.append(el('div', { style: { position: 'absolute', left: '4%', top: (LID - 12) + 'px', width: '92%', height: '44px', borderRadius: '8px 8px 0 0', background: 'linear-gradient(180deg,#0d3320 0%,#124528 55%,#0a2718 100%)', boxShadow: 'inset 0 6px 14px rgba(0,0,0,.75)' } }));
     hero.append(el('div', { style: { position: 'absolute', left: '0', top: LID + 'px', width: '100%', height: BH + 'px', clipPath: 'polygon(5% 0,95% 0,100% 12%,100% 100%,0 100%,0 12%)', background: 'radial-gradient(rgba(255,255,255,.035) 1px, transparent 1.3px), linear-gradient(180deg,#43362c 0%,#2e2318 55%,#1a140e 100%)', backgroundSize: '5px 5px, 100% 100%', boxShadow: '0 26px 50px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.1)' } },
       el('div', { style: { position: 'absolute', left: '50%', bottom: '14px', transform: 'translateX(-50%)', padding: '3px 18px', fontSize: '13px', fontWeight: '900', letterSpacing: '.12em', fontStyle: 'italic', color: '#e8c66a', background: 'linear-gradient(180deg,#2a2018,#17110b)', border: '1px solid rgba(232,198,106,.45)', borderRadius: '4px' } }, 'RIDD')));
-    hero.append(el('div', { style: { position: 'absolute', left: '-3%', top: '0', width: '106%', height: LID + 'px', borderRadius: '10px', background: 'radial-gradient(rgba(255,255,255,.05) 1px, transparent 1.3px), linear-gradient(180deg,#5c4d3e 0%,#3c2f23 70%,#241b13 100%)', backgroundSize: '5px 5px, 100% 100%', boxShadow: '0 4px 10px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.16)', transformOrigin: '50% 0%', animation: 'mbLid .8s cubic-bezier(.5,0,.3,1) .45s forwards', zIndex: 4 } },
+    hero.append(el('div', { style: { position: 'absolute', left: '-3%', top: '0', width: '106%', height: LID + 'px', borderRadius: '10px', background: 'radial-gradient(rgba(255,255,255,.05) 1px, transparent 1.3px), linear-gradient(180deg,#5c4d3e 0%,#3c2f23 70%,#241b13 100%)', backgroundSize: '5px 5px, 100% 100%', boxShadow: '0 4px 10px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.16)', transformOrigin: '50% 0%', animation: 'mbLid 1.15s cubic-bezier(.55,.06,.28,.99) .45s forwards', zIndex: 4 } },
       el('div', { style: { position: 'absolute', left: '0', bottom: '0', width: '100%', height: '3px', background: 'linear-gradient(90deg, rgba(232,198,106,.15), rgba(232,198,106,.65) 50%, rgba(232,198,106,.15))' } })));
-    hero.append(el('div', { style: { position: 'absolute', left: '50%', bottom: (LID + 40) + 'px', transform: 'translateX(-50%)', opacity: '0', animation: 'mbRise 1s cubic-bezier(.2,.9,.3,1.2) 1.05s forwards', zIndex: 6, width: 'max-content', maxWidth: '86vw' } },
-      el('div', { style: { animation: 'mbFloat 3.4s ease-in-out 2.1s infinite' } },
+    hero.append(el('div', { style: { position: 'absolute', left: '50%', bottom: (LID + 40) + 'px', transform: 'translateX(-50%)', opacity: '0', animation: 'mbRise 1.1s cubic-bezier(.3,.8,.3,1) 1.35s forwards', zIndex: 6, width: 'max-content', maxWidth: '86vw' } },
+      el('div', { style: { animation: 'mbFloat 3.4s ease-in-out 2.6s infinite' } },
         el('div', { class: 'font-display', style: { fontSize: '42px', textAlign: 'center', color: '#B8F55C', textShadow: '0 0 18px rgba(141,198,63,.65), 0 0 60px rgba(141,198,63,.35), 0 2px 4px rgba(0,0,0,.8)' } }, prize))));
     scene.append(hero);
     setTimeout(() => {
@@ -18326,7 +18329,7 @@ function openMysteryBoxOverlay(box) {
         s.style.setProperty('--by', (Math.random() * 200 - 160).toFixed(0) + 'px');
         scene.append(s);
       }
-    }, 1250);
+    }, 1700);
     wrap.append(scene);
     _mbMarkOpened(box.id);
   }
