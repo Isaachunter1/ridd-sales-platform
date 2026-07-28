@@ -203,6 +203,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_reportingCancelReasonsSeen', // distinct cancel reasons seen in the reporting CSV (persisted universe)
   '_reportingSourcesSeen',       // distinct lead sources seen in the reporting CSV (persisted universe)
   'indicatorDeletedCustIds',     // customer IDs DELETED in FieldRoutes (orphans in the RevHawk mirror) — excluded app-wide
+  '_compPillOrder',              // admin drag-sorted order of the Competitions pills (ids, incl. mystery_box)
   '_indicatorTeams',
   '_indicatorExcludedTeams',
   '_indicatorRankExclude',    // { branch:[...], teams:[...] } — kept on the board but out of Power Ranking
@@ -18155,12 +18156,529 @@ function nrlaBoard(rawSales, opts) {
 // visible to everyone: pick a competition, see its board. Admins get their
 // full management controls; reps get a read-only view. Data comes from the
 // shared cloud dataset + shared config (see nrla_rep_access.sql).
+// ── 🎁 MYSTERY BOX — spin-to-reveal comp prize (per Isaac). The reveal is
+// PRESET by an admin (reps don't know that): the animation cycles decoy
+// prizes and "lands" on the configured one. Boxes live in app_settings
+// 'mystery_boxes'; prize text is base64'd so a curious rep poking network
+// responses doesn't casually read their prize early. Opened state is
+// per-device (localStorage) — delivery tracking is the admin's Delivered
+// checkbox, so no rep-side writes are needed.
+const MB_DEFAULT_DECOYS = ['$500 cash', '$100 cash', 'AirPods Pro', 'YETI cooler', '$50 gift card', 'Dinner for two', 'Massage gun', 'Day off', 'Team lunch', '$250 cash'];
+const _mbEnc = (s) => { try { return btoa(unescape(encodeURIComponent(String(s)))); } catch (e) { return ''; } };
+const _mbDec = (s) => { try { return decodeURIComponent(escape(atob(String(s)))); } catch (e) { return '?'; } };
+function _mbOpenedMap() { try { return JSON.parse(localStorage.getItem('ridd_mb_opened_v1') || '{}') || {}; } catch (e) { return {}; } }
+function _mbMarkOpened(id) { try { const m = _mbOpenedMap(); m[id] = new Date().toISOString(); localStorage.setItem('ridd_mb_opened_v1', JSON.stringify(m)); } catch (e) { /* private mode */ } }
+async function loadMysteryBoxes() {
+  if (state._mbLoaded || DEMO || !supabase) return;
+  state._mbLoaded = true;
+  try {
+    const { data } = await supabase.from('app_settings').select('value').eq('key', 'mystery_boxes').maybeSingle();
+    const v = (data && data.value) || {};
+    state._mysteryBoxes = Array.isArray(v.boxes) ? v.boxes : [];
+    state._mbGoals = (v.goals && typeof v.goals === 'object') ? v.goals : { rookie: 1500, vet: 2000 };
+    state._mbPool = Array.isArray(v.pool) ? v.pool : [];
+    state._mbOdds = (v.odds && typeof v.odds === 'object') ? v.odds : {};
+  } catch (e) { state._mysteryBoxes = []; state._mbGoals = { rookie: 1500, vet: 2000 }; state._mbPool = []; state._mbOdds = {}; }
+  if (state.view === 'nrla') mountApp();
+}
+async function _mbSaveCfg(patch) {
+  if (patch.boxes) state._mysteryBoxes = patch.boxes;
+  if (patch.goals) state._mbGoals = patch.goals;
+  if (patch.pool) state._mbPool = patch.pool;
+  if (patch.odds) state._mbOdds = patch.odds;
+  if (DEMO || !supabase || !isAdminRole(state.profile?.role)) return;
+  const value = { boxes: state._mysteryBoxes || [], goals: state._mbGoals || { rookie: 1500, vet: 2000 }, pool: state._mbPool || [], odds: state._mbOdds || {} };
+  try {
+    const { error } = await supabase.from('app_settings').upsert({ key: 'mystery_boxes', value }, { onConflict: 'key' });
+    if (error) toast('Mystery Box save failed: ' + error.message, 'error');
+  } catch (e) { toast('Mystery Box save failed: ' + ((e && e.message) || e), 'error'); }
+}
+const saveMysteryBoxes = (boxes) => _mbSaveCfg({ boxes });
+// Per-day qualification board — revenue sold THAT day, same audit gate as
+// Spring Cleaning / LMS (passed + no-audit + pending-assumed-passing count;
+// failed audit and Last Resort are out), D2D dept, tier from Manage Teams
+// Rookie/Vet tags (untagged reps face the Veteran goal).
+function mysteryBoxDayStats(day) {
+  const raw = state._indicatorRawSales || [];
+  const byRep = new Map();
+  for (const s of raw) {
+    if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
+    if ((typeof dateSoldToIso === 'function' ? dateSoldToIso(s.dateSold) : '') !== day.date) continue;
+    if (typeof springCleaningStatus === 'function' && springCleaningStatus(s) === 'excluded') continue;
+    const nm = getCanonicalRepName(s.rep);
+    if (!nm) continue;
+    const o = byRep.get(nm) || { name: nm, rev: 0, n: 0 };
+    o.rev += Number(s.contractValue) || 0; o.n++;
+    byRep.set(nm, o);
+  }
+  return [...byRep.values()].map(o => {
+    const tier = getRepTier(o.name);
+    const goal = tier === 'rookie' ? (Number(day.rookie) || 0) : (Number(day.vet) || 0);
+    return { ...o, tier, goal, qualified: goal > 0 && o.rev >= goal };
+  }).sort((a, b) => (b.qualified - a.qualified) || (b.rev - a.rev));
+}
+function _mbEnsureStyles() {
+  if (document.getElementById('mbStyles')) return;
+  const st = document.createElement('style');
+  st.id = 'mbStyles';
+  st.textContent = `
+@keyframes mbShake { 0%,100%{transform:rotate(0)} 20%{transform:rotate(-10deg)} 40%{transform:rotate(9deg)} 60%{transform:rotate(-7deg)} 80%{transform:rotate(5deg)}}
+@keyframes mbPop { 0%{transform:scale(.2);opacity:0} 60%{transform:scale(1.15)} 100%{transform:scale(1);opacity:1}}
+@keyframes mbBurst { 0%{transform:translate(0,0) scale(1);opacity:1} 100%{transform:translate(var(--bx),var(--by)) scale(.4);opacity:0}}
+.mb-shake{animation:mbShake .5s ease-in-out infinite}
+.mb-pop{animation:mbPop .45s cubic-bezier(.2,1.4,.4,1) forwards}
+.mb-burst{position:absolute;left:50%;top:42%;font-size:22px;animation:mbBurst 1.1s ease-out forwards;pointer-events:none}
+.mb-strip{overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;cursor:grab}
+.mb-strip::-webkit-scrollbar{display:none}
+.mb-strip.dragging{cursor:grabbing;scroll-snap-type:none !important}
+@keyframes mbLid { 0%{transform:rotateX(0)} 100%{transform:rotateX(-108deg)} }
+@keyframes mbRise { 0%{transform:translateX(-50%) translateY(50px) scale(.4);opacity:0} 100%{transform:translateX(-50%) translateY(-135px) scale(1);opacity:1} }
+@keyframes mbFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-12px)} }
+@keyframes mbGlowPulse { 0%,100%{opacity:.5;transform:translate(-50%,-50%) scale(1)} 50%{opacity:.85;transform:translate(-50%,-50%) scale(1.12)} }
+@keyframes mbSceneIn { 0%{opacity:0;transform:scale(.92)} 100%{opacity:1;transform:scale(1)} }`;
+  document.head.append(st);
+}
+// A professional CSS gift box (no emoji): beveled charcoal base, velvet
+// slot, brand plate — the same box at ring size and hero size.
+function _mbGiftEl(w) {
+  // Faux-3D closed case, geometry done with px-accurate clip-path polygons
+  // (no skew hacks — every edge meets): FRONT face with gold keyhole, lit
+  // TOP face receding up-right, dark SIDE face on the right. The RIDD mark
+  // rides the lid as a sticker, sheared to lie on the top plane.
+  const h = Math.round(w * 0.60);        // front face height
+  const t = Math.round(w * 0.24);        // top depth (vertical)
+  const sd = Math.round(w * 0.16);       // right depth (horizontal)
+  const W = w + sd, H = h + t;
+  const poly = (pts) => 'polygon(' + pts.map(p => p[0] + 'px ' + p[1] + 'px').join(',') + ')';
+  const grain = 'radial-gradient(rgba(255,255,255,.04) 1px, transparent 1.3px)';
+  const wrap2 = el('div', { style: { position: 'relative', width: W + 'px', height: H + 'px', pointerEvents: 'none', filter: 'drop-shadow(0 14px 16px rgba(0,0,0,.65))' } });
+  const face = (pts, bg, extra) => el('div', { style: Object.assign({ position: 'absolute', left: '0', top: '0', width: W + 'px', height: H + 'px', clipPath: poly(pts), background: bg, backgroundSize: '5px 5px, 100% 100%' }, extra || {}) });
+  // TOP — back edge sits up-and-right of the front edge.
+  wrap2.append(face([[sd, 0], [W, 0], [w, t], [0, t]], grain + ', linear-gradient(175deg, #63523f 0%, #4a3b2c 100%)'));
+  // SIDE — right wall, darkest.
+  wrap2.append(face([[w, t], [W, 0], [W, h], [w, H]], grain + ', linear-gradient(180deg, #241b13 0%, #120d08 100%)'));
+  // FRONT — main leather face.
+  wrap2.append(face([[0, t], [w, t], [w, H], [0, H]], grain + ', linear-gradient(160deg, #43362c 0%, #2e2318 55%, #1c150f 100%)'));
+  // Lid seam across the front.
+  wrap2.append(el('div', { style: { position: 'absolute', left: '0', top: (t + Math.round(h * 0.24)) + 'px', width: w + 'px', height: '2px', background: 'linear-gradient(90deg, rgba(0,0,0,.75), rgba(0,0,0,.4) 50%, rgba(0,0,0,.75))', boxShadow: '0 1px 0 rgba(255,255,255,.06)' } }));
+  // Gold keyhole escutcheon — front center.
+  const kw = Math.max(9, Math.round(w * 0.17));
+  wrap2.append(el('div', { style: { position: 'absolute', left: Math.round(w / 2) + 'px', top: (t + Math.round(h * 0.40)) + 'px', transform: 'translateX(-50%)', width: kw + 'px', height: Math.round(kw * 1.32) + 'px', borderRadius: '46% 46% 38% 38%', background: 'linear-gradient(160deg,#e8c66a 0%,#b8892f 55%,#8a6420 100%)', boxShadow: '0 1px 3px rgba(0,0,0,.7), inset 0 1px 1px rgba(255,255,255,.5)' } },
+    el('div', { style: { position: 'absolute', left: '50%', top: '20%', transform: 'translateX(-50%)', width: '34%', height: '32%', borderRadius: '50%', background: '#17110b' } }),
+    el('div', { style: { position: 'absolute', left: '50%', top: '42%', transform: 'translateX(-50%)', width: '0', height: '0', borderLeft: Math.round(kw * .14) + 'px solid transparent', borderRight: Math.round(kw * .14) + 'px solid transparent', borderBottom: Math.round(kw * .40) + 'px solid #17110b' } })));
+  // RIDD sticker — on the lid, sheared to lie on the top plane.
+  const shear = -Math.round(Math.atan(sd / t) * 180 / Math.PI);
+  wrap2.append(el('div', { style: { position: 'absolute', left: Math.round(sd * 0.55 + w * 0.30) + 'px', top: Math.round(t * 0.18) + 'px', transform: 'skewX(' + shear + 'deg) rotate(-1.5deg)', padding: '1px ' + Math.round(w * .07) + 'px', fontSize: Math.max(7, Math.round(w * .105)) + 'px', fontWeight: '900', letterSpacing: '.08em', fontStyle: 'italic', color: '#1c150f', background: 'linear-gradient(180deg,#f4f0e4,#ddd6c2)', borderRadius: '3px', boxShadow: '0 1px 2px rgba(0,0,0,.5)', border: '1px solid rgba(0,0,0,.25)' } }, 'RIDD'));
+  return wrap2;
+}
+// ── The Icybox-style picker: a carousel of identical gift boxes. Spin it
+// left/right by dragging (or trackpad/touch swipe), then TAP a box — that
+// box opens. Every box holds the same preset prize; the choosing is the
+// show (perfect for a screen recording).
+function openMysteryBoxOverlay(box) {
+  _mbEnsureStyles();
+  const prize = _mbDec(box.prize);
+  const overlay = el('div', { class: 'modal-overlay', style: { background: 'rgba(0,0,0,.88)', zIndex: '10000', display: 'flex', alignItems: 'center', justifyContent: 'center' } });
+  const title = el('div', { class: 'font-display text-2xl', style: { color: '#fff', textAlign: 'center' } }, 'Pick your box');
+  const hint = el('div', { class: 'text-xs mt-1', style: { color: 'rgba(255,255,255,.55)', textAlign: 'center' } }, 'Spin left or right \u00b7 tap the one that feels lucky');
+  // Odds legend — the pool with its percentages, icybox-style. Pure show:
+  // the outcome is already locked, but the odds ARE the real arming odds.
+  const _poolL = state._mbPool || [], _oddsL = state._mbOdds || {};
+  const legend = _poolL.length ? el('div', { class: 'flex items-center justify-center gap-2 flex-wrap mt-3', style: { maxWidth: '640px', margin: '12px auto 0' } },
+    ..._poolL.map(p => el('span', { class: 'text-[11px] font-bold px-2.5 py-1 rounded-full', style: { background: 'rgba(255,255,255,.1)', color: 'rgba(255,255,255,.85)' } },
+      p + (Number(_oddsL[p]) ? ' \u00b7 ' + _oddsL[p] + '%' : '')))) : null;
+  // ── IcyBox-style 3D CAROUSEL: the boxes stand on a floor and orbit in
+  // depth — front box big and lit, the rest receding smaller and dimmer
+  // behind it. Drag left/right to spin the carousel (momentum on release),
+  // tap any box to crack it.
+  const N = 10;
+  const stageW = Math.min(window.innerWidth * 0.94, 860);
+  const stageH = Math.min(window.innerHeight * 0.58, 480);
+  const RX = stageW * 0.36;          // horizontal orbit radius
+  const RY = stageH * 0.16;          // depth-to-vertical parallax
+  const ring = el('div', { style: { position: 'relative', width: stageW + 'px', height: stageH + 'px', margin: '4px auto', touchAction: 'none', cursor: 'grab', userSelect: 'none', flexShrink: '0', overflow: 'visible' } });
+  // Deep floor glow — the stage the boxes sit on.
+  ring.append(el('div', { style: { position: 'absolute', left: '50%', top: '68%', transform: 'translate(-50%,-50%)', width: '115%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(28,40,130,.55) 0%, rgba(18,24,80,.3) 45%, transparent 72%)', pointerEvents: 'none' } }));
+  let done = false, _dragged = false;
+  const boxEls = [];
+  // ── HERO REVEAL — spotlight scene, lid swings open, prize rises out. ──
+  function _mbHeroReveal() {
+    const scene = el('div', { style: { position: 'relative', width: '100vw', height: '76vh', perspective: '1100px', animation: 'mbSceneIn .5s ease-out forwards' } });
+    scene.append(el('div', { style: { position: 'absolute', left: '50%', top: '52%', transform: 'translate(-50%,-50%)', width: '620px', height: '620px', maxWidth: '95vw', borderRadius: '50%', background: 'radial-gradient(circle, rgba(141,198,63,.16) 0%, rgba(141,198,63,.05) 38%, transparent 68%)', animation: 'mbGlowPulse 3.2s ease-in-out infinite', pointerEvents: 'none' } }));
+    scene.append(
+      el('div', { style: { position: 'absolute', left: '7%', bottom: '30%', opacity: '.18', filter: 'blur(1.5px)', transform: 'scale(.8) rotate(-6deg)' } }, _mbGiftEl(96)),
+      el('div', { style: { position: 'absolute', right: '7%', bottom: '32%', opacity: '.18', filter: 'blur(1.5px)', transform: 'scale(.75) rotate(5deg)' } }, _mbGiftEl(96)));
+    const BW = 250, BH = 150, LID = 78;
+    const hero = el('div', { style: { position: 'absolute', left: '50%', bottom: '16%', transform: 'translateX(-50%)', width: BW + 'px', height: (BH + LID) + 'px', transformStyle: 'preserve-3d' } });
+    hero.append(el('div', { style: { position: 'absolute', left: '4%', top: (LID - 12) + 'px', width: '92%', height: '44px', borderRadius: '8px 8px 0 0', background: 'linear-gradient(180deg,#0d3320 0%,#124528 55%,#0a2718 100%)', boxShadow: 'inset 0 6px 14px rgba(0,0,0,.75)' } }));
+    hero.append(el('div', { style: { position: 'absolute', left: '0', top: LID + 'px', width: '100%', height: BH + 'px', clipPath: 'polygon(5% 0,95% 0,100% 12%,100% 100%,0 100%,0 12%)', background: 'radial-gradient(rgba(255,255,255,.035) 1px, transparent 1.3px), linear-gradient(180deg,#43362c 0%,#2e2318 55%,#1a140e 100%)', backgroundSize: '5px 5px, 100% 100%', boxShadow: '0 26px 50px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.1)' } },
+      el('div', { style: { position: 'absolute', left: '50%', bottom: '14px', transform: 'translateX(-50%)', padding: '3px 18px', fontSize: '13px', fontWeight: '900', letterSpacing: '.12em', fontStyle: 'italic', color: '#e8c66a', background: 'linear-gradient(180deg,#2a2018,#17110b)', border: '1px solid rgba(232,198,106,.45)', borderRadius: '4px' } }, 'RIDD')));
+    hero.append(el('div', { style: { position: 'absolute', left: '-3%', top: '0', width: '106%', height: LID + 'px', borderRadius: '10px', background: 'radial-gradient(rgba(255,255,255,.05) 1px, transparent 1.3px), linear-gradient(180deg,#5c4d3e 0%,#3c2f23 70%,#241b13 100%)', backgroundSize: '5px 5px, 100% 100%', boxShadow: '0 4px 10px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.16)', transformOrigin: '50% 0%', animation: 'mbLid .8s cubic-bezier(.5,0,.3,1) .45s forwards', zIndex: 4 } },
+      el('div', { style: { position: 'absolute', left: '0', bottom: '0', width: '100%', height: '3px', background: 'linear-gradient(90deg, rgba(232,198,106,.15), rgba(232,198,106,.65) 50%, rgba(232,198,106,.15))' } })));
+    hero.append(el('div', { style: { position: 'absolute', left: '50%', bottom: (LID + 40) + 'px', transform: 'translateX(-50%)', opacity: '0', animation: 'mbRise 1s cubic-bezier(.2,.9,.3,1.2) 1.05s forwards', zIndex: 6, width: 'max-content', maxWidth: '86vw' } },
+      el('div', { style: { animation: 'mbFloat 3.4s ease-in-out 2.1s infinite' } },
+        el('div', { class: 'font-display', style: { fontSize: '42px', textAlign: 'center', color: '#B8F55C', textShadow: '0 0 18px rgba(141,198,63,.65), 0 0 60px rgba(141,198,63,.35), 0 2px 4px rgba(0,0,0,.8)' } }, prize))));
+    scene.append(hero);
+    setTimeout(() => {
+      for (let k = 0; k < 8; k++) {
+        const s = el('span', { class: 'mb-burst', style: { top: '38%', fontSize: '15px' } }, '\u2728');
+        s.style.setProperty('--bx', (Math.random() * 300 - 150).toFixed(0) + 'px');
+        s.style.setProperty('--by', (Math.random() * 200 - 160).toFixed(0) + 'px');
+        scene.append(s);
+      }
+    }, 1250);
+    wrap.append(scene);
+    _mbMarkOpened(box.id);
+  }
+  const reveal = (boxEl) => {
+    if (done) return; done = true;
+    ring.style.pointerEvents = 'none';
+    // The chosen box GLIDES to center-front and grows while the rest fade —
+    // then the hero scene takes over in the same spot and the lid opens.
+    boxEls.forEach(c => { if (c !== boxEl) c.style.opacity = '.06'; });
+    boxEl.style.transition = 'transform .75s cubic-bezier(.3,.7,.25,1), filter .75s, opacity .3s';
+    boxEl.style.zIndex = '400';
+    boxEl.style.transform = 'translate(-50%,-50%) translate(0px,' + (RY * 0.9).toFixed(0) + 'px) scale(2.05)';
+    boxEl.style.filter = 'brightness(1.05)';
+    setTimeout(() => {
+      ring.style.display = 'none';
+      title.style.display = 'none'; hint.style.display = 'none';
+      if (legend) legend.style.display = 'none';
+      _mbHeroReveal();
+    }, 850);
+  };
+  for (let i = 0; i < N; i++) {
+    const b = el('div', {
+      style: { position: 'absolute', left: '50%', top: '50%', cursor: 'pointer', transition: 'opacity .3s', willChange: 'transform, filter' },
+    }, _mbGiftEl(112));
+    boxEls.push(b);
+    ring.append(b);
+  }
+  // Carousel projection: x from sin, depth from cos → scale, height,
+  // brightness and stacking all follow the depth, like their stage.
+  let angle = 0;
+  const layout = () => {
+    for (let i = 0; i < N; i++) {
+      const rad = (angle + i * (360 / N)) * Math.PI / 180;
+      const x = Math.sin(rad) * RX;
+      const z = Math.cos(rad);                   // +1 = front, −1 = back
+      const y = z * RY;                          // front boxes sit lower
+      const s = 0.42 + ((z + 1) / 2) * 0.95;     // back .42 → front 1.37
+      const lum = 0.38 + ((z + 1) / 2) * 0.72;   // back dim → front lit
+      boxEls[i].style.transform = 'translate(-50%,-50%) translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px) scale(' + s.toFixed(3) + ')';
+      boxEls[i].style.filter = 'brightness(' + lum.toFixed(2) + ')';
+      boxEls[i].style.zIndex = String(100 + Math.round(z * 50));
+    }
+  };
+  // Horizontal drag spins the carousel; release glides with momentum.
+  let _down = null, _vel = 0, _momRaf = null;
+  ring.addEventListener('pointerdown', (e) => {
+    if (done) return;
+    // Remember which box the press landed on — pointer capture redirects
+    // the eventual click to the ring, so tap detection happens on release.
+    const hit = boxEls.find(bx => bx === e.target || bx.contains(e.target)) || null;
+    _down = { x: e.clientX, base: angle, hit }; _dragged = false; _vel = 0;
+    if (_momRaf) cancelAnimationFrame(_momRaf);
+    ring.style.cursor = 'grabbing';
+    try { ring.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
+  });
+  ring.addEventListener('pointermove', (e) => {
+    if (!_down) return;
+    const next = _down.base + (e.clientX - _down.x) * 0.38;
+    if (Math.abs(next - _down.base) > 2) _dragged = true;
+    _vel = next - angle;
+    angle = next;
+    layout();
+  });
+  const _release = () => {
+    if (!_down) return;
+    const _hit = _down.hit;
+    _down = null;
+    ring.style.cursor = 'grab';
+    if (!_dragged && _hit) { reveal(_hit); return; }   // a clean tap = crack it
+    let v = _vel;
+    const glide = () => {
+      if (Math.abs(v) < .06 || done) return;
+      angle += v; v *= .96;
+      layout();
+      _momRaf = requestAnimationFrame(glide);
+    };
+    glide();
+    setTimeout(() => { _dragged = false; }, 60);
+  };
+  ring.addEventListener('pointerup', _release);
+  ring.addEventListener('pointercancel', _release);
+  const wrap = el('div', { class: 'flex flex-col items-center', style: { width: '100vw', maxHeight: '100vh', overflow: 'hidden' } }, title, hint, ring, legend);
+  overlay.append(el('button', {
+    style: { position: 'fixed', top: '18px', left: '18px', fontSize: '26px', lineHeight: '1', color: 'rgba(255,255,255,.6)', background: 'none', border: 'none', cursor: 'pointer', zIndex: '10001' },
+    title: 'Close',
+    onclick: () => { overlay.remove(); mountApp(); },
+  }, '\u00d7'));
+  overlay.append(wrap);
+  document.body.append(overlay);
+  layout();
+}
+// Weighted roll over the incentive pool — entries with a % weight roll by
+// it; unweighted pools roll uniform. One helper so the Spin button and the
+// Arm chooser can never disagree.
+function _mbRollPrize() {
+  const pool = state._mbPool || [];
+  if (!pool.length) return null;
+  const odds = state._mbOdds || {};
+  const weights = pool.map(p => Number(odds[p]) || 0);
+  const tw = weights.reduce((a, b) => a + b, 0);
+  let roll = Math.random() * (tw > 0 ? tw : pool.length);
+  for (let i = 0; i < pool.length; i++) {
+    roll -= tw > 0 ? weights[i] : 1;
+    if (roll <= 0) return pool[i];
+  }
+  return pool[pool.length - 1];
+}
+// Prize picker — dropdown of the saved pool plus "add new", so prizes
+// accumulate on this tab as they're used (per Isaac; no more free-typing).
+function _mbArmWithPrizeChooser(repName, profileId) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const pool = state._mbPool || [];
+  const odds = state._mbOdds || {};
+  const sel = el('select', { class: 'w-full rounded-lg border px-3 py-2.5 text-sm', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } },
+    pool.length ? el('option', { value: '__roll__' }, '\ud83c\udfb2 Roll by the odds') : null,
+    ...pool.map(p => el('option', { value: p }, p + (Number(odds[p]) ? ' \u00b7 ' + odds[p] + '%' : ''))),
+    el('option', { value: '__new__' }, '＋ Add a new prize…'));
+  sel.addEventListener('change', () => {
+    if (sel.value !== '__new__') return;
+    const np = prompt('New prize (gets saved to the pool):');
+    if (np && np.trim()) {
+      const pool2 = [...(state._mbPool || []), np.trim()];
+      _mbSaveCfg({ pool: pool2 });
+      sel.insertBefore(el('option', { value: np.trim(), selected: true }, np.trim()), sel.lastChild);
+    } else sel.selectedIndex = 0;
+  });
+  overlay.append(el('div', { class: 'card w-full max-w-sm p-5' },
+    el('div', { class: 'font-display text-xl mb-1' }, '🎁 Arm a box'),
+    el('div', { class: 'text-xs text-muted- mb-3' }, repName + ' — pick what the box reveals. The spin cycles the rest of the pool as decoys.'),
+    sel,
+    el('div', { class: 'flex justify-end gap-2 mt-4' },
+      el('button', { class: 'rounded-lg px-3 py-2 text-sm', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, 'Cancel'),
+      el('button', {
+        class: 'rounded-lg px-4 py-2 text-sm font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: () => {
+          let prize = sel.value === '__new__' ? '' : sel.value;
+          if (prize === '__roll__') {
+            // Rolled at ARM time — the outcome is locked before the rep spins.
+            prize = _mbRollPrize() || '';
+            if (prize) toast('\ud83c\udfb2 Rolled: ' + prize, 'info');
+          }
+          if (!prize) { toast('Pick a prize', 'warn'); return; }
+          saveMysteryBoxes([...(state._mysteryBoxes || []), {
+            id: 'mb_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+            profile_id: profileId, rep_label: repName, prize: _mbEnc(prize),
+            decoys: (state._mbPool || []).filter(p => p !== prize),
+            created_at: new Date().toISOString(), delivered: false,
+          }]);
+          overlay.remove();
+          toast('Box armed for ' + repName, 'success');
+          mountApp();
+        },
+      }, 'Arm box'))));
+  document.body.append(overlay);
+}
+function mysteryBoxSection(isAdmin) {
+  loadMysteryBoxes();
+  const boxes = state._mysteryBoxes || [];
+  const opened = _mbOpenedMap();
+  const mine = state.profile ? boxes.filter(b => b.profile_id === state.profile.id) : [];
+  const nodes = [];
+  // ── Poster header — RIDDMADE® MYSTERY BOX. The 𝕽 doubles as the hidden
+  // PRIZE button (admin): click it → an input appears to add a prize to the
+  // pool; click again → it's just the logo. Nobody watching a recording
+  // knows it's a control.
+  nodes.push(el('div', { class: 'card p-5' },
+    el('div', { class: 'flex items-center justify-between gap-3' },
+      el('div', {},
+        el('div', { class: 'text-[10px] font-black', style: { letterSpacing: '.25em' } }, 'RIDDMADE\u00ae'),
+        el('div', { class: 'font-display text-4xl leading-none mt-1' }, 'MYSTERY BOX')),
+      el('div', {
+        style: { fontSize: '54px', lineHeight: '1', fontFamily: 'serif', cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none' },
+        title: isAdmin ? 'Add a prize' : '',
+        onclick: isAdmin ? (() => { state._mbPrizeOpen = !state._mbPrizeOpen; mountApp(); }) : undefined,
+      }, '\ud835\udd7d')),
+    (isAdmin && state._mbPrizeOpen) ? (() => {
+      // Incentive list — add / remove; the Arm dropdown selects from these.
+      const pin = el('input', {
+        type: 'text', placeholder: 'New incentive\u2026',
+        class: 'rounded-lg border px-3 py-2 text-sm flex-1 min-w-0',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        onkeydown: (e) => { if (e.key === 'Enter') e.target.nextSibling.click(); },
+      });
+      const poolNow = state._mbPool || [];
+      return el('div', { class: 'mt-3 pt-3', style: { borderTop: '1px solid var(--border)' } },
+        poolNow.length ? (() => {
+          const odds = state._mbOdds || {};
+          const total = poolNow.reduce((a, p) => a + (Number(odds[p]) || 0), 0);
+          return el('div', { class: 'flex flex-col mb-2' },
+            ...poolNow.map((p, i) => el('div', { class: 'flex items-center justify-between gap-2 py-1.5 text-sm', style: { borderBottom: '1px solid var(--border)' } },
+              el('span', { class: 'font-semibold min-w-0 truncate' }, p),
+              el('div', { class: 'flex items-center gap-2 shrink-0' },
+                el('div', { class: 'flex items-center gap-1' },
+                  el('input', {
+                    type: 'number', min: '0', max: '100', step: '1', value: odds[p] != null ? String(odds[p]) : '',
+                    placeholder: '\u2014',
+                    class: 'rounded border px-2 py-1 text-xs text-right tabular-nums',
+                    style: { width: '58px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+                    onchange: (e) => {
+                      const o = { ...(state._mbOdds || {}) };
+                      const v2 = e.target.value === '' ? null : Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                      if (v2 == null) delete o[p]; else o[p] = v2;
+                      _mbSaveCfg({ odds: o }); mountApp();
+                    },
+                  }),
+                  el('span', { class: 'text-xs text-muted-' }, '%')),
+                el('button', {
+                  class: 'text-xs', style: { color: '#DC2626' }, title: 'Remove this incentive',
+                  onclick: () => { const o = { ...(state._mbOdds || {}) }; delete o[p]; _mbSaveCfg({ pool: poolNow.filter((_, j) => j !== i), odds: o }); mountApp(); },
+                }, '\u2715')))),
+            el('div', { class: 'flex items-center justify-end gap-1 pt-1.5 text-[11px] tabular-nums font-bold', style: { color: total === 100 ? '#5F8A1F' : '#D97706' } },
+              'Total ' + total + '%' + (total === 100 ? ' \u2713' : ' \u2014 should sum to 100')));
+        })()
+          : el('div', { class: 'text-xs text-muted- mb-2' }, 'No incentives yet \u2014 add the ones boxes can reveal.'),
+        el('div', { class: 'flex items-center gap-2' },
+          pin,
+          el('button', {
+            class: 'rounded-lg px-3 py-2 text-xs font-bold shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+            onclick: () => {
+              const p = pin.value.trim();
+              if (!p) return;
+              _mbSaveCfg({ pool: [...(state._mbPool || []), p] });
+              pin.value = '';
+              mountApp();
+            },
+          }, '+ Add')));
+    })() : null));
+  // ── Rep-facing: your boxes ──
+  mine.forEach(b => {
+    const isOpened = !!opened[b.id];
+    nodes.push(el('div', { class: 'card p-4 flex items-center justify-between gap-3 flex-wrap', style: { borderLeft: '3px solid #8DC63F' } },
+      el('div', { class: 'flex items-center gap-3 min-w-0' },
+        el('div', { style: { fontSize: '34px' } }, isOpened ? '🎉' : '🎁'),
+        el('div', { class: 'min-w-0' },
+          el('div', { class: 'font-display text-lg' }, isOpened ? 'You won: ' + _mbDec(b.prize) : 'You have a Mystery Box!'),
+          el('div', { class: 'text-xs text-muted-' }, isOpened ? 'Opened ' + new Date(opened[b.id]).toLocaleDateString() + ' — see your admin to claim.' : 'Tap to open it. No takebacks.'))),
+      !isOpened ? el('button', {
+        class: 'rounded-xl px-4 py-2.5 text-sm font-bold transition hover:brightness-95',
+        style: { background: '#8DC63F', color: '#1D1D1D' },
+        onclick: () => openMysteryBoxOverlay(b),
+      }, 'Open the box') : null));
+  });
+  // ── Date bar + qualification table (per Isaac: one date, one table,
+  // rookies vs vets distinguished; goals are the revenue metric). ──
+  const goals = state._mbGoals || { rookie: 1500, vet: 2000 };
+  const todayIso = (typeof bizTodayIso === 'function') ? bizTodayIso() : new Date().toISOString().slice(0, 10);
+  const mbDate = state._mbDate || todayIso;
+  const dayStats = mysteryBoxDayStats({ date: mbDate, rookie: goals.rookie, vet: goals.vet });
+  const qualified = dayStats.filter(r => r.qualified);
+  const belowN = dayStats.length - qualified.length;
+  const dLbl = new Date(mbDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const goalIn = (key, val) => el('input', {
+    type: 'number', value: String(val),
+    class: 'rounded px-2 py-1 text-xs tabular-nums font-bold',
+    style: { width: '80px', background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)' },
+    onchange: (e) => { const g = { ...goals, [key]: Number(e.target.value) || 0 }; _mbSaveCfg({ goals: g }); mountApp(); },
+  });
+  // Winners summary card (per Isaac) — count + date at a glance.
+  {
+    const qR = qualified.filter(r => r.tier === 'rookie'), qV = qualified.filter(r => r.tier !== 'rookie');
+    nodes.push(el('div', { class: 'card p-4 flex items-center justify-between gap-3 flex-wrap', style: qualified.length ? { borderLeft: '3px solid #8DC63F' } : {} },
+      el('div', { class: 'flex items-center gap-3' },
+        el('div', { style: { fontSize: '34px' } }, '🎁'),
+        el('div', {},
+          el('div', { class: 'font-display text-2xl leading-none' }, qualified.length + ' BOX' + (qualified.length === 1 ? '' : 'ES') + ' EARNED'),
+          el('div', { class: 'text-xs text-muted- mt-1' }, dLbl))),
+      el('div', { class: 'flex items-center gap-3' },
+        el('div', { class: 'text-right' },
+          el('div', { class: 'text-sm font-bold' },
+            el('span', { style: { color: '#3B82F6' } }, qV.length + ' veteran' + (qV.length === 1 ? '' : 's')),
+            el('span', { class: 'text-muted- font-normal' }, ' · '),
+            el('span', { style: { color: '#DC2626' } }, qR.length + ' rookie' + (qR.length === 1 ? '' : 's'))),
+          qualified.length ? el('div', { class: 'text-xs text-muted- tabular-nums mt-0.5' }, fmt.usd0(qualified.reduce((a, r) => a + r.rev, 0)) + ' sold by winners') : null),
+        isAdmin ? el('button', {
+          class: 'text-[11px] font-semibold px-2 py-1 rounded-lg border shrink-0', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+          title: 'Run a spin — rolls a prize from the incentive list by its percentages',
+          onclick: () => {
+            const rolled = _mbRollPrize();
+            if (!rolled) { toast('Add incentives first — click the \ud835\udd7d up top', 'warn'); return; }
+            openMysteryBoxOverlay({ id: '__spin__', prize: _mbEnc(rolled) });
+          },
+        }, '\u25b6 Spin') : null)));
+  }
+  nodes.push(el('div', { class: 'card overflow-hidden' },
+    // Black requirement bar — the poster look, with the date picker in it.
+    el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-3', style: { background: 'var(--text)', color: 'var(--bg)' } },
+      el('div', { class: 'flex items-center gap-3 flex-wrap' },
+        el('input', {
+          type: 'date', value: mbDate,
+          class: 'rounded px-2 py-1.5 text-xs font-bold cursor-pointer',
+          style: { background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)', colorScheme: 'dark' },
+          // Custom-styled date inputs hide the native picker icon — open it
+          // explicitly so a tap anywhere on the field works.
+          onclick: (e) => { try { e.currentTarget.showPicker(); } catch (err) { /* older browsers fall back to typing */ } },
+          onchange: (e) => { if (e.target.value) { state._mbDate = e.target.value; mountApp(); } },
+        }),
+        el('div', { class: 'font-black uppercase tracking-wide text-sm' }, (mbDate === todayIso ? '🔴 ' : '') + dLbl)),
+      el('div', { class: 'text-right' },
+        el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie), ' Sold Revenue (Passed Audit)'),
+        el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet), ' Sold Revenue (Passed Audit)'))),
+    // Qualified reps — grouped Veterans / Rookies.
+    qualified.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+      el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+        ...['Rep', 'Tier', 'Accts', 'Revenue', 'Goal'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap' }, h)))),
+      el('tbody', {},
+        ...[['vet', 'VETERANS'], ['rookie', 'ROOKIES']].flatMap(([tk, tlbl]) => {
+          const grp = qualified.filter(r => (tk === 'rookie' ? r.tier === 'rookie' : r.tier !== 'rookie'));
+          if (!grp.length) return [];
+          return [
+            el('tr', {}, el('td', {
+              colspan: '5',
+              class: 'px-4 py-1.5 text-[10px] font-black uppercase tracking-widest',
+              style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
+            }, tlbl + ' · ' + fmt.usd0(tk === 'rookie' ? goals.rookie : goals.vet))),
+            ...grp.map(r => {
+              const _sig2 = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+              const prof = (state.allProfiles || []).find(p => _sig2(p.full_name) === _sig2(r.name));
+              const armed = (state._mysteryBoxes || []).some(bx => prof && bx.profile_id === prof.id && String(bx.created_at || '').slice(0, 10) >= mbDate);
+              return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'rgba(141,198,63,.05)' } },
+                el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, r.name),
+                el('td', { class: 'px-4 py-2' }, el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded', style: r.tier === 'rookie' ? { background: 'rgba(220,38,38,.1)', color: '#DC2626' } : { background: 'rgba(59,130,246,.1)', color: '#3B82F6' } }, r.tier === 'rookie' ? 'R' : 'V')),
+                el('td', { class: 'px-4 py-2 tabular-nums' }, String(r.n)),
+                el('td', { class: 'px-4 py-2 tabular-nums font-bold' }, fmt.usd0(r.rev)),
+                el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, fmt.usd0(r.goal)));
+            }),
+          ];
+        }))))
+      : el('div', { class: 'p-8 text-center text-sm text-muted-' }, mbDate > todayIso ? 'That day hasn\u2019t happened yet.' : 'No reps hit the bar on this day' + (dayStats.length ? ' \u2014 ' + dayStats.length + ' sold below it.' : '.')),
+    qualified.length && belowN > 0 ? el('div', { class: 'px-4 py-2 text-[11px] text-muted- border-t', style: { borderColor: 'var(--border)' } }, belowN + ' more rep' + (belowN === 1 ? '' : 's') + ' sold on this day but under the bar.') : null));
+  return nodes.length ? el('div', { class: 'flex flex-col gap-4' }, ...nodes) : null;
+}
+
 function viewNrlaPublic() {
   const wrap = el('div', { class: 'flex flex-col gap-5 w-full' });
   const isAdmin = isAdminRole(state.profile.role);
   let comps = (typeof getIndicatorCompetitions === 'function') ? getIndicatorCompetitions() : [];
   // Avg Pest & Raffle is ADMIN-ONLY — reps never see its pill or board.
   if (!isAdmin) comps = comps.filter(c => (c.scoring || c.id) !== 'avg_pest_initial' && c.id !== 'avg_pest_initial');
+  // Mystery Boxes rides the pill bar as its own competition tab (per Isaac).
+  // Virtual — no scoring config behind it, so it never becomes the active
+  // scoring comp.
+  comps = [...comps, { id: 'mystery_box', name: 'Mystery Boxes' }];
+  // Admin drag-sorted pill order (synced to everyone); unknown ids sink to
+  // the end so new comps still show up.
+  {
+    const _ord = Array.isArray(state._compPillOrder) ? state._compPillOrder : [];
+    if (_ord.length) comps = comps.slice().sort((a, b) => {
+      const ia = _ord.indexOf(a.id), ib = _ord.indexOf(b.id);
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    });
+  }
   const raw = state._indicatorRawSales || [];
   // Self-heal a stale dataset: if what we're holding is >3h old, force one
   // cloud check on open (the regular 10-min poll takes it from there).
@@ -18223,7 +18741,7 @@ function viewNrlaPublic() {
     || (comps.find(c => c.favorite) || comps.find(c => isNrlaComp(c)) || comps[0]).id;
   if (!comps.some(c => c.id === selId)) selId = comps[0].id;
   const sel = comps.find(c => c.id === selId);
-  if (getActiveCompId() !== sel.id) state._indicatorActiveCompId = sel.id;
+  if (sel.id !== 'mystery_box' && getActiveCompId() !== sel.id) state._indicatorActiveCompId = sel.id;
   // ── Comp switcher pills + admin ★ default control + FieldRoutes sync stamp ──
   const _compSyncStr = (() => {
     const t = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt) : null;
@@ -18268,8 +18786,27 @@ function viewNrlaPublic() {
         style: c.id === sel.id
           ? { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' }
           : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
-        title: c.favorite ? c.name + ' — the default competition everyone lands on' : c.name,
+        title: (c.favorite ? c.name + ' — the default competition everyone lands on' : c.name) + (isAdmin ? ' · drag to reorder' : ''),
         onclick: () => { state._compsTabSel = c.id; mountApp(); },
+        // Admin: drag a pill onto another to reorder — saved to the shared
+        // config, so every user sees the same order.
+        draggable: isAdmin ? 'true' : undefined,
+        ondragstart: isAdmin ? ((e) => { e.dataTransfer.setData('text/plain', c.id); e.dataTransfer.effectAllowed = 'move'; }) : undefined,
+        ondragover: isAdmin ? ((e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; e.currentTarget.style.outline = '2px dashed var(--accent)'; }) : undefined,
+        ondragleave: isAdmin ? ((e) => { e.currentTarget.style.outline = ''; }) : undefined,
+        ondrop: isAdmin ? ((e) => {
+          e.preventDefault();
+          e.currentTarget.style.outline = '';
+          const from = e.dataTransfer.getData('text/plain');
+          if (!from || from === c.id) return;
+          const ids = comps.map(x => x.id);
+          const fi = ids.indexOf(from), ti = ids.indexOf(c.id);
+          if (fi === -1 || ti === -1) return;
+          ids.splice(ti, 0, ids.splice(fi, 1)[0]);
+          state._compPillOrder = ids;
+          saveIndicatorState();   // persists + syncs the order to every user
+          mountApp();
+        }) : undefined,
       }, (c.favorite ? '★ ' : '') + c.name)),
       _defaultBtnFor(false),
       _stampFor()),
@@ -18282,6 +18819,16 @@ function viewNrlaPublic() {
       }, ...comps.map(c => el('option', { value: c.id, selected: c.id === sel.id }, (c.favorite ? '★ ' : '') + c.name))),
       _defaultBtnFor(true),
       _stampFor())));
+  // ── Mystery Boxes: its own tab — rep boxes + admin arming panel ──
+  if (sel.id === 'mystery_box') {
+    const _mb = mysteryBoxSection(isAdmin);
+    if (_mb) wrap.append(_mb);
+    else wrap.append(el('div', { class: 'card p-10 text-center' },
+      el('div', { class: 'text-3xl mb-2' }, '🎁'),
+      el('div', { class: 'text-sm font-bold' }, 'No Mystery Box for you… yet.'),
+      el('div', { class: 'text-xs mt-1', style: { color: 'var(--text-muted)' } }, 'Keep selling — boxes get armed for big performances, and when one\u2019s yours it shows up right here.')));
+    return wrap;
+  }
   // ── NRLA gets its own board (runs on its own schedule — no window bar) ──
   if (isNrlaComp(sel)) {
     wrap.append(nrlaBoard(raw, { readOnly: !isAdmin, comp: sel }));
