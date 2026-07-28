@@ -18647,17 +18647,19 @@ function mysteryBoxSection(isAdmin) {
       el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
         ...['Rep', 'Tier', 'Accts', 'Revenue', 'Goal'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap' }, h)))),
       el('tbody', {},
-        ...[['vet', 'VETERANS'], ['rookie', 'ROOKIES'], ['chasing', 'CHASING THE BOX']].flatMap(([tk, tlbl]) => {
-          const grp = tk === 'chasing'
-            ? dayStats.filter(r => !r.qualified).sort((a2, b2) => (b2.goal ? b2.rev / b2.goal : 0) - (a2.goal ? a2.rev / a2.goal : 0))
-            : qualified.filter(r => (tk === 'rookie' ? r.tier === 'rookie' : r.tier !== 'rookie'));
+        ...[['vet', 'VETERANS'], ['rookie', 'ROOKIES'], ['chasing_vet', 'CHASING \u00b7 VETERANS'], ['chasing_rookie', 'CHASING \u00b7 ROOKIES']].flatMap(([tk, tlbl]) => {
+          const _isRk = (r) => r.tier === 'rookie';
+          const _chase = (fn) => dayStats.filter(r => !r.qualified && fn(r)).sort((a2, b2) => (b2.goal ? b2.rev / b2.goal : 0) - (a2.goal ? a2.rev / a2.goal : 0));
+          const grp = tk === 'chasing_vet' ? _chase(r => !_isRk(r))
+            : tk === 'chasing_rookie' ? _chase(_isRk)
+            : qualified.filter(r => (tk === 'rookie' ? _isRk(r) : !_isRk(r)));
           if (!grp.length) return [];
           return [
             el('tr', {}, el('td', {
               colspan: '5',
               class: 'px-4 py-1.5 text-[10px] font-black uppercase tracking-widest',
               style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
-            }, tk === 'chasing' ? tlbl : tlbl + ' · ' + fmt.usd0(tk === 'rookie' ? goals.rookie : goals.vet))),
+            }, tlbl + ' \u00b7 ' + fmt.usd0(/rookie/.test(tk) ? goals.rookie : goals.vet) + (tk.startsWith('chasing') ? ' bar' : ''))),
             ...grp.map(r => {
               const _sig2 = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
               const prof = (state.allProfiles || []).find(p => _sig2(p.full_name) === _sig2(r.name));
