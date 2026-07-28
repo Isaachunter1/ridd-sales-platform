@@ -18611,10 +18611,10 @@ function mysteryBoxSection(isAdmin) {
             },
           }, '\u25b6 Spin') : null,
           el('div', {
-            style: { fontSize: '38px', lineHeight: '1', fontFamily: 'serif', cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none' },
+            style: { fontSize: '44px', lineHeight: '1', fontFamily: "'Old English Text MT','UnifrakturMaguntia',serif", cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none', marginTop: '-4px' },
             title: isAdmin ? 'Incentive list' : '',
             onclick: isAdmin ? (() => { state._mbPrizeOpen = !state._mbPrizeOpen; mountApp(); }) : undefined,
-          }, '\ud835\udd7d'))),
+          }, 'R'))),
       prizeEditor));
   }
   nodes.push(el('div', { class: 'card overflow-hidden' },
