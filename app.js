@@ -6617,12 +6617,30 @@ function openCrmReconcileModal() {
     el('p', { class: 'text-xs text-muted- mb-3' },
       'Paste a SalesReport CSV from the CRM’s Sales Leaderboard (one rep or many). Every account is joined on Customer ID against this app’s synced data, and any difference is named account-by-account with the exact rule responsible.'),
     ta,
-    el('div', { class: 'flex items-center gap-2 mt-2' },
+    el('div', { class: 'flex items-center gap-2 mt-2 flex-wrap' },
+      // Big exports won't paste cleanly — a real file picker reads the CSV
+      // straight from disk and runs the diff immediately.
+      (() => {
+        const inp = el('input', { type: 'file', accept: '.csv,text/csv', style: { display: 'none' } });
+        inp.addEventListener('change', () => {
+          const f = inp.files && inp.files[0];
+          if (!f) return;
+          const rd = new FileReader();
+          rd.onload = () => { ta.value = '(' + f.name + ' loaded — ' + Math.round(f.size / 1024) + ' KB)'; run(String(rd.result || ''), resBox, copyBtn); };
+          rd.readAsText(f);
+        });
+        const pick = el('button', {
+          class: 'rounded-lg px-4 py-2 text-sm font-bold cursor-pointer transition hover:brightness-95',
+          style: { background: 'var(--brand, #8DC63F)', color: '#fff' },
+          onclick: () => inp.click(),
+        }, 'Choose CSV file…');
+        return el('span', {}, inp, pick);
+      })(),
       el('button', {
-        class: 'rounded-lg px-4 py-2 text-sm font-bold cursor-pointer transition hover:brightness-95',
-        style: { background: 'var(--brand, #8DC63F)', color: '#fff' },
+        class: 'rounded-lg px-4 py-2 text-sm font-bold cursor-pointer transition hover:brightness-95 border',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         onclick: () => run(ta.value, resBox, copyBtn),
-      }, 'Run diff'),
+      }, 'Run pasted text'),
       copyBtn),
     resBox));
   document.body.append(overlay);
