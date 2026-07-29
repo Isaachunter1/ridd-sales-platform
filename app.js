@@ -28982,7 +28982,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   // two-table report still fits on a single sheet.
   const page = el('div', {
     style: {
-      width: '1056px',
+      width: '1220px',
       padding: '6px 8px 8px',
       background: '#fff', color: '#1D1D1D',
       fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif',
@@ -29150,6 +29150,10 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     leaders.revenue     = max('revenue');
     leaders.acv         = max('acv');
     leaders.avgPest     = max('avgPest');
+    leaders.auditPct    = max('auditPct');
+    leaders.revPerDay   = max('revPerDay');
+    leaders.acctsPerDay = max('acctsPerDay');
+    leaders.avgInitial  = max('avgInitial');
     leaders.myPct       = max('myPct');
     leaders.autoPayPct  = max('autoPayPct');
     leaders.bestDay     = max('bestDay');
@@ -29191,9 +29195,9 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     const leaders = findLeaders(reps);
     const th = (text, align) => el('th', {
       style: {
-        fontSize: '8.5px', fontWeight: '800', letterSpacing: '0.06em',
+        fontSize: '8px', fontWeight: '800', letterSpacing: '0.04em',
         textTransform: 'uppercase', color: '#666',
-        padding: '4px 5px',
+        padding: '4px 4px',
         textAlign: align || 'left',
         borderBottom: '1px solid #ddd',
         whiteSpace: 'nowrap',
@@ -29204,8 +29208,8 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     // page (works in B&W too because the pill has its own outline).
     const td = (content, align, opts2 = {}) => {
       const style = {
-        padding: '3px 5px',
-        fontSize: '10.5px',
+        padding: '3px 4px',
+        fontSize: '9.5px',
         textAlign: align || 'left',
         borderBottom: '1px solid #f0f0f0',
         whiteSpace: 'nowrap',
@@ -29235,10 +29239,16 @@ function buildRookieVetReportNode(allReps, opts = {}) {
             th('Office'),
             th('Sales',      'right'),
             th('Revenue',    'right'),
+            th('Audit %',    'right'),
             th('ACV',        'right'),
+            th('Sell Days',  'right'),
+            th('$ / Day',    'right'),
+            th('Accts/Day',  'right'),
             th('Avg Pest',   'right'),
+            th('Avg Initial','right'),
             th('MY %',       'right'),
             th('Auto Pay %', 'right'),
+            th('Cancels',    'right'),
             th('Cancel %',   'right'),
             th('Best Day',   'right'),
             th('Best Week',  'right'),
@@ -29253,10 +29263,16 @@ function buildRookieVetReportNode(allReps, opts = {}) {
             td(titleCase(r.office) || '—', 'left', { color: '#666' }),
             td(fmt.int(r.count || 0),     'right', { leader: leaders.count === r.name }),
             td(fmt.usd0(r.revenue || 0),  'right', { bold: true, leader: leaders.revenue === r.name }),
+            td(pctOrDash(r.auditPct),     'right', { leader: leaders.auditPct === r.name }),
             td(usdOrDash(r.acv),          'right', { leader: leaders.acv === r.name }),
+            td(r.sellingDays > 0 ? fmt.int(r.sellingDays) : '—', 'right'),
+            td(r.revPerDay > 0 ? fmt.usd0(r.revPerDay) : '—', 'right', { leader: leaders.revPerDay === r.name }),
+            td(r.acctsPerDay > 0 ? r.acctsPerDay.toFixed(1) : '—', 'right', { leader: leaders.acctsPerDay === r.name }),
             td(usdOrDash(r.avgPest),      'right', { leader: leaders.avgPest === r.name }),
+            td(usdOrDash(r.avgInitial),   'right', { leader: leaders.avgInitial === r.name }),
             td(pctOrDash(r.myPct),        'right', { leader: leaders.myPct === r.name }),
             td(pctOrDash(r.autoPayPct),   'right', { leader: leaders.autoPayPct === r.name }),
+            td(r.cancels > 0 ? fmt.int(r.cancels) : '—', 'right', { color: '#666' }),
             // Cancel % is "best when low" — leader pill goes to the
             // lowest non-zero rate, and over-10% rates still render red
             // even on the leader so the absolute number reads honestly.
