@@ -6365,6 +6365,13 @@ function frPendingServiced(s) {
   // (initial-appt status, SNS heuristics) would reintroduce the very
   // mismatch the manual upload exists to bypass. Every row counts.
   if (state._indManualMode) return true;
+  // Evidence of ACTUAL service always wins: completed services, a serviced
+  // date, or a Completed initial make the account "Serviced" in the CRM no
+  // matter what stale appointment/cancellation data the RevHawk mirror
+  // carries. Proven by the Jul 2026 row-level reconcile (#163269 Jenkins:
+  // 6 services completed in the CRM, mirror still said Sold-Not-Started —
+  // the sub was cancelled+rebooked and the old reason stuck around).
+  if ((Number(s.services) || 0) > 0 || String(s.servicedDate || '').trim()) return true;
   // Sold-Not-Started CANCELLATION REASON always excludes (per Isaac) — even
   // when the initial appointment still reads "Pending" in the CRM. These
   // were never real accounts: no comp metric counts them, no audit list
@@ -6501,6 +6508,8 @@ function openCrmReconcileModal() {
   const gateReason = (s) => {
     if (_delSet.size && _delSet.has(String(s.customerId != null ? s.customerId : ''))) return 'deleted-accounts list (Settings → Configurations)';
     if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(s.subscription || '').trim())) return 'globally excluded service “' + s.subscription + '”';
+    // Mirror of the served-evidence early-accept in frPendingServiced.
+    if ((Number(s.services) || 0) > 0 || String(s.servicedDate || '').trim()) return null;
     if (_isSoldNotStarted(s)) return 'Sold-Not-Started cancellation reason';
     if (_scInitialStatusHasData()) {
       const ist = String(s.initialStatus || '').trim().toLowerCase();
@@ -6561,11 +6570,29 @@ function openCrmReconcileModal() {
       matchedN++; matchedCv += Number(s0.contractValue) || 0;
       if (Math.abs((Number(s0.contractValue) || 0) - r.cv) > 0.5) valueDiff.push({ r, appCv: Number(s0.contractValue) || 0 });
     });
+    // Partial exports (a week, a month, one office) are common — only call
+    // an app row "extra" when it falls INSIDE the date window the CSV
+    // actually covers, otherwise the whole rest of the season shows up as
+    // noise and buries the real differences.
+    const _soldDay = (str) => {
+      const m = String(str || '').trim().split(' ')[0].split('/');
+      if (m.length !== 3) return null;
+      let y = Number(m[2]); if (y < 100) y += 2000;
+      const d = new Date(y, Number(m[0]) - 1, Number(m[1]));
+      return isNaN(d) ? null : d.getTime();
+    };
+    let winLo = Infinity, winHi = -Infinity;
+    crmRows.forEach(r => { const t = _soldDay(r.date); if (t != null) { if (t < winLo) winLo = t; if (t > winHi) winHi = t; } });
+    const hasWin = winLo <= winHi;
     raw.forEach(s => {
       const id = String(s.customerId != null ? s.customerId : '').trim();
       if (!id || crmIds.has(id)) return;
       if (!repKeys.size || !repKeys.has(nameKey(getCanonicalRepName(s.rep)))) return;
       if (gateReason(s)) return;
+      if (hasWin) {
+        const t = _soldDay(s.dateSold);
+        if (t == null || t < winLo || t > winHi) return;
+      }
       extras.push({ id, customer: s.customer || '', sub: s.subscription || '', date: s.dateSold || '', cv: Number(s.contractValue) || 0, rawRep: s.rep });
     });
     const sum = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
