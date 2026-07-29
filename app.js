@@ -6380,13 +6380,19 @@ function frPendingServiced(s) {
   // 6 services completed in the CRM, mirror still said Sold-Not-Started —
   // the sub was cancelled+rebooked and the old reason stuck around).
   if ((Number(s.services) || 0) > 0 || String(s.servicedDate || '').trim()) return true;
-  // Sold-Not-Started CANCELLATION REASON always excludes (per Isaac) — even
-  // when the initial appointment still reads "Pending" in the CRM. These
-  // were never real accounts: no comp metric counts them, no audit list
-  // shows them. 3-day RORs are NOT excluded here — those DO count.
-  if (_isSoldNotStarted(s)) return false;
+  // Sold-Not-Started CANCELLATION REASON excludes — but only while the
+  // subscription is actually dead. The Jul 2026 row-level reconcile caught
+  // 12 accounts the CRM still counts whose mirror rows carry a stale SNS
+  // reason from a cancel + rebook: if FieldRoutes says the sub is active
+  // again, the old reason must not bury the sale. True SNS (cancelled, no
+  // service) stays excluded. 3-day RORs are NOT excluded here — they count.
+  if (_isSoldNotStarted(s) && String(s.active || '').trim().toLowerCase() !== 'yes') return false;
   if (_scInitialStatusHasData()) {
     const ist = String(s.initialStatus || '').trim().toLowerCase();
+    // "No Appointment" = sold, initial not scheduled yet. The CRM counts
+    // these as Pending (10 same-evening sales proved it in the Jul 2026
+    // diff), so they count here while the subscription is alive.
+    if (ist === 'no appointment') return String(s.active || '').trim().toLowerCase() !== 'no';
     return ist === 'pending' || ist === 'completed';
   }
   // Legacy snapshots without the Initial Status column.
@@ -6504,6 +6510,19 @@ function _crmReconCsv(text) {
 }
 function openCrmReconcileModal() {
   const nameKey = (n) => String(n || '').toLowerCase().replace(/[^a-z]+/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  // Alias-aware resolution: "Lex Magaletta" (CSV) and "Magaletta, Alexander"
+  // (app canonical) are the same human via the rep-alias store — fold every
+  // known spelling's key to its canonical's key so cross-spelling rows don't
+  // false-flag as "counted under a different rep" (242 rows of noise in the
+  // Jul 2026 run, all one person).
+  const _aliasKey = new Map();
+  Object.entries(state._indicatorRepAlias || {}).forEach(([from, to]) => {
+    _aliasKey.set(nameKey(from), nameKey(getCanonicalRepName(to)));
+  });
+  const repKeyOf = (n) => {
+    const k = nameKey(getCanonicalRepName(n));
+    return _aliasKey.get(k) || k;
+  };
   // Why is this raw row NOT in the canonical pool? Mirrors the gate order
   // inside indicatorSales() exactly — if that changes, keep this in sync so
   // the report never lies about the reason.
@@ -6518,10 +6537,12 @@ function openCrmReconcileModal() {
     if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(s.subscription || '').trim())) return 'globally excluded service “' + s.subscription + '”';
     // Mirror of the served-evidence early-accept in frPendingServiced.
     if ((Number(s.services) || 0) > 0 || String(s.servicedDate || '').trim()) return null;
-    if (_isSoldNotStarted(s)) return 'Sold-Not-Started cancellation reason';
+    const _alive = String(s.active || '').trim().toLowerCase();
+    if (_isSoldNotStarted(s) && _alive !== 'yes') return 'Sold-Not-Started cancellation reason (sub not active)';
     if (_scInitialStatusHasData()) {
       const ist = String(s.initialStatus || '').trim().toLowerCase();
-      if (ist !== 'pending' && ist !== 'completed') return 'initial appt status “' + (s.initialStatus || '—') + '” (not Pending/Completed)';
+      if (ist === 'no appointment') { if (_alive === 'no') return 'No Appointment + cancelled sub'; }
+      else if (ist !== 'pending' && ist !== 'completed') return 'initial appt status “' + (s.initialStatus || '—') + '” (not Pending/Completed)';
     } else if (_scIsSoldNotStarted(s)) return 'Sold-Not-Started (legacy heuristic)';
     if (_indicatorServiceExcluded(s)) return 'excluded service “' + s.subscription + '” (Settings → Configurations)';
     const _s = String(s.source || '').trim();
@@ -6550,7 +6571,7 @@ function openCrmReconcileModal() {
       date: iDate >= 0 ? (r[iDate] || '') : '', cv: num(r[iCv]),
     }));
     const crmTotal = crmRows.reduce((a, r) => a + r.cv, 0);
-    const repKeys = new Set(crmRows.map(r => nameKey(getCanonicalRepName(r.rep))).filter(Boolean));
+    const repKeys = new Set(crmRows.map(r => repKeyOf(r.rep)).filter(Boolean));
     const raw = state._indicatorRawSales || [];
     const byId = new Map();
     raw.forEach(s => {
@@ -6574,7 +6595,7 @@ function openCrmReconcileModal() {
       if (!pass.length) { excluded.push({ r, why: gateReason(cand[0]) }); return; }
       const s0 = pass[0];
       usedRows.add(s0);
-      if (repKeys.size && !repKeys.has(nameKey(getCanonicalRepName(s0.rep)))) { otherRep.push({ r, appRep: getCanonicalRepName(s0.rep) }); return; }
+      if (repKeys.size && !repKeys.has(repKeyOf(s0.rep))) { otherRep.push({ r, appRep: getCanonicalRepName(s0.rep) || '(no rep on the synced row)' }); return; }
       matchedN++; matchedCv += Number(s0.contractValue) || 0;
       if (Math.abs((Number(s0.contractValue) || 0) - r.cv) > 0.5) valueDiff.push({ r, appCv: Number(s0.contractValue) || 0 });
     });
@@ -6595,7 +6616,7 @@ function openCrmReconcileModal() {
     raw.forEach(s => {
       const id = String(s.customerId != null ? s.customerId : '').trim();
       if (!id || crmIds.has(id)) return;
-      if (!repKeys.size || !repKeys.has(nameKey(getCanonicalRepName(s.rep)))) return;
+      if (!repKeys.size || !repKeys.has(repKeyOf(s.rep))) return;
       if (gateReason(s)) return;
       if (hasWin) {
         const t = _soldDay(s.dateSold);
