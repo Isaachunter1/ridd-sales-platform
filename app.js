@@ -414,7 +414,7 @@ async function refreshIndicatorsFromCloud(force) {
     // Silent by design: this fires on every open/wake as routine hygiene —
     // the Last-sync stamp is the freshness UI, not a popup.
     console.info('[ridd] indicators refreshed from cloud (' + (payload.fileName || 'CSV') + ')');
-    mountApp();
+    if (typeof scheduleBackgroundRemount === 'function') scheduleBackgroundRemount(); else mountApp();
     setTimeout(() => { try { maybeShowWeeklyRecap(); } catch { /* ignore */ } }, 800);
   } catch (e) { console.warn('[ridd] indicators cloud refresh failed', e); }
 }
@@ -565,12 +565,29 @@ function saveIndicatorState() {
 // into a single re-render, and it stays out of the way while the main
 // loading sequence is still in flight (it re-renders at the end anyway).
 let _bgRemountTimer = null;
+// RENDER STABILITY — background repaints wait for a QUIET moment: if the
+// user scrolled / tapped / typed in the last ~1.2s the remount re-arms and
+// tries again shortly, so fresh data can never yank the page mid-read.
+// (Direct user actions still call mountApp() synchronously as always.)
+let _lastMountedView = null;
+let _lastUserActivity = 0;
+if (typeof window !== 'undefined' && !window._riddActivityWired) {
+  window._riddActivityWired = true;
+  const _act = () => { _lastUserActivity = Date.now(); };
+  ['scroll', 'wheel', 'pointerdown', 'touchmove', 'keydown'].forEach(ev => window.addEventListener(ev, _act, { passive: true }));
+}
 function scheduleBackgroundRemount() {
   if (_bgRemountTimer) return;
-  _bgRemountTimer = setTimeout(() => {
+  const attempt = (tries) => {
     _bgRemountTimer = null;
-    if (state.profile && typeof mountApp === 'function' && !_loadAndRenderInFlight) mountApp();
-  }, 120);
+    if (!state.profile || typeof mountApp !== 'function' || _loadAndRenderInFlight) return;
+    if (Date.now() - _lastUserActivity < 1200 && tries < 8) {
+      _bgRemountTimer = setTimeout(() => attempt(tries + 1), 700);
+      return;
+    }
+    mountApp();
+  };
+  _bgRemountTimer = setTimeout(() => attempt(0), 120);
 }
 // Healed "Last upload" stamp for page headers. Self-repairs a stored
 // timestamp that lags the dataset label (partial state restores), and never
@@ -4400,6 +4417,7 @@ function openMySettingsModal() {
 }
 
 function mountApp() {
+  const _mountKeepX = window.scrollX || 0, _mountKeepY = window.scrollY || 0;
   // ── Shared-dataset freshness watch — EVERY view, not just Indicators. ──
   // PWAs essentially never reboot, so before this a device that sat on the
   // War Room (or anywhere else) NEVER re-checked the cloud: the Last-upload
@@ -4434,10 +4452,11 @@ function mountApp() {
         const before = _appDataFp();
         await refreshSalesData();
         if (_appDataFp() !== before) {
-          // Data moved — repaint unless the user is mid-modal or typing.
+          // Data moved — repaint unless the user is mid-modal or typing;
+          // the scheduler also waits out active scrolling (render stability).
           const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
           const modalOpen = !!document.querySelector('.modal-overlay');
-          if (!typing && !modalOpen) mountApp();
+          if (!typing && !modalOpen) scheduleBackgroundRemount();
         }
       } catch (e) { /* next tick retries */ }
       finally { _appDataBusy = false; }
@@ -4911,9 +4930,17 @@ function mountApp() {
     document.body.append(fab);
   }
 
-  // Big-number overflow guard — see fitCardNumbers below. Runs after the
-  // frame paints so measurements see the final layout.
-  requestAnimationFrame(fitCardNumbers);
+  // Big-number overflow guard — synchronous, so oversized figures never
+  // paint full-size for a frame before shrinking.
+  try { fitCardNumbers(); } catch (e) { /* never block a render */ }
+  // RENDER STABILITY (per Isaac): background remounts used to yank the page
+  // back to the top. Same view → restore the exact scroll spot; a real
+  // navigation still starts at the top like it should.
+  if (_lastMountedView === state.view && (_mountKeepX || _mountKeepY)) {
+    const kx = _mountKeepX, ky = _mountKeepY;
+    requestAnimationFrame(() => window.scrollTo(kx, ky));
+  }
+  _lastMountedView = state.view;
 }
 
 // ── Overflow guard for display numbers ─────────────────────────────────────
