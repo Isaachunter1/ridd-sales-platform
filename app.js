@@ -26126,7 +26126,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             const btn2 = el('button', {
               class: 'rounded-lg px-3 py-2.5 text-sm font-bold cursor-pointer transition hover:brightness-95 border shrink-0',
               style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-              title: 'Download the career Roster PDF — branch totals + ranked rep cards (all-time Pending/Serviced revenue)',
+              title: 'Download the Roster PDF — YTD branch totals + ranked rep cards (Pending/Serviced revenue)',
               onclick: async () => {
                 btn2.disabled = true; btn2.textContent = '\u2026';
                 try { await downloadCareerRosterPdf(); } finally { btn2.disabled = false; btn2.textContent = '\ud83d\uddc2'; }
@@ -28866,6 +28866,9 @@ async function downloadCareerRosterPdf() {
   const byBranch = new Map();
   let grand = 0;
   const curYear = new Date().getFullYear();
+  // YTD statistics (per Isaac) — revenue / accounts / ranking / branch
+  // totals all count THIS YEAR only. Tenure ("N year rep") still reads the
+  // full history so a 6-year rep says so.
   for (const s of pool) {
     const nm = getCanonicalRepName(s.rep);
     if (!nm) continue;
@@ -28873,15 +28876,17 @@ async function downloadCareerRosterPdf() {
     const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
     const yr = Number(iso.slice(0, 4)) || curYear;
     const o = byRep.get(nm) || { name: nm, rev: 0, n: 0, firstYear: 9999, office: '', lastIso: '' };
-    o.rev += cv; o.n++;
     if (yr < o.firstYear) o.firstYear = yr;
     if (iso > o.lastIso) { o.lastIso = iso; o.office = String(s.office || '').split(',')[0].trim(); }
+    if (yr === curYear) {
+      o.rev += cv; o.n++;
+      const b = String(s.office || 'Unknown').split(',')[0].trim().toUpperCase();
+      byBranch.set(b, (byBranch.get(b) || 0) + cv);
+      grand += cv;
+    }
     byRep.set(nm, o);
-    const b = String(s.office || 'Unknown').split(',')[0].trim().toUpperCase();
-    byBranch.set(b, (byBranch.get(b) || 0) + cv);
-    grand += cv;
   }
-  const ranked = [...byRep.values()].sort((a, b) => b.rev - a.rev);
+  const ranked = [...byRep.values()].filter(r => r.rev > 0).sort((a, b) => b.rev - a.rev);
   const branches = [...byBranch.entries()].sort((a, b) => b[1] - a[1]);
   const usd2 = (v) => '$' + (Number(v) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const _sigR = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
@@ -28898,7 +28903,7 @@ async function downloadCareerRosterPdf() {
           el('div', { style: { background: '#e9e9e2', textAlign: 'center', padding: '7px 8px', fontWeight: '900', fontSize: '18px' } }, usd2(v))))));
       node.append(el('div', { style: { textAlign: 'center', fontWeight: '800', fontSize: '20px', padding: '10px 0 2px' } }, 'Roster'),
         el('div', { style: { textAlign: 'center', fontSize: '10px', color: '#6b6b63', paddingBottom: '8px' } },
-          'Career Pending/Serviced revenue \u00b7 as of ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })));
+          curYear + ' YTD Pending/Serviced revenue \u00b7 as of ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })));
     }
     cards.forEach(({ r, rank }) => {
       const prof = profBySig.get(_sigR(r.name));
@@ -28945,7 +28950,7 @@ async function downloadCareerRosterPdf() {
       pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w * 0.75, h * 0.75);
     }
     pdf.save('RIDD-Roster-' + new Date().toISOString().slice(0, 10) + '.pdf');
-    toast('Roster PDF downloaded \u2014 Pending/Serviced revenue, matches the boards', 'success');
+    toast('Roster PDF downloaded \u2014 YTD Pending/Serviced revenue, matches the boards', 'success');
   } catch (e) {
     toast('Roster PDF failed: ' + ((e && e.message) || e), 'error');
   } finally { holder.remove(); }
