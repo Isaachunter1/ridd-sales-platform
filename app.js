@@ -15051,7 +15051,7 @@ function chartBucketsGrainLabel(buckets) {
 // directly off branchData[b].reps — not from this metric list. The `reps`
 // count is also the denominator of PRA.
 const INDICATOR_METRICS = [
-  { key: 'sold_accounts',  label: 'Sold Accounts',    fmt: v => fmt.int(v) },
+  { key: 'sold_accounts',  label: 'Subscriptions',    fmt: v => fmt.int(v) },
   { key: 'revenue',        label: 'Revenue',          fmt: v => fmt.usd0(v) },
   // New / Renewal revenue split — only SHOWN on the Office Staff table, but
   // defined here so RIDD totals + rankings compute them. Excluded from Power
@@ -15083,22 +15083,22 @@ function indicatorMetricHelp(key) {
   const teamsMode = state.indicatorsGroupBy === 'teams';
   const dept = state.indicatorDept || 'all';
   const F = {
-    sold_accounts:  'Number of accounts sold in the window.',
+    sold_accounts:  'Number of subscriptions sold in the window — one row per subscription, so a customer buying two plans counts twice.',
     revenue:        'Total Contract Value of all accounts sold in the window.',
     new_revenue:    'Revenue from new sales only — renewal sources are excluded.',
     renewal_revenue:'Revenue from renewal sources ("Renewal - …") only.',
     avg_initial:    (teamsMode || dept === 'office')
       ? 'Average Initial Service Price, excluding Sentricon, German Roach, and Interior Flea plans so termite installs don\u2019t skew the pest number.'
       : 'Average Initial Service Price across all accounts sold in the window.',
-    acv:            'Revenue \u00f7 Sold Accounts — the average contract value per account.',
+    acv:            'Revenue \u00f7 Subscriptions — the average contract value per subscription.',
     pra:            'Revenue \u00f7 Reps > $20K — the per-rep average, counting only reps who sold more than $20,000 in this group and window.',
     multi_year_pct: 'Contracts longer than 12 months \u00f7 all contracts that are 12 months or longer.',
-    auto_pay_pct:   'Accounts with autopay on file \u00f7 Sold Accounts.',
-    audit_pct:      'Accounts NOT flagged Failed Audit \u00f7 Sold Accounts — passed, pending, and unaudited accounts all count as good.',
-    last_resort_pct:'Accounts with an initial under $99 \u00f7 Sold Accounts. Context only — not scored for Power Rank.',
+    auto_pay_pct:   'Subscriptions with autopay on file \u00f7 Subscriptions.',
+    audit_pct:      'Subscriptions NOT flagged Failed Audit \u00f7 Subscriptions — passed, pending, and unaudited all count as good.',
+    last_resort_pct:'Subscriptions with an initial under $99 \u00f7 Subscriptions. Context only — not scored for Power Rank.',
     reps:           'Unique reps with at least one sale in the window. Context only — not scored for Power Rank.',
     reps20k:        'Reps who sold more than $20,000 in this group and window — the PRA denominator. Context only.',
-    _points:        'Each column is ranked 1\u2013N on the seven scored rows (Sold Accounts, Revenue, Avg Initial, ACV, PRA, Multi-Year %, Auto-Pay %); Power Rank is the sum of those ranks — lowest total wins.',
+    _points:        'Each column is ranked 1\u2013N on the seven scored rows (Subscriptions, Revenue, Avg Initial, ACV, PRA, Multi-Year %, Auto-Pay %); Power Rank is the sum of those ranks — lowest total wins.',
   };
   return F[key] || '';
 }
@@ -23110,6 +23110,60 @@ function viewIndicators() {
     rankings[m.key] = sorted.map((s, i) => ({ ...s, rank: i + 1, points: rankableBranches.length - i }));
   });
 
+  // Click-to-verify drill for the two context rows ("Reps W/ A Sale" and
+  // "Reps > $20K"): lists exactly which reps are attributed to a column in
+  // the current window with their revenue, so the counts can be audited
+  // by eye. Recomputes with the SAME window + grouping logic branchData
+  // used — raw rep spellings included, since that's what the counts key on.
+  const openRepsDrill = (b) => {
+    const rev = {};
+    const add = (s) => { if (s.rep) rev[s.rep] = (rev[s.rep] || 0) + (Number(s.contractValue) || 0); };
+    if (isRange && _rangeGroups) {
+      (_rangeGroups[b] || []).forEach(add);
+    } else {
+      const matches = groupBy === 'teams'
+        ? (s) => (getRepTeam(s.rep) || 'Unassigned') === b
+        : groupBy === 'dept'
+        ? (s) => (DEPT_GROUP_LABELS[_indicatorDeptOf(s)] || 'OFFICE STAFF') === b
+        : groupBy === 'company'
+        ? (s) => companyGroupOf(s.office) === b
+        : (s) => s.office === b;
+      (indicatorSales() || []).forEach(s => {
+        if (!s.rep || !matches(s)) return;
+        if (isRange ? !weeks.includes(s.week) : s.week !== currentWeek) return;
+        add(s);
+      });
+    }
+    const entries = Object.entries(rev).sort((x, y) => y[1] - x[1]);
+    const nQual = entries.filter(([, v]) => v > 20000).length;
+    let winLabel = '';
+    try {
+      winLabel = isRange
+        ? indicatorPresetLabel(state.indicatorsRangePreset)
+        : indicatorWeekLabel(currentWeek, { short: true });
+    } catch { /* label is cosmetic */ }
+    const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '440px' } },
+      el('div', { class: 'flex items-center justify-between mb-1' },
+        el('h3', { class: 'text-base font-bold' }, b),
+        el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
+      el('p', { class: 'text-xs text-muted- mb-3' },
+        (winLabel ? winLabel + ' · ' : '') + entries.length + ' rep' + (entries.length === 1 ? '' : 's') + ' w/ a sale · ' + nQual + ' > $20K (PRA denominator)'),
+      el('div', { style: { maxHeight: '60vh', overflowY: 'auto' } },
+        el('table', { class: 'w-full text-sm' },
+          el('tbody', {},
+            ...entries.map(([name, v], i) => el('tr', { class: 'border-t border-' },
+              el('td', { class: 'py-1.5 pr-2 tabular-nums text-muted- text-xs' }, '#' + (i + 1)),
+              el('td', { class: 'py-1.5 pr-2 font-semibold' }, name),
+              el('td', { class: 'py-1.5 text-right tabular-nums' }, fmt.usd0(v)),
+              el('td', { class: 'py-1.5 pl-2 text-right text-xs font-bold', style: { color: v > 20000 ? '#5F8A1F' : 'var(--text-muted)' } },
+                v > 20000 ? '✓ > $20K' : '—'),
+            ))))),
+    ));
+    document.body.append(overlay);
+  };
+
   // Total Points = sum of per-metric ranks (golf scoring: lower = better).
   // Reps W/ A Sale is intentionally excluded — having more reps doesn't make
   // a branch/team a better seller, just a bigger one. The metric is still
@@ -23244,6 +23298,19 @@ function viewIndicators() {
   // tab for every role. Clears any persisted ON state so nobody's stuck.
   state.indicatorsComps = false;
   const _repLite = !isAdminRole(state.profile.role);
+  // Admin default filters (per Isaac, Jul 2026): every fresh session opens
+  // Indicators on Pending/Serviced revenue · Type = Sales Rep · This Year ·
+  // Branch/Office grouping. Seeds the first render only — filter changes
+  // made afterward stick for the rest of the session.
+  if (!_repLite && !state._indDeptDefaulted) {
+    state._indDeptDefaulted = true;
+    state.indicatorDept = 'd2d';
+    state.indicatorAcctStatus = 'pending_serviced';
+    state.indicatorsRangePreset = 'this_year';
+    state.indicatorsCustomStart = '';
+    state.indicatorsCustomEnd = '';
+    state.indicatorsGroupBy = 'branch';
+  }
   if (_repLite) {
     // Stats default to the viewer's OWN rep type — office staff land on
     // Office Staff stats, sales reps on Sales Rep stats. Seeds the first
@@ -23631,18 +23698,6 @@ function viewIndicators() {
             ? 'Download a PDF report per team (current timeframe)'
             : 'Download a PDF report per branch (current timeframe)',
         }, '📄'),
-        // Highlights — reopens the same popup that shows after a CSV import
-        // (YoY scoreboard, movers, records), computed from the current data.
-        !_repLite && el('button', {
-          class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-          title: 'Highlights — YoY scoreboard, trending reps and records from the current upload',
-          onclick: () => {
-            const insights = computeImportInsights();
-            if (insights) openImportInsightsModal(insights);
-            else toast('Highlights need a raw-sales CSV upload', 'info');
-          },
-        }, '✨'),
         // CSV menu — import a fresh sales report or export the current
         // by-branch/team table (with a pulled-at timestamp up top).
         !_repLite && (() => {
@@ -24116,7 +24171,11 @@ function viewIndicators() {
                     attachExplainer(cell, { title: 'Reps W/ A Sale', desc: indicatorMetricHelp('reps') });
                     return cell;
                   })(),
-                  ...sortedBranches.map(b => el('td', { class: 'px-3 py-2 text-center tabular-nums' },
+                  ...sortedBranches.map(b => el('td', {
+                    class: 'px-3 py-2 text-center tabular-nums' + (branchData[b] ? ' cursor-pointer hover:underline' : ''),
+                    title: branchData[b] ? 'Click to see exactly which reps are counted here' : '',
+                    onclick: branchData[b] ? (() => openRepsDrill(b)) : null,
+                  },
                     branchData[b] ? fmt.int(branchData[b].reps || 0) : '—',
                   )),
                   el('td', { class: 'px-3 py-2 text-center tabular-nums font-bold' }, fmt.int(totalReps)),
@@ -24134,7 +24193,11 @@ function viewIndicators() {
                 attachExplainer(cell, { title: 'Reps > $20K', desc: indicatorMetricHelp('reps20k') });
                 return el('tr', { class: 'border-t border-' },
                   cell,
-                  ...sortedBranches.map(b => el('td', { class: 'px-3 py-2 text-center tabular-nums' },
+                  ...sortedBranches.map(b => el('td', {
+                    class: 'px-3 py-2 text-center tabular-nums' + (branchData[b] ? ' cursor-pointer hover:underline' : ''),
+                    title: branchData[b] ? 'Click to see exactly which reps qualify (and who misses the $20K bar)' : '',
+                    onclick: branchData[b] ? (() => openRepsDrill(b)) : null,
+                  },
                     branchData[b] ? fmt.int(branchData[b].reps20k ?? branchData[b].reps ?? 0) : '—',
                   )),
                   el('td', { class: 'px-3 py-2 text-center tabular-nums font-bold' }, fmt.int(total20)),
@@ -25677,19 +25740,31 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Per-category sorted top-10 lists for the chosen scope.
       let topDays, topWeeks, topMonths, topPRA;
       if (isGroup) {
-        const sortByKey = (key) => groups
-          .filter(g => g[key] && (g[key][byMetric] || 0) > 0)
-          .slice()
-          .sort((a, b) => (b[key][byMetric] || 0) - (a[key][byMetric] || 0))
+        // PURE top 10 for the company (per Isaac, Jul 2026): every group's
+        // period aggregates compete in ONE global list, so the same rep /
+        // branch / team can legitimately hold several of the ten slots.
+        // (Previously: one best-per-group, which hid a monster rep's #2-#5
+        // days behind other reps' single bests.) Each group contributes its
+        // own top 10 per category — the global top 10 can never need more.
+        const salesMap = scope === 'branch' ? salesByBranch : scope === 'rep' ? salesByRep : salesByTeam;
+        const dayL = [], weekL = [], monthL = [], praL = [];
+        for (const g of groups) {
+          const subSales = salesMap[g.name] || [];
+          if (!subSales.length) continue;
+          const t = topRecords(subSales, 10, byMetric);
+          t.topDays.forEach(r => dayL.push({ ...r, group: g.name }));
+          t.topWeeks.forEach(r => weekL.push({ ...r, group: g.name }));
+          t.topMonths.forEach(r => monthL.push({ ...r, group: g.name }));
+          (topPRADays(subSales, 10, praMin, byMetric) || []).forEach(r => praL.push({ ...r, group: g.name }));
+        }
+        const top10 = (arr, key) => arr
+          .filter(r => (r[key] || 0) > 0)
+          .sort((x, y) => (y[key] || 0) - (x[key] || 0))
           .slice(0, 10);
-        topDays   = sortByKey('bestDay');
-        topWeeks  = sortByKey('bestWeek');
-        topMonths = sortByKey('bestMonth');
-        topPRA = groups
-          .filter(g => g.bestPRA && (g.bestPRA.pra || 0) > 0)
-          .slice()
-          .sort((a, b) => (b.bestPRA.pra || 0) - (a.bestPRA.pra || 0))
-          .slice(0, 10);
+        topDays   = top10(dayL, byMetric);
+        topWeeks  = top10(weekL, byMetric);
+        topMonths = top10(monthL, byMetric);
+        topPRA    = top10(praL, 'pra');
       } else {
         const tops = topRecords(rawSales, 10, byMetric);
         topDays   = tops.topDays;
@@ -25726,9 +25801,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Branch/Team column) AND the per-group sub-drill tables (raw
       // aggregates, no group column).
       const renderRow = (entry, cat, i, isGroupRow) => {
-        const rec = isGroupRow
-          ? (cat === 'pra' ? entry.bestPRA : entry[{ day: 'bestDay', week: 'bestWeek', month: 'bestMonth' }[cat]])
-          : entry;
+        const rec = entry; // both shapes carry the record directly now
+
         const rankCell = el('td', {
           class: 'pl-3 pr-2 py-1.5 font-bold tabular-nums w-8',
           style: i === 0 ? { color: 'var(--accent)' } : { color: 'var(--text-muted)' },
@@ -25740,7 +25814,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         if (isGroupRow) {
           return el('tr', { class: 'border-t border-' },
             rankCell,
-            el('td', { class: 'px-2 py-1.5 font-semibold' }, scope === 'branch' ? titleCase(entry.name) : entry.name),
+            el('td', { class: 'px-2 py-1.5 font-semibold' }, scope === 'branch' ? titleCase(entry.group) : entry.group),
             el('td', { class: 'px-2 py-1.5 text-[10px] text-muted- tabular-nums whitespace-nowrap' }, labelOf(rec, cat)),
             valueCell,
           );
@@ -25757,7 +25831,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         const headerCells = isGroupTable
           ? [
               el('th', { class: 'text-left pl-3 pr-2 py-1.5 w-8' }, '#'),
-              el('th', { class: 'text-left px-2 py-1.5' }, scope === 'branch' ? 'Branch' : 'Team'),
+              el('th', { class: 'text-left px-2 py-1.5' }, scope === 'branch' ? 'Branch' : scope === 'rep' ? 'Rep' : 'Team'),
               el('th', { class: 'text-left px-2 py-1.5' }, 'When'),
               el('th', { class: 'text-right pl-2 pr-3 py-1.5' }, cat === 'pra' ? 'PRA' : valueColLabel),
             ]
@@ -25784,11 +25858,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       const scopeLabel = scope === 'company' ? 'Company-wide records'
                        : scope === 'branch'  ? 'Top branches per category'
                        :                       'Top teams per category';
-      const titlePrefix = isGroup ? 'Top 10 by Best ' : 'Top 10 ';
-      const dayLabel    = isGroup ? titlePrefix + 'Day'      : 'Top 10 Days';
-      const weekLabel   = isGroup ? titlePrefix + 'Week'     : 'Top 10 Weeks';
-      const monthLabel  = isGroup ? titlePrefix + 'Month'    : 'Top 10 Months';
-      const praLabel    = isGroup ? titlePrefix + 'PRA Day'  : 'Top 10 PRA Days';
+      const dayLabel    = 'Top 10 Days';
+      const weekLabel   = 'Top 10 Weeks';
+      const monthLabel  = 'Top 10 Months';
+      const praLabel    = 'Top 10 PRA Days';
 
       // Per-group sub-drill. Inside Branch/Team scope, list every group
       // sorted by best-day metric (so the biggest movers anchor the top
@@ -26089,7 +26162,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       apPct:   v => (v * 100).toFixed(1) + '%',
     };
     const ROW_DEFS = [
-      ['sold',    'Sold Accounts'],
+      ['sold',    'Subscriptions'],
       ['revenue', 'Revenue'],
       ['avgInit', 'Avg Pest Initial'],
       ['reps20k', 'Reps > $20K'],
@@ -28706,7 +28779,7 @@ function buildTeamReportNode(teamName, ctx) {
   const stats = el('div', {
     style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '20px' },
   },
-    stat('Sold Accounts',  fmt.int(teamD.sold_accounts || 0),                      rankOf('sold_accounts')),
+    stat('Subscriptions',  fmt.int(teamD.sold_accounts || 0),                      rankOf('sold_accounts')),
     stat('D2D Revenue',    fmt.usd0(teamD.revenue || 0),                           rankOf('revenue')),
     stat('Avg Pest Initial', fmt.usd0(teamD.avg_initial || 0),                     rankOf('avg_initial')),
     stat('ACV',            fmt.usd0(teamD.acv || 0),                               rankOf('acv')),
@@ -28750,7 +28823,7 @@ function buildTeamReportNode(teamName, ctx) {
   };
 
   const scorecard = el('div', { style: { marginBottom: '18px' } },
-    buildScorecardRow('sold_accounts',  'Sold Accounts',    v => fmt.int(v)),
+    buildScorecardRow('sold_accounts',  'Subscriptions',    v => fmt.int(v)),
     buildScorecardRow('revenue',        'D2D Revenue',      v => fmt.usd0(v)),
     buildScorecardRow('avg_initial',    'Avg Pest Initial', v => fmt.usd0(v)),
     buildScorecardRow('acv',            'ACV',              v => fmt.usd0(v)),
