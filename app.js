@@ -204,6 +204,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_reportingSourcesSeen',       // distinct lead sources seen in the reporting CSV (persisted universe)
   'indicatorDeletedCustIds',     // customer IDs DELETED in FieldRoutes (orphans in the RevHawk mirror) — excluded app-wide
   '_compPillOrder',              // admin drag-sorted order of the Competitions pills (ids, incl. mystery_box)
+  '_compFavoriteMystery',        // ★ default-comp flag for the virtual Mystery Boxes pill
   '_indicatorTeams',
   '_indicatorExcludedTeams',
   '_indicatorRankExclude',    // { branch:[...], teams:[...] } — kept on the board but out of Power Ranking
@@ -15366,7 +15367,8 @@ function isSpringCleaningComp(comp) {
 // a pure qualifier (anyone with a qualifying account advances); from Round 2,
 // among reps still alive, rank by qualifying revenue and the top 50% (rounded
 // UP) advance, the rest are eliminated. A rep with no sale that Saturday stays
-// in the pool at $0 and is subject to the cut. Last rep standing wins.
+// in the pool at $0 and is subject to the cut. FINAL: once 3 or fewer remain,
+// that round is winner-take-all — top revenue is champion (per Isaac).
 function isLastManStandingComp(comp) {
   const c = comp || (typeof getActiveComp === 'function' ? getActiveComp() : null);
   return !!(c && (c.scoring === 'last_man_standing' || c.id === 'last_man_standing' || /last\s*man\s*standing/i.test(c.name || '')));
@@ -15445,11 +15447,16 @@ function lastManStandingCompute(sales, compOverride) {
       // sale are eliminated. The weekly top-50% cut starts in Round 2.
       contenders.forEach(c => { c.advanced = c.rev > 0; cum[c.rep] = c.cum; });
       advanceN = contenders.filter(c => c.advanced).length;
+    } else if (contenders.length <= 3) {
+      // FINAL ROUND (per Isaac): once the field is down to 3 or fewer, the
+      // round-up rule retires — winner-take-all, top revenue is champion.
+      advanceN = 1;
+      contenders.forEach((c, i) => { c.advanced = i < 1; cum[c.rep] = c.cum; });
     } else {
       advanceN = Math.max(1, Math.ceil(contenders.length / 2));       // top 50%, rounded UP
       contenders.forEach((c, i) => { c.advanced = i < advanceN; cum[c.rep] = c.cum; });
     }
-    rounds.push({ iso, week: rounds.length + 1, contenders, advanceN, before: contenders.length, qualifier: isQualifier });
+    rounds.push({ iso, week: rounds.length + 1, contenders, advanceN, before: contenders.length, qualifier: isQualifier, final: !isQualifier && contenders.length <= 3 });
     alive = new Set(contenders.filter(c => c.advanced).map(c => c.rep));
   }
   return { rounds, alive: [...alive], champion: alive.size === 1 ? [...alive][0] : null, rosterSize: roster.length, repOffice, cum, saturdays };
@@ -18242,15 +18249,20 @@ function mysteryBoxDayStats(day) {
     const nm = getCanonicalRepName(s.rep);
     if (!nm) continue;
     const cv = Number(s.contractValue) || 0;
-    const o = byRep.get(nm) || { name: nm, rev: 0, n: 0, total: 0, totalN: 0, failed: 0 };
+    // TOTAL = Pending/Serviced revenue (the FieldRoutes gate) — sold-not-
+    // started rows don't exist anywhere on this board (per Isaac). The
+    // three buckets below decompose Total exactly:
+    //   PASSED  = (passed audit OR no audit) AND initial ≥ $99 — scores
+    //   PENDING = not Last Resort, no audit flag yet — waiting
+    //   FAILED  = Last Resort (<$99) OR failed audit
+    if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;
+    const o = byRep.get(nm) || { name: nm, rev: 0, n: 0, total: 0, totalN: 0, failed: 0, pending: 0 };
     o.total += cv; o.totalN++;
-    // Buckets: PASSED = passed audit + no audit + pending (assumed passing).
-    // FAILED = failed-audit accounts + Last Resort (<$99). Sold-not-started
-    // rows count in Total only.
     const isLR = (Number(s.initialPrice) || 0) < 99;
     const isFailAudit = (typeof SC_FAIL_RE !== 'undefined') && SC_FAIL_RE.test(s.customerFlags || '');
     if (isLR || isFailAudit) o.failed += cv;
-    else if (!(typeof springCleaningStatus === 'function' && springCleaningStatus(s) === 'excluded')) { o.rev += cv; o.n++; }
+    else if (typeof scAuditPassed === 'function' && scAuditPassed(s.customerFlags)) { o.rev += cv; o.n++; }
+    else o.pending += cv;
     byRep.set(nm, o);
   }
   return [...byRep.values()].map(o => {
@@ -18273,7 +18285,7 @@ function _mbEnsureStyles() {
 .mb-strip{overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;cursor:grab}
 .mb-strip::-webkit-scrollbar{display:none}
 .mb-strip.dragging{cursor:grabbing;scroll-snap-type:none !important}
-@keyframes mbLid { 0%{transform:rotateX(0);opacity:1} 45%{transform:rotateX(-88deg);opacity:1} 80%{transform:rotateX(-142deg);opacity:.55} 100%{transform:rotateX(-168deg);opacity:0} }
+@keyframes mbLidUp { 0%{transform:scaleY(0)} 62%{transform:scaleY(1.07)} 100%{transform:scaleY(1)} }
 @keyframes mbFlash { 0%{opacity:0} 35%{opacity:.85} 100%{opacity:0} }
 @keyframes mbRise { 0%{transform:translateX(-50%) translateY(46px) scale(.5);opacity:0} 65%{opacity:1} 82%{transform:translateX(-50%) translateY(-146px) scale(1.03)} 100%{transform:translateX(-50%) translateY(-135px) scale(1);opacity:1} }
 @keyframes mbFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-12px)} }
@@ -18284,46 +18296,69 @@ function _mbEnsureStyles() {
 @keyframes mbLeak { 0%{opacity:0} 25%{opacity:.45} 40%{opacity:.2} 60%{opacity:.8} 75%{opacity:.55} 100%{opacity:1} }
 @keyframes mbFlashFull { 0%{opacity:0} 18%{opacity:1} 100%{opacity:0} }
 @keyframes mbRays { 0%{transform:translate(-50%,-50%) rotate(0)} 100%{transform:translate(-50%,-50%) rotate(360deg)} }
-@keyframes mbDrift { 0%,100%{transform:translate(-50%,-50%) translateX(-26px)} 50%{transform:translate(-50%,-50%) translateX(26px)} }`;
+@keyframes mbDrift { 0%,100%{transform:translate(-50%,-50%) translateX(-26px)} 50%{transform:translate(-50%,-50%) translateX(26px)} }
+@keyframes mbStamp { 0%{opacity:0;transform:translateX(-50%) scale(1.8)} 55%{opacity:1;transform:translateX(-50%) scale(.96)} 100%{opacity:1;transform:translateX(-50%) scale(1)} }
+@keyframes mbFadeUp { 0%{opacity:0;transform:translateX(-50%) translateY(14px)} 100%{opacity:1;transform:translateX(-50%) translateY(0)} }
+@keyframes mbOrb { 0%,100%{opacity:.75;transform:translateX(-50%) scale(1)} 50%{opacity:1;transform:translateX(-50%) scale(1.18)} }
+@keyframes mbOrbIn { 0%{opacity:0;transform:translateX(-50%) translateY(46px) scale(.35)} 100%{opacity:1;transform:translateX(-50%) translateY(0) scale(1)} }`;
   document.head.append(st);
 }
 // A professional CSS gift box (no emoji): beveled charcoal base, velvet
 // slot, brand plate — the same box at ring size and hero size.
-function _mbGiftEl(w) {
-  // Faux-3D closed case, geometry done with px-accurate clip-path polygons
-  // (no skew hacks — every edge meets): FRONT face with gold keyhole, lit
-  // TOP face receding up-right, dark SIDE face on the right. The RIDD mark
-  // rides the lid as a sticker, sheared to lie on the top plane.
-  const h = Math.round(w * 0.60);        // front face height
-  const t = Math.round(w * 0.24);        // top depth (vertical)
-  const sd = Math.round(w * 0.16);       // right depth (horizontal)
-  const W = w + sd, H = h + t;
-  const poly = (pts) => 'polygon(' + pts.map(p => p[0] + 'px ' + p[1] + 'px').join(',') + ')';
-  const grain = 'radial-gradient(rgba(255,255,255,.04) 1px, transparent 1.3px)';
-  const wrap2 = el('div', { style: { position: 'relative', width: W + 'px', height: H + 'px', pointerEvents: 'none', filter: 'drop-shadow(0 14px 16px rgba(0,0,0,.65))' } });
-  const face = (pts, bg, extra) => el('div', { style: Object.assign({ position: 'absolute', left: '0', top: '0', width: W + 'px', height: H + 'px', clipPath: poly(pts), background: bg, backgroundSize: '5px 5px, 100% 100%' }, extra || {}) });
-  // TOP — back edge sits up-and-right of the front edge.
-  wrap2.append(face([[sd, 0], [W, 0], [w, t], [0, t]], grain + ', linear-gradient(175deg, #63523f 0%, #4a3b2c 100%)'));
-  // SIDE — right wall, darkest.
-  wrap2.append(face([[w, t], [W, 0], [W, h], [w, H]], grain + ', linear-gradient(180deg, #241b13 0%, #120d08 100%)'));
-  // FRONT — main leather face.
-  wrap2.append(face([[0, t], [w, t], [w, H], [0, H]], grain + ', linear-gradient(160deg, #43362c 0%, #2e2318 55%, #1c150f 100%)'));
-  // Gold trim along the top-front edge (where lid meets base) + lid seam.
-  wrap2.append(el('div', { style: { position: 'absolute', left: '0', top: t + 'px', width: w + 'px', height: '2px', background: 'linear-gradient(90deg, rgba(232,198,106,.15), rgba(232,198,106,.7) 50%, rgba(232,198,106,.15))' } }));
-  wrap2.append(el('div', { style: { position: 'absolute', left: '0', top: (t + Math.round(h * 0.24)) + 'px', width: w + 'px', height: '2px', background: 'linear-gradient(90deg, rgba(0,0,0,.75), rgba(0,0,0,.4) 50%, rgba(0,0,0,.75))', boxShadow: '0 1px 0 rgba(255,255,255,.06)' } }));
-  // Leather sheen — a soft diagonal specular sweep across the front.
-  wrap2.append(el('div', { style: { position: 'absolute', left: '0', top: t + 'px', width: w + 'px', height: h + 'px', background: 'linear-gradient(115deg, transparent 30%, rgba(255,255,255,.07) 45%, rgba(255,255,255,.02) 52%, transparent 60%)', borderRadius: '0 0 ' + Math.round(w * .06) + 'px ' + Math.round(w * .06) + 'px', pointerEvents: 'none' } }));
-  // Stitched inner border on the front face.
-  wrap2.append(el('div', { style: { position: 'absolute', left: Math.round(w * .045) + 'px', top: (t + Math.round(h * .30)) + 'px', width: Math.round(w * .91) + 'px', height: Math.round(h * .62) + 'px', border: '1px dashed rgba(232,198,106,.28)', borderRadius: Math.round(w * .04) + 'px', pointerEvents: 'none' } }));
-  // Embossed gold RIDD stamp above the keyhole.
-  wrap2.append(el('div', { style: { position: 'absolute', left: Math.round(w / 2) + 'px', top: (t + Math.round(h * 0.13)) + 'px', transform: 'translateX(-50%)', fontSize: Math.max(8, Math.round(w * .11)) + 'px', fontWeight: '900', letterSpacing: '.22em', fontStyle: 'italic', color: 'rgba(232,198,106,.85)', textShadow: '0 -1px 0 rgba(0,0,0,.8), 0 1px 0 rgba(255,235,180,.25)' } }, 'RIDD'));
-  // Gold keyhole escutcheon — front center.
-  const kw = Math.max(9, Math.round(w * 0.17));
-  wrap2.append(el('div', { style: { position: 'absolute', left: Math.round(w / 2) + 'px', top: (t + Math.round(h * 0.46)) + 'px', transform: 'translateX(-50%)', width: kw + 'px', height: Math.round(kw * 1.32) + 'px', borderRadius: '46% 46% 38% 38%', background: 'linear-gradient(160deg,#e8c66a 0%,#b8892f 55%,#8a6420 100%)', boxShadow: '0 1px 3px rgba(0,0,0,.7), inset 0 1px 1px rgba(255,255,255,.5)' } },
-    el('div', { style: { position: 'absolute', left: '50%', top: '20%', transform: 'translateX(-50%)', width: '34%', height: '32%', borderRadius: '50%', background: '#17110b' } }),
-    el('div', { style: { position: 'absolute', left: '50%', top: '42%', transform: 'translateX(-50%)', width: '0', height: '0', borderLeft: Math.round(kw * .14) + 'px solid transparent', borderRight: Math.round(kw * .14) + 'px solid transparent', borderBottom: Math.round(kw * .40) + 'px solid #17110b' } })));
-  return wrap2;
+// ── THE BOX — drawn to match the IcyBox reference: a chamfered suede
+// jewelry box seen slightly from above. Front face + thin visible lid-top,
+// octagonal silhouette, matte suede shading with a cool ambient edge, small
+// gold keyhole riding the seam. Closed (carousel) and open (hero) variants
+// share the same body so the reveal reads as the SAME box.
+function _mbBoxArt(w, opts) {
+  const o = opts || {};
+  const t = Math.round(w * 0.075);         // visible lid-top sliver
+  const L = Math.round(w * 0.21);          // lid band height
+  const B = Math.round(w * 0.46);          // base height
+  const H = t + L + B;
+  const grain = 'radial-gradient(rgba(255,255,255,.045) 1px, transparent 1.3px)';
+  const suedeFront = grain + ', linear-gradient(168deg, #5c4c40 0%, #4a3b31 40%, #382c25 75%, #2b211b 100%)';
+  const suedeLid = grain + ', linear-gradient(180deg, #6b594b 0%, #55443a 70%, #46372e 100%)';
+  const root = el('div', { style: { position: 'relative', width: w + 'px', height: Math.round(H * 1.12) + 'px', pointerEvents: 'none' } });
+  // Ground shadow
+  root.append(el('div', { style: { position: 'absolute', left: '50%', bottom: '-3%', transform: 'translateX(-50%)', width: '92%', height: '12%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(0,0,10,.6) 0%, transparent 70%)', filter: 'blur(4px)' } }));
+  const bodyTop = Math.round(H * 0.12) / 2;   // breathing room
+  const box = el('div', { style: { position: 'absolute', left: '0', bottom: '0', width: w + 'px', height: H + 'px', filter: 'drop-shadow(0 10px 14px rgba(0,0,10,.5))' } });
+  if (!o.open) {
+    // Lid TOP sliver — flattened octagon, lit; narrower at the back edge.
+    box.append(el('div', { style: { position: 'absolute', left: '0', top: '0', width: '100%', height: t + 'px', clipPath: 'polygon(13% 0, 87% 0, 96% 100%, 4% 100%)', background: grain + ', linear-gradient(180deg, #83705f 0%, #6b594b 100%)', backgroundSize: '4px 4px, 100% 100%' } }));
+    // Lid band — chamfered corners, slight overhang.
+    box.append(el('div', { style: { position: 'absolute', left: '0', top: t + 'px', width: '100%', height: L + 'px', clipPath: 'polygon(0 34%, 3.5% 0, 96.5% 0, 100% 34%, 100% 100%, 0 100%)', background: suedeLid, backgroundSize: '4px 4px, 100% 100%', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.12)' } },
+      el('div', { style: { position: 'absolute', left: '50%', top: '38%', transform: 'translateX(-50%)', fontSize: Math.max(7, Math.round(w * .078)) + 'px', fontWeight: '900', letterSpacing: '.24em', fontStyle: 'italic', color: 'rgba(232,198,106,.75)', textShadow: '0 -1px 0 rgba(0,0,0,.7), 0 1px 0 rgba(255,235,180,.18)' } }, 'RIDD')));
+  } else {
+    // OPEN: dark velvet mouth where the lid was, with a lit front lip.
+    box.append(el('div', { style: { position: 'absolute', left: '2%', top: (t + Math.round(L * 0.45)) + 'px', width: '96%', height: Math.round(L * 0.62) + 'px', clipPath: 'polygon(1% 100%, 4% 0, 96% 0, 99% 100%)', background: 'linear-gradient(180deg, #061710 0%, #0d3a24 55%, #0a2718 100%)', boxShadow: 'inset 0 4px 10px rgba(0,0,0,.85)' } }));
+    box.append(el('div', { style: { position: 'absolute', left: '0', top: (t + L - 3) + 'px', width: '100%', height: '4px', background: 'linear-gradient(90deg, rgba(255,255,255,.06), rgba(255,255,255,.16) 50%, rgba(255,255,255,.06))' } }));
+  }
+  // Base — full-width front, chamfered bottom corners, suede falloff.
+  const baseTop = o.open ? (t + L) : (t + L);
+  box.append(el('div', { style: { position: 'absolute', left: Math.round(w * 0.015) + 'px', top: baseTop + 'px', width: Math.round(w * 0.97) + 'px', height: B + 'px', clipPath: 'polygon(0 0, 100% 0, 100% 80%, 96.5% 100%, 3.5% 100%, 0 80%)', background: suedeFront, backgroundSize: '4px 4px, 100% 100%', boxShadow: 'inset 0 2px 4px rgba(0,0,0,.35), inset 3px 0 8px rgba(20,30,80,.12), inset -3px 0 8px rgba(0,0,0,.3)' } }));
+  // Seam shadow between lid and base.
+  box.append(el('div', { style: { position: 'absolute', left: '2%', top: (t + L - 1) + 'px', width: '96%', height: '2px', background: 'linear-gradient(90deg, rgba(0,0,0,.65), rgba(0,0,0,.4) 50%, rgba(0,0,0,.65))' } }));
+  // Gold keyhole escutcheon riding the seam (small, like the reference).
+  const kw = Math.max(7, Math.round(w * 0.085));
+  box.append(el('div', { style: { position: 'absolute', left: '50%', top: (t + L + Math.round(B * 0.30)) + 'px', transform: 'translateX(-50%)', width: kw + 'px', height: Math.round(kw * 1.5) + 'px', borderRadius: '46% 46% 40% 40%', background: 'linear-gradient(165deg, #e9c76c 0%, #b8892f 55%, #8a6420 100%)', boxShadow: '0 1px 3px rgba(0,0,0,.75), inset 0 1px 1px rgba(255,255,255,.45)', zIndex: 3 } },
+    el('div', { style: { position: 'absolute', left: '50%', top: '22%', transform: 'translateX(-50%)', width: '32%', height: '26%', borderRadius: '50%', background: '#160f0a' } }),
+    el('div', { style: { position: 'absolute', left: '50%', top: '42%', transform: 'translateX(-50%)', width: '0', height: '0', borderLeft: Math.round(kw * .12) + 'px solid transparent', borderRight: Math.round(kw * .12) + 'px solid transparent', borderBottom: Math.round(kw * .42) + 'px solid #160f0a' } })));
+  // OPEN: the lifted lid stands behind the box, leaning back — velvet inner
+  // face toward camera inside a suede rim, gold frame line.
+  let lidEl = null;
+  if (o.open) {
+    lidEl = el('div', { style: { position: 'absolute', left: '3%', bottom: (B + Math.round(L * 0.72)) + 'px', width: '94%', height: Math.round(L * 2.5) + 'px', transformOrigin: '50% 100%', zIndex: 0 } },
+      el('div', { style: { position: 'absolute', inset: '0', clipPath: 'polygon(7% 0, 93% 0, 100% 100%, 0 100%)', background: suedeLid, backgroundSize: '4px 4px, 100% 100%' } }),
+      el('div', { style: { position: 'absolute', inset: '7% 10% 6% 10%', clipPath: 'polygon(3% 0, 97% 0, 100% 100%, 0 100%)', background: 'linear-gradient(180deg, #0d3a24 0%, #124528 55%, #0a2718 100%)', boxShadow: 'inset 0 0 18px rgba(0,0,0,.7)' } },
+        el('div', { style: { position: 'absolute', inset: '9%', border: '1px solid rgba(232,198,106,.35)', borderRadius: '4px' } })));
+    box.style.zIndex = '2';
+  }
+  root.append(box);
+  return { root, lidEl };
 }
+function _mbGiftEl(w) { return _mbBoxArt(w).root; }
 // ── The Icybox-style picker: a carousel of identical gift boxes. Spin it
 // left/right by dragging (or trackpad/touch swipe), then TAP a box — that
 // box opens. Every box holds the same preset prize; the choosing is the
@@ -18331,13 +18366,13 @@ function _mbGiftEl(w) {
 function openMysteryBoxOverlay(box) {
   _mbEnsureStyles();
   const prize = _mbDec(box.prize);
-  const overlay = el('div', { class: 'modal-overlay', style: { background: 'rgba(0,0,0,.88)', zIndex: '10000', display: 'flex', alignItems: 'center', justifyContent: 'center' } });
+  const overlay = el('div', { class: 'modal-overlay', style: { background: 'radial-gradient(circle at 50% 55%, #1b2545 0%, #10152b 48%, #070a14 88%)', zIndex: '10000', display: 'flex', alignItems: 'center', justifyContent: 'center' } });
   const title = el('div', { class: 'font-display text-2xl', style: { color: '#fff', textAlign: 'center' } }, 'Pick your box');
   const hint = el('div', { class: 'text-xs mt-1', style: { color: 'rgba(255,255,255,.55)', textAlign: 'center' } }, 'Spin left or right \u00b7 tap the one that feels lucky');
   // Odds legend — the pool with its percentages, icybox-style. Pure show:
   // the outcome is already locked, but the odds ARE the real arming odds.
   const _poolL = state._mbPool || [];
-  const legend = _poolL.length ? el('div', { class: 'flex items-center justify-center gap-2 flex-wrap mt-3', style: { maxWidth: '640px', margin: '12px auto 0' } },
+  const legend = _poolL.length ? el('div', { class: 'flex items-center justify-center gap-2 mt-3', style: { maxWidth: '96vw', margin: '12px auto 0', flexWrap: 'nowrap', overflowX: 'auto' } },
     ..._poolL.map(p => { const rm = _mbRarityOf(p); return el('span', { class: 'text-[11px] font-bold px-2.5 py-1 rounded-full', style: { background: rm.color + '1f', color: rm.text, border: '1px solid ' + rm.color + '44' } }, p); })) : null;
   // ── IcyBox-style 3D CAROUSEL: the boxes stand on a floor and orbit in
   // depth — front box big and lit, the rest receding smaller and dimmer
@@ -18356,29 +18391,46 @@ function openMysteryBoxOverlay(box) {
   // ── HERO REVEAL — spotlight scene, lid swings open, prize rises out. ──
   function _mbHeroReveal() {
     const R2 = _mbRarityOf(prize);
-    const scene = el('div', { style: { position: 'relative', width: '100vw', height: '76vh', perspective: '1100px', animation: 'mbSceneIn .5s ease-out forwards' } });
-    scene.append(el('div', { style: { position: 'absolute', left: '50%', top: '52%', transform: 'translate(-50%,-50%)', width: '620px', height: '620px', maxWidth: '95vw', borderRadius: '50%', background: 'radial-gradient(circle, ' + R2.color + '2e 0%, ' + R2.color + '0f 38%, transparent 68%)', animation: 'mbGlowPulse 3.2s ease-in-out infinite', pointerEvents: 'none' } }));
+    const scene = el('div', { style: { position: 'relative', width: '100vw', height: '82vh', perspective: '1100px', animation: 'mbSceneIn .5s ease-out forwards' } });
+
+    // Tier line under the box — "from $500 GOLD BOX" energy.
+    scene.append(el('div', { style: { position: 'absolute', left: '50%', bottom: '4%', textAlign: 'center', zIndex: 7, opacity: '0', animation: 'mbFadeUp .6s ease-out 1.8s forwards' } },
+      el('div', { style: { fontSize: '13px', letterSpacing: '.3em', fontWeight: '900', textTransform: 'uppercase', color: R2.color, textShadow: '0 0 14px ' + R2.color + '66' } }, R2.label + ' box'),
+      el('div', { style: { fontSize: '10px', letterSpacing: '.25em', color: 'rgba(255,255,255,.4)', marginTop: '4px', textTransform: 'uppercase' } }, 'RIDDMADE\u00ae Mystery Box')));
+    scene.append(el('div', { style: { position: 'absolute', left: '50%', top: '58%', transform: 'translate(-50%,-50%)', width: '640px', height: '640px', maxWidth: '95vw', borderRadius: '50%', background: 'radial-gradient(circle, ' + R2.color + '30 0%, ' + R2.color + '10 38%, transparent 68%)', animation: 'mbGlowPulse 3.2s ease-in-out infinite', pointerEvents: 'none' } }));
     // Gold/Platinum: rotating light rays behind the prize.
-    if (R2.rays) scene.append(el('div', { style: { position: 'absolute', left: '50%', top: '38%', width: '560px', height: '560px', maxWidth: '92vw', borderRadius: '50%', background: 'repeating-conic-gradient(' + R2.color + '30 0deg 9deg, transparent 9deg 24deg)', WebkitMaskImage: 'radial-gradient(circle, black 0%, transparent 68%)', maskImage: 'radial-gradient(circle, black 0%, transparent 68%)', animation: 'mbRays 11s linear infinite', opacity: '0', transition: 'opacity 1.2s', pointerEvents: 'none' } }));
+    let _raysEl = null;
+    if (R2.rays) { _raysEl = el('div', { style: { position: 'absolute', left: '50%', top: '55%', width: '560px', height: '560px', maxWidth: '92vw', borderRadius: '50%', background: 'repeating-conic-gradient(' + R2.color + '30 0deg 9deg, transparent 9deg 24deg)', WebkitMaskImage: 'radial-gradient(circle, black 0%, transparent 68%)', maskImage: 'radial-gradient(circle, black 0%, transparent 68%)', animation: 'mbRays 11s linear infinite', opacity: '0', transition: 'opacity 1.2s', pointerEvents: 'none' } }); scene.append(_raysEl); }
     scene.append(
       el('div', { style: { position: 'absolute', left: '7%', bottom: '30%', opacity: '.18', filter: 'blur(1.5px)', transform: 'scale(.8) rotate(-6deg)' } }, _mbGiftEl(96)),
       el('div', { style: { position: 'absolute', right: '7%', bottom: '32%', opacity: '.18', filter: 'blur(1.5px)', transform: 'scale(.75) rotate(5deg)' } }, _mbGiftEl(96)));
-    const BW = 250, BH = 150, LID = 78;
-    const hero = el('div', { style: { position: 'absolute', left: '50%', bottom: '16%', transform: 'translateX(-50%)', width: BW + 'px', height: (BH + LID) + 'px', transformStyle: 'preserve-3d', perspective: '650px' } });
-    // Light flash from the mouth of the box as the lid clears it.
-    hero.append(el('div', { style: { position: 'absolute', left: '8%', top: (LID - 20) + 'px', width: '84%', height: '54px', borderRadius: '50%', background: 'radial-gradient(ellipse, ' + R2.color + 'e6 0%, ' + R2.color + '66 45%, transparent 75%)', opacity: '0', animation: 'mbFlash .7s ease-out .75s forwards', filter: 'blur(6px)', zIndex: 5, pointerEvents: 'none' } }));
-    hero.append(el('div', { style: { position: 'absolute', left: '4%', top: (LID - 12) + 'px', width: '92%', height: '44px', borderRadius: '8px 8px 0 0', background: 'linear-gradient(180deg,#0d3320 0%,#124528 55%,#0a2718 100%)', boxShadow: 'inset 0 6px 14px rgba(0,0,0,.75)' } }));
-    hero.append(el('div', { style: { position: 'absolute', left: '0', top: LID + 'px', width: '100%', height: BH + 'px', clipPath: 'polygon(5% 0,95% 0,100% 12%,100% 100%,0 100%,0 12%)', background: 'radial-gradient(rgba(255,255,255,.035) 1px, transparent 1.3px), linear-gradient(180deg,#43362c 0%,#2e2318 55%,#1a140e 100%)', backgroundSize: '5px 5px, 100% 100%', boxShadow: '0 26px 50px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.1)' } },
-      el('div', { style: { position: 'absolute', left: '50%', bottom: '14px', transform: 'translateX(-50%)', padding: '3px 18px', fontSize: '13px', fontWeight: '900', letterSpacing: '.12em', fontStyle: 'italic', color: '#e8c66a', background: 'linear-gradient(180deg,#2a2018,#17110b)', border: '1px solid rgba(232,198,106,.45)', borderRadius: '4px' } }, 'RIDD')));
-    hero.append(el('div', { style: { position: 'absolute', left: '-3%', top: '0', width: '106%', height: LID + 'px', borderRadius: '10px', background: 'radial-gradient(rgba(255,255,255,.05) 1px, transparent 1.3px), linear-gradient(180deg,#5c4d3e 0%,#3c2f23 70%,#241b13 100%)', backgroundSize: '5px 5px, 100% 100%', boxShadow: '0 4px 10px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.16)', transformOrigin: '50% 0%', animation: 'mbLid 1.05s cubic-bezier(.55,.06,.28,.99) .2s forwards', zIndex: 4 } },
-      el('div', { style: { position: 'absolute', left: '0', bottom: '0', width: '100%', height: '3px', background: 'linear-gradient(90deg, rgba(232,198,106,.15), rgba(232,198,106,.65) 50%, rgba(232,198,106,.15))' } })));
-    hero.append(el('div', { style: { position: 'absolute', left: '50%', bottom: (LID + 40) + 'px', transform: 'translateX(-50%)', opacity: '0', animation: 'mbRise 1.1s cubic-bezier(.3,.8,.3,1) .95s forwards', zIndex: 6, width: 'max-content', maxWidth: '86vw' } },
-      el('div', { style: { animation: 'mbFloat 3.4s ease-in-out 2.2s infinite' } },
-        el('div', { class: 'font-display', style: { fontSize: '13px', letterSpacing: '.3em', textAlign: 'center', color: R2.color, opacity: '.85', marginBottom: '4px', textTransform: 'uppercase' } }, R2.label),
-        el('div', { class: 'font-display', style: { fontSize: '42px', textAlign: 'center', color: R2.text, textShadow: '0 0 18px ' + R2.color + 'aa, 0 0 60px ' + R2.color + '59, 0 2px 4px rgba(0,0,0,.8)' } }, prize))));
+    const hero = el('div', { style: { position: 'absolute', left: '50%', bottom: '10%', transform: 'translateX(-50%)', width: '320px', height: '420px', perspective: '1000px' } });
+    // Light flash from the mouth as the lid clears it.
+    hero.append(el('div', { style: { position: 'absolute', left: '50%', bottom: '150px', transform: 'translateX(-50%)', width: '250px', height: '60px', borderRadius: '50%', background: 'radial-gradient(ellipse, ' + R2.color + 'e6 0%, ' + R2.color + '66 45%, transparent 75%)', opacity: '0', animation: 'mbFlash .7s ease-out .8s forwards', filter: 'blur(6px)', zIndex: 5, pointerEvents: 'none' } }));
+    // THE BOX — the same drawn box as the carousel, hero-sized, in its OPEN
+    // state: velvet mouth on top, lifted lid standing behind. The lid grows
+    // up from behind the rim on cue (scaleY from the hinge) so the open
+    // reads as one motion.
+    const B3 = _mbBoxArt(300, { open: true });
+    B3.root.style.position = 'absolute';
+    B3.root.style.left = '50%';
+    B3.root.style.bottom = '0';
+    B3.root.style.transform = 'translateX(-50%)';
+    if (B3.lidEl) {
+      B3.lidEl.style.transform = 'scaleY(0)';
+      B3.lidEl.style.animation = 'mbLidUp .95s cubic-bezier(.5,.05,.3,1.05) .25s forwards';
+    }
+    hero.append(B3.root);
+    // Glowing orb of rarity light hovering out of the velvet, prize name
+    // stamped IN FRONT of it — the light is the backdrop, the words are
+    // the product.
+    hero.append(el('div', { style: { position: 'absolute', left: '50%', bottom: '185px', transform: 'translateX(-50%)', width: '175px', height: '175px', borderRadius: '50%', background: 'radial-gradient(circle, #ffffffd9 0%, ' + R2.color + 'cc 30%, ' + R2.color + '44 60%, transparent 78%)', filter: 'blur(2px)', opacity: '0', animation: 'mbOrbIn .9s cubic-bezier(.3,.8,.3,1) 1.05s forwards, mbOrb 2.6s ease-in-out 2.05s infinite', zIndex: 6, pointerEvents: 'none' } }));
+    hero.append(el('div', { style: { position: 'absolute', left: '50%', bottom: '225px', width: 'max-content', maxWidth: '88vw', textAlign: 'center', zIndex: 8, opacity: '0', animation: 'mbStamp .55s cubic-bezier(.2,.9,.3,1.1) 1.4s forwards', pointerEvents: 'none' } },
+      el('div', { style: { fontSize: '11px', letterSpacing: '.4em', fontWeight: '700', color: 'rgba(255,255,255,.7)', textTransform: 'uppercase', marginBottom: '8px' } }, 'Just Pulled'),
+      el('div', { class: 'font-display', style: { fontSize: 'clamp(28px, 5vw, 46px)', lineHeight: '1.05', textTransform: 'uppercase', color: '#F5F7FA', textShadow: '0 0 26px ' + R2.color + '88, 0 2px 6px rgba(0,0,0,.85)' } }, prize)));
     scene.append(hero);
     // Rays ease in with the rise.
-    if (R2.rays) setTimeout(() => { const rays = scene.children[1]; if (rays) rays.style.opacity = '1'; }, 1100);
+    if (_raysEl) setTimeout(() => { _raysEl.style.opacity = '1'; }, 1200);
     setTimeout(() => {
       for (let k = 0; k < (R2.rays ? 16 : 8); k++) {
         const s = el('span', { class: 'mb-burst', style: { top: '38%', fontSize: '15px' } }, '\u2728');
@@ -18778,75 +18830,79 @@ function mysteryBoxSection(isAdmin) {
         el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.55', marginBottom: '3px' } }, 'Requirements \u00b7 sold revenue, passed audit'),
         el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie)),
         el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet)))),
-    // Qualified reps — grouped Veterans / Rookies.
-    dayStats.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
-      el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-        ...[['name', 'Rep'], ['tier', 'Tier'], ['n', 'Accts', 'Accounts counting toward the box (passed / no audit / pending)'], ['total', 'Total Rev', 'Everything sold in the window'], ['rev', 'Passed Rev', 'Passed audit + no audit + pending \u2014 what counts toward the box'], ['failed', 'Failed Rev', 'Failed audit + Last Resort (<$99) \u2014 does not count'], ['progress', 'Progress', 'Sort by % of goal']].map(([k, h, tip]) => {
-          const _srt = state._mbSort || null;
-          const active = _srt && _srt.key === k;
-          return el('th', {
-            class: 'px-4 py-2 whitespace-nowrap cursor-pointer select-none',
-            style: active ? { color: 'var(--accent)' } : {},
-            title: (tip ? tip + ' \u00b7 ' : '') + 'Click to sort' + (active ? (_srt.dir === 'desc' ? ' (descending)' : ' (ascending)') : ''),
-            onclick: () => {
-              const cur = state._mbSort || {};
-              state._mbSort = { key: k, dir: cur.key === k ? (cur.dir === 'desc' ? 'asc' : 'desc') : (k === 'name' || k === 'tier' ? 'asc' : 'desc') };
-              mountApp();
-            },
-          }, h + (active ? (_srt.dir === 'desc' ? ' \u2193' : ' \u2191') : ''));
-        }))),
-      el('tbody', {},
-        ...[['vet', 'VETERANS'], ['rookie', 'ROOKIES'], ['chasing_vet', 'CHASING \u00b7 VETERANS'], ['chasing_rookie', 'CHASING \u00b7 ROOKIES']].flatMap(([tk, tlbl]) => {
-          const _isRk = (r) => r.tier === 'rookie';
-          const _chase = (fn) => dayStats.filter(r => !r.qualified && fn(r)).sort((a2, b2) => (b2.goal ? b2.rev / b2.goal : 0) - (a2.goal ? a2.rev / a2.goal : 0));
-          let grp = tk === 'chasing_vet' ? _chase(r => !_isRk(r))
-            : tk === 'chasing_rookie' ? _chase(_isRk)
-            : qualified.filter(r => (tk === 'rookie' ? _isRk(r) : !_isRk(r)));
-          if (!grp.length) return [];
-          // Header sort (asc/desc) applies WITHIN each section, so the tier
-          // groupings stay intact.
-          const _srt2 = state._mbSort || null;
-          if (_srt2) {
-            const valOf = (r) => _srt2.key === 'name' ? String(r.name)
-              : _srt2.key === 'tier' ? (r.tier === 'rookie' ? 'rookie' : 'vet')
-              : _srt2.key === 'progress' ? (r.goal ? r.rev / r.goal : 0)
-              : Number(r[_srt2.key]) || 0;
-            grp = grp.slice().sort((x, y) => {
-              const a2 = valOf(x), b2 = valOf(y);
-              const c2 = typeof a2 === 'string' ? a2.localeCompare(b2) : a2 - b2;
-              return _srt2.dir === 'desc' ? -c2 : c2;
-            });
-          }
-          return [
-            el('tr', {}, el('td', {
-              colspan: '7',
-              class: 'px-4 py-2 text-sm font-black uppercase tracking-widest',
-              style: { background: 'var(--card-2)', color: 'var(--text)' },
-            }, tlbl + ' \u00b7 ' + fmt.usd0(/rookie/.test(tk) ? goals.rookie : goals.vet) + (tk.startsWith('chasing') ? ' bar' : ''))),
-            ...grp.map(r => {
-              const _sig2 = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
-              const prof = (state.allProfiles || []).find(p => _sig2(p.full_name) === _sig2(r.name));
-              const isQ = r.qualified;
-              const pctTo = r.goal > 0 ? Math.min(100, r.rev / r.goal * 100) : 0;
-              return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: isQ ? 'rgba(141,198,63,.05)' : '', opacity: isQ ? '' : '.92' } },
-                el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, r.name),
-                el('td', { class: 'px-4 py-2' }, el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded', style: r.tier === 'rookie' ? { background: 'rgba(220,38,38,.1)', color: '#DC2626' } : { background: 'rgba(59,130,246,.1)', color: '#3B82F6' } }, r.tier === 'rookie' ? 'R' : 'V')),
-                el('td', { class: 'px-4 py-2 tabular-nums' }, String(r.n)),
-                el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, fmt.usd0(r.total)),
-                el('td', { class: 'px-4 py-2 tabular-nums font-bold' }, fmt.usd0(r.rev)),
-                el('td', { class: 'px-4 py-2 tabular-nums', style: { color: r.failed ? '#DC2626' : 'var(--text-subtle)' } }, r.failed ? fmt.usd0(r.failed) : '\u2014'),
-                isQ
-                  ? el('td', { class: 'px-4 py-2 text-xs font-bold', style: { color: '#5F8A1F' } }, '\ud83c\udf81 earned')
-                  : el('td', { class: 'px-4 py-2 whitespace-nowrap', style: { minWidth: '160px' } },
-                      el('div', { class: 'flex items-center gap-2' },
-                        el('div', { style: { flex: '1', minWidth: '60px', height: '5px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
-                          el('div', { style: { width: pctTo.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: pctTo >= 75 ? '#8DC63F' : pctTo >= 40 ? '#D97706' : 'var(--border-2)' } })),
-                        el('span', { class: 'text-xs tabular-nums font-bold whitespace-nowrap', style: { color: pctTo >= 75 ? '#5F8A1F' : 'var(--text-muted)' } },
-                          fmt.usd0(Math.max(0, r.goal - r.rev)) + ' to go'))));
-            }),
-          ];
-        }))))
-      : el('div', { class: 'p-8 text-center text-sm text-muted-' }, mbFrom > todayIso ? 'That window hasn\u2019t started yet.' : 'No qualifying sales in this window yet.')));
+    // (bar card ends here — the tier tables live in their own cards below)
+    ));
+  // ── TWO ADJACENT TABLES (per Isaac): Veterans left, Rookies right. Each
+  // shows its qualified reps on top (green rows — earned is implied), then
+  // a CHASING section with progress-to-goal. Sortable headers per table. ──
+  const tierCard = (tk) => {
+    const isRk = tk === 'rookie';
+    const goal = isRk ? (Number(goals.rookie) || 0) : (Number(goals.vet) || 0);
+    const inTier = (r) => (isRk ? r.tier === 'rookie' : r.tier !== 'rookie');
+    let qual2 = qualified.filter(inTier);
+    let chase = dayStats.filter(r => !r.qualified && inTier(r)).sort((a2, b2) => (b2.goal ? b2.rev / b2.goal : 0) - (a2.goal ? a2.rev / a2.goal : 0));
+    const _srt2 = state._mbSort || null;
+    if (_srt2) {
+      const valOf = (r) => _srt2.key === 'name' ? String(r.name)
+        : _srt2.key === 'progress' ? (r.goal ? r.rev / r.goal : 0)
+        : Number(r[_srt2.key]) || 0;
+      const srt = (arr) => arr.slice().sort((x, y) => {
+        const a2 = valOf(x), b2 = valOf(y);
+        const c2 = typeof a2 === 'string' ? a2.localeCompare(b2) : a2 - b2;
+        return _srt2.dir === 'desc' ? -c2 : c2;
+      });
+      qual2 = srt(qual2); chase = srt(chase);
+    }
+    const row = (r) => {
+      const isQ = r.qualified;
+      const pctTo = r.goal > 0 ? Math.min(100, r.rev / r.goal * 100) : 0;
+      return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: isQ ? 'rgba(141,198,63,.06)' : '' } },
+        el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.name),
+        el('td', { class: 'px-3 py-2 tabular-nums' }, String(r.n)),
+        el('td', { class: 'px-3 py-2 tabular-nums text-muted-' }, fmt.usd0(r.total)),
+        el('td', { class: 'px-3 py-2 tabular-nums font-bold' }, fmt.usd0(r.rev)),
+        el('td', { class: 'px-3 py-2 tabular-nums', style: { color: r.pending ? '#D97706' : 'var(--text-subtle)' } }, r.pending ? fmt.usd0(r.pending) : '\u2014'),
+        el('td', { class: 'px-3 py-2 tabular-nums', style: { color: r.failed ? '#DC2626' : 'var(--text-subtle)' } }, r.failed ? fmt.usd0(r.failed) : '\u2014'),
+        isQ
+          ? el('td', { class: 'px-3 py-2' })
+          : el('td', { class: 'px-3 py-2 whitespace-nowrap', style: { minWidth: '130px' } },
+              el('div', { class: 'flex items-center gap-2' },
+                el('div', { style: { flex: '1', minWidth: '44px', height: '5px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
+                  el('div', { style: { width: pctTo.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: pctTo >= 75 ? '#8DC63F' : pctTo >= 40 ? '#D97706' : 'var(--border-2)' } })),
+                el('span', { class: 'text-[11px] tabular-nums font-bold whitespace-nowrap', style: { color: pctTo >= 75 ? '#5F8A1F' : 'var(--text-muted)' } },
+                  fmt.usd0(Math.max(0, r.goal - r.rev)) + ' to go'))));
+    };
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-2.5 flex items-center justify-between', style: { background: 'var(--text)', color: 'var(--bg)' } },
+        el('div', { class: 'font-black uppercase tracking-widest text-sm' }, (isRk ? 'Rookies' : 'Veterans') + ' \u00b7 ' + fmt.usd0(goal)),
+        el('div', { class: 'text-xs font-bold tabular-nums px-2 py-0.5 rounded', style: { background: qual2.length ? '#8DC63F' : 'rgba(255,255,255,.15)', color: qual2.length ? '#1D1D1D' : 'var(--bg)' } }, qual2.length + ' earned')),
+      (qual2.length || chase.length) ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+        el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+          ...[['name', 'Rep'], ['n', 'Accts', 'Accounts counting toward the box (passed audit / no audit)'], ['total', 'Total', 'Pending/Serviced revenue (the FieldRoutes gate) \u2014 Passed + Pending + Failed'], ['rev', 'Passed', 'Passed audit or no audit, $99+ initial \u2014 the only revenue that counts toward the box'], ['pending', 'Pending', 'No audit flag yet (not Last Resort) \u2014 moves to Passed or Failed as audits land'], ['failed', 'Failed', 'Failed audit + Last Resort (<$99) \u2014 does not count'], ['progress', 'To Go', 'Sort by % of goal']].map(([k, h, tip]) => {
+            const _srt = state._mbSort || null;
+            const active = _srt && _srt.key === k;
+            return el('th', {
+              class: 'px-3 py-2 whitespace-nowrap cursor-pointer select-none',
+              style: active ? { color: 'var(--accent)' } : {},
+              title: (tip ? tip + ' \u00b7 ' : '') + 'Click to sort',
+              onclick: () => {
+                const cur = state._mbSort || {};
+                state._mbSort = { key: k, dir: cur.key === k ? (cur.dir === 'desc' ? 'asc' : 'desc') : (k === 'name' ? 'asc' : 'desc') };
+                mountApp();
+              },
+            }, h + (active ? (_srt.dir === 'desc' ? ' \u2193' : ' \u2191') : ''));
+          }))),
+        el('tbody', {},
+          ...qual2.map(row),
+          chase.length ? el('tr', {}, el('td', {
+            colspan: '7',
+            class: 'px-3 py-1.5 text-[10px] font-black uppercase tracking-widest',
+            style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
+          }, 'Chasing the box')) : null,
+          ...chase.map(row))))
+        : el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No sales in this window.'));
+  };
+  nodes.push(el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, tierCard('vet'), tierCard('rookie')));
   return nodes.length ? el('div', { class: 'flex flex-col gap-4' }, ...nodes) : null;
 }
 
@@ -18859,7 +18915,11 @@ function viewNrlaPublic() {
   // Mystery Boxes rides the pill bar as its own competition tab (per Isaac).
   // Virtual — no scoring config behind it, so it never becomes the active
   // scoring comp.
-  comps = [...comps, { id: 'mystery_box', name: 'Mystery Boxes' }];
+  {
+    const _mbFav = !!state._compFavoriteMystery;
+    if (_mbFav) comps = comps.map(c => { const c2 = c; delete c2.favorite; return c2; });
+    comps = [...comps, { id: 'mystery_box', name: 'Mystery Boxes', favorite: _mbFav }];
+  }
   // Admin drag-sorted pill order (synced to everyone); unknown ids sink to
   // the end so new comps still show up.
   {
@@ -18947,9 +19007,16 @@ function viewNrlaPublic() {
     onclick: () => {
       const on = !sel.favorite;
       comps.forEach(c => { delete c.favorite; });   // only one default at a time
-      if (on) sel.favorite = true;
+      state._compFavoriteMystery = false;
+      if (on) {
+        // The Mystery Boxes pill is virtual (no comp config behind it), so
+        // its star persists in the synced settings field instead.
+        if (sel.id === 'mystery_box') state._compFavoriteMystery = true;
+        else sel.favorite = true;
+      }
       logActivity('comp_change', { detail: on ? sel.name + ' set as the DEFAULT competition' : sel.name + ' unset as default competition' });
       saveDemoData();                                // syncs to every user
+      if (typeof saveIndicatorState === 'function') saveIndicatorState();
       mountApp();
     },
   }, sel.favorite ? '★' : '☆') : null;
@@ -20160,7 +20227,7 @@ function openLastManStandingHelpModal(winLabel) {
       section('Round 1 — the qualifier',
         el('div', {}, 'The first Saturday is a pure qualifier: every rep who lands a qualifying sale advances, no matter how small. Anyone with no qualifying sale that Saturday is out. Nobody is cut for being low in Round 1.')),
       section('Round 2 onward — the weekly cut',
-        el('div', {}, 'Each following Saturday the survivors are ranked by that day\'s qualifying revenue and the top half advance (rounded up — odd fields round in the survivors\' favor). The bottom half is eliminated. Ties break on cumulative revenue across the competition.')),
+        el('div', {}, 'Each following Saturday the survivors are ranked by that day\'s qualifying revenue and the top half advance (rounded up — odd fields round in the survivors\' favor). The bottom half is eliminated. Ties break on cumulative revenue across the competition. Once the field is down to THREE or fewer, that round is the FINAL: winner-take-all — the top qualifying revenue that day is the champion.')),
       section('Serviced by Friday',
         el('div', {}, 'For revenue to count toward a round, the account must be serviced by the Friday after it was sold — sell Saturday, service by the next Friday. That Friday is the cutoff, so when the new round opens that Saturday we can confirm exactly who advances. Accounts still unserviced, or serviced after that Friday, don\'t count — nobody can sandbag a future service date to pad a round.')),
       section('Winning',
@@ -20311,7 +20378,29 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
           }, b);
         }));
     })(),
-    el('div', { class: 'overflow-x-auto' },
+    // ── MOBILE (per Isaac): the 13-column table is unusable on a phone —
+    // each branch becomes a stacked card: rank + bugs + points up top, the
+    // six scored categories in a two-column grid, revenue strip below. ──
+    el('div', { class: 'sm:hidden' },
+      ...ranked.map((m, i) => el('div', { class: 'px-3 py-3', style: { borderTop: i ? '1px solid var(--border)' : 'none', background: i % 2 ? 'rgba(27,94,32,0.04)' : 'transparent' } },
+        el('div', { class: 'flex items-center justify-between gap-2 mb-2' },
+          el('div', { class: 'flex items-center gap-2 min-w-0' },
+            el('span', { class: 'font-black tabular-nums', style: { color: i < 3 ? '#1b5e20' : 'var(--text-muted)' } }, '#' + m.place),
+            el('span', { class: 'font-bold truncate' }, m.office),
+            el('span', { class: 'text-[10px] text-muted- whitespace-nowrap' }, m.reps + ' reps')),
+          el('div', { class: 'flex items-center gap-2 shrink-0' },
+            el('span', { class: 'text-[10px] font-black tabular-nums', style: { color: 'var(--text-muted)' } }, m.totalPoints + ' pts'),
+            bugBadge(m.bugs))),
+        el('div', { class: 'grid grid-cols-3 gap-x-2 gap-y-1.5 mb-2' },
+          ...catDefs.map(d => el('div', { class: 'min-w-0' },
+            el('div', { class: 'text-[9px] uppercase tracking-wider font-bold', style: { color: 'var(--text-subtle)' } }, d.label),
+            el('div', { class: 'text-xs tabular-nums font-semibold whitespace-nowrap' }, d.fmt(m[d.key]), placeBadge(m.places[d.key]))))),
+        el('div', { class: 'flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px] tabular-nums' },
+          el('span', { class: 'font-bold' }, 'Passed ' + usd(m.revenue), placeBadge(m.places.revenue)),
+          el('span', { style: { color: 'var(--text-muted)' } }, 'Total ' + usd(m.totalRevenue)),
+          el('span', { style: { color: '#c0392b' } }, 'Failed ' + usd(m.failedRevenue)),
+          el('span', { style: { color: '#b8860b' } }, 'Pending ' + usd(m.pendingRevenue)))))),
+    el('div', { class: 'overflow-x-auto hidden sm:block' },
       el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#1b5e20', color: '#fff' } },
           el('tr', {},
