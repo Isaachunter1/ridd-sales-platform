@@ -26061,12 +26061,19 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       const multi  = sales.filter(s => Number(s.contract) > 12).length;
       const myDen  = twelve + multi;
       const apYes  = sales.filter(s => s.autoPay && s.autoPay !== 'No').length;
+      // $20K PRA qualification — same rule as the Indicators table: only
+      // reps who sold MORE than $20K in the window count toward this
+      // cohort's PRA denominator. Shown as its own row so the class sizes
+      // stay honest next to the gated average.
+      const reps20k = reps.filter(r =>
+        (r.sales || []).reduce((a, s) => a + Number(s.contractValue || 0), 0) > 20000).length;
       return {
         reps:    reps.length,
+        reps20k,
         sold:    sales.length,
         revenue: totalRevenue,
         avgInit,
-        pra:     reps.length > 0 ? totalRevenue / reps.length : 0,
+        pra:     reps20k > 0 ? totalRevenue / reps20k : 0,
         acv:     sales.length > 0 ? totalRevenue / sales.length : 0,
         myPct:   myDen > 0 ? multi / myDen : 0,
         apPct:   sales.length > 0 ? apYes / sales.length : 0,
@@ -26092,6 +26099,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // metric so trends are readable at a glance.
     const fmtVal = {
       sold:    v => fmt.int(v),
+      reps20k: v => fmt.int(v),
       revenue: v => fmt.usd0(v),
       avgInit: v => fmt.usd0(v),
       pra:     v => fmt.usd0(v),
@@ -26103,6 +26111,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       ['sold',    'Sold Accounts'],
       ['revenue', 'Revenue'],
       ['avgInit', 'Avg Pest Initial'],
+      ['reps20k', 'Reps > $20K'],
       ['pra',     'PRA'],
       ['acv',     'ACV'],
       ['myPct',   'Multi-Year %'],
@@ -26179,7 +26188,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         el('div', {},
           el('h3', { class: 'text-base font-bold' }, '🎓 Tier Metrics'),
           el('p', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Cohort metrics for the current window. Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override.'),
+            'Cohort metrics for the current window. Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row only.'),
         ),
         untagged > 0 && el('div', {
           class: 'text-[10px] italic px-2 py-1 rounded',
