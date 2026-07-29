@@ -6450,6 +6450,184 @@ function indicatorSales() {
   return out;
 }
 
+// ── CRM Reconcile (admin) ────────────────────────────────────────────────
+// Paste the legacy CRM Sales Leaderboard's SalesReport CSV (one rep's
+// account list) and get a row-level diff against the app's own pool: which
+// accounts are missing from the synced data entirely, which are excluded and
+// by exactly WHICH rule, which are attributed to a different rep, and which
+// the app counts that the CRM export doesn't. Ends "the totals are off"
+// debates by naming the accounts instead of guessing at rules.
+function _crmReconCsv(text) {
+  const s = String(text || '').replace(/^﻿/, '');
+  const out = []; let field = '', rec = [], inQ = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inQ) {
+      if (ch === '"') { if (s[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === ',') { rec.push(field); field = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && s[i + 1] === '\n') i++;
+      rec.push(field); field = '';
+      if (rec.length > 1 || rec[0] !== '') out.push(rec);
+      rec = [];
+    } else field += ch;
+  }
+  rec.push(field);
+  if (rec.length > 1 || rec[0] !== '') out.push(rec);
+  return out;
+}
+function openCrmReconcileModal() {
+  const nameKey = (n) => String(n || '').toLowerCase().replace(/[^a-z]+/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  // Why is this raw row NOT in the canonical pool? Mirrors the gate order
+  // inside indicatorSales() exactly — if that changes, keep this in sync so
+  // the report never lies about the reason.
+  const _exclSrc = (typeof reportingExcludedSources === 'function') ? reportingExcludedSources() : new Set();
+  const _delSet = deletedCustIdSet();
+  const _exclSvcSet = (state.indicatorExclServiceTypes || []).length ? new Set(state.indicatorExclServiceTypes) : null;
+  const _inclSvcSet = (state.indicatorInclServiceTypes || []).length ? new Set(state.indicatorInclServiceTypes) : null;
+  const _inclSrcSet = (state.indicatorInclSources || []).length ? new Set(state.indicatorInclSources) : null;
+  const _exclSrcSet = (state.indicatorExclSources || []).length ? new Set(state.indicatorExclSources) : null;
+  const gateReason = (s) => {
+    if (_delSet.size && _delSet.has(String(s.customerId != null ? s.customerId : ''))) return 'deleted-accounts list (Settings → Configurations)';
+    if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(s.subscription || '').trim())) return 'globally excluded service “' + s.subscription + '”';
+    if (_isSoldNotStarted(s)) return 'Sold-Not-Started cancellation reason';
+    if (_scInitialStatusHasData()) {
+      const ist = String(s.initialStatus || '').trim().toLowerCase();
+      if (ist !== 'pending' && ist !== 'completed') return 'initial appt status “' + (s.initialStatus || '—') + '” (not Pending/Completed)';
+    } else if (_scIsSoldNotStarted(s)) return 'Sold-Not-Started (legacy heuristic)';
+    if (_indicatorServiceExcluded(s)) return 'excluded service “' + s.subscription + '” (Settings → Configurations)';
+    const _s = String(s.source || '').trim();
+    if (_exclSrc.has(_s)) return 'excluded source “' + (_s || '—') + '” (Settings → Configurations)';
+    const _sub = String(s.subscription || '').trim();
+    if (_exclSvcSet && _exclSvcSet.has(_sub)) return 'session filter: excluded service “' + _sub + '”';
+    if (_inclSvcSet && !_inclSvcSet.has(_sub)) return 'session filter: not in included services';
+    if (_inclSrcSet && !_inclSrcSet.has(_s)) return 'session filter: not in included sources';
+    if (_exclSrcSet && _exclSrcSet.has(_s)) return 'session filter: excluded source “' + _s + '”';
+    if (state.indicatorsComps && isRepExcluded(s.rep)) return 'comp exclusion (team excluded)';
+    return null;
+  };
+  const money = (n) => fmt.usd(n);
+  const run = (text, resBox, copyBtn) => {
+    const recs = _crmReconCsv(text);
+    if (recs.length < 2) { resBox.textContent = 'Paste the full CSV, header row included.'; return; }
+    const hdr = recs[0].map(h => String(h || '').trim().toLowerCase());
+    const col = (n) => hdr.indexOf(n);
+    const iId = col('customer id'), iCust = col('customer'), iSub = col('subscription'),
+          iRep = col('sales rep'), iDate = col('date sold'), iCv = col('contract value');
+    if (iId < 0 || iCv < 0) { resBox.textContent = 'Couldn’t find “Customer ID” / “Contract Value” columns — is this the SalesReport export?'; return; }
+    const num = (v) => parseFloat(String(v || '0').replace(/[$,]/g, '')) || 0;
+    const crmRows = recs.slice(1).filter(r => String(r[iId] || '').trim()).map(r => ({
+      id: String(r[iId]).trim(), customer: iCust >= 0 ? (r[iCust] || '') : '',
+      sub: iSub >= 0 ? (r[iSub] || '') : '', rep: iRep >= 0 ? (r[iRep] || '') : '',
+      date: iDate >= 0 ? (r[iDate] || '') : '', cv: num(r[iCv]),
+    }));
+    const crmTotal = crmRows.reduce((a, r) => a + r.cv, 0);
+    const repKeys = new Set(crmRows.map(r => nameKey(getCanonicalRepName(r.rep))).filter(Boolean));
+    const raw = state._indicatorRawSales || [];
+    const byId = new Map();
+    raw.forEach(s => {
+      const id = String(s.customerId != null ? s.customerId : '').trim();
+      if (!id) return;
+      if (!byId.has(id)) byId.set(id, []);
+      byId.get(id).push(s);
+    });
+    const missing = [], excluded = [], otherRep = [], valueDiff = [], extras = [];
+    let matchedCv = 0, matchedN = 0;
+    const crmIds = new Set(crmRows.map(r => r.id));
+    const usedRows = new Set();
+    crmRows.forEach(r => {
+      const rows = byId.get(r.id) || [];
+      if (!rows.length) { missing.push(r); return; }
+      const subKey = String(r.sub || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const rowsSub = rows.filter(s => String(s.subscription || '').toLowerCase().replace(/\s+/g, ' ').trim() === subKey && !usedRows.has(s));
+      const cand = (rowsSub.length ? rowsSub : rows.filter(s => !usedRows.has(s)));
+      if (!cand.length) { missing.push(r); return; }
+      const pass = cand.filter(s => !gateReason(s));
+      if (!pass.length) { excluded.push({ r, why: gateReason(cand[0]) }); return; }
+      const s0 = pass[0];
+      usedRows.add(s0);
+      if (repKeys.size && !repKeys.has(nameKey(getCanonicalRepName(s0.rep)))) { otherRep.push({ r, appRep: getCanonicalRepName(s0.rep) }); return; }
+      matchedN++; matchedCv += Number(s0.contractValue) || 0;
+      if (Math.abs((Number(s0.contractValue) || 0) - r.cv) > 0.5) valueDiff.push({ r, appCv: Number(s0.contractValue) || 0 });
+    });
+    raw.forEach(s => {
+      const id = String(s.customerId != null ? s.customerId : '').trim();
+      if (!id || crmIds.has(id)) return;
+      if (!repKeys.size || !repKeys.has(nameKey(getCanonicalRepName(s.rep)))) return;
+      if (gateReason(s)) return;
+      extras.push({ id, customer: s.customer || '', sub: s.subscription || '', date: s.dateSold || '', cv: Number(s.contractValue) || 0, rawRep: s.rep });
+    });
+    const sum = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
+    const L = [];
+    L.push('CRM export:  ' + crmRows.length + ' accounts · ' + money(crmTotal));
+    L.push('App matched: ' + matchedN + ' accounts · ' + money(matchedCv));
+    L.push('Delta:       ' + money(crmTotal - matchedCv));
+    L.push('');
+    if (missing.length) {
+      L.push('■ MISSING FROM SYNCED DATA — ' + missing.length + ' accts · ' + money(sum(missing, x => x.cv)));
+      L.push('  (in the CRM, but the RevHawk mirror has no row for this customer)');
+      missing.forEach(x => L.push('  #' + x.id + '  ' + x.customer + '  · ' + x.sub + ' · sold ' + x.date + ' · ' + money(x.cv)));
+      L.push('');
+    }
+    if (excluded.length) {
+      L.push('■ EXCLUDED BY AN APP RULE — ' + excluded.length + ' accts · ' + money(sum(excluded, x => x.r.cv)));
+      excluded.forEach(x => L.push('  #' + x.r.id + '  ' + x.r.customer + '  · ' + x.r.sub + ' · ' + money(x.r.cv) + '\n     ↳ ' + x.why));
+      L.push('');
+    }
+    if (otherRep.length) {
+      L.push('■ COUNTED UNDER A DIFFERENT REP — ' + otherRep.length + ' accts · ' + money(sum(otherRep, x => x.r.cv)));
+      otherRep.forEach(x => L.push('  #' + x.r.id + '  ' + x.r.customer + ' · ' + money(x.r.cv) + '  → app credits: ' + x.appRep));
+      L.push('');
+    }
+    if (valueDiff.length) {
+      L.push('■ CONTRACT-VALUE MISMATCH — ' + valueDiff.length + ' accts · net ' + money(sum(valueDiff, x => x.r.cv - x.appCv)));
+      valueDiff.forEach(x => L.push('  #' + x.r.id + '  ' + x.r.customer + ' · CRM ' + money(x.r.cv) + ' vs app ' + money(x.appCv)));
+      L.push('');
+    }
+    if (extras.length) {
+      L.push('■ IN THE APP, NOT IN THE CRM EXPORT — ' + extras.length + ' accts · ' + money(sum(extras, x => x.cv)));
+      L.push('  (usually a second CRM employee record merged under this rep, or a rep-name alias)');
+      extras.forEach(x => L.push('  #' + x.id + '  ' + x.customer + '  · ' + x.sub + ' · sold ' + x.date + ' · ' + money(x.cv) + ' · raw rep: ' + x.rawRep));
+      L.push('');
+    }
+    if (!missing.length && !excluded.length && !otherRep.length && !valueDiff.length && !extras.length)
+      L.push('✓ Perfect reconciliation — every CRM account is counted, nothing extra.');
+    const report = L.join('\n');
+    resBox.textContent = report;
+    if (copyBtn) { copyBtn.style.display = ''; copyBtn.onclick = () => { navigator.clipboard.writeText(report); copyBtn.textContent = 'Copied ✓'; setTimeout(() => { copyBtn.textContent = 'Copy report'; }, 1500); }; }
+  };
+  const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const ta = el('textarea', {
+    class: 'w-full rounded-lg border p-2 text-xs', rows: '6',
+    style: { borderColor: 'var(--border-2)', fontFamily: 'ui-monospace, Menlo, monospace' },
+    placeholder: 'Paste the CRM SalesReport CSV here (straight from the export — header row included)…',
+  });
+  const resBox = el('div', { class: 'text-xs mt-3', style: { whiteSpace: 'pre-wrap', fontFamily: 'ui-monospace, Menlo, monospace', lineHeight: '1.65' } });
+  const copyBtn = el('button', {
+    class: 'rounded-lg px-3 py-2 text-xs font-bold cursor-pointer border transition hover:brightness-95',
+    style: { borderColor: 'var(--border-2)', display: 'none' },
+  }, 'Copy report');
+  overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '860px' } },
+    el('div', { class: 'flex items-center justify-between mb-1' },
+      el('h3', { class: 'text-base font-bold' }, 'Reconcile vs CRM'),
+      el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
+    el('p', { class: 'text-xs text-muted- mb-3' },
+      'Paste a SalesReport CSV from the CRM’s Sales Leaderboard (one rep or many). Every account is joined on Customer ID against this app’s synced data, and any difference is named account-by-account with the exact rule responsible.'),
+    ta,
+    el('div', { class: 'flex items-center gap-2 mt-2' },
+      el('button', {
+        class: 'rounded-lg px-4 py-2 text-sm font-bold cursor-pointer transition hover:brightness-95',
+        style: { background: 'var(--brand, #8DC63F)', color: '#fff' },
+        onclick: () => run(ta.value, resBox, copyBtn),
+      }, 'Run diff'),
+      copyBtn),
+    resBox));
+  document.body.append(overlay);
+}
+
 // "MM/DD/YY HH:MM AM/PM" → { hour: 0-23, minute: 0-59 } | null
 function _parseIndicatorTime(s) {
   const str = (s.dateSold || '').trim();
@@ -26141,6 +26319,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               });
             },
           }),
+          // Admin-only: row-level reconcile against a pasted CRM SalesReport
+          // export — names the exact accounts (and rules) behind any gap
+          // between this board and the legacy Sales Leaderboard tool.
+          isAdminRole(state.profile?.role) ? el('button', {
+            class: 'rounded-lg px-3 py-2.5 text-sm font-bold cursor-pointer transition hover:brightness-95 border shrink-0',
+            style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+            title: 'Reconcile vs CRM — paste the CRM SalesReport CSV and see, account by account, why any number differs',
+            onclick: () => openCrmReconcileModal(),
+          }, '⚖') : null,
           // Rookie/Vet PDF export — icon only, between search and Filters.
           // Pulls from the unfiltered `allReps` so the report reflects the
           // full active roster regardless of the current page filters.
