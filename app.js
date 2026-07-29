@@ -14214,21 +14214,25 @@ function recordStat(label, revenue, count, date) {
 // VIEW: INDICATORS — D2D performance dashboard powered by CSV upload
 // ──────────────────────────────────────────────────────────────────────────
 const BRANCH_COLORS = {
-  // Brand sheet (per Isaac, Jul 2026)
-  'ATLANTA':        '#1F3D99',
-  'CHARLESTON':     '#159AA5',
-  'DESTIN':         '#38B6E3',
-  'MYRTLE BEACH':   '#E5187D',
-  'RALEIGH':        '#E02525',
-  'SALT LAKE':      '#E8E8E2',
-  'VIRGINIA BEACH': '#F0609E',
-  'DETROIT':        '#141414',
-  'JOPLIN':         '#7A3CC4',
-  'LITTLE ROCK':    '#F49AB5',
+  // Matches the RIDD Reporting workbook (IS sheet cell fills, extracted from
+  // the xlsx itself — per Isaac, Jul 2026). Joplin/Little Rock aren't filled
+  // in the workbook, so those two are matched to his screenshot by eye.
+  'ATLANTA':        '#302CAE',
+  'CHARLESTON':     '#416AA7',
+  'DESTIN':         '#AD3CC4',
+  'MYRTLE BEACH':   '#49AEAC',
+  'RALEIGH':        '#A4C8DF',
+  'SALT LAKE':      '#2A7727',
+  'VIRGINIA BEACH': '#65EB4D',
+  'DETROIT':        '#000000',
+  'JOPLIN':         '#E5187D',
+  'LITTLE ROCK':    '#8F1D2C',
 };
 // Company rollups — RPS = Detroit + Little Rock + Joplin; RPC = every other
 // branch; RIDD = the sum of both (admin-only grouping on Indicators).
-const COMPANY_COLORS = { 'RPS': '#8F1D2C', 'RPC': '#2FA045' };
+// Workbook rows: RPC light yellow-green, RPS orange-red (matched to the
+// reporting sheet screenshot — tweak hexes here if the print looks off).
+const COMPANY_COLORS = { 'RPS': '#D2451E', 'RPC': '#9BCB3C' };
 const RPS_OFFICES_RE = /detroit|joplin|little\s*rock/i;
 function companyGroupOf(office) { return RPS_OFFICES_RE.test(String(office || '')) ? 'RPS' : 'RPC'; }
 // Readable text on any group color (SALT LAKE is near-white).
@@ -29020,9 +29024,9 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   // Panels group by TEAM (not branch) — reps sell across branches but
   // belong to one team, so team rollups are the meaningful comparison.
   const PDF_PEST_EXCLUDE = /sentricon|german\s*roach|interior\s*flea/i;
-  // Troupe + Ganadores report as ONE team on this sheet (same crew, kept
-  // separate elsewhere in the app).
-  const PDF_TEAM_MERGE = { troupe: 'Troupe / Ganadores', ganadores: 'Troupe / Ganadores' };
+  // Troupe and Ganadores report SEPARATELY (they were merged as one crew
+  // until Jul 2026 — per Isaac, keep them split like everywhere else).
+  const PDF_TEAM_MERGE = {};
   // Returns null for reps who stay OFF the panels: no team assigned, or on
   // an excluded team (Manage Teams → Excluded).
   const teamOf = (r) => {
