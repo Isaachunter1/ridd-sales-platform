@@ -13979,14 +13979,31 @@ function recordStat(label, revenue, count, date) {
 // VIEW: INDICATORS — D2D performance dashboard powered by CSV upload
 // ──────────────────────────────────────────────────────────────────────────
 const BRANCH_COLORS = {
-  'ATLANTA':        '#A01C22',
-  'CHARLESTON':     '#416AA7',
-  'DESTIN':         '#AD3CC4',
-  'MYRTLE BEACH':   '#49AEAC',
-  'RALEIGH':        '#A4C8DF',
-  'SALT LAKE':      '#2A7727',
-  'VIRGINIA BEACH': '#65EB4D',
+  // Brand sheet (per Isaac, Jul 2026)
+  'ATLANTA':        '#1F3D99',
+  'CHARLESTON':     '#159AA5',
+  'DESTIN':         '#38B6E3',
+  'MYRTLE BEACH':   '#E5187D',
+  'RALEIGH':        '#E02525',
+  'SALT LAKE':      '#E8E8E2',
+  'VIRGINIA BEACH': '#F0609E',
+  'DETROIT':        '#141414',
+  'JOPLIN':         '#7A3CC4',
+  'LITTLE ROCK':    '#F49AB5',
 };
+// Company rollups — RPS = Detroit + Little Rock + Joplin; RPC = every other
+// branch; RIDD = the sum of both (admin-only grouping on Indicators).
+const COMPANY_COLORS = { 'RPS': '#8F1D2C', 'RPC': '#2FA045' };
+const RPS_OFFICES_RE = /detroit|joplin|little\s*rock/i;
+function companyGroupOf(office) { return RPS_OFFICES_RE.test(String(office || '')) ? 'RPS' : 'RPC'; }
+// Readable text on any group color (SALT LAKE is near-white).
+function groupHeaderTextColor(bg) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(bg || ''));
+  if (!m) return '#fff';
+  const n = parseInt(m[1], 16);
+  const lum = 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return lum > 175 ? '#1D1D1D' : '#fff';
+}
 const RIDD_COLOR = '#8DC63F';
 // Default palette for teams. Avoids red so excluded teams keep their distinct
 // red tint. Teams without an explicit user-picked color are assigned one
@@ -14556,6 +14573,7 @@ function getGroupColor(name) {
   if (state.indicatorsGroupBy === 'dept') {
     return ({ 'SALES REP': '#5F8A1F', 'OFFICE STAFF': '#2b8cbe', 'TECHNICIAN': '#B45309' })[String(name).toUpperCase()] || '#666';
   }
+  if (state.indicatorsGroupBy === 'company') return COMPANY_COLORS[String(name).toUpperCase()] || '#666';
   return BRANCH_COLORS[name] || BRANCH_COLORS[String(name).toUpperCase()] || '#666';
 }
 // Date-range presets for the Indicators view. Presets are anchored to the
@@ -17645,7 +17663,7 @@ function nrlaBoard(rawSales, opts) {
               ...R.standings.map((s, i) => el('tr', {
                 class: 'border-t', style: { borderColor: 'var(--border)', background: i === 0 && playedAny ? 'rgba(242,20,140,.07)' : (i % 2 ? 'rgba(14,28,48,.05)' : 'transparent') },
               },
-                el('td', { class: 'px-3 py-2 font-black tabular-nums' }, (i === 0 && R.seasonDone ? '🏆 ' : '') + '#' + (i + 1)),
+                el('td', { class: 'px-3 py-2 font-black tabular-nums whitespace-nowrap' }, (i === 0 ? '🏆 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : '') + '#' + (i + 1)),
                 teamCell(s),
                 el('td', { class: 'px-2 py-2 tabular-nums font-black whitespace-nowrap', style: { color: GREEN } }, s.w),
                 el('td', { class: 'px-2 py-2 tabular-nums font-black whitespace-nowrap', style: { color: REDD } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
@@ -17718,7 +17736,7 @@ function nrlaBoard(rawSales, opts) {
               return el('tr', {
                 class: 'border-t', style: { borderColor: 'var(--border)', background: i === 0 && playedAny ? 'rgba(242,20,140,.07)' : (i % 2 ? 'rgba(14,28,48,.05)' : 'transparent') },
               },
-                el('td', { class: 'px-3 py-2 font-black tabular-nums' }, (i === 0 && R.seasonDone ? '🏆 ' : '') + '#' + (i + 1)),
+                el('td', { class: 'px-3 py-2 font-black tabular-nums whitespace-nowrap' }, (i === 0 ? '🏆 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : '') + '#' + (i + 1)),
                 teamCell(s),
                 el('td', { class: 'px-2 py-2 tabular-nums font-black whitespace-nowrap', style: { color: GREEN } }, s.w),
                 el('td', { class: 'px-2 py-2 tabular-nums font-black whitespace-nowrap', style: { color: REDD } }, s.l + (s.t ? ' · ' + s.t + 'T' : '')),
@@ -18799,14 +18817,14 @@ function mysteryBoxSection(isAdmin) {
           }, '+ Add')));
     })() : null;
     nodes.push(el('div', { class: 'card p-4', style: qualified.length ? { borderLeft: '3px solid #8DC63F' } : {} },
-      el('div', { class: 'flex items-center justify-between gap-4 flex-wrap' },
-        el('div', {},
+      el('div', { class: 'flex items-center justify-between gap-x-4 gap-y-3 flex-wrap' },
+        el('div', { class: 'order-1' },
           el('div', { class: 'text-[9px] font-black', style: { letterSpacing: '.25em' } }, 'RIDDMADE\u00ae'),
           el('div', { class: 'font-display text-3xl leading-none' }, 'MYSTERY BOX')),
-        el('div', { class: 'text-center' },
+        el('div', { class: 'order-3 sm:order-2 w-full sm:w-auto sm:text-center' },
           el('div', { class: 'font-display text-2xl leading-none' }, qualified.length + ' BOX' + (qualified.length === 1 ? '' : 'ES') + ' EARNED'),
           el('div', { class: 'text-xs text-muted- mt-1' }, dLbl)),
-        el('div', { class: 'flex items-center gap-3' },
+        el('div', { class: 'order-2 sm:order-3 flex items-center gap-3' },
           el('div', { class: 'text-right' },
             el('div', { class: 'text-sm font-bold' },
               el('span', { style: { color: '#3B82F6' } }, qV.length + ' veteran' + (qV.length === 1 ? '' : 's')),
@@ -18853,10 +18871,10 @@ function mysteryBoxSection(isAdmin) {
         el('div', {},
           el('div', { class: 'font-black uppercase tracking-wide text-sm' }, dLbl),
           _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : null)),
-      el('div', { class: 'text-right' },
+      el('div', { class: 'w-full sm:w-auto text-left sm:text-right' },
         el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.55', marginBottom: '3px' } }, 'Requirements \u00b7 sold revenue, passed audit'),
-        el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie)),
-        el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet)))),
+        el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-between sm:justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie)),
+        el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-between sm:justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet)))),
     // (bar card ends here — the tier tables live in their own cards below)
     ));
   // ── TWO ADJACENT TABLES (per Isaac): Veterans left, Rookies right. Each
@@ -18885,11 +18903,11 @@ function mysteryBoxSection(isAdmin) {
       const pctTo = r.goal > 0 ? Math.min(100, r.rev / r.goal * 100) : 0;
       return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: isQ ? 'rgba(141,198,63,.06)' : '' } },
         el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.name),
-        el('td', { class: 'px-3 py-2 tabular-nums' }, String(r.n)),
-        el('td', { class: 'px-3 py-2 tabular-nums text-muted-' }, fmt.usd0(r.total)),
+        el('td', { class: 'px-3 py-2 tabular-nums hidden sm:table-cell' }, String(r.n)),
+        el('td', { class: 'px-3 py-2 tabular-nums text-muted- hidden sm:table-cell' }, fmt.usd0(r.total)),
         el('td', { class: 'px-3 py-2 tabular-nums font-bold' }, fmt.usd0(r.rev)),
-        el('td', { class: 'px-3 py-2 tabular-nums', style: { color: r.pending ? '#D97706' : 'var(--text-subtle)' } }, r.pending ? fmt.usd0(r.pending) : '\u2014'),
-        el('td', { class: 'px-3 py-2 tabular-nums', style: { color: r.failed ? '#DC2626' : 'var(--text-subtle)' } }, r.failed ? fmt.usd0(r.failed) : '\u2014'),
+        el('td', { class: 'px-3 py-2 tabular-nums hidden sm:table-cell', style: { color: r.pending ? '#D97706' : 'var(--text-subtle)' } }, r.pending ? fmt.usd0(r.pending) : '\u2014'),
+        el('td', { class: 'px-3 py-2 tabular-nums hidden sm:table-cell', style: { color: r.failed ? '#DC2626' : 'var(--text-subtle)' } }, r.failed ? fmt.usd0(r.failed) : '\u2014'),
         isQ
           ? el('td', { class: 'px-3 py-2' })
           : el('td', { class: 'px-3 py-2 whitespace-nowrap', style: { minWidth: '130px' } },
@@ -18906,10 +18924,11 @@ function mysteryBoxSection(isAdmin) {
       (qual2.length || chase.length) ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
           ...[['name', 'Rep'], ['n', 'Accts', 'Accounts counting toward the box (passed audit / no audit)'], ['total', 'Total', 'Pending/Serviced revenue (the FieldRoutes gate) \u2014 Passed + Pending + Failed'], ['rev', 'Passed', 'Passed audit or no audit, $99+ initial \u2014 the only revenue that counts toward the box'], ['pending', 'Pending', 'No audit flag yet (not Last Resort) \u2014 moves to Passed or Failed as audits land'], ['failed', 'Failed', 'Failed audit + Last Resort (<$99) \u2014 does not count'], ['progress', 'To Go', 'Sort by % of goal']].map(([k, h, tip]) => {
+            const _mobileHide = (k === 'n' || k === 'total' || k === 'pending' || k === 'failed') ? ' hidden sm:table-cell' : '';
             const _srt = state._mbSort || null;
             const active = _srt && _srt.key === k;
             return el('th', {
-              class: 'px-3 py-2 whitespace-nowrap cursor-pointer select-none',
+              class: 'px-3 py-2 whitespace-nowrap cursor-pointer select-none' + _mobileHide,
               style: active ? { color: 'var(--accent)' } : {},
               title: (tip ? tip + ' \u00b7 ' : '') + 'Click to sort',
               onclick: () => {
@@ -21337,6 +21356,11 @@ function aggregateByBranch(rawSales, indicatorRowsForDates) {
   }
   return aggregateRawSalesByGroup(rawSales, s => s.office || 'Unknown', indicatorRowsForDates, false, pestRe);
 }
+// Company view (admin-only): RPS / RPC columns; the RIDD column IS the sum.
+function aggregateByCompany(rawSales, indicatorRowsForDates) {
+  const pestRe = state.indicatorDept === 'd2d' ? TEAM_PEST_EXCLUDE : null;
+  return aggregateRawSalesByGroup(rawSales, s => companyGroupOf(s.office), indicatorRowsForDates, false, pestRe);
+}
 function aggregateByTeam(rawSales, indicatorRowsForDates) {
   // Team view honors both team exclusions and the strict pest-subscription regex.
   // SALES REPS ONLY — teams are a D2D construct; office staff and technicians
@@ -22607,20 +22631,25 @@ function viewIndicators() {
   // (table, charts, rankings). Teams mode requires raw sales — falls back
   // gracefully to Branch mode otherwise.
   const rawSalesAvailable = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
+  // Company rollup (RPS / RPC) is ADMIN-ONLY — heal the state for anyone else.
+  if (state.indicatorsGroupBy === 'company' && !isAdminRole(state.profile?.role)) state.indicatorsGroupBy = 'branch';
   const wantTeams = state.indicatorsGroupBy === 'teams';
   const wantDept  = state.indicatorsGroupBy === 'dept';
+  const wantCompany = state.indicatorsGroupBy === 'company';
   // Comps are a BRANCH-level competition — Teams/Department modes are locked
   // out while Comps is on (you compete by branch).
   const groupBy = (rawSalesAvailable && !state.indicatorsComps)
-    ? (wantTeams ? 'teams' : wantDept ? 'dept' : 'branch')
+    ? (wantTeams ? 'teams' : wantDept ? 'dept' : wantCompany ? 'company' : 'branch')
     : 'branch';
-  // If teams/dept mode can't run (no raw sales cached), heal the stale state
-  // so labels + header colors render in branch form instead of a hybrid.
-  if ((wantTeams || wantDept) && !rawSalesAvailable) state.indicatorsGroupBy = 'branch';
+  // If teams/dept/company mode can't run (no raw sales cached), heal the
+  // stale state so labels + header colors render in branch form.
+  if ((wantTeams || wantDept || wantCompany) && !rawSalesAvailable) state.indicatorsGroupBy = 'branch';
 
   let allData;
   if (groupBy === 'teams') {
     allData = aggregateByTeam(indicatorSales(), state.indicatorsData);
+  } else if (groupBy === 'company') {
+    allData = aggregateByCompany(indicatorSales(), state.indicatorsData);
   } else if (groupBy === 'dept') {
     allData = aggregateByDept(indicatorSales(), state.indicatorsData);
   } else if (rawSalesAvailable) {
@@ -22673,6 +22702,8 @@ function viewIndicators() {
       ? (s) => (getRepTeam(s.rep) || 'Unassigned')
       : groupBy === 'dept'
       ? (s) => (DEPT_GROUP_LABELS[_indicatorDeptOf(s)] || 'OFFICE STAFF')
+      : groupBy === 'company'
+      ? (s) => companyGroupOf(s.office)
       : (s) => s.office || 'Unknown';
     for (const s of indicatorSales()) {
       if (!s.rep) continue;
@@ -23141,6 +23172,7 @@ function viewIndicators() {
             el('option', { value: 'branch', selected: _staged.group === 'branch' }, 'Branch / Office'),
             el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
             el('option', { value: 'dept', selected: _staged.group === 'dept' }, 'Department'),
+            isAdminRole(state.profile?.role) ? el('option', { value: 'company', selected: _staged.group === 'company' }, 'Company (RPS / RPC)') : null,
           );
           const panel = el('div', {
             class: 'card',
@@ -23709,8 +23741,8 @@ function viewIndicators() {
                   const _lbl = b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
                   const _canOpen = !!(_rangeGroups && (_rangeGroups[b] || []).length);
                   return el('th', {
-                    class: 'text-center px-3 py-2 text-[10px] uppercase tracking-wider font-bold text-white' + (_canOpen ? ' cursor-pointer select-none' : ''),
-                    style: { background: getGroupColor(b), minWidth: '100px' },
+                    class: 'text-center px-3 py-2 text-[10px] uppercase tracking-wider font-bold' + (_canOpen ? ' cursor-pointer select-none' : ''),
+                    style: { background: getGroupColor(b), color: groupHeaderTextColor(getGroupColor(b)), minWidth: '100px' },
                     title: _canOpen ? 'Open the ' + _lbl + ' player card' : '',
                     onclick: _canOpen ? () => {
                       const peers = sortedBranches
