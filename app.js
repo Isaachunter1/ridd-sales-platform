@@ -6360,11 +6360,19 @@ const FR_GLOBAL_EXCLUDED_SERVICES = new Set([
 function frPendingServiced(s) {
   if (!s) return false;
   if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(s.subscription || '').trim())) return false;
-  // Manual-data mode: the uploaded CRM export IS the Pending/Serviced truth —
-  // the CRM applied its own gates before exporting, so re-filtering here
-  // (initial-appt status, SNS heuristics) would reintroduce the very
-  // mismatch the manual upload exists to bypass. Every row counts.
-  if (state._indManualMode) return true;
+  // Manual-data mode: Isaac's prebuilt report carries the CRM's OWN Status
+  // column, so the CRM's Pending/Serviced rule is applied directly from it —
+  // Serviced + Pending count, Canceled / Not Serviced don't (verified Jul
+  // 2026: Status-filtering his 19,835-row report reproduces the CRM's P/S
+  // leaderboard to the dollar). Older P/S-prefiltered exports only contain
+  // Pending/Serviced rows, so the same test passes everything, and a blank
+  // Status counts by benefit of the doubt. This branch must stay TERMINAL:
+  // "Services" in these exports is plan FREQUENCY (always > 0), so the
+  // serviced-evidence shortcut below would wrongly accept every row.
+  if (state._indManualMode) {
+    const _mst = String(s.status || '').trim().toLowerCase();
+    return !_mst || _mst === 'pending' || _mst === 'serviced';
+  }
   // Evidence of ACTUAL service always wins: completed services, a serviced
   // date, or a Completed initial make the account "Serviced" in the CRM no
   // matter what stale appointment/cancellation data the RevHawk mirror
@@ -15102,12 +15110,13 @@ function indicatorMetricHelp(key) {
       ? 'MEAN of Initial Service Price across in-scope sales, EXCLUDING any subscription whose name contains "Sentricon", "German Roach", or "Interior Flea" (Avg Pest Initial).'
       : 'MEAN of Initial Service Price across ALL in-scope sales — no subscription-type exclusions.',
     acv:            'Revenue ÷ Sold Accounts (each exactly as defined on its own row, same scope).',
-    pra:            'Revenue ÷ Reps W/ A Sale (each exactly as defined on its own row, same scope).',
+    pra:            'Revenue ÷ Reps > $20K. Only reps who sold MORE than $20,000 within this group and window count toward the denominator — see the Reps > $20K context row.',
     multi_year_pct: 'COUNT(contract LONGER than 12 months) ÷ [COUNT(contract = 12 months) + COUNT(contract longer than 12)]. Sales with any other term (0, blank, month-to-month) are excluded from BOTH numerator and denominator.',
     auto_pay_pct:   'COUNT(Auto-Pay field set and not "No") ÷ Sold Accounts.',
     audit_pct:      'COUNT(accounts NOT flagged "Failed Audit" in Customer Flags) ÷ Sold Accounts. Passed, No Audit, and not-yet-audited accounts all count as good.',
     last_resort_pct:'COUNT(accounts with Initial Service Price under $99) ÷ Sold Accounts. A pricing-quality signal — context only, NOT scored for Power Rank.',
-    reps:           'COUNT of unique rep names with at least one in-scope sale. Context only — NOT scored for Power Rank; used as the denominator for PRA.',
+    reps:           'COUNT of unique rep names with at least one in-scope sale. Context only — NOT scored for Power Rank.',
+    reps20k:        'COUNT of reps who sold MORE than $20,000 within this group and window — the PRA denominator. Context only, NOT scored for Power Rank.',
     _points:        'Each group is ranked 1–N on the 7 scored rows (Sold Accounts, Revenue, Avg Initial, ACV, PRA, Multi-Year %, Auto-Pay %). Power Rank = SUM of those 7 ranks; lowest total = #1. Reps W/ A Sale is NOT scored. Ties keep their summed totals.',
   };
   return (F[key] || '') + '\n\nWHICH SALES COUNT:\n• ' + scope.join('\n• ');
@@ -22975,6 +22984,13 @@ function viewIndicators() {
       const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
       const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
       const reps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
+      // PRA qualification (per Isaac, Jul 2026): only reps who sold MORE
+      // than $20K inside this group + window count toward the PRA
+      // denominator — one-sale stragglers and part-window transfers no
+      // longer dilute the average. Surfaced as its own context row.
+      const _repRev = {};
+      ss.forEach(s => { if (s.rep) _repRev[s.rep] = (_repRev[s.rep] || 0) + (Number(s.contractValue) || 0); });
+      const reps20k = Object.values(_repRev).filter(v => v > 20000).length;
       branchData[b] = {
         sold_accounts: count,
         revenue: rev,
@@ -22983,7 +22999,8 @@ function viewIndicators() {
         avg_initial: avgInit,
         avg_initial_count: pest.length,
         acv: count > 0 ? rev / count : 0,
-        pra: reps > 0 ? rev / reps : 0,
+        pra: reps20k > 0 ? rev / reps20k : 0,
+        reps20k,
         multi_year_pct: (twelve + multi) > 0 ? multi / (twelve + multi) : 0,
         auto_pay_pct: count > 0 ? autoPayCount / count : 0,
         audit_pct: count > 0 ? (count - auditFail) / count : 0,
@@ -23004,6 +23021,7 @@ function viewIndicators() {
     // Range: union across every week in window. Single-week: just that week.
     // Falls back to MAX of weekly counts if raw sales aren't available (pre-agg CSV).
     let reps;
+    let reps20k = null;
     const raw = indicatorSales();
     if (Array.isArray(raw) && raw.length) {
       // Group key matching: branch view compares against s.office; team view
@@ -23016,9 +23034,17 @@ function viewIndicators() {
         if (isRange) return weeks.includes(s.week) && groupKeyMatches(s);
         return groupKeyMatches(s) && s.week === currentWeek;
       };
-      reps = new Set(raw.filter(inWindow).map(s => s.rep).filter(Boolean)).size;
+      const _win = raw.filter(inWindow);
+      reps = new Set(_win.map(s => s.rep).filter(Boolean)).size;
+      // $20K PRA qualification — see the range path above for rationale.
+      const _repRev = {};
+      _win.forEach(s => { if (s.rep) _repRev[s.rep] = (_repRev[s.rep] || 0) + (Number(s.contractValue) || 0); });
+      reps20k = Object.values(_repRev).filter(v => v > 20000).length;
     } else {
+      // Pre-aggregated CSV: no per-rep revenue — fall back to the old
+      // denominator so PRA still renders instead of blanking out.
       reps = isRange ? Math.max(...rows.map(r => r.reps)) : rows[0]?.reps || 0;
+      reps20k = null;
     }
     // Avg Pest Initial — weight by the row's own non-Sentricon count (avg_initial_count).
     // Falls back to sold_accounts for pre-aggregated CSV rows that don't have it.
@@ -23040,7 +23066,8 @@ function viewIndicators() {
       avg_initial: avgInit,
       avg_initial_count: avgInitDen, // for proper RIDD-level weighting (excludes Sentricon)
       acv: sold > 0 ? rev / sold : 0,
-      pra: reps > 0 ? rev / reps : 0,
+      pra: reps20k != null ? (reps20k > 0 ? rev / reps20k : 0) : (reps > 0 ? rev / reps : 0),
+      reps20k: reps20k != null ? reps20k : reps,
       multi_year_pct: contractTotal > 0 ? multi / contractTotal : 0,
       auto_pay_pct: autoPay,
       audit_pct: sold > 0 ? (sold - auditFail) / sold : 0,
@@ -23083,7 +23110,7 @@ function viewIndicators() {
       riddTotal[m.key] = totalSold > 0 ? totalRev / totalSold : 0;
     } else if (m.key === 'pra') {
       const totalRev = activeBranches.reduce((a, b) => a + (branchData[b]?.revenue || 0), 0);
-      const totalReps = activeBranches.reduce((a, b) => a + (branchData[b]?.reps || 0), 0);
+      const totalReps = activeBranches.reduce((a, b) => a + (branchData[b]?.reps20k ?? branchData[b]?.reps ?? 0), 0);
       riddTotal[m.key] = totalReps > 0 ? totalRev / totalReps : 0;
     } else {
       riddTotal[m.key] = activeBranches.reduce((a, b) => a + (branchData[b]?.[m.key] || 0), 0);
@@ -24112,6 +24139,24 @@ function viewIndicators() {
                     branchData[b] ? fmt.int(branchData[b].reps || 0) : '—',
                   )),
                   el('td', { class: 'px-3 py-2 text-center tabular-nums font-bold' }, fmt.int(totalReps)),
+                );
+              })(),
+              // Reps > $20K — the PRA denominator. Context only, never
+              // scored: shows how many reps actually cleared the $20K
+              // qualification bar in each column's window.
+              (() => {
+                const total20 = activeBranches.reduce((a, b) => a + (branchData[b]?.reps20k ?? branchData[b]?.reps ?? 0), 0);
+                const cell = el('td', {
+                  class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
+                  style: { background: 'var(--card)', zIndex: 1, cursor: 'help' },
+                }, 'Reps > $20K');
+                attachExplainer(cell, { title: 'Reps > $20K', desc: indicatorMetricHelp('reps20k') });
+                return el('tr', { class: 'border-t border-' },
+                  cell,
+                  ...sortedBranches.map(b => el('td', { class: 'px-3 py-2 text-center tabular-nums' },
+                    branchData[b] ? fmt.int(branchData[b].reps20k ?? branchData[b].reps ?? 0) : '—',
+                  )),
+                  el('td', { class: 'px-3 py-2 text-center tabular-nums font-bold' }, fmt.int(total20)),
                 );
               })(),
               // Power Rank row — shows each branch's overall rank (1 = best).
@@ -29067,11 +29112,13 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   const pestRows = desc(Object.entries(byBranch).map(([o, b]) => [o, b.pestN > 0 ? b.pestSum / b.pestN : 0]));
   const companyACV  = sumAll('count') > 0 ? sumAll('revenue') / sumAll('count') : 0;
   const companyPest = sumAll('pestN') > 0 ? sumAll('pestSum') / sumAll('pestN') : 0;
-  // YTD PRA — per-rep average (subs/rep and revenue/rep) among reps with
-  // ≥1 sale in the branch since Jan 1; reps are credited to the branch
-  // they sold in. Anchored to the calendar year regardless of the page's
-  // date window so the panel always reads as year-to-date.
+  // YTD PRA — per-rep average (subs/rep and revenue/rep). Denominator is
+  // QUALIFIED reps only (per Isaac, Jul 2026): a rep must have sold MORE
+  // than $20K YTD inside the team to count toward its PRA — stragglers
+  // don't dilute the average. Revenue/subs still sum EVERY rep's sales.
+  // Anchored to the calendar year regardless of the page's date window.
   const praStart = new Date(new Date().getFullYear(), 0, 1);
+  const PRA_QUALIFY_MIN = 20000;
   const summer = {};
   for (const r of (allReps || [])) {
     for (const s of (r.sales || [])) {
@@ -29081,14 +29128,16 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       if (!Number.isFinite(d.getTime()) || d < praStart) continue;
       const o = teamOf(r);
       if (!o) continue; // unassigned + excluded-team reps stay off the panels
-      const b = summer[o] || (summer[o] = { revenue: 0, subs: 0, reps: new Set() });
-      b.revenue += Number(s.contractValue || 0); b.subs++; b.reps.add(r.name);
+      const b = summer[o] || (summer[o] = { revenue: 0, subs: 0, repRev: {} });
+      const cv = Number(s.contractValue || 0);
+      b.revenue += cv; b.subs++; b.repRev[r.name] = (b.repRev[r.name] || 0) + cv;
     }
   }
+  Object.values(summer).forEach(b => { b.q = Object.values(b.repRev).filter(v => v > PRA_QUALIFY_MIN).length; });
   const praRows = Object.entries(summer)
-    .map(([o, b]) => ({ o, subsPra: b.subs / Math.max(1, b.reps.size), revPra: b.revenue / Math.max(1, b.reps.size) }))
+    .map(([o, b]) => ({ o, q: b.q, subsPra: b.subs / Math.max(1, b.q), revPra: b.revenue / Math.max(1, b.q) }))
     .sort((a, b) => b.revPra - a.revPra);
-  const sumSummer = Object.values(summer).reduce((a, b) => ({ revenue: a.revenue + b.revenue, subs: a.subs + b.subs, reps: a.reps + b.reps.size }), { revenue: 0, subs: 0, reps: 0 });
+  const sumSummer = Object.values(summer).reduce((a, b) => ({ revenue: a.revenue + b.revenue, subs: a.subs + b.subs, reps: a.reps + b.q }), { revenue: 0, subs: 0, reps: 0 });
   const praCell = (txt, opts = {}) => el('td', { style: {
     padding: '3px 3px', fontSize: '8.5px', fontWeight: opts.bold ? '800' : '600',
     color: opts.color || '#1D1D1D', textAlign: opts.left ? 'left' : 'right',
@@ -29101,19 +29150,22 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       el('thead', {}, el('tr', { style: { background: '#fafafa' } },
         praCell('', {}),
         praCell('Branch', { left: true, color: '#666' }),
+        praCell('>$20K', { color: '#666' }),
         praCell('Subs', { color: '#666' }),
         praCell('Revenue', { color: '#666' }))),
       el('tbody', {},
         el('tr', { style: { background: '#1D1D1D' } },
           praCell('', {}),
           praCell('Company', { left: true, bold: true, color: '#fff', ellipsis: true }),
+          praCell(String(sumSummer.reps || 0), { bold: true, color: '#8DC63F' }),
           praCell(sumSummer.reps > 0 ? (sumSummer.subs / sumSummer.reps).toFixed(1) : '—', { bold: true, color: '#8DC63F' }),
           praCell(sumSummer.reps > 0 ? fmt.usd0(sumSummer.revenue / sumSummer.reps) : '—', { bold: true, color: '#8DC63F' })),
         ...praRows.map((r, i) => el('tr', {},
           praCell('#' + (i + 1), { color: '#999' }),
           praCell(r.o, { left: true, ellipsis: true }),
-          praCell(r.subsPra.toFixed(1)),
-          praCell(fmt.usd0(r.revPra)))))));
+          praCell(String(r.q || 0), { color: '#666' }),
+          praCell(r.q > 0 ? r.subsPra.toFixed(1) : '—'),
+          praCell(r.q > 0 ? fmt.usd0(r.revPra) : '—'))))));
 
   const branchPanel = revRows.length === 0 ? null : el('div', {},
     panelTable('Team Revenue',     revRows.map(([o, v]) => [o, fmt.usd0(v)]), ['Total', fmt.usd0(sumAll('revenue'))]),
