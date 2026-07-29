@@ -15091,13 +15091,13 @@ function indicatorMetricHelp(key) {
       ? 'Average Initial Service Price, excluding Sentricon, German Roach, and Interior Flea plans so termite installs don\u2019t skew the pest number.'
       : 'Average Initial Service Price across all accounts sold in the window.',
     acv:            'Revenue \u00f7 Subscriptions — the average contract value per subscription.',
-    pra:            'Revenue \u00f7 Reps > $20K — the per-rep average, counting only reps who sold more than $20,000 in this group and window.',
+    pra:            'Revenue \u00f7 Reps > $20K. Reps qualify on their company-wide total for the window and count toward the one column where they sold the most.',
     multi_year_pct: 'Contracts longer than 12 months \u00f7 all contracts that are 12 months or longer.',
     auto_pay_pct:   'Subscriptions with autopay on file \u00f7 Subscriptions.',
     audit_pct:      'Subscriptions NOT flagged Failed Audit \u00f7 Subscriptions — passed, pending, and unaudited all count as good.',
     last_resort_pct:'Subscriptions with an initial under $99 \u00f7 Subscriptions. Context only — not scored for Power Rank.',
     reps:           'Unique reps with at least one sale in the window. Context only — not scored for Power Rank.',
-    reps20k:        'Reps who sold more than $20,000 in this group and window — the PRA denominator. Context only.',
+    reps20k:        'Reps counted here for PRA: over $20,000 sold company-wide in the window, with this as their top-revenue column. Each qualified rep counts in exactly one column — no double counting.',
     _points:        'Each column is ranked 1\u2013N on the seven scored rows (Subscriptions, Revenue, Avg Initial, ACV, PRA, Multi-Year %, Auto-Pay %); Power Rank is the sum of those ranks — lowest total wins.',
   };
   return F[key] || '';
@@ -22945,6 +22945,43 @@ function viewIndicators() {
       (_rangeGroups[k] || (_rangeGroups[k] = [])).push(s);
     }
   }
+  // ── $20K PRA qualification — COMPANY-WIDE (per Isaac, Jul 2026) ──
+  // Reps sell across branches. Qualifying per-column both double-counted
+  // (> $20K in two branches = counted twice in RIDD) and dropped split reps
+  // ($15K + $12K = $27K total but no single branch over $20K = counted
+  // nowhere). So: the bar is the rep's TOTAL in-window production, and each
+  // qualified rep is counted in exactly ONE column — where they sold most.
+  const _praHome = (() => {
+    const agg = {};                       // rep -> { total, by: {group: rev} }
+    const bump = (s, k) => {
+      if (!s.rep) return;
+      const x = agg[s.rep] || (agg[s.rep] = { total: 0, by: {} });
+      const cv = Number(s.contractValue) || 0;
+      x.total += cv; x.by[k] = (x.by[k] || 0) + cv;
+    };
+    if (isRange && rawSalesAvailable && _rangeGroups) {
+      for (const [k, arr] of Object.entries(_rangeGroups)) arr.forEach(s => bump(s, k));
+    } else if (rawSalesAvailable) {
+      const keyOf = groupBy === 'teams' ? (s) => (getRepTeam(s.rep) || 'Unassigned')
+        : groupBy === 'dept' ? (s) => (DEPT_GROUP_LABELS[_indicatorDeptOf(s)] || 'OFFICE STAFF')
+        : groupBy === 'company' ? (s) => companyGroupOf(s.office)
+        : (s) => s.office || 'Unknown';
+      for (const s of (indicatorSales() || [])) {
+        if (!s.rep) continue;
+        if (isRange ? !weeks.includes(s.week) : s.week !== currentWeek) continue;
+        bump(s, keyOf(s));
+      }
+    }
+    const homeOf = {}, qualified = new Set();
+    for (const [rep, x] of Object.entries(agg)) {
+      let best = null, bv = -1;
+      for (const [k, v] of Object.entries(x.by)) if (v > bv) { bv = v; best = k; }
+      homeOf[rep] = best;
+      if (x.total > 20000) qualified.add(rep);
+    }
+    return { homeOf, qualified, agg };
+  })();
+  const _reps20kOf = (b) => { let n = 0; _praHome.qualified.forEach(r => { if (_praHome.homeOf[r] === b) n++; }); return n; };
   branches.forEach(b => {
     if (isRange && rawSalesAvailable) {
       const ss = _rangeGroups[b] || [];
@@ -22965,13 +23002,9 @@ function viewIndicators() {
       const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
       const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
       const reps = new Set(ss.map(s => s.rep).filter(Boolean)).size;
-      // PRA qualification (per Isaac, Jul 2026): only reps who sold MORE
-      // than $20K inside this group + window count toward the PRA
-      // denominator — one-sale stragglers and part-window transfers no
-      // longer dilute the average. Surfaced as its own context row.
-      const _repRev = {};
-      ss.forEach(s => { if (s.rep) _repRev[s.rep] = (_repRev[s.rep] || 0) + (Number(s.contractValue) || 0); });
-      const reps20k = Object.values(_repRev).filter(v => v > 20000).length;
+      // $20K PRA qualification — company-wide bar, home-column attribution
+      // (see _praHome above). Each qualified rep counts in exactly one column.
+      const reps20k = _reps20kOf(b);
       branchData[b] = {
         sold_accounts: count,
         revenue: rev,
@@ -23017,10 +23050,8 @@ function viewIndicators() {
       };
       const _win = raw.filter(inWindow);
       reps = new Set(_win.map(s => s.rep).filter(Boolean)).size;
-      // $20K PRA qualification — see the range path above for rationale.
-      const _repRev = {};
-      _win.forEach(s => { if (s.rep) _repRev[s.rep] = (_repRev[s.rep] || 0) + (Number(s.contractValue) || 0); });
-      reps20k = Object.values(_repRev).filter(v => v > 20000).length;
+      // $20K PRA qualification — company-wide bar, home-column attribution.
+      reps20k = _reps20kOf(b);
     } else {
       // Pre-aggregated CSV: no per-rep revenue — fall back to the old
       // denominator so PRA still renders instead of blanking out.
@@ -23135,7 +23166,7 @@ function viewIndicators() {
       });
     }
     const entries = Object.entries(rev).sort((x, y) => y[1] - x[1]);
-    const nQual = entries.filter(([, v]) => v > 20000).length;
+    const nQual = _reps20kOf(b);
     let winLabel = '';
     try {
       winLabel = isRange
@@ -23149,17 +23180,23 @@ function viewIndicators() {
         el('h3', { class: 'text-base font-bold' }, b),
         el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
       el('p', { class: 'text-xs text-muted- mb-3' },
-        (winLabel ? winLabel + ' · ' : '') + entries.length + ' rep' + (entries.length === 1 ? '' : 's') + ' w/ a sale · ' + nQual + ' > $20K (PRA denominator)'),
+        (winLabel ? winLabel + ' · ' : '') + entries.length + ' rep' + (entries.length === 1 ? '' : 's') + ' w/ a sale · ' + nQual + ' counted for PRA (> $20K company-wide, home column here)'),
       el('div', { style: { maxHeight: '60vh', overflowY: 'auto' } },
         el('table', { class: 'w-full text-sm' },
           el('tbody', {},
-            ...entries.map(([name, v], i) => el('tr', { class: 'border-t border-' },
-              el('td', { class: 'py-1.5 pr-2 tabular-nums text-muted- text-xs' }, '#' + (i + 1)),
-              el('td', { class: 'py-1.5 pr-2 font-semibold' }, name),
-              el('td', { class: 'py-1.5 text-right tabular-nums' }, fmt.usd0(v)),
-              el('td', { class: 'py-1.5 pl-2 text-right text-xs font-bold', style: { color: v > 20000 ? '#5F8A1F' : 'var(--text-muted)' } },
-                v > 20000 ? '✓ > $20K' : '—'),
-            ))))),
+            ...entries.map(([name, v], i) => {
+              const q    = _praHome.qualified.has(name);
+              const home = _praHome.homeOf[name];
+              const tot  = (_praHome.agg[name] && _praHome.agg[name].total) || 0;
+              const mark = !q ? '—' : (home === b ? '✓ counted here' : '→ in ' + home);
+              return el('tr', { class: 'border-t border-' },
+                el('td', { class: 'py-1.5 pr-2 tabular-nums text-muted- text-xs' }, '#' + (i + 1)),
+                el('td', { class: 'py-1.5 pr-2 font-semibold' }, name),
+                el('td', { class: 'py-1.5 text-right tabular-nums', title: tot > v + 0.5 ? 'Company-wide this window: ' + fmt.usd0(tot) : '' }, fmt.usd0(v)),
+                el('td', { class: 'py-1.5 pl-2 text-right text-xs font-bold whitespace-nowrap', style: { color: q ? (home === b ? '#5F8A1F' : 'var(--text-muted)') : 'var(--text-muted)' },
+                  title: q ? ('Sold ' + fmt.usd0(tot) + ' company-wide — counted in their top-revenue column') : ('Under $20K company-wide (' + fmt.usd0(tot) + ')') }, mark),
+              );
+            })))),
     ));
     document.body.append(overlay);
   };
@@ -25740,12 +25777,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Per-category sorted top-10 lists for the chosen scope.
       let topDays, topWeeks, topMonths, topPRA;
       if (isGroup) {
-        // PURE top 10 for the company (per Isaac, Jul 2026): every group's
+        // PURE company-wide top 10 (per Isaac, Jul 2026): every group's
         // period aggregates compete in ONE global list, so the same rep /
-        // branch / team can legitimately hold several of the ten slots.
-        // (Previously: one best-per-group, which hid a monster rep's #2-#5
-        // days behind other reps' single bests.) Each group contributes its
-        // own top 10 per category — the global top 10 can never need more.
+        // branch / team can hold several of the ten slots. Each group
+        // contributes its own top 10 per category — the global list can
+        // never need more than that.
         const salesMap = scope === 'branch' ? salesByBranch : scope === 'rep' ? salesByRep : salesByTeam;
         const dayL = [], weekL = [], monthL = [], praL = [];
         for (const g of groups) {
@@ -25801,7 +25837,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Branch/Team column) AND the per-group sub-drill tables (raw
       // aggregates, no group column).
       const renderRow = (entry, cat, i, isGroupRow) => {
-        const rec = entry; // both shapes carry the record directly now
+        const rec = entry; // group rows are raw records tagged with .group
+        const groupName = entry.group;
 
         const rankCell = el('td', {
           class: 'pl-3 pr-2 py-1.5 font-bold tabular-nums w-8',
@@ -25814,7 +25851,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         if (isGroupRow) {
           return el('tr', { class: 'border-t border-' },
             rankCell,
-            el('td', { class: 'px-2 py-1.5 font-semibold' }, scope === 'branch' ? titleCase(entry.group) : entry.group),
+            el('td', { class: 'px-2 py-1.5 font-semibold' }, scope === 'branch' ? titleCase(groupName) : groupName),
             el('td', { class: 'px-2 py-1.5 text-[10px] text-muted- tabular-nums whitespace-nowrap' }, labelOf(rec, cat)),
             valueCell,
           );
