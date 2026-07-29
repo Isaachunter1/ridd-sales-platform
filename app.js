@@ -590,6 +590,24 @@ function indicatorsSyncStampText() {
   if (isNaN(t)) return '';
   return t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
+// ONE sync clock, app-wide (per Isaac). Every stamp shows the SAME
+// timestamp (the shared dataset's publish moment) in the SAME zone — the
+// user's Time Zone preference, defaulting to Mountain (company clock) —
+// with the zone label printed so two users comparing screens can never
+// think they're out of sync when they're just in different time zones.
+function appSyncStampStr() {
+  indicatorsSyncStampText();   // runs the self-heal on the stored timestamp
+  if (!state.indicatorsUploadedAt) return '';
+  const t = new Date(state.indicatorsUploadedAt);
+  if (isNaN(t)) return '';
+  const p = (typeof userTzPref === 'function') ? userTzPref() : 'auto';
+  const tz = (typeof _TZ_RAW_OFFSET !== 'undefined' && _TZ_RAW_OFFSET[p] != null) ? p : 'America/Denver';
+  try {
+    return t.toLocaleString('en-US', { timeZone: tz, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).replace(',', ' \u00b7');
+  } catch (e) {
+    return t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+}
 // Is the shared dataset OVERDUE? Syncs land hourly on the hour, 8am–11pm ET
 // (paused overnight). Data older than ~100 min DURING selling hours means a
 // run failed or hasn't landed — the header stamp turns amber so staleness
@@ -3047,8 +3065,12 @@ function mountAuth(opts = {}) {
           const { error } = await supabase.auth.resetPasswordForEmail(email, {
             redirectTo: authEmailRedirectUrl(),
           });
-          if (error) throw error;
-          toast('Reset link sent — check your email.', 'success');
+          if (error) {
+            // Map Supabase's terse errors to something a rep can act on.
+            if (/rate limit|security purposes/i.test(error.message || '')) throw new Error('Too many reset requests — wait a minute and try once more.');
+            throw error;
+          }
+          toast('Reset link sent — check your email. Open it on THIS device and browser.', 'success');
           form.dataset.mode = 'login';
           renderMode();
         } else if (mode === 'recover') {
@@ -3088,10 +3110,12 @@ function mountAuth(opts = {}) {
           // CLEAN url before the reload — keeping window.location.search
           // here preserved the PKCE reset link's `?code=` param, so the
           // reload re-ran the already-used code exchange and could bounce
-          // the rep to the login screen instead of into the app. Pin the
-          // hash to #indicators so everyone lands on the app's home tab.
-          history.replaceState(null, '', window.location.pathname + '#indicators');
-          location.reload();
+          // the rep to the login screen instead of into the app. NO hash
+          // either (per Isaac): an empty hash lets boot route each rep to
+          // their role's DEFAULT screen (D2D → Sales group, office staff →
+          // Sales tab, admins → Dashboard) instead of forcing Indicators.
+          history.replaceState(null, '', window.location.pathname);
+          setTimeout(() => location.reload(), 350);   // let "✓ Saved" paint
           return;
         }
       } catch (err) {
@@ -4649,7 +4673,7 @@ function mountApp() {
         // Inside Sales queue is CRM-fed — the stamp says how live it is.
         // Shown on EVERY tab (per Isaac) — the whole app rides the same
         // hourly sync, so freshness is always relevant.
-        const txt = (typeof indicatorsSyncStampText === 'function') ? indicatorsSyncStampText() : '';
+        const txt = (typeof appSyncStampStr === 'function') ? appSyncStampStr() : '';
         const lvl = (typeof indicatorsSyncStaleness === 'function') ? indicatorsSyncStaleness() : null;
         const c = lvl === 'red' ? '#DC2626' : lvl === 'amber' ? '#D97706' : null;
         return txt ? el('span', {
@@ -4659,7 +4683,7 @@ function mountApp() {
             : lvl === 'amber' ? 'Data is older than the hourly sync cadence — a run may have failed (check Netlify logs)'
             : 'Syncs land hourly on the hour, 8am–11pm ET',
         },
-          'Last upload: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, txt),
+          'Last sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, txt),
           lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '') : null;
       })(),
     ),
@@ -18163,6 +18187,14 @@ function nrlaBoard(rawSales, opts) {
 // responses doesn't casually read their prize early. Opened state is
 // per-device (localStorage) — delivery tracking is the admin's Delivered
 // checkbox, so no rep-side writes are needed.
+// Prize rarity tiers (per Isaac) — the color of the light IS the drama.
+const MB_RARITIES = {
+  bronze:   { label: 'Bronze',   color: '#CD8A4B', text: '#E2A868', rays: false },
+  silver:   { label: 'Silver',   color: '#C7D4E2', text: '#E4EDF6', rays: false },
+  gold:     { label: 'Gold',     color: '#FFD86B', text: '#FFE59A', rays: true },
+  platinum: { label: 'Platinum', color: '#9FDCFF', text: '#E3F5FF', rays: true },
+};
+function _mbRarityOf(prize) { return MB_RARITIES[(state._mbRarity || {})[prize]] || MB_RARITIES.bronze; }
 const MB_DEFAULT_DECOYS = ['$500 cash', '$100 cash', 'AirPods Pro', 'YETI cooler', '$50 gift card', 'Dinner for two', 'Massage gun', 'Day off', 'Team lunch', '$250 cash'];
 const _mbEnc = (s) => { try { return btoa(unescape(encodeURIComponent(String(s)))); } catch (e) { return ''; } };
 const _mbDec = (s) => { try { return decodeURIComponent(escape(atob(String(s)))); } catch (e) { return '?'; } };
@@ -18178,7 +18210,8 @@ async function loadMysteryBoxes() {
     state._mbGoals = (v.goals && typeof v.goals === 'object') ? v.goals : { rookie: 1500, vet: 2000 };
     state._mbPool = Array.isArray(v.pool) ? v.pool : [];
     state._mbOdds = (v.odds && typeof v.odds === 'object') ? v.odds : {};
-  } catch (e) { state._mysteryBoxes = []; state._mbGoals = { rookie: 1500, vet: 2000 }; state._mbPool = []; state._mbOdds = {}; }
+    state._mbRarity = (v.rarity && typeof v.rarity === 'object') ? v.rarity : {};
+  } catch (e) { state._mysteryBoxes = []; state._mbGoals = { rookie: 1500, vet: 2000 }; state._mbPool = []; state._mbOdds = {}; state._mbRarity = {}; }
   if (state.view === 'nrla') mountApp();
 }
 async function _mbSaveCfg(patch) {
@@ -18186,8 +18219,9 @@ async function _mbSaveCfg(patch) {
   if (patch.goals) state._mbGoals = patch.goals;
   if (patch.pool) state._mbPool = patch.pool;
   if (patch.odds) state._mbOdds = patch.odds;
+  if (patch.rarity) state._mbRarity = patch.rarity;
   if (DEMO || !supabase || !isAdminRole(state.profile?.role)) return;
-  const value = { boxes: state._mysteryBoxes || [], goals: state._mbGoals || { rookie: 1500, vet: 2000 }, pool: state._mbPool || [], odds: state._mbOdds || {} };
+  const value = { boxes: state._mysteryBoxes || [], goals: state._mbGoals || { rookie: 1500, vet: 2000 }, pool: state._mbPool || [], odds: state._mbOdds || {}, rarity: state._mbRarity || {} };
   try {
     const { error } = await supabase.from('app_settings').upsert({ key: 'mystery_boxes', value }, { onConflict: 'key' });
     if (error) toast('Mystery Box save failed: ' + error.message, 'error');
@@ -18205,11 +18239,18 @@ function mysteryBoxDayStats(day) {
     if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
     const _iso = (typeof dateSoldToIso === 'function' ? dateSoldToIso(s.dateSold) : '');
     if (!_iso || _iso < day.from || _iso > day.to) continue;
-    if (typeof springCleaningStatus === 'function' && springCleaningStatus(s) === 'excluded') continue;
     const nm = getCanonicalRepName(s.rep);
     if (!nm) continue;
-    const o = byRep.get(nm) || { name: nm, rev: 0, n: 0 };
-    o.rev += Number(s.contractValue) || 0; o.n++;
+    const cv = Number(s.contractValue) || 0;
+    const o = byRep.get(nm) || { name: nm, rev: 0, n: 0, total: 0, totalN: 0, failed: 0 };
+    o.total += cv; o.totalN++;
+    // Buckets: PASSED = passed audit + no audit + pending (assumed passing).
+    // FAILED = failed-audit accounts + Last Resort (<$99). Sold-not-started
+    // rows count in Total only.
+    const isLR = (Number(s.initialPrice) || 0) < 99;
+    const isFailAudit = (typeof SC_FAIL_RE !== 'undefined') && SC_FAIL_RE.test(s.customerFlags || '');
+    if (isLR || isFailAudit) o.failed += cv;
+    else if (!(typeof springCleaningStatus === 'function' && springCleaningStatus(s) === 'excluded')) { o.rev += cv; o.n++; }
     byRep.set(nm, o);
   }
   return [...byRep.values()].map(o => {
@@ -18237,7 +18278,13 @@ function _mbEnsureStyles() {
 @keyframes mbRise { 0%{transform:translateX(-50%) translateY(46px) scale(.5);opacity:0} 65%{opacity:1} 82%{transform:translateX(-50%) translateY(-146px) scale(1.03)} 100%{transform:translateX(-50%) translateY(-135px) scale(1);opacity:1} }
 @keyframes mbFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-12px)} }
 @keyframes mbGlowPulse { 0%,100%{opacity:.5;transform:translate(-50%,-50%) scale(1)} 50%{opacity:.85;transform:translate(-50%,-50%) scale(1.12)} }
-@keyframes mbSceneIn { 0%{opacity:0;transform:scale(.92)} 100%{opacity:1;transform:scale(1)} }`;
+@keyframes mbSceneIn { 0%{opacity:0;transform:scale(.92)} 100%{opacity:1;transform:scale(1)} }
+@keyframes mbIdle { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)} }
+@keyframes mbGlint { 0%{opacity:0;transform:scale(.4)} 25%{opacity:.95;transform:scale(1)} 100%{opacity:0;transform:scale(1.6)} }
+@keyframes mbLeak { 0%{opacity:0} 25%{opacity:.45} 40%{opacity:.2} 60%{opacity:.8} 75%{opacity:.55} 100%{opacity:1} }
+@keyframes mbFlashFull { 0%{opacity:0} 18%{opacity:1} 100%{opacity:0} }
+@keyframes mbRays { 0%{transform:translate(-50%,-50%) rotate(0)} 100%{transform:translate(-50%,-50%) rotate(360deg)} }
+@keyframes mbDrift { 0%,100%{transform:translate(-50%,-50%) translateX(-26px)} 50%{transform:translate(-50%,-50%) translateX(26px)} }`;
   document.head.append(st);
 }
 // A professional CSS gift box (no emoji): beveled charcoal base, velvet
@@ -18261,16 +18308,20 @@ function _mbGiftEl(w) {
   wrap2.append(face([[w, t], [W, 0], [W, h], [w, H]], grain + ', linear-gradient(180deg, #241b13 0%, #120d08 100%)'));
   // FRONT — main leather face.
   wrap2.append(face([[0, t], [w, t], [w, H], [0, H]], grain + ', linear-gradient(160deg, #43362c 0%, #2e2318 55%, #1c150f 100%)'));
-  // Lid seam across the front.
+  // Gold trim along the top-front edge (where lid meets base) + lid seam.
+  wrap2.append(el('div', { style: { position: 'absolute', left: '0', top: t + 'px', width: w + 'px', height: '2px', background: 'linear-gradient(90deg, rgba(232,198,106,.15), rgba(232,198,106,.7) 50%, rgba(232,198,106,.15))' } }));
   wrap2.append(el('div', { style: { position: 'absolute', left: '0', top: (t + Math.round(h * 0.24)) + 'px', width: w + 'px', height: '2px', background: 'linear-gradient(90deg, rgba(0,0,0,.75), rgba(0,0,0,.4) 50%, rgba(0,0,0,.75))', boxShadow: '0 1px 0 rgba(255,255,255,.06)' } }));
+  // Leather sheen — a soft diagonal specular sweep across the front.
+  wrap2.append(el('div', { style: { position: 'absolute', left: '0', top: t + 'px', width: w + 'px', height: h + 'px', background: 'linear-gradient(115deg, transparent 30%, rgba(255,255,255,.07) 45%, rgba(255,255,255,.02) 52%, transparent 60%)', borderRadius: '0 0 ' + Math.round(w * .06) + 'px ' + Math.round(w * .06) + 'px', pointerEvents: 'none' } }));
+  // Stitched inner border on the front face.
+  wrap2.append(el('div', { style: { position: 'absolute', left: Math.round(w * .045) + 'px', top: (t + Math.round(h * .30)) + 'px', width: Math.round(w * .91) + 'px', height: Math.round(h * .62) + 'px', border: '1px dashed rgba(232,198,106,.28)', borderRadius: Math.round(w * .04) + 'px', pointerEvents: 'none' } }));
+  // Embossed gold RIDD stamp above the keyhole.
+  wrap2.append(el('div', { style: { position: 'absolute', left: Math.round(w / 2) + 'px', top: (t + Math.round(h * 0.13)) + 'px', transform: 'translateX(-50%)', fontSize: Math.max(8, Math.round(w * .11)) + 'px', fontWeight: '900', letterSpacing: '.22em', fontStyle: 'italic', color: 'rgba(232,198,106,.85)', textShadow: '0 -1px 0 rgba(0,0,0,.8), 0 1px 0 rgba(255,235,180,.25)' } }, 'RIDD'));
   // Gold keyhole escutcheon — front center.
   const kw = Math.max(9, Math.round(w * 0.17));
-  wrap2.append(el('div', { style: { position: 'absolute', left: Math.round(w / 2) + 'px', top: (t + Math.round(h * 0.40)) + 'px', transform: 'translateX(-50%)', width: kw + 'px', height: Math.round(kw * 1.32) + 'px', borderRadius: '46% 46% 38% 38%', background: 'linear-gradient(160deg,#e8c66a 0%,#b8892f 55%,#8a6420 100%)', boxShadow: '0 1px 3px rgba(0,0,0,.7), inset 0 1px 1px rgba(255,255,255,.5)' } },
+  wrap2.append(el('div', { style: { position: 'absolute', left: Math.round(w / 2) + 'px', top: (t + Math.round(h * 0.46)) + 'px', transform: 'translateX(-50%)', width: kw + 'px', height: Math.round(kw * 1.32) + 'px', borderRadius: '46% 46% 38% 38%', background: 'linear-gradient(160deg,#e8c66a 0%,#b8892f 55%,#8a6420 100%)', boxShadow: '0 1px 3px rgba(0,0,0,.7), inset 0 1px 1px rgba(255,255,255,.5)' } },
     el('div', { style: { position: 'absolute', left: '50%', top: '20%', transform: 'translateX(-50%)', width: '34%', height: '32%', borderRadius: '50%', background: '#17110b' } }),
     el('div', { style: { position: 'absolute', left: '50%', top: '42%', transform: 'translateX(-50%)', width: '0', height: '0', borderLeft: Math.round(kw * .14) + 'px solid transparent', borderRight: Math.round(kw * .14) + 'px solid transparent', borderBottom: Math.round(kw * .40) + 'px solid #17110b' } })));
-  // RIDD sticker — on the lid, sheared to lie on the top plane.
-  const shear = -Math.round(Math.atan(sd / t) * 180 / Math.PI);
-  wrap2.append(el('div', { style: { position: 'absolute', left: Math.round(sd * 0.55 + w * 0.30) + 'px', top: Math.round(t * 0.18) + 'px', transform: 'skewX(' + shear + 'deg) rotate(-1.5deg)', padding: '1px ' + Math.round(w * .07) + 'px', fontSize: Math.max(7, Math.round(w * .105)) + 'px', fontWeight: '900', letterSpacing: '.08em', fontStyle: 'italic', color: '#1c150f', background: 'linear-gradient(180deg,#f4f0e4,#ddd6c2)', borderRadius: '3px', boxShadow: '0 1px 2px rgba(0,0,0,.5)', border: '1px solid rgba(0,0,0,.25)' } }, 'RIDD'));
   return wrap2;
 }
 // ── The Icybox-style picker: a carousel of identical gift boxes. Spin it
@@ -18287,76 +18338,116 @@ function openMysteryBoxOverlay(box) {
   // the outcome is already locked, but the odds ARE the real arming odds.
   const _poolL = state._mbPool || [];
   const legend = _poolL.length ? el('div', { class: 'flex items-center justify-center gap-2 flex-wrap mt-3', style: { maxWidth: '640px', margin: '12px auto 0' } },
-    ..._poolL.map(p => el('span', { class: 'text-[11px] font-bold px-2.5 py-1 rounded-full', style: { background: 'rgba(255,255,255,.1)', color: 'rgba(255,255,255,.85)' } }, p))) : null;
+    ..._poolL.map(p => { const rm = _mbRarityOf(p); return el('span', { class: 'text-[11px] font-bold px-2.5 py-1 rounded-full', style: { background: rm.color + '1f', color: rm.text, border: '1px solid ' + rm.color + '44' } }, p); })) : null;
   // ── IcyBox-style 3D CAROUSEL: the boxes stand on a floor and orbit in
   // depth — front box big and lit, the rest receding smaller and dimmer
   // behind it. Drag left/right to spin the carousel (momentum on release),
   // tap any box to crack it.
-  const N = 10;
-  const stageW = Math.min(window.innerWidth * 0.94, 860);
-  const stageH = Math.min(window.innerHeight * 0.58, 480);
-  const RX = stageW * 0.36;          // horizontal orbit radius
-  const RY = stageH * 0.16;          // depth-to-vertical parallax
+  const N = 8;
+  const stageW = Math.min(window.innerWidth * 0.96, 1020);
+  const stageH = Math.min(window.innerHeight * 0.62, 540);
+  const RX = stageW * 0.40;          // horizontal orbit radius
+  const RY = stageH * 0.17;          // depth-to-vertical parallax
   const ring = el('div', { style: { position: 'relative', width: stageW + 'px', height: stageH + 'px', margin: '4px auto', touchAction: 'none', cursor: 'grab', userSelect: 'none', flexShrink: '0', overflow: 'visible' } });
-  // Deep floor glow — the stage the boxes sit on.
-  ring.append(el('div', { style: { position: 'absolute', left: '50%', top: '68%', transform: 'translate(-50%,-50%)', width: '115%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(28,40,130,.55) 0%, rgba(18,24,80,.3) 45%, transparent 72%)', pointerEvents: 'none' } }));
+  // Deep floor glow — drifts slowly so the stage feels lit, not printed.
+  ring.append(el('div', { style: { position: 'absolute', left: '50%', top: '68%', transform: 'translate(-50%,-50%)', width: '115%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(28,40,130,.55) 0%, rgba(18,24,80,.3) 45%, transparent 72%)', pointerEvents: 'none', animation: 'mbDrift 9s ease-in-out infinite' } }));
   let done = false, _dragged = false;
   const boxEls = [];
   // ── HERO REVEAL — spotlight scene, lid swings open, prize rises out. ──
   function _mbHeroReveal() {
+    const R2 = _mbRarityOf(prize);
     const scene = el('div', { style: { position: 'relative', width: '100vw', height: '76vh', perspective: '1100px', animation: 'mbSceneIn .5s ease-out forwards' } });
-    scene.append(el('div', { style: { position: 'absolute', left: '50%', top: '52%', transform: 'translate(-50%,-50%)', width: '620px', height: '620px', maxWidth: '95vw', borderRadius: '50%', background: 'radial-gradient(circle, rgba(141,198,63,.16) 0%, rgba(141,198,63,.05) 38%, transparent 68%)', animation: 'mbGlowPulse 3.2s ease-in-out infinite', pointerEvents: 'none' } }));
+    scene.append(el('div', { style: { position: 'absolute', left: '50%', top: '52%', transform: 'translate(-50%,-50%)', width: '620px', height: '620px', maxWidth: '95vw', borderRadius: '50%', background: 'radial-gradient(circle, ' + R2.color + '2e 0%, ' + R2.color + '0f 38%, transparent 68%)', animation: 'mbGlowPulse 3.2s ease-in-out infinite', pointerEvents: 'none' } }));
+    // Gold/Platinum: rotating light rays behind the prize.
+    if (R2.rays) scene.append(el('div', { style: { position: 'absolute', left: '50%', top: '38%', width: '560px', height: '560px', maxWidth: '92vw', borderRadius: '50%', background: 'repeating-conic-gradient(' + R2.color + '30 0deg 9deg, transparent 9deg 24deg)', WebkitMaskImage: 'radial-gradient(circle, black 0%, transparent 68%)', maskImage: 'radial-gradient(circle, black 0%, transparent 68%)', animation: 'mbRays 11s linear infinite', opacity: '0', transition: 'opacity 1.2s', pointerEvents: 'none' } }));
     scene.append(
       el('div', { style: { position: 'absolute', left: '7%', bottom: '30%', opacity: '.18', filter: 'blur(1.5px)', transform: 'scale(.8) rotate(-6deg)' } }, _mbGiftEl(96)),
       el('div', { style: { position: 'absolute', right: '7%', bottom: '32%', opacity: '.18', filter: 'blur(1.5px)', transform: 'scale(.75) rotate(5deg)' } }, _mbGiftEl(96)));
     const BW = 250, BH = 150, LID = 78;
     const hero = el('div', { style: { position: 'absolute', left: '50%', bottom: '16%', transform: 'translateX(-50%)', width: BW + 'px', height: (BH + LID) + 'px', transformStyle: 'preserve-3d', perspective: '650px' } });
     // Light flash from the mouth of the box as the lid clears it.
-    hero.append(el('div', { style: { position: 'absolute', left: '8%', top: (LID - 20) + 'px', width: '84%', height: '54px', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(196,255,130,.9) 0%, rgba(141,198,63,.4) 45%, transparent 75%)', opacity: '0', animation: 'mbFlash .7s ease-out 1.05s forwards', filter: 'blur(6px)', zIndex: 5, pointerEvents: 'none' } }));
+    hero.append(el('div', { style: { position: 'absolute', left: '8%', top: (LID - 20) + 'px', width: '84%', height: '54px', borderRadius: '50%', background: 'radial-gradient(ellipse, ' + R2.color + 'e6 0%, ' + R2.color + '66 45%, transparent 75%)', opacity: '0', animation: 'mbFlash .7s ease-out .75s forwards', filter: 'blur(6px)', zIndex: 5, pointerEvents: 'none' } }));
     hero.append(el('div', { style: { position: 'absolute', left: '4%', top: (LID - 12) + 'px', width: '92%', height: '44px', borderRadius: '8px 8px 0 0', background: 'linear-gradient(180deg,#0d3320 0%,#124528 55%,#0a2718 100%)', boxShadow: 'inset 0 6px 14px rgba(0,0,0,.75)' } }));
     hero.append(el('div', { style: { position: 'absolute', left: '0', top: LID + 'px', width: '100%', height: BH + 'px', clipPath: 'polygon(5% 0,95% 0,100% 12%,100% 100%,0 100%,0 12%)', background: 'radial-gradient(rgba(255,255,255,.035) 1px, transparent 1.3px), linear-gradient(180deg,#43362c 0%,#2e2318 55%,#1a140e 100%)', backgroundSize: '5px 5px, 100% 100%', boxShadow: '0 26px 50px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.1)' } },
       el('div', { style: { position: 'absolute', left: '50%', bottom: '14px', transform: 'translateX(-50%)', padding: '3px 18px', fontSize: '13px', fontWeight: '900', letterSpacing: '.12em', fontStyle: 'italic', color: '#e8c66a', background: 'linear-gradient(180deg,#2a2018,#17110b)', border: '1px solid rgba(232,198,106,.45)', borderRadius: '4px' } }, 'RIDD')));
-    hero.append(el('div', { style: { position: 'absolute', left: '-3%', top: '0', width: '106%', height: LID + 'px', borderRadius: '10px', background: 'radial-gradient(rgba(255,255,255,.05) 1px, transparent 1.3px), linear-gradient(180deg,#5c4d3e 0%,#3c2f23 70%,#241b13 100%)', backgroundSize: '5px 5px, 100% 100%', boxShadow: '0 4px 10px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.16)', transformOrigin: '50% 0%', animation: 'mbLid 1.15s cubic-bezier(.55,.06,.28,.99) .45s forwards', zIndex: 4 } },
+    hero.append(el('div', { style: { position: 'absolute', left: '-3%', top: '0', width: '106%', height: LID + 'px', borderRadius: '10px', background: 'radial-gradient(rgba(255,255,255,.05) 1px, transparent 1.3px), linear-gradient(180deg,#5c4d3e 0%,#3c2f23 70%,#241b13 100%)', backgroundSize: '5px 5px, 100% 100%', boxShadow: '0 4px 10px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.16)', transformOrigin: '50% 0%', animation: 'mbLid 1.05s cubic-bezier(.55,.06,.28,.99) .2s forwards', zIndex: 4 } },
       el('div', { style: { position: 'absolute', left: '0', bottom: '0', width: '100%', height: '3px', background: 'linear-gradient(90deg, rgba(232,198,106,.15), rgba(232,198,106,.65) 50%, rgba(232,198,106,.15))' } })));
-    hero.append(el('div', { style: { position: 'absolute', left: '50%', bottom: (LID + 40) + 'px', transform: 'translateX(-50%)', opacity: '0', animation: 'mbRise 1.1s cubic-bezier(.3,.8,.3,1) 1.35s forwards', zIndex: 6, width: 'max-content', maxWidth: '86vw' } },
-      el('div', { style: { animation: 'mbFloat 3.4s ease-in-out 2.6s infinite' } },
-        el('div', { class: 'font-display', style: { fontSize: '42px', textAlign: 'center', color: '#B8F55C', textShadow: '0 0 18px rgba(141,198,63,.65), 0 0 60px rgba(141,198,63,.35), 0 2px 4px rgba(0,0,0,.8)' } }, prize))));
+    hero.append(el('div', { style: { position: 'absolute', left: '50%', bottom: (LID + 40) + 'px', transform: 'translateX(-50%)', opacity: '0', animation: 'mbRise 1.1s cubic-bezier(.3,.8,.3,1) .95s forwards', zIndex: 6, width: 'max-content', maxWidth: '86vw' } },
+      el('div', { style: { animation: 'mbFloat 3.4s ease-in-out 2.2s infinite' } },
+        el('div', { class: 'font-display', style: { fontSize: '13px', letterSpacing: '.3em', textAlign: 'center', color: R2.color, opacity: '.85', marginBottom: '4px', textTransform: 'uppercase' } }, R2.label),
+        el('div', { class: 'font-display', style: { fontSize: '42px', textAlign: 'center', color: R2.text, textShadow: '0 0 18px ' + R2.color + 'aa, 0 0 60px ' + R2.color + '59, 0 2px 4px rgba(0,0,0,.8)' } }, prize))));
     scene.append(hero);
+    // Rays ease in with the rise.
+    if (R2.rays) setTimeout(() => { const rays = scene.children[1]; if (rays) rays.style.opacity = '1'; }, 1100);
     setTimeout(() => {
-      for (let k = 0; k < 8; k++) {
+      for (let k = 0; k < (R2.rays ? 16 : 8); k++) {
         const s = el('span', { class: 'mb-burst', style: { top: '38%', fontSize: '15px' } }, '\u2728');
         s.style.setProperty('--bx', (Math.random() * 300 - 150).toFixed(0) + 'px');
         s.style.setProperty('--by', (Math.random() * 200 - 160).toFixed(0) + 'px');
         scene.append(s);
       }
-    }, 1700);
+    }, 1300);
     wrap.append(scene);
     _mbMarkOpened(box.id);
   }
   const reveal = (boxEl) => {
     if (done) return; done = true;
     ring.style.pointerEvents = 'none';
-    // The chosen box GLIDES to center-front and grows while the rest fade —
-    // then the hero scene takes over in the same spot and the lid opens.
-    boxEls.forEach(c => { if (c !== boxEl) c.style.opacity = '.06'; });
-    boxEl.style.transition = 'transform .75s cubic-bezier(.3,.7,.25,1), filter .75s, opacity .3s';
+    clearInterval(_glintTimer);
+    const R2 = _mbRarityOf(prize);
+    _mbThud();
+    // ACT 1 — the pick: everything else dies, the camera pushes in, the
+    // chosen box glides to center-front.
+    boxEls.forEach(c => { if (c !== boxEl) { c.style.transition = 'opacity .8s'; c.style.opacity = '.04'; } });
+    title.style.transition = 'opacity .6s'; hint.style.transition = 'opacity .6s';
+    title.style.opacity = '.25'; hint.style.opacity = '0';
+    if (legend) { legend.style.transition = 'opacity .6s'; legend.style.opacity = '0'; }
+    ring.style.transition = 'transform 1.1s cubic-bezier(.3,.7,.2,1)';
+    ring.style.transform = 'scale(1.18)';
+    boxEl.style.transition = 'transform .95s cubic-bezier(.3,.7,.25,1), filter .95s, opacity .3s';
     boxEl.style.zIndex = '400';
-    boxEl.style.transform = 'translate(-50%,-50%) translate(0px,' + (RY * 0.9).toFixed(0) + 'px) scale(2.05)';
+    boxEl.style.transform = 'translate(-50%,-50%) translate(0px,' + (RY * 0.9).toFixed(0) + 'px) scale(2.0)';
     boxEl.style.filter = 'brightness(1.05)';
+    // ACT 2 — the tease: light leaks from the lid seam, the riser swells.
     setTimeout(() => {
-      ring.style.display = 'none';
-      title.style.display = 'none'; hint.style.display = 'none';
-      if (legend) legend.style.display = 'none';
-      _mbHeroReveal();
-    }, 850);
+      const gift = boxEl.firstChild && boxEl.firstChild.firstChild;
+      if (gift) gift.append(el('div', { style: { position: 'absolute', left: '4%', top: '32%', width: '92%', height: '3px', background: R2.color, boxShadow: '0 0 14px 3px ' + R2.color + ', 0 0 34px 8px ' + R2.color + '66', animation: 'mbLeak 1.15s ease-in forwards', pointerEvents: 'none', zIndex: 6 } }));
+      _mbRiserSnd();
+    }, 950);
+    // ACT 3 — the burst: full-screen flash in the rarity color, hero scene.
+    setTimeout(() => {
+      const flash = el('div', { style: { position: 'fixed', inset: '0', background: 'radial-gradient(circle at 50% 60%, ' + R2.color + 'e6 0%, ' + R2.color + '55 35%, transparent 75%)', animation: 'mbFlashFull .55s ease-out forwards', zIndex: '10002', pointerEvents: 'none' } });
+      overlay.append(flash);
+      setTimeout(() => flash.remove(), 600);
+      _mbChime(R2.rays);
+      setTimeout(() => {
+        ring.style.display = 'none';
+        title.style.display = 'none'; hint.style.display = 'none';
+        if (legend) legend.style.display = 'none';
+        _mbHeroReveal();
+      }, 180);
+    }, 2150);
   };
   for (let i = 0; i < N; i++) {
+    // Inner idle wrapper — the bob animation lives here so it never fights
+    // the carousel's transform on the outer element.
     const b = el('div', {
       style: { position: 'absolute', left: '50%', top: '50%', cursor: 'pointer', transition: 'opacity .3s', willChange: 'transform, filter' },
-    }, _mbGiftEl(148));
+    }, el('div', { style: { animation: 'mbIdle ' + (3.1 + (i % 4) * 0.45).toFixed(2) + 's ease-in-out ' + (i * 0.37).toFixed(2) + 's infinite' } }, _mbGiftEl(175)));
     boxEls.push(b);
     ring.append(b);
   }
+  // Keyhole glints — every few seconds a random box's keyhole catches the
+  // light. Cleared on reveal/close.
+  const _glintTimer = setInterval(() => {
+    if (done) return;
+    const b2 = boxEls[Math.floor(Math.random() * boxEls.length)];
+    const gift = b2 && b2.firstChild && b2.firstChild.firstChild;
+    if (!gift) return;
+    const g = el('div', { style: { position: 'absolute', left: '46%', top: '58%', width: '26px', height: '26px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,240,190,.95) 0%, rgba(255,216,107,.4) 45%, transparent 70%)', animation: 'mbGlint .85s ease-out forwards', pointerEvents: 'none', zIndex: 5 } });
+    gift.append(g);
+    setTimeout(() => g.remove(), 900);
+  }, 2600);
   // Carousel projection: x from sin, depth from cos → scale, height,
   // brightness and stacking all follow the depth, like their stage.
   let angle = 0;
@@ -18385,12 +18476,15 @@ function openMysteryBoxOverlay(box) {
     ring.style.cursor = 'grabbing';
     try { ring.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
   });
+  let _tickAcc = 0;
+  const _tickOn = (d) => { _tickAcc += Math.abs(d); const step = 360 / N / 3; if (_tickAcc >= step) { _tickAcc = 0; _mbTick(); } };
   ring.addEventListener('pointermove', (e) => {
     if (!_down) return;
     const next = _down.base + (e.clientX - _down.x) * 0.38;
     if (Math.abs(next - _down.base) > 2) _dragged = true;
     _vel = next - angle;
     angle = next;
+    _tickOn(_vel);
     layout();
   });
   const _release = () => {
@@ -18403,6 +18497,7 @@ function openMysteryBoxOverlay(box) {
     const glide = () => {
       if (Math.abs(v) < .06 || done) return;
       angle += v; v *= .96;
+      _tickOn(v);
       layout();
       _momRaf = requestAnimationFrame(glide);
     };
@@ -18415,12 +18510,44 @@ function openMysteryBoxOverlay(box) {
   overlay.append(el('button', {
     style: { position: 'fixed', top: '18px', left: '18px', fontSize: '26px', lineHeight: '1', color: 'rgba(255,255,255,.6)', background: 'none', border: 'none', cursor: 'pointer', zIndex: '10001' },
     title: 'Close',
-    onclick: () => { overlay.remove(); mountApp(); },
+    onclick: () => { clearInterval(_glintTimer); overlay.remove(); mountApp(); },
   }, '\u00d7'));
   overlay.append(wrap);
   document.body.append(overlay);
   layout();
 }
+// ── Sound design — tiny Web Audio engine, zero assets. Gentle volumes;
+// every call is try/catch'd so audio can never break the spin.
+let _mbAC = null;
+function _mbCtx() {
+  try {
+    if (!_mbAC) _mbAC = new (window.AudioContext || window.webkitAudioContext)();
+    if (_mbAC.state === 'suspended') _mbAC.resume();
+    return _mbAC;
+  } catch (e) { return null; }
+}
+function _mbTone(freq, dur, type, vol, sweepTo) {
+  try {
+    const ctx = _mbCtx(); if (!ctx) return;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, ctx.currentTime);
+    if (sweepTo) o.frequency.exponentialRampToValueAtTime(sweepTo, ctx.currentTime + dur);
+    g.gain.setValueAtTime(vol || 0.08, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + dur + 0.02);
+  } catch (e) { /* silent */ }
+}
+const _mbTick = () => _mbTone(1250, 0.025, 'square', 0.03);
+const _mbThud = () => { _mbTone(88, 0.28, 'sine', 0.35); _mbTone(54, 0.34, 'sine', 0.22); };
+const _mbRiserSnd = () => _mbTone(150, 1.25, 'sawtooth', 0.06, 620);
+const _mbChime = (big) => {
+  _mbTone(659, 0.5, 'triangle', 0.16);
+  setTimeout(() => _mbTone(988, 0.65, 'triangle', 0.14), 140);
+  setTimeout(() => _mbTone(1319, 0.9, 'sine', 0.12), 300);
+  if (big) setTimeout(() => { _mbTone(1568, 1.2, 'sine', 0.1); _mbTone(784, 1.2, 'triangle', 0.08); }, 480);
+};
 // Weighted roll over the incentive pool — entries with a % weight roll by
 // it; unweighted pools roll uniform. One helper so the Spin button and the
 // Arm chooser can never disagree.
@@ -18521,12 +18648,7 @@ function mysteryBoxSection(isAdmin) {
   const _dayName = (iso, opts) => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', opts || { weekday: 'long', month: 'long', day: 'numeric' });
   const dLbl = mbFrom === mbTo ? _dayName(mbFrom)
     : _dayName(mbFrom, { month: 'short', day: 'numeric' }) + ' \u2013 ' + _dayName(mbTo, { month: 'short', day: 'numeric' });
-  const _mbSyncStr = (() => {
-    const t2 = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt) : null;
-    if (!t2 || isNaN(t2)) return null;
-    try { return t2.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).replace(',', ' \u00b7'); }
-    catch (e) { return t2.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); }
-  })();
+  const _mbSyncStr = appSyncStampStr() || null;
   const goalIn = (key, val) => el('input', {
     type: 'number', value: String(val),
     class: 'rounded px-2 py-1 text-xs tabular-nums font-bold',
@@ -18554,6 +18676,15 @@ function mysteryBoxSection(isAdmin) {
             ...poolNow.map((p, i) => el('div', { class: 'flex items-center justify-between gap-2 py-1.5 text-sm', style: { borderBottom: '1px solid var(--border)' } },
               el('span', { class: 'font-semibold min-w-0 truncate' }, p),
               el('div', { class: 'flex items-center gap-2 shrink-0' },
+                (() => {
+                  const cur = (state._mbRarity || {})[p] || 'bronze';
+                  return el('select', {
+                    class: 'rounded border px-1.5 py-1 text-xs font-bold',
+                    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: MB_RARITIES[cur].color },
+                    title: 'Rarity — sets the reveal treatment',
+                    onchange: (e) => { const rr = { ...(state._mbRarity || {}) }; rr[p] = e.target.value; _mbSaveCfg({ rarity: rr }); mountApp(); },
+                  }, ...Object.entries(MB_RARITIES).map(([k, m]) => el('option', { value: k, selected: cur === k }, m.label)));
+                })(),
                 el('div', { class: 'flex items-center gap-1' },
                   el('input', {
                     type: 'number', min: '0', max: '100', step: '1', value: odds[p] != null ? String(odds[p]) : '',
@@ -18633,32 +18764,62 @@ function mysteryBoxSection(isAdmin) {
             onclick: (e) => { try { e.currentTarget.showPicker(); } catch (err) { /* older browsers fall back to typing */ } },
             onchange: (e) => { if (e.target.value) { onCommit(e.target.value); mountApp(); } },
           });
-          return el('div', { class: 'flex items-center gap-1.5' },
-            dateIn(mbFrom, (v) => { state._mbDateFrom = v; if (!state._mbDateTo || state._mbDateTo < v) state._mbDateTo = v; }),
-            el('span', { class: 'text-xs font-bold', style: { opacity: '.6' } }, '\u2013'),
-            dateIn(mbTo, (v) => { state._mbDateTo = v; if (state._mbDateFrom && state._mbDateFrom > v) state._mbDateFrom = v; }));
+          return el('div', {},
+            el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.55', marginBottom: '3px' } }, 'Competition window'),
+            el('div', { class: 'flex items-center gap-1.5' },
+              dateIn(mbFrom, (v) => { state._mbDateFrom = v; if (!state._mbDateTo || state._mbDateTo < v) state._mbDateTo = v; }),
+              el('span', { class: 'text-xs font-bold', style: { opacity: '.6' } }, 'to'),
+              dateIn(mbTo, (v) => { state._mbDateTo = v; if (state._mbDateFrom && state._mbDateFrom > v) state._mbDateFrom = v; })));
         })(),
         el('div', {},
           el('div', { class: 'font-black uppercase tracking-wide text-sm' }, dLbl),
           _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : null)),
       el('div', { class: 'text-right' },
-        el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie), ' Sold Revenue (Passed Audit)'),
-        el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet), ' Sold Revenue (Passed Audit)'))),
+        el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.55', marginBottom: '3px' } }, 'Requirements \u00b7 sold revenue, passed audit'),
+        el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie)),
+        el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet)))),
     // Qualified reps — grouped Veterans / Rookies.
     dayStats.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
       el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-        ...['Rep', 'Tier', 'Accts', 'Revenue', 'Progress'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap' }, h)))),
+        ...[['name', 'Rep'], ['tier', 'Tier'], ['n', 'Accts', 'Accounts counting toward the box (passed / no audit / pending)'], ['total', 'Total Rev', 'Everything sold in the window'], ['rev', 'Passed Rev', 'Passed audit + no audit + pending \u2014 what counts toward the box'], ['failed', 'Failed Rev', 'Failed audit + Last Resort (<$99) \u2014 does not count'], ['progress', 'Progress', 'Sort by % of goal']].map(([k, h, tip]) => {
+          const _srt = state._mbSort || null;
+          const active = _srt && _srt.key === k;
+          return el('th', {
+            class: 'px-4 py-2 whitespace-nowrap cursor-pointer select-none',
+            style: active ? { color: 'var(--accent)' } : {},
+            title: (tip ? tip + ' \u00b7 ' : '') + 'Click to sort' + (active ? (_srt.dir === 'desc' ? ' (descending)' : ' (ascending)') : ''),
+            onclick: () => {
+              const cur = state._mbSort || {};
+              state._mbSort = { key: k, dir: cur.key === k ? (cur.dir === 'desc' ? 'asc' : 'desc') : (k === 'name' || k === 'tier' ? 'asc' : 'desc') };
+              mountApp();
+            },
+          }, h + (active ? (_srt.dir === 'desc' ? ' \u2193' : ' \u2191') : ''));
+        }))),
       el('tbody', {},
         ...[['vet', 'VETERANS'], ['rookie', 'ROOKIES'], ['chasing_vet', 'CHASING \u00b7 VETERANS'], ['chasing_rookie', 'CHASING \u00b7 ROOKIES']].flatMap(([tk, tlbl]) => {
           const _isRk = (r) => r.tier === 'rookie';
           const _chase = (fn) => dayStats.filter(r => !r.qualified && fn(r)).sort((a2, b2) => (b2.goal ? b2.rev / b2.goal : 0) - (a2.goal ? a2.rev / a2.goal : 0));
-          const grp = tk === 'chasing_vet' ? _chase(r => !_isRk(r))
+          let grp = tk === 'chasing_vet' ? _chase(r => !_isRk(r))
             : tk === 'chasing_rookie' ? _chase(_isRk)
             : qualified.filter(r => (tk === 'rookie' ? _isRk(r) : !_isRk(r)));
           if (!grp.length) return [];
+          // Header sort (asc/desc) applies WITHIN each section, so the tier
+          // groupings stay intact.
+          const _srt2 = state._mbSort || null;
+          if (_srt2) {
+            const valOf = (r) => _srt2.key === 'name' ? String(r.name)
+              : _srt2.key === 'tier' ? (r.tier === 'rookie' ? 'rookie' : 'vet')
+              : _srt2.key === 'progress' ? (r.goal ? r.rev / r.goal : 0)
+              : Number(r[_srt2.key]) || 0;
+            grp = grp.slice().sort((x, y) => {
+              const a2 = valOf(x), b2 = valOf(y);
+              const c2 = typeof a2 === 'string' ? a2.localeCompare(b2) : a2 - b2;
+              return _srt2.dir === 'desc' ? -c2 : c2;
+            });
+          }
           return [
             el('tr', {}, el('td', {
-              colspan: '5',
+              colspan: '7',
               class: 'px-4 py-2 text-sm font-black uppercase tracking-widest',
               style: { background: 'var(--card-2)', color: 'var(--text)' },
             }, tlbl + ' \u00b7 ' + fmt.usd0(/rookie/.test(tk) ? goals.rookie : goals.vet) + (tk.startsWith('chasing') ? ' bar' : ''))),
@@ -18671,7 +18832,9 @@ function mysteryBoxSection(isAdmin) {
                 el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, r.name),
                 el('td', { class: 'px-4 py-2' }, el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded', style: r.tier === 'rookie' ? { background: 'rgba(220,38,38,.1)', color: '#DC2626' } : { background: 'rgba(59,130,246,.1)', color: '#3B82F6' } }, r.tier === 'rookie' ? 'R' : 'V')),
                 el('td', { class: 'px-4 py-2 tabular-nums' }, String(r.n)),
+                el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, fmt.usd0(r.total)),
                 el('td', { class: 'px-4 py-2 tabular-nums font-bold' }, fmt.usd0(r.rev)),
+                el('td', { class: 'px-4 py-2 tabular-nums', style: { color: r.failed ? '#DC2626' : 'var(--text-subtle)' } }, r.failed ? fmt.usd0(r.failed) : '\u2014'),
                 isQ
                   ? el('td', { class: 'px-4 py-2 text-xs font-bold', style: { color: '#5F8A1F' } }, '\ud83c\udf81 earned')
                   : el('td', { class: 'px-4 py-2 whitespace-nowrap', style: { minWidth: '160px' } },
@@ -18770,15 +18933,7 @@ function viewNrlaPublic() {
   const sel = comps.find(c => c.id === selId);
   if (sel.id !== 'mystery_box' && getActiveCompId() !== sel.id) state._indicatorActiveCompId = sel.id;
   // ── Comp switcher pills + admin ★ default control + FieldRoutes sync stamp ──
-  const _compSyncStr = (() => {
-    const t = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt) : null;
-    if (!t || isNaN(t)) return null;
-    try {
-      return t.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).replace(',', ' ·');
-    } catch (e) {
-      return t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' + t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    }
-  })();
+  const _compSyncStr = appSyncStampStr() || null;
   const _defaultBtnFor = (compact) => isAdmin ? el('button', {
     class: compact
       ? 'text-xs font-bold rounded-lg px-2.5 py-2 border border-dashed cursor-pointer transition hover:brightness-95 shrink-0'
@@ -45843,11 +45998,19 @@ function openUserEditor(existing = null, prefill = null) {
         if (existing) {
           const { error } = await supabase.from('profiles').update(payload).eq('id', existing.id);
           if (error) throw error;
-          // Apply the password via the admin function if one was typed.
-          // Profile fields persisted above; this just sets auth.users.password.
-          if (newPassword) {
-            await callAdminSetPassword({ mode: 'update', user_id: existing.id, password: newPassword });
-            toast('Saved · password updated', 'success');
+          // Email changed? The profile row alone isn't enough — LOGIN runs on
+          // auth.users, so push the new address through the admin function
+          // too. Otherwise the rep can only sign in with the OLD email (the
+          // exact FieldRoutes-email lockout Isaac hit).
+          const _emailChanged = payload.email && existing.email
+            && payload.email.trim().toLowerCase() !== String(existing.email).trim().toLowerCase();
+          if (newPassword || _emailChanged) {
+            await callAdminSetPassword({
+              mode: 'update', user_id: existing.id,
+              ...(newPassword ? { password: newPassword } : {}),
+              ...(_emailChanged ? { email: payload.email.trim() } : {}),
+            });
+            toast('Saved' + (_emailChanged ? ' · login email is now ' + payload.email.trim() : '') + (newPassword ? ' · password updated' : ''), 'success');
           } else {
             logActivity('user_edited', { detail: (existing?.full_name || 'user') + ' profile updated' });
           toast('Saved', 'success');

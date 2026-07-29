@@ -94,8 +94,21 @@ exports.handler = async (event) => {
   if (!['create', 'update'].includes(mode)) {
     return json(400, { error: 'mode must be "create" or "update"' });
   }
-  if (typeof password !== 'string' || password.length < 8) {
+  // 'update' may change the password, the LOGIN EMAIL, or both. 'create'
+  // always needs a password.
+  const newEmail = typeof body.email === 'string' && mode === 'update' ? body.email.trim() : null;
+  const hasPassword = typeof password === 'string' && password.length > 0;
+  if (hasPassword && password.length < 8) {
     return json(400, { error: 'Password must be at least 8 characters' });
+  }
+  if (mode === 'create' && !hasPassword) {
+    return json(400, { error: 'Password must be at least 8 characters' });
+  }
+  if (mode === 'update' && !hasPassword && !newEmail) {
+    return json(400, { error: 'Nothing to update — provide a password and/or email' });
+  }
+  if (newEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+    return json(400, { error: 'Invalid email' });
   }
 
   try {
@@ -133,15 +146,24 @@ exports.handler = async (event) => {
       return json(200, { ok: true, user_id: created.user?.id });
     }
 
-    // mode === 'update'
+    // mode === 'update' — password and/or LOGIN EMAIL. Changing the email
+    // here updates auth.users (what the login screen checks) with
+    // email_confirm so the rep can sign in with the new address instantly —
+    // no confirmation round-trip. The profiles row is synced to match so
+    // the app and the login can never disagree again (per Isaac: the app
+    // email is the source of truth, not whatever FieldRoutes had).
     const { user_id } = body;
     if (!user_id) return json(400, { error: 'user_id required for update' });
-    // Don't let an admin lock themselves out by mistake — they can still
-    // change their OWN password through the normal Supabase flow, but
-    // this endpoint stays focused on managing other users.
-    const { error: updErr } = await admin.auth.admin.updateUserById(user_id, { password });
+    const patch = {};
+    if (hasPassword) patch.password = password;
+    if (newEmail) { patch.email = newEmail; patch.email_confirm = true; }
+    const { error: updErr } = await admin.auth.admin.updateUserById(user_id, patch);
     if (updErr) return json(500, { error: 'updateUserById failed: ' + updErr.message });
-    return json(200, { ok: true, user_id });
+    if (newEmail) {
+      const { error: profErr2 } = await admin.from('profiles').update({ email: newEmail }).eq('id', user_id);
+      if (profErr2) return json(500, { error: 'auth email updated but profile email failed: ' + profErr2.message });
+    }
+    return json(200, { ok: true, user_id, email: newEmail || undefined });
   } catch (err) {
     return json(500, { error: 'Unexpected: ' + (err.message || String(err)) });
   }
