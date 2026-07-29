@@ -24599,16 +24599,12 @@ const isActiveAccount = (s) => {
 function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksUnfiltered, allDataUnfiltered, windowLabel) {
   // We need the raw sales data — stored alongside aggregated rows.
   // Department-scoped so the rep leaderboard matches the toggle selection.
-  // ACCOUNT STATUS = ALL (per Isaac): the CRM roster tool the reps compare
-  // against applies NO Pending/Serviced gate — its numbers matched our
-  // ungated build to the penny — so this section (leaderboard, records,
-  // rookie/vet PDF) counts every account sold. Global service exclusions,
-  // excluded sources, and deleted accounts still apply.
-  const allRawSales = (() => {
-    const prevAcct = state.indicatorAcctStatus;
-    try { state.indicatorAcctStatus = 'all'; return indicatorSales(); }
-    finally { state.indicatorAcctStatus = prevAcct; }
-  })();
+  // PENDING/SERVICED basis (per Isaac's definition, verbatim): an account
+  // counts once its initial has been SERVICED or an appointment is
+  // SCHEDULED — subscription status is irrelevant (post-service cancels
+  // still count; the initial ran first). That is precisely FieldRoutes'
+  // Pending/Serviced gate, which indicatorSales() applies by default.
+  const allRawSales = indicatorSales();
   // Match the range filter the rest of the page uses. In Range mode we keep
   // only sales whose week falls inside the filtered indicator data; in Weekly
   // mode the leaderboard stays YTD (because the user may want comparison).
@@ -25930,7 +25926,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           // per-branch CRM reports.
           const _tc = (o) => (o || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
           const ent = Object.entries(r.officeRev || {}).sort((a2, b2) => b2[1] - a2[1]);
-          const label = _tc(ent.length ? ent[0][0] : r.office) + (ent.length > 1 ? ' +' + (ent.length - 1) : '');
+          const label = _tc(ent.length ? ent[0][0] : r.office);
           const title = ent.length > 1
             ? 'Sold across ' + ent.length + ' branches: ' + ent.map(([o, v]) => _tc(o) + ' ' + fmt.usd0(v)).join(' · ')
             : '';
