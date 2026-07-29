@@ -18505,12 +18505,9 @@ function openMysteryBoxOverlay(box) {
     boxEl.style.zIndex = '400';
     boxEl.style.transform = 'translate(-50%,-50%) translate(0px,' + (RY * 0.9).toFixed(0) + 'px) scale(2.0)';
     boxEl.style.filter = 'brightness(1.05)';
-    // ACT 2 — the tease: light leaks from the lid seam, the riser swells.
-    setTimeout(() => {
-      const gift = boxEl.firstChild && boxEl.firstChild.firstChild;
-      if (gift) gift.append(el('div', { style: { position: 'absolute', left: '4%', top: '32%', width: '92%', height: '3px', background: R2.color, boxShadow: '0 0 14px 3px ' + R2.color + ', 0 0 34px 8px ' + R2.color + '66', animation: 'mbLeak 1.15s ease-in forwards', pointerEvents: 'none', zIndex: 6 } }));
-      _mbRiserSnd();
-    }, 950);
+    // ACT 2 — the tease: the riser swells (the visual seam-leak line was
+    // cut per Isaac — the audio carries the suspense).
+    setTimeout(() => { _mbRiserSnd(); }, 950);
     // ACT 3 — the burst: full-screen flash in the rarity color, hero scene.
     setTimeout(() => {
       const flash = el('div', { style: { position: 'fixed', inset: '0', background: 'radial-gradient(circle at 50% 60%, ' + R2.color + 'e6 0%, ' + R2.color + '55 35%, transparent 75%)', animation: 'mbFlashFull .55s ease-out forwards', zIndex: '10002', pointerEvents: 'none' } });
@@ -18748,8 +18745,8 @@ function mysteryBoxSection(isAdmin) {
   const _mbSyncStr = appSyncStampStr() || null;
   const goalIn = (key, val) => el('input', {
     type: 'number', value: String(val),
-    class: 'rounded px-2 py-1 text-xs tabular-nums font-bold',
-    style: { width: '80px', background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)' },
+    class: 'rounded px-1.5 py-0.5 text-xs tabular-nums font-bold',
+    style: { width: '64px', background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)' },
     onchange: (e) => { const g = { ...goals, [key]: Number(e.target.value) || 0 }; _mbSaveCfg({ goals: g }); mountApp(); },
   });
   // ── ONE top bar: brand · boxes earned · tier split · Spin · 𝕽 (the
@@ -18824,7 +18821,7 @@ function mysteryBoxSection(isAdmin) {
         el('div', { class: 'order-3 sm:order-2 w-full sm:w-auto sm:text-center' },
           el('div', { class: 'font-display text-2xl leading-none' }, qualified.length + ' BOX' + (qualified.length === 1 ? '' : 'ES') + ' EARNED'),
           el('div', { class: 'text-xs text-muted- mt-1' }, dLbl)),
-        el('div', { class: 'order-2 sm:order-3 flex items-center gap-3' },
+        el('div', { class: 'order-2 sm:order-3 ml-auto flex items-center gap-3' },
           el('div', { class: 'text-right' },
             el('div', { class: 'text-sm font-bold' },
               el('span', { style: { color: '#3B82F6' } }, qV.length + ' veteran' + (qV.length === 1 ? '' : 's')),
@@ -18849,13 +18846,18 @@ function mysteryBoxSection(isAdmin) {
   }
   nodes.push(el('div', { class: 'card overflow-hidden' },
     // Black requirement bar — the poster look, with the date picker in it.
-    el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-3', style: { background: 'var(--text)', color: 'var(--bg)' } },
-      el('div', { class: 'flex items-center gap-3 flex-wrap' },
+    el('div', { class: 'px-4 py-3', style: { background: 'var(--text)', color: 'var(--bg)' } },
+      // Row 1: the day + last sync, full width up top (per Isaac).
+      el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-2.5' },
+        el('div', { class: 'font-black uppercase tracking-wide text-sm' }, dLbl),
+        _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : null),
+      // Row 2: compact date range left, tier requirements right.
+      el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
         (() => {
           const dateIn = (val, onCommit) => el('input', {
             type: 'date', value: val,
-            class: 'rounded px-2 py-1.5 text-xs font-bold cursor-pointer',
-            style: { background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)', colorScheme: 'dark' },
+            class: 'rounded px-1.5 py-1 text-[11px] font-bold cursor-pointer',
+            style: { background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)', colorScheme: 'dark', width: '112px' },
             // Custom-styled date inputs hide the native picker icon — open it
             // explicitly so a tap anywhere on the field works.
             onclick: (e) => { try { e.currentTarget.showPicker(); } catch (err) { /* older browsers fall back to typing */ } },
@@ -18863,18 +18865,15 @@ function mysteryBoxSection(isAdmin) {
           });
           return el('div', {},
             el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.55', marginBottom: '3px' } }, 'Competition window'),
-            el('div', { class: 'flex items-center gap-1.5' },
+            el('div', { class: 'flex items-center gap-1' },
               dateIn(mbFrom, (v) => { state._mbDateFrom = v; if (!state._mbDateTo || state._mbDateTo < v) state._mbDateTo = v; }),
-              el('span', { class: 'text-xs font-bold', style: { opacity: '.6' } }, 'to'),
+              el('span', { class: 'text-[11px] font-bold', style: { opacity: '.6' } }, 'to'),
               dateIn(mbTo, (v) => { state._mbDateTo = v; if (state._mbDateFrom && state._mbDateFrom > v) state._mbDateFrom = v; })));
         })(),
-        el('div', {},
-          el('div', { class: 'font-black uppercase tracking-wide text-sm' }, dLbl),
-          _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : null)),
-      el('div', { class: 'w-full sm:w-auto text-left sm:text-right' },
-        el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.55', marginBottom: '3px' } }, 'Requirements \u00b7 sold revenue, passed audit'),
-        el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-between sm:justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie)),
-        el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-between sm:justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet)))),
+        el('div', { class: 'text-right' },
+          el('div', { class: 'text-[8px] font-black uppercase', style: { letterSpacing: '.14em', opacity: '.55', marginBottom: '3px' } }, 'Requirements \u00b7 sold rev, passed audit'),
+          el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie)),
+          el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet))))),
     // (bar card ends here — the tier tables live in their own cards below)
     ));
   // ── TWO ADJACENT TABLES (per Isaac): Veterans left, Rookies right. Each
