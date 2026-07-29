@@ -357,6 +357,10 @@ async function refreshIndicatorsFromCloud(force) {
   // Open to every signed-in user (was admin-only) — the rep-facing NRLA board
   // reads the same shared dataset. Reads only; config pushes stay admin-gated.
   if (DEMO || !state.profile) return;
+  // Manual-data mode pins Indicators to an admin's uploaded CSV (THIS
+  // browser only) — the background poll must never overwrite it. Reverting
+  // clears the flag first, then calls this with force=true.
+  if (state._indManualMode) return;
   if (typeof DecompressionStream === 'undefined') return;
   if (!force && Date.now() - _indCloudCheckedAt < 120000) return; // ≤1 check / 2 min
   _indCloudCheckedAt = Date.now();
@@ -6356,6 +6360,11 @@ const FR_GLOBAL_EXCLUDED_SERVICES = new Set([
 function frPendingServiced(s) {
   if (!s) return false;
   if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(s.subscription || '').trim())) return false;
+  // Manual-data mode: the uploaded CRM export IS the Pending/Serviced truth —
+  // the CRM applied its own gates before exporting, so re-filtering here
+  // (initial-appt status, SNS heuristics) would reintroduce the very
+  // mismatch the manual upload exists to bypass. Every row counts.
+  if (state._indManualMode) return true;
   // Sold-Not-Started CANCELLATION REASON always excludes (per Isaac) — even
   // when the initial appointment still reads "Pending" in the CRM. These
   // were never real accounts: no comp metric counts them, no audit list
@@ -23517,6 +23526,49 @@ function viewIndicators() {
           onclick: () => openManageTeamsModal(),
           title: 'Manage teams — assign reps, pick a color, toggle Exclude from metrics',
         }, '👥'),
+        // Manual-data mode (admin, THIS browser only): upload the CRM's
+        // SalesReport CSV and pin the whole Indicators tab to it — a
+        // side-by-side truth check against the sync. Amber pill = active.
+        !_repLite && isAdminRole(state.profile?.role) && (() => {
+          const inp = el('input', { type: 'file', accept: '.csv,text/csv', style: { display: 'none' } });
+          inp.addEventListener('change', () => {
+            const f = inp.files && inp.files[0];
+            if (!f) return;
+            const rd = new FileReader();
+            rd.onload = () => {
+              try { _indManualApply(String(rd.result || ''), f.name); }
+              catch (e) { toast('Manual CSV failed: ' + ((e && e.message) || e), 'error'); }
+            };
+            rd.readAsText(f);
+            inp.value = '';
+          });
+          if (state._indManualMode) {
+            return el('span', { class: 'flex items-center gap-1' }, inp,
+              el('span', {
+                class: 'rounded-xl px-3 py-2 text-xs font-bold',
+                style: { background: 'rgba(240,172,30,.18)', color: '#B45309', border: '1px solid rgba(240,172,30,.45)' },
+                title: 'Indicators are reading ' + (state.indicatorsFileName || 'a manual upload') + ' on THIS browser only. Background sync is paused until you switch back.',
+              }, 'MANUAL'),
+              el('button', {
+                class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
+                style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+                title: 'Drop the manual upload and go back to the synced dataset',
+                onclick: () => _indManualRevert(),
+              }, '↩ Sync'),
+              el('button', {
+                class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
+                style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+                title: 'Replace the manual CSV with a different file',
+                onclick: () => inp.click(),
+              }, '⬆'));
+          }
+          return el('span', {}, inp, el('button', {
+            class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
+            style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+            title: 'Manual data mode — upload a CRM SalesReport CSV and view the entire Indicators tab from it (this browser only; background sync pauses until you switch back)',
+            onclick: () => inp.click(),
+          }, '⬆ Manual'));
+        })(),
         // PDF reports — one per team (Teams mode) or one per branch
         // (Branch mode). buildTeamReportNode dispatches its grouping on
         // ctx.groupMode below; in Branch mode it aggregates by s.office,
@@ -26883,6 +26935,85 @@ function clearBackendReport() {
   state.backendReportUploadedAt = null;
   state.backendReportFileName = null;
   saveDemoData();
+}
+
+// ── Manual-data mode (admin, temporary) ─────────────────────────────────
+// Pin the ENTIRE Indicators tab to a CRM SalesReport CSV the admin uploads,
+// instead of the synced RevHawk dataset — a side-by-side truth check while
+// sync discrepancies are being reconciled. Scope is deliberately narrow:
+// • THIS browser only — nothing uploads to Supabase, other users unaffected.
+// • Background cloud refresh is paused while active (see the guard in
+//   refreshIndicatorsFromCloud) and resumes the moment you switch back.
+// • A reload quietly falls back to the synced dataset (the stamp is
+//   backdated so the server copy wins on the next poll).
+// CRM SalesReport exports carry no Office column, so one is synthesized per
+// row from what the app already knows: each rep's majority office in the
+// synced data, then the persisted rep→office map, else "UNKNOWN".
+function _indManualApply(text, fname) {
+  const recs = _crmReconCsv(text);
+  if (recs.length < 2) throw new Error('CSV has no data rows');
+  const hdr = recs[0].map(h => String(h || '').trim().toLowerCase());
+  const hasOffice = hdr.some(h => h.includes('office') || h.includes('branch'));
+  let csvText = text;
+  if (!hasOffice) {
+    const iRep = hdr.findIndex(h => h.includes('sales rep') || h === 'rep');
+    if (iRep < 0) throw new Error('No "Sales Rep" column found');
+    const counts = {};
+    const syncedSales = (state._indSyncStash && state._indSyncStash.sales) || state._indicatorRawSales || [];
+    syncedSales.forEach(s => {
+      const k = getCanonicalRepName(s.rep || '');
+      if (!k || !s.office) return;
+      (counts[k] = counts[k] || {})[s.office] = (counts[k][s.office] || 0) + 1;
+    });
+    const topOf = {};
+    Object.entries(counts).forEach(([k, m]) => { topOf[k] = Object.entries(m).sort((x, y) => y[1] - x[1])[0][0]; });
+    const esc = (v) => { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const out = [recs[0].concat('Office').map(esc).join(',')];
+    for (let i = 1; i < recs.length; i++) {
+      const rep = getCanonicalRepName(String(recs[i][iRep] || ''));
+      const office = topOf[rep] || (state._indicatorRepOffice || {})[rep] || 'UNKNOWN';
+      out.push(recs[i].concat(office).map(esc).join(','));
+    }
+    csvText = out.join('\n');
+  }
+  // Stash the synced dataset ONCE so "Back to sync" is instant and lossless.
+  if (!state._indManualMode) {
+    state._indSyncStash = {
+      data: state.indicatorsData, sales: state._indicatorRawSales,
+      headers: state._indicatorRawHeaders, at: state.indicatorsUploadedAt,
+      name: state.indicatorsFileName,
+    };
+  }
+  state.indicatorsData = parseIndicatorsCsv(csvText);   // also sets _indicatorRawSales
+  // Backdate the stamp so a reload lets the server copy win again — manual
+  // mode is meant to die with the session, never to fight the sync.
+  const _syncAt = state._indSyncStash && state._indSyncStash.at;
+  state.indicatorsUploadedAt = new Date((_syncAt ? new Date(_syncAt).getTime() : Date.now()) - 1000).toISOString();
+  state.indicatorsFileName = 'MANUAL — ' + (fname || 'upload.csv');
+  state._indManualMode = true;
+  state.indicatorsView = 'range';
+  state.indicatorsRangePreset = 'this_year';
+  state.indicatorsCustomStart = '';
+  state.indicatorsCustomEnd = '';
+  state.indicatorsWeek = -1;
+  mountApp();
+  toast('Manual CSV active — Indicators read ' + (fname || 'your upload') + ' on THIS browser until you switch back', 'success');
+}
+function _indManualRevert() {
+  const st = state._indSyncStash;
+  state._indManualMode = false;
+  if (st) {
+    state.indicatorsData = st.data;
+    state._indicatorRawSales = st.sales;
+    state._indicatorRawHeaders = st.headers;
+    state.indicatorsUploadedAt = st.at;
+    state.indicatorsFileName = st.name;
+  }
+  state._indSyncStash = null;
+  state.indicatorsWeek = -1;
+  mountApp();
+  try { refreshIndicatorsFromCloud(true); } catch { /* next poll catches up */ }
+  toast('Back on synced data', 'success');
 }
 
 function csvUploadButton(size) {
