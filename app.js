@@ -26120,6 +26120,20 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             }, '📄');
             return (allReps.length > 0 && isAdminRole(state.profile.role)) ? btn : null;
           })(),
+          // Career Roster PDF — the legacy season tool's report, now powered
+          // by the canonical pool so it matches the CRM.
+          (() => {
+            const btn2 = el('button', {
+              class: 'rounded-lg px-3 py-2.5 text-sm font-bold cursor-pointer transition hover:brightness-95 border shrink-0',
+              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+              title: 'Download the career Roster PDF — branch totals + ranked rep cards (all-time Pending/Serviced revenue)',
+              onclick: async () => {
+                btn2.disabled = true; btn2.textContent = '\u2026';
+                try { await downloadCareerRosterPdf(); } finally { btn2.disabled = false; btn2.textContent = '\ud83d\uddc2'; }
+              },
+            }, '\ud83d\uddc2');
+            return isAdminRole(state.profile.role) ? btn2 : null;
+          })(),
           state.indicatorDept === 'office' ? el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
             ...[['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal']].map(([v, l]) => el('button', {
               class: 'px-3 py-2.5 text-sm font-bold transition cursor-pointer',
@@ -28833,6 +28847,108 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   ));
 
   return page;
+}
+
+// ── CAREER ROSTER PDF (replaces the legacy season tool's report) ─────────
+// Branch totals across the top, then ranked rep cards: photo, office → team,
+// tenure, career Pending/Serviced revenue. Data = the SAME canonical pool as
+// every on-screen board (FR Pending/Serviced gate, global exclusions,
+// excluded sources, deleted accounts) — so it matches the CRM to the penny.
+async function downloadCareerRosterPdf() {
+  await loadPdfLibsOnce();
+  // D2D pool, ALL TIME, canonical gates.
+  const prevDept = state.indicatorDept;
+  let pool;
+  try { state.indicatorDept = 'd2d'; pool = indicatorSales(); }
+  finally { state.indicatorDept = prevDept; }
+  if (!pool.length) { toast('No qualifying sales in the dataset yet', 'warn'); return; }
+  const byRep = new Map();
+  const byBranch = new Map();
+  let grand = 0;
+  const curYear = new Date().getFullYear();
+  for (const s of pool) {
+    const nm = getCanonicalRepName(s.rep);
+    if (!nm) continue;
+    const cv = Number(s.contractValue) || 0;
+    const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
+    const yr = Number(iso.slice(0, 4)) || curYear;
+    const o = byRep.get(nm) || { name: nm, rev: 0, n: 0, firstYear: 9999, office: '', lastIso: '' };
+    o.rev += cv; o.n++;
+    if (yr < o.firstYear) o.firstYear = yr;
+    if (iso > o.lastIso) { o.lastIso = iso; o.office = String(s.office || '').split(',')[0].trim(); }
+    byRep.set(nm, o);
+    const b = String(s.office || 'Unknown').split(',')[0].trim().toUpperCase();
+    byBranch.set(b, (byBranch.get(b) || 0) + cv);
+    grand += cv;
+  }
+  const ranked = [...byRep.values()].sort((a, b) => b.rev - a.rev);
+  const branches = [...byBranch.entries()].sort((a, b) => b[1] - a[1]);
+  const usd2 = (v) => '$' + (Number(v) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const _sigR = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const profBySig = new Map((state.allProfiles || []).map(p => [_sigR(p.full_name), p]));
+  const GREEN = '#1b5e20';
+  const PAGE_W = 900, PER_PAGE = 8;
+  const pageNode = (cards, pageIdx, totalPages) => {
+    const node = el('div', { style: { width: PAGE_W + 'px', background: '#f4f4ef', color: '#141414', fontFamily: 'Inter, sans-serif', padding: '0 0 18px' } });
+    if (pageIdx === 0) {
+      // Branch totals bar — Total first, then branches by revenue.
+      node.append(el('div', { style: { display: 'flex', gap: '6px', padding: '14px 14px 6px', flexWrap: 'wrap' } },
+        ...[['Total', grand], ...branches].map(([b, v]) => el('div', { style: { flex: '1', minWidth: '150px', border: '1px solid #c9c9c0', borderRadius: '4px', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,.12)' } },
+          el('div', { style: { background: GREEN, color: '#fff', fontWeight: '800', textAlign: 'center', padding: '5px 8px', fontSize: '15px' } }, b === 'Total' ? 'Total' : String(b).split(' ').map(w => w[0] + w.slice(1).toLowerCase()).join(' ')),
+          el('div', { style: { background: '#e9e9e2', textAlign: 'center', padding: '7px 8px', fontWeight: '900', fontSize: '18px' } }, usd2(v))))));
+      node.append(el('div', { style: { textAlign: 'center', fontWeight: '800', fontSize: '20px', padding: '10px 0 2px' } }, 'Roster'),
+        el('div', { style: { textAlign: 'center', fontSize: '10px', color: '#6b6b63', paddingBottom: '8px' } },
+          'Career Pending/Serviced revenue \u00b7 as of ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })));
+    }
+    cards.forEach(({ r, rank }) => {
+      const prof = profBySig.get(_sigR(r.name));
+      const tenure = Math.max(1, curYear - (r.firstYear === 9999 ? curYear : r.firstYear) + 1);
+      const team = (typeof getRepTeam === 'function' && getRepTeam(r.name)) || (r.office ? r.office.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ') + ' Default' : 'Default');
+      const officeNice = r.office ? r.office.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ') : '\u2014';
+      const avatar = (prof && prof.avatar_url)
+        ? el('img', { src: prof.avatar_url, crossorigin: 'anonymous', style: { width: '96px', height: '96px', objectFit: 'cover', borderRadius: '4px', background: '#ddd' },
+            onerror: (e) => { e.target.style.display = 'none'; e.target.nextSibling && (e.target.nextSibling.style.display = 'grid'); } })
+        : null;
+      const initials = el('div', { style: { width: '96px', height: '96px', borderRadius: '4px', background: GREEN, color: '#fff', display: avatar ? 'none' : 'grid', placeItems: 'center', fontWeight: '900', fontSize: '30px' } },
+        r.name.split(/[\s,]+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase());
+      node.append(el('div', { style: { display: 'flex', gap: '14px', alignItems: 'center', background: '#fff', border: '1px solid #ddddd4', borderRadius: '4px', margin: '5px 14px', padding: '10px 14px', position: 'relative', boxShadow: '0 1px 3px rgba(0,0,0,.08)' } },
+        el('div', { style: { position: 'relative', flexShrink: '0' } }, avatar, initials),
+        el('div', { style: { minWidth: '0' } },
+          el('div', { style: { fontWeight: '800', fontSize: '17px', color: GREEN } }, (typeof flipLastFirst === 'function' ? flipLastFirst(r.name) : r.name)),
+          el('div', { style: { fontSize: '13px', color: '#6b6b63', marginTop: '2px' } }, officeNice + ' \u2192 ' + team),
+          el('div', { style: { fontSize: '12px', color: '#8a8a80', marginTop: '1px' } }, tenure + ' year rep \u00b7 ' + r.n.toLocaleString() + ' accounts'),
+          el('div', { style: { fontWeight: '900', fontSize: '24px', color: GREEN, marginTop: '4px' } }, usd2(r.rev))),
+        el('div', { style: { position: 'absolute', right: '14px', bottom: '8px', fontWeight: '900', fontSize: '13px', color: '#9a9a90' } }, '#' + rank)));
+    });
+    node.append(el('div', { style: { textAlign: 'center', fontSize: '9px', color: '#9a9a90', paddingTop: '6px' } },
+      'RIDD Sales Platform \u00b7 page ' + (pageIdx + 1) + ' of ' + totalPages));
+    return node;
+  };
+  const TOP_N = Math.min(ranked.length, 48);
+  const entries = ranked.slice(0, TOP_N).map((r, i) => ({ r, rank: i + 1 }));
+  const pages = [];
+  for (let i = 0; i < entries.length; i += PER_PAGE) pages.push(entries.slice(i, i + PER_PAGE));
+  const { jsPDF } = window.jspdf;
+  let pdf = null;
+  const holder = el('div', { style: { position: 'fixed', left: '-10000px', top: '0', zIndex: '-1' } });
+  document.body.append(holder);
+  try {
+    for (let p = 0; p < pages.length; p++) {
+      const node = pageNode(pages[p], p, pages.length);
+      holder.innerHTML = '';
+      holder.append(node);
+      await new Promise(ok => setTimeout(ok, 60));   // let avatars land
+      const canvas = await html2canvas(node, { scale: 2, backgroundColor: '#f4f4ef', logging: false, useCORS: true });
+      const w = canvas.width / 2, h = canvas.height / 2;
+      if (!pdf) pdf = new jsPDF({ unit: 'pt', format: [w * 0.75, h * 0.75], orientation: w > h ? 'l' : 'p' });
+      else pdf.addPage([w * 0.75, h * 0.75], w > h ? 'l' : 'p');
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w * 0.75, h * 0.75);
+    }
+    pdf.save('RIDD-Roster-' + new Date().toISOString().slice(0, 10) + '.pdf');
+    toast('Roster PDF downloaded \u2014 Pending/Serviced revenue, matches the boards', 'success');
+  } catch (e) {
+    toast('Roster PDF failed: ' + ((e && e.message) || e), 'error');
+  } finally { holder.remove(); }
 }
 
 async function downloadRookieVetPdf(allReps) {
