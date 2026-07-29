@@ -24599,7 +24599,16 @@ const isActiveAccount = (s) => {
 function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksUnfiltered, allDataUnfiltered, windowLabel) {
   // We need the raw sales data — stored alongside aggregated rows.
   // Department-scoped so the rep leaderboard matches the toggle selection.
-  const allRawSales = indicatorSales();
+  // ACCOUNT STATUS = ALL (per Isaac): the CRM roster tool the reps compare
+  // against applies NO Pending/Serviced gate — its numbers matched our
+  // ungated build to the penny — so this section (leaderboard, records,
+  // rookie/vet PDF) counts every account sold. Global service exclusions,
+  // excluded sources, and deleted accounts still apply.
+  const allRawSales = (() => {
+    const prevAcct = state.indicatorAcctStatus;
+    try { state.indicatorAcctStatus = 'all'; return indicatorSales(); }
+    finally { state.indicatorAcctStatus = prevAcct; }
+  })();
   // Match the range filter the rest of the page uses. In Range mode we keep
   // only sales whose week falls inside the filtered indicator data; in Weekly
   // mode the leaderboard stays YTD (because the user may want comparison).
@@ -24658,7 +24667,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const repMap = {};
   rawSales.forEach(s => {
     const rep = getCanonicalRepName(s.rep || 'Unknown');
-    if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, sales: [], cancels: 0, cancelEligible: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
+    if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, officeRev: {}, sales: [], cancels: 0, cancelEligible: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
+    if (s.office) repMap[rep].officeRev[s.office] = (repMap[rep].officeRev[s.office] || 0) + (Number(s.contractValue) || 0);
     const r = repMap[rep];
     r.sales.push(s);
     r.revenue += s.contractValue;
@@ -25913,7 +25923,19 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // rosters and all share the office) — dropped when that dept is scoped.
     ...(state.indicatorDept === 'office' ? [] : [
       { key: 'team',       label: 'Team',     align: 'left',  defaultDir: 'asc',  cell: r => el('td', { class: 'px-2 py-2 text-muted-' }, r.team || '—') },
-      { key: 'office',     label: 'Office',   align: 'left',  defaultDir: 'asc',  cell: r => el('td', { class: 'px-2 py-2 text-muted-' }, (r.office || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ')) },
+      { key: 'office',     label: 'Office',   align: 'left',  defaultDir: 'asc',  cell: r => {
+          // Multi-branch reps (per Isaac): show the office they sold the
+          // MOST in, with "+N" for the rest and the full revenue split on
+          // hover — so the merged total is always explainable against
+          // per-branch CRM reports.
+          const _tc = (o) => (o || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+          const ent = Object.entries(r.officeRev || {}).sort((a2, b2) => b2[1] - a2[1]);
+          const label = _tc(ent.length ? ent[0][0] : r.office) + (ent.length > 1 ? ' +' + (ent.length - 1) : '');
+          const title = ent.length > 1
+            ? 'Sold across ' + ent.length + ' branches: ' + ent.map(([o, v]) => _tc(o) + ' ' + fmt.usd0(v)).join(' · ')
+            : '';
+          return el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap', title }, label);
+        } },
     ]),
     { key: 'count',      label: 'Sales',    align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.int(r.count)) },
     { key: 'revenue',    label: 'Revenue',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums font-semibold' }, fmt.usd0(r.revenue)) },
@@ -26349,7 +26371,17 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           : (state._repLbShowAll ? displayReps : displayReps.slice(0, 25)).map((r, i) => {
               const tierMeta = repTierMeta(r.tier);
               const teamColor = r.team ? getTeamColor(r.team) : null;
-              const officeName = (r.office || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+              // Multi-branch reps (per Isaac): primary office = where they
+              // sold the most; extra offices show as "+N" with the split in
+              // the hover — so the app's merged total is always explainable
+              // against per-branch CRM tools.
+              const _tcOff = (o) => (o || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+              const _offEntries = Object.entries(r.officeRev || {}).sort((a2, b2) => b2[1] - a2[1]);
+              const officeName = _tcOff(_offEntries.length ? _offEntries[0][0] : r.office)
+                + (_offEntries.length > 1 ? ' +' + (_offEntries.length - 1) : '');
+              const officeTitle = _offEntries.length > 1
+                ? 'Sold across ' + _offEntries.length + ' branches: ' + _offEntries.map(([o, v]) => _tcOff(o) + ' ' + fmt.usd0(v)).join(' · ')
+                : '';
               // Inline label→value pair for the detail lines. Values keep the
               // text color; labels recede. Dot separators, no boxes — calm.
               const iv = (label, value, danger) => el('span', { class: 'whitespace-nowrap' },
