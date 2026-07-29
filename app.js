@@ -4997,15 +4997,15 @@ if (!window._riddFitWired) {
 let _wrBridgeCache = { src: null, roster: null, profiles: null, out: null };
 function warRoomCrmSales() {
   const prevDept = state.indicatorDept;
+  const prevAcct = state.indicatorAcctStatus;
   let raw = [];
   // PENDING/SERVICED basis (per Isaac, after trying sold-basis): the War
   // Room counts real production — FieldRoutes' own Pending/Serviced gate
   // applies, so accounts that closed before ever being serviced don't
-  // count. A CRM leaderboard run WITHOUT that account-status filter will
-  // read ~2% higher; that delta is sold-not-started rows, not a bug.
-  try { state.indicatorDept = 'office'; raw = indicatorSales(); }
+  // count. Pinned explicitly now that the Indicators-page DEFAULT is Total.
+  try { state.indicatorDept = 'office'; state.indicatorAcctStatus = 'pending_serviced'; raw = indicatorSales(); }
   catch (e) { raw = []; }
-  finally { state.indicatorDept = prevDept; }
+  finally { state.indicatorDept = prevDept; state.indicatorAcctStatus = prevAcct; }
   if (!raw.length) return [];
   if (_wrBridgeCache.src === raw && _wrBridgeCache.roster === state.frRoster
       && _wrBridgeCache.profiles === state.allProfiles) return _wrBridgeCache.out;
@@ -6342,7 +6342,10 @@ const _indSalesCache = { src: null, cfg: '', byKey: new Map() };
 // excludes from sales reporting. Stripped from every indicators metric so
 // the app reconciles 1:1 with the CRM report.
 const FR_GLOBAL_EXCLUDED_SERVICES = new Set([
-  'ACH Chargeback', 'Early Cancellation Fee', 'German Roach Initial', 'Rodent Station Removal',
+  // Mirrors the CRM Sales Leaderboard's live "Global:" excluded services
+  // (per Isaac's screenshot of the tool config, Jul 2026). Rodent Station
+  // Removal used to be in this set but is NOT globally excluded in the CRM.
+  'ACH Chargeback', 'Early Cancellation Fee', 'German Roach Initial',
 ]);
 // The FieldRoutes "Pending / Serviced Accounts" gate as a standalone
 // predicate — initial-appointment status Pending or Completed, minus the
@@ -6378,7 +6381,7 @@ function indicatorSales() {
   const src = state._indicatorRawSales || [];
   // CRM-style user filters (session-only; default = unfiltered, so nothing
   // changes until the user opens the Filters panel and picks something).
-  const _acct       = state.indicatorAcctStatus || 'pending_serviced';
+  const _acct       = state.indicatorAcctStatus || 'pending_serviced';   // default = Pending/Serviced (matches the CRM Sales Leaderboard config)
   const _exclSvc    = state.indicatorExclServiceTypes || [];
   const _inclSvc    = state.indicatorInclServiceTypes || [];
   const _inclSrcArr = state.indicatorInclSources || [];
@@ -24599,16 +24602,10 @@ const isActiveAccount = (s) => {
 function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksUnfiltered, allDataUnfiltered, windowLabel) {
   // We need the raw sales data — stored alongside aggregated rows.
   // Department-scoped so the rep leaderboard matches the toggle selection.
-  // ALL ACCOUNTS SOLD (per Isaac, final): the rep leaderboard counts every
-  // account the rep closed — including sold-not-started rows the Pending/
-  // Serviced gate would drop — so it reconciles with the CRM roster tool
-  // (Ethan 642k). Global service exclusions, excluded sources, and deleted
-  // accounts still apply. The rest of Indicators keeps the P/S default.
-  const allRawSales = (() => {
-    const prevAcct = state.indicatorAcctStatus;
-    try { state.indicatorAcctStatus = 'all'; return indicatorSales(); }
-    finally { state.indicatorAcctStatus = prevAcct; }
-  })();
+  // Honors the Filters ▸ Metric setting like the rest of the page — and the
+  // page DEFAULT is now Total (all accounts sold), per Isaac. One filter,
+  // one basis, everywhere on this tab.
+  const allRawSales = indicatorSales();
   // Match the range filter the rest of the page uses. In Range mode we keep
   // only sales whose week falls inside the filtered indicator data; in Weekly
   // mode the leaderboard stays YTD (because the user may want comparison).
@@ -24667,8 +24664,13 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const repMap = {};
   rawSales.forEach(s => {
     const rep = getCanonicalRepName(s.rep || 'Unknown');
-    if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, officeRev: {}, sales: [], cancels: 0, cancelEligible: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
+    if (!repMap[rep]) repMap[rep] = { name: rep, office: s.office, officeRev: {}, recRev: {}, sales: [], cancels: 0, cancelEligible: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, multi: 0, twelve: 0, autoPay: 0, aged: 0 };
     if (s.office) repMap[rep].officeRev[s.office] = (repMap[rep].officeRev[s.office] || 0) + (Number(s.contractValue) || 0);
+    // Per-CRM-record split: raw rep spelling + employee id + office. When a
+    // person exists as multiple FieldRoutes employee records, each line here
+    // matches what a per-record CRM tool shows for that record.
+    const _recKey = String(s.rep || '?') + (s.repId ? ' · #' + s.repId : '') + (s.office ? ' · ' + s.office : '');
+    repMap[rep].recRev[_recKey] = (repMap[rep].recRev[_recKey] || 0) + (Number(s.contractValue) || 0);
     const r = repMap[rep];
     r.sales.push(s);
     r.revenue += s.contractValue;
@@ -25930,9 +25932,12 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           // per-branch CRM reports.
           const _tc = (o) => (o || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
           const ent = Object.entries(r.officeRev || {}).sort((a2, b2) => b2[1] - a2[1]);
+          const recs = Object.entries(r.recRev || {}).sort((a2, b2) => b2[1] - a2[1]);
           const label = _tc(ent.length ? ent[0][0] : r.office);
-          const title = ent.length > 1
-            ? 'Sold across ' + ent.length + ' branches: ' + ent.map(([o, v]) => _tc(o) + ' ' + fmt.usd0(v)).join(' · ')
+          // The hover reconciles this MERGED person against per-record CRM
+          // tools: each line = one FieldRoutes employee record's revenue.
+          const title = recs.length > 1
+            ? 'Merged from ' + recs.length + ' CRM records:\n' + recs.map(([k, v]) => k + ' \u2014 ' + fmt.usd0(v)).join('\n')
             : '';
           return el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap', title }, label);
         } },
@@ -39778,10 +39783,13 @@ function commissionSnapshot(R, emp, period) {
 // ──────────────────────────────────────────────────────────────────────────
 function d2dRawSales() {
   const prevDept = state.indicatorDept;
+  const prevAcct = state.indicatorAcctStatus;
   let raw = [];
-  try { state.indicatorDept = 'd2d'; raw = indicatorSales(); }
+  // D2D dashboard stays on the Pending/Serviced basis it launched with —
+  // pinned so the Indicators-page default (Total) can't drift it.
+  try { state.indicatorDept = 'd2d'; state.indicatorAcctStatus = 'pending_serviced'; raw = indicatorSales(); }
   catch (e) { raw = []; }
-  finally { state.indicatorDept = prevDept; }
+  finally { state.indicatorDept = prevDept; state.indicatorAcctStatus = prevAcct; }
   return raw;
 }
 // One-time cloud kick so a fresh login fills in without a manual refresh.
