@@ -23571,30 +23571,25 @@ function viewIndicators() {
           });
           if (state._indManualMode) {
             return el('span', { class: 'flex items-center gap-1' }, inp,
-              el('span', {
-                class: 'rounded-xl px-3 py-2 text-xs font-bold',
+              el('button', {
+                class: 'rounded-xl px-3 py-2 text-xs font-bold transition hover:brightness-95',
                 style: { background: 'rgba(240,172,30,.18)', color: '#B45309', border: '1px solid rgba(240,172,30,.45)' },
-                title: 'Indicators are reading ' + (state.indicatorsFileName || 'a manual upload') + ' on THIS browser only. Background sync is paused until you switch back.',
-              }, 'MANUAL'),
-              el('button', {
-                class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
-                style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-                title: 'Drop the manual upload and go back to the synced dataset',
+                title: 'Manual sheet is ON — Indicators read ' + (state.indicatorsFileName || 'your saved sheet') + ' on THIS browser only (sync paused). Click to flip back to synced data.',
                 onclick: () => _indManualRevert(),
-              }, '↩ Sync'),
+              }, 'MANUAL ON'),
               el('button', {
                 class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
                 style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-                title: 'Replace the manual CSV with a different file',
+                title: 'Replace the saved manual sheet with a fresh CSV export',
                 onclick: () => inp.click(),
               }, '⬆'));
           }
           return el('span', {}, inp, el('button', {
             class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
             style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-            title: 'Manual data mode — upload a CRM SalesReport CSV and view the entire Indicators tab from it (this browser only; background sync pauses until you switch back)',
-            onclick: () => inp.click(),
-          }, '⬆ Manual'));
+            title: 'Flip Indicators to your saved manual sheet — a separate backend dataset for quick accurate runs, independent of the sync (this browser only). First use asks for a CSV; after that it\'s a pure on/off toggle. Use ⬆ while ON to swap in a fresh export.',
+            onclick: () => _indManualToggle(inp),
+          }, 'Manual'));
         })(),
         // PDF reports — one per team (Teams mode) or one per branch
         // (Branch mode). buildTeamReportNode dispatches its grouping on
@@ -26976,7 +26971,7 @@ function clearBackendReport() {
 // CRM SalesReport exports carry no Office column, so one is synthesized per
 // row from what the app already knows: each rep's majority office in the
 // synced data, then the persisted rep→office map, else "UNKNOWN".
-function _indManualApply(text, fname) {
+function _indManualApply(text, fname, opts) {
   const recs = _crmReconCsv(text);
   if (recs.length < 2) throw new Error('CSV has no data rows');
   const hdr = recs[0].map(h => String(h || '').trim().toLowerCase());
@@ -27012,6 +27007,14 @@ function _indManualApply(text, fname) {
     };
   }
   state.indicatorsData = parseIndicatorsCsv(csvText);   // also sets _indicatorRawSales
+  // NO blending with the synced dataset (per Isaac): the manual sheet is a
+  // COMPLETELY separate backend dataset — what's in the CSV is what shows.
+  // Columns the export doesn't carry (audit flags, lead source, initial-appt
+  // status, cancel reasons) simply have no data in manual mode, so metrics
+  // built on them (Audit %) read as unaudited/100% rather than borrowing
+  // per-account values from the sync. The ONLY synced fact used is each
+  // rep's branch, because the export has no Office column and the entire
+  // tab is structured around branches.
   // Backdate the stamp so a reload lets the server copy win again — manual
   // mode is meant to die with the session, never to fight the sync.
   const _syncAt = state._indSyncStash && state._indSyncStash.at;
@@ -27024,7 +27027,47 @@ function _indManualApply(text, fname) {
   state.indicatorsCustomEnd = '';
   state.indicatorsWeek = -1;
   mountApp();
-  toast('Manual CSV active — Indicators read ' + (fname || 'your upload') + ' on THIS browser until you switch back', 'success');
+  // Persist the sheet so the button works as a pure toggle from now on —
+  // flip to this exact upload any time without re-picking the file.
+  if (!opts || !opts.noSave) {
+    _idbSet('manual-sheet', { text, name: fname || 'upload.csv', savedAt: Date.now() })
+      .then(ok => { if (!ok) console.warn('[ridd] manual sheet not persisted — toggle will ask for the file again after reload'); });
+  }
+  toast('Manual sheet ON — Indicators read ' + (fname || 'your upload') + ' (this browser). Toggle again for synced data.', 'success');
+}
+// The saved sheet lives in IndexedDB (multi-MB CSVs overflow localStorage),
+// so one upload persists across reloads and the button becomes a pure
+// on/off toggle: OFF = synced data, ON = the saved backend sheet.
+function _idbKv() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open('ridd-manual', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function _idbGet(k) {
+  try {
+    const db = await _idbKv();
+    return await new Promise((res, rej) => { const t = db.transaction('kv').objectStore('kv').get(k); t.onsuccess = () => res(t.result); t.onerror = () => rej(t.error); });
+  } catch { return null; }
+}
+async function _idbSet(k, v) {
+  try {
+    const db = await _idbKv();
+    await new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite').objectStore('kv').put(v, k); t.onsuccess = res; t.onerror = () => rej(t.error); });
+    return true;
+  } catch { return false; }
+}
+async function _indManualToggle(inp) {
+  if (state._indManualMode) { _indManualRevert(); return; }
+  const saved = await _idbGet('manual-sheet');
+  if (saved && saved.text) {
+    try { _indManualApply(saved.text, saved.name || 'saved sheet', { noSave: true }); return; }
+    catch (e) { toast('Saved manual sheet failed to load: ' + ((e && e.message) || e) + ' — upload a fresh CSV', 'error'); }
+  }
+  if (inp) inp.click();
+  else toast('No manual sheet saved yet — upload a CSV first', 'info');
 }
 function _indManualRevert() {
   const st = state._indSyncStash;
