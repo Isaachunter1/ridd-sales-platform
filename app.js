@@ -24599,12 +24599,16 @@ const isActiveAccount = (s) => {
 function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksUnfiltered, allDataUnfiltered, windowLabel) {
   // We need the raw sales data — stored alongside aggregated rows.
   // Department-scoped so the rep leaderboard matches the toggle selection.
-  // PENDING/SERVICED basis (per Isaac's definition, verbatim): an account
-  // counts once its initial has been SERVICED or an appointment is
-  // SCHEDULED — subscription status is irrelevant (post-service cancels
-  // still count; the initial ran first). That is precisely FieldRoutes'
-  // Pending/Serviced gate, which indicatorSales() applies by default.
-  const allRawSales = indicatorSales();
+  // ALL ACCOUNTS SOLD (per Isaac, final): the rep leaderboard counts every
+  // account the rep closed — including sold-not-started rows the Pending/
+  // Serviced gate would drop — so it reconciles with the CRM roster tool
+  // (Ethan 642k). Global service exclusions, excluded sources, and deleted
+  // accounts still apply. The rest of Indicators keeps the P/S default.
+  const allRawSales = (() => {
+    const prevAcct = state.indicatorAcctStatus;
+    try { state.indicatorAcctStatus = 'all'; return indicatorSales(); }
+    finally { state.indicatorAcctStatus = prevAcct; }
+  })();
   // Match the range filter the rest of the page uses. In Range mode we keep
   // only sales whose week falls inside the filtered indicator data; in Weekly
   // mode the leaderboard stays YTD (because the user may want comparison).
