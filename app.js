@@ -15076,50 +15076,31 @@ const INDICATOR_METRICS = [
 // lockstep with the aggregation code (aggregateRawSalesByGroup + the
 // range-mode day-precision path in viewIndicators).
 function indicatorMetricHelp(key) {
+  // One clean definition per row (per Isaac, Jul 2026 — "take out all the
+  // fluff"). Every metric already runs on the same canonical pool: the
+  // window's Pending/Serviced sales after the standard exclusions, so the
+  // popups just define the math.
   const teamsMode = state.indicatorsGroupBy === 'teams';
   const dept = state.indicatorDept || 'all';
-  const comps = !!state.indicatorsComps;
-  const isRange = state.indicatorsView === 'range';
-  const excluded = (typeof getExcludedTeams === 'function' ? (getExcludedTeams() || []) : []);
-  const exList = excluded.length ? excluded.join(', ') : 'none currently marked excluded';
-
-  const scope = [];
-  scope.push(isRange
-    ? 'Window: sales whose Date Sold falls inside the selected range — start and end days both included.'
-    : 'Window: sales in the selected week (Sun–Sat).');
-  scope.push('Sold-Not-Started accounts (sold but cancelled before any service) are EXCLUDED from every metric — pending + serviced production only.');
-  scope.push('Excluded service types are removed by default (ACH Chargeback, Early Cancellation Fee, Late Fee, Paid In Full, German Roach Initial / Follow Up, Rodent / Sentricon Station Removal, Tech Follow Up, Initial Interior, Inspection, Box Elder Treatment).');
-  if (dept === 'd2d')    scope.push('Rep Type = Sales Rep (from the Customer Report\'s "Sold By Type"). Reps not found in the report fall back to Source = "Door to Door".');
-  if (dept === 'office') scope.push('Rep Type = Office Staff (from the Customer Report). Fallback for unmatched reps: Source is anything EXCEPT "Door to Door" / "Upsell - Service Pro" / "Upsell - Termite Pro".');
-  if (dept === 'techs')  scope.push('Rep Type = Technician (from the Customer Report). Fallback: Source "Upsell - Service Pro" or "Upsell - Termite Pro".');
-  if (dept === 'all')    scope.push('Rep Type = All: every rep type counts.');
-  scope.push(comps
-    ? 'COMPS ON: reps on excluded teams are removed (' + exList + ').'
-    : 'Comps OFF: no comp exclusions.');
-  scope.push(teamsMode
-    ? 'Teams mode: SALES REP production only (teams are a D2D construct — office staff and technician sales are excluded). Reps on excluded teams are ALWAYS removed (' + exList + '); Sales Reps with no team assignment group under "Unassigned".'
-    : 'Branch mode: grouped by office; no team-based exclusions beyond the toggles above.');
-  scope.push('Sales with a blank rep name are never counted.');
-
   const F = {
-    sold_accounts:  'COUNT of in-scope sales — every row of the sales report is one sold account (Sold-Not-Started accounts excluded).',
-    revenue:        'SUM of Contract Value across in-scope sales (Sold-Not-Started excluded). Every subscription type counts.',
-    new_revenue:    'SUM of Contract Value from NEW sales — renewal sources ("Renewal - Inbound / Loyalty / Outbound / Service Pro Upsell") are excluded.',
-    renewal_revenue:'SUM of Contract Value from RENEWAL sources only ("Renewal - …").',
+    sold_accounts:  'Number of accounts sold in the window.',
+    revenue:        'Total Contract Value of all accounts sold in the window.',
+    new_revenue:    'Revenue from new sales only — renewal sources are excluded.',
+    renewal_revenue:'Revenue from renewal sources ("Renewal - …") only.',
     avg_initial:    (teamsMode || dept === 'office')
-      ? 'MEAN of Initial Service Price across in-scope sales, EXCLUDING any subscription whose name contains "Sentricon", "German Roach", or "Interior Flea" (Avg Pest Initial).'
-      : 'MEAN of Initial Service Price across ALL in-scope sales — no subscription-type exclusions.',
-    acv:            'Revenue ÷ Sold Accounts (each exactly as defined on its own row, same scope).',
-    pra:            'Revenue ÷ Reps > $20K. Only reps who sold MORE than $20,000 within this group and window count toward the denominator — see the Reps > $20K context row.',
-    multi_year_pct: 'COUNT(contract LONGER than 12 months) ÷ [COUNT(contract = 12 months) + COUNT(contract longer than 12)]. Sales with any other term (0, blank, month-to-month) are excluded from BOTH numerator and denominator.',
-    auto_pay_pct:   'COUNT(Auto-Pay field set and not "No") ÷ Sold Accounts.',
-    audit_pct:      'COUNT(accounts NOT flagged "Failed Audit" in Customer Flags) ÷ Sold Accounts. Passed, No Audit, and not-yet-audited accounts all count as good.',
-    last_resort_pct:'COUNT(accounts with Initial Service Price under $99) ÷ Sold Accounts. A pricing-quality signal — context only, NOT scored for Power Rank.',
-    reps:           'COUNT of unique rep names with at least one in-scope sale. Context only — NOT scored for Power Rank.',
-    reps20k:        'COUNT of reps who sold MORE than $20,000 within this group and window — the PRA denominator. Context only, NOT scored for Power Rank.',
-    _points:        'Each group is ranked 1–N on the 7 scored rows (Sold Accounts, Revenue, Avg Initial, ACV, PRA, Multi-Year %, Auto-Pay %). Power Rank = SUM of those 7 ranks; lowest total = #1. Reps W/ A Sale is NOT scored. Ties keep their summed totals.',
+      ? 'Average Initial Service Price, excluding Sentricon, German Roach, and Interior Flea plans so termite installs don\u2019t skew the pest number.'
+      : 'Average Initial Service Price across all accounts sold in the window.',
+    acv:            'Revenue \u00f7 Sold Accounts — the average contract value per account.',
+    pra:            'Revenue \u00f7 Reps > $20K — the per-rep average, counting only reps who sold more than $20,000 in this group and window.',
+    multi_year_pct: 'Contracts longer than 12 months \u00f7 all contracts that are 12 months or longer.',
+    auto_pay_pct:   'Accounts with autopay on file \u00f7 Sold Accounts.',
+    audit_pct:      'Accounts NOT flagged Failed Audit \u00f7 Sold Accounts — passed, pending, and unaudited accounts all count as good.',
+    last_resort_pct:'Accounts with an initial under $99 \u00f7 Sold Accounts. Context only — not scored for Power Rank.',
+    reps:           'Unique reps with at least one sale in the window. Context only — not scored for Power Rank.',
+    reps20k:        'Reps who sold more than $20,000 in this group and window — the PRA denominator. Context only.',
+    _points:        'Each column is ranked 1\u2013N on the seven scored rows (Sold Accounts, Revenue, Avg Initial, ACV, PRA, Multi-Year %, Auto-Pay %); Power Rank is the sum of those ranks — lowest total wins.',
   };
-  return (F[key] || '') + '\n\nWHICH SALES COUNT:\n• ' + scope.join('\n• ');
+  return F[key] || '';
 }
 
 // ── Rep-team assignment helpers ──────────────────────────────────────────
