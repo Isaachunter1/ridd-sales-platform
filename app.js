@@ -27958,7 +27958,17 @@ function buildTeamReportNode(teamName, ctx) {
   const teamColor   = getTeamColor(teamName);
   const companyLogo = state.companyLogo || '';
   const PEST_EXCLUDE_RE = /sentricon|german\s*roach|interior\s*flea/i;
-  const fullRawSales = state._indicatorRawSales || [];
+  // PENDING/SERVICED revenue (per Isaac) — the PDF used to read the raw
+  // dataset ungated, so its totals ran ~2% hot vs every on-screen board.
+  // indicatorSales() applies the full canonical rulebook (FR Pending/
+  // Serviced gate, global service exclusions, excluded sources, deleted
+  // accounts) — dept pinned to 'all' so the report covers everyone.
+  const fullRawSales = (() => {
+    const prevDept = state.indicatorDept;
+    try { state.indicatorDept = 'all'; return indicatorSales(); }
+    catch (e) { return state._indicatorRawSales || []; }
+    finally { state.indicatorDept = prevDept; }
+  })();
   // Group key dispatch — Team Reports walk Manage Teams (getRepTeam),
   // Branch Reports key off the office name from the upload. Keeping the
   // local variable name "team" downstream since the per-group bucket
