@@ -14249,7 +14249,11 @@ function groupHeaderTextColor(bg) {
   if (!m) return '#fff';
   const n = parseInt(m[1], 16);
   const lum = 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
-  return lum > 175 ? '#1D1D1D' : '#fff';
+  // Threshold 200 (was 175): Raleigh (#A4C8DF ≈ 192) and Virginia Beach
+  // (#65EB4D ≈ 177) read fine with white text, and Isaac wants every
+  // branch header white for consistency. Only a truly pale fill (near-
+  // white) still flips to dark text.
+  return lum > 200 ? '#1D1D1D' : '#fff';
 }
 const RIDD_COLOR = '#8DC63F';
 // Default palette for teams. Avoids red so excluded teams keep their distinct
@@ -23339,6 +23343,10 @@ function viewIndicators() {
   // Indicators on Pending/Serviced revenue · Type = Sales Rep · This Year ·
   // Branch/Office grouping. Seeds the first render only — filter changes
   // made afterward stick for the rest of the session.
+  if (state._indCtxCollapsed === undefined) {
+    try { state._indCtxCollapsed = localStorage.getItem('ridd_ind_ctx_collapsed') === '1'; }
+    catch { state._indCtxCollapsed = false; }
+  }
   if (!_repLite && !state._indDeptDefaulted) {
     state._indDeptDefaulted = true;
     state.indicatorDept = 'd2d';
@@ -24179,7 +24187,33 @@ function viewIndicators() {
               // rep who worked multiple offices in the window).
               // % of Revenue — each column's share of the RIDD total, i.e.
               // the weight that branch / team / department leg is pulling.
-              (() => {
+              // ── Collapsible context rows (% of Revenue · Reps W/ A Sale ·
+              // Reps > $20K): the ▾ on the right folds them away so the
+              // table reads scored metrics → Power Rank directly. Sticky
+              // per browser via localStorage.
+              state._indCtxCollapsed ? (() => {
+                const expand = () => {
+                  state._indCtxCollapsed = false;
+                  try { localStorage.setItem('ridd_ind_ctx_collapsed', '0'); } catch { /* private mode */ }
+                  mountApp();
+                };
+                return el('tr', { class: 'border-t border-' },
+                  el('td', {
+                    class: 'px-3 py-1.5 text-[11px] sticky left-0 select-none cursor-pointer',
+                    style: { background: 'var(--card)', zIndex: 1, color: 'var(--text-muted)' },
+                    title: 'Show the context rows (% of Revenue · Reps W/ A Sale · Reps > $20K)',
+                    onclick: expand,
+                  }, '▸ Context rows'),
+                  el('td', {
+                    colspan: String(sortedBranches.length + 1),
+                    class: 'px-3 py-1.5 text-right text-[11px] cursor-pointer select-none',
+                    style: { color: 'var(--text-muted)' },
+                    title: 'Show the context rows',
+                    onclick: expand,
+                  }, '▸'),
+                );
+              })() : null,
+              state._indCtxCollapsed ? null : (() => {
                 const totRev = activeBranches.reduce((a, b) => a + (branchData[b]?.revenue || 0), 0);
                 const cell = el('td', {
                   class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
@@ -24191,10 +24225,22 @@ function viewIndicators() {
                   ...sortedBranches.map(b => el('td', { class: 'px-3 py-2 text-center tabular-nums font-semibold', style: { color: 'var(--accent)' } },
                     (branchData[b] && totRev > 0) ? ((branchData[b].revenue || 0) / totRev * 100).toFixed(1) + '%' : '—',
                   )),
-                  el('td', { class: 'px-3 py-2 text-center tabular-nums font-bold' }, totRev > 0 ? '100%' : '—'),
+                  el('td', { class: 'px-3 py-2 text-center tabular-nums font-bold whitespace-nowrap' },
+                    totRev > 0 ? '100%' : '—',
+                    el('span', {
+                      class: 'ml-2 cursor-pointer select-none text-xs',
+                      style: { color: 'var(--text-muted)' },
+                      title: 'Collapse the context rows — only Power Rank stays below the metrics',
+                      onclick: (e) => {
+                        e.stopPropagation();
+                        state._indCtxCollapsed = true;
+                        try { localStorage.setItem('ridd_ind_ctx_collapsed', '1'); } catch { /* private mode */ }
+                        mountApp();
+                      },
+                    }, '▾')),
                 );
               })(),
-              (() => {
+              state._indCtxCollapsed ? null : (() => {
                 const isSortingReps = sort.key === 'reps';
                 const totalReps = activeBranches.reduce((a, b) => a + (branchData[b]?.reps || 0), 0);
                 return el('tr', { class: 'border-t border-' + (isSortingReps ? ' font-bold' : '') },
@@ -24221,7 +24267,7 @@ function viewIndicators() {
               // Reps > $20K — the PRA denominator. Context only, never
               // scored: shows how many reps actually cleared the $20K
               // qualification bar in each column's window.
-              (() => {
+              state._indCtxCollapsed ? null : (() => {
                 const total20 = activeBranches.reduce((a, b) => a + (branchData[b]?.reps20k ?? branchData[b]?.reps ?? 0), 0);
                 const cell = el('td', {
                   class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
@@ -31544,6 +31590,20 @@ function indicatorYoYTrendChart() {
                 lines.push(isCur
                   ? { label, data: plotVals, borderColor: color, backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct' && _totalSeries === 1, spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 }
                   : { label, data: vals, borderColor: color, borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5, order: idx });
+                // FLOATING LIVE DOT (per Isaac, Jul 2026): the in-progress
+                // week still shows as a DETACHED hollow point at its live
+                // value — a mid-week read without the misleading nosedive
+                // line. Once the week completes it becomes a normal point
+                // and the line connects to it on the next sync.
+                if (_liveIdx >= 0 && vals[_liveIdx] != null) {
+                  const liveData = weeksAxis.map((_, i2) => (i2 === _liveIdx ? vals[_liveIdx] : null));
+                  lines.push({
+                    label: label + ' · live', data: liveData, showLine: false,
+                    borderColor: color, backgroundColor: 'rgba(255,255,255,0)',
+                    pointRadius: 4.5, pointHoverRadius: 6.5, pointBorderWidth: 2.5,
+                    pointStyle: 'circle', order: 0,
+                  });
+                }
                 // YTD dot — point only, on the secondary 'yYTD' axis.
                 const ytdData = weeksAxis.map(() => null); ytdData.push(ytdValOf(A, y, tier));
                 ytdPts.push({ label: 'YTD ' + label, data: ytdData, yAxisID: 'yYTD', showLine: false, borderColor: color, backgroundColor: color, pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', order: 0 });
@@ -31557,7 +31617,7 @@ function indicatorYoYTrendChart() {
         responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 11 }, usePointStyle: true, filter: (item) => !/^YTD /.test(item.text) } },
+          legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 11 }, usePointStyle: true, filter: (item) => !/^YTD /.test(item.text) && !/ · live$/.test(item.text) } },
           tooltip: {
             backgroundColor: '#1D1D1D', padding: 10, cornerRadius: 8,
             callbacks: {
