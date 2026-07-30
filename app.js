@@ -6398,10 +6398,12 @@ function frPendingServiced(s) {
   if (_isSoldNotStarted(s) && String(s.active || '').trim().toLowerCase() !== 'yes') return false;
   if (_scInitialStatusHasData()) {
     const ist = String(s.initialStatus || '').trim().toLowerCase();
-    // "No Appointment" = sold, initial not scheduled yet. The CRM counts
-    // these as Pending (10 same-evening sales proved it in the Jul 2026
-    // diff), so they count here while the subscription is alive.
-    if (ist === 'no appointment') return String(s.active || '').trim().toLowerCase() !== 'no';
+    // Pending/Serviced = the account has MADE IT TO THE SCHEDULE (initial
+    // appt Pending) or beyond (Completed). "No Appointment" is merely
+    // Subscription Added — the CRM's P/S report excludes it until the
+    // office books the initial (per Isaac, Jul 30 2026: Kyson $8,017
+    // Added vs $6,749 P/S — the app must report the P/S number). Fresh
+    // sales start counting on the first sync after they're scheduled.
     return ist === 'pending' || ist === 'completed';
   }
   // Legacy snapshots without the Initial Status column.
@@ -6555,8 +6557,8 @@ function openCrmReconcileModal() {
     if (_isSoldNotStarted(s) && _alive !== 'yes') return 'Sold-Not-Started cancellation reason (sub not active)';
     if (_scInitialStatusHasData()) {
       const ist = String(s.initialStatus || '').trim().toLowerCase();
-      if (ist === 'no appointment') { if (_alive === 'no') return 'No Appointment + cancelled sub'; }
-      else if (ist !== 'pending' && ist !== 'completed') return 'initial appt status “' + (s.initialStatus || '—') + '” (not Pending/Completed)';
+      if (ist === 'no appointment') return 'not scheduled yet (No Appointment) — Subscription Added, not Pending/Serviced';
+      if (ist !== 'pending' && ist !== 'completed') return 'initial appt status “' + (s.initialStatus || '—') + '” (not Pending/Completed)';
     } else if (_scIsSoldNotStarted(s)) return 'Sold-Not-Started (legacy heuristic)';
     if (_indicatorServiceExcluded(s)) return 'excluded service “' + s.subscription + '” (Settings → Configurations)';
     const _s = String(s.source || '').trim();
