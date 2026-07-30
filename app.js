@@ -19078,18 +19078,37 @@ function mysteryBoxSection(isAdmin) {
   }
   nodes.push(el('div', { class: 'card overflow-hidden' },
     // Black requirement bar — the poster look, with the date picker in it.
-    el('div', { class: 'px-4 py-3', style: { background: 'var(--text)', color: 'var(--bg)' } },
-      // Row 1 (per Isaac, Jul 2026 — the white masthead is GONE): brand on
-      // the left, BOXES EARNED + date + tier split + ▶ Spin dead-center,
-      // last sync on the right. Equal flex-1 wings keep the middle true.
-      el('div', { class: 'flex items-start gap-3 flex-wrap mb-2.5' },
-        el('div', { class: 'flex-1 min-w-0 order-1' },
-          el('div', { class: 'text-[9px] font-black', style: { letterSpacing: '.25em', opacity: '.85' } }, 'RIDDMADE\u00ae'),
-          el('div', { class: 'font-display text-3xl leading-none' }, 'MYSTERY BOX')),
-        el('div', { class: 'text-center w-full sm:w-auto order-3 sm:order-2' },
+    el('div', { class: 'px-4 py-2.5', style: { background: 'var(--text)', color: 'var(--bg)' } },
+      // Compact single-block layout (per Isaac, Jul 2026): brand + window
+      // stacked on the left, boxes/date/split/Spin dead-center, last sync +
+      // requirements (with the \ud835\udd7d at their right) stacked on the right.
+      // ONE band \u2014 no second row, no dead space.
+      el('div', { class: 'flex items-stretch gap-3 flex-wrap' },
+        el('div', { class: 'flex-1 min-w-0 order-1 flex flex-col justify-between gap-2' },
+          el('div', {},
+            el('div', { class: 'text-[9px] font-black', style: { letterSpacing: '.25em', opacity: '.85' } }, 'RIDDMADE\u00ae'),
+            el('div', { class: 'font-display text-3xl leading-none' }, 'MYSTERY BOX')),
+          (() => {
+            const dateIn = (val, onCommit) => el('input', {
+              type: 'date', value: val,
+              class: 'rounded px-1.5 py-1 text-[11px] font-bold cursor-pointer',
+              style: { background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)', colorScheme: 'dark', width: '112px' },
+              // Custom-styled date inputs hide the native picker icon \u2014 open
+              // it explicitly so a tap anywhere on the field works.
+              onclick: (e) => { try { e.currentTarget.showPicker(); } catch (err) { /* older browsers fall back to typing */ } },
+              onchange: (e) => { if (e.target.value) { onCommit(e.target.value); mountApp(); } },
+            });
+            return el('div', {},
+              el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.55', marginBottom: '3px' } }, 'Competition window'),
+              el('div', { class: 'flex items-center gap-1' },
+                dateIn(mbFrom, (v) => { state._mbDateFrom = v; if (!state._mbDateTo || state._mbDateTo < v) state._mbDateTo = v; }),
+                el('span', { class: 'text-[11px] font-bold', style: { opacity: '.6' } }, 'to'),
+                dateIn(mbTo, (v) => { state._mbDateTo = v; if (state._mbDateFrom && state._mbDateFrom > v) state._mbDateFrom = v; })));
+          })()),
+        el('div', { class: 'text-center w-full sm:w-auto order-3 sm:order-2 flex flex-col items-center justify-center py-0.5' },
           el('div', { class: 'font-display text-2xl leading-none' }, qualified.length + ' BOX' + (qualified.length === 1 ? '' : 'ES') + ' EARNED'),
-          el('div', { class: 'text-[11px] font-bold uppercase tracking-wide mt-1', style: { opacity: '.7' } }, dLbl),
-          _mbHdr ? el('div', { class: 'text-xs font-bold mt-1' },
+          el('div', { class: 'text-[11px] font-bold uppercase tracking-wide mt-0.5', style: { opacity: '.7' } }, dLbl),
+          _mbHdr ? el('div', { class: 'text-xs font-bold mt-0.5' },
             el('span', { style: { color: '#60A5FA' } }, _mbHdr.qV.length + ' veteran' + (_mbHdr.qV.length === 1 ? '' : 's')),
             el('span', { style: { opacity: '.5' } }, ' \u00b7 '),
             el('span', { style: { color: '#F87171' } }, _mbHdr.qR.length + ' rookie' + (_mbHdr.qR.length === 1 ? '' : 's')),
@@ -19104,38 +19123,18 @@ function mysteryBoxSection(isAdmin) {
               openMysteryBoxOverlay({ id: '__spin__', prize: _mbEnc(rolled) });
             },
           }, '\u25b6 Spin') : null),
-        el('div', { class: 'flex-1 min-w-0 text-right order-2 sm:order-3' },
-          _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : null)),
-      // Row 2: compact date range left, tier requirements right.
-      el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
-        (() => {
-          const dateIn = (val, onCommit) => el('input', {
-            type: 'date', value: val,
-            class: 'rounded px-1.5 py-1 text-[11px] font-bold cursor-pointer',
-            style: { background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)', colorScheme: 'dark', width: '112px' },
-            // Custom-styled date inputs hide the native picker icon — open it
-            // explicitly so a tap anywhere on the field works.
-            onclick: (e) => { try { e.currentTarget.showPicker(); } catch (err) { /* older browsers fall back to typing */ } },
-            onchange: (e) => { if (e.target.value) { onCommit(e.target.value); mountApp(); } },
-          });
-          return el('div', {},
-            el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.55', marginBottom: '3px' } }, 'Competition window'),
-            el('div', { class: 'flex items-center gap-1' },
-              dateIn(mbFrom, (v) => { state._mbDateFrom = v; if (!state._mbDateTo || state._mbDateTo < v) state._mbDateTo = v; }),
-              el('span', { class: 'text-[11px] font-bold', style: { opacity: '.6' } }, 'to'),
-              dateIn(mbTo, (v) => { state._mbDateTo = v; if (state._mbDateFrom && state._mbDateFrom > v) state._mbDateFrom = v; })));
-        })(),
-        el('div', { class: 'text-right' },
-          // The \ud835\udd7d (incentive-list toggle) rides the top-right corner
-          // of the requirements block \u2014 per Isaac.
-          el('div', {
-            style: { fontSize: '34px', lineHeight: '1', fontFamily: "'Old English Text MT',serif", cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none', marginBottom: '3px' },
-            title: isAdmin ? 'Incentive list' : '',
-            onclick: isAdmin ? (() => { state._mbPrizeOpen = !state._mbPrizeOpen; mountApp(); }) : undefined,
-          }, '\ud835\udd7d'),
-          el('div', { class: 'text-[8px] font-black uppercase', style: { letterSpacing: '.14em', opacity: '.55', marginBottom: '3px' } }, 'Requirements \u00b7 sold rev, passed audit'),
-          el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie)),
-          el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet))))),
+        el('div', { class: 'flex-1 min-w-0 order-2 sm:order-3 flex flex-col items-end justify-between gap-2' },
+          _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : el('div'),
+          el('div', { class: 'flex items-center justify-end gap-2.5' },
+            el('div', { class: 'text-right' },
+              el('div', { class: 'text-[8px] font-black uppercase', style: { letterSpacing: '.14em', opacity: '.55', marginBottom: '3px' } }, 'Requirements \u00b7 sold rev, passed audit'),
+              el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie)),
+              el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet))),
+            el('div', {
+              style: { fontSize: '32px', lineHeight: '1', fontFamily: "'Old English Text MT',serif", cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none' },
+              title: isAdmin ? 'Incentive list' : '',
+              onclick: isAdmin ? (() => { state._mbPrizeOpen = !state._mbPrizeOpen; mountApp(); }) : undefined,
+            }, '\ud835\udd7d'))))),
     // Incentive editor (admin, toggled by the \ud835\udd7d) \u2014 sits under the
     // black bar inside the same card now that the white masthead is gone.
     (_mbHdr && _mbHdr.prizeEditor) ? el('div', { class: 'px-4 pb-4' }, _mbHdr.prizeEditor) : null,
