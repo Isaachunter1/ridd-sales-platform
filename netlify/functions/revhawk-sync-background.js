@@ -184,18 +184,18 @@ WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''
   -- (e.g. couldn't close it), but the subscription lingers in the warehouse.
   -- FieldRoutes doesn't propagate the delete, so these would show "pending"
   -- forever. If the customer no longer exists in the customer table, drop it —
-  -- EXCEPT recent sales: subscriptions replicate live but CUSTOMERS only batch
-  -- nightly, so a brand-new customer sold today has no customer row until
-  -- tomorrow morning. Dropping those wiped ~98% of same-day revenue off the
-  -- NRLA live board. Keep anything sold in the last 2 DAYS (covers the
-  -- nightly batch + one missed run); past that, a sale with no customer row
-  -- is a DELETED account's ghost — its subscription row froze in its last
-  -- replicated state ("Active/Pending") when the customer vanished from the
-  -- API, and it must fall off every board. (Was 7 days — deleted accounts
-  -- haunted comps for a week; verified against real deletions 2026-07-08:
-  -- customers 164676/164795 deleted in the CRM yet still counting.)
+  -- EXCEPT recent sales: subscriptions replicate live but CUSTOMERS batch
+  -- separately, and (verified Jul 30 2026) RevHawk's customer feed can run
+  -- MANY DAYS behind or skip customers entirely — Ethan Beaird's whole 7/28
+  -- selling day (plus ~$46K company-wide, 7/18-7/29) vanished off every board
+  -- because the old 2-day grace expired before the customer rows ever landed.
+  -- Grace is now 14 DAYS: real sales survive the feed gap; anything older
+  -- with no customer row is treated as a deleted account's ghost and drops.
+  -- Deleted accounts inside the window are handled by the admin-maintained
+  -- "Deleted CRM accounts" list (Settings → Configurations), and the kept
+  -- no-customer rows are logged below so RevHawk can be handed a ticket.
   AND (cust.cid IS NOT NULL
-       OR LEFT(s.fieldRoutes_dateAdded,10) >= FORMAT_DATE('%Y-%m-%d', DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY)))`;
+       OR LEFT(s.fieldRoutes_dateAdded,10) >= FORMAT_DATE('%Y-%m-%d', DATE_SUB(CURRENT_DATE(), INTERVAL 14 DAY)))`;
 
 // Employee roster — one entry per PERSON. FieldRoutes stores an employee row
 // PER OFFICE and links them via fieldRoutes_linkedEmployeeIDs (a base account).
@@ -426,6 +426,18 @@ exports.handler = async (event) => {
         if (o[k] === null || o[k] === undefined || o[k] === '') delete o[k];
       }
     }
+    // RevHawk customer-feed gap monitor: rows kept WITHOUT a customer record
+    // (no name from the cust join) are real sales the warehouse hasn't
+    // delivered customers for yet — or deletions inside the grace window.
+    // Log count + samples every run so a growing number is caught early and
+    // RevHawk can be handed the exact customer IDs.
+    try {
+      const _noCust = objects.filter(o => !o.last_name && !o.first_name && o.customer_id);
+      if (_noCust.length) {
+        console.warn('[revhawk-sync] ' + _noCust.length + ' subscription row(s) kept with NO customer record (feed gap) — sample ids: '
+          + _noCust.slice(0, 15).map(o => o.customer_id + (o.office_name ? '/' + o.office_name : '')).join(', '));
+      }
+    } catch (mErr) { console.warn('[revhawk-sync] no-cust monitor failed', mErr); }
     const gz = zlib.gzipSync(Buffer.from(JSON.stringify(objects)), { level: 6 });
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
