@@ -6380,6 +6380,15 @@ function frPendingServiced(s) {
   // 6 services completed in the CRM, mirror still said Sold-Not-Started —
   // the sub was cancelled+rebooked and the old reason stuck around).
   if ((Number(s.services) || 0) > 0 || String(s.servicedDate || '').trim()) return true;
+  // NO SERVICE YET → the subscription must still be ALIVE. FieldRoutes
+  // files an unserviced account that got cancelled under "Canceled" /
+  // "Not Serviced", and the CRM's Pending/Serviced ledger drops it no
+  // matter the cancel reason (3-day ROR, finances, rep error, SNS…).
+  // Verified Jul 30 2026 against the CRM roster tool: reps with a
+  // cancelled unserviced sale were exactly that sale high in the app
+  // (Karson +$968 etc). Serviced accounts that cancel LATER still count —
+  // the serviced-evidence check above already returned for those.
+  if (String(s.active || '').trim().toLowerCase() === 'no') return false;
   // Sold-Not-Started CANCELLATION REASON excludes — but only while the
   // subscription is actually dead. The Jul 2026 row-level reconcile caught
   // 12 accounts the CRM still counts whose mirror rows carry a stale SNS
@@ -6542,6 +6551,7 @@ function openCrmReconcileModal() {
     // Mirror of the served-evidence early-accept in frPendingServiced.
     if ((Number(s.services) || 0) > 0 || String(s.servicedDate || '').trim()) return null;
     const _alive = String(s.active || '').trim().toLowerCase();
+    if (_alive === 'no') return 'cancelled before first service (CRM status Canceled / Not Serviced)';
     if (_isSoldNotStarted(s) && _alive !== 'yes') return 'Sold-Not-Started cancellation reason (sub not active)';
     if (_scInitialStatusHasData()) {
       const ist = String(s.initialStatus || '').trim().toLowerCase();
