@@ -18587,6 +18587,78 @@ function mysteryBoxDayStats(day) {
     return { ...o, tier, goal, qualified: goal > 0 && o.rev >= goal };
   }).sort((a, b) => (b.qualified - a.qualified) || (b.rev - a.rev));
 }
+// Rep drill-down for the Mystery Box tier tables (admin verify tool):
+// every account in the comp window with its bucket + the evidence (flags,
+// initial, status), so Pending accounts can be chased and audit flags
+// added in the CRM. Same gates + bucket rules as mysteryBoxDayStats —
+// keep the two in lockstep.
+function openMbRepModal(rep, day) {
+  const raw = state._indicatorRawSales || [];
+  const rows = [];
+  for (const s of raw) {
+    if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
+    const _iso = (typeof dateSoldToIso === 'function' ? dateSoldToIso(s.dateSold) : '');
+    if (!_iso || _iso < day.from || _iso > day.to) continue;
+    if (getCanonicalRepName(s.rep) !== rep.name) continue;
+    if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;
+    const cv = Number(s.contractValue) || 0;
+    const init = Number(s.initialPrice) || 0;
+    const isLR = init < 99;
+    const isFailAudit = (typeof SC_FAIL_RE !== 'undefined') && SC_FAIL_RE.test(s.customerFlags || '');
+    let bucket, why;
+    if (isLR || isFailAudit) { bucket = 'failed'; why = isFailAudit ? 'Failed audit' : 'Last Resort (<$99 initial)'; }
+    else if (typeof scAuditPassed === 'function' && scAuditPassed(s.customerFlags)) { bucket = 'passed'; why = /passed/i.test(s.customerFlags || '') ? 'Passed audit' : 'No audit'; }
+    else { bucket = 'pending'; why = 'Awaiting audit flag'; }
+    rows.push({ s, cv, init, bucket, why });
+  }
+  const ord = { pending: 0, failed: 1, passed: 2 };
+  rows.sort((x, y) => (ord[x.bucket] - ord[y.bucket]) || (y.cv - x.cv));
+  const sum = (b) => rows.filter(r => r.bucket === b).reduce((a2, r) => a2 + r.cv, 0);
+  const B = { passed: { c: '#5F8A1F', bg: 'rgba(141,198,63,.14)', lab: 'Passed' },
+              pending: { c: '#B45309', bg: 'rgba(240,172,30,.16)', lab: 'Pending' },
+              failed: { c: '#B91C1C', bg: 'rgba(220,38,38,.10)', lab: 'Failed' } };
+  const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const statChip = (lab, v, color) => el('div', { class: 'text-center' },
+    el('div', { class: 'text-[9px] font-black uppercase tracking-widest', style: { color: 'var(--text-muted)' } }, lab),
+    el('div', { class: 'text-sm font-black tabular-nums', style: color ? { color } : {} }, v));
+  overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '760px' } },
+    el('div', { class: 'flex items-center justify-between gap-3 mb-1' },
+      el('div', {},
+        el('h3', { class: 'text-base font-bold' }, rep.name),
+        el('div', { class: 'text-xs text-muted-' },
+          (rep.tier === 'rookie' ? 'Rookie' : 'Veteran') + ' · goal ' + fmt.usd0(rep.goal || 0) + ' · ' + day.from + (day.to !== day.from ? ' → ' + day.to : ''))),
+      el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
+    el('div', { class: 'flex items-center justify-between gap-2 py-2 px-3 rounded-lg mb-3 flex-wrap', style: { background: 'var(--card-2)' } },
+      statChip('Accounts', String(rows.length)),
+      statChip('Total', fmt.usd0(rows.reduce((a2, r) => a2 + r.cv, 0))),
+      statChip('Passed', fmt.usd0(sum('passed')), B.passed.c),
+      statChip('Pending', fmt.usd0(sum('pending')), B.pending.c),
+      statChip('Failed', fmt.usd0(sum('failed')), B.failed.c)),
+    rows.length === 0
+      ? el('div', { class: 'p-4 text-center text-xs text-muted-' }, 'No counting accounts in this window.')
+      : el('div', { style: { maxHeight: '62vh', overflowY: 'auto' } },
+          el('table', { class: 'w-full text-xs' },
+            el('thead', {}, el('tr', { class: 'text-left text-[9px] uppercase tracking-widest text-muted-' },
+              el('th', { class: 'py-1.5 pr-2' }, 'Customer'),
+              el('th', { class: 'py-1.5 pr-2 hidden sm:table-cell' }, 'Subscription'),
+              el('th', { class: 'py-1.5 pr-2 hidden sm:table-cell' }, 'Sold'),
+              el('th', { class: 'py-1.5 pr-2 text-right' }, 'Initial'),
+              el('th', { class: 'py-1.5 pr-2 text-right' }, 'Value'),
+              el('th', { class: 'py-1.5 text-right' }, 'Status'))),
+            el('tbody', {}, ...rows.map(({ s, cv, init, bucket, why }) => el('tr', { class: 'border-t border-', style: bucket === 'pending' ? { background: B.pending.bg } : {} },
+              el('td', { class: 'py-1.5 pr-2' },
+                el('div', { class: 'font-semibold' }, s.customer || '—'),
+                el('div', { class: 'text-[10px] text-muted- tabular-nums' }, (s.customerId ? '#' + s.customerId : '') + (s.customerFlags ? ' · ' + s.customerFlags : ''))),
+              el('td', { class: 'py-1.5 pr-2 hidden sm:table-cell' }, s.subscription || '—'),
+              el('td', { class: 'py-1.5 pr-2 whitespace-nowrap text-muted- hidden sm:table-cell' }, s.dateSold || '—'),
+              el('td', { class: 'py-1.5 pr-2 text-right tabular-nums', style: init < 99 ? { color: B.failed.c, fontWeight: '700' } : {} }, fmt.usd0(init)),
+              el('td', { class: 'py-1.5 pr-2 text-right tabular-nums font-bold' }, fmt.usd0(cv)),
+              el('td', { class: 'py-1.5 text-right whitespace-nowrap' },
+                el('span', { class: 'text-[10px] font-black px-1.5 py-0.5 rounded', style: { color: B[bucket].c, background: B[bucket].bg }, title: why }, B[bucket].lab)))))))));
+  document.body.append(overlay);
+}
+
 function _mbEnsureStyles() {
   if (document.getElementById('mbStyles')) return;
   const st = document.createElement('style');
@@ -19177,7 +19249,12 @@ function mysteryBoxSection(isAdmin) {
     const row = (r) => {
       const isQ = r.qualified;
       const pctTo = r.goal > 0 ? Math.min(100, r.rev / r.goal * 100) : 0;
-      return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: isQ ? 'rgba(141,198,63,.06)' : '' } },
+      return el('tr', {
+        class: 'border-t cursor-pointer hover:brightness-95 transition',
+        style: { borderColor: 'var(--border)', background: isQ ? 'rgba(141,198,63,.06)' : '' },
+        title: 'Click for ' + r.name + '\u2019s accounts \u2014 verify revenue and chase pending audits',
+        onclick: () => openMbRepModal(r, { from: mbFrom, to: mbTo }),
+      },
         el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.name),
         el('td', { class: 'px-3 py-2 tabular-nums hidden sm:table-cell' }, String(r.n)),
         el('td', { class: 'px-3 py-2 tabular-nums text-muted- hidden sm:table-cell' }, fmt.usd0(r.total)),
