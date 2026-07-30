@@ -107,6 +107,20 @@ try {
       String((e.stderr || e.message || e)).split('\n').slice(0, 4).join('\n'));
 }
 
+// ── [6/6] P/S GATE GOLDEN TESTS ─────────────────────────────────────────
+// frPendingServiced is the canonical Pending/Serviced basis for EVERY
+// board and pay number. The scenario suite in tools/ps-gate-test.js locks
+// in the semantics reconciled to the CRM (Jul 2026); any behavioral drift
+// fails the deploy.
+console.log('\n[6/6] P/S gate golden tests (tools/ps-gate-test.js)');
+try {
+  const out = require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'ps-gate-test.js')], { stdio: 'pipe' }).toString().trim();
+  ok(out.split('\n').pop());
+} catch (e) {
+  bad('P/S gate scenarios FAILED — the Pending/Serviced basis changed',
+      String((e.stdout || '') + (e.stderr || '')).split('\n').slice(0, 8).join('\n'));
+}
+
 // ── verdict ─────────────────────────────────────────────────────────────
 if (failures) {
   console.error('\nCI: FAIL — ' + failures + ' problem(s). Deploy blocked; previous version stays live.');

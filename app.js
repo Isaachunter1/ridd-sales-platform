@@ -18666,6 +18666,36 @@ function openMbRepModal(rep, day) {
   document.body.append(overlay);
 }
 
+// 🪙 Pay Mystery Box winners in RIDDCOIN — one click, one ledger row per
+// winner with the comp window in the reason. Reps are matched to app
+// accounts by name signature (token-sorted, punctuation-blind), so
+// "Beaird, Ethan" finds profile "Ethan Beaird". Unmatched names are
+// reported, never silently skipped.
+async function _mbPayWinners(qualifiedList, day) {
+  const amtStr = prompt('RIDDCOIN per box earned? Each of the ' + qualifiedList.length + ' qualified rep(s) receives this amount.', '500');
+  if (amtStr == null) return;
+  const amt = Math.abs(Math.round(Number(amtStr) || 0));
+  if (!amt) { toast('Enter a whole number of RIDDCOIN', 'warn'); return; }
+  const { data: profs, error } = await supabase.from('profiles').select('id, full_name');
+  if (error) { toast('Could not load profiles: ' + error.message, 'error'); return; }
+  const sig = (n) => String(n || '').toLowerCase().replace(/[^a-z]+/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const bySig = new Map();
+  (profs || []).forEach(pf => bySig.set(sig(pf.full_name), pf));
+  const reason = 'Mystery Box ' + day.from + (day.to !== day.from ? ' \u2192 ' + day.to : '');
+  let paid = 0;
+  const missed = [];
+  for (const r of qualifiedList) {
+    const pf = bySig.get(sig(r.name));
+    if (!pf) { missed.push(r.name); continue; }
+    const { error: gErr } = await supabase.rpc('riddcoin_grant', { p_user: pf.id, p_amount: amt, p_reason: reason });
+    if (gErr) { missed.push(r.name + ' (' + gErr.message + ')'); continue; }
+    paid++;
+  }
+  state._rcLoadedAt = 0; // marketplace refreshes on next open
+  toast('\ud83e\ude99 Paid ' + paid + ' winner' + (paid === 1 ? '' : 's') + ' ' + amt + ' RIDDCOIN each'
+    + (missed.length ? ' \u00b7 NO app account (grant manually): ' + missed.join(', ') : ''), missed.length ? 'warn' : 'success');
+}
+
 function _mbEnsureStyles() {
   if (document.getElementById('mbStyles')) return;
   const st = document.createElement('style');
@@ -19214,7 +19244,13 @@ function mysteryBoxSection(isAdmin) {
               if (!rolled) { toast('Add incentives first \u2014 click the \ud835\udd7d', 'warn'); return; }
               openMysteryBoxOverlay({ id: '__spin__', prize: _mbEnc(rolled) });
             },
-          }, '\u25b6 Spin') : null),
+          }, '\u25b6 Spin') : null,
+          (isAdmin && qualified.length) ? el('button', {
+            class: 'text-[11px] font-bold px-3 py-1 rounded-lg border mt-1.5',
+            style: { borderColor: 'rgba(141,198,63,.5)', color: '#8DC63F', background: 'rgba(141,198,63,.08)' },
+            title: 'Grant every qualified rep RIDDCOIN for this window \u2014 one ledger row each, reason auto-filled',
+            onclick: () => _mbPayWinners(qualified, { from: mbFrom, to: mbTo }),
+          }, '\ud83e\ude99 Pay winners') : null),
         el('div', { class: 'flex-1 min-w-0 order-2 sm:order-3 flex flex-col items-end justify-between gap-2' },
           _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : el('div'),
           el('div', { class: 'flex items-center justify-end gap-2.5' },
@@ -35613,6 +35649,14 @@ function _rcBalanceOf(userId) {
   return (state._rcLedger || []).filter(r => r.user_id === userId).reduce((a, r) => a + (Number(r.delta) || 0), 0);
 }
 const _rcCoin = (n) => Number(n || 0).toLocaleString('en-US') + ' ¤'; // ¤ = RIDDCOIN mark
+// A "spin" is an item whose description is {"spin":true,"pool":[{name,odds,rarity}…]}
+// — built in Manage → 🎰 Spin builder, rolled SERVER-SIDE by riddcoin_spin().
+function _rcSpinCfg(i) {
+  try {
+    const j = JSON.parse((i && i.description) || '');
+    return (j && j.spin && Array.isArray(j.pool) && j.pool.length) ? j : null;
+  } catch { return null; }
+}
 function _rcWhen(ts) {
   const d = new Date(ts);
   return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' })
@@ -35676,6 +35720,38 @@ function viewMarketplace() {
           ...live.map(i => {
             const out = i.stock != null && i.stock <= 0;
             const cant = myBal < i.cost;
+            const spin = _rcSpinCfg(i);
+            if (spin) {
+              const oddsTitle = spin.pool.map(p2 => p2.name + ' · ' + (Number(p2.odds) || 0) + '%').join('\n');
+              return el('div', { class: 'card p-4 flex flex-col gap-2', style: { borderColor: '#8DC63F' } },
+                el('div', { class: 'text-3xl' }, '🎰'),
+                el('div', { class: 'font-bold text-sm leading-tight' }, i.name),
+                el('div', { class: 'text-[11px] text-muted-', title: oddsTitle }, spin.pool.length + ' possible prizes — hover to peek the odds'),
+                el('div', { class: 'flex items-center justify-between mt-auto pt-2' },
+                  el('div', {},
+                    el('div', { class: 'font-black tabular-nums', style: { color: '#8DC63F' } }, _rcCoin(i.cost)),
+                    i.stock != null ? el('div', { class: 'text-[10px] text-muted-' }, out ? 'Out of stock' : i.stock + ' left') : null),
+                  el('button', {
+                    class: 'px-3 py-1.5 rounded-lg text-xs font-bold' + ((out || cant) ? ' opacity-50' : ' cursor-pointer hover:brightness-95'),
+                    style: { background: 'var(--text)', color: 'var(--bg)' },
+                    disabled: (out || cant) ? 'disabled' : null,
+                    title: out ? 'Out of stock' : cant ? 'Not enough RIDDCOIN (you have ' + _rcCoin(myBal) + ')' : 'One spin · prize rolled by the odds',
+                    onclick: (out || cant) ? null : (async () => {
+                      if (!confirm('Spend ' + _rcCoin(i.cost) + ' on one "' + i.name + '"? The prize is rolled by the odds — whatever the box reveals is yours at prize pickup.')) return;
+                      const { data: prize, error } = await supabase.rpc('riddcoin_spin', { p_item: i.id });
+                      if (error) { toast('Spin failed: ' + error.message, 'error'); return; }
+                      const won = String(prize || '');
+                      const entry = spin.pool.find(p2 => p2.name === won);
+                      if (entry && entry.rarity) state._mbRarity = { ...(state._mbRarity || {}), [won]: entry.rarity };
+                      loadRiddcoin(true);
+                      // The full icybox experience: carousel of boxes, pick
+                      // one, it opens on the SERVER-rolled prize.
+                      if (typeof openMysteryBoxOverlay === 'function' && typeof _mbEnc === 'function') {
+                        openMysteryBoxOverlay({ id: '__rcspin__', prize: _mbEnc(won) });
+                      } else toast('🎁 You won: ' + won + '!', 'success');
+                    }),
+                  }, '🎰 Spin')));
+            }
             return el('div', { class: 'card p-4 flex flex-col gap-2' },
               el('div', { class: 'text-3xl' }, '🎁'),
               el('div', { class: 'font-bold text-sm leading-tight' }, i.name),
@@ -35797,6 +35873,83 @@ function viewMarketplace() {
           onclick: () => { if (confirm('Remove "' + i.name + '" from the store?')) saveItem({ p_id: i.id, p_name: i.name, p_cost: i.cost, p_stock: i.stock, p_active: i.active, p_description: i.description || null, p_delete: true }); },
         }, '✕') : null);
     };
+    // ── 🎰 SPIN BUILDER — icybox-style chance purchases. A spin is a
+    // catalog item whose description carries the prize pool + odds +
+    // rarity; riddcoin_spin() (riddcoin_spins.sql) rolls it server-side.
+    wrap.append((() => {
+      const d = state._rcSpinDraft || (state._rcSpinDraft = { id: null, name: '', cost: '', stock: '', pool: [] });
+      const spins = items.filter(_rcSpinCfg);
+      const loadDraft = (it) => {
+        const cfg = it ? _rcSpinCfg(it) : null;
+        state._rcSpinDraft = it
+          ? { id: it.id, name: it.name, cost: String(it.cost), stock: it.stock != null ? String(it.stock) : '', pool: (cfg.pool || []).map(p2 => ({ name: p2.name || '', odds: Number(p2.odds) || 0, rarity: p2.rarity || 'bronze' })) }
+          : { id: null, name: '', cost: '', stock: '', pool: [] };
+        mountApp();
+      };
+      const totalOdds = d.pool.reduce((a2, p2) => a2 + (Number(p2.odds) || 0), 0);
+      const inp = (val, ph, w, onin) => el('input', {
+        type: 'text', value: val, placeholder: ph,
+        class: 'rounded border px-2 py-1.5 text-xs' + (w ? '' : ' flex-1 min-w-0'),
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', ...(w ? { width: w } : {}) },
+        oninput: onin,
+      });
+      const card = el('div', { class: 'card p-4' },
+        el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
+          el('h3', { class: 'text-sm font-bold' }, '🎰 Spin builder'),
+          spins.length ? el('select', {
+            class: 'rounded border px-2 py-1.5 text-xs', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            onchange: (e) => loadDraft(items.find(it => it.id === e.target.value) || null),
+          },
+            el('option', { value: '' }, d.id ? 'New spin…' : 'Edit existing…'),
+            ...spins.map(it => { const o = el('option', { value: it.id }, it.name); if (it.id === d.id) o.selected = true; return o; })) : null),
+        el('div', { class: 'text-[10px] text-muted- mb-2' },
+          'Reps pay the cost for ONE roll across this pool — the prize is decided server-side by the odds, then revealed with the Mystery Box carousel. Odds should sum to 100.'),
+        el('div', { class: 'flex items-center gap-2 flex-wrap mb-2' },
+          inp(d.name, 'Spin name (e.g. Gold Spin)…', null, (e) => { d.name = e.target.value; }),
+          inp(String(d.cost || ''), 'Cost', '84px', (e) => { d.cost = e.target.value; }),
+          inp(String(d.stock || ''), '∞ stock', '70px', (e) => { d.stock = e.target.value; })),
+        ...d.pool.map((p2, idx) => el('div', { class: 'flex items-center gap-2 py-1.5 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
+          inp(p2.name, 'Prize…', null, (e) => { p2.name = e.target.value; }),
+          inp(String(p2.odds || ''), '%', '58px', (e) => { p2.odds = Number(e.target.value) || 0; }),
+          (() => {
+            const sel = el('select', {
+              class: 'rounded border px-1.5 py-1 text-xs font-bold',
+              style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: (typeof MB_RARITIES !== 'undefined' && MB_RARITIES[p2.rarity]) ? MB_RARITIES[p2.rarity].color : 'var(--text)' },
+              onchange: (e) => { p2.rarity = e.target.value; mountApp(); },
+            }, ...Object.entries(typeof MB_RARITIES !== 'undefined' ? MB_RARITIES : { bronze: { label: 'Bronze' } }).map(([k2, m2]) => {
+              const o = el('option', { value: k2 }, m2.label || k2); if (k2 === (p2.rarity || 'bronze')) o.selected = true; return o;
+            }));
+            return sel;
+          })(),
+          el('button', { class: 'text-xs cursor-pointer', style: { color: '#DC2626' }, title: 'Remove prize', onclick: () => { d.pool.splice(idx, 1); mountApp(); } }, '✕'))),
+        el('div', { class: 'flex items-center justify-between gap-2 mt-2 flex-wrap' },
+          el('button', {
+            class: 'px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+            onclick: () => { d.pool.push({ name: '', odds: 0, rarity: 'bronze' }); mountApp(); },
+          }, '+ Add prize'),
+          el('div', { class: 'text-[11px] font-bold tabular-nums', style: { color: totalOdds === 100 ? '#5F8A1F' : '#D97706' } },
+            'Total ' + totalOdds + '%' + (totalOdds === 100 ? ' ✓' : ' — should be 100')),
+          el('button', {
+            class: 'px-3 py-1.5 rounded text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+            onclick: async () => {
+              const nm = String(d.name || '').trim();
+              const cost = Math.round(Number(d.cost) || 0);
+              const pool = d.pool.map(p2 => ({ name: String(p2.name || '').trim(), odds: Number(p2.odds) || 0, rarity: p2.rarity || 'bronze' })).filter(p2 => p2.name && p2.odds > 0);
+              if (!nm || cost <= 0) return toast('Spin name + a positive cost required', 'warn');
+              if (!pool.length) return toast('Add at least one prize with odds', 'warn');
+              const { error } = await supabase.rpc('riddcoin_save_item', {
+                p_id: d.id, p_name: nm, p_cost: cost,
+                p_stock: d.stock === '' ? null : Math.max(0, Number(d.stock) || 0),
+                p_active: true, p_description: JSON.stringify({ spin: true, pool }), p_delete: false,
+              });
+              if (error) return toast('Save failed: ' + error.message, 'error');
+              toast('🎰 Spin saved — live in the store', 'success');
+              state._rcSpinDraft = null;
+              await loadRiddcoin(true); mountApp();
+            },
+          }, d.id ? 'Save spin' : '+ Create spin')));
+      return card;
+    })());
     wrap.append(el('div', { class: 'card p-4' },
       el('h3', { class: 'text-sm font-bold mb-1' }, '🎁 Prize catalog'),
       el('div', { class: 'text-[10px] text-muted- mb-2' }, 'Name · cost in RIDDCOIN · stock (blank = unlimited) · live toggle. Redeemed prizes decrement stock automatically.'),
@@ -41024,6 +41177,29 @@ function viewD2dUpfront() {
     state._upfrontStart = _sun.toISOString().slice(0, 10);
     state._upfrontEnd = _sat.toISOString().slice(0, 10);
   }
+  // ── PAY-PERIOD LOCK WORKFLOW (draft → locked) ──────────────────────────
+  // Locks are shared across admins (app_settings 'commission_locks').
+  // Run Commissions requires the period to be LOCKED first, so every admin
+  // runs the same frozen window and reps can trust the stub they receive.
+  // Unlocking is allowed (admin) but leaves the ledger of who locked what.
+  if (state._commLocks === undefined && supabase && !DEMO) {
+    state._commLocks = null; // loading
+    supabase.from('app_settings').select('value').eq('key', 'commission_locks').maybeSingle()
+      .then(({ data }) => {
+        state._commLocks = (data && data.value && data.value.locks) || {};
+        if (state.view === 'd2d_upfront') mountApp();
+      }).catch(() => { state._commLocks = {}; });
+  }
+  const _lockKey = String(state._upfrontStart) + '|' + String(state._upfrontEnd);
+  const _lock = (state._commLocks || {})[_lockKey] || null;
+  const _saveLocks = async (locks) => {
+    state._commLocks = locks;
+    try {
+      const { error } = await supabase.from('app_settings').upsert({ key: 'commission_locks', value: { locks } }, { onConflict: 'key' });
+      if (error) toast('Lock save failed: ' + error.message, 'error');
+    } catch (e2) { toast('Lock save failed: ' + ((e2 && e2.message) || e2), 'error'); }
+    mountApp();
+  };
   const startMs = state._upfrontStart ? Date.parse(state._upfrontStart) : 0;
   const endMs   = state._upfrontEnd ? Date.parse(state._upfrontEnd) + 86399000 : 0;
 
@@ -41146,6 +41322,29 @@ function viewD2dUpfront() {
         })(),
         el('label', { class: 'block' }, lblS('Sold from'), dateInput(state._upfrontStart, v => state._upfrontStart = v)),
         el('label', { class: 'block' }, lblS('Sold to'), dateInput(state._upfrontEnd, v => state._upfrontEnd = v)),
+        // Period status — Draft until an admin locks it; Run requires Locked.
+        el('label', { class: 'block' }, lblS('Period status'),
+          el('div', { class: 'flex items-center gap-1.5' },
+            el('span', {
+              class: 'text-xs font-bold px-2.5 py-2 rounded-xl whitespace-nowrap',
+              style: _lock ? { background: 'rgba(141,198,63,.18)', color: '#5F8A1F' } : { background: 'rgba(240,172,30,.16)', color: '#B45309' },
+              title: _lock ? ('Locked by ' + (_lock.name || 'admin') + ' · ' + String(_lock.at || '').slice(0, 10)) : 'Draft — numbers may still move; lock before running commissions',
+            }, _lock ? '🔒 Locked' : '📝 Draft'),
+            el('button', {
+              class: 'rounded-xl px-2.5 py-2 text-xs font-bold border cursor-pointer transition hover:brightness-95 whitespace-nowrap',
+              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+              title: _lock ? 'Reopen this period (the lock history note is replaced)' : 'Freeze this pay period so commissions can be run against it',
+              onclick: () => {
+                const locks = { ...(state._commLocks || {}) };
+                if (_lock) {
+                  if (!confirm('Unlock ' + state._upfrontStart + ' → ' + state._upfrontEnd + '? Reps may already have stubs from this period.')) return;
+                  delete locks[_lockKey];
+                } else {
+                  locks[_lockKey] = { by: state.profile.id, name: state.profile.full_name || '', at: new Date().toISOString() };
+                }
+                _saveLocks(locks);
+              },
+            }, _lock ? 'Unlock' : 'Lock'))),
         // ── RUN COMMISSIONS — computes every Sales Rep for this period,
         // publishes their result, and emails each rep at the address on
         // their FieldRoutes account. Admin-JWT-gated server side.
@@ -41156,6 +41355,9 @@ function viewD2dUpfront() {
           onclick: async (e) => {
             const btn = e.currentTarget;
             const periodLabel = state._upfrontStart + ' → ' + state._upfrontEnd;
+            // Draft periods can't be run — locking first means every admin
+            // runs the same frozen window and stubs are reproducible.
+            if (!_lock) { toast('Lock the period first (Period status → Lock) — Draft periods can\u2019t be run', 'warn'); return; }
             const withEmail = salesReps.filter(x => /@/.test(String(x.email || '')));
             const noEmail = salesReps.length - withEmail.length;
             if (!confirm('Run commissions for ' + periodLabel + '?\n\n' + salesReps.length + ' Sales Reps will be computed and published; ' + withEmail.length + ' will be emailed at their FieldRoutes address' + (noEmail ? ' (' + noEmail + ' have no email on file and will be skipped)' : '') + '.')) return;

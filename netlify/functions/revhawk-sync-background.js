@@ -449,6 +449,39 @@ exports.handler = async (event) => {
         if (o[k] === null || o[k] === undefined || o[k] === '') delete o[k];
       }
     }
+    // ── OFFICE-DROP MONITOR ────────────────────────────────────────────
+    // Compares this run's per-office row counts against the PREVIOUS run
+    // (stored beside the heartbeat). A branch losing >35% of its rows
+    // between syncs = replication broke for that office (how Little Rock
+    // went dark, Jul 2026) → Slack alert + loud log. Costs nothing: counts
+    // come from rows already pulled.
+    try {
+      const counts = {};
+      for (const o of objects) { const k = o.office_name || '?'; counts[k] = (counts[k] || 0) + 1; }
+      const sb2 = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+      let prev = null;
+      try {
+        const dl = await sb2.storage.from('reporting').download('indicators/office-counts.json');
+        if (dl && dl.data) prev = JSON.parse(await dl.data.text());
+      } catch { /* first run */ }
+      const drops = [];
+      if (prev && prev.counts) {
+        for (const [office, was] of Object.entries(prev.counts)) {
+          const now2 = counts[office] || 0;
+          if (was >= 50 && now2 < was * 0.65) drops.push(office + ': ' + was + ' → ' + now2 + ' rows');
+        }
+      }
+      if (drops.length) {
+        const msg = '🚨 RIDD sync: office row-count DROP — possible replication gap.\n' + drops.join('\n');
+        console.error('[office-drop] ' + msg);
+        const hook = process.env.SLACK_ADMIN_WEBHOOK;
+        if (hook) { try { await fetch(hook, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: msg }) }); } catch { /* alert best-effort */ } }
+      }
+      await sb2.storage.from('reporting').upload('indicators/office-counts.json',
+        Buffer.from(JSON.stringify({ at: new Date().toISOString(), counts })),
+        { contentType: 'application/json', upsert: true });
+    } catch (omErr) { console.warn('[office-drop] monitor failed (non-fatal)', omErr && omErr.message); }
+
     // RevHawk customer-feed gap monitor: rows kept WITHOUT a customer record
     // (no name from the cust join) are real sales the warehouse hasn't
     // delivered customers for yet — or deletions inside the grace window.
