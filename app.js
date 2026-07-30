@@ -3280,7 +3280,7 @@ const TAB_TITLES = {
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#queues':'queues', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'d2d_upfront', '#techs':'techs', '#training':'training', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#queues':'queues', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'d2d_upfront', '#techs':'techs', '#training':'training', '#marketplace':'marketplace', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -4543,6 +4543,7 @@ function mountApp() {
   const repCanSee = (v) => v === 'nrla'
     || v === 'indicators'                                  // rep-lite Indicators for ALL rep types
     || v === 'training'                                    // placeholder for now (viewTraining gates content)
+    || v === 'marketplace'                                 // 🪙 RIDDCOIN store — every onboarded user
     || (!isOfficeStaff && D2D_SALES_TAB_KEYS.has(v))       // Sales Reps: the D2D Sales group
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
   if (isRepOnly && !repCanSee(state.view)) {
@@ -4575,6 +4576,7 @@ function mountApp() {
     ...(isOfficeStaff ? [['queues', 'Queues', iconClipboard()]] : []),
     ['nrla', 'Competitions', iconTrophy()],
     ['indicators', 'Indicators', iconChart()],
+    ['marketplace', 'Marketplace', iconDollar()],
     ['training', 'Training', iconClipboard()],
   ] : [
     // Auditors only have the Sales tab, so call the entry what it is.
@@ -4587,6 +4589,7 @@ function mountApp() {
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
     ...(isAdmin ? [['queues',        'Queues',        iconClipboard()]] : []),
+    ...(isAuditor ? [] : [['marketplace', 'Marketplace', iconDollar()]]),
     ...(isAuditor ? [] : [['training', 'Training', iconClipboard()]]),
   ];
 
@@ -4892,6 +4895,7 @@ function mountApp() {
     d2d_upfront:  viewD2dUpfront,
     techs:        viewTechs,
     training:     viewTraining,
+    marketplace:  viewMarketplace,
     admin:        viewAdmin,
   }[state.view];
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
@@ -4915,7 +4919,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_upfront', 'techs', 'training', 'auditing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_upfront', 'techs', 'training', 'marketplace', 'auditing']);
   document.querySelector('.fab')?.remove();
   // + FAB is OFFICE STAFF only (per Isaac) — admins don't log sales from a
   // floating button, and the retired AI speed-dial no longer replaces it.
@@ -18572,8 +18576,9 @@ function mysteryBoxDayStats(day) {
     //   PENDING = not Last Resort, no audit flag yet — waiting
     //   FAILED  = Last Resort (<$99) OR failed audit
     if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;
-    const o = byRep.get(nm) || { name: nm, rev: 0, n: 0, total: 0, totalN: 0, failed: 0, pending: 0 };
+    const o = byRep.get(nm) || { name: nm, rev: 0, n: 0, total: 0, totalN: 0, failed: 0, pending: 0, offRev: {} };
     o.total += cv; o.totalN++;
+    if (s.office) o.offRev[s.office] = (o.offRev[s.office] || 0) + cv;
     const isLR = (Number(s.initialPrice) || 0) < 99;
     const isFailAudit = (typeof SC_FAIL_RE !== 'undefined') && SC_FAIL_RE.test(s.customerFlags || '');
     if (isLR || isFailAudit) o.failed += cv;
@@ -18584,7 +18589,9 @@ function mysteryBoxDayStats(day) {
   return [...byRep.values()].map(o => {
     const tier = getRepTier(o.name);
     const goal = tier === 'rookie' ? (Number(day.rookie) || 0) : (Number(day.vet) || 0);
-    return { ...o, tier, goal, qualified: goal > 0 && o.rev >= goal };
+    // Office = where they sold the most (by revenue) inside the window.
+    const office = (Object.entries(o.offRev || {}).sort((x, y) => y[1] - x[1])[0] || [''])[0];
+    return { ...o, tier, goal, office, qualified: goal > 0 && o.rev >= goal };
   }).sort((a, b) => (b.qualified - a.qualified) || (b.rev - a.rev));
 }
 // Rep drill-down for the Mystery Box tier tables (admin verify tool):
@@ -19236,7 +19243,7 @@ function mysteryBoxSection(isAdmin) {
     let chase = dayStats.filter(r => !r.qualified && inTier(r)).sort((a2, b2) => (b2.goal ? b2.rev / b2.goal : 0) - (a2.goal ? a2.rev / a2.goal : 0));
     const _srt2 = state._mbSort || null;
     if (_srt2) {
-      const valOf = (r) => _srt2.key === 'name' ? String(r.name)
+      const valOf = (r) => (_srt2.key === 'name' || _srt2.key === 'office') ? String(r[_srt2.key] || '')
         : _srt2.key === 'progress' ? (r.goal ? r.rev / r.goal : 0)
         : Number(r[_srt2.key]) || 0;
       const srt = (arr) => arr.slice().sort((x, y) => {
@@ -19256,6 +19263,8 @@ function mysteryBoxSection(isAdmin) {
         onclick: () => openMbRepModal(r, { from: mbFrom, to: mbTo }),
       },
         el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.name),
+        el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted- hidden sm:table-cell' },
+          String(r.office || '\u2014').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())),
         el('td', { class: 'px-3 py-2 tabular-nums hidden sm:table-cell' }, String(r.n)),
         el('td', { class: 'px-3 py-2 tabular-nums text-muted- hidden sm:table-cell' }, fmt.usd0(r.total)),
         el('td', { class: 'px-3 py-2 tabular-nums font-bold' }, fmt.usd0(r.rev)),
@@ -19276,8 +19285,8 @@ function mysteryBoxSection(isAdmin) {
         el('div', { class: 'text-xs font-bold tabular-nums px-2 py-0.5 rounded', style: { background: qual2.length ? '#8DC63F' : 'rgba(255,255,255,.15)', color: qual2.length ? '#1D1D1D' : 'var(--bg)' } }, qual2.length + ' earned')),
       (qual2.length || chase.length) ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-          ...[['name', 'Rep'], ['n', 'Accts', 'Accounts counting toward the box (passed audit / no audit)'], ['total', 'Total', 'Pending/Serviced revenue (the FieldRoutes gate) \u2014 Passed + Pending + Failed'], ['rev', 'Passed', 'Passed audit or no audit, $99+ initial \u2014 the only revenue that counts toward the box'], ['pending', 'Pending', 'No audit flag yet (not Last Resort) \u2014 moves to Passed or Failed as audits land'], ['failed', 'Failed', 'Failed audit + Last Resort (<$99) \u2014 does not count'], ['progress', 'To Go', 'Sort by % of goal']].map(([k, h, tip]) => {
-            const _mobileHide = (k === 'n' || k === 'total' || k === 'pending' || k === 'failed') ? ' hidden sm:table-cell' : '';
+          ...[['name', 'Rep'], ['office', 'Office', 'Where they sold the most revenue in this window'], ['n', 'Accts', 'Accounts counting toward the box (passed audit / no audit)'], ['total', 'Total', 'Pending/Serviced revenue (the FieldRoutes gate) \u2014 Passed + Pending + Failed'], ['rev', 'Passed', 'Passed audit or no audit, $99+ initial \u2014 the only revenue that counts toward the box'], ['pending', 'Pending', 'No audit flag yet (not Last Resort) \u2014 moves to Passed or Failed as audits land'], ['failed', 'Failed', 'Failed audit + Last Resort (<$99) \u2014 does not count'], ['progress', 'To Go', 'Sort by % of goal']].map(([k, h, tip]) => {
+            const _mobileHide = (k === 'office' || k === 'n' || k === 'total' || k === 'pending' || k === 'failed') ? ' hidden sm:table-cell' : '';
             const _srt = state._mbSort || null;
             const active = _srt && _srt.key === k;
             return el('th', {
@@ -19294,7 +19303,7 @@ function mysteryBoxSection(isAdmin) {
         el('tbody', {},
           ...qual2.map(row),
           chase.length ? el('tr', {}, el('td', {
-            colspan: '7',
+            colspan: '8',
             class: 'px-3 py-1.5 text-[10px] font-black uppercase tracking-widest',
             style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
           }, 'Chasing the box')) : null,
@@ -35573,6 +35582,230 @@ const TRAINING_MODULES = [
   { title: 'Training',                    description: 'Per-rep training pages.',     tiled: '640fbf25571cf8f1edc2445b' },
 ];
 function _trainingImg(src) { return (/^https?:/.test(src) ? src : (TRAINING_ASSET_BASE + src)); }
+
+// ═══════════════════════════════════════════════════════════════════════
+// 🪙 RIDDCOIN MARKETPLACE — incentive currency + year-end prize store.
+// Users earn RIDDCOIN through comps/incentives (admin grants), spend it in
+// the store for prize-pickup at the end of the year. Every movement is an
+// append-only ledger row (who, how much, why, granted by whom, when).
+// Schema + write rpcs live in riddcoin.sql — run once in Supabase.
+// ═══════════════════════════════════════════════════════════════════════
+async function loadRiddcoin(force) {
+  if (!supabase || !state.profile) return;
+  if (state._rcLoading) return;
+  if (!force && state._rcLoadedAt && Date.now() - state._rcLoadedAt < 60000) return;
+  state._rcLoading = true;
+  try {
+    const [it, led, profs] = await Promise.all([
+      supabase.from('riddcoin_items').select('*').order('sort').order('created_at'),
+      supabase.from('riddcoin_ledger').select('*').order('created_at', { ascending: false }).limit(2000),
+      supabase.from('profiles').select('id, full_name, role'),
+    ]);
+    state._rcErr = (it.error && it.error.message) || (led.error && led.error.message) || null;
+    if (!it.error)  state._rcItems  = it.data || [];
+    if (!led.error) state._rcLedger = led.data || [];
+    if (!profs.error) { state._rcNames = {}; (profs.data || []).forEach(pr => { state._rcNames[pr.id] = pr.full_name || '—'; }); }
+    state._rcLoadedAt = Date.now();
+  } catch (e) { state._rcErr = String((e && e.message) || e); }
+  state._rcLoading = false;
+}
+function _rcBalanceOf(userId) {
+  return (state._rcLedger || []).filter(r => r.user_id === userId).reduce((a, r) => a + (Number(r.delta) || 0), 0);
+}
+const _rcCoin = (n) => Number(n || 0).toLocaleString('en-US') + ' ¤'; // ¤ = RIDDCOIN mark
+function _rcWhen(ts) {
+  const d = new Date(ts);
+  return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' })
+    + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+function viewMarketplace() {
+  const isAdmin = isAdminRole(state.profile.role);
+  // First entry (or stale): pull fresh data, re-render when it lands.
+  if (!state._rcLoadedAt || Date.now() - state._rcLoadedAt > 60000) {
+    loadRiddcoin().then(() => { if (state.view === 'marketplace') mountApp(); });
+  }
+  const wrap = el('div', { class: 'flex flex-col gap-4 w-full' });
+  const myBal = _rcBalanceOf(state.profile.id);
+
+  // ── Hero: brand + own balance ──
+  wrap.append(el('div', { class: 'card p-5 flex items-center justify-between gap-4 flex-wrap', style: { background: 'var(--text)', color: 'var(--bg)' } },
+    el('div', {},
+      el('div', { class: 'text-[9px] font-black', style: { letterSpacing: '.25em', opacity: '.85' } }, 'RIDDMADE®'),
+      el('div', { class: 'font-display text-3xl leading-none' }, 'MARKETPLACE'),
+      el('div', { class: 'text-xs mt-1', style: { opacity: '.7' } }, 'Earn RIDDCOIN all season · spend it at year-end prize pickup')),
+    el('div', { class: 'text-right' },
+      el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.6' } }, 'Your RIDDCOIN'),
+      el('div', { class: 'font-display text-4xl leading-none tabular-nums', style: { color: '#8DC63F' } }, _rcCoin(myBal)))));
+
+  // Schema not installed yet → setup card (the localhost model shows this
+  // until riddcoin.sql is run once in the Supabase SQL Editor).
+  if (state._rcErr && /riddcoin|relation|does not exist|schema cache/i.test(state._rcErr)) {
+    wrap.append(el('div', { class: 'card p-8 text-center' },
+      el('div', { class: 'text-3xl mb-2' }, '🪙'),
+      el('h3', { class: 'text-base font-bold mb-1' }, 'One-time setup'),
+      el('p', { class: 'text-xs text-muted- max-w-md mx-auto' },
+        'Run riddcoin.sql (repo root) in the Supabase SQL Editor to create the ledger, the catalog, and the secure grant/spend functions — then reload this tab.'),
+      el('p', { class: 'text-[10px] text-muted- mt-2' }, state._rcErr)));
+    return wrap;
+  }
+
+  // ── Tabs ──
+  const TABS = isAdmin
+    ? [['store', '🛒 Store'], ['history', '📜 My History'], ['balances', '💰 Balances'], ['ledger', '🗃️ Full Ledger'], ['manage', '⚙️ Manage']]
+    : [['store', '🛒 Store'], ['history', '📜 My History']];
+  const tab = TABS.some(([k]) => k === state._rcTab) ? state._rcTab : 'store';
+  wrap.append(el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
+    ...TABS.map(([k, l]) => el('button', {
+      class: 'px-3 py-1.5 rounded-xl text-xs font-bold border transition hover:brightness-95',
+      style: k === tab ? { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' }
+                       : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+      onclick: () => { state._rcTab = k; mountApp(); },
+    }, l))));
+
+  const names = state._rcNames || {};
+  const items = state._rcItems || [];
+  const ledger = state._rcLedger || [];
+
+  // ── STORE ──
+  if (tab === 'store') {
+    const live = items.filter(i => i.active);
+    wrap.append(live.length === 0
+      ? el('div', { class: 'card p-8 text-center text-xs text-muted-' },
+          state._rcLoading ? 'Loading the store…' : 'No prizes in the store yet' + (isAdmin ? ' — add some under ⚙️ Manage.' : ' — check back soon.'))
+      : el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4' },
+          ...live.map(i => {
+            const out = i.stock != null && i.stock <= 0;
+            const cant = myBal < i.cost;
+            return el('div', { class: 'card p-4 flex flex-col gap-2' },
+              el('div', { class: 'text-3xl' }, '🎁'),
+              el('div', { class: 'font-bold text-sm leading-tight' }, i.name),
+              i.description ? el('div', { class: 'text-[11px] text-muted-' }, i.description) : null,
+              el('div', { class: 'flex items-center justify-between mt-auto pt-2' },
+                el('div', {},
+                  el('div', { class: 'font-black tabular-nums', style: { color: '#8DC63F' } }, _rcCoin(i.cost)),
+                  i.stock != null ? el('div', { class: 'text-[10px] text-muted-' }, out ? 'Out of stock' : i.stock + ' left') : null),
+                el('button', {
+                  class: 'px-3 py-1.5 rounded-lg text-xs font-bold' + ((out || cant) ? ' opacity-50' : ' cursor-pointer hover:brightness-95'),
+                  style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+                  disabled: (out || cant) ? 'disabled' : null,
+                  title: out ? 'Out of stock' : cant ? 'Not enough RIDDCOIN (you have ' + _rcCoin(myBal) + ')' : 'Redeem for ' + _rcCoin(i.cost),
+                  onclick: (out || cant) ? null : (async () => {
+                    if (!confirm('Redeem "' + i.name + '" for ' + _rcCoin(i.cost) + '? This spends your RIDDCOIN and reserves the prize for year-end pickup.')) return;
+                    const { error } = await supabase.rpc('riddcoin_spend', { p_item: i.id });
+                    if (error) { toast('Redeem failed: ' + error.message, 'error'); return; }
+                    toast('🎉 ' + i.name + ' reserved — see you at prize pickup!', 'success');
+                    await loadRiddcoin(true); mountApp();
+                  }),
+                }, 'Redeem')));
+          })));
+  }
+
+  // ── Shared ledger table renderer ──
+  const ledgerTable = (rows, showUser) => el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-xs' },
+      el('thead', {}, el('tr', { class: 'text-left text-[9px] uppercase tracking-widest text-muted-' },
+        el('th', { class: 'px-3 py-2' }, 'When'),
+        showUser ? el('th', { class: 'px-3 py-2' }, 'User') : null,
+        el('th', { class: 'px-3 py-2 text-right' }, 'Δ RIDDCOIN'),
+        el('th', { class: 'px-3 py-2 hidden sm:table-cell' }, 'Type'),
+        el('th', { class: 'px-3 py-2' }, 'Reason'),
+        el('th', { class: 'px-3 py-2 hidden sm:table-cell' }, 'By'))),
+      el('tbody', {},
+        rows.length === 0 ? el('tr', {}, el('td', { colspan: '6', class: 'px-3 py-6 text-center text-muted-' }, 'No RIDDCOIN activity yet.')) : null,
+        ...rows.map(r => el('tr', { class: 'border-t border-' },
+          el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted- tabular-nums' }, _rcWhen(r.created_at)),
+          showUser ? el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, names[r.user_id] || '—') : null,
+          el('td', { class: 'px-3 py-2 text-right tabular-nums font-black', style: { color: r.delta > 0 ? '#5F8A1F' : '#B91C1C' } }, (r.delta > 0 ? '+' : '') + _rcCoin(r.delta)),
+          el('td', { class: 'px-3 py-2 hidden sm:table-cell' },
+            el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded uppercase', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, r.kind)),
+          el('td', { class: 'px-3 py-2' }, r.reason || '—'),
+          el('td', { class: 'px-3 py-2 hidden sm:table-cell text-muted- whitespace-nowrap' }, names[r.created_by] || '—'))))))); 
+
+  if (tab === 'history') wrap.append(ledgerTable(ledger.filter(r => r.user_id === state.profile.id), false));
+  if (tab === 'ledger' && isAdmin) wrap.append(ledgerTable(ledger, true));
+
+  // ── BALANCES (admin) ──
+  if (tab === 'balances' && isAdmin) {
+    const byUser = {};
+    ledger.forEach(r => { byUser[r.user_id] = (byUser[r.user_id] || 0) + (Number(r.delta) || 0); });
+    const rows = Object.entries(byUser).sort((a, b) => b[1] - a[1]);
+    wrap.append(el('div', { class: 'card overflow-hidden' },
+      el('table', { class: 'w-full text-xs' },
+        el('thead', {}, el('tr', { class: 'text-left text-[9px] uppercase tracking-widest text-muted-' },
+          el('th', { class: 'px-3 py-2' }, '#'), el('th', { class: 'px-3 py-2' }, 'User'),
+          el('th', { class: 'px-3 py-2 text-right' }, 'Balance'))),
+        el('tbody', {},
+          rows.length === 0 ? el('tr', {}, el('td', { colspan: '3', class: 'px-3 py-6 text-center text-muted-' }, 'Nobody holds RIDDCOIN yet — grant some under ⚙️ Manage.')) : null,
+          ...rows.map(([uid, bal], i) => el('tr', { class: 'border-t border-' },
+            el('td', { class: 'px-3 py-2 tabular-nums text-muted-' }, '#' + (i + 1)),
+            el('td', { class: 'px-3 py-2 font-semibold' }, names[uid] || uid),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums font-black', style: { color: bal >= 0 ? '#5F8A1F' : '#B91C1C' } }, _rcCoin(bal))))))));
+  }
+
+  // ── MANAGE (admin): grant/deduct + catalog ──
+  if (tab === 'manage' && isAdmin) {
+    // Grant / deduct
+    const userSel = el('select', { class: 'rounded-lg border px-2 py-2 text-sm flex-1 min-w-0', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } },
+      el('option', { value: '' }, 'Pick a user…'),
+      ...Object.entries(names).sort((a, b) => String(a[1]).localeCompare(String(b[1])))
+        .map(([id, nm]) => el('option', { value: id }, nm)));
+    const amtIn = el('input', { type: 'number', min: '1', step: '1', placeholder: 'Amount', class: 'rounded-lg border px-2 py-2 text-sm tabular-nums', style: { width: '110px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+    const whyIn = el('input', { type: 'text', placeholder: 'Reason (required — lands in the ledger)', class: 'rounded-lg border px-2 py-2 text-sm flex-1 min-w-0', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+    const doGrant = async (sign) => {
+      const uid = userSel.value, amt = Math.abs(Number(amtIn.value) || 0), why = whyIn.value.trim();
+      if (!uid) return toast('Pick a user', 'warn');
+      if (!amt) return toast('Enter an amount', 'warn');
+      if (!why) return toast('A reason is required — it goes in the history log', 'warn');
+      const { error } = await supabase.rpc('riddcoin_grant', { p_user: uid, p_amount: sign * amt, p_reason: why });
+      if (error) return toast('Failed: ' + error.message, 'error');
+      toast((sign > 0 ? 'Granted ' : 'Deducted ') + _rcCoin(amt) + (sign > 0 ? ' to ' : ' from ') + (names[uid] || 'user'), 'success');
+      amtIn.value = ''; whyIn.value = '';
+      await loadRiddcoin(true); mountApp();
+    };
+    wrap.append(el('div', { class: 'card p-4' },
+      el('h3', { class: 'text-sm font-bold mb-2' }, '🪙 Grant / deduct RIDDCOIN'),
+      el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        userSel, amtIn, whyIn,
+        el('button', { class: 'px-3 py-2 rounded-lg text-xs font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => doGrant(1) }, '+ Add'),
+        el('button', { class: 'px-3 py-2 rounded-lg text-xs font-bold cursor-pointer border', style: { borderColor: '#DC2626', color: '#DC2626' }, onclick: () => doGrant(-1) }, '− Deduct'))));
+
+    // Catalog manager
+    const saveItem = async (payload) => {
+      const { error } = await supabase.rpc('riddcoin_save_item', payload);
+      if (error) return toast('Save failed: ' + error.message, 'error');
+      toast(payload.p_delete ? 'Prize removed' : 'Prize saved', 'success');
+      await loadRiddcoin(true); mountApp();
+    };
+    const itemRow = (i) => {
+      const nameIn = el('input', { type: 'text', value: i ? i.name : '', placeholder: 'Prize name…', class: 'rounded border px-2 py-1.5 text-xs flex-1 min-w-0', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+      const costIn = el('input', { type: 'number', min: '1', value: i ? String(i.cost) : '', placeholder: 'Cost', class: 'rounded border px-2 py-1.5 text-xs tabular-nums', style: { width: '84px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+      const stockIn = el('input', { type: 'number', min: '0', value: (i && i.stock != null) ? String(i.stock) : '', placeholder: '∞', title: 'Stock — blank = unlimited', class: 'rounded border px-2 py-1.5 text-xs tabular-nums', style: { width: '64px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+      const activeIn = el('input', { type: 'checkbox', checked: i ? !!i.active : true, title: 'Visible in the store' });
+      return el('div', { class: 'flex items-center gap-2 py-1.5 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
+        nameIn, costIn, stockIn,
+        el('label', { class: 'text-[10px] text-muted- flex items-center gap-1' }, activeIn, 'live'),
+        el('button', {
+          class: 'px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          onclick: () => {
+            const nm = nameIn.value.trim(); const cost = Number(costIn.value) || 0;
+            if (!nm || cost <= 0) return toast('Name + a positive cost required', 'warn');
+            saveItem({ p_id: i ? i.id : null, p_name: nm, p_cost: cost, p_stock: stockIn.value === '' ? null : Math.max(0, Number(stockIn.value) || 0), p_active: !!activeIn.checked, p_description: i ? (i.description || null) : null, p_delete: false });
+          },
+        }, i ? 'Save' : '+ Add'),
+        i ? el('button', {
+          class: 'px-2 py-1.5 rounded text-[11px] cursor-pointer', style: { color: '#DC2626' }, title: 'Remove this prize',
+          onclick: () => { if (confirm('Remove "' + i.name + '" from the store?')) saveItem({ p_id: i.id, p_name: i.name, p_cost: i.cost, p_stock: i.stock, p_active: i.active, p_description: i.description || null, p_delete: true }); },
+        }, '✕') : null);
+    };
+    wrap.append(el('div', { class: 'card p-4' },
+      el('h3', { class: 'text-sm font-bold mb-1' }, '🎁 Prize catalog'),
+      el('div', { class: 'text-[10px] text-muted- mb-2' }, 'Name · cost in RIDDCOIN · stock (blank = unlimited) · live toggle. Redeemed prizes decrement stock automatically.'),
+      ...items.map(itemRow),
+      itemRow(null)));
+  }
+
+  return wrap;
+}
 
 function viewTraining() {
   // Reps see the tab (so they know it's coming) but the modules are still
