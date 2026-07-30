@@ -6462,7 +6462,11 @@ function indicatorSales() {
     // because it also required the subscription to be Active). Older
     // snapshots without the Initial Status column fall back to the legacy
     // sold-not-started heuristic.
-    if (_acct !== 'all' && !frPendingServiced(s)) return false;
+    // Manual sheets: the CRM Status column is ALWAYS the gate — Pending /
+    // Serviced count, Canceled / Not Serviced never do (per Isaac) — even
+    // when the Filters panel is set to "all".
+    if (state._indManualMode) { if (!frPendingServiced(s)) return false; }
+    else if (_acct !== 'all' && !frPendingServiced(s)) return false;
     if (_indicatorServiceExcluded(s)) return false;
     const _s = String(s.source || '').trim();
     if (_exclSrc.has(_s)) return false;
@@ -19072,10 +19076,9 @@ function mysteryBoxSection(isAdmin) {
         el('div', { class: 'order-1' },
           el('div', { class: 'text-[9px] font-black', style: { letterSpacing: '.25em' } }, 'RIDDMADE\u00ae'),
           el('div', { class: 'font-display text-3xl leading-none' }, 'MYSTERY BOX')),
-        el('div', { class: 'order-3 sm:order-2 w-full sm:w-auto sm:text-center' },
-          el('div', { class: 'font-display text-2xl leading-none' }, qualified.length + ' BOX' + (qualified.length === 1 ? '' : 'ES') + ' EARNED'),
-          el('div', { class: 'text-xs text-muted- mt-1' }, dLbl)),
-        el('div', { class: 'order-2 sm:order-3 ml-auto flex items-center gap-3' },
+        // Boxes-earned + date moved INTO the black bar below (per Isaac) —
+        // the white masthead keeps brand left, controls right.
+        el('div', { class: 'ml-auto flex items-center gap-3' },
           el('div', { class: 'text-right' },
             el('div', { class: 'text-sm font-bold' },
               el('span', { style: { color: '#3B82F6' } }, qV.length + ' veteran' + (qV.length === 1 ? '' : 's')),
@@ -19101,10 +19104,16 @@ function mysteryBoxSection(isAdmin) {
   nodes.push(el('div', { class: 'card overflow-hidden' },
     // Black requirement bar — the poster look, with the date picker in it.
     el('div', { class: 'px-4 py-3', style: { background: 'var(--text)', color: 'var(--bg)' } },
-      // Row 1: the day + last sync, full width up top (per Isaac).
-      el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-2.5' },
-        el('div', { class: 'font-black uppercase tracking-wide text-sm' }, dLbl),
-        _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : null),
+      // Row 1 (per Isaac, Jul 2026): BOXES EARNED + date live INSIDE the
+      // black bar now, dead-center on desktop; last sync keeps the right
+      // edge. Three-column flex — equal flex-1 wings keep the middle true.
+      el('div', { class: 'flex items-center gap-2 flex-wrap mb-2.5' },
+        el('div', { class: 'flex-1 min-w-0' }),
+        el('div', { class: 'text-center w-full sm:w-auto' },
+          el('div', { class: 'font-display text-2xl leading-none' }, qualified.length + ' BOX' + (qualified.length === 1 ? '' : 'ES') + ' EARNED'),
+          el('div', { class: 'text-[11px] font-bold uppercase tracking-wide mt-1', style: { opacity: '.7' } }, dLbl)),
+        el('div', { class: 'flex-1 min-w-0 text-right' },
+          _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : null)),
       // Row 2: compact date range left, tier requirements right.
       el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
         (() => {
