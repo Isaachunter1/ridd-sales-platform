@@ -2,7 +2,11 @@
 // RIDD Sales Platform — single-file-app controller
 // ──────────────────────────────────────────────────────────────────────────
 // Module imports via CDN (no bundler, no install)
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+// VENDORED (Jul 30 2026): supabase-js is bundled INTO the repo. The old
+// esm.sh CDN import took the whole app down whenever esm.sh stuttered —
+// a hung import = module never evaluates = splash screen forever. Built
+// with: esbuild @supabase/supabase-js@2.45.4 --bundle --format=esm --minify.
+import { createClient } from './vendor-supabase.js';
 
 const CFG = window.RIDD_CONFIG;
 const hasConfig = CFG.SUPABASE_PUBLISHABLE_KEY && !CFG.SUPABASE_PUBLISHABLE_KEY.includes('PASTE_');
