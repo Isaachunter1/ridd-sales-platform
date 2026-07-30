@@ -19010,6 +19010,7 @@ function mysteryBoxSection(isAdmin) {
   // ── ONE top bar: brand · boxes earned · tier split · Spin · 𝕽 (the
   // hidden prize-list toggle). Condensed from the old masthead + winners
   // cards (per Isaac). ──
+  let _mbHdr = null;
   {
     const qR = qualified.filter(r => r.tier === 'rookie'), qV = qualified.filter(r => r.tier !== 'rookie');
     const prizeEditor = (isAdmin && state._mbPrizeOpen) ? (() => {
@@ -19071,48 +19072,39 @@ function mysteryBoxSection(isAdmin) {
             },
           }, '+ Add')));
     })() : null;
-    nodes.push(el('div', { class: 'card p-4', style: qualified.length ? { borderLeft: '3px solid #8DC63F' } : {} },
-      el('div', { class: 'flex items-center justify-between gap-x-4 gap-y-3 flex-wrap' },
-        el('div', { class: 'order-1' },
-          el('div', { class: 'text-[9px] font-black', style: { letterSpacing: '.25em' } }, 'RIDDMADE\u00ae'),
-          el('div', { class: 'font-display text-3xl leading-none' }, 'MYSTERY BOX')),
-        // Boxes-earned + date moved INTO the black bar below (per Isaac) —
-        // the white masthead keeps brand left, controls right.
-        el('div', { class: 'ml-auto flex items-center gap-3' },
-          el('div', { class: 'text-right' },
-            el('div', { class: 'text-sm font-bold' },
-              el('span', { style: { color: '#3B82F6' } }, qV.length + ' veteran' + (qV.length === 1 ? '' : 's')),
-              el('span', { class: 'text-muted- font-normal' }, ' · '),
-              el('span', { style: { color: '#DC2626' } }, qR.length + ' rookie' + (qR.length === 1 ? '' : 's'))),
-            qualified.length ? el('div', { class: 'text-xs text-muted- tabular-nums mt-0.5' }, fmt.usd0(qualified.reduce((a2, r) => a2 + r.rev, 0)) + ' sold by winners') : null),
-          isAdmin ? el('button', {
-            class: 'text-[11px] font-semibold px-2 py-1 rounded-lg border shrink-0', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-            title: 'Run a spin — rolls a prize from the incentive list by its percentages',
-            onclick: () => {
-              const rolled = _mbRollPrize();
-              if (!rolled) { toast('Add incentives first — click the \ud835\udd7d', 'warn'); return; }
-              openMysteryBoxOverlay({ id: '__spin__', prize: _mbEnc(rolled) });
-            },
-          }, '\u25b6 Spin') : null,
-          el('div', {
-            style: { fontSize: '44px', lineHeight: '1', fontFamily: "'Old English Text MT',serif", cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none', marginTop: '-4px' },
-            title: isAdmin ? 'Incentive list' : '',
-            onclick: isAdmin ? (() => { state._mbPrizeOpen = !state._mbPrizeOpen; mountApp(); }) : undefined,
-          }, '\ud835\udd7d'))),
-      prizeEditor));
+    // WHITE masthead retired (per Isaac, Jul 2026) — everything lives in
+    // the black bar now. Stash the pieces the bar needs.
+    _mbHdr = { qR, qV, prizeEditor };
   }
   nodes.push(el('div', { class: 'card overflow-hidden' },
     // Black requirement bar — the poster look, with the date picker in it.
     el('div', { class: 'px-4 py-3', style: { background: 'var(--text)', color: 'var(--bg)' } },
-      // Row 1 (per Isaac, Jul 2026): BOXES EARNED + date live INSIDE the
-      // black bar now, dead-center on desktop; last sync keeps the right
-      // edge. Three-column flex — equal flex-1 wings keep the middle true.
-      el('div', { class: 'flex items-center gap-2 flex-wrap mb-2.5' },
-        el('div', { class: 'flex-1 min-w-0' }),
-        el('div', { class: 'text-center w-full sm:w-auto' },
+      // Row 1 (per Isaac, Jul 2026 — the white masthead is GONE): brand on
+      // the left, BOXES EARNED + date + tier split + ▶ Spin dead-center,
+      // last sync on the right. Equal flex-1 wings keep the middle true.
+      el('div', { class: 'flex items-start gap-3 flex-wrap mb-2.5' },
+        el('div', { class: 'flex-1 min-w-0 order-1' },
+          el('div', { class: 'text-[9px] font-black', style: { letterSpacing: '.25em', opacity: '.85' } }, 'RIDDMADE\u00ae'),
+          el('div', { class: 'font-display text-3xl leading-none' }, 'MYSTERY BOX')),
+        el('div', { class: 'text-center w-full sm:w-auto order-3 sm:order-2' },
           el('div', { class: 'font-display text-2xl leading-none' }, qualified.length + ' BOX' + (qualified.length === 1 ? '' : 'ES') + ' EARNED'),
-          el('div', { class: 'text-[11px] font-bold uppercase tracking-wide mt-1', style: { opacity: '.7' } }, dLbl)),
-        el('div', { class: 'flex-1 min-w-0 text-right' },
+          el('div', { class: 'text-[11px] font-bold uppercase tracking-wide mt-1', style: { opacity: '.7' } }, dLbl),
+          _mbHdr ? el('div', { class: 'text-xs font-bold mt-1' },
+            el('span', { style: { color: '#60A5FA' } }, _mbHdr.qV.length + ' veteran' + (_mbHdr.qV.length === 1 ? '' : 's')),
+            el('span', { style: { opacity: '.5' } }, ' \u00b7 '),
+            el('span', { style: { color: '#F87171' } }, _mbHdr.qR.length + ' rookie' + (_mbHdr.qR.length === 1 ? '' : 's')),
+            qualified.length ? el('span', { class: 'tabular-nums', style: { opacity: '.6' } }, ' \u00b7 ' + fmt.usd0(qualified.reduce((a2, r) => a2 + r.rev, 0)) + ' sold') : null) : null,
+          isAdmin ? el('button', {
+            class: 'text-[11px] font-bold px-3 py-1 rounded-lg border mt-1.5',
+            style: { borderColor: 'rgba(255,255,255,.35)', color: 'var(--bg)', background: 'rgba(255,255,255,.08)' },
+            title: 'Run a spin \u2014 rolls a prize from the incentive list by its percentages',
+            onclick: () => {
+              const rolled = _mbRollPrize();
+              if (!rolled) { toast('Add incentives first \u2014 click the \ud835\udd7d', 'warn'); return; }
+              openMysteryBoxOverlay({ id: '__spin__', prize: _mbEnc(rolled) });
+            },
+          }, '\u25b6 Spin') : null),
+        el('div', { class: 'flex-1 min-w-0 text-right order-2 sm:order-3' },
           _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : null)),
       // Row 2: compact date range left, tier requirements right.
       el('div', { class: 'flex items-end justify-between gap-3 flex-wrap' },
@@ -19134,10 +19126,20 @@ function mysteryBoxSection(isAdmin) {
               dateIn(mbTo, (v) => { state._mbDateTo = v; if (state._mbDateFrom && state._mbDateFrom > v) state._mbDateFrom = v; })));
         })(),
         el('div', { class: 'text-right' },
+          // The \ud835\udd7d (incentive-list toggle) rides the top-right corner
+          // of the requirements block \u2014 per Isaac.
+          el('div', {
+            style: { fontSize: '34px', lineHeight: '1', fontFamily: "'Old English Text MT',serif", cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none', marginBottom: '3px' },
+            title: isAdmin ? 'Incentive list' : '',
+            onclick: isAdmin ? (() => { state._mbPrizeOpen = !state._mbPrizeOpen; mountApp(); }) : undefined,
+          }, '\ud835\udd7d'),
           el('div', { class: 'text-[8px] font-black uppercase', style: { letterSpacing: '.14em', opacity: '.55', marginBottom: '3px' } }, 'Requirements \u00b7 sold rev, passed audit'),
           el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie)),
           el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet))))),
-    // (bar card ends here — the tier tables live in their own cards below)
+    // Incentive editor (admin, toggled by the \ud835\udd7d) \u2014 sits under the
+    // black bar inside the same card now that the white masthead is gone.
+    (_mbHdr && _mbHdr.prizeEditor) ? el('div', { class: 'px-4 pb-4' }, _mbHdr.prizeEditor) : null,
+    // (bar card ends here \u2014 the tier tables live in their own cards below)
     ));
   // ── TWO ADJACENT TABLES (per Isaac): Veterans left, Rookies right. Each
   // shows its qualified reps on top (green rows — earned is implied), then
