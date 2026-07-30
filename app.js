@@ -6778,7 +6778,7 @@ function warRoomTz() { const p = userTzPref(); return _TZ_RAW_OFFSET[p] != null 
 function _officeTzShort(office) {
   const o = String(office || '').toLowerCase();
   if (o.includes('salt lake')) return 'MT';
-  if (o.includes('destin') || o.includes('joplin')) return 'CT';
+  if (o.includes('destin') || o.includes('joplin') || o.includes('little rock')) return 'CT';
   return 'ET';
 }
 function _saleHourOffset(office) {
@@ -6786,6 +6786,7 @@ function _saleHourOffset(office) {
   if (o.includes('salt lake')) return 1;   // Mountain
   if (o.includes('destin'))    return 2;   // Central
   if (o.includes('joplin'))    return 2;   // Central (Missouri)
+  if (o.includes('little rock')) return 2; // Central (Arkansas)
   return 3;                                 // Eastern (Atlanta, Charleston, Detroit, Myrtle Beach, Raleigh, Virginia Beach)
 }
 
