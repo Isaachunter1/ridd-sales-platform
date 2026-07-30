@@ -411,6 +411,29 @@ exports.handler = async (event) => {
       console.log('[schema-probe] dataset tables:', JSON.stringify((tbls.rows || []).map(r => r.f[0].v)));
     } catch (e) { console.warn('[schema-probe] failed (non-fatal):', e && e.message); }
 
+    // ── TEMP PROBE (Jul 30 2026) — trace the exact customers the CRM shows
+    // but the mirror lost (Ethan Beaird's whole 7/28 day + friends). For each
+    // ID: does the SUBSCRIPTION row exist in RevHawk at all, what office id
+    // does it carry (phantom offices -1/-7 get filtered), and does a CUSTOMER
+    // row exist? One cheap IN-list lookup per sync; check the function logs
+    // for "[cust-probe]". Remove once the RevHawk feed gap is closed.
+    try {
+      const PROBE_IDS = ['170761', '170726', '170653', '170635', '170475', '170800', '170794', '170778', '168408', '169417'];
+      const pr = await runQuery(token,
+        `SELECT s.fieldRoutes_customerID AS cid, s.fieldRoutes_officeID AS office_id, ` +
+        `LEFT(s.fieldRoutes_dateAdded,19) AS added, s.fieldRoutes_serviceType AS svc, ` +
+        `CAST(c.cid IS NOT NULL AS STRING) AS has_cust ` +
+        `FROM \`${PROJECT}.${DATASET}.FieldRoutesSubscription\` s ` +
+        `LEFT JOIN (SELECT DISTINCT fieldRoutes_customerID AS cid FROM \`${PROJECT}.${DATASET}.FieldRoutesCustomer\`) c ` +
+        `ON c.cid = s.fieldRoutes_customerID ` +
+        `WHERE s.fieldRoutes_customerID IN ('` + PROBE_IDS.join("','") + `')`);
+      const hits = toObjects(pr.schema, pr.rows);
+      const found = new Set(hits.map(h => String(h.cid)));
+      console.warn('[cust-probe] found ' + hits.length + '/' + PROBE_IDS.length + ' subscription row(s): ' + JSON.stringify(hits));
+      const absent = PROBE_IDS.filter(id => !found.has(id));
+      if (absent.length) console.warn('[cust-probe] ABSENT from FieldRoutesSubscription entirely: ' + absent.join(', '));
+    } catch (pe) { console.warn('[cust-probe] failed (non-fatal):', pe && pe.message); }
+
     let _q = await runQuery(token, buildSQL());
     const objects = toObjects(_q.schema, _q.rows);
     _q = null;
