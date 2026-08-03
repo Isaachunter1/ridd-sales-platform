@@ -19328,7 +19328,7 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
   const pages = [];
   for (let i = 0; i < teams.length; i += 2) {
     const pair = teams.slice(i, i + 2);
-    pages.push(el('div', { style: { width: '816px', padding: '24px 28px', background: '#0A0A0A', color: '#fff', fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif', boxSizing: 'border-box', position: 'relative', overflow: 'hidden' } },
+    pages.push(el('div', { style: { width: '816px', minHeight: '1056px', padding: '24px 28px', background: '#0A0A0A', color: '#fff', fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif', boxSizing: 'border-box', position: 'relative', overflow: 'hidden' } },
       // 🐍 the poster's snake artwork, extracted (kobe-snake.png) — rides
       // the right side of every page behind the tables.
       el('img', { src: 'kobe-snake.png', alt: '', style: { position: 'absolute', right: '-80px', top: '-10px', width: '600px', opacity: '.45', zIndex: '0', pointerEvents: 'none' } }),
@@ -19356,15 +19356,18 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
     const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight();
-    const mX = 14, mY = 14, imgW = pageW - mX * 2, usableH = pageH - mY * 2;
     const sheets = [...reportEl.children];
     for (let pi = 0; pi < sheets.length; pi++) {
       const canvas = await html2canvas(sheets[pi], { scale: 2, backgroundColor: '#0A0A0A', logging: false, useCORS: true });
       const imgData = canvas.toDataURL('image/png');
-      const imgH = (canvas.height * imgW) / canvas.width;
       if (pi > 0) pdf.addPage();
-      if (imgH <= usableH) pdf.addImage(imgData, 'PNG', mX, mY, imgW, imgH);
-      else { const sW = (imgW * usableH) / imgH; pdf.addImage(imgData, 'PNG', mX + (imgW - sW) / 2, mY, sW, usableH); }
+      // ENTIRE page black first (per Isaac) — no white margins anywhere,
+      // and every page reads the same size regardless of content height.
+      pdf.setFillColor(10, 10, 10);
+      pdf.rect(0, 0, pageW, pageH, 'F');
+      const imgH = (canvas.height * pageW) / canvas.width;
+      if (imgH <= pageH) pdf.addImage(imgData, 'PNG', 0, 0, pageW, imgH);
+      else { const sW = (pageW * pageH) / imgH; pdf.addImage(imgData, 'PNG', (pageW - sW) / 2, 0, sW, pageH); }
     }
     pdf.save('RIDD-KobeWeek-BestWeeks-' + new Date().toISOString().slice(0, 10) + '.pdf');
     toast('Downloaded best weeks for ' + reps.length + ' reps across ' + teams.length + ' teams', 'success');
