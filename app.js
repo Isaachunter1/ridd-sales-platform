@@ -19314,7 +19314,7 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
     return el('div', {},
     el('div', { style: { padding: '6px 8px', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.06em', background: bg, color: fg, whiteSpace: 'nowrap', borderRadius: '4px 4px 0 0' } },
       tm.t + ' \u00b7 ' + tm.list.length + ' rep' + (tm.list.length === 1 ? '' : 's')),
-    el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #333' } },
+    el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #333', background: 'rgba(10,10,10,.72)' } },
       el('thead', { style: { background: '#161616' } }, el('tr', {},
         th('#'), th('Rep'), th('Best Week'), th('Best $', true), th('This Wk $', true), th('\u2713'))),
       el('tbody', {}, ...tm.list.map((r, i) => el('tr', {},
@@ -19328,7 +19328,11 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
   const pages = [];
   for (let i = 0; i < teams.length; i += 2) {
     const pair = teams.slice(i, i + 2);
-    pages.push(el('div', { style: { width: '816px', padding: '24px 28px', background: '#0A0A0A', color: '#fff', fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif', boxSizing: 'border-box' } },
+    pages.push(el('div', { style: { width: '816px', padding: '24px 28px', background: '#0A0A0A', color: '#fff', fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif', boxSizing: 'border-box', position: 'relative', overflow: 'hidden' } },
+      // 🐍 the poster's snake artwork, extracted (kobe-snake.png) — rides
+      // the right side of every page behind the tables.
+      el('img', { src: 'kobe-snake.png', alt: '', style: { position: 'absolute', right: '-80px', top: '-10px', width: '600px', opacity: '.45', zIndex: '0', pointerEvents: 'none' } }),
+      el('div', { style: { position: 'relative', zIndex: '1' } },
       el('div', { style: { borderBottom: '4px solid #E0402A', paddingBottom: '8px', marginBottom: '14px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' } },
         el('div', {},
           el('div', { style: { fontSize: '34px', fontWeight: '900', letterSpacing: '-0.02em', lineHeight: '.95', textTransform: 'uppercase', color: '#fff' } }, 'KOBE WEEK'),
@@ -19337,15 +19341,12 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
           el('div', { style: { fontSize: '20px' } }, '\ud83d\udc0d'),
           el('div', { style: { fontSize: '8.5px', color: '#8a8a8a', fontWeight: '700', marginTop: '2px' } },
             new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + (pages.length ? ' \u00b7 p.' + (pages.length + 1) : ' \u00b7 RIDDMADE')))),
-      i === 0 ? el('div', { style: { border: '2px solid #E0402A', borderRadius: '6px', padding: '10px 14px', margin: '0 0 14px', background: '#140b09' } },
-        el('div', { style: { fontSize: '13px', fontWeight: '900', letterSpacing: '.1em', textTransform: 'uppercase', color: '#fff', marginBottom: '5px' } }, 'RULES + REWARD'),
-        el('div', { style: { fontSize: '9.5px', lineHeight: '1.6', color: '#d9d9d9', textTransform: 'uppercase' } },
-          'There is something to be said about finishing strong. Many will call their summer \u201cgood enough.\u201d The best will do something memorable. Set a new personal record during Kobe Week and win the reward \u2014 not monetary, no RIDDCOIN involved. Winners have a place in our story forever: a custom framed \u201c24\u201d jersey with your name, signed live at the gala.'),
-        el('div', { style: { fontSize: '9.5px', fontWeight: '900', marginTop: '7px', color: '#F5A623', textTransform: 'uppercase', letterSpacing: '.02em' } },
+      i === 0 ? el('div', { style: { border: '2px solid #E0402A', borderRadius: '6px', padding: '9px 14px', margin: '0 0 14px', background: 'rgba(10,10,10,.85)' } },
+        el('div', { style: { fontSize: '10px', fontWeight: '900', color: '#F5A623', textTransform: 'uppercase', letterSpacing: '.03em' } },
           'Target = your best Sun\u2013Sat week of the season \u00b7 MINIMUM: Rookies $7,000 \u00b7 Vets $10,000 \u00b7 Pending/Serviced only \u00b7 failed audits + last resorts don\u2019t count')) : null,
       el('div', { style: { display: 'flex', gap: '22px', alignItems: 'flex-start' } },
         el('div', { style: { flex: '1', minWidth: '0' } }, mkTeam(pair[0])),
-        pair[1] ? el('div', { style: { flex: '1', minWidth: '0' } }, mkTeam(pair[1])) : el('div', { style: { flex: '1' } }))));
+        pair[1] ? el('div', { style: { flex: '1', minWidth: '0' } }, mkTeam(pair[1])) : el('div', { style: { flex: '1' } })))));
   }
   const reportEl = el('div', {}, ...pages);
   reportEl.style.position = 'fixed'; reportEl.style.left = '-99999px'; reportEl.style.top = '0'; reportEl.style.zIndex = '-1';
