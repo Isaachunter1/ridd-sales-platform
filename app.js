@@ -19237,6 +19237,11 @@ function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO, BASE_YEAR) {
   for (const s of (raw || [])) {
     if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
     if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;
+    // Failed audits + Last Resorts are OUT (per Isaac) — applies to the
+    // baseline best week AND the live comp week alike. No-audit accounts
+    // still count (only a FAILED flag excludes).
+    if ((Number(s.initialPrice) || 0) < 99) continue;
+    if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || '')) continue;
     const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
     if (!iso) continue;
     const nm = getCanonicalRepName(s.rep);
