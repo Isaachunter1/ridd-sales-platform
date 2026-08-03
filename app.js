@@ -20834,10 +20834,24 @@ function viewNrlaPublic() {
       }),
       // 🏆 After an auto-reset, the previous champion stays celebrated here
       // until the next season starts.
-      (!effectiveDays.length && Array.isArray(sel.lmsPastSeasons) && sel.lmsPastSeasons.length) ? el('span', {
-        class: 'text-[11px] font-bold whitespace-nowrap',
-        title: 'Archived automatically when the season ended',
-      }, '\ud83c\udfc6 Last champion: ' + String(sel.lmsPastSeasons[sel.lmsPastSeasons.length - 1].champion || '')) : null,
+      (!effectiveDays.length && Array.isArray(sel.lmsPastSeasons) && sel.lmsPastSeasons.length) ? (() => {
+        const _last = sel.lmsPastSeasons[sel.lmsPastSeasons.length - 1];
+        const _dRange = (Array.isArray(_last.days) && _last.days.length)
+          ? ' \u00b7 ' + _last.days[0] + ' \u2192 ' + _last.days[_last.days.length - 1] : '';
+        return el('button', {
+          class: 'text-[11px] font-bold whitespace-nowrap' + (isAdmin ? ' cursor-pointer' : ''),
+          style: { background: 'transparent', border: 'none', color: 'var(--text)', padding: '0' },
+          title: 'Archived automatically when the season ended' + _dRange
+            + (isAdmin ? ' \u2014 wrong result (test dates)? Click to DELETE this archived season' : ''),
+          onclick: isAdmin ? () => {
+            if (!confirm('Delete this archived season (' + String(_last.champion || '') + _dRange + ')? Do this when a TEST season archived the wrong champion \u2014 the real season re-archives itself once its dates are in and finished.')) return;
+            sel.lmsPastSeasons = sel.lmsPastSeasons.slice(0, -1);
+            logActivity('comp_change', { detail: 'Last Man Standing: archived season DELETED (' + String(_last.champion || '') + _dRange + ')' });
+            saveDemoData();
+            mountApp();
+          } : undefined,
+        }, '\ud83c\udfc6 Last champion: ' + String(_last.champion || '') + _dRange);
+      })() : null,
       addInput, genBtn, clearBtn,
       _lmsBarCtl,
       el('button', {
@@ -20897,34 +20911,24 @@ function viewNrlaPublic() {
     // Spring Cleaning controls ride the Comp Window bar (per Isaac):
     // Standings PDF · Reps export · 👥 rep markets · rules ⓘ.
     compWinBar.append(el('div', { class: 'ml-auto flex items-center gap-2' },
+      // ⬇ standings PDF — icon only (per Isaac). ↓ Reps export retired; the
+      // 🏢 competing-offices toggles moved INTO the 👥 modal.
       el('button', {
-        class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
-        style: { background: '#1b5e20', color: '#fff' },
-        title: 'Export the standings poster as a PDF',
+        class: 'cursor-pointer transition hover:brightness-95 rounded-full',
+        style: { width: '26px', height: '26px', background: '#1b5e20', color: '#fff', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0', border: 'none' },
+        title: 'Download the standings poster as a PDF',
         onclick: () => {
           const node = document.getElementById('spring-standings-poster');
           if (node) exportSpringStandingsPdf(node);
           else toast('Standings section not found', 'error');
         },
-      }, '↓ Standings'),
-      el('button', {
-        class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border',
-        style: { borderColor: '#1b5e20', color: '#1b5e20', background: 'transparent' },
-        title: 'Export reps who sold a qualifying account each round, by branch — for splitting winnings',
-        onclick: () => exportSpringRepsXlsx(),
-      }, '↓ Reps'),
+      }, '\u2b07'),
       el('button', {
         class: 'cursor-pointer transition hover:brightness-95 border rounded-full',
         style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', background: 'var(--card)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
-        title: 'See every rep and the market they count toward — reassign for comp purposes',
-        onclick: () => openSpringRepMarketModal(windowed),
+        title: 'Reps & offices — who competes, which market each rep counts toward, and which offices are in the comp',
+        onclick: () => openSpringRepMarketModal(windowed, offices),
       }, '👥'),
-      el('button', {
-        class: 'cursor-pointer transition hover:brightness-95 border rounded-full',
-        style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', background: 'var(--card)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
-        title: 'Offices competing — toggle who\u2019s in the comp this year',
-        onclick: () => openSpringCompetingModal(offices),
-      }, '🏢'),
       el('button', {
         class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
         style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
@@ -21783,7 +21787,7 @@ async function exportSpringStandingsPdf(card) {
 // they're counting toward. Pick a different branch to reassign a rep for
 // COMP PURPOSES ONLY (stored on the competition as repBranchOverrides;
 // nothing changes about their real sales data).
-function openSpringRepMarketModal(sales) {
+function openSpringRepMarketModal(sales, officeList) {
   const comp = (typeof getActiveComp === 'function') ? getActiveComp() : null;
   if (!comp) { toast('No active competition', 'error'); return; }
   if (!comp.repBranchOverrides || typeof comp.repBranchOverrides !== 'object') comp.repBranchOverrides = {};
@@ -21842,6 +21846,33 @@ function openSpringRepMarketModal(sales) {
             },
           }, '↺ Reset all'),
           el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×'))),
+      // 🏢 competing offices (merged in from the old separate modal — per
+      // Isaac): green = in the comp, struck = sitting out. Synced.
+      (() => {
+        if (!Array.isArray(comp.excludedBranches)) comp.excludedBranches = ['SALT LAKE'];
+        const _all = [...new Set([...(officeList || []).map(b => String(b).toUpperCase()), ...branches, ...comp.excludedBranches.map(b => String(b).toUpperCase())])].sort();
+        const exSet = new Set(comp.excludedBranches.map(b => String(b).toUpperCase()));
+        return el('div', { class: 'px-5 py-2 border-b flex items-center gap-1.5 flex-wrap', style: { borderColor: 'var(--border)' } },
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-bold shrink-0', style: { color: 'var(--text-subtle)' } }, 'Offices competing'),
+          ..._all.map(b => {
+            const off = exSet.has(b);
+            return el('button', {
+              class: 'rounded-full px-2.5 py-0.5 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
+              style: off
+                ? { background: 'transparent', color: 'var(--text-muted)', border: '1px dashed var(--border-2)', textDecoration: 'line-through' }
+                : { background: '#1b5e20', color: '#fff', border: '1px solid #1b5e20' },
+              title: off ? b + ' is sitting this comp out — click to include' : 'Click to pull ' + b + ' out of the comp',
+              onclick: () => {
+                comp.excludedBranches = off
+                  ? comp.excludedBranches.filter(x => String(x).toUpperCase() !== b)
+                  : [...comp.excludedBranches, b];
+                logActivity('comp_change', { detail: 'Spring Cleaning: ' + b + (off ? ' back in the comp' : ' pulled from the comp') });
+                saveDemoData();
+                render();
+              },
+            }, b);
+          }));
+      })(),
       el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } }, searchInput),
       el('div', { class: 'overflow-y-auto flex-1' },
         ...names.map(name => {
