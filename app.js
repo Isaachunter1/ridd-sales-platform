@@ -19743,9 +19743,10 @@ function openIslHelpModal() {
       el('button', { class: 'text-2xl leading-none cursor-pointer', style: { color: '#fff' }, onclick: close }, '\u00d7')),
     el('div', { class: 'overflow-auto px-5 py-4' },
       block('\u26bd The format', 'Football is life \u2014 and so is inside sales. Divisions of 3: Premier League on top, then Priority 1, Priority 2, \u2026 competing in semi-monthly rounds \u2014 always the 1st\u201315th, then the 16th through month-end \u2014 ranked by Passed Revenue.'),
-      block('\ud83d\udd03 Promotion & relegation', 'When a round ends and the rotation is applied, the BOTTOM rep of each division drops a division (\u25bc) and the TOP rep of the division below moves up (\u25b2).'),
+      block('\ud83d\udd03 Promotion & relegation', 'When a round ends (midnight after the 15th / month-end), its tables FREEZE automatically as the permanent record, the BOTTOM rep of each division drops a division (\u25bc), and the TOP rep of the division below moves up (\u25b2). Ties break to the higher MY %.'),
+      block('\ud83d\udcde The stakes', 'Premier League takes MORE inbound calls. Get relegated to a Priority and you take fewer \u2014 climb back up to earn the call volume back.'),
       block('\ud83d\udcb0 What counts', 'Pending/Serviced accounts only (the same gate every sales-rep comp uses \u2014 pre-service cancels never count), sold by Office Staff, with AutoPay ON and an agreement on file (12/18/24-month contract; one-time jobs are out).'),
-      block('\ud83e\uddfe The columns', 'FR Revenue = CRM-synced subscription revenue. Upsells = upsell-source revenue. Failed = failed-audit revenue, which is DEDUCTED. Passed Revenue = FR + Upsells \u2212 Failed \u2014 that\u2019s the ranking number.'))));
+      block('\ud83e\uddfe The columns', 'Pending/Serviced Rev = CRM-synced subscription revenue passing the P/S gate. Upsells = upsell-source revenue. Failed = failed-audit revenue, which is DEDUCTED. Passed Revenue = Pending/Serviced + Upsells \u2212 Failed \u2014 that\u2019s the ranking number.'))));
   document.body.append(overlay);
 }
 // 👥 League roster — who's actually competing. Reps can sell revenue
@@ -19786,6 +19787,40 @@ function openIslRosterModal(cfg, repRows, onSave) {
   render();
   document.body.append(overlay);
 }
+// Rep drill-down (per Isaac): every account behind a league line — what
+// counted, what failed audit (deducted), and what was excluded and WHY.
+function openIslRepModal(nm, recs, roundLabel) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const counted = recs.filter(r => !r.reason && !r.failed);
+  const failed = recs.filter(r => !r.reason && r.failed);
+  const excl = recs.filter(r => r.reason);
+  const sum = (arr) => arr.reduce((a, r) => a + r.cv, 0);
+  const secHead = (label, color, amt) => el('div', { class: 'px-4 py-1.5 text-[10px] font-black uppercase tracking-widest flex items-center justify-between', style: { background: 'var(--card-2)', color } },
+    el('span', {}, label), el('span', { class: 'tabular-nums' }, fmt.usd0(amt)));
+  const row = (r, dim) => el('div', { class: 'px-4 py-2 flex items-center gap-3 border-t text-sm', style: { borderColor: 'var(--border)', opacity: dim ? '.6' : '1' } },
+    el('div', { class: 'flex-1 min-w-0' },
+      el('div', { class: 'font-semibold truncate' }, '#' + (r.s.customerId || '\u2014') + ' \u00b7 ' + (r.s.customer || 'Customer')),
+      el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
+        (r.s.subscription || '') + ' \u00b7 sold ' + (r.s.dateSold || '') + (r.isUp ? ' \u00b7 UPSELL' : '') + (r.reason ? ' \u00b7 ' + r.reason : ''))),
+    el('div', { class: 'tabular-nums font-bold whitespace-nowrap' }, fmt.usd0(r.cv)));
+  overlay.append(el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-center justify-between px-5 py-3', style: { background: '#1F3B8B' } },
+      el('div', {},
+        el('h2', { class: 'text-base font-bold', style: { color: '#fff' } }, nm),
+        el('div', { class: 'text-[11px]', style: { color: '#F6C915' } }, roundLabel + ' \u00b7 Passed Revenue ' + fmt.usd0(sum(counted)))),
+      el('button', { class: 'text-2xl leading-none cursor-pointer', style: { color: '#fff' }, onclick: close }, '\u00d7')),
+    el('div', { class: 'overflow-auto' },
+      counted.length ? secHead('\u2705 Counted \u00b7 ' + counted.length, '#5F8A1F', sum(counted)) : null,
+      ...counted.map(r => row(r, false)),
+      failed.length ? secHead('\u26d4 Failed audit \u00b7 deducted \u00b7 ' + failed.length, '#DC2626', sum(failed)) : null,
+      ...failed.map(r => row(r, false)),
+      excl.length ? secHead('\u2014 Not counted \u00b7 ' + excl.length, 'var(--text-muted)', sum(excl)) : null,
+      ...excl.map(r => row(r, true)),
+      !recs.length ? el('div', { class: 'p-6 text-center text-xs', style: { color: 'var(--text-muted)' } }, 'No accounts in this round.') : null)));
+  document.body.append(overlay);
+}
 function islSection(raw, cfg, isAdmin) {
   const wrap = el('div', { class: 'flex flex-col gap-4' });
   const save = (detail) => {
@@ -19796,19 +19831,23 @@ function islSection(raw, cfg, isAdmin) {
   };
   const DIV_SIZE = 3;
   // ── Comp Window bar ──
+  // The round selector IS the comp window (per Isaac) — no separate date
+  // box. The season-start input only shows while no season is set (and
+  // again after a ↺ Reset).
   const bar = el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
-    el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
-    isAdmin ? el('input', {
-      type: 'date', value: cfg.start || '',
-      class: 'rounded border px-1.5 py-1 text-xs',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-      title: 'Season start — rounds run the 1st–15th and the 16th–month-end, rolling from this date',
-      onchange: (e) => { cfg.start = e.target.value; state._islRoundSel = null; save('season start \u2192 ' + (e.target.value || 'unset')); },
-    }) : el('span', { class: 'text-[11px] font-bold tabular-nums' }, cfg.start || '\u2014'),
-    el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '\u00b7 rounds: the 1st\u201315th, then the 16th\u2013month-end'));
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'));
   wrap.append(bar);
   if (!cfg.start) {
-    bar.append(el('div', { class: 'ml-auto' }));
+    bar.append(
+      isAdmin ? el('input', {
+        type: 'date', value: '',
+        class: 'rounded border px-1.5 py-1 text-xs',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        title: 'Season start — rounds run the 1st–15th and the 16th–month-end, rolling from this date',
+        onchange: (e) => { cfg.start = e.target.value; state._islRoundSel = null; save('season start \u2192 ' + (e.target.value || 'unset')); },
+      }) : null,
+      el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '\u00b7 set the season start \u2014 rounds run the 1st\u201315th, then the 16th\u2013month-end'),
+      el('div', { class: 'ml-auto' }));
     wrap.append(el('div', { class: 'card p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
       isAdmin ? 'Set the season start date in the Comp Window bar to open the league.' : 'The league opens once an admin sets the season start date.'));
     return wrap;
@@ -19822,17 +19861,89 @@ function islSection(raw, cfg, isAdmin) {
   const _startHalf = _halfIdxOf(_startD);
   const curIdx = Math.max(0, _halfIdxOf(new Date()) - _startHalf);
   const selIdx = (state._islRoundSel == null || state._islRoundSel < 0) ? curIdx : Math.min(state._islRoundSel, curIdx);
-  const _selHalf = _startHalf + selIdx;
-  const _hy = Math.floor(_selHalf / 24), _hrem = _selHalf % 24, _hm = Math.floor(_hrem / 2), _hh = _hrem % 2;
-  const rS = new Date(_hy, _hm, _hh === 0 ? 1 : 16);
-  const rE = _hh === 0 ? new Date(_hy, _hm, 15) : new Date(_hy, _hm + 1, 0);
+  const _roundBounds = (idx) => {
+    const h = _startHalf + idx;
+    const hy = Math.floor(h / 24), hrem = h % 24, hm = Math.floor(hrem / 2), hh = hrem % 2;
+    return { rS: new Date(hy, hm, hh === 0 ? 1 : 16), rE: hh === 0 ? new Date(hy, hm, 15) : new Date(hy, hm + 1, 0) };
+  };
+  const { rS, rE } = _roundBounds(selIdx);
   const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   const mmdd = (d) => (d.getMonth() + 1) + '/' + d.getDate();
   const roundOver = Date.now() > rE.getTime() + dayMs;
+  // Qualifying tallies for ANY round — used by the selected-round board and
+  // by the auto-freeze below.
+  const _computeRoundTally = (idx) => {
+    const b = _roundBounds(idx);
+    const bS = b.rS.getFullYear() + '-' + String(b.rS.getMonth() + 1).padStart(2, '0') + '-' + String(b.rS.getDate()).padStart(2, '0');
+    const bE = b.rE.getFullYear() + '-' + String(b.rE.getMonth() + 1).padStart(2, '0') + '-' + String(b.rE.getDate()).padStart(2, '0');
+    const t0 = new Map();
+    for (const s of (raw || [])) {
+      if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'office') continue;
+      const dIso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
+      if (!dIso || dIso < bS || dIso > bE) continue;
+      if (!islQualifies(s)) continue;
+      const nm = getCanonicalRepName(s.rep);
+      if (!nm) continue;
+      const cv = Number(s.contractValue) || 0;
+      const t = t0.get(nm) || { fr: 0, up: 0, fail: 0, n: 0, multi: 0, twelve: 0 };
+      if ((typeof reportingSourceClass === 'function') && reportingSourceClass(s.source) === 'upsell') t.up += cv; else t.fr += cv;
+      if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || '')) t.fail += cv;
+      t.n++;
+      const _cm2 = Number(s.contract) || 0;
+      if (_cm2 >= 18) t.multi++; else if (_cm2 === 12) t.twelve++;
+      t0.set(nm, t);
+    }
+    return t0;
+  };
+  // ── AUTO-FREEZE (per Isaac): no manual rotation button. The first admin
+  // load after a round closes (midnight after the 15th / month-end) locks
+  // that round's final tables as the permanent record and rolls promotion/
+  // relegation forward — because CRM upsells keep moving live numbers, the
+  // snapshot is the truth for finished rounds.
+  cfg.history = (cfg.history && typeof cfg.history === 'object') ? cfg.history : {};
+  if (isAdmin) {
+    let _froze = 0;
+    for (let ri = 0; ri < curIdx; ri++) {
+      if (cfg.history[ri]) continue;
+      const rt = _computeRoundTally(ri);
+      const _p = (nm) => { const t = rt.get(nm) || { fr: 0, up: 0, fail: 0 }; return t.fr + t.up - t.fail; };
+      const _m = (nm) => { const t = rt.get(nm); if (!t) return 0; const d = t.multi + t.twelve; return d > 0 ? t.multi / d : 0; };
+      const _cmp = (a, b) => _p(b) - _p(a) || _m(b) - _m(a);
+      const _statR = (nm) => { const t = rt.get(nm) || { fr: 0, up: 0, fail: 0, n: 0 }; return { name: nm, fr: t.fr, fail: t.fail, up: t.up, passed: _p(nm), my: _m(nm), acv: t.n > 0 ? (t.fr + t.up) / t.n : 0 }; };
+      const rosterR = (Array.isArray(cfg.roster) && cfg.roster.length) ? cfg.roster.slice() : [...rt.keys()];
+      let dd = Array.isArray(cfg.divs) && cfg.divs.length ? cfg.divs.map(d => d.slice()) : null;
+      if (dd) dd = dd.map(d => d.filter(n => rosterR.includes(n))).filter(d => d.length);
+      if (!dd || !dd.length) {
+        const ranked = rosterR.slice().sort(_cmp);
+        dd = [];
+        for (let i = 0; i < ranked.length; i += 3) dd.push(ranked.slice(i, i + 3));
+      } else {
+        const placed = new Set(dd.flat());
+        rosterR.filter(n => !placed.has(n)).forEach(n => { const last = dd[dd.length - 1]; if (last.length < 3) last.push(n); else dd.push([n]); });
+      }
+      if (!dd.length) continue;   // nothing to freeze yet
+      const sorted = dd.map(d => d.slice().sort(_cmp));
+      cfg.history[ri] = { at: new Date().toISOString(), divs: sorted.map(d => d.map(_statR)) };
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const down = sorted[i].pop();
+        const up2 = sorted[i + 1].shift();
+        if (up2 !== undefined) sorted[i].push(up2);
+        if (down !== undefined) sorted[i + 1].unshift(down);
+      }
+      cfg.divs = sorted.map(d => d.slice()).filter(d => d.length);
+      _froze++;
+    }
+    if (_froze) {
+      logActivity('comp_change', { detail: 'Inside Sales League: auto-froze ' + _froze + ' round(s) + applied rotation' });
+      saveDemoData();
+      if (typeof saveIndicatorState === 'function') saveIndicatorState();
+    }
+  }
   // ── Per-rep tallies for the selected round ──
   const tally = new Map();
   const seasonNames = new Set();
   const _seasonRev = new Map();
+  const _repRecs = new Map();   // rep → every round account, for the drill-down
   for (const s of (raw || [])) {
     if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'office') continue;
     const dIso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
@@ -19844,15 +19955,37 @@ function islSection(raw, cfg, isAdmin) {
       _seasonRev.set(nm, (_seasonRev.get(nm) || 0) + (Number(s.contractValue) || 0));
     }
     if (dIso < iso(rS) || dIso > iso(rE)) continue;
-    if (!islQualifies(s)) continue;
-    const t = tally.get(nm) || { fr: 0, up: 0, fail: 0 };
+    // Classify EVERY round account (for the rep drill-down), then tally
+    // only the qualifying ones.
     const cv = Number(s.contractValue) || 0;
-    const isUp = (typeof reportingSourceClass === 'function') && reportingSourceClass(s.source) === 'upsell';
-    if (isUp) t.up += cv; else t.fr += cv;
-    if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || '')) t.fail += cv;
+    const _ps = (typeof frPendingServiced !== 'function') || frPendingServiced(s);
+    const rec = {
+      s, cv,
+      isUp: (typeof reportingSourceClass === 'function') && reportingSourceClass(s.source) === 'upsell',
+      failed: typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || ''),
+      reason: !_ps ? 'Not Pending/Serviced (pre-service cancel / no scheduled initial)'
+        : !(s.autoPay && s.autoPay !== 'No') ? 'No AutoPay'
+        : (s.contractSigned !== undefined ? !s.contractSigned : !(Number(s.contract) > 1)) ? 'No agreement on file (one-time)'
+        : null,
+    };
+    if (!_repRecs.has(nm)) _repRecs.set(nm, []);
+    _repRecs.get(nm).push(rec);
+    if (rec.reason) continue;
+    const t = tally.get(nm) || { fr: 0, up: 0, fail: 0, n: 0, multi: 0, twelve: 0, pend: 0 };
+    if (rec.isUp) t.up += cv; else t.fr += cv;
+    if (rec.failed) t.fail += cv;
+    t.n++;
+    const _cm = Number(s.contract) || 0;
+    if (_cm >= 18) t.multi++; else if (_cm === 12) t.twelve++;
+    if (!rec.failed && typeof scAuditPassed === 'function' && !scAuditPassed(s.customerFlags || '')) t.pend++;
     tally.set(nm, t);
   }
   const passedOf = (nm) => { const t = tally.get(nm) || { fr: 0, up: 0, fail: 0 }; return t.fr + t.up - t.fail; };
+  const myOf = (nm) => { const t = tally.get(nm); if (!t) return 0; const d = t.multi + t.twelve; return d > 0 ? t.multi / d : 0; };
+  const acvOf = (nm) => { const t = tally.get(nm); return (t && t.n > 0) ? (t.fr + t.up) / t.n : 0; };
+  const statOf = (nm) => ({ name: nm, fr: (tally.get(nm) || {}).fr || 0, fail: (tally.get(nm) || {}).fail || 0, up: (tally.get(nm) || {}).up || 0, passed: passedOf(nm), my: myOf(nm), acv: acvOf(nm) });
+  // Ranking: Passed Revenue, ties broken by the HIGHER MY % (per Isaac).
+  const cmpReps = (a, b) => passedOf(b) - passedOf(a) || myOf(b) - myOf(a);
   // ── Division membership: stored (rotations applied) or seeded from the
   //    season's sellers ranked by this round's Passed Revenue. New sellers
   //    join the bottom division automatically. ──
@@ -19863,7 +19996,7 @@ function islSection(raw, cfg, isAdmin) {
   const roster = _hasRoster ? cfg.roster.slice() : [...seasonNames];
   if (_hasRoster && divs) divs = divs.map(d => d.filter(n => roster.includes(n))).filter(d => d.length);
   if (!divs) {
-    const ranked = roster.slice().sort((a, b) => passedOf(b) - passedOf(a));
+    const ranked = roster.slice().sort(cmpReps);
     divs = [];
     for (let i = 0; i < ranked.length; i += DIV_SIZE) divs.push(ranked.slice(i, i + DIV_SIZE));
   } else {
@@ -19876,33 +20009,19 @@ function islSection(raw, cfg, isAdmin) {
   }
   // ── Bar controls: round picker + rotation + reset + \u24d8 ──
   const ctl = el('div', { class: 'ml-auto flex items-center gap-2' });
-  const nav = (d, glyph) => el('button', {
-    class: 'rounded-lg px-2 py-1 text-[11px] font-black border cursor-pointer transition hover:brightness-95',
-    style: { borderColor: 'var(--border-2)', color: 'var(--text)', opacity: (d < 0 ? selIdx > 0 : selIdx < curIdx) ? '1' : '.35' },
-    onclick: () => { const n = selIdx + d; if (n >= 0 && n <= curIdx) { state._islRoundSel = n; mountApp(); } },
-  }, glyph);
+  // Round DROPDOWN (per Isaac) — pick any round; finished ones show 🔒
+  // (their frozen snapshot renders, immune to later CRM movement).
+  bar.append(el('select', {
+    class: 'rounded-lg border px-2 py-1.5 text-xs font-bold cursor-pointer',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    onchange: (e) => { state._islRoundSel = Number(e.target.value); mountApp(); },
+  }, ...Array.from({ length: curIdx + 1 }, (_, i) => {
+    const b = _roundBounds(i);
+    return el('option', { value: String(i), selected: i === selIdx },
+      'Round ' + (i + 1) + ' \u00b7 ' + mmdd(b.rS) + '\u2013' + mmdd(b.rE) +
+      (cfg.history[i] ? ' \ud83d\udd12' : (i === curIdx && !roundOver) ? ' \u00b7 live' : ''));
+  })));
   ctl.append(
-    nav(-1, '\u2039'),
-    el('span', { class: 'text-[11px] font-bold tabular-nums whitespace-nowrap' },
-      'Round ' + (selIdx + 1) + ' \u00b7 ' + mmdd(rS) + ' \u2013 ' + mmdd(rE) + (selIdx === curIdx && !roundOver ? ' \u00b7 live' : '')),
-    nav(1, '\u203a'),
-    (isAdmin && roundOver) ? el('button', {
-      class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
-      style: { background: '#1D1D1D', color: '#8DC63F' },
-      title: 'Lock this round\u2019s results: bottom of each division relegates \u25bc, top of the division below promotes \u25b2',
-      onclick: () => {
-        if (!confirm('Apply the rotation for Round ' + (selIdx + 1) + '? Bottom of each division drops, top of the division below moves up.')) return;
-        const sorted = divs.map(d => d.slice().sort((a, b) => passedOf(b) - passedOf(a)));
-        for (let i = 0; i < sorted.length - 1; i++) {
-          const down = sorted[i].pop();
-          const up = sorted[i + 1].shift();
-          if (up !== undefined) sorted[i].push(up);
-          if (down !== undefined) sorted[i + 1].unshift(down);
-        }
-        cfg.divs = sorted;
-        save('Round ' + (selIdx + 1) + ' rotation applied');
-      },
-    }, '\ud83d\udd03 Apply rotation') : null,
     isAdmin ? el('button', {
       class: 'cursor-pointer transition hover:brightness-95 border rounded-full',
       style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', background: 'var(--card)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
@@ -19918,18 +20037,8 @@ function islSection(raw, cfg, isAdmin) {
         });
       },
     }, '\ud83d\udc65') : null,
-    isAdmin ? el('button', {
-      class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
-      style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
-      title: 'Reset the league — season date and division history clear until you set a new start',
-      onclick: () => {
-        if (!confirm('Reset the Inside Sales League? Season start and all division history clear.')) return;
-        cfg.start = '';
-        delete cfg.divs;
-        state._islRoundSel = null;
-        save('league RESET');
-      },
-    }, '\u21ba Reset') : null,
+    // (↺ Reset dropped — per Isaac: the league is a rolling leaderboard of
+    // the semi-monthly rounds, nothing to reset.)
     el('button', {
       class: 'rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-95 border',
       style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', color: 'var(--text)', fontSize: '13px', flexShrink: '0' },
@@ -19959,36 +20068,84 @@ function islSection(raw, cfg, isAdmin) {
   }
   const _benched = _hasRoster ? [...seasonNames].filter(n => !roster.includes(n)) : [];
   const divName = (i) => i === 0 ? 'PREMIER LEAGUE' : 'PRIORITY ' + i;
-  if (_benched.length && isAdmin) {
-    wrap.append(el('div', { class: 'text-[11px] px-1', style: { color: 'var(--text-muted)' } },
-      _benched.length + ' rep' + (_benched.length === 1 ? '' : 's') + ' with season revenue ' + (_benched.length === 1 ? 'is' : 'are') + ' not on the competing roster (' + _benched.join(', ') + ') \u2014 manage via \ud83d\udc65'));
-  }
-  divs.forEach((names, di) => {
-    const rows = names.slice().sort((a, b) => passedOf(b) - passedOf(a));
+  // Frozen round? Render the snapshot verbatim (structure AND numbers) —
+  // the live recompute is only for rounds that haven't been locked.
+  const _snap = (cfg.history && cfg.history[selIdx]) || null;
+  const _renderDivs = _snap ? _snap.divs.map(d => d.map(r => r.name)) : divs;
+  const _snapStat = _snap ? new Map(_snap.divs.flat().map(r => [r.name, r])) : null;
+  const statFor = (nm) => (_snapStat && _snapStat.get(nm)) || statOf(nm);
+  // (benched-producers explainer removed — per Isaac; the 👥 roster modal
+  // is the single place to see who's in and out)
+  _renderDivs.forEach((names, di) => {
+    const rows = _snap ? names.slice() : names.slice().sort(cmpReps);
+    // ± slots (per Isaac): grow a division by pulling the top rep up from
+    // the division below, or shrink it by dropping its bottom rep down —
+    // so Premier can run 4 while a Priority runs 2, etc. Sizes persist
+    // through rotations (they always swap 1-for-1).
+    const _persistDivs = (detail) => {
+      cfg.divs = divs.map(d => d.slice()).filter(d => d.length);
+      save(detail);
+    };
+    const _grow = () => {
+      if (di >= divs.length - 1) return;
+      const below = divs[di + 1].slice().sort(cmpReps);
+      const top = below[0];
+      divs[di + 1] = divs[di + 1].filter(n => n !== top);
+      divs[di] = [...divs[di], top];
+      _persistDivs(divName(di) + ' grew to ' + divs[di].length + ' (pulled ' + top + ' up)');
+    };
+    const _shrink = () => {
+      if (!divs[di].length) return;
+      const sortedD = divs[di].slice().sort(cmpReps);
+      const bottom = sortedD[sortedD.length - 1];
+      divs[di] = divs[di].filter(n => n !== bottom);
+      if (di === divs.length - 1) divs.push([bottom]); else divs[di + 1] = [bottom, ...divs[di + 1]];
+      _persistDivs(divName(di) + ' shrank (moved ' + bottom + ' down)');
+    };
+    const _szBtn = (glyph, title, onclick, disabled) => el('button', {
+      class: 'cursor-pointer font-black',
+      style: { width: '20px', height: '20px', borderRadius: '6px', border: '1px solid rgba(255,255,255,.4)', background: 'rgba(255,255,255,.12)', color: 'inherit', fontSize: '13px', lineHeight: '1', padding: '0', opacity: disabled ? '.35' : '1' },
+      title, onclick: disabled ? undefined : onclick,
+    }, glyph);
     wrap.append(el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-2.5 flex items-center justify-between', style: { background: di === 0 ? '#1F3B8B' : '#2b3a5e', color: di === 0 ? '#F6C915' : '#fff' } },
         el('div', { class: 'font-black uppercase tracking-widest text-sm' }, (di === 0 ? '\ud83c\udfc6 ' : '') + divName(di)),
-        el('div', { class: 'text-[10px] font-bold uppercase tracking-widest', style: { opacity: '.75' } }, names.length + ' rep' + (names.length === 1 ? '' : 's'))),
-      el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+        el('div', { class: 'flex items-center gap-2' },
+          _snap ? el('span', { class: 'text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded', style: { background: 'rgba(255,255,255,.18)' } }, '\ud83d\udd12 FINAL') : null,
+          el('span', { class: 'text-[10px] font-bold uppercase tracking-widest', style: { opacity: '.75' } }, names.length + ' rep' + (names.length === 1 ? '' : 's')),
+          (isAdmin && !_snap && divs[di]) ? _szBtn('\u2212', 'Take a rank away \u2014 this division\u2019s bottom rep drops to the division below', _shrink, !divs[di].length || (di === divs.length - 1 && divs[di].length <= 1)) : null,
+          (isAdmin && !_snap && divs[di]) ? _szBtn('+', 'Add a rank \u2014 pulls the top rep up from the division below', _grow, di >= divs.length - 1) : null)),
+      // table-layout FIXED + identical column widths so every division
+      // table's columns line up down the page (per Isaac).
+      el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm', style: { tableLayout: 'fixed', minWidth: '820px' } },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-          el('th', { class: 'px-3 py-2 w-10' }, 'Pos'),
+          el('th', { class: 'px-3 py-2', style: { width: '44px' } }, 'Pos'),
           el('th', { class: 'px-3 py-2' }, 'Sales Rep'),
-          el('th', { class: 'px-3 py-2 text-right' }, 'FR Revenue'),
-          el('th', { class: 'px-3 py-2 text-right' }, 'Failed'),
-          el('th', { class: 'px-3 py-2 text-right' }, 'Upsells'),
-          el('th', { class: 'px-3 py-2 text-right' }, 'Passed Revenue'),
-          el('th', { class: 'px-3 py-2 text-center w-16' }, 'Result'))),
+          el('th', { class: 'px-3 py-2 text-right', style: { width: '150px' }, title: 'CRM-synced revenue passing the Pending/Serviced gate (AutoPay + agreement required)' }, 'Pending/Serviced Rev'),
+          el('th', { class: 'px-3 py-2 text-right', style: { width: '90px' } }, 'Failed'),
+          el('th', { class: 'px-3 py-2 text-right', style: { width: '90px' } }, 'Upsells'),
+          el('th', { class: 'px-3 py-2 text-right', style: { width: '64px' }, title: 'Multi-year share of contract sales \u2014 the TIEBREAKER (higher wins)' }, 'MY %'),
+          el('th', { class: 'px-3 py-2 text-right', style: { width: '90px' } }, 'ACV'),
+          el('th', { class: 'px-3 py-2 text-right', style: { width: '124px' } }, 'Passed Revenue'),
+          el('th', { class: 'px-3 py-2 text-center', style: { width: '64px' } }, 'Result'))),
         el('tbody', {}, ...rows.map((nm, i) => {
-          const t = tally.get(nm) || { fr: 0, up: 0, fail: 0 };
+          const st = statFor(nm);
           const up = i === 0 && di > 0;                      // promotes \u25b2
-          const down = i === rows.length - 1 && di < divs.length - 1;   // relegates \u25bc
-          return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: up ? 'rgba(141,198,63,.07)' : down ? 'rgba(220,38,38,.06)' : '' } },
+          const down = i === rows.length - 1 && di < _renderDivs.length - 1;   // relegates \u25bc
+          return el('tr', {
+            class: 'border-t cursor-pointer hover:brightness-95 transition',
+            style: { borderColor: 'var(--border)', background: up ? 'rgba(141,198,63,.07)' : down ? 'rgba(220,38,38,.06)' : '' },
+            title: 'Click for ' + nm + '\u2019s accounts \u2014 counted, failed, and excluded',
+            onclick: () => openIslRepModal(nm, _repRecs.get(nm) || [], 'Round ' + (selIdx + 1) + ' \u00b7 ' + mmdd(rS) + ' \u2013 ' + mmdd(rE)),
+          },
             el('td', { class: 'px-3 py-2 font-black tabular-nums', style: { color: i === 0 ? (di === 0 ? '#5F8A1F' : 'var(--text)') : 'var(--text-muted)' } }, String(i + 1)),
             el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, nm),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(t.fr)),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums', style: { color: t.fail ? '#DC2626' : 'var(--text-subtle)' } }, t.fail ? '\u2212' + fmt.usd0(t.fail).slice(0) : '\u2014'),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, t.up ? fmt.usd0(t.up) : '\u2014'),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums font-black' }, fmt.usd0(passedOf(nm))),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(st.fr)),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums', style: { color: st.fail ? '#DC2626' : 'var(--text-subtle)' } }, st.fail ? '\u2212' + fmt.usd0(st.fail) : '\u2014'),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, st.up ? fmt.usd0(st.up) : '\u2014'),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (st.my > 0 || st.passed > 0) ? (st.my * 100).toFixed(0) + '%' : '\u2014'),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, st.acv > 0 ? fmt.usd0(st.acv) : '\u2014'),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums font-black' }, fmt.usd0(st.passed)),
             el('td', { class: 'px-3 py-2 text-center font-black' }, up ? el('span', { style: { color: '#5F8A1F' }, title: 'Promotes at rotation' }, '\u25b2') : down ? el('span', { style: { color: '#DC2626' }, title: 'Relegates at rotation' }, '\u25bc') : ''));
         }))))));
   });
