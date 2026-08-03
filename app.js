@@ -19246,7 +19246,9 @@ function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO) {
       const c = cur.get(nm) || { total: 0, byDay: {} };
       c.total += cv; c.byDay[iso] = (c.byDay[iso] || 0) + cv;
       cur.set(nm, c);
-    } else if (iso < KOBE_FROM) {
+    } else if (iso < KOBE_FROM && iso >= KOBE_FROM.slice(0, 4) + '-01-01') {
+      // Baseline is scoped to the COMP YEAR only (per Isaac) — a monster
+      // week from a previous season is history, not this summer's target.
       const wk = weekKeyOf(iso);
       if (!wk) continue;
       const b = base.get(nm) || {};
@@ -20300,15 +20302,18 @@ function viewNrlaPublic() {
   // so far is a Sales-Rep (D2D) competition; Office Staff comps get their own
   // home here when they're built. Viewers land on their own type's tab.
   const COMP_REPTYPE_TABS = ['Sales Reps', 'Office Staff'];
-  // Rep accounts are LOCKED to their own type's competitions — Sales Reps see
-  // only the D2D comps, Office Staff only the office comps (no tab switcher).
-  // Admins keep both tabs so they can watch everything.
-  const _repTabLocked = !isAdmin;
-  if (_repTabLocked || !state._compsRepTypeTab) {
-    state._compsRepTypeTab = isOfficeStaffRole(state.profile.role) ? 'Office Staff' : 'Sales Reps';
+  // ★ The admin-starred default comp applies across ALL user types (per
+  // Isaac): everyone LANDS on the starred comp's tab, whatever their role.
+  // The tab switcher is open to every account — other types' boards are
+  // read-only displays anyway — so office staff can flip back to their own
+  // comps after seeing the featured one.
+  if (!state._compsRepTypeTab) {
+    const _hasFav = comps.some(c => c.favorite) || !!state._compFavoriteMystery;
+    state._compsRepTypeTab = _hasFav ? 'Sales Reps'
+      : (isOfficeStaffRole(state.profile.role) ? 'Office Staff' : 'Sales Reps');
   }
   const repTypeTab = COMP_REPTYPE_TABS.includes(state._compsRepTypeTab) ? state._compsRepTypeTab : 'Sales Reps';
-  if (!_repTabLocked) {
+  {
     wrap.append(el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
       ...COMP_REPTYPE_TABS.map(t => {
         const on = repTypeTab === t;
