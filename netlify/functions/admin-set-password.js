@@ -158,7 +158,15 @@ exports.handler = async (event) => {
     if (hasPassword) patch.password = password;
     if (newEmail) { patch.email = newEmail; patch.email_confirm = true; }
     const { error: updErr } = await admin.auth.admin.updateUserById(user_id, patch);
-    if (updErr) return json(500, { error: 'updateUserById failed: ' + updErr.message });
+    if (updErr) {
+      // Edge case (per Isaac): a profile row can exist with NO auth login
+      // behind it. A password "update" silently goes nowhere — surface it
+      // plainly so the admin uses the create path instead.
+      const nf = /not.?found/i.test(updErr.message || '');
+      return json(nf ? 404 : 500, { error: nf
+        ? 'No LOGIN exists for this user yet — their profile has no auth account. Use "Add user" (create with password) for this person instead.'
+        : 'updateUserById failed: ' + updErr.message });
+    }
     if (newEmail) {
       const { error: profErr2 } = await admin.from('profiles').update({ email: newEmail }).eq('id', user_id);
       if (profErr2) return json(500, { error: 'auth email updated but profile email failed: ' + profErr2.message });

@@ -3096,7 +3096,13 @@ function mountAuth(opts = {}) {
       errLine.style.display = 'none';
       try {
         if (mode === 'login') {
-          const { error } = await supabase.auth.signInWithPassword({ email, password });
+          let { error } = await supabase.auth.signInWithPassword({ email, password });
+          // Phone keyboards love sneaking a trailing space into typed or
+          // pasted passwords — if the exact string failed and trimming
+          // would change it, quietly retry once with the trimmed password.
+          if (error && /invalid login credentials/i.test(error.message || '') && password && password.trim() !== password) {
+            ({ error } = await supabase.auth.signInWithPassword({ email, password: password.trim() }));
+          }
           if (error) throw error;
           try { localStorage.setItem('ridd_last_auth_v1', String(Date.now())); } catch { /* private */ }
         } else if (mode === 'forgot') {
