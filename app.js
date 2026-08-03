@@ -19881,11 +19881,14 @@ function islSection(raw, cfg, isAdmin) {
       if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'office') continue;
       const dIso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
       if (!dIso || dIso < bS || dIso > bE) continue;
-      if (!islQualifies(s)) continue;
       const nm = getCanonicalRepName(s.rep);
       if (!nm) continue;
       const cv = Number(s.contractValue) || 0;
-      const t = t0.get(nm) || { fr: 0, up: 0, fail: 0, n: 0, multi: 0, twelve: 0 };
+      const t = t0.get(nm) || { fr: 0, up: 0, fail: 0, n: 0, multi: 0, twelve: 0, apN: 0, apOn: 0 };
+      t.apN++;
+      if (s.autoPay && s.autoPay !== 'No') t.apOn++;
+      t0.set(nm, t);
+      if (!islQualifies(s)) continue;
       if ((typeof reportingSourceClass === 'function') && reportingSourceClass(s.source) === 'upsell') t.up += cv; else t.fr += cv;
       if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || '')) t.fail += cv;
       t.n++;
@@ -19909,7 +19912,7 @@ function islSection(raw, cfg, isAdmin) {
       const _p = (nm) => { const t = rt.get(nm) || { fr: 0, up: 0, fail: 0 }; return t.fr + t.up - t.fail; };
       const _m = (nm) => { const t = rt.get(nm); if (!t) return 0; const d = t.multi + t.twelve; return d > 0 ? t.multi / d : 0; };
       const _cmp = (a, b) => _p(b) - _p(a) || _m(b) - _m(a);
-      const _statR = (nm) => { const t = rt.get(nm) || { fr: 0, up: 0, fail: 0, n: 0 }; return { name: nm, fr: t.fr, fail: t.fail, up: t.up, passed: _p(nm), my: _m(nm), acv: t.n > 0 ? (t.fr + t.up) / t.n : 0 }; };
+      const _statR = (nm) => { const t = rt.get(nm) || { fr: 0, up: 0, fail: 0, n: 0, apN: 0, apOn: 0 }; return { name: nm, fr: t.fr, fail: t.fail, up: t.up, passed: _p(nm), my: _m(nm), acv: t.n > 0 ? (t.fr + t.up) / t.n : 0, ap: t.apN > 0 ? t.apOn / t.apN : null }; };
       const rosterR = (Array.isArray(cfg.roster) && cfg.roster.length) ? cfg.roster.slice() : [...rt.keys()];
       let dd = Array.isArray(cfg.divs) && cfg.divs.length ? cfg.divs.map(d => d.slice()) : null;
       if (dd) dd = dd.map(d => d.filter(n => rosterR.includes(n))).filter(d => d.length);
@@ -19970,8 +19973,11 @@ function islSection(raw, cfg, isAdmin) {
     };
     if (!_repRecs.has(nm)) _repRecs.set(nm, []);
     _repRecs.get(nm).push(rec);
+    const t = tally.get(nm) || { fr: 0, up: 0, fail: 0, n: 0, multi: 0, twelve: 0, pend: 0, apN: 0, apOn: 0 };
+    t.apN++;
+    if (s.autoPay && s.autoPay !== 'No') t.apOn++;
+    tally.set(nm, t);
     if (rec.reason) continue;
-    const t = tally.get(nm) || { fr: 0, up: 0, fail: 0, n: 0, multi: 0, twelve: 0, pend: 0 };
     if (rec.isUp) t.up += cv; else t.fr += cv;
     if (rec.failed) t.fail += cv;
     t.n++;
@@ -19983,7 +19989,8 @@ function islSection(raw, cfg, isAdmin) {
   const passedOf = (nm) => { const t = tally.get(nm) || { fr: 0, up: 0, fail: 0 }; return t.fr + t.up - t.fail; };
   const myOf = (nm) => { const t = tally.get(nm); if (!t) return 0; const d = t.multi + t.twelve; return d > 0 ? t.multi / d : 0; };
   const acvOf = (nm) => { const t = tally.get(nm); return (t && t.n > 0) ? (t.fr + t.up) / t.n : 0; };
-  const statOf = (nm) => ({ name: nm, fr: (tally.get(nm) || {}).fr || 0, fail: (tally.get(nm) || {}).fail || 0, up: (tally.get(nm) || {}).up || 0, passed: passedOf(nm), my: myOf(nm), acv: acvOf(nm) });
+  const apOf = (nm) => { const t = tally.get(nm); return (t && t.apN > 0) ? t.apOn / t.apN : null; };
+  const statOf = (nm) => ({ name: nm, fr: (tally.get(nm) || {}).fr || 0, fail: (tally.get(nm) || {}).fail || 0, up: (tally.get(nm) || {}).up || 0, passed: passedOf(nm), my: myOf(nm), acv: acvOf(nm), ap: apOf(nm) });
   // Ranking: Passed Revenue, ties broken by the HIGHER MY % (per Isaac).
   const cmpReps = (a, b) => passedOf(b) - passedOf(a) || myOf(b) - myOf(a);
   // ── Division membership: stored (rotations applied) or seeded from the
@@ -20117,17 +20124,18 @@ function islSection(raw, cfg, isAdmin) {
           (isAdmin && !_snap && divs[di]) ? _szBtn('+', 'Add a rank \u2014 pulls the top rep up from the division below', _grow, di >= divs.length - 1) : null)),
       // table-layout FIXED + identical column widths so every division
       // table's columns line up down the page (per Isaac).
-      el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm', style: { tableLayout: 'fixed', minWidth: '820px' } },
+      el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm', style: { tableLayout: 'fixed', minWidth: '1000px' } },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
           el('th', { class: 'px-3 py-2', style: { width: '44px' } }, 'Pos'),
           el('th', { class: 'px-3 py-2' }, 'Sales Rep'),
-          el('th', { class: 'px-3 py-2 text-right', style: { width: '150px' }, title: 'CRM-synced revenue passing the Pending/Serviced gate (AutoPay + agreement required)' }, 'Pending/Serviced Rev'),
-          el('th', { class: 'px-3 py-2 text-right', style: { width: '90px' } }, 'Failed'),
-          el('th', { class: 'px-3 py-2 text-right', style: { width: '90px' } }, 'Upsells'),
-          el('th', { class: 'px-3 py-2 text-right', style: { width: '64px' }, title: 'Multi-year share of contract sales \u2014 the TIEBREAKER (higher wins)' }, 'MY %'),
-          el('th', { class: 'px-3 py-2 text-right', style: { width: '90px' } }, 'ACV'),
-          el('th', { class: 'px-3 py-2 text-right', style: { width: '124px' } }, 'Passed Revenue'),
-          el('th', { class: 'px-3 py-2 text-center', style: { width: '64px' } }, 'Result'))),
+          el('th', { class: 'px-3 py-2 text-right whitespace-nowrap', style: { width: '185px' }, title: 'CRM-synced revenue passing the Pending/Serviced gate (AutoPay + agreement required)' }, 'Pending/Serviced Rev'),
+          el('th', { class: 'px-3 py-2 text-right whitespace-nowrap', style: { width: '80px' } }, 'Failed'),
+          el('th', { class: 'px-3 py-2 text-right whitespace-nowrap', style: { width: '90px' } }, 'Upsells'),
+          el('th', { class: 'px-3 py-2 text-right whitespace-nowrap', style: { width: '70px' }, title: 'Multi-year share of contract sales \u2014 the TIEBREAKER (higher wins)' }, 'MY %'),
+          el('th', { class: 'px-3 py-2 text-right whitespace-nowrap', style: { width: '90px' } }, 'ACV'),
+          el('th', { class: 'px-3 py-2 text-right whitespace-nowrap', style: { width: '84px' }, title: 'AutoPay share of ALL the rep\u2019s round accounts \u2014 the league only counts AutoPay-ON accounts, so this shows how much of the book qualifies' }, 'APay %'),
+          el('th', { class: 'px-3 py-2 text-right whitespace-nowrap', style: { width: '145px' } }, 'Passed Revenue'),
+          el('th', { class: 'px-3 py-2 text-center whitespace-nowrap', style: { width: '64px' } }, 'Result'))),
         el('tbody', {}, ...rows.map((nm, i) => {
           const st = statFor(nm);
           const up = i === 0 && di > 0;                      // promotes \u25b2
@@ -20145,6 +20153,7 @@ function islSection(raw, cfg, isAdmin) {
             el('td', { class: 'px-3 py-2 text-right tabular-nums' }, st.up ? fmt.usd0(st.up) : '\u2014'),
             el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (st.my > 0 || st.passed > 0) ? (st.my * 100).toFixed(0) + '%' : '\u2014'),
             el('td', { class: 'px-3 py-2 text-right tabular-nums' }, st.acv > 0 ? fmt.usd0(st.acv) : '\u2014'),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, st.ap != null ? (st.ap * 100).toFixed(0) + '%' : '\u2014'),
             el('td', { class: 'px-3 py-2 text-right tabular-nums font-black' }, fmt.usd0(st.passed)),
             el('td', { class: 'px-3 py-2 text-center font-black' }, up ? el('span', { style: { color: '#5F8A1F' }, title: 'Promotes at rotation' }, '\u25b2') : down ? el('span', { style: { color: '#DC2626' }, title: 'Relegates at rotation' }, '\u25bc') : ''));
         }))))));
@@ -22400,6 +22409,14 @@ function findDuplicateRepCandidates() {
       // If either side has already been merged into something else,
       // skip — the merge state is the source of truth, not the spelling.
       if (aliased.has(a) || aliased.has(b)) continue;
+      // Rule 0 (per Isaac — \u201cPere LeSueur\u201d vs \u201cPere Le Sueur\u201d): the SAME
+      // letters once spacing/punctuation/word order are stripped = the same
+      // human split by a spelling difference. These pairs are flagged even
+      // when BOTH spellings carry revenue \u2014 that's exactly the bug.
+      const _squash = (x) => x.toLowerCase().replace(/[^a-z]/g, '').split('').sort().join('');
+      const isSquashDupe = _squash(a) === _squash(b);
+      let isPrefix = false, isNickname = false;
+      if (!isSquashDupe) {
       const aParts = a.toLowerCase().split(/\s+/);
       const bParts = b.toLowerCase().split(/\s+/);
       if (aParts.length < 2 || bParts.length < 2) continue;
@@ -22416,12 +22433,13 @@ function findDuplicateRepCandidates() {
 
       // Rule 1: one first name is a prefix of the other (≥3 chars).
       // Catches Josh/Joshua, Joe/Joseph, Tom/Thomas, Sam/Samuel, etc.
-      const isPrefix =
+      isPrefix =
         (aFirst.length >= 3 && bFirst.startsWith(aFirst)) ||
         (bFirst.length >= 3 && aFirst.startsWith(bFirst));
       // Rule 2: known nickname pair (Bob/Robert, Bill/William, etc.).
-      const isNickname = nickMap.get(aFirst) === bFirst;
+      isNickname = nickMap.get(aFirst) === bFirst;
       if (!isPrefix && !isNickname) continue;
+      }
 
       const aInCsv = namesInCsv.has(a);
       const bInCsv = namesInCsv.has(b);
@@ -22431,12 +22449,19 @@ function findDuplicateRepCandidates() {
       let bad, good;
       if (aInCsv && !bInCsv)      { good = a; bad = b; }
       else if (bInCsv && !aInCsv) { good = b; bad = a; }
+      else if (isSquashDupe) {
+        // Same-letters pairs surface even when BOTH spellings have sales
+        // (revenue is being split!). Keeper = the spelling with more rows
+        // in the dataset; the other one merges into it.
+        const _rowsOf = (n) => (state._indicatorRawSales || []).reduce((acc, s) => acc + (s.rep === n ? 1 : 0), 0);
+        if (_rowsOf(a) >= _rowsOf(b)) { good = a; bad = b; } else { good = b; bad = a; }
+      }
       else continue;
 
       const key = bad + '||' + good;
       if (dismissed.has(key) || seen.has(key)) continue;
       seen.add(key);
-      pairs.push({ bad, good, reason: isPrefix ? 'prefix' : 'nickname' });
+      pairs.push({ bad, good, reason: isSquashDupe ? 'spelling' : isPrefix ? 'prefix' : 'nickname' });
     }
   }
   return pairs;
@@ -23340,7 +23365,7 @@ function manageTeamsPanel(opts) {
           el('span', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: '#C28A1F' } },
             '⚠️ ' + dupePairs.length + ' possible duplicate' + (dupePairs.length === 1 ? '' : 's')),
           el('span', { class: 'text-[10px] text-muted- italic' },
-            'Auto-detected — left name has no sales in your CSV, right name does'),
+            'Auto-detected — nickname/prefix pairs, plus same-letters spellings (\u201cLeSueur\u201d vs \u201cLe Sueur\u201d) that are SPLITTING one rep\u2019s revenue. Merge folds the left name into the right.'),
         ),
       ),
       el('div', { class: 'flex flex-col gap-1.5' },
