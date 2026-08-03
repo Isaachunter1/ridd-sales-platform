@@ -16544,7 +16544,7 @@ function nrlaConfig(comp) {
       const arr = n.rosters[k];
       if (!Array.isArray(arr)) { delete n.rosters[k]; return; }
       const healed = [...new Set(arr.map(x => getCanonicalRepName(x)))].sort();
-      if (healed.length) n.rosters[k] = healed; else delete n.rosters[k];
+      n.rosters[k] = healed;   // [] stays — an explicit empty roster means NOBODY competes
     });
     Object.keys(n.repIds || {}).forEach(k => {
       const canon = getCanonicalRepName(k);
@@ -16795,7 +16795,7 @@ function nrlaCompute(rawSales, compOverride) {
   // banner. Drives every round, the revenue columns, and the PRA denominator.
   const rosters = {};
   Object.entries(cfg.rosters || {}).forEach(([t, list]) => {
-    if (Array.isArray(list) && list.length) rosters[String(t).toUpperCase()] = new Set(list.map(r => _cleanRepName(getCanonicalRepName(String(r)))));
+    if (Array.isArray(list)) rosters[String(t).toUpperCase()] = new Set(list.map(r => _cleanRepName(getCanonicalRepName(String(r)))));   // [] = explicit NOBODY (opt-in mode, per Isaac)
   });
   const repRosterTeam = {};
   Object.entries(rosters).forEach(([t, set]) => set.forEach(r => { if (!(r in repRosterTeam)) repRosterTeam[r] = t; }));
@@ -17230,8 +17230,7 @@ function openNrlaRosterModal(rawSales) {
   // from every other team's list first.
   const putOnRoster = (name, t, on) => {
     Object.keys(cfg.rosters).forEach(k => {
-      cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== name);
-      if (!cfg.rosters[k].length) delete cfg.rosters[k];
+      if (Array.isArray(cfg.rosters[k])) cfg.rosters[k] = cfg.rosters[k].filter(x => x !== name);
     });
     if (on) cfg.rosters[t] = [...(cfg.rosters[t] || []), name].sort();
     persist(name + (on ? ' → ' + t + ' roster' : ' off the ' + t + ' roster'));
@@ -17242,12 +17241,11 @@ function openNrlaRosterModal(rawSales) {
   // everyone else on that team out of the comp.
   const assignTo = (name, t2) => {
     if (!t2 || t2 === teamOf(name)) return;
-    if (!Array.isArray(cfg.rosters[t2]) || !cfg.rosters[t2].length) {
+    if (!Array.isArray(cfg.rosters[t2])) {
       cfg.rosters[t2] = [...repInfo.keys()].filter(x => x !== name && teamOf(x) === t2).sort();
     }
     Object.keys(cfg.rosters).forEach(k => {
-      cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== name);
-      if (!cfg.rosters[k].length) delete cfg.rosters[k];
+      if (Array.isArray(cfg.rosters[k])) cfg.rosters[k] = cfg.rosters[k].filter(x => x !== name);
     });
     cfg.rosters[t2] = [...(cfg.rosters[t2] || []), name].sort();
     persist(name + ' reassigned → competes for ' + t2);
@@ -17263,8 +17261,7 @@ function openNrlaRosterModal(rawSales) {
     if (!bad || !good || bad === good) { renderList(); return; }
     const badTeam = rosterTeamOf(bad), goodTeam = rosterTeamOf(good);
     Object.keys(cfg.rosters).forEach(k => {
-      cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== bad);
-      if (!cfg.rosters[k].length) delete cfg.rosters[k];
+      if (Array.isArray(cfg.rosters[k])) cfg.rosters[k] = cfg.rosters[k].filter(x => x !== bad);
     });
     if (badTeam && !goodTeam) cfg.rosters[badTeam] = [...new Set([...(cfg.rosters[badTeam] || []), good])].sort();
     if (cfg.repIds[bad]) { if (!cfg.repIds[good]) cfg.repIds[good] = cfg.repIds[bad]; delete cfg.repIds[bad]; }
@@ -17437,7 +17434,7 @@ function openNrlaRosterModal(rawSales) {
       const rows = own.filter(n => !q || n.toLowerCase().includes(q))
         .sort((a, b) => (picked.has(b) ? 1 : 0) - (picked.has(a) ? 1 : 0) || a.localeCompare(b));
       if (!rows.length) return null;
-      const hasRoster = picked.size > 0;
+      const hasRoster = Array.isArray(cfg.rosters[t]);   // [] counts — explicit roster in force
       // Collapsible — sections start closed so eight branches don't make one
       // endless list. Searching auto-expands whatever matches.
       const open = (q || state._nrlaMergeSrc) ? true : !!(state._nrlaRosterOpen || {})[t];
@@ -17468,28 +17465,37 @@ function openNrlaRosterModal(rawSales) {
                 addName.focus();
               },
             }, '+ Add'),
+            // OPT-IN mode (per Isaac): 'All ✓' = whole branch competes.
+            // Unclick it → roster clears to NOBODY, then add reps one by
+            // one with the checkboxes. Click again → whole branch back in.
             el('button', {
-              class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer', style: { background: '#fff', color: PINK },
-              title: 'Roster everyone currently on this team',
+              class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer',
+              style: hasRoster ? { background: 'rgba(255,255,255,.25)', color: '#fff' } : { background: '#fff', color: PINK },
+              title: hasRoster
+                ? 'Explicit roster in force (' + picked.size + ' competing) — click to put the WHOLE branch back in'
+                : 'Everyone on the branch is competing — click to CLEAR the roster and add reps back individually',
               onclick: (e) => {
                 e.stopPropagation();
-                own.forEach(name => { Object.keys(cfg.rosters).forEach(k => { cfg.rosters[k] = (cfg.rosters[k] || []).filter(x => x !== name); if (!cfg.rosters[k].length) delete cfg.rosters[k]; }); });
-                cfg.rosters[t] = [...new Set([...(cfg.rosters[t] || []), ...own])].sort();
-                persist(t + ' roster → all ' + cfg.rosters[t].length + ' reps');
+                if (hasRoster) { delete cfg.rosters[t]; persist(t + ' → everyone on the branch competes'); }
+                else { cfg.rosters[t] = []; persist(t + ' roster CLEARED — add reps individually'); }
               },
-            }, 'All'),
-            el('button', {
-              class: 'text-[10px] font-bold rounded px-2 py-0.5 cursor-pointer', style: { background: 'rgba(255,255,255,.25)', color: '#fff' },
-              title: 'No roster — everyone on the branch counts',
-              onclick: (e) => { e.stopPropagation(); delete cfg.rosters[t]; persist(t + ' roster cleared — everyone competes'); },
-            }, 'Clear'))),
+            }, hasRoster ? 'All' : 'All ✓'))),
         ...(open ? rows : []).map((name) => {
-          const on = picked.has(name);
+          const on = hasRoster ? picked.has(name) : true;   // no roster = everyone IS competing
           const info = repInfo.get(name) || { n: 0, counts: {} };
           const home = homeOf(info);
           const cb = el('input', {
             type: 'checkbox', class: 'cursor-pointer',
-            onchange: (e) => putOnRoster(name, t, e.target.checked),
+            onchange: (e) => {
+              if (!hasRoster && !e.target.checked) {
+                // Everyone-mode: unchecking one rep flips the team to an
+                // explicit roster of everyone EXCEPT them.
+                cfg.rosters[t] = own.filter(x => x !== name).sort();
+                persist(name + ' opted OUT — ' + t + ' roster now explicit (' + cfg.rosters[t].length + ' competing)');
+              } else {
+                putOnRoster(name, t, e.target.checked);
+              }
+            },
           });
           cb.checked = on;
           // Team dropdown — move this rep to the branch they're competing for.
