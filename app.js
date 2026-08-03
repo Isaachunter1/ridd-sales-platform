@@ -19289,41 +19289,38 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
   const teams = [...byTeam.entries()]
     .map(([t, list]) => ({ t, list: list.slice().sort((a, b) => b.bestRev - a.bestRev), total: list.reduce((a, r) => a + r.bestRev, 0) }))
     .sort((a, b) => b.total - a.total);
-  const items = [];
-  teams.forEach(tm => {
-    items.push({ hdr: tm });
-    tm.list.forEach((r, i) => items.push({ r, rk: i + 1 }));
-  });
+  // (one team per column — two teams per page max, per Isaac)
   const th = (t, right) => el('th', { style: { fontSize: '8px', fontWeight: '800', letterSpacing: '.04em', textTransform: 'uppercase', color: '#666', padding: '4px 6px', textAlign: right ? 'right' : 'left', borderBottom: '1px solid #ddd', whiteSpace: 'nowrap' } }, t);
   const td = (t, right, opts = {}) => el('td', { style: { padding: '3px 6px', fontSize: '9.5px', textAlign: right ? 'right' : 'left', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap', fontWeight: opts.bold ? '800' : '400', color: opts.color || '#111', fontVariantNumeric: 'tabular-nums' } }, t);
-  const mkTable = (chunk) => el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e5e5' } },
-    el('thead', { style: { background: '#fafafa' } }, el('tr', {},
-      th('#'), th('Rep'), th('Best Week'), th('Best $', true), th('This Wk $', true), th('\u2713'))),
-    el('tbody', {}, ...chunk.map(it => it.hdr
-      ? el('tr', {}, el('td', { colspan: '6', style: { padding: '5px 6px', fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.06em', background: '#1D1D1D', color: '#8DC63F', whiteSpace: 'nowrap' } },
-          it.hdr.t + ' \u00b7 ' + it.hdr.list.length + ' rep' + (it.hdr.list.length === 1 ? '' : 's') + ' \u00b7 ' + fmt.usd0(it.hdr.total) + ' combined'))
-      : el('tr', {},
-          td('#' + it.rk, false, { color: '#999' }),
-          td(it.r.name, false, { bold: true }),
-          td('wk of ' + wkLbl(it.r.bestWk)),
-          td(fmt.usd0(it.r.bestRev), true, { bold: true }),
-          td(it.r.cur > 0 ? fmt.usd0(it.r.cur) : '\u2014', true),
-          td(it.r.earned ? '\ud83d\udc0d' : '', false)))));
-  const PER_COL = 42, PER_PAGE = PER_COL * 2;
+  const mkTeam = (tm) => {
+    // Band wears the team's own color (Manage Teams), text auto-contrasts.
+    const bg = (typeof getTeamColor === 'function' && getTeamColor(tm.t)) || '#1D1D1D';
+    const fg = (typeof groupHeaderTextColor === 'function') ? groupHeaderTextColor(bg) : '#fff';
+    return el('div', {},
+    el('div', { style: { padding: '6px 8px', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.06em', background: bg, color: fg, whiteSpace: 'nowrap', borderRadius: '4px 4px 0 0' } },
+      tm.t + ' \u00b7 ' + tm.list.length + ' rep' + (tm.list.length === 1 ? '' : 's')),
+    el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e5e5' } },
+      el('thead', { style: { background: '#fafafa' } }, el('tr', {},
+        th('#'), th('Rep'), th('Best Week'), th('Best $', true), th('This Wk $', true), th('\u2713'))),
+      el('tbody', {}, ...tm.list.map((r, i) => el('tr', {},
+        td('#' + (i + 1), false, { color: '#999' }),
+        td(r.name, false, { bold: true }),
+        td('wk of ' + wkLbl(r.bestWk)),
+        td(fmt.usd0(r.bestRev), true, { bold: true }),
+        td(r.cur > 0 ? fmt.usd0(r.cur) : '\u2014', true),
+        td(r.earned ? '\ud83d\udc0d' : '', false))))));
+  };
   const pages = [];
-  for (let i = 0; i < items.length; i += PER_PAGE) {
-    const pg = items.slice(i, i + PER_PAGE);
+  for (let i = 0; i < teams.length; i += 2) {
+    const pair = teams.slice(i, i + 2);
     pages.push(el('div', { style: { width: '816px', padding: '20px 26px', background: '#fff', color: '#111', fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif', boxSizing: 'border-box' } },
-      el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '3px solid #E0402A', paddingBottom: '6px', marginBottom: '10px' } },
-        el('div', {},
-          el('div', { style: { fontSize: '17px', fontWeight: '900', letterSpacing: '-0.01em' } }, '\ud83d\udc0d KOBE WEEK \u2014 BEST WEEKS'),
-          el('div', { style: { fontSize: '9px', color: '#666', marginTop: '2px' } },
-            'Best week = each rep\u2019s highest Sun\u2013Sat week BEFORE the comp window (' + from + ' \u2192 ' + to + ') \u00b7 Pending/Serviced D2D revenue \u00b7 active reps \u00b7 grouped by team, biggest first')),
+      el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '3px solid #E0402A', paddingBottom: '6px', marginBottom: '12px' } },
+        el('div', { style: { fontSize: '17px', fontWeight: '900', letterSpacing: '-0.01em' } }, '\ud83d\udc0d KOBE WEEK \u2014 BEST WEEKS'),
         el('div', { style: { fontSize: '9px', color: '#666', fontWeight: '600' } },
           new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + (pages.length ? ' \u00b7 p.' + (pages.length + 1) : ''))),
-      el('div', { style: { display: 'flex', gap: '16px', alignItems: 'flex-start' } },
-        el('div', { style: { flex: '1' } }, mkTable(pg.slice(0, PER_COL))),
-        pg.length > PER_COL ? el('div', { style: { flex: '1' } }, mkTable(pg.slice(PER_COL))) : null)));
+      el('div', { style: { display: 'flex', gap: '22px', alignItems: 'flex-start' } },
+        el('div', { style: { flex: '1', minWidth: '0' } }, mkTeam(pair[0])),
+        pair[1] ? el('div', { style: { flex: '1', minWidth: '0' } }, mkTeam(pair[1])) : el('div', { style: { flex: '1' } }))));
   }
   const reportEl = el('div', {}, ...pages);
   reportEl.style.position = 'fixed'; reportEl.style.left = '-99999px'; reportEl.style.top = '0'; reportEl.style.zIndex = '-1';
