@@ -19225,7 +19225,7 @@ const KOTH_PRIZE_LABEL = '2,000,000 RIDDCOIN';
 // beat across the remaining comp days.
 const KOBE_FROM = '2026-08-03';
 const KOBE_TO   = '2026-08-08';
-function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO) {
+function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO, BASE_YEAR) {
   const weekKeyOf = (iso) => {
     const d = new Date(iso + 'T00:00');
     if (isNaN(d)) return null;
@@ -19246,9 +19246,11 @@ function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO) {
       const c = cur.get(nm) || { total: 0, byDay: {} };
       c.total += cv; c.byDay[iso] = (c.byDay[iso] || 0) + cv;
       cur.set(nm, c);
-    } else if (iso < KOBE_FROM && iso >= KOBE_FROM.slice(0, 4) + '-01-01') {
-      // Baseline is scoped to the COMP YEAR only (per Isaac) — a monster
-      // week from a previous season is history, not this summer's target.
+    } else if (BASE_YEAR
+      ? (iso >= BASE_YEAR + '-01-01' && iso <= BASE_YEAR + '-12-31')
+      : (iso < KOBE_FROM && iso >= KOBE_FROM.slice(0, 4) + '-01-01')) {
+      // Baseline is scoped to ONE year (per Isaac) — the comp year by
+      // default, or an explicit BASE_YEAR for the fun lookback view.
       const wk = weekKeyOf(iso);
       if (!wk) continue;
       const b = base.get(nm) || {};
@@ -20458,11 +20460,23 @@ function viewNrlaPublic() {
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       onchange: (e) => { sel[key] = e.target.value; saveKobe(what + ' → ' + (e.target.value || 'unset')); },
     });
+    // 🗓 Year lookback (per Isaac, just for fun): pick a year to see every
+    // rep's best week of that year instead of the live comp board.
+    const _kYears = [...new Set((raw || []).map(s => ((typeof dateSoldToIso === 'function' ? dateSoldToIso(s.dateSold) : '') || '').slice(0, 4)).filter(y => /^\d{4}$/.test(y)))].sort().reverse();
+    const _kSelYr = state._kobeYear || '';
     wrap.append(el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
       el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
       ...(isAdmin
         ? [kIn('kobeFrom', 'start'), el('span', { class: 'text-muted-' }, '→'), kIn('kobeTo', 'end')]
         : [el('span', { class: 'text-[11px] font-bold tabular-nums' }, (sel.kobeFrom || '—') + ' → ' + (sel.kobeTo || '—'))]),
+      el('select', {
+        class: 'rounded-lg border px-2 py-1.5 text-xs font-bold cursor-pointer',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        title: 'Look back at every rep\u2019s best week of a given year',
+        onchange: (e) => { state._kobeYear = e.target.value; mountApp(); },
+      },
+        el('option', { value: '', selected: !_kSelYr }, 'This comp'),
+        ..._kYears.map(y => el('option', { value: y, selected: _kSelYr === y }, 'Best weeks \u00b7 ' + y))),
       isAdmin ? el('button', {
         class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border ml-auto',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -20484,6 +20498,31 @@ function viewNrlaPublic() {
           saveKobe('comp window RESET (dates cleared)');
         },
       }, '\u21ba Reset') : null));
+    if (_kSelYr) {
+      const yReps = kobeWeekCompute(raw, (Number(_kSelYr) + 1) + '-01-01', (Number(_kSelYr) + 1) + '-01-02', _kSelYr)
+        .sort((a, b) => b.bestRev - a.bestRev);
+      wrap.append(el('div', { class: 'card overflow-hidden' },
+        el('div', { class: 'px-4 py-2.5 flex items-center justify-between', style: { background: '#111', color: '#fff' } },
+          el('div', { class: 'font-black uppercase tracking-widest text-sm' }, '\ud83d\udc0d Best Weeks \u00b7 ' + _kSelYr),
+          el('div', { class: 'text-[10px] font-bold uppercase tracking-widest', style: { opacity: '.6' } }, yReps.length + ' reps')),
+        yReps.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+          el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+            el('th', { class: 'px-3 py-2 w-10' }, '#'),
+            el('th', { class: 'px-3 py-2' }, 'Rep'),
+            el('th', { class: 'px-3 py-2' }, 'Best Week'),
+            el('th', { class: 'px-3 py-2 text-right' }, 'Revenue'))),
+          el('tbody', {}, ...yReps.map((r, i) => {
+            const d = new Date(r.bestWk + 'T00:00');
+            const lbl = isNaN(d) ? (r.bestWk || '\u2014') : 'wk of ' + (d.getMonth() + 1) + '/' + d.getDate() + '/' + String(d.getFullYear()).slice(-2);
+            return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+              el('td', { class: 'px-3 py-2 font-black tabular-nums', style: { color: i < 3 ? '#E0402A' : 'var(--text-muted)' } }, String(i + 1)),
+              el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.name),
+              el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, lbl),
+              el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, fmt.usd0(r.bestRev)));
+          }))))
+        : el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No qualifying weeks in ' + _kSelYr + '.')));
+      return wrap;
+    }
     if (sel.kobeFrom && sel.kobeTo) wrap.append(kobeWeekSection(raw, sel.kobeFrom, sel.kobeTo));
     else wrap.append(el('div', { class: 'card p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
       'Set the comp window dates above to run Kobe Week.'));
