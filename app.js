@@ -20493,6 +20493,31 @@ function viewNrlaPublic() {
   // Reps see the schedule read-only; admins can add/remove days (synced to
   // everyone via the shared comp config, same as ★ default). ──
   if (isLastManStandingComp(sel)) {
+    // ── SEASON AUTO-RESET (per Isaac): once a champion is crowned AND the
+    // final comp day has passed, the season archives itself (champion,
+    // days, rounds, field size) and the board resets for EVERYONE — no
+    // stale test dates lingering. First admin load after season end does
+    // the write, same pattern as the ISL auto-freeze.
+    if (isAdmin && Array.isArray(sel.compDays) && sel.compDays.length) {
+      const _daysAll = [...sel.compDays].sort();
+      const _todayIso0 = new Date().toISOString().slice(0, 10);
+      if (_daysAll.every(d => d < _todayIso0)) {
+        const _pre = lastManStandingCompute(raw, sel);
+        if (_pre.champion) {
+          sel.lmsPastSeasons = [...(Array.isArray(sel.lmsPastSeasons) ? sel.lmsPastSeasons : []), {
+            champion: _pre.champion,
+            days: _daysAll,
+            rounds: (_pre.rounds || []).length,
+            started: _pre.rosterSize,
+            endedAt: new Date().toISOString(),
+          }];
+          sel.compDays = [];
+          logActivity('comp_change', { detail: 'Last Man Standing: season COMPLETE \u2014 ' + _pre.champion + ' crowned \u00b7 board auto-reset (season archived)' });
+          saveDemoData();
+          if (typeof saveIndicatorState === 'function') saveIndicatorState();
+        }
+      }
+    }
     const lmsR = lastManStandingCompute(raw, sel);
     const custom = Array.isArray(sel.compDays) ? [...sel.compDays].sort() : null;   // [] = cleared season (zero days)
     const effectiveDays = custom || lmsR.saturdays;
@@ -20583,6 +20608,12 @@ function viewNrlaPublic() {
             onclick: (e) => { e.stopPropagation(); saveDays(effectiveDays.filter(d => d !== iso)); },
           }, '×') : null);
       }),
+      // 🏆 After an auto-reset, the previous champion stays celebrated here
+      // until the next season starts.
+      (!effectiveDays.length && Array.isArray(sel.lmsPastSeasons) && sel.lmsPastSeasons.length) ? el('span', {
+        class: 'text-[11px] font-bold whitespace-nowrap',
+        title: 'Archived automatically when the season ended',
+      }, '\ud83c\udfc6 Last champion: ' + String(sel.lmsPastSeasons[sel.lmsPastSeasons.length - 1].champion || '')) : null,
       addInput, genBtn, clearBtn,
       _lmsBarCtl,
       el('button', {
@@ -22173,7 +22204,8 @@ function indicatorTopGunBoard(sales, proSet) {
         el('div', { class: 'shrink-0', style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' } },
           // Export · Reset · ⓘ moved to the Comp Window bar (per Isaac) —
           // only the active-window pill stays on the poster header.
-          indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', padding: '3px 10px', borderRadius: '999px', background: CREAM, color: BLUE, fontWeight: '900', fontSize: '11px', letterSpacing: '0.02em', whiteSpace: 'nowrap' } }, '📅 ' + indicatorCompWindowStr()),
+          // (date pill removed — per Isaac; the Comp Window bar above already
+          // shows the active range)
         ),
       ),
     ),
@@ -48502,7 +48534,7 @@ function adminReps() {
             onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
             onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
             onclick: () => { sandboxOn() ? sandboxExit() : sandboxStart(); },
-          }, sandboxOn() ? '\ud83e\uddea Exit Sandbox Mode' : '\ud83e\uddea Sandbox Mode (nothing saves)'));
+          }, sandboxOn() ? '\ud83e\uddea Exit Sandbox Mode' : '\ud83e\uddea Sandbox Mode'));
         const btn = el('button', {
           class: 'icon-btn show',
           title: 'Change rep type view',
