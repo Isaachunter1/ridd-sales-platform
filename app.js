@@ -17773,6 +17773,17 @@ function openNrlaAccountsModal(R, nameOf, opts) {
 
 function nrlaBoard(rawSales, opts) {
   const RO = !!(opts && opts.readOnly);            // rep-facing: look, don't touch
+  // 🗄 Past-season archives (per Isaac) — pulled once per session from
+  // app_settings; the Comp Window bar grows a season dropdown when any exist.
+  if (!state._nrlaArchivesLoaded && !(typeof DEMO !== 'undefined' && DEMO) && typeof supabase !== 'undefined' && supabase) {
+    state._nrlaArchivesLoaded = true;
+    Promise.resolve(supabase.from('app_settings').select('key,value').like('key', 'nrla_archive_%'))
+      .then(({ data }) => {
+        state._nrlaArchives = (data || []).sort((x, y) => String(x.key).localeCompare(String(y.key)));
+        if (state._nrlaArchives.length && state.view === 'nrla') mountApp();
+      })
+      .catch(() => { state._nrlaArchivesLoaded = false; });
+  }
   const R = nrlaCompute(rawSales, opts && opts.comp);
   const { cfg } = R;
   const PINK = '#F2148C', GREEN = '#2FD62F', REDD = '#E8271B', BLUE = '#3E9BE9';
@@ -17946,12 +17957,8 @@ function nrlaBoard(rawSales, opts) {
               if (!confirm('Archive the season as it stands right now? Standings, placements, rep stats, and payout math get frozen into a permanent record. (This normally happens AUTOMATICALLY once the season ends and audits settle \u2014 the button is the manual override.)')) return;
               const archive = _buildSeasonArchive();
               await _upsertSeasonArchive(archive);
-              // …and a local JSON download either way.
-              const aEl = document.createElement('a');
-              aEl.href = URL.createObjectURL(new Blob([JSON.stringify(archive, null, 2)], { type: 'application/json' }));
-              aEl.download = 'nrla-season-archive-' + archive.season_year + '.json';
-              aEl.click();
-              setTimeout(() => URL.revokeObjectURL(aEl.href), 5000);
+              // (JSON download retired — per Isaac: archives live IN the app,
+              // stored permanently in Supabase app_settings.)
               toast('Season archived (' + archive.standings.length + ' teams, ' + Object.keys(archive.rep_stats).length + ' rosters)', 'success');
               // Optional fresh-season reset — archive is safely saved first.
               if (confirm('Season archived. ALSO clear the matchup overrides and rosters so next season starts clean? (Team assignments and the archive itself are untouched.)')) {
@@ -17994,7 +18001,58 @@ function nrlaBoard(rawSales, opts) {
             onclick: () => openNrlaHelpModal(),
           }, 'ⓘ'))),
   );
+  // Season dropdown — Live + every archived season.
+  if ((state._nrlaArchives || []).length) {
+    compWinBar.append(el('select', {
+      class: 'rounded-lg border px-2 py-1.5 text-xs font-bold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      title: 'View a past season\u2019s archived final standings',
+      onchange: (e) => { state._nrlaArchiveSel = e.target.value; mountApp(); },
+    },
+      el('option', { value: '', selected: !state._nrlaArchiveSel }, 'Live season'),
+      ...(state._nrlaArchives || []).map(x => el('option', { value: x.key, selected: state._nrlaArchiveSel === x.key },
+        'Season ' + ((x.value && x.value.season_year) || String(x.key).replace('nrla_archive_', '')) + ' \u00b7 archived'))));
+  }
   const _nrlaWrap = (board) => el('div', { class: 'flex flex-col gap-4' }, compWinBar, board);
+  // ── 🗄 Archived-season view — renders the frozen record verbatim ──
+  if (state._nrlaArchiveSel) {
+    const _arch = (state._nrlaArchives || []).find(x => x.key === state._nrlaArchiveSel);
+    const A = _arch && _arch.value;
+    if (A) {
+      const _th = (t, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest text-muted- font-semibold' + (right ? ' text-right' : ' text-left') }, t);
+      const _td = (t, right, bold) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap' + (right ? ' text-right' : '') + (bold ? ' font-bold' : '') }, t);
+      const placeStrip = (A.placements || []).length ? el('div', { class: 'px-4 py-3 flex items-center gap-2 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
+        ...(A.placements || []).map(p2 => el('span', { class: 'rounded-full px-3 py-1 text-[11px] font-black', style: { background: p2.place === 1 ? '#F0AC1E' : 'var(--card-2)', color: p2.place === 1 ? '#1D1D1D' : 'var(--text)' } },
+          '#' + p2.place + ' ' + p2.team + (p2.prize ? ' \u00b7 ' + p2.prize : '')))) : null;
+      const standingsTbl = el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+        el('thead', {}, el('tr', {}, _th('Seed'), _th('Team'), _th('W', true), _th('L', true), _th('T', true), _th('Passed $', true), _th('Pending $', true), _th('Failed $', true), _th('Accts', true))),
+        el('tbody', {}, ...(A.standings || []).map(s2 => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          _td('#' + s2.seed), _td(s2.team, false, true), _td(String(s2.w), true), _td(String(s2.l), true), _td(String(s2.t || 0), true),
+          _td(s2.stats ? money(s2.stats.passed) : '\u2014', true, true),
+          _td(s2.stats ? money(s2.stats.pending) : '\u2014', true),
+          _td(s2.stats ? money(s2.stats.failed) : '\u2014', true),
+          _td(s2.stats ? String(s2.stats.accts) : '\u2014', true))))));
+      const repRows = [];
+      Object.entries(A.rep_stats || {}).forEach(([team, reps]) => {
+        Object.entries(reps || {}).forEach(([nm, st]) => repRows.push({ team, nm, ...st }));
+      });
+      repRows.sort((x, y) => x.team.localeCompare(y.team) || (y.passed || 0) - (x.passed || 0));
+      const repsTbl = repRows.length ? el('div', { class: 'overflow-x-auto border-t', style: { borderColor: 'var(--border)' } }, el('table', { class: 'w-full text-sm' },
+        el('thead', {}, el('tr', {}, _th('Team'), _th('Rep'), _th('Accts', true), _th('Passed $', true), _th('Passed accts', true), _th('Payout \u2713', true))),
+        el('tbody', {}, ...repRows.map(r2 => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          _td(r2.team), _td(r2.nm, false, true), _td(String(r2.accts || 0), true),
+          _td(money(r2.passed), true, true), _td(String(r2.passed_accts || 0), true),
+          _td(r2.payout_qualified ? '\u2705' : '\u2014', true)))))) : null;
+      return _nrlaWrap(el('div', { class: 'card overflow-hidden' },
+        el('div', { class: 'px-5 py-4 flex items-center justify-between gap-3 flex-wrap', style: { background: '#03070D', color: '#fff' } },
+          el('div', {},
+            el('div', { style: { fontFamily: DISP, fontSize: '28px', lineHeight: '1', textTransform: 'uppercase', letterSpacing: '.08em' } }, 'NRLA \u00b7 Season ' + (A.season_year || '')),
+            el('div', { class: 'text-[11px] font-bold mt-1', style: { color: PINK } },
+              '\ud83d\udd12 ARCHIVED RECORD' + (A.archived_at ? ' \u00b7 frozen ' + new Date(A.archived_at).toLocaleDateString() : ''))),
+          el('div', { style: { fontSize: '30px' } }, '\ud83c\udfc6')),
+        placeStrip, standingsTbl, repsTbl));
+    }
+  }
 
   // ── Competing-team chips ──
   const comp = R.comp;
