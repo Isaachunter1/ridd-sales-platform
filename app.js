@@ -19266,6 +19266,90 @@ function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO) {
   });
   return reps;
 }
+// 📄 Kobe Week — Best Weeks PDF (per Isaac): one table of every active
+// rep's best Sun–Sat week (the number they have to beat), biggest first.
+async function downloadKobeBestWeeksPdf(reps, from, to) {
+  try { await loadPdfLibsOnce(); } catch { toast('Could not load PDF libraries — check your connection', 'error'); return; }
+  const wkLbl = (wk) => {
+    const d = new Date(wk + 'T00:00');
+    if (isNaN(d)) return wk || '—';
+    const e = new Date(d); e.setDate(e.getDate() + 6);
+    const f = (x) => (x.getMonth() + 1) + '/' + x.getDate();
+    return f(d) + '–' + f(e) + '/' + String(e.getFullYear()).slice(-2);
+  };
+  if (!reps.length) { toast('No reps with a baseline week yet', 'warn'); return; }
+  // Grouped by TEAM (per Isaac): sections ordered by the team's combined
+  // best-week total, reps biggest-first inside each.
+  const byTeam = new Map();
+  reps.forEach(r => {
+    const t = (typeof getRepTeam === 'function' && getRepTeam(r.name)) || 'Unassigned';
+    if (!byTeam.has(t)) byTeam.set(t, []);
+    byTeam.get(t).push(r);
+  });
+  const teams = [...byTeam.entries()]
+    .map(([t, list]) => ({ t, list: list.slice().sort((a, b) => b.bestRev - a.bestRev), total: list.reduce((a, r) => a + r.bestRev, 0) }))
+    .sort((a, b) => b.total - a.total);
+  const items = [];
+  teams.forEach(tm => {
+    items.push({ hdr: tm });
+    tm.list.forEach((r, i) => items.push({ r, rk: i + 1 }));
+  });
+  const th = (t, right) => el('th', { style: { fontSize: '8px', fontWeight: '800', letterSpacing: '.04em', textTransform: 'uppercase', color: '#666', padding: '4px 6px', textAlign: right ? 'right' : 'left', borderBottom: '1px solid #ddd', whiteSpace: 'nowrap' } }, t);
+  const td = (t, right, opts = {}) => el('td', { style: { padding: '3px 6px', fontSize: '9.5px', textAlign: right ? 'right' : 'left', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap', fontWeight: opts.bold ? '800' : '400', color: opts.color || '#111', fontVariantNumeric: 'tabular-nums' } }, t);
+  const mkTable = (chunk) => el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e5e5' } },
+    el('thead', { style: { background: '#fafafa' } }, el('tr', {},
+      th('#'), th('Rep'), th('Best Week'), th('Best $', true), th('This Wk $', true), th('\u2713'))),
+    el('tbody', {}, ...chunk.map(it => it.hdr
+      ? el('tr', {}, el('td', { colspan: '6', style: { padding: '5px 6px', fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.06em', background: '#1D1D1D', color: '#8DC63F', whiteSpace: 'nowrap' } },
+          it.hdr.t + ' \u00b7 ' + it.hdr.list.length + ' rep' + (it.hdr.list.length === 1 ? '' : 's') + ' \u00b7 ' + fmt.usd0(it.hdr.total) + ' combined'))
+      : el('tr', {},
+          td('#' + it.rk, false, { color: '#999' }),
+          td(it.r.name, false, { bold: true }),
+          td('wk of ' + wkLbl(it.r.bestWk)),
+          td(fmt.usd0(it.r.bestRev), true, { bold: true }),
+          td(it.r.cur > 0 ? fmt.usd0(it.r.cur) : '\u2014', true),
+          td(it.r.earned ? '\ud83d\udc0d' : '', false)))));
+  const PER_COL = 42, PER_PAGE = PER_COL * 2;
+  const pages = [];
+  for (let i = 0; i < items.length; i += PER_PAGE) {
+    const pg = items.slice(i, i + PER_PAGE);
+    pages.push(el('div', { style: { width: '816px', padding: '20px 26px', background: '#fff', color: '#111', fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif', boxSizing: 'border-box' } },
+      el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '3px solid #E0402A', paddingBottom: '6px', marginBottom: '10px' } },
+        el('div', {},
+          el('div', { style: { fontSize: '17px', fontWeight: '900', letterSpacing: '-0.01em' } }, '\ud83d\udc0d KOBE WEEK \u2014 BEST WEEKS'),
+          el('div', { style: { fontSize: '9px', color: '#666', marginTop: '2px' } },
+            'Best week = each rep\u2019s highest Sun\u2013Sat week BEFORE the comp window (' + from + ' \u2192 ' + to + ') \u00b7 Pending/Serviced D2D revenue \u00b7 active reps \u00b7 grouped by team, biggest first')),
+        el('div', { style: { fontSize: '9px', color: '#666', fontWeight: '600' } },
+          new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + (pages.length ? ' \u00b7 p.' + (pages.length + 1) : ''))),
+      el('div', { style: { display: 'flex', gap: '16px', alignItems: 'flex-start' } },
+        el('div', { style: { flex: '1' } }, mkTable(pg.slice(0, PER_COL))),
+        pg.length > PER_COL ? el('div', { style: { flex: '1' } }, mkTable(pg.slice(PER_COL))) : null)));
+  }
+  const reportEl = el('div', {}, ...pages);
+  reportEl.style.position = 'fixed'; reportEl.style.left = '-99999px'; reportEl.style.top = '0'; reportEl.style.zIndex = '-1';
+  document.body.append(reportEl);
+  await new Promise(r => requestAnimationFrame(() => r()));
+  try {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+    const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight();
+    const mX = 14, mY = 14, imgW = pageW - mX * 2, usableH = pageH - mY * 2;
+    const sheets = [...reportEl.children];
+    for (let pi = 0; pi < sheets.length; pi++) {
+      const canvas = await html2canvas(sheets[pi], { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true });
+      const imgData = canvas.toDataURL('image/png');
+      const imgH = (canvas.height * imgW) / canvas.width;
+      if (pi > 0) pdf.addPage();
+      if (imgH <= usableH) pdf.addImage(imgData, 'PNG', mX, mY, imgW, imgH);
+      else { const sW = (imgW * usableH) / imgH; pdf.addImage(imgData, 'PNG', mX + (imgW - sW) / 2, mY, sW, usableH); }
+    }
+    pdf.save('RIDD-KobeWeek-BestWeeks-' + new Date().toISOString().slice(0, 10) + '.pdf');
+    toast('Downloaded best weeks for ' + reps.length + ' reps across ' + teams.length + ' teams', 'success');
+  } catch (err) {
+    console.error('[ridd] Kobe best-weeks PDF failed', err);
+    toast('Failed to generate PDF: ' + (err.message || 'unknown'), 'error');
+  } finally { reportEl.remove(); }
+}
 function kobeWeekSection(raw, KOBE_FROM, KOBE_TO) {
   const reps = kobeWeekCompute(raw, KOBE_FROM, KOBE_TO);
   const BLACK = '#111111', MAMBA = '#E0402A';
@@ -20378,7 +20462,17 @@ function viewNrlaPublic() {
         ? [kIn('kobeFrom', 'start'), el('span', { class: 'text-muted-' }, '→'), kIn('kobeTo', 'end')]
         : [el('span', { class: 'text-[11px] font-bold tabular-nums' }, (sel.kobeFrom || '—') + ' → ' + (sel.kobeTo || '—'))]),
       isAdmin ? el('button', {
-        class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95 ml-auto',
+        class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border ml-auto',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'PDF: every active rep\u2019s best Sun\u2013Sat week of the season (the number they have to beat), biggest first',
+        onclick: () => {
+          const _reps = kobeWeekCompute(raw, sel.kobeFrom || KOBE_FROM, sel.kobeTo || KOBE_TO)
+            .filter(r => (typeof isRepActive !== 'function') || isRepActive(r.name));
+          downloadKobeBestWeeksPdf(_reps, sel.kobeFrom || KOBE_FROM, sel.kobeTo || KOBE_TO);
+        },
+      }, '\u2b07 Best Weeks') : null,
+      isAdmin ? el('button', {
+        class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
         style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
         title: 'Reset the comp window — dates clear until you set new ones, which then stick until the next reset',
         onclick: () => {
