@@ -2135,6 +2135,10 @@ window.__RIDD = state;
 // alongside state so we can confirm a deploy actually shipped.
 window.__ridd = {
   get state() { return state; },
+  // Supabase client + the demo/local persister — needed for console-driven
+  // recovery jobs (e.g. restoring NRLA rosters from a season archive).
+  get supabase() { return supabase; },
+  saveDemoData,
   isAdminRole, ADMIN_ROLES, SELLER_ROLES,
   // Save helpers exposed so DevTools-driven bulk edits (e.g. "mark every
   // untagged rep as rookie") can persist through the same pipeline a UI
@@ -16531,6 +16535,22 @@ function nrlaConfig(comp) {
   n.groups = Number(n.groups) === 1 ? 1 : 2;              // two groups by # of reps (poster) or one table
   if (!n.teamNames || typeof n.teamNames !== 'object') n.teamNames = {};  // branch → display name (Ganadores, Dawgs, …)
   if (!n.rosters || typeof n.rosters !== 'object') n.rosters = {};        // team → [competing rep names]; empty = whole branch
+  // Heal rosters after rep MERGES (per Isaac — the Pere spellings): app-wide
+  // merges alias the old spelling to the canonical name, but these stored
+  // lists kept the old strings and stopped matching. Map every stored name
+  // through the alias table and collapse duplicates, every render.
+  try {
+    Object.keys(n.rosters).forEach(k => {
+      const arr = n.rosters[k];
+      if (!Array.isArray(arr)) { delete n.rosters[k]; return; }
+      const healed = [...new Set(arr.map(x => getCanonicalRepName(x)))].sort();
+      if (healed.length) n.rosters[k] = healed; else delete n.rosters[k];
+    });
+    Object.keys(n.repIds || {}).forEach(k => {
+      const canon = getCanonicalRepName(k);
+      if (canon !== k) { if (!n.repIds[canon]) n.repIds[canon] = n.repIds[k]; delete n.repIds[k]; }
+    });
+  } catch (e) { /* alias table not loaded yet — the next render heals */ }
   if (!n.matchups || typeof n.matchups !== 'object') n.matchups = {};     // roundNum → [[a,b],…] drag-and-drop overrides
   if (!n.repIds || typeof n.repIds !== 'object') n.repIds = {};           // rep name → FieldRoutes sales-rep ID (reference / future ID matching)
   if (!n.branchTz || typeof n.branchTz !== 'object') n.branchTz = {};      // branch → IANA time zone (new markets set here, no code change)
@@ -17813,6 +17833,39 @@ function nrlaBoard(rawSales, opts) {
   // ── Comp Window bar (standardized across comps, per Isaac): the season
   // dates AND the board controls (📋 rosters · 🏁 archive · ⬇ export · ⓘ)
   // all live here now — the hero and old config strip are clean.
+  // Season archive object + writer — shared by the 🏁 button and the
+  // AUTO-archive below (per Isaac: archiving isn't a manual job anymore).
+  const _buildSeasonArchive = () => {
+    const passedCount2 = {};
+    (R.accounts || []).forEach(a => { if (a.bucket === 'passed' && a.rep && a.rep !== '\u2014') passedCount2[a.rep] = (passedCount2[a.rep] || 0) + 1; });
+    return {
+      archived_at: new Date().toISOString(),
+      season_year: new Date().getFullYear(),
+      standings: R.standings.map((s, i) => ({ seed: i + 1, team: nameOf(s.team), w: s.w, l: s.l, t: s.t || 0, stats: R.seasonStats[s.team] ? { total: Math.round(R.seasonStats[s.team].total), passed: Math.round(R.seasonStats[s.team].passed), pending: Math.round(R.seasonStats[s.team].pending), failed: Math.round(R.seasonStats[s.team].failed), accts: R.seasonStats[s.team].n } : null })),
+      placements: (R.placements || []).map(p => ({ place: p.place, team: nameOf(p.team), prize: p.prize })),
+      rep_stats: Object.fromEntries(Object.entries(R.repStats || {}).map(([t, reps]) => [nameOf(t), Object.fromEntries(Object.entries(reps).map(([n2, st]) => [n2, { accts: st.n, total: Math.round(st.total), passed: Math.round(st.passed), pending: Math.round(st.pending), failed: Math.round(st.failed), passed_accts: passedCount2[n2] || 0, payout_qualified: (passedCount2[n2] || 0) >= 4 }]))])),
+    };
+  };
+  const _upsertSeasonArchive = async (archive) => {
+    try {
+      if (!(typeof DEMO !== 'undefined' && DEMO) && supabase) {
+        await supabase.from('app_settings').upsert({ key: 'nrla_archive_' + archive.season_year, value: archive }, { onConflict: 'key' });
+      }
+    } catch (e) { console.warn('[nrla] archive upsert failed', e); }
+  };
+  // 🏁 AUTO-ARCHIVE (per Isaac): the moment the season has ENDED and every
+  // counted account's audit has settled (zero pending), the record freezes
+  // itself into app_settings — no manual click. Synced flag = runs once.
+  if (!RO && cfg.start && cfg.end && Date.now() > new Date(cfg.end + 'T23:59:59').getTime()
+      && (R.accounts || []).length
+      && !(R.accounts || []).some(a => a.bucket === 'pending')
+      && cfg.archivedSeason !== new Date(cfg.end + 'T00:00').getFullYear()) {
+    const _auto = _buildSeasonArchive();
+    _auto.season_year = new Date(cfg.end + 'T00:00').getFullYear();
+    cfg.archivedSeason = _auto.season_year;
+    _upsertSeasonArchive(_auto);
+    save('Season ' + _auto.season_year + ' AUTO-archived \u2014 season over, all audits settled');
+  }
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
   const cfgBar = null;   // retired — dates moved to the Comp Window bar below
   const compWinBar = el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
@@ -17848,22 +17901,9 @@ function nrlaBoard(rawSales, opts) {
             style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
             title: 'Archive the season — freezes final standings, placements, per-rep stats and the payout math into a permanent record (Supabase + a JSON download), then optionally clears rosters & matchup overrides for a fresh season.',
             onclick: async () => {
-              if (!confirm('Archive the season as it stands right now? Standings, placements, rep stats, and payout math get frozen into a permanent record.')) return;
-              const passedCount2 = {};
-              (R.accounts || []).forEach(a => { if (a.bucket === 'passed' && a.rep && a.rep !== '—') passedCount2[a.rep] = (passedCount2[a.rep] || 0) + 1; });
-              const archive = {
-                archived_at: new Date().toISOString(),
-                season_year: new Date().getFullYear(),
-                standings: R.standings.map((s, i) => ({ seed: i + 1, team: nameOf(s.team), w: s.w, l: s.l, t: s.t || 0, stats: R.seasonStats[s.team] ? { total: Math.round(R.seasonStats[s.team].total), passed: Math.round(R.seasonStats[s.team].passed), pending: Math.round(R.seasonStats[s.team].pending), failed: Math.round(R.seasonStats[s.team].failed), accts: R.seasonStats[s.team].n } : null })),
-                placements: (R.placements || []).map(p => ({ place: p.place, team: nameOf(p.team), prize: p.prize })),
-                rep_stats: Object.fromEntries(Object.entries(R.repStats || {}).map(([t, reps]) => [nameOf(t), Object.fromEntries(Object.entries(reps).map(([n, st]) => [n, { accts: st.n, total: Math.round(st.total), passed: Math.round(st.passed), pending: Math.round(st.pending), failed: Math.round(st.failed), passed_accts: passedCount2[n] || 0, payout_qualified: (passedCount2[n] || 0) >= 4 }]))])),
-              };
-              // Permanent copy in Supabase (app_settings, keyed by year+stamp)…
-              try {
-                if (!(typeof DEMO !== 'undefined' && DEMO) && supabase) {
-                  await supabase.from('app_settings').upsert({ key: 'nrla_archive_' + archive.season_year, value: archive }, { onConflict: 'key' });
-                }
-              } catch (e) { console.warn('[nrla] archive upsert failed', e); }
+              if (!confirm('Archive the season as it stands right now? Standings, placements, rep stats, and payout math get frozen into a permanent record. (This normally happens AUTOMATICALLY once the season ends and audits settle \u2014 the button is the manual override.)')) return;
+              const archive = _buildSeasonArchive();
+              await _upsertSeasonArchive(archive);
               // …and a local JSON download either way.
               const aEl = document.createElement('a');
               aEl.href = URL.createObjectURL(new Blob([JSON.stringify(archive, null, 2)], { type: 'application/json' }));
@@ -19382,8 +19422,8 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
     toast('Failed to generate PDF: ' + (err.message || 'unknown'), 'error');
   } finally { reportEl.remove(); }
 }
-function kobeWeekSection(raw, KOBE_FROM, KOBE_TO) {
-  const reps = kobeWeekCompute(raw, KOBE_FROM, KOBE_TO);
+function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
+  const reps = Array.isArray(FINAL_REPS) ? FINAL_REPS : kobeWeekCompute(raw, KOBE_FROM, KOBE_TO);
   const BLACK = '#111111', MAMBA = '#E0402A';
   const todayIso = new Date().toISOString().slice(0, 10);
   const daysLeft = (() => {
@@ -19519,8 +19559,37 @@ function kothDays(raw) {
   days.forEach(d => { d.tier = (getRepTier(d.name) === 'rookie') ? 'rookie' : 'vet'; });
   return days;
 }
-function kothSection(raw) {
-  const days = kothDays(raw);
+function kothSection(raw, cfg, isAdmin) {
+  cfg = (cfg && typeof cfg === 'object') ? cfg : {};
+  // AUTO-FREEZE (per Isaac): once past the lock date with ZERO unaudited
+  // qualifying accounts, the final boards freeze into the synced config —
+  // rendered from the snapshot forever after.
+  let days;
+  if (cfg.final && Array.isArray(cfg.final.days)) {
+    days = cfg.final.days;
+  } else {
+    days = kothDays(raw);
+    if (isAdmin && new Date().toISOString().slice(0, 10) > KOTH_LOCK_ISO && days.length) {
+      const _pendingN = (raw || []).filter(s => {
+        if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') return false;
+        const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
+        if (!iso || iso > KOTH_LOCK_ISO) return false;
+        if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) return false;
+        if ((Number(s.initialPrice) || 0) < 99) return false;
+        const fl = s.customerFlags || '';
+        if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(fl)) return false;
+        return typeof scAuditPassed === 'function' && !scAuditPassed(fl);   // audit still open
+      }).length;
+      if (_pendingN === 0) {
+        try {
+          cfg.final = { at: new Date().toISOString(), days: JSON.parse(JSON.stringify(days)) };
+          logActivity('comp_change', { detail: 'KOTH: final boards AUTO-frozen (lock passed, audits settled)' });
+          saveDemoData();
+          if (typeof saveIndicatorState === 'function') saveIndicatorState();
+        } catch (e) { /* freeze next render */ }
+      }
+    }
+  }
   const fmtDay = (iso) => { const d = new Date(iso + 'T00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }); };
   const RED1 = '#D3524F', RED2 = '#B03432';
   const classCard = (tk) => {
@@ -20469,7 +20538,8 @@ function viewNrlaPublic() {
   }
   // ── \ud83d\udc51 King of the Hill: biggest single day of the season ──
   if (sel.id === 'koth') {
-    wrap.append(kothSection(raw));
+    const _kothCfg = (_cXtra.koth && typeof _cXtra.koth === 'object') ? _cXtra.koth : (_cXtra.koth = {});
+    wrap.append(kothSection(raw, _kothCfg, isAdmin));
     return wrap;
   }
   // ── \ud83d\udc0d Kobe Week: beat your own best week ──
@@ -20530,6 +20600,8 @@ function viewNrlaPublic() {
           if (!confirm('Reset the Kobe Week comp window? Dates clear until you set new ones.')) return;
           sel.kobeFrom = '';
           sel.kobeTo = '';
+          delete sel.final;   // new season = new snapshot
+          if (_cXtra[sel.id]) delete _cXtra[sel.id].final;
           saveKobe('comp window RESET (dates cleared)');
         },
       }, '\u21ba Reset') : null));
@@ -20558,7 +20630,35 @@ function viewNrlaPublic() {
         : el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } }, 'No qualifying weeks in ' + _kSelYr + '.')));
       return wrap;
     }
-    if (sel.kobeFrom && sel.kobeTo) wrap.append(kobeWeekSection(raw, sel.kobeFrom, sel.kobeTo));
+    if (sel.kobeFrom && sel.kobeTo) {
+      // AUTO-FREEZE (per Isaac): once the window closes and every counted
+      // account's audit has settled, the final board snapshots into the
+      // synced extras and renders from there.
+      let _kFinal = (sel.final && Array.isArray(sel.final.reps)) ? sel.final.reps : null;
+      if (!_kFinal && isAdmin && new Date().toISOString().slice(0, 10) > sel.kobeTo) {
+        const _pendK = (raw || []).filter(s => {
+          if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') return false;
+          if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) return false;
+          if ((Number(s.initialPrice) || 0) < 99) return false;
+          const fl = s.customerFlags || '';
+          if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(fl)) return false;
+          const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
+          return iso && iso >= sel.kobeFrom && iso <= sel.kobeTo && typeof scAuditPassed === 'function' && !scAuditPassed(fl);
+        }).length;
+        if (_pendK === 0) {
+          try {
+            const _repsK = kobeWeekCompute(raw, sel.kobeFrom, sel.kobeTo);
+            sel.final = { at: new Date().toISOString(), reps: JSON.parse(JSON.stringify(_repsK)) };
+            _cXtra[sel.id] = { ..._cXtra[sel.id], final: sel.final };
+            logActivity('comp_change', { detail: 'Kobe Week: final board AUTO-frozen (window over, audits settled)' });
+            saveDemoData();
+            if (typeof saveIndicatorState === 'function') saveIndicatorState();
+            _kFinal = sel.final.reps;
+          } catch (e) { /* freeze next render */ }
+        }
+      }
+      wrap.append(kobeWeekSection(raw, sel.kobeFrom, sel.kobeTo, _kFinal));
+    }
     else wrap.append(el('div', { class: 'card p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
       'Set the comp window dates above to run Kobe Week.'));
     return wrap;
@@ -20787,6 +20887,7 @@ function viewNrlaPublic() {
         onclick: () => {
           if (!confirm('Reset Spring Cleaning? ALL round dates clear and the board goes blank. New dates you enter afterward stick until the next reset.')) return;
           sel.rounds = SPRING_DEFAULT_ROUNDS.map(() => ({ start: '', end: '' }));
+          sel.scHistory = {};   // a reset starts a NEW season — old freezes go with it
           logActivity('comp_change', { detail: 'Spring Cleaning: competition RESET — all round dates cleared' });
           saveDemoData();
           mountApp();
@@ -21345,7 +21446,16 @@ function springStandingsCard() {
 
     // Per-round results. AUTO-LOCK: final = window over + zero pending
     // audits left in the window (nothing can move the standings anymore).
-    const rounds = comp.rounds.map((r) => {
+    // FROZEN ROUNDS (per Isaac): the moment a round turns OFFICIAL (window
+    // over + zero pending audits) its full standings freeze into the comp
+    // config automatically — later CRM mutations (upsells changing contract
+    // values) can't rewrite history. Frozen rounds render from the snapshot.
+    comp.scHistory = (comp.scHistory && typeof comp.scHistory === 'object') ? comp.scHistory : {};
+    const rounds = comp.rounds.map((r, _ri) => {
+      const snap = comp.scHistory[_ri];
+      if (snap && snap.sc) {
+        return { ...r, sc: snap.sc, ranked: snap.sc.ranked || [], hasData: true, finished: true, pendingN: 0, official: true, frozen: true };
+      }
       const roundSales = d2dAll.filter(s => {
         const d = _parseIndicatorDay(s);
         if (!d) return false;
@@ -21364,6 +21474,22 @@ function springStandingsCard() {
         official: finished && roundSales.length > 0 && pendingN === 0,
       };
     });
+    // First admin render after a round goes official does the freeze.
+    if (typeof isAdminRole === 'function' && isAdminRole(state.profile && state.profile.role)) {
+      let _froze = 0;
+      rounds.forEach((r, i) => {
+        if (r.official && !r.frozen && r.sc && !comp.scHistory[i]) {
+          try {
+            comp.scHistory[i] = { at: new Date().toISOString(), sc: JSON.parse(JSON.stringify(r.sc)) };
+            _froze++;
+          } catch (e) { /* non-serializable — keep computing live */ }
+        }
+      });
+      if (_froze) {
+        logActivity('comp_change', { detail: 'Spring Cleaning: ' + _froze + ' official round(s) AUTO-frozen (window over, audits settled)' });
+        saveDemoData();
+      }
+    }
 
     // Branch order + bug tallies: green = official rounds, red = rounds
     // still in play (live, or finished with audits pending).
