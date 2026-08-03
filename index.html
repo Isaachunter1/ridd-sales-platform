@@ -306,31 +306,31 @@
   /* Top Gun mascot: a stealth bomber glides slowly back and forth across the
      header. Drawn nose-right, so scaleX(-1) faces it left when flying left.
      The flyer handles the glide + flip; the plane banks gently. */
-  .tg-fly-track { position:relative; flex:1 1 90px; min-width:96px; height:48px; align-self:center; overflow:hidden; }
+  .tg-fly-track { position:relative; flex:1 1 150px; min-width:160px; height:76px; align-self:center; overflow:hidden; }
   .tg-flyer {
-    position:absolute; top:50%; left:0; width:56px; margin-top:-15px;
+    position:absolute; top:50%; left:0; width:112px; margin-top:-30px;
     animation: tgFly 22s ease-in-out infinite;
     will-change:left, transform;
   }
   .tg-flyer .tg-plane {
-    display:block; width:56px; height:auto;
+    display:block; width:112px; height:auto;
     transform-origin:center center;
     animation: tgBank 4.5s ease-in-out infinite;
     filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
   }
   @keyframes tgFly {
-    0%,3%    { left:0;                  transform:scaleX(1); }
-    47%      { left:calc(100% - 56px);  transform:scaleX(1); }
-    50%,53%  { left:calc(100% - 56px);  transform:scaleX(-1); }
-    97%      { left:0;                  transform:scaleX(-1); }
-    100%     { left:0;                  transform:scaleX(1); }
+    0%,3%    { left:0;                   transform:scaleX(1); }
+    47%      { left:calc(100% - 112px);  transform:scaleX(1); }
+    50%,53%  { left:calc(100% - 112px);  transform:scaleX(-1); }
+    97%      { left:0;                   transform:scaleX(-1); }
+    100%     { left:0;                   transform:scaleX(1); }
   }
   @keyframes tgBank {
     0%,100% { transform:rotate(-4deg); }
     50%     { transform:rotate(4deg); }
   }
   @media (prefers-reduced-motion: reduce) {
-    .tg-flyer { animation:none; left:calc(50% - 28px); }
+    .tg-flyer { animation:none; left:calc(50% - 56px); }
     .tg-flyer .tg-plane { animation:none; }
   }
 
@@ -900,6 +900,6 @@
 <div id="toasts" class="fixed right-4 z-50 flex flex-col gap-2 pointer-events-none items-end" style="top: calc(1rem + env(safe-area-inset-top, 0px)); left: 1rem;"></div>
 
 <!-- Supabase JS (ESM from CDN) + the app -->
-<script type="module" src="app-03a8ee2a.immutable.js"></script>
+<script type="module" src="app-ccea3e02.immutable.js"></script>
 </body>
 </html>

@@ -209,6 +209,11 @@ const INDICATOR_SETTINGS_FIELDS = [
   'indicatorDeletedCustIds',     // customer IDs DELETED in FieldRoutes (orphans in the RevHawk mirror) — excluded app-wide
   '_compPillOrder',              // admin drag-sorted order of the Competitions pills (ids, incl. mystery_box)
   '_compFavoriteMystery',        // ★ default-comp flag for the virtual Mystery Boxes pill
+  '_compExtras',                 // per-comp synced extras for VIRTUAL pills (★ default flag, Kobe window, …) — anything not backed by a config row
+  // ('_indicatorFilterPresets' retired from the SHARED settings — presets
+  // are PER USER now, stored on-device per account. Per Isaac.)
+  '_indHiddenMetrics',           // hidden Indicators rows, keyed by Type (all/d2d/office/techs) — per Isaac
+  '_indHiddenLbCols',            // hidden Rep Leaderboard columns, keyed by Type — per Isaac
   '_indicatorTeams',
   '_indicatorExcludedTeams',
   '_indicatorRankExclude',    // { branch:[...], teams:[...] } — kept on the board but out of Power Ranking
@@ -411,6 +416,13 @@ async function refreshIndicatorsFromCloud(force) {
         && isAdminRole(state.profile && state.profile.role)
         && !/^RevHawk sync/i.test(state.indicatorsFileName || '')) return;
     _saveTag();
+    // Office 20 → LITTLE ROCK heal: the sync names it at the source going
+    // forward; this covers payloads derived before the rename shipped.
+    try {
+      const _o20 = /^office\s*20$/i;
+      (payload.indicatorsData || []).forEach(r2 => { if (_o20.test(String(r2.branch || ''))) r2.branch = 'LITTLE ROCK'; });
+      (payload.rawSales || []).forEach(s2 => { if (_o20.test(String(s2.office || ''))) s2.office = 'LITTLE ROCK'; });
+    } catch { /* cosmetic heal only */ }
     state.indicatorsData       = payload.indicatorsData;
     state._indicatorRawSales   = payload.rawSales || [];
     state.indicatorsUploadedAt = payload.uploadedAt;
@@ -3284,7 +3296,7 @@ const TAB_TITLES = {
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#queues':'queues', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'d2d_upfront', '#techs':'techs', '#training':'training', '#marketplace':'marketplace', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'d2d_upfront', '#techs':'techs', '#training':'training', '#marketplace':'marketplace', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -4424,6 +4436,89 @@ function openMySettingsModal() {
   document.body.append(overlay);
 }
 
+// ═══ PER-USER PAGE LAYOUT — 🔧 edit mode (per Isaac) ═══════════════════
+// EVERY user can reshape ANY tab into their own view: in edit mode each
+// top-level section grows a handle (↑ move up · ↓ move down · ✕ hide, ＋
+// bring back). Layouts persist per user + per tab on this device and apply
+// on every render. Fixed bars (and their spacers) are locked in place.
+function _userLayoutKey() {
+  const uid = (state.profile && state.profile.id) || 'anon';
+  return 'ridd_layout_v1::' + uid + '::' + state.view;
+}
+function _userLayoutPrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem(_userLayoutKey()) || 'null');
+    if (p && typeof p === 'object') return { order: Array.isArray(p.order) ? p.order : [], hidden: Array.isArray(p.hidden) ? p.hidden : [] };
+  } catch { /* fresh */ }
+  return { order: [], hidden: [] };
+}
+function _saveUserLayoutPrefs(p) { try { localStorage.setItem(_userLayoutKey(), JSON.stringify(p)); } catch { /* private mode */ } }
+function applyUserLayout(root) {
+  const kids = [...root.children];
+  if (!kids.length) return;
+  // Stable-ish keys: explicit data-section / id wins, else the position.
+  const keyOf = (n, i) => (n.dataset && n.dataset.section) ? 's:' + n.dataset.section : (n.id ? 'i:' + n.id : 'n:' + i);
+  const isLocked = (n) => !!(n.querySelector && (n.querySelector('#indFixedBar') || n.querySelector('#indBarSpacer')));
+  const entries = kids.map((n, i) => ({ n, key: keyOf(n, i), locked: isLocked(n) }));
+  const editable = entries.filter(e => !e.locked);
+  if (!editable.length) return;
+  const prefs = _userLayoutPrefs();
+  const byKey = new Map(editable.map(e => [e.key, e]));
+  const orderedEditable = [
+    ...prefs.order.map(k => byKey.get(k)).filter(Boolean),
+    ...editable.filter(e => !prefs.order.includes(e.key)),
+  ];
+  // Locked nodes hold their slots; editable slots refill from the queue.
+  let qi = 0;
+  entries.map(e => e.locked ? e.n : orderedEditable[qi++].n).forEach(n => root.append(n));
+  const finalKeys = orderedEditable.map(e => e.key);
+  const hidden = new Set(prefs.hidden.filter(k => byKey.has(k)));
+  const save = (order, hiddenArr) => { _saveUserLayoutPrefs({ order, hidden: hiddenArr }); mountApp(); };
+  orderedEditable.forEach((e, idx) => {
+    const isHid = hidden.has(e.key);
+    if (!state._editMode) {
+      if (isHid) e.n.style.display = 'none';
+      return;
+    }
+    if (!e.n.style.position) e.n.style.position = 'relative';
+    e.n.style.outline = '2px dashed ' + (isHid ? '#B91C1C' : 'var(--accent)');
+    e.n.style.outlineOffset = '2px';
+    e.n.style.opacity = isHid ? '.35' : '';
+    const mk = (glyph, title, onclick, disabled) => el('button', {
+      class: 'cursor-pointer',
+      style: { width: '26px', height: '26px', borderRadius: '8px', border: 'none', background: 'var(--text)', color: 'var(--bg)', fontSize: '12px', fontWeight: '900', opacity: disabled ? '.35' : '1', boxShadow: 'var(--shadow-lg)', display: 'grid', placeItems: 'center', padding: '0' },
+      title, onclick: disabled ? undefined : (ev) => { ev.stopPropagation(); onclick(); },
+    }, glyph);
+    e.n.append(el('div', { style: { position: 'absolute', top: '6px', right: '6px', zIndex: 35, display: 'flex', gap: '4px' } },
+      mk('\u2191', 'Move this section up', () => { const ks = [...finalKeys]; ks.splice(idx - 1, 0, ks.splice(idx, 1)[0]); save(ks, [...hidden]); }, idx === 0),
+      mk('\u2193', 'Move this section down', () => { const ks = [...finalKeys]; ks.splice(idx + 1, 0, ks.splice(idx, 1)[0]); save(ks, [...hidden]); }, idx === orderedEditable.length - 1),
+      mk(isHid ? '\uff0b' : '\u2715', isHid ? 'Show this section again' : 'Hide this section (your view only)', () => {
+        const h = new Set(hidden);
+        if (isHid) h.delete(e.key); else h.add(e.key);
+        save(finalKeys, [...h]);
+      })));
+  });
+}
+function _ensureEditBanner() {
+  document.getElementById('editModeBanner')?.remove();
+  if (!state._editMode) return;
+  document.body.append(el('div', {
+    id: 'editModeBanner',
+    style: { position: 'fixed', bottom: '18px', left: '50%', transform: 'translateX(-50%)', zIndex: 80, display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--text)', color: 'var(--bg)', borderRadius: '999px', padding: '8px 14px', boxShadow: 'var(--shadow-lg)', fontSize: '12px', fontWeight: '700', whiteSpace: 'nowrap', maxWidth: 'calc(100vw - 24px)' } },
+    '\ud83d\udd27 Edit mode \u2014 \u2191\u2193 move \u00b7 \u2715 hide \u00b7 your view only',
+    el('button', {
+      class: 'cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-black',
+      style: { background: 'rgba(255,255,255,.18)', color: 'var(--bg)', border: 'none' },
+      title: 'Reset THIS tab back to the default layout',
+      onclick: () => { try { localStorage.removeItem(_userLayoutKey()); } catch { /* private */ } mountApp(); },
+    }, 'Reset page'),
+    el('button', {
+      class: 'cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-black',
+      style: { background: 'var(--accent)', color: 'var(--accent-text)', border: 'none' },
+      onclick: () => { state._editMode = false; mountApp(); },
+    }, 'Done')));
+}
+
 function mountApp() {
   const _mountKeepX = window.scrollX || 0, _mountKeepY = window.scrollY || 0;
   // ── Shared-dataset freshness watch — EVERY view, not just Indicators. ──
@@ -4531,6 +4626,13 @@ function mountApp() {
   // on an admin view is coerced to Indicators — the same home a rep gets on
   // a fresh login (this also fixes admin "View as Rep" from an admin page
   // dumping the preview onto the NRLA board instead of the rep landing).
+  // Queues tab RETIRED (Jul 2026, per Isaac — may return redesigned).
+  // Bookmarks / saved sessions pointing at it heal to Indicators; the
+  // role guards below re-route reps and auditors to their own homes.
+  if (state.view === 'queues') {
+    state.view = 'indicators';
+    history.replaceState(null, '', VIEW_TO_HASH.indicators || '#indicators');
+  }
   const ADMIN_ONLY_VIEWS = new Set(['reporting', 'marketing', 'admin']);
   if (!isAdmin && ADMIN_ONLY_VIEWS.has(state.view)) {
     state.view = 'indicators';
@@ -4577,7 +4679,6 @@ function mountApp() {
     // Office Staff get the Inside Sales group; Sales Reps get "Sales" —
     // their commission home, the D2D counterpart to Inside Sales.
     ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]] : [['d2d_group', 'Sales', iconDollar()]]),
-    ...(isOfficeStaff ? [['queues', 'Queues', iconClipboard()]] : []),
     ['nrla', 'Competitions', iconTrophy()],
     ['indicators', 'Indicators', iconChart()],
     ['marketplace', 'Marketplace', iconDollar()],
@@ -4592,7 +4693,6 @@ function mountApp() {
     ...(isAuditor ? [] : [['nrla', 'Competitions', iconTrophy()]]),
     ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
-    ...(isAdmin ? [['queues',        'Queues',        iconClipboard()]] : []),
     ...(isAuditor ? [] : [['marketplace', 'Marketplace', iconDollar()]]),
     ...(isAuditor ? [] : [['training', 'Training', iconClipboard()]]),
   ];
@@ -4720,6 +4820,19 @@ function mountApp() {
     ),
     state.view === 'sales' ? buildSearchBar() : el('div', { class: 'flex-1' }),
     el('div', { class: 'flex items-center gap-2' },
+      // 🔧 Edit mode — EVERY user reshapes any tab into their own view
+      // (reorder / hide sections; Indicators also unlocks row editing +
+      // the preset drawer). Per user, per device.
+      el('button', {
+        class: 'icon-btn show',
+        style: state._editMode ? { background: 'var(--accent)', color: 'var(--accent-text)' } : {},
+        title: state._editMode ? 'Exit edit mode' : 'Edit mode \u2014 reorder or hide sections on any tab to build YOUR view',
+        onclick: () => {
+          state._editMode = !state._editMode;
+          if (state._editMode && state.view === 'indicators') state._indPresetsOpen = true;
+          mountApp();
+        },
+      }, '\ud83d\udd27'),
       // TV Display button — opens a fullscreen sales leaderboard meant
       // for a wall-mounted TV. Only shown inside the Inside Sales tab.
       INSIDE_SALES_TAB_KEYS.has(state.view) && el('button', {
@@ -4906,6 +5019,9 @@ function mountApp() {
   if (D2D_SALES_TAB_KEYS.has(state.view)) state._lastD2dTab = state.view;
   const node = view();
   node.classList.add('fade-in');
+  // Per-user layout (🔧): reorder / hide sections on every tab.
+  try { applyUserLayout(node); } catch (e) { console.warn('[ridd] user layout skipped', e); }
+  try { _ensureEditBanner(); } catch (e) { /* never block a render */ }
   // Inside Sales views get the consolidated sub-tab bar above the content
   // (auditors get no bar — their only tab is Sales).
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) {
@@ -15787,7 +15903,8 @@ function lastManStandingCompute(sales, compOverride) {
 }
 // 5-pointed star, drawn with a clip-path so it tints any color cleanly.
 const LMS_STAR_CLIP = 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)';
-function lastManStandingBoard(windowed, winLabel, compOverride) {
+function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
+  let _lmsPosterDl = null;   // assigned below; rendered as a Comp Window bar button
   const R = lastManStandingCompute(windowed, compOverride);
   // KAWS-poster palette — black canvas, vivid pops.
   const RED = '#FF1F0E', MAG = '#FF18C8', CYAN = '#13DAF2', ORANGE = '#FFA01E', GREEN = '#21C61C', WHITE = '#FFFFFF';
@@ -15827,33 +15944,12 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
     star(RED, 120, '64%', '58%', -12, 1),
     star(CYAN, 70, '8px', '52%', 18, .9),
 
-    // info button — rules popup (top-right), matching the other comps
-    el('button', { style: {
-        position: 'absolute', top: 'clamp(14px,2.5vw,22px)', right: 'clamp(14px,2.5vw,22px)', zIndex: '4',
-        width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255,255,255,.1)', color: WHITE,
-        border: '1px solid rgba(255,255,255,.55)', display: 'grid', placeItems: 'center', fontSize: '14px',
-        lineHeight: '1', cursor: 'pointer', padding: '0', fontWeight: '700',
-      },
-      title: 'Last Man Standing rules',
-      onmouseenter: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.22)'; },
-      onmouseleave: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; },
-      onclick: () => openLastManStandingHelpModal(winLabel),
-    }, 'ⓘ'),
+    // (rules ⓘ moved to the Comp Days bar, right of ↺ Reset — per Isaac)
 
     // 📸 Survivors poster (admin) — downloads the rep-facing announcement
     // as a PNG: LAST MAN STANDING + the reps who advanced out of the latest
     // decided round. Matches the poster style already sent to reps.
-    isAdminRole(state.profile?.role) && R.rounds.length ? el('button', {
-      style: {
-        position: 'absolute', top: 'clamp(14px,2.5vw,22px)', right: 'calc(clamp(14px,2.5vw,22px) + 36px)', zIndex: '4',
-        width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255,255,255,.1)', color: WHITE,
-        border: '1px solid rgba(255,255,255,.55)', display: 'grid', placeItems: 'center', fontSize: '13px',
-        lineHeight: '1', cursor: 'pointer', padding: '0',
-      },
-      title: 'Download the survivors poster for the latest decided round (PNG — drop it straight in the group chat)',
-      onmouseenter: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.22)'; },
-      onmouseleave: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; },
-      onclick: () => {
+    (_lmsPosterDl = () => {
         const rd = [...R.rounds].reverse().find(r => (r.contenders || []).some(c => c.advanced));
         if (!rd) { toast('No decided round to export yet', 'warn'); return; }
         const survivors = rd.contenders.filter(c => c.advanced)
@@ -15900,23 +15996,10 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
         a2.href = cv.toDataURL('image/png');
         a2.download = 'LMS_Week_' + rd.week + '_Survivors.png';
         a2.click();
-      },
-    }, '📸') : null,
+      }, null),
 
-    // ⏳ Pending Revenue (admin) — what's still unconfirmed for a round and
-    // whether it'll make the service cutoff. Sits left of the camera.
-    isAdminRole(state.profile?.role) && R.rounds.length ? el('button', {
-      style: {
-        position: 'absolute', top: 'clamp(14px,2.5vw,22px)', right: 'calc(clamp(14px,2.5vw,22px) + 72px)', zIndex: '4',
-        width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(255,255,255,.1)', color: WHITE,
-        border: '1px solid rgba(255,255,255,.55)', display: 'grid', placeItems: 'center', fontSize: '13px',
-        lineHeight: '1', cursor: 'pointer', padding: '0',
-      },
-      title: 'Pending revenue — split by whether each account is scheduled to be serviced before the round cutoff',
-      onmouseenter: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.22)'; },
-      onmouseleave: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; },
-      onclick: () => openLmsPendingModal(R.rounds.length - 1),
-    }, '⏳') : null,
+    // (⏳ Pending Revenue + 📸 Survivors poster ride the Comp Window bar
+    // now — per Isaac.)
 
     // headline block
     el('div', { style: { position: 'relative', zIndex: '2' } },
@@ -16372,6 +16455,18 @@ function lastManStandingBoard(windowed, winLabel, compOverride) {
     ...outSections,
     el('div', { style: { padding: '12px 16px 16px', fontFamily: DISP, fontSize: '.62rem', letterSpacing: '.1em', color: 'rgba(255,255,255,.35)', textTransform: 'uppercase' } },
       'Green = qualified revenue (passed + pending) · Competition = cumulative qualified'));
+  // ⏳ + 📸 live in the Comp Window bar (per Isaac) — light styling to
+  // match the other bar controls.
+  if (ctlHost && isAdminRole(state.profile?.role) && R.rounds.length) {
+    const barBtn = (glyph, title, onclick) => el('button', {
+      class: 'cursor-pointer transition hover:brightness-95 border rounded-full',
+      style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', background: 'var(--card)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
+      title, onclick,
+    }, glyph);
+    ctlHost.append(
+      barBtn('⏳', 'Pending revenue — split by whether each account is scheduled to be serviced before the round cutoff', () => openLmsPendingModal(R.rounds.length - 1)),
+      barBtn('📸', 'Download the survivors poster for the latest decided round (PNG — drop it straight in the group chat)', () => _lmsPosterDl && _lmsPosterDl()));
+  }
   return el('div', { class: 'card', style: { padding: '0', border: '1px solid #000', background: '#000', overflow: 'hidden' } },
     hero,
     R.rounds.length
@@ -16421,7 +16516,9 @@ function nrlaConfig(comp) {
   // Start + End dates define the season: 2-day rounds fill the window and the
   // LAST TWO become semifinal + championship. Update the two dates each year
   // and the whole season lays itself out.
-  if (typeof n.start !== 'string' || !n.start) n.start = '2026-07-06';
+  // Seed defaults only when the keys have NEVER been set — an empty string
+  // is a deliberate ↺ Reset and must stay empty (no self-heal fighting it).
+  if (typeof n.start !== 'string') n.start = '2026-07-06';
   if (typeof n.end !== 'string') n.end = '2026-07-18';
   n.seedRounds = Math.min(12, Math.max(1, Math.round(Number(n.seedRounds) || 4)));   // fallback when no end date is set
   if (!Array.isArray(n.teamOrder)) n.teamOrder = null;   // 🎲 shuffled matchup order
@@ -17665,7 +17762,75 @@ function nrlaBoard(rawSales, opts) {
         nrlaBranchClocks(R.teams, cfg, { RO, save, dark: true, style: { marginTop: '11px' } }),
       ),
       el('div', { class: 'nrla-hero-side flex flex-col items-end shrink-0' },
-        el('div', { class: 'flex items-center gap-2' },
+        // (📋 · 🏁 · ⬇ · ⓘ moved to the Comp Window bar — per Isaac)
+        // BIG last-sync timestamp — the freshness of every number on the board.
+        el('div', { style: { textAlign: 'right', marginTop: '14px' } },
+          el('div', { style: { fontFamily: DISP, fontSize: '.62rem', letterSpacing: '.24em', color: PINK, textTransform: 'uppercase' } }, 'Last Sync'),
+          el('div', { style: { fontFamily: DISP, fontSize: 'clamp(1.3rem,2.8vw,2rem)', color: '#fff', lineHeight: '1', marginTop: '2px' } }, syncStr)),
+      ),
+    ),
+  );
+
+  // (Frozen banner retired — it overlapped the fixed page header, and the
+  // header's own Last-upload stamp now covers scrolled-away freshness.)
+  if (window._nrlaStickyScroll) {
+    document.removeEventListener('scroll', window._nrlaStickyScroll, true);
+    window.removeEventListener('resize', window._nrlaStickyScroll);
+    window._nrlaStickyScroll = null;
+  }
+
+  // ── Daily report CSV — a FLAT customer list by round (per Isaac): one
+  // header row + one row per counted account, built for XLOOKUP fact-checks
+  // against the CRM. No section headers, no rollups — those live on the
+  // board itself.
+  const dailyReportCsv = () => {
+    const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const row = (...cells) => cells.map(esc).join(',');
+    const roundLabel = (i) => {
+      if (i < 0 || !R.rounds[i]) return 'Off-round';
+      const rd = R.rounds[i];
+      return rd.phase === 'seed' ? 'Round ' + (rd.num || (i + 1)) : rd.phase === 'semi' ? 'Semifinals' : 'Championship';
+    };
+    const dIso = (d) => d instanceof Date && !isNaN(d) ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') : '';
+    const wSpan = (i) => (i >= 0 && R.rounds[i]) ? dIso(R.rounds[i].d1) + ' to ' + dIso(R.rounds[i].d2) : '';
+    const L = [row('Round', 'Round Window', 'Team', 'Rep', 'Customer ID', 'Customer', 'Date Sold', 'Audit Status', 'Contract Value')];
+    (R.accounts || []).slice()
+      .sort((a, b) => (a.roundIdx - b.roundIdx) || String(a.team).localeCompare(String(b.team)) || String(a.dateSold).localeCompare(String(b.dateSold)))
+      .forEach(a => L.push(row(
+        roundLabel(a.roundIdx), wSpan(a.roundIdx), nameOf(a.team), a.rep,
+        a.customerId, a.customer, a.dateSold,
+        a.bucket === 'failed' ? 'Failed / Last Resort' : a.bucket === 'passed' ? 'Passed' : 'Pending',
+        Math.round(Number(a.revenue) || 0))));
+    return L.join('\n');
+  };
+
+  // ── Comp Window bar (standardized across comps, per Isaac): the season
+  // dates AND the board controls (📋 rosters · 🏁 archive · ⬇ export · ⓘ)
+  // all live here now — the hero and old config strip are clean.
+  const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
+  const cfgBar = null;   // retired — dates moved to the Comp Window bar below
+  const compWinBar = el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
+    lbl('Comp Window'),
+    RO
+      ? el('span', { class: 'text-[11px] font-bold tabular-nums' }, (cfg.start || '—') + ' → ' + (cfg.end || '—'))
+      : el('span', { class: 'inline-flex items-center gap-1.5 whitespace-nowrap' },
+          el('input', {
+            type: 'date', value: cfg.start || '',
+            class: 'rounded border px-1.5 py-1 text-xs',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '0' },
+            title: 'First day of Seeding Round 1 (rounds are 2-day blocks, Sundays skipped)',
+            onchange: (e) => { cfg.start = e.target.value; save('start date → ' + (e.target.value || 'unset')); },
+          }),
+          el('span', { class: 'text-muted-' }, '→'),
+          el('input', {
+            type: 'date', value: cfg.end || '',
+            class: 'rounded border px-1.5 py-1 text-xs',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '0' },
+            title: 'Last day of the Championship round — rounds auto-fill the window, last two become semifinal + championship. Update the two dates each year and the season lays itself out.',
+            onchange: (e) => { cfg.end = e.target.value; save('end date → ' + (e.target.value || 'unset')); },
+          })),
+    el('div', { class: 'ml-auto' },
+      el('div', { class: 'flex items-center gap-2' },
           RO ? null : el('button', {
             class: 'cursor-pointer transition hover:brightness-95',
             style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid rgba(255,255,255,.5)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
@@ -17723,75 +17888,25 @@ function nrlaBoard(rawSales, opts) {
               } catch (e) { toast('Report failed: ' + (e && e.message || e), 'error'); }
             },
           }, '⬇'),
+          RO ? null : el('button', {
+            class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+            style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
+            title: 'Reset the season window — both dates clear and the board goes blank until you set new ones (which then stick until the next reset). Rosters, matchups, and archives are untouched.',
+            onclick: () => {
+              if (!confirm('Reset the NRLA season window? Both dates clear and the board goes blank until you set new ones. Rosters, matchups, and archives are untouched.')) return;
+              cfg.start = '';
+              cfg.end = '';
+              save('NRLA: season window RESET (dates cleared)');
+            },
+          }, '\u21ba Reset'),
           el('button', {
             class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer',
             style: { width: '22px', height: '22px', background: PINK, color: '#fff' },
             title: 'How the league works',
             onclick: () => openNrlaHelpModal(),
-          }, 'ⓘ')),
-        // BIG last-sync timestamp — the freshness of every number on the board.
-        el('div', { style: { textAlign: 'right', marginTop: '14px' } },
-          el('div', { style: { fontFamily: DISP, fontSize: '.62rem', letterSpacing: '.24em', color: PINK, textTransform: 'uppercase' } }, 'Last Sync'),
-          el('div', { style: { fontFamily: DISP, fontSize: 'clamp(1.3rem,2.8vw,2rem)', color: '#fff', lineHeight: '1', marginTop: '2px' } }, syncStr)),
-      ),
-    ),
+          }, 'ⓘ'))),
   );
-
-  // (Frozen banner retired — it overlapped the fixed page header, and the
-  // header's own Last-upload stamp now covers scrolled-away freshness.)
-  if (window._nrlaStickyScroll) {
-    document.removeEventListener('scroll', window._nrlaStickyScroll, true);
-    window.removeEventListener('resize', window._nrlaStickyScroll);
-    window._nrlaStickyScroll = null;
-  }
-
-  // ── Daily report CSV — a FLAT customer list by round (per Isaac): one
-  // header row + one row per counted account, built for XLOOKUP fact-checks
-  // against the CRM. No section headers, no rollups — those live on the
-  // board itself.
-  const dailyReportCsv = () => {
-    const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    const row = (...cells) => cells.map(esc).join(',');
-    const roundLabel = (i) => {
-      if (i < 0 || !R.rounds[i]) return 'Off-round';
-      const rd = R.rounds[i];
-      return rd.phase === 'seed' ? 'Round ' + (rd.num || (i + 1)) : rd.phase === 'semi' ? 'Semifinals' : 'Championship';
-    };
-    const dIso = (d) => d instanceof Date && !isNaN(d) ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') : '';
-    const wSpan = (i) => (i >= 0 && R.rounds[i]) ? dIso(R.rounds[i].d1) + ' to ' + dIso(R.rounds[i].d2) : '';
-    const L = [row('Round', 'Round Window', 'Team', 'Rep', 'Customer ID', 'Customer', 'Date Sold', 'Audit Status', 'Contract Value')];
-    (R.accounts || []).slice()
-      .sort((a, b) => (a.roundIdx - b.roundIdx) || String(a.team).localeCompare(String(b.team)) || String(a.dateSold).localeCompare(String(b.dateSold)))
-      .forEach(a => L.push(row(
-        roundLabel(a.roundIdx), wSpan(a.roundIdx), nameOf(a.team), a.rep,
-        a.customerId, a.customer, a.dateSold,
-        a.bucket === 'failed' ? 'Failed / Last Resort' : a.bucket === 'passed' ? 'Passed' : 'Pending',
-        Math.round(Number(a.revenue) || 0))));
-    return L.join('\n');
-  };
-
-  // ── Config strip ──
-  const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, t);
-  const cfgBar = el('div', { class: 'px-3 py-2 flex items-center gap-2 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
-    // Start → End on ONE row at every width (was two wrapped rows on phones)
-    el('span', { class: 'inline-flex items-center gap-1.5 whitespace-nowrap' },
-      lbl('Dates'),
-      el('input', {
-        type: 'date', value: cfg.start || '',
-        class: 'rounded border px-1.5 py-1 text-xs',
-        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '0' },
-        title: 'First day of Seeding Round 1 (rounds are 2-day blocks, Sundays skipped)',
-        onchange: (e) => { cfg.start = e.target.value; save('start date → ' + (e.target.value || 'unset')); },
-      }),
-      el('span', { class: 'text-muted-' }, '→'),
-      el('input', {
-        type: 'date', value: cfg.end || '',
-        class: 'rounded border px-1.5 py-1 text-xs',
-        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '0' },
-        title: 'Last day of the Championship round — rounds auto-fill the window, last two become semifinal + championship. Update the two dates each year and the season lays itself out.',
-        onchange: (e) => { cfg.end = e.target.value; save('end date → ' + (e.target.value || 'unset')); },
-      })),
-  );
+  const _nrlaWrap = (board) => el('div', { class: 'flex flex-col gap-4' }, compWinBar, board);
 
   // ── Competing-team chips ──
   const comp = R.comp;
@@ -17821,14 +17936,14 @@ function nrlaBoard(rawSales, opts) {
 
   // ── Empty states ──
   if (!cfg.start) {
-    return el('div', { class: 'card overflow-hidden' }, hero, cfgBar,
+    return _nrlaWrap(el('div', { class: 'card overflow-hidden' }, hero,
       el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
-        'Set a season start date above to build the schedule.'));
+        'Set a season start date in the Comp Window bar to build the schedule.')));
   }
   if (R.teams.length < 2) {
-    return el('div', { class: 'card overflow-hidden' }, hero, cfgBar, chipBar,
+    return _nrlaWrap(el('div', { class: 'card overflow-hidden' }, hero, chipBar,
       el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
-        'Fewer than two teams have data (or rosters) in the season window — nothing to schedule yet.'));
+        'Fewer than two teams have data (or rosters) in the season window — nothing to schedule yet.')));
   }
 
   // ── Seeding standings — revenue columns scoped to the SEASON or any single
@@ -18501,9 +18616,9 @@ function nrlaBoard(rawSales, opts) {
   const footer = el('div', { class: 'px-3 py-2 text-center text-[10px] font-bold uppercase tracking-widest', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } },
     'Updates will be sent daily · RIDDMADE');
 
-  return el('div', { class: 'card overflow-hidden' }, hero,
-    RO ? null : cfgBar, RO ? null : chipBar,
-    standingsCard, repBoard, prizeStrip, prizeCard, roundsGrid, footer);
+  return _nrlaWrap(el('div', { class: 'card overflow-hidden' }, hero,
+    RO ? null : chipBar,
+    standingsCard, repBoard, prizeStrip, prizeCard, roundsGrid, footer));
 }
 
 // ── COMPETITIONS tab — every comp under one roof ────────────────────────────
@@ -19091,6 +19206,244 @@ function _mbArmWithPrizeChooser(repName, profileId) {
       }, 'Arm box'))));
   document.body.append(overlay);
 }
+// ── \ud83d\udc51 KING OF THE HILL ─────────────────────────────────────────
+// The rep with the single BIGGEST revenue day of the season, per class
+// (Veterans / Rookies). Counting rules (per Isaac + the poster):
+//   · Pending/Serviced base (frPendingServiced — the canonical gate)
+//   · PASSED audit or NO AUDIT flag only — pending-audit accounts wait
+//   · Failed audit and Last Resort (<$99 initial) never count
+//   · Season locks August 22 — later days don\u2019t compete
+// Theme: the red KOTH poster (condensed white type on red).
+const KOTH_LOCK_ISO = '2026-08-22';
+const KOTH_PRIZE_LABEL = '2,000,000 RIDDCOIN';
+// ── \ud83d\udc0d KOBE WEEK — beat your own best week (Aug 3\u20138) ──────────
+// Personal-record comp: every rep\u2019s baseline is their BEST Sun\u2013Sat week
+// of the season BEFORE the comp window. Beat it inside Aug 3\u20138 and Kobe
+// Week is earned. No money, no RIDDCOIN \u2014 a framed custom "24" jersey,
+// signed live at the gala. Revenue basis: canonical Pending/Serviced,
+// D2D only (same as the leaderboard). The pacer splits what\u2019s left to
+// beat across the remaining comp days.
+const KOBE_FROM = '2026-08-03';
+const KOBE_TO   = '2026-08-08';
+function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO) {
+  const weekKeyOf = (iso) => {
+    const d = new Date(iso + 'T00:00');
+    if (isNaN(d)) return null;
+    d.setDate(d.getDate() - d.getDay());          // Sunday start (company weeks)
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  };
+  const base = new Map();    // rep -> { wk: rev } (weeks BEFORE the window)
+  const cur = new Map();     // rep -> { total, byDay: {} } (inside the window)
+  for (const s of (raw || [])) {
+    if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
+    if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;
+    const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
+    if (!iso) continue;
+    const nm = getCanonicalRepName(s.rep);
+    if (!nm) continue;
+    const cv = Number(s.contractValue) || 0;
+    if (iso >= KOBE_FROM && iso <= KOBE_TO) {
+      const c = cur.get(nm) || { total: 0, byDay: {} };
+      c.total += cv; c.byDay[iso] = (c.byDay[iso] || 0) + cv;
+      cur.set(nm, c);
+    } else if (iso < KOBE_FROM) {
+      const wk = weekKeyOf(iso);
+      if (!wk) continue;
+      const b = base.get(nm) || {};
+      b[wk] = (b[wk] || 0) + cv;
+      base.set(nm, b);
+    }
+  }
+  const reps = [];
+  const names = new Set([...base.keys(), ...cur.keys()]);
+  names.forEach(nm => {
+    const weeks = base.get(nm) || {};
+    let bestWk = null, bestRev = 0;
+    Object.entries(weeks).forEach(([wk, rev]) => { if (rev > bestRev) { bestRev = rev; bestWk = wk; } });
+    if (bestRev <= 0) return;                      // no baseline = nothing to beat
+    const c = cur.get(nm) || { total: 0, byDay: {} };
+    reps.push({ name: nm, bestWk, bestRev, cur: c.total, byDay: c.byDay, earned: c.total > bestRev });
+  });
+  return reps;
+}
+function kobeWeekSection(raw, KOBE_FROM, KOBE_TO) {
+  const reps = kobeWeekCompute(raw, KOBE_FROM, KOBE_TO);
+  const BLACK = '#111111', MAMBA = '#E0402A';
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const daysLeft = (() => {
+    if (todayIso > KOBE_TO) return 0;
+    const start = todayIso > KOBE_FROM ? todayIso : KOBE_FROM;
+    return Math.max(1, Math.round((Date.parse(KOBE_TO) - Date.parse(start)) / 86400000) + 1);
+  })();
+  const live = todayIso >= KOBE_FROM && todayIso <= KOBE_TO;
+  const over = todayIso > KOBE_TO;
+  const wkLbl = (wk) => { const d = new Date(wk + 'T00:00'); return isNaN(d) ? wk : 'wk of ' + (d.getMonth() + 1) + '/' + d.getDate(); };
+  const _sigK = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const meSig = _sigK(state.profile && state.profile.full_name);
+  const mine = reps.find(r => _sigK(r.name) === meSig) || null;
+  // Board shows ACTIVE FieldRoutes reps only (Manage-Teams active flag,
+  // synced from the CRM), alphabetical — per Isaac.
+  const board = reps.filter(r => (typeof isRepActive !== 'function') || isRepActive(r.name));
+  const sorted = board.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const earnedN = board.filter(r => r.earned).length;
+  const nodes = [];
+  // ── Poster masthead ──
+  nodes.push(el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-6', style: { background: BLACK, color: '#fff' } },
+      el('div', { class: 'flex items-start justify-between gap-4 flex-wrap' },
+        el('div', {},
+          el('div', { class: 'font-display leading-none', style: { fontSize: '40px', letterSpacing: '.01em' } }, 'KOBE WEEK'),
+          el('div', { class: 'text-xs font-bold mt-1', style: { color: MAMBA, letterSpacing: '.14em' } }, 'AUGUST 3\u20138'),
+          el('div', { style: { width: '64px', height: '3px', background: MAMBA, marginTop: '6px' } })),
+        el('div', { class: 'text-right' },
+          el('div', { class: 'font-display text-2xl leading-none', style: { color: MAMBA } }, earnedN || '0'),
+          el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.7' } }, 'earned kobe week'))),
+      el('div', { class: 'text-[11px] font-bold mt-3', style: { opacity: '.85' } },
+        'Beat your best week of the summer \u00b7 Reward: a custom framed \u201c24\u201d jersey with your name, signed live at the gala'))));
+  // ── Personal pacer hero (signed-in rep) ──
+  if (mine) {
+    const remaining = Math.max(0, mine.bestRev - mine.cur);
+    const perDay = (remaining > 0 && daysLeft > 0) ? remaining / daysLeft : 0;
+    const pct = mine.bestRev > 0 ? Math.min(100, mine.cur / mine.bestRev * 100) : 0;
+    nodes.push(el('div', { class: 'card p-5', style: { borderLeft: '3px solid ' + MAMBA } },
+      el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
+        el('div', {},
+          el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', color: 'var(--text-muted)' } }, 'Your Kobe Week'),
+          el('div', { class: 'font-display text-2xl leading-none mt-1' },
+            mine.earned ? 'YOU DID SOMETHING MEMORABLE.' : over ? 'The week is done.' : live ? 'BEAT ' + fmt.usd0(mine.bestRev) : 'Your target: ' + fmt.usd0(mine.bestRev)),
+          el('div', { class: 'text-xs text-muted- mt-1' },
+            'Best week of your summer: ' + fmt.usd0(mine.bestRev) + ' (' + wkLbl(mine.bestWk) + ') \u00b7 this week so far: ' + fmt.usd0(mine.cur))),
+        el('div', { class: 'text-right' },
+          mine.earned
+            ? el('div', { class: 'text-sm font-black px-3 py-1.5 rounded-lg', style: { background: MAMBA, color: '#fff' } }, '\ud83d\udc0d KOBE WEEK EARNED')
+            : (live && perDay > 0)
+              ? el('div', {},
+                  el('div', { class: 'font-display text-3xl leading-none tabular-nums', style: { color: MAMBA } }, fmt.usd0(perDay) + '/day'),
+                  el('div', { class: 'text-[10px] font-bold uppercase mt-0.5', style: { letterSpacing: '.12em', color: 'var(--text-muted)' } },
+                    'for the next ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' \u00b7 ' + fmt.usd0(remaining) + ' to go'))
+              : el('div', { class: 'text-xs text-muted- font-bold' }, live ? '' : 'Starts ' + new Date(KOBE_FROM + 'T00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })))),
+      el('div', { class: 'mt-3', style: { height: '7px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
+        el('div', { style: { width: pct.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: mine.earned ? '#8DC63F' : MAMBA } }))));
+  }
+  // ── Everyone: chase board ──
+  nodes.push(el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-2.5 flex items-center justify-between gap-2 flex-wrap', style: { background: BLACK, color: '#fff' } },
+      el('div', { class: 'font-black uppercase tracking-widest text-sm' }, 'The Chase'),
+      el('div', { class: 'flex items-center gap-2' },
+        // In-place filter (show/hide rows) so typing never rebuilds the page.
+        el('input', {
+          type: 'text', placeholder: 'Search rep\u2026', value: state._kobeSearch || '',
+          class: 'rounded-lg px-2.5 py-1.5 text-xs font-semibold',
+          style: { background: 'rgba(255,255,255,.12)', color: '#fff', border: '1px solid rgba(255,255,255,.25)', width: '160px' },
+          oninput: (e) => {
+            state._kobeSearch = e.target.value;
+            const q = e.target.value.trim().toLowerCase();
+            document.querySelectorAll('[data-kobe]').forEach(row => {
+              row.style.display = (!q || (row.getAttribute('data-kobe') || '').includes(q)) ? '' : 'none';
+            });
+          },
+        }),
+        el('div', { class: 'text-[10px] font-bold tabular-nums whitespace-nowrap', style: { opacity: '.6' } },
+          over ? 'Final' : live ? daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' left' : ''))),
+    el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+      el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+        el('th', { class: 'px-3 py-2' }, 'Rep'),
+        el('th', { class: 'px-3 py-2 text-right' }, 'Best Week'),
+        el('th', { class: 'px-3 py-2 text-right' }, 'This Week'),
+        el('th', { class: 'px-3 py-2 text-right hidden sm:table-cell' }, 'To Beat'),
+        el('th', { class: 'px-3 py-2 text-right hidden sm:table-cell', title: 'What\u2019s left \u00f7 remaining comp days' }, 'Pace/Day'),
+        el('th', { class: 'px-3 py-2', style: { minWidth: '150px' } }, 'Progress'))),
+      el('tbody', {}, ...sorted.map(r => {
+        const remaining = Math.max(0, r.bestRev - r.cur);
+        const perDay = (remaining > 0 && daysLeft > 0) ? remaining / daysLeft : 0;
+        const pct = Math.min(100, r.cur / r.bestRev * 100);
+        const _q = String(state._kobeSearch || '').trim().toLowerCase();
+        return el('tr', {
+          class: 'border-t', 'data-kobe': r.name.toLowerCase(),
+          style: { borderColor: 'var(--border)', background: r.earned ? 'rgba(224,64,42,.07)' : '',
+            ...((_q && !r.name.toLowerCase().includes(_q)) ? { display: 'none' } : {}) },
+        },
+          el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.name,
+            r.earned ? el('span', { class: 'text-[10px] font-black px-1.5 py-0.5 rounded ml-2', style: { background: MAMBA, color: '#fff' } }, '\ud83d\udc0d EARNED') : null),
+          el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(r.bestRev),
+            el('div', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, wkLbl(r.bestWk))),
+          el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, fmt.usd0(r.cur)),
+          el('td', { class: 'px-3 py-2 text-right tabular-nums hidden sm:table-cell', style: remaining ? {} : { color: '#5F8A1F', fontWeight: '700' } }, remaining ? fmt.usd0(remaining) : '\u2713'),
+          el('td', { class: 'px-3 py-2 text-right tabular-nums hidden sm:table-cell', style: { color: perDay ? MAMBA : 'var(--text-subtle)', fontWeight: perDay ? '700' : '400' } }, perDay ? fmt.usd0(perDay) : '\u2014'),
+          el('td', { class: 'px-3 py-2' },
+            el('div', { class: 'flex items-center gap-1.5' },
+              el('div', { style: { flex: '1', minWidth: '34px', height: '5px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
+                el('div', { style: { width: pct.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: r.earned ? '#8DC63F' : MAMBA } })),
+              el('span', { class: 'text-[11px] tabular-nums font-bold whitespace-nowrap', style: { color: r.earned ? '#5F8A1F' : 'var(--text-muted)' } }, pct.toFixed(0) + '%'))));
+      }))))));
+  return el('div', { class: 'flex flex-col gap-4' }, ...nodes);
+}
+
+function kothDays(raw) {
+  const byKey = new Map();
+  for (const s of (raw || [])) {
+    if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
+    const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
+    if (!iso || iso > KOTH_LOCK_ISO) continue;
+    if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;
+    if ((Number(s.initialPrice) || 0) < 99) continue;                          // Last Resort — out
+    const fl = s.customerFlags || '';
+    if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(fl)) continue;    // failed audit — out
+    if (typeof scAuditPassed === 'function' && !scAuditPassed(fl)) continue;   // pending audit — waits
+    const nm = getCanonicalRepName(s.rep);
+    if (!nm) continue;
+    const k = nm + '|' + iso;
+    const o = byKey.get(k) || { name: nm, day: iso, rev: 0, n: 0 };
+    o.rev += Number(s.contractValue) || 0; o.n++;
+    byKey.set(k, o);
+  }
+  const days = [...byKey.values()];
+  days.forEach(d => { d.tier = (getRepTier(d.name) === 'rookie') ? 'rookie' : 'vet'; });
+  return days;
+}
+function kothSection(raw) {
+  const days = kothDays(raw);
+  const fmtDay = (iso) => { const d = new Date(iso + 'T00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }); };
+  const RED1 = '#D3524F', RED2 = '#B03432';
+  const classCard = (tk) => {
+    const list = days.filter(d => d.tier === tk).sort((a, b) => b.rev - a.rev);
+    const king = list[0] || null;
+    const rest = list.slice(1, 11);   // top 10 next-closest days — same rep can hold several
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-5 py-6 text-center', style: { background: 'linear-gradient(165deg,' + RED1 + ' 0%,' + RED2 + ' 100%)', color: '#fff' } },
+        el('div', { class: 'text-[9px] font-black', style: { letterSpacing: '.3em', opacity: '.85' } }, 'RIDDMADE\u00ae \u00b7 ' + (tk === 'rookie' ? 'ROOKIES' : 'VETERANS')),
+        el('div', { class: 'font-display leading-none mt-1', style: { fontSize: '34px', letterSpacing: '.02em' } }, 'KING OF THE HILL'),
+        el('div', { class: 'text-[10px] font-bold uppercase mt-1.5', style: { letterSpacing: '.12em', opacity: '.9' } },
+          'The ' + (tk === 'rookie' ? 'rookie' : 'vet') + ' with the biggest day this summer'),
+        king
+          ? el('div', { class: 'mt-4' },
+              el('div', { class: 'font-display text-3xl leading-none mt-1' }, king.name),
+              el('div', { class: 'font-black tabular-nums text-2xl mt-1' }, fmt.usd0(king.rev)),
+              el('div', { class: 'text-[11px] font-bold uppercase tracking-wide mt-0.5', style: { opacity: '.85' } },
+                fmtDay(king.day) + ' \u00b7 ' + king.n + ' account' + (king.n === 1 ? '' : 's')))
+          : el('div', { class: 'mt-4 text-sm font-bold', style: { opacity: '.85' } }, 'The hill is empty \u2014 no qualifying days yet.'),
+        el('div', { class: 'text-[9px] font-bold uppercase mt-4', style: { letterSpacing: '.14em', opacity: '.75' } },
+          'Lock date: August 22 \u00b7 Passed audit accounts only \u00b7 Last Resort (<$99) never counts \u00b7 Prize: ' + KOTH_PRIZE_LABEL)),
+      rest.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+        el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+          el('th', { class: 'px-4 py-2' }, '#'),
+          el('th', { class: 'px-4 py-2' }, 'Rep'),
+          el('th', { class: 'px-4 py-2' }, 'Day'),
+          el('th', { class: 'px-4 py-2 text-right' }, 'Accts'),
+          el('th', { class: 'px-4 py-2 text-right' }, 'Revenue'),
+          el('th', { class: 'px-4 py-2 text-right', title: 'How far this day is from the crown' }, 'To The Crown'))),
+        el('tbody', {}, ...rest.map((d, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, '#' + (i + 2)),
+          el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, d.name),
+          el('td', { class: 'px-4 py-2 whitespace-nowrap text-muted- tabular-nums' }, d.day),
+          el('td', { class: 'px-4 py-2 text-right tabular-nums' }, String(d.n)),
+          el('td', { class: 'px-4 py-2 text-right tabular-nums font-bold' }, fmt.usd0(d.rev)),
+          el('td', { class: 'px-4 py-2 text-right tabular-nums', style: { color: RED2, fontWeight: '700' } }, king ? fmt.usd0(Math.max(0, king.rev - d.rev)) : '\u2014'))))))
+        : el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No chasers on this hill yet.'));
+  };
+  return el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, classCard('vet'), classCard('rookie'));
+}
+
 function mysteryBoxSection(isAdmin) {
   loadMysteryBoxes();
   const boxes = state._mysteryBoxes || [];
@@ -19202,6 +19555,37 @@ function mysteryBoxSection(isAdmin) {
     // the black bar now. Stash the pieces the bar needs.
     _mbHdr = { qR, qV, prizeEditor };
   }
+  // Standardized Comp Window bar (per Isaac): the window dates live up top
+  // like every other comp, with the \ud835\udd7d on the far right and \u25b6 Spin next to it.
+  nodes.push((() => {
+    const dIn = (val, onCommit) => el('input', {
+      type: 'date', value: val,
+      class: 'rounded border px-1.5 py-1 text-xs',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { if (e.target.value) { onCommit(e.target.value); mountApp(); } },
+    });
+    return el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
+      dIn(mbFrom, (v) => { state._mbDateFrom = v; if (!state._mbDateTo || state._mbDateTo < v) state._mbDateTo = v; }),
+      el('span', { class: 'text-muted-' }, '\u2192'),
+      dIn(mbTo, (v) => { state._mbDateTo = v; if (state._mbDateFrom && state._mbDateFrom > v) state._mbDateFrom = v; }),
+      el('div', { class: 'ml-auto flex items-center gap-2.5' },
+        isAdmin ? el('button', {
+          class: 'text-[11px] font-bold px-3 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          title: 'Run a spin \u2014 rolls a prize from the incentive list by its percentages',
+          onclick: () => {
+            const rolled = _mbRollPrize();
+            if (!rolled) { toast('Add incentives first \u2014 click the \ud835\udd7d', 'warn'); return; }
+            openMysteryBoxOverlay({ id: '__spin__', prize: _mbEnc(rolled) });
+          },
+        }, '\u25b6 Spin') : null,
+        el('div', {
+          style: { fontSize: '26px', lineHeight: '1', fontFamily: "'Old English Text MT',serif", cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none', color: 'var(--text)' },
+          title: isAdmin ? 'Incentive list' : '',
+          onclick: isAdmin ? (() => { state._mbPrizeOpen = !state._mbPrizeOpen; mountApp(); }) : undefined,
+        }, '\ud835\udd7d')));
+  })());
   nodes.push(el('div', { class: 'card overflow-hidden' },
     // Black requirement bar — the poster look, with the date picker in it.
     el('div', { class: 'px-4 py-2.5', style: { background: 'var(--text)', color: 'var(--bg)' } },
@@ -19213,24 +19597,10 @@ function mysteryBoxSection(isAdmin) {
         el('div', { class: 'flex-1 min-w-0 order-1 flex flex-col justify-between gap-2' },
           el('div', {},
             el('div', { class: 'text-[9px] font-black', style: { letterSpacing: '.25em', opacity: '.85' } }, 'RIDDMADE\u00ae'),
-            el('div', { class: 'font-display text-3xl leading-none' }, 'MYSTERY BOX')),
-          (() => {
-            const dateIn = (val, onCommit) => el('input', {
-              type: 'date', value: val,
-              class: 'rounded px-1.5 py-1 text-[11px] font-bold cursor-pointer',
-              style: { background: 'rgba(255,255,255,.12)', color: 'var(--bg)', border: '1px solid rgba(255,255,255,.25)', colorScheme: 'dark', width: '112px' },
-              // Custom-styled date inputs hide the native picker icon \u2014 open
-              // it explicitly so a tap anywhere on the field works.
-              onclick: (e) => { try { e.currentTarget.showPicker(); } catch (err) { /* older browsers fall back to typing */ } },
-              onchange: (e) => { if (e.target.value) { onCommit(e.target.value); mountApp(); } },
-            });
-            return el('div', {},
-              el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.55', marginBottom: '3px' } }, 'Competition window'),
-              el('div', { class: 'flex items-center gap-1' },
-                dateIn(mbFrom, (v) => { state._mbDateFrom = v; if (!state._mbDateTo || state._mbDateTo < v) state._mbDateTo = v; }),
-                el('span', { class: 'text-[11px] font-bold', style: { opacity: '.6' } }, 'to'),
-                dateIn(mbTo, (v) => { state._mbDateTo = v; if (state._mbDateFrom && state._mbDateFrom > v) state._mbDateFrom = v; })));
-          })()),
+            el('div', { class: 'font-display text-3xl leading-none' }, 'MYSTERY BOX'),
+            _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums mt-1', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : null),
+          // (window dates moved to the Comp Window bar above \u2014 per Isaac)
+          null),
         el('div', { class: 'text-center w-full sm:w-auto order-3 sm:order-2 flex flex-col items-center justify-center py-0.5' },
           el('div', { class: 'font-display text-2xl leading-none' }, qualified.length + ' BOX' + (qualified.length === 1 ? '' : 'ES') + ' EARNED'),
           el('div', { class: 'text-[11px] font-bold uppercase tracking-wide mt-0.5', style: { opacity: '.7' } }, dLbl),
@@ -19239,34 +19609,18 @@ function mysteryBoxSection(isAdmin) {
             el('span', { style: { opacity: '.5' } }, ' \u00b7 '),
             el('span', { style: { color: '#F87171' } }, _mbHdr.qR.length + ' rookie' + (_mbHdr.qR.length === 1 ? '' : 's')),
             qualified.length ? el('span', { class: 'tabular-nums', style: { opacity: '.6' } }, ' \u00b7 ' + fmt.usd0(qualified.reduce((a2, r) => a2 + r.rev, 0)) + ' sold') : null) : null,
-          isAdmin ? el('button', {
-            class: 'text-[11px] font-bold px-3 py-1 rounded-lg border mt-1.5',
-            style: { borderColor: 'rgba(255,255,255,.35)', color: 'var(--bg)', background: 'rgba(255,255,255,.08)' },
-            title: 'Run a spin \u2014 rolls a prize from the incentive list by its percentages',
-            onclick: () => {
-              const rolled = _mbRollPrize();
-              if (!rolled) { toast('Add incentives first \u2014 click the \ud835\udd7d', 'warn'); return; }
-              openMysteryBoxOverlay({ id: '__spin__', prize: _mbEnc(rolled) });
-            },
-          }, '\u25b6 Spin') : null,
           (isAdmin && qualified.length) ? el('button', {
             class: 'text-[11px] font-bold px-3 py-1 rounded-lg border mt-1.5',
             style: { borderColor: 'rgba(141,198,63,.5)', color: '#8DC63F', background: 'rgba(141,198,63,.08)' },
             title: 'Grant every qualified rep RIDDCOIN for this window \u2014 one ledger row each, reason auto-filled',
             onclick: () => _mbPayWinners(qualified, { from: mbFrom, to: mbTo }),
           }, '\ud83e\ude99 Pay winners') : null),
-        el('div', { class: 'flex-1 min-w-0 order-2 sm:order-3 flex flex-col items-end justify-between gap-2' },
-          _mbSyncStr ? el('div', { class: 'text-[10px] font-bold tabular-nums', style: { opacity: '.55' } }, 'Last sync ' + _mbSyncStr) : el('div'),
+        el('div', { class: 'flex-1 min-w-0 order-2 sm:order-3 flex flex-col items-end justify-end gap-1.5' },
+          // (Last sync moved under the MYSTERY BOX title — per Isaac)
           el('div', { class: 'flex items-center justify-end gap-2.5' },
             el('div', { class: 'text-right' },
-              el('div', { class: 'text-[8px] font-black uppercase', style: { letterSpacing: '.14em', opacity: '.55', marginBottom: '3px' } }, 'Requirements \u00b7 sold rev, passed audit'),
               el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end' }, 'Rookie: ', isAdmin ? goalIn('rookie', goals.rookie) : fmt.usd0(goals.rookie)),
-              el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet))),
-            el('div', {
-              style: { fontSize: '32px', lineHeight: '1', fontFamily: "'Old English Text MT',serif", cursor: isAdmin ? 'pointer' : 'default', userSelect: 'none' },
-              title: isAdmin ? 'Incentive list' : '',
-              onclick: isAdmin ? (() => { state._mbPrizeOpen = !state._mbPrizeOpen; mountApp(); }) : undefined,
-            }, '\ud835\udd7d'))))),
+              el('div', { class: 'text-xs font-bold flex items-center gap-1.5 justify-end mt-1' }, 'Veteran: ', isAdmin ? goalIn('vet', goals.vet) : fmt.usd0(goals.vet))))))),
     // Incentive editor (admin, toggled by the \ud835\udd7d) \u2014 sits under the
     // black bar inside the same card now that the white masthead is gone.
     (_mbHdr && _mbHdr.prizeEditor) ? el('div', { class: 'px-4 pb-4' }, _mbHdr.prizeEditor) : null,
@@ -19303,8 +19657,8 @@ function mysteryBoxSection(isAdmin) {
         onclick: () => openMbRepModal(r, { from: mbFrom, to: mbTo }),
       },
         el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.name),
-        el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted- hidden sm:table-cell' },
-          String(r.office || '\u2014').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())),
+        // (Office column dropped so the To Go pacer fits — per Isaac; the
+        // office still shows in the rep drill-down modal.)
         el('td', { class: 'px-3 py-2 tabular-nums hidden sm:table-cell' }, String(r.n)),
         el('td', { class: 'px-3 py-2 tabular-nums text-muted- hidden sm:table-cell' }, fmt.usd0(r.total)),
         el('td', { class: 'px-3 py-2 tabular-nums font-bold' }, fmt.usd0(r.rev)),
@@ -19312,9 +19666,9 @@ function mysteryBoxSection(isAdmin) {
         el('td', { class: 'px-3 py-2 tabular-nums hidden sm:table-cell', style: { color: r.failed ? '#DC2626' : 'var(--text-subtle)' } }, r.failed ? fmt.usd0(r.failed) : '\u2014'),
         isQ
           ? el('td', { class: 'px-3 py-2' })
-          : el('td', { class: 'px-3 py-2 whitespace-nowrap', style: { minWidth: '130px' } },
-              el('div', { class: 'flex items-center gap-2' },
-                el('div', { style: { flex: '1', minWidth: '44px', height: '5px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
+          : el('td', { class: 'px-3 py-2 whitespace-nowrap', style: { minWidth: '160px' } },
+              el('div', { class: 'flex items-center gap-1.5' },
+                el('div', { style: { flex: '1', minWidth: '34px', height: '5px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
                   el('div', { style: { width: pctTo.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: pctTo >= 75 ? '#8DC63F' : pctTo >= 40 ? '#D97706' : 'var(--border-2)' } })),
                 el('span', { class: 'text-[11px] tabular-nums font-bold whitespace-nowrap', style: { color: pctTo >= 75 ? '#5F8A1F' : 'var(--text-muted)' } },
                   fmt.usd0(Math.max(0, r.goal - r.rev)) + ' to go'))));
@@ -19325,7 +19679,7 @@ function mysteryBoxSection(isAdmin) {
         el('div', { class: 'text-xs font-bold tabular-nums px-2 py-0.5 rounded', style: { background: qual2.length ? '#8DC63F' : 'rgba(255,255,255,.15)', color: qual2.length ? '#1D1D1D' : 'var(--bg)' } }, qual2.length + ' earned')),
       (qual2.length || chase.length) ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-          ...[['name', 'Rep'], ['office', 'Office', 'Where they sold the most revenue in this window'], ['n', 'Accts', 'Accounts counting toward the box (passed audit / no audit)'], ['total', 'Total', 'Pending/Serviced revenue (the FieldRoutes gate) \u2014 Passed + Pending + Failed'], ['rev', 'Passed', 'Passed audit or no audit, $99+ initial \u2014 the only revenue that counts toward the box'], ['pending', 'Pending', 'No audit flag yet (not Last Resort) \u2014 moves to Passed or Failed as audits land'], ['failed', 'Failed', 'Failed audit + Last Resort (<$99) \u2014 does not count'], ['progress', 'To Go', 'Sort by % of goal']].map(([k, h, tip]) => {
+          ...[['name', 'Rep'], ['n', 'Passed Accts', 'Accounts counting toward the box (passed audit / no audit)'], ['total', 'Total', 'Pending/Serviced revenue (the FieldRoutes gate) \u2014 Passed + Pending + Failed'], ['rev', 'Passed', 'Passed audit or no audit, $99+ initial \u2014 the only revenue that counts toward the box'], ['pending', 'Pending', 'No audit flag yet (not Last Resort) \u2014 moves to Passed or Failed as audits land'], ['failed', 'Failed', 'Failed audit + Last Resort (<$99) \u2014 does not count'], ['progress', 'To Go', 'Sort by % of goal']].map(([k, h, tip]) => {
             const _mobileHide = (k === 'office' || k === 'n' || k === 'total' || k === 'pending' || k === 'failed') ? ' hidden sm:table-cell' : '';
             const _srt = state._mbSort || null;
             const active = _srt && _srt.key === k;
@@ -19354,6 +19708,221 @@ function mysteryBoxSection(isAdmin) {
   return nodes.length ? el('div', { class: 'flex flex-col gap-4' }, ...nodes) : null;
 }
 
+// ═══ 🏆 RIDD INSIDE SALES LEAGUE (Office Staff) — per Isaac ═════════════
+// Soccer-style promotion/relegation league in rotating 2-WEEK rounds,
+// ranked on revenue. Straight off the FieldRoutes sync (Office Staff rows).
+// COUNTING RULES (same P/S basis as the sales-rep comps):
+//   · Pending/Serviced gate (frPendingServiced) — pre-service cancels are out
+//   · AutoPay must be ON
+//   · An agreement must be on file (12/18/24-Mo contract length). The CRM
+//     mirror does NOT carry e-signature status; if a contractSigned field
+//     ever lands in the sync, it takes over automatically.
+//   · Failed-audit revenue is broken out and DEDUCTED (Passed Revenue =
+//     FR Revenue + Upsells − Failed)
+// Divisions of 3 (PREMIER LEAGUE, then PRIORITY 1, 2, …). Each rotation:
+// bottom of a division relegates ▼, top of the division below promotes ▲.
+function islQualifies(s) {
+  if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'office') return false;
+  if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) return false;
+  if (!(s.autoPay && s.autoPay !== 'No')) return false;                     // AutoPay required
+  if (s.contractSigned !== undefined) return !!s.contractSigned;            // future-proof: real signed flag wins
+  return Number(s.contract) > 1;                                            // agreement on file (not One-Time)
+}
+function openIslHelpModal() {
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const block = (t, b) => el('div', { class: 'mb-4' },
+    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: '#1D1D1D' } }, t),
+    el('div', { class: 'text-[13px] leading-relaxed', style: { color: 'var(--text-muted)' } }, b));
+  overlay.append(el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+    el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: '#1F3B8B' } },
+      el('div', {},
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-black', style: { color: '#F6C915', letterSpacing: '.35em' } }, 'BELIEVE'),
+        el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#fff', textTransform: 'uppercase' } }, 'RIDD Inside Sales League')),
+      el('button', { class: 'text-2xl leading-none cursor-pointer', style: { color: '#fff' }, onclick: close }, '\u00d7')),
+    el('div', { class: 'overflow-auto px-5 py-4' },
+      block('\u26bd The format', 'Football is life \u2014 and so is inside sales. Divisions of 3: Premier League on top, then Priority 1, Priority 2, \u2026 competing in rotating 2-week rounds ranked by Passed Revenue.'),
+      block('\ud83d\udd03 Promotion & relegation', 'When a round ends and the rotation is applied, the BOTTOM rep of each division drops a division (\u25bc) and the TOP rep of the division below moves up (\u25b2).'),
+      block('\ud83d\udcb0 What counts', 'Pending/Serviced accounts only (the same gate every sales-rep comp uses \u2014 pre-service cancels never count), sold by Office Staff, with AutoPay ON and an agreement on file (12/18/24-month contract; one-time jobs are out).'),
+      block('\ud83e\uddfe The columns', 'FR Revenue = CRM-synced subscription revenue. Upsells = upsell-source revenue. Failed = failed-audit revenue, which is DEDUCTED. Passed Revenue = FR + Upsells \u2212 Failed \u2014 that\u2019s the ranking number.'))));
+  document.body.append(overlay);
+}
+function islSection(raw, cfg, isAdmin) {
+  const wrap = el('div', { class: 'flex flex-col gap-4' });
+  const save = (detail) => {
+    logActivity('comp_change', { detail: 'Inside Sales League: ' + detail });
+    saveDemoData();
+    if (typeof saveIndicatorState === 'function') saveIndicatorState();
+    mountApp();
+  };
+  const ROUND_DAYS = 14;
+  const DIV_SIZE = 3;
+  // ── Comp Window bar ──
+  const bar = el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
+    isAdmin ? el('input', {
+      type: 'date', value: cfg.start || '',
+      class: 'rounded border px-1.5 py-1 text-xs',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      title: 'Season start — 2-week rounds roll automatically from this date',
+      onchange: (e) => { cfg.start = e.target.value; state._islRoundSel = null; save('season start \u2192 ' + (e.target.value || 'unset')); },
+    }) : el('span', { class: 'text-[11px] font-bold tabular-nums' }, cfg.start || '\u2014'),
+    el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '\u00b7 2-week rounds roll from the season start'));
+  wrap.append(bar);
+  if (!cfg.start) {
+    bar.append(el('div', { class: 'ml-auto' }));
+    wrap.append(el('div', { class: 'card p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
+      isAdmin ? 'Set the season start date in the Comp Window bar to open the league.' : 'The league opens once an admin sets the season start date.'));
+    return wrap;
+  }
+  const startMs = Date.parse(cfg.start + 'T00:00');
+  const dayMs = 86400000;
+  const curIdx = Math.max(0, Math.floor((Date.now() - startMs) / dayMs / ROUND_DAYS));
+  const selIdx = (state._islRoundSel == null || state._islRoundSel < 0) ? curIdx : Math.min(state._islRoundSel, curIdx);
+  const rS = new Date(startMs + selIdx * ROUND_DAYS * dayMs);
+  const rE = new Date(rS.getTime() + (ROUND_DAYS - 1) * dayMs);
+  const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const mmdd = (d) => (d.getMonth() + 1) + '/' + d.getDate();
+  const roundOver = Date.now() > rE.getTime() + dayMs;
+  // ── Per-rep tallies for the selected round ──
+  const tally = new Map();
+  const seasonNames = new Set();
+  for (const s of (raw || [])) {
+    if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'office') continue;
+    const dIso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
+    if (!dIso || dIso < cfg.start) continue;
+    const nm = getCanonicalRepName(s.rep);
+    if (!nm) continue;
+    if (typeof frPendingServiced === 'function' && frPendingServiced(s)) seasonNames.add(nm);
+    if (dIso < iso(rS) || dIso > iso(rE)) continue;
+    if (!islQualifies(s)) continue;
+    const t = tally.get(nm) || { fr: 0, up: 0, fail: 0 };
+    const cv = Number(s.contractValue) || 0;
+    const isUp = (typeof reportingSourceClass === 'function') && reportingSourceClass(s.source) === 'upsell';
+    if (isUp) t.up += cv; else t.fr += cv;
+    if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || '')) t.fail += cv;
+    tally.set(nm, t);
+  }
+  const passedOf = (nm) => { const t = tally.get(nm) || { fr: 0, up: 0, fail: 0 }; return t.fr + t.up - t.fail; };
+  // ── Division membership: stored (rotations applied) or seeded from the
+  //    season's sellers ranked by this round's Passed Revenue. New sellers
+  //    join the bottom division automatically. ──
+  let divs = Array.isArray(cfg.divs) && cfg.divs.length ? cfg.divs.map(d => d.slice()) : null;
+  const roster = [...seasonNames];
+  if (!divs) {
+    const ranked = roster.slice().sort((a, b) => passedOf(b) - passedOf(a));
+    divs = [];
+    for (let i = 0; i < ranked.length; i += DIV_SIZE) divs.push(ranked.slice(i, i + DIV_SIZE));
+  } else {
+    const placed = new Set(divs.flat());
+    const newcomers = roster.filter(n => !placed.has(n));
+    if (newcomers.length) {
+      const last = divs[divs.length - 1];
+      newcomers.forEach(n => { if (last.length < DIV_SIZE) last.push(n); else divs.push([n]); });
+    }
+  }
+  // ── Bar controls: round picker + rotation + reset + \u24d8 ──
+  const ctl = el('div', { class: 'ml-auto flex items-center gap-2' });
+  const nav = (d, glyph) => el('button', {
+    class: 'rounded-lg px-2 py-1 text-[11px] font-black border cursor-pointer transition hover:brightness-95',
+    style: { borderColor: 'var(--border-2)', color: 'var(--text)', opacity: (d < 0 ? selIdx > 0 : selIdx < curIdx) ? '1' : '.35' },
+    onclick: () => { const n = selIdx + d; if (n >= 0 && n <= curIdx) { state._islRoundSel = n; mountApp(); } },
+  }, glyph);
+  ctl.append(
+    nav(-1, '\u2039'),
+    el('span', { class: 'text-[11px] font-bold tabular-nums whitespace-nowrap' },
+      'Round ' + (selIdx + 1) + ' \u00b7 ' + mmdd(rS) + ' \u2013 ' + mmdd(rE) + (selIdx === curIdx && !roundOver ? ' \u00b7 live' : '')),
+    nav(1, '\u203a'),
+    (isAdmin && roundOver) ? el('button', {
+      class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+      style: { background: '#1D1D1D', color: '#8DC63F' },
+      title: 'Lock this round\u2019s results: bottom of each division relegates \u25bc, top of the division below promotes \u25b2',
+      onclick: () => {
+        if (!confirm('Apply the rotation for Round ' + (selIdx + 1) + '? Bottom of each division drops, top of the division below moves up.')) return;
+        const sorted = divs.map(d => d.slice().sort((a, b) => passedOf(b) - passedOf(a)));
+        for (let i = 0; i < sorted.length - 1; i++) {
+          const down = sorted[i].pop();
+          const up = sorted[i + 1].shift();
+          if (up !== undefined) sorted[i].push(up);
+          if (down !== undefined) sorted[i + 1].unshift(down);
+        }
+        cfg.divs = sorted;
+        save('Round ' + (selIdx + 1) + ' rotation applied');
+      },
+    }, '\ud83d\udd03 Apply rotation') : null,
+    isAdmin ? el('button', {
+      class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+      style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
+      title: 'Reset the league — season date and division history clear until you set a new start',
+      onclick: () => {
+        if (!confirm('Reset the Inside Sales League? Season start and all division history clear.')) return;
+        cfg.start = '';
+        delete cfg.divs;
+        state._islRoundSel = null;
+        save('league RESET');
+      },
+    }, '\u21ba Reset') : null,
+    el('button', {
+      class: 'rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-95 border',
+      style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', color: 'var(--text)', fontSize: '13px', flexShrink: '0' },
+      title: 'League rules',
+      onclick: () => openIslHelpModal(),
+    }, '\u24d8'));
+  bar.append(ctl);
+  // ── Masthead ──
+  // Ted Lasso theme (per Isaac): the masthead IS the BELIEVE sign — bright
+  // yellow card, royal-blue letters — with AFC-Richmond navy & gold on the
+  // division tables below.
+  wrap.append(el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-5 flex items-center justify-between gap-3 flex-wrap', style: { background: '#F6C915', color: '#1F3B8B' } },
+      el('div', {},
+        el('div', { style: { display: 'inline-block', background: '#fff', border: '3px solid #1F3B8B', borderRadius: '4px', padding: '4px 14px', fontWeight: '900', fontSize: '22px', letterSpacing: '.35em', color: '#1F3B8B', boxShadow: '0 2px 6px rgba(0,0,0,.18)' } }, 'BELIEVE'),
+        el('div', { class: 'font-display text-3xl leading-none mt-2', style: { color: '#1F3B8B' } }, 'RIDD INSIDE SALES LEAGUE'),
+        el('div', { class: 'text-[11px] font-bold uppercase tracking-wide mt-1', style: { color: '#1F3B8B', opacity: '.8' } },
+          'Round ' + (selIdx + 1) + ' \u00b7 ' + mmdd(rS) + '/' + rS.getFullYear() + ' \u2013 ' + mmdd(rE) + '/' + rE.getFullYear() + ' \u00b7 Pending/Serviced \u00b7 AutoPay + agreement required')),
+      el('div', { class: 'text-right' },
+        el('div', { style: { fontSize: '40px' } }, '\ud83c\udfc6'),
+        el('div', { class: 'text-[10px] font-bold italic mt-1', style: { color: '#1F3B8B', opacity: '.75' } }, '\u201cBe a goldfish.\u201d')))));
+  // ── Division tables ──
+  if (!divs.length) {
+    wrap.append(el('div', { class: 'card p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
+      'No qualifying Office Staff production yet this season \u2014 the divisions seed from the first accounts that land.'));
+    return wrap;
+  }
+  const divName = (i) => i === 0 ? 'PREMIER LEAGUE' : 'PRIORITY ' + i;
+  divs.forEach((names, di) => {
+    const rows = names.slice().sort((a, b) => passedOf(b) - passedOf(a));
+    wrap.append(el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-2.5 flex items-center justify-between', style: { background: di === 0 ? '#1F3B8B' : '#2b3a5e', color: di === 0 ? '#F6C915' : '#fff' } },
+        el('div', { class: 'font-black uppercase tracking-widest text-sm' }, (di === 0 ? '\ud83c\udfc6 ' : '') + divName(di)),
+        el('div', { class: 'text-[10px] font-bold uppercase tracking-widest', style: { opacity: '.75' } }, names.length + ' rep' + (names.length === 1 ? '' : 's'))),
+      el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+        el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+          el('th', { class: 'px-3 py-2 w-10' }, 'Pos'),
+          el('th', { class: 'px-3 py-2' }, 'Sales Rep'),
+          el('th', { class: 'px-3 py-2 text-right' }, 'FR Revenue'),
+          el('th', { class: 'px-3 py-2 text-right' }, 'Failed'),
+          el('th', { class: 'px-3 py-2 text-right' }, 'Upsells'),
+          el('th', { class: 'px-3 py-2 text-right' }, 'Passed Revenue'),
+          el('th', { class: 'px-3 py-2 text-center w-16' }, 'Result'))),
+        el('tbody', {}, ...rows.map((nm, i) => {
+          const t = tally.get(nm) || { fr: 0, up: 0, fail: 0 };
+          const up = i === 0 && di > 0;                      // promotes \u25b2
+          const down = i === rows.length - 1 && di < divs.length - 1;   // relegates \u25bc
+          return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: up ? 'rgba(141,198,63,.07)' : down ? 'rgba(220,38,38,.06)' : '' } },
+            el('td', { class: 'px-3 py-2 font-black tabular-nums', style: { color: i === 0 ? (di === 0 ? '#5F8A1F' : 'var(--text)') : 'var(--text-muted)' } }, String(i + 1)),
+            el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, nm),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(t.fr)),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums', style: { color: t.fail ? '#DC2626' : 'var(--text-subtle)' } }, t.fail ? '\u2212' + fmt.usd0(t.fail).slice(0) : '\u2014'),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, t.up ? fmt.usd0(t.up) : '\u2014'),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums font-black' }, fmt.usd0(passedOf(nm))),
+            el('td', { class: 'px-3 py-2 text-center font-black' }, up ? el('span', { style: { color: '#5F8A1F' }, title: 'Promotes at rotation' }, '\u25b2') : down ? el('span', { style: { color: '#DC2626' }, title: 'Relegates at rotation' }, '\u25bc') : ''));
+        }))))));
+  });
+  return wrap;
+}
+
 function viewNrlaPublic() {
   const wrap = el('div', { class: 'flex flex-col gap-5 w-full' });
   const isAdmin = isAdminRole(state.profile.role);
@@ -19368,6 +19937,15 @@ function viewNrlaPublic() {
     if (_mbFav) comps = comps.map(c => { const c2 = c; delete c2.favorite; return c2; });
     comps = [...comps, { id: 'mystery_box', name: 'Mystery Boxes', favorite: _mbFav }];
   }
+  // Virtual pills have no config row — their persisted bits (★ default,
+  // comp windows, …) live in the synced _compExtras map, so ANY virtual
+  // comp added here (now or in the future) gets them for free.
+  const _cXtra = (state._compExtras && typeof state._compExtras === 'object') ? state._compExtras : (state._compExtras = {});
+  const _hydrateVirtual = (c) => Object.assign(c, _cXtra[c.id] || {});
+  // \ud83d\udc51 King of the Hill — its own pill too (virtual, no scoring config).
+  comps = [...comps, _hydrateVirtual({ id: 'koth', name: 'KOTH' })];
+  // \ud83d\udc0d Kobe Week — beat-your-best-week personal record comp.
+  comps = [...comps, _hydrateVirtual({ id: 'kobe_week', name: 'Kobe Week' })];
   // Admin drag-sorted pill order (synced to everyone); unknown ids sink to
   // the end so new comps still show up.
   {
@@ -19423,11 +20001,16 @@ function viewNrlaPublic() {
       })));
   }
   if (repTypeTab === 'Office Staff') {
-    wrap.append(el('div', { class: 'card p-10 text-center' },
-      el('div', { class: 'text-2xl mb-2' }, '🏢'),
-      el('div', { class: 'text-sm font-bold' }, 'Office Staff competitions are coming'),
-      el('div', { class: 'text-xs mt-1', style: { color: 'var(--text-muted)' } },
-        'Office Staff comps will live here once they\'re built.')));
+    // 🏆 RIDD Inside Sales League — the first Office Staff competition
+    // (per Isaac). Config rides the synced _compExtras map under 'isl'.
+    wrap.append(el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
+      el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Competition'),
+      el('button', {
+        class: 'text-xs font-bold rounded-full px-3 py-1 border transition cursor-pointer whitespace-nowrap',
+        style: { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' },
+      }, 'Inside Sales League')));
+    const _islCfg = (_cXtra.isl && typeof _cXtra.isl === 'object') ? _cXtra.isl : (_cXtra.isl = { start: '2026-07-01' });
+    wrap.append(islSection(raw, _islCfg, isAdmin));
     return wrap;
   }
   // Selection order: this session's pick → the ★ DEFAULT comp (admin-set,
@@ -19441,7 +20024,6 @@ function viewNrlaPublic() {
   const sel = comps.find(c => c.id === selId);
   if (sel.id !== 'mystery_box' && getActiveCompId() !== sel.id) state._indicatorActiveCompId = sel.id;
   // ── Comp switcher pills + admin ★ default control + FieldRoutes sync stamp ──
-  const _compSyncStr = appSyncStampStr() || null;
   const _defaultBtnFor = (compact) => isAdmin ? el('button', {
     class: compact
       ? 'text-xs font-bold rounded-lg px-2.5 py-2 border border-dashed cursor-pointer transition hover:brightness-95 shrink-0'
@@ -19456,11 +20038,18 @@ function viewNrlaPublic() {
       const on = !sel.favorite;
       comps.forEach(c => { delete c.favorite; });   // only one default at a time
       state._compFavoriteMystery = false;
+      // Clear any virtual-pill stars too (only one default at a time).
+      Object.keys(_cXtra).forEach(k => { if (_cXtra[k]) delete _cXtra[k].favorite; });
       if (on) {
-        // The Mystery Boxes pill is virtual (no comp config behind it), so
-        // its star persists in the synced settings field instead.
+        // Virtual pills (Mystery Boxes, KOTH, Kobe Week, and any future
+        // comp without a config row) persist their star in synced fields;
+        // config-backed comps carry it on the comp object itself.
         if (sel.id === 'mystery_box') state._compFavoriteMystery = true;
-        else sel.favorite = true;
+        else {
+          sel.favorite = true;
+          const _cfgBacked = (typeof getIndicatorCompetitions === 'function' ? getIndicatorCompetitions() : []).some(c => c.id === sel.id);
+          if (!_cfgBacked) _cXtra[sel.id] = { ..._cXtra[sel.id], favorite: true };
+        }
       }
       logActivity('comp_change', { detail: on ? sel.name + ' set as the DEFAULT competition' : sel.name + ' unset as default competition' });
       saveDemoData();                                // syncs to every user
@@ -19468,12 +20057,7 @@ function viewNrlaPublic() {
       mountApp();
     },
   }, sel.favorite ? '★' : '☆') : null;
-  const _stampFor = () => _compSyncStr ? el('div', {
-    class: 'text-right shrink-0',
-    title: 'When the FieldRoutes sync last landed — every board on this tab reads from that snapshot (refreshes every ~30 min)',
-  },
-    el('div', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Last sync'),
-    el('div', { class: 'text-[11px] font-bold tabular-nums' }, _compSyncStr)) : null;
+  // (Last sync stamp dropped from this bar — per Isaac.)
   wrap.append(el('div', { class: 'card p-3 flex flex-col gap-2', style: { borderLeft: '3px solid var(--text)' } },
     // Desktop: pill row
     el('div', { class: 'hidden sm:flex items-center gap-2 flex-wrap' },
@@ -19505,8 +20089,7 @@ function viewNrlaPublic() {
           mountApp();
         }) : undefined,
       }, (c.favorite ? '★ ' : '') + c.name)),
-      _defaultBtnFor(false),
-      _stampFor()),
+      _defaultBtnFor(false)),
     // Mobile: one compact dropdown row (pills wrapped to 3 lines on phones)
     el('div', { class: 'sm:hidden flex items-center gap-2' },
       el('select', {
@@ -19514,8 +20097,7 @@ function viewNrlaPublic() {
         style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
         onchange: (e) => { state._compsTabSel = e.target.value; mountApp(); },
       }, ...comps.map(c => el('option', { value: c.id, selected: c.id === sel.id }, (c.favorite ? '★ ' : '') + c.name))),
-      _defaultBtnFor(true),
-      _stampFor())));
+      _defaultBtnFor(true))));
   // ── Mystery Boxes: its own tab — rep boxes + admin arming panel ──
   if (sel.id === 'mystery_box') {
     const _mb = mysteryBoxSection(isAdmin);
@@ -19524,6 +20106,53 @@ function viewNrlaPublic() {
       el('div', { class: 'text-3xl mb-2' }, '🎁'),
       el('div', { class: 'text-sm font-bold' }, 'No Mystery Box for you… yet.'),
       el('div', { class: 'text-xs mt-1', style: { color: 'var(--text-muted)' } }, 'Keep selling — boxes get armed for big performances, and when one\u2019s yours it shows up right here.')));
+    return wrap;
+  }
+  // ── \ud83d\udc51 King of the Hill: biggest single day of the season ──
+  if (sel.id === 'koth') {
+    wrap.append(kothSection(raw));
+    return wrap;
+  }
+  // ── \ud83d\udc0d Kobe Week: beat your own best week ──
+  if (sel.id === 'kobe_week') {
+    // Comp window is year-to-year configurable (per Isaac) — stored on the
+    // comp config; defaults to the 2026 flyer window (Aug 3–8).
+    if (typeof sel.kobeFrom !== 'string') sel.kobeFrom = KOBE_FROM;
+    if (typeof sel.kobeTo !== 'string') sel.kobeTo = KOBE_TO;
+    const saveKobe = (detail) => {
+      // sel is a virtual pill rebuilt every render — persist the window in
+      // the synced _compExtras map so it survives.
+      _cXtra[sel.id] = { ..._cXtra[sel.id], kobeFrom: sel.kobeFrom, kobeTo: sel.kobeTo };
+      logActivity('comp_change', { detail: 'Kobe Week: ' + detail });
+      saveDemoData();
+      if (typeof saveIndicatorState === 'function') saveIndicatorState();
+      mountApp();
+    };
+    const kIn = (key, what) => el('input', {
+      type: 'date', value: sel[key] || '',
+      class: 'rounded border px-1.5 py-1 text-xs',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { sel[key] = e.target.value; saveKobe(what + ' → ' + (e.target.value || 'unset')); },
+    });
+    wrap.append(el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
+      ...(isAdmin
+        ? [kIn('kobeFrom', 'start'), el('span', { class: 'text-muted-' }, '→'), kIn('kobeTo', 'end')]
+        : [el('span', { class: 'text-[11px] font-bold tabular-nums' }, (sel.kobeFrom || '—') + ' → ' + (sel.kobeTo || '—'))]),
+      isAdmin ? el('button', {
+        class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95 ml-auto',
+        style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
+        title: 'Reset the comp window — dates clear until you set new ones, which then stick until the next reset',
+        onclick: () => {
+          if (!confirm('Reset the Kobe Week comp window? Dates clear until you set new ones.')) return;
+          sel.kobeFrom = '';
+          sel.kobeTo = '';
+          saveKobe('comp window RESET (dates cleared)');
+        },
+      }, '\u21ba Reset') : null));
+    if (sel.kobeFrom && sel.kobeTo) wrap.append(kobeWeekSection(raw, sel.kobeFrom, sel.kobeTo));
+    else wrap.append(el('div', { class: 'card p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
+      'Set the comp window dates above to run Kobe Week.'));
     return wrap;
   }
   // ── NRLA gets its own board (runs on its own schedule — no window bar) ──
@@ -19550,43 +20179,55 @@ function viewNrlaPublic() {
     // round count (sized to how many reps are competing — halving each week,
     // ⌈log₂(reps)⌉ + 1 rounds cuts the field to one winner). Add/remove
     // individual days for holiday swaps; Clear all resets for a new year.
-    const addInput = isAdmin ? el('label', {
-      class: 'text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95 inline-flex items-center gap-1.5',
+    // Season building, simplified (per Isaac): "+ Add days" on an empty
+    // season seeds the next 5 Saturdays; "+" appends one more Saturday
+    // after the last scheduled day. Chips stay click-to-move / ×-to-drop
+    // for holiday swaps. (The old Generate Season prompt flow is retired.)
+    const nextSaturday = (afterIso) => {
+      const d = afterIso ? new Date(afterIso + 'T12:00') : new Date();
+      d.setDate(d.getDate() + (((6 - d.getDay()) + 7) % 7 || 7));
+      return d.toISOString().slice(0, 10);
+    };
+    // "+ Add days" (per Isaac): pick the FIRST comp day yourself, then the
+    // next 4 recurring Saturdays fill in automatically — 5 rounds total.
+    const addInput = (isAdmin && effectiveDays.length === 0) ? (() => {
+      const seedInp = el('input', {
+        type: 'date',
+        style: { width: '0', height: '0', opacity: '0', position: 'absolute', pointerEvents: 'none' },
+        onchange: (e) => {
+          const first = e.target.value;
+          if (!first) return;
+          const days = [first];
+          let iso = first;
+          for (let i = 0; i < 4; i++) { iso = nextSaturday(iso); days.push(iso); }
+          saveDays(days);
+        },
+      });
+      return el('span', { style: { position: 'relative' } }, el('button', {
+        class: 'text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+        style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
+        title: 'Start the season — pick the first comp day, and the next 4 recurring Saturdays are added automatically. Click any chip to move its date; use + for more.',
+        onclick: () => { try { seedInp.showPicker ? seedInp.showPicker() : seedInp.click(); } catch { seedInp.click(); } },
+      }, '+ Add days'), seedInp);
+    })() : null;
+    const genBtn = (isAdmin && effectiveDays.length > 0) ? el('button', {
+      class: 'text-[11px] font-black px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
       style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
-      title: 'Add a comp day — converts the schedule to an explicit day list you fully control',
-    }, '+ Add day', el('input', {
-      type: 'date',
-      style: { width: '0', height: '0', opacity: '0', position: 'absolute' },
-      onchange: (e) => { if (e.target.value) saveDays([...effectiveDays, e.target.value]); },
-    })) : null;
-    const genBtn = isAdmin ? el('button', {
-      class: 'text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
-      style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-      title: 'Build a fresh season: consecutive Saturdays from a start date. With ~' + (lmsR.rosterSize || 'N') + ' reps, ' + Math.max(3, Math.ceil(Math.log2(Math.max(2, lmsR.rosterSize || 16))) + 1) + ' rounds cuts the field to one winner.',
-      onclick: () => {
-        const start = prompt('First Saturday of the season (YYYY-MM-DD):', (() => {
-          const d = new Date(); d.setDate(d.getDate() + ((6 - d.getDay() + 7) % 7 || 7));
-          return d.toISOString().slice(0, 10);
-        })());
-        if (!start || !/^\d{4}-\d{2}-\d{2}$/.test(start.trim())) return;
-        const suggested = Math.max(3, Math.ceil(Math.log2(Math.max(2, lmsR.rosterSize || 16))) + 1);
-        const nRaw = prompt('How many Saturdays (rounds)? With ~' + (lmsR.rosterSize || '?') + ' reps, ' + suggested + ' rounds reaches a single winner:', String(suggested));
-        const n = Math.min(20, Math.max(1, parseInt(nRaw, 10) || 0));
-        if (!n) return;
-        const days = [];
-        const d = new Date(start.trim() + 'T12:00');
-        for (let i = 0; i < n; i++) { days.push(d.toISOString().slice(0, 10)); d.setDate(d.getDate() + 7); }
-        saveDays(days);
-      },
-    }, '⚙ Generate Season…') : null;
-    const clearBtn = (isAdmin && custom) ? el('button', {
-      class: 'text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
-      style: { borderColor: 'rgba(220,38,38,.4)', color: '#DC2626' },
-      title: 'Remove ALL comp days (fresh slate for a new season). The schedule falls back to automatic Saturdays until you add days or generate a season.',
-      onclick: () => { if (confirm('Clear all Last Man Standing comp days? The board goes empty until you add days or generate a season.')) saveDays([]); },
-    }, '× Clear all') : null;
+      title: 'Add the next Saturday after ' + fmtDay(effectiveDays[effectiveDays.length - 1]),
+      onclick: () => saveDays([...effectiveDays, nextSaturday(effectiveDays[effectiveDays.length - 1])]),
+    }, '+') : null;
+    // ↺ Reset — same treatment as Spring Cleaning (per Isaac): clears the
+    // ENTIRE season; new days entered afterward stick until the next reset.
+    const clearBtn = isAdmin ? el('button', {
+      class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95 ml-auto',
+      style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
+      title: 'Reset the competition — ALL comp days clear and the board goes empty until you add days or generate a season',
+      onclick: () => { if (confirm('Reset Last Man Standing? All comp days clear and the board goes empty until you add days or generate a season.')) saveDays([]); },
+    }, '\u21ba Reset') : null;
+    // ⏳/📸 board controls land in this span (filled by lastManStandingBoard).
+    const _lmsBarCtl = el('span', { class: 'inline-flex items-center gap-2' });
     wrap.append(el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
-      el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Days'),
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
       // Every chip is EDITABLE (admin): click it to move that round to a
       // different date — e.g. swap the July 4 Saturday to Friday July 3.
       // × removes the day entirely. Works in auto mode too (first edit
@@ -19614,11 +20255,14 @@ function viewNrlaPublic() {
           }, '×') : null);
       }),
       addInput, genBtn, clearBtn,
-      el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } },
-        custom
-          ? (custom.length ? '· these dates ARE the rounds — × a chip to drop it' : '· season cleared — + Add day or Generate Season to set it up')
-          : '· auto: Saturdays with production (Jul 4 ’26 → Fri Jul 3) — add a day or generate a season to take control')));
-    wrap.append(lastManStandingBoard(raw, 'scheduled comp days', sel));
+      _lmsBarCtl,
+      el('button', {
+        class: 'rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-95 border',
+        style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', color: 'var(--text)', fontSize: '13px', flexShrink: '0' },
+        title: 'Last Man Standing rules',
+        onclick: () => openLastManStandingHelpModal('scheduled comp days'),
+      }, 'ⓘ')));
+    wrap.append(lastManStandingBoard(raw, 'scheduled comp days', sel, _lmsBarCtl));
     return wrap;
   }
   // ── Other comps use the session Comp Window date range, same as before ──
@@ -19630,17 +20274,91 @@ function viewNrlaPublic() {
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
     onchange: (e) => { cf[key] = e.target.value; applyWin(); },
   });
-  wrap.append(el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
+  // Spring Cleaning: separate comp-window dates were redundant with the
+  // round dates (per Isaac) — the bar hosts the R1–R4 pickers instead, and
+  // the effective window derives first-set → last-set date.
+  const _scSel = isSpringCleaningComp(sel) ? sel : null;
+  if (_scSel && (!Array.isArray(_scSel.rounds) || _scSel.rounds.length === 0)) {
+    _scSel.rounds = SPRING_DEFAULT_ROUNDS.map(r => ({ ...r }));
+  }
+  const _scRoundInput = (r, key, i) => el('input', {
+    type: 'date', value: r[key] || '',
+    class: 'rounded border',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', fontSize: '10px', padding: '1px 2px', width: '106px' },
+    onchange: (e) => { r[key] = e.target.value; logActivity('comp_change', { detail: 'Spring round ' + (i + 1) + ' ' + key + ' → ' + r[key] }); saveDemoData(); applyWin(); },
+  });
+  const _scAllDates = _scSel ? _scSel.rounds.flatMap(r => [r.start, r.end]).filter(Boolean).sort() : [];
+  const compWinBar = el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
     el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
-    dateInput('start'), el('span', { class: 'text-muted-' }, '→'), dateInput('end'),
-    el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '· date range for this competition')));
-  const bounds = (cf.start && cf.end) ? { s: new Date(cf.start + 'T00:00'), e: new Date(cf.end + 'T23:59') } : null;
+    ...(_scSel
+      ? [
+          ..._scSel.rounds.map((r, i) => el('span', { class: 'flex items-center gap-1' },
+            el('span', { class: 'text-[10px] font-black', style: { color: 'var(--text-subtle)' } }, 'R' + (i + 1)),
+            _scRoundInput(r, 'start', i), el('span', { class: 'text-muted-' }, '–'), _scRoundInput(r, 'end', i))),
+        ]
+      : [dateInput('start'), el('span', { class: 'text-muted-' }, '→'), dateInput('end'),
+          el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '· date range for this competition')]));
+  wrap.append(compWinBar);
+  const bounds = _scSel
+    ? (_scAllDates.length ? { s: new Date(_scAllDates[0] + 'T00:00'), e: new Date(_scAllDates[_scAllDates.length - 1] + 'T23:59') } : null)
+    : ((cf.start && cf.end) ? { s: new Date(cf.start + 'T00:00'), e: new Date(cf.end + 'T23:59') } : null);
   const windowed = bounds
     ? raw.filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
     : raw;
-  const winLabel = (cf.start && cf.end) ? cf.start + ' → ' + cf.end : 'all dates';
+  const winLabel = _scSel
+    ? (_scAllDates.length ? _scAllDates[0] + ' → ' + _scAllDates[_scAllDates.length - 1] : 'all dates')
+    : ((cf.start && cf.end) ? cf.start + ' → ' + cf.end : 'all dates');
   if (isSpringCleaningComp(sel)) {
     const offices = [...new Set(windowed.filter(s => _indicatorDeptOf(s) === 'd2d').map(s => s.office).filter(Boolean))];
+    // Spring Cleaning controls ride the Comp Window bar (per Isaac):
+    // Standings PDF · Reps export · 👥 rep markets · rules ⓘ.
+    compWinBar.append(el('div', { class: 'ml-auto flex items-center gap-2' },
+      el('button', {
+        class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+        style: { background: '#1b5e20', color: '#fff' },
+        title: 'Export the standings poster as a PDF',
+        onclick: () => {
+          const node = document.getElementById('spring-standings-poster');
+          if (node) exportSpringStandingsPdf(node);
+          else toast('Standings section not found', 'error');
+        },
+      }, '↓ Standings'),
+      el('button', {
+        class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border',
+        style: { borderColor: '#1b5e20', color: '#1b5e20', background: 'transparent' },
+        title: 'Export reps who sold a qualifying account each round, by branch — for splitting winnings',
+        onclick: () => exportSpringRepsXlsx(),
+      }, '↓ Reps'),
+      el('button', {
+        class: 'cursor-pointer transition hover:brightness-95 border rounded-full',
+        style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', background: 'var(--card)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
+        title: 'See every rep and the market they count toward — reassign for comp purposes',
+        onclick: () => openSpringRepMarketModal(windowed),
+      }, '👥'),
+      el('button', {
+        class: 'cursor-pointer transition hover:brightness-95 border rounded-full',
+        style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', background: 'var(--card)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
+        title: 'Offices competing — toggle who\u2019s in the comp this year',
+        onclick: () => openSpringCompetingModal(offices),
+      }, '🏢'),
+      el('button', {
+        class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+        style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
+        title: 'Reset the ENTIRE competition — every round\u2019s dates clear and the board goes blank until new dates are entered',
+        onclick: () => {
+          if (!confirm('Reset Spring Cleaning? ALL round dates clear and the board goes blank. New dates you enter afterward stick until the next reset.')) return;
+          sel.rounds = SPRING_DEFAULT_ROUNDS.map(() => ({ start: '', end: '' }));
+          logActivity('comp_change', { detail: 'Spring Cleaning: competition RESET — all round dates cleared' });
+          saveDemoData();
+          mountApp();
+        },
+      }, '\u21ba Reset'),
+      el('button', {
+        class: 'rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-95 border',
+        style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', color: 'var(--text)', fontSize: '13px' },
+        title: 'How each metric is tracked',
+        onclick: () => openSpringCleaningHelpModal(),
+      }, 'ⓘ')));
     wrap.append(indicatorSpringCleaningBoard(windowed, offices, winLabel));
     if (typeof springStandingsCard === 'function') wrap.append(springStandingsCard());
   } else if ((sel.scoring || '') === 'top_gun') {
@@ -19651,6 +20369,33 @@ function viewNrlaPublic() {
     const windowedD2d = bounds
       ? allD2d.filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
       : allD2d;
+    // Top Gun controls ride the Comp Window bar (per Isaac): Export ·
+    // Reset, with the rules ⓘ to the right of both.
+    compWinBar.append(el('div', { class: 'ml-auto flex items-center gap-2' },
+      el('button', {
+        class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Export Top Gun (Standings + all accounts by class)',
+        onclick: () => exportTopGunXlsx(windowedD2d, proSet),
+      }, '↓ Export'),
+      isAdmin ? el('button', {
+        class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+        style: { borderColor: '#B91C1C', color: '#B91C1C', whiteSpace: 'nowrap' },
+        title: 'Reset the competition window — dates clear (All dates) until you set new ones, which then stick until the next reset',
+        onclick: () => {
+          if (!confirm('Reset the Top Gun comp window? Dates clear to All dates until you set new ones.')) return;
+          state._indicatorCompFilter = { start: '', end: '' };
+          logActivity('comp_change', { detail: 'Top Gun: comp window RESET (all dates)' });
+          saveDemoData();
+          mountApp();
+        },
+      }, '\u21ba Reset') : null,
+      el('button', {
+        class: 'rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-95 border',
+        style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', color: 'var(--text)', fontSize: '13px' },
+        title: 'Top Gun rules',
+        onclick: () => openTopGunHelpModal(),
+      }, 'ⓘ')));
     wrap.append(indicatorTopGunBoard(windowedD2d, proSet));
   } else if ((sel.scoring || '') === 'avg_pest_initial' || sel.id === 'avg_pest_initial') {
     // Avg Pest & Raffle — the SAME card Indicators renders, right here.
@@ -19660,6 +20405,14 @@ function viewNrlaPublic() {
     const _apWin = bounds
       ? _apAll.filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
       : _apAll;
+    // Rules ⓘ rides the Comp Window bar (per Isaac) — moved off the
+    // green banner.
+    compWinBar.append(el('button', {
+      class: 'ml-auto rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-95 border',
+      style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', color: 'var(--text)', fontSize: '13px', flexShrink: '0' },
+      title: 'Competition rules',
+      onclick: () => openAvgPestRaffleHelpModal(),
+    }, 'ⓘ'));
     wrap.append(buildAvgPestCompCard({
       cf, allRawSales: _apAll, rawSales: _apWin, windowLabel: winLabel,
       applyExclusion: false, rerender: () => mountApp(),
@@ -20161,7 +20914,7 @@ function springStandingsCard() {
         return iso >= r.start && iso <= r.end;
       });
       const sc = roundSales.length > 0 ? springCleaningCompute(roundSales, masterBranches) : null;
-      const finished = r.end < todayIso;
+      const finished = !!r.end && r.end < todayIso;
       const pendingN = sc ? sc.pending.length : 0;
       return {
         ...r, sc,
@@ -20193,21 +20946,8 @@ function springStandingsCard() {
     const cum = (b) => (deadBugs[b] || 0) + (liveBugs[b] || 0);
     const branches = [...branchSet].sort((a, b) => cum(b) - cum(a) || a.localeCompare(b));
 
-    // ── Round date boxes — single horizontal row, spread across the top
-    //    and aligned with the Reset-dates button to their right. ──
-    const roundsBox = el('div', { class: 'sc-noprint', style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '18px', background: '#cfcec6', padding: '6px 12px', borderRadius: '8px', flex: '1' } },
-      ...comp.rounds.map((r, i) => {
-        const rr = rounds[i];
-        const dot = rr.official ? '#43a047' : (rr.hasData ? '#ED1C24' : '#9d9d97');
-        return el('span', { style: { display: 'inline-flex', gap: '3px', alignItems: 'center', fontSize: '9.5px', fontWeight: '800', whiteSpace: 'nowrap' } },
-          el('span', { title: rr.official ? 'Official — window over, all audits settled' : rr.hasData ? (rr.finished ? rr.pendingN + ' audits still pending' : 'In progress') : 'No sales yet', style: { width: '8px', height: '8px', borderRadius: '50%', background: dot, display: 'inline-block' } }),
-          'R' + (i + 1),
-          el('input', { type: 'date', value: r.start, style: { fontSize: '9px', padding: '0 1px', border: '1px solid #aaa', background: '#fff', width: '84px' },
-            onchange: (e) => { r.start = e.target.value; logActivity('comp_change', { detail: 'Spring round ' + (i + 1) + ' start → ' + r.start }); saveDemoData(); render(); } }),
-          '–',
-          el('input', { type: 'date', value: r.end, style: { fontSize: '9px', padding: '0 1px', border: '1px solid #aaa', background: '#fff', width: '84px' },
-            onchange: (e) => { r.end = e.target.value; logActivity('comp_change', { detail: 'Spring round ' + (i + 1) + ' end → ' + r.end }); saveDemoData(); render(); } }));
-      }));
+    // (Round date pickers moved to the shared Comp Window bar — per Isaac,
+    // the separate comp-window dates were redundant with the round dates.)
 
     // ── Header — title left, round boxes to its right. Sized for the
     //    full-width inline card (the poster used to live in an 880px
@@ -20218,38 +20958,25 @@ function springStandingsCard() {
         el('div', { style: { fontWeight: '900', fontSize: '52px', letterSpacing: '-0.03em', lineHeight: '0.95', textTransform: 'uppercase', whiteSpace: 'nowrap' } }, 'Spring Cleaning'),
         el('div', { style: { fontWeight: '800', fontSize: '13px', letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: '6px', whiteSpace: 'nowrap' } }, 'Team Quality Based Competition by RIDDMADE™')));
 
-    // ── Top controls: Export PDF · Reset dates ──
-    const ctlBtn = (label, opts = {}) => el('button', {
-      class: 'cursor-pointer sc-noprint',
-      style: { fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', padding: '4px 10px', borderRadius: '6px',
-        background: opts.bg || '#141414', color: opts.fg || '#fff', border: opts.border || 'none', whiteSpace: 'nowrap' },
-      title: opts.title || '', onclick: opts.onclick,
-    }, label);
-    const controlBar = el('div', { class: 'sc-noprint', style: { margin: '0 30px 8px', display: 'flex', gap: '12px', justifyContent: 'flex-end', alignItems: 'center' } },
-      roundsBox,
-      ctlBtn('↺ Reset dates', { bg: 'transparent', fg: '#B91C1C', border: '1px solid #B91C1C', title: 'Restore the default round date ranges', onclick: () => {
-        if (!confirm('Reset rounds to the default date ranges?')) return;
-        comp.rounds = SPRING_DEFAULT_ROUNDS.map(r => ({ ...r }));
-        logActivity('comp_change', { detail: 'Spring Cleaning: round dates reset to defaults' });
-        saveDemoData();
-        render();
-      } }));
+    // (↺ Reset dates moved to the shared Comp Window bar — per Isaac.)
 
     // ── Info boxes ──
     const CATS_LIST = ['Revenue', 'Average Pest Initial', 'Per Rep Average', 'Average Contract Value', '24 Month Agreement %', 'Autopay %', 'Passed Audit %'];
     const PAYOUT = [['1st Place', 6], ['2nd Place', 5], ['3rd Place', 4], ['4th Place', 3], ['5th Place', 2], ['6th Place', 1], ['7th Place', 0]];
     const TIERS = [[24, '®300k', '#1b5e20'], [20, '®200k', '#43a047'], [16, '®100k', '#9ccc65'], [12, '®50k', '#cddc39']];
-    const infoRow = el('div', { style: { display: 'grid', gridTemplateColumns: '1.2fr 1.1fr 1fr', gap: '10px', padding: '4px 30px 10px' } },
-      el('div', { style: { background: '#F7941D', color: '#141414', padding: '12px 14px', display: 'flex', gap: '12px', alignItems: 'center' } },
-        el('div', { style: { flex: '1 1 auto', minWidth: '0' } }, ...CATS_LIST.map((c, i) => el('div', { style: { fontSize: '10.5px', fontWeight: '800', lineHeight: '1.55', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (i + 1) + '.  ' + c))),
-        el('div', { style: { textAlign: 'center', flex: 'none', width: '64px' } },
-          el('div', { style: { fontSize: '44px', fontWeight: '900', lineHeight: '1' } }, '7'),
-          el('div', { style: { fontSize: '10px', fontWeight: '800' } }, 'Categories'))),
-      el('div', { style: { background: '#ED1C24', color: '#fff', padding: '10px 14px 12px' } },
-        el('div', { style: { fontSize: '11px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px', borderBottom: '2px solid rgba(255,255,255,.5)', paddingBottom: '3px' } }, 'Per Round'),
-        ...PAYOUT.map(([p, n]) => el('div', { style: { fontSize: '10.5px', fontWeight: '800', lineHeight: '1.55', whiteSpace: 'nowrap' } }, p + '………… ' + n + ' Bug' + (n === 1 ? '' : 's') + ' Exterminated'))),
-      el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
-        ...TIERS.map(([n, coin, color]) => el('div', { style: { background: color, color: n >= 20 ? '#fff' : '#141414', fontSize: '10.5px', fontWeight: '900', padding: '7px 10px', whiteSpace: 'nowrap' } },
+    // Compact info row (per Isaac): categories + per-round payout share ONE
+    // box (orange | red halves), tiers slim on the right — shorter banners
+    // pull the bug tracker and round tables up the page.
+    const infoRow = el('div', { style: { display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '8px', padding: '2px 30px 8px' } },
+      el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', overflow: 'hidden' } },
+        el('div', { style: { background: '#F7941D', color: '#141414', padding: '8px 12px' } },
+          el('div', { style: { fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.06em', borderBottom: '2px solid rgba(20,20,20,.35)', paddingBottom: '2px', marginBottom: '3px' } }, '7 Categories'),
+          ...CATS_LIST.map((c, i) => el('div', { style: { fontSize: '9.5px', fontWeight: '800', lineHeight: '1.5', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (i + 1) + '. ' + c))),
+        el('div', { style: { background: '#ED1C24', color: '#fff', padding: '8px 12px' } },
+          el('div', { style: { fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.06em', borderBottom: '2px solid rgba(255,255,255,.5)', paddingBottom: '2px', marginBottom: '3px' } }, 'Per Round'),
+          ...PAYOUT.map(([p, n]) => el('div', { style: { fontSize: '9.5px', fontWeight: '800', lineHeight: '1.5', whiteSpace: 'nowrap' } }, p + '\u2026 ' + n + ' Bug' + (n === 1 ? '' : 's'))))),
+      el('div', { style: { display: 'flex', flexDirection: 'column', gap: '3px' } },
+        ...TIERS.map(([n, coin, color]) => el('div', { style: { background: color, color: n >= 20 ? '#fff' : '#141414', fontSize: '9.5px', fontWeight: '900', padding: '4px 10px', whiteSpace: 'nowrap', flex: '1', display: 'flex', alignItems: 'center' } },
           n + ' Bugs Exterminated = ' + coin + ' per rep'))));
 
     // ── BUG COUNT tracker — every slot has a spider ──
@@ -20386,7 +21113,26 @@ function springStandingsCard() {
             ...order.map(bugRow))));
     };
 
-    card.append(header, controlBar, infoRow, tracker, ...rounds.map(roundBlock),
+    // ── Round picker (per Isaac): ONE round at a time, NRLA-style —
+    // pills select the round, defaulting to the latest round with data.
+    if (state._scRoundSel == null || state._scRoundSel >= rounds.length) {
+      let _d = 0;
+      rounds.forEach((r, i) => { if (r.hasData) _d = i; });
+      state._scRoundSel = _d;
+    }
+    const roundPicker = el('div', { class: 'sc-noprint', style: { display: 'flex', gap: '6px', alignItems: 'center', padding: '2px 30px 8px', flexWrap: 'wrap' } },
+      ...rounds.map((r, i) => el('button', {
+        class: 'cursor-pointer transition hover:brightness-95',
+        style: {
+          fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', padding: '4px 12px', borderRadius: '999px',
+          background: i === state._scRoundSel ? '#141414' : 'transparent',
+          color: i === state._scRoundSel ? '#fff' : '#141414',
+          border: '1px solid #141414', whiteSpace: 'nowrap',
+        },
+        title: (r.start && r.end) ? roundLabel(r) : 'No dates set yet',
+        onclick: () => { state._scRoundSel = i; render(); },
+      }, 'Round ' + (i + 1) + (r.official ? ' \ud83d\udd12' : (r.hasData && !r.finished) ? ' \u00b7 live' : ''))));
+    card.append(header, infoRow, tracker, roundPicker, roundBlock(rounds[state._scRoundSel], state._scRoundSel),
       el('div', { style: { padding: '10px 30px 22px', display: 'flex', alignItems: 'center', gap: '8px' } },
         el('img', { src: 'sweeper.png', alt: '', style: { height: '26px', filter: 'grayscale(1)' } }),
         el('div', {},
@@ -20690,11 +21436,11 @@ function openLastManStandingHelpModal(winLabel) {
   document.body.append(overlay);
 }
 
-// "Last Updated: <time>" from the most recent Indicators CSV upload — shown on
-// each competition header.
+// "Last sync: <time>" from the most recent Indicators sync — shown on
+// each competition header. ("Last sync" verbiage everywhere, per Isaac.)
 function indicatorLastUpdatedStr() {
   if (!state.indicatorsUploadedAt) return null;
-  return 'Last Updated: ' + new Date(state.indicatorsUploadedAt).toLocaleString('en-US', {
+  return 'Last sync: ' + new Date(state.indicatorsUploadedAt).toLocaleString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
   });
 }
@@ -20708,6 +21454,54 @@ function indicatorCompWindowStr() {
   if (cf.start) return 'From ' + fmt(cf.start);
   if (cf.end) return 'Through ' + fmt(cf.end);
   return 'All dates';
+}
+
+// 🏢 Competing offices — the branch in/out toggles, moved off the board
+// face into a modal opened from the Comp Window bar (per Isaac). Same
+// persistence: comp.excludedBranches on the competition itself, synced.
+function openSpringCompetingModal(branchList) {
+  const comp = (typeof getActiveComp === 'function') ? getActiveComp() : null;
+  if (!comp) { toast('No active Spring Cleaning config found', 'warn'); return; }
+  if (!Array.isArray(comp.excludedBranches)) comp.excludedBranches = ['SALT LAKE'];
+  const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const body = el('div', { class: 'flex items-center gap-1.5 flex-wrap' });
+  const render = () => {
+    body.innerHTML = '';
+    const allBranches = [...new Set([...(branchList || []), ...comp.excludedBranches.map(b => String(b).toUpperCase())])].sort();
+    const ex = new Set(comp.excludedBranches.map(b => String(b).toUpperCase()));
+    allBranches.forEach(b => {
+      const off = ex.has(String(b).toUpperCase());
+      body.append(el('button', {
+        class: 'rounded-full px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
+        style: off
+          ? { background: 'transparent', color: 'var(--text-muted)', border: '1px dashed var(--border-2)', textDecoration: 'line-through' }
+          : { background: '#1b5e20', color: '#fff', border: '1px solid #1b5e20' },
+        title: off ? b + ' is sitting this comp out — click to include' : 'Click to pull ' + b + ' out of the comp',
+        onclick: () => {
+          const u = String(b).toUpperCase();
+          const wasOff = off;
+          comp.excludedBranches = wasOff
+            ? comp.excludedBranches.filter(x => String(x).toUpperCase() !== u)
+            : [...comp.excludedBranches, u];
+          logActivity('comp_change', { detail: 'Spring Cleaning: ' + b + (wasOff ? ' back in the comp' : ' pulled from the comp') });
+          saveDemoData();
+          render();
+          const sx = window.scrollX, sy = window.scrollY;
+          setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0);
+        },
+      }, b));
+    });
+  };
+  render();
+  overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '520px' } },
+    el('div', { class: 'flex items-center justify-between mb-1' },
+      el('h3', { class: 'text-base font-bold' }, '🏢 Offices competing'),
+      el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
+    el('p', { class: 'text-xs text-muted- mb-3' },
+      'Green = in the comp. Struck through = sitting this one out — excluded branches drop from every category, the points race, and Audit %. Synced to every admin.'),
+    body));
+  document.body.append(overlay);
 }
 
 function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
@@ -20752,7 +21546,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
           el('div', { style: { fontWeight: '900', fontSize: '30px', letterSpacing: '-0.02em', color: '#141414', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
           el('div', { style: { fontWeight: '800', fontSize: '10.5px', letterSpacing: '0.06em', color: '#141414', marginTop: '3px', textTransform: 'uppercase' } },
             'Team Quality Based Competition by RIDDMADE™'),
-          indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: '#1b5e20', color: '#fff', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, '📅 ' + indicatorCompWindowStr()),
+          indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: '#1b5e20', color: '#fff', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, indicatorCompWindowStr()),
           indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#3a5a2a', marginTop: '4px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
         ),
         el('div', { class: 'sc-sweep-track', title: 'Sweepin\' up' },
@@ -20761,72 +21555,12 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
             el('div', { class: 'sc-dust' }, el('span', {}), el('span', {}), el('span', {})),
           ),
         ),
-        el('div', { class: 'flex items-center gap-2 shrink-0' },
-          el('button', {
-            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
-            style: { background: '#1b5e20', color: '#fff' },
-            title: 'Export the standings poster below as a PDF',
-            onclick: () => {
-              const node = document.getElementById('spring-standings-poster');
-              if (node) exportSpringStandingsPdf(node);
-              else toast('Standings section not found', 'error');
-            },
-          }, '↓ Standings'),
-          el('button', {
-            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
-            style: { background: '#fff', color: '#1b5e20', border: '1px solid #1b5e20' },
-            title: 'Export reps who sold a qualifying account each round, by branch — for splitting winnings',
-            onclick: () => exportSpringRepsXlsx(),
-          }, '↓ Reps'),
-          el('button', {
-            class: 'cursor-pointer transition hover:brightness-95',
-            style: { width: '26px', height: '26px', borderRadius: '50%', background: '#fff', border: '1px solid #c9c9c0', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
-            title: 'See every rep and the market they count toward — reassign for comp purposes',
-            onclick: () => openSpringRepMarketModal(sales),
-          }, '👥'),
-          el('button', {
-            class: 'inline-flex items-center justify-center rounded-full text-xs font-bold cursor-pointer',
-            style: { width: '22px', height: '22px', background: '#141414', color: '#fff' },
-            title: 'How each metric is tracked',
-            onclick: () => openSpringCleaningHelpModal(),
-          }, 'ⓘ'),
-        ),
+        // Standings · Reps · 👥 · ⓘ moved to the Comp Window bar (per Isaac).
       ),
     ),
-    // ── Competing-branches chips — toggle who's in the comp this year.
-    // Excluded branches (struck through) drop out of every category, the
-    // points race, and Audit %. Persisted on the competition itself, so
-    // it syncs to every admin.
-    (() => {
-      const comp = (typeof getActiveComp === 'function') ? getActiveComp() : null;
-      if (!comp) return null;
-      if (!Array.isArray(comp.excludedBranches)) comp.excludedBranches = ['SALT LAKE'];
-      const allBranches = [...new Set([...(branchList || []), ...comp.excludedBranches.map(b => String(b).toUpperCase())])].sort();
-      const ex = new Set(comp.excludedBranches.map(b => String(b).toUpperCase()));
-      return el('div', { class: 'px-3 py-2 flex items-center gap-1.5 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
-        el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Competing'),
-        ...allBranches.map(b => {
-          const off = ex.has(String(b).toUpperCase());
-          return el('button', {
-            class: 'rounded-full px-2.5 py-0.5 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
-            style: off
-              ? { background: 'transparent', color: 'var(--text-muted)', border: '1px dashed var(--border-2)', textDecoration: 'line-through' }
-              : { background: '#1b5e20', color: '#fff', border: '1px solid #1b5e20' },
-            title: off ? b + ' is sitting this comp out — click to include' : 'Click to pull ' + b + ' out of the comp',
-            onclick: () => {
-              const u = String(b).toUpperCase();
-              comp.excludedBranches = off
-                ? comp.excludedBranches.filter(x => String(x).toUpperCase() !== u)
-                : [...comp.excludedBranches, u];
-              logActivity('comp_change', { detail: 'Spring Cleaning: ' + b + (off ? ' back in the comp' : ' pulled from the comp') });
-              saveDemoData();
-              const sx = window.scrollX, sy = window.scrollY;
-              setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0);
-            },
-          }, b);
-        }));
-    })(),
-    // ── MOBILE (per Isaac): the 13-column table is unusable on a phone —
+    // (Competing-branches toggles live in the 🏢 modal on the Comp Window
+    // bar now — per Isaac.)
+    // ── MOBILE (per Isaac): the 13-column table is unusable on a phone —    // ── MOBILE (per Isaac): the 13-column table is unusable on a phone —
     // each branch becomes a stacked card: rank + bugs + points up top, the
     // six scored categories in a two-column grid, revenue strip below. ──
     el('div', { class: 'sm:hidden' },
@@ -21108,20 +21842,8 @@ function indicatorTopGunBoard(sales, proSet) {
           ),
         ),
         el('div', { class: 'shrink-0', style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' } },
-          el('div', { class: 'flex items-center gap-2' },
-            el('button', {
-              class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
-              style: { background: CREAM, color: BLUE },
-              title: 'Export Top Gun (Standings + all accounts by class)',
-              onclick: () => exportTopGunXlsx(sales, proSet),
-            }, '↓ Export'),
-            el('button', {
-              class: 'rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-110',
-              style: { width: '26px', height: '26px', background: CREAM, color: BLUE, fontSize: '13px' },
-              title: 'Top Gun rules',
-              onclick: () => openTopGunHelpModal(),
-            }, 'ⓘ'),
-          ),
+          // Export · Reset · ⓘ moved to the Comp Window bar (per Isaac) —
+          // only the active-window pill stays on the poster header.
           indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', padding: '3px 10px', borderRadius: '999px', background: CREAM, color: BLUE, fontWeight: '900', fontSize: '11px', letterSpacing: '0.02em', whiteSpace: 'nowrap' } }, '📅 ' + indicatorCompWindowStr()),
         ),
       ),
@@ -22984,6 +23706,154 @@ function manageTeamsPanel(opts) {
 }
 
 
+// ── Indicators saved-filter presets (per Isaac) — a FieldRoutes-style
+// ribbon. "+ Save current" snapshots the page's filter state under a name;
+// clicking a chip restores it EXACTLY. Synced through the shared indicator
+// settings, so every admin sees the same ribbon.
+const IND_PRESET_KEYS = [
+  'indicatorAcctStatus',         // Metric: Pending/Serviced vs Total Revenue
+  'indicatorDept',               // Type: All / Sales Rep / Office Staff / Technician
+  'indicatorsRangePreset', 'indicatorsCustomStart', 'indicatorsCustomEnd',
+  'indicatorsGroupBy',
+  'indicatorsComps',
+  '_indicatorRepTierFilter', '_indicatorRepTeamFilter', '_indicatorRepOfficeFilter', '_indicatorRepSort',
+  '_indicatorMixGroup', '_indicatorSubMixOffice',
+  '_indicatorYoYMetric', '_indicatorTrendScope',
+  '_indCtxCollapsed',
+  '_indRepRevMode',
+  '_indHiddenMetrics',
+  '_indHiddenLbCols',
+];
+// Presets are PER USER (per Isaac): stored on this device under the
+// signed-in account, so everyone builds their own set.
+function _indPresetsKey() { return 'ridd_ind_presets_v1::' + ((state.profile && state.profile.id) || 'anon'); }
+function _indPresetsLoad() {
+  try {
+    const p = JSON.parse(localStorage.getItem(_indPresetsKey()) || 'null');
+    if (Array.isArray(p)) return p;
+  } catch { /* fresh */ }
+  // One-time migration: seed from the old SHARED presets if they exist.
+  const legacy = Array.isArray(state._indicatorFilterPresets) ? state._indicatorFilterPresets : [];
+  if (legacy.length) { _indPresetsSave(legacy); return legacy.slice(); }
+  return [];
+}
+function _indPresetsSave(list) { try { localStorage.setItem(_indPresetsKey(), JSON.stringify(list)); } catch { /* private mode */ } }
+function indPresetRibbon() {
+  const presets = _indPresetsLoad();
+  const _snapNow = () => {
+    const s = {};
+    IND_PRESET_KEYS.forEach(k => {
+      const v = state[k];
+      s[k] = (v && typeof v === 'object') ? JSON.parse(JSON.stringify(v)) : (v == null ? '' : v);
+    });
+    return s;
+  };
+  const _matches = (p) => { try { return JSON.stringify(p.snap) === JSON.stringify(_snapNow()); } catch { return false; } };
+  const open = !!state._indPresetsOpen;
+  // FieldRoutes-style ribbon (per Isaac): a slim VERTICAL handle pinned to
+  // the page's left edge, titled "Presets"; clicking it expands the saved-
+  // preset drawer beside it.
+  const tab = el('button', {
+    class: 'cursor-pointer select-none font-bold uppercase',
+    style: {
+      position: 'fixed', left: '0', top: '200px', zIndex: 40,
+      writingMode: 'vertical-rl',
+      fontSize: '10px', letterSpacing: '.14em',
+      padding: '12px 5px',
+      color: open ? 'var(--accent-text)' : 'var(--text-muted)',
+      background: open ? 'var(--accent)' : 'var(--card)',
+      border: '1px solid ' + (open ? 'var(--accent)' : 'var(--border-2)'),
+      borderLeft: 'none',
+      borderRadius: '0 8px 8px 0',
+      boxShadow: 'var(--shadow-lg)',
+    },
+    title: open ? 'Hide the saved presets' : 'Saved presets \u2014 save the whole page setup and jump between views in one click',
+    onclick: () => { state._indPresetsOpen = !state._indPresetsOpen; mountApp(); },
+  }, open ? 'Hide Presets' : 'Presets');
+  const panel = !open ? null : el('div', {
+    class: 'card',
+    style: { position: 'fixed', left: '30px', top: '160px', zIndex: 39, width: '300px', maxHeight: '62vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)', padding: '10px' },
+  },
+    // When the preset you applied has been CHANGED on the page, a Save
+    // button pops in to overwrite it in place (per Isaac) — Save as New
+    // below still forks a fresh one.
+    (() => {
+      const lastP = presets.find(x => x.id === state._indPresetLastApplied);
+      if (!lastP || _matches(lastP)) return null;
+      return el('div', { class: 'flex items-center gap-2 mb-2 rounded-lg border px-2.5 py-2', style: { borderColor: 'var(--accent)', background: 'var(--card-2)' } },
+        el('div', { class: 'flex-1 min-w-0 text-[11px] font-semibold truncate' },
+          'Filters changed from \u201c' + lastP.name + '\u201d'),
+        el('button', {
+          class: 'rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer shrink-0',
+          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          title: 'Overwrite \u201c' + lastP.name + '\u201d with the page\u2019s current setup',
+          onclick: () => {
+            lastP.snap = _snapNow();
+            lastP.at = new Date().toISOString();
+            lastP.by = (state.profile && state.profile.full_name) || lastP.by || '';
+            _indPresetsSave(presets);
+            mountApp();
+            toast('Updated \u201c' + lastP.name + '\u201d', 'success');
+          },
+        }, 'Save'));
+    })(),
+    (() => {
+      const nameIn = el('input', {
+        type: 'text', placeholder: 'Name this preset\u2026',
+        class: 'flex-1 min-w-0 rounded-lg border px-2.5 py-1.5 text-xs',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)' },
+      });
+      return el('div', { class: 'flex items-center gap-2 mb-2' },
+        nameIn,
+        el('button', {
+          class: 'rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer shrink-0',
+          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          title: 'Snapshot the page exactly as it\u2019s set up right now \u2014 metric, type, date range, grouping, leaderboard filters, mix grouping, trend metric',
+          onclick: () => {
+            const name = (nameIn.value || '').trim();
+            if (!name) { toast('Give the preset a name first', 'warn'); return; }
+            const list = presets.filter(x => (x.name || '').toLowerCase() !== name.toLowerCase());
+            list.push({ id: 'p' + Date.now(), name, at: new Date().toISOString(), by: (state.profile && state.profile.full_name) || '', snap: _snapNow() });
+            _indPresetsSave(list);
+            mountApp();
+            toast('Saved \u201c' + name + '\u201d \u2014 click it any time to restore these exact settings', 'success');
+          },
+        }, 'Save as New'));
+    })(),
+    presets.length === 0 ? el('div', { class: 'text-xs italic px-1 py-2', style: { color: 'var(--text-muted)' } },
+      'No presets yet \u2014 set the page up how you like it, name it above, and save.') : null,
+    ...presets.map(p => {
+      const on = _matches(p);
+      return el('div', {
+        class: 'flex items-center gap-2 rounded-lg px-2.5 py-2 cursor-pointer transition hover:brightness-95 border mb-1',
+        style: { borderColor: on ? 'var(--accent)' : 'var(--border)', background: on ? 'var(--card-2)' : 'transparent' },
+        title: 'Apply \u201c' + p.name + '\u201d \u2014 restores the exact page setup saved under it',
+        onclick: () => {
+          Object.entries(p.snap || {}).forEach(([k, v]) => {
+            state[k] = (v && typeof v === 'object') ? JSON.parse(JSON.stringify(v)) : v;
+          });
+          state._indPresetLastApplied = p.id;   // enables the overwrite Save when filters drift
+          mountApp();
+        },
+      },
+        el('div', { class: 'flex-1 min-w-0' },
+          el('div', { class: 'text-xs font-bold truncate', style: on ? { color: 'var(--accent)' } : {} }, p.name + (on ? ' \u2713' : '')),
+          el('div', { class: 'text-[10px] italic', style: { color: 'var(--text-muted)' } },
+            (p.by || '') + (p.at ? ' \u00b7 ' + new Date(p.at).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit', hour: 'numeric', minute: '2-digit' }) : ''))),
+        el('button', {
+          class: 'cursor-pointer shrink-0', style: { color: 'var(--text-subtle)', fontSize: '14px' },
+          title: 'Delete this preset',
+          onclick: (e) => {
+            e.stopPropagation();
+            if (!confirm('Delete the \u201c' + p.name + '\u201d preset?')) return;
+            _indPresetsSave(presets.filter(x => x.id !== p.id));
+            mountApp();
+          },
+        }, '\ud83d\uddd1'));
+    }));
+  return el('div', {}, tab, panel);
+}
+
 function viewIndicators() {
   if (!state.indicatorsData) state.indicatorsData = null;
   // Weekly mode retired — the preset dropdown (This Year default) drives the
@@ -23615,7 +24485,13 @@ function viewIndicators() {
         },
           el('div', { class: 'w-full max-w-[1600px] mx-auto px-4 sm:px-6' },
             el('div', { class: 'flex flex-col gap-2' },
+              // Presets ribbon (per Isaac) — fixed vertical handle on the left
+              // edge; expands into the saved-preset drawer. Out of flow, so
+              // it adds no height to this bar.
+              indPresetRibbon(),
               el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
+        // (🔧 edit mode moved to the GLOBAL top bar — it now drives section
+        // layout on every tab plus the row editing here.)
         // ⛃ FILTERS — Metric / Type / Date / Group live in ONE dropdown so
         // the toolbar is just [Filters] ... [icon cluster]. The panel stays
         // open across re-renders (state._indFiltersOpen) so changing several
@@ -23806,15 +24682,21 @@ function viewIndicators() {
                   onclick: (e) => { e.stopPropagation(); if (state._indicatorRankExclude) state._indicatorRankExclude[_rankExcludeMode()] = []; saveDemoData(); if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {}); reRender(); },
                 }, 'All'),
               ),
-              ...opts.map(b => el('label', {
+              ...opts.map(b => {
+                // Excluded entries read as OUT right here in the dropdown
+                // (faded + struck) — the table columns stay clean, per Isaac.
+                const _out = excludedNow.has(b);
+                return el('label', {
                 class: 'flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs',
                 style: { color: 'var(--text)' },
+                title: _out ? 'Excluded from the Power Ranking — stats still shown on the table, but no points earned' : '',
                 onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
                 onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
               },
-                el('input', { type: 'checkbox', checked: !excludedNow.has(b), onchange: () => { toggleRankExcluded(b); reRender(); } }),
-                el('span', { class: 'truncate' }, titleCase(b)),
-              )),
+                el('input', { type: 'checkbox', checked: !_out, onchange: () => { toggleRankExcluded(b); reRender(); } }),
+                el('span', { class: 'truncate', style: _out ? { opacity: '.45', textDecoration: 'line-through' } : {} }, titleCase(b)),
+              );
+              }),
             );
             const icon = iconTrophy();
             icon.style.width = '15px'; icon.style.height = '15px';
@@ -24167,6 +25049,25 @@ function viewIndicators() {
     (state.indicatorsComps && !isNrlaComp() ? (() => {
       const cf = state._indicatorCompFilter || (state._indicatorCompFilter = { start: '', end: '' });
       const apply = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
+      // Spring Cleaning: the bar hosts the four ROUND windows — the comp
+      // window derives first-set → last-set date (separate dates were
+      // redundant, per Isaac).
+      if (isSpringCleaningComp()) {
+        const comp = getActiveComp();
+        if (!Array.isArray(comp.rounds) || comp.rounds.length === 0) comp.rounds = SPRING_DEFAULT_ROUNDS.map(r => ({ ...r }));
+        const rIn = (r, key, i) => el('input', {
+          type: 'date', value: r[key] || '',
+          class: 'rounded border',
+          style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', fontSize: '10px', padding: '1px 2px', width: '106px' },
+          onchange: (e) => { r[key] = e.target.value; logActivity('comp_change', { detail: 'Spring round ' + (i + 1) + ' ' + key + ' → ' + r[key] }); saveDemoData(); apply(); },
+        });
+        const ds = comp.rounds.flatMap(r => [r.start, r.end]).filter(Boolean).sort();
+        return el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
+          ...comp.rounds.map((r, i) => el('span', { class: 'flex items-center gap-1' },
+            el('span', { class: 'text-[10px] font-black', style: { color: 'var(--text-subtle)' } }, 'R' + (i + 1)),
+            rIn(r, 'start', i), el('span', { class: 'text-muted-' }, '–'), rIn(r, 'end', i))));
+      }
       const dateInput = (key) => el('input', {
         type: 'date', value: cf[key] || '',
         class: 'rounded border px-2 py-1 text-xs',
@@ -24179,21 +25080,28 @@ function viewIndicators() {
         el('span', { class: 'text-muted-' }, '→'),
         dateInput('end'),
         el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '· date range for the selected competition'),
+        getActiveComp().scoring === 'avg_pest_initial' ? el('button', {
+          class: 'ml-auto rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-95 border',
+          style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', color: 'var(--text)', fontSize: '13px', flexShrink: '0' },
+          title: 'Competition rules',
+          onclick: () => openAvgPestRaffleHelpModal(),
+        }, 'ⓘ') : null,
       );
     })() : null),
 
     // ── Spring Cleaning scoreboard — when that competition is active. Uses
     // the Comp Window above as the round. ──
     (state.indicatorsComps && isSpringCleaningComp() ? (() => {
-      const cf = state._indicatorCompFilter || {};
-      const bounds = (cf.start && cf.end) ? { s: new Date(cf.start + 'T00:00'), e: new Date(cf.end + 'T23:59') } : null;
+      const comp = getActiveComp();
+      const _ds = (comp.rounds || []).flatMap(r => [r.start, r.end]).filter(Boolean).sort();
+      const bounds = _ds.length ? { s: new Date(_ds[0] + 'T00:00'), e: new Date(_ds[_ds.length - 1] + 'T23:59') } : null;
       const windowed = bounds
         ? (state._indicatorRawSales || []).filter(s => { const d = _parseIndicatorDay(s); return d && d >= bounds.s && d <= bounds.e; })
         : (state._indicatorRawSales || []);
       // Spring Cleaning is always branch (office) level and D2D-only, regardless
       // of the app's Branch/Teams toggle.
       const offices = [...new Set(windowed.filter(s => _indicatorDeptOf(s) === 'd2d').map(s => s.office).filter(Boolean))];
-      const winLabel = (cf.start && cf.end) ? cf.start + ' → ' + cf.end : 'all dates';
+      const winLabel = _ds.length ? _ds[0] + ' → ' + _ds[_ds.length - 1] : 'all dates';
       // Live board on top (the round you're watching), standings poster
       // directly underneath.
       return el('div', { class: 'flex flex-col gap-4' },
@@ -24276,11 +25184,35 @@ function viewIndicators() {
         if (_deptT === 'office' && m.key === 'pra') return false;
         return true;
       });
+      // Hidden rows (per Isaac): the ✕ on a row's label hides that metric
+      // FOR THE CURRENT TYPE ONLY (All / Sales Rep / Office Staff /
+      // Technician each keep their own list) — the "Hidden rows" strip at
+      // the bottom of the table adds them back. Synced to every admin.
+      const _hm = (state._indHiddenMetrics && typeof state._indHiddenMetrics === 'object') ? state._indHiddenMetrics : (state._indHiddenMetrics = {});
+      const _hiddenKeys = Array.isArray(_hm[_deptT]) ? _hm[_deptT] : [];
+      const _hiddenMetricDefs = _visibleMetrics.filter(m => _hiddenKeys.includes(m.key));
+      const _shownMetrics = _visibleMetrics.filter(m => !_hiddenKeys.includes(m.key));
+      const _saveHidden = (keys) => {
+        _hm[_deptT] = keys;
+        saveDemoData();
+        if (typeof saveIndicatorState === 'function') saveIndicatorState();
+        mountApp();
+      };
+      // The three hard-coded context rows are hideable too (per Isaac) —
+      // they ride the same hidden list under pseudo-keys.
+      const _CTX_EXTRA_ROWS = [['_pct_rev', '% of Revenue'], ['_reps_sale', 'Reps W/ A Sale'], ['_reps20k', 'Reps > $20K']];
+      const _rowHidden = (key) => _hiddenKeys.includes(key);
+      const _rowXBtn = (key) => (isAdminRole(state.profile?.role) && state._editMode) ? el('span', {
+        class: 'ml-1.5 cursor-pointer select-none',
+        style: { color: '#B91C1C', fontSize: '10px', fontWeight: '900' },
+        title: 'Remove this row for the current Type — restore it from the "Hidden rows" strip',
+        onclick: (e) => { e.stopPropagation(); _saveHidden([..._hiddenKeys, key]); },
+      }, '\u2715') : null;
       // SCORED metrics on top, CONTEXT metrics below a bold cutoff line
       // (per Isaac) — the same exclusion set Power Rank scoring uses.
       const _PR_CTX = new Set(['new_revenue', 'renewal_revenue', 'audit_pct', 'last_resort_pct']);
-      const tableMetrics = [..._visibleMetrics.filter(m => !_PR_CTX.has(m.key)), ..._visibleMetrics.filter(m => _PR_CTX.has(m.key))];
-      const _prDividerAt = _visibleMetrics.some(m => _PR_CTX.has(m.key)) ? tableMetrics.filter(m => !_PR_CTX.has(m.key)).length : null;
+      const tableMetrics = [..._shownMetrics.filter(m => !_PR_CTX.has(m.key)), ..._shownMetrics.filter(m => _PR_CTX.has(m.key))];
+      const _prDividerAt = _shownMetrics.some(m => _PR_CTX.has(m.key)) ? tableMetrics.filter(m => !_PR_CTX.has(m.key)).length : null;
       return el('div', { class: 'card overflow-hidden' },
         el('div', { class: 'scroll-x' },
           el('table', { class: 'w-full text-[12px]' },
@@ -24294,6 +25226,10 @@ function viewIndicators() {
                 ...sortedBranches.map((b, i) => (() => {
                   const _lbl = b.split(' ').map(w => (w[0] || '') + w.slice(1).toLowerCase()).join(' ');
                   const _canOpen = !!(_rangeGroups && (_rangeGroups[b] || []).length);
+                  // Rank-excluded columns (trophy picker) read as OUT of the
+                  // competition: faded header with a strike through the name.
+                  // (Excluded columns are NOT faded on the table anymore —
+                  // the exclusion reads in the 🏆 dropdown instead, per Isaac.)
                   return el('th', {
                     class: 'text-center px-3 py-2 text-[10px] uppercase tracking-wider font-bold' + (_canOpen ? ' cursor-pointer select-none' : ''),
                     style: { background: getGroupColor(b), color: groupHeaderTextColor(getGroupColor(b)), minWidth: '100px' },
@@ -24325,12 +25261,24 @@ function viewIndicators() {
                 const isSorting = sort.key === m.key;
                 // Bold cutoff: everything above counts toward Power Rank,
                 // everything below is context.
+                // The divider bar IS the collapse control (per Isaac): click
+                // it to fold every context row below — the Power Rank row
+                // always stays.
                 const _divider = (_prDividerAt != null && _mi === _prDividerAt) ? [el('tr', {},
                   el('td', {
                     colspan: String(sortedBranches.length + 2),
-                    class: 'px-3 py-1 text-[9px] uppercase tracking-widest font-bold select-none',
+                    class: 'px-3 py-1 text-[9px] uppercase tracking-widest font-bold select-none cursor-pointer',
                     style: { borderTop: '3px solid var(--text)', background: 'var(--card-2)', color: 'var(--text-muted)' },
-                  }, '\u25b2 counted in Power Rank \u00b7 \u25bc context only'))] : [];
+                    title: state._indCtxCollapsed ? 'Show the context rows' : 'Collapse the context rows \u2014 only Power Rank stays below the metrics',
+                    onclick: () => {
+                      state._indCtxCollapsed = !state._indCtxCollapsed;
+                      try { localStorage.setItem('ridd_ind_ctx_collapsed', state._indCtxCollapsed ? '1' : '0'); } catch { /* private mode */ }
+                      mountApp();
+                    },
+                  }, '\u25b2 counted in Power Rank \u00b7 ' + (state._indCtxCollapsed ? '\u25b8' : '\u25be') + ' context only' + (state._indCtxCollapsed ? ' \u2014 click to expand' : '')))] : [];
+                // Collapsed: context metrics (Audit %, Last Resort %, …) fold
+                // away too — only the divider itself stays as the handle.
+                if (state._indCtxCollapsed && _PR_CTX.has(m.key)) return _divider;
                 return [..._divider, el('tr', { class: 'border-t border-' + (isSorting ? ' font-bold' : '') },
                   (() => {
                     const cell = el('td', {
@@ -24338,6 +25286,14 @@ function viewIndicators() {
                       style: { background: 'var(--card)', zIndex: 1, cursor: 'help', color: isSorting ? 'var(--accent)' : '' },
                     },
                       indicatorMetricLabel(m),
+                      // ✕ hides this row for the current Type (per Isaac) —
+                      // add it back from the strip under the table.
+                      (isAdminRole(state.profile?.role) && state._editMode) ? el('span', {
+                        class: 'ml-1.5 cursor-pointer select-none',
+                        style: { color: '#B91C1C', fontSize: '10px', fontWeight: '900' },
+                        title: 'Remove this row for the current Type — restore it from the "Hidden rows" strip under the table',
+                        onclick: (e) => { e.stopPropagation(); _saveHidden([..._hiddenKeys, m.key]); },
+                      }, '\u2715') : null,
                     );
                     attachExplainer(cell, { title: indicatorMetricLabel(m), desc: indicatorMetricHelp(m.key) });
                     return cell;
@@ -24361,34 +25317,15 @@ function viewIndicators() {
               // Reps > $20K): the ▾ on the right folds them away so the
               // table reads scored metrics → Power Rank directly. Sticky
               // per browser via localStorage.
-              state._indCtxCollapsed ? (() => {
-                const expand = () => {
-                  state._indCtxCollapsed = false;
-                  try { localStorage.setItem('ridd_ind_ctx_collapsed', '0'); } catch { /* private mode */ }
-                  mountApp();
-                };
-                return el('tr', { class: 'border-t border-' },
-                  el('td', {
-                    class: 'px-3 py-1.5 text-[11px] sticky left-0 select-none cursor-pointer',
-                    style: { background: 'var(--card)', zIndex: 1, color: 'var(--text-muted)' },
-                    title: 'Show the context rows (% of Revenue · Reps W/ A Sale · Reps > $20K)',
-                    onclick: expand,
-                  }, '▸ Context rows'),
-                  el('td', {
-                    colspan: String(sortedBranches.length + 1),
-                    class: 'px-3 py-1.5 text-right text-[11px] cursor-pointer select-none',
-                    style: { color: 'var(--text-muted)' },
-                    title: 'Show the context rows',
-                    onclick: expand,
-                  }, '▸'),
-                );
-              })() : null,
-              state._indCtxCollapsed ? null : (() => {
+              // (collapsed-state expand handle lives on the divider bar now)
+              (state._indCtxCollapsed || _rowHidden('_pct_rev')) ? null : (() => {
                 const totRev = activeBranches.reduce((a, b) => a + (branchData[b]?.revenue || 0), 0);
                 const cell = el('td', {
                   class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
                   style: { background: 'var(--card)', zIndex: 1, cursor: 'help' },
-                }, '% of Revenue');
+                },
+                  // (collapse toggle lives on the divider bar now — per Isaac)
+                  '% of Revenue', _rowXBtn('_pct_rev'));
                 attachExplainer(cell, { title: '% of Revenue', desc: 'This column\u2019s revenue \u00f7 the RIDD total for the same window \u2014 the share of company production each ' + (groupBy === 'dept' ? 'department' : groupBy === 'teams' ? 'team' : 'branch') + ' is contributing.' });
                 return el('tr', { class: 'border-t border-' },
                   cell,
@@ -24396,21 +25333,10 @@ function viewIndicators() {
                     (branchData[b] && totRev > 0) ? ((branchData[b].revenue || 0) / totRev * 100).toFixed(1) + '%' : '—',
                   )),
                   el('td', { class: 'px-3 py-2 text-center tabular-nums font-bold whitespace-nowrap' },
-                    totRev > 0 ? '100%' : '—',
-                    el('span', {
-                      class: 'ml-2 cursor-pointer select-none text-xs',
-                      style: { color: 'var(--text-muted)' },
-                      title: 'Collapse the context rows — only Power Rank stays below the metrics',
-                      onclick: (e) => {
-                        e.stopPropagation();
-                        state._indCtxCollapsed = true;
-                        try { localStorage.setItem('ridd_ind_ctx_collapsed', '1'); } catch { /* private mode */ }
-                        mountApp();
-                      },
-                    }, '▾')),
+                    totRev > 0 ? '100%' : '—'),
                 );
               })(),
-              state._indCtxCollapsed ? null : (() => {
+              (state._indCtxCollapsed || _rowHidden('_reps_sale')) ? null : (() => {
                 const isSortingReps = sort.key === 'reps';
                 const totalReps = activeBranches.reduce((a, b) => a + (branchData[b]?.reps || 0), 0);
                 return el('tr', { class: 'border-t border-' + (isSortingReps ? ' font-bold' : '') },
@@ -24419,7 +25345,7 @@ function viewIndicators() {
                       class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
                       style: { background: 'var(--card)', zIndex: 1, cursor: 'help', color: isSortingReps ? 'var(--accent)' : '' },
                     },
-                      'Reps W/ A Sale',
+                      'Reps W/ A Sale', _rowXBtn('_reps_sale'),
                     );
                     attachExplainer(cell, { title: 'Reps W/ A Sale', desc: indicatorMetricHelp('reps') });
                     return cell;
@@ -24437,12 +25363,12 @@ function viewIndicators() {
               // Reps > $20K — the PRA denominator. Context only, never
               // scored: shows how many reps actually cleared the $20K
               // qualification bar in each column's window.
-              state._indCtxCollapsed ? null : (() => {
+              (state._indCtxCollapsed || _rowHidden('_reps20k')) ? null : (() => {
                 const total20 = activeBranches.reduce((a, b) => a + (branchData[b]?.reps20k ?? branchData[b]?.reps ?? 0), 0);
                 const cell = el('td', {
                   class: 'px-3 py-2 font-semibold text-xs sticky left-0 select-none',
                   style: { background: 'var(--card)', zIndex: 1, cursor: 'help' },
-                }, 'Reps > $20K');
+                }, 'Reps > $20K', _rowXBtn('_reps20k'));
                 attachExplainer(cell, { title: 'Reps > $20K', desc: indicatorMetricHelp('reps20k') });
                 return el('tr', { class: 'border-t border-' },
                   cell,
@@ -24455,6 +25381,28 @@ function viewIndicators() {
                   )),
                   el('td', { class: 'px-3 py-2 text-center tabular-nums font-bold' }, fmt.int(total20)),
                 );
+              })(),
+              // Restore strip — one chip per hidden metric for this Type.
+              // Sits right above Power Rank (per Isaac).
+              (() => {
+                const _hiddenChips = [
+                  ..._hiddenMetricDefs.map(m => [m.key, indicatorMetricLabel(m)]),
+                  ..._CTX_EXTRA_ROWS.filter(([k]) => _hiddenKeys.includes(k)),
+                ];
+                if (!_hiddenChips.length || !isAdminRole(state.profile?.role) || !state._editMode) return null;
+                return el('tr', {},
+                el('td', {
+                  colspan: String(sortedBranches.length + 2),
+                  class: 'px-3 py-1.5 text-[10px]',
+                  style: { background: 'var(--card-2)', color: 'var(--text-muted)', borderTop: '1px solid var(--border)' },
+                },
+                  el('span', { class: 'font-bold uppercase tracking-widest text-[9px] mr-2' }, 'Hidden rows:'),
+                  ..._hiddenChips.map(([k, lbl]) => el('button', {
+                    class: 'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold cursor-pointer transition hover:brightness-95 mr-1.5',
+                    style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
+                    title: 'Add \u201c' + lbl + '\u201d back to the table',
+                    onclick: () => _saveHidden(_hiddenKeys.filter(x => x !== k)),
+                  }, '+ ' + lbl))));
               })(),
               // Power Rank row — shows each branch's overall rank (1 = best).
               // Underlying total points still drive the ranking and remain
@@ -25179,12 +26127,7 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
               indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#1D1D1D', opacity: '0.7', marginTop: '3px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
             ),
           ),
-          el('button', {
-            class: 'shrink-0 rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-110',
-            style: { width: '26px', height: '26px', background: '#1D1D1D', color: '#8DC63F', fontSize: '13px' },
-            title: 'Competition rules',
-            onclick: () => openAvgPestRaffleHelpModal(),
-          }, 'ⓘ'),
+          // (ⓘ rules button rides the shared Comp Window bar now — per Isaac)
         ),
       ),
       // Date window now lives in the shared Comp Window bar at the top.
@@ -26343,6 +27286,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   (() => {
     const tierBuckets = { rookie: [], vet: [] };
     let untagged = 0;
+    const untaggedReps = [];   // for the badge drill-down (per Isaac)
     // DOOR-TO-DOOR ONLY — rookie/vet is a knocking cohort. Office staff and
     // technician production never counts here, no matter what the page's
     // Type filter says: each rep's sales are re-fenced to Sales Rep dept and
@@ -26354,7 +27298,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       allBucket.push({ ...r, sales: d2dSales });
       const t = getRepTier(r.name);
       if (t === 'rookie' || t === 'vet') tierBuckets[t].push({ ...r, sales: d2dSales });
-      else untagged++;
+      else { untagged++; untaggedReps.push({ ...r, sales: d2dSales }); }
     });
 
     const aggForTier = (reps) => {
@@ -26363,6 +27307,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       const pestEligible = sales.filter(s => !REP_AVG_PEST_EXCLUDE.test(s.subscription || ''));
       const avgInit = pestEligible.length > 0
         ? pestEligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / pestEligible.length
+        : 0;
+      // Avg Initial across ALL subscriptions (no pest exclusions) — per Isaac.
+      const avgInitial = sales.length > 0
+        ? sales.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / sales.length
         : 0;
       const twelve = sales.filter(s => Number(s.contract) === 12).length;
       const multi  = sales.filter(s => Number(s.contract) > 12).length;
@@ -26374,13 +27322,21 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // stay honest next to the gated average.
       const reps20k = reps.filter(r =>
         (r.sales || []).reduce((a, s) => a + Number(s.contractValue || 0), 0) > 20000).length;
+      // Reps w/ a serviced account (per Isaac) — same serviced evidence the
+      // P/S gate uses: ≥1 completed service OR a serviced date. PRA·Serviced
+      // divides the cohort's revenue by THAT rep count.
+      const _svcEv = (s) => (Number(s.services) || 0) > 0 || !!s.servicedDate;
+      const repsServiced = reps.filter(r => (r.sales || []).some(_svcEv)).length;
       return {
         reps:    reps.length,
         reps20k,
+        repsServiced,
         sold:    sales.length,
         revenue: totalRevenue,
         avgInit,
+        avgInitial,
         pra:     reps20k > 0 ? totalRevenue / reps20k : 0,
+        praServiced: repsServiced > 0 ? totalRevenue / repsServiced : 0,
         acv:     sales.length > 0 ? totalRevenue / sales.length : 0,
         myPct:   myDen > 0 ? multi / myDen : 0,
         apPct:   sales.length > 0 ? apYes / sales.length : 0,
@@ -26407,22 +27363,38 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const fmtVal = {
       sold:    v => fmt.int(v),
       reps20k: v => fmt.int(v),
+      repsServiced: v => fmt.int(v),
+      praServiced:  v => fmt.usd0(v),
       revenue: v => fmt.usd0(v),
       avgInit: v => fmt.usd0(v),
+      avgInitial: v => fmt.usd0(v),
       pra:     v => fmt.usd0(v),
       acv:     v => fmt.usd0(v),
       myPct:   v => (v * 100).toFixed(1) + '%',
       apPct:   v => (v * 100).toFixed(1) + '%',
     };
-    const ROW_DEFS = [
-      ['sold',    'Subscriptions'],
-      ['revenue', 'Revenue'],
-      ['avgInit', 'Avg Pest Initial'],
-      ['reps20k', 'Reps > $20K'],
-      ['pra',     'PRA'],
-      ['acv',     'ACV'],
-      ['myPct',   'Multi-Year %'],
-      ['apPct',   'Auto-Pay %'],
+    // Metrics grouped into labeled sections (per Isaac) — the flat list got
+    // messy as the stat count grew. Same 3-column compare inside each band.
+    const ROW_SECTIONS = [
+      ['Volume', [
+        ['sold',    'Subscriptions'],
+        ['revenue', 'Revenue'],
+      ]],
+      ['Pricing', [
+        ['avgInitial', 'Avg Initial'],
+        ['avgInit',    'Avg Pest Initial'],
+        ['acv',        'ACV'],
+      ]],
+      ['Per Rep', [
+        ['reps20k',      'Reps > $20K'],
+        ['pra',          'PRA'],
+        ['repsServiced', 'Reps W/ Serviced'],
+        ['praServiced',  'PRA \u00b7 Serviced'],
+      ]],
+      ['Quality', [
+        ['myPct', 'Multi-Year %'],
+        ['apPct', 'Auto-Pay %'],
+      ]],
     ];
 
     const ROOKIE_COLOR = '#0EA5E9';
@@ -26493,17 +27465,44 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const tierCard = el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('h3', { class: 'text-base font-bold' }, '🎓 Tier Metrics'),
-          el('p', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Cohort metrics for the current window. Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row only.'),
+          el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA · Serviced divides by Reps W/ Serviced.' }, '🎓 Class Metrics'),
         ),
-        untagged > 0 && el('div', {
-          class: 'text-[10px] italic px-2 py-1 rounded',
-          style: { color: 'var(--text-muted)', background: 'var(--card-2)' },
+        untagged > 0 && el('button', {
+          class: 'text-[10px] italic px-2 py-1 rounded border cursor-pointer transition hover:brightness-95',
+          style: { color: 'var(--text-muted)', background: 'var(--card-2)', borderColor: 'var(--border-2)' },
+          title: 'Click to see exactly which reps have no Rookie/Vet class',
+          onclick: () => {
+            const overlay = el('div', { class: 'modal-overlay' });
+            const close = () => overlay.remove();
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+            const _revOf = (r2) => r2.sales.reduce((x, s) => x + Number(s.contractValue || 0), 0);
+            const rows = untaggedReps.slice().sort((a, b) => _revOf(b) - _revOf(a));
+            overlay.append(el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+              el('div', { class: 'flex items-center justify-between px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
+                el('div', {},
+                  el('h2', { class: 'text-base font-bold' }, 'Untagged reps'),
+                  el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, 'No Rookie/Vet class \u2014 not counted in Class Metrics. Tag them in Manage Teams.')),
+                el('button', { class: 'text-2xl leading-none cursor-pointer', onclick: close }, '\u00d7')),
+              el('div', { class: 'overflow-auto' }, el('table', { class: 'w-full text-sm' },
+                el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+                  el('th', { class: 'px-4 py-2' }, 'Rep'),
+                  el('th', { class: 'px-4 py-2' }, 'Office'),
+                  el('th', { class: 'px-4 py-2 text-right' }, 'Subs'),
+                  el('th', { class: 'px-4 py-2 text-right' }, 'Revenue'))),
+                el('tbody', {}, ...rows.map(r2 => {
+                  const office = r2.office || (r2.sales[0] && r2.sales[0].office) || '\u2014';
+                  return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+                    el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, r2.name),
+                    el('td', { class: 'px-4 py-2 text-muted- whitespace-nowrap' }, String(office).toLowerCase().replace(/\b\w/g, c => c.toUpperCase())),
+                    el('td', { class: 'px-4 py-2 text-right tabular-nums' }, fmt.int(r2.sales.length)),
+                    el('td', { class: 'px-4 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(_revOf(r2))));
+                }))))));
+            document.body.append(overlay);
+          },
         }, untagged + ' rep' + (untagged === 1 ? '' : 's') + ' untagged · not counted here'),
       ),
       el('div', { class: 'grid items-center gap-2 px-3', style: { gridTemplateColumns: 'minmax(88px,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)' } },
-        el('div'),
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, 'Class'),
         headerCell('Rookie', ROOKIE_COLOR, rookie.reps),
         headerCell('Vet', VET_COLOR, vet.reps),
         headerCell('All', ALL_COLOR, alls.reps),
@@ -26511,7 +27510,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       (rookie.reps === 0 && vet.reps === 0)
         ? el('div', { class: 'p-6 text-center text-xs italic', style: { color: 'var(--text-muted)' } },
             'No tagged reps in this window. Tag reps as Rookie or Vet in Manage Teams.')
-        : el('div', {}, ...ROW_DEFS.map(([key, label]) => tierRow(label, key))),
+        : el('div', {}, ...ROW_SECTIONS.flatMap(([sec, defs]) => [
+            el('div', { class: 'px-3 py-1 text-[9px] uppercase tracking-widest font-bold', style: { background: 'var(--card-2)', color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } }, sec),
+            ...defs.map(([key, label]) => tierRow(label, key)),
+          ])),
     );
     _tierCardSection = tierCard;
   })();
@@ -26605,7 +27607,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // they don't push the regular metrics off-screen. Sort dir 'date' picks
     // the rep whose biggest record happened MOST RECENTLY; 'amount' picks
     // the biggest dollar record. Toggle by re-clicking the header.
-    { key: 'bestDayTime', label: 'Best Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
+    // Bold left rule (also on the header th below) breaks the Best Day/Week/
+    // Month records out from the stat columns — per Isaac.
+    { key: 'bestDayTime', label: 'Best Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap', style: { borderLeft: '1px solid var(--border-2)' } },
         r.bestDay > 0
           ? el('div', {},
               el('div', { class: 'font-semibold' }, fmt.usd0(r.bestDay)),
@@ -26652,12 +27656,40 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     );
   }
 
+  // Hideable COLUMNS (per Isaac, edit mode): ✕ on a header hides that
+  // column for the current Type; the "Hidden columns" strip in the header
+  // row brings them back. Same synced storage pattern as the Indicators
+  // hidden rows. # and Rep never hide.
+  const _lbHm = (state._indHiddenLbCols && typeof state._indHiddenLbCols === 'object') ? state._indHiddenLbCols : (state._indHiddenLbCols = {});
+  const _lbDept = state.indicatorDept || 'all';
+  const _lbHiddenKeys = Array.isArray(_lbHm[_lbDept]) ? _lbHm[_lbDept] : [];
+  const _lbHiddenDefs = repCols.filter(c => _lbHiddenKeys.includes(c.key));
+  repCols = repCols.filter(c => !_lbHiddenKeys.includes(c.key));
+  const _lbSaveHidden = (keys) => {
+    _lbHm[_lbDept] = keys;
+    saveDemoData();
+    if (typeof saveIndicatorState === 'function') saveIndicatorState();
+    mountApp();
+  };
+  // Sorting by a column that just got hidden strands the sort — heal it.
+  if (state._indicatorRepSort && _lbHiddenKeys.includes(state._indicatorRepSort.key)) {
+    state._indicatorRepSort = { key: 'revenue', dir: 'desc' };
+  }
+
   // Apply office + team + tier + name-search filters. Reps flipped to
   // Inactive in Manage Teams drop out unconditionally — they're already
   // off the team, no point ranking them. (Same gate Coach Mode uses.)
   const officeFilter = state._indicatorRepOfficeFilter;
-  const teamFilter   = state._indicatorRepTeamFilter;
-  const tierFilter   = state._indicatorRepTierFilter;
+  let teamFilter   = state._indicatorRepTeamFilter;
+  let tierFilter   = state._indicatorRepTierFilter;
+  // "Unassigned" only exists while some ACTIVE rep actually lacks a tier /
+  // team (inactive reps never make the board, so they don't count — per
+  // Isaac). If a stale Unassigned filter would strand the board on
+  // "0 of N reps", clear it.
+  const _activeUnassignedTier = allReps.some(r => !r.tier && isRepActive(r.name));
+  const _activeUnassignedTeam = allReps.some(r => !r.team && isRepActive(r.name));
+  if (tierFilter === '__unassigned__' && !_activeUnassignedTier) tierFilter = state._indicatorRepTierFilter = '';
+  if (teamFilter === '__unassigned__' && !_activeUnassignedTeam) teamFilter = state._indicatorRepTeamFilter = '';
   const nameSearch   = (state._indicatorRepNameSearch || '').trim().toLowerCase();
   const filteredReps = allReps.filter(r => {
     if (!isRepActive(r.name)) return false;
@@ -26743,7 +27775,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   }
 
   sections.push(
-    el('div', { class: 'card overflow-hidden', 'data-section': 'rep-leaderboard' },
+    // overflow-visible while the Filters menu is open so the dropdown isn't
+    // clipped at the card edge (per Isaac).
+    el('div', { class: 'card' + (state._repCancelMenuOpen ? '' : ' overflow-hidden'), 'data-section': 'rep-leaderboard' },
       el('div', { class: 'px-5 py-3 border-b flex items-center justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
           el('h3', { class: 'text-base font-bold' }, 'Rep Leaderboard'),
@@ -26845,7 +27879,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             if (state._repCancelMenuOpen) {
               const secLabel = (t) => el('div', { class: 'px-2.5 pt-2 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t);
               // Tier pills (All / Rookie / Vet / Unassigned)
-              const hasUnassignedTier = allReps.some(r => !r.tier);
+              const hasUnassignedTier = _activeUnassignedTier;
               const pillOpts = [
                 { id: '', label: 'All' },
                 ...REP_TIERS.map(t => ({ id: t.id, label: t.label, color: t.color })),
@@ -26863,7 +27897,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               // Team (admin roster tool — hidden from reps) + Office selects
               const teamSel = isAdminRole(state.profile.role) ? (() => {
                 const teams = distinctTeams().filter(t => !isTeamExcluded(t));
-                const hasUnassigned = allReps.some(r => !r.team);
+                const hasUnassigned = _activeUnassignedTeam;
                 return el('select', {
                   class: 'rounded-lg border px-3 py-1.5 text-xs cursor-pointer w-full',
                   style: { borderColor: 'var(--border-2)' },
@@ -26938,7 +27972,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 const padLeft = c.key === 'cancelPct' ? 'pl-2 pr-5' : 'px-2';
                 return el('th', {
                   class: align + ' ' + padLeft + ' py-2 font-semibold cursor-pointer select-none hover:text-default transition',
-                  style: isSorting ? { color: 'var(--accent)' } : {},
+                  style: isSorting ? { color: 'var(--accent)' } : {},   // (bold Best-Day rule starts on the body rows, not the header — per Isaac)
                   onclick: () => {
                     // Record columns cycle between two custom sort modes —
                     // date (most recent first) and amount (biggest $ first)
@@ -26954,9 +27988,29 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                     }
                     mountApp();
                   },
-                }, c.label + arrow);
+                }, c.label + arrow,
+                  (isAdminRole(state.profile?.role) && state._editMode && c.key !== 'name') ? el('span', {
+                    class: 'ml-1 cursor-pointer select-none',
+                    style: { color: '#B91C1C', fontSize: '10px', fontWeight: '900' },
+                    title: 'Remove this column for the current Type — restore it from the "Hidden columns" strip',
+                    onclick: (e) => { e.stopPropagation(); _lbSaveHidden([..._lbHiddenKeys, c.key]); },
+                  }, '\u2715') : null);
               }),
             ),
+            // Restore strip — one chip per hidden column for this Type.
+            (isAdminRole(state.profile?.role) && state._editMode && _lbHiddenDefs.length) ? el('tr', {},
+              el('th', {
+                colspan: String(repCols.length + 1),
+                class: 'text-left px-5 py-1.5 text-[10px] font-normal',
+                style: { background: 'var(--card-2)', color: 'var(--text-muted)', textTransform: 'none', letterSpacing: 'normal' },
+              },
+                el('span', { class: 'font-bold uppercase tracking-widest text-[9px] mr-2' }, 'Hidden columns:'),
+                ..._lbHiddenDefs.map(c => el('button', {
+                  class: 'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold cursor-pointer transition hover:brightness-95 mr-1.5',
+                  style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
+                  title: 'Add \u201c' + c.label + '\u201d back to the leaderboard',
+                  onclick: () => _lbSaveHidden(_lbHiddenKeys.filter(k => k !== c.key)),
+                }, '+ ' + c.label)))) : null,
           ),
           el('tbody', {},
             ...(displayReps.length === 0
@@ -27196,8 +28250,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       // Header row
       el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5' },
         el('div', { class: 'w-[200px] sm:w-[240px] shrink-0', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 2 } }, opts.firstCol || 'Subscription'),
-        el('div', { class: 'flex-1' }),   // bar track stretches with the card now — no dead gutter
-        el('div', { class: 'w-14 text-right shrink-0' }, 'Count'),
+        el('div', { class: 'flex-1' }),   // bar track stretches with the card now — count rides inside the bar
         el('div', { class: 'w-14 text-right shrink-0' }, '% Mix'),
         el('div', { class: 'w-24 text-right shrink-0' }, 'Revenue'),
         el('div', { class: 'w-16 text-right shrink-0' }, 'ACV'),
@@ -27209,19 +28262,52 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       topSubscriptions.length === 0
         ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, 'No accounts in this office.')
         : el('div', { class: 'flex flex-col' },
+            // TOTAL reference row on top (per Isaac) — full-width dark bar,
+            // count riding inside it, blended metrics across ALL accounts.
+            (() => {
+              let _rev = 0, _init = 0, _mu = 0, _tw = 0, _ap = 0, _cx = 0;
+              subSales.forEach(s => {
+                _rev += s.contractValue; _init += Number(s.initialPrice) || 0;
+                if (Number(s.contract) >= 18) _mu++;
+                if (Number(s.contract) === 12) _tw++;
+                if (s.autoPay && s.autoPay !== 'No') _ap++;
+                if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) _cx++;
+              });
+              const _n = totalSubCount;
+              const _my = (_mu + _tw) > 0 ? _mu / (_mu + _tw) : null;
+              const _attr = _n > 0 ? _cx / _n : 0;
+              return el('div', { class: 'flex items-center gap-3 text-[13px] py-2.5', style: { borderBottom: '3px solid var(--text)' } },
+                el('div', { class: 'w-[200px] sm:w-[240px] truncate font-black shrink-0', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, 'Total'),
+                el('div', { class: 'flex-1 rounded-full', style: { background: 'var(--text)', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
+                  el('span', { class: 'tabular-nums font-black', style: { color: 'var(--accent)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(_n))),
+                el('div', { class: 'w-14 text-right tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, '100%'),
+                el('div', { class: 'w-24 text-right tabular-nums shrink-0 font-black' }, fmt.usd0(_rev)),
+                el('div', { class: 'w-16 text-right tabular-nums shrink-0 font-bold' }, _n > 0 ? fmt.usd0(_rev / _n) : '\u2014'),
+                el('div', { class: 'w-16 text-right tabular-nums shrink-0 font-bold' }, _n > 0 ? fmt.usd0(_init / _n) : '\u2014'),
+                el('div', { class: 'w-12 text-right tabular-nums shrink-0 font-bold' }, _my == null ? '\u2014' : (_my * 100).toFixed(0) + '%'),
+                el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-bold' }, _n > 0 ? (_ap / _n * 100).toFixed(0) + '%' : '\u2014'),
+                el('div', { class: 'w-14 text-right tabular-nums font-black shrink-0', style: { color: _attr >= 0.10 ? '#DC2626' : _attr >= 0.05 ? '#D97706' : '#5F8A1F' } }, (_attr * 100).toFixed(1) + '%'));
+            })(),
             ...(() => {
               // Bars scale to the BIGGEST subscription (relative), so the #1
               // row runs full width and the rest read proportionally — the
               // absolute-share bars were near-invisible slivers.
               const maxShare = topSubscriptions.reduce((m, s) => Math.max(m, s.share), 0.0001);
-              return topSubscriptions.map((s, i) => el('div', {
-                class: 'flex items-center gap-3 text-xs py-1.5 transition hover:brightness-95 rounded' + (i > 0 ? ' border-t border-' : ''),
+              return topSubscriptions.map((s, i) => (() => {
+                // Bigger rows + the count INSIDE the bar (per Isaac). Short
+                // bars park the count just past their end instead so it
+                // never gets squeezed.
+                const _pct = Math.max(1.5, s.share / maxShare * 100);
+                const _inBar = _pct >= 15;
+                return el('div', {
+                class: 'flex items-center gap-3 text-[13px] py-2.5 transition hover:brightness-95 rounded' + (i > 0 ? ' border-t border-' : ''),
               },
                 el('div', { class: 'w-[200px] sm:w-[240px] truncate font-medium shrink-0', title: s.name, style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, s.name),
-                el('div', { class: 'flex-1 h-2 rounded-full overflow-hidden', style: { background: 'var(--card-2)' } },
-                  el('div', { style: { width: Math.max(1.5, s.share / maxShare * 100) + '%', height: '100%', background: 'var(--accent)', borderRadius: '999px', opacity: String(0.45 + 0.55 * (s.share / maxShare)), transition: 'width .3s' } }),
+                el('div', { class: 'flex-1 rounded-full relative', style: { background: 'var(--card-2)', height: '22px' } },
+                  el('div', { style: { width: _pct + '%', height: '100%', background: 'var(--accent)', borderRadius: '999px', opacity: String(0.55 + 0.45 * (s.share / maxShare)), transition: 'width .3s', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
+                    _inBar ? el('span', { class: 'tabular-nums font-black', style: { color: '#fff', fontSize: '11.5px', lineHeight: '1', textShadow: '0 1px 1px rgba(0,0,0,.2)' } }, fmt.int(s.count)) : null),
+                  _inBar ? null : el('span', { class: 'tabular-nums font-black', style: { position: 'absolute', left: 'calc(' + _pct + '% + 8px)', top: '50%', transform: 'translateY(-50%)', color: 'var(--text)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(s.count)),
                 ),
-                el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0' }, fmt.int(s.count)),
                 el('div', { class: 'w-14 text-right tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, (s.share * 100).toFixed(1) + '%'),
                 el('div', { class: 'w-24 text-right tabular-nums shrink-0 font-semibold' }, fmt.usd0(s.revenue)),
                 el('div', { class: 'w-16 text-right tabular-nums text-muted- shrink-0' }, s.acv > 0 ? fmt.usd0(s.acv) : '—'),
@@ -27229,7 +28315,8 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
                 el('div', { class: 'w-12 text-right tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%'),
                 el('div', { class: 'w-14 text-right tabular-nums text-muted- shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—'),
                 el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0', style: { color: s.attr >= 0.10 ? '#DC2626' : s.attr >= 0.05 ? '#D97706' : '#5F8A1F' } }, (s.attr * 100).toFixed(1) + '%'),
-              ));
+              );
+              })());
             })(),
           ),
       )),
@@ -27717,7 +28804,8 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
   const sales = [];
   for (let i = 1; i < lines.length; i++) {
     const c = parseCsvLine(lines[i]);
-    const office = (c[cols.iOffice] || '').toUpperCase().trim();
+    let office = (c[cols.iOffice] || '').toUpperCase().trim();
+    if (/^OFFICE\s*20$/.test(office)) office = 'LITTLE ROCK';   // named in the sync going forward
     if (!office) continue;
     if (/^office\s*-\s*\d/i.test(office)) continue;   // phantom CRM offices (negative IDs → "Office -1"/"Office -7") — never real branches
     const dateSold = c[cols.iDateSold] || '';
@@ -29412,16 +30500,27 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   const deptLabel = (typeof INDICATOR_DEPTS !== 'undefined'
     && (INDICATOR_DEPTS.find(([k]) => k === (state.indicatorDept || 'all')) || [])[1]) || 'All';
   const sumAll = (k) => Object.values(byBranch).reduce((a, b) => a + b[k], 0);
-  const panelRow = (rank, lab, valStr, isTotal) => el('tr', { style: { background: isTotal ? '#1D1D1D' : '#fff' } },
-    el('td', { style: { padding: '3px 2px 3px 6px', fontSize: '8px', fontWeight: '800', color: isTotal ? '#8DC63F' : '#999', borderBottom: '1px solid #f0f0f0', width: '18px', whiteSpace: 'nowrap' } }, rank || ''),
-    el('td', { style: { padding: '3px 2px', fontSize: '9px', fontWeight: isTotal ? '800' : '600', color: isTotal ? '#fff' : '#1D1D1D', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap' } }, lab),
-    el('td', { style: { padding: '3px 6px 3px 2px', fontSize: '9px', fontWeight: '800', color: isTotal ? '#8DC63F' : '#1D1D1D', textAlign: 'right', borderBottom: '1px solid #f0f0f0', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } }, valStr));
-  const panelTable = (title, rows, totalRow) => el('div', { style: { marginBottom: '8px' } },
-    el('div', { style: { fontSize: '10px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '4px 0 3px' } }, title),
-    el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e5e5' } },
-      el('tbody', {},
-        panelRow(null, totalRow[0], totalRow[1], true),
-        ...rows.map(([o, v], i) => panelRow('#' + (i + 1), o, v, false)))));
+  // Panels live on PAGE 2 now, restyled like the on-screen Sales Mix table
+  // (per Isaac): chunky bars, value riding INSIDE the bar, and the
+  // company/total reference as a full-width dark bar on top.
+  const _mixPanel = (title, rows, totalLab, totalVal, fmtV) => {
+    const maxV = rows.reduce((m, x) => Math.max(m, x[1]), 0.0001);
+    const bar = (rank, label, val, dark) => {
+      const pct = dark ? 100 : Math.max(2, val / maxV * 100);
+      const inBar = pct >= 22;
+      return el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' } },
+        el('div', { style: { width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
+        el('div', { style: { width: '120px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
+        el('div', { style: { flex: '1', height: '20px', borderRadius: '999px', background: '#f1f1ec', position: 'relative' } },
+          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '999px', background: dark ? '#1D1D1D' : '#8DC63F', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
+            inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#8DC63F' : '#fff', whiteSpace: 'nowrap' } }, fmtV(val)) : null),
+          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#1D1D1D', whiteSpace: 'nowrap' } }, fmtV(val))));
+    };
+    return el('div', {},
+      el('div', { style: { fontSize: '12px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '0 0 4px' } }, title),
+      bar('', totalLab, totalVal, true),
+      ...rows.map(([o, v], i) => bar('#' + (i + 1), o, v, false)));
+  };
   const desc = (rows) => rows.sort((a, b) => b[1] - a[1]);
   const revRows  = desc(Object.entries(byBranch).map(([o, b]) => [o, b.revenue]));
   const acvRows  = desc(Object.entries(byBranch).map(([o, b]) => [o, b.count > 0 ? b.revenue / b.count : 0]));
@@ -29454,40 +30553,53 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     .map(([o, b]) => ({ o, q: b.q, subsPra: b.subs / Math.max(1, b.q), revPra: b.revenue / Math.max(1, b.q) }))
     .sort((a, b) => b.revPra - a.revPra);
   const sumSummer = Object.values(summer).reduce((a, b) => ({ revenue: a.revenue + b.revenue, subs: a.subs + b.subs, reps: a.reps + b.q }), { revenue: 0, subs: 0, reps: 0 });
-  const praCell = (txt, opts = {}) => el('td', { style: {
-    padding: '3px 3px', fontSize: '8.5px', fontWeight: opts.bold ? '800' : '600',
-    color: opts.color || '#1D1D1D', textAlign: opts.left ? 'left' : 'right',
-    borderBottom: '1px solid #f0f0f0', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
-    ...(opts.ellipsis ? { maxWidth: '54px', overflow: 'hidden', textOverflow: 'ellipsis' } : {}),
-  } }, txt);
-  const praTable = praRows.length === 0 ? null : el('div', { style: { marginBottom: '8px' } },
-    el('div', { style: { fontSize: '10px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '4px 0 3px' } }, 'YTD PRA'),
-    el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e5e5' } },
-      el('thead', {}, el('tr', { style: { background: '#fafafa' } },
-        praCell('', {}),
-        praCell('Branch', { left: true, color: '#666' }),
-        praCell('>$20K', { color: '#666' }),
-        praCell('Subs', { color: '#666' }),
-        praCell('Revenue', { color: '#666' }))),
-      el('tbody', {},
-        el('tr', { style: { background: '#1D1D1D' } },
-          praCell('', {}),
-          praCell('Company', { left: true, bold: true, color: '#fff', ellipsis: true }),
-          praCell(String(sumSummer.reps || 0), { bold: true, color: '#8DC63F' }),
-          praCell(sumSummer.reps > 0 ? (sumSummer.subs / sumSummer.reps).toFixed(1) : '—', { bold: true, color: '#8DC63F' }),
-          praCell(sumSummer.reps > 0 ? fmt.usd0(sumSummer.revenue / sumSummer.reps) : '—', { bold: true, color: '#8DC63F' })),
-        ...praRows.map((r, i) => el('tr', {},
-          praCell('#' + (i + 1), { color: '#999' }),
-          praCell(r.o, { left: true, ellipsis: true }),
-          praCell(String(r.q || 0), { color: '#666' }),
-          praCell(r.q > 0 ? r.subsPra.toFixed(1) : '—'),
-          praCell(r.q > 0 ? fmt.usd0(r.revPra) : '—'))))));
+  // YTD PRA — Sales-Mix style (page 2): bar = revenue per qualified rep;
+  // the >$20K count and subs/rep ride the row as small side columns.
+  const _praPanel = praRows.length === 0 ? null : (() => {
+    const maxV = praRows.reduce((m, r) => Math.max(m, r.revPra), 0.0001);
+    const row = (rank, label, q, subs, val, dark) => {
+      const pct = dark ? 100 : Math.max(2, val / maxV * 100);
+      const inBar = pct >= 26;
+      return el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' } },
+        el('div', { style: { width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
+        el('div', { style: { width: '104px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
+        el('div', { style: { width: '54px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, q + ' >$20K'),
+        el('div', { style: { width: '66px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, subs + ' subs/rep'),
+        el('div', { style: { flex: '1', height: '20px', borderRadius: '999px', background: '#f1f1ec', position: 'relative' } },
+          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '999px', background: dark ? '#1D1D1D' : '#8DC63F', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
+            inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#8DC63F' : '#fff', whiteSpace: 'nowrap' } }, fmt.usd0(val)) : null),
+          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#1D1D1D', whiteSpace: 'nowrap' } }, fmt.usd0(val))));
+    };
+    return el('div', {},
+      el('div', { style: { fontSize: '12px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '0 0 4px' } }, 'YTD PRA'),
+      row('', 'Company', String(sumSummer.reps || 0), sumSummer.reps > 0 ? (sumSummer.subs / sumSummer.reps).toFixed(1) : '—', sumSummer.reps > 0 ? sumSummer.revenue / sumSummer.reps : 0, true),
+      ...praRows.map((r, i) => row('#' + (i + 1), r.o, String(r.q || 0), r.q > 0 ? r.subsPra.toFixed(1) : '—', r.q > 0 ? r.revPra : 0, false)));
+  })();
 
-  const branchPanel = revRows.length === 0 ? null : el('div', {},
-    panelTable('Team Revenue',     revRows.map(([o, v]) => [o, fmt.usd0(v)]), ['Total', fmt.usd0(sumAll('revenue'))]),
-    panelTable('Team ACV',         acvRows.map(([o, v]) => [o, fmt.usd(v)]),  ['Company', fmt.usd(companyACV)]),
-    panelTable('Avg Pest Initial', pestRows.map(([o, v]) => [o, fmt.usd(v)]), ['Company', fmt.usd(companyPest)]),
-    praTable);
+  // ── PAGE 2 — the four rollup panels, Sales-Mix style, 2×2 grid ──
+  const page2 = revRows.length === 0 ? null : el('div', {
+    style: {
+      width: '1220px',
+      padding: '6px 8px 8px',
+      background: '#fff', color: '#1D1D1D',
+      fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif',
+      boxSizing: 'border-box',
+    },
+  },
+    el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', borderBottom: '2px solid #8DC63F', paddingBottom: '4px', marginBottom: '10px' } },
+      el('div', {},
+        el('div', { style: { fontSize: '18px', fontWeight: '900', letterSpacing: '-0.01em', lineHeight: '1.1' } }, 'Team Rollups'),
+        el('div', { style: { fontSize: '10px', color: '#666', marginTop: '1px' } }, 'Team Revenue · Team ACV · Avg Pest Initial · YTD PRA — every rep in the window · ' + deptLabel)),
+      el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
+        companyLogo
+          ? el('img', { src: companyLogo, alt: 'RIDD', style: { height: '26px' } })
+          : el('div', { style: { fontSize: '18px', fontWeight: '900', color: '#8DC63F', letterSpacing: '-0.02em' } }, 'RIDD'),
+        el('div', { style: { fontSize: '10px', color: '#666', fontWeight: '600', textAlign: 'right' } }, dateStr))),
+    el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 36px', alignItems: 'start' } },
+      _mixPanel('Team Revenue', revRows, 'Total', sumAll('revenue'), fmt.usd0),
+      _mixPanel('Team ACV', acvRows, 'Company', companyACV, fmt.usd),
+      _mixPanel('Avg Pest Initial', pestRows, 'Company', companyPest, fmt.usd),
+      _praPanel));
 
   // For each section we identify the column-leading value per metric
   // so the manager sees at a glance who's #1 in ACV / pest / MY% / etc.
@@ -29566,7 +30678,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
         fontSize: '8px', fontWeight: '800', letterSpacing: '0.04em',
         textTransform: 'uppercase', color: '#666',
         padding: '4px 4px',
-        textAlign: align || 'left',
+        textAlign: 'left',   // everything left-justified (per Isaac)
         borderBottom: '1px solid #ddd',
         whiteSpace: 'nowrap',
       },
@@ -29578,7 +30690,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       const style = {
         padding: '3px 4px',
         fontSize: '9.5px',
-        textAlign: align || 'left',
+        textAlign: 'left',   // everything left-justified (per Isaac)
         borderBottom: '1px solid #f0f0f0',
         whiteSpace: 'nowrap',
         fontWeight: opts2.bold || opts2.leader ? '800' : '400',
@@ -29670,16 +30782,16 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   // Leaderboard tables on the left, branch panels on the right — wide gap
   // so the two zones read separately; panel kept narrow so the leaderboard
   // gets the larger share of the page.
-  page.append(el('div', { style: { display: 'flex', gap: '20px', alignItems: 'flex-start' } },
-    el('div', { style: { flex: '1 1 auto', minWidth: '0' } },
-      tableSection('Top ' + limitOverall + ' Overall', '#1D1D1D', overall),
-      el('div', { style: { height: '4px' } }),
-      tableSection('Top ' + limitRookie + ' Rookies', '#0EA5E9', rookies),
-    ),
-    branchPanel && el('div', { style: { flex: '0 0 152px', width: '152px' } }, branchPanel),
-  ));
+  // Full-width tables — the rollup panels moved to page 2 (per Isaac).
+  page.append(
+    tableSection('Top ' + limitOverall + ' Overall', '#1D1D1D', overall),
+    el('div', { style: { height: '4px' } }),
+    tableSection('Top ' + limitRookie + ' Rookies', '#0EA5E9', rookies),
+  );
 
-  return page;
+  // Two print pages: leaderboard + team rollups. The downloader renders
+  // each child as its own PDF page.
+  return el('div', {}, page, ...(page2 ? [page2] : []));
 }
 
 async function downloadRookieVetPdf(allReps) {
@@ -29698,38 +30810,37 @@ async function downloadRookieVetPdf(allReps) {
   // No Chart.js to wait on — one frame is enough for layout to settle.
   await new Promise(r => requestAnimationFrame(() => r()));
   try {
-    const canvas = await html2canvas(reportEl, {
-      scale: 2,
-      backgroundColor: '#ffffff',
-      logging: false,
-      useCORS: true,
-    });
-    const imgData = canvas.toDataURL('image/png');
     const { jsPDF } = window.jspdf;
-    // Landscape gives the 14-column table the horizontal room it needs
-    // to fit on one sheet. Margins kept thin (10pt ≈ 0.14") so the
-    // content — and therefore the text — prints as large as possible
-    // while staying inside typical printer-safe areas.
+    // Landscape gives the 14-column table the horizontal room it needs.
+    // Page 1 = leaderboard tables, page 2 = the Sales-Mix-style rollups.
     const pdf = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
     const pageW = pdf.internal.pageSize.getWidth();   // 792pt (11")
     const pageH = pdf.internal.pageSize.getHeight();  // 612pt (8.5")
     const marginX = 5;
     const marginY = 8;
     const imgW = pageW - marginX * 2;
-    const imgH = (canvas.height * imgW) / canvas.width;
     const usableH = pageH - marginY * 2;
-    if (imgH <= usableH) {
-      pdf.addImage(imgData, 'PNG', marginX, marginY, imgW, imgH);
-    } else {
-      // Scale to fit a single page rather than tiling across two. With
-      // 30 rows the content is usually within ~10% of fitting — letting
-      // the multi-page tiler run produces a near-empty second page with
-      // the last row half-duplicated across the break. Better to lose a
-      // bit of font size than to print a ghost row on page 2.
-      const scaledH = usableH;
-      const scaledW = (imgW * usableH) / imgH;
-      const xCentered = marginX + (imgW - scaledW) / 2;
-      pdf.addImage(imgData, 'PNG', xCentered, marginY, scaledW, scaledH);
+    const sheets = [...reportEl.children];
+    for (let pi = 0; pi < sheets.length; pi++) {
+      const canvas = await html2canvas(sheets[pi], {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false,
+        useCORS: true,
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const imgH = (canvas.height * imgW) / canvas.width;
+      if (pi > 0) pdf.addPage();
+      if (imgH <= usableH) {
+        pdf.addImage(imgData, 'PNG', marginX, marginY, imgW, imgH);
+      } else {
+        // Scale to fit the sheet rather than tiling — better to lose a
+        // bit of font size than to print a ghost row on an extra page.
+        const scaledH = usableH;
+        const scaledW = (imgW * usableH) / imgH;
+        const xCentered = marginX + (imgW - scaledW) / 2;
+        pdf.addImage(imgData, 'PNG', xCentered, marginY, scaledW, scaledH);
+      }
     }
     pdf.save('RIDD-Leaderboard-' + new Date().toISOString().slice(0, 10) + '.pdf');
     toast('Downloaded sales leaderboard', 'success');
@@ -31181,7 +32292,7 @@ const YOY_METRICS = [
 ];
 function indicatorYoYTrendChart() {
   const id = 'chart-yoy-trend';
-  const metric = state._indicatorYoYMetric || 'revenue';
+  let metric = state._indicatorYoYMetric || 'revenue';
   const mDef = YOY_METRICS.find(m => m[0] === metric) || YOY_METRICS[0];
   const kind = mDef[2];
   let raw = indicatorSales();
@@ -31270,6 +32381,11 @@ function indicatorYoYTrendChart() {
     const sel = Array.isArray(state._indicatorYoYScopes) ? state._indicatorYoYScopes.filter(x => x && x.t) : [];
     return sel.length ? sel : [{ t: 'co' }];
   })();
+  // PRA is revenue ÷ unique sellers — for a REP scope that's ÷1, i.e. it
+  // just repaints Revenue (Isaac: "the PRA metric isn't doing anything").
+  // Rep-only views fall back to Revenue and hide the PRA option entirely.
+  const _yoyAllReps = _yoyRepOnly || _yoySelScopes.every(sc => sc.t === 'rep');
+  if (_yoyAllReps && metric === 'pra') metric = 'revenue';
   const _scopeLabelOf = (sc) => sc.t === 'co' ? 'Company' : String(sc.v || '');
   const _scopeKey = (sc) => sc.t + ':' + (sc.v || '');
   const _scopeMatchFn = (sc) => {
@@ -31380,6 +32496,7 @@ function indicatorYoYTrendChart() {
   const metricSel = (() => {
     const opts = [];
     for (const [v, lab] of YOY_METRICS) {
+      if (v === 'pra' && _yoyAllReps) continue;   // ÷1 for a single rep — meaningless
       if (v === 'revenue' && isOffice) {
         opts.push(['revenue|total', 'Total Revenue'], ['revenue|new', 'New Revenue'], ['revenue|renewal', 'Renewal Revenue']);
       } else opts.push([v, lab]);
@@ -31760,6 +32877,30 @@ function indicatorYoYTrendChart() {
                 lines.push(isCur
                   ? { label, data: plotVals, borderColor: color, backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct' && _totalSeries === 1, spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 }
                   : { label, data: vals, borderColor: color, borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5, order: idx });
+                // TRENDLINE (per Isaac): single-scope views always carry a
+                // least-squares trend over this line's completed weeks —
+                // same color, faint dotted, no points.
+                if (isCur && _yoySelScopes.length === 1) {
+                  const _tp = [];
+                  plotVals.forEach((v, i2) => { if (v != null) _tp.push([i2, v]); });
+                  if (_tp.length >= 3) {
+                    const _n = _tp.length;
+                    const _sx = _tp.reduce((a2, p2) => a2 + p2[0], 0), _sy = _tp.reduce((a2, p2) => a2 + p2[1], 0);
+                    const _sxx = _tp.reduce((a2, p2) => a2 + p2[0] * p2[0], 0), _sxy = _tp.reduce((a2, p2) => a2 + p2[0] * p2[1], 0);
+                    const _den = _n * _sxx - _sx * _sx;
+                    if (_den) {
+                      const _sl = (_n * _sxy - _sx * _sy) / _den, _ic = (_sy - _sl * _sx) / _n;
+                      const _x0 = _tp[0][0], _x1 = _tp[_tp.length - 1][0];
+                      lines.push({
+                        label: label + ' · trend',
+                        data: weeksAxis.map((_, i2) => (i2 >= _x0 && i2 <= _x1) ? _ic + _sl * i2 : null),
+                        borderColor: color, borderDash: [3, 5], borderWidth: 1.5,
+                        backgroundColor: 'transparent', fill: false, pointRadius: 0,
+                        pointHoverRadius: 0, spanGaps: true, tension: 0, order: 3,
+                      });
+                    }
+                  }
+                }
                 // FLOATING LIVE DOT (per Isaac, Jul 2026): the in-progress
                 // week still shows as a DETACHED hollow point at its live
                 // value — a mid-week read without the misleading nosedive
@@ -31780,6 +32921,23 @@ function indicatorYoYTrendChart() {
               });
             });
           });
+          // OUTLIER GUARD (per Isaac): one freak week (e.g. a tiny-denominator
+          // PRA in early 2025) was stretching the whole axis. Cap the weekly
+          // axis at a robust ceiling — Q3 + 3×IQR of every plotted value —
+          // so the real trend stays readable; capped points ride the top edge
+          // and still show their true value on hover.
+          state._yoyAxisCap = null;
+          {
+            const _av = [];
+            lines.forEach(ds => (ds.data || []).forEach(v => { if (typeof v === 'number' && isFinite(v)) _av.push(v); }));
+            if (_av.length >= 8) {
+              _av.sort((a2, b2) => a2 - b2);
+              const _q = (f) => _av[Math.min(_av.length - 1, Math.floor(f * (_av.length - 1)))];
+              const _q1 = _q(0.25), _q3 = _q(0.75);
+              const _cap = _q3 + 3 * (_q3 - _q1);
+              if (_cap > 0 && _av[_av.length - 1] > _cap * 1.25) state._yoyAxisCap = _cap;
+            }
+          }
           return lines.concat(ytdPts);
         })(),
       },
@@ -31787,7 +32945,7 @@ function indicatorYoYTrendChart() {
         responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 11 }, usePointStyle: true, filter: (item) => !/^YTD /.test(item.text) && !/ · live$/.test(item.text) } },
+          legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 11 }, usePointStyle: true, filter: (item) => !/^YTD /.test(item.text) && !/ · live$/.test(item.text) && !/ · trend$/.test(item.text) } },
           tooltip: {
             backgroundColor: '#1D1D1D', padding: 10, cornerRadius: 8,
             callbacks: {
@@ -31821,13 +32979,15 @@ function indicatorYoYTrendChart() {
           },
         },
         scales: {
-          y: { beginAtZero: kind !== 'pct', grid: { color: grid }, ticks: { color: txt, font: { size: 10 },
+          // Every metric axis starts at 0 (per Isaac) — a 91–100% MY% zoom
+          // made small dips look like cliffs.
+          y: { beginAtZero: true, min: 0, max: state._yoyAxisCap || undefined, grid: { color: grid }, ticks: { color: txt, font: { size: 10 },
             callback: kind === 'usd'
               ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : v))
               : kind === 'pct' ? (v => (v * 100).toFixed(0) + '%') : undefined } },
           // Independent right-hand axis for the YTD dots so their cumulative
           // magnitude never rescales the weekly lines.
-          yYTD: { position: 'right', beginAtZero: kind !== 'pct', grid: { drawOnChartArea: false }, ticks: { color: txt, font: { size: 10 },
+          yYTD: { position: 'right', beginAtZero: true, min: 0, grid: { drawOnChartArea: false }, ticks: { color: txt, font: { size: 10 },
             callback: kind === 'usd'
               ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : v))
               : kind === 'pct' ? (v => (v * 100).toFixed(0) + '%') : undefined } },
@@ -35653,13 +36813,112 @@ function _rcBalanceOf(userId) {
   return (state._rcLedger || []).filter(r => r.user_id === userId).reduce((a, r) => a + (Number(r.delta) || 0), 0);
 }
 const _rcCoin = (n) => Number(n || 0).toLocaleString('en-US') + ' ¤'; // ¤ = RIDDCOIN mark
-// A "spin" is an item whose description is {"spin":true,"pool":[{name,odds,rarity}…]}
-// — built in Manage → 🎰 Spin builder, rolled SERVER-SIDE by riddcoin_spin().
-function _rcSpinCfg(i) {
+// Item metadata lives in description as JSON: {"text":"…","photos":[urls…]}
+// for store items, {"spin":true,"pool":[…]} for spins. Legacy plain-text
+// descriptions parse as {text}. One parser for everything.
+function _rcMeta(i) {
   try {
     const j = JSON.parse((i && i.description) || '');
-    return (j && j.spin && Array.isArray(j.pool) && j.pool.length) ? j : null;
-  } catch { return null; }
+    if (j && typeof j === 'object') {
+      return { text: String(j.text || ''), photos: Array.isArray(j.photos) ? j.photos : [], spin: !!j.spin, pool: Array.isArray(j.pool) ? j.pool : [] };
+    }
+  } catch { /* legacy plain text */ }
+  return { text: (i && i.description) || '', photos: [], spin: false, pool: [] };
+}
+function _rcSpinCfg(i) {
+  const m = _rcMeta(i);
+  return (m.spin && m.pool.length) ? m : null;
+}
+// Shared redeem flow (store card + product page). Returns true on success.
+async function _rcRedeem(i) {
+  if (!confirm('Redeem "' + i.name + '" for ' + _rcCoin(i.cost) + '? This spends your RIDDCOIN and reserves the prize for year-end pickup.')) return false;
+  const { error } = await supabase.rpc('riddcoin_spend', { p_item: i.id });
+  if (error) { toast('Redeem failed: ' + error.message, 'error'); return false; }
+  toast('🎉 ' + i.name + ' reserved — see you at prize pickup!', 'success');
+  await loadRiddcoin(true); mountApp();
+  return true;
+}
+// Multi-photo upload to the public 'riddcoin' bucket (riddcoin_storage.sql).
+async function _rcUploadPhotos(files) {
+  const urls = [];
+  for (const f of files) {
+    const path = 'items/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '-' + String(f.name || 'photo').replace(/[^\w.\-]+/g, '_');
+    const { error } = await supabase.storage.from('riddcoin').upload(path, f, { contentType: f.type || 'image/jpeg' });
+    if (error) { toast('Photo upload failed: ' + error.message, 'error'); continue; }
+    const { data } = supabase.storage.from('riddcoin').getPublicUrl(path);
+    if (data && data.publicUrl) urls.push(data.publicUrl);
+  }
+  return urls;
+}
+// 🛍️ PRODUCT PAGE — the Shopify-style detail view: photo gallery with
+// thumbnail switcher, description, price, stock, Redeem.
+function openRcItemModal(i) {
+  const meta = _rcMeta(i);
+  const myBal = _rcBalanceOf(state.profile.id);
+  const out = i.stock != null && i.stock <= 0;
+  const cant = myBal < i.cost;
+  let idx = 0;
+  const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const mainImg = el('div', { style: { width: '100%', aspectRatio: '1 / 1', borderRadius: '12px', background: 'var(--card-2)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' } });
+  const thumbsRow = el('div', { class: 'flex items-center gap-1.5 mt-2 flex-wrap' });
+  const renderGallery = () => {
+    mainImg.innerHTML = '';
+    if (meta.photos.length) mainImg.append(el('img', { src: meta.photos[idx], alt: i.name, style: { width: '100%', height: '100%', objectFit: 'cover' } }));
+    else mainImg.append(el('div', { class: 'text-6xl' }, '🎁'));
+    thumbsRow.innerHTML = '';
+    if (meta.photos.length > 1) meta.photos.forEach((u, j) => thumbsRow.append(el('img', {
+      src: u, alt: '',
+      class: 'cursor-pointer',
+      style: { width: '52px', height: '52px', objectFit: 'cover', borderRadius: '8px', border: j === idx ? '2px solid var(--accent)' : '2px solid var(--border-2)', opacity: j === idx ? '1' : '.7' },
+      onclick: () => { idx = j; renderGallery(); },
+    })));
+  };
+  renderGallery();
+  overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '720px' } },
+    el('div', { class: 'flex items-center justify-end mb-1' },
+      el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
+    el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-4' },
+      el('div', {}, mainImg, thumbsRow),
+      el('div', { class: 'flex flex-col' },
+        el('div', { class: 'font-display text-2xl leading-tight' }, i.name),
+        el('div', { class: 'font-black tabular-nums text-xl mt-1', style: { color: '#8DC63F' } }, _rcCoin(i.cost)),
+        i.stock != null ? el('div', { class: 'text-xs mt-0.5', style: { color: out ? '#DC2626' : 'var(--text-muted)' } }, out ? 'Out of stock' : i.stock + ' left in stock') : null,
+        meta.text ? el('p', { class: 'text-sm mt-3', style: { color: 'var(--text-muted)', lineHeight: '1.55' } }, meta.text) : null,
+        el('button', {
+          class: 'w-full rounded-xl px-4 py-2.5 text-sm font-bold mt-auto' + ((out || cant) ? ' opacity-50' : ' cursor-pointer hover:brightness-95'),
+          style: { background: 'var(--accent)', color: 'var(--accent-text)', marginTop: 'auto' },
+          disabled: (out || cant) ? 'disabled' : null,
+          title: out ? 'Out of stock' : cant ? 'Not enough RIDDCOIN (you have ' + _rcCoin(myBal) + ')' : '',
+          onclick: (out || cant) ? null : (async () => { if (await _rcRedeem(i)) overlay.remove(); }),
+        }, cant && !out ? 'Need ' + _rcCoin(i.cost - myBal) + ' more' : 'Redeem — ' + _rcCoin(i.cost))))));
+  document.body.append(overlay);
+}
+// Admin drill: one user's full RIDDCOIN history in a modal (opened from the
+// Balances tab rows).
+function openRcUserHistory(uid) {
+  const names = state._rcNames || {};
+  const rows = (state._rcLedger || []).filter(r => r.user_id === uid);
+  const bal = rows.reduce((a2, r) => a2 + (Number(r.delta) || 0), 0);
+  const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '640px' } },
+    el('div', { class: 'flex items-center justify-between gap-3 mb-3' },
+      el('div', {},
+        el('h3', { class: 'text-base font-bold' }, names[uid] || 'User'),
+        el('div', { class: 'text-xs text-muted-' }, rows.length + ' ledger entr' + (rows.length === 1 ? 'y' : 'ies') + ' · balance ',
+          el('span', { class: 'font-black tabular-nums', style: { color: bal >= 0 ? '#5F8A1F' : '#B91C1C' } }, _rcCoin(bal)))),
+      el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
+    el('div', { style: { maxHeight: '62vh', overflowY: 'auto' } },
+      el('table', { class: 'w-full text-xs' },
+        el('tbody', {},
+          rows.length === 0 ? el('tr', {}, el('td', { class: 'py-6 text-center text-muted-' }, 'No RIDDCOIN activity yet.')) : null,
+          ...rows.map(r => el('tr', { class: 'border-t border-' },
+            el('td', { class: 'py-1.5 pr-2 whitespace-nowrap text-muted- tabular-nums' }, _rcWhen(r.created_at)),
+            el('td', { class: 'py-1.5 pr-2 text-right tabular-nums font-black', style: { color: r.delta > 0 ? '#5F8A1F' : '#B91C1C' } }, (r.delta > 0 ? '+' : '') + _rcCoin(r.delta)),
+            el('td', { class: 'py-1.5 pr-2' }, r.reason || '—'),
+            el('td', { class: 'py-1.5 text-muted- whitespace-nowrap' }, names[r.created_by] || '—'))))))));
+  document.body.append(overlay);
 }
 function _rcWhen(ts) {
   const d = new Date(ts);
@@ -35726,7 +36985,7 @@ function viewMarketplace() {
             const cant = myBal < i.cost;
             const spin = _rcSpinCfg(i);
             if (spin) {
-              const oddsTitle = spin.pool.map(p2 => p2.name + ' · ' + (Number(p2.odds) || 0) + '%').join('\n');
+              const oddsTitle = spin.pool.map(p2 => p2.name + ' · ' + (Number(p2.odds) || 0) + '%' + (Number(p2.value) > 0 ? ' · worth ' + _rcCoin(p2.value) : '')).join('\n');
               return el('div', { class: 'card p-4 flex flex-col gap-2', style: { borderColor: '#8DC63F' } },
                 el('div', { class: 'text-3xl' }, '🎰'),
                 el('div', { class: 'font-bold text-sm leading-tight' }, i.name),
@@ -35756,10 +37015,20 @@ function viewMarketplace() {
                     }),
                   }, '🎰 Spin')));
             }
-            return el('div', { class: 'card p-4 flex flex-col gap-2' },
-              el('div', { class: 'text-3xl' }, '🎁'),
+            // Shopify-style product card — lead photo, click anywhere for
+            // the product page (gallery + description + redeem).
+            const meta = _rcMeta(i);
+            return el('div', {
+              class: 'card p-4 flex flex-col gap-2 cursor-pointer transition hover:brightness-95',
+              title: 'View ' + i.name,
+              onclick: () => openRcItemModal(i),
+            },
+              meta.photos.length
+                ? el('div', { style: { width: '100%', aspectRatio: '1 / 1', borderRadius: '10px', overflow: 'hidden', background: 'var(--card-2)' } },
+                    el('img', { src: meta.photos[0], alt: i.name, style: { width: '100%', height: '100%', objectFit: 'cover' } }))
+                : el('div', { class: 'text-3xl' }, '🎁'),
               el('div', { class: 'font-bold text-sm leading-tight' }, i.name),
-              i.description ? el('div', { class: 'text-[11px] text-muted-' }, i.description) : null,
+              meta.text ? el('div', { class: 'text-[11px] text-muted-', style: { display: '-webkit-box', WebkitLineClamp: '2', WebkitBoxOrient: 'vertical', overflow: 'hidden' } }, meta.text) : null,
               el('div', { class: 'flex items-center justify-between mt-auto pt-2' },
                 el('div', {},
                   el('div', { class: 'font-black tabular-nums', style: { color: '#8DC63F' } }, _rcCoin(i.cost)),
@@ -35769,19 +37038,28 @@ function viewMarketplace() {
                   style: { background: 'var(--accent)', color: 'var(--accent-text)' },
                   disabled: (out || cant) ? 'disabled' : null,
                   title: out ? 'Out of stock' : cant ? 'Not enough RIDDCOIN (you have ' + _rcCoin(myBal) + ')' : 'Redeem for ' + _rcCoin(i.cost),
-                  onclick: (out || cant) ? null : (async () => {
-                    if (!confirm('Redeem "' + i.name + '" for ' + _rcCoin(i.cost) + '? This spends your RIDDCOIN and reserves the prize for year-end pickup.')) return;
-                    const { error } = await supabase.rpc('riddcoin_spend', { p_item: i.id });
-                    if (error) { toast('Redeem failed: ' + error.message, 'error'); return; }
-                    toast('🎉 ' + i.name + ' reserved — see you at prize pickup!', 'success');
-                    await loadRiddcoin(true); mountApp();
-                  }),
+                  onclick: (out || cant) ? null : (async (e) => { e.stopPropagation(); await _rcRedeem(i); }),
                 }, 'Redeem')));
           })));
   }
 
   // ── Shared ledger table renderer ──
-  const ledgerTable = (rows, showUser) => el('div', { class: 'card overflow-hidden' },
+  // Sell-back eligibility (per Isaac): a spin WINNING (not yet sold back,
+  // with a Value on its pool entry) can be traded back for 90% of value —
+  // so reps can keep spinning for the prize they actually want. The rpc
+  // (riddcoin_sellback.sql) re-verifies everything server-side.
+  const _refunded = new Set(ledger.filter(r => r.ref_id).map(r => String(r.ref_id)));
+  const _sellInfo = (r) => {
+    if (r.kind !== 'spend' || !/^Spin: /.test(String(r.reason || '')) || _refunded.has(String(r.id))) return null;
+    const it = items.find(x => x.id === r.item_id);
+    if (!it) return null;
+    const m = _rcMeta(it);
+    const prize = String(r.reason).split(' \u2192 ')[1] || '';
+    const e2 = m.pool.find(p2 => p2.name === prize);
+    const v = (e2 && Number(e2.value)) || 0;
+    return v > 0 ? { payout: Math.floor(v * 0.9), prize, value: v } : null;
+  };
+  const ledgerTable = (rows, showUser, canSell) => el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-xs' },
       el('thead', {}, el('tr', { class: 'text-left text-[9px] uppercase tracking-widest text-muted-' },
         el('th', { class: 'px-3 py-2' }, 'When'),
@@ -35789,7 +37067,8 @@ function viewMarketplace() {
         el('th', { class: 'px-3 py-2 text-right' }, 'Δ RIDDCOIN'),
         el('th', { class: 'px-3 py-2 hidden sm:table-cell' }, 'Type'),
         el('th', { class: 'px-3 py-2' }, 'Reason'),
-        el('th', { class: 'px-3 py-2 hidden sm:table-cell' }, 'By'))),
+        el('th', { class: 'px-3 py-2 hidden sm:table-cell' }, 'By'),
+        canSell ? el('th', { class: 'px-3 py-2' }, '') : null)),
       el('tbody', {},
         rows.length === 0 ? el('tr', {}, el('td', { colspan: '6', class: 'px-3 py-6 text-center text-muted-' }, 'No RIDDCOIN activity yet.')) : null,
         ...rows.map(r => el('tr', { class: 'border-t border-' },
@@ -35799,16 +37078,36 @@ function viewMarketplace() {
           el('td', { class: 'px-3 py-2 hidden sm:table-cell' },
             el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded uppercase', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, r.kind)),
           el('td', { class: 'px-3 py-2' }, r.reason || '—'),
-          el('td', { class: 'px-3 py-2 hidden sm:table-cell text-muted- whitespace-nowrap' }, names[r.created_by] || '—'))))))); 
+          el('td', { class: 'px-3 py-2 hidden sm:table-cell text-muted- whitespace-nowrap' }, names[r.created_by] || '—'),
+          canSell ? el('td', { class: 'px-3 py-2 text-right whitespace-nowrap' }, (() => {
+            const si = _sellInfo(r);
+            if (!si) return _refunded.has(String(r.id)) ? el('span', { class: 'text-[10px] font-bold text-muted-' }, 'sold back') : '';
+            return el('button', {
+              class: 'px-2 py-1 rounded text-[10px] font-bold cursor-pointer border transition hover:brightness-95',
+              style: { borderColor: 'rgba(141,198,63,.5)', color: '#5F8A1F' },
+              title: si.prize + ' is worth ' + _rcCoin(si.value) + ' \u2014 sell it back to RIDD for 90% and keep spinning',
+              onclick: async () => {
+                if (!confirm('Sell "' + si.prize + '" back to RIDD for ' + _rcCoin(si.payout) + ' (90% of its ' + _rcCoin(si.value) + ' value)? The prize goes back to RIDD and the coins hit your balance now.')) return;
+                const { data, error } = await supabase.rpc('riddcoin_sellback', { p_ledger: r.id });
+                if (error) { toast('Sell-back failed: ' + error.message, 'error'); return; }
+                toast('\ud83e\ude99 Sold back for ' + _rcCoin(Number(data) || si.payout) + ' \u2014 happy spinning', 'success');
+                await loadRiddcoin(true); mountApp();
+              },
+            }, 'Sell back \u00b7 ' + _rcCoin(si.payout));
+          })()) : null))))));
 
-  if (tab === 'history') wrap.append(ledgerTable(ledger.filter(r => r.user_id === state.profile.id), false));
+  if (tab === 'history') wrap.append(ledgerTable(ledger.filter(r => r.user_id === state.profile.id), false, true));
   if (tab === 'ledger' && isAdmin) wrap.append(ledgerTable(ledger, true));
 
   // ── BALANCES (admin) ──
   if (tab === 'balances' && isAdmin) {
+    // EVERY active app account shows here (per Isaac) — zero-balance users
+    // included, so the roster doubles as a "who hasn't earned yet" check.
     const byUser = {};
+    Object.keys(names).forEach(uid => { byUser[uid] = 0; });
     ledger.forEach(r => { byUser[r.user_id] = (byUser[r.user_id] || 0) + (Number(r.delta) || 0); });
-    const rows = Object.entries(byUser).sort((a, b) => b[1] - a[1]);
+    const rows = Object.entries(byUser).sort((x, y) => (y[1] - x[1])
+      || String(names[x[0]] || '').localeCompare(String(names[y[0]] || '')));
     wrap.append(el('div', { class: 'card overflow-hidden' },
       el('table', { class: 'w-full text-xs' },
         el('thead', {}, el('tr', { class: 'text-left text-[9px] uppercase tracking-widest text-muted-' },
@@ -35816,7 +37115,11 @@ function viewMarketplace() {
           el('th', { class: 'px-3 py-2 text-right' }, 'Balance'))),
         el('tbody', {},
           rows.length === 0 ? el('tr', {}, el('td', { colspan: '3', class: 'px-3 py-6 text-center text-muted-' }, 'Nobody holds RIDDCOIN yet — grant some under ⚙️ Manage.')) : null,
-          ...rows.map(([uid, bal], i) => el('tr', { class: 'border-t border-' },
+          ...rows.map(([uid, bal], i) => el('tr', {
+            class: 'border-t border- cursor-pointer hover:brightness-95 transition',
+            title: 'Click for ' + (names[uid] || 'this user') + '\u2019s full RIDDCOIN history',
+            onclick: () => openRcUserHistory(uid),
+          },
             el('td', { class: 'px-3 py-2 tabular-nums text-muted-' }, '#' + (i + 1)),
             el('td', { class: 'px-3 py-2 font-semibold' }, names[uid] || uid),
             el('td', { class: 'px-3 py-2 text-right tabular-nums font-black', style: { color: bal >= 0 ? '#5F8A1F' : '#B91C1C' } }, _rcCoin(bal))))))));
@@ -35857,25 +37160,62 @@ function viewMarketplace() {
       await loadRiddcoin(true); mountApp();
     };
     const itemRow = (i) => {
-      const nameIn = el('input', { type: 'text', value: i ? i.name : '', placeholder: 'Prize name…', class: 'rounded border px-2 py-1.5 text-xs flex-1 min-w-0', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+      const meta = i ? _rcMeta(i) : { text: '', photos: [] };
+      const nameIn = el('input', { type: 'text', value: i ? i.name : '', placeholder: 'Item name…', class: 'rounded border px-2 py-1.5 text-xs flex-1 min-w-0', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
       const costIn = el('input', { type: 'number', min: '1', value: i ? String(i.cost) : '', placeholder: 'Cost', class: 'rounded border px-2 py-1.5 text-xs tabular-nums', style: { width: '84px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
       const stockIn = el('input', { type: 'number', min: '0', value: (i && i.stock != null) ? String(i.stock) : '', placeholder: '∞', title: 'Stock — blank = unlimited', class: 'rounded border px-2 py-1.5 text-xs tabular-nums', style: { width: '64px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+      const descIn = el('input', { type: 'text', value: meta.text, placeholder: 'Description shown on the product page…', class: 'rounded border px-2 py-1.5 text-xs w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
       const activeIn = el('input', { type: 'checkbox', checked: i ? !!i.active : true, title: 'Visible in the store' });
-      return el('div', { class: 'flex items-center gap-2 py-1.5 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
-        nameIn, costIn, stockIn,
-        el('label', { class: 'text-[10px] text-muted- flex items-center gap-1' }, activeIn, 'live'),
+      const doSave = (photos, del) => {
+        const nm = nameIn.value.trim(); const cost = Number(costIn.value) || 0;
+        if (!del && (!nm || cost <= 0)) return toast('Name + a positive cost required', 'warn');
+        saveItem({
+          p_id: i ? i.id : null, p_name: del ? i.name : nm, p_cost: del ? i.cost : cost,
+          p_stock: del ? i.stock : (stockIn.value === '' ? null : Math.max(0, Number(stockIn.value) || 0)),
+          p_active: del ? i.active : !!activeIn.checked,
+          p_description: JSON.stringify({ text: del ? meta.text : descIn.value.trim(), photos: photos || meta.photos }),
+          p_delete: !!del,
+        });
+      };
+      // Photo manager — Shopify vibe: multiple images per item; first photo
+      // is the store-card cover. Uploads land in the public riddcoin bucket
+      // (run riddcoin_storage.sql once) and save immediately.
+      const photoIn = el('input', { type: 'file', accept: 'image/*', multiple: 'multiple', style: { display: 'none' } });
+      photoIn.addEventListener('change', async () => {
+        const files = [...(photoIn.files || [])];
+        photoIn.value = '';
+        if (!files.length) return;
+        toast('Uploading ' + files.length + ' photo' + (files.length === 1 ? '' : 's') + '…', 'info');
+        const urls = await _rcUploadPhotos(files);
+        if (urls.length) doSave([...meta.photos, ...urls], false);
+      });
+      const photoStrip = !i ? null : el('div', { class: 'flex items-center gap-1.5 flex-wrap w-full pb-1' },
+        ...meta.photos.map((u, j) => el('div', { class: 'relative', style: { position: 'relative' } },
+          el('img', { src: u, alt: '', title: j === 0 ? 'Cover photo' : '', style: { width: '44px', height: '44px', objectFit: 'cover', borderRadius: '8px', border: j === 0 ? '2px solid var(--accent)' : '2px solid var(--border-2)' } }),
+          el('button', {
+            class: 'cursor-pointer', title: 'Remove this photo',
+            style: { position: 'absolute', top: '-6px', right: '-6px', width: '16px', height: '16px', lineHeight: '14px', fontSize: '10px', borderRadius: '50%', background: '#DC2626', color: '#fff', border: 'none', padding: '0' },
+            onclick: () => doSave(meta.photos.filter((_, k) => k !== j), false),
+          }, '✕'))),
         el('button', {
-          class: 'px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-          onclick: () => {
-            const nm = nameIn.value.trim(); const cost = Number(costIn.value) || 0;
-            if (!nm || cost <= 0) return toast('Name + a positive cost required', 'warn');
-            saveItem({ p_id: i ? i.id : null, p_name: nm, p_cost: cost, p_stock: stockIn.value === '' ? null : Math.max(0, Number(stockIn.value) || 0), p_active: !!activeIn.checked, p_description: i ? (i.description || null) : null, p_delete: false });
-          },
-        }, i ? 'Save' : '+ Add'),
-        i ? el('button', {
-          class: 'px-2 py-1.5 rounded text-[11px] cursor-pointer', style: { color: '#DC2626' }, title: 'Remove this prize',
-          onclick: () => { if (confirm('Remove "' + i.name + '" from the store?')) saveItem({ p_id: i.id, p_name: i.name, p_cost: i.cost, p_stock: i.stock, p_active: i.active, p_description: i.description || null, p_delete: true }); },
-        }, '✕') : null);
+          class: 'px-2 py-1.5 rounded text-[11px] font-semibold cursor-pointer border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+          title: 'Add photos — the first one is the store-card cover',
+          onclick: () => photoIn.click(),
+        }, '📷 Add photos'), photoIn);
+      return el('div', { class: 'py-2 flex flex-col gap-1.5', style: { borderBottom: '1px solid var(--border)' } },
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          nameIn, costIn, stockIn,
+          el('label', { class: 'text-[10px] text-muted- flex items-center gap-1' }, activeIn, 'live'),
+          el('button', {
+            class: 'px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+            onclick: () => doSave(null, false),
+          }, i ? 'Save' : '+ Add'),
+          i ? el('button', {
+            class: 'px-2 py-1.5 rounded text-[11px] cursor-pointer', style: { color: '#DC2626' }, title: 'Remove this item',
+            onclick: () => { if (confirm('Remove "' + i.name + '" from the store?')) doSave(null, true); },
+          }, '✕') : null),
+        descIn,
+        photoStrip);
     };
     // ── 🎰 SPIN BUILDER — icybox-style chance purchases. A spin is a
     // catalog item whose description carries the prize pool + odds +
@@ -35886,7 +37226,7 @@ function viewMarketplace() {
       const loadDraft = (it) => {
         const cfg = it ? _rcSpinCfg(it) : null;
         state._rcSpinDraft = it
-          ? { id: it.id, name: it.name, cost: String(it.cost), stock: it.stock != null ? String(it.stock) : '', pool: (cfg.pool || []).map(p2 => ({ name: p2.name || '', odds: Number(p2.odds) || 0, rarity: p2.rarity || 'bronze' })) }
+          ? { id: it.id, name: it.name, cost: String(it.cost), stock: it.stock != null ? String(it.stock) : '', pool: (cfg.pool || []).map(p2 => ({ name: p2.name || '', odds: Number(p2.odds) || 0, rarity: p2.rarity || 'bronze', value: Number(p2.value) || 0 })) }
           : { id: null, name: '', cost: '', stock: '', pool: [] };
         mountApp();
       };
@@ -35907,7 +37247,7 @@ function viewMarketplace() {
             el('option', { value: '' }, d.id ? 'New spin…' : 'Edit existing…'),
             ...spins.map(it => { const o = el('option', { value: it.id }, it.name); if (it.id === d.id) o.selected = true; return o; })) : null),
         el('div', { class: 'text-[10px] text-muted- mb-2' },
-          'Reps pay the cost for ONE roll across this pool — the prize is decided server-side by the odds, then revealed with the Mystery Box carousel. Odds should sum to 100.'),
+          'Reps pay the cost for ONE roll across this pool — the prize is decided server-side by the odds, then revealed with the Mystery Box carousel. Odds should sum to 100. Value \u00a4 enables sell-back: winners can trade the prize back for 90% of its value and keep spinning (run riddcoin_sellback.sql once).'),
         el('div', { class: 'flex items-center gap-2 flex-wrap mb-2' },
           inp(d.name, 'Spin name (e.g. Gold Spin)…', null, (e) => { d.name = e.target.value; }),
           inp(String(d.cost || ''), 'Cost', '84px', (e) => { d.cost = e.target.value; }),
@@ -35915,6 +37255,7 @@ function viewMarketplace() {
         ...d.pool.map((p2, idx) => el('div', { class: 'flex items-center gap-2 py-1.5 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
           inp(p2.name, 'Prize…', null, (e) => { p2.name = e.target.value; }),
           inp(String(p2.odds || ''), '%', '58px', (e) => { p2.odds = Number(e.target.value) || 0; }),
+          inp(String(p2.value || ''), 'Value \u00a4', '76px', (e) => { p2.value = Number(e.target.value) || 0; }),
           (() => {
             const sel = el('select', {
               class: 'rounded border px-1.5 py-1 text-xs font-bold',
@@ -35929,7 +37270,7 @@ function viewMarketplace() {
         el('div', { class: 'flex items-center justify-between gap-2 mt-2 flex-wrap' },
           el('button', {
             class: 'px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-            onclick: () => { d.pool.push({ name: '', odds: 0, rarity: 'bronze' }); mountApp(); },
+            onclick: () => { d.pool.push({ name: '', odds: 0, rarity: 'bronze', value: 0 }); mountApp(); },
           }, '+ Add prize'),
           el('div', { class: 'text-[11px] font-bold tabular-nums', style: { color: totalOdds === 100 ? '#5F8A1F' : '#D97706' } },
             'Total ' + totalOdds + '%' + (totalOdds === 100 ? ' ✓' : ' — should be 100')),
@@ -35938,7 +37279,7 @@ function viewMarketplace() {
             onclick: async () => {
               const nm = String(d.name || '').trim();
               const cost = Math.round(Number(d.cost) || 0);
-              const pool = d.pool.map(p2 => ({ name: String(p2.name || '').trim(), odds: Number(p2.odds) || 0, rarity: p2.rarity || 'bronze' })).filter(p2 => p2.name && p2.odds > 0);
+              const pool = d.pool.map(p2 => ({ name: String(p2.name || '').trim(), odds: Number(p2.odds) || 0, rarity: p2.rarity || 'bronze', value: Number(p2.value) || 0 })).filter(p2 => p2.name && p2.odds > 0);
               if (!nm || cost <= 0) return toast('Spin name + a positive cost required', 'warn');
               if (!pool.length) return toast('Add at least one prize with odds', 'warn');
               const { error } = await supabase.rpc('riddcoin_save_item', {
@@ -35955,8 +37296,8 @@ function viewMarketplace() {
       return card;
     })());
     wrap.append(el('div', { class: 'card p-4' },
-      el('h3', { class: 'text-sm font-bold mb-1' }, '🎁 Prize catalog'),
-      el('div', { class: 'text-[10px] text-muted- mb-2' }, 'Name · cost in RIDDCOIN · stock (blank = unlimited) · live toggle. Redeemed prizes decrement stock automatically.'),
+      el('h3', { class: 'text-sm font-bold mb-1' }, '🛍️ Store catalog'),
+      el('div', { class: 'text-[10px] text-muted- mb-2' }, 'Name · cost in RIDDCOIN · stock (blank = unlimited) · live toggle · description · photos (first = card cover; reps click into a full product page). Redeems decrement stock automatically.'),
       ...items.map(itemRow),
       itemRow(null)));
   }
@@ -41004,7 +42345,8 @@ function viewD2dDashboard() {
     rows.forEach(s => {
       const nm = getCanonicalRepName(s.rep);
       if (!nm) return;
-      const o = byRep.get(nm) || { name: nm, n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0 };
+      const o = byRep.get(nm) || { name: nm, n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0, office: '' };
+      if (!o.office && s.office) o.office = String(s.office).split(',')[0].trim();
       o.n++; o.cv += Number(s.contractValue) || 0;
       if (s.autoPay && s.autoPay !== 'No') o.apay++;
       o.init += Number(s.initialPrice) || 0;
@@ -41024,6 +42366,16 @@ function viewD2dDashboard() {
     }, label);
     const pillBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
       pill('today', 'Today'), pill('yesterday', 'Yesterday'), pill('week', 'Week'), pill('month', 'Month'), pill('year', 'Year'));
+    // Branch color chip (workbook palette) — used on the leaderboard rows
+    // and the sales list so every line reads its branch at a glance.
+    const _ofcChip = (office) => {
+      const label = /^office\s*20$/i.test(String(office || '')) ? 'LITTLE ROCK' : String(office || '');
+      const bc = (typeof BRANCH_COLORS !== 'undefined') ? BRANCH_COLORS[label.toUpperCase()] : null;
+      return bc ? el('span', {
+        title: label.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()),
+        style: { width: '9px', height: '9px', borderRadius: '3px', background: bc, border: '1px solid var(--border-2)', display: 'inline-block', flexShrink: '0', marginRight: '7px' },
+      }) : null;
+    };
     const lbCard = el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'font-display text-lg' }, 'Rep Leaderboard')),
@@ -41043,7 +42395,7 @@ function viewD2dDashboard() {
             onmouseleave: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = isMe ? 'rgba(141,198,63,.08)' : ''; } : undefined,
           },
             el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, String(i + 1)),
-            el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, o.name + (isMe ? ' · You' : '')),
+            el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, _ofcChip(o.office), o.name + (isMe ? ' · You' : '')),
             el('td', { class: 'px-4 py-2 text-muted- whitespace-nowrap' }, team || '—'),
             el('td', { class: 'px-4 py-2 tabular-nums' }, String(o.n)),
             el('td', { class: 'px-4 py-2 tabular-nums font-semibold' }, fmt.usd0(o.cv)),
@@ -41091,7 +42443,16 @@ function viewD2dDashboard() {
           ...[['#'], [state._d2dStandingsBy === 'office' ? 'Office' : 'Team'], ['Accts'], ['Revenue'], ['PRA', 'Per Rep Average \u2014 revenue \u00f7 reps with a sale in this range'], ['ACV'], ['MY %', 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)'], ['APay %'], ['Avg Initial'], ['Avg Pest Init'], ['Last Resort %', 'Accounts under $99 initial \u00f7 all accounts']].map(([h, tip]) => el('th', { class: 'px-4 py-2 whitespace-nowrap', title: tip || '' }, h)))),
         el('tbody', {}, ...teams.map((t, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
           el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, String(i + 1)),
-          el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, t.team),
+          el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, (() => {
+            // Branch color chip (workbook palette). "Office 20" rows heal to
+            // Little Rock client-side until the renamed sync data lands.
+            const label = /^office\s*20$/i.test(String(t.team || '')) ? 'LITTLE ROCK' : String(t.team || '');
+            const bc = (state._d2dStandingsBy === 'office' && typeof BRANCH_COLORS !== 'undefined')
+              ? BRANCH_COLORS[label.toUpperCase()] : (typeof getTeamColor === 'function' && state._d2dStandingsBy === 'team' ? null : null);
+            return el('span', { class: 'inline-flex items-center gap-2' },
+              bc ? el('span', { style: { width: '10px', height: '10px', borderRadius: '3px', background: bc, border: '1px solid var(--border-2)', display: 'inline-block', flexShrink: '0' } }) : null,
+              label);
+          })()),
           el('td', { class: 'px-4 py-2 tabular-nums' }, String(t.n)),
           el('td', { class: 'px-4 py-2 tabular-nums font-semibold' }, fmt.usd0(t.cv)),
           el('td', { class: 'px-4 py-2 tabular-nums font-semibold', title: t.reps + ' active rep' + (t.reps === 1 ? '' : 's') }, fmt.usd0(t.reps ? t.cv / t.reps : 0)),
@@ -41126,7 +42487,7 @@ function viewD2dDashboard() {
           return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             ...(showDate ? [el('td', { class: 'px-4 py-2 tabular-nums text-muted- whitespace-nowrap' }, _d2dIso(s))] : []),
             el('td', { class: 'px-4 py-2 tabular-nums text-muted- whitespace-nowrap' }, t ? ((t.hour % 12 || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour < 12 ? 'a' : 'p') + ' ' + _officeTzShort(s.office)) : '—'),
-            el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, nm),
+            el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, _ofcChip(s.office), nm),
             el('td', { class: 'px-4 py-2 whitespace-nowrap' }, String(s.subscription || '—')),
             el('td', { class: 'px-4 py-2 tabular-nums' }, String(Number(s.contract) || '—')),
             el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(Number(s.initialPrice) || 0)),

@@ -49,6 +49,7 @@ const OFFICE_NAMES = {
   '1': 'Salt Lake', '6': 'Charleston', '7': 'Myrtle Beach', '10': 'Destin',
   '13': 'Atlanta', '15': 'Virginia Beach', '16': 'Raleigh', '18': 'Detroit',
   '19': 'Joplin',   // opened Jul 2026 — appeared in the warehouse 2026-07-08
+  '20': 'Little Rock', // added to RevHawk replication 2026-07-30 (per Isaac)
 };
 async function discoverOffices(token) {
   try {
