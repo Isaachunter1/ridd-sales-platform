@@ -17252,7 +17252,12 @@ function openNrlaRosterModal(rawSales) {
   };
   // Every branch a rep could compete for — current teams plus the flyer
   // eight, so a brand-new branch (Joplin) is assignable before it has data.
-  const allTeamChoices = [...new Set([...teams, ...NRLA_2026_SCHEDULE.flat(2).filter(Boolean)])].sort();
+  // Every branch that has EVER sold D2D — new branches (Little Rock, …)
+  // appear here automatically the moment they land in the sync (per Isaac).
+  const _allOfficesEver = [...new Set((state._indicatorRawSales || [])
+    .filter(s => (typeof _indicatorDeptOf !== 'function' || _indicatorDeptOf(s) === 'd2d') && s.office)
+    .map(s => String(s.office).toUpperCase()))];
+  const allTeamChoices = [...new Set([...teams, ..._allOfficesEver, ...NRLA_2026_SCHEDULE.flat(2).filter(Boolean)])].sort();
   // Fold a duplicate spelling into the real rep — wraps the app-wide
   // mergeDuplicateRep (alias + per-rep settings), then fixes rosters and
   // rep IDs here so the two rows collapse into one everywhere.
@@ -17386,7 +17391,38 @@ function openNrlaRosterModal(rawSales) {
     el('button', { class: 'rounded-lg px-3 py-2 text-xs font-bold cursor-pointer shrink-0', style: { background: PINK, color: '#fff' }, onclick: doAdd }, 'Add'));
   const footer = el('div', { class: 'px-5 py-3 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
     'Rosters are authoritative: they set who competes for each team and the PRA denominator. Use the team dropdown on a rep to move them to the branch they\'re competing for — their production follows them. New reps are matched to their sales by NAME once the sync catches up. Synced to every admin.');
+  // ── Competing branches (moved here from the board, per Isaac) — every
+  // branch that has EVER sold D2D shows automatically (new ones included);
+  // click to sit a branch out / bring it back.
+  const chipsWrap = el('div', { class: 'px-5 py-2 border-b flex items-center gap-1.5 flex-wrap', style: { borderColor: 'var(--border)' } });
+  const renderChips = () => {
+    chipsWrap.innerHTML = '';
+    const ex = new Set((comp.excludedBranches || []).map(b => String(b).toUpperCase()));
+    const allBranches = [...new Set([...allTeamChoices, ...ex])].sort();
+    chipsWrap.append(
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-bold shrink-0', style: { color: 'var(--text-subtle)' } }, 'Competing'),
+      ...allBranches.map(b => {
+        const off = ex.has(b);
+        return el('button', {
+          class: 'rounded-full px-2.5 py-0.5 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
+          style: off
+            ? { background: 'transparent', color: 'var(--text-muted)', border: '1px dashed var(--border-2)', textDecoration: 'line-through' }
+            : { background: '#0E1C30', color: '#fff', border: '1px solid #0E1C30' },
+          title: off ? b + ' is sitting the league out — click to include' : 'Click to pull ' + b + ' out of the league',
+          onclick: () => {
+            comp.excludedBranches = off
+              ? (comp.excludedBranches || []).filter(x => String(x).toUpperCase() !== b)
+              : [...(comp.excludedBranches || []), b];
+            persist(b + (off ? ' back in the league' : ' pulled from the league'));
+            renderChips();
+            renderList();
+          },
+        }, b);
+      }));
+  };
+  renderChips();
   card.append(header,
+    chipsWrap,
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } }, searchInput),
     addBar,
     listWrap, footer);
@@ -17962,7 +17998,9 @@ function nrlaBoard(rawSales, opts) {
 
   // ── Competing-team chips ──
   const comp = R.comp;
+  // eslint-disable-next-line no-unused-vars — chips live in the 📋 modal now
   const chipBar = (() => {
+    return null;
     const allBranches = [...new Set([...R.teams, ...(comp.excludedBranches || []).map(b => String(b).toUpperCase())])].sort();
     if (!allBranches.length) return null;
     const ex = new Set((comp.excludedBranches || []).map(b => String(b).toUpperCase()));
@@ -17993,7 +18031,7 @@ function nrlaBoard(rawSales, opts) {
         'Set a season start date in the Comp Window bar to build the schedule.')));
   }
   if (R.teams.length < 2) {
-    return _nrlaWrap(el('div', { class: 'card overflow-hidden' }, hero, chipBar,
+    return _nrlaWrap(el('div', { class: 'card overflow-hidden' }, hero,
       el('div', { class: 'p-8 text-center text-sm', style: { color: 'var(--text-muted)' } },
         'Fewer than two teams have data (or rosters) in the season window — nothing to schedule yet.')));
   }
@@ -18668,8 +18706,8 @@ function nrlaBoard(rawSales, opts) {
   const footer = el('div', { class: 'px-3 py-2 text-center text-[10px] font-bold uppercase tracking-widest', style: { color: 'var(--text-subtle)', borderTop: '1px solid var(--border)' } },
     'Updates will be sent daily · RIDDMADE');
 
+  // (competing-branch chips moved into the 📋 roster modal — per Isaac)
   return _nrlaWrap(el('div', { class: 'card overflow-hidden' }, hero,
-    RO ? null : chipBar,
     standingsCard, repBoard, prizeStrip, prizeCard, roundsGrid, footer));
 }
 
@@ -19571,7 +19609,7 @@ function kothSection(raw, cfg, isAdmin) {
   // qualifying accounts, the final boards freeze into the synced config —
   // rendered from the snapshot forever after.
   let days;
-  if (cfg.final && Array.isArray(cfg.final.days)) {
+  if (cfg.final && Array.isArray(cfg.final.days) && cfg.final.days.length) {
     days = cfg.final.days;
   } else {
     days = kothDays(raw);
@@ -20640,7 +20678,7 @@ function viewNrlaPublic() {
       // AUTO-FREEZE (per Isaac): once the window closes and every counted
       // account's audit has settled, the final board snapshots into the
       // synced extras and renders from there.
-      let _kFinal = (sel.final && Array.isArray(sel.final.reps)) ? sel.final.reps : null;
+      let _kFinal = (sel.final && Array.isArray(sel.final.reps) && sel.final.reps.length) ? sel.final.reps : null;   // an EMPTY frozen board is a bad freeze — ignore it and compute live
       if (!_kFinal && isAdmin && new Date().toISOString().slice(0, 10) > sel.kobeTo) {
         const _pendK = (raw || []).filter(s => {
           if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') return false;
@@ -20654,6 +20692,7 @@ function viewNrlaPublic() {
         if (_pendK === 0) {
           try {
             const _repsK = kobeWeekCompute(raw, sel.kobeFrom, sel.kobeTo);
+            if (!_repsK.length) throw new Error('empty board — nothing to freeze');
             sel.final = { at: new Date().toISOString(), reps: JSON.parse(JSON.stringify(_repsK)) };
             _cXtra[sel.id] = { ..._cXtra[sel.id], final: sel.final };
             logActivity('comp_change', { detail: 'Kobe Week: final board AUTO-frozen (window over, audits settled)' });
