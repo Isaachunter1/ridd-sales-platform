@@ -19709,8 +19709,8 @@ function mysteryBoxSection(isAdmin) {
 }
 
 // ═══ 🏆 RIDD INSIDE SALES LEAGUE (Office Staff) — per Isaac ═════════════
-// Soccer-style promotion/relegation league in rotating 2-WEEK rounds,
-// ranked on revenue. Straight off the FieldRoutes sync (Office Staff rows).
+// Soccer-style promotion/relegation league in SEMI-MONTHLY rounds (always
+// the 1st–15th, then the 16th–month-end), ranked on revenue. Straight off the FieldRoutes sync (Office Staff rows).
 // COUNTING RULES (same P/S basis as the sales-rep comps):
 //   · Pending/Serviced gate (frPendingServiced) — pre-service cancels are out
 //   · AutoPay must be ON
@@ -19742,10 +19742,48 @@ function openIslHelpModal() {
         el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#fff', textTransform: 'uppercase' } }, 'RIDD Inside Sales League')),
       el('button', { class: 'text-2xl leading-none cursor-pointer', style: { color: '#fff' }, onclick: close }, '\u00d7')),
     el('div', { class: 'overflow-auto px-5 py-4' },
-      block('\u26bd The format', 'Football is life \u2014 and so is inside sales. Divisions of 3: Premier League on top, then Priority 1, Priority 2, \u2026 competing in rotating 2-week rounds ranked by Passed Revenue.'),
+      block('\u26bd The format', 'Football is life \u2014 and so is inside sales. Divisions of 3: Premier League on top, then Priority 1, Priority 2, \u2026 competing in semi-monthly rounds \u2014 always the 1st\u201315th, then the 16th through month-end \u2014 ranked by Passed Revenue.'),
       block('\ud83d\udd03 Promotion & relegation', 'When a round ends and the rotation is applied, the BOTTOM rep of each division drops a division (\u25bc) and the TOP rep of the division below moves up (\u25b2).'),
       block('\ud83d\udcb0 What counts', 'Pending/Serviced accounts only (the same gate every sales-rep comp uses \u2014 pre-service cancels never count), sold by Office Staff, with AutoPay ON and an agreement on file (12/18/24-month contract; one-time jobs are out).'),
       block('\ud83e\uddfe The columns', 'FR Revenue = CRM-synced subscription revenue. Upsells = upsell-source revenue. Failed = failed-audit revenue, which is DEDUCTED. Passed Revenue = FR + Upsells \u2212 Failed \u2014 that\u2019s the ranking number.'))));
+  document.body.append(overlay);
+}
+// 👥 League roster — who's actually competing. Reps can sell revenue
+// without being in the league (per Isaac); toggling here builds an explicit
+// roster (default = everyone with season production).
+function openIslRosterModal(cfg, repRows, onSave) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => { overlay.remove(); mountApp(); };
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const card = el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
+  overlay.append(card);
+  const render = () => {
+    card.innerHTML = '';
+    const isIn = (n) => (!Array.isArray(cfg.roster) || !cfg.roster.length) ? true : cfg.roster.includes(n);
+    const toggle = (n) => {
+      let r = (Array.isArray(cfg.roster) && cfg.roster.length) ? cfg.roster.slice() : repRows.map(x => x.name);
+      if (r.includes(n)) r = r.filter(x => x !== n); else r.push(n);
+      cfg.roster = r;
+      onSave('roster \u2192 ' + r.length + ' competing');
+      render();
+    };
+    card.append(
+      el('div', { class: 'flex items-center justify-between px-5 py-3', style: { background: '#1F3B8B' } },
+        el('div', {},
+          el('h2', { class: 'text-base font-bold', style: { color: '#fff' } }, 'League roster'),
+          el('div', { class: 'text-[11px]', style: { color: '#F6C915' } }, 'Toggle who\u2019s competing \u2014 revenue from non-roster reps never enters the divisions')),
+        el('button', { class: 'text-2xl leading-none cursor-pointer', style: { color: '#fff' }, onclick: close }, '\u00d7')),
+      el('div', { class: 'overflow-auto p-2' },
+        ...repRows.map(r => el('button', {
+          class: 'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer text-left transition hover:brightness-95',
+          style: { background: isIn(r.name) ? 'var(--card-2)' : 'transparent', opacity: isIn(r.name) ? '1' : '.55' },
+          onclick: () => toggle(r.name),
+        },
+          el('span', { style: { fontSize: '14px' } }, isIn(r.name) ? '\u2611' : '\u2610'),
+          el('span', { class: 'font-semibold flex-1 min-w-0 truncate', style: isIn(r.name) ? {} : { textDecoration: 'line-through' } }, r.name),
+          el('span', { class: 'text-xs tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.usd0(r.rev) + ' season')))));
+  };
+  render();
   document.body.append(overlay);
 }
 function islSection(raw, cfg, isAdmin) {
@@ -19756,7 +19794,6 @@ function islSection(raw, cfg, isAdmin) {
     if (typeof saveIndicatorState === 'function') saveIndicatorState();
     mountApp();
   };
-  const ROUND_DAYS = 14;
   const DIV_SIZE = 3;
   // ── Comp Window bar ──
   const bar = el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
@@ -19765,10 +19802,10 @@ function islSection(raw, cfg, isAdmin) {
       type: 'date', value: cfg.start || '',
       class: 'rounded border px-1.5 py-1 text-xs',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-      title: 'Season start — 2-week rounds roll automatically from this date',
+      title: 'Season start — rounds run the 1st–15th and the 16th–month-end, rolling from this date',
       onchange: (e) => { cfg.start = e.target.value; state._islRoundSel = null; save('season start \u2192 ' + (e.target.value || 'unset')); },
     }) : el('span', { class: 'text-[11px] font-bold tabular-nums' }, cfg.start || '\u2014'),
-    el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '\u00b7 2-week rounds roll from the season start'));
+    el('span', { class: 'text-[11px] ml-1', style: { color: 'var(--text-muted)' } }, '\u00b7 rounds: the 1st\u201315th, then the 16th\u2013month-end'));
   wrap.append(bar);
   if (!cfg.start) {
     bar.append(el('div', { class: 'ml-auto' }));
@@ -19776,25 +19813,36 @@ function islSection(raw, cfg, isAdmin) {
       isAdmin ? 'Set the season start date in the Comp Window bar to open the league.' : 'The league opens once an admin sets the season start date.'));
     return wrap;
   }
-  const startMs = Date.parse(cfg.start + 'T00:00');
+  // SEMI-MONTHLY rounds (per Isaac): always the 1st–15th, then the 16th
+  // through the end of the month. Round 1 = whichever half the season
+  // start lands in.
   const dayMs = 86400000;
-  const curIdx = Math.max(0, Math.floor((Date.now() - startMs) / dayMs / ROUND_DAYS));
+  const _startD = new Date(cfg.start + 'T00:00');
+  const _halfIdxOf = (d) => (d.getFullYear() * 12 + d.getMonth()) * 2 + (d.getDate() > 15 ? 1 : 0);
+  const _startHalf = _halfIdxOf(_startD);
+  const curIdx = Math.max(0, _halfIdxOf(new Date()) - _startHalf);
   const selIdx = (state._islRoundSel == null || state._islRoundSel < 0) ? curIdx : Math.min(state._islRoundSel, curIdx);
-  const rS = new Date(startMs + selIdx * ROUND_DAYS * dayMs);
-  const rE = new Date(rS.getTime() + (ROUND_DAYS - 1) * dayMs);
+  const _selHalf = _startHalf + selIdx;
+  const _hy = Math.floor(_selHalf / 24), _hrem = _selHalf % 24, _hm = Math.floor(_hrem / 2), _hh = _hrem % 2;
+  const rS = new Date(_hy, _hm, _hh === 0 ? 1 : 16);
+  const rE = _hh === 0 ? new Date(_hy, _hm, 15) : new Date(_hy, _hm + 1, 0);
   const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   const mmdd = (d) => (d.getMonth() + 1) + '/' + d.getDate();
   const roundOver = Date.now() > rE.getTime() + dayMs;
   // ── Per-rep tallies for the selected round ──
   const tally = new Map();
   const seasonNames = new Set();
+  const _seasonRev = new Map();
   for (const s of (raw || [])) {
     if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'office') continue;
     const dIso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
     if (!dIso || dIso < cfg.start) continue;
     const nm = getCanonicalRepName(s.rep);
     if (!nm) continue;
-    if (typeof frPendingServiced === 'function' && frPendingServiced(s)) seasonNames.add(nm);
+    if (typeof frPendingServiced === 'function' && frPendingServiced(s)) {
+      seasonNames.add(nm);
+      _seasonRev.set(nm, (_seasonRev.get(nm) || 0) + (Number(s.contractValue) || 0));
+    }
     if (dIso < iso(rS) || dIso > iso(rE)) continue;
     if (!islQualifies(s)) continue;
     const t = tally.get(nm) || { fr: 0, up: 0, fail: 0 };
@@ -19809,7 +19857,11 @@ function islSection(raw, cfg, isAdmin) {
   //    season's sellers ranked by this round's Passed Revenue. New sellers
   //    join the bottom division automatically. ──
   let divs = Array.isArray(cfg.divs) && cfg.divs.length ? cfg.divs.map(d => d.slice()) : null;
-  const roster = [...seasonNames];
+  // 👥 Roster: explicit competing list when set (per Isaac — producers who
+  // aren't in the league stay off the tables); otherwise every season seller.
+  const _hasRoster = Array.isArray(cfg.roster) && cfg.roster.length > 0;
+  const roster = _hasRoster ? cfg.roster.slice() : [...seasonNames];
+  if (_hasRoster && divs) divs = divs.map(d => d.filter(n => roster.includes(n))).filter(d => d.length);
   if (!divs) {
     const ranked = roster.slice().sort((a, b) => passedOf(b) - passedOf(a));
     divs = [];
@@ -19852,6 +19904,21 @@ function islSection(raw, cfg, isAdmin) {
       },
     }, '\ud83d\udd03 Apply rotation') : null,
     isAdmin ? el('button', {
+      class: 'cursor-pointer transition hover:brightness-95 border rounded-full',
+      style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', background: 'var(--card)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
+      title: 'League roster \u2014 toggle who\u2019s competing (producers off the roster never enter the divisions)',
+      onclick: () => {
+        const rows = [...new Set([...seasonNames, ...(Array.isArray(cfg.roster) ? cfg.roster : [])])]
+          .map(n => ({ name: n, rev: _seasonRev.get(n) || 0 }))
+          .sort((a, b) => b.rev - a.rev);
+        openIslRosterModal(cfg, rows, (detail) => {
+          logActivity('comp_change', { detail: 'Inside Sales League: ' + detail });
+          saveDemoData();
+          if (typeof saveIndicatorState === 'function') saveIndicatorState();
+        });
+      },
+    }, '\ud83d\udc65') : null,
+    isAdmin ? el('button', {
       class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
       style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
       title: 'Reset the league — season date and division history clear until you set a new start',
@@ -19890,7 +19957,12 @@ function islSection(raw, cfg, isAdmin) {
       'No qualifying Office Staff production yet this season \u2014 the divisions seed from the first accounts that land.'));
     return wrap;
   }
+  const _benched = _hasRoster ? [...seasonNames].filter(n => !roster.includes(n)) : [];
   const divName = (i) => i === 0 ? 'PREMIER LEAGUE' : 'PRIORITY ' + i;
+  if (_benched.length && isAdmin) {
+    wrap.append(el('div', { class: 'text-[11px] px-1', style: { color: 'var(--text-muted)' } },
+      _benched.length + ' rep' + (_benched.length === 1 ? '' : 's') + ' with season revenue ' + (_benched.length === 1 ? 'is' : 'are') + ' not on the competing roster (' + _benched.join(', ') + ') \u2014 manage via \ud83d\udc65'));
+  }
   divs.forEach((names, di) => {
     const rows = names.slice().sort((a, b) => passedOf(b) - passedOf(a));
     wrap.append(el('div', { class: 'card overflow-hidden' },
