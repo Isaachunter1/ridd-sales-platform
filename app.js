@@ -19271,7 +19271,12 @@ function kobeWeekCompute(raw, KOBE_FROM, KOBE_TO, BASE_YEAR) {
     Object.entries(weeks).forEach(([wk, rev]) => { if (rev > bestRev) { bestRev = rev; bestWk = wk; } });
     if (bestRev <= 0) return;                      // no baseline = nothing to beat
     const c = cur.get(nm) || { total: 0, byDay: {} };
-    reps.push({ name: nm, bestWk, bestRev, cur: c.total, byDay: c.byDay, earned: c.total > bestRev });
+    // Tier minimum targets (per Isaac): the number to beat is the rep's
+    // best week FLOORED at $7K for Rookies / $10K for Vets — a small
+    // baseline doesn't make a small target.
+    const _min = (typeof getRepTier === 'function' && getRepTier(nm) === 'rookie') ? 7000 : 10000;
+    const target = Math.max(bestRev, _min);
+    reps.push({ name: nm, bestWk, bestRev, target, cur: c.total, byDay: c.byDay, earned: c.total > target });
   });
   return reps;
 }
@@ -19299,8 +19304,9 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
     .map(([t, list]) => ({ t, list: list.slice().sort((a, b) => b.bestRev - a.bestRev), total: list.reduce((a, r) => a + r.bestRev, 0) }))
     .sort((a, b) => b.total - a.total);
   // (one team per column — two teams per page max, per Isaac)
-  const th = (t, right) => el('th', { style: { fontSize: '8px', fontWeight: '800', letterSpacing: '.04em', textTransform: 'uppercase', color: '#666', padding: '4px 6px', textAlign: right ? 'right' : 'left', borderBottom: '1px solid #ddd', whiteSpace: 'nowrap' } }, t);
-  const td = (t, right, opts = {}) => el('td', { style: { padding: '3px 6px', fontSize: '9.5px', textAlign: right ? 'right' : 'left', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap', fontWeight: opts.bold ? '800' : '400', color: opts.color || '#111', fontVariantNumeric: 'tabular-nums' } }, t);
+  // Poster vibe (per Isaac): black page, white type, red + orange accents.
+  const th = (t, right) => el('th', { style: { fontSize: '8px', fontWeight: '800', letterSpacing: '.06em', textTransform: 'uppercase', color: '#8a8a8a', padding: '4px 6px', textAlign: right ? 'right' : 'left', borderBottom: '1px solid #3a3a3a', whiteSpace: 'nowrap' } }, t);
+  const td = (t, right, opts = {}) => el('td', { style: { padding: '3px 6px', fontSize: '9.5px', textAlign: right ? 'right' : 'left', borderBottom: '1px solid #232323', whiteSpace: 'nowrap', fontWeight: opts.bold ? '800' : '400', color: opts.color || '#f2f2f2', fontVariantNumeric: 'tabular-nums' } }, t);
   const mkTeam = (tm) => {
     // Band wears the team's own color (Manage Teams), text auto-contrasts.
     const bg = (typeof getTeamColor === 'function' && getTeamColor(tm.t)) || '#1D1D1D';
@@ -19308,25 +19314,35 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
     return el('div', {},
     el('div', { style: { padding: '6px 8px', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.06em', background: bg, color: fg, whiteSpace: 'nowrap', borderRadius: '4px 4px 0 0' } },
       tm.t + ' \u00b7 ' + tm.list.length + ' rep' + (tm.list.length === 1 ? '' : 's')),
-    el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e5e5' } },
-      el('thead', { style: { background: '#fafafa' } }, el('tr', {},
+    el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #333' } },
+      el('thead', { style: { background: '#161616' } }, el('tr', {},
         th('#'), th('Rep'), th('Best Week'), th('Best $', true), th('This Wk $', true), th('\u2713'))),
       el('tbody', {}, ...tm.list.map((r, i) => el('tr', {},
         td('#' + (i + 1), false, { color: '#999' }),
         td(r.name, false, { bold: true }),
         td('wk of ' + wkLbl(r.bestWk)),
-        td(fmt.usd0(r.bestRev), true, { bold: true }),
+        td(fmt.usd0(r.bestRev), true, { bold: true, color: '#F5A623' }),
         td(r.cur > 0 ? fmt.usd0(r.cur) : '\u2014', true),
         td(r.earned ? '\ud83d\udc0d' : '', false))))));
   };
   const pages = [];
   for (let i = 0; i < teams.length; i += 2) {
     const pair = teams.slice(i, i + 2);
-    pages.push(el('div', { style: { width: '816px', padding: '20px 26px', background: '#fff', color: '#111', fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif', boxSizing: 'border-box' } },
-      el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '3px solid #E0402A', paddingBottom: '6px', marginBottom: '12px' } },
-        el('div', { style: { fontSize: '17px', fontWeight: '900', letterSpacing: '-0.01em' } }, '\ud83d\udc0d KOBE WEEK \u2014 BEST WEEKS'),
-        el('div', { style: { fontSize: '9px', color: '#666', fontWeight: '600' } },
-          new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + (pages.length ? ' \u00b7 p.' + (pages.length + 1) : ''))),
+    pages.push(el('div', { style: { width: '816px', padding: '24px 28px', background: '#0A0A0A', color: '#fff', fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif', boxSizing: 'border-box' } },
+      el('div', { style: { borderBottom: '4px solid #E0402A', paddingBottom: '8px', marginBottom: '14px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' } },
+        el('div', {},
+          el('div', { style: { fontSize: '34px', fontWeight: '900', letterSpacing: '-0.02em', lineHeight: '.95', textTransform: 'uppercase', color: '#fff' } }, 'KOBE WEEK'),
+          el('div', { style: { fontSize: '11px', fontWeight: '800', letterSpacing: '.18em', textTransform: 'uppercase', color: '#F5A623', marginTop: '4px' } }, 'BEST WEEKS \u00b7 ' + from.slice(5).replace('-', '/') + ' \u2013 ' + to.slice(5).replace('-', '/'))),
+        el('div', { style: { textAlign: 'right' } },
+          el('div', { style: { fontSize: '20px' } }, '\ud83d\udc0d'),
+          el('div', { style: { fontSize: '8.5px', color: '#8a8a8a', fontWeight: '700', marginTop: '2px' } },
+            new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + (pages.length ? ' \u00b7 p.' + (pages.length + 1) : ' \u00b7 RIDDMADE')))),
+      i === 0 ? el('div', { style: { border: '2px solid #E0402A', borderRadius: '6px', padding: '10px 14px', margin: '0 0 14px', background: '#140b09' } },
+        el('div', { style: { fontSize: '13px', fontWeight: '900', letterSpacing: '.1em', textTransform: 'uppercase', color: '#fff', marginBottom: '5px' } }, 'RULES + REWARD'),
+        el('div', { style: { fontSize: '9.5px', lineHeight: '1.6', color: '#d9d9d9', textTransform: 'uppercase' } },
+          'There is something to be said about finishing strong. Many will call their summer \u201cgood enough.\u201d The best will do something memorable. Set a new personal record during Kobe Week and win the reward \u2014 not monetary, no RIDDCOIN involved. Winners have a place in our story forever: a custom framed \u201c24\u201d jersey with your name, signed live at the gala.'),
+        el('div', { style: { fontSize: '9.5px', fontWeight: '900', marginTop: '7px', color: '#F5A623', textTransform: 'uppercase', letterSpacing: '.02em' } },
+          'Target = your best Sun\u2013Sat week of the season \u00b7 MINIMUM: Rookies $7,000 \u00b7 Vets $10,000 \u00b7 Pending/Serviced only \u00b7 failed audits + last resorts don\u2019t count')) : null,
       el('div', { style: { display: 'flex', gap: '22px', alignItems: 'flex-start' } },
         el('div', { style: { flex: '1', minWidth: '0' } }, mkTeam(pair[0])),
         pair[1] ? el('div', { style: { flex: '1', minWidth: '0' } }, mkTeam(pair[1])) : el('div', { style: { flex: '1' } }))));
@@ -19342,7 +19358,7 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
     const mX = 14, mY = 14, imgW = pageW - mX * 2, usableH = pageH - mY * 2;
     const sheets = [...reportEl.children];
     for (let pi = 0; pi < sheets.length; pi++) {
-      const canvas = await html2canvas(sheets[pi], { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true });
+      const canvas = await html2canvas(sheets[pi], { scale: 2, backgroundColor: '#0A0A0A', logging: false, useCORS: true });
       const imgData = canvas.toDataURL('image/png');
       const imgH = (canvas.height * imgW) / canvas.width;
       if (pi > 0) pdf.addPage();
@@ -19389,20 +19405,21 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO) {
           el('div', { class: 'font-display text-2xl leading-none', style: { color: MAMBA } }, earnedN || '0'),
           el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.7' } }, 'earned kobe week'))),
       el('div', { class: 'text-[11px] font-bold mt-3', style: { opacity: '.85' } },
-        'Beat your best week of the summer \u00b7 Reward: a custom framed \u201c24\u201d jersey with your name, signed live at the gala'))));
+        'Beat your best week of the summer \u00b7 Minimum target: Rookies $7K / Vets $10K \u00b7 Reward: a custom framed \u201c24\u201d jersey with your name, signed live at the gala'))));
   // ── Personal pacer hero (signed-in rep) ──
   if (mine) {
-    const remaining = Math.max(0, mine.bestRev - mine.cur);
+    const _tgt = mine.target || mine.bestRev;
+    const remaining = Math.max(0, _tgt - mine.cur);
     const perDay = (remaining > 0 && daysLeft > 0) ? remaining / daysLeft : 0;
-    const pct = mine.bestRev > 0 ? Math.min(100, mine.cur / mine.bestRev * 100) : 0;
+    const pct = _tgt > 0 ? Math.min(100, mine.cur / _tgt * 100) : 0;
     nodes.push(el('div', { class: 'card p-5', style: { borderLeft: '3px solid ' + MAMBA } },
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
         el('div', {},
           el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', color: 'var(--text-muted)' } }, 'Your Kobe Week'),
           el('div', { class: 'font-display text-2xl leading-none mt-1' },
-            mine.earned ? 'YOU DID SOMETHING MEMORABLE.' : over ? 'The week is done.' : live ? 'BEAT ' + fmt.usd0(mine.bestRev) : 'Your target: ' + fmt.usd0(mine.bestRev)),
+            mine.earned ? 'YOU DID SOMETHING MEMORABLE.' : over ? 'The week is done.' : live ? 'BEAT ' + fmt.usd0(_tgt) : 'Your target: ' + fmt.usd0(_tgt)),
           el('div', { class: 'text-xs text-muted- mt-1' },
-            'Best week of your summer: ' + fmt.usd0(mine.bestRev) + ' (' + wkLbl(mine.bestWk) + ') \u00b7 this week so far: ' + fmt.usd0(mine.cur))),
+            'Best week of your summer: ' + fmt.usd0(mine.bestRev) + ' (' + wkLbl(mine.bestWk) + ')' + (_tgt > mine.bestRev ? ' \u00b7 minimum target ' + fmt.usd0(_tgt) : '') + ' \u00b7 this week so far: ' + fmt.usd0(mine.cur))),
         el('div', { class: 'text-right' },
           mine.earned
             ? el('div', { class: 'text-sm font-black px-3 py-1.5 rounded-lg', style: { background: MAMBA, color: '#fff' } }, '\ud83d\udc0d KOBE WEEK EARNED')
@@ -19444,9 +19461,10 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO) {
         el('th', { class: 'px-3 py-2 text-right hidden sm:table-cell', title: 'What\u2019s left \u00f7 remaining comp days' }, 'Pace/Day'),
         el('th', { class: 'px-3 py-2', style: { minWidth: '150px' } }, 'Progress'))),
       el('tbody', {}, ...sorted.map(r => {
-        const remaining = Math.max(0, r.bestRev - r.cur);
+        const _rTgt = r.target || r.bestRev;
+        const remaining = Math.max(0, _rTgt - r.cur);
         const perDay = (remaining > 0 && daysLeft > 0) ? remaining / daysLeft : 0;
-        const pct = Math.min(100, r.cur / r.bestRev * 100);
+        const pct = Math.min(100, r.cur / _rTgt * 100);
         const _q = String(state._kobeSearch || '').trim().toLowerCase();
         return el('tr', {
           class: 'border-t', 'data-kobe': r.name.toLowerCase(),
