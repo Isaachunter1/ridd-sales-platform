@@ -20475,8 +20475,10 @@ function viewNrlaPublic() {
         title: 'Look back at every rep\u2019s best week of a given year',
         onchange: (e) => { state._kobeYear = e.target.value; mountApp(); },
       },
-        el('option', { value: '', selected: !_kSelYr }, 'This comp'),
-        ..._kYears.map(y => el('option', { value: y, selected: _kSelYr === y }, 'Best weeks \u00b7 ' + y))),
+        // Plain YEARS only (per Isaac): the comp year is the live board,
+        // any other year is the lookback.
+        el('option', { value: '', selected: !_kSelYr }, (sel.kobeFrom || KOBE_FROM).slice(0, 4)),
+        ..._kYears.filter(y => y !== (sel.kobeFrom || KOBE_FROM).slice(0, 4)).map(y => el('option', { value: y, selected: _kSelYr === y }, y))),
       isAdmin ? el('button', {
         class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border ml-auto',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
