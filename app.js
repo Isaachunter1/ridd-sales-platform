@@ -2625,6 +2625,12 @@ async function loadAndRender() {
     // Lookups and the main data pull are independent — run them in parallel
     // (they used to be two sequential network stages on every boot).
     await Promise.all([loadLookups(), loadData()]);
+    // FRESHNESS ON LOGIN (per Isaac — Pere landed on week-old data): kick a
+    // FORCED cloud check right now instead of waiting for the poll. It's a
+    // conditional (ETag) request, so it costs nothing when nothing new
+    // landed; when the local copy is stale it re-renders as soon as the
+    // fresh snapshot arrives.
+    try { refreshIndicatorsFromCloud(true); } catch (e) { /* the poll retries */ }
     // Default landing by REP TYPE (no explicit hash/resume): office staff →
     // Inside Sales dashboard, technicians → Technicians, D2D reps → D2D
     // Sales, auditors → Sales queue. Admins keep the dashboard.
@@ -4903,6 +4909,20 @@ function mountApp() {
         title: state._revhawkSyncing ? 'Syncing…' : 'Manual sync — refreshes everything: kicks a fresh CRM pull (lands in ~1–2 min) and re-pulls app sales, config, roster, QuickBooks + marketing feeds right away. Costs a full BigQuery scan; the hourly schedule is the normal path.',
         disabled: !!state._revhawkSyncing,
         onclick: (e) => syncFromRevHawk(e.currentTarget),
+      }, iconSync(18)),
+      // ↻ for REPS (per Isaac): a lightweight refresh — re-pulls the shared
+      // snapshot + app data (cheap storage reads, NOT the BigQuery sync).
+      !isAdmin && el('button', {
+        class: 'icon-btn show',
+        title: 'Refresh — pull the latest synced numbers right now',
+        onclick: (e) => {
+          const b = e.currentTarget;
+          b.classList.add('icon-spin');
+          toast('Refreshing your data…', 'success');
+          try { refreshIndicatorsFromCloud(true); } catch (err) { /* poll retries */ }
+          try { if (typeof refreshSalesData === 'function') refreshSalesData(); } catch (err) { /* ignore */ }
+          setTimeout(() => { try { b.classList.remove('icon-spin'); } catch (err) { /* gone */ } }, 4000);
+        },
       }, iconSync(18)),
       // Gear for EVERY role, same spot — admins land on the full Settings
       // page; reps/auditors get My Settings (goal · password · sign out).
