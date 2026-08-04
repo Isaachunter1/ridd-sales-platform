@@ -19586,11 +19586,24 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
       el('div', { class: 'mt-3', style: { height: '7px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
         el('div', { style: { width: pct.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: mine.earned ? '#8DC63F' : MAMBA } }))));
   }
-  // ── Everyone: chase board ──
+  // ── Everyone: chase board ── Company view by default; the dropdown
+  // scopes to a single team, and every row carries the rep's team (per Isaac).
+  const _kTeamOf = (r) => (typeof getRepTeam === 'function' && getRepTeam(r.name)) || 'Unassigned';
+  const _kTeams = [...new Set(sorted.map(_kTeamOf))].sort();
+  const _kScope = (state._kobeTeamSel && _kTeams.includes(state._kobeTeamSel)) ? state._kobeTeamSel : '';
+  const viewRows = _kScope ? sorted.filter(r => _kTeamOf(r) === _kScope) : sorted;
   nodes.push(el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-4 py-2.5 flex items-center justify-between gap-2 flex-wrap', style: { background: BLACK, color: '#fff' } },
       el('div', { class: 'font-black uppercase tracking-widest text-sm' }, 'The Chase'),
       el('div', { class: 'flex items-center gap-2' },
+        el('select', {
+          class: 'rounded-lg px-2 py-1.5 text-xs font-bold cursor-pointer',
+          style: { background: 'rgba(255,255,255,.12)', color: '#fff', border: '1px solid rgba(255,255,255,.25)' },
+          title: 'Scope the chase \u2014 whole company or a single team',
+          onchange: (e) => { state._kobeTeamSel = e.target.value; mountApp(); },
+        },
+          el('option', { value: '', selected: !_kScope }, 'Company'),
+          ..._kTeams.map(t => el('option', { value: t, selected: _kScope === t }, t))),
         // In-place filter (show/hide rows) so typing never rebuilds the page.
         el('input', {
           type: 'text', placeholder: 'Search rep\u2026', value: state._kobeSearch || '',
@@ -19609,12 +19622,13 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
     el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
       el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
         el('th', { class: 'px-3 py-2' }, 'Rep'),
+        el('th', { class: 'px-3 py-2' }, 'Team'),
         el('th', { class: 'px-3 py-2 text-right' }, 'Best Week'),
         el('th', { class: 'px-3 py-2 text-right' }, 'This Week'),
         el('th', { class: 'px-3 py-2 text-right hidden sm:table-cell' }, 'To Beat'),
         el('th', { class: 'px-3 py-2 text-right hidden sm:table-cell', title: 'What\u2019s left \u00f7 remaining comp days' }, 'Pace/Day'),
         el('th', { class: 'px-3 py-2', style: { minWidth: '150px' } }, 'Progress'))),
-      el('tbody', {}, ...sorted.map(r => {
+      el('tbody', {}, ...viewRows.map(r => {
         const _rTgt = r.target || r.bestRev;
         const remaining = Math.max(0, _rTgt - r.cur);
         const perDay = (remaining > 0 && daysLeft > 0) ? remaining / daysLeft : 0;
@@ -19627,6 +19641,7 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
         },
           el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.name,
             r.earned ? el('span', { class: 'text-[10px] font-black px-1.5 py-0.5 rounded ml-2', style: { background: MAMBA, color: '#fff' } }, '\ud83d\udc0d EARNED') : null),
+          el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, _kTeamOf(r)),
           el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(r.bestRev),
             el('div', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, wkLbl(r.bestWk))),
           el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, fmt.usd0(r.cur)),
