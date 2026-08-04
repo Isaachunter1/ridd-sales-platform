@@ -2139,6 +2139,8 @@ window.__ridd = {
   // recovery jobs (e.g. restoring NRLA rosters from a season archive).
   get supabase() { return supabase; },
   saveDemoData,
+  // Comp internals for console diagnostics (per Isaac's Kobe blank-board hunt)
+  kobeWeekCompute, isRepActive, frPendingServiced, dateSoldToIso,
   isAdminRole, ADMIN_ROLES, SELLER_ROLES,
   // Save helpers exposed so DevTools-driven bulk edits (e.g. "mark every
   // untagged rep as rookie") can persist through the same pipeline a UI
