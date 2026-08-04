@@ -331,7 +331,7 @@ const INDICATORS_CLOUD_PATH = 'indicators/latest.json.gz';
 // Storage policy (security_rls.sql) enforces this at the database — the
 // full blob 403s for rep sessions even if someone edits this code locally.
 function _indicatorsCloudPath() {
-  const role = state.profile && state.profile.role;
+  const role = state.profile && state.profile?.role;
   return (isAdminRole(role) || isAuditorRole(role)) ? INDICATORS_CLOUD_PATH : 'indicators/latest-rep.json.gz';
 }
 async function syncIndicatorsToCloud() {
@@ -354,6 +354,13 @@ async function syncIndicatorsToCloud() {
       console.warn('[ridd] indicators cloud sync failed (run reporting_storage.sql?)', error);
       return { ok: false, msg: error.message || String(error) };
     }
+    // Rep-facing copy too (rep-UX audit #5): reps read latest-rep.json.gz —
+    // without this, an admin-side publish left reps on older numbers until
+    // the background worker's next successful run.
+    try {
+      await supabase.storage.from('reporting')
+        .upload('indicators/latest-rep.json.gz', blob, { contentType: 'application/gzip', upsert: true });
+    } catch (e2) { console.warn('[ridd] rep blob publish skipped', e2); }
     return { ok: true };
   } catch (e) {
     console.warn('[ridd] indicators cloud sync failed', e);
@@ -413,7 +420,7 @@ async function refreshIndicatorsFromCloud(force) {
     // server copy on ANY difference. The tag is only saved on apply/match
     // so skips keep re-checking.
     if (remoteAt < localAt
-        && isAdminRole(state.profile && state.profile.role)
+        && isAdminRole(state.profile && state.profile?.role)
         && !/^RevHawk sync/i.test(state.indicatorsFileName || '')) return;
     _saveTag();
     // Office 20 → LITTLE ROCK heal: the sync names it at the source going
@@ -462,7 +469,7 @@ function _applyIndicatorsPayloadHousekeeping(payload) {
   } catch (e) { console.warn('[ridd] rep-type map from payload failed', e); }
   // 2. Rep → office auto-sync (admins only — it lands in shared config).
   try {
-    if (!isAdminRole(state.profile && state.profile.role)) return;
+    if (!isAdminRole(state.profile && state.profile?.role)) return;
     const counts = {};
     for (const s of raw) {
       if (!s || !s.rep || !s.office) continue;
@@ -801,7 +808,7 @@ async function loadIndicatorConfigFromSupabase() {
     // pushing them would clobber newer work from other admins (this exact
     // failure mode showed up as an admin stuck seeing only one competition).
     // Server wins the conflict; the toast tells the admin what happened.
-    if (hasServerData && _indCfgDirty() && isAdminRole(state.profile.role)) {
+    if (hasServerData && _indCfgDirty() && isAdminRole(state.profile?.role)) {
       const _rec = _indCfgSyncRec();
       const _serverAt = data.updated_at ? new Date(data.updated_at).getTime() : 0;
       const _baseAt = _rec && _rec.serverAt ? new Date(_rec.serverAt).getTime() : 0;
@@ -830,6 +837,13 @@ async function loadIndicatorConfigFromSupabase() {
         // a merge is data correctness, not a view preference: per-browser
         // aliases meant leaderboard totals differed between admin devices.
         if (data.competitions.repAlias && typeof data.competitions.repAlias === 'object') state._indicatorRepAlias = data.competitions.repAlias;
+        // Virtual-comp config rides the same row (per Isaac's rep-UX audit):
+        // ISL divisions/history, Kobe window + freeze, KOTH freeze, ★
+        // default and pill order now reach EVERY user, not just the admin
+        // device that wrote them.
+        if (data.competitions.extras && typeof data.competitions.extras === 'object') state._compExtras = data.competitions.extras;
+        if (Array.isArray(data.competitions.pillOrder)) state._compPillOrder = data.competitions.pillOrder;
+        if (typeof data.competitions.favMystery === 'boolean') state._compFavoriteMystery = data.competitions.favMystery;
         if (Array.isArray(data.competitions.dupesDismissed)) state._indicatorDismissedDupes = data.competitions.dupesDismissed;
         if (data.competitions.tierYears && typeof data.competitions.tierYears === 'object') state._indicatorRepTierYear = data.competitions.tierYears;
       }
@@ -859,7 +873,7 @@ async function loadIndicatorConfigFromSupabase() {
       (state._indicatorTeams || []).length > 0 ||
       Object.keys(state._indicatorRepTeam || {}).length > 0 ||
       Object.keys(state._indicatorRepTier || {}).length > 0;
-    if (localHasData && isAdminRole(state.profile.role)) {
+    if (localHasData && isAdminRole(state.profile?.role)) {
       console.info('[ridd] migrating indicator config from localStorage → Supabase');
       await _indicatorConfigUpsertNow();   // direct — bypasses the clean-skip (fresh server row)
     }
@@ -886,7 +900,7 @@ function _indCfgFingerprint() {
   const s = JSON.stringify([
     state._indicatorTeams || [], state._indicatorTeamColors || {}, state._indicatorTeamLogos || {},
     state._indicatorExcludedTeams || [],
-    { list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, dupesDismissed: state._indicatorDismissedDupes || [], tierYears: state._indicatorRepTierYear || {} },
+    { list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, dupesDismissed: state._indicatorDismissedDupes || [], tierYears: state._indicatorRepTierYear || {}, extras: state._compExtras || {}, pillOrder: state._compPillOrder || [], favMystery: !!state._compFavoriteMystery },
     state._indicatorRepTeamByYear || {}, state._indicatorRepTier || {}, state._indicatorRepActive || {}, state._indicatorRepOffice || {},
   ]);
   let h = 5381;
@@ -918,7 +932,7 @@ async function _indicatorConfigUpsertNow() {
     team_colors:   state._indicatorTeamColors || {},
     team_logos:    state._indicatorTeamLogos || {},
     team_excluded: state._indicatorExcludedTeams || [],
-    competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, dupesDismissed: state._indicatorDismissedDupes || [], tierYears: state._indicatorRepTierYear || {} },
+    competitions:  { active: state._indicatorActiveCompId || null, list: state._indicatorCompetitions || [], removed: state._indicatorRemovedDefaults || [], rankExclude: state._indicatorRankExclude || {}, repAlias: state._indicatorRepAlias || {}, dupesDismissed: state._indicatorDismissedDupes || [], tierYears: state._indicatorRepTierYear || {}, extras: state._compExtras || {}, pillOrder: state._compPillOrder || [], favMystery: !!state._compFavoriteMystery },
     rep_teams:     state._indicatorRepTeamByYear || {},
     rep_tiers:     state._indicatorRepTier || {},
     rep_active:    state._indicatorRepActive || {},
@@ -986,7 +1000,7 @@ async function _indicatorConfigUpsertNow() {
 // trigger one trailing send, and failures retry (capped).
 let _indCfgUpsertBusy = false, _indCfgUpsertAgain = false, _indCfgUpsertFails = 0;
 async function saveIndicatorConfigToSupabase() {
-  if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
+  if (DEMO || !state.profile || !isAdminRole(state.profile?.role)) return;
   // Nothing actually changed since the last sync this browser saw? Then
   // DON'T touch the server — this is what stops background saves in stale
   // tabs from clobbering another admin's fresh roster work.
@@ -1013,7 +1027,7 @@ async function saveIndicatorConfigToSupabase() {
 // blob save — this path is strictly additive.
 let _rosterMirrorBusy = false, _rosterMirrorAgain = false;
 async function _mirrorNrlaRostersToRows() {
-  if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
+  if (DEMO || !state.profile || !isAdminRole(state.profile?.role)) return;
   if (_rosterMirrorBusy) { _rosterMirrorAgain = true; return; }
   _rosterMirrorBusy = true;
   try {
@@ -1072,7 +1086,7 @@ function subscribeRosterRealtime() {
 // (sales_realtime.sql).
 function subscribeMySalesRealtime() {
   if ((typeof DEMO !== 'undefined' && DEMO) || window._mySalesRtSub || !state.profile) return;
-  if (isAdminRole(state.profile.role) || isAuditorRole(state.profile.role)) return;   // reps only
+  if (isAdminRole(state.profile?.role) || isAuditorRole(state.profile?.role)) return;   // reps only
   try {
     const seen = (window._mySalesRtSeen = window._mySalesRtSeen || new Set());
     window._mySalesRtSub = supabase.channel('my_sales_rt')
@@ -1122,7 +1136,7 @@ function _applyIndicatorConfigSnapshot(data) {
   if (typeof _hydrateTeamYears === 'function') _hydrateTeamYears();
 }
 async function openIndicatorConfigHistoryModal() {
-  if (!state.profile || !isAdminRole(state.profile.role)) { toast('Admins only', 'error'); return; }
+  if (!state.profile || !isAdminRole(state.profile?.role)) { toast('Admins only', 'error'); return; }
   const overlay = el('div', { class: 'modal-overlay' });
   const close = () => overlay.remove();
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
@@ -1204,7 +1218,7 @@ async function loadCompanyLogo() {
     if (serverLogo) {
       state.companyLogo = serverLogo;
       try { localStorage.setItem(RIDD_LOGO_STORAGE_KEY, serverLogo); } catch {}
-    } else if (state.companyLogo && isAdminRole(state.profile.role)) {
+    } else if (state.companyLogo && isAdminRole(state.profile?.role)) {
       // Server row is empty but this browser has a saved logo (one-time
       // migration after we enabled cross-browser sync). Push it up.
       saveCompanyLogo(state.companyLogo).catch(() => {});
@@ -1218,7 +1232,7 @@ async function saveCompanyLogo(dataUrl) {
     else         localStorage.removeItem(RIDD_LOGO_STORAGE_KEY);
   } catch {}
   if (DEMO || !supabase || !state.profile) return;
-  if (!isAdminRole(state.profile.role)) return;
+  if (!isAdminRole(state.profile?.role)) return;
   try {
     const { error } = await supabase.from('app_settings').upsert(
       { key: 'company_logo', value: dataUrl ? { data_url: dataUrl } : {} },
@@ -1297,7 +1311,7 @@ function commissionRatesFor(empId, typeLabel) {
            overridden: (r.pest != null || r.ancMult != null || r.bundleMult != null) };
 }
 async function loadCommissionConfig() {
-  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile.role)) return;
+  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile?.role)) return;
   try {
     const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'commission_config').maybeSingle();
     if (error) { console.warn('[ridd] commission_config load failed', error); return; }
@@ -1306,7 +1320,7 @@ async function loadCommissionConfig() {
 }
 async function saveCommissionConfig(next) {
   state.commissionConfig = next;
-  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile.role)) return;
+  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile?.role)) return;
   try {
     const { error } = await supabase.from('app_settings').upsert({ key: 'commission_config', value: next }, { onConflict: 'key' });
     if (error) { console.warn('[ridd] commission_config save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
@@ -1324,7 +1338,7 @@ async function loadCompanyGoal() {
   } catch (e) { console.warn('[ridd] company_goal load threw', e); }
 }
 async function saveCompanyGoal() {
-  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile.role)) return;
+  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile?.role)) return;
   try {
     const { error } = await supabase.from('app_settings').upsert({ key: 'company_goal', value: state.companyGoal }, { onConflict: 'key' });
     if (error) { console.warn('[ridd] company_goal save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
@@ -1346,7 +1360,7 @@ async function loadAppSettings() {
   } catch (e) { console.warn('[ridd] pay_settings load threw', e); }
 }
 async function saveAppSettings() {
-  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile.role)) return;
+  if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile?.role)) return;
   try {
     const { error } = await supabase.from('app_settings').upsert({ key: 'pay_settings', value: state.appSettings }, { onConflict: 'key' });
     if (error) { console.warn('[ridd] pay_settings save failed', error); if (typeof toast === 'function') toast('Saved locally — server sync failed', 'warn'); }
@@ -1384,7 +1398,7 @@ async function loadMyCommissionResult() {
 // lazy-loaded on demand when an upload is selected — those can be tens
 // of thousands of rows and shouldn't block first paint.
 async function loadReportingMetadata() {
-  if (DEMO || !state.profile || !isAdminRole(state.profile.role)) return;
+  if (DEMO || !state.profile || !isAdminRole(state.profile?.role)) return;
   try {
     const [uploadsRes, configRes, cancelCfgRes, sourceCfgRes] = await Promise.all([
       supabase.from('reporting_uploads').select('*').order('uploaded_at', { ascending: false }),
@@ -1539,7 +1553,7 @@ async function _loadReportingSubscriptionsRaw(uploadId) {
   if (DEMO || !state.profile) return [];
   // Admins + office staff (Work Queues run on this snapshot — office staff
   // are internal and work customer records all day; D2D field reps stay out).
-  if (!isAdminRole(state.profile.role) && !(typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile))) return [];
+  if (!isAdminRole(state.profile?.role) && !(typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile))) return [];
   if (!uploadId) return [];
 
   // Fast local cache first — instant on refresh when the snapshot is unchanged.
@@ -2792,7 +2806,7 @@ function _calendarCloudAutoSync() {
 // ── View-as (admin role preview) ─────────────────────────────────────────
 // Lets an admin render the app EXACTLY as another role sees it while keeping
 // their real admin session (server-side rights unchanged — RLS still sees the
-// real JWT). The preview role overlays state.profile.role; the true row stays
+// real JWT). The preview role overlays state.profile?.role; the true row stays
 // in state._realProfile and the overlay is re-applied on every profile load.
 const VIEW_AS_KEY = 'ridd_view_as_role';
 function viewAsRole() { try { return sessionStorage.getItem(VIEW_AS_KEY) || ''; } catch { return ''; } }
@@ -2853,7 +2867,7 @@ async function refreshCompetitionsData() {
 }
 
 async function loadData() {
-  const isAdmin = isAdminRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
   // Always fetch every sales row visible to the current user. RLS
   // decides what's returned: admins get everything; reps get whatever
   // the `sales` SELECT policy allows. The Dashboard wants the full
@@ -3035,7 +3049,7 @@ function _reportClientError(message, stack) {
         message: key,
         stack: String(stack || '').slice(0, 800),
         view: (typeof state !== 'undefined' && state.view) || '',
-        role: (typeof state !== 'undefined' && state.profile && state.profile.role) || '',
+        role: (typeof state !== 'undefined' && state.profile && state.profile?.role) || '',
         bundle: tag ? String(tag.getAttribute('src')).split('/').pop() : 'dev',
         ua: navigator.userAgent,
       }),
@@ -3465,7 +3479,7 @@ function mobileBottomNav() {
   ] : [
     // Sales-Rep accounts: Sales (their commission home) + Competitions +
     // rep-lite Indicators.
-    ['commission', 'Sales', iconPay],
+    [(typeof D2D_SALES_TAB_KEYS !== 'undefined' && D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard'), 'Sales', iconDollar],
     ['nrla', 'Competitions', iconTrophy],
     ['indicators', 'Indicators', iconChart],
   ]) : [
@@ -4227,7 +4241,9 @@ function insideSalesSubTabs() {
 // D2D counterpart — same bar, same mobile dropdown consolidation, with the
 // admin Inside/D2D/Techs toggle riding in front.
 function d2dSalesSubTabs() {
-  const tabs = D2D_SALES_TABS;
+  // Upfront is an admin-only view — reps got a tab that dead-ended on a
+  // placeholder (rep-UX audit #10). Filter it out for non-admins.
+  const tabs = isAdminRole(state.profile?.role) ? D2D_SALES_TABS : D2D_SALES_TABS.filter(([k]) => k !== 'd2d_upfront');
   const go = (k) => { state.view = k; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
   const tabBar = el('div', { class: 'hidden sm:flex items-center flex-wrap gap-x-1 gap-y-0' },
     ...tabs.map(([k, label]) => {
@@ -4593,7 +4609,7 @@ function mountApp() {
   // Access revoked (CRM marked the rep inactive → sync set role='disabled'):
   // full-stop screen, nothing else renders. Admins restore access from
   // Settings → Users by assigning a role again.
-  if (state.profile && state.profile.role === 'disabled') {
+  if (state.profile && state.profile?.role === 'disabled') {
     mount(el('div', { class: 'min-h-screen flex items-center justify-center p-6' },
       el('div', { class: 'card p-8 max-w-sm w-full text-center flex flex-col items-center gap-3' },
         el('div', { class: 'text-4xl' }, '🔒'),
@@ -4607,8 +4623,8 @@ function mountApp() {
     return;
   }
   try { _saveResume(); } catch { /* never block a render */ }
-  const isAdmin = isAdminRole(state.profile.role);
-  const isAuditor = isAuditorRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
+  const isAuditor = isAuditorRole(state.profile?.role);
 
   // Route guard — auditors only get the Sales tab of the Inside Sales
   // group (they audit sales, they don't sell). Any other Inside Sales
@@ -4662,18 +4678,25 @@ function mountApp() {
   //   · Office Staff               → Competitions + the Inside Sales group
   // Auditors keep their Sales tab; admins keep everything.
   const isRepOnly = !isAdmin && !isAuditor;
-  const isOfficeStaff = isRepOnly && isOfficeStaffRole(state.profile.role);
-  const isSalesRepType = isRepOnly && !isOfficeStaff;
+  // One resolver for office staff (rep-UX audit): the profile-based check
+  // (role → CRM roster → rep-type map) — the role-only check bounced legacy
+  // 'rep' office staff into the D2D world every render.
+  const _repGrp = isRepOnly ? repTypeGroup(state.profile) : null;
+  const isOfficeStaff = isRepOnly && _repGrp === 'office';
+  const isTechType = isRepOnly && _repGrp === 'tech';
+  const isSalesRepType = isRepOnly && !isOfficeStaff && !isTechType;
   const repCanSee = (v) => v === 'nrla'
     || v === 'indicators'                                  // rep-lite Indicators for ALL rep types
     || v === 'training'                                    // placeholder for now (viewTraining gates content)
     || v === 'marketplace'                                 // 🪙 RIDDCOIN store — every onboarded user
-    || (!isOfficeStaff && D2D_SALES_TAB_KEYS.has(v))       // Sales Reps: the D2D Sales group
+    || (isTechType && v === 'techs')                       // Technicians: their own tab (was unreachable — audit #1)
+    || (isSalesRepType && D2D_SALES_TAB_KEYS.has(v))       // Sales Reps: the D2D Sales group
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
   if (isRepOnly && !repCanSee(state.view)) {
     // Home per rep type (per Isaac): Sales Reps land in their D2D Sales
     // group; office staff on their Sales world; others keep Indicators.
-    const _home = isSalesRepType
+    const _home = isTechType ? 'techs'
+      : isSalesRepType
       ? (D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard')
       : isOfficeStaff ? 'sales' : 'indicators';
     state.view = _home;
@@ -4696,7 +4719,9 @@ function mountApp() {
     // Rep accounts: everyone gets Competitions + rep-lite Indicators.
     // Office Staff get the Inside Sales group; Sales Reps get "Sales" —
     // their commission home, the D2D counterpart to Inside Sales.
-    ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]] : [['d2d_group', 'Sales', iconDollar()]]),
+    ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]]
+      : isTechType ? [['techs', 'Sales', iconSales()]]
+      : [['d2d_group', 'Sales', iconDollar()]]),
     ['nrla', 'Competitions', iconTrophy()],
     ['indicators', 'Indicators', iconChart()],
     ['marketplace', 'Marketplace', iconDollar()],
@@ -4768,7 +4793,7 @@ function mountApp() {
     },
       el('div', { class: 'text-[11px] font-medium', style: { color: 'var(--text-muted)' } }, state.profile.full_name),
       el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
-        roleLabel(state.profile.role) + (isAdmin ? '' : ' · ' + (state.offices.find(o => o.id === state.profile.office_id)?.name || 'no office'))),
+        roleLabel(state.profile?.role) + (isAdmin ? '' : ' · ' + (state.offices.find(o => o.id === state.profile.office_id)?.name || 'no office'))),
       // Sign out lives under the ⚙ gear: non-admins → My Settings sheet,
       // admins → bottom of the Settings sidebar. The nav menu stays purely
       // navigation (demo keeps its exit button here).
@@ -5075,7 +5100,7 @@ function mountApp() {
   document.querySelector('.fab')?.remove();
   // + FAB is OFFICE STAFF only (per Isaac) — admins don't log sales from a
   // floating button, and the retired AI speed-dial no longer replaces it.
-  const _showFab = state.profile && !isAdminRole(state.profile.role) && (typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile));
+  const _showFab = state.profile && !isAdminRole(state.profile?.role) && (typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile));
   if (!FAB_HIDDEN_VIEWS.has(state.view) && _showFab) {
     // Icon-only FAB — a lone + reads instantly and stops covering table
     // rows / the pinned leaderboard footer on phones.
@@ -5344,7 +5369,7 @@ function techUpsellRows() {
   return out;
 }
 function viewTechs() {
-  const isAdmin = isAdminRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
   if (!isAdmin && !isTechProfile(state.profile)) {
     return el('div', { class: 'card p-10 text-center text-sm text-muted-' },
       'The Technicians tab is for Service Pros and admins. If you should have access, ask an admin to link your account to your CRM technician profile (Settings → Users).');
@@ -5428,7 +5453,7 @@ function viewTechs() {
 }
 
 function viewDashboard() {
-  const isAdmin = isAdminRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
   const range = getDateRange(state.dashDateRange);
   // Scope: LIVE CRM office-staff sales + app-logged upsells for everyone
   // (see warRoomCrmSales above). Dashboard is a "what's the room doing"
@@ -5950,7 +5975,7 @@ function rangeLabel(range) {
 
 // Admin sees company-wide; rep sees their own (rolled up from profile target)
 function getGoalForContext() {
-  const isAdmin = isAdminRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
   if (isAdmin) return state.companyGoal;
   const repGoal = Number(state.profile.annual_revenue_goal || 0);
   return { amount: repGoal > 0 ? repGoal : 250000, period: 'year' };
@@ -10348,7 +10373,7 @@ function idFromName(list, name) { return list.find(x => x.name === name)?.id; }
 //   Admin: sees every rep's pending sales + inline audit dropdown per row
 // ──────────────────────────────────────────────────────────────────────────
 function viewSales() {
-  const isAdmin = isAdminRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
   const source  = isAdmin ? state.allSales : state.mySales;
   // The Sales tab is the active queue — anything that still needs admin/auditor
   // attention OR is in flight to payroll. A sale falls off only when payroll
@@ -11253,7 +11278,7 @@ function openRepBreakdownModal() {
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
-  const isAdmin = isAdminRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
   const goal = getGoalForContext();
   const yearStart = new Date(new Date().getFullYear(), 0, 1);
 
@@ -11320,7 +11345,7 @@ function openRepBreakdownModal() {
 // SALES LOG MODAL — matches the mockup exactly
 // ──────────────────────────────────────────────────────────────────────────
 function openNewSaleModal(defaultRepId, existingSale = null) {
-  const isAdmin = isAdminRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
   const profiles = state.allProfiles.length ? state.allProfiles : [state.profile];
   const isEdit = !!existingSale;
   // State captured inside the modal (for live footer + checkbox fields that aren't form-bound).
@@ -11976,7 +12001,7 @@ function viewPay() {
   const period  = periods.find(p => p.id === state.payPeriodId) || periods[0];
   const nowPid  = currentPayPeriodId(today.getFullYear());
 
-  const isAdmin = isAdminRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
   // Admins can spot-check any rep's pay stub without logging in as them.
   // `state.payViewRepId` is the override; default is self. Non-admins are
   // always pinned to themselves.
@@ -12826,7 +12851,7 @@ function viewCompetitions() {
   if (active.length === 0 && upcoming.length === 0) {
     container.append(el('div', { class: 'card p-10 text-center' },
       el('div', { class: 'text-battle-2 text-sm mb-2' }, 'No competitions yet.'),
-      isAdminRole(state.profile.role) && el('button', {
+      isAdminRole(state.profile?.role) && el('button', {
         class: 'mt-2 px-4 py-2 rounded-xl bg-lime text-eerie font-semibold',
         onclick: () => { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); },
       }, 'Create one \u2192'),
@@ -13242,7 +13267,7 @@ function layoutSlots(slots) {
 }
 
 function renderWeekGrid(anchor, today, meId, repById) {
-  const isAdmin = isAdminRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(anchor); d.setDate(anchor.getDate() + i); return d; });
   const todayIso = isoDate(today);
@@ -13412,7 +13437,7 @@ function renderWeekGrid(anchor, today, meId, repById) {
 }
 
 function renderMonthGrid(anchor, today, meId, repById) {
-  const isAdmin = isAdminRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const lastDay = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate();
   const startPad = first.getDay();
@@ -13536,7 +13561,7 @@ function resolveSwap(requestId, decision) {
 
 // ── Create-shift modal: pick days, times, reps, then fan out assignments ──
 function openNewShiftModal(defaultIso, opts = {}) {
-  if (!isAdminRole(state.profile.role)) return;
+  if (!isAdminRole(state.profile?.role)) return;
   const reps = calendarEligibleProfiles(state.profile); // active office staff only
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
@@ -13853,7 +13878,7 @@ function openSlotModal(iso, slotId) {
     const allReps    = state.allProfiles.length ? state.allProfiles : [state.profile];
     const activeReps = calendarEligibleProfiles(state.profile);
     const meId = state.profile.id;
-    const isAdmin = isAdminRole(state.profile.role);
+    const isAdmin = isAdminRole(state.profile?.role);
     const repById = Object.fromEntries(allReps.map(r => [r.id, r]));
     const assigns = assignmentsForSlot(iso, slotId);
     const dateLabel = new Date(iso + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
@@ -15508,7 +15533,7 @@ function _ensureAskWidget() {
   { const existing0 = document.getElementById('askDataWidget'); if (existing0) existing0.remove(); return; }
   if (typeof DEMO !== 'undefined' && DEMO) return;
   const existing = document.getElementById('askDataWidget');
-  if (!state.profile || !isAdminRole(state.profile.role) || viewAsRole()) { if (existing) existing.remove(); return; }
+  if (!state.profile || !isAdminRole(state.profile?.role) || viewAsRole()) { if (existing) existing.remove(); return; }
   if (existing) return;   // created once; survives re-renders so typing is never interrupted
   if (!state._askChat) state._askChat = { open: false, msgs: [], busy: false };
   const C = state._askChat;
@@ -20489,7 +20514,7 @@ function islSection(raw, cfg, isAdmin) {
 
 function viewNrlaPublic() {
   const wrap = el('div', { class: 'flex flex-col gap-5 w-full' });
-  const isAdmin = isAdminRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
   let comps = (typeof getIndicatorCompetitions === 'function') ? getIndicatorCompetitions() : [];
   // Avg Pest & Raffle is ADMIN-ONLY — reps never see its pill or board.
   if (!isAdmin) comps = comps.filter(c => (c.scoring || c.id) !== 'avg_pest_initial' && c.id !== 'avg_pest_initial');
@@ -20553,7 +20578,7 @@ function viewNrlaPublic() {
   if (!state._compsRepTypeTab) {
     const _hasFav = comps.some(c => c.favorite) || !!state._compFavoriteMystery;
     state._compsRepTypeTab = _hasFav ? 'Sales Reps'
-      : (isOfficeStaffRole(state.profile.role) ? 'Office Staff' : 'Sales Reps');
+      : (isOfficeStaffRole(state.profile?.role) ? 'Office Staff' : 'Sales Reps');
   }
   const repTypeTab = COMP_REPTYPE_TABS.includes(state._compsRepTypeTab) ? state._compsRepTypeTab : 'Sales Reps';
   {
@@ -20974,12 +20999,14 @@ function viewNrlaPublic() {
   if (_scSel && (!Array.isArray(_scSel.rounds) || _scSel.rounds.length === 0)) {
     _scSel.rounds = SPRING_DEFAULT_ROUNDS.map(r => ({ ...r }));
   }
-  const _scRoundInput = (r, key, i) => el('input', {
+  // Reps see the round dates read-only (rep-UX audit #3) — their edits only
+  // ever landed in their own localStorage and silently re-scoped their board.
+  const _scRoundInput = (r, key, i) => isAdmin ? el('input', {
     type: 'date', value: r[key] || '',
     class: 'rounded border',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', fontSize: '10px', padding: '1px 2px', width: '106px' },
     onchange: (e) => { r[key] = e.target.value; logActivity('comp_change', { detail: 'Spring round ' + (i + 1) + ' ' + key + ' → ' + r[key] }); saveDemoData(); applyWin(); },
-  });
+  }) : el('span', { class: 'text-[11px] font-bold tabular-nums' }, r[key] || '\u2014');
   const _scAllDates = _scSel ? _scSel.rounds.flatMap(r => [r.start, r.end]).filter(Boolean).sort() : [];
   const compWinBar = el('div', { class: 'card p-2.5 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
     el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
@@ -21018,13 +21045,13 @@ function viewNrlaPublic() {
           else toast('Standings section not found', 'error');
         },
       }, '\u2b07'),
-      el('button', {
+      isAdmin ? el('button', {
         class: 'cursor-pointer transition hover:brightness-95 border rounded-full',
         style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', background: 'var(--card)', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0' },
         title: 'Reps & offices — who competes, which market each rep counts toward, and which offices are in the comp',
         onclick: () => openSpringRepMarketModal(windowed, offices),
-      }, '👥'),
-      el('button', {
+      }, '👥') : null,
+      isAdmin ? el('button', {
         class: 'text-[10px] font-black uppercase px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
         style: { borderColor: '#B91C1C', color: '#B91C1C', background: 'transparent', whiteSpace: 'nowrap' },
         title: 'Reset the ENTIRE competition — every round\u2019s dates clear and the board goes blank until new dates are entered',
@@ -21036,7 +21063,7 @@ function viewNrlaPublic() {
           saveDemoData();
           mountApp();
         },
-      }, '\u21ba Reset'),
+      }, '\u21ba Reset') : null,
       el('button', {
         class: 'rounded-full flex items-center justify-center font-black cursor-pointer transition hover:brightness-95 border',
         style: { width: '26px', height: '26px', borderColor: 'var(--border-2)', color: 'var(--text)', fontSize: '13px' },
@@ -21044,7 +21071,7 @@ function viewNrlaPublic() {
         onclick: () => openSpringCleaningHelpModal(),
       }, 'ⓘ')));
     wrap.append(indicatorSpringCleaningBoard(windowed, offices, winLabel));
-    if (typeof springStandingsCard === 'function') wrap.append(springStandingsCard());
+    if (typeof springStandingsCard === 'function') wrap.append(el('div', { class: 'overflow-x-auto' }, springStandingsCard()));
   } else if ((sel.scoring || '') === 'top_gun') {
     const allD2d = raw.filter(s => _indicatorDeptOf(s) === 'd2d');
     const yr = new Date().getFullYear();
@@ -21619,7 +21646,7 @@ function springStandingsCard() {
       };
     });
     // First admin render after a round goes official does the freeze.
-    if (typeof isAdminRole === 'function' && isAdminRole(state.profile && state.profile.role)) {
+    if (typeof isAdminRole === 'function' && isAdminRole(state.profile && state.profile?.role)) {
       let _froze = 0;
       rounds.forEach((r, i) => {
         if (r.official && !r.frozen && r.sc && !comp.scHistory[i]) {
@@ -24617,7 +24644,7 @@ function viewIndicators() {
   state.indicatorsView = 'range';
   // Rep accounts: apply their ✏️ Customize default date range once per
   // session (before any window math runs).
-  if (!isAdminRole(state.profile && state.profile.role) && !state._repDateDefaultApplied) {
+  if (!isAdminRole(state.profile && state.profile?.role) && !state._repDateDefaultApplied) {
     state._repDateDefaultApplied = true;
     try { const _pl = _repLayoutPrefs(); if (_pl.dateDefault) state.indicatorsRangePreset = _pl.dateDefault; } catch { /* fresh */ }
   }
@@ -24643,13 +24670,21 @@ function viewIndicators() {
   // No data yet — Indicators now come from the RevHawk sync, not a CSV upload.
   if (!state.indicatorsData || !state.indicatorsData.length) {
     const _admin = isAdminRole(state.profile?.role);
+    // Rep-UX audit #7: force ONE immediate pull (throttle bypassed) instead
+    // of stranding a fresh device on a "wait for the next run" message.
+    if (!state._indEmptyPulled && typeof refreshIndicatorsFromCloud === 'function') {
+      state._indEmptyPulled = true;
+      refreshIndicatorsFromCloud(true).catch(() => {});
+    }
     return el('div', { class: 'flex flex-col gap-5 w-full' },
       el('h1', { class: 'text-2xl font-bold' }, 'Indicators'),
       el('div', { class: 'card p-10 text-center' },
         el('div', { class: 'text-4xl mb-3' }, '📊'),
-        el('h2', { class: 'text-lg font-bold mb-2' }, 'No data yet'),
+        el('h2', { class: 'text-lg font-bold mb-2' }, 'Loading the latest data\u2026'),
         el('p', { class: 'text-sm text-muted- mb-4 max-w-md mx-auto' },
-          'Indicators sync automatically from RevHawk every hour on the hour during the day — fresh data lands on the next run.'),
+          _admin
+            ? 'Pulling the shared dataset now \u2014 this page refreshes itself. Indicators also sync automatically from RevHawk every hour on the hour.'
+            : 'Pulling the shared dataset now \u2014 this page refreshes itself. If it never loads, ask an admin to check that the rep data access SQL (nrla_rep_access.sql) has been run.'),
       ),
     );
   }
@@ -25134,7 +25169,7 @@ function viewIndicators() {
   // Comps mode retired on this tab — competitions live on the Competitions
   // tab for every role. Clears any persisted ON state so nobody's stuck.
   state.indicatorsComps = false;
-  const _repLite = !isAdminRole(state.profile.role);
+  const _repLite = !isAdminRole(state.profile?.role);
   // Admin default filters (per Isaac, Jul 2026): every fresh session opens
   // Indicators on Pending/Serviced revenue · Type = Sales Rep · This Year ·
   // Branch/Office grouping. Seeds the first render only — filter changes
@@ -25158,7 +25193,7 @@ function viewIndicators() {
     // render only; flipping the dropdown afterward sticks for the session.
     if (!state._indDeptDefaulted) {
       state._indDeptDefaulted = true;
-      state.indicatorDept = isOfficeStaffRole(state.profile.role) ? 'office' : 'd2d';
+      state.indicatorDept = isOfficeStaffRole(state.profile?.role) ? 'office' : 'd2d';
     }
     // Performance Trends defaults to the SIGNED-IN rep (they can re-scope to
     // company/branch/team with the pickers). Waits for the dataset so the
@@ -25421,7 +25456,7 @@ function viewIndicators() {
           // still show + roll into totals) but drops it from the ranking points.
           (() => {
             if (state.indicatorsComps) return null; // Power Ranking is comps-OFF only — hide its trophy in comp mode
-            if (!isAdminRole(state.profile.role)) return null; // admin analysis tool — reps don't need it
+            if (!isAdminRole(state.profile?.role)) return null; // admin analysis tool — reps don't need it
             const excludedNow = rankExcludedSet();
             const noun = groupBy === 'teams' ? 'teams' : 'offices';
             const opts = activeBranches.filter(b => !(groupBy === 'teams' && b === 'Unassigned')).sort((a, b) => a.localeCompare(b));
@@ -26300,7 +26335,7 @@ function viewIndicators() {
 // per browser (localStorage stamp). Admins are skipped — this is rep candy.
 function maybeShowWeeklyRecap() {
   try {
-    if ((typeof DEMO !== 'undefined' && DEMO) || !state.profile || isAdminRole(state.profile.role)) return;
+    if ((typeof DEMO !== 'undefined' && DEMO) || !state.profile || isAdminRole(state.profile?.role)) return;
     // Office staff skip the recap popup (per Isaac) — they live in the app
     // daily and land straight on the Sales tab; the popup is D2D rep candy.
     if (typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile)) return;
@@ -26320,10 +26355,10 @@ function maybeShowWeeklyRecap() {
     const rows = d2d.length ? d2d : (state.mySales || []).filter(s => !EXCLUDE.has(s.audit_status))
       .map(s => ({ d: s.sold_date ? new Date(s.sold_date + 'T00:00') : null, rev: Number(s.revenue_amount) || 0 }))
       .filter(r => r.d && !isNaN(r.d));
-    const lastMon = new Date(monday); lastMon.setDate(monday.getDate() - 7);
-    const prevMon = new Date(monday); prevMon.setDate(monday.getDate() - 14);
+    const lastMon = new Date(sunday); lastMon.setDate(sunday.getDate() - 7);
+    const prevMon = new Date(sunday); prevMon.setDate(sunday.getDate() - 14);
     const inWin = (r, a, b) => r.d >= a && r.d < b;
-    const lastWk = rows.filter(r => inWin(r, lastMon, monday));
+    const lastWk = rows.filter(r => inWin(r, lastMon, sunday));
     const prevWk = rows.filter(r => inWin(r, prevMon, lastMon));
     if (!lastWk.length && !prevWk.length) { localStorage.setItem(KEY, weekKey); return; }  // nothing to recap
 
@@ -26354,7 +26389,7 @@ function maybeShowWeeklyRecap() {
           el('h2', { class: 'text-lg font-bold' }, '📬 Your Week in Review'),
           el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } },
             lastMon.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' – ' +
-            new Date(monday.getTime() - 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))),
+            new Date(sunday.getTime() - 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))),
         el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
       el('div', { class: 'grid grid-cols-3 gap-2' },
         statBox('Revenue', money(lastRev)),
@@ -28594,7 +28629,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 }
               },
             }, '📄');
-            return (allReps.length > 0 && isAdminRole(state.profile.role)) ? btn : null;
+            return (allReps.length > 0 && isAdminRole(state.profile?.role)) ? btn : null;
           })(),
 
           state.indicatorDept === 'office' ? el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
@@ -28640,7 +28675,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 { id: '', label: 'All' },
                 ...REP_TIERS.map(t => ({ id: t.id, label: t.label, color: t.color })),
               ];
-              if (hasUnassignedTier && isAdminRole(state.profile.role)) pillOpts.push({ id: '__unassigned__', label: 'Unassigned' });
+              if (hasUnassignedTier && isAdminRole(state.profile?.role)) pillOpts.push({ id: '__unassigned__', label: 'Unassigned' });
               const tierRow = el('div', { class: 'px-2.5 pb-1' },
                 el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
                   ...pillOpts.map(p => el('button', {
@@ -28651,7 +28686,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                     onclick: (e) => { e.stopPropagation(); state._indicatorRepTierFilter = p.id; mountApp(); },
                   }, p.label))));
               // Team (admin roster tool — hidden from reps) + Office selects
-              const teamSel = isAdminRole(state.profile.role) ? (() => {
+              const teamSel = isAdminRole(state.profile?.role) ? (() => {
                 const teams = distinctTeams().filter(t => !isTeamExcluded(t));
                 const hasUnassigned = _activeUnassignedTeam;
                 return el('select', {
@@ -29841,7 +29876,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   // Jan 1 → today (same week convention as the YoY chart), matched on the
   // sale DATE rather than the season week so the page's date filter can't
   // shrink or shift what a rep sees.
-  if (!isAdminRole(state.profile && state.profile.role)) {
+  if (!isAdminRole(state.profile && state.profile?.role)) {
     const _y = new Date().getFullYear();
     const _today = new Date(); _today.setHours(23, 59, 59, 999);
     const _anchor = new Date(_y, 0, 1); _anchor.setDate(_anchor.getDate() - _anchor.getDay());
@@ -30416,7 +30451,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   // stored name went stale (or the match never landed), the panel silently
   // fell back to the company-wide scope view, showing reps everyone's data
   // under a "Your Performance Trends" heading.
-  const _lockedToSelf = !isAdminRole(state.profile && state.profile.role);
+  const _lockedToSelf = !isAdminRole(state.profile && state.profile?.role);
   let drillRepName, drillRep;
   if (_lockedToSelf) {
     const _sigT = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
@@ -30451,7 +30486,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   let drillPanel;
   if (drillRep) {
     drillPanel = repDrillPanel(drillRep, chartBuckets,
-      (!isAdminRole(state.profile && state.profile.role)) ? _trendTitleNode() : null);
+      (!isAdminRole(state.profile && state.profile?.role)) ? _trendTitleNode() : null);
   } else {
     if (!state._indicatorTrendScope) state._indicatorTrendScope = { type: 'company' };
     // Scope panel renders standalone — no rep overlay. Reps' numbers are
@@ -30489,7 +30524,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   const branchesAll = [...new Set((rawSales || []).map(s => s.office).filter(Boolean))].sort();
   const teamsAll = distinctTeams().filter(t => !isTeamExcluded(t));
   const repNames = Object.keys(repMap).sort();
-  const _trendRepOnly = !isAdminRole(state.profile && state.profile.role);
+  const _trendRepOnly = !isAdminRole(state.profile && state.profile?.role);
   // Rep-locked: no separate header row — the card title rides the same
   // line as the metric dropdown inside the drill panel ("You" is implied,
   // so no rep name / "YTD · just you" subtitle either).
@@ -33054,7 +33089,7 @@ function indicatorYoYTrendChart() {
   let raw = indicatorSales();
   // Rep accounts see THEIR OWN trend, not the company's — matched by name
   // signature so "Sauer, Drew" ↔ "Drew Sauer" resolves.
-  const _yoyRepOnly = !isAdminRole(state.profile && state.profile.role);
+  const _yoyRepOnly = !isAdminRole(state.profile && state.profile?.role);
   if (_yoyRepOnly) {
     const _sigY = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const _mineY = _sigY(state.profile.full_name);
@@ -35713,7 +35748,7 @@ async function autoDeriveIndicatorsFromSnapshot() {
   // published a fresher copy — subtle inconsistency between users.
   return;
   /* eslint-disable no-unreachable */
-  if ((typeof DEMO !== 'undefined' && DEMO) || !state.profile || !isAdminRole(state.profile.role)) return;
+  if ((typeof DEMO !== 'undefined' && DEMO) || !state.profile || !isAdminRole(state.profile?.role)) return;
   const up = (state.reportingUploads || [])[0];                  // newest snapshot
   if (!up || !up.uploaded_at) return;
   const snapAt = new Date(up.uploaded_at).getTime();
@@ -35814,7 +35849,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
 setInterval(() => {
   try {
     if (document.hidden || (typeof DEMO !== 'undefined' && DEMO) || !state.profile) return;
-    if (isAdminRole(state.profile.role)) {
+    if (isAdminRole(state.profile?.role)) {
       Promise.resolve(typeof loadReportingMetadata === 'function' ? loadReportingMetadata() : null)
         .then(() => autoDeriveIndicatorsFromSnapshot())
         .catch(e => console.warn('[ridd] live refresh failed', e));
@@ -35835,7 +35870,7 @@ document.addEventListener('visibilitychange', () => {
   try {
     if (document.hidden || (typeof DEMO !== 'undefined' && DEMO) || !state.profile) return;
     if (typeof refreshIndicatorsFromCloud === 'function') refreshIndicatorsFromCloud().catch(() => {});
-    if (isAdminRole(state.profile.role)) {
+    if (isAdminRole(state.profile?.role)) {
       Promise.resolve(typeof loadReportingMetadata === 'function' ? loadReportingMetadata() : null)
         .then(() => autoDeriveIndicatorsFromSnapshot())
         .catch(() => {});
@@ -35917,7 +35952,7 @@ document.addEventListener('visibilitychange', () => {
       _indCloudCheckedAt = 0;                                         // bypass the 2-min throttle — this is an explicit gesture
       await Promise.allSettled([
         (typeof refreshIndicatorsFromCloud === 'function') ? refreshIndicatorsFromCloud(true) : null,
-        (typeof refreshSalesData === 'function' && state.profile && !isAdminRole(state.profile.role)) ? refreshSalesData() : null,
+        (typeof refreshSalesData === 'function' && state.profile && !isAdminRole(state.profile?.role)) ? refreshSalesData() : null,
       ]);
       if (typeof mountApp === 'function') mountApp();
     } catch (e) { console.warn('[ridd] pull-to-refresh failed', e); }
@@ -37682,7 +37717,7 @@ function _rcWhen(ts) {
     + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 function viewMarketplace() {
-  const isAdmin = isAdminRole(state.profile.role);
+  const isAdmin = isAdminRole(state.profile?.role);
   // First entry (or stale): pull fresh data, re-render when it lands.
   if (!state._rcLoadedAt || Date.now() - state._rcLoadedAt > 60000) {
     loadRiddcoin().then(() => { if (state.view === 'marketplace') mountApp(); });
@@ -38064,7 +38099,7 @@ function viewMarketplace() {
 function viewTraining() {
   // Reps see the tab (so they know it's coming) but the modules are still
   // being built out for them — placeholder until the content is rep-ready.
-  if (!isAdminRole(state.profile && state.profile.role)) {
+  if (!isAdminRole(state.profile && state.profile?.role)) {
     return el('div', { class: 'card p-12 text-center flex flex-col items-center gap-3 max-w-2xl mx-auto' },
       el('div', { class: 'text-5xl' }, '🚧'),
       el('div', { class: 'text-xl font-bold' }, 'Under Construction'),
@@ -50018,10 +50053,10 @@ async function recomputeAllProgress() {
   try {
     // Need EVERY rep's sales for full leaderboard eval, not just mine.
     // If I'm not an admin I can only see my own, so I only compute my own progress.
-    const scope = isAdminRole(state.profile.role) ? state.allSales : state.mySales;
+    const scope = isAdminRole(state.profile?.role) ? state.allSales : state.mySales;
     const salesByRep = groupBy(scope, s => s.rep_id);
     const repIds = Object.keys(salesByRep);
-    if (!isAdminRole(state.profile.role) && !repIds.includes(state.profile.id)) repIds.push(state.profile.id);
+    if (!isAdminRole(state.profile?.role) && !repIds.includes(state.profile.id)) repIds.push(state.profile.id);
 
     const rows = [];
     for (const comp of state.competitions) {
