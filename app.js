@@ -22690,7 +22690,10 @@ function _repSaleYears(repName) {
       const y = Number(String(iso).slice(0, 4));
       if (!y) continue;
       const ms = Date.parse(iso + 'T00:00') || 0;
-      if (ms > latestMs) latestMs = ms;
+      // Anchor ignores garbage FUTURE sold-dates (a single CRM typo like a
+      // 2027 date was flipping the whole roster auto-inactive — per Isaac's
+      // blank Kobe board). Real rows are never more than ~2 days ahead.
+      if (ms > latestMs && ms <= Date.now() + 2 * 86400000) latestMs = ms;
       const k = _sig(getCanonicalRepName(x.rep));
       const e = m.get(k);
       if (!e) m.set(k, { min: y, max: y, lastMs: ms });
