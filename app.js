@@ -4329,6 +4329,18 @@ function refreshIndSection(id) {
 // The gear sits in the SAME header spot for every role — admins land on the
 // full Settings page, everyone else gets this focused sheet: personal goal
 // (sellers only), change password, sign out.
+// Fire-and-forget Slack DM to a user (their ⚙ My Settings opt-in decides
+// whether it actually sends). Callers never await or block on this.
+function notifySlack(userId, text) {
+  try {
+    if (DEMO || !userId || !text || !state.session) return;
+    fetch('/api/slack-dm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (state.session.access_token || '') },
+      body: JSON.stringify({ user_id: userId, text }),
+    }).catch(() => { /* best-effort */ });
+  } catch (e) { /* never block the caller */ }
+}
 function openMySettingsModal() {
   const p = state.profile || {};
   const seller = (typeof isSellerRole === 'function') ? isSellerRole(p.role) : true;
@@ -4338,6 +4350,39 @@ function openMySettingsModal() {
   document.addEventListener('keydown', key);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   const secLabel = (t) => el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t);
+
+  // ── Slack notifications (per Isaac) — every user can opt in. Member ID
+  // comes from Slack: profile → ⋮ → Copy member ID. Writes own row only
+  // via the set_my_slack RPC (slack_notify.sql). ──
+  const slackId = el('input', {
+    type: 'text', value: p.slack_member_id || '', placeholder: 'Slack Member ID, e.g. U0123ABCD',
+    class: 'flex-1 rounded-lg border px-3 py-2 text-sm', style: { minWidth: '0' },
+  });
+  const slackOn = el('input', { type: 'checkbox', class: 'cursor-pointer' });
+  slackOn.checked = !!p.slack_notify;
+  const slackBtn = el('button', {
+    class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95 whitespace-nowrap',
+    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    onclick: async () => {
+      try {
+        const { error } = await supabase.rpc('set_my_slack', { member_id: slackId.value.trim(), notify: !!slackOn.checked });
+        if (error) throw error;
+        state.profile.slack_member_id = slackId.value.trim() || null;
+        state.profile.slack_notify = !!slackOn.checked;
+        toast(slackOn.checked ? 'Slack notifications ON' : 'Slack notifications off', 'success');
+        if (slackOn.checked && slackId.value.trim()) notifySlack(p.id, '\ud83d\udc4b You\u2019re wired up \u2014 RIDD app notifications will land here.');
+      } catch (err) {
+        toast(/set_my_slack/.test(String(err.message)) ? 'An admin needs to run slack_notify.sql in Supabase first' : (err.message || 'Save failed'), 'error');
+      }
+    },
+  }, 'Save');
+  const slackSection = el('div', { class: 'flex flex-col gap-2' },
+    secLabel('Slack notifications'),
+    el('label', { class: 'flex items-center gap-2 text-sm cursor-pointer' }, slackOn,
+      el('span', {}, 'DM me app notifications (audit results and more)')),
+    el('div', { class: 'flex items-center gap-2' }, slackId, slackBtn),
+    el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
+      'Find your Member ID in Slack: your profile \u2192 \u22ee \u2192 Copy member ID. A test DM confirms the hookup.'));
 
   // ── Annual goal — writes ONLY the caller's own goal via the set_my_goal
   // RPC (security definer, own row, one column — no open profile writes). ──
@@ -4437,6 +4482,7 @@ function openMySettingsModal() {
         }, ...USER_TZ_CHOICES.map(([v, label]) => el('option', { value: v, selected: userTzPref() === v }, label))),
         el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } },
           'Affects time displays like Today\u2019s Sales. Auto = Mountain (Utah) for office staff; D2D sale times always show in the selling office\u2019s local time.')),
+      slackSection,
       el('div', { class: 'flex flex-col gap-2' },
         secLabel('Change Password'),
         pw1, pw2, policyList, pwBtn),
@@ -48692,6 +48738,14 @@ async function auditSale(saleId, status) {
     }).eq('id', saleId);
     if (error) throw error;
     toast('Sale ' + status.replace('_', ' '), 'success');
+    // Slack DM to the sale's rep (their ⚙ My Settings opt-in decides
+    // whether it sends) — first event wired to per-user notifications.
+    try {
+      if (sale && sale.profile_id && sale.profile_id !== state.profile?.id) {
+        const _lbl = { pending: 'Pending', serviced: 'Serviced \u2705', below_minimums: 'Below Minimums', cancelled: 'Cancelled', nsf: 'NSF', not_payable: 'Not Payable', reschedule: 'Reschedule' }[status] || status;
+        notifySlack(sale.profile_id, '\ud83d\udd0e Audit update \u2014 your sale for ' + (sale.customer_name || 'a customer') + ' was marked *' + _lbl + '*.');
+      }
+    } catch (e2) { /* best-effort */ }
     await refreshSalesData();
     await recomputeAllProgress();
     mountApp();
