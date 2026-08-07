@@ -27229,7 +27229,16 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // the dollar amount + a label for display, and a numeric timestamp so
     // the column sorts by RECENCY.
     const byDate = {}, byWeek = {}, byMonth = {};
-    r.sales.forEach(s => {
+    // Records follow the OFFICE revenue lens (per Isaac): New (the office
+    // default) = everything MINUS the renewal source types; Renewal = only
+    // those sources; Total = everything. D2D records are untouched (no
+    // renewal motion there — always total).
+    const _recMode = state.indicatorDept === 'office' ? (state._indRepRevMode || 'new') : 'total';
+    const _recRows = _recMode === 'total' ? r.sales : r.sales.filter(s => {
+      const ren = (typeof _indicatorIsRenewal === 'function') && _indicatorIsRenewal(s);
+      return _recMode === 'renewal' ? ren : !ren;
+    });
+    _recRows.forEach(s => {
       const dayKey = (s.dateSold || '').split(' ')[0].trim();
       if (!dayKey) return;
       const d = new Date(dayKey);
