@@ -30,6 +30,9 @@
   # function skips outside 8am–11pm ET.
   schedule = "*/30 * * * *"  # plain step only — Netlify silently ignored range/list cron expressions
 
+[functions."teamlead-digest-scheduled"]
+  schedule = "45 * * * *"     # hourly at :45 — gates itself to 7:45pm ET inside (Netlify ignores range crons)
+
 [functions."marketing-refresh-scheduled"]
   schedule = "0 10 * * *"     # nightly ~5-6am ET — health-check + warm Windsor/GHL/QBO feeds
 
