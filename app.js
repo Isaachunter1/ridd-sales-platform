@@ -18839,8 +18839,24 @@ function _mbRarityOf(prize) { return MB_RARITIES[(state._mbRarity || {})[prize]]
 const MB_DEFAULT_DECOYS = ['$500 cash', '$100 cash', 'AirPods Pro', 'YETI cooler', '$50 gift card', 'Dinner for two', 'Massage gun', 'Day off', 'Team lunch', '$250 cash'];
 const _mbEnc = (s) => { try { return btoa(unescape(encodeURIComponent(String(s)))); } catch (e) { return ''; } };
 const _mbDec = (s) => { try { return decodeURIComponent(escape(atob(String(s)))); } catch (e) { return '?'; } };
-function _mbOpenedMap() { try { return JSON.parse(localStorage.getItem('ridd_mb_opened_v1') || '{}') || {}; } catch (e) { return {}; } }
-function _mbMarkOpened(id) { try { const m = _mbOpenedMap(); m[id] = new Date().toISOString(); localStorage.setItem('ridd_mb_opened_v1', JSON.stringify(m)); } catch (e) { /* private mode */ } }
+// Opened state is CROSS-DEVICE (rep-UX audit #11): localStorage stays the
+// fast cache, the mb_opened table (mb_opened.sql) is the shared record —
+// open a box on your phone and the desktop knows.
+function _mbOpenedMap() {
+  let m = {};
+  try { m = JSON.parse(localStorage.getItem('ridd_mb_opened_v1') || '{}') || {}; } catch (e) { m = {}; }
+  return Object.assign({}, state._mbOpenedSrv || {}, m);
+}
+function _mbMarkOpened(id) {
+  try { const m = JSON.parse(localStorage.getItem('ridd_mb_opened_v1') || '{}') || {}; m[id] = new Date().toISOString(); localStorage.setItem('ridd_mb_opened_v1', JSON.stringify(m)); } catch (e) { /* private mode */ }
+  state._mbOpenedSrv = Object.assign({}, state._mbOpenedSrv || {}, { [id]: new Date().toISOString() });
+  try {
+    if (!DEMO && supabase && state.profile) {
+      Promise.resolve(supabase.from('mb_opened').upsert({ profile_id: state.profile.id, box_id: String(id) }, { onConflict: 'profile_id,box_id' }))
+        .catch(() => { /* table not created yet — localStorage still covers this device */ });
+    }
+  } catch (e) { /* non-fatal */ }
+}
 async function loadMysteryBoxes() {
   if (state._mbLoaded || DEMO || !supabase) return;
   state._mbLoaded = true;
@@ -18852,6 +18868,13 @@ async function loadMysteryBoxes() {
     state._mbPool = Array.isArray(v.pool) ? v.pool : [];
     state._mbOdds = (v.odds && typeof v.odds === 'object') ? v.odds : {};
     state._mbRarity = (v.rarity && typeof v.rarity === 'object') ? v.rarity : {};
+    // Cross-device opened state (mb_opened.sql) — own rows only.
+    try {
+      if (state.profile) {
+        const { data: op } = await supabase.from('mb_opened').select('box_id, opened_at').eq('profile_id', state.profile.id);
+        if (Array.isArray(op)) state._mbOpenedSrv = Object.fromEntries(op.map(r => [r.box_id, r.opened_at]));
+      }
+    } catch (e2) { /* table not created yet — localStorage covers this device */ }
   } catch (e) { state._mysteryBoxes = []; state._mbGoals = { rookie: 1500, vet: 2000 }; state._mbPool = []; state._mbOdds = {}; state._mbRarity = {}; }
   if (state.view === 'nrla') mountApp();
 }
@@ -19665,15 +19688,53 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
         el('div', { class: 'text-[10px] font-bold tabular-nums whitespace-nowrap', style: { opacity: '.6' } },
           over ? 'Final' : live ? daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' left' : ''))),
     el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
+      // Sortable headers (per Isaac): click toggles asc/desc; active column
+      // highlighted with an arrow. Default = Rep A→Z.
       el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-        el('th', { class: 'px-3 py-2' }, 'Rep'),
-        el('th', { class: 'px-3 py-2' }, 'Team'),
-        el('th', { class: 'px-3 py-2 text-right' }, 'Best Week'),
-        el('th', { class: 'px-3 py-2 text-right' }, 'This Week'),
-        el('th', { class: 'px-3 py-2 text-right hidden sm:table-cell' }, 'To Beat'),
-        el('th', { class: 'px-3 py-2 text-right hidden sm:table-cell', title: 'What\u2019s left \u00f7 remaining comp days' }, 'Pace/Day'),
-        el('th', { class: 'px-3 py-2', style: { minWidth: '150px' } }, 'Progress'))),
-      el('tbody', {}, ...viewRows.map(r => {
+        ...(() => {
+          const _kSort = state._kobeSort || { key: 'name', dir: 'asc' };
+          const _kTh = (key, label, extra, tip) => {
+            const on = _kSort.key === key;
+            return el('th', {
+              class: 'px-3 py-2 cursor-pointer select-none' + (extra || ''),
+              style: on ? { color: 'var(--accent)' } : {},
+              title: (tip ? tip + ' \u00b7 ' : '') + 'Click to sort',
+              onclick: () => {
+                state._kobeSort = { key, dir: on ? (_kSort.dir === 'desc' ? 'asc' : 'desc') : ((key === 'name' || key === 'team') ? 'asc' : 'desc') };
+                mountApp();
+              },
+            }, label + (on ? (_kSort.dir === 'desc' ? ' \u2193' : ' \u2191') : ''));
+          };
+          return [
+            _kTh('name', 'Rep', ''),
+            _kTh('team', 'Team', ''),
+            _kTh('best', 'Best Week', ' text-right'),
+            _kTh('cur', 'This Week', ' text-right'),
+            _kTh('tobeat', 'To Beat', ' text-right hidden sm:table-cell'),
+            _kTh('pace', 'Pace/Day', ' text-right hidden sm:table-cell', 'What\u2019s left \u00f7 remaining comp days'),
+            _kTh('pct', 'Progress', '', null),
+          ];
+        })())),
+      el('tbody', {}, ...(() => {
+        const _kSort = state._kobeSort || { key: 'name', dir: 'asc' };
+        const _kValOf = (r) => {
+          const tgt = r.target || r.bestRev || 0;
+          switch (_kSort.key) {
+            case 'team':   return _kTeamOf(r);
+            case 'best':   return r.bestRev || 0;
+            case 'cur':    return r.cur || 0;
+            case 'tobeat': return Math.max(0, tgt - (r.cur || 0));
+            case 'pace':   return Math.max(0, tgt - (r.cur || 0));
+            case 'pct':    return tgt > 0 ? (r.cur || 0) / tgt : 0;
+            default:       return r.name;
+          }
+        };
+        return viewRows.slice().sort((x, y) => {
+          const vx = _kValOf(x), vy = _kValOf(y);
+          const c = (typeof vx === 'string') ? vx.localeCompare(vy) : vx - vy;
+          return _kSort.dir === 'desc' ? -c : c;
+        });
+      })().map(r => {
         const _rTgt = r.target || r.bestRev;
         const remaining = Math.max(0, _rTgt - r.cur);
         const perDay = (remaining > 0 && daysLeft > 0) ? remaining / daysLeft : 0;
@@ -33718,7 +33779,10 @@ function indicatorYoYTrendChart() {
           // so the real trend stays readable; capped points ride the top edge
           // and still show their true value on hover.
           state._yoyAxisCap = null;
-          {
+          // Percent metrics are naturally bounded (0–100%) — the robust cap
+          // was CLIPPING legit peaks (office-staff MY% spikes cut at ~44%).
+          // Outlier protection is for dollar/count axes only.
+          if (kind !== 'pct') {
             const _av = [];
             lines.forEach(ds => (ds.data || []).forEach(v => { if (typeof v === 'number' && isFinite(v)) _av.push(v); }));
             if (_av.length >= 8) {
