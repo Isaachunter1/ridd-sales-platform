@@ -4079,6 +4079,98 @@ function reportingAuditing() {
     // Branch + team rollups on top, then the per-rep detail table.
     offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, 'High-level audit + revenue metrics rolled up by office.', 'branch'),
     teamFilter === 'all' && teamEntries.length > 1 && statTable('Teams · Audit Report', teamEntries, 'Same metrics rolled up by team (from Manage Teams · current Team Year).', 'team'),
+
+    // ── 📉 COHORT ATTRITION (per Isaac) — the fair-comparison lens. Every
+    // account is measured at the SAME AGE: of accounts whose FIRST SERVICE
+    // is at least N days old, the share with a real cancel within N days of
+    // that first service. Kills the exposure-time bias of the cumulative
+    // rate (young accounts can't be compared to old ones). Same exclusions
+    // as the tables above: RORs, Sold-Not-Started, one-time closeouts out.
+    (() => {
+      const BUCKETS = [30, 60, 90, 180];
+      const todayMs = Date.now();
+      const by = ['branch', 'team', 'rep'].includes(state._cohortBy) ? state._cohortBy : 'branch';
+      const keyOf = (a) => by === 'rep' ? a.rep : by === 'team' ? (a.team || 'Unassigned') : a.office;
+      const groups = new Map();
+      const companyAgg = BUCKETS.map(() => ({ elig: 0, churn: 0 }));
+      for (const a of scopedAccounts) {
+        if (!a.serviced) continue;
+        let start = null, cxl = null;
+        for (const r of (a.rows || [])) {
+          const sd = r.initial_service || r.sold_date;
+          if (sd) { const d = new Date(String(sd).length === 10 ? sd + 'T00:00' : sd); if (!isNaN(d) && (!start || d < start)) start = d; }
+          if (r.subscription_date_canceled && !isExcludableRow(r)) {
+            const cRaw = r.subscription_date_canceled;
+            const c = new Date(String(cRaw).length === 10 ? cRaw + 'T00:00' : cRaw);
+            if (!isNaN(c) && (!cxl || c < cxl)) cxl = c;
+          }
+        }
+        if (!start) continue;
+        const ageD = (todayMs - start.getTime()) / 86400000;
+        const cxlAge = cxl ? (cxl.getTime() - start.getTime()) / 86400000 : null;
+        const k = keyOf(a) || 'Unknown';
+        const g = groups.get(k) || BUCKETS.map(() => ({ elig: 0, churn: 0 }));
+        BUCKETS.forEach((N, i) => {
+          if (ageD >= N) {
+            g[i].elig++; companyAgg[i].elig++;
+            if (cxlAge != null && cxlAge >= 0 && cxlAge <= N) { g[i].churn++; companyAgg[i].churn++; }
+          }
+        });
+        groups.set(k, g);
+      }
+      const rate2 = (b) => b.elig > 0 ? b.churn / b.elig : null;
+      const coAvg = companyAgg.map(rate2);
+      const pctC = (p) => p == null ? '\u2014' : (p * 100).toFixed(1) + '%';
+      // Self-calibrating colors: green = clearly beating the company curve,
+      // red = 1.5\u00d7 worse (only with a meaningful sample).
+      const cell = (b, i) => {
+        const p = rate2(b);
+        let color = null;
+        if (p != null && coAvg[i] != null && b.elig >= 5) {
+          if (p <= coAvg[i] * 0.8) color = '#5F8A1F';
+          else if (p >= coAvg[i] * 1.5 && p > 0.02) color = '#DC2626';
+        }
+        return el('td', {
+          class: 'px-2 py-1.5 text-right tabular-nums',
+          style: color ? { color, fontWeight: '700' } : {},
+          title: b.churn + ' of ' + b.elig + ' same-age accounts cancelled inside the window',
+        }, pctC(p));
+      };
+      const rows2 = [...groups.entries()]
+        .filter(([, g]) => g[0].elig >= 3)
+        .sort((x, y) => (rate2(y[1][2]) || 0) - (rate2(x[1][2]) || 0));
+      if (!rows2.length) return null;
+      const pill2 = (v, lbl) => el('button', {
+        class: 'px-2.5 py-1 text-[11px] font-semibold transition cursor-pointer',
+        style: by === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+        onclick: () => { state._cohortBy = v; mountApp(); },
+      }, lbl);
+      return el('div', { class: 'card overflow-hidden' },
+        el('div', { class: 'px-4 pt-4 pb-2 flex items-center justify-between gap-3 flex-wrap' },
+          el('div', {},
+            el('h3', { class: 'text-base font-bold' }, '\ud83d\udcc9 Cohort Attrition'),
+            el('div', { class: 'text-[11px] mt-0.5 max-w-2xl', style: { color: 'var(--text-muted)' } },
+              'Every account measured at the SAME age \u2014 of accounts whose first service is \u2265N days old, the share with a real cancel within N days. Green beats the company curve; red is 1.5\u00d7 worse. RORs, Sold-Not-Started and one-time closeouts excluded.')),
+          el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)' } },
+            pill2('branch', 'Branch'), pill2('team', 'Team'), pill2('rep', 'Rep'))),
+        el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full', style: { fontSize: '11px', borderCollapse: 'collapse' } },
+          el('thead', {}, el('tr', { class: 'text-left text-[9px] uppercase tracking-widest text-muted-' },
+            el('th', { class: 'px-3 py-2' }, by === 'rep' ? 'Rep' : by === 'team' ? 'Team' : 'Branch'),
+            el('th', { class: 'px-2 py-2 text-right', title: 'Serviced accounts whose first service is at least 30 days old' }, 'Aged 30+'),
+            el('th', { class: 'px-2 py-2 text-right' }, '\u226430d'),
+            el('th', { class: 'px-2 py-2 text-right' }, '\u226460d'),
+            el('th', { class: 'px-2 py-2 text-right' }, '\u226490d'),
+            el('th', { class: 'px-2 py-2 text-right' }, '\u2264180d'))),
+          el('tbody', {},
+            el('tr', { class: 'border-t font-bold', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+              el('td', { class: 'px-3 py-1.5' }, 'COMPANY'),
+              el('td', { class: 'px-2 py-1.5 text-right tabular-nums' }, fmt.int(companyAgg[0].elig)),
+              ...companyAgg.map((b) => el('td', { class: 'px-2 py-1.5 text-right tabular-nums', title: b.churn + ' of ' + b.elig }, pctC(rate2(b))))),
+            ...rows2.map(([k, g]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+              el('td', { class: 'px-3 py-1.5 font-semibold whitespace-nowrap' }, k),
+              el('td', { class: 'px-2 py-1.5 text-right tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.int(g[0].elig)),
+              ...g.map((b, i) => cell(b, i))))))));
+    })(),
     (() => {
       // Rep-table filters (team / office / name search). Selects re-render;
       // the search hides rows in place so the input never loses focus.
