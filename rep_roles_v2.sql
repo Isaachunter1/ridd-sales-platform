@@ -13,3 +13,7 @@ alter type public.user_role add value if not exists 'disabled';
 -- between rep_sales / rep_partner / rep_office_lead).
 alter table public.profiles add column if not exists previous_role public.user_role;
 alter table public.profiles add column if not exists access_revoked_at timestamptz;
+
+-- Rep - Team Lead: split out of "Rep - Partner (team lead)" (per Isaac) —
+-- partners and D2D team leads are separate categories now.
+alter type public.user_role add value if not exists 'rep_team_lead';

@@ -152,7 +152,7 @@ async function callAdminSetPassword(payload) {
 // overrides are edited in Settings → Permissions (checkbox matrix) and ride
 // the synced config row (competitions.extras.perms), so a change reaches
 // every user on every device — no deploy per role tweak.
-const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_office', 'rep_office_lead'];
+const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead'];
 const PERM_DEFS = [
   { id: 'view_comps',       label: 'Competitions tab',    group: 'Tabs' },
   { id: 'view_indicators',  label: 'Indicators tab',      group: 'Tabs' },
@@ -171,6 +171,7 @@ const PERM_DEFAULTS = {
   rep_sales:       { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
   rep_office:      { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
   rep_partner:     { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
+  rep_team_lead:   { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
   rep_office_lead: { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
 };
 // Effective permission role: legacy 'rep' resolves by CRM type.
@@ -194,18 +195,51 @@ function userCan(permId, profile) {
   return !!eff[permId];
 }
 
+
+// ── SCOPED permissions — not on/off but WHO it reaches. First scoped row:
+// player-card drill-down on the Rep Leaderboard / Records (self is ALWAYS
+// allowed — a rep can never lose their own card). Edited in the same
+// Settings → Permissions matrix as dropdowns; synced the same way.
+const PERM_SCOPES = ['none', 'self', 'team', 'dept', 'all'];
+const PERM_SCOPE_LABELS = { none: 'Nobody else', self: 'Self only', team: 'Own team', dept: 'Own dept', all: 'Everyone' };
+const PERM_SCOPE_DEFS = [
+  { id: 'drill_scope', label: 'Player-card drill-down', group: 'Reach',
+    help: 'Whose DETAILED player cards this user type can open (leaderboard rows, record drill-downs). Headline numbers stay visible to all; the full card is what this gates. Self always works.' },
+];
+const PERM_SCOPE_DEFAULTS = {
+  rep_sales:       { drill_scope: 'self' },
+  rep_office:      { drill_scope: 'self' },
+  rep_partner:     { drill_scope: 'team' },
+  rep_team_lead:   { drill_scope: 'team' },
+  rep_office_lead: { drill_scope: 'dept' },
+};
+function userScope(scopeId, profile) {
+  const p = profile || state.profile;
+  if (!p) return 'none';
+  if (isAdminRole(p.role)) return 'all';
+  if (isAuditorRole(p.role)) return 'none';
+  const role = _permRoleOf(p);
+  const overrides = (state._compExtras && state._compExtras.permScopes) || {};
+  const v = (overrides[role] && overrides[role][scopeId]) || (PERM_SCOPE_DEFAULTS[role] || {})[scopeId];
+  return PERM_SCOPES.includes(v) ? v : 'self';
+}
+
 // Role helpers — keep "has admin powers" and "is a seller" consistent across
 // the codebase. `admin_rep` is an admin who also sells (on leaderboard, has a
 // Pay tab); `admin` is admin-only (not on leaderboard, no sales).
 const ADMIN_ROLES   = ['admin', 'admin_rep'];
-const SELLER_ROLES  = ['rep', 'rep_office', 'rep_office_lead', 'rep_sales', 'rep_partner', 'admin_rep'];
+const SELLER_ROLES  = ['rep', 'rep_office', 'rep_office_lead', 'rep_sales', 'rep_partner', 'rep_team_lead', 'admin_rep'];
 const isAdminRole   = (r) => ADMIN_ROLES.includes(r);
 const isSellerRole  = (r) => SELLER_ROLES.includes(r);
 const isAuditorRole = (r) => r === 'auditor';
 // Rep - Partner: a D2D rep who LEADS a team. Same permissions as a Sales
 // Rep everywhere, plus: they can open the player cards of reps on THEIR
 // team (leaderboard + records) — never the whole company.
-const isPartnerRole = (r) => r === 'rep_partner';
+// Partner (business partner) and D2D Team Lead are separate CATEGORIES now
+// (per Isaac) — same team-lead powers by default, independently tunable in
+// Settings → Permissions. isPartnerRole covers both where "leads a team"
+// is what matters (player-card access, analyst layout ordering).
+const isPartnerRole = (r) => r === 'rep_partner' || r === 'rep_team_lead';
 // Office Staff - Team Lead: an office-staff rep who LEADS the call center.
 // Same permissions as Office Staff everywhere, plus: they can open the
 // player cards of OFFICE STAFF reps (their team), mirroring rep_partner.
@@ -217,6 +251,7 @@ const ROLE_LABEL = {
   rep:        'Rep (legacy)',   // pre-migration accounts; behaves like its CRM type
   rep_sales:  'Rep - Sales Rep',
   rep_partner:'Rep - Partner',
+  rep_team_lead:'Rep - Team Lead',
   rep_office: 'Rep - Office Staff',
   rep_office_lead: 'Office Staff - Team Lead',
   admin_rep:  'Admin + Sales',
@@ -6377,7 +6412,7 @@ function recentSalesTable(rows, opts = {}) {
 function isOfficeStaffProfile(p) {
   if (!p) return false;
   if (p.role === 'rep_office' || p.role === 'rep_office_lead') return true;
-  if (p.role === 'rep_sales' || p.role === 'rep_partner') return false;
+  if (p.role === 'rep_sales' || p.role === 'rep_partner' || p.role === 'rep_team_lead') return false;
   const emp = frRosterRowForProfile(p);   // works even when the profile stores a branch id
   if (emp && emp.type_label) return /office\s*staff/i.test(emp.type_label);
   if (state.profile && p.id === state.profile.id && state.myRepType) return /office\s*staff/i.test(state.myRepType);
@@ -8924,24 +8959,31 @@ function canViewRepDetails(repName, repTeam) {
   if (!me) return false;
   if (isAdminRole(me.role)) return true;
   const _sigG = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  // Self is ALWAYS viewable, whatever the configured reach.
   if (_sigG(repName) === _sigG(me.full_name) || isMyRepName(repName)) return true;
-  // Office Staff - Team Lead: any OFFICE STAFF rep's card — the call
-  // center is their team (per Isaac; mirrors the partner rule below).
-  if (isOfficeLeadRole(me.role)) {
+  // Reach comes from Settings → Permissions now (defaults preserve the old
+  // hardcoded rules: partners/team leads = own team, office leads = the
+  // call center, everyone else = self only).
+  const scope = userScope('drill_scope');
+  if (scope === 'all') return true;
+  if (scope === 'dept') {
+    // Same department as the viewer: office-staff viewers reach office
+    // staff; D2D viewers reach non-office (their world).
     try {
       const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(repName))];
-      if (t && /office\s*staff/i.test(t)) return true;
-    } catch (e) { /* fall through to self-only */ }
+      const targetIsOffice = !!(t && /office\s*staff/i.test(t));
+      return isOfficeStaffProfile(me) ? targetIsOffice : !targetIsOffice;
+    } catch (e) { return false; }
   }
-  if (isPartnerRole(me.role) && typeof getRepTeam === 'function') {
-    // Partner's team: resolve their dataset name by signature, then look up
+  if (scope === 'team' && typeof getRepTeam === 'function') {
+    // Viewer's team: resolve their dataset name by signature, then look up
     // the team assignment (same maps Manage Teams writes).
     let myTeam = getRepTeam(me.full_name) || '';
     if (!myTeam) for (const n of myRepNameSet()) { myTeam = getRepTeam(n) || ''; if (myTeam) break; }
     const theirTeam = repTeam || getRepTeam(repName) || (typeof getCanonicalRepName === 'function' ? getRepTeam(getCanonicalRepName(repName)) : '');
     return !!(myTeam && theirTeam && myTeam === theirTeam);
   }
-  return false;
+  return false;   // 'self' / 'none' — self was already allowed above
 }
 function openIndicatorRepCard(rep, allReps = []) {
   if (!rep) return;
@@ -32512,7 +32554,7 @@ function openTVDashboard() {
     const cg = state.companyGoal || { amount: 6000000, period: 'year' };
     const monthlyCompanyGoal = cg.period === 'year' ? cg.amount / 12 : cg.amount;
     const dailyCompanyGoal = workingDaysInMonth > 0 ? monthlyCompanyGoal / workingDaysInMonth : 0;
-    const sellerRoles = new Set(['rep', 'rep_office', 'rep_office_lead', 'rep_sales', 'rep_partner', 'admin_rep']);
+    const sellerRoles = new Set(['rep', 'rep_office', 'rep_office_lead', 'rep_sales', 'rep_partner', 'rep_team_lead', 'admin_rep']);
     const activeRepCount = Math.max(1,
       (state.allProfiles || []).filter(p => p.is_active !== false && sellerRoles.has(p.role)).length
     );
@@ -46342,7 +46384,36 @@ function adminPermissions() {
               ...PERM_DEFS.filter(d => d.group === g).map(d => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
                 el('td', { class: 'px-3 py-1.5 font-semibold whitespace-nowrap' }, d.label),
                 ...PERM_ROLES.map(role => cell(role, d)))),
-            ]))))),
+            ]),
+            // ── REACH rows — dropdowns, not checkboxes: WHO a capability
+            // extends to (e.g. partners open player cards for their OWN
+            // team, not all reps). Self always works regardless.
+            el('tr', {}, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colSpan: String(1 + PERM_ROLES.length), style: { color: 'var(--text-subtle)' } }, 'Reach')),
+            ...PERM_SCOPE_DEFS.map(d => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+              el('td', { class: 'px-3 py-1.5 font-semibold whitespace-nowrap', title: d.help || '' }, d.label),
+              ...PERM_ROLES.map(role => {
+                const scopeOverrides = (state._compExtras && state._compExtras.permScopes) || {};
+                const def = (PERM_SCOPE_DEFAULTS[role] || {})[d.id] || 'self';
+                const cur = (scopeOverrides[role] && scopeOverrides[role][d.id]) || def;
+                const overridden = cur !== def;
+                return el('td', { class: 'px-2 py-1.5 text-center' },
+                  el('select', {
+                    class: 'rounded-md border px-1.5 py-1 text-[11px] cursor-pointer',
+                    style: { borderColor: overridden ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+                    title: (d.help || '') + (overridden ? ' \u00b7 changed from default (' + PERM_SCOPE_LABELS[def] + ')' : ''),
+                    onchange: (e) => {
+                      const v = e.target.value;
+                      state._compExtras = state._compExtras || {};
+                      const ps = state._compExtras.permScopes = state._compExtras.permScopes || {};
+                      const r = ps[role] = ps[role] || {};
+                      if (v === def) delete r[d.id]; else r[d.id] = v;
+                      if (!Object.keys(r).length) delete ps[role];
+                      saveIndicatorState();
+                      logActivity('config_change', { detail: 'Permissions reach: ' + (ROLE_LABEL[role] || role) + ' \u00b7 ' + d.id + ' \u2192 ' + v });
+                      mountApp();
+                    },
+                  }, ...PERM_SCOPES.map(sv => el('option', { value: sv, selected: sv === cur }, PERM_SCOPE_LABELS[sv]))));
+              }))))))),
     el('div', { class: 'card p-4 text-xs', style: { color: 'var(--text-muted)' } },
       'Notes: the \u201cIndicators table\u201d / \u201cPower Ranking chart\u201d boxes give a user type the analyst layout (their player card pins to the top of the page). Sections a user hides themselves via \u270f\ufe0f Customize stay hidden for them regardless. Technicians and Auditors keep their own fixed tabs; new permissions can be added to this matrix as the app grows.'));
 }
@@ -49684,7 +49755,7 @@ function adminReps() {
           style: { position: 'absolute', top: 'calc(100% + 6px)', right: '0', minWidth: '190px', padding: '6px', display: 'none', zIndex: '50', boxShadow: 'var(--shadow-lg)' },
         },
           el('div', { class: 'px-3 pt-1.5 pb-2 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'View the app as\u2026'),
-          ...[['rep_sales', 'Rep - Sales Rep'], ['rep_partner', 'Rep - Partner'], ['rep_office', 'Rep - Office Staff'], ['rep_office_lead', 'Office Staff - Team Lead'], ['auditor', 'Auditor']].map(([v, label]) => el('button', {
+          ...[['rep_sales', 'Rep - Sales Rep'], ['rep_partner', 'Rep - Partner'], ['rep_team_lead', 'Rep - Team Lead'], ['rep_office', 'Rep - Office Staff'], ['rep_office_lead', 'Office Staff - Team Lead'], ['auditor', 'Auditor']].map(([v, label]) => el('button', {
             class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition',
             style: { color: 'var(--text)' },
             onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
@@ -50545,7 +50616,8 @@ function openUserEditor(existing = null, prefill = null) {
       if (seedRole === 'rep') seedRole = 'rep_sales';
       const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-3 py-2 text-sm' },
         el('option', { value: 'rep_sales',  selected: seedRole === 'rep_sales' },  'Rep - Sales Rep'),
-        el('option', { value: 'rep_partner', selected: seedRole === 'rep_partner' }, 'Rep - Partner (team lead)'),
+        el('option', { value: 'rep_partner', selected: seedRole === 'rep_partner' }, 'Rep - Partner'),
+        el('option', { value: 'rep_team_lead', selected: seedRole === 'rep_team_lead' }, 'Rep - Team Lead'),
         el('option', { value: 'rep_office', selected: seedRole === 'rep_office' }, 'Rep - Office Staff'),
         el('option', { value: 'rep_office_lead', selected: seedRole === 'rep_office_lead' }, 'Office Staff - Team Lead'),
         el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep' },  'Admin + Sales'),
