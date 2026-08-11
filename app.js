@@ -5190,19 +5190,10 @@ function mountApp() {
     ),
     state.view === 'sales' ? buildSearchBar() : el('div', { class: 'flex-1' }),
     el('div', { class: 'flex items-center gap-2' },
-      // 🔧 Edit mode — EVERY user reshapes any tab into their own view
-      // (reorder / hide sections; Indicators also unlocks row editing +
-      // the preset drawer). Per user, per device.
-      el('button', {
-        class: 'icon-btn show',
-        style: state._editMode ? { background: 'var(--accent)', color: 'var(--accent-text)' } : {},
-        title: state._editMode ? 'Exit edit mode' : 'Edit mode \u2014 reorder or hide sections on any tab to build YOUR view',
-        onclick: () => {
-          state._editMode = !state._editMode;
-          if (state._editMode && state.view === 'indicators') state._indPresetsOpen = true;
-          mountApp();
-        },
-      }, '\ud83d\udd27'),
+      // (🔧 edit-mode icon removed from the global bar — customization now
+      // lives quietly at the bottom of each page, Apple-style: a muted
+      // "Edit layout" link you find when you go looking, invisible during
+      // daily use. The floating Done/Reset banner is unchanged.)
       // TV Display button — opens a fullscreen sales leaderboard meant
       // for a wall-mounted TV. Only shown inside the Inside Sales tab.
       INSIDE_SALES_TAB_KEYS.has(state.view) && el('button', {
@@ -5321,6 +5312,24 @@ function mountApp() {
       title: pullErr ? 'THIS PHONE can\u2019t reach the server — showing older data. Tap to retry.' : 'Syncs land hourly on the hour, 8am–11pm ET',
     }, '↻ Last sync: ' + txt + (pullErr ? ' · CAN\u2019T REACH SERVER' : lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '')));
   })();
+  // ✏️ Quiet, embedded customization entry — a muted text link at the very
+  // bottom of every customizable page (not on Settings). Replaces the old
+  // global 🔧 icon: discoverable when you go looking, invisible otherwise.
+  if (!state._editMode && state.view !== 'admin' && state.profile) {
+    contentWrap.append(el('div', { class: 'flex justify-end mt-6 mb-2' },
+      el('button', {
+        class: 'text-[11px] cursor-pointer transition',
+        style: { color: 'var(--text-subtle)', background: 'none', border: 'none', padding: '6px 4px' },
+        title: 'Reorder or hide sections on this page \u2014 just for you',
+        onmouseenter: (e) => { e.currentTarget.style.color = 'var(--text-muted)'; },
+        onmouseleave: (e) => { e.currentTarget.style.color = 'var(--text-subtle)'; },
+        onclick: () => {
+          state._editMode = true;
+          if (state.view === 'indicators') state._indPresetsOpen = true;
+          mountApp();
+        },
+      }, '\u270f\ufe0f Edit layout')));
+  }
   main.append(pageHeader, contentWrap);
 
   shell.append(main);
