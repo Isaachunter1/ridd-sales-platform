@@ -8551,17 +8551,29 @@ const REP_LAYOUT_SECTIONS = [
   ['trend', 'Your Metric Trends'],
   ['board', 'Rep Leaderboard'],
 ];
+// Rep - Partner extras (per Isaac): the admin 🏅 Records + 🎓 Class Metrics
+// cards join the partner's page (orderable/hideable like everything else);
+// the Power Ranking chart renders above the stack, same spot as admin.
+const PARTNER_LAYOUT_SECTIONS = [
+  ['records', '🏅 Records'],
+  ['class',   '🎓 Class Metrics'],
+];
+const _repLayoutSections = () =>
+  ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role))
+    || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)))
+    ? [...REP_LAYOUT_SECTIONS, ...PARTNER_LAYOUT_SECTIONS]
+    : REP_LAYOUT_SECTIONS;
 function _repLayoutPrefs() {
   try {
     const p = JSON.parse(localStorage.getItem(REP_LAYOUT_KEY) || 'null');
     if (p && Array.isArray(p.order)) {
       // heal: every known section appears exactly once
-      p.order = [...new Set([...p.order.filter(k => REP_LAYOUT_SECTIONS.some(([id]) => id === k)), ...REP_LAYOUT_SECTIONS.map(([id]) => id)])];
+      p.order = [...new Set([...p.order.filter(k => _repLayoutSections().some(([id]) => id === k)), ..._repLayoutSections().map(([id]) => id)])];
       p.hidden = Array.isArray(p.hidden) ? p.hidden : [];
       return p;
     }
   } catch { /* fresh */ }
-  return { order: REP_LAYOUT_SECTIONS.map(([id]) => id), hidden: [], dateDefault: '' };
+  return { order: _repLayoutSections().map(([id]) => id), hidden: [], dateDefault: '' };
 }
 function _saveRepLayoutPrefs(p) { try { localStorage.setItem(REP_LAYOUT_KEY, JSON.stringify(p)); } catch { /* private mode */ } }
 
@@ -8591,7 +8603,7 @@ function openRepCustomizeModal() {
       el('div', { class: 'p-4 flex flex-col gap-2 overflow-auto' },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Sections · order & visibility'),
         ...p.order.map((k, i) => {
-          const label = (REP_LAYOUT_SECTIONS.find(([id]) => id === k) || [k, k])[1];
+          const label = (_repLayoutSections().find(([id]) => id === k) || [k, k])[1];
           const hidden = p.hidden.includes(k);
           return el('div', { class: 'flex items-center gap-2 rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)', background: hidden ? 'transparent' : 'var(--card-2)', opacity: hidden ? .55 : 1 } },
             arrow('▲', i === 0, () => { const o = [...p.order]; [o[i - 1], o[i]] = [o[i], o[i - 1]]; commit({ ...p, order: o }); }),
@@ -25382,6 +25394,11 @@ function viewIndicators() {
   // tab for every role. Clears any persisted ON state so nobody's stuck.
   state.indicatorsComps = false;
   const _repLite = !isAdminRole(state.profile?.role);
+  // Rep - Partner + Office Staff - Team Lead (per Isaac): team leads get
+  // the admin analysis extras on their rep page — Power Ranking chart,
+  // Performance Trends, 🏅 Records and 🎓 Class Metrics. (Office dept
+  // hides the branch Power Ranking chart / Class Metrics, same as admin.)
+  const _isPartner = _repLite && (isPartnerRole(state.profile?.role) || isOfficeLeadRole(state.profile?.role));
   // Admin default filters (per Isaac, Jul 2026): every fresh session opens
   // Indicators on Pending/Serviced revenue · Type = Sales Rep · This Year ·
   // Branch/Office grouping. Seeds the first render only — filter changes
@@ -26450,7 +26467,7 @@ function viewIndicators() {
     // (so This Week / Last Week actually graph), ≤180 days stays weekly,
     // longer ranges roll up to months — same rules as getChartBuckets.
     // Day/month axes aggregate straight from the raw sales.
-    !_repLite && !_focusedComp && (() => {
+    (!_repLite || _isPartner) && !_focusedComp && (() => {
       let chartData = isRange ? data : allData;
       let chartWeeks = isRange ? weeks : allWeeks;
       let chartLabels = null;
@@ -26511,7 +26528,10 @@ function viewIndicators() {
           indicatorChart(grain + ' PRA',     chartData, branches, 'pra',     chartWeeks, false, chartLabels),
           indicatorChart(grain + ' Revenue', chartData, branches, 'revenue', chartWeeks, false, chartLabels),
         ),
-        indicatorYoYTrendChart(),
+        // Partners get the YoY/Performance Trends chart inside their
+        // personalized stack (yoy builder) — rendering it here too would
+        // double it up.
+        !_repLite && indicatorYoYTrendChart(),
       );
     })(),
 
@@ -26529,6 +26549,10 @@ function viewIndicators() {
             yoy:   () => [indicatorYoYTrendChart()],
             trend: () => _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend'),
             board: () => _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard'),
+            // Rep - Partner extras — the admin cards, straight from
+            // indicatorRepSections (empty for everyone else).
+            records: () => _isPartner ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'agg-records') : [],
+            class:   () => _isPartner ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'class-metrics') : [],
           };
           const out = [];
           prefs.order.forEach(k => {
@@ -28191,7 +28215,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       }, m.label)),
     );
 
-    return el('div', { class: 'card overflow-hidden' },
+    return el('div', { class: 'card overflow-hidden', 'data-section': 'agg-records' },
       el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
           el('h3', { class: 'text-base font-bold' }, '🏅 Records'),
@@ -28474,7 +28498,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, count + ' rep' + (count === 1 ? '' : 's')),
     );
 
-    const tierCard = el('div', { class: 'card overflow-hidden' },
+    const tierCard = el('div', { class: 'card overflow-hidden', 'data-section': 'class-metrics' },
       el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', {},
           el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA · Serviced divides by Reps W/ Serviced.' }, '🎓 Class Metrics'),
