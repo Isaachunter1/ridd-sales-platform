@@ -2038,7 +2038,10 @@ const slack = {
   async sendDM(repIds, payload, kind) {
     const ids = Array.isArray(repIds) ? repIds : [repIds];
     const profiles = (state.allProfiles || []).filter(p => ids.includes(p.id));
-    const withSlack = profiles.filter(p => p.slack_user_id);
+    // slack_member_id = the self-service column (⚙ My Settings); the old
+    // slack_user_id column had NO write path — kept only as a fallback.
+    const _sidOf = (p) => p.slack_member_id || p.slack_user_id || null;
+    const withSlack = profiles.filter(p => _sidOf(p));
     const without = profiles.length - withSlack.length;
 
     if (DEMO) {
@@ -2046,7 +2049,7 @@ const slack = {
         logActivity('slack_dm_sent', {
           new_status: kind || 'dm',
           rep_name: p.full_name,
-          detail: 'Demo · would DM ' + p.slack_user_id,
+          detail: 'Demo · would DM ' + _sidOf(p),
         });
       });
       const sent = withSlack.length;
@@ -2066,7 +2069,7 @@ const slack = {
         method: 'POST',
         headers: await _apiAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
-          recipients: withSlack.map(p => ({ slack_user_id: p.slack_user_id, full_name: p.full_name })),
+          recipients: withSlack.map(p => ({ slack_user_id: _sidOf(p), full_name: p.full_name })),
           payload,
           kind: kind || 'dm',
         }),
@@ -2076,7 +2079,7 @@ const slack = {
         logActivity('slack_dm_sent', {
           new_status: kind || 'dm',
           rep_name: p.full_name,
-          detail: data.errors?.[p.slack_user_id] ? 'Failed · ' + data.errors[p.slack_user_id] : 'Sent',
+          detail: data.errors?.[_sidOf(p)] ? 'Failed · ' + data.errors[_sidOf(p)] : 'Sent',
         });
       });
       return {
@@ -2778,6 +2781,7 @@ async function loadAndRender() {
     // Inside Sales dashboard, technicians → Technicians, D2D reps → D2D
     // Sales, auditors → Sales queue. Admins keep the dashboard.
     if (!state._navChosen) state.view = defaultViewFor(state.profile);
+    usagePing('login');
     mountApp();
     // Weekly recap for reps — after the app paints. D2D reps whose dataset
     // arrives via the async cloud pull get a second chance from that path.
@@ -4853,6 +4857,68 @@ function applyUserLayout(root) {
       })));
   });
 }
+// ── ADOPTION TELEMETRY (per Isaac) — tiny fire-and-forget pings: one
+// 'login' per session, one 'view' per tab per 10 minutes. Silent until
+// usage_telemetry.sql runs; can never break the app.
+const _usagePinged = { login: false, views: {} };
+function usagePing(event, detail) {
+  try {
+    if ((typeof DEMO !== 'undefined' && DEMO) || !state.profile || !state.session) return;
+    const now = Date.now();
+    if (event === 'login') {
+      if (_usagePinged.login) return;
+      _usagePinged.login = true;
+    } else if (event === 'view') {
+      const last = _usagePinged.views[detail] || 0;
+      if (now - last < 10 * 60000) return;
+      _usagePinged.views[detail] = now;
+    }
+    supabase.from('usage_events').insert({ profile_id: state.profile.id, event, detail: detail || null })
+      .then(() => { /* ok */ }, () => { /* table not created yet — fine */ });
+  } catch (e) { /* telemetry must never break the app */ }
+}
+
+// 📣 Feedback — one tap from any page, lands in Slack + the usage trail.
+function openFeedbackModal() {
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const ta = el('textarea', {
+    class: 'w-full rounded-lg border px-3 py-2 text-sm',
+    style: { borderColor: 'var(--border-2)', background: 'var(--input-bg)', minHeight: '110px', resize: 'vertical' },
+    placeholder: 'Bug, idea, confusing screen, wrong number \u2014 anything. Screenshots can go to your manager; this sends the words straight to the app team.',
+  });
+  const send = el('button', {
+    class: 'rounded-xl px-4 py-2 text-sm font-bold cursor-pointer',
+    style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    onclick: async () => {
+      const text = ta.value.trim();
+      if (!text) { toast('Write something first', 'warn'); return; }
+      send.disabled = true; send.textContent = 'Sending\u2026';
+      try {
+        const res = await fetch('/api/feedback', {
+          method: 'POST',
+          headers: await _apiAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ text, view: state.view || '' }),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        overlay.remove();
+        toast('\ud83d\udce3 Sent \u2014 thank you!', 'success');
+      } catch (err) {
+        send.disabled = false; send.textContent = 'Send';
+        toast('Could not send \u2014 try again in a moment', 'error');
+      }
+    },
+  }, 'Send');
+  overlay.append(el('div', { class: 'card w-full max-w-md p-5 flex flex-col gap-3' },
+    el('div', { class: 'flex items-center justify-between' },
+      el('h2', { class: 'text-lg font-bold' }, '\ud83d\udce3 Feedback'),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '\u00d7')),
+    ta,
+    el('div', { class: 'flex justify-end' }, send)));
+  document.body.append(overlay);
+  setTimeout(() => ta.focus(), 50);
+}
+
 function _ensureEditBanner() {
   document.getElementById('editModeBanner')?.remove();
   if (!state._editMode) return;
@@ -5312,24 +5378,26 @@ function mountApp() {
       title: pullErr ? 'THIS PHONE can\u2019t reach the server — showing older data. Tap to retry.' : 'Syncs land hourly on the hour, 8am–11pm ET',
     }, '↻ Last sync: ' + txt + (pullErr ? ' · CAN\u2019T REACH SERVER' : lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '')));
   })();
-  // ✏️ Quiet, embedded customization entry — a muted text link at the very
-  // bottom of every customizable page (not on Settings). Replaces the old
+  // ✏️ Quiet, embedded customization entry + 📣 feedback — a muted row at
+  // the very bottom of every page (not on Settings). Replaces the old
   // global 🔧 icon: discoverable when you go looking, invisible otherwise.
   if (!state._editMode && state.view !== 'admin' && state.profile) {
-    contentWrap.append(el('div', { class: 'flex justify-end mt-6 mb-2' },
-      el('button', {
-        class: 'text-[11px] cursor-pointer transition',
-        style: { color: 'var(--text-subtle)', background: 'none', border: 'none', padding: '6px 4px' },
-        title: 'Reorder or hide sections on this page \u2014 just for you',
-        onmouseenter: (e) => { e.currentTarget.style.color = 'var(--text-muted)'; },
-        onmouseleave: (e) => { e.currentTarget.style.color = 'var(--text-subtle)'; },
-        onclick: () => {
-          state._editMode = true;
-          if (state.view === 'indicators') state._indPresetsOpen = true;
-          mountApp();
-        },
-      }, '\u270f\ufe0f Edit layout')));
+    const _quiet = (label, title, onclick) => el('button', {
+      class: 'text-[11px] cursor-pointer transition',
+      style: { color: 'var(--text-subtle)', background: 'none', border: 'none', padding: '6px 4px' },
+      title, onclick,
+      onmouseenter: (e) => { e.currentTarget.style.color = 'var(--text-muted)'; },
+      onmouseleave: (e) => { e.currentTarget.style.color = 'var(--text-subtle)'; },
+    }, label);
+    contentWrap.append(el('div', { class: 'flex justify-end items-center gap-3 mt-6 mb-2' },
+      _quiet('\ud83d\udce3 Feedback', 'Send a bug / idea straight to the app team', () => openFeedbackModal()),
+      _quiet('\u270f\ufe0f Edit layout', 'Reorder or hide sections on this page \u2014 just for you', () => {
+        state._editMode = true;
+        if (state.view === 'indicators') state._indPresetsOpen = true;
+        mountApp();
+      })));
   }
+  usagePing('view', state.view);
   main.append(pageHeader, contentWrap);
 
   shell.append(main);
@@ -49679,6 +49747,54 @@ const REP_TYPE_TAB_LABEL = { 'All': 'All', 'Office Staff': 'Office Staff', 'Tech
 
 function adminReps() {
   const host = el('div', { class: 'flex flex-col gap-4' });
+  // ── 📊 Adoption — who's actually using the app (usage_events). Card
+  // renders only once the telemetry table exists and has rows; silent
+  // otherwise. Cached 5 minutes so opening Users doesn't hammer the DB. ──
+  if (!(typeof DEMO !== 'undefined' && DEMO)) {
+    const _stale = !state._usageStats || (Date.now() - state._usageStats.at) > 5 * 60000;
+    if (_stale && !state._usageStatsLoading) {
+      state._usageStatsLoading = true;
+      (async () => {
+        try {
+          const since = new Date(Date.now() - 30 * 86400000).toISOString();
+          const { data, error } = await supabase.from('usage_events')
+            .select('profile_id, event, detail, at').gte('at', since)
+            .order('at', { ascending: false }).limit(5000);
+          state._usageStats = { at: Date.now(), rows: error ? null : (data || []) };
+        } catch (e) { state._usageStats = { at: Date.now(), rows: null }; }
+        state._usageStatsLoading = false;
+        if (state.view === 'admin' && state.adminSection === 'users') mountApp();
+      })();
+    }
+    const us = state._usageStats;
+    if (us && us.rows && us.rows.length) {
+      const wk = Date.now() - 7 * 86400000, day = Date.now() - 86400000;
+      const nameOf = (id) => ((state.allProfiles || []).find(p => p.id === id) || {}).full_name || 'Unknown';
+      const rows7 = us.rows.filter(r => new Date(r.at).getTime() >= wk);
+      const active1 = new Set(us.rows.filter(r => new Date(r.at).getTime() >= day).map(r => r.profile_id));
+      const active7 = new Set(rows7.map(r => r.profile_id));
+      const tabCounts = {};
+      rows7.forEach(r => { if (r.event === 'view' && r.detail) tabCounts[r.detail] = (tabCounts[r.detail] || 0) + 1; });
+      const topTabs = Object.entries(tabCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      const fb = us.rows.filter(r => r.event === 'feedback').slice(0, 3);
+      const stat = (label, val) => el('div', { class: 'rounded-lg border px-3 py-2 text-center', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+        el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+        el('div', { class: 'text-lg font-bold tabular-nums' }, val));
+      host.append(el('div', { class: 'card p-4' },
+        el('div', { class: 'flex items-center justify-between flex-wrap gap-2' },
+          el('h3', { class: 'text-base font-bold' }, '\ud83d\udcca Adoption'),
+          el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'last 30 days')),
+        el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3' },
+          stat('Active today', String(active1.size)),
+          stat('Active \u00b7 7d', String(active7.size)),
+          stat('Tab views \u00b7 7d', String(rows7.filter(r => r.event === 'view').length)),
+          stat('Feedback \u00b7 30d', String(us.rows.filter(r => r.event === 'feedback').length))),
+        topTabs.length ? el('div', { class: 'mt-3 text-[11px]', style: { color: 'var(--text-muted)' } },
+          'Top tabs (7d): ' + topTabs.map(([k, n]) => k + ' \u00d7' + n).join(' \u00b7 ')) : null,
+        ...fb.map(r => el('div', { class: 'mt-2 text-[11px] rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)' } },
+          el('span', { class: 'font-bold' }, '\ud83d\udce3 ' + nameOf(r.profile_id) + ': '), r.detail || ''))));
+    }
+  }
   // Pull the CRM roster the first time an admin opens this screen.
   if (!(typeof DEMO !== 'undefined' && DEMO) && state.frRoster == null && !state._frRosterLoading) {
     loadFieldRoutesRoster().then(() => { if (state.view === 'admin') mountApp(); });
