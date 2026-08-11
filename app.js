@@ -146,6 +146,54 @@ async function callAdminSetPassword(payload) {
   return body;
 }
 
+
+// ═══ PERMISSIONS MATRIX (per Isaac) — what each USER TYPE can see. ═══
+// Admins always see everything. Defaults mirror shipped behavior exactly;
+// overrides are edited in Settings → Permissions (checkbox matrix) and ride
+// the synced config row (competitions.extras.perms), so a change reaches
+// every user on every device — no deploy per role tweak.
+const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_office', 'rep_office_lead'];
+const PERM_DEFS = [
+  { id: 'view_comps',       label: 'Competitions tab',    group: 'Tabs' },
+  { id: 'view_indicators',  label: 'Indicators tab',      group: 'Tabs' },
+  { id: 'view_marketplace', label: 'Marketplace tab',     group: 'Tabs' },
+  { id: 'view_training',    label: 'Training tab',        group: 'Tabs' },
+  { id: 'ind_card',         label: 'My Player Card',      group: 'Indicators sections' },
+  { id: 'ind_table',        label: 'Indicators table',    group: 'Indicators sections' },
+  { id: 'ind_power_chart',  label: 'Power Ranking chart', group: 'Indicators sections' },
+  { id: 'ind_board',        label: 'Rep Leaderboard',     group: 'Indicators sections' },
+  { id: 'ind_yoy',          label: 'Performance Trends',  group: 'Indicators sections' },
+  { id: 'ind_trend',        label: 'Metric Trends',       group: 'Indicators sections' },
+  { id: 'ind_records',      label: '\ud83c\udfc5 Records',       group: 'Indicators sections' },
+  { id: 'ind_class',        label: '\ud83c\udf93 Class Metrics', group: 'Indicators sections' },
+];
+const PERM_DEFAULTS = {
+  rep_sales:       { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
+  rep_office:      { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
+  rep_partner:     { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
+  rep_office_lead: { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
+};
+// Effective permission role: legacy 'rep' resolves by CRM type.
+function _permRoleOf(profile) {
+  const r = (profile && profile.role) || '';
+  if (PERM_DEFAULTS[r]) return r;
+  if (r === 'rep') {
+    try { return (typeof repTypeGroup === 'function' && repTypeGroup(profile) === 'office') ? 'rep_office' : 'rep_sales'; }
+    catch (e) { return 'rep_sales'; }
+  }
+  return 'rep_sales';
+}
+function userCan(permId, profile) {
+  const p = profile || state.profile;
+  if (!p) return false;
+  if (isAdminRole(p.role)) return true;
+  if (isAuditorRole(p.role)) return false;   // auditors live in the Sales queue
+  const role = _permRoleOf(p);
+  const overrides = (state._compExtras && state._compExtras.perms) || {};
+  const eff = { ...(PERM_DEFAULTS[role] || {}), ...(overrides[role] || {}) };
+  return !!eff[permId];
+}
+
 // Role helpers — keep "has admin powers" and "is a seller" consistent across
 // the codebase. `admin_rep` is an admin who also sells (on leaderboard, has a
 // Pay tab); `admin` is admin-only (not on leaderboard, no sales).
@@ -407,7 +455,14 @@ async function refreshIndicatorsFromCloud(force) {
     if ((!r || (!r.blob && !r.notModified)) && _cloudPath !== INDICATORS_CLOUD_PATH) {
       r = await _downloadSnapshotBlob(INDICATORS_CLOUD_PATH, null, { meta: true }).catch(() => null);
     }
-    if (!r || r.notModified || !r.blob) return; // unchanged, nothing shared yet, or failed — next poll retries
+    if (r && r.notModified) { state._indPullError = null; return; }   // device is reachable + up to date
+    if (!r || !r.blob) {
+      // 403 / 404 / timeout on THIS DEVICE — the server-age stamp can stay
+      // green while this phone shows days-old numbers. Record it so the
+      // stamp can say so (cleared on the next successful pull).
+      state._indPullError = { at: Date.now(), msg: 'download failed' };
+      return; // next poll retries
+    }
     const blob = r.blob;
     const text = await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text();
     const payload = JSON.parse(text);
@@ -428,13 +483,12 @@ async function refreshIndicatorsFromCloud(force) {
         && isAdminRole(state.profile && state.profile?.role)
         && !/^RevHawk sync/i.test(state.indicatorsFileName || '')) return;
     _saveTag();
-    // Office 20 → LITTLE ROCK heal: the sync names it at the source going
-    // forward; this covers payloads derived before the rename shipped.
+    // Branch-name heal at the ONE ingest point (branchAlias: seeded with
+    // Office 20 → LITTLE ROCK; future renames ship via config, no deploy).
     try {
-      const _o20 = /^office\s*20$/i;
-      (payload.indicatorsData || []).forEach(r2 => { if (_o20.test(String(r2.branch || ''))) r2.branch = 'LITTLE ROCK'; });
-      (payload.rawSales || []).forEach(s2 => { if (_o20.test(String(s2.office || ''))) s2.office = 'LITTLE ROCK'; });
-    } catch { /* cosmetic heal only */ }
+      (payload.indicatorsData || []).forEach(r2 => { const a = branchAlias(r2.branch); if (a !== r2.branch) r2.branch = a; });
+      (payload.rawSales || []).forEach(s2 => { const a = branchAlias(s2.office); if (a !== s2.office) s2.office = a; });
+    } catch (e) { /* cosmetic heal only */ }
     state.indicatorsData       = payload.indicatorsData;
     state._indicatorRawSales   = payload.rawSales || [];
     state.indicatorsUploadedAt = payload.uploadedAt;
@@ -445,10 +499,14 @@ async function refreshIndicatorsFromCloud(force) {
     saveDemoData();
     // Silent by design: this fires on every open/wake as routine hygiene —
     // the Last-sync stamp is the freshness UI, not a popup.
+    state._indPullError = null;
     console.info('[ridd] indicators refreshed from cloud (' + (payload.fileName || 'CSV') + ')');
     if (typeof scheduleBackgroundRemount === 'function') scheduleBackgroundRemount(); else mountApp();
     setTimeout(() => { try { maybeShowWeeklyRecap(); } catch { /* ignore */ } }, 800);
-  } catch (e) { console.warn('[ridd] indicators cloud refresh failed', e); }
+  } catch (e) {
+    state._indPullError = { at: Date.now(), msg: String((e && e.message) || e || 'network') };
+    console.warn('[ridd] indicators cloud refresh failed', e);
+  }
 }
 
 // Post-apply housekeeping — the things the local PARSE path used to do that
@@ -499,6 +557,17 @@ let _lastBulkRawRef = null, _lastBulkDataRef = null, _lastBulkSnapCount = -1;
 function saveIndicatorState() {
   // Any settings save may change exclusions/teams — drop the sales caches.
   if (typeof _indCfgRev !== 'undefined') _indCfgRev++;
+  // COMPANY-NUMBER rules mirror into the synced extras (their UI already
+  // claimed "for every user" — now it's true): deleted-account exclusions +
+  // the Rep Leaderboard cancel-count toggles.
+  try {
+    state._compExtras = state._compExtras || {};
+    const _ar = state._compExtras.adminRules = state._compExtras.adminRules || {};
+    if (Array.isArray(state.indicatorDeletedCustIds)) _ar.deletedCustIds = state.indicatorDeletedCustIds;
+    if (typeof state._indicatorRepIncludeRor === 'boolean') _ar.repIncludeRor = state._indicatorRepIncludeRor;
+    if (typeof state._indicatorRepIncludeOneTime === 'boolean') _ar.repIncludeOneTime = state._indicatorRepIncludeOneTime;
+    if (typeof state._indicatorRepIncludeRenewals === 'boolean') _ar.repIncludeRenewals = state._indicatorRepIncludeRenewals;
+  } catch (e) { /* mirror is best-effort */ }
   // Settings ALWAYS save first, with their own try/catch, so a quota failure
   // on the bulk CSV save can't roll back team/rep edits. Without this split,
   // adding a team while the data payload was over quota silently dropped the
@@ -847,6 +916,18 @@ async function loadIndicatorConfigFromSupabase() {
         // default and pill order now reach EVERY user, not just the admin
         // device that wrote them.
         if (data.competitions.extras && typeof data.competitions.extras === 'object') state._compExtras = data.competitions.extras;
+        // Hydrate the synced admin rules back into their state fields so
+        // every consumer (leaderboard toggles, deleted-ID exclusions) sees
+        // the SHARED values, not this device's leftovers.
+        try {
+          const _ar = state._compExtras && state._compExtras.adminRules;
+          if (_ar) {
+            if (Array.isArray(_ar.deletedCustIds)) state.indicatorDeletedCustIds = _ar.deletedCustIds;
+            if (typeof _ar.repIncludeRor === 'boolean') state._indicatorRepIncludeRor = _ar.repIncludeRor;
+            if (typeof _ar.repIncludeOneTime === 'boolean') state._indicatorRepIncludeOneTime = _ar.repIncludeOneTime;
+            if (typeof _ar.repIncludeRenewals === 'boolean') state._indicatorRepIncludeRenewals = _ar.repIncludeRenewals;
+          }
+        } catch (e) { /* fallback: local values */ }
         if (Array.isArray(data.competitions.pillOrder)) state._compPillOrder = data.competitions.pillOrder;
         if (typeof data.competitions.favMystery === 'boolean') state._compFavoriteMystery = data.competitions.favMystery;
         if (Array.isArray(data.competitions.dupesDismissed)) state._indicatorDismissedDupes = data.competitions.dupesDismissed;
@@ -2296,8 +2377,15 @@ async function boot() {
     // the recovery session — without this guard the listener's async
     // loadAndRender() would mount the app OVER the pinned set-password form.
     if (recoveryShown || (recoveryPending && session)) return; // stay on the recovery form
-    if (session) loadAndRender();
-    else mountAuth();
+    // TOKEN_REFRESHED fires ~hourly and on tab-focus; USER_UPDATED after
+    // profile edits. The fresh session is already swapped into state above —
+    // reloading here yanked users to the splash + reset their tab mid-read
+    // (THE "app feels glitchy" report). Never re-splash a working session.
+    if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') return;
+    if (session) {
+      if (state.profile) return;   // already hydrated — nothing to do
+      loadAndRender();
+    } else mountAuth();
   });
 
   if (recoveryFromUrl) {
@@ -2650,6 +2738,7 @@ async function loadAndRender() {
     // landed; when the local copy is stale it re-renders as soon as the
     // fresh snapshot arrives.
     try { refreshIndicatorsFromCloud(true); } catch (e) { /* the poll retries */ }
+    try { loadUserPrefs(); } catch (e) { /* per-device fallback */ }
     // Default landing by REP TYPE (no explicit hash/resume): office staff →
     // Inside Sales dashboard, technicians → Technicians, D2D reps → D2D
     // Sales, auditors → Sales queue. Admins keep the dashboard.
@@ -2984,7 +3073,7 @@ function mountLoading() {
   // with a different "Loading…" spinner read as two loading screens. When
   // the splash is already gone (mid-session re-auth), render the SAME
   // splash markup so the brand screen is the only loader anywhere.
-  if (document.getElementById('splashMark')) return;
+  if (document.getElementById('splashMark')) { _armSplashWatchdog(); return; }
   let logoImg = null;
   try {
     const logo = localStorage.getItem('ridd-spin-logo-v1') || '';
@@ -2994,7 +3083,39 @@ function mountLoading() {
     el('div', { class: 'flex flex-col items-center', style: { gap: '14px' } },
       logoImg || el('div', { style: { fontFamily: "var(--font-display,'Anton',system-ui,sans-serif)", fontSize: '2.6rem', letterSpacing: '.02em', color: 'var(--accent)', lineHeight: '1' } }, 'RIDD'),
       el('div', { style: { fontSize: '9px', letterSpacing: '.28em', color: 'var(--text-subtle)', textTransform: 'uppercase' } }, 'Service Above All'),
-      el('span', { class: 'spinner', style: { width: '20px', height: '20px', marginTop: '4px' } }))));
+      el('span', { class: 'spinner', style: { width: '20px', height: '20px', marginTop: '4px' } }),
+      el('div', { id: 'splash-watchdog' }))));
+  _armSplashWatchdog();
+}
+// Splash watchdog — if the spinner is still on screen after 12s, offer a
+// way out (Retry / Sign out) instead of an infinite brand screen. Sign-out
+// matters: a corrupt session is a common cause and reload alone loops.
+let _splashWatchTimer = null;
+function _armSplashWatchdog() {
+  clearTimeout(_splashWatchTimer);
+  _splashWatchTimer = setTimeout(() => {
+    let host = document.getElementById('splash-watchdog');
+    if (!host || !host.isConnected) {
+      const mark = document.getElementById('splashMark');
+      if (!mark) return;   // splash already gone — booted fine
+      host = el('div', { id: 'splash-watchdog', class: 'flex flex-col items-center' });
+      (mark.parentElement || mark).append(host);
+    }
+    host.append(
+      el('div', { class: 'flex flex-col items-center', style: { gap: '10px', marginTop: '18px' } },
+        el('div', { style: { fontSize: '12px', color: 'var(--text-muted)' } }, 'Taking longer than usual\u2026'),
+        el('div', { class: 'flex items-center', style: { gap: '10px' } },
+          el('button', {
+            class: 'rounded-xl px-4 py-2 text-sm font-bold',
+            style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+            onclick: () => location.reload(),
+          }, 'Retry'),
+          el('button', {
+            class: 'rounded-xl border px-4 py-2 text-sm font-semibold',
+            style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+            onclick: async () => { try { await supabase.auth.signOut(); } catch (e) { /* best effort */ } location.reload(); },
+          }, 'Sign out'))));
+  }, 12000);
 }
 
 // ── STALE-SESSION WATCHER ────────────────────────────────────────────────
@@ -3087,14 +3208,32 @@ window.addEventListener('unhandledrejection', (e) => {
 
 function mountError(err) {
   _reportClientError('mountError: ' + (err && err.message || err), err && err.stack);
+  const msg = String((err && err.message) || err || 'Unknown error');
+  const offline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+  const isAuth = /jwt|session|token|not signed in|401/i.test(msg);
+  const isNet  = offline || /failed to fetch|networkerror|network request|timed? ?out|load failed/i.test(msg);
+  const headline = isNet ? 'Can\u2019t reach the server' : isAuth ? 'Session needs a refresh' : 'Something went wrong';
+  const friendly = isNet
+    ? (offline ? 'You\u2019re offline \u2014 reconnect and tap Try again.' : 'The connection dropped or the server didn\u2019t answer. Your data is safe \u2014 try again in a moment.')
+    : isAuth ? 'Your sign-in expired or got out of sync. Sign in again and you\u2019ll land right back in the app.'
+    : 'An unexpected error stopped the app from loading.';
   mount(el('div', { class: 'min-h-screen flex items-center justify-center p-6' },
     el('div', { class: 'card p-6 max-w-lg' },
-      el('h1', { class: 'text-lg font-semibold text-red-400 mb-2' }, 'Something went wrong'),
-      el('pre', { class: 'text-xs text-battle-2 whitespace-pre-wrap' }, err.message || String(err)),
-      el('button', {
-        class: 'mt-4 px-4 py-2 rounded-lg bg-lime text-eerie font-semibold',
-        onclick: () => location.reload(),
-      }, 'Reload'))));
+      el('h1', { class: 'text-lg font-semibold mb-2', style: { color: (isNet || isAuth) ? 'var(--text)' : '#f87171' } }, headline),
+      el('div', { class: 'text-sm mb-3', style: { color: 'var(--text-muted)' } }, friendly),
+      el('details', { class: 'mb-1' },
+        el('summary', { class: 'text-[11px] cursor-pointer', style: { color: 'var(--text-subtle)' } }, 'Technical details'),
+        el('pre', { class: 'text-xs whitespace-pre-wrap mt-1', style: { color: 'var(--text-subtle)' } }, msg)),
+      el('div', { class: 'flex items-center gap-2 mt-3' },
+        el('button', {
+          class: 'px-4 py-2 rounded-lg bg-lime text-eerie font-semibold',
+          onclick: () => location.reload(),
+        }, isNet ? 'Try again' : 'Reload'),
+        isAuth && el('button', {
+          class: 'px-4 py-2 rounded-lg border font-semibold',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          onclick: async () => { try { await supabase.auth.signOut(); } catch (e) { /* best effort */ } location.reload(); },
+        }, 'Sign in again')))));
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -3499,7 +3638,7 @@ function mobileBottomNav() {
   const nav = el('nav', { class: 'mobile-nav' },
     ...items.map(([k, label, iconFn]) => el('button', {
       'data-active': state.view === k,
-      onclick: () => { state.view = k; history.replaceState(null,'',VIEW_TO_HASH[k]||'#'+k); mountApp(); },
+      onclick: () => { state.view = k; state._navChosen = true; history.replaceState(null,'',VIEW_TO_HASH[k]||'#'+k); mountApp(); },
     }, iconFn(20), el('span', {}, label))),
     // "More" button
     !isAuditor && !isRepOnly && (() => {
@@ -3522,7 +3661,7 @@ function mobileBottomNav() {
         ].map(([k,label,iconFn]) => el('button', {
           class: 'flex items-center gap-3 w-full px-4 py-2.5 text-sm',
           style: state.view === k ? { color: 'var(--accent)', fontWeight: '600' } : { color: 'var(--text)' },
-          onclick: () => { state.view = k; history.replaceState(null,'',VIEW_TO_HASH[k]||'#'+k); mountApp(); },
+          onclick: () => { state.view = k; state._navChosen = true; history.replaceState(null,'',VIEW_TO_HASH[k]||'#'+k); mountApp(); },
         }, iconFn(18), label)),
       );
       moreBtn.onclick = () => {
@@ -4307,7 +4446,7 @@ function insideSalesSubTabs() {
   const tabs = insideSalesTabsFor(state.profile?.role);
   // A one-tab bar is just noise — auditors land straight on Sales.
   if (tabs.length < 2) return null;
-  const go = (k) => { state.view = k; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
+  const go = (k) => { state.view = k; state._navChosen = true; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
   // Desktop: static tab bar. Mobile: the tabs wrapped onto two cramped rows
   // and fought the Inside/D2D toggle for space — consolidated into ONE
   // dropdown that shows the current tab and jumps on select.
@@ -4341,7 +4480,7 @@ function d2dSalesSubTabs() {
   // Upfront is an admin-only view — reps got a tab that dead-ended on a
   // placeholder (rep-UX audit #10). Filter it out for non-admins.
   const tabs = isAdminRole(state.profile?.role) ? D2D_SALES_TABS : D2D_SALES_TABS.filter(([k]) => k !== 'd2d_upfront');
-  const go = (k) => { state.view = k; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
+  const go = (k) => { state.view = k; state._navChosen = true; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
   const tabBar = el('div', { class: 'hidden sm:flex items-center flex-wrap gap-x-1 gap-y-0' },
     ...tabs.map(([k, label]) => {
       const active = state.view === k;
@@ -4629,7 +4768,10 @@ function _userLayoutPrefs() {
   } catch { /* fresh */ }
   return { order: [], hidden: [] };
 }
-function _saveUserLayoutPrefs(p) { try { localStorage.setItem(_userLayoutKey(), JSON.stringify(p)); } catch { /* private mode */ } }
+function _saveUserLayoutPrefs(p) {
+  try { localStorage.setItem(_userLayoutKey(), JSON.stringify(p)); } catch { /* private mode */ }
+  if (typeof pushUserPrefsSoon === 'function') pushUserPrefsSoon();
+}
 function applyUserLayout(root) {
   const kids = [...root.children];
   if (!kids.length) return;
@@ -4828,10 +4970,12 @@ function mountApp() {
   const isOfficeStaff = isRepOnly && _repGrp === 'office';
   const isTechType = isRepOnly && _repGrp === 'tech';
   const isSalesRepType = isRepOnly && !isOfficeStaff && !isTechType;
-  const repCanSee = (v) => v === 'nrla'
-    || v === 'indicators'                                  // rep-lite Indicators for ALL rep types
-    || v === 'training'                                    // placeholder for now (viewTraining gates content)
-    || v === 'marketplace'                                 // 🪙 RIDDCOIN store — every onboarded user
+  // Tab visibility now reads the Settings → Permissions matrix (userCan);
+  // defaults match the old hardcoded list exactly.
+  const repCanSee = (v) => (v === 'nrla' && userCan('view_comps'))
+    || (v === 'indicators' && userCan('view_indicators'))
+    || (v === 'training' && userCan('view_training'))
+    || (v === 'marketplace' && userCan('view_marketplace'))
     || (isTechType && v === 'techs')                       // Technicians: their own tab (was unreachable — audit #1)
     || (isSalesRepType && D2D_SALES_TAB_KEYS.has(v))       // Sales Reps: the D2D Sales group
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
@@ -4865,10 +5009,10 @@ function mountApp() {
     ...(isOfficeStaff ? [['inside_sales', 'Sales', iconSales()]]
       : isTechType ? [['techs', 'Sales', iconSales()]]
       : [['d2d_group', 'Sales', iconDollar()]]),
-    ['nrla', 'Competitions', iconTrophy()],
-    ['indicators', 'Indicators', iconChart()],
-    ['marketplace', 'Marketplace', iconDollar()],
-    ['training', 'Training', iconClipboard()],
+    ...(userCan('view_comps') ? [['nrla', 'Competitions', iconTrophy()]] : []),
+    ...(userCan('view_indicators') ? [['indicators', 'Indicators', iconChart()]] : []),
+    ...(userCan('view_marketplace') ? [['marketplace', 'Marketplace', iconDollar()]] : []),
+    ...(userCan('view_training') ? [['training', 'Training', iconClipboard()]] : []),
   ] : [
     // Auditors only have the Sales tab, so call the entry what it is.
     // ONE "Sales" entry for every role — admins toggle Inside Sales ⇄ D2D
@@ -4991,17 +5135,22 @@ function mountApp() {
         // Shown on EVERY tab (per Isaac) — the whole app rides the same
         // hourly sync, so freshness is always relevant.
         const txt = (typeof appSyncStampStr === 'function') ? appSyncStampStr() : '';
-        const lvl = (typeof indicatorsSyncStaleness === 'function') ? indicatorsSyncStaleness() : null;
+        // Device-unreachable beats server age: a rep whose downloads 403 or
+        // time out must never read a green stamp over stale numbers.
+        const pullErr = state._indPullError && (Date.now() - state._indPullError.at) < 3 * 3600000;
+        const lvl = pullErr ? 'red' : (typeof indicatorsSyncStaleness === 'function') ? indicatorsSyncStaleness() : null;
         const c = lvl === 'red' ? '#DC2626' : lvl === 'amber' ? '#D97706' : null;
         return txt ? el('span', {
-          class: 'hidden sm:block text-[11px] whitespace-nowrap',
+          class: 'hidden sm:block text-[11px] whitespace-nowrap cursor-pointer',
+          onclick: pullErr ? (() => { try { refreshIndicatorsFromCloud(true); toast('Retrying\u2026', 'success'); } catch (e) { /* poll retries */ } }) : undefined,
           style: { color: c || 'var(--text-muted)', marginLeft: '10px', alignSelf: 'center', fontWeight: lvl === 'red' ? '700' : '' },
-          title: lvl === 'red' ? 'Data is over 4 hours old during selling hours — multiple syncs have failed. Check /api/sync-status and Netlify logs.'
+          title: pullErr ? 'THIS DEVICE can\u2019t reach the server (' + state._indPullError.msg + ') — showing older data. Tap to retry.'
+            : lvl === 'red' ? 'Data is over 4 hours old during selling hours — multiple syncs have failed. Check /api/sync-status and Netlify logs.'
             : lvl === 'amber' ? 'Data is older than the hourly sync cadence — a run may have failed (check Netlify logs)'
             : 'Syncs land hourly on the hour, 8am–11pm ET',
         },
           'Last sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, txt),
-          lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '') : null;
+          pullErr ? ' · CAN\u2019T REACH SERVER' : lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '') : null;
       })(),
     ),
     state.view === 'sales' ? buildSearchBar() : el('div', { class: 'flex-1' }),
@@ -5127,13 +5276,15 @@ function mountApp() {
   (() => {
     const txt = (typeof indicatorsSyncStampText === 'function') ? indicatorsSyncStampText() : '';
     if (!txt) return;
-    const lvl = (typeof indicatorsSyncStaleness === 'function') ? indicatorsSyncStaleness() : null;
+    const pullErr = state._indPullError && (Date.now() - state._indPullError.at) < 3 * 3600000;
+    const lvl = pullErr ? 'red' : (typeof indicatorsSyncStaleness === 'function') ? indicatorsSyncStaleness() : null;
     const c = lvl === 'red' ? '#DC2626' : lvl === 'amber' ? '#D97706' : 'var(--text-muted)';
     contentWrap.append(el('div', {
       class: 'sm:hidden text-[10px] tabular-nums -mt-1 mb-2',
       style: { color: c, fontWeight: lvl ? '700' : '500' },
-      title: 'Syncs land hourly on the hour, 8am–11pm ET',
-    }, '↻ Last sync: ' + txt + (lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '')));
+      onclick: pullErr ? (() => { try { refreshIndicatorsFromCloud(true); toast('Retrying\u2026', 'success'); } catch (e) { /* poll retries */ } }) : undefined,
+      title: pullErr ? 'THIS PHONE can\u2019t reach the server — showing older data. Tap to retry.' : 'Syncs land hourly on the hour, 8am–11pm ET',
+    }, '↻ Last sync: ' + txt + (pullErr ? ' · CAN\u2019T REACH SERVER' : lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '')));
   })();
   main.append(pageHeader, contentWrap);
 
@@ -8545,27 +8696,39 @@ function computeIndicatorTrends(rep, weekOffset = 0) {
 // config): which sections show on the rep Indicators page, in what order,
 // plus an optional personal default date range. ──
 const REP_LAYOUT_KEY = 'ridd_rep_layout_v1';
+const _repLayoutKeyForMe = () => REP_LAYOUT_KEY + '::' + ((state.profile && state.profile.id) || 'anon');
 const REP_LAYOUT_SECTIONS = [
   ['card',  'My Player Card'],
   ['yoy',   'Your Performance Trends'],
   ['trend', 'Your Metric Trends'],
   ['board', 'Rep Leaderboard'],
 ];
-// Rep - Partner extras (per Isaac): the admin 🏅 Records + 🎓 Class Metrics
-// cards join the partner's page (orderable/hideable like everything else);
-// the Power Ranking chart renders above the stack, same spot as admin.
+// Rep - Partner / Office Team Lead page order (per Isaac): player card
+// pinned at top, then Indicators table + Power Ranking chart (fixed
+// positions above the stack), then this stack DEFAULT order: Rep
+// Leaderboard, Performance Trends, Metric Trends, 🏅 Records, 🎓 Class
+// Metrics. Saved Customize orders still win on that device.
 const PARTNER_LAYOUT_SECTIONS = [
+  ['card',    'My Player Card'],
+  ['board',   'Rep Leaderboard'],
+  ['yoy',     'Your Performance Trends'],
+  ['trend',   'Your Metric Trends'],
   ['records', '🏅 Records'],
   ['class',   '🎓 Class Metrics'],
 ];
-const _repLayoutSections = () =>
-  ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role))
-    || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)))
-    ? [...REP_LAYOUT_SECTIONS, ...PARTNER_LAYOUT_SECTIONS]
-    : REP_LAYOUT_SECTIONS;
+// (the 'class' key is quoted so the CI class-token scanner skips it)
+const _REP_SECTION_PERM = { 'card': 'ind_card', 'yoy': 'ind_yoy', 'trend': 'ind_trend', 'board': 'ind_board', 'records': 'ind_records', 'class': 'ind_class' };
+const _repLayoutSections = () => {
+  const partnerish = (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role))
+    || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role));
+  const ordered = partnerish ? PARTNER_LAYOUT_SECTIONS
+    : [...REP_LAYOUT_SECTIONS, ['records', '\ud83c\udfc5 Records'], ['class', '\ud83c\udf93 Class Metrics']];
+  return ordered.filter(([id]) => (typeof userCan !== 'function') || userCan(_REP_SECTION_PERM[id] || ''));
+};
 function _repLayoutPrefs() {
   try {
-    const p = JSON.parse(localStorage.getItem(REP_LAYOUT_KEY) || 'null');
+    // Per-user key first; fall back to the old shared-device key once.
+    const p = JSON.parse(localStorage.getItem(_repLayoutKeyForMe()) || localStorage.getItem(REP_LAYOUT_KEY) || 'null');
     if (p && Array.isArray(p.order)) {
       // heal: every known section appears exactly once
       p.order = [...new Set([...p.order.filter(k => _repLayoutSections().some(([id]) => id === k)), ..._repLayoutSections().map(([id]) => id)])];
@@ -8575,7 +8738,65 @@ function _repLayoutPrefs() {
   } catch { /* fresh */ }
   return { order: _repLayoutSections().map(([id]) => id), hidden: [], dateDefault: '' };
 }
-function _saveRepLayoutPrefs(p) { try { localStorage.setItem(REP_LAYOUT_KEY, JSON.stringify(p)); } catch { /* private mode */ } }
+function _saveRepLayoutPrefs(p) {
+  try { localStorage.setItem(_repLayoutKeyForMe(), JSON.stringify(p)); } catch { /* private mode */ }
+  if (typeof pushUserPrefsSoon === 'function') pushUserPrefsSoon();
+}
+
+// ── CROSS-DEVICE USER PREFS (user_prefs table, own-row RLS) ──────────────
+// localStorage stays the fast cache; the server copy follows the user to any
+// device (customize on the phone, see it on the laptop). Best-effort: until
+// user_prefs.sql runs, everything silently degrades to per-device.
+let _userPrefsPushTimer = null;
+function _collectUserPrefs() {
+  const uid = state.profile && state.profile.id;
+  if (!uid) return null;
+  const out = { repLayout: null, indPresets: null, viewLayouts: {} };
+  try { out.repLayout = JSON.parse(localStorage.getItem(_repLayoutKeyForMe()) || 'null'); } catch (e) { /* skip */ }
+  try { out.indPresets = JSON.parse(localStorage.getItem(_indPresetsKey()) || 'null'); } catch (e) { /* skip */ }
+  try {
+    const pre = 'ridd_layout_v1::' + uid + '::';
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(pre)) { try { out.viewLayouts[k.slice(pre.length)] = JSON.parse(localStorage.getItem(k) || 'null'); } catch (e2) { /* skip */ } }
+    }
+  } catch (e) { /* skip */ }
+  return out;
+}
+function pushUserPrefsSoon() {
+  clearTimeout(_userPrefsPushTimer);
+  _userPrefsPushTimer = setTimeout(() => { pushUserPrefsNow().catch(() => { /* degrade */ }); }, 1500);
+}
+async function pushUserPrefsNow() {
+  if (typeof DEMO !== 'undefined' && DEMO) return;
+  const uid = state.profile && state.profile.id;
+  if (!uid) return;
+  const prefs = _collectUserPrefs();
+  if (!prefs) return;
+  try { await supabase.from('user_prefs').upsert({ user_id: uid, prefs, updated_at: new Date().toISOString() }); }
+  catch (e) { /* table may not exist yet — per-device until the SQL runs */ }
+}
+async function loadUserPrefs() {
+  if (typeof DEMO !== 'undefined' && DEMO) return;
+  const uid = state.profile && state.profile.id;
+  if (!uid) return;
+  try {
+    const { data, error } = await supabase.from('user_prefs').select('prefs').eq('user_id', uid).maybeSingle();
+    if (error || !data || !data.prefs) return;
+    const p = data.prefs;
+    // Server copy wins on load — every local edit pushes within ~2s, so the
+    // server is the freshest cross-device truth.
+    try { if (p.repLayout && Array.isArray(p.repLayout.order)) localStorage.setItem(_repLayoutKeyForMe(), JSON.stringify(p.repLayout)); } catch (e) { /* skip */ }
+    try { if (Array.isArray(p.indPresets)) localStorage.setItem(_indPresetsKey(), JSON.stringify(p.indPresets)); } catch (e) { /* skip */ }
+    try {
+      if (p.viewLayouts && typeof p.viewLayouts === 'object') {
+        const pre = 'ridd_layout_v1::' + uid + '::';
+        for (const [view, v] of Object.entries(p.viewLayouts)) { if (v) localStorage.setItem(pre + view, JSON.stringify(v)); }
+      }
+    } catch (e) { /* skip */ }
+    if (typeof scheduleBackgroundRemount === 'function') scheduleBackgroundRemount();
+  } catch (e) { /* degrade to per-device */ }
+}
 
 // ✏️ Customize sheet — reorder / show-hide the rep page sections and pick a
 // personal default date range. Edits apply LIVE (page re-renders behind the
@@ -8646,6 +8867,55 @@ function openRepCustomizeModal() {
 // Mirrors the dashboard's openRepProfileModal layout (avatar/header, stats
 // grid, records strip) but works off the raw-CSV-derived rep object and
 // preserves the full drill-down behavior the inline section had.
+// ── "Who am I in the CRM?" — ONE resolver for every rep-facing self filter
+// (player card, leaderboard pin, weekly recap, YoY chart, D2D boards, Kobe,
+// trend default). ID-FIRST: the fieldroutes_employee_id link (+ its merged
+// master-ID group) beats name matching, then exact name signature, then
+// squeezed signatures (spelling variants). Fixes the "profile says Michael
+// Torres, CRM says Torres, Mike → empty app" class: linking a profile in
+// Users now fixes the rep's whole experience, not just Commission.
+let _myRepNamesCache = { src: null, pid: null, emp: null, set: null };
+function myRepNameSet() {
+  const prof = state.profile;
+  if (!prof) return new Set();
+  const src = state._indicatorRawSales || [];
+  const emp = String(prof.fieldroutes_employee_id || '').trim();
+  const c = _myRepNamesCache;
+  if (c.src === src && c.pid === prof.id && c.emp === emp && c.set) return c.set;
+  const _s = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  const set = new Set();
+  const mySig = _s(prof.full_name);
+  const squeeze = (typeof _nameSqueezeSigs === 'function' && prof.full_name) ? new Set(_nameSqueezeSigs(prof.full_name)) : new Set();
+  let masterOf = null;
+  try { masterOf = _frMasterMaps().map; } catch (e) { masterOf = null; }
+  const myMaster = (emp && masterOf) ? (masterOf.get(emp) || emp) : emp;
+  // Unique canonical names first (few hundred), not per-row work (100k+).
+  const uniq = new Map();
+  for (const s of src) {
+    if (!s || !s.rep) continue;
+    const canon = getCanonicalRepName(s.rep);
+    let ids = uniq.get(canon);
+    if (!ids) uniq.set(canon, ids = new Set());
+    const id = String(s.repId || '').trim();
+    if (id) ids.add(id);
+  }
+  for (const [canon, ids] of uniq) {
+    let hit = false;
+    if (emp) for (const id of ids) {
+      if (id === emp || (masterOf && (masterOf.get(id) || id) === myMaster)) { hit = true; break; }
+    }
+    if (!hit && mySig && _s(canon) === mySig) hit = true;
+    if (!hit && squeeze.size && typeof _nameSqueezeSigs === 'function') {
+      for (const sg of _nameSqueezeSigs(canon)) if (squeeze.has(sg)) { hit = true; break; }
+    }
+    if (hit) set.add(canon);
+  }
+  _myRepNamesCache = { src, pid: prof.id, emp, set };
+  return set;
+}
+// Row/board-level: is this rep name mine? (canonicalizes internally)
+const isMyRepName = (name) => !!name && myRepNameSet().has(getCanonicalRepName(name));
+
 // ── Rep-detail visibility — one gate for player cards + record expansions.
 // Admin: anyone. Self: always. Rep - Partner: also reps on THEIR OWN team.
 // Everyone else: self only.
@@ -8654,7 +8924,7 @@ function canViewRepDetails(repName, repTeam) {
   if (!me) return false;
   if (isAdminRole(me.role)) return true;
   const _sigG = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
-  if (_sigG(repName) === _sigG(me.full_name)) return true;
+  if (_sigG(repName) === _sigG(me.full_name) || isMyRepName(repName)) return true;
   // Office Staff - Team Lead: any OFFICE STAFF rep's card — the call
   // center is their team (per Isaac; mirrors the partner rule below).
   if (isOfficeLeadRole(me.role)) {
@@ -8667,11 +8937,7 @@ function canViewRepDetails(repName, repTeam) {
     // Partner's team: resolve their dataset name by signature, then look up
     // the team assignment (same maps Manage Teams writes).
     let myTeam = getRepTeam(me.full_name) || '';
-    if (!myTeam && Array.isArray(state._indicatorRawSales)) {
-      const mySig = _sigG(me.full_name);
-      const match = (state._indicatorRawSales.find(s => s && s.rep && _sigG(getCanonicalRepName(s.rep)) === mySig) || {}).rep;
-      if (match) myTeam = getRepTeam(getCanonicalRepName(match)) || '';
-    }
+    if (!myTeam) for (const n of myRepNameSet()) { myTeam = getRepTeam(n) || ''; if (myTeam) break; }
     const theirTeam = repTeam || getRepTeam(repName) || (typeof getCanonicalRepName === 'function' ? getRepTeam(getCanonicalRepName(repName)) : '');
     return !!(myTeam && theirTeam && myTeam === theirTeam);
   }
@@ -14603,6 +14869,22 @@ function recordStat(label, revenue, count, date) {
 // ──────────────────────────────────────────────────────────────────────────
 // VIEW: INDICATORS — D2D performance dashboard powered by CSV upload
 // ──────────────────────────────────────────────────────────────────────────
+// ── Branch alias resolver — ONE place where CRM branch names heal to a
+// display identity (was copy-pasted regex in four code paths). Seeded with
+// the Office 20 rename; admins can add future renames via the synced config
+// (adminRules.branchAliases: { 'OFFICE 21': 'NASHVILLE' }) with no deploy.
+const _BRANCH_ALIAS_SEED = [[/^office\s*20$/i, 'LITTLE ROCK']];
+function branchAlias(name) {
+  const n = String(name || '');
+  const ar = (typeof _adminRules === 'function') ? _adminRules() : null;
+  if (ar && ar.branchAliases && typeof ar.branchAliases === 'object') {
+    const hit = ar.branchAliases[n] || ar.branchAliases[n.trim().toUpperCase()];
+    if (hit) return hit;
+  }
+  for (const [re, to] of _BRANCH_ALIAS_SEED) if (re.test(n)) return to;
+  return n;
+}
+
 const BRANCH_COLORS = {
   // Matches the RIDD Reporting workbook (IS sheet cell fills, extracted from
   // the xlsx itself — per Isaac, Jul 2026). Joplin/Little Rock aren't filled
@@ -14624,7 +14906,15 @@ const BRANCH_COLORS = {
 // reporting sheet screenshot — tweak hexes here if the print looks off).
 const COMPANY_COLORS = { 'RPS': '#D2451E', 'RPC': '#9BCB3C' };
 const RPS_OFFICES_RE = /detroit|joplin|little\s*rock/i;
-function companyGroupOf(office) { return RPS_OFFICES_RE.test(String(office || '')) ? 'RPS' : 'RPC'; }
+function companyGroupOf(office) {
+  const o = String(office || '');
+  const ar = (typeof _adminRules === 'function') ? _adminRules() : null;
+  if (ar && ar.branchGroups && typeof ar.branchGroups === 'object') {
+    const hit = ar.branchGroups[o] || ar.branchGroups[o.trim().toUpperCase()];
+    if (hit === 'RPS' || hit === 'RPC') return hit;
+  }
+  return RPS_OFFICES_RE.test(o) ? 'RPS' : 'RPC';
+}
 // Readable text on any group color (SALT LAKE is near-white).
 function groupHeaderTextColor(bg) {
   const m = /^#([0-9a-f]{6})$/i.exec(String(bg || ''));
@@ -15207,7 +15497,14 @@ function getGroupColor(name) {
     return ({ 'SALES REP': '#5F8A1F', 'OFFICE STAFF': '#2b8cbe', 'TECHNICIAN': '#B45309' })[String(name).toUpperCase()] || '#666';
   }
   if (state.indicatorsGroupBy === 'company') return COMPANY_COLORS[String(name).toUpperCase()] || '#666';
-  return BRANCH_COLORS[name] || BRANCH_COLORS[String(name).toUpperCase()] || '#666';
+  const up = String(name).toUpperCase();
+  const ar = (typeof _adminRules === 'function') ? _adminRules() : null;
+  if (ar && ar.branchColors && (ar.branchColors[name] || ar.branchColors[up])) return ar.branchColors[name] || ar.branchColors[up];
+  if (BRANCH_COLORS[name] || BRANCH_COLORS[up]) return BRANCH_COLORS[name] || BRANCH_COLORS[up];
+  // New branch, no config yet: deterministic hue from the name — distinct,
+  // stable across devices, never the "broken gray".
+  let h = 0; for (let i = 0; i < up.length; i++) h = (h * 31 + up.charCodeAt(i)) >>> 0;
+  return 'hsl(' + (h % 360) + ', 55%, 45%)';
 }
 // Date-range presets for the Indicators view. Presets are anchored to the
 // system clock (today/this year). "This Year" is the default since most
@@ -15864,7 +16161,16 @@ function _activeTeamMap() {
     state._indicatorRepTeamByYear = {};
   }
   const y = _teamYearKey();
-  if (!state._indicatorRepTeamByYear[y] || typeof state._indicatorRepTeamByYear[y] !== 'object') state._indicatorRepTeamByYear[y] = {};
+  if (!state._indicatorRepTeamByYear[y] || typeof state._indicatorRepTeamByYear[y] !== 'object') {
+    // CARRY-FORWARD: a brand-new year copies last year's assignments so
+    // Jan 1 doesn't wipe every leaderboard/comp to "Unassigned". Admins
+    // then prune in Manage Teams instead of rebuilding from scratch.
+    const prev = state._indicatorRepTeamByYear[String(Number(y) - 1)];
+    state._indicatorRepTeamByYear[y] = (prev && typeof prev === 'object' && !Array.isArray(prev)) ? { ...prev } : {};
+    if (prev && Object.keys(state._indicatorRepTeamByYear[y]).length && typeof logActivity === 'function') {
+      try { logActivity('config_change', { detail: 'Teams ' + y + ' seeded from ' + (Number(y) - 1) + ' (carry-forward)' }); } catch (e) { /* log only */ }
+    }
+  }
   // Keep the legacy flat pointer aimed at the active year so direct readers
   // (distinctTeams, roster unions, etc.) transparently see the right map.
   state._indicatorRepTeam = state._indicatorRepTeamByYear[y];
@@ -19771,7 +20077,7 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
   const wkLbl = (wk) => { const d = new Date(wk + 'T00:00'); return isNaN(d) ? wk : 'wk of ' + (d.getMonth() + 1) + '/' + d.getDate(); };
   const _sigK = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
   const meSig = _sigK(state.profile && state.profile.full_name);
-  const mine = reps.find(r => _sigK(r.name) === meSig) || null;
+  const mine = reps.find(r => isMyRepName(r.name)) || reps.find(r => _sigK(r.name) === meSig) || null;
   // Board shows ACTIVE FieldRoutes reps only (Manage-Teams active flag,
   // synced from the CRM), alphabetical — per Isaac.
   const board = reps.filter(r => (typeof isRepActive !== 'function') || isRepActive(r.name));
@@ -23284,15 +23590,26 @@ function openRepWhereSoldModal(repName) {
   overlay.append(card);
   document.body.append(overlay);
 }
+const _canonNameCache = new Map();
+let _canonNameCacheRev = -1;
 function getCanonicalRepName(name) {
   if (!name) return name;
+  // Memoized — the two regex replaces allocated on EVERY call, and this runs
+  // per row in every 100k-row loop. Cache keys on the raw string; alias
+  // merges bump _indCfgRev (via saveIndicatorState) which clears it.
+  const rev = (typeof _indCfgRev !== 'undefined') ? _indCfgRev : 0;
+  if (_canonNameCacheRev !== rev) { _canonNameCache.clear(); _canonNameCacheRev = rev; }
+  const hit = _canonNameCache.get(name);
+  if (hit !== undefined) return hit;
   // FieldRoutes sometimes exports doubled spaces ("Karson  Murray") or stray
   // comma spacing ("Sabbach , Jacob") — collapse whitespace and normalize
   // commas to ", " so the same human can't split into two reps, and team/
   // tier lookups keyed on the clean spelling still match.
   const clean = String(name).replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim();
   const aliases = state._indicatorRepAlias || {};
-  return aliases[clean] || aliases[name] || clean;
+  const out = aliases[clean] || aliases[name] || clean;
+  _canonNameCache.set(name, out);
+  return out;
 }
 // If a name is an alias (has been merged into something else), return
 // the canonical target. Returns null when the name is itself canonical.
@@ -24744,7 +25061,10 @@ function _indPresetsLoad() {
   if (legacy.length) { _indPresetsSave(legacy); return legacy.slice(); }
   return [];
 }
-function _indPresetsSave(list) { try { localStorage.setItem(_indPresetsKey(), JSON.stringify(list)); } catch { /* private mode */ } }
+function _indPresetsSave(list) {
+  try { localStorage.setItem(_indPresetsKey(), JSON.stringify(list)); } catch { /* private mode */ }
+  if (typeof pushUserPrefsSoon === 'function') pushUserPrefsSoon();
+}
 function indPresetRibbon() {
   const presets = _indPresetsLoad();
   const _snapNow = () => {
@@ -24904,9 +25224,14 @@ function viewIndicators() {
       el('h1', { class: 'text-2xl font-bold' }, 'Indicators'),
       el('div', { class: 'card p-10 text-center' },
         el('div', { class: 'text-4xl mb-3' }, '📊'),
-        el('h2', { class: 'text-lg font-bold mb-2' }, 'Loading the latest data\u2026'),
+        el('h2', { class: 'text-lg font-bold mb-2' },
+          typeof DecompressionStream === 'undefined' ? 'This browser is too old for RIDD data' : 'Loading the latest data\u2026'),
         el('p', { class: 'text-sm text-muted- mb-4 max-w-md mx-auto' },
-          _admin
+          // Old Safari (iOS < 16.4) can't decompress the snapshots — the old
+          // copy said "Loading\u2026" forever. Say the truth + the fix.
+          typeof DecompressionStream === 'undefined'
+            ? 'Update this device (Settings \u2192 General \u2192 Software Update) or open the app in Chrome \u2014 this browser can\u2019t unpack the synced dataset.'
+            : _admin
             ? 'Pulling the shared dataset now \u2014 this page refreshes itself. Indicators also sync automatically from RevHawk every hour on the hour.'
             : 'Pulling the shared dataset now \u2014 this page refreshes itself. If it never loads, ask an admin to check that the rep data access SQL (nrla_rep_access.sql) has been run.'),
       ),
@@ -25394,11 +25719,11 @@ function viewIndicators() {
   // tab for every role. Clears any persisted ON state so nobody's stuck.
   state.indicatorsComps = false;
   const _repLite = !isAdminRole(state.profile?.role);
-  // Rep - Partner + Office Staff - Team Lead (per Isaac): team leads get
-  // the admin analysis extras on their rep page — Power Ranking chart,
-  // Performance Trends, 🏅 Records and 🎓 Class Metrics. (Office dept
-  // hides the branch Power Ranking chart / Class Metrics, same as admin.)
-  const _isPartner = _repLite && (isPartnerRole(state.profile?.role) || isOfficeLeadRole(state.profile?.role));
+  // "Analyst layout" (pinned card + admin tables/charts): driven by the
+  // Settings → Permissions matrix now — any role granted the Indicators
+  // table or Power Ranking chart gets it. Defaults: partners + office
+  // team leads. (Office dept still hides branch charts, same as admin.)
+  const _isPartner = _repLite && (userCan('ind_table') || userCan('ind_power_chart'));
   // Admin default filters (per Isaac, Jul 2026): every fresh session opens
   // Indicators on Pending/Serviced revenue · Type = Sales Rep · This Year ·
   // Branch/Office grouping. Seeds the first render only — filter changes
@@ -25431,8 +25756,8 @@ function viewIndicators() {
       state._indTrendDefaulted = true;
       const _sigT = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
       const _mine = _sigT(state.profile.full_name);
-      const _match = [...new Set((state._indicatorRawSales || []).map(s => getCanonicalRepName(s.rep || '')).filter(Boolean))]
-        .find(n => _sigT(n) === _mine);
+      const _match = [...myRepNameSet()][0]
+        || [...new Set((state._indicatorRawSales || []).map(s => getCanonicalRepName(s.rep || '')).filter(Boolean))].find(n => _sigT(n) === _mine);
       if (_match) { state._indicatorTrendScope = { type: 'company' }; state._indicatorRepDrillDown = _match; }
     }
     if (!(state._indicatorRawSales || []).length && !state._nrlaPublicPulled && typeof refreshIndicatorsFromCloud === 'function') {
@@ -26166,10 +26491,17 @@ function viewIndicators() {
     // Hidden in rep-lite too.
     (_repLite || (state.indicatorsComps && isNrlaComp()) ? null : _topCompCard),
 
+    // Rep - Partner: their OWN player card pinned at the very top of the
+    // page (above the metrics table + charts) — per Isaac. Respects the
+    // Customize hide toggle; the stack below skips 'card' so it can't
+    // render twice.
+    _isPartner && !_focusedComp && userCan('ind_card') && !(_repLayoutPrefs().hidden || []).includes('card') && repLandingPlayerCard(),
+
     // ── Main metrics table (click metric name to sort branches) ──
-    // ALL rep accounts get the focused view now: Performance Trends + Rep
-    // Leaderboard only — the branch metrics tables are admin analysis tools.
-    !_focusedComp && !_repLite && (() => {
+    // Rep accounts get the focused view (Performance Trends + Rep
+    // Leaderboard); PARTNERS also get this Power Ranking table (per Isaac).
+    // Edit-mode controls inside stay admin-only via their own gates.
+    !_focusedComp && (!_repLite || userCan('ind_table')) && (() => {
       // Sort state: which metric is sorting the columns, and direction
       if (!state._indicatorSort) state._indicatorSort = { key: null, asc: false };
       const sort = state._indicatorSort;
@@ -26467,7 +26799,7 @@ function viewIndicators() {
     // (so This Week / Last Week actually graph), ≤180 days stays weekly,
     // longer ranges roll up to months — same rules as getChartBuckets.
     // Day/month axes aggregate straight from the raw sales.
-    (!_repLite || _isPartner) && !_focusedComp && (() => {
+    (!_repLite || userCan('ind_power_chart')) && !_focusedComp && (() => {
       let chartData = isRange ? data : allData;
       let chartWeeks = isRange ? weeks : allWeeks;
       let chartLabels = null;
@@ -26545,14 +26877,13 @@ function viewIndicators() {
           // YTD chart, weekly trend, leaderboard.
           const prefs = _repLayoutPrefs();
           const builders = {
-            card:  () => [repLandingPlayerCard()],
-            yoy:   () => [indicatorYoYTrendChart()],
-            trend: () => _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend'),
-            board: () => _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard'),
-            // Rep - Partner extras — the admin cards, straight from
-            // indicatorRepSections (empty for everyone else).
-            records: () => _isPartner ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'agg-records') : [],
-            class:   () => _isPartner ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'class-metrics') : [],
+            // Every section is gated by the Settings → Permissions matrix.
+            card:  () => (!_isPartner && userCan('ind_card')) ? [repLandingPlayerCard()] : [],   // analyst layout pins it at page top instead
+            yoy:   () => userCan('ind_yoy') ? [indicatorYoYTrendChart()] : [],
+            trend: () => userCan('ind_trend') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend') : [],
+            board: () => userCan('ind_board') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard') : [],
+            records: () => userCan('ind_records') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'agg-records') : [],
+            class:   () => userCan('ind_class') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'class-metrics') : [],
           };
           const out = [];
           prefs.order.forEach(k => {
@@ -26579,13 +26910,13 @@ function maybeShowWeeklyRecap() {
     // Company week runs Sunday–Saturday (per Isaac) — key on the Sunday.
     const sunday = new Date(now); sunday.setDate(now.getDate() - now.getDay());
     const weekKey = sunday.toISOString().slice(0, 10);
-    const KEY = 'ridd_recap_shown_for';
+    const KEY = 'ridd_recap_shown_for::' + ((state.profile && state.profile.id) || 'anon');
     if (localStorage.getItem(KEY) === weekKey) return;
 
     // Same dual-path rows as My Stats: CRM dataset by name (D2D), else logged sales.
     const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const mySig = _sig(state.profile.full_name);
-    const d2d = (state._indicatorRawSales || []).filter(s => s && s.rep && frPendingServiced(s) && _sig(getCanonicalRepName(s.rep)) === mySig)
+    const d2d = (state._indicatorRawSales || []).filter(s => s && s.rep && frPendingServiced(s) && (isMyRepName(s.rep) || _sig(getCanonicalRepName(s.rep)) === mySig))
       .map(s => ({ d: _parseIndicatorDay(s), rev: Number(s.contractValue) || 0 })).filter(r => r.d);
     const EXCLUDE = new Set(['cancelled', 'nsf', 'not_payable', 'reschedule', 'rejected']);
     const rows = d2d.length ? d2d : (state.mySales || []).filter(s => !EXCLUDE.has(s.audit_status))
@@ -27185,6 +27516,25 @@ const isActiveAccount = (s) => {
   return _a !== 'no' && _a !== 'frozen' && _a !== 'inactive';
 };
 
+let _fullWeeklyCache = { src: null, byRep: null, latest: null };
+function _fullWeeklyByRepCached(fullRawSales) {
+  if (_fullWeeklyCache.src === fullRawSales && _fullWeeklyCache.byRep) return _fullWeeklyCache;
+  let latest = null;
+  const byRep = {};
+  for (const s of fullRawSales) {
+    const d = _parseIndicatorDay(s);
+    if (!d) continue;
+    if (!latest || d > latest) latest = d;
+    const ws = new Date(d); ws.setDate(ws.getDate() - ws.getDay());
+    const wk = ws.toISOString().slice(0, 10);   // same key shape as before
+    const rep = s.rep || 'Unknown';
+    const m = byRep[rep] || (byRep[rep] = {});
+    m[wk] = (m[wk] || 0) + Number(s.contractValue || 0);
+  }
+  _fullWeeklyCache = { src: fullRawSales, byRep, latest };
+  return _fullWeeklyCache;
+}
+
 function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksUnfiltered, allDataUnfiltered, windowLabel) {
   // We need the raw sales data — stored alongside aggregated rows.
   // Department-scoped so the rep leaderboard matches the toggle selection.
@@ -27298,31 +27648,17 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // (e.g. "This Week" otherwise leaves the sparkline mostly empty). All
   // other rep stats use the range-filtered sales as expected.
   const fullRawSales = state._indicatorRawSales || [];
-  let _globalLatestDate = null;
-  for (const s of fullRawSales) {
-    const k = (s.dateSold || '').split(' ')[0].trim();
-    if (!k) continue;
-    const d = new Date(k);
-    if (!Number.isFinite(d.getTime())) continue;
-    if (!_globalLatestDate || d > _globalLatestDate) _globalLatestDate = d;
-  }
+  // CACHED single pass (keyed on dataset identity): latest sold date +
+  // per-rep weekly buckets. The old code ran two uncached full scans with
+  // per-row `new Date(string)` + `toISOString()` on every render — the
+  // hottest cost in the Indicators page on a phone. _parseIndicatorDay is
+  // the memoized parser the rest of the page already uses.
+  const _fullWk = _fullWeeklyByRepCached(fullRawSales);
+  const _globalLatestDate = _fullWk.latest;
   const _globalLastWeekStart = _globalLatestDate
     ? (() => { const ws = new Date(_globalLatestDate); ws.setDate(ws.getDate() - ws.getDay()); return ws; })()
     : null;
-  // Pre-bucket every rep's full-history sales by week so the sparkline can
-  // read them directly (range-filtered byWeek would zero out off-range weeks).
-  const _fullWeeklyByRep = {};
-  for (const s of fullRawSales) {
-    const dayKey = (s.dateSold || '').split(' ')[0].trim();
-    if (!dayKey) continue;
-    const d = new Date(dayKey);
-    if (!Number.isFinite(d.getTime())) continue;
-    const ws = new Date(d); ws.setDate(ws.getDate() - ws.getDay());
-    const wk = ws.toISOString().slice(0, 10);
-    const rep = s.rep || 'Unknown';
-    if (!_fullWeeklyByRep[rep]) _fullWeeklyByRep[rep] = {};
-    _fullWeeklyByRep[rep][wk] = (_fullWeeklyByRep[rep][wk] || 0) + Number(s.contractValue || 0);
-  }
+  const _fullWeeklyByRep = _fullWk.byRep;
   const allReps = Object.values(repMap).map(r => {
     const count = r.sales.length;
     // MY % = multi-year contracts (anything other than 12 months) / all contract sales (12 + multi)
@@ -29056,7 +29392,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   // stripe, keeps their true board rank — then the full list.
                   const _meSig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
                   const mySig = _meSig(state.profile && state.profile.full_name);
-                  const myIdx = mySig ? displayReps.findIndex(r => _meSig(r.name) === mySig) : -1;
+                  let myIdx = displayReps.findIndex(r => isMyRepName(r.name));
+                  if (myIdx < 0) myIdx = mySig ? displayReps.findIndex(r => _meSig(r.name) === mySig) : -1;
                   const pinned = myIdx >= 0 ? [el('tr', {
                     class: 'border-t cursor-pointer transition hover:brightness-95',
                     style: { background: 'rgba(141,198,63,.10)', boxShadow: 'inset 3px 0 0 var(--accent)' },
@@ -29087,7 +29424,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         ...(() => {
           const _meSig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
           const mySig = _meSig(state.profile && state.profile.full_name);
-          const myIdx = mySig ? displayReps.findIndex(r => _meSig(r.name) === mySig) : -1;
+          let myIdx = displayReps.findIndex(r => isMyRepName(r.name));
+          if (myIdx < 0) myIdx = mySig ? displayReps.findIndex(r => _meSig(r.name) === mySig) : -1;
           if (myIdx < 0) return [];
           const me = displayReps[myIdx];
           return [el('div', {
@@ -30701,8 +31039,8 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   if (_lockedToSelf) {
     const _sigT = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const _mineT = _sigT(state.profile && state.profile.full_name);
-    const _full = _mineT ? (state._indicatorRawSales || []).filter(s =>
-      s && s.rep && frPendingServiced(s) && _sigT(getCanonicalRepName(s.rep)) === _mineT) : [];
+    const _full = (state._indicatorRawSales || []).filter(s =>
+      s && s.rep && frPendingServiced(s) && (isMyRepName(s.rep) || (_mineT && _sigT(getCanonicalRepName(s.rep)) === _mineT)));
     if (_full.length) {
       drillRepName = getCanonicalRepName(_full[0].rep);
       const _base = repMap[drillRepName] || {};
@@ -33011,20 +33349,35 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay,
 // Mini per-metric trend charts for one rep, rendered as small multiples.
 // ── Rep landing player card (#4) ─────────────────────────────────────────
 // The FIRST thing a rep sees: their own YTD stats in player-card form.
+// First-run card (rep home) — a brand-new or unmatched rep never sees a
+// silent blank page. Distinguishes "linked, just no sales yet" from "we
+// can't match you to the CRM" so the fix is obvious in both cases.
+function _repFirstRunCard() {
+  const matched = myRepNameSet().size > 0;
+  const first = ((state.profile && state.profile.full_name) || '').split(/\s+/)[0] || 'there';
+  return el('div', { class: 'card p-6 flex flex-col items-center text-center gap-2' },
+    el('div', { class: 'text-3xl' }, matched ? '\ud83d\udc4b' : '\ud83d\udd0d'),
+    el('div', { class: 'text-lg font-bold' }, matched ? ('Welcome, ' + first + '!') : 'Almost set up'),
+    el('div', { class: 'text-sm max-w-md', style: { color: 'var(--text-muted)' } },
+      matched
+        ? 'No production on the board yet this year \u2014 your next sale shows up here within a day of the CRM sync. Until then, check out the leaderboard and competitions.'
+        : 'Your login works, but we haven\u2019t matched you to any CRM sales yet. If you\u2019ve already made sales, your name may be spelled differently in FieldRoutes \u2014 ask an admin to link your account on the Users screen.'));
+}
+
 // Tap anywhere → the full player card modal (records, drills, charts).
 function repLandingPlayerCard() {
   try {
     const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const mine = _sig(state.profile && state.profile.full_name);
-    if (!mine) return null;
+    if (!mine && !myRepNameSet().size) return _repFirstRunCard();
     const yr = String(new Date().getFullYear());
     const all = (state._indicatorRawSales || []).filter(s =>
-      s && s.rep && frPendingServiced(s) && _sig(getCanonicalRepName(s.rep)) === mine);
+      s && s.rep && frPendingServiced(s) && (isMyRepName(s.rep) || _sig(getCanonicalRepName(s.rep)) === mine));
     const ytd = all.filter(s => {
       const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
       return iso && iso.slice(0, 4) === yr;
     });
-    if (!ytd.length) return null; // no synced production yet — leaderboard pin covers it
+    if (!ytd.length) return _repFirstRunCard(); // never a silent blank page
     const name = getCanonicalRepName(ytd[0].rep);
     const revenue = ytd.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
     const count = ytd.length;
@@ -33338,7 +33691,7 @@ function indicatorYoYTrendChart() {
   if (_yoyRepOnly) {
     const _sigY = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const _mineY = _sigY(state.profile.full_name);
-    raw = raw.filter(x => x.rep && _sigY(getCanonicalRepName(x.rep)) === _mineY);
+    raw = raw.filter(x => x.rep && (isMyRepName(x.rep) || _sigY(getCanonicalRepName(x.rep)) === _mineY));
   }
   const curY = new Date().getFullYear(), prevY = curY - 1;
   const PEST_RE = /sentricon|german\s*roach|interior\s*flea/i;
@@ -35897,18 +36250,44 @@ function reportingServiceRecurringMap() {
 //   'arv'       — data-driven: a sub is recurring iff it carries an annual
 //                 recurring value > $0 (self-maintaining, matches FieldRoutes).
 // Persisted locally so it survives reloads without a Supabase column.
+// ── ADMIN RULES that change COMPANY NUMBERS (attrition, retention, branch
+// scoping) ride the synced config row — competitions.extras.adminRules —
+// so every admin device and every rep computes the SAME totals. localStorage
+// remains a per-device fallback for pre-migration devices only.
+function _adminRules() { return (state._compExtras && state._compExtras.adminRules) || null; }
+function _setAdminRule(key, val) {
+  state._compExtras = state._compExtras || {};
+  const r = state._compExtras.adminRules = state._compExtras.adminRules || {};
+  r[key] = val;
+  try { saveIndicatorState(); } catch (e) { /* localStorage fallback below still applies */ }
+}
+
 function reportingRecurringMode() {
+  const r = _adminRules();
+  if (r && (r.recurringMode === 'arv' || r.recurringMode === 'lifecycle')) return r.recurringMode;
   try { return localStorage.getItem('ridd_reporting_recurring_mode') === 'arv' ? 'arv' : 'lifecycle'; } catch { return 'lifecycle'; }
 }
 function setReportingRecurringMode(m) {
+  _setAdminRule('recurringMode', m === 'arv' ? 'arv' : 'lifecycle');
   try { localStorage.setItem('ridd_reporting_recurring_mode', m === 'arv' ? 'arv' : 'lifecycle'); } catch {}
 }
 
 // ── Reporting rules (locally-persisted settings; defaults preserve behavior) ──
-function reportingAgingDays() { try { const v = parseInt(localStorage.getItem('ridd_rpt_aging_days') || '7', 10); return Number.isFinite(v) && v >= 0 ? v : 7; } catch { return 7; } }
-function setReportingAgingDays(n) { try { localStorage.setItem('ridd_rpt_aging_days', String(Math.max(0, parseInt(n, 10) || 0))); } catch {} }
-function reportingExcludeRorChurn() { try { return localStorage.getItem('ridd_rpt_excl_ror') === '1'; } catch { return false; } }
-function setReportingExcludeRorChurn(b) { try { localStorage.setItem('ridd_rpt_excl_ror', b ? '1' : '0'); } catch {} }
+function reportingAgingDays() {
+  const r = _adminRules();
+  if (r && Number.isFinite(r.agingDays) && r.agingDays >= 0) return r.agingDays;
+  try { const v = parseInt(localStorage.getItem('ridd_rpt_aging_days') || '7', 10); return Number.isFinite(v) && v >= 0 ? v : 7; } catch { return 7; } }
+function setReportingAgingDays(n) {
+  const v = Math.max(0, parseInt(n, 10) || 0);
+  _setAdminRule('agingDays', v);
+  try { localStorage.setItem('ridd_rpt_aging_days', String(v)); } catch {} }
+function reportingExcludeRorChurn() {
+  const r = _adminRules();
+  if (r && typeof r.exclRorChurn === 'boolean') return r.exclRorChurn;
+  try { return localStorage.getItem('ridd_rpt_excl_ror') === '1'; } catch { return false; } }
+function setReportingExcludeRorChurn(b) {
+  _setAdminRule('exclRorChurn', !!b);
+  try { localStorage.setItem('ridd_rpt_excl_ror', b ? '1' : '0'); } catch {} }
 // ── Retention population rules — the app-side build of the workbook's manual
 // Steps 4–6 (default ON so the Retention tab matches the hand report):
 //   · renewal-source subs are continuations of an existing customer, not new
@@ -35917,12 +36296,18 @@ function setReportingExcludeRorChurn(b) { try { localStorage.setItem('ridd_rpt_e
 //   · $0-paying subs aren't real book
 //   · Frozen with ≤1 completed service = a quiet death: no cancel date ever
 //     lands, so left in they'd count as "retained" forever
-function retenExclRenewalSubs()   { try { return localStorage.getItem('ridd_reten_excl_renewals') !== '0'; } catch { return true; } }
-function setRetenExclRenewalSubs(b)   { try { localStorage.setItem('ridd_reten_excl_renewals', b ? '1' : '0'); } catch {} }
-function retenExclZeroPay()       { try { return localStorage.getItem('ridd_reten_excl_zeropay') !== '0'; } catch { return true; } }
-function setRetenExclZeroPay(b)       { try { localStorage.setItem('ridd_reten_excl_zeropay', b ? '1' : '0'); } catch {} }
-function retenExclFrozenOneSvc()  { try { return localStorage.getItem('ridd_reten_excl_frozen1') !== '0'; } catch { return true; } }
-function setRetenExclFrozenOneSvc(b)  { try { localStorage.setItem('ridd_reten_excl_frozen1', b ? '1' : '0'); } catch {} }
+function retenExclRenewalSubs()   {
+  const r = _adminRules(); if (r && typeof r.retenExclRenewals === 'boolean') return r.retenExclRenewals;
+  try { return localStorage.getItem('ridd_reten_excl_renewals') !== '0'; } catch { return true; } }
+function setRetenExclRenewalSubs(b)   { _setAdminRule('retenExclRenewals', !!b); try { localStorage.setItem('ridd_reten_excl_renewals', b ? '1' : '0'); } catch {} }
+function retenExclZeroPay()       {
+  const r = _adminRules(); if (r && typeof r.retenExclZeroPay === 'boolean') return r.retenExclZeroPay;
+  try { return localStorage.getItem('ridd_reten_excl_zeropay') !== '0'; } catch { return true; } }
+function setRetenExclZeroPay(b)       { _setAdminRule('retenExclZeroPay', !!b); try { localStorage.setItem('ridd_reten_excl_zeropay', b ? '1' : '0'); } catch {} }
+function retenExclFrozenOneSvc()  {
+  const r = _adminRules(); if (r && typeof r.retenExclFrozenOneSvc === 'boolean') return r.retenExclFrozenOneSvc;
+  try { return localStorage.getItem('ridd_reten_excl_frozen1') !== '0'; } catch { return true; } }
+function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !!b); try { localStorage.setItem('ridd_reten_excl_frozen1', b ? '1' : '0'); } catch {} }
 // One test, shared by the Retention tab prep + its population export.
 function retenPopulationExcluded(r) {
   if (retenExclRenewalSubs() && reportingSourceClass(r.subscription_source) === 'renewal') return 'renewal sub';
@@ -35930,12 +36315,18 @@ function retenPopulationExcluded(r) {
   if (retenExclFrozenOneSvc() && /frozen/i.test(String(r.subscription_status || '')) && (Number(r.subscription_completed_services) || 0) <= 1) return 'frozen, 1 service';
   return null;
 }
-function reportingActiveInclOneTime() { try { return localStorage.getItem('ridd_rpt_active_onetime') === '1'; } catch { return false; } }
-function setReportingActiveInclOneTime(b) { try { localStorage.setItem('ridd_rpt_active_onetime', b ? '1' : '0'); } catch {} }
-function reportingExcludedBranches() { try { return new Set(JSON.parse(localStorage.getItem('ridd_rpt_excl_branches') || '[]')); } catch { return new Set(); } }
-function setReportingExcludedBranches(arr) { try { localStorage.setItem('ridd_rpt_excl_branches', JSON.stringify([...arr])); } catch {} }
-function reportingBranchRenames() { try { return JSON.parse(localStorage.getItem('ridd_rpt_branch_renames') || '{}') || {}; } catch { return {}; } }
-function setReportingBranchRename(from, to) { try { const m = reportingBranchRenames(); if (to && to !== from) m[from] = to; else delete m[from]; localStorage.setItem('ridd_rpt_branch_renames', JSON.stringify(m)); } catch {} }
+function reportingActiveInclOneTime() {
+  const r = _adminRules(); if (r && typeof r.activeInclOneTime === 'boolean') return r.activeInclOneTime;
+  try { return localStorage.getItem('ridd_rpt_active_onetime') === '1'; } catch { return false; } }
+function setReportingActiveInclOneTime(b) { _setAdminRule('activeInclOneTime', !!b); try { localStorage.setItem('ridd_rpt_active_onetime', b ? '1' : '0'); } catch {} }
+function reportingExcludedBranches() {
+  const r = _adminRules(); if (r && Array.isArray(r.excludedBranches)) return new Set(r.excludedBranches);
+  try { return new Set(JSON.parse(localStorage.getItem('ridd_rpt_excl_branches') || '[]')); } catch { return new Set(); } }
+function setReportingExcludedBranches(arr) { _setAdminRule('excludedBranches', [...arr]); try { localStorage.setItem('ridd_rpt_excl_branches', JSON.stringify([...arr])); } catch {} }
+function reportingBranchRenames() {
+  const r = _adminRules(); if (r && r.branchRenames && typeof r.branchRenames === 'object') return r.branchRenames;
+  try { return JSON.parse(localStorage.getItem('ridd_rpt_branch_renames') || '{}') || {}; } catch { return {}; } }
+function setReportingBranchRename(from, to) { try { const m = { ...reportingBranchRenames() }; if (to && to !== from) m[from] = to; else delete m[from]; _setAdminRule('branchRenames', m); localStorage.setItem('ridd_rpt_branch_renames', JSON.stringify(m)); } catch {} }
 function reportingAllBranches() { const s = new Set(); for (const r of (state.reportingSubscriptions || [])) { const o = (r.office_name || '').trim(); if (o) s.add(o); } return [...s].sort(); }
 function _reporting3dayRor(r) { if (!r.subscription_date_canceled || !r.sold_date) return false; const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000; return d >= 0 && d <= 3; }
 // Apply branch exclusions + renames to a row set (used by every reporting scope).
@@ -36389,10 +36780,19 @@ function reportingSourceOf(r) {
 // Admin override lives in reporting_source_config.revenue_class (Configurations →
 // Lead Sources); when unset it falls back to the source NAME (the historical
 // rule): "…Renewal…" → renewal, "…Upsell…" → upsell, everything else → new.
+let _srcClassMap = null, _srcClassRef = null;
 function reportingSourceClass(sourceName) {
   const name = String(sourceName || '').trim();
-  const cfg = (state.reportingSourceConfig || []).find(c => c.source === name);
-  if (cfg && cfg.revenue_class) return cfg.revenue_class;
+  // Map rebuilt only when the config array identity changes — the old
+  // Array.find ran per SALE inside 100k-row loops (~8M comparisons/render).
+  const cfgArr = state.reportingSourceConfig || [];
+  if (_srcClassRef !== cfgArr) {
+    _srcClassRef = cfgArr;
+    _srcClassMap = new Map();
+    for (const c of cfgArr) if (c && c.source && c.revenue_class) _srcClassMap.set(c.source, c.revenue_class);
+  }
+  const hit = _srcClassMap.get(name);
+  if (hit) return hit;
   if (/renewal/i.test(name)) return 'renewal';
   if (/upsell/i.test(name))  return 'upsell';
   return 'new';
@@ -40498,6 +40898,10 @@ function isProjectionAt(period, field, ytdYear, ytdMonth0) {
 function isAnnualGoalFor(yr) {
   const y = String(yr);
   if (state._isAnnualGoal && state._isAnnualGoal[y] != null) return state._isAnnualGoal[y];
+  // Synced copy first (adminRules) — an annual goal typed on one laptop is
+  // company truth, not a browser preference.
+  const _ar = (typeof _adminRules === 'function') ? _adminRules() : null;
+  if (_ar && _ar.isAnnualGoal && _ar.isAnnualGoal[y] != null) return _ar.isAnnualGoal[y];
   try { const v = localStorage.getItem('ridd_is_annual_goal_' + y); if (v != null && v !== '') return Number(v); } catch (e) {}
   return IS_ANNUAL_GOAL[y] != null ? IS_ANNUAL_GOAL[y] : null;
 }
@@ -40506,6 +40910,12 @@ function setAnnualGoalFor(yr, value) {
   if (!state._isAnnualGoal) state._isAnnualGoal = {};
   const num = (value === '' || value == null) ? null : Number(value);
   state._isAnnualGoal[y] = num;
+  try {
+    const _ar = (typeof _adminRules === 'function' && _adminRules()) || {};
+    const m = { ...(_ar.isAnnualGoal || {}) };
+    if (num == null) delete m[y]; else m[y] = num;
+    _setAdminRule('isAnnualGoal', m);
+  } catch (e) { /* local fallback below */ }
   try { if (num == null) localStorage.removeItem('ridd_is_annual_goal_' + y); else localStorage.setItem('ridd_is_annual_goal_' + y, String(num)); } catch (e) {}
 }
 
@@ -40516,6 +40926,8 @@ const IS_ASSUMPTION_DEFAULTS = { ad_spend_pct: 0.36, wages_pct: 0.155, incentive
 function isAssumptionFor(yr, key) {
   const y = String(yr);
   if (state._isAssumptions && state._isAssumptions[y] && state._isAssumptions[y][key] != null) return state._isAssumptions[y][key];
+  const _ar = (typeof _adminRules === 'function') ? _adminRules() : null;
+  if (_ar && _ar.isAssumptions && _ar.isAssumptions[y] && _ar.isAssumptions[y][key] != null) return _ar.isAssumptions[y][key];
   try { const v = localStorage.getItem('ridd_is_assume_' + y + '_' + key); if (v != null && v !== '') return Number(v); } catch (e) {}
   return IS_ASSUMPTION_DEFAULTS[key];
 }
@@ -40525,6 +40937,13 @@ function setAssumptionFor(yr, key, pctValue) {
   if (!state._isAssumptions[y]) state._isAssumptions[y] = {};
   const num = (pctValue == null || pctValue === '') ? null : Number(pctValue) / 100; // input is a percent
   state._isAssumptions[y][key] = num;
+  try {
+    const _ar = (typeof _adminRules === 'function' && _adminRules()) || {};
+    const m = { ...(_ar.isAssumptions || {}) };
+    m[y] = { ...(m[y] || {}) };
+    if (num == null) delete m[y][key]; else m[y][key] = num;
+    _setAdminRule('isAssumptions', m);
+  } catch (e) { /* local fallback below */ }
   try { if (num == null) localStorage.removeItem('ridd_is_assume_' + y + '_' + key); else localStorage.setItem('ridd_is_assume_' + y + '_' + key, String(num)); } catch (e) {}
 }
 function reportingIsPacer() {
@@ -43408,7 +43827,7 @@ function viewD2dDashboard() {
     // Branch color chip (workbook palette) — used on the leaderboard rows
     // and the sales list so every line reads its branch at a glance.
     const _ofcChip = (office) => {
-      const label = /^office\s*20$/i.test(String(office || '')) ? 'LITTLE ROCK' : String(office || '');
+      const label = branchAlias(office);
       const bc = (typeof BRANCH_COLORS !== 'undefined') ? BRANCH_COLORS[label.toUpperCase()] : null;
       return bc ? el('span', {
         title: label.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()),
@@ -43424,7 +43843,7 @@ function viewD2dDashboard() {
         el('tbody', {}, ...reps.slice(0, 100).map((o, i) => {
           const team = getRepTeam(o.name) || '';
           const clickable = canViewRepDetails(o.name, team);
-          const isMe = _sigMe(o.name) === meSig;
+          const isMe = _sigMe(o.name) === meSig || isMyRepName(o.name);
           return el('tr', {
             class: 'border-t' + (clickable ? ' cursor-pointer' : ''),
             style: { borderColor: 'var(--border)', background: isMe ? 'rgba(141,198,63,.08)' : '' },
@@ -43485,7 +43904,7 @@ function viewD2dDashboard() {
           el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, (() => {
             // Branch color chip (workbook palette). "Office 20" rows heal to
             // Little Rock client-side until the renamed sync data lands.
-            const label = /^office\s*20$/i.test(String(t.team || '')) ? 'LITTLE ROCK' : String(t.team || '');
+            const label = branchAlias(t.team);
             const bc = (state._d2dStandingsBy === 'office' && typeof BRANCH_COLORS !== 'undefined')
               ? BRANCH_COLORS[label.toUpperCase()] : (typeof getTeamColor === 'function' && state._d2dStandingsBy === 'team' ? null : null);
             return el('span', { class: 'inline-flex items-center gap-2' },
@@ -45853,6 +46272,81 @@ function reportingWaterfall() {
 
 // ──────────────────────────────────────────────────────────────────────────
 // VIEW: ADMIN — audit queue, competitions editor
+// ── Settings → Permissions — role × capability checkbox matrix. ─────────
+// Checked = that user type sees it. Changes save instantly, sync to every
+// user/device through the config row, and log to Activity. Admins always
+// see everything (no admin column on purpose).
+function adminPermissions() {
+  const overrides = (state._compExtras && state._compExtras.perms) || {};
+  const effOf = (role) => ({ ...(PERM_DEFAULTS[role] || {}), ...(overrides[role] || {}) });
+  const setPerm = (role, permId, val) => {
+    state._compExtras = state._compExtras || {};
+    const perms = state._compExtras.perms = state._compExtras.perms || {};
+    const r = perms[role] = perms[role] || {};
+    const def = !!(PERM_DEFAULTS[role] || {})[permId];
+    if (!!val === def) delete r[permId];   // matches the default — store nothing
+    else r[permId] = val ? 1 : 0;
+    if (!Object.keys(r).length) delete perms[role];
+    saveIndicatorState();
+    logActivity('config_change', { detail: 'Permissions: ' + (ROLE_LABEL[role] || role) + ' \u00b7 ' + permId + ' \u2192 ' + (val ? 'visible' : 'hidden') });
+    mountApp();
+  };
+  const resetRole = (role) => {
+    if (!overrides[role]) return;
+    delete state._compExtras.perms[role];
+    saveIndicatorState();
+    logActivity('config_change', { detail: 'Permissions: ' + (ROLE_LABEL[role] || role) + ' reset to defaults' });
+    mountApp();
+  };
+  const cell = (role, d) => {
+    const on = !!effOf(role)[d.id];
+    const overridden = overrides[role] && overrides[role][d.id] !== undefined;
+    return el('td', { class: 'px-2 py-1.5 text-center' },
+      el('button', {
+        class: 'inline-flex items-center justify-center rounded-md border transition cursor-pointer',
+        style: {
+          width: '22px', height: '22px',
+          background: on ? 'var(--accent)' : 'transparent',
+          borderColor: on ? 'var(--accent)' : 'var(--border-2)',
+          color: on ? 'var(--accent-text)' : 'var(--text-subtle)',
+          boxShadow: overridden ? '0 0 0 2px rgba(141,198,63,.25)' : 'none',
+        },
+        title: (on ? 'Visible' : 'Hidden') + ' for ' + (ROLE_LABEL[role] || role) + (overridden ? ' \u00b7 changed from default' : ''),
+        onclick: () => setPerm(role, d.id, !on),
+      }, on ? '\u2713' : ''));
+  };
+  const groups = [...new Set(PERM_DEFS.map(d => d.group))];
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'card p-5' },
+      el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
+        el('div', {},
+          el('h2', { class: 'text-lg font-bold' }, '\ud83d\udd10 Permissions'),
+          el('div', { class: 'text-xs mt-1 max-w-2xl', style: { color: 'var(--text-muted)' } },
+            'What each user type can see. Checked = visible. Saves instantly and syncs to every user \u2014 no deploy needed. Admins always see everything. A green ring marks a box you\u2019ve changed from the default.'))),
+      el('div', { class: 'overflow-x-auto mt-4' },
+        el('table', { class: 'w-full', style: { borderCollapse: 'collapse', fontSize: '12px' } },
+          el('thead', {},
+            el('tr', { class: 'text-left' },
+              el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Can see\u2026'),
+              ...PERM_ROLES.map(role => el('th', { class: 'px-2 py-2 text-center whitespace-nowrap' },
+                el('div', { class: 'text-[11px] font-bold' }, (ROLE_LABEL[role] || role).replace(/^Rep - /, '').replace(/^Office Staff - /, 'Office ')),
+                overrides[role] ? el('button', {
+                  class: 'text-[9px] underline cursor-pointer',
+                  style: { color: 'var(--text-subtle)' },
+                  title: 'Clear every change for this user type and go back to the defaults',
+                  onclick: () => resetRole(role),
+                }, 'reset') : null)))),
+          el('tbody', {},
+            ...groups.flatMap(g => [
+              el('tr', {}, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colSpan: String(1 + PERM_ROLES.length), style: { color: 'var(--text-subtle)' } }, g)),
+              ...PERM_DEFS.filter(d => d.group === g).map(d => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+                el('td', { class: 'px-3 py-1.5 font-semibold whitespace-nowrap' }, d.label),
+                ...PERM_ROLES.map(role => cell(role, d)))),
+            ]))))),
+    el('div', { class: 'card p-4 text-xs', style: { color: 'var(--text-muted)' } },
+      'Notes: the \u201cIndicators table\u201d / \u201cPower Ranking chart\u201d boxes give a user type the analyst layout (their player card pins to the top of the page). Sections a user hides themselves via \u270f\ufe0f Customize stay hidden for them regardless. Technicians and Auditors keep their own fixed tabs; new permissions can be added to this matrix as the app grows.'));
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 function viewAdmin() {
   if (!state.adminSection) state.adminSection = 'users';
@@ -45866,6 +46360,7 @@ function viewAdmin() {
       ['users',   'Users',          '👥'],
       ['teams',   'Teams',          '🤝'],
       ['config',  'Configurations', '🧮'],
+      ['perms',   'Permissions',    '🔐'],
       ['uploads', 'Admin',          '🗂'],
     ] },
     { label: 'Inside Sales Settings', items: [
@@ -45913,6 +46408,7 @@ function viewAdmin() {
     users:   adminReps,
     teams:   adminTeams,
     config:  adminConfigurations,
+    perms:   adminPermissions,
     uploads: adminUploads,
     sources: adminSources,
     slack:   adminSlack,
@@ -49502,7 +49998,11 @@ function adminReps() {
       el('td', { class: 'px-3 py-3 text-center' }, statusChip(false)),
       el('td', { class: 'px-3 py-3 text-right' },
         el('button', { class: 'text-xs px-3 py-1.5 rounded-lg font-bold transition hover:brightness-95 whitespace-nowrap', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-          onclick: () => openUserEditor(null, { full_name: x.name, email: e.email || '', phone: e.phone || '',
+          onclick: () => openUserEditor(null, {
+            // REAL first+last (matches CRM sold_by), never the nickname —
+            // a nickname profile can't match its own sales rows.
+            full_name: _frRealName(e).replace(/\b\w/g, c => c.toUpperCase()) || x.name,
+            email: e.email || '', phone: e.phone || '',
             role: /office\s*staff/i.test(e.type_label || '') ? 'rep_office' : 'rep_sales',
             fieldroutes_employee_id: e.employee_id }) }, '+ Add to app')));
   };
@@ -49834,13 +50334,27 @@ function openUserEditor(existing = null, prefill = null) {
             logActivity('user_edited', { detail: (existing?.full_name || 'user') + ' profile updated' });
           toast('Saved', 'success');
           }
+        // Stamp the FULL form payload onto the new profile row — the invite
+        // row only carries a subset, and the old best-effort patch silently
+        // dropped pay-affecting fields (commission bump, close-rate target,
+        // rep type). Keyed by id + verified, so failure is LOUD.
+        const _stampNewProfile = async (created) => {
+          const uid = created && created.user_id;
+          if (!uid) throw new Error('Create returned no user id — open the user and re-save their details.');
+          const patch = { ...payload };
+          delete patch.email;   // auth owns the login email; the trigger already copied it
+          const { data: _row, error: _pErr } = await supabase.from('profiles')
+            .update(patch).eq('id', uid).select('id').single();
+          if (_pErr || !_row) throw new Error('Login created, but saving the profile details failed'
+            + (_pErr ? ' — ' + _pErr.message : '') + '. Open the user and re-save.');
+        };
         } else if (newPassword) {
           // Admin set a password on a NEW user — skip the magic-link
           // flow entirely and create the auth user with the password
           // directly. handle_new_user() picks up the pending_invites
           // row via the function, so the profiles row appears the same
           // way it would after a magic-link signup.
-          await callAdminSetPassword({
+          const _created = await callAdminSetPassword({
             mode:                'create',
             email:               payload.email,
             password:            newPassword,
@@ -49851,11 +50365,7 @@ function openUserEditor(existing = null, prefill = null) {
             avatar_url:          payload.avatar_url ?? null,
             annual_revenue_goal: payload.annual_revenue_goal ?? null,
           });
-          // admin-set-password creates the profile but doesn't know about the
-          // phone / FieldRoutes link, so stamp them on now (best-effort).
-          if (payload.phone || payload.fieldroutes_employee_id) {
-            try { await supabase.from('profiles').update({ phone: payload.phone, fieldroutes_employee_id: payload.fieldroutes_employee_id }).eq('email', payload.email); } catch (e) { console.warn('FR link follow-up failed', e); }
-          }
+          await _stampNewProfile(_created);
           logActivity('user_edited', { detail: 'Created user ' + (payload.full_name || payload.email || '') });
           toast('Created · ' + payload.email + ' can sign in with that password', 'success');
         } else {
@@ -49867,7 +50377,7 @@ function openUserEditor(existing = null, prefill = null) {
           const _alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
           const _rnd = 'Aa1!' + Array.from(crypto.getRandomValues(new Uint8Array(20)))
             .map(b => _alphabet[b % _alphabet.length]).join('');
-          await callAdminSetPassword({
+          const _created = await callAdminSetPassword({
             mode:                'create',
             email:               payload.email,
             password:            _rnd,
@@ -49878,9 +50388,7 @@ function openUserEditor(existing = null, prefill = null) {
             avatar_url:          payload.avatar_url ?? null,
             annual_revenue_goal: payload.annual_revenue_goal ?? null,
           });
-          if (payload.phone || payload.fieldroutes_employee_id) {
-            try { await supabase.from('profiles').update({ phone: payload.phone, fieldroutes_employee_id: payload.fieldroutes_employee_id }).eq('email', payload.email); } catch (e) { console.warn('FR link follow-up failed', e); }
-          }
+          await _stampNewProfile(_created);
           await sendPasswordResetLink(payload.email);
           logActivity('user_edited', { detail: 'Created user ' + (payload.full_name || payload.email || '') + ' — set-password email sent' });
           toast('Created — ' + payload.email + ' got an email to set their own password', 'success');
@@ -50549,5 +51057,9 @@ function timeAgo(isoStr) {
 // ──────────────────────────────────────────────────────────────────────────
 // Go
 // ──────────────────────────────────────────────────────────────────────────
-boot();
+boot().catch(err => {
+  // Anything that escapes boot()'s own handling must never strand the user
+  // on a forever-splash — show the classified error screen, or reload.
+  try { mountError(err); } catch (e) { location.reload(); }
+});
 

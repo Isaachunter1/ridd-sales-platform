@@ -1,5 +1,8 @@
 module.exports = {
-  content: ['/sessions/awesome-tender-albattani/mnt/ridd-sales-platform/index.html'],
+  // RELATIVE paths (the old absolute sandbox path broke rebuilds on any
+  // other machine) + app.js, where all the markup actually lives now —
+  // rebuilding against index.html alone produces a near-empty sheet.
+  content: ['./index.html', './app.js'],
   safelist: [
     'max-w-[min(360px,calc(100vw-2rem))]',   // toast width — extractor chokes on the nested comma
   ],

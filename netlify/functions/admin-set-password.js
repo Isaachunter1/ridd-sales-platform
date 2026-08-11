@@ -141,9 +141,33 @@ exports.handler = async (event) => {
         email_confirm: true,
         user_metadata: { full_name: full_name || '' },
       });
-      if (createErr) return json(500, { error: 'createUser failed: ' + createErr.message });
+      if (createErr) {
+        // Duplicate hire is the common failure — say it plainly instead of
+        // leaking the raw Supabase string (mirrors the update path's 404).
+        const dup = /already.+(registered|exists)/i.test(createErr.message || '');
+        return json(dup ? 409 : 500, { error: dup
+          ? 'A login already exists for ' + email + ' — open that user and use Edit to change their password or details instead.'
+          : 'createUser failed: ' + createErr.message });
+      }
 
-      return json(200, { ok: true, user_id: created.user?.id });
+      // Post-verify: the handle_new_user trigger should have produced the
+      // profiles row. If it didn't (trigger error / legacy path), build it
+      // here with the service role so "Created" can never be a lie.
+      const uid = created.user?.id;
+      if (uid) {
+        const { data: prow } = await admin.from('profiles').select('id').eq('id', uid).maybeSingle();
+        if (!prow) {
+          const { error: healErr } = await admin.from('profiles').upsert({
+            id: uid, email, full_name: full_name || '', role,
+            office_id: office_id ?? null, initials: initials ?? null,
+            avatar_url: avatar_url ?? null,
+            annual_revenue_goal: annual_revenue_goal ?? 0,
+          }, { onConflict: 'id' });
+          if (healErr) return json(500, { error: 'Login created but the profile row failed: ' + healErr.message + ' — fix and re-save this user.' });
+        }
+      }
+
+      return json(200, { ok: true, user_id: uid });
     }
 
     // mode === 'update' — password and/or LOGIN EMAIL. Changing the email
