@@ -4839,18 +4839,18 @@ function applyUserLayout(root) {
       return;
     }
     if (!e.n.style.position) e.n.style.position = 'relative';
-    e.n.style.outline = '2px dashed ' + (isHid ? '#B91C1C' : 'var(--accent)');
+    e.n.style.outline = '2px dashed ' + (isHid ? '#D97706' : 'var(--accent)');
     e.n.style.outlineOffset = '2px';
     e.n.style.opacity = isHid ? '.35' : '';
     const mk = (glyph, title, onclick, disabled) => el('button', {
       class: 'cursor-pointer',
-      style: { width: '26px', height: '26px', borderRadius: '8px', border: 'none', background: 'var(--text)', color: 'var(--bg)', fontSize: '12px', fontWeight: '900', opacity: disabled ? '.35' : '1', boxShadow: 'var(--shadow-lg)', display: 'grid', placeItems: 'center', padding: '0' },
+      style: { minWidth: '26px', height: '26px', borderRadius: '8px', border: 'none', background: 'var(--text)', color: 'var(--bg)', fontSize: glyph.length > 1 ? '10px' : '12px', fontWeight: '900', opacity: disabled ? '.35' : '1', boxShadow: 'var(--shadow-lg)', display: 'grid', placeItems: 'center', padding: glyph.length > 1 ? '0 8px' : '0' },
       title, onclick: disabled ? undefined : (ev) => { ev.stopPropagation(); onclick(); },
     }, glyph);
     e.n.append(el('div', { style: { position: 'absolute', top: '6px', right: '6px', zIndex: 35, display: 'flex', gap: '4px' } },
       mk('\u2191', 'Move this section up', () => { const ks = [...finalKeys]; ks.splice(idx - 1, 0, ks.splice(idx, 1)[0]); save(ks, [...hidden]); }, idx === 0),
       mk('\u2193', 'Move this section down', () => { const ks = [...finalKeys]; ks.splice(idx + 1, 0, ks.splice(idx, 1)[0]); save(ks, [...hidden]); }, idx === orderedEditable.length - 1),
-      mk(isHid ? '\uff0b' : '\u2715', isHid ? 'Show this section again' : 'Hide this section (your view only)', () => {
+      mk(isHid ? 'Show' : 'Hide', isHid ? 'Show this section again' : 'Hide this section (your view only \u2014 nothing is deleted)', () => {
         const h = new Set(hidden);
         if (isHid) h.delete(e.key); else h.add(e.key);
         save(finalKeys, [...h]);
@@ -4925,7 +4925,7 @@ function _ensureEditBanner() {
   document.body.append(el('div', {
     id: 'editModeBanner',
     style: { position: 'fixed', bottom: '18px', left: '50%', transform: 'translateX(-50%)', zIndex: 80, display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--text)', color: 'var(--bg)', borderRadius: '999px', padding: '8px 14px', boxShadow: 'var(--shadow-lg)', fontSize: '12px', fontWeight: '700', whiteSpace: 'nowrap', maxWidth: 'calc(100vw - 24px)' } },
-    '\ud83d\udd27 Edit mode \u2014 \u2191\u2193 move \u00b7 \u2715 hide \u00b7 your view only',
+    '\u270f\ufe0f Edit mode \u2014 \u2191\u2193 move \u00b7 Hide/Show \u00b7 your view only',
     el('button', {
       class: 'cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-black',
       style: { background: 'rgba(255,255,255,.18)', color: 'var(--bg)', border: 'none' },
@@ -26674,10 +26674,10 @@ function viewIndicators() {
       const _rowHidden = (key) => _hiddenKeys.includes(key);
       const _rowXBtn = (key) => (isAdminRole(state.profile?.role) && state._editMode) ? el('span', {
         class: 'ml-1.5 cursor-pointer select-none',
-        style: { color: '#B91C1C', fontSize: '10px', fontWeight: '900' },
-        title: 'Remove this row for the current Type — restore it from the "Hidden rows" strip',
+        style: { color: 'var(--text-subtle)', fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.04em' },
+        title: 'Hide this row for the current Type — bring it back from the "Hidden rows" strip (nothing is deleted)',
         onclick: (e) => { e.stopPropagation(); _saveHidden([..._hiddenKeys, key]); },
-      }, '\u2715') : null;
+      }, 'hide') : null;
       // SCORED metrics on top, CONTEXT metrics below a bold cutoff line
       // (per Isaac) — the same exclusion set Power Rank scoring uses.
       const _PR_CTX = new Set(['new_revenue', 'renewal_revenue', 'audit_pct', 'last_resort_pct']);
@@ -26756,14 +26756,14 @@ function viewIndicators() {
                       style: { background: 'var(--card)', zIndex: 1, cursor: 'help', color: isSorting ? 'var(--accent)' : '' },
                     },
                       indicatorMetricLabel(m),
-                      // ✕ hides this row for the current Type (per Isaac) —
-                      // add it back from the strip under the table.
+                      // "hide" hides this row for the current Type (per
+                      // Isaac) — add it back from the strip under the table.
                       (isAdminRole(state.profile?.role) && state._editMode) ? el('span', {
                         class: 'ml-1.5 cursor-pointer select-none',
-                        style: { color: '#B91C1C', fontSize: '10px', fontWeight: '900' },
-                        title: 'Remove this row for the current Type — restore it from the "Hidden rows" strip under the table',
+                        style: { color: 'var(--text-subtle)', fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.04em' },
+                        title: 'Hide this row for the current Type — bring it back from the "Hidden rows" strip under the table (nothing is deleted)',
                         onclick: (e) => { e.stopPropagation(); _saveHidden([..._hiddenKeys, m.key]); },
-                      }, '\u2715') : null,
+                      }, 'hide') : null,
                     );
                     attachExplainer(cell, { title: indicatorMetricLabel(m), desc: indicatorMetricHelp(m.key) });
                     return cell;
@@ -29481,10 +29481,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 }, c.label + arrow,
                   (isAdminRole(state.profile?.role) && state._editMode && c.key !== 'name') ? el('span', {
                     class: 'ml-1 cursor-pointer select-none',
-                    style: { color: '#B91C1C', fontSize: '10px', fontWeight: '900' },
-                    title: 'Remove this column for the current Type — restore it from the "Hidden columns" strip',
+                    style: { color: 'var(--text-subtle)', fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.04em' },
+                    title: 'Hide this column for the current Type — bring it back from the "Hidden columns" strip (nothing is deleted)',
                     onclick: (e) => { e.stopPropagation(); _lbSaveHidden([..._lbHiddenKeys, c.key]); },
-                  }, '\u2715') : null);
+                  }, 'hide') : null);
               }),
             ),
             // Restore strip — one chip per hidden column for this Type.
