@@ -152,7 +152,7 @@ async function callAdminSetPassword(payload) {
 // overrides are edited in Settings → Permissions (checkbox matrix) and ride
 // the synced config row (competitions.extras.perms), so a change reaches
 // every user on every device — no deploy per role tweak.
-const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead'];
+const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'auditor'];
 const PERM_DEFS = [
   { id: 'view_comps',       label: 'Competitions tab',    group: 'Tabs' },
   { id: 'view_indicators',  label: 'Indicators tab',      group: 'Tabs' },
@@ -173,6 +173,7 @@ const PERM_DEFAULTS = {
   rep_partner:     { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
   rep_team_lead:   { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
   rep_office_lead: { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
+  auditor:         {},   // auditors live in the Sales queue — grant extras here as needed
 };
 // Effective permission role: legacy 'rep' resolves by CRM type.
 function _permRoleOf(profile) {
@@ -188,7 +189,6 @@ function userCan(permId, profile) {
   const p = profile || state.profile;
   if (!p) return false;
   if (isAdminRole(p.role)) return true;
-  if (isAuditorRole(p.role)) return false;   // auditors live in the Sales queue
   const role = _permRoleOf(p);
   const overrides = (state._compExtras && state._compExtras.perms) || {};
   const eff = { ...(PERM_DEFAULTS[role] || {}), ...(overrides[role] || {}) };
@@ -212,12 +212,12 @@ const PERM_SCOPE_DEFAULTS = {
   rep_partner:     { drill_scope: 'team' },
   rep_team_lead:   { drill_scope: 'team' },
   rep_office_lead: { drill_scope: 'dept' },
+  auditor:         { drill_scope: 'none' },
 };
 function userScope(scopeId, profile) {
   const p = profile || state.profile;
   if (!p) return 'none';
   if (isAdminRole(p.role)) return 'all';
-  if (isAuditorRole(p.role)) return 'none';
   const role = _permRoleOf(p);
   const overrides = (state._compExtras && state._compExtras.permScopes) || {};
   const v = (overrides[role] && overrides[role][scopeId]) || (PERM_SCOPE_DEFAULTS[role] || {})[scopeId];
@@ -5090,11 +5090,17 @@ function mountApp() {
     state.view = _home;
     history.replaceState(null, '', VIEW_TO_HASH[_home] || '#' + _home);
   }
-  // Auditors never had Indicators — keep it that way now that the blanket
-  // admin gate above no longer covers it.
-  if (isAuditor && state.view === 'indicators') {
-    state.view = 'sales';
-    history.replaceState(null, '', VIEW_TO_HASH.sales || '#sales');
+  // Auditor tab access reads the Permissions matrix (all off by default —
+  // grant Indicators/Competitions/etc. from Settings → Permissions).
+  if (isAuditor) {
+    const _audBlocked = (state.view === 'indicators' && !userCan('view_indicators'))
+      || (state.view === 'nrla' && !userCan('view_comps'))
+      || (state.view === 'marketplace' && !userCan('view_marketplace'))
+      || (state.view === 'training' && !userCan('view_training'));
+    if (_audBlocked) {
+      state.view = 'sales';
+      history.replaceState(null, '', VIEW_TO_HASH.sales || '#sales');
+    }
   }
 
   // ── Single-column layout. The grid icon in the header is the nav menu. ──
@@ -5121,11 +5127,11 @@ function mountApp() {
     ['inside_sales', 'Sales', iconSales()],
     // Competitions — every comp (NRLA, Spring Cleaning, Top Gun, …) on its
     // own tab, visible to EVERYONE. Read-only for non-admins.
-    ...(isAuditor ? [] : [['nrla', 'Competitions', iconTrophy()]]),
-    ...(isAdmin ? [['indicators',    'Indicators',    iconChart()]]     : []),
+    ...(isAuditor && !userCan('view_comps') ? [] : [['nrla', 'Competitions', iconTrophy()]]),
+    ...(isAdmin || (isAuditor && userCan('view_indicators')) ? [['indicators', 'Indicators', iconChart()]] : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
-    ...(isAuditor ? [] : [['marketplace', 'Marketplace', iconDollar()]]),
-    ...(isAuditor ? [] : [['training', 'Training', iconClipboard()]]),
+    ...(isAuditor && !userCan('view_marketplace') ? [] : [['marketplace', 'Marketplace', iconDollar()]]),
+    ...(isAuditor && !userCan('view_training') ? [] : [['training', 'Training', iconClipboard()]]),
   ];
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
