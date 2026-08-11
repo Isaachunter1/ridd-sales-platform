@@ -607,16 +607,38 @@ exports.handler = async (event) => {
           if (e.active) return;
           String(e.employee_ids || e.employee_id || '').split(',').forEach(id => { const t = id.trim(); if (t) inactiveIds.add(t); });
         });
-        if (inactiveIds.size) {
+        // Active ids too — so a CRM reactivation (re-hire) auto-RESTORES.
+        const activeIds = new Set();
+        roster.forEach(e => {
+          if (!e.active) return;
+          String(e.employee_ids || e.employee_id || '').split(',').forEach(id => { const t = id.trim(); if (t) activeIds.add(t); });
+        });
+        if (inactiveIds.size || activeIds.size) {
           const { data: profs, error: pErr } = await supabase.from('profiles')
-            .select('id, role, full_name, fieldroutes_employee_id')
-            .like('role', 'rep%');
+            .select('id, role, previous_role, full_name, fieldroutes_employee_id')
+            .or('role.like.rep%,role.eq.disabled');
           if (pErr) throw new Error(pErr.message);
-          const toDisable = (profs || []).filter(p => p.fieldroutes_employee_id && inactiveIds.has(String(p.fieldroutes_employee_id)));
+          const toDisable = (profs || []).filter(p => p.role !== 'disabled'
+            && p.fieldroutes_employee_id && inactiveIds.has(String(p.fieldroutes_employee_id))
+            && !activeIds.has(String(p.fieldroutes_employee_id)));
           for (const p of toDisable) {
-            const { error: uErr } = await supabase.from('profiles').update({ role: 'disabled' }).eq('id', p.id);
+            // Remember the role we took away so reactivation restores it.
+            // (previous_role/access_revoked_at may not exist pre-migration —
+            // fall back to the bare update rather than skip the revoke.)
+            let { error: uErr } = await supabase.from('profiles')
+              .update({ role: 'disabled', previous_role: p.role, access_revoked_at: new Date().toISOString() }).eq('id', p.id);
+            if (uErr) ({ error: uErr } = await supabase.from('profiles').update({ role: 'disabled' }).eq('id', p.id));
             if (uErr) console.warn('[revhawk-sync] revoke failed for', p.full_name, uErr.message);
             else console.log('[revhawk-sync] access revoked (CRM-inactive):', p.full_name);
+          }
+          // Auto-restore: disabled by us (previous_role set) + active again in CRM.
+          const toRestore = (profs || []).filter(p => p.role === 'disabled' && p.previous_role
+            && p.fieldroutes_employee_id && activeIds.has(String(p.fieldroutes_employee_id)));
+          for (const p of toRestore) {
+            const { error: rErr } = await supabase.from('profiles')
+              .update({ role: p.previous_role, previous_role: null, access_revoked_at: null }).eq('id', p.id);
+            if (rErr) console.warn('[revhawk-sync] restore failed for', p.full_name, rErr.message);
+            else console.log('[revhawk-sync] access RESTORED (CRM re-activated):', p.full_name, '\u2192', p.previous_role);
           }
         }
       } catch (rvErr) {

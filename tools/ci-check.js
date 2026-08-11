@@ -70,21 +70,31 @@ const used = new Set();
 const classSources = html + '\n' + appJs;   // markup lives in index.html AND app.js now
 for (const pat of [/class:\s*'([^']*)'/g, /class:\s*"([^"]*)"/g, /class="([^"]*)"/g]) {
   for (const m of classSources.matchAll(pat)) {
+    // EVERY token is checked now (was: only sm:/md:/arbitrary-value ones) —
+    // 28 plain utilities were silently dead in production (invisible legend
+    // swatches, missing row separators). Definitions may live in
+    // tailwind.css, the index.html gap-fill block, OR app.js-injected CSS.
     for (const tok of m[1].split(/\s+/)) {
-      if (/^(sm|md|lg|xl):/.test(tok) || /\[[^\]]+\]/.test(tok)) used.add(tok);
+      if (tok && !/^[0-9]/.test(tok)) used.add(tok);
     }
   }
 }
+const defSources = css + '\n' + html + '\n' + appJs;
+// Marker-only classes: matched from JS (html2canvas ignore, hooks), never
+// styled — a CSS definition is not expected.
+const MARKER_CLASSES = new Set(['sc-noprint', 'group']);
 const missing = [];
 for (const tok of [...used].sort()) {
+  if (MARKER_CLASSES.has(tok)) continue;
   // build the literal selector as it appears in CSS: sm:flex → .sm\:flex
-  const selector = '.' + tok.replace(/([:[\].])/g, '\\$1');
-  if (!css.includes(selector + '{') && !css.includes(selector + ',') && !css.includes(selector + ' ') &&
-      !html.includes(selector + ' {') && !html.includes(selector + '{')) {
-    missing.push(tok);
-  }
+  // (slash classes like top-1/2 are \/-escaped in the sheet too)
+  const selector = '.' + tok.replace(/([:[\].\/])/g, '\\$1');
+  // a definition counts if the selector appears followed by {, comma, space,
+  // colon (pseudo), or > (child combinator) — covers grouped selectors.
+  const reDef = new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=[\\s{,:>])');
+  if (!reDef.test(defSources)) missing.push(tok);
 }
-if (missing.length === 0) ok(used.size + ' responsive utilities all defined');
+if (missing.length === 0) ok(used.size + ' utility classes all defined');
 else bad('missing utilities (add to the gap-fill <style> block or rebuild tailwind.css)', missing.join(', '));
 
 // ── [5/5] MODULE-goal syntax parse ──────────────────────────────────────
