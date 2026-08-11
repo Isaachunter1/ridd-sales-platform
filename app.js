@@ -5262,10 +5262,22 @@ function mountApp() {
     ),
     state.view === 'sales' ? buildSearchBar() : el('div', { class: 'flex-1' }),
     el('div', { class: 'flex items-center gap-2' },
-      // (🔧 edit-mode icon removed from the global bar — customization now
-      // lives quietly at the bottom of each page, Apple-style: a muted
-      // "Edit layout" link you find when you go looking, invisible during
-      // daily use. The floating Done/Reset banner is unchanged.)
+      // 📣 Feedback + ✏️ Edit layout — compact header icons (per Isaac).
+      state.view !== 'admin' && el('button', {
+        class: 'icon-btn show',
+        title: 'Feedback — send a bug or idea straight to the app team',
+        onclick: () => openFeedbackModal(),
+      }, '\ud83d\udce3'),
+      state.view !== 'admin' && el('button', {
+        class: 'icon-btn show',
+        style: state._editMode ? { background: 'var(--accent)', color: 'var(--accent-text)' } : {},
+        title: state._editMode ? 'Exit edit mode' : 'Edit layout — reorder or hide sections on this page, just for you',
+        onclick: () => {
+          state._editMode = !state._editMode;
+          if (state._editMode && state.view === 'indicators') state._indPresetsOpen = true;
+          mountApp();
+        },
+      }, '\u270f\ufe0f'),
       // TV Display button — opens a fullscreen sales leaderboard meant
       // for a wall-mounted TV. Only shown inside the Inside Sales tab.
       INSIDE_SALES_TAB_KEYS.has(state.view) && el('button', {
@@ -5384,25 +5396,6 @@ function mountApp() {
       title: pullErr ? 'THIS PHONE can\u2019t reach the server — showing older data. Tap to retry.' : 'Syncs land hourly on the hour, 8am–11pm ET',
     }, '↻ Last sync: ' + txt + (pullErr ? ' · CAN\u2019T REACH SERVER' : lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '')));
   })();
-  // ✏️ Quiet, embedded customization entry + 📣 feedback — a muted row at
-  // the very bottom of every page (not on Settings). Replaces the old
-  // global 🔧 icon: discoverable when you go looking, invisible otherwise.
-  if (!state._editMode && state.view !== 'admin' && state.profile) {
-    const _quiet = (label, title, onclick) => el('button', {
-      class: 'text-[11px] cursor-pointer transition',
-      style: { color: 'var(--text-subtle)', background: 'none', border: 'none', padding: '6px 4px' },
-      title, onclick,
-      onmouseenter: (e) => { e.currentTarget.style.color = 'var(--text-muted)'; },
-      onmouseleave: (e) => { e.currentTarget.style.color = 'var(--text-subtle)'; },
-    }, label);
-    contentWrap.append(el('div', { class: 'flex justify-end items-center gap-3 mt-6 mb-2' },
-      _quiet('\ud83d\udce3 Feedback', 'Send a bug / idea straight to the app team', () => openFeedbackModal()),
-      _quiet('\u270f\ufe0f Edit layout', 'Reorder or hide sections on this page \u2014 just for you', () => {
-        state._editMode = true;
-        if (state.view === 'indicators') state._indPresetsOpen = true;
-        mountApp();
-      })));
-  }
   usagePing('view', state.view);
   main.append(pageHeader, contentWrap);
 
