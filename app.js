@@ -5262,29 +5262,8 @@ function mountApp() {
     ),
     state.view === 'sales' ? buildSearchBar() : el('div', { class: 'flex-1' }),
     el('div', { class: 'flex items-center gap-2' },
-      // 📣 Feedback + ✏️ Edit layout — compact header icons (per Isaac).
-      state.view !== 'admin' && el('button', {
-        class: 'icon-btn show',
-        title: 'Feedback — send a bug or idea straight to the app team',
-        onclick: () => openFeedbackModal(),
-      }, '\ud83d\udce3'),
-      state.view !== 'admin' && el('button', {
-        class: 'icon-btn show',
-        style: state._editMode ? { background: 'var(--accent)', color: 'var(--accent-text)' } : {},
-        title: state._editMode ? 'Exit edit mode' : 'Edit layout — reorder or hide sections on this page, just for you',
-        onclick: () => {
-          state._editMode = !state._editMode;
-          if (state._editMode && state.view === 'indicators') state._indPresetsOpen = true;
-          mountApp();
-        },
-      }, '\u270f\ufe0f'),
-      // TV Display button — opens a fullscreen sales leaderboard meant
-      // for a wall-mounted TV. Only shown inside the Inside Sales tab.
-      INSIDE_SALES_TAB_KEYS.has(state.view) && el('button', {
-        class: 'icon-btn show desktop-only',
-        title: 'TV Display — fullscreen sales leaderboard',
-        onclick: () => openTVDashboard(),
-      }, iconTv(18)),
+      // (📣 Feedback · ✏️ Edit layout · 📺 TV · theme now live under the
+      // ⚙ gear menu — the icon row was getting messy, per Isaac.)
       // Coach Mode icon — REMOVED from the top bar for now (per Isaac, Jul
       // 2026). The feature itself (computeCoachFlags / openCoachModeModal)
       // is intact — restore by re-adding the icon button here.
@@ -5322,11 +5301,7 @@ function mountApp() {
         wrap.append(bellBtn, dd);
         return wrap;
       })(),
-      el('button', {
-        class: 'icon-btn show',
-        onclick: toggleTheme,
-        title: state.theme === 'light' ? 'Switch to dark' : 'Switch to light',
-      }, state.theme === 'light' ? iconMoon(18) : iconSun(18)),
+      // (theme toggle moved into the ⚙ gear menu)
       // Manual ↻ sync (admin-only) — back by request, as the escape hatch
       // when the hourly schedule hiccups. Each pull is a full BigQuery scan
       // (real money now that billing's on), so the tooltip says so — use it
@@ -5351,16 +5326,51 @@ function mountApp() {
           setTimeout(() => { try { b.classList.remove('icon-spin'); } catch (err) { /* gone */ } }, 4000);
         },
       }, iconSync(18)),
-      // Gear for EVERY role, same spot — admins land on the full Settings
-      // page; reps/auditors get My Settings (goal · password · sign out).
-      el('button', {
-        class: 'icon-btn show',
-        onclick: () => {
-          if (isAdmin) { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); }
-          else openMySettingsModal();
-        },
-        title: isAdmin ? 'Settings' : 'My Settings — goal, password, sign out',
-      }, iconGear(18)),
+      // ⚙ ONE menu for the meta actions (per Isaac — the icon row got
+      // messy): Settings/My Settings, Edit layout, Feedback, Theme and TV
+      // Display all live here. Bell + refresh stay standalone (daily-use).
+      (() => {
+        const wrap = el('div', { class: 'relative' });
+        const gearBtn = el('button', {
+          class: 'icon-btn show',
+          style: state._editMode ? { background: 'var(--accent)', color: 'var(--accent-text)' } : {},
+          title: 'Settings & tools',
+        }, iconGear(18));
+        const dd = el('div', {
+          class: 'card',
+          style: { position: 'absolute', top: 'calc(100% + 8px)', right: '0', minWidth: '210px', padding: '6px', display: 'none', zIndex: 60, boxShadow: 'var(--shadow-lg)' },
+        });
+        const item = (icon, label, onclick) => el('button', {
+          class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium cursor-pointer transition flex items-center gap-2',
+          style: { background: 'transparent', border: 'none', color: 'var(--text)' },
+          onmouseenter: (e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; },
+          onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
+          onclick: () => { dd.style.display = 'none'; onclick(); },
+        }, el('span', {}, icon), el('span', {}, label));
+        [
+          item('\u2699\ufe0f', isAdmin ? 'Settings' : 'My Settings', () => {
+            if (isAdmin) { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); }
+            else openMySettingsModal();
+          }),
+          state.view !== 'admin' && item('\u270f\ufe0f', state._editMode ? 'Done editing' : 'Edit layout', () => {
+            state._editMode = !state._editMode;
+            if (state._editMode && state.view === 'indicators') state._indPresetsOpen = true;
+            mountApp();
+          }),
+          item('\ud83d\udce3', 'Feedback', () => openFeedbackModal()),
+          item(state.theme === 'light' ? '\ud83c\udf19' : '\u2600\ufe0f', state.theme === 'light' ? 'Dark mode' : 'Light mode', () => toggleTheme()),
+          INSIDE_SALES_TAB_KEYS.has(state.view) && item('\ud83d\udcfa', 'TV Display', () => openTVDashboard()),
+        ].forEach(n => { if (n) dd.append(n); });
+        gearBtn.onclick = () => {
+          const willOpen = dd.style.display !== 'block';
+          dd.style.display = willOpen ? 'block' : 'none';
+          if (willOpen) setTimeout(() => document.addEventListener('mousedown', function closer(e) {
+            if (!dd.contains(e.target) && !gearBtn.contains(e.target)) { dd.style.display = 'none'; document.removeEventListener('mousedown', closer); }
+          }), 0);
+        };
+        wrap.append(gearBtn, dd);
+        return wrap;
+      })(),
     ),
   ));
 
