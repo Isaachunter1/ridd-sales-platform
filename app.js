@@ -43904,7 +43904,36 @@ function viewD2dDashboard() {
     : r === 'yesterday' ? iso === yesterdayIso
     : r === 'week' ? (iso >= weekStartIso && iso <= todayIso)
     : r === 'month' ? iso.slice(0, 7) === monthIso
+    : r === 'custom' ? (iso >= (state._d2dCustomStart || todayIso) && iso <= (state._d2dCustomEnd || todayIso))
     : iso.slice(0, 4) === yearIso;
+
+  // ── Range control (top right) — one range drives the record tiles AND
+  // the leaderboard below. "Custom…" opens a start/end date pair. ──
+  if (!state._d2dLbRange) state._d2dLbRange = 'today';
+  const lbHost = el('div', { class: 'flex flex-col gap-4' });
+  const rangeHost = el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' });
+  const _rebuildBoards = () => { lbHost.innerHTML = ''; lbHost.append(buildBoards()); };
+  const renderRange = () => {
+    rangeHost.innerHTML = '';
+    rangeHost.append(
+      el('select', {
+        class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+        onchange: (e) => {
+          state._d2dLbRange = e.target.value;
+          if (state._d2dLbRange === 'custom') {
+            if (!state._d2dCustomStart) state._d2dCustomStart = todayIso;
+            if (!state._d2dCustomEnd) state._d2dCustomEnd = todayIso;
+          }
+          renderRange(); _rebuildBoards();
+        },
+      }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This Week'], ['month', 'This Month'], ['year', 'This Year'], ['custom', 'Custom…']]
+        .map(([v, l]) => el('option', { value: v, selected: state._d2dLbRange === v }, l))),
+      state._d2dLbRange === 'custom' ? el('div', { class: 'flex items-center gap-2' },
+        el('input', { type: 'date', class: 'rounded-xl px-2 py-1.5 text-xs', value: state._d2dCustomStart || '', onchange: (e) => { state._d2dCustomStart = e.target.value; _rebuildBoards(); } }),
+        el('span', { class: 'text-muted- text-xs' }, '→'),
+        el('input', { type: 'date', class: 'rounded-xl px-2 py-1.5 text-xs', value: state._d2dCustomEnd || '', onchange: (e) => { state._d2dCustomEnd = e.target.value; _rebuildBoards(); } })) : null);
+  };
+  wrap.append(rangeHost);
 
   // ── Hero tiles: Today · This Week · This Month · This Year ──
   const tile = (label, rows) => {
@@ -43919,10 +43948,6 @@ function viewD2dDashboard() {
     tile('Today', byRange('today')), tile('This Week', byRange('week')),
     tile('This Month', byRange('month')), tile('This Year', byRange('year'))));
 
-  // ── One range for the whole tab: pills up top drive standings,
-  // leaderboard AND the sales list below (per Isaac). ──
-  if (!state._d2dLbRange) state._d2dLbRange = 'today';
-  const lbHost = el('div', { class: 'flex flex-col gap-4' });
   const buildBoards = () => {
     const r = state._d2dLbRange;
     const rows = byRange(r);
@@ -43945,13 +43970,6 @@ function viewD2dDashboard() {
     const reps = [...byRep.values()].sort((a, b) => b.cv - a.cv);
     const _sigMe = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const meSig = _sigMe(state.profile?.full_name);
-    const pill = (key, label) => el('button', {
-      class: 'px-3 py-1.5 text-xs font-bold rounded-full transition whitespace-nowrap',
-      style: state._d2dLbRange === key ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
-      onclick: () => { state._d2dLbRange = key; lbHost.innerHTML = ''; lbHost.append(buildBoards()); },
-    }, label);
-    const pillBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
-      pill('today', 'Today'), pill('yesterday', 'Yesterday'), pill('week', 'Week'), pill('month', 'Month'), pill('year', 'Year'));
     // Branch color chip (workbook palette) — used on the leaderboard rows
     // and the sales list so every line reads its branch at a glance.
     const _ofcChip = (office) => {
@@ -44018,8 +44036,9 @@ function viewD2dDashboard() {
       recordTile('Earliest Sale', earliestSale),
       recordTile('Latest Sale', latestSale),
       recordTile('Biggest Sale', biggestSale, true)) : null;
-    return el('div', { class: 'flex flex-col gap-4' }, pillBar, recordsCard, lbCard);
+    return el('div', { class: 'flex flex-col gap-4' }, recordsCard, lbCard);
   };
+  renderRange();
   lbHost.append(buildBoards());
   wrap.append(lbHost);
   return wrap;
