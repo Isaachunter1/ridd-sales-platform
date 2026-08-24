@@ -20487,11 +20487,16 @@ function openKothDayModal(name, day, raw) {
   overlay.append(modal);
   const sumOf = (b) => rows.filter(r => r.bucket === b).reduce((a, r) => a + r.cv, 0);
   const passedV = sumOf('passed'), pendingV = sumOf('pending'), failedV = sumOf('failed'), exclV = sumOf('excluded');
+  // Two DIFFERENT reasons an account misses the crown, and they must not
+  // share a chip: a failed audit is real revenue that lost credit (it stays
+  // inside Total Sold), while a non-Pending/Serviced account was never
+  // revenue at all (it sits outside Total Sold). One shared "NOT COUNTED"
+  // label made four rows look like the one the tile was counting.
   const CHIP = {
     passed:   ['#5F8A1F', 'COUNTS'],
     pending:  ['#B45309', 'PENDING'],
-    failed:   ['#DC2626', 'NOT COUNTED'],
-    excluded: ['#6B7280', 'NOT COUNTED'],
+    failed:   ['#DC2626', 'DOES NOT COUNT'],
+    excluded: ['#6B7280', 'NOT REVENUE'],
   };
   const fmtFull = (iso) => { const d = new Date(iso + 'T00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); };
   const stat = (label, v, color) => el('div', { class: 'card p-3 min-w-0' },
@@ -20511,7 +20516,7 @@ function openKothDayModal(name, day, raw) {
       stat('Total Sold', passedV + pendingV + failedV),
       stat('Counts', passedV, '#5F8A1F'),
       stat('Pending Audit', pendingV, '#B45309'),
-      stat('Not Counted', failedV, '#DC2626')),
+      stat('Does Not Count', failedV, '#DC2626')),
     el('div', { class: 'overflow-x-auto mt-4' }, el('table', { class: 'w-full text-sm' },
       el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
         el('th', { class: 'px-3 py-2' }, 'Customer'),
@@ -20532,7 +20537,7 @@ function openKothDayModal(name, day, raw) {
     el('div', { class: 'text-[11px] text-muted- mt-3' },
       'King of the Hill counts PASSED-AUDIT accounts only. Pending accounts join this day automatically once their audit clears.'),
     exclV > 0 ? el('div', { class: 'text-[11px] text-muted- mt-1' },
-      fmt.usd0(exclV) + ' more was written that day but sits outside the Pending/Serviced base, so it is not in Total Sold either.') : null);
+      fmt.usd0(exclV) + ' more was written that day but never got an initial service scheduled or signed. That is not revenue anywhere in the app, so it is outside Total Sold too.') : null);
   document.body.append(overlay);
 }
 function kothSection(raw, cfg, isAdmin) {
