@@ -20029,7 +20029,16 @@ function _mbArmWithPrizeChooser(repName, profileId) {
 //   · Failed audit and Last Resort (<$99 initial) never count
 //   · Season locks August 22 — later days don\u2019t compete
 // Theme: the red KOTH poster (condensed white type on red).
-const KOTH_LOCK_ISO = '2026-08-22';
+// Season window: a season closes on the week-ending Saturday of the week
+// containing August 20 — i.e. the first Saturday on or after the 20th (per
+// Isaac). 2026 → 2026-08-22, which is exactly the lock this used to hardcode.
+function kothLockIso(year) {
+  const d = new Date(Date.UTC(year, 7, 20));
+  d.setUTCDate(d.getUTCDate() + ((6 - d.getUTCDay() + 7) % 7));
+  return d.toISOString().slice(0, 10);
+}
+const KOTH_SEASON_YEAR = new Date().getFullYear();
+const KOTH_LOCK_ISO = kothLockIso(KOTH_SEASON_YEAR);
 const KOTH_PRIZE_LABEL = '2,000,000 RIDDCOIN';
 // ── \ud83d\udc0d KOBE WEEK — beat your own best week (Aug 3\u20138) ──────────
 // Personal-record comp: every rep\u2019s baseline is their BEST Sun\u2013Sat week
@@ -20359,12 +20368,39 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
   return el('div', { class: 'flex flex-col gap-4' }, ...nodes);
 }
 
-function kothDays(raw) {
+// Class AS OF THAT SEASON. getRepTier answers "today", so a 2025 rookie reads
+// as a vet now and would vanish off the 2025 rookie board. The live season
+// still defers to getRepTier (manual tags win); past seasons reconstruct from
+// the recorded tier year, falling back to the rep's first selling year.
+function kothTierForYear(name, year) {
+  if (year >= KOTH_SEASON_YEAR) return getRepTier(name) === 'rookie' ? 'rookie' : 'vet';
+  const ty = Number(_repKeyedLookup(state._indicatorRepTierYear || {}, name)) || 0;
+  if (ty) return ty === year ? 'rookie' : 'vet';
+  const yrs = _repSaleYears(name);
+  return (yrs && yrs.min === year) ? 'rookie' : 'vet';
+}
+// Every season present in the dataset, newest first (current season always
+// offered, even before its first sale lands).
+function kothYears(raw) {
+  const set = new Set([KOTH_SEASON_YEAR]);
+  for (const s of (raw || [])) {
+    if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
+    const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
+    const y = Number(String(iso).slice(0, 4));
+    if (y && y <= KOTH_SEASON_YEAR) set.add(y);
+  }
+  return [...set].sort((a, b) => b - a);
+}
+function kothDays(raw, year) {
+  const y = Number(year) || KOTH_SEASON_YEAR;
+  const seasonFrom = y + '-01-01', seasonTo = kothLockIso(y);
   const byKey = new Map();
   for (const s of (raw || [])) {
     if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
     const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
-    if (!iso || iso > KOTH_LOCK_ISO) continue;
+    // Season FLOOR as well as the lock — without the floor every prior year's
+    // big days competed for this year's crown.
+    if (!iso || iso < seasonFrom || iso > seasonTo) continue;
     if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;
     if ((Number(s.initialPrice) || 0) < 99) continue;                          // Last Resort — out
     const fl = s.customerFlags || '';
@@ -20378,24 +20414,37 @@ function kothDays(raw) {
     byKey.set(k, o);
   }
   const days = [...byKey.values()];
-  days.forEach(d => { d.tier = (getRepTier(d.name) === 'rookie') ? 'rookie' : 'vet'; });
+  days.forEach(d => { d.tier = kothTierForYear(d.name, y); });
   return days;
 }
 function kothSection(raw, cfg, isAdmin) {
   cfg = (cfg && typeof cfg === 'object') ? cfg : {};
+  // Per-year freeze store. The legacy single `cfg.final` was always the
+  // CURRENT season's board — migrate it under that year so old freezes live on.
+  if (!cfg.finalByYear || typeof cfg.finalByYear !== 'object') cfg.finalByYear = {};
+  if (cfg.final && Array.isArray(cfg.final.days) && cfg.final.days.length && !cfg.finalByYear[KOTH_SEASON_YEAR]) {
+    cfg.finalByYear[KOTH_SEASON_YEAR] = cfg.final;
+  }
+  const years = kothYears(raw);
+  if (!state._kothYear || years.indexOf(state._kothYear) < 0) state._kothYear = years[0] || KOTH_SEASON_YEAR;
+  const year = state._kothYear;
+  const lockIso = kothLockIso(year);
+  const isLive = year >= KOTH_SEASON_YEAR;
+  const frozen = cfg.finalByYear[year];
   // AUTO-FREEZE (per Isaac): once past the lock date with ZERO unaudited
   // qualifying accounts, the final boards freeze into the synced config —
-  // rendered from the snapshot forever after.
+  // rendered from the snapshot forever after. Only ever the LIVE season, so
+  // opening an old year can never write over this season's crown.
   let days;
-  if (cfg.final && Array.isArray(cfg.final.days) && cfg.final.days.length) {
-    days = cfg.final.days;
+  if (frozen && Array.isArray(frozen.days) && frozen.days.length) {
+    days = frozen.days;
   } else {
-    days = kothDays(raw);
-    if (isAdmin && new Date().toISOString().slice(0, 10) > KOTH_LOCK_ISO && days.length) {
+    days = kothDays(raw, year);
+    if (isAdmin && isLive && new Date().toISOString().slice(0, 10) > lockIso && days.length) {
       const _pendingN = (raw || []).filter(s => {
         if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') return false;
         const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
-        if (!iso || iso > KOTH_LOCK_ISO) return false;
+        if (!iso || iso < year + '-01-01' || iso > lockIso) return false;
         if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) return false;
         if ((Number(s.initialPrice) || 0) < 99) return false;
         const fl = s.customerFlags || '';
@@ -20404,8 +20453,9 @@ function kothSection(raw, cfg, isAdmin) {
       }).length;
       if (_pendingN === 0) {
         try {
-          cfg.final = { at: new Date().toISOString(), days: JSON.parse(JSON.stringify(days)) };
-          logActivity('comp_change', { detail: 'KOTH: final boards AUTO-frozen (lock passed, audits settled)' });
+          cfg.finalByYear[year] = { at: new Date().toISOString(), days: JSON.parse(JSON.stringify(days)) };
+          cfg.final = cfg.finalByYear[year];   // legacy key kept in sync
+          logActivity('comp_change', { detail: 'KOTH ' + year + ': final boards AUTO-frozen (lock passed, audits settled)' });
           saveDemoData();
           if (typeof saveIndicatorState === 'function') saveIndicatorState();
         } catch (e) { /* freeze next render */ }
@@ -20413,6 +20463,7 @@ function kothSection(raw, cfg, isAdmin) {
     }
   }
   const fmtDay = (iso) => { const d = new Date(iso + 'T00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }); };
+  const fmtLock = (iso) => { const d = new Date(iso + 'T00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }); };
   const RED1 = '#D3524F', RED2 = '#B03432';
   const classCard = (tk) => {
     const list = days.filter(d => d.tier === tk).sort((a, b) => b.rev - a.rev);
@@ -20423,7 +20474,7 @@ function kothSection(raw, cfg, isAdmin) {
         el('div', { class: 'text-[9px] font-black', style: { letterSpacing: '.3em', opacity: '.85' } }, 'RIDDMADE\u00ae \u00b7 ' + (tk === 'rookie' ? 'ROOKIES' : 'VETERANS')),
         el('div', { class: 'font-display leading-none mt-1', style: { fontSize: '34px', letterSpacing: '.02em' } }, 'KING OF THE HILL'),
         el('div', { class: 'text-[10px] font-bold uppercase mt-1.5', style: { letterSpacing: '.12em', opacity: '.9' } },
-          'The ' + (tk === 'rookie' ? 'rookie' : 'vet') + ' with the biggest day this summer'),
+          'The ' + (tk === 'rookie' ? 'rookie' : 'vet') + ' with the biggest day ' + (isLive ? 'this summer' : 'of ' + year)),
         king
           ? el('div', { class: 'mt-4' },
               el('div', { class: 'font-display text-3xl leading-none mt-1' }, king.name),
@@ -20432,7 +20483,7 @@ function kothSection(raw, cfg, isAdmin) {
                 fmtDay(king.day) + ' \u00b7 ' + king.n + ' account' + (king.n === 1 ? '' : 's')))
           : el('div', { class: 'mt-4 text-sm font-bold', style: { opacity: '.85' } }, 'The hill is empty \u2014 no qualifying days yet.'),
         el('div', { class: 'text-[9px] font-bold uppercase mt-4', style: { letterSpacing: '.14em', opacity: '.75' } },
-          'Lock date: August 22 \u00b7 Passed audit accounts only \u00b7 Last Resort (<$99) never counts \u00b7 Prize: ' + KOTH_PRIZE_LABEL)),
+          'Lock date: ' + fmtLock(lockIso) + ' \u00b7 Passed audit accounts only \u00b7 Last Resort (<$99) never counts \u00b7 Prize: ' + KOTH_PRIZE_LABEL)),
       rest.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
           el('th', { class: 'px-4 py-2' }, '#'),
@@ -20450,7 +20501,15 @@ function kothSection(raw, cfg, isAdmin) {
           el('td', { class: 'px-4 py-2 text-right tabular-nums', style: { color: RED2, fontWeight: '700' } }, king ? fmt.usd0(Math.max(0, king.rev - d.rev)) : '\u2014'))))))
         : el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No chasers on this hill yet.'));
   };
-  return el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, classCard('vet'), classCard('rookie'));
+  const yearSel = el('select', {
+    class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+    onchange: (e) => { state._kothYear = Number(e.target.value); mountApp(); },
+  }, ...years.map(y => el('option', { value: String(y), selected: y === year }, y === KOTH_SEASON_YEAR ? y + ' season' : String(y))));
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
+      frozen ? el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'FINAL / FROZEN') : null,
+      yearSel),
+    el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, classCard('vet'), classCard('rookie')));
 }
 
 function mysteryBoxSection(isAdmin) {
