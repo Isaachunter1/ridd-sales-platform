@@ -38357,10 +38357,13 @@ function _trainingImg(src) { return (/^https?:/.test(src) ? src : (TRAINING_ASSE
 // append-only ledger row (who, how much, why, granted by whom, when).
 // Schema + write rpcs live in riddcoin.sql — run once in Supabase.
 // ═══════════════════════════════════════════════════════════════════════
+// Returns TRUE only when it actually fetched. Callers that re-render on the
+// result MUST honour that — a bare .then(mountApp) on a no-op call re-enters
+// the view, which calls back in here, which no-ops again… (see viewMarketplace).
 async function loadRiddcoin(force) {
-  if (!supabase || !state.profile) return;
-  if (state._rcLoading) return;
-  if (!force && state._rcLoadedAt && Date.now() - state._rcLoadedAt < 60000) return;
+  if (!supabase || !state.profile) return false;
+  if (state._rcLoading) return false;
+  if (!force && state._rcLoadedAt && Date.now() - state._rcLoadedAt < 60000) return false;
   state._rcLoading = true;
   try {
     const [it, led, profs] = await Promise.all([
@@ -38372,9 +38375,14 @@ async function loadRiddcoin(force) {
     if (!it.error)  state._rcItems  = it.data || [];
     if (!led.error) state._rcLedger = led.data || [];
     if (!profs.error) { state._rcNames = {}; (profs.data || []).forEach(pr => { state._rcNames[pr.id] = pr.full_name || '—'; }); }
-    state._rcLoadedAt = Date.now();
   } catch (e) { state._rcErr = String((e && e.message) || e); }
-  state._rcLoading = false;
+  finally {
+    // Stamp in `finally`: a THROWN fetch used to leave _rcLoadedAt unset, so
+    // the 60s throttle never engaged and the view re-fetched forever.
+    state._rcLoadedAt = Date.now();
+    state._rcLoading = false;
+  }
+  return true;
 }
 function _rcBalanceOf(userId) {
   return (state._rcLedger || []).filter(r => r.user_id === userId).reduce((a, r) => a + (Number(r.delta) || 0), 0);
@@ -38495,8 +38503,8 @@ function _rcWhen(ts) {
 function viewMarketplace() {
   const isAdmin = isAdminRole(state.profile?.role);
   // First entry (or stale): pull fresh data, re-render when it lands.
-  if (!state._rcLoadedAt || Date.now() - state._rcLoadedAt > 60000) {
-    loadRiddcoin().then(() => { if (state.view === 'marketplace') mountApp(); });
+  if (!state._rcLoading && (!state._rcLoadedAt || Date.now() - state._rcLoadedAt > 60000)) {
+    loadRiddcoin().then((fetched) => { if (fetched && state.view === 'marketplace') mountApp(); });
   }
   const wrap = el('div', { class: 'flex flex-col gap-4 w-full' });
   const myBal = _rcBalanceOf(state.profile.id);
