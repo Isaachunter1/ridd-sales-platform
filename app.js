@@ -20457,7 +20457,7 @@ function kothDayRows(raw, name, day) {
     const served = (typeof frPendingServiced !== 'function') || frPendingServiced(s);
     const b = served ? kothBucket(s) : 'excluded';
     let why = 'Counts toward the crown';
-    if (b === 'excluded') why = 'Outside the Pending/Serviced revenue base';
+    if (b === 'excluded') why = 'No appointment, no-show or canceled initial. Never serviced.';
     else if ((Number(s.initialPrice) || 0) < 99) why = 'Last Resort, initial under $99';
     else if (b === 'failed') why = 'Failed audit';
     else if (b === 'pending') why = 'Audit still open, waiting';
@@ -20502,6 +20502,26 @@ function openKothDayModal(name, day, raw) {
   const stat = (label, v, color) => el('div', { class: 'card p-3 min-w-0' },
     el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold' }, label),
     el('div', { class: 'font-display text-xl tabular-nums mt-1', style: color ? { color: color } : {} }, fmt.usd0(v)));
+  // Accounts that ARE the revenue base, and the ones that never were.
+  const inBase = rows.filter(r => r.bucket !== 'excluded');
+  const outRows = rows.filter(r => r.bucket === 'excluded');
+  const tableOf = (list, dim) => el('div', { class: 'overflow-x-auto mt-3', style: dim ? { opacity: '.6' } : {} }, el('table', { class: 'w-full text-sm' },
+    el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+      el('th', { class: 'px-3 py-2' }, 'Customer'),
+      el('th', { class: 'px-3 py-2' }, 'Service'),
+      el('th', { class: 'px-3 py-2 text-right' }, 'Mo'),
+      el('th', { class: 'px-3 py-2 text-right' }, 'Initial'),
+      el('th', { class: 'px-3 py-2 text-right' }, 'Value'),
+      el('th', { class: 'px-3 py-2' }, 'Status'))),
+    el('tbody', {}, ...list.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+      el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.customer),
+      el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, r.subscription),
+      el('td', { class: 'px-3 py-2 text-right tabular-nums' }, r.months ? String(r.months) : '-'),
+      el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(r.initial)),
+      el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, fmt.usd0(r.cv)),
+      el('td', { class: 'px-3 py-2 whitespace-nowrap' },
+        el('div', { class: 'text-[10px] font-black', style: { color: CHIP[r.bucket][0] } }, CHIP[r.bucket][1]),
+        el('div', { class: 'text-[10px] text-muted-' }, r.why))))))); 
   modal.append(
     el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
       el('div', { class: 'min-w-0' },
@@ -20517,27 +20537,15 @@ function openKothDayModal(name, day, raw) {
       stat('Counts', passedV, '#5F8A1F'),
       stat('Pending Audit', pendingV, '#B45309'),
       stat('Does Not Count', failedV, '#DC2626')),
-    el('div', { class: 'overflow-x-auto mt-4' }, el('table', { class: 'w-full text-sm' },
-      el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-        el('th', { class: 'px-3 py-2' }, 'Customer'),
-        el('th', { class: 'px-3 py-2' }, 'Service'),
-        el('th', { class: 'px-3 py-2 text-right' }, 'Mo'),
-        el('th', { class: 'px-3 py-2 text-right' }, 'Initial'),
-        el('th', { class: 'px-3 py-2 text-right' }, 'Value'),
-        el('th', { class: 'px-3 py-2' }, 'Status'))),
-      el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.customer),
-        el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, r.subscription),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, r.months ? String(r.months) : '-'),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(r.initial)),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, fmt.usd0(r.cv)),
-        el('td', { class: 'px-3 py-2 whitespace-nowrap' },
-          el('div', { class: 'text-[10px] font-black', style: { color: CHIP[r.bucket][0] } }, CHIP[r.bucket][1]),
-          el('div', { class: 'text-[10px] text-muted-' }, r.why))))))),
+    tableOf(inBase),
     el('div', { class: 'text-[11px] text-muted- mt-3' },
-      'King of the Hill counts PASSED-AUDIT accounts only. Pending accounts join this day automatically once their audit clears.'),
-    exclV > 0 ? el('div', { class: 'text-[11px] text-muted- mt-1' },
-      fmt.usd0(exclV) + ' more was written that day but never got an initial service scheduled or signed. That is not revenue anywhere in the app, so it is outside Total Sold too.') : null);
+      'The ' + inBase.length + ' account' + (inBase.length === 1 ? '' : 's') + ' above are Total Sold. King of the Hill counts the PASSED-AUDIT ones only; pending accounts join this day automatically once their audit clears.'),
+    outRows.length ? el('div', { class: 'mt-6' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-black', style: { color: '#6B7280' } }, 'Not revenue - not in any total above'),
+      el('div', { class: 'text-[11px] text-muted- mt-1' },
+        outRows.length + ' account' + (outRows.length === 1 ? '' : 's') + ' worth ' + fmt.usd0(exclV)
+        + ' never made it past a customer card and a subscription - no initial appointment was ever completed. The CRM drops these from Pending/Serviced, so they are not revenue anywhere in the app.'),
+      tableOf(outRows, true)) : null);
   document.body.append(overlay);
 }
 function kothSection(raw, cfg, isAdmin) {
