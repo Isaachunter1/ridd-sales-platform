@@ -20483,7 +20483,12 @@ function kothSection(raw, cfg, isAdmin) {
                 fmtDay(king.day) + ' \u00b7 ' + king.n + ' account' + (king.n === 1 ? '' : 's')))
           : el('div', { class: 'mt-4 text-sm font-bold', style: { opacity: '.85' } }, 'The hill is empty \u2014 no qualifying days yet.'),
         el('div', { class: 'text-[9px] font-bold uppercase mt-4', style: { letterSpacing: '.14em', opacity: '.75' } },
-          'Lock date: ' + fmtLock(lockIso) + ' \u00b7 Passed audit accounts only \u00b7 Last Resort (<$99) never counts \u00b7 Prize: ' + KOTH_PRIZE_LABEL)),
+          'Lock date: ' + fmtLock(lockIso) + ' \u00b7 Passed audit accounts only \u00b7 Last Resort (<$99) never counts \u00b7 Prize: ' + KOTH_PRIZE_LABEL),
+        // Spelled out because it surprises people: a rep's best day on the
+        // leaderboard / player card can be HIGHER than their KOTH day, since
+        // those count every account and this counts only passed audits.
+        el('div', { class: 'text-[10px] mt-2 max-w-md mx-auto', style: { opacity: '.72', textTransform: 'none', letterSpacing: '.01em', lineHeight: '1.5' } },
+          'Only PASSED-AUDIT accounts count toward King of the Hill. Some reps will show a higher best day on other boards, where every account counts. Here, a day is only worth what its passed-audit accounts are worth.')),
       rest.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
           el('th', { class: 'px-4 py-2' }, '#'),
