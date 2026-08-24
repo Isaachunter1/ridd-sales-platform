@@ -20391,6 +20391,16 @@ function kothYears(raw) {
   }
   return [...set].sort((a, b) => b - a);
 }
+// Bucketing follows the LMS scorecard convention (passed / failed / pending)
+// so KOTH and the scorecards tell a rep the same story about the same
+// account. passed = counts toward the crown; failed = Last Resort (<$99) or
+// a failed audit; pending = audit still open, which may yet clear.
+function kothBucket(s) {
+  if ((Number(s.initialPrice) || 0) < 99) return 'failed';                                   // Last Resort
+  if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || '')) return 'failed';
+  if (typeof scAuditPassed === 'function' && scAuditPassed(s.customerFlags)) return 'passed';
+  return 'pending';
+}
 function kothDays(raw, year) {
   const y = Number(year) || KOTH_SEASON_YEAR;
   const seasonFrom = y + '-01-01', seasonTo = kothLockIso(y);
@@ -20398,24 +20408,118 @@ function kothDays(raw, year) {
   for (const s of (raw || [])) {
     if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
     const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
-    // Season FLOOR as well as the lock — without the floor every prior year's
+    // Season FLOOR as well as the lock. Without the floor every prior year's
     // big days competed for this year's crown.
     if (!iso || iso < seasonFrom || iso > seasonTo) continue;
     if (typeof frPendingServiced === 'function' && !frPendingServiced(s)) continue;
-    if ((Number(s.initialPrice) || 0) < 99) continue;                          // Last Resort — out
-    const fl = s.customerFlags || '';
-    if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(fl)) continue;    // failed audit — out
-    if (typeof scAuditPassed === 'function' && !scAuditPassed(fl)) continue;   // pending audit — waits
     const nm = getCanonicalRepName(s.rep);
     if (!nm) continue;
     const k = nm + '|' + iso;
-    const o = byKey.get(k) || { name: nm, day: iso, rev: 0, n: 0 };
-    o.rev += Number(s.contractValue) || 0; o.n++;
+    const o = byKey.get(k) || { name: nm, day: iso, rev: 0, n: 0, total: 0, totalN: 0, failed: 0, failedN: 0, pending: 0, pendingN: 0 };
+    const cv = Number(s.contractValue) || 0;
+    const b = kothBucket(s);
+    // `total` is the Pending/Serviced base — what they SOLD that day. `rev`
+    // stays passed-audit only, so the crown never moves on unaudited money.
+    o.total += cv; o.totalN++;
+    if (b === 'passed') { o.rev += cv; o.n++; }
+    else if (b === 'failed') { o.failed += cv; o.failedN++; }
+    else { o.pending += cv; o.pendingN++; }
     byKey.set(k, o);
   }
-  const days = [...byKey.values()];
+  // A day of purely pending/failed accounts has no claim on the crown.
+  const days = [...byKey.values()].filter(d => d.n > 0);
   days.forEach(d => { d.tier = kothTierForYear(d.name, y); });
   return days;
+}
+// Account-level detail for one rep-day — the drill-down that shows a rep
+// exactly which accounts made the board and which did not, and why.
+function kothDayRows(raw, name, day) {
+  const out = [];
+  for (const s of (raw || [])) {
+    if (typeof _indicatorDeptOf === 'function' && _indicatorDeptOf(s) !== 'd2d') continue;
+    const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : '';
+    if (iso !== day) continue;
+    if (getCanonicalRepName(s.rep) !== name) continue;
+    const served = (typeof frPendingServiced !== 'function') || frPendingServiced(s);
+    const b = served ? kothBucket(s) : 'excluded';
+    let why = 'Counts toward the crown';
+    if (b === 'excluded') why = 'Outside the Pending/Serviced revenue base';
+    else if ((Number(s.initialPrice) || 0) < 99) why = 'Last Resort, initial under $99';
+    else if (b === 'failed') why = 'Failed audit';
+    else if (b === 'pending') why = 'Audit still open, waiting';
+    out.push({
+      customer: s.customer || '(no name)',
+      subscription: s.subscription || '-',
+      months: Number(s.contract) || 0,
+      initial: Number(s.initialPrice) || 0,
+      cv: Number(s.contractValue) || 0,
+      bucket: b,
+      why: why,
+    });
+  }
+  return out.sort((a, b2) => b2.cv - a.cv);
+}
+function kothCanDrill(name) {
+  const team = (typeof getRepTeam === 'function') ? (getRepTeam(name) || '') : '';
+  return (typeof canViewRepDetails !== 'function') || canViewRepDetails(name, team);
+}
+function openKothDayModal(name, day, raw) {
+  if (!kothCanDrill(name)) return;
+  const rows = kothDayRows(raw, name, day);
+  if (!rows.length) { if (typeof toast === 'function') toast('No account detail for that day in this snapshot', 'warn'); return; }
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const modal = el('div', { class: 'card w-full max-w-3xl p-6 my-8 overflow-y-auto', style: { maxHeight: 'calc(100vh - 64px)' } });
+  overlay.append(modal);
+  const sumOf = (b) => rows.filter(r => r.bucket === b).reduce((a, r) => a + r.cv, 0);
+  const passedV = sumOf('passed'), pendingV = sumOf('pending'), failedV = sumOf('failed'), exclV = sumOf('excluded');
+  const CHIP = {
+    passed:   ['#5F8A1F', 'COUNTS'],
+    pending:  ['#B45309', 'PENDING'],
+    failed:   ['#DC2626', 'NOT COUNTED'],
+    excluded: ['#6B7280', 'NOT COUNTED'],
+  };
+  const fmtFull = (iso) => { const d = new Date(iso + 'T00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); };
+  const stat = (label, v, color) => el('div', { class: 'card p-3 min-w-0' },
+    el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-semibold' }, label),
+    el('div', { class: 'font-display text-xl tabular-nums mt-1', style: color ? { color: color } : {} }, fmt.usd0(v)));
+  modal.append(
+    el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
+      el('div', { class: 'min-w-0' },
+        el('div', { class: 'font-display text-2xl leading-none' }, name),
+        el('div', { class: 'text-xs text-muted- mt-1' }, fmtFull(day))),
+      el('button', {
+        class: 'px-3 py-1.5 text-xs font-bold rounded-full',
+        style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
+        onclick: () => overlay.remove(),
+      }, 'Close')),
+    el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4' },
+      stat('Total Sold', passedV + pendingV + failedV),
+      stat('Counts', passedV, '#5F8A1F'),
+      stat('Pending Audit', pendingV, '#B45309'),
+      stat('Not Counted', failedV, '#DC2626')),
+    el('div', { class: 'overflow-x-auto mt-4' }, el('table', { class: 'w-full text-sm' },
+      el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
+        el('th', { class: 'px-3 py-2' }, 'Customer'),
+        el('th', { class: 'px-3 py-2' }, 'Service'),
+        el('th', { class: 'px-3 py-2 text-right' }, 'Mo'),
+        el('th', { class: 'px-3 py-2 text-right' }, 'Initial'),
+        el('th', { class: 'px-3 py-2 text-right' }, 'Value'),
+        el('th', { class: 'px-3 py-2' }, 'Status'))),
+      el('tbody', {}, ...rows.map(r => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, r.customer),
+        el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, r.subscription),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, r.months ? String(r.months) : '-'),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(r.initial)),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, fmt.usd0(r.cv)),
+        el('td', { class: 'px-3 py-2 whitespace-nowrap' },
+          el('div', { class: 'text-[10px] font-black', style: { color: CHIP[r.bucket][0] } }, CHIP[r.bucket][1]),
+          el('div', { class: 'text-[10px] text-muted-' }, r.why))))))),
+    el('div', { class: 'text-[11px] text-muted- mt-3' },
+      'King of the Hill counts PASSED-AUDIT accounts only. Pending accounts join this day automatically once their audit clears.'),
+    exclV > 0 ? el('div', { class: 'text-[11px] text-muted- mt-1' },
+      fmt.usd0(exclV) + ' more was written that day but sits outside the Pending/Serviced base, so it is not in Total Sold either.') : null);
+  document.body.append(overlay);
 }
 function kothSection(raw, cfg, isAdmin) {
   cfg = (cfg && typeof cfg === 'object') ? cfg : {};
@@ -20480,7 +20584,18 @@ function kothSection(raw, cfg, isAdmin) {
               el('div', { class: 'font-display text-3xl leading-none mt-1' }, king.name),
               el('div', { class: 'font-black tabular-nums text-2xl mt-1' }, fmt.usd0(king.rev)),
               el('div', { class: 'text-[11px] font-bold uppercase tracking-wide mt-0.5', style: { opacity: '.85' } },
-                fmtDay(king.day) + ' \u00b7 ' + king.n + ' account' + (king.n === 1 ? '' : 's')))
+                fmtDay(king.day) + ' \u00b7 ' + king.n + ' account' + (king.n === 1 ? '' : 's')),
+              king.total != null && king.total > king.rev
+                ? el('div', { class: 'text-[10px] mt-1', style: { opacity: '.75', textTransform: 'none' } },
+                    'Sold ' + fmt.usd0(king.total) + ' that day. ' + fmt.usd0(king.total - king.rev) + ' did not count.')
+                : null,
+              kothCanDrill(king.name)
+                ? el('button', {
+                    class: 'text-[10px] font-black uppercase mt-3 px-4 py-1.5 rounded-full',
+                    style: { background: 'rgba(255,255,255,.2)', color: '#fff', letterSpacing: '.12em' },
+                    onclick: () => openKothDayModal(king.name, king.day, raw),
+                  }, 'See the accounts')
+                : null)
           : el('div', { class: 'mt-4 text-sm font-bold', style: { opacity: '.85' } }, 'The hill is empty \u2014 no qualifying days yet.'),
         el('div', { class: 'text-[9px] font-bold uppercase mt-4', style: { letterSpacing: '.14em', opacity: '.75' } },
           'Lock date: ' + fmtLock(lockIso) + ' \u00b7 Passed audit accounts only \u00b7 Last Resort (<$99) never counts \u00b7 Prize: ' + KOTH_PRIZE_LABEL),
@@ -20494,14 +20609,21 @@ function kothSection(raw, cfg, isAdmin) {
           el('th', { class: 'px-4 py-2' }, '#'),
           el('th', { class: 'px-4 py-2' }, 'Rep'),
           el('th', { class: 'px-4 py-2' }, 'Day'),
-          el('th', { class: 'px-4 py-2 text-right' }, 'Accts'),
-          el('th', { class: 'px-4 py-2 text-right' }, 'Revenue'),
+          el('th', { class: 'px-4 py-2 text-right', title: 'Passed / total accounts sold that day' }, 'Accts'),
+          el('th', { class: 'px-4 py-2 text-right', title: 'Everything sold that day on the Pending/Serviced base' }, 'Total Rev'),
+          el('th', { class: 'px-4 py-2 text-right', title: 'Passed-audit revenue only, which is what the crown is scored on' }, 'Passed Rev'),
           el('th', { class: 'px-4 py-2 text-right', title: 'How far this day is from the crown' }, 'To The Crown'))),
-        el('tbody', {}, ...rest.map((d, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        el('tbody', {}, ...rest.map((d, i) => el('tr', {
+          class: 'border-t' + (kothCanDrill(d.name) ? ' cursor-pointer' : ''),
+          style: { borderColor: 'var(--border)' },
+          title: kothCanDrill(d.name) ? 'See the accounts behind this day' : '',
+          onclick: kothCanDrill(d.name) ? () => openKothDayModal(d.name, d.day, raw) : undefined,
+        },
           el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, '#' + (i + 2)),
           el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, d.name),
           el('td', { class: 'px-4 py-2 whitespace-nowrap text-muted- tabular-nums' }, d.day),
-          el('td', { class: 'px-4 py-2 text-right tabular-nums' }, String(d.n)),
+          el('td', { class: 'px-4 py-2 text-right tabular-nums' }, d.totalN != null ? (d.n + ' / ' + d.totalN) : String(d.n)),
+          el('td', { class: 'px-4 py-2 text-right tabular-nums text-muted-' }, fmt.usd0(d.total != null ? d.total : d.rev)),
           el('td', { class: 'px-4 py-2 text-right tabular-nums font-bold' }, fmt.usd0(d.rev)),
           el('td', { class: 'px-4 py-2 text-right tabular-nums', style: { color: RED2, fontWeight: '700' } }, king ? fmt.usd0(Math.max(0, king.rev - d.rev)) : '\u2014'))))))
         : el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No chasers on this hill yet.'));
