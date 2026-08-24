@@ -43993,96 +43993,32 @@ function viewD2dDashboard() {
             el('td', { class: 'px-4 py-2 tabular-nums', style: (o.n && o.lastResort / o.n >= 0.2) ? { color: '#DC2626', fontWeight: '600' } : {} }, (o.n ? (o.lastResort / o.n * 100).toFixed(1) : '0.0') + '%'));
         }))))
         : el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No sales in this range yet.'));
-    // Standings: by OFFICE (default) or by TEAM — toggle in the card header.
-    // Office comes from each rep's most-recent sale row in the range.
-    if (!state._d2dStandingsBy) state._d2dStandingsBy = 'office';
-    const byOfficeOfRep = new Map();
-    rows.forEach(s => {
-      const nm = getCanonicalRepName(s.rep);
-      if (nm && !byOfficeOfRep.has(nm)) byOfficeOfRep.set(nm, String(s.office || '').split(',')[0].trim());
-    });
-    const groupOf = (name) => state._d2dStandingsBy === 'office'
-      ? (byOfficeOfRep.get(name) || 'Unassigned')
-      : (getRepTeam(name) || 'Unassigned');
-    const byTeam = new Map();
-    reps.forEach(o => {
-      const t = groupOf(o.name);
-      const x = byTeam.get(t) || { team: t, n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, reps: 0, multi: 0, twelve: 0, lastResort: 0 };
-      x.n += o.n; x.cv += o.cv; x.apay += o.apay; x.init += o.init; x.pestInit += o.pestInit; x.pestN += o.pestN;
-      x.multi += o.multi; x.twelve += o.twelve; x.lastResort += o.lastResort;
-      x.reps++;   // PRA denominator: reps with ≥1 sale in the range (same convention as Best PRA Day)
-      byTeam.set(t, x);
-    });
-    const teams = [...byTeam.values()].sort((a, b) => b.cv - a.cv);
-    const standingsBtn = (key, label) => el('button', {
-      class: 'px-3 py-1.5 text-xs font-bold transition',
-      style: state._d2dStandingsBy === key ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
-      onclick: () => { state._d2dStandingsBy = key; lbHost.innerHTML = ''; lbHost.append(buildBoards()); },
-    }, label);
-    const teamCard = teams.length > 1 ? el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
-        el('div', { class: 'font-display text-lg' }, state._d2dStandingsBy === 'office' ? 'Office Standings' : 'Team Standings'),
-        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-          standingsBtn('office', 'By Office'), standingsBtn('team', 'By Team'))),
-      el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
-        el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-          ...[['#'], [state._d2dStandingsBy === 'office' ? 'Office' : 'Team'], ['Accts'], ['Revenue'], ['PRA', 'Per Rep Average \u2014 revenue \u00f7 reps with a sale in this range'], ['ACV'], ['MY %', 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)'], ['APay %'], ['Avg Initial'], ['Avg Pest Init'], ['Last Resort %', 'Accounts under $99 initial \u00f7 all accounts']].map(([h, tip]) => el('th', { class: 'px-4 py-2 whitespace-nowrap', title: tip || '' }, h)))),
-        el('tbody', {}, ...teams.map((t, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-          el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, String(i + 1)),
-          el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, (() => {
-            // Branch color chip (workbook palette). "Office 20" rows heal to
-            // Little Rock client-side until the renamed sync data lands.
-            const label = branchAlias(t.team);
-            const bc = (state._d2dStandingsBy === 'office' && typeof BRANCH_COLORS !== 'undefined')
-              ? BRANCH_COLORS[label.toUpperCase()] : (typeof getTeamColor === 'function' && state._d2dStandingsBy === 'team' ? null : null);
-            return el('span', { class: 'inline-flex items-center gap-2' },
-              bc ? el('span', { style: { width: '10px', height: '10px', borderRadius: '3px', background: bc, border: '1px solid var(--border-2)', display: 'inline-block', flexShrink: '0' } }) : null,
-              label);
-          })()),
-          el('td', { class: 'px-4 py-2 tabular-nums' }, String(t.n)),
-          el('td', { class: 'px-4 py-2 tabular-nums font-semibold' }, fmt.usd0(t.cv)),
-          el('td', { class: 'px-4 py-2 tabular-nums font-semibold', title: t.reps + ' active rep' + (t.reps === 1 ? '' : 's') }, fmt.usd0(t.reps ? t.cv / t.reps : 0)),
-          el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(t.n ? t.cv / t.n : 0)),
-          el('td', { class: 'px-4 py-2 tabular-nums' }, ((t.multi + t.twelve) ? Math.round(t.multi / (t.multi + t.twelve) * 100) : 0) + '%'),
-          el('td', { class: 'px-4 py-2 tabular-nums' }, (t.n ? Math.round(t.apay / t.n * 100) : 0) + '%'),
-          el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(t.n ? t.init / t.n : 0)),
-          el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(t.pestN ? t.pestInit / t.pestN : 0)),
-          el('td', { class: 'px-4 py-2 tabular-nums' }, (t.n ? (t.lastResort / t.n * 100).toFixed(1) : '0.0') + '%')))))))
-      : null;
-    // ── Sales list for the selected range ──
-    const RANGE_TITLES = { today: "Today's Sales", yesterday: "Yesterday's Sales", week: "This Week's Sales", month: "This Month's Sales", year: "This Year's Sales" };
-    const listRows = rows.slice().sort((a, b) => {
-      const d = _d2dIso(b).localeCompare(_d2dIso(a));
-      if (d) return d;
-      const ta = _parseIndicatorTime(a), tb = _parseIndicatorTime(b);
-      return ((tb ? tb.hour * 60 + tb.minute : -1) - (ta ? ta.hour * 60 + ta.minute : -1));
-    });
+    // ── Day records: earliest · latest · biggest sale in the range ──
+    // Times are each selling office's local clock, so "earliest" means the
+    // earliest knock in that rep's own day (not the earliest in UTC).
     const showDate = r !== 'today' && r !== 'yesterday';
-    const LIST_CAP = 100;
-    const salesCard = el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 flex items-center justify-between border-b', style: { borderColor: 'var(--border)' } },
-        el('div', { class: 'font-display text-lg' }, RANGE_TITLES[r] || 'Sales'),
-        el('div', { class: 'text-xs text-muted- tabular-nums' }, listRows.length + ' · ' + fmt.usd0(listRows.reduce((a, s) => a + (Number(s.contractValue) || 0), 0)))),
-      listRows.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
-        el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-          ...[...(showDate ? ['Date'] : []), 'Time', 'Rep', 'Service', 'Mo', 'Initial', 'APay', 'Value'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap', title: h === 'Time' ? 'Selling office\u2019s local time' : '' }, h)))),
-        el('tbody', {}, ...listRows.slice(0, LIST_CAP).map(s => {
-          const nm = getCanonicalRepName(s.rep);
-          const t = _parseIndicatorTime(s);
-          const apay = !!(s.autoPay && s.autoPay !== 'No');
-          return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-            ...(showDate ? [el('td', { class: 'px-4 py-2 tabular-nums text-muted- whitespace-nowrap' }, _d2dIso(s))] : []),
-            el('td', { class: 'px-4 py-2 tabular-nums text-muted- whitespace-nowrap' }, t ? ((t.hour % 12 || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour < 12 ? 'a' : 'p') + ' ' + _officeTzShort(s.office)) : '—'),
-            el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, _ofcChip(s.office), nm),
-            el('td', { class: 'px-4 py-2 whitespace-nowrap' }, String(s.subscription || '—')),
-            el('td', { class: 'px-4 py-2 tabular-nums' }, String(Number(s.contract) || '—')),
-            el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(Number(s.initialPrice) || 0)),
-            el('td', { class: 'px-4 py-2 font-bold', style: { color: apay ? '#5F8A1F' : '#DC2626' } }, apay ? 'Y' : 'N'),
-            el('td', { class: 'px-4 py-2 tabular-nums font-semibold' }, fmt.usd0(Number(s.contractValue) || 0)));
-        }))))
-        : el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No D2D sales in this range yet' + (r === 'today' ? ' — knock on.' : '.')),
-      listRows.length > LIST_CAP ? el('div', { class: 'px-4 py-2 text-xs text-muted- border-t', style: { borderColor: 'var(--border)' } }, 'Showing the latest ' + LIST_CAP + ' of ' + listRows.length + '.') : null);
-    return el('div', { class: 'flex flex-col gap-4' }, pillBar, teamCard, lbCard, salesCard);
+    const _tod = (s) => { const t = _parseIndicatorTime(s); return t ? t.hour * 60 + t.minute : null; };
+    const timed = rows.filter(s => _tod(s) != null);
+    const earliestSale = timed.length ? timed.reduce((a, b) => (_tod(b) < _tod(a) ? b : a)) : null;
+    const latestSale = timed.length ? timed.reduce((a, b) => (_tod(b) > _tod(a) ? b : a)) : null;
+    const biggestSale = rows.length ? rows.reduce((a, b) => ((Number(b.contractValue) || 0) > (Number(a.contractValue) || 0) ? b : a)) : null;
+    const _timeStr = (s) => { const t = _parseIndicatorTime(s); return t ? ((t.hour % 12 || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour < 12 ? 'a' : 'p') + ' ' + _officeTzShort(s.office)) : '—'; };
+    const recordTile = (label, s, leadValue) => el('div', { class: 'card p-4 min-w-0' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, label),
+      s ? el('div', { class: 'min-w-0' },
+        el('div', { class: 'font-display text-lg mt-1 flex items-center whitespace-nowrap overflow-hidden' },
+          _ofcChip(s.office),
+          leadValue ? fmt.usd0(Number(s.contractValue) || 0) : _timeStr(s)),
+        el('div', { class: 'text-xs text-muted- tabular-nums mt-0.5 whitespace-nowrap overflow-hidden' },
+          (getCanonicalRepName(s.rep) || '—') + ' · '
+          + (leadValue ? _timeStr(s) : fmt.usd0(Number(s.contractValue) || 0))
+          + (showDate ? ' · ' + _d2dIso(s) : '')))
+        : el('div', { class: 'text-lg font-display mt-1 text-muted-' }, '—'));
+    const recordsCard = rows.length ? el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-3' },
+      recordTile('Earliest Sale', earliestSale),
+      recordTile('Latest Sale', latestSale),
+      recordTile('Biggest Sale', biggestSale, true)) : null;
+    return el('div', { class: 'flex flex-col gap-4' }, pillBar, recordsCard, lbCard);
   };
   lbHost.append(buildBoards());
   wrap.append(lbHost);
