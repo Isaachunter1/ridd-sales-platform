@@ -43915,7 +43915,7 @@ function viewD2dDashboard() {
   const _rebuildBoards = () => { lbHost.innerHTML = ''; lbHost.append(buildBoards()); };
   const renderRange = () => {
     rangeHost.innerHTML = '';
-    rangeHost.append(
+    const _rangeKids = [
       el('select', {
         class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
         onchange: (e) => {
@@ -43931,7 +43931,9 @@ function viewD2dDashboard() {
       state._d2dLbRange === 'custom' ? el('div', { class: 'flex items-center gap-2' },
         el('input', { type: 'date', class: 'rounded-xl px-2 py-1.5 text-xs', value: state._d2dCustomStart || '', onchange: (e) => { state._d2dCustomStart = e.target.value; _rebuildBoards(); } }),
         el('span', { class: 'text-muted- text-xs' }, '→'),
-        el('input', { type: 'date', class: 'rounded-xl px-2 py-1.5 text-xs', value: state._d2dCustomEnd || '', onchange: (e) => { state._d2dCustomEnd = e.target.value; _rebuildBoards(); } })) : null);
+        el('input', { type: 'date', class: 'rounded-xl px-2 py-1.5 text-xs', value: state._d2dCustomEnd || '', onchange: (e) => { state._d2dCustomEnd = e.target.value; _rebuildBoards(); } })) : null,
+    ];
+    rangeHost.append(..._rangeKids.filter(Boolean));   // append() stringifies null — filter first
   };
   wrap.append(rangeHost);
 
