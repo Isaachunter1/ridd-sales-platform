@@ -7914,9 +7914,20 @@ function miniSparkline(values, slope = 0) {
 // Aggregate records over an arbitrary sales slice. Used for company /
 // branch / team rollups and for snapshotting on each CSV upload.
 // `by` controls which field decides the winner: 'revenue' or 'count'.
+// Records (best day / week / month / PRA) count PENDING/SERVICED accounts
+// ONLY — per Isaac: a "best day" should not be built on accounts that never
+// scheduled an initial service and never signed. Same gate King of the Hill
+// uses, so a rep's records and their crown day tell the same story.
+// DELIBERATE divergence from the leaderboard, which still counts everything
+// so it reconciles 1:1 with the CRM's rep revenue cards — records are a
+// claim about a real day, the leaderboard is a mirror of the CRM.
+function _recordEligible(s) {
+  return (typeof frPendingServiced !== 'function') || frPendingServiced(s);
+}
 function aggregateRecords(sales, by = 'revenue') {
   const byDay = {}, byWeek = {}, byMonth = {};
   for (const s of sales) {
+    if (!_recordEligible(s)) continue;
     const d = _parseIndicatorDay(s);
     if (!d) continue;
     const dayKey = (s.dateSold || '').split(' ')[0].trim();
@@ -7953,6 +7964,7 @@ function aggregateRecords(sales, by = 'revenue') {
 function topRecords(sales, n = 10, byMetric = 'revenue') {
   const byDay = {}, byWeek = {}, byMonth = {};
   for (const s of sales) {
+    if (!_recordEligible(s)) continue;
     const d = _parseIndicatorDay(s);
     if (!d) continue;
     const dayKey = (s.dateSold || '').split(' ')[0].trim();
@@ -7985,6 +7997,7 @@ function topPRADays(sales, n = 10, minReps = 1, byMetric = 'revenue') {
   const byDay = {};
   for (const s of sales) {
     if (!s.rep) continue;
+    if (!_recordEligible(s)) continue;
     const key = (s.dateSold || '').split(' ')[0].trim();
     if (!key || !_isPraSeasonDay(key)) continue;
     if (!byDay[key]) byDay[key] = { revenue: 0, count: 0, reps: new Set() };
@@ -8189,6 +8202,7 @@ function bestPRADayRecord(sales, minReps = 1, byMetric = 'revenue') {
   const byDay = {};
   for (const s of sales) {
     if (!s.rep) continue;
+    if (!_recordEligible(s)) continue;
     const key = (s.dateSold || '').split(' ')[0].trim();
     if (!key) continue;
     if (!_isPraSeasonDay(key)) continue;
@@ -27882,12 +27896,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   };
   const rawSalesAll = (allRawSales || []).filter(s =>
     (!applyExclusion || !isRepExcluded(s.rep)) && inRepScope(s));
-  // Default for every other consumer (leaderboard, records, D2D comp,
-  // PDF reports, sub-mix, rep drill-downs): EVERYTHING counts — including
-  // 3-day RORs and Sold-Not-Starteds — so the board reconciles 1:1 with
-  // the CRM's rep revenue cards. The ONLY metric that strips ROR/SNS is
-  // Cancel %, which uses its own clean denominator below and the
-  // _isReportableCancel numerator.
+  // Default for every other consumer (leaderboard, D2D comp, PDF reports,
+  // sub-mix, rep drill-downs): EVERYTHING counts — including 3-day RORs and
+  // Sold-Not-Starteds — so the board reconciles 1:1 with the CRM's rep
+  // revenue cards. TWO families deliberately narrow it: Cancel %, which uses
+  // its own clean denominator below and the _isReportableCancel numerator,
+  // and RECORDS (best day/week/month/PRA), which gate on Pending/Serviced
+  // inside aggregateRecords/topRecords/bestPRADayRecord/topPRADays — see
+  // _recordEligible. Records therefore no longer tie 1:1 to leaderboard
+  // revenue, on purpose.
   const rawSales = rawSalesAll;
   if (!allRawSales || !allRawSales.length) {
     // Always render a visible placeholder so admins know these tables exist
