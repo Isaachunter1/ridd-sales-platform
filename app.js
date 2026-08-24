@@ -23788,6 +23788,18 @@ function findDuplicateRepCandidates() {
     ...Object.keys(state._indicatorRepOffice || {}),
   ]);
   const namesInCsv = new Set((state._indicatorRawSales || []).map(s => s.rep).filter(Boolean));
+  // ALSO scan the FieldRoutes roster (active Sales Reps only, so techs and
+  // office staff don't flood the list). A duplicate employee record that has
+  // never sold is invisible to a sales-data-only scan - which is exactly how
+  // "Colton Rutherford" (0 sales) sat alongside "Colton Rutherfurd" (222)
+  // unnoticed. Surfacing it BEFORE the empty twin earns anything is the
+  // whole point: once it does, the rep's history silently splits in two.
+  (state.frRoster || []).forEach(e => {
+    if (!e || e.type_label !== 'Sales Rep') return;
+    if (e.active === 0 || e.active === false || e.active === '0') return;
+    const ln = String(e.lname || '').trim(), fn = String(e.fname || '').trim();
+    if (ln && fn) allNames.add(ln + ', ' + fn);          // sales-data shape is "Last, First"
+  });
   const dismissed = new Set(state._indicatorDismissedDupes || []);
   // Names already merged into something else — skip them so the
   // scanner doesn't re-suggest the same pair after a merge.
@@ -23803,22 +23815,63 @@ function findDuplicateRepCandidates() {
   const pairs = [];
   const seen = new Set();
 
+  // Precomputed ONCE per name rather than twice per pair. This loop is
+  // O(n^2) and the roster names push n up, so the squash/token keys are
+  // built here instead of inside the comparison.
+  const _squashOf = (x) => x.toLowerCase().replace(/[^a-z]/g, '').split('').sort().join('');
+  const _tokensOf = (x) => x.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean).sort();
+  const meta = names.map(n => ({ squash: _squashOf(n), tokens: _tokensOf(n), parts: n.toLowerCase().split(/\s+/) }));
+
+  // True when two strings are exactly one insert/delete/substitute apart.
+  const _oneEditApart = (x, y) => {
+    if (Math.abs(x.length - y.length) > 1) return false;
+    if (x === y) return false;
+    let i = 0, j = 0, edits = 0;
+    while (i < x.length && j < y.length) {
+      if (x[i] === y[j]) { i++; j++; continue; }
+      if (++edits > 1) return false;
+      if (x.length > y.length) i++;
+      else if (y.length > x.length) j++;
+      else { i++; j++; }
+    }
+    if (i < x.length || j < y.length) edits++;
+    return edits === 1;
+  };
+  // Rule 3: every token matches except ONE, and that odd pair is a single
+  // typo apart - Rutherford/Rutherfurd, Dalley/Daley. Rules 1 and 2 both
+  // demand an EXACT last-name match and Rule 0 demands identical letters,
+  // so a misspelled surname slips past all three. Token-set based, so it
+  // works whether the name is stored "Last, First" or "First Last".
+  const _isTypoDupe = (ma, mb) => {
+    const ax = ma.tokens, bx = mb.tokens;
+    if (ax.length !== bx.length || ax.length < 2) return false;
+    let diff = null;
+    for (let k = 0; k < ax.length; k++) {
+      if (ax[k] === bx[k]) continue;
+      if (diff) return false;                      // more than one token differs
+      diff = [ax[k], bx[k]];
+    }
+    // >=4 chars keeps short tokens (initials, Jo/Bo) out of it.
+    return !!diff && diff[0].length >= 4 && diff[1].length >= 4 && _oneEditApart(diff[0], diff[1]);
+  };
+
   for (let i = 0; i < names.length; i++) {
     for (let j = i + 1; j < names.length; j++) {
       const a = names[i], b = names[j];
       // If either side has already been merged into something else,
       // skip — the merge state is the source of truth, not the spelling.
       if (aliased.has(a) || aliased.has(b)) continue;
-      // Rule 0 (per Isaac — \u201cPere LeSueur\u201d vs \u201cPere Le Sueur\u201d): the SAME
+      const ma = meta[i], mb = meta[j];
+      // Rule 0 (per Isaac, "Pere LeSueur" vs "Pere Le Sueur"): the SAME
       // letters once spacing/punctuation/word order are stripped = the same
       // human split by a spelling difference. These pairs are flagged even
-      // when BOTH spellings carry revenue \u2014 that's exactly the bug.
-      const _squash = (x) => x.toLowerCase().replace(/[^a-z]/g, '').split('').sort().join('');
-      const isSquashDupe = _squash(a) === _squash(b);
+      // when BOTH spellings carry revenue - that's exactly the bug.
+      const isSquashDupe = ma.squash === mb.squash;
+      const isTypoDupe = !isSquashDupe && _isTypoDupe(ma, mb);
       let isPrefix = false, isNickname = false;
-      if (!isSquashDupe) {
-      const aParts = a.toLowerCase().split(/\s+/);
-      const bParts = b.toLowerCase().split(/\s+/);
+      if (!isSquashDupe && !isTypoDupe) {
+      const aParts = ma.parts;
+      const bParts = mb.parts;
       if (aParts.length < 2 || bParts.length < 2) continue;
 
       // Last names must match (case-insensitive). The last whitespace
@@ -23856,12 +23909,16 @@ function findDuplicateRepCandidates() {
         const _rowsOf = (n) => (state._indicatorRawSales || []).reduce((acc, s) => acc + (s.rep === n ? 1 : 0), 0);
         if (_rowsOf(a) >= _rowsOf(b)) { good = a; bad = b; } else { good = b; bad = a; }
       }
+      // NOTE typo pairs deliberately do NOT get the squash treatment. Identical
+      // letters mean it is certainly one human; one letter apart might be two
+      // real people (Anderson/Andersen). So a typo pair is only offered when
+      // one side has no sales at all, where merging cannot corrupt anybody.
       else continue;
 
       const key = bad + '||' + good;
       if (dismissed.has(key) || seen.has(key)) continue;
       seen.add(key);
-      pairs.push({ bad, good, reason: isSquashDupe ? 'spelling' : isPrefix ? 'prefix' : 'nickname' });
+      pairs.push({ bad, good, reason: isSquashDupe ? 'spelling' : isTypoDupe ? 'typo' : isPrefix ? 'prefix' : 'nickname' });
     }
   }
   return pairs;
