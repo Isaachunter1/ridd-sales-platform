@@ -318,6 +318,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_repFiltersV2',                 // one-time migration stamp: include-everything defaults
   '_indicatorDismissedDupes',
   '_indicatorRepAlias',
+  'indicatorMyExclServiceTerms',   // services dropped from BOTH sides of MY% (default: Sentricon)
   // indicatorsGroupBy + indicatorsRangePreset intentionally NOT persisted — the
   // tab always opens on Branch / All reps / This Year; the toggles change them
   // for the current session only, and a refresh returns to the defaults.
@@ -6605,8 +6606,8 @@ function computeLeaderboard(tab = 'total', range = null) {
     const acv = count ? revenue / count : 0;
 
     // MY% = multi-year (≥18mo, includes 36/60mo) / (12mo + multi-year)
-    const c12     = sales.filter(s => Number(s.contract_months) === 12).length;
-    const cMY     = sales.filter(s => Number(s.contract_months) >= 18).length;
+    const c12     = sales.filter(s => myBucketOf(s) === 'twelve').length;
+    const cMY     = sales.filter(s => myBucketOf(s) === 'multi').length;
     const cTotal  = c12 + cMY;
     const my_pct  = cTotal > 0 ? cMY / cTotal : 0;
 
@@ -6658,8 +6659,8 @@ function computeLeaderboard(tab = 'total', range = null) {
       const recurring = Math.max(0, revenue - oneTimeRev);
       const ots = oneTimeRev;
       const acv = count ? revenue / count : 0;
-      const c12 = sales.filter(s => Number(s.contract_months) === 12).length;
-      const cMY = sales.filter(s => Number(s.contract_months) >= 18).length;
+      const c12 = sales.filter(s => myBucketOf(s) === 'twelve').length;
+      const cMY = sales.filter(s => myBucketOf(s) === 'multi').length;
       const cTotal = c12 + cMY;
       const my_pct = cTotal > 0 ? cMY / cTotal : 0;
       const cOneTime = sales.filter(s => !Number(s.contract_months) || Number(s.contract_months) <= 1).length;
@@ -6707,8 +6708,8 @@ function computeLeaderboard(tab = 'total', range = null) {
       }, 0);
       const recurring = Math.max(0, revenue - oneTimeRev);
       const acv = count ? revenue / count : 0;
-      const c12 = sales.filter(s => Number(s.contract_months) === 12).length;
-      const cMY = sales.filter(s => Number(s.contract_months) >= 18).length;
+      const c12 = sales.filter(s => myBucketOf(s) === 'twelve').length;
+      const cMY = sales.filter(s => myBucketOf(s) === 'multi').length;
       const cTotal = c12 + cMY;
       const cOneTime = sales.filter(s => !Number(s.contract_months) || Number(s.contract_months) <= 1).length;
       const _apRows = sales.filter(s => s._crm);
@@ -6953,6 +6954,47 @@ const FR_GLOBAL_EXCLUDED_SERVICES = new Set([
 // the Indicators tab; consumers that read the raw array directly (My Stats,
 // weekly recap) call it themselves so EVERYTHING on that tab reconciles with
 // the CRM's Sales Leaderboard. Comp boards keep their own comp rules.
+// ── MY% SERVICE EXCLUSIONS ──────────────────────────────────────────────
+// Some services are not really sold on term length, so scoring a rep's MY%
+// on them just adds noise in whichever direction the CRM happens to default
+// the agreement. Those services drop out of BOTH sides of the ratio - they
+// still count everywhere else (revenue, ACV, counts, records, KOTH).
+// Default: Sentricon. Editable in Settings > Configurations.
+// SCOPE: display metric ONLY. commissionCompute keeps its own revenue-
+// weighted myPct (see the Multi-Year Bonus/Deduction block) and is
+// deliberately untouched - that one is pay, and changing it moves payouts.
+const MY_EXCLUDE_DEFAULT = ['sentricon'];
+function myExcludeTerms() {
+  const v = state.indicatorMyExclServiceTerms;
+  return (Array.isArray(v) && v.length) ? v : MY_EXCLUDE_DEFAULT;
+}
+function _myServiceNameOf(s) {
+  if (!s) return '';
+  if (s.subscription) return String(s.subscription);              // indicators raw-sales pool
+  if (s._crmService) return String(s._crmService);                // app-native pool, CRM-matched
+  if (s.service_type_id != null && typeof nameFromId === 'function') {
+    return String(nameFromId(state.serviceTypes, s.service_type_id) || '');
+  }
+  return String(s.service || '');
+}
+function myExcludedFromPct(s) {
+  const n = _myServiceNameOf(s).toLowerCase();
+  if (!n) return false;
+  return myExcludeTerms().some(t => t && n.includes(String(t).toLowerCase()));
+}
+// The ONE place that decides which side of the MY% ratio a sale lands on.
+// 'multi' | 'twelve' | null, where null means out of the ratio entirely.
+// Also unifies the threshold at >=18: the codebase previously ran >=18 in
+// some places and >12 in others, so 13-17mo contracts counted as multi-year
+// on the Power Ranking and team PDFs but not on the rep leaderboard - the
+// same rep read differently screen to screen.
+function myBucketOf(s) {
+  if (!s || myExcludedFromPct(s)) return null;
+  const m = Number(s.contract != null ? s.contract : s.contract_months) || 0;
+  if (m >= 18) return 'multi';
+  if (m === 12) return 'twelve';
+  return null;
+}
 function frPendingServiced(s) {
   if (!s) return false;
   if (FR_GLOBAL_EXCLUDED_SERVICES.has(String(s.subscription || '').trim())) return false;
@@ -7413,8 +7455,8 @@ function _computeRecordMetrics(sales) {
   const avgPest    = eligible.length > 0 ? eligible.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / eligible.length : 0;
   const avgInitial = sales.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / sales.length;
   const acv        = sales.reduce((a, s) => a + Number(s.contractValue || 0), 0) / sales.length;
-  const multi   = sales.filter(s => Number(s.contract) >= 18).length;
-  const twelve  = sales.filter(s => Number(s.contract) === 12).length;
+  const multi   = sales.filter(s => myBucketOf(s) === 'multi').length;
+  const twelve  = sales.filter(s => myBucketOf(s) === 'twelve').length;
   const ctTotal = multi + twelve;
   const myPct   = ctTotal > 0 ? multi / ctTotal : 0;
   const cancels   = sales.filter(_repCancelCounts).length;
@@ -7470,8 +7512,8 @@ function _scopeRep(rep, filterFn) {
   let revenue = 0, twelve = 0, multi = 0, autoPay = 0, cancels = 0;
   for (const s of sales) {
     revenue += Number(s.contractValue || 0);
-    if (Number(s.contract) === 12) twelve++;
-    if (Number(s.contract) >= 18) multi++;
+    const _myb = myBucketOf(s);
+    if (_myb === 'twelve') twelve++; else if (_myb === 'multi') multi++;
     if (s.autoPay && s.autoPay !== 'No') autoPay++;
     if (_repCancelCounts(s)) cancels++;
   }
@@ -7486,8 +7528,8 @@ function _enrichRepFromRawSales(repName, rawSales) {
   let revenue = 0, twelve = 0, multi = 0, autoPay = 0, cancels = 0;
   for (const s of sales) {
     revenue += Number(s.contractValue || 0);
-    if (Number(s.contract) === 12) twelve++;
-    if (Number(s.contract) >= 18) multi++;
+    const _myb = myBucketOf(s);
+    if (_myb === 'twelve') twelve++; else if (_myb === 'multi') multi++;
     if (s.autoPay && s.autoPay !== 'No') autoPay++;
     if (_repCancelCounts(s)) cancels++;
   }
@@ -7578,9 +7620,8 @@ function computeCoachFlags() {
       if (ms < startMs || ms > endMs) continue;
       count++;
       revenue += Number(s.contractValue || 0);
-      const c = Number(s.contract);
-      if (c === 12) twelve++;
-      if (c >= 18) multi++;
+      const _myb = myBucketOf(s);
+      if (_myb === 'twelve') twelve++; else if (_myb === 'multi') multi++;
       if (s.autoPay && s.autoPay !== 'No') autoPay++;
       const initPrice = Number(s.initialPrice || 0);
       initialSum += initPrice;
@@ -9210,11 +9251,11 @@ function openIndicatorRepCard(rep, allReps = []) {
         // bucket — missing contract length, 6mo, 13–17mo, etc. — so the
         // numbers always reconcile with the headline Sales count.
         return all.filter(s => {
-          const c = Number(s.contract);
-          if (drillSub === '12mo')  return c === 12;
-          if (drillSub === 'multi') return c >= 18;
-          if (drillSub === 'other') return !(c === 12 || c >= 18);
-          return c === 12 || c >= 18;
+          const _b = myBucketOf(s);
+          if (drillSub === '12mo')  return _b === 'twelve';
+          if (drillSub === 'multi') return _b === 'multi';
+          if (drillSub === 'other') return _b === null;
+          return _b !== null;
         }).sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''));
       case 'autoPay':
         return all.filter(s => {
@@ -21114,8 +21155,8 @@ function islSection(raw, cfg, isAdmin) {
       if ((typeof reportingSourceClass === 'function') && reportingSourceClass(s.source) === 'upsell') t.up += cv; else t.fr += cv;
       if (typeof SC_FAIL_RE !== 'undefined' && SC_FAIL_RE.test(s.customerFlags || '')) t.fail += cv;
       t.n++;
-      const _cm2 = Number(s.contract) || 0;
-      if (_cm2 >= 18) t.multi++; else if (_cm2 === 12) t.twelve++;
+      const _myb2 = myBucketOf(s);
+      if (_myb2 === 'multi') t.multi++; else if (_myb2 === 'twelve') t.twelve++;
       t0.set(nm, t);
     }
     return t0;
@@ -21203,8 +21244,8 @@ function islSection(raw, cfg, isAdmin) {
     if (rec.isUp) t.up += cv; else t.fr += cv;
     if (rec.failed) t.fail += cv;
     t.n++;
-    const _cm = Number(s.contract) || 0;
-    if (_cm >= 18) t.multi++; else if (_cm === 12) t.twelve++;
+    const _myb = myBucketOf(s);
+    if (_myb === 'multi') t.multi++; else if (_myb === 'twelve') t.twelve++;
     if (!rec.failed && typeof scAuditPassed === 'function' && !scAuditPassed(s.customerFlags || '')) t.pend++;
     tally.set(nm, t);
   }
@@ -24104,8 +24145,8 @@ function aggregateRawSalesByGroup(rawSales, getGroupKey, indicatorRowsForDates, 
     const revenue = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
     const pest = pestExcludeRegex ? ss.filter(s => !pestExcludeRegex.test(s.subscription || '')) : ss;
     const avgInit = pest.length > 0 ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
-    const multiYears = ss.filter(s => Number(s.contract) > 12).length;
-    const twelveMonth = ss.filter(s => Number(s.contract) === 12).length;
+    const multiYears = ss.filter(s => myBucketOf(s) === 'multi').length;
+    const twelveMonth = ss.filter(s => myBucketOf(s) === 'twelve').length;
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
     const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
     const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
@@ -24154,8 +24195,8 @@ function aggregateRawSalesByBucket(rawSales, getGroupKey, buckets, applyExclusio
     const revenue = ss.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
     const pest = pestExcludeRegex ? ss.filter(s => !pestExcludeRegex.test(s.subscription || '')) : ss;
     const avgInit = pest.length > 0 ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
-    const multiYears = ss.filter(s => Number(s.contract) > 12).length;
-    const twelveMonth = ss.filter(s => Number(s.contract) === 12).length;
+    const multiYears = ss.filter(s => myBucketOf(s) === 'multi').length;
+    const twelveMonth = ss.filter(s => myBucketOf(s) === 'twelve').length;
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
     const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
     const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
@@ -25776,8 +25817,8 @@ function viewIndicators() {
       const usePestExclude = groupBy === 'teams' || state.indicatorDept === 'd2d';
       const pest = usePestExclude ? ss.filter(s => !TEAM_PEST_EXCLUDE.test(s.subscription || '')) : ss;
       const avgInit = pest.length > 0 ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
-      const multi = ss.filter(s => Number(s.contract) > 12).length;
-      const twelve = ss.filter(s => Number(s.contract) === 12).length;
+      const multi = ss.filter(s => myBucketOf(s) === 'multi').length;
+      const twelve = ss.filter(s => myBucketOf(s) === 'twelve').length;
       const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
       // Audit % = accounts NOT flagged "Failed Audit" ÷ all accounts. Without
       // this the range view left audit_pct undefined → the column rendered NaN%.
@@ -28015,8 +28056,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // none, so newRevenue == revenue there; office staff carry both.
     if (_indicatorIsRenewal(s)) r.renewalRevenue += s.contractValue;
     else                        r.newRevenue += s.contractValue;
-    if (s.contract >= 18) r.multi++;
-    if (s.contract === 12) r.twelve++;
+    const _myb = myBucketOf(s);
+    if (_myb === 'multi') r.multi++; else if (_myb === 'twelve') r.twelve++;
     if (s.autoPay && s.autoPay !== 'No') r.autoPay++;
     if (_repCancelCounts(s)) r.cancels++;
     // Cancel % denominator: sales excluding whatever the ROR toggle
@@ -28293,9 +28334,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         if (ms < startMs || ms > endMs) continue;
         count++;
         revenue += Number(s.contractValue || 0);
-        const c = Number(s.contract);
-        if (c === 12) twelve++;
-        if (c >= 18) multi++;
+        const _myb = myBucketOf(s);
+        if (_myb === 'twelve') twelve++; else if (_myb === 'multi') multi++;
         if (s.autoPay && s.autoPay !== 'No') autoPay++;
         const initPrice = Number(s.initialPrice || 0);
         initialSum += initPrice;
@@ -29085,8 +29125,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       const avgInitial = sales.length > 0
         ? sales.reduce((a, s) => a + Number(s.initialPrice || 0), 0) / sales.length
         : 0;
-      const twelve = sales.filter(s => Number(s.contract) === 12).length;
-      const multi  = sales.filter(s => Number(s.contract) > 12).length;
+      const twelve = sales.filter(s => myBucketOf(s) === 'twelve').length;
+      const multi  = sales.filter(s => myBucketOf(s) === 'multi').length;
       const myDen  = twelve + multi;
       const apYes  = sales.filter(s => s.autoPay && s.autoPay !== 'No').length;
       // $20K PRA qualification — same rule as the Indicators table: only
@@ -29991,8 +30031,8 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
     m.count++;
     m.revenue += s.contractValue;
     m.initSum += Number(s.initialPrice) || 0;
-    if (Number(s.contract) >= 18) m.multi++;
-    if (Number(s.contract) === 12) m.twelve++;
+    const _myb = myBucketOf(s);
+    if (_myb === 'multi') m.multi++; else if (_myb === 'twelve') m.twelve++;
     if (s.autoPay && s.autoPay !== 'No') m.apOn++;
     if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) m.cancels++;
   });
@@ -30043,8 +30083,8 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
               let _rev = 0, _init = 0, _mu = 0, _tw = 0, _ap = 0, _cx = 0;
               subSales.forEach(s => {
                 _rev += s.contractValue; _init += Number(s.initialPrice) || 0;
-                if (Number(s.contract) >= 18) _mu++;
-                if (Number(s.contract) === 12) _tw++;
+                const _myb = myBucketOf(s);
+                if (_myb === 'multi') _mu++; else if (_myb === 'twelve') _tw++;
                 if (s.autoPay && s.autoPay !== 'No') _ap++;
                 if (typeof _isReportableCancel === 'function' ? _isReportableCancel(s) : !!s.cancelDate) _cx++;
               });
@@ -30678,8 +30718,16 @@ function parseRawSalesReport(lines, headerRow, headers, cols) {
     const pestSales = ss.filter(s => !isSentricon(s));
     const avgInit = pestSales.length > 0 ? pestSales.reduce((a, s) => a + s.initialPrice, 0) / pestSales.length : 0;
     const avgInitCount = pestSales.length;
-    const multiYears = ss.filter(s => s.contract >= 18).length;   // multi-year (18+ mo, includes 36/60)
-    const twelveMonth = ss.filter(s => s.contract === 12).length; // 12 month contracts
+    // MY% drops Sentricon from BOTH sides (see myBucketOf). This path is
+    // mirrored in netlify/lib/indicators-derive.js and diffed by
+    // tools/derive-parity-test.js, so the rule is INLINED here rather than
+    // read from settings - the server derive runs headless with no app
+    // state. Changing the Settings list does not move these derived branch
+    // rollups; it governs the live client metrics.
+    const _MY_EXCL_DERIVE = /sentricon/i;
+    const _myEligible = ss.filter(s => !_MY_EXCL_DERIVE.test(s.subscription || ''));
+    const multiYears = _myEligible.filter(s => s.contract >= 18).length;   // multi-year (18+ mo, includes 36/60)
+    const twelveMonth = _myEligible.filter(s => s.contract === 12).length; // 12 month contracts
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
     const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
     const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
@@ -31106,8 +31154,8 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
           return eligible.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / eligible.length;
         }
         if (cfg.metric === 'my_pct') {
-          const twelve = through.filter(s => Number(s.contract) === 12).length;
-          const multi  = through.filter(s => Number(s.contract) > 12).length;
+          const twelve = through.filter(s => myBucketOf(s) === 'twelve').length;
+          const multi  = through.filter(s => myBucketOf(s) === 'multi').length;
           const total  = twelve + multi;
           return total > 0 ? multi / total : 0;
         }
@@ -31242,8 +31290,8 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     const sales = weekFilter != null ? rep.sales.filter(s => s.week === weekFilter) : rep.sales;
     const count = sales.length;
     const revenue = sales.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
-    const multi  = sales.filter(s => Number(s.contract) > 12).length;
-    const twelve = sales.filter(s => Number(s.contract) === 12).length;
+    const multi  = sales.filter(s => myBucketOf(s) === 'multi').length;
+    const twelve = sales.filter(s => myBucketOf(s) === 'twelve').length;
     const autoPay = sales.filter(s => s.autoPay && s.autoPay !== 'No').length;
     const cancels = sales.filter(_isReportableCancel).length;
     const eligibleForPest = sales.filter(s => !VERIFY_PEST_EXCLUDE.test(s.subscription || ''));
@@ -31695,8 +31743,8 @@ function buildTeamReportNode(teamName, ctx) {
       const t = byTeam[team];
       t.sold_accounts++;
       t.revenue += Number(s.contractValue || 0);
-      if (Number(s.contract) === 12) t.twelve++;
-      if (Number(s.contract) > 12)   t.multi++;
+      const _myb = myBucketOf(s);
+      if (_myb === 'twelve') t.twelve++; else if (_myb === 'multi') t.multi++;
       if (s.autoPay && s.autoPay !== 'No') t.autoPay++;
       if (!PEST_EXCLUDE_RE.test(s.subscription || '')) {
         t.initial_total += Number(s.initialPrice || 0);
@@ -31784,8 +31832,8 @@ function buildTeamReportNode(teamName, ctx) {
     const repSales = teamSales.filter(s => s.rep === name);
     const count = repSales.length;
     const revenue = repSales.reduce((a, s) => a + Number(s.contractValue || 0), 0);
-    const twelve  = repSales.filter(s => Number(s.contract) === 12).length;
-    const multi   = repSales.filter(s => Number(s.contract) > 12).length;
+    const twelve  = repSales.filter(s => myBucketOf(s) === 'twelve').length;
+    const multi   = repSales.filter(s => myBucketOf(s) === 'multi').length;
     const autoPay = repSales.filter(s => s.autoPay && s.autoPay !== 'No').length;
     const cancels = repSales.filter(_isReportableCancel).length;
     const rors    = repSales.filter(_is3DayROR).length;
@@ -32856,8 +32904,8 @@ function openTVDashboard() {
     // multi) across subscription contracts. OTS and other contract
     // lengths fall out of both numerator and denominator so the figure
     // reflects only contracts where MY was even an option.
-    const sub12mo      = subs.filter(s => Number(s.contract_months) === 12).length;
-    const subMultiYr   = subs.filter(s => [18, 24].includes(Number(s.contract_months))).length;
+    const sub12mo      = subs.filter(s => myBucketOf(s) === 'twelve').length;
+    const subMultiYr   = subs.filter(s => myBucketOf(s) === 'multi').length;
     const myDenom      = sub12mo + subMultiYr;
     const multiYearPct = myDenom > 0 ? (subMultiYr / myDenom) * 100 : 0;
 
@@ -33166,8 +33214,8 @@ function openTVDashboard() {
     const repRow = (rep, rank) => {
       const sales2 = rep.sales || [];
       const subs2 = sales2.filter(s => !_tvOts.has(Number(s.contract_type_id)));
-      const c12 = subs2.filter(s => Number(s.contract_months) === 12).length;
-      const cMY = subs2.filter(s => Number(s.contract_months) >= 18).length;
+      const c12 = subs2.filter(s => myBucketOf(s) === 'twelve').length;
+      const cMY = subs2.filter(s => myBucketOf(s) === 'multi').length;
       const myPct = (c12 + cMY) > 0 ? (cMY / (c12 + cMY)) * 100 : 0;
       const recMix = sales2.length > 0 ? (subs2.length / sales2.length) * 100 : 0;
       const acv = sales2.length > 0 ? rep.revenue / sales2.length : 0;
@@ -33594,8 +33642,8 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay,
       return eligible.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / eligible.length;
     }
     if (metricId === 'my_pct') {
-      const twelve = bucketSales.filter(s => Number(s.contract) === 12).length;
-      const multi  = bucketSales.filter(s => Number(s.contract) > 12).length;
+      const twelve = bucketSales.filter(s => myBucketOf(s) === 'twelve').length;
+      const multi  = bucketSales.filter(s => myBucketOf(s) === 'multi').length;
       const total  = twelve + multi;
       return total > 0 ? multi / total : 0;
     }
@@ -33786,8 +33834,8 @@ function repLandingPlayerCard() {
     const PEST_RE = /sentricon|german\s*roach|interior\s*flea/i;
     const pest = ytd.filter(s => !PEST_RE.test(s.subscription || ''));
     const avgPest = pest.length ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
-    const multi = ytd.filter(s => Number(s.contract) >= 18).length;
-    const twelve = ytd.filter(s => Number(s.contract) === 12).length;
+    const multi = ytd.filter(s => myBucketOf(s) === 'multi').length;
+    const twelve = ytd.filter(s => myBucketOf(s) === 'twelve').length;
     const myPct = (multi + twelve) > 0 ? multi / (multi + twelve) : 0;
     const apay = count ? ytd.filter(s => s.autoPay && s.autoPay !== 'No').length / count : 0;
     const cancels = ytd.filter(s => (typeof _repCancelCounts === 'function') ? _repCancelCounts(s) : !!s.cancelDate).length;
@@ -34211,8 +34259,8 @@ function indicatorYoYTrendChart() {
       b.rev += cv;
       if (_indicatorIsRenewal(s)) b.revRenewal += cv; else b.revNew += cv;
       b.n++;
-      if (Number(s.contract) >= 18) b.multi++;
-      if (Number(s.contract) === 12) b.twelve++;
+      const _myb = myBucketOf(s);
+      if (_myb === 'multi') b.multi++; else if (_myb === 'twelve') b.twelve++;
       if (/failed\s*audit/i.test(s.customerFlags || '')) b.fail++;
       b.initSum += Number(s.initialPrice) || 0;
       if (!PEST_RE.test(s.subscription || '')) { b.pestSum += Number(s.initialPrice) || 0; b.pestN++; }
@@ -44246,7 +44294,8 @@ function viewD2dDashboard() {
       o.init += Number(s.initialPrice) || 0;
       if (!PEST_EXCL.test(String(s.subscription || ''))) { o.pestN++; o.pestInit += Number(s.initialPrice) || 0; }
       const _mo = Number(s.contract) || 0;
-      if (_mo >= 18) o.multi++; else if (_mo === 12) o.twelve++;
+      const _myb = myBucketOf(s);
+      if (_myb === 'multi') o.multi++; else if (_myb === 'twelve') o.twelve++;
       if ((Number(s.initialPrice) || 0) < 99) o.lastResort++;   // Last Resort — same <$99 rule as Indicators/LMS
       byRep.set(nm, o);
     });
@@ -47093,6 +47142,33 @@ function adminConfigurations() {
                   }
                   saveIndicatorState();
                   toast(ids.length + ' deleted account' + (ids.length === 1 ? '' : 's') + ' excluded app-wide', 'success');
+                  mountApp();
+                },
+              }, 'Save list')));
+        })(),
+        (() => {
+          const _cur = myExcludeTerms().join(', ');
+          const ta = el('textarea', {
+            rows: '2', placeholder: 'e.g. sentricon',
+            class: 'w-full rounded-lg border px-3 py-2 text-xs',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', resize: 'vertical' },
+          }, _cur);
+          const _n = myExcludeTerms().length;
+          return el('div', { class: 'py-1' },
+            el('div', { class: 'text-sm font-semibold' }, 'Excluded from MY %'),
+            el('div', { class: 'text-[11px] text-muted- mb-2' },
+              'Service names (or any part of one) that should not be scored on term length. Matching accounts drop out of BOTH sides of the multi-year ratio. They still count everywhere else: revenue, ACV, account counts, records and King of the Hill. Commission is NOT affected - the Multi-Year Bonus keeps its own revenue-weighted rate.'),
+            ta,
+            el('div', { class: 'flex items-center justify-between mt-1.5' },
+              el('span', { class: 'text-[10px] text-muted-' }, _n + ' term' + (_n === 1 ? '' : 's') + ', blank restores the default (sentricon)'),
+              el('button', {
+                class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+                style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+                onclick: () => {
+                  const terms = [...new Set(String(ta.value || '').split(/[,;\n]+/).map(x => x.trim().toLowerCase()).filter(Boolean))];
+                  state.indicatorMyExclServiceTerms = terms.length ? terms : null;
+                  saveIndicatorState();
+                  toast(terms.length ? (terms.length + ' term' + (terms.length === 1 ? '' : 's') + ' excluded from MY %') : 'Reset to the default (sentricon)', 'success');
                   mountApp();
                 },
               }, 'Save list')));
