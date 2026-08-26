@@ -183,8 +183,12 @@ function parseIndicators(text) {
     const pestSales = ss.filter(s => !isSentricon(s));
     const avgInit = pestSales.length > 0 ? pestSales.reduce((a, s) => a + s.initialPrice, 0) / pestSales.length : 0;
     const avgInitCount = pestSales.length;
-    const multiYears = ss.filter(s => s.contract >= 18).length;
-    const twelveMonth = ss.filter(s => s.contract === 12).length;
+    // MY% drops Sentricon from BOTH sides. MUST stay identical to
+    // parseRawSalesReport in app.js - tools/derive-parity-test.js diffs them.
+    const _MY_EXCL_DERIVE = /sentricon/i;
+    const _myEligible = ss.filter(s => !_MY_EXCL_DERIVE.test(s.subscription || ''));
+    const multiYears = _myEligible.filter(s => s.contract >= 18).length;
+    const twelveMonth = _myEligible.filter(s => s.contract === 12).length;
     const autoPayCount = ss.filter(s => s.autoPay && s.autoPay !== 'No').length;
     const auditFail = ss.filter(s => /failed\s*audit/i.test(s.customerFlags || '')).length;
     const lastResort = ss.filter(s => (Number(s.initialPrice) || 0) < 99).length;
