@@ -47320,7 +47320,9 @@ function adminUploads() {
   const tab = state._adminSubTab;
 
   const toggle = el('div', { class: 'flex items-center gap-1 p-1 rounded-lg', style: { background: 'var(--card-2)', width: 'fit-content' } },
-    ...[['history', 'Upload History'], ['activity', 'App Activity'], ['archive', '📚 Monthly Archive'], ['integrity', '🧪 Data Integrity'], ['hygiene', '🧹 Data Hygiene']].map(([k, label]) => el('button', {
+    // Data Integrity + Data Hygiene merged into ONE tab (per Isaac) - both
+    // were "what is the data doing wrong", split for no real reason.
+    ...[['history', 'Upload History'], ['activity', 'App Activity'], ['archive', 'Monthly Archive'], ['integrity', 'Data Integrity']].map(([k, label]) => el('button', {
       class: 'px-3.5 py-1.5 rounded-md text-sm font-semibold transition',
       style: tab === k
         ? { background: 'var(--card)', color: 'var(--text)', boxShadow: 'var(--shadow-sm)' }
@@ -47346,11 +47348,11 @@ function adminUploads() {
       ? adminBackup()
       : tab === 'archive'
         ? monthlyArchivePanel()
-        : tab === 'integrity'
-          ? dataIntegrityPanel()
-          : tab === 'hygiene'
-            ? adminDataHygiene()
-            : reportingUploadsPanel(),
+        // The old 'hygiene' key still lands here, so a stale _adminSubTab
+        // does not silently fall through to Upload History.
+        : (tab === 'integrity' || tab === 'hygiene')
+          ? el('div', { class: 'flex flex-col gap-4' }, dataIntegrityPanel(), adminDataHygiene())
+          : reportingUploadsPanel(),
   );
 }
 
@@ -47513,6 +47515,11 @@ function monthlyArchivePanel() {
         el('div', { class: 'px-4 py-2.5 flex items-center justify-between border-b flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
           el('div', { class: 'text-sm font-bold' }, '📚 ' + snap.period),
           el('div', { class: 'flex items-center gap-2' },
+            el('span', {
+              class: 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded',
+              style: { background: 'rgba(95,138,31,.14)', color: '#5F8A1F' },
+              title: 'Written once, on the first nightly run after the month closed, and never rewritten. Later changes to these accounts do not move these numbers.',
+            }, 'Locked'),
             el('span', { class: 'text-[10px] text-muted-' }, 'captured ' + new Date(snap.generatedAt).toLocaleDateString()),
             el('button', {
               class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
@@ -47548,16 +47555,21 @@ function monthlyArchivePanel() {
         listWrap.append(el('span', {}, 'No snapshots yet — the next nightly sync backfills every closed month in the dataset automatically.'));
         return;
       }
-      listWrap.className = 'card p-3 flex flex-wrap gap-1.5';
-      files.forEach((f, i) => {
-        const per = f.name.replace('metrics-', '').replace('.json.gz', '');
-        listWrap.append(el('button', {
-          class: 'rounded-full border px-3 py-1 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-          onclick: () => showSnap(f.name),
-        }, new Date(per + '-01T00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })));
-        if (i === 0) showSnap(f.name);     // newest month opens by default
-      });
+      // One dropdown instead of a wall of chips - this list only grows.
+      listWrap.className = 'card p-3 flex items-center gap-2 flex-wrap';
+      const _perOf = (f) => f.name.replace('metrics-', '').replace('.json.gz', '');
+      const _label = (per) => new Date(per + '-01T00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      listWrap.append(
+        el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Month'),
+        el('select', {
+          class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+          style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          onchange: (e) => showSnap(e.target.value),
+        }, ...files.map((f, i) => el('option', { value: f.name, selected: i === 0 },
+          _label(_perOf(f)) + (i === 0 ? '  (latest)' : '')))),
+        el('span', { class: 'text-[11px] text-muted-' },
+          files.length + ' month' + (files.length === 1 ? '' : 's') + ' archived, back to ' + _label(_perOf(files[files.length - 1]))));
+      showSnap(files[0].name);   // newest closed month opens by default
     } catch (e) {
       listWrap.innerHTML = '';
       listWrap.append(el('span', { style: { color: '#DC2626' } }, 'Archive list failed — ' + (e.message || e)));
