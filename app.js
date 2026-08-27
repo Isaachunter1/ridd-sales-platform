@@ -29495,17 +29495,24 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const officeFilter = state._indicatorRepOfficeFilter;
   let teamFilter   = state._indicatorRepTeamFilter;
   let tierFilter   = state._indicatorRepTierFilter;
-  // "Unassigned" only exists while some ACTIVE rep actually lacks a tier /
-  // team (inactive reps never make the board, so they don't count — per
-  // Isaac). If a stale Unassigned filter would strand the board on
-  // "0 of N reps", clear it.
-  const _activeUnassignedTier = allReps.some(r => !r.tier && isRepActive(r.name));
-  const _activeUnassignedTeam = allReps.some(r => !r.team && isRepActive(r.name));
+  // "Unassigned" only exists while some rep ON THE BOARD actually lacks a
+  // tier / team. Inactive reps now make the board (they sold in range), so
+  // they count here too. If a stale Unassigned filter would strand the
+  // board on "0 of N reps", clear it.
+  const _activeUnassignedTier = allReps.some(r => !r.tier);
+  const _activeUnassignedTeam = allReps.some(r => !r.team);
   if (tierFilter === '__unassigned__' && !_activeUnassignedTier) tierFilter = state._indicatorRepTierFilter = '';
   if (teamFilter === '__unassigned__' && !_activeUnassignedTeam) teamFilter = state._indicatorRepTeamFilter = '';
   const nameSearch   = (state._indicatorRepNameSearch || '').trim().toLowerCase();
   const filteredReps = allReps.filter(r => {
-    if (!isRepActive(r.name)) return false;
+    // NO active-status gate here, per Isaac: if a rep sold accounts inside
+    // the selected range they belong on the board, whether or not they are
+    // still selling. allReps is built from in-range sales, so this is
+    // already "everyone with production". A rep who churned mid-season kept
+    // their revenue out of YTD totals and made the board silently disagree
+    // with the CRM. Inactive reps are badged instead of hidden. Coach flags
+    // and the Kobe board still skip them - those are about who to work with
+    // now, not who produced.
     if (officeFilter && r.office !== officeFilter) return false;
     if (teamFilter) {
       if (teamFilter === '__unassigned__') { if (r.team) return false; }
@@ -29924,6 +29931,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                     class: 'text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0',
                     style: { background: tierMeta.color + '18', color: tierMeta.color },
                   }, tierMeta.label),
+                  (typeof isRepActive === 'function' && !isRepActive(r.name)) && el('span', {
+                    class: 'text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0',
+                    style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
+                    title: 'No sale within 75 days of the latest sale in the dataset. Still on the board because they sold inside this range.',
+                  }, 'Inactive'),
                   el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(r.revenue)),
                 ),
                 // Sales pace right under the revenue. (Team + office names
