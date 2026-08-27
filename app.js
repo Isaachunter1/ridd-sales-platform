@@ -50174,8 +50174,9 @@ async function applyFieldRoutesLink(profileId, empId) {
 }
 // Flip an app user's active state (Users screen inline toggle). Guards against
 // an admin locking themselves out.
-// One-press password-reset email — shared by the user editor's 🔑 button,
-// the row 🔑 action, and the activate flow below.
+// One-press password-reset email — used by the user editor's Send Reset
+// Link button and the activate flow below. (The row-level 🔑 was retired;
+// resets live inside Edit User now.)
 async function sendPasswordResetLink(email) {
   if (!email) { toast('No email on file for this user.', 'error'); return false; }
   if (typeof DEMO !== 'undefined' && DEMO) { toast('Demo mode — would email a password reset link to ' + email, 'info'); return true; }
@@ -50616,16 +50617,9 @@ function adminReps() {
       el('td', { class: 'px-3 py-3 text-center' },
         el('button', { title: active ? 'Click to deactivate' : 'Click to activate (offers a reset-link email)', onclick: () => setProfileActive(p, !active) }, statusChip(active))),
       el('td', { class: 'px-3 py-3 text-right whitespace-nowrap' },
-        el('button', {
-          class: 'text-xs px-2.5 py-1.5 rounded-lg border border- text-muted- hover:text-default transition mr-1.5',
-          title: 'Email ' + (p.email || 'this user') + ' a password-reset link',
-          onclick: async (e) => {
-            if (!confirm('Email ' + (p.email || 'this user') + ' a password-reset link?')) return;
-            const b = e.currentTarget; b.disabled = true;
-            await sendPasswordResetLink(p.email);
-            b.disabled = false;
-          },
-        }, '🔑'),
+        // Row-level password-reset button retired (per Isaac) - the reset
+        // link lives in Edit User (sendPasswordResetLink via the editor's
+        // Send Reset Link button), so the row stays one action wide.
         el('button', { class: 'text-xs px-3 py-1.5 rounded-lg border border- text-muted- hover:text-default transition', onclick: () => openUserEditor(p) }, 'Edit')));
   };
   const rosterRow = (x) => {
