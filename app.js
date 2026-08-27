@@ -51147,7 +51147,9 @@ function openUserEditor(existing = null, prefill = null) {
   const header = el('div', { class: 'px-6 pt-6 pb-4' },
     el('div', { class: 'flex items-center justify-between mb-4' },
       el('h2', { class: 'text-xl font-bold' }, existing ? 'Edit User' : 'New User'),
-      el('button', { type: 'button', class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×'),
+      el('div', { class: 'flex items-center gap-4' },
+        activeToggle,
+        el('button', { type: 'button', class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×')),
     ),
     el('button', {
       type: 'button',
@@ -51329,24 +51331,9 @@ function openUserEditor(existing = null, prefill = null) {
     })(),
   );
 
-  // ── Footer with Save, Cancel, Active toggle ──
-  const removeBtn = (existing && existing.id !== state.profile.id) ? el('button', {
-    type: 'button',
-    class: 'px-4 py-2 rounded-lg text-xs font-semibold border hover:border-red-500 hover:text-red-500 transition',
-    style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-    onclick: () => {
-      if (!confirm('Remove ' + existing.full_name + '?')) return;
-      if (DEMO) {
-        state.allProfiles = state.allProfiles.filter(x => x.id !== existing.id);
-        toast('Removed', 'success');
-        saveDemoData();
-        overlay.remove();
-        mountApp();
-        return;
-      }
-      toast('Users with active auth accounts must be removed via Supabase Auth.', 'warn');
-    },
-  }, 'Remove User') : null;
+  // ── Footer ──
+  // (Remove User retired, per Isaac: users are deactivated and reactivated,
+  // never removed - history and sales attribution stay intact.)
 
   // ── Send Password Reset — fires Supabase's recovery-email flow.
   // Different from Resend Invite: that gets a passwordless sign-in link
@@ -51386,78 +51373,17 @@ function openUserEditor(existing = null, prefill = null) {
     },
   }, '🔑 Send Reset Link') : null;
 
-  // ── Resend Invite — generates a fresh magic-link email for an
-  // existing user. Useful when the original invite expired, the
-  // first email went to spam, or the link's `redirect_to` was baked
-  // against an old Supabase Site URL config and now lands on a dead
-  // host. shouldCreateUser is true so the same call works whether the
-  // user already has an auth row or only a pending_invites row. Demo
-  // mode shows the button (so the admin can see + test the placement)
-  // but short-circuits to a toast instead of a real Supabase call.
-  const resendBtn = existing ? el('button', {
-    type: 'button',
-    class: 'px-4 py-2 rounded-lg text-xs font-semibold border transition hover:brightness-95',
-    style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
-    onclick: async (e) => {
-      const btn = e.currentTarget;
-      if (!existing.email) {
-        toast('No email on file for this user.', 'error');
-        return;
-      }
-      if (!confirm('Send a new sign-in email to ' + existing.email + '?')) return;
-      if (DEMO) {
-        toast('Demo mode — would resend invite to ' + existing.email + ' in production', 'info');
-        return;
-      }
-      btn.disabled = true;
-      const originalText = btn.textContent;
-      btn.textContent = 'Sending…';
-      try {
-        // Refresh the pending_invites row so handle_new_user() has
-        // up-to-date columns to copy if this is still a first-time
-        // signup. Safe no-op if the user already exists in profiles.
-        await supabase.from('pending_invites').upsert({
-          email:               existing.email,
-          full_name:           existing.full_name,
-          role:                existing.role,
-          office_id:           existing.office_id ?? null,
-          initials:            existing.initials ?? null,
-          avatar_url:          existing.avatar_url ?? null,
-          annual_revenue_goal: existing.annual_revenue_goal ?? null,
-          created_by:          state.profile.id,
-        }, { onConflict: 'email' });
-        const { error: otpErr } = await supabase.auth.signInWithOtp({
-          email: existing.email,
-          options: {
-            shouldCreateUser: true,
-            emailRedirectTo: authEmailRedirectUrl(),
-            data: { full_name: existing.full_name },
-          },
-        });
-        if (otpErr) throw otpErr;
-        toast('Invite re-sent to ' + existing.email, 'success');
-      } catch (err) {
-        // Supabase rate-limits OTPs per email — surface the message
-        // verbatim so the admin sees "Email rate limit exceeded" etc.
-        toast(err.message || 'Could not resend invite', 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = originalText;
-      }
-    },
-  }, '↻ Resend Invite') : null;
+  // (Resend Invite retired, per Isaac. It emailed a passwordless magic
+  // sign-in link - the first-login flow from before admins created users
+  // WITH passwords. Send Reset Link covers every remaining case: the rep
+  // lands on a page and picks a password. A profile with NO auth login at
+  // all is surfaced by the update path's 404, which points the admin at
+  // create-with-password.)
 
-  const footer = el('div', { class: 'px-6 py-4 border-t flex items-center justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
-    el('div', { class: 'flex gap-2 flex-wrap' },
-      el('button', { type: 'submit', class: 'px-5 py-2 rounded-lg font-semibold text-sm', style: { background: '#1D1D1D', color: '#F3F3F3' } }, 'Save'),
-      el('button', { type: 'button', class: 'px-5 py-2 rounded-lg font-semibold text-sm border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => overlay.remove() }, 'Cancel'),
-      resendBtn,
-      resetBtn,
-    ),
-    el('div', { class: 'flex items-center gap-3' },
-      activeToggle,
-      removeBtn,
-    ),
+  const footer = el('div', { class: 'px-6 py-4 border-t flex items-center gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
+    el('button', { type: 'submit', class: 'px-5 py-2 rounded-lg font-semibold text-sm', style: { background: '#1D1D1D', color: '#F3F3F3' } }, 'Save'),
+    el('button', { type: 'button', class: 'px-5 py-2 rounded-lg font-semibold text-sm border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => overlay.remove() }, 'Cancel'),
+    resetBtn,
   );
 
   form.append(header, avatarSection, body, footer);
