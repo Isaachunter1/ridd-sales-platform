@@ -25684,6 +25684,10 @@ function viewIndicators() {
   const rawSalesAvailable = Array.isArray(state._indicatorRawSales) && state._indicatorRawSales.length > 0;
   // Company rollup (RPS / RPC) is ADMIN-ONLY — heal the state for anyone else.
   if (state.indicatorsGroupBy === 'company' && !isAdminRole(state.profile?.role)) state.indicatorsGroupBy = 'branch';
+  // Department grouping was retired from the filters panel (per Isaac). Heal
+  // any saved preset or persisted session still holding it, otherwise the
+  // page would sit in a mode the dropdown can no longer show or leave.
+  if (state.indicatorsGroupBy === 'dept') state.indicatorsGroupBy = 'branch';
   const wantTeams = state.indicatorsGroupBy === 'teams';
   const wantDept  = state.indicatorsGroupBy === 'dept';
   const wantCompany = state.indicatorsGroupBy === 'company';
@@ -26359,7 +26363,6 @@ function viewIndicators() {
           },
             el('option', { value: 'branch', selected: _staged.group === 'branch' }, 'Branch / Office'),
             el('option', { value: 'teams', selected: _staged.group === 'teams' }, 'Teams'),
-            el('option', { value: 'dept', selected: _staged.group === 'dept' }, 'Department'),
             isAdminRole(state.profile?.role) ? el('option', { value: 'company', selected: _staged.group === 'company' }, 'Company (RPS / RPC)') : null,
           );
           const panel = el('div', {
@@ -26375,7 +26378,7 @@ function viewIndicators() {
                 class: 'rounded-xl px-3 py-2.5 text-xs font-bold border transition hover:brightness-95 w-full',
                 style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
                 onclick: () => {
-                  if ((_staged.group === 'teams' || _staged.group === 'dept') && (!rawSalesAvailable || state.indicatorsComps)) {
+                  if (_staged.group === 'teams' && (!rawSalesAvailable || state.indicatorsComps)) {
                     toast(state.indicatorsComps ? 'Competitions are branch-level — turn Comps off first' : 'This grouping needs a raw-sales upload', 'warn');
                     return;
                   }
