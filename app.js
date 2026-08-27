@@ -50908,14 +50908,22 @@ function openUserEditor(existing = null, prefill = null) {
       // as "no goal" by the leaderboard rendering.
       const seller = isSellerRole(data.role);
       const goalParsed = parseFloat(data.annual_revenue_goal);
+      // Blank keeps whatever the rep already has; a NEW user starts at 0,
+      // which the app already renders as "no goal" (the column is NOT NULL).
+      // The old 250k default is gone (per Isaac) - goals are set on purpose.
       const annualGoal = !seller ? 0
         : Number.isFinite(goalParsed) ? goalParsed
-        : (existing?.annual_revenue_goal ?? 250000);
+        : (existing?.annual_revenue_goal ?? 0);
       const payload = {
         full_name: data.full_name,
         email: data.email,
         role: data.role,
-        initials: data.initials || null,
+        // Initials input retired (per Isaac) - they only feed the avatar
+        // fallback, so keep what's stored or derive from the name, same as
+        // the leaderboard does for CRM-only sellers.
+        initials: existing?.initials
+          || String(data.full_name || '').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase()
+          || null,
         avatar_url: modal.avatar_url || null,
         annual_revenue_goal: annualGoal,
         is_active: modal.is_active,
@@ -50928,7 +50936,9 @@ function openUserEditor(existing = null, prefill = null) {
         // Loyalty Pay and Other Pay are edited inline on the Pay tab now —
         // preserve whatever's already on the rep record here.
         rep_type: data.rep_type || 'sales_rep',
-        golden_phone_amount:    parseFloat(data.golden_phone_amount)    || 0,
+        // No editor field any more - preserve what's on the record so a
+        // routine profile save can never wipe a rep's Golden Phone amount.
+        golden_phone_amount:    existing?.golden_phone_amount ?? 0,
         loyalty_royalty_amount: parseFloat(data.loyalty_royalty_amount) || 0,
         loyalty_pay_amount:     existing?.loyalty_pay_amount ?? 0,
         other_pay_amount:       existing?.other_pay_amount ?? 0,
@@ -51239,14 +51249,13 @@ function openUserEditor(existing = null, prefill = null) {
         ),
         el('div', { class: 'text-[10px] text-muted- mt-1' }, 'Blank = 7% standard · 0.5 bump = 7.5% total'),
       );
-      const annualGoalRow = mk('Annual Revenue Goal ($)', inp('annual_revenue_goal', {
+      const annualGoalRow = mk('Revenue Goal ($)', inp('annual_revenue_goal', {
         type: 'number', min: 0, step: 1000,
         // Editing an existing rep keeps their current goal; New User is blank
         // so the admin sets it intentionally instead of inheriting a default.
         value: existing?.annual_revenue_goal ?? '',
         placeholder: 'e.g. 500000',
       }));
-      const initialsRow = mk('Initials', inp('initials', { maxlength: 4, value: existing?.initials || '' }));
 
       const applyRoleVisibility = () => {
         const seller = isSellerRole(roleSelect.value);
@@ -51262,7 +51271,6 @@ function openUserEditor(existing = null, prefill = null) {
       wrapper.append(
         mk('User Role', roleSelect),
         commissionRow,
-        initialsRow,
         annualGoalRow,
       );
       return wrapper;
@@ -51288,23 +51296,18 @@ function openUserEditor(existing = null, prefill = null) {
       );
 
       // Pay Stub rows that live HERE in Edit User are the fixed quarterly
-      // additives an admin sets ahead of time per rep:
-      //   Sales Rep  → Golden Phone
-      //   Loyalty Rep → Loyalty Royalty
-      // Loyalty Pay and Other Pay moved to the Pay tab so they can be
-      // edited inline period-by-period (Other Pay supports negatives for
-      // deductions / reimbursements).
-      const goldenPhoneRow    = mk('Golden Phone',    moneyInp('golden_phone_amount',    existing?.golden_phone_amount));
+      // additives an admin sets ahead of time per rep. Golden Phone's input
+      // was retired (per Isaac) - the stub still SHOWS any stored amount,
+      // and the save path preserves it, but sales reps get no editor field.
+      // Loyalty Rep keeps Loyalty Royalty.
       const loyaltyRoyaltyRow = mk('Loyalty Royalty', moneyInp('loyalty_royalty_amount', existing?.loyalty_royalty_amount));
 
       const grid = el('div', { class: 'flex flex-col gap-3' });
       const applyRepTypeVisibility = () => {
-        const isLoyalty = repTypeSelect.value === 'loyalty_rep';
-        goldenPhoneRow.style.display    = isLoyalty ? 'none' : '';
-        loyaltyRoyaltyRow.style.display = isLoyalty ? '' : 'none';
+        loyaltyRoyaltyRow.style.display = repTypeSelect.value === 'loyalty_rep' ? '' : 'none';
       };
       repTypeSelect.addEventListener('change', applyRepTypeVisibility);
-      grid.append(goldenPhoneRow, loyaltyRoyaltyRow);
+      grid.append(loyaltyRoyaltyRow);
 
       const section = el('div', { class: 'flex flex-col gap-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
         el('h4', { class: 'text-[11px] uppercase tracking-widest font-bold text-muted-' }, 'Pay Stub'),
