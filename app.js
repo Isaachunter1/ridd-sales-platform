@@ -24637,6 +24637,19 @@ function manageTeamsPanel(opts) {
           onclick: () => exportTiersXlsx(),
           title: 'Download a flat list of every rep + their Rookie/Vet tier and FieldRoutes id — to load into the CRM',
         }, '🏷 Tiers'),
+        // Moved here from the Indicators top bar (per Isaac). Uses the
+        // grouping + timeframe of the Indicators render that stashed the
+        // context, so it reports on exactly what that page is showing.
+        (typeof state._indTeamReportCtx === 'function') && el('button', {
+          class: 'rounded-lg border px-3 py-1.5 text-xs font-semibold transition hover:brightness-95',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          onclick: () => {
+            const ctx = state._indTeamReportCtx && state._indTeamReportCtx();
+            if (!ctx) { toast('Open the Indicators tab first so the report has a timeframe', 'warn'); return; }
+            openTeamReportsModal(ctx);
+          },
+          title: 'Download a PDF report per team (Teams mode) or per branch (Branch mode), for the timeframe currently set on Indicators',
+        }, '📄 Reports'),
         embedded ? null : el('button', {
           class: 'rounded-lg border px-3 py-1.5 text-xs',
           style: { borderColor: 'var(--border-2)' },
@@ -24876,6 +24889,34 @@ function manageTeamsPanel(opts) {
           el('span', { class: 'text-[10px] text-muted- italic' },
             'Auto-detected — nickname/prefix pairs, plus same-letters spellings (\u201cLeSueur\u201d vs \u201cLe Sueur\u201d) that are SPLITTING one rep\u2019s revenue. Merge folds the left name into the right.'),
         ),
+        // Order-flips ("Aaron Morse" vs "Morse, Aaron") are the SAME tokens in
+        // a different order - one human, certainly, and historically the bulk
+        // of this list. Clear them in one action instead of N clicks; keeper is
+        // the "Last, First" form the sales data uses.
+        (() => {
+          const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+          const flips = dupePairs.filter(pr => _sig(pr.bad) === _sig(pr.good));
+          if (flips.length < 2) return null;
+          return el('button', {
+            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold shrink-0 transition hover:brightness-95',
+            style: { background: '#C28A1F', color: '#fff' },
+            title: 'Same name, different word order. Keeps the "Last, First" spelling the sales data uses.',
+            onclick: () => {
+              if (!confirm('Merge ' + flips.length + ' name pairs that differ only in word order?\n\nExample: ' + flips[0].bad + '  ->  ' + flips[0].good + '\n\nReversible per rep from the alias list.')) return;
+              let n = 0;
+              flips.forEach(pr => {
+                // Prefer the sales-data shape as the survivor.
+                const goodHasComma = pr.good.includes(','), badHasComma = pr.bad.includes(',');
+                const keep = (badHasComma && !goodHasComma) ? pr.bad : pr.good;
+                const drop = (keep === pr.bad) ? pr.good : pr.bad;
+                if (keep !== drop && mergeDuplicateRep(drop, keep)) n++;
+              });
+              saveIndicatorState();
+              toast('Merged ' + n + ' order-flipped name' + (n === 1 ? '' : 's'), 'success');
+              render();
+            },
+          }, 'Merge all ' + flips.length + ' order-flips');
+        })(),
       ),
       el('div', { class: 'flex flex-col gap-1.5' },
         ...dupePairs.map(({ bad, good }) => el('div', {
@@ -25365,13 +25406,29 @@ function manageTeamsPanel(opts) {
       const candidatesFor = (rep) => {
         const score = new Map();
         _toks(rep).forEach(t => (crmByToken.get(t) || []).forEach(e => score.set(e, (score.get(e) || 0) + 1)));
-        return [...score.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e).slice(0, 8);
+        // At least TWO name parts must match. Scoring on ONE shared token made
+        // every "Alex ..." a candidate for Alex Wilson - and the top candidate
+        // is pre-selected next to a Link button that folds the rep's sales into
+        // whoever is chosen. A shared surname is not evidence of the same human,
+        // and a wrong Link is far more expensive than an unmatched name.
+        return [...score.entries()].filter(([, hits]) => hits >= 2)
+          .sort((a, b) => b[1] - a[1]).map(([e]) => e).slice(0, 8);
       };
       const unmatched = [...appNames].filter(n => n && !getRepAliasTarget(n) && !crmSigSet.has(_nameSig(n))).sort((a, b) => a.localeCompare(b));
       const withCand = [], noCand = [];
       unmatched.forEach(n => { (candidatesFor(n).length ? withCand : noCand).push(n); });
       const open = !!state._indicatorCrmLinkOpen;
       const empById = new Map(state.frRoster.map(e => [String(e.employee_id), e]));
+      // Link used to rename the rep to _frEmpName(), which is "First Last".
+      // The sales data is "Last, First", so every link created a second
+      // spelling of the same human that then showed up in the duplicates
+      // list - the Link feature was manufacturing its own backlog. Write
+      // back in the sales-data shape instead.
+      const _frEmpNameLF = (e) => {
+        const ln = String(e.lname || '').trim();
+        const fn = String((e.nickname || e.fname) || '').trim();
+        return (ln && fn) ? (ln + ', ' + fn) : ((typeof _frEmpName === 'function') ? _frEmpName(e) : '');
+      };
       const rowFor = (rep) => {
         const cands = candidatesFor(rep);
         const sel = el('select', { class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)', maxWidth: '260px' } },
@@ -25381,7 +25438,7 @@ function manageTeamsPanel(opts) {
           el('div', { class: 'flex items-center gap-2 shrink-0' },
             el('span', { class: 'text-[10px] text-muted-' }, '→'), sel,
             el('button', { class: 'rounded-md px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-              onclick: () => { const e = empById.get(sel.value); if (e) { mergeDuplicateRep(rep, _frEmpName(e)); toast('Linked to ' + _frEmpName(e), 'success'); render(); } } }, 'Link')));
+              onclick: () => { const e = empById.get(sel.value); if (e) { const _tgt = _frEmpNameLF(e); mergeDuplicateRep(rep, _tgt); toast('Linked to ' + _tgt, 'success'); render(); } } }, 'Link')));
       };
       crmLinkPanel = el('div', { class: 'border-b', style: { borderColor: 'var(--border)', background: open ? 'rgba(13,148,136,.05)' : 'transparent' } },
         el('button', { class: 'w-full flex items-center justify-between gap-2 px-5 py-2.5 cursor-pointer', style: { background: 'transparent' },
@@ -26519,56 +26576,17 @@ function viewIndicators() {
         // Manual-data mode (admin, THIS browser only): upload the CRM's
         // SalesReport CSV and pin the whole Indicators tab to it — a
         // side-by-side truth check against the sync. Amber pill = active.
-        !_repLite && isAdminRole(state.profile?.role) && (() => {
-          const inp = el('input', { type: 'file', accept: '.csv,text/csv', style: { display: 'none' } });
-          inp.addEventListener('change', () => {
-            const f = inp.files && inp.files[0];
-            if (!f) return;
-            const rd = new FileReader();
-            rd.onload = () => {
-              try { _indManualApply(String(rd.result || ''), f.name); }
-              catch (e) { toast('Manual CSV failed: ' + ((e && e.message) || e), 'error'); }
-            };
-            rd.readAsText(f);
-            inp.value = '';
-          });
-          if (state._indManualMode) {
-            return el('span', { class: 'flex items-center gap-1' }, inp,
-              el('button', {
-                class: 'rounded-xl px-3 py-2 text-xs font-bold transition hover:brightness-95',
-                style: { background: 'rgba(240,172,30,.18)', color: '#B45309', border: '1px solid rgba(240,172,30,.45)' },
-                title: 'Manual sheet is ON — Indicators read ' + (state.indicatorsFileName || 'your saved sheet') + ' on THIS browser only (sync paused). Click to flip back to synced data.',
-                onclick: () => _indManualRevert(),
-              }, 'MANUAL ON'),
-              el('button', {
-                class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
-                style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-                title: 'Replace the saved manual sheet with a fresh CSV export',
-                onclick: () => inp.click(),
-              }, '⬆'));
-          }
-          return el('span', {}, inp, el('button', {
-            class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
-            style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-            title: 'Flip Indicators to your saved manual sheet — a separate backend dataset for quick accurate runs, independent of the sync (this browser only). First use asks for a CSV; after that it\'s a pure on/off toggle. Use ⬆ while ON to swap in a fresh export.',
-            onclick: () => _indManualToggle(inp),
-          }, 'Manual'));
-        })(),
-        // PDF reports — one per team (Teams mode) or one per branch
-        // (Branch mode). buildTeamReportNode dispatches its grouping on
-        // ctx.groupMode below; in Branch mode it aggregates by s.office,
-        // in Teams mode it walks getRepTeam through Manage Teams.
-        !_repLite && el('button', {
-          class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-          onclick: () => {
-            const weeksInScope = isRange
-              ? new Set(data.map(r => r.week))
-              : new Set([currentWeek]);
+        // PDF reports now live inside Manage Teams (per Isaac). The button
+        // there needs this view's grouping + windowed sales, which only exist
+        // in this closure, so stash a builder the panel can call. Rebuilt on
+        // every Indicators render, so it always reflects the current timeframe.
+        (() => {
+          state._indTeamReportCtx = !_repLite ? () => {
+            const weeksInScope = isRange ? new Set(data.map(r => r.week)) : new Set([currentWeek]);
             const applyExclusion = state.indicatorsGroupBy === 'teams';
-            const windowedRawSales = (state._indicatorRawSales || []).filter(s =>
-              (!applyExclusion || !isRepExcluded(s.rep)) && weeksInScope.has(s.week));
-            openTeamReportsModal({
+            const windowedRawSales = (state._indicatorRawSales || []).filter(s2 =>
+              (!applyExclusion || !isRepExcluded(s2.rep)) && weeksInScope.has(s2.week));
+            return {
               branches, branchData, rankings, powerRanking,
               rawSales: windowedRawSales,
               chartBuckets: buildReportBuckets(windowedRawSales),
@@ -26576,12 +26594,10 @@ function viewIndicators() {
               windowLabel: isRange
                 ? indicatorPresetLabel(state.indicatorsRangePreset)
                 : indicatorWeekLabel(currentWeek, { short: true }),
-            });
-          },
-          title: groupBy === 'teams'
-            ? 'Download a PDF report per team (current timeframe)'
-            : 'Download a PDF report per branch (current timeframe)',
-        }, '📄'),
+            };
+          } : null;
+          return null;
+        })(),
         // CSV menu — import a fresh sales report or export the current
         // by-branch/team table (with a pulled-at timestamp up top).
         !_repLite && (() => {
