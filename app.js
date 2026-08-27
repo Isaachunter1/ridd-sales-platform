@@ -25591,6 +25591,7 @@ const IND_PRESET_KEYS = [
   '_indRepRevMode',
   '_indHiddenMetrics',
   '_indHiddenLbCols',
+  '_indicatorRepPick',           // a partner's hand-picked downline (null = everyone)
 ];
 // Presets are PER USER (per Isaac): stored on this device under the
 // signed-in account, so everyone builds their own set.
@@ -29571,7 +29572,17 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   if (tierFilter === '__unassigned__' && !_activeUnassignedTier) tierFilter = state._indicatorRepTierFilter = '';
   if (teamFilter === '__unassigned__' && !_activeUnassignedTeam) teamFilter = state._indicatorRepTeamFilter = '';
   const nameSearch   = (state._indicatorRepNameSearch || '').trim().toLowerCase();
+  // ── Rep pick (a "downline") ─────────────────────────────────────────────
+  // Partners run downlines that cut across teams, so team/office filters
+  // cannot express them. An explicit rep list can. Empty = everyone, so the
+  // board behaves exactly as before until someone picks. Saved per user via
+  // the Presets ribbon (_indicatorRepPick is in IND_PRESET_KEYS), which is
+  // keyed on profile id and synced through user_prefs - one partner's
+  // downline never leaks onto another's screen.
+  const _pickArr = Array.isArray(state._indicatorRepPick) ? state._indicatorRepPick.filter(Boolean) : null;
+  const repPick = (_pickArr && _pickArr.length) ? new Set(_pickArr) : null;
   const filteredReps = allReps.filter(r => {
+    if (repPick && !repPick.has(r.name)) return false;
     // NO active-status gate here, per Isaac: if a rep sold accounts inside
     // the selected range they belong on the board, whether or not they are
     // still selling. allReps is built from in-range sales, so this is
@@ -29697,6 +29708,60 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               });
             },
           }),
+          // Rep picker — check specific reps to build a downline view.
+          (() => {
+            const btn = el('button', {
+              class: 'rounded-lg border px-3 py-2.5 text-xs font-semibold transition hover:brightness-95 whitespace-nowrap',
+              style: { borderColor: repPick ? 'var(--accent)' : 'var(--border-2)', color: repPick ? 'var(--accent)' : 'var(--text)' },
+              title: 'Pick specific reps (a downline). Save the selection with the Presets ribbon on the left edge.',
+              onclick: (e) => { e.stopPropagation(); state._indRepPickOpen = !state._indRepPickOpen; mountApp(); },
+            }, repPick ? (repPick.size + ' reps picked') : 'Pick reps');
+            if (!state._indRepPickOpen) return el('span', { style: { position: 'relative' } }, btn);
+            const setPick = (arr) => {
+              state._indicatorRepPick = (arr && arr.length) ? arr : null;
+              mountApp();
+            };
+            const cur = new Set(_pickArr || []);
+            const panel = el('div', {
+              class: 'card',
+              style: { position: 'absolute', left: '0', top: 'calc(100% + 6px)', zIndex: '60', width: '260px', padding: '8px', boxShadow: 'var(--shadow-lg)' },
+            },
+              el('div', { class: 'flex items-center justify-between gap-2 px-1 pb-2' },
+                el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Downline'),
+                el('div', { class: 'flex items-center gap-2' },
+                  el('button', { class: 'text-[10px] font-bold', style: { color: 'var(--text-muted)', background: 'transparent' },
+                    onclick: () => setPick(null) }, 'Clear'))),
+              // Typing filters the list IN PLACE so the input keeps focus on a
+              // big roster - same trick the leaderboard search uses.
+              el('input', {
+                type: 'text', placeholder: 'Find a rep\u2026',
+                class: 'rounded-lg border px-2 py-1.5 text-xs w-full',
+                style: { borderColor: 'var(--border-2)' },
+                oninput: (e) => {
+                  const q = (e.target.value || '').trim().toLowerCase();
+                  document.querySelectorAll('[data-reppick]').forEach(row => {
+                    const n = row.getAttribute('data-reppick') || '';
+                    row.style.display = (!q || n.includes(q)) ? '' : 'none';
+                  });
+                },
+              }),
+              el('div', { class: 'flex flex-col mt-1.5', style: { maxHeight: '240px', overflowY: 'auto' } },
+                ...allReps.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(r => {
+                  const cb = el('input', { type: 'checkbox', style: { cursor: 'pointer', flexShrink: '0' } });
+                  cb.checked = cur.has(r.name);
+                  cb.onchange = () => {
+                    if (cb.checked) cur.add(r.name); else cur.delete(r.name);
+                    setPick([...cur]);
+                  };
+                  return el('label', {
+                    'data-reppick': (r.name || '').toLowerCase(),
+                    class: 'flex items-center gap-2 px-1 py-1.5 rounded-lg cursor-pointer text-xs',
+                  }, cb, el('span', { class: 'truncate' }, r.name));
+                })),
+              el('div', { class: 'text-[10px] text-muted- px-1 pt-2' },
+                'Save this selection from the Presets ribbon on the left edge.'));
+            return el('span', { style: { position: 'relative' } }, btn, panel);
+          })(),
           // Admin-only: row-level reconcile against a pasted CRM SalesReport
           // export — names the exact accounts (and rules) behind any gap
           // between this board and the legacy Sales Leaderboard tool.
