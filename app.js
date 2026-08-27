@@ -50936,9 +50936,10 @@ function openUserEditor(existing = null, prefill = null) {
         // Loyalty Pay and Other Pay are edited inline on the Pay tab now —
         // preserve whatever's already on the rep record here.
         rep_type: data.rep_type || 'sales_rep',
-        // No editor field any more - preserve what's on the record so a
-        // routine profile save can never wipe a rep's Golden Phone amount.
-        golden_phone_amount:    existing?.golden_phone_amount ?? 0,
+        // The field only shows for office-staff roles; a hidden input still
+        // submits its (prefilled) value, and blank falls back to the record
+        // so a save can never silently wipe a stored amount.
+        golden_phone_amount:    Number.isFinite(parseFloat(data.golden_phone_amount)) ? parseFloat(data.golden_phone_amount) : (existing?.golden_phone_amount ?? 0),
         loyalty_royalty_amount: parseFloat(data.loyalty_royalty_amount) || 0,
         loyalty_pay_amount:     existing?.loyalty_pay_amount ?? 0,
         other_pay_amount:       existing?.other_pay_amount ?? 0,
@@ -51299,15 +51300,24 @@ function openUserEditor(existing = null, prefill = null) {
       // additives an admin sets ahead of time per rep. Golden Phone's input
       // was retired (per Isaac) - the stub still SHOWS any stored amount,
       // and the save path preserves it, but sales reps get no editor field.
-      // Loyalty Rep keeps Loyalty Royalty.
+      // Golden Phone is an OFFICE STAFF program (per Isaac) - the top
+      // inside-sales royalty. Sales reps never see the field; office-staff
+      // roles do, unless the rep is typed Loyalty (who get Loyalty Royalty
+      // instead).
+      const goldenPhoneRow    = mk('Golden Phone',    moneyInp('golden_phone_amount',    existing?.golden_phone_amount));
       const loyaltyRoyaltyRow = mk('Loyalty Royalty', moneyInp('loyalty_royalty_amount', existing?.loyalty_royalty_amount));
 
+      const OFFICE_ROLES = new Set(['rep_office', 'rep_office_lead']);
       const grid = el('div', { class: 'flex flex-col gap-3' });
       const applyRepTypeVisibility = () => {
-        loyaltyRoyaltyRow.style.display = repTypeSelect.value === 'loyalty_rep' ? '' : 'none';
+        const isLoyalty = repTypeSelect.value === 'loyalty_rep';
+        const roleSel = form.querySelector('select[name="role"]');
+        const isOffice = roleSel ? OFFICE_ROLES.has(roleSel.value) : false;
+        goldenPhoneRow.style.display    = (isOffice && !isLoyalty) ? '' : 'none';
+        loyaltyRoyaltyRow.style.display = isLoyalty ? '' : 'none';
       };
       repTypeSelect.addEventListener('change', applyRepTypeVisibility);
-      grid.append(loyaltyRoyaltyRow);
+      grid.append(goldenPhoneRow, loyaltyRoyaltyRow);
 
       const section = el('div', { class: 'flex flex-col gap-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
         el('h4', { class: 'text-[11px] uppercase tracking-widest font-bold text-muted-' }, 'Pay Stub'),
@@ -51325,6 +51335,7 @@ function openUserEditor(existing = null, prefill = null) {
         if (!roleSel) return;
         const checkRole = () => {
           section.style.display = (roleSel.value === 'auditor' || roleSel.value === 'admin') ? 'none' : '';
+          applyRepTypeVisibility();   // Golden Phone visibility depends on the role too
         };
         roleSel.addEventListener('change', checkRole);
         checkRole();
