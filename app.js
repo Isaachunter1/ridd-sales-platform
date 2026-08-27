@@ -10798,7 +10798,16 @@ function leaderboardSection(range) {
   // drives the whole page: cards, feed, and leaderboard.
   // Only reps with a recorded sale in the selected window rank — no
   // "No sales" filler rows (on Today that's usually just a name or two).
-  const rows = computeLeaderboard(state.dashLeaderTab, range || getDateRange(state.dashDateRange)).filter(r => r.count > 0);
+  const rowsAll = computeLeaderboard(state.dashLeaderTab, range || getDateRange(state.dashDateRange)).filter(r => r.count > 0);
+  // Per-rep show/hide for this board. Session-only on purpose: a filter you
+  // set and forget is how a rep goes missing without anyone noticing, so it
+  // resets on reload and the button reads "N/M" the whole time it is on.
+  // Keyed on rep_id, falling back to the name for CRM sellers with no app
+  // account (r._noProfile), whose rep_id is synthetic.
+  const _lbKey = (r) => String(r.rep_id || r.full_name || '');
+  if (!(state.dashLeaderHidden instanceof Set)) state.dashLeaderHidden = new Set();
+  const lbHidden = state.dashLeaderHidden;
+  const rows = rowsAll.filter(r => !lbHidden.has(_lbKey(r)));
   const empty = rows.length === 0;
   const repBadges = computeBadges();
 
@@ -10810,13 +10819,52 @@ function leaderboardSection(range) {
     // Header with tabs
     el('div', { class: 'flex items-center justify-between px-4 py-3 flex-wrap gap-3 border-b border-' },
       el('h2', { class: 'text-base font-bold' }, 'Leaderboard'),
-      el('div', { class: 'pill-tabs' },
-        ...[['total','Total'],['new','New'],['renewals','Renewals']].map(([k, label]) =>
-          el('button', {
-            'data-active': state.dashLeaderTab === k,
-            onclick: () => { state.dashLeaderTab = k; mountApp(); },
-          }, label),
+      el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        el('div', { class: 'pill-tabs' },
+          ...[['total','Total'],['new','New'],['renewals','Renewals']].map(([k, label]) =>
+            el('button', {
+              'data-active': state.dashLeaderTab === k,
+              onclick: () => { state.dashLeaderTab = k; mountApp(); },
+            }, label),
+          ),
         ),
+        // Rep filter — add/remove individual reps from the board.
+        (() => {
+          const on = lbHidden.size > 0;
+          const btn = el('button', {
+            class: 'rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+            style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', color: on ? 'var(--accent)' : 'var(--text-muted)' },
+            title: 'Show or hide individual reps on this leaderboard',
+            onclick: (e) => { e.stopPropagation(); state.dashLeaderFilterOpen = !state.dashLeaderFilterOpen; mountApp(); },
+          }, on ? ('Reps ' + rows.length + '/' + rowsAll.length) : 'Reps');
+          if (!state.dashLeaderFilterOpen) return el('span', { style: { position: 'relative' } }, btn);
+          const bulk = (label, color, fn) => el('button', {
+            class: 'text-[10px] font-bold transition hover:brightness-95',
+            style: { color: color, background: 'transparent' },
+            onclick: () => { fn(); mountApp(); },
+          }, label);
+          const panel = el('div', {
+            class: 'card',
+            style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '210px', padding: '8px', boxShadow: 'var(--shadow-lg)' },
+          },
+            el('div', { class: 'flex items-center justify-between gap-2 px-1 pb-2' },
+              el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Show reps'),
+              el('div', { class: 'flex items-center gap-2' },
+                bulk('All', 'var(--accent)', () => lbHidden.clear()),
+                bulk('None', 'var(--text-muted)', () => rowsAll.forEach(r => lbHidden.add(_lbKey(r)))))),
+            rowsAll.length === 0
+              ? el('div', { class: 'px-1 py-2 text-[11px] text-muted-' }, 'No reps with sales in this window.')
+              : el('div', { class: 'flex flex-col', style: { maxHeight: '260px', overflowY: 'auto' } },
+                  ...rowsAll.map(r => {
+                    const k = _lbKey(r);
+                    const cb = el('input', { type: 'checkbox', style: { cursor: 'pointer', flexShrink: '0' } });
+                    cb.checked = !lbHidden.has(k);
+                    cb.onchange = () => { if (cb.checked) lbHidden.delete(k); else lbHidden.add(k); mountApp(); };
+                    return el('label', { class: 'flex items-center gap-2 px-1 py-1.5 rounded-lg cursor-pointer text-xs' },
+                      cb, el('span', { class: 'truncate' }, r.full_name || r.first_name));
+                  })));
+          return el('span', { style: { position: 'relative' } }, btn, panel);
+        })(),
       ),
     ),
     // Table
