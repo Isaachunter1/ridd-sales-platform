@@ -5268,75 +5268,25 @@ function mountApp() {
       // Coach Mode icon — REMOVED from the top bar for now (per Isaac, Jul
       // 2026). The feature itself (computeCoachFlags / openCoachModeModal)
       // is intact — restore by re-adding the icon button here.
-      (() => {
-        const unreadCount = (state.auditLog||[]).filter(e => isNotifEntry(e) && (!state.notifLastSeen || e.timestamp > state.notifLastSeen)).length;
-        const wrap = el('div', { class: 'relative' });
-        const bellBtn = el('button', { class: 'icon-btn show', title: 'Notifications' }, iconBell(18));
-        if (unreadCount > 0) {
-          bellBtn.append(el('span', { class: 'notif-badge' }, unreadCount > 9 ? '9+' : String(unreadCount)));
-        }
-        const dd = buildNotifDropdown();
-        bellBtn.onclick = () => {
-          const willOpen = dd.style.display !== 'block';
-          dd.style.display = willOpen ? 'block' : 'none';
-          // Clicking the bell to OPEN the dropdown counts as "seeing"
-          // everything currently in there — flip notifLastSeen forward
-          // so the badge clears immediately, without making the user
-          // hunt for the dropdown's own "Mark all read" link.
-          if (willOpen && unreadCount > 0) {
-            state.notifLastSeen = new Date().toISOString();
-            saveDemoData();
-            // Drop the badge in place; the next mountApp() (triggered
-            // by any subsequent action) will fully re-render with the
-            // new state. Avoid mountApp() here so the dropdown stays
-            // open instead of being torn down.
-            const badge = bellBtn.querySelector('.notif-badge');
-            if (badge) badge.remove();
-          }
-          if (willOpen) {
-            setTimeout(() => document.addEventListener('mousedown', function closer(e) {
-              if (!dd.contains(e.target) && !bellBtn.contains(e.target)) { dd.style.display='none'; document.removeEventListener('mousedown',closer); }
-            }), 0);
-          }
-        };
-        wrap.append(bellBtn, dd);
-        return wrap;
-      })(),
-      // (theme toggle moved into the ⚙ gear menu)
-      // Manual ↻ sync (admin-only) — back by request, as the escape hatch
-      // when the hourly schedule hiccups. Each pull is a full BigQuery scan
-      // (real money now that billing's on), so the tooltip says so — use it
-      // sparingly; the hourly schedule is the normal path.
-      isAdmin && el('button', {
-        class: 'icon-btn show' + (state._revhawkSyncing ? ' icon-spin' : ''),
-        title: state._revhawkSyncing ? 'Syncing…' : 'Manual sync — refreshes everything: kicks a fresh CRM pull (lands in ~1–2 min) and re-pulls app sales, config, roster, QuickBooks + marketing feeds right away. Costs a full BigQuery scan; the hourly schedule is the normal path.',
-        disabled: !!state._revhawkSyncing,
-        onclick: (e) => syncFromRevHawk(e.currentTarget),
-      }, iconSync(18)),
-      // ↻ for REPS (per Isaac): a lightweight refresh — re-pulls the shared
-      // snapshot + app data (cheap storage reads, NOT the BigQuery sync).
-      !isAdmin && el('button', {
-        class: 'icon-btn show',
-        title: 'Refresh — pull the latest synced numbers right now',
-        onclick: (e) => {
-          const b = e.currentTarget;
-          b.classList.add('icon-spin');
-          toast('Refreshing your data…', 'success');
-          try { refreshIndicatorsFromCloud(true); } catch (err) { /* poll retries */ }
-          try { if (typeof refreshSalesData === 'function') refreshSalesData(); } catch (err) { /* ignore */ }
-          setTimeout(() => { try { b.classList.remove('icon-spin'); } catch (err) { /* gone */ } }, 4000);
-        },
-      }, iconSync(18)),
       // ⚙ ONE menu for the meta actions (per Isaac — the icon row got
-      // messy): Settings/My Settings, Edit layout, Feedback, Theme and TV
-      // Display all live here. Bell + refresh stay standalone (daily-use).
+      // messy): Notifications, Sync, Settings/My Settings, Edit layout,
+      // Feedback, Theme and TV Display ALL live here now - the icon row is
+      // a single gear. The unread badge rides the gear itself.
       (() => {
         const wrap = el('div', { class: 'relative' });
+        const unreadCount = (state.auditLog || []).filter(e => isNotifEntry(e) && (!state.notifLastSeen || e.timestamp > state.notifLastSeen)).length;
         const gearBtn = el('button', {
           class: 'icon-btn show',
           style: state._editMode ? { background: 'var(--accent)', color: 'var(--accent-text)' } : {},
           title: 'Settings & tools',
         }, iconGear(18));
+        // The bell moved in here, so its unread badge rides the gear -
+        // otherwise folding notifications into a menu would hide the only
+        // signal that there ARE any.
+        if (unreadCount > 0) {
+          gearBtn.append(el('span', { class: 'notif-badge' }, unreadCount > 9 ? '9+' : String(unreadCount)));
+        }
+        const notifDd = buildNotifDropdown();
         const dd = el('div', {
           class: 'card',
           style: { position: 'absolute', top: 'calc(100% + 8px)', right: '0', minWidth: '210px', padding: '6px', display: 'none', zIndex: 60, boxShadow: 'var(--shadow-lg)' },
@@ -5358,11 +5308,42 @@ function mountApp() {
             if (state._editMode && state.view === 'indicators') state._indPresetsOpen = true;
             mountApp();
           }),
+          // Notifications + sync live here now (per Isaac) - the icon row is
+          // down to one gear.
+          item('\ud83d\udd14', 'Notifications' + (unreadCount > 0 ? ' \u00b7 ' + (unreadCount > 9 ? '9+' : String(unreadCount)) : ''), () => {
+            notifDd.style.display = 'block';
+            // Opening counts as seeing everything in there, same as the old
+            // bell did - clear the badge in place rather than remounting,
+            // which would tear the dropdown down again.
+            if (unreadCount > 0) {
+              state.notifLastSeen = new Date().toISOString();
+              saveDemoData();
+              const badge = gearBtn.querySelector('.notif-badge');
+              if (badge) badge.remove();
+            }
+            setTimeout(() => document.addEventListener('mousedown', function closer(e) {
+              if (!notifDd.contains(e.target) && !gearBtn.contains(e.target)) { notifDd.style.display = 'none'; document.removeEventListener('mousedown', closer); }
+            }), 0);
+          }),
+          isAdmin
+            ? item('\u21bb', state._revhawkSyncing ? 'Syncing\u2026' : 'Manual sync', () => {
+                if (state._revhawkSyncing) return;
+                syncFromRevHawk(gearBtn);
+              })
+            : item('\u21bb', 'Refresh data', () => {
+                gearBtn.classList.add('icon-spin');
+                toast('Refreshing your data\u2026', 'success');
+                try { refreshIndicatorsFromCloud(true); } catch (err) { /* poll retries */ }
+                try { if (typeof refreshSalesData === 'function') refreshSalesData(); } catch (err) { /* ignore */ }
+                setTimeout(() => { try { gearBtn.classList.remove('icon-spin'); } catch (err) { /* gone */ } }, 4000);
+              }),
           item('\ud83d\udce3', 'Feedback', () => openFeedbackModal()),
           item(state.theme === 'light' ? '\ud83c\udf19' : '\u2600\ufe0f', state.theme === 'light' ? 'Dark mode' : 'Light mode', () => toggleTheme()),
           INSIDE_SALES_TAB_KEYS.has(state.view) && item('\ud83d\udcfa', 'TV Display', () => openTVDashboard()),
         ].forEach(n => { if (n) dd.append(n); });
+        wrap.append(notifDd);
         gearBtn.onclick = () => {
+          notifDd.style.display = 'none';   // never both panels at once
           const willOpen = dd.style.display !== 'block';
           dd.style.display = willOpen ? 'block' : 'none';
           if (willOpen) setTimeout(() => document.addEventListener('mousedown', function closer(e) {
