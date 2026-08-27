@@ -107,8 +107,14 @@ exports.handler = async (event) => {
           const cv = Number(r.contractValue) || 0;
           for (const t of [agg.company, (agg.byOffice[office] = agg.byOffice[office] || mk()), (agg.byDept[dept] = agg.byDept[dept] || mk())]) {
             t.sales++; t.revenue += cv; t.initSum += Number(r.initialPrice) || 0;
-            if (Number(r.contract) >= 18) t.multi++;
-            if (Number(r.contract) === 12) t.twelve++;
+            // MY% drops Sentricon from BOTH sides, matching myBucketOf in
+            // app.js and _MY_EXCL_DERIVE in indicators-derive.js. Snapshots
+            // are immutable once written, so months already archived keep
+            // the old rule - only captures from here on agree with the app.
+            if (!/sentricon/i.test(r.subscription || '')) {
+              if (Number(r.contract) >= 18) t.multi++;
+              else if (Number(r.contract) === 12) t.twelve++;
+            }
             if (r.autoPay && r.autoPay !== 'No') t.autoPay++;
             if (r.cancelDate) t.cancelsRaw++;
             t.reps.add(rep);
