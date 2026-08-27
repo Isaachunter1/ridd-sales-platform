@@ -50481,9 +50481,24 @@ function adminReps() {
         el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: activeFilter === t.id ? { background: 'rgba(0,0,0,.15)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t.count.toLocaleString())))),
     _filtersWrap,
     el('input', {
+      id: 'admin-user-search',
       class: 'rounded-xl border px-3 py-2 text-xs flex-1 min-w-0', style: { borderColor: 'var(--border-2)', minWidth: '180px' },
       placeholder: 'Search ' + REP_TYPE_TAB_LABEL[typeTab] + '…', value: state._adminUserSearch,
-      oninput: (e) => { state._adminUserSearch = e.target.value; clearTimeout(state._adminUserSearchT); state._adminUserSearchT = setTimeout(mountApp, 200); },
+      // The debounced mountApp() rebuilds the whole page, which replaces
+      // this input and dropped focus mid-word - typing felt like the page
+      // refreshed on every character. The list is paginated with per-tab
+      // counts, so rows can't just be hidden in place like the leaderboard
+      // search; instead the remount re-focuses the rebuilt input with the
+      // caret back where it was.
+      oninput: (e) => {
+        state._adminUserSearch = e.target.value;
+        clearTimeout(state._adminUserSearchT);
+        state._adminUserSearchT = setTimeout(() => {
+          mountApp();
+          const inp = document.getElementById('admin-user-search');
+          if (inp) { inp.focus(); const n = inp.value.length; try { inp.setSelectionRange(n, n); } catch (err) { /* non-text input */ } }
+        }, 200);
+      },
     })));
 
   // ── Build the filtered, capped list for this tab ──
