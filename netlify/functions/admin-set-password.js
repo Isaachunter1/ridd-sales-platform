@@ -142,12 +142,40 @@ exports.handler = async (event) => {
         user_metadata: { full_name: full_name || '' },
       });
       if (createErr) {
-        // Duplicate hire is the common failure — say it plainly instead of
-        // leaking the raw Supabase string (mirrors the update path's 404).
         const dup = /already.+(registered|exists)/i.test(createErr.message || '');
-        return json(dup ? 409 : 500, { error: dup
-          ? 'A login already exists for ' + email + ' — open that user and use Edit to change their password or details instead.'
-          : 'createUser failed: ' + createErr.message });
+        if (!dup) return json(500, { error: 'createUser failed: ' + createErr.message });
+        // Duplicate email. Two very different situations land here:
+        //   a) a REAL app user with this email exists -> genuine duplicate,
+        //      the admin should edit that user instead; or
+        //   b) an ORPHANED login: auth.users has the email but no profiles
+        //      row behind it (half-finished invite, deleted profile). The
+        //      Users screen shows such a person as "In CRM", so the admin
+        //      is TOLD to edit a user that does not exist anywhere in the
+        //      UI - an unwinnable loop (Titus Atkins, Aug 2026).
+        // Distinguish them, and ADOPT the orphan: set the password on the
+        // existing login and build the profile as if create had succeeded.
+        // generateLink is the supported way to resolve email -> auth user
+        // without paging the whole user list.
+        const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({ type: 'recovery', email });
+        const orphanUid = linkData && linkData.user && linkData.user.id;
+        if (linkErr || !orphanUid) {
+          return json(409, { error: 'A login already exists for ' + email + ' — open that user and use Edit to change their password or details instead.' });
+        }
+        const { data: existingProf } = await admin.from('profiles').select('id, full_name').eq('id', orphanUid).maybeSingle();
+        if (existingProf) {
+          return json(409, { error: 'A login already exists for ' + email + ' (' + (existingProf.full_name || 'unnamed') + ') — open that user and use Edit to change their password or details instead.' });
+        }
+        const { error: adoptErr } = await admin.auth.admin.updateUserById(orphanUid, { password, email_confirm: true, user_metadata: { full_name: full_name || '' } });
+        if (adoptErr) return json(500, { error: 'Found an orphaned login for ' + email + ' but could not set its password: ' + adoptErr.message });
+        const { error: adoptProfErr } = await admin.from('profiles').upsert({
+          id: orphanUid, email, full_name: full_name || '', role,
+          office_id: office_id ?? null, initials: initials ?? null,
+          avatar_url: avatar_url ?? null,
+          annual_revenue_goal: annual_revenue_goal ?? 0,
+        }, { onConflict: 'id' });
+        if (adoptProfErr) return json(500, { error: 'Orphaned login adopted but the profile row failed: ' + adoptProfErr.message + ' — re-save this user.' });
+        console.log('[admin-set-password] adopted orphaned auth user ' + orphanUid + ' for ' + email);
+        return json(200, { ok: true, user_id: orphanUid, adopted: true });
       }
 
       // Post-verify: the handle_new_user trigger should have produced the
