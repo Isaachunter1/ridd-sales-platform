@@ -8148,6 +8148,27 @@ function _indConfigCancelExcluded(s) {
   }
   return _indCancelReasonSet.has(_normCancelReason((s && s.cancelReason) || ''));
 }
+// ── SAVE-BACK RULE (per Isaac, Aug 2026) ────────────────────────────────
+// "If they're active, that trumps any cancel date logged." A subscription
+// the retention desk saved keeps its FieldRoutes cancel date forever, but
+// it is alive and being serviced - it is not attrition. Current status
+// wins. Robust across formats: RevHawk sends active as "Active"/"Frozen",
+// old CSVs sent "Yes"/"No"; some snapshots carry the live status under
+// `status` instead.
+function _subAliveNow(s) {
+  const a = String(s.active || '').trim().toLowerCase();
+  if (a === 'yes' || a === 'active') return true;
+  if (a === 'no' || a === 'frozen' || a === 'inactive') return false;
+  const st = String(s.status || '').trim().toLowerCase();
+  if (st === 'active') return true;
+  if (st === 'frozen' || st === 'inactive' || st === 'canceled' || st === 'cancelled') return false;
+  return null;   // unknown format - callers fall back to the cancel date
+}
+function _subCancelledNow(s) {
+  if (!s) return false;
+  if (!(s.cancelDate || s.active === 'No')) return false;
+  return _subAliveNow(s) !== true;   // save-back: alive now -> not a cancel
+}
 function _isExcludableCancel(s) {
   return _is3DayROR(s) || _isSoldNotStarted(s) || _isCombinedSub(s) || _isOneTimeCancel(s) || _isRenewalCancel(s) || _indConfigCancelExcluded(s);
 }
@@ -8157,7 +8178,7 @@ function _isExcludableCancel(s) {
 // don't tally as cancels here.
 function _isReportableCancel(s) {
   if (!s) return false;
-  if (!(s.cancelDate || s.active === 'No')) return false;
+  if (!_subCancelledNow(s)) return false;
   return !_isExcludableCancel(s);
 }
 
@@ -8184,7 +8205,7 @@ function _repCancelExcluded(s) {
 }
 function _repCancelCounts(s) {
   if (!s) return false;
-  if (!(s.cancelDate || s.active === 'No')) return false;
+  if (!_subCancelledNow(s)) return false;
   return !_repCancelExcluded(s);
 }
 
@@ -9526,6 +9547,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       autopay:      (x) => isAutoPayOn(x) ? 1 : 0,
       status:       (x) => (x.status || '').toLowerCase(),
       sold:         (x) => iso(x),
+      aged:         (x) => Number(x.age) || 0,
       cancelDate:   (x) => x.cancelDate || '',
       cancelReason: (x) => (x.cancelReason || '').toLowerCase(),
     };
@@ -9555,6 +9577,7 @@ function openIndicatorRepCard(rep, allReps = []) {
             hSort('autopay',      'Auto Pay',      'text-center px-2 py-1.5'),
             hSort('status',       'Status',        'text-center px-2 py-1.5'),
             hSort('sold',         'Sold',          'text-left px-2 py-1.5 whitespace-nowrap'),
+            hSort('aged',         'Aged',          'text-right px-2 py-1.5'),
             hSort('cancelDate',   'Cancel Date',   'text-left px-2 py-1.5 whitespace-nowrap'),
             hSort('cancelReason', 'Cancel Reason', 'text-left px-2 py-1.5'),
           ),
@@ -9590,6 +9613,13 @@ function openIndicatorRepCard(rep, allReps = []) {
                 }, cancelled ? 'Cancelled' : 'Active'),
               ),
               el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || (s.dateSold || '—').split(' ')[0]),
+              // Days past due - the same field the Aging tile thresholds on,
+              // so the drill shows exactly how far gone each account is.
+              (() => {
+                const d = Number(s.age) || 0;
+                const hot = d >= ((typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7);
+                return el('td', { class: 'px-2 py-1.5 text-right tabular-nums' + (hot ? ' font-bold' : ''), style: hot ? { color: '#DC2626' } : { color: 'var(--text-muted)' } }, d > 0 ? d + 'd' : '—');
+              })(),
               el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, s.cancelDate || '—'),
               el('td', { class: 'px-2 py-1.5 text-muted-', style: { minWidth: '150px', maxWidth: '260px', whiteSpace: 'normal', lineHeight: '1.35' }, title: s.cancelReason || '' }, s.cancelReason || '—'),
             );
@@ -10147,7 +10177,11 @@ function openIndicatorRepCard(rep, allReps = []) {
   function retentionBlock() {
     const all = scopedRep.sales || [];
     const _svcR = (x) => (Number(x.services) || 0) > 0 || !!x.servicedDate;
-    const _actR = (x) => (x.status || '').toLowerCase() === 'active' && !x.cancelDate;
+    // Save-back rule: status Active wins over a logged cancel date, so a
+    // saved account sits in Active (and can age), never in Cancelled.
+    const _actR = (x) => (x.status || '').toLowerCase() === 'active'
+      || ((x.status || '') === '' && _subAliveNow(x) === true);
+    const _cxlR = (x) => !!x.cancelDate && !_actR(x);
     const _agingDays = (typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7;
     const _isAging = (x) => _actR(x) && (Number(x.age) || 0) >= _agingDays;
     const _stat = (x) => _auditStatusOf(x.customerFlags);
@@ -10159,7 +10193,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       const m = Number(x.contract);
       return !(m > 1) && !/sentricon/i.test(String(x.subscription || ''));
     };
-    const _realCancel = (x) => !!x.cancelDate && !_isExcludableCancel(x);
+    const _realCancel = (x) => _cxlR(x) && !_isExcludableCancel(x);
     let sold = 0, serviced = 0, soldRev = 0, servicedRev = 0, activeRev = 0, agingRev = 0, cancelledRev = 0, frozenRev = 0, rorRev = 0, exclRev = 0, exclCancelRev = 0, otsCancelRev = 0;
     const audit = { passed: 0, failed: 0, noaudit: 0, pending: 0 };
     const attr = { passed: [0, 0], failed: [0, 0] };
@@ -10169,15 +10203,15 @@ function openIndicatorRepCard(rep, allReps = []) {
       const svc = _svcR(x);
       if (svc) {
         serviced++; servicedRev += cv;
-        if (x.cancelDate) cancelledRev += cv;
+        if (_cxlR(x)) cancelledRev += cv;
         else if (_actR(x)) { activeRev += cv; if (_isAging(x)) agingRev += cv; }
         else frozenRev += cv;
         if (_ror(x)) rorRev += cv;
         if (_ror(x) || _isOTS(x)) {
           exclRev += cv;
-          if (x.cancelDate) exclCancelRev += cv;
+          if (_cxlR(x)) exclCancelRev += cv;
         }
-        if (_isOTS(x) && x.cancelDate) otsCancelRev += cv;
+        if (_isOTS(x) && _cxlR(x)) otsCancelRev += cv;
       }
       const st = _stat(x);
       if (st === 'pending') { if ((x.status || '').toLowerCase() !== 'frozen' && !(x.cancelDate && !svc)) audit.pending++; }
@@ -10240,9 +10274,9 @@ function openIndicatorRepCard(rep, allReps = []) {
         tile('Sold', money(soldRev), 'all sold (incl. pre-service)', null, drill('Sold revenue', () => true)),
         tile('Serviced', money(servicedRev), 'received an initial service', null, drill('Serviced revenue', _svcR)),
         tile('Active', money(activeRev), 'serviced & active · incl. aging', null, drill('Active', x => _svcR(x) && _actR(x))),
-        tile('Cancelled', money(cancelledRev), 'serviced then cancelled · incl. 3-day ROR', cancelledRev > 0 ? bad : null, drill('Cancelled', x => _svcR(x) && !!x.cancelDate)),
+        tile('Cancelled', money(cancelledRev), 'serviced then cancelled · incl. 3-day ROR · saved accounts count as Active', cancelledRev > 0 ? bad : null, drill('Cancelled', x => _svcR(x) && _cxlR(x))),
         tile('Cancelled · 3-Day ROR', money(rorRev), 'right-of-rescission slice of Cancelled', rorRev > 0 ? bad : null, drill('3-Day ROR', x => _svcR(x) && _ror(x))),
-        tile('Cancelled · One-Time', money(otsCancelRev), 'completed one-time services — not attrition', null, drill('One-time services (cancelled)', x => _svcR(x) && !!x.cancelDate && _isOTS(x))),
+        tile('Cancelled · One-Time', money(otsCancelRev), 'completed one-time services — not attrition', null, drill('One-time services (cancelled)', x => _svcR(x) && _cxlR(x) && _isOTS(x))),
         tile('Aging', money(agingRev), 'at-risk slice of Active', agingRev > 0 ? bad : null, drill('Aging', x => _svcR(x) && _isAging(x))),
       ]),
       group('Attrition · of serviced', [
@@ -28310,7 +28344,7 @@ const ticketsForInitial = (amount) => {
 // NOT active). Robust across formats: RevHawk sends "Active"/"Frozen"; an
 // old CSV sent "Yes"/"No".
 const isActiveAccount = (s) => {
-  if (s.cancelDate) return false;
+  if (_subCancelledNow(s)) return false;   // save-backs stay ACTIVE (status trumps the date)
   const _a = String(s.active || '').trim().toLowerCase();
   return _a !== 'no' && _a !== 'frozen' && _a !== 'inactive';
 };
@@ -28611,7 +28645,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // Robust across formats: RevHawk sends "Active"/"Frozen"; an old CSV sent
   // "Yes"/"No".
   const isActiveAccount = (s) => {
-    if (s.cancelDate) return false;
+    if (_subCancelledNow(s)) return false;   // save-backs stay ACTIVE (status trumps the date)
     const _a = String(s.active || '').trim().toLowerCase();
     return _a !== 'no' && _a !== 'frozen' && _a !== 'inactive';
   };
