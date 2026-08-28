@@ -13749,12 +13749,204 @@ function calendarEligibleProfiles(fallback) {
   const staff = all.filter(p => p && p.is_active !== false && isSellerRole(p.role) && isOfficeStaffProfile(p));
   return staff.length ? staff : all.filter(p => p && p.is_active !== false);
 }
+// ── AGENT LAYER — the calendar is built around individual agents now ─────
+// Department is derived from the PROFILE (per Isaac: "based on user type"),
+// not chosen per shift: Loyalty-typed reps file under Loyalty, every other
+// office-staff profile under Inside Sales. The dropdown up top is a view
+// scope, not a filing decision.
+function calendarAgentDept(p) {
+  return (p && p.rep_type === 'loyalty_rep') ? 'loyalty' : 'inside_sales';
+}
+function calendarDeptAgents() {
+  return calendarEligibleProfiles(state.profile)
+    .filter(p => calendarAgentDept(p) === currentDepartment())
+    .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+}
+// Stable per-agent color (Google-Calendar style). Hash on the profile id so
+// an agent keeps their color across sessions and devices.
+const CAL_AGENT_COLORS = ['#2563EB', '#D97706', '#0D9488', '#9333EA', '#DC2626', '#5F8A1F', '#DB2777', '#4F46E5', '#B45309', '#0891B2', '#7C3AED', '#65A30D'];
+function calendarAgentColor(repId) {
+  let h = 0; const s = String(repId || '');
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return CAL_AGENT_COLORS[Math.abs(h) % CAL_AGENT_COLORS.length];
+}
+// Visibility: a focused agent shows alone; otherwise everyone not unchecked
+// in the sidebar. Session-only on purpose - a hidden agent who stays hidden
+// is how a shift gets missed.
+function calendarAssignVisible(a) {
+  if (state._calFocus) return a.rep_id === state._calFocus;
+  return !(state._calAgentHidden instanceof Set && state._calAgentHidden.has(a.rep_id));
+}
+
+// ── WEEKLY SCHEDULE BUILDER — one agent, one repeating week ──────────────
+// Sets the agent's standing week (e.g. Mon-Fri 9-5) and materializes it as
+// ordinary shift rows through the horizon - the SAME rows the grid, slot
+// modal, swaps and holiday logic already speak, so nothing downstream
+// changes. One-off edits stay exactly that: click a day on the grid.
+function openAgentScheduleModal(rep) {
+  if (!isAdminRole(state.profile?.role) || !rep) return;
+  const dept = calendarAgentDept(rep);
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  // Seed from the agent's shifts over the NEXT 7 days so editing an
+  // existing schedule starts from what is already on the books.
+  const _seed = {};
+  {
+    const t0 = new Date(); t0.setHours(0, 0, 0, 0);
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(t0); d.setDate(t0.getDate() + i);
+      const iso = isoDate(d);
+      const row = (state.shifts || []).find(s => s.rep_id === rep.id && s.date === iso && shiftDept(s) === dept);
+      if (row) _seed[d.getDay()] = { start: row.start, end: row.end };
+    }
+  }
+  const days = dayNames.map((name, dow) => ({
+    dow, name,
+    on: !!_seed[dow],
+    start: (_seed[dow] && _seed[dow].start) || '09:00',
+    end: (_seed[dow] && _seed[dow].end) || '17:00',
+  }));
+  let horizonWeeks = 12;
+
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const card = el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
+  overlay.append(card);
+
+  const body = el('div', { class: 'flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-2' });
+  const rowEls = days.map(d => {
+    const cb = el('input', { type: 'checkbox', style: { cursor: 'pointer' } }); cb.checked = d.on;
+    const st = el('input', { type: 'time', value: d.start, class: 'rounded-lg border px-2 py-1 text-xs', style: { borderColor: 'var(--border-2)' } });
+    const en = el('input', { type: 'time', value: d.end, class: 'rounded-lg border px-2 py-1 text-xs', style: { borderColor: 'var(--border-2)' } });
+    const sync = () => { d.on = cb.checked; d.start = st.value || d.start; d.end = en.value || d.end; st.disabled = en.disabled = !d.on; st.style.opacity = en.style.opacity = d.on ? '1' : '.4'; };
+    cb.onchange = sync; st.onchange = sync; en.onchange = sync;
+    setTimeout(sync, 0);
+    return el('div', { class: 'flex items-center gap-2' },
+      el('label', { class: 'flex items-center gap-2 text-sm font-medium cursor-pointer', style: { width: '120px' } }, cb, d.name),
+      st, el('span', { class: 'text-xs text-muted-' }, '→'), en);
+  });
+  body.append(...rowEls,
+    el('div', { class: 'flex items-center gap-2 mt-2' },
+      el('span', { class: 'text-xs font-bold uppercase tracking-wider text-muted-' }, 'Build ahead'),
+      el('select', {
+        class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer', style: { borderColor: 'var(--border-2)' },
+        onchange: (e) => { horizonWeeks = Number(e.target.value) || 12; },
+      }, ...[[4, '4 weeks'], [8, '8 weeks'], [12, '12 weeks'], [26, '26 weeks'], [52, '52 weeks']].map(([v, l]) => el('option', { value: String(v), selected: v === 12 }, l)))),
+    el('div', { class: 'text-[11px] text-muted-' },
+      'Saving writes these as normal shifts from today through the horizon (company holidays skipped, days already scheduled left alone). Adjust single days straight on the calendar afterward.'));
+
+  const footer = el('div', { class: 'px-5 py-4 border-t flex items-center justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
+    el('button', {
+      class: 'rounded-lg border px-3 py-2 text-xs font-semibold transition hover:brightness-95',
+      style: { borderColor: '#DC2626', color: '#DC2626' },
+      title: 'Delete every one of this agent’s shifts from today forward (past shifts are kept). One-offs included.',
+      onclick: () => {
+        const t0 = isoDate(new Date());
+        const mine = (state.shifts || []).filter(s => s.rep_id === rep.id && shiftDept(s) === dept && s.date >= t0);
+        if (!mine.length) { toast('No upcoming shifts to clear', 'info'); return; }
+        if (!confirm('Delete all ' + mine.length + ' upcoming shift' + (mine.length === 1 ? '' : 's') + ' for ' + rep.full_name + '? Past shifts are kept.')) return;
+        const ids = new Set(mine.map(s => s.id));
+        state.shifts = state.shifts.filter(s => !ids.has(s.id));
+        saveDemoData();
+        toast('Cleared ' + ids.size + ' upcoming shift' + (ids.size === 1 ? '' : 's'), 'success');
+        overlay.remove(); mountApp();
+      },
+    }, 'Clear upcoming'),
+    el('div', { class: 'flex items-center gap-2' },
+      el('button', { class: 'rounded-lg border px-3 py-2 text-xs font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => overlay.remove() }, 'Cancel'),
+      el('button', {
+        class: 'rounded-lg px-4 py-2 text-xs font-bold transition hover:brightness-95',
+        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: () => {
+          const active = days.filter(d => d.on && d.start && d.end && d.start < d.end);
+          if (!active.length) { toast('Turn on at least one day (with start before end)', 'warn'); return; }
+          const byDow = Object.fromEntries(active.map(d => [d.dow, d]));
+          const t0 = new Date(); t0.setHours(0, 0, 0, 0);
+          let added = 0;
+          for (let i = 0; i < horizonWeeks * 7; i++) {
+            const d = new Date(t0); d.setDate(t0.getDate() + i);
+            const tpl = byDow[d.getDay()];
+            if (!tpl) continue;
+            const iso = isoDate(d);
+            if (companyHolidayFor(iso)) continue;                               // company holiday - day off
+            const slotId = slotIdFor(tpl.start, tpl.end);
+            // A day that already has ANY shift for this agent in this dept is
+            // left alone - a one-off edit an admin made must survive a
+            // template re-save.
+            if (state.shifts.some(s => s.rep_id === rep.id && s.date === iso && shiftDept(s) === dept)) continue;
+            state.shifts.push({
+              id: 'shift-' + iso + '-' + slotId + '-' + rep.id + '-' + Date.now() + '-' + added,
+              date: iso, slot_id: slotId, slot_start: tpl.start, slot_end: tpl.end,
+              rep_id: rep.id, start: tpl.start, end: tpl.end,
+              note: '', recurring: true, holiday_ok: false,
+              department: dept,
+            });
+            added++;
+          }
+          saveDemoData();
+          toast(added ? ('Scheduled ' + added + ' shift' + (added === 1 ? '' : 's') + ' for ' + (rep.full_name || 'agent')) : 'Nothing to add - those days are already scheduled', added ? 'success' : 'info');
+          overlay.remove(); mountApp();
+        },
+      }, 'Save schedule')));
+
+  card.append(
+    el('div', { class: 'px-5 py-4 border-b flex items-center justify-between', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'flex items-center gap-2' },
+        el('span', { style: { width: '10px', height: '10px', borderRadius: '3px', background: calendarAgentColor(rep.id), display: 'inline-block' } }),
+        el('div', {},
+          el('h2', { class: 'text-base font-bold leading-none' }, rep.full_name || 'Agent'),
+          el('div', { class: 'text-[10px] text-muted- mt-1 uppercase tracking-wider font-semibold' }, (DEPARTMENTS.find(x => x.id === dept) || {}).name || dept))),
+      el('button', { class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×')),
+    body, footer);
+  document.body.append(overlay);
+}
+
+// ── AGENT SIDEBAR — the Google-Calendar "calendars" list ─────────────────
+function calendarAgentSidebar(meId, isAdmin) {
+  const agents = calendarDeptAgents();
+  const focus = state._calFocus;
+  return el('div', { class: 'card p-3 flex flex-col gap-1 shrink-0', style: { width: '210px', maxHeight: '70vh', overflowY: 'auto' } },
+    el('div', { class: 'flex items-center justify-between px-1 pb-1' },
+      el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Agents'),
+      focus ? el('button', {
+        class: 'text-[10px] font-bold', style: { color: 'var(--accent)', background: 'transparent' },
+        onclick: () => { state._calFocus = null; mountApp(); },
+      }, 'Show all') : null),
+    agents.length === 0
+      ? el('div', { class: 'text-[11px] text-muted- px-1 py-2' }, 'No agents of this type yet - agents file here by their user type (Loyalty reps under Loyalty, other office staff under Inside Sales).')
+      : el('div', { class: 'flex flex-col' }, ...agents.map(p => {
+          const c = calendarAgentColor(p.id);
+          const hidden = state._calAgentHidden.has(p.id);
+          const isFocus = focus === p.id;
+          const cb = el('input', { type: 'checkbox', style: { cursor: 'pointer', accentColor: c, flexShrink: '0' } });
+          cb.checked = !hidden;
+          cb.onclick = (e) => { e.stopPropagation(); };
+          cb.onchange = () => { if (cb.checked) state._calAgentHidden.delete(p.id); else state._calAgentHidden.add(p.id); mountApp(); };
+          return el('div', {
+            class: 'flex items-center gap-2 px-1.5 py-1.5 rounded-lg cursor-pointer transition',
+            style: isFocus ? { background: 'var(--card-2)' } : {},
+            title: isFocus ? 'Showing only ' + (p.full_name || 'this agent') + ' - click to show everyone' : 'Click to view only ' + (p.full_name || 'this agent'),
+            onclick: () => { state._calFocus = isFocus ? null : p.id; mountApp(); },
+          },
+            cb,
+            el('span', { style: { width: '9px', height: '9px', borderRadius: '3px', background: c, display: 'inline-block', flexShrink: '0' } }),
+            el('span', { class: 'text-xs font-medium truncate flex-1 min-w-0' + (p.id === meId ? ' font-bold' : '') }, (p.full_name || '(no name)') + (p.id === meId ? ' · you' : '')),
+            isAdmin ? el('button', {
+              class: 'text-[11px] shrink-0 rounded px-1 transition hover:brightness-95',
+              style: { background: 'transparent', color: 'var(--text-muted)' },
+              title: 'Build ' + (p.full_name || 'this agent') + '’s weekly schedule',
+              onclick: (e) => { e.stopPropagation(); openAgentScheduleModal(p); },
+            }, '✎') : null);
+        })));
+}
+
 function viewCalendar() {
   const me = state.profile;
   const meId = me.id;
   const isAdmin = isAdminRole(me.role);
   const reps = calendarEligibleProfiles(me);
   const repById = Object.fromEntries(reps.map(r => [r.id, r]));
+  if (!(state._calAgentHidden instanceof Set)) state._calAgentHidden = new Set();
+  if (state._calFocus === undefined) state._calFocus = null;
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   if (!state.calendarAnchor) state.calendarAnchor = isoDate(state.calendarView === 'week' ? startOfWeek(today) : startOfMonth(today));
@@ -13843,15 +14035,32 @@ function viewCalendar() {
       ),
     ),
 
-    // ── Grid ──
-    state.calendarView === 'week'
-      ? renderWeekGrid(anchor, today, meId, repById)
-      : renderMonthGrid(anchor, today, meId, repById),
+    // ── Agent sidebar + grid — the Google-Calendar layout ──
+    el('div', { class: 'flex gap-4 items-start' },
+      calendarAgentSidebar(meId, isAdmin),
+      el('div', { class: 'flex-1 min-w-0' },
+        state.calendarView === 'week'
+          ? renderWeekGrid(anchor, today, meId, repById)
+          : renderMonthGrid(anchor, today, meId, repById))),
   );
 }
 
 function renderSlotBar(iso, slot, meId, repById, opts = {}) {
-  const assigns = assignmentsForSlot(iso, slot.slot_id);
+  const allAssigns = assignmentsForSlot(iso, slot.slot_id);
+  // Sidebar visibility filters the BAR only - the slot modal it opens still
+  // shows everyone, so an admin can always reach a hidden agent's shift.
+  const assigns = allAssigns.filter(calendarAssignVisible);
+  const hiddenN = allAssigns.length - assigns.length;
+  if (allAssigns.length > 0 && assigns.length === 0 && !opts.compactLabel) {
+    // Every assignee is filtered out: a slim ghost, so the slot stays
+    // clickable without shouting.
+    return el('button', {
+      'data-slot-bar': 'true',
+      class: 'cal-slot-bar w-full text-left rounded-lg border transition hover:brightness-95 p-2',
+      style: { borderColor: 'var(--border)', background: 'transparent', color: 'var(--text-subtle)', borderStyle: 'dashed', opacity: '.6' },
+      onclick: (e) => { e.stopPropagation(); openSlotModal(iso, slot.slot_id); },
+    }, el('span', { class: 'text-[10px] italic' }, hiddenN + ' filtered'));
+  }
   const includesMe = assigns.some(a => a.rep_id === meId);
   return el('button', {
     'data-slot-bar': 'true',
@@ -13874,11 +14083,14 @@ function renderSlotBar(iso, slot, meId, repById, opts = {}) {
             const isPartial = a.start !== slot.slot_start || a.end !== slot.slot_end;
             const isMine = a.rep_id === meId;
             const firstName = rep?.full_name?.split(' ')[0] || 'Rep';
+            // Google-Calendar coloring: every agent keeps their own color,
+            // "me" keeps the accent so your own shifts still pop first.
+            const ac = calendarAgentColor(a.rep_id);
             return el('span', {
               class: 'text-[11px] font-semibold rounded-full px-2 py-0.5 whitespace-nowrap',
               style: isMine
                 ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-                : { background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border)' },
+                : { background: ac + '1c', color: ac, border: '1px solid ' + ac + '55' },
             }, firstName + (isPartial ? ` · ${fmtTime(a.start)}–${fmtTime(a.end)}` : ''));
           }),
         ),
@@ -14203,7 +14415,9 @@ function resolveSwap(requestId, decision) {
 // ── Create-shift modal: pick days, times, reps, then fan out assignments ──
 function openNewShiftModal(defaultIso, opts = {}) {
   if (!isAdminRole(state.profile?.role)) return;
-  const reps = calendarEligibleProfiles(state.profile); // active office staff only
+  // Agents of the CURRENT department view only - and each shift files under
+  // the AGENT's own department (from their user type), not the dropdown.
+  const reps = calendarDeptAgents();
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
@@ -14395,10 +14609,11 @@ function openNewShiftModal(defaultIso, opts = {}) {
             dates.push(isoDate(d));
           }
         }
-        const dept = currentDepartment();
+        const _deptOf = (repId) => { const r = reps.find(x => x.id === repId); return r ? calendarAgentDept(r) : currentDepartment(); };
         let added = 0;
         dates.forEach(dIso => {
           picks.forEach(repId => {
+            const dept = _deptOf(repId);
             // Dedupe per-department: a rep can be on the same slot+date in both
             // departments (e.g. cross-trained), just not twice in the same one.
             if (state.shifts.some(s => s.date === dIso && s.slot_id === slotId && s.rep_id === repId && shiftDept(s) === dept)) return;
