@@ -51266,6 +51266,24 @@ function openUserEditor(existing = null, prefill = null) {
       const _submitBtn = form.querySelector('button[type="submit"]');
       if (_submitBtn) { _submitBtn.disabled = true; _submitBtn.textContent = 'Saving…'; }
       try {
+        // Hoisted ABOVE the existing/create fork: it was declared inside the
+        // if (existing) branch, so the two CREATE branches referenced a const
+        // outside their scope and every new user failed with
+        // "_stampNewProfile is not defined" (Dante Salgado, Aug 2026).
+        // Stamp the FULL form payload onto the new profile row — the invite
+        // row only carries a subset, and the old best-effort patch silently
+        // dropped pay-affecting fields (commission bump, close-rate target,
+        // rep type). Keyed by id + verified, so failure is LOUD.
+        const _stampNewProfile = async (created) => {
+          const uid = created && created.user_id;
+          if (!uid) throw new Error('Create returned no user id — open the user and re-save their details.');
+          const patch = { ...payload };
+          delete patch.email;   // auth owns the login email; the trigger already copied it
+          const { data: _row, error: _pErr } = await supabase.from('profiles')
+            .update(patch).eq('id', uid).select('id').single();
+          if (_pErr || !_row) throw new Error('Login created, but saving the profile details failed'
+            + (_pErr ? ' — ' + _pErr.message : '') + '. Open the user and re-save.');
+        };
         if (existing) {
           const { error } = await supabase.from('profiles').update(payload).eq('id', existing.id);
           if (error) throw error;
@@ -51286,20 +51304,6 @@ function openUserEditor(existing = null, prefill = null) {
             logActivity('user_edited', { detail: (existing?.full_name || 'user') + ' profile updated' });
           toast('Saved', 'success');
           }
-        // Stamp the FULL form payload onto the new profile row — the invite
-        // row only carries a subset, and the old best-effort patch silently
-        // dropped pay-affecting fields (commission bump, close-rate target,
-        // rep type). Keyed by id + verified, so failure is LOUD.
-        const _stampNewProfile = async (created) => {
-          const uid = created && created.user_id;
-          if (!uid) throw new Error('Create returned no user id — open the user and re-save their details.');
-          const patch = { ...payload };
-          delete patch.email;   // auth owns the login email; the trigger already copied it
-          const { data: _row, error: _pErr } = await supabase.from('profiles')
-            .update(patch).eq('id', uid).select('id').single();
-          if (_pErr || !_row) throw new Error('Login created, but saving the profile details failed'
-            + (_pErr ? ' — ' + _pErr.message : '') + '. Open the user and re-save.');
-        };
         } else if (newPassword) {
           // Admin set a password on a NEW user — skip the magic-link
           // flow entirely and create the auth user with the password
