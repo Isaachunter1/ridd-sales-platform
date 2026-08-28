@@ -165,7 +165,7 @@ const PERM_DEFS = [
   { id: 'ind_card',         label: 'My Player Card',      group: 'Indicators sections' },
   { id: 'ind_table',        label: 'Indicators table',    group: 'Indicators sections' },
   { id: 'ind_power_chart',  label: 'Power Ranking chart', group: 'Indicators sections' },
-  { id: 'ind_board',        label: 'Rep Leaderboard',     group: 'Indicators sections' },
+  { id: 'ind_board',        label: 'Leaderboard',         group: 'Indicators sections' },
   { id: 'ind_yoy',          label: 'Performance Trends',  group: 'Indicators sections' },
   { id: 'ind_trend',        label: 'Metric Trends',       group: 'Indicators sections' },
   { id: 'ind_records',      label: '\ud83c\udfc5 Records',       group: 'Indicators sections' },
@@ -8883,7 +8883,7 @@ const REP_LAYOUT_SECTIONS = [
   ['card',  'My Player Card'],
   ['yoy',   'Your Performance Trends'],
   ['trend', 'Your Metric Trends'],
-  ['board', 'Rep Leaderboard'],
+  ['board', 'Leaderboard'],
 ];
 // Rep - Partner / Office Team Lead page order (per Isaac): player card
 // pinned at top, then Indicators table + Power Ranking chart (fixed
@@ -8892,7 +8892,7 @@ const REP_LAYOUT_SECTIONS = [
 // Metrics. Saved Customize orders still win on that device.
 const PARTNER_LAYOUT_SECTIONS = [
   ['card',    'My Player Card'],
-  ['board',   'Rep Leaderboard'],
+  ['board',   'Leaderboard'],
   ['yoy',     'Your Performance Trends'],
   ['trend',   'Your Metric Trends'],
   ['records', '🏅 Records'],
@@ -30004,7 +30004,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     el('div', { class: 'card' + (state._repCancelMenuOpen ? '' : ' overflow-hidden'), 'data-section': 'rep-leaderboard' },
       el('div', { class: 'px-5 py-3 border-b flex items-center justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
-          el('h3', { class: 'text-base font-bold' }, 'Rep Leaderboard'),
+          el('h3', { class: 'text-base font-bold' }, 'Leaderboard'),
           el('span', { class: 'text-xs text-muted-' },
             filteredReps.length === allReps.length
               ? filteredReps.length + ' reps'
@@ -30275,6 +30275,85 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   }, 'hide') : null);
               }),
             ),
+            // Σ Totals row (per Isaac) — whole-board rollup pinned at the top,
+            // recomputed from the FILTERED rep set so it always matches the
+            // "N reps" count in the card header. Percent columns are sales-
+            // weighted; $/Day style columns divide the summed numerators by
+            // the summed denominators; Best Day/Week/Month show the biggest
+            // single-rep record on the board.
+            (() => {
+              if (!displayReps.length) return null;
+              const T = { count: 0, revenue: 0, newRevenue: 0, renewalRevenue: 0, sellingDays: 0, cancels: 0 };
+              let wAudit = 0, wMy = 0, wAuto = 0, wPest = 0, nPest = 0, wInit = 0, nInit = 0;
+              let bDay = 0, bWeek = 0, bMonth = 0;
+              displayReps.forEach(r => {
+                const c = Number(r.count) || 0;
+                T.count += c;
+                T.revenue += Number(r.revenue) || 0;
+                T.newRevenue += Number(r.newRevenue) || 0;
+                T.renewalRevenue += Number(r.renewalRevenue) || 0;
+                T.sellingDays += Number(r.sellingDays) || 0;
+                T.cancels += Number(r.cancels) || 0;
+                wAudit += (Number(r.auditPct) || 0) * c;
+                wMy    += (Number(r.myPct) || 0) * c;
+                wAuto  += (Number(r.autoPayPct) || 0) * c;
+                if (r.avgPest > 0)    { wPest += r.avgPest * c;    nPest += c; }
+                if (r.avgInitial > 0) { wInit += r.avgInitial * c; nInit += c; }
+                if ((r.bestDay || 0) > bDay)     bDay = r.bestDay;
+                if ((r.bestWeek || 0) > bWeek)   bWeek = r.bestWeek;
+                if ((r.bestMonth || 0) > bMonth) bMonth = r.bestMonth;
+              });
+              const pct = (v) => T.count > 0 ? ((v / T.count) * 100).toFixed(1) + '%' : '—';
+              const vals = {
+                name: 'Total',
+                count: fmt.int(T.count),
+                revenue: fmt.usd0(T.revenue),
+                newRevenue: fmt.usd0(T.newRevenue),
+                renewalRevenue: fmt.usd0(T.renewalRevenue),
+                auditPct: pct(wAudit),
+                acv: T.count > 0 ? fmt.usd(T.revenue / T.count) : '—',
+                sellingDays: fmt.int(T.sellingDays),
+                revPerDay: T.sellingDays > 0 ? fmt.usd0(T.revenue / T.sellingDays) : '—',
+                acctsPerDay: T.sellingDays > 0 ? (T.count / T.sellingDays).toFixed(1) : '—',
+                avgPest: nPest > 0 ? fmt.usd(wPest / nPest) : '—',
+                avgInitial: nInit > 0 ? fmt.usd(wInit / nInit) : '—',
+                myPct: pct(wMy),
+                autoPayPct: pct(wAuto),
+                cancels: T.cancels > 0 ? fmt.int(T.cancels) : '—',
+                cancelPct: (T.count > 0 && T.cancels > 0) ? ((T.cancels / T.count) * 100).toFixed(1) + '%' : '—',
+                bestDayTime: bDay > 0 ? fmt.usd0(bDay) : '—',
+                bestWeekTime: bWeek > 0 ? fmt.usd0(bWeek) : '—',
+                bestMonthTime: bMonth > 0 ? fmt.usd0(bMonth) : '—',
+              };
+              const tips = {
+                auditPct: 'Sales-weighted average across the reps shown',
+                myPct: 'Sales-weighted average across the reps shown',
+                autoPayPct: 'Sales-weighted average across the reps shown',
+                acv: 'Total revenue ÷ total sales',
+                sellingDays: 'Sum of every rep\'s selling days (rep-days, so shared days count once per rep)',
+                revPerDay: 'Total revenue ÷ total selling days',
+                acctsPerDay: 'Total sales ÷ total selling days',
+                avgPest: 'Sales-weighted average across reps with a value',
+                avgInitial: 'Sales-weighted average across reps with a value',
+                cancelPct: 'Total cancels ÷ total sales',
+                bestDayTime: 'Biggest single-rep record among the reps shown',
+                bestWeekTime: 'Biggest single-rep record among the reps shown',
+                bestMonthTime: 'Biggest single-rep record among the reps shown',
+              };
+              return el('tr', { style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2), inset 0 1px 0 var(--border)' } },
+                el('td', { class: 'pl-5 pr-2 py-2' }, ''),
+                ...repCols.map(c => {
+                  if (c.key === 'name') return el('td', { class: 'px-2 py-2' },
+                    el('span', { class: 'font-black text-[11px] uppercase tracking-wider' }, 'Total'),
+                    el('span', { class: 'text-[10px] text-muted- ml-1.5 normal-case tracking-normal' }, displayReps.length + ' reps'));
+                  if (c.key === 'team' || c.key === 'office') return el('td', { class: 'px-2 py-2' }, '');
+                  const st = { fontWeight: '700' };
+                  if (c.key === 'bestDayTime') st.borderLeft = '1px solid var(--border-2)';
+                  const pad = c.key === 'bestMonthTime' ? 'pl-2 pr-5' : (c.key === 'cancelPct' ? 'pl-2 pr-5' : 'px-2');
+                  return el('td', { class: pad + ' py-2 text-left tabular-nums whitespace-nowrap', style: st, title: tips[c.key] || '' },
+                    vals[c.key] != null ? vals[c.key] : '—');
+                }));
+            })(),
             // Restore strip — one chip per hidden column for this Type.
             (isAdminRole(state.profile?.role) && state._editMode && _lbHiddenDefs.length) ? el('tr', {},
               el('th', {
@@ -47306,7 +47385,78 @@ function reportingWaterfall() {
       })());
   })();
 
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body, repTypeAttritionCard);
+  // \u2500\u2500 "True Attrition" bar (per Isaac) \u2500\u2500
+  // One fixed number pinned across the bottom of the tab: cancels EXCLUDING
+  // 3-day RORs, one-time services, and renewals (the noise classes), PLUS
+  // aging actives (days past due >= the Aging threshold \u2014 money that is
+  // already walking out the door even without a cancel date). Probably the
+  // closest thing to true attrition. Follows the year picker on the
+  // Attrition by Rep Type card, but NOT its chips \u2014 this definition is
+  // deliberately fixed so the number means the same thing every time.
+  const trueAttritionBar = (() => {
+    const _yr = state._rtAttrYear || 'all';
+    const _yOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
+    const _alive = (r) => /active/i.test(String(r.subscription_status || ''));
+    const _isRenew = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
+      || /^\s*renewal/i.test(String(r.subscription_cancellation_reason || ''));
+    const _isOne = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
+      || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
+    const _exclR = reportingExcludedCancelReasons();
+    const _agDays = (typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7;
+    let subs = 0, cxl = 0, aging = 0, arv = 0, arvCxl = 0, arvAging = 0;
+    for (const r of popA) {
+      if (_yr !== 'all' && _yOf(r) !== _yr) continue;
+      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
+      if (_reporting3dayRor(r)) continue;
+      if (_isRenew(r)) continue;
+      if (_isOne(r)) continue;
+      if (retenPopulationExcluded(r)) continue;
+      const v = Number(r.annual_recurring_value) || 0;
+      subs++; arv += v;
+      const _isCxl = r.subscription_date_canceled && !_alive(r)
+        && !_exclR.has(_normCancelReason(r.subscription_cancellation_reason));
+      if (_isCxl) { cxl++; arvCxl += v; }
+      else if (_alive(r) && (Number(r.days_past_due) || 0) >= _agDays) { aging++; arvAging += v; }
+    }
+    if (!subs) return null;
+    const kept = subs - cxl - aging;
+    const rate = (cxl + aging) / subs;
+    const pW = (n) => Math.max(0, Math.min(100, n / subs * 100));
+    const seg = (n, color, label) => n > 0 ? el('div', {
+      style: { width: pW(n).toFixed(2) + '%', background: color, height: '100%' },
+      title: label + ' \u2014 ' + fmt.int(n) + ' (' + (n / subs * 100).toFixed(1) + '%)',
+    }) : null;
+    const stat = (lab, n, v, color) => el('div', { class: 'text-right' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, lab),
+      el('div', { class: 'text-sm font-bold tabular-nums', style: color ? { color } : {} },
+        fmt.int(n), el('span', { class: 'text-[10px] font-normal text-muted-' }, ' \u00b7 ' + fmt.usd0(v))));
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-3' },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'True Attrition'),
+          el('div', { class: 'text-[11px] text-muted-' },
+            'Cancels excluding 3-day ROR, one-time & renewals \u2014 plus aging actives (' + _agDays + '+ days past due). '
+            + (_yr === 'all' ? 'All years in the book' : 'Sold ' + _yr + ', cancels to date')
+            + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
+        el('div', { class: 'flex items-center gap-4 flex-wrap' },
+          stat('Cancelled', cxl, arvCxl, '#DC2626'),
+          stat('Aging', aging, arvAging, '#D97706'),
+          stat('Retained', kept, arv - arvCxl - arvAging, '#5F8A1F'),
+          el('div', { class: 'text-right pl-2', style: { borderLeft: '1px solid var(--border)' } },
+            el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'True attrition'),
+            el('div', { class: 'text-2xl font-black tabular-nums', style: { color: rate >= 0.15 ? '#DC2626' : rate < 0.08 ? '#5F8A1F' : 'var(--text)' } },
+              (rate * 100).toFixed(1) + '%')))),
+      el('div', { class: 'px-4 pb-4' },
+        el('div', { class: 'w-full rounded-full overflow-hidden flex', style: { height: '14px', background: 'var(--card-2)' } },
+          seg(kept, '#5F8A1F', 'Retained'),
+          seg(aging, '#D97706', 'Aging (' + _agDays + '+ days past due)'),
+          seg(cxl, '#DC2626', 'Cancelled')),
+        el('div', { class: 'flex items-center justify-between pt-1.5 text-[10px] text-muted-' },
+          el('span', {}, fmt.int(subs) + ' serviced subs in this population \u00b7 ' + fmt.usd0(arv) + ' ARR'),
+          el('span', {}, fmt.int(cxl + aging) + ' lost or at risk \u00b7 ' + fmt.usd0(arvCxl + arvAging)))));
+  })();
+
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body, repTypeAttritionCard, trueAttritionBar);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
