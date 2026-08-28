@@ -142,7 +142,11 @@ async function callAdminSetPassword(payload) {
     body: JSON.stringify(payload),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || ('admin-set-password returned ' + res.status));
+  if (!res.ok) {
+    const err = new Error(body.error || ('admin-set-password returned ' + res.status));
+    err.body = body;   // structured fields (e.g. existing_user_id on a 409) ride along
+    throw err;
+  }
   return body;
 }
 
@@ -14118,10 +14122,9 @@ function renderSlotBar(iso, slot, meId, repById, opts = {}) {
       ? el('div', { class: 'text-[11px] italic', style: { color: 'var(--text-subtle)' } }, 'No reps · click to add')
       : el('div', { class: 'cal-rep-chips flex flex-wrap gap-1' },
           ...assigns.map(a => {
-            const rep = repById[a.rep_id];
             const isPartial = a.start !== slot.slot_start || a.end !== slot.slot_end;
             const isMine = a.rep_id === meId;
-            const firstName = rep?.full_name?.split(' ')[0] || 'Rep';
+            const firstName = calendarRepShort(a.rep_id, repById);
             // Google-Calendar coloring: every agent keeps their own color,
             // "me" keeps the accent so your own shifts still pop first.
             const ac = calendarAgentColor(a.rep_id);
@@ -14356,7 +14359,6 @@ function renderMonthGrid(anchor, today, meId, repById) {
         const iso = isoDate(d);
         const isToday = iso === todayIso;
         const holiday = companyHolidayFor(iso);
-        const slots = shiftSlotsForDate(iso);
         const cell = el('div', {
           class: 'cal-month-cell p-1.5 border-r border-b flex flex-col gap-1 relative' + (isAdmin ? ' cursor-pointer' : ''),
           style: {
@@ -14385,7 +14387,35 @@ function renderMonthGrid(anchor, today, meId, repById) {
               title: 'Add shift',
             }, '+'),
           ),
-          ...slots.map(s => renderSlotBar(iso, s, meId, repById, { compactLabel: true })),
+          // One line per AGENT with their REAL window (per Isaac: slot
+          // grouping hid odd schedules - an agent whose times were adjusted
+          // still displayed under the slot's generic label). Sorted by
+          // start, colored per agent, click opens the same slot modal.
+          ...(() => {
+            const vis = _shiftVisibleOn(iso);
+            const rows = deptShifts()
+              .filter(sh => sh.date === iso && vis(sh) && calendarAssignVisible(sh))
+              .sort((a, b) => a.start.localeCompare(b.start) || calendarRepShort(a.rep_id, repById).localeCompare(calendarRepShort(b.rep_id, repById)));
+            const CAP = 7;
+            const out = rows.slice(0, CAP).map(a => {
+              const c = calendarAgentColor(a.rep_id);
+              const mine = a.rep_id === meId;
+              return el('button', {
+                'data-slot-bar': 'true',
+                class: 'w-full text-left rounded-md px-1.5 py-1 text-[10px] font-semibold flex items-center gap-1 transition hover:brightness-95 overflow-hidden',
+                style: mine
+                  ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+                  : { background: c + '14', color: 'var(--text)', borderLeft: '3px solid ' + c },
+                title: calendarRepShort(a.rep_id, repById) + ' \u00b7 ' + fmtTime(a.start) + ' \u2013 ' + fmtTime(a.end),
+                onclick: (e) => { e.stopPropagation(); openSlotModal(iso, a.slot_id); },
+              },
+                el('span', { class: 'truncate' }, calendarRepShort(a.rep_id, repById)),
+                el('span', { class: 'ml-auto tabular-nums shrink-0', style: { color: mine ? 'var(--accent-text)' : 'var(--text-muted)', fontWeight: '600' } },
+                  calShortTime(a.start) + '\u2013' + calShortTime(a.end)));
+            });
+            if (rows.length > CAP) out.push(el('div', { class: 'text-[9px] text-muted- px-1 pointer-events-none' }, '+' + (rows.length - CAP) + ' more'));
+            return out;
+          })(),
         );
         return cell;
       }),
@@ -51334,7 +51364,19 @@ function openUserEditor(existing = null, prefill = null) {
         overlay.remove();
         mountApp();
       } catch (err) {
-        toast(err.message || 'Save failed', 'error');
+        // Duplicate login with a REAL owner: jump straight to that user's
+        // editor instead of dead-ending on a toast that points at a user
+        // the admin may not be able to find (their profile email can have
+        // drifted from the login email, hiding them from the CRM match).
+        const _dupId = err && err.body && err.body.existing_user_id;
+        const _dupProf = _dupId && (state.allProfiles || []).find(x => x.id === _dupId);
+        if (_dupProf) {
+          overlay.remove();
+          toast('That login belongs to ' + (_dupProf.full_name || 'an existing user') + ' — opening their profile. Link their FieldRoutes ID here to stop the CRM row showing separately.', 'warn');
+          openUserEditor(_dupProf, prefill ? { fr_id: prefill.fieldroutes_employee_id || prefill.fr_id } : null);
+        } else {
+          toast(err.message || 'Save failed', 'error');
+        }
       } finally {
         if (_submitBtn) { _submitBtn.disabled = false; _submitBtn.textContent = 'Save'; }
       }
