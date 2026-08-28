@@ -47152,7 +47152,74 @@ function reportingWaterfall() {
         renderSide(waterfallB, popB, officeLabel(compareOffice), '__B__'))
     : renderSide(waterfallA, popA, null, '__A__');
 
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body);
+
+  // ── ATTRITION BY REP TYPE (per Isaac) — who sold it: Door to Door,
+  // Office Staff, Technician. Same population as the tab (office scope,
+  // hidden-service/source filters, Steps 4-6 exclusions, serviced-only),
+  // same cancel semantics: save-backs count Active, reason-excluded cancels
+  // and (per the Overview toggle) 3-day RORs count as retained.
+  const repTypeAttritionCard = (() => {
+    const _svcT = (r) => (Number(r.subscription_completed_services) || 0) > 0;
+    const _aliveT = (r) => /active/i.test(String(r.subscription_status || ''));
+    const _exclReasons = reportingExcludedCancelReasons();
+    const _cxlT = (r) => {
+      if (!r.subscription_date_canceled) return false;
+      if (_aliveT(r)) return false;                                    // save-back: status trumps the date
+      if (_exclReasons.has(_normCancelReason(r.subscription_cancellation_reason))) return false;
+      if (reportingExcludeRorChurn() && _reporting3dayRor(r)) return false;
+      return true;
+    };
+    const TYPE_LABEL = (r) => {
+      const t = String(r.sold_by_type || '').trim().toLowerCase();
+      if (t === 'sales rep') return 'Door to Door';
+      if (t === 'technician') return 'Technician';
+      if (t === 'office staff') return 'Office Staff';
+      return t ? (t.charAt(0).toUpperCase() + t.slice(1)) : 'Unknown';
+    };
+    const mk = () => ({ subs: 0, active: 0, cancelled: 0, arv: 0, arvCxl: 0 });
+    const byType = {}; const total = mk();
+    for (const r of popA) {
+      if (!_svcT(r)) continue;
+      if (retenPopulationExcluded(r)) continue;
+      const g = byType[TYPE_LABEL(r)] = byType[TYPE_LABEL(r)] || mk();
+      const arv = Number(r.annual_recurring_value) || 0;
+      for (const t of [g, total]) {
+        t.subs++; t.arv += arv;
+        if (_cxlT(r)) { t.cancelled++; t.arvCxl += arv; }
+        else t.active++;
+      }
+    }
+    if (!total.subs) return null;
+    const ORDER = ['Door to Door', 'Office Staff', 'Technician'];
+    const keys = [...ORDER.filter(k => byType[k]), ...Object.keys(byType).filter(k => !ORDER.includes(k)).sort()];
+    const pct = (a, b) => b > 0 ? (a / b * 100).toFixed(1) + '%' : '\u2014';
+    const th = (lab, right) => el('th', { class: (right ? 'text-right' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
+    const row = (label, t, bold) => {
+      const attr = t.subs > 0 ? t.cancelled / t.subs : null;
+      return el('tr', { class: 'border-t' + (bold ? ' font-bold' : ''), style: { borderColor: 'var(--border)', background: bold ? 'var(--card-2)' : '' } },
+        el('td', { class: 'px-3 py-2 whitespace-nowrap' + (bold ? '' : ' font-semibold') }, label),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(t.subs)),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(t.active)),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(t.cancelled)),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold', style: attr != null && attr >= 0.15 ? { color: '#DC2626' } : attr != null && attr < 0.08 ? { color: '#5F8A1F' } : {} }, pct(t.cancelled, t.subs)),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, pct(t.active, t.subs)),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, pct(t.arvCxl, t.arv)));
+    };
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'Attrition by Rep Type'),
+          el('div', { class: 'text-[11px] text-muted-' }, 'Who SOLD the account. Same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
+        el('span', { class: 'text-[10px] text-muted-' }, fmt.int(total.subs) + ' serviced subs')),
+      el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-xs' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
+          th('Rep Type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1))),
+        el('tbody', {},
+          ...keys.map(k => row(k, byType[k])),
+          row('RIDD \u00b7 Total', total, true)))));
+  })();
+
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body, repTypeAttritionCard);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
