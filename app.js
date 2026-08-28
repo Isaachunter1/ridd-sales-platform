@@ -13781,6 +13781,30 @@ function calendarAssignVisible(a) {
   if (state._calFocus) return a.rep_id === state._calFocus;
   return !(state._calAgentHidden instanceof Set && state._calAgentHidden.has(a.rep_id));
 }
+// Name lookup that cannot come back as the bare "Rep" filler: repById only
+// carries CALENDAR-ELIGIBLE profiles, so an agent whose role shifted (or an
+// admin who grabbed a shift) fell out of it and rendered as "Rep" with no
+// times. Fall back to the full profile list before giving up.
+function calendarRepShort(repId, repById) {
+  const p = (repById && repById[repId]) || (state.allProfiles || []).find(x => x.id === repId);
+  return (p && p.full_name ? p.full_name.split(' ')[0] : '') || '(removed)';
+}
+// A legacy or hand-synced shift row can be missing start/end/slot_id - the
+// demo data never is, but the shared calendar_store has months of rows.
+// Normalize before display so one malformed row cannot take down the tab.
+function calShiftTimes(a) {
+  const st = a.start || a.slot_start || '00:00';
+  const en = a.end || a.slot_end || st;
+  return { st, en, slotId: a.slot_id || slotIdFor(st, en) };
+}
+// Compact time for narrow month cells: "7AM", "6:30AM", "12PM".
+function calShortTime(hhmm) {
+  const [h, m] = String(hhmm || '').split(':').map(Number);
+  if (!Number.isFinite(h)) return String(hhmm || '');
+  const ap = h < 12 ? 'AM' : 'PM';
+  const hr = (h % 12) || 12;
+  return hr + (m ? ':' + String(m).padStart(2, '0') : '') + ap;
+}
 
 // ── WEEKLY SCHEDULE BUILDER — one agent, one repeating week ──────────────
 // Sets the agent's standing week (e.g. Mon-Fri 9-5) and materializes it as
@@ -13800,7 +13824,7 @@ function openAgentScheduleModal(rep) {
       const d = new Date(t0); d.setDate(t0.getDate() + i);
       const iso = isoDate(d);
       const row = (state.shifts || []).find(s => s.rep_id === rep.id && s.date === iso && shiftDept(s) === dept);
-      if (row) _seed[d.getDay()] = { start: row.start, end: row.end };
+      if (row) { const { st, en } = calShiftTimes(row); _seed[d.getDay()] = { start: st, end: en }; }
     }
   }
   const days = dayNames.map((name, dow) => ({
@@ -13933,10 +13957,12 @@ function calendarAgentSidebar(meId, isAdmin, anchor) {
   const isoA = isoDate(a0), isoB = isoDate(a1);
   const dept = currentDepartment();
   const hoursFor = (repId) => (state.shifts || []).reduce((t, sh) => {
-    if (sh.rep_id !== repId || shiftDept(sh) !== dept) return t;
-    if (sh.date < isoA || sh.date >= isoB) return t;
+    if (!sh || sh.rep_id !== repId || shiftDept(sh) !== dept) return t;
+    if (!sh.date || sh.date < isoA || sh.date >= isoB) return t;
     if (!_shiftVisibleOn(sh.date)(sh)) return t;
-    return t + Math.max(0, (_toMin(sh.end) - _toMin(sh.start)) / 60);
+    const { st, en } = calShiftTimes(sh);
+    const mins = _toMin(en) - _toMin(st);
+    return t + (Number.isFinite(mins) ? Math.max(0, mins) / 60 : 0);
   }, 0);
   const fmtHrs = (h) => { const r = Math.round(h * 10) / 10; return (r % 1 ? r.toFixed(1) : String(r)) + 'h'; };
   return el('div', { class: 'card p-3 flex flex-col gap-1 shrink-0', style: { width: '210px', maxHeight: '70vh', overflowY: 'auto' } },
@@ -14143,7 +14169,7 @@ function renderSlotBar(iso, slot, meId, repById, opts = {}) {
 const WEEK_START_HOUR  = 6;   // 6 AM
 const WEEK_END_HOUR    = 19;  // 7 PM (exclusive)
 const WEEK_HOUR_HEIGHT = 56;  // px per hour
-function _toMin(hhmm) { const [h,m] = hhmm.split(':').map(Number); return h*60 + m; }
+function _toMin(hhmm) { const [h,m] = String(hhmm || '').split(':').map(Number); return h*60 + (m || 0); }
 function _timeToPx(hhmm) {
   return ((_toMin(hhmm) - WEEK_START_HOUR * 60) / 60) * WEEK_HOUR_HEIGHT;
 }
@@ -14395,7 +14421,8 @@ function renderMonthGrid(anchor, today, meId, repById) {
             const vis = _shiftVisibleOn(iso);
             const rows = deptShifts()
               .filter(sh => sh.date === iso && vis(sh) && calendarAssignVisible(sh))
-              .sort((a, b) => a.start.localeCompare(b.start) || calendarRepShort(a.rep_id, repById).localeCompare(calendarRepShort(b.rep_id, repById)));
+              .sort((a, b) => String(a.start || a.slot_start || '').localeCompare(String(b.start || b.slot_start || ''))
+                || calendarRepShort(a.rep_id, repById).localeCompare(calendarRepShort(b.rep_id, repById)));
             const CAP = 7;
             const out = rows.slice(0, CAP).map(a => {
               const c = calendarAgentColor(a.rep_id);
@@ -14406,12 +14433,12 @@ function renderMonthGrid(anchor, today, meId, repById) {
                 style: mine
                   ? { background: 'var(--accent)', color: 'var(--accent-text)' }
                   : { background: c + '14', color: 'var(--text)', borderLeft: '3px solid ' + c },
-                title: calendarRepShort(a.rep_id, repById) + ' \u00b7 ' + fmtTime(a.start) + ' \u2013 ' + fmtTime(a.end),
-                onclick: (e) => { e.stopPropagation(); openSlotModal(iso, a.slot_id); },
+                title: calendarRepShort(a.rep_id, repById) + ' \u00b7 ' + calShortTime(calShiftTimes(a).st) + ' \u2013 ' + calShortTime(calShiftTimes(a).en),
+                onclick: (e) => { e.stopPropagation(); openSlotModal(iso, calShiftTimes(a).slotId); },
               },
                 el('span', { class: 'truncate' }, calendarRepShort(a.rep_id, repById)),
                 el('span', { class: 'ml-auto tabular-nums shrink-0', style: { color: mine ? 'var(--accent-text)' : 'var(--text-muted)', fontWeight: '600' } },
-                  calShortTime(a.start) + '\u2013' + calShortTime(a.end)));
+                  calShortTime(calShiftTimes(a).st) + '\u2013' + calShortTime(calShiftTimes(a).en)));
             });
             if (rows.length > CAP) out.push(el('div', { class: 'text-[9px] text-muted- px-1 pointer-events-none' }, '+' + (rows.length - CAP) + ' more'));
             return out;
