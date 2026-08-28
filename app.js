@@ -37240,7 +37240,16 @@ function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !
 function retenPopulationExcluded(r) {
   if (retenExclRenewalSubs() && reportingSourceClass(r.subscription_source) === 'renewal') return 'renewal sub';
   if (retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0) return '$0 paying';
-  if (retenExclOneSvc() && (Number(r.subscription_completed_services) || 0) <= 1) return 'under 2 services';
+  // Year-aware (per Isaac): the 2+ services rule NEVER applies to accounts
+  // sold in the CURRENT year - they are just young, not dead. This mirrors
+  // the workbook, whose Step 6 only runs alongside "filter out current
+  // year". A prior-year account still sitting at <=1 service is the real
+  // quiet death the rule exists for.
+  if (retenExclOneSvc() && (Number(r.subscription_completed_services) || 0) <= 1) {
+    const _sd = r.sold_date ? new Date(r.sold_date) : null;
+    const _soldYr = _sd && !isNaN(_sd) ? _sd.getFullYear() : null;
+    if (_soldYr == null || _soldYr < new Date().getFullYear()) return 'under 2 services';
+  }
   if (retenExclFrozenOneSvc() && /frozen/i.test(String(r.subscription_status || '')) && (Number(r.subscription_completed_services) || 0) <= 1) return 'frozen, 1 service';
   return null;
 }
@@ -47727,7 +47736,7 @@ function adminConfigurations() {
         rule(),
         toggleRow('Exclude $0-paying subs', 'Subs with $0 annual recurring value drop from the retention book.', retenExclZeroPay(), () => { setRetenExclZeroPay(!retenExclZeroPay()); mountApp(); }),
         rule(),
-        toggleRow('Require 2+ services (all subs)', 'The workbook\u2019s Step 6 in full: any sub with only one completed service drops from the retention book entirely - a one-visit account is not yet a legitimate customer, so its cancel is not legitimate attrition. Heads-up: this also removes brand-new accounts still ramping, which is why the hand report pairs it with filtering out the current year.', retenExclOneSvc(), () => { setRetenExclOneSvc(!retenExclOneSvc()); mountApp(); }),
+        toggleRow('Require 2+ services (prior years)', 'The workbook\u2019s Step 6: a sub with only one completed service drops from the retention book entirely - a one-visit account is not yet a legitimate customer, so its cancel is not legitimate attrition. Current-year accounts are EXEMPT (they are just young, not dead), mirroring how the hand report pairs this rule with filtering out the current year.', retenExclOneSvc(), () => { setRetenExclOneSvc(!retenExclOneSvc()); mountApp(); }),
         toggleRow('Exclude frozen subs with ≤1 service', 'Quiet deaths — frozen right after the initial, no cancel date ever lands, so they would count as retained forever. (Redundant while \u201cRequire 2+ services\u201d is on.)', retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); }),
         rule(),
         // ── Deleted-in-CRM accounts — orphan rows the RevHawk mirror keeps ──
