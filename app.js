@@ -10283,7 +10283,7 @@ function openIndicatorRepCard(rep, allReps = []) {
         tile('Attrition · excl. ROR + OTS', pctS(attrExclRor), 'cancelled ÷ serviced (3-day RORs + one-time services removed from both sides)', good),
         tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), 'cancelled ÷ serviced (incl. ROR + one-time)', 'var(--text)'),
         tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#D97706'),
-        tile('Active retention', pctS(activeRetention), 'active ÷ serviced', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
+          // ('Active retention' tile removed per Isaac - it duplicated 1 - attrition and left the grid uneven.)
       ]),
       drillPanel() || el('div', {}),
     );
@@ -37223,6 +37223,15 @@ function retenExclZeroPay()       {
   const r = _adminRules(); if (r && typeof r.retenExclZeroPay === 'boolean') return r.retenExclZeroPay;
   try { return localStorage.getItem('ridd_reten_excl_zeropay') !== '0'; } catch { return true; } }
 function setRetenExclZeroPay(b)       { _setAdminRule('retenExclZeroPay', !!b); try { localStorage.setItem('ridd_reten_excl_zeropay', b ? '1' : '0'); } catch {} }
+// Step 6 of the workbook, in full (per Isaac): "take out all subscriptions
+// that have only received 1 service" - a one-visit account is not yet a
+// legitimate customer, so its cancel is not legitimate attrition. Broader
+// than the frozen-only rule below (which stays for when this is OFF).
+// Default ON, matching the hand report like the other Steps toggles.
+function retenExclOneSvc()  {
+  const r = _adminRules(); if (r && typeof r.retenExclOneSvc === 'boolean') return r.retenExclOneSvc;
+  try { return localStorage.getItem('ridd_reten_excl_onesvc') !== '0'; } catch { return true; } }
+function setRetenExclOneSvc(b)  { _setAdminRule('retenExclOneSvc', !!b); try { localStorage.setItem('ridd_reten_excl_onesvc', b ? '1' : '0'); } catch {} }
 function retenExclFrozenOneSvc()  {
   const r = _adminRules(); if (r && typeof r.retenExclFrozenOneSvc === 'boolean') return r.retenExclFrozenOneSvc;
   try { return localStorage.getItem('ridd_reten_excl_frozen1') !== '0'; } catch { return true; } }
@@ -37231,6 +37240,7 @@ function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !
 function retenPopulationExcluded(r) {
   if (retenExclRenewalSubs() && reportingSourceClass(r.subscription_source) === 'renewal') return 'renewal sub';
   if (retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0) return '$0 paying';
+  if (retenExclOneSvc() && (Number(r.subscription_completed_services) || 0) <= 1) return 'under 2 services';
   if (retenExclFrozenOneSvc() && /frozen/i.test(String(r.subscription_status || '')) && (Number(r.subscription_completed_services) || 0) <= 1) return 'frozen, 1 service';
   return null;
 }
@@ -47159,6 +47169,13 @@ function reportingWaterfall() {
   // same cancel semantics: save-backs count Active, reason-excluded cancels
   // and (per the Overview toggle) 3-day RORs count as retained.
   const repTypeAttritionCard = (() => {
+    // Sold-year cohort filter (per Isaac - the card had no time dimension
+    // and read as "some year"). 'all' = the whole book in the snapshot;
+    // a year = accounts SOLD that year, cancels any time since.
+    const _yearOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
+    const _rtYears = [...new Set(popA.map(_yearOf).filter(Boolean))].sort((a, b) => b - a);
+    if (state._rtAttrYear !== 'all' && !_rtYears.includes(state._rtAttrYear)) state._rtAttrYear = 'all';
+    const _rtYear = state._rtAttrYear || 'all';
     const _svcT = (r) => (Number(r.subscription_completed_services) || 0) > 0;
     const _aliveT = (r) => /active/i.test(String(r.subscription_status || ''));
     const _exclReasons = reportingExcludedCancelReasons();
@@ -47179,6 +47196,7 @@ function reportingWaterfall() {
     const mk = () => ({ subs: 0, active: 0, cancelled: 0, arv: 0, arvCxl: 0 });
     const byType = {}; const total = mk();
     for (const r of popA) {
+      if (_rtYear !== 'all' && _yearOf(r) !== _rtYear) continue;
       if (!_svcT(r)) continue;
       if (retenPopulationExcluded(r)) continue;
       const g = byType[TYPE_LABEL(r)] = byType[TYPE_LABEL(r)] || mk();
@@ -47189,7 +47207,7 @@ function reportingWaterfall() {
         else t.active++;
       }
     }
-    if (!total.subs) return null;
+    if (!total.subs && _rtYear === 'all') return null;
     const ORDER = ['Door to Door', 'Office Staff', 'Technician'];
     const keys = [...ORDER.filter(k => byType[k]), ...Object.keys(byType).filter(k => !ORDER.includes(k)).sort()];
     const pct = (a, b) => b > 0 ? (a / b * 100).toFixed(1) + '%' : '\u2014';
@@ -47209,8 +47227,17 @@ function reportingWaterfall() {
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
           el('div', { class: 'font-display text-lg' }, 'Attrition by Rep Type'),
-          el('div', { class: 'text-[11px] text-muted-' }, 'Who SOLD the account. Same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
-        el('span', { class: 'text-[10px] text-muted-' }, fmt.int(total.subs) + ' serviced subs')),
+          el('div', { class: 'text-[11px] text-muted-' }, 'Who SOLD the account \u00b7 ' + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
+        el('div', { class: 'flex items-center gap-2' },
+          el('select', {
+            class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+            onchange: (e) => { state._rtAttrYear = e.target.value === 'all' ? 'all' : Number(e.target.value); mountApp(); },
+          },
+            el('option', { value: 'all', selected: _rtYear === 'all' }, 'All years'),
+            ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))),
+          el('span', { class: 'text-[10px] text-muted-' }, fmt.int(total.subs) + ' serviced subs'))),
+      !total.subs ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No accounts in this cohort under the current rules.') :
       el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
           th('Rep Type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1))),
@@ -47649,7 +47676,8 @@ function adminConfigurations() {
         rule(),
         toggleRow('Exclude $0-paying subs', 'Subs with $0 annual recurring value drop from the retention book.', retenExclZeroPay(), () => { setRetenExclZeroPay(!retenExclZeroPay()); mountApp(); }),
         rule(),
-        toggleRow('Exclude frozen subs with ≤1 service', 'Quiet deaths — frozen right after the initial, no cancel date ever lands, so they would count as retained forever.', retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); }),
+        toggleRow('Require 2+ services (all subs)', 'The workbook\u2019s Step 6 in full: any sub with only one completed service drops from the retention book entirely - a one-visit account is not yet a legitimate customer, so its cancel is not legitimate attrition. Heads-up: this also removes brand-new accounts still ramping, which is why the hand report pairs it with filtering out the current year.', retenExclOneSvc(), () => { setRetenExclOneSvc(!retenExclOneSvc()); mountApp(); }),
+        toggleRow('Exclude frozen subs with ≤1 service', 'Quiet deaths — frozen right after the initial, no cancel date ever lands, so they would count as retained forever. (Redundant while \u201cRequire 2+ services\u201d is on.)', retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); }),
         rule(),
         // ── Deleted-in-CRM accounts — orphan rows the RevHawk mirror keeps ──
         (() => {
