@@ -37616,7 +37616,17 @@ function reportingBranchRenames() {
   try { return JSON.parse(localStorage.getItem('ridd_rpt_branch_renames') || '{}') || {}; } catch { return {}; } }
 function setReportingBranchRename(from, to) { try { const m = { ...reportingBranchRenames() }; if (to && to !== from) m[from] = to; else delete m[from]; _setAdminRule('branchRenames', m); localStorage.setItem('ridd_rpt_branch_renames', JSON.stringify(m)); } catch {} }
 function reportingAllBranches() { const s = new Set(); for (const r of (state.reportingSubscriptions || [])) { const o = (r.office_name || '').trim(); if (o) s.add(o); } return [...s].sort(); }
-function _reporting3dayRor(r) { if (!r.subscription_date_canceled || !r.sold_date) return false; const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000; return d >= 0 && d <= 3; }
+function _reporting3dayRor(r) {
+  if (!r.subscription_date_canceled || !r.sold_date) return false;
+  // 3-day ROR is a DOOR-TO-DOOR contract right (per Isaac) - office staff
+  // and technician sales don't get one, so a quick cancel there is a real
+  // cancel (or a miscoded reason to fix), never an ROR exclusion. Blank
+  // sold-by types keep the old behavior (legacy rows, benefit of the doubt).
+  const _t = String(r.sold_by_type || '').trim().toLowerCase();
+  if (_t && _t !== 'sales rep') return false;
+  const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000;
+  return d >= 0 && d <= 3;
+}
 // Apply branch exclusions + renames to a row set (used by every reporting scope).
 function reportingApplyBranchRules(rows) {
   const excl = reportingExcludedBranches();
@@ -47727,7 +47737,43 @@ function reportingWaterfall() {
           el('span', {}, fmt.int(cxl + aging) + ' lost or at risk \u00b7 ' + fmt.usd0(arvCxl + arvAging)))));
   })();
 
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body, repTypeAttritionCard, trueAttritionBar);
+  // \u2500\u2500 Cancel Hygiene (per Isaac) \u2500\u2500 fixable FieldRoutes data problems
+  // that quietly distort attrition: cancels with NO reason ever logged, and
+  // 3-day RORs hiding under other reason codes (plus the reverse). These are
+  // corrected ON THE ACCOUNT in FieldRoutes; the next sync cleans the matrix.
+  const cancelHygieneCard = (() => {
+    const _cxlH = (r) => r.subscription_date_canceled && !/active/i.test(String(r.subscription_status || ''));
+    const _isRorReason = (r) => /^3\s*day\s*ror$/i.test(reportingCancelReasonOf(r));
+    const _isSalesRepH = (r) => { const t = String(r.sold_by_type || '').trim().toLowerCase(); return !t || t === 'sales rep'; };
+    const _quickH = (r) => { if (!r.sold_date || !r.subscription_date_canceled) return false; const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000; return d >= 0 && d <= 3; };
+    const noReason = [], miscodedRor = [], rorTooLate = [];
+    for (const r of popA) {
+      if (!_cxlH(r)) continue;
+      const raw = String(r.subscription_cancellation_reason || '').trim();
+      if (!raw) { noReason.push(r); continue; }
+      if (_isSalesRepH(r) && _quickH(r) && !_isRorReason(r)) miscodedRor.push(r);
+      else if (_isRorReason(r) && !_quickH(r)) rorTooLate.push(r);
+    }
+    if (!noReason.length && !miscodedRor.length && !rorTooLate.length) return null;
+    const hRow = (label, desc, rows2, color) => rows2.length ? el('button', {
+      class: 'w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:brightness-95 border-t',
+      style: { borderColor: 'var(--border)', background: 'transparent', cursor: 'pointer' },
+      onclick: () => openReportingDrillModal({ chartTitle: 'Cancel hygiene \u2014 ' + label, sliceLabel: fmt.int(rows2.length) + ' account' + (rows2.length === 1 ? '' : 's'), rows: rows2, formatValue: (v) => fmt.usd0(v) }),
+    },
+      el('div', { class: 'min-w-0' },
+        el('div', { class: 'text-xs font-bold' }, label),
+        el('div', { class: 'text-[10px] text-muted-' }, desc)),
+      el('div', { class: 'text-sm font-black tabular-nums shrink-0', style: { color } }, fmt.int(rows2.length))) : null;
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3' },
+        el('div', { class: 'font-display text-lg' }, 'Cancel Hygiene'),
+        el('div', { class: 'text-[11px] text-muted-' }, 'Fixable FieldRoutes data problems that distort attrition \u2014 correct these on the account in FieldRoutes and the next snapshot cleans the numbers.')),
+      hRow('No cancellation reason', 'Cancelled with a date but no reason ever logged \u2014 counts as "Unspecified" churn today', noReason, '#DC2626'),
+      hRow('ROR hiding under another reason', 'Sales-rep sale cancelled within 3 days of sold but coded as something else \u2014 the date rule catches it, the reason matrix does not', miscodedRor, '#D97706'),
+      hRow('Coded 3 Day ROR but cancelled late', 'Reason says 3 Day ROR, but the cancel is more than 3 days after the sale \u2014 either the reason or the dates are wrong', rorTooLate, '#D97706'));
+  })();
+
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body, repTypeAttritionCard, trueAttritionBar, cancelHygieneCard);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
