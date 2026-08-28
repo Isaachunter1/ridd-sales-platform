@@ -10279,8 +10279,7 @@ function openIndicatorRepCard(rep, allReps = []) {
         tile('Serviced', money(servicedRev), 'received an initial service', null, drill('Serviced revenue', _svcR)),
         tile('Active', money(activeRev), 'serviced & active · incl. aging', null, drill('Active', x => _svcR(x) && _actR(x))),
         tile('Cancelled', money(cancelledRev), 'serviced then cancelled · incl. 3-day ROR · saved accounts count as Active', cancelledRev > 0 ? bad : null, drill('Cancelled', x => _svcR(x) && _cxlR(x))),
-        tile('Cancelled · 3-Day ROR', money(rorRev), 'right-of-rescission slice of Cancelled', rorRev > 0 ? bad : null, drill('3-Day ROR', x => _svcR(x) && _ror(x))),
-        tile('Cancelled · One-Time', money(otsCancelRev), 'completed one-time services — not attrition', null, drill('One-time services (cancelled)', x => _svcR(x) && _cxlR(x) && _isOTS(x))),
+        tile('Cancelled · ROR + One-Time', money(rorRev + otsCancelRev), '3-day ROR ' + money(rorRev) + ' · one-time ' + money(otsCancelRev) + ' — not attrition', (rorRev + otsCancelRev) > 0 ? bad : null, drill('3-Day ROR + one-time (cancelled)', x => _svcR(x) && (_ror(x) || (_cxlR(x) && _isOTS(x))))),
         tile('Aging', money(agingRev), 'at-risk slice of Active', agingRev > 0 ? bad : null, drill('Aging', x => _svcR(x) && _isAging(x))),
       ]),
       group('Attrition · of serviced', [
