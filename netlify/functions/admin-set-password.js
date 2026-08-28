@@ -161,9 +161,20 @@ exports.handler = async (event) => {
         if (linkErr || !orphanUid) {
           return json(409, { error: 'A login already exists for ' + email + ' — open that user and use Edit to change their password or details instead.' });
         }
-        const { data: existingProf } = await admin.from('profiles').select('id, full_name').eq('id', orphanUid).maybeSingle();
+        const { data: existingProf } = await admin.from('profiles').select('id, full_name, email').eq('id', orphanUid).maybeSingle();
         if (existingProf) {
-          return json(409, { error: 'A login already exists for ' + email + ' (' + (existingProf.full_name || 'unnamed') + ') — open that user and use Edit to change their password or details instead.' });
+          // Hand back WHO owns the login so the client can open their editor
+          // directly instead of telling the admin to go find a user that may
+          // be filed under a different name/email (Dom Polk, Aug 2026: the
+          // profile's email had drifted from the auth email, so the Users
+          // screen showed his CRM row as unmatched while the profile hid
+          // under another tab).
+          return json(409, {
+            error: 'A login already exists for ' + email + ' (' + (existingProf.full_name || 'unnamed') + ') — opening that user.',
+            existing_user_id: existingProf.id,
+            existing_name: existingProf.full_name || '',
+            existing_profile_email: existingProf.email || '',
+          });
         }
         const { error: adoptErr } = await admin.auth.admin.updateUserById(orphanUid, { password, email_confirm: true, user_metadata: { full_name: full_name || '' } });
         if (adoptErr) return json(500, { error: 'Found an orphaned login for ' + email + ' but could not set its password: ' + adoptErr.message });
