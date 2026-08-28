@@ -10285,6 +10285,47 @@ function openIndicatorRepCard(rep, allReps = []) {
         tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#D97706'),
           // ('Active retention' tile removed per Isaac - it duplicated 1 - attrition and left the grid uneven.)
       ]),
+      // \u2500\u2500 "True Attrition" bar (per Isaac) \u2014 same fixed definition as
+      // the Reporting > Retention bar: cancels EXCLUDING 3-day RORs,
+      // one-time services, and renewals (removed from BOTH sides), PLUS
+      // aging actives counted as churn. Revenue-weighted like the tiles
+      // above; the counts underneath drill into the exact accounts.
+      (() => {
+        const _tx = (x) => _svcR(x) && !_ror(x) && !_isOTS(x) && !_isRenewalCancel(x);
+        let tSvc = 0, tCxl = 0, tAging = 0, nSvc = 0, nCxl = 0, nAging = 0;
+        for (const x of all) {
+          if (!_tx(x)) continue;
+          const cv = Number(x.contractValue) || 0;
+          tSvc += cv; nSvc++;
+          if (_realCancel(x)) { tCxl += cv; nCxl++; }
+          else if (_isAging(x)) { tAging += cv; nAging++; }
+        }
+        if (!(tSvc > 0)) return null;
+        const rate = (tCxl + tAging) / tSvc;
+        const kept = tSvc - tCxl - tAging;
+        const seg = (v, color, label) => v > 0 ? el('div', {
+          style: { width: Math.max(0, Math.min(100, v / tSvc * 100)).toFixed(2) + '%', background: color, height: '100%' },
+          title: label + ' \u2014 ' + money(v) + ' (' + (v / tSvc * 100).toFixed(1) + '%)',
+        }) : null;
+        return el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)' } },
+          el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
+            el('div', {},
+              el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } },
+                'True attrition \u00b7 excl. ROR + OTS + renewals \u00b7 aging counts as churn'),
+              el('div', { class: 'text-[10px] text-muted- mt-0.5' },
+                '(cancelled ' + money(tCxl) + ' + aging ' + money(tAging) + ') \u00f7 ' + money(tSvc) + ' serviced')),
+            el('div', { class: 'text-xl font-black tabular-nums', style: { color: rate >= 0.15 ? bad : rate < 0.08 ? good : '#D97706' } }, pctS(rate))),
+          el('div', { class: 'w-full rounded-full overflow-hidden flex mt-2', style: { height: '10px', background: 'var(--card)' } },
+            seg(kept, good, 'Retained'),
+            seg(tAging, '#D97706', 'Aging'),
+            seg(tCxl, bad, 'Cancelled')),
+          el('div', { class: 'flex items-center justify-between mt-1 text-[10px] text-muted-' },
+            el('span', {},
+              el('span', { class: 'cursor-pointer underline', onclick: drill('True attrition \u00b7 cancelled', x => _tx(x) && _realCancel(x)) }, fmt.int(nCxl) + ' cancelled'),
+              ' \u00b7 ',
+              el('span', { class: 'cursor-pointer underline', onclick: drill('True attrition \u00b7 aging', x => _tx(x) && _actR(x) && _isAging(x)) }, fmt.int(nAging) + ' aging')),
+            el('span', {}, fmt.int(nSvc) + ' serviced accounts in this view')));
+      })(),
       drillPanel() || el('div', {}),
     );
   }
