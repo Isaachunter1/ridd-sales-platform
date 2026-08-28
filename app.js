@@ -156,7 +156,7 @@ async function callAdminSetPassword(payload) {
 // overrides are edited in Settings → Permissions (checkbox matrix) and ride
 // the synced config row (competitions.extras.perms), so a change reaches
 // every user on every device — no deploy per role tweak.
-const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'auditor'];
+const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty_lead', 'auditor'];
 const PERM_DEFS = [
   { id: 'view_comps',       label: 'Competitions tab',    group: 'Tabs' },
   { id: 'view_indicators',  label: 'Indicators tab',      group: 'Tabs' },
@@ -177,6 +177,7 @@ const PERM_DEFAULTS = {
   rep_partner:     { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
   rep_team_lead:   { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
   rep_office_lead: { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
+  rep_loyalty_lead: { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
   auditor:         {},   // auditors live in the Sales queue — grant extras here as needed
 };
 // Effective permission role: legacy 'rep' resolves by CRM type.
@@ -216,6 +217,7 @@ const PERM_SCOPE_DEFAULTS = {
   rep_partner:     { drill_scope: 'team' },
   rep_team_lead:   { drill_scope: 'team' },
   rep_office_lead: { drill_scope: 'dept' },
+  rep_loyalty_lead: { drill_scope: 'dept' },
   auditor:         { drill_scope: 'none' },
 };
 function userScope(scopeId, profile) {
@@ -232,7 +234,7 @@ function userScope(scopeId, profile) {
 // the codebase. `admin_rep` is an admin who also sells (on leaderboard, has a
 // Pay tab); `admin` is admin-only (not on leaderboard, no sales).
 const ADMIN_ROLES   = ['admin', 'admin_rep'];
-const SELLER_ROLES  = ['rep', 'rep_office', 'rep_office_lead', 'rep_sales', 'rep_partner', 'rep_team_lead', 'admin_rep'];
+const SELLER_ROLES  = ['rep', 'rep_office', 'rep_office_lead', 'rep_loyalty_lead', 'rep_sales', 'rep_partner', 'rep_team_lead', 'admin_rep'];
 const isAdminRole   = (r) => ADMIN_ROLES.includes(r);
 const isSellerRole  = (r) => SELLER_ROLES.includes(r);
 const isAuditorRole = (r) => r === 'auditor';
@@ -247,7 +249,7 @@ const isPartnerRole = (r) => r === 'rep_partner' || r === 'rep_team_lead';
 // Office Staff - Team Lead: an office-staff rep who LEADS the call center.
 // Same permissions as Office Staff everywhere, plus: they can open the
 // player cards of OFFICE STAFF reps (their team), mirroring rep_partner.
-const isOfficeLeadRole = (r) => r === 'rep_office_lead';
+const isOfficeLeadRole = (r) => r === 'rep_office_lead' || r === 'rep_loyalty_lead';
 // Human-readable label for any role enum value, used wherever we render a
 // role to the UI. Keeps the Users table, the editor dropdown, and the
 // profile menu in sync without scattering string-cases.
@@ -257,7 +259,8 @@ const ROLE_LABEL = {
   rep_partner:'Rep - Partner',
   rep_team_lead:'Rep - Team Lead',
   rep_office: 'Rep - Office Staff',
-  rep_office_lead: 'Office Staff - Team Lead',
+  rep_office_lead: 'Rep - Inside Sales Team Lead',
+  rep_loyalty_lead: 'Rep - Loyalty Team Lead',
   admin_rep:  'Admin + Sales',
   admin:      'Admin',
   auditor:    'Auditor',
@@ -266,7 +269,7 @@ const roleLabel = (r) => ROLE_LABEL[r] || r || '';
 // Rep access flavors. The explicit roles decide directly; the legacy 'rep'
 // role falls back to the CRM rep-type lookup (state.myRepType, fetched at
 // login) so existing accounts keep working unchanged.
-const isOfficeStaffRole = (r) => r === 'rep_office' || r === 'rep_office_lead'
+const isOfficeStaffRole = (r) => r === 'rep_office' || r === 'rep_office_lead' || r === 'rep_loyalty_lead'
   || (r === 'rep' && /office\s*staff/i.test(state.myRepType || ''));
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -6483,7 +6486,7 @@ function recentSalesTable(rows, opts = {}) {
 // family (leaderboard, individual goals, Hall of Fame) to office staff.
 function isOfficeStaffProfile(p) {
   if (!p) return false;
-  if (p.role === 'rep_office' || p.role === 'rep_office_lead') return true;
+  if (p.role === 'rep_office' || p.role === 'rep_office_lead' || p.role === 'rep_loyalty_lead') return true;
   if (p.role === 'rep_sales' || p.role === 'rep_partner' || p.role === 'rep_team_lead') return false;
   const emp = frRosterRowForProfile(p);   // works even when the profile stores a branch id
   if (emp && emp.type_label) return /office\s*staff/i.test(emp.type_label);
@@ -33568,7 +33571,7 @@ function openTVDashboard() {
     const cg = state.companyGoal || { amount: 6000000, period: 'year' };
     const monthlyCompanyGoal = cg.period === 'year' ? cg.amount / 12 : cg.amount;
     const dailyCompanyGoal = workingDaysInMonth > 0 ? monthlyCompanyGoal / workingDaysInMonth : 0;
-    const sellerRoles = new Set(['rep', 'rep_office', 'rep_office_lead', 'rep_sales', 'rep_partner', 'rep_team_lead', 'admin_rep']);
+    const sellerRoles = new Set(['rep', 'rep_office', 'rep_office_lead', 'rep_loyalty_lead', 'rep_sales', 'rep_partner', 'rep_team_lead', 'admin_rep']);
     const activeRepCount = Math.max(1,
       (state.allProfiles || []).filter(p => p.is_active !== false && sellerRoles.has(p.role)).length
     );
@@ -36164,10 +36167,16 @@ function viewScorecards() {
   // to one row. They can read scores their manager has set and the
   // coaching notes, but the template editor is admin-only (gated below).
   const isAdmin = isAdminRole(state.profile?.role);
+  // Office Staff - Team Leads run the monthly reviews too (per Isaac):
+  // full office-staff roster, can enter scores + notes for their agents.
+  // Their OWN card stays read-only (scored by an admin), and the template
+  // editor stays admin-only.
+  const isLead = typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role);
+  const canScoreRoster = isAdmin || isLead;
   // Scorecards are an INSIDE SALES tool (per Isaac) — the admin roster shows
   // office-staff reps only, not D2D reps / techs / admins.
   const allProfiles = (state.allProfiles || []).filter(p => p && p.is_active !== false);
-  const roster = isAdmin
+  const roster = canScoreRoster
     ? allProfiles.filter(p => !isAdminRole(p.role) && !isAuditorRole(p.role)
         && typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(p))
         .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
@@ -36258,7 +36267,10 @@ function viewScorecards() {
   const grid = el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' },
     ...scores.map(({ profile, card, score }) => scorecardAgentCard({
       profile, card, score, tpl,
-      onOpen: () => openScorecardDetailModal(profile, period, tpl, upsertCard),
+      // Admins edit anyone; a team lead edits everyone EXCEPT their own
+      // card (no self-scoring); a rep opens their own card read-only.
+      onOpen: () => openScorecardDetailModal(profile, period, tpl, upsertCard,
+        isAdmin || (isLead && profile.id !== state.profile?.id)),
     })),
   );
   container.append(grid);
@@ -36359,7 +36371,7 @@ function scorecardAgentCard({ profile, card, score, tpl, onOpen }) {
   }, head, bars, footer);
 }
 
-function openScorecardDetailModal(profile, period, tpl, upsertCard) {
+function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = true) {
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   const modal = el('div', {
@@ -36414,6 +36426,10 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard) {
       ),
     );
 
+    if (!canEdit) modal.append(
+      el('div', { class: 'rounded-lg border px-3 py-2 text-[11px] mb-4', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text-muted)' } },
+        'Read-only \u2014 scores on this card are entered by your team lead or an admin.'));
+
     // ── Composite headline (big number + per-metric stacked bar)
     modal.append(
       el('div', {
@@ -36449,6 +36465,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard) {
           ),
           el('input', {
             type: 'number', min: '0', max: '100', step: '0.1',
+            disabled: canEdit ? null : true,
             placeholder: '0–100',
             value: has ? String(v) : '',
             class: 'rounded-lg border px-3 py-1.5 text-sm tabular-nums text-right',
@@ -36525,6 +36542,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard) {
         ),
         el('input', {
           type: 'number', min: '1', step: '1',
+          disabled: canEdit ? null : true,
           value: String(workingDays),
           placeholder: String(autoWorkingDays || ''),
           class: 'rounded-lg border px-3 py-1.5 text-sm tabular-nums text-right',
@@ -36569,6 +36587,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard) {
           ),
           el('input', {
             type: 'number', min: '0', step: '1',
+            disabled: canEdit ? null : true,
             value: String(n),
             class: 'rounded-lg border px-3 py-1.5 text-sm tabular-nums text-right',
             style: { borderColor: 'var(--border-2)', width: '90px' },
@@ -36590,6 +36609,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard) {
         el('h3', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-2' }, 'Coaching Notes'),
         el('textarea', {
           rows: 4,
+          readonly: canEdit ? null : true,
           placeholder: 'What went well, where to focus, action items for next month…',
           class: 'w-full rounded-lg border px-3 py-2 text-sm',
           style: { borderColor: 'var(--border-2)', resize: 'vertical', fontFamily: 'inherit' },
@@ -36604,7 +36624,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard) {
     // ── Footer
     modal.append(
       el('div', { class: 'flex justify-end gap-2' },
-        el('button', {
+        canEdit ? el('button', {
           class: 'rounded-lg px-3 py-2 text-xs font-semibold border',
           style: { borderColor: '#DC2626', color: '#DC2626' },
           title: 'Clear all entries for this agent + period',
@@ -36614,7 +36634,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard) {
             saveDemoData();
             close();
           },
-        }, 'Clear Scorecard'),
+        }, 'Clear Scorecard') : null,
         el('button', {
           class: 'rounded-lg px-4 py-2 text-sm font-bold',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
@@ -51041,7 +51061,7 @@ function adminReps() {
           style: { position: 'absolute', top: 'calc(100% + 6px)', right: '0', minWidth: '190px', padding: '6px', display: 'none', zIndex: '50', boxShadow: 'var(--shadow-lg)' },
         },
           el('div', { class: 'px-3 pt-1.5 pb-2 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'View the app as\u2026'),
-          ...[['rep_sales', 'Rep - Sales Rep'], ['rep_partner', 'Rep - Partner'], ['rep_team_lead', 'Rep - Team Lead'], ['rep_office', 'Rep - Office Staff'], ['rep_office_lead', 'Office Staff - Team Lead'], ['auditor', 'Auditor']].map(([v, label]) => el('button', {
+          ...[['rep_sales', 'Rep - Sales Rep'], ['rep_partner', 'Rep - Partner'], ['rep_team_lead', 'Rep - Team Lead'], ['rep_office', 'Rep - Office Staff'], ['rep_office_lead', 'Rep - Inside Sales Team Lead'], ['rep_loyalty_lead', 'Rep - Loyalty Team Lead'], ['auditor', 'Auditor']].map(([v, label]) => el('button', {
             class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition',
             style: { color: 'var(--text)' },
             onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
@@ -51942,7 +51962,8 @@ function openUserEditor(existing = null, prefill = null) {
         el('option', { value: 'rep_partner', selected: seedRole === 'rep_partner' }, 'Rep - Partner'),
         el('option', { value: 'rep_team_lead', selected: seedRole === 'rep_team_lead' }, 'Rep - Team Lead'),
         el('option', { value: 'rep_office', selected: seedRole === 'rep_office' }, 'Rep - Office Staff'),
-        el('option', { value: 'rep_office_lead', selected: seedRole === 'rep_office_lead' }, 'Office Staff - Team Lead'),
+        el('option', { value: 'rep_office_lead', selected: seedRole === 'rep_office_lead' }, 'Rep - Inside Sales Team Lead'),
+        el('option', { value: 'rep_loyalty_lead', selected: seedRole === 'rep_loyalty_lead' }, 'Rep - Loyalty Team Lead'),
         el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep' },  'Admin + Sales'),
         el('option', { value: 'admin',      selected: seedRole === 'admin' },      'Admin (no sales)'),
         el('option', { value: 'auditor',    selected: seedRole === 'auditor' },    'Auditor'),
@@ -52031,7 +52052,7 @@ function openUserEditor(existing = null, prefill = null) {
       const goldenPhoneRow    = mk('Golden Phone',    moneyInp('golden_phone_amount',    existing?.golden_phone_amount));
       const loyaltyRoyaltyRow = mk('Loyalty Royalty', moneyInp('loyalty_royalty_amount', existing?.loyalty_royalty_amount));
 
-      const OFFICE_ROLES = new Set(['rep_office', 'rep_office_lead']);
+      const OFFICE_ROLES = new Set(['rep_office', 'rep_office_lead', 'rep_loyalty_lead']);
       const grid = el('div', { class: 'flex flex-col gap-3' });
       const applyRepTypeVisibility = () => {
         const isLoyalty = repTypeSelect.value === 'loyalty_rep';
