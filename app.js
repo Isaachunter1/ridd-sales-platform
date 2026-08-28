@@ -30340,7 +30340,24 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 bestWeekTime: 'Biggest single-rep record among the reps shown',
                 bestMonthTime: 'Biggest single-rep record among the reps shown',
               };
-              return el('tr', { style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2), inset 0 1px 0 var(--border)' } },
+              // Click the totals row -> the SAME player card a rep gets, fed
+              // the combined sales of every rep currently shown (per Isaac).
+              // Same pattern as the company-wide RIDD card on the comps
+              // table; openIndicatorRepCard's own privacy gate still applies.
+              const _totSales = displayReps.flatMap(r => ((r._orig || r).sales) || []);
+              const _canOpenTot = _totSales.length > 0 && canViewRepDetails('Total', '');
+              const _openTot = () => {
+                if (!_canOpenTot) return;
+                const peers = displayReps
+                  .map(r => ({ name: r.name, sales: ((r._orig || r).sales) || [] }))
+                  .filter(p => p.sales.length);
+                openIndicatorRepCard(_scopeRep({ name: 'Total', sales: _totSales }, () => true), peers);
+              };
+              return el('tr', {
+                class: _canOpenTot ? 'cursor-pointer transition hover:brightness-95' : '',
+                title: _canOpenTot ? 'Open the combined player card for every rep shown' : '',
+                onclick: _canOpenTot ? _openTot : undefined,
+                style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2), inset 0 1px 0 var(--border)' } },
                 el('td', { class: 'pl-5 pr-2 py-2' }, ''),
                 ...repCols.map(c => {
                   if (c.key === 'name') return el('td', { class: 'px-2 py-2' },
