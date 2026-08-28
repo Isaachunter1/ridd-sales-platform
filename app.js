@@ -13813,11 +13813,23 @@ function openAgentScheduleModal(rep) {
   overlay.append(card);
 
   const body = el('div', { class: 'flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-2' });
+  // Live weekly-hours readout - recomputed on every checkbox/time change so
+  // the admin sees the load they are building before they save it.
+  const fmtHrs = (h) => (h % 1 ? h.toFixed(1) : String(h)) + 'h';
+  const hoursEl = el('span', { class: 'font-display text-lg tabular-nums' });
+  const updHours = () => {
+    const total = days.reduce((t, d) => {
+      if (!d.on || !d.start || !d.end || d.start >= d.end) return t;
+      return t + (_toMin(d.end) - _toMin(d.start)) / 60;
+    }, 0);
+    hoursEl.textContent = fmtHrs(Math.round(total * 10) / 10);
+    hoursEl.style.color = total > 0 ? 'var(--text)' : 'var(--text-subtle)';
+  };
   const rowEls = days.map(d => {
     const cb = el('input', { type: 'checkbox', style: { cursor: 'pointer' } }); cb.checked = d.on;
     const st = el('input', { type: 'time', value: d.start, class: 'rounded-lg border px-2 py-1 text-xs', style: { borderColor: 'var(--border-2)' } });
     const en = el('input', { type: 'time', value: d.end, class: 'rounded-lg border px-2 py-1 text-xs', style: { borderColor: 'var(--border-2)' } });
-    const sync = () => { d.on = cb.checked; d.start = st.value || d.start; d.end = en.value || d.end; st.disabled = en.disabled = !d.on; st.style.opacity = en.style.opacity = d.on ? '1' : '.4'; };
+    const sync = () => { d.on = cb.checked; d.start = st.value || d.start; d.end = en.value || d.end; st.disabled = en.disabled = !d.on; st.style.opacity = en.style.opacity = d.on ? '1' : '.4'; updHours(); };
     cb.onchange = sync; st.onchange = sync; en.onchange = sync;
     setTimeout(sync, 0);
     return el('div', { class: 'flex items-center gap-2' },
@@ -13825,7 +13837,10 @@ function openAgentScheduleModal(rep) {
       st, el('span', { class: 'text-xs text-muted-' }, '→'), en);
   });
   body.append(...rowEls,
-    el('div', { class: 'flex items-center gap-2 mt-2' },
+    el('div', { class: 'flex items-center justify-between gap-2 mt-2 px-1 py-2 rounded-lg', style: { background: 'var(--card-2)' } },
+      el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold', style: { paddingLeft: '4px' } }, 'Hours / week'),
+      hoursEl),
+    el('div', { class: 'flex items-center gap-2 mt-1' },
       el('span', { class: 'text-xs font-bold uppercase tracking-wider text-muted-' }, 'Build ahead'),
       el('select', {
         class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer', style: { borderColor: 'var(--border-2)' },
@@ -13901,9 +13916,25 @@ function openAgentScheduleModal(rep) {
 }
 
 // ── AGENT SIDEBAR — the Google-Calendar "calendars" list ─────────────────
-function calendarAgentSidebar(meId, isAdmin) {
+function calendarAgentSidebar(meId, isAdmin, anchor) {
   const agents = calendarDeptAgents();
   const focus = state._calFocus;
+  // Hours each agent works in the VISIBLE window (the week or month on
+  // screen), holiday-suppressed like the grid, so the number beside a name
+  // always matches the blocks you can see.
+  const view = state.calendarView === 'month' ? 'month' : 'week';
+  const a0 = view === 'week' ? startOfWeek(anchor || new Date()) : startOfMonth(anchor || new Date());
+  const a1 = new Date(a0);
+  if (view === 'week') a1.setDate(a0.getDate() + 7); else a1.setMonth(a0.getMonth() + 1);
+  const isoA = isoDate(a0), isoB = isoDate(a1);
+  const dept = currentDepartment();
+  const hoursFor = (repId) => (state.shifts || []).reduce((t, sh) => {
+    if (sh.rep_id !== repId || shiftDept(sh) !== dept) return t;
+    if (sh.date < isoA || sh.date >= isoB) return t;
+    if (!_shiftVisibleOn(sh.date)(sh)) return t;
+    return t + Math.max(0, (_toMin(sh.end) - _toMin(sh.start)) / 60);
+  }, 0);
+  const fmtHrs = (h) => { const r = Math.round(h * 10) / 10; return (r % 1 ? r.toFixed(1) : String(r)) + 'h'; };
   return el('div', { class: 'card p-3 flex flex-col gap-1 shrink-0', style: { width: '210px', maxHeight: '70vh', overflowY: 'auto' } },
     el('div', { class: 'flex items-center justify-between px-1 pb-1' },
       el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Agents'),
@@ -13930,6 +13961,14 @@ function calendarAgentSidebar(meId, isAdmin) {
             cb,
             el('span', { style: { width: '9px', height: '9px', borderRadius: '3px', background: c, display: 'inline-block', flexShrink: '0' } }),
             el('span', { class: 'text-xs font-medium truncate flex-1 min-w-0' + (p.id === meId ? ' font-bold' : '') }, (p.full_name || '(no name)') + (p.id === meId ? ' · you' : '')),
+            (() => {
+              const h = hoursFor(p.id);
+              return el('span', {
+                class: 'text-[10px] tabular-nums shrink-0' + (h > 0 ? ' font-semibold' : ''),
+                style: { color: h > 0 ? 'var(--text-muted)' : 'var(--text-subtle)' },
+                title: (h > 0 ? fmtHrs(h) : 'No hours') + ' scheduled this ' + view,
+              }, h > 0 ? fmtHrs(h) : '—');
+            })(),
             isAdmin ? el('button', {
               class: 'text-[11px] shrink-0 rounded px-1 transition hover:brightness-95',
               style: { background: 'transparent', color: 'var(--text-muted)' },
@@ -14037,7 +14076,7 @@ function viewCalendar() {
 
     // ── Agent sidebar + grid — the Google-Calendar layout ──
     el('div', { class: 'flex gap-4 items-start' },
-      calendarAgentSidebar(meId, isAdmin),
+      calendarAgentSidebar(meId, isAdmin, anchor),
       el('div', { class: 'flex-1 min-w-0' },
         state.calendarView === 'week'
           ? renderWeekGrid(anchor, today, meId, repById)
