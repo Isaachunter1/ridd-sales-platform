@@ -339,6 +339,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   // + the currently-selected period. Small payload, lives in settings
   // (not bulk data) so it can't be hit by the indicator CSV quota.
   '_scorecardTemplate',
+  '_scorecardTemplates',   // per-department templates (inside_sales / loyalty)
   '_scorecardData',
   '_scorecardPeriod',
 ];
@@ -35979,6 +35980,43 @@ const SCORECARD_DEFAULT_TEMPLATE = {
   },
 };
 
+// ── Scorecard departments (per Isaac) ──
+// Inside Sales and Loyalty each get their OWN template. An agent's
+// department comes from their rep_type (same rule the Calendar uses),
+// with the Loyalty lead role as a fallback for leads whose rep_type was
+// never set. Reps see only their own card; team leads see their whole
+// department; admins switch departments with the dropdown.
+const SCORECARD_DEPTS = [
+  { id: 'inside_sales', label: 'Inside Sales' },
+  { id: 'loyalty',      label: 'Loyalty' },
+];
+
+function scorecardDeptOf(p) {
+  if (!p) return 'inside_sales';
+  if (p.rep_type === 'loyalty_rep' || p.role === 'rep_loyalty_lead') return 'loyalty';
+  return 'inside_sales';
+}
+
+const SCORECARD_LOYALTY_DEFAULT_TEMPLATE = {
+  name: 'Loyalty',
+  // Same weight shape as Inside Sales, but the selling skill is SAVES:
+  // rename/retune anything in the template editor.
+  metrics: [
+    { id: 'save_pct',   label: 'Save %',               weight: 0.35, source: 'manual' },
+    { id: 'audit',      label: 'Audit Score (Calls)',  weight: 0.30, source: 'manual' },
+    { id: 'accuracy',   label: 'Accuracy Score',       weight: 0.20, source: 'manual' },
+    { id: 'attendance', label: 'Attendance Score',     weight: 0.15, source: 'attendance' },
+  ],
+  attendance: {
+    workingDays: null,
+    penalties: [
+      { id: 'tardyLate',         label: 'Tardies / Lates',      unit: 'days',    weightDays: 1 },
+      { id: 'sameDayCallout',    label: 'Same-Day Call Outs',   unit: 'percent', weight: 10 },
+      { id: 'leftLateOver1Hour', label: 'Left / Late > 1 Hour', unit: 'percent', weight: 5  },
+    ],
+  },
+};
+
 // Mon–Sat working-day count for a YYYY-MM period key. Matches the
 // rest of the platform's "RIDD weeks run Sunday-off only" convention
 // (TV dashboard, indicators goal math). Returns 0 if the key can't be
@@ -35998,14 +36036,18 @@ function workingDaysForPeriod(periodKey) {
   return count;
 }
 
-function getScorecardTemplate() {
+function getScorecardTemplate(dept = 'inside_sales') {
   // Merge the saved template over the defaults so newly-added fields
   // (like penalty `unit`) automatically appear in older saved templates.
-  const saved = state._scorecardTemplate || {};
+  // Per-department store; the legacy single _scorecardTemplate blob was
+  // always the Inside Sales template, so it stays that dept's fallback.
+  const store = (state._scorecardTemplates && typeof state._scorecardTemplates === 'object') ? state._scorecardTemplates : {};
+  const DEF = dept === 'loyalty' ? SCORECARD_LOYALTY_DEFAULT_TEMPLATE : SCORECARD_DEFAULT_TEMPLATE;
+  const saved = store[dept] || (dept === 'inside_sales' ? (state._scorecardTemplate || {}) : {});
   const merged = {
-    name:       saved.name       || SCORECARD_DEFAULT_TEMPLATE.name,
-    metrics:    Array.isArray(saved.metrics) && saved.metrics.length ? saved.metrics : SCORECARD_DEFAULT_TEMPLATE.metrics,
-    attendance: saved.attendance || SCORECARD_DEFAULT_TEMPLATE.attendance,
+    name:       saved.name       || DEF.name,
+    metrics:    Array.isArray(saved.metrics) && saved.metrics.length ? saved.metrics : DEF.metrics,
+    attendance: saved.attendance || DEF.attendance,
   };
   // One-time migration: a saved template still carrying the ORIGINAL default
   // weights (15/25/25/35) was never customized — upgrade it to the new
@@ -36013,7 +36055,7 @@ function getScorecardTemplate() {
   {
     const w = Object.fromEntries((merged.metrics || []).map(m => [m.id, Number(m.weight)]));
     if (merged.metrics.length === 4 && w.attendance === 0.15 && w.close_pct === 0.25 && w.accuracy === 0.25 && w.audit === 0.35) {
-      merged.metrics = SCORECARD_DEFAULT_TEMPLATE.metrics.map(m => ({ ...m }));
+      merged.metrics = DEF.metrics.map(m => ({ ...m }));
     }
   }
   // Upgrade legacy penalties (no `unit` field). For the three baked-in
@@ -36022,7 +36064,7 @@ function getScorecardTemplate() {
   // a custom ID falls back to 'days' unit using its existing weightDays.
   if (Array.isArray(merged.attendance.penalties)) {
     const defaultsById = Object.fromEntries(
-      SCORECARD_DEFAULT_TEMPLATE.attendance.penalties.map(p => [p.id, p])
+      DEF.attendance.penalties.map(p => [p.id, p])
     );
     merged.attendance = {
       ...merged.attendance,
@@ -36132,7 +36174,16 @@ function scorecardBand(score) {
 }
 
 function viewScorecards() {
-  const tpl = getScorecardTemplate();
+  const isAdmin = isAdminRole(state.profile?.role);
+  const isLead = typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role);
+  const canScoreRoster = isAdmin || isLead;
+  // Department scope (per Isaac): everyone DEFAULTS to their own
+  // department; admins switch with the dropdown, leads + reps are pinned.
+  const myDept = scorecardDeptOf(state.profile);
+  if (isAdmin && !state._scorecardDept) state._scorecardDept = myDept;
+  const dept = isAdmin ? (state._scorecardDept || myDept) : myDept;
+  const deptLabel = (SCORECARD_DEPTS.find(d => d.id === dept) || {}).label || dept;
+  const tpl = getScorecardTemplate(dept);
   if (!state._scorecardData) state._scorecardData = {};
   if (!state._scorecardPeriod) {
     const opts = scorecardPeriodOptions();
@@ -36153,6 +36204,10 @@ function viewScorecards() {
       metrics:    { ...(cur.metrics || {}),    ...(patch.metrics || {}) },
       attendance: { ...(cur.attendance || {}), ...(patch.attendance || {}) },
       notes:      patch.notes != null ? patch.notes : (cur.notes || ''),
+      // Stamps (per Isaac): finalized = locked; reviewed = the 1:1
+      // actually happened. `undefined` leaves a stamp alone, `null` clears.
+      finalized:  patch.finalized !== undefined ? patch.finalized : (cur.finalized || null),
+      reviewed:   patch.reviewed  !== undefined ? patch.reviewed  : (cur.reviewed  || null),
     };
     saveDemoData();
   };
@@ -36166,19 +36221,14 @@ function viewScorecards() {
   // Reps only see their OWN card — same data, same modal, just scoped
   // to one row. They can read scores their manager has set and the
   // coaching notes, but the template editor is admin-only (gated below).
-  const isAdmin = isAdminRole(state.profile?.role);
-  // Office Staff - Team Leads run the monthly reviews too (per Isaac):
-  // full office-staff roster, can enter scores + notes for their agents.
-  // Their OWN card stays read-only (scored by an admin), and the template
-  // editor stays admin-only.
-  const isLead = typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role);
-  const canScoreRoster = isAdmin || isLead;
-  // Scorecards are an INSIDE SALES tool (per Isaac) — the admin roster shows
-  // office-staff reps only, not D2D reps / techs / admins.
+  // Office team leads run their department's monthly reviews (per
+  // Isaac): full dept roster, score entry + notes. Template editor stays
+  // admin-only, and a lead's OWN card is admin-scored.
   const allProfiles = (state.allProfiles || []).filter(p => p && p.is_active !== false);
   const roster = canScoreRoster
     ? allProfiles.filter(p => !isAdminRole(p.role) && !isAuditorRole(p.role)
-        && typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(p))
+        && typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(p)
+        && scorecardDeptOf(p) === dept)
         .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
     : allProfiles.filter(p => p.id === state.profile?.id);
 
@@ -36193,6 +36243,18 @@ function viewScorecards() {
         tpl.metrics.map(m => m.label + ' ' + Math.round(m.weight * 100) + '%').join(' · ') + '.'),
     ),
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
+      // Department scope — admins switch between departments; leads and
+      // reps see a pinned pill for their own.
+      isAdmin ? el('select', {
+        class: 'rounded-lg border px-3 py-1.5 text-sm cursor-pointer',
+        style: { borderColor: 'var(--border-2)' },
+        title: 'Which department\u2019s scorecards (and template) to show',
+        onchange: (e) => { state._scorecardDept = e.target.value; mountApp(); },
+      }, ...SCORECARD_DEPTS.map(d => el('option', { value: d.id, selected: d.id === dept }, d.label)))
+      : el('span', {
+          class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+        }, deptLabel),
       el('label', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Period'),
       el('select', {
         class: 'rounded-lg border px-3 py-1.5 text-sm cursor-pointer',
@@ -36209,7 +36271,7 @@ function viewScorecards() {
         class: 'rounded-lg px-3 py-1.5 text-xs font-bold border transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Edit template metrics, weights, and attendance penalties',
-        onclick: () => openScorecardTemplateModal(),
+        onclick: () => openScorecardTemplateModal(dept),
       }, '⚙ Template'),
     ),
   );
@@ -36264,9 +36326,17 @@ function viewScorecards() {
     return (a.profile.full_name || '').localeCompare(b.profile.full_name || '');
   });
 
+  // Trend series (per Isaac): composite over the last 6 periods,
+  // oldest \u2192 newest, null where a month was never scored.
+  const _trendKeys = periodOpts.slice(0, 6).map(o => o.key).reverse();
   const grid = el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' },
     ...scores.map(({ profile, card, score }) => scorecardAgentCard({
       profile, card, score, tpl,
+      trend: _trendKeys.map(k => {
+        const c = state._scorecardData[profile.id + '|' + k];
+        const s = c ? computeScorecardScore(c, tpl, k) : null;
+        return (s && s.coverage > 0) ? { key: k, val: s.final } : { key: k, val: null };
+      }),
       // Admins edit anyone; a team lead edits everyone EXCEPT their own
       // card (no self-scoring); a rep opens their own card read-only.
       onOpen: () => openScorecardDetailModal(profile, period, tpl, upsertCard,
@@ -36289,7 +36359,7 @@ function scorecardSummaryCard(label, value, subtitle, color) {
   );
 }
 
-function scorecardAgentCard({ profile, card, score, tpl, onOpen }) {
+function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen }) {
   const composite = score && score.coverage > 0 ? score.final : null;
   const band = scorecardBand(composite);
   const isEmpty = !card || score.coverage === 0;
@@ -36354,9 +36424,71 @@ function scorecardAgentCard({ profile, card, score, tpl, onOpen }) {
     }),
   );
 
+  // \u2500 Trend sparkline (per Isaac): composite over the last 6 periods,
+  // fixed 0\u2013100 scale so months are comparable card-to-card. Hidden
+  // until an agent has 2+ scored months.
+  const spark = (() => {
+    if (!Array.isArray(trend)) return null;
+    const pts = trend.map((t, i) => ({ i, key: t && t.key, val: t && Number.isFinite(t.val) ? t.val : null }));
+    if (pts.filter(p => p.val != null).length < 2) return null;
+    const W = 120, H = 30, PAD = 4;
+    const x = (i) => PAD + i * ((W - PAD * 2) / Math.max(1, pts.length - 1));
+    const y = (v) => H - PAD - (Math.min(100, Math.max(0, v)) / 100) * (H - PAD * 2);
+    const latest = [...pts].reverse().find(p => p.val != null);
+    const first  = pts.find(p => p.val != null);
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svg.style.width = '100%'; svg.style.height = '30px'; svg.style.display = 'block';
+    let d = '', started = false;
+    for (const p of pts) {
+      if (p.val == null) { started = false; continue; }
+      d += (started ? ' L ' : ' M ') + x(p.i).toFixed(1) + ' ' + y(p.val).toFixed(1);
+      started = true;
+    }
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', d.trim());
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', scorecardBand(latest.val).color);
+    path.setAttribute('stroke-width', '2');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    svg.append(path);
+    for (const p of pts) {
+      if (p.val == null) continue;
+      const c = document.createElementNS(NS, 'circle');
+      c.setAttribute('cx', x(p.i).toFixed(1)); c.setAttribute('cy', y(p.val).toFixed(1)); c.setAttribute('r', '2.4');
+      c.setAttribute('fill', scorecardBand(p.val).color);
+      const t = document.createElementNS(NS, 'title');
+      t.textContent = p.key + ' \u00b7 ' + p.val.toFixed(1) + '%';
+      c.append(t);
+      svg.append(c);
+    }
+    const mo = (k) => { const m = String(k || '').split('-')[1]; return m ? new Date(2000, Number(m) - 1, 1).toLocaleDateString('en-US', { month: 'short' }) : ''; };
+    return el('div', { class: 'mt-3' },
+      el('div', { class: 'flex items-center justify-between text-[9px] text-muted- mb-0.5' },
+        el('span', { class: 'uppercase tracking-widest font-semibold' }, 'Trend'),
+        el('span', { class: 'tabular-nums' }, mo(first.key) + ' \u2013 ' + mo(latest.key))),
+      svg);
+  })();
+
+  const stampChips = [];
+  if (card && card.finalized) stampChips.push(el('span', {
+    class: 'rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider',
+    style: { background: 'rgba(95,138,31,.12)', color: '#5F8A1F' },
+    title: 'Finalized & locked' + (card.finalized.by ? ' by ' + card.finalized.by : '') + (card.finalized.on ? ' \u00b7 ' + fmt.dateShort(card.finalized.on) : ''),
+  }, '\ud83d\udd12 Final'));
+  if (card && card.reviewed) stampChips.push(el('span', {
+    class: 'rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider',
+    style: { background: 'rgba(217,119,6,.12)', color: '#B45309' },
+    title: 'Reviewed with the agent' + (card.reviewed.by ? ' by ' + card.reviewed.by : ''),
+  }, '\u2713 Reviewed' + (card.reviewed.on ? ' ' + fmt.dateShort(card.reviewed.on) : '')));
+
   const footer = el('div', { class: 'mt-3 flex items-center justify-between text-[10px]' },
-    el('span', { class: 'text-muted-' },
-      isEmpty ? 'No score this period' : 'Click to edit / view detail'),
+    stampChips.length
+      ? el('span', { class: 'flex items-center gap-1.5 flex-wrap' }, ...stampChips)
+      : el('span', { class: 'text-muted-' },
+          isEmpty ? 'No score this period' : 'Click to edit / view detail'),
     el('button', {
       class: 'rounded-lg px-2 py-1 text-[10px] font-bold border transition hover:brightness-95',
       style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
@@ -36368,7 +36500,7 @@ function scorecardAgentCard({ profile, card, score, tpl, onOpen }) {
     class: 'card p-4 cursor-pointer transition hover:brightness-95',
     style: composite != null ? { borderLeft: '4px solid ' + band.color } : {},
     onclick: onOpen,
-  }, head, bars, footer);
+  }, head, bars, spark, footer);
 }
 
 function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = true) {
@@ -36394,6 +36526,8 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
     metrics:    { ...initial.metrics },
     attendance: { ...initial.attendance },
     notes:      initial.notes || '',
+    finalized:  initial.finalized || null,
+    reviewed:   initial.reviewed  || null,
   };
 
   const periodLabel = (() => {
@@ -36405,6 +36539,11 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
     modal.innerHTML = '';
     const score = computeScorecardScore(draft, tpl, period);
     const band  = scorecardBand(score.final);
+    // Finalize & lock (per Isaac): a finalized card is read-only for
+    // EVERYONE; only an admin can unlock it for edits.
+    const _isAdminHere = isAdminRole(state.profile?.role);
+    const locked = !!draft.finalized;
+    const canEditNow = canEdit && !locked;
 
     // ── Header
     modal.append(
@@ -36426,7 +36565,10 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
       ),
     );
 
-    if (!canEdit) modal.append(
+    if (locked) modal.append(
+      el('div', { class: 'rounded-lg border px-3 py-2 text-[11px] mb-4', style: { borderColor: '#5F8A1F', background: 'rgba(95,138,31,.08)', color: '#5F8A1F' } },
+        '\ud83d\udd12 Finalized' + (draft.finalized.by ? ' by ' + draft.finalized.by : '') + (draft.finalized.on ? ' \u00b7 ' + fmt.dateShort(draft.finalized.on) : '') + (_isAdminHere ? ' \u2014 unlock below to edit.' : ' \u2014 this scorecard is locked.')));
+    else if (!canEdit) modal.append(
       el('div', { class: 'rounded-lg border px-3 py-2 text-[11px] mb-4', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text-muted)' } },
         'Read-only \u2014 scores on this card are entered by your team lead or an admin.'));
 
@@ -36465,7 +36607,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
           ),
           el('input', {
             type: 'number', min: '0', max: '100', step: '0.1',
-            disabled: canEdit ? null : true,
+            disabled: canEditNow ? null : true,
             placeholder: '0–100',
             value: has ? String(v) : '',
             class: 'rounded-lg border px-3 py-1.5 text-sm tabular-nums text-right',
@@ -36542,7 +36684,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
         ),
         el('input', {
           type: 'number', min: '1', step: '1',
-          disabled: canEdit ? null : true,
+          disabled: canEditNow ? null : true,
           value: String(workingDays),
           placeholder: String(autoWorkingDays || ''),
           class: 'rounded-lg border px-3 py-1.5 text-sm tabular-nums text-right',
@@ -36587,7 +36729,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
           ),
           el('input', {
             type: 'number', min: '0', step: '1',
-            disabled: canEdit ? null : true,
+            disabled: canEditNow ? null : true,
             value: String(n),
             class: 'rounded-lg border px-3 py-1.5 text-sm tabular-nums text-right',
             style: { borderColor: 'var(--border-2)', width: '90px' },
@@ -36609,7 +36751,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
         el('h3', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-2' }, 'Coaching Notes'),
         el('textarea', {
           rows: 4,
-          readonly: canEdit ? null : true,
+          readonly: canEditNow ? null : true,
           placeholder: 'What went well, where to focus, action items for next month…',
           class: 'w-full rounded-lg border px-3 py-2 text-sm',
           style: { borderColor: 'var(--border-2)', resize: 'vertical', fontFamily: 'inherit' },
@@ -36621,25 +36763,72 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
       ),
     );
 
-    // ── Footer
+    // ── Footer — stamps on the left, actions on the right.
+    const _me = (state.profile && state.profile.full_name) || 'Admin';
+    const _today = new Date().toISOString().slice(0, 10);
     modal.append(
-      el('div', { class: 'flex justify-end gap-2' },
-        canEdit ? el('button', {
-          class: 'rounded-lg px-3 py-2 text-xs font-semibold border',
-          style: { borderColor: '#DC2626', color: '#DC2626' },
-          title: 'Clear all entries for this agent + period',
-          onclick: () => {
-            if (!confirm('Clear ' + name + '\'s scorecard for ' + periodLabel + '?')) return;
-            delete state._scorecardData[cardKey];
-            saveDemoData();
-            close();
-          },
-        }, 'Clear Scorecard') : null,
-        el('button', {
-          class: 'rounded-lg px-4 py-2 text-sm font-bold',
-          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-          onclick: close,
-        }, 'Done'),
+      el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' },
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          // Reviewed-with-agent stamp (per Isaac): proof the 1:1 happened.
+          // Stampable even on a locked card (reviews often happen AFTER
+          // finalizing); click again to clear a mis-stamp.
+          canEdit ? el('button', {
+            class: 'rounded-lg px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
+            style: draft.reviewed
+              ? { borderColor: '#5F8A1F', color: '#5F8A1F', background: 'rgba(95,138,31,.08)' }
+              : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+            title: draft.reviewed
+              ? 'Reviewed with the agent on ' + fmt.dateShort(draft.reviewed.on) + (draft.reviewed.by ? ' by ' + draft.reviewed.by : '') + ' \u2014 click to clear'
+              : 'Stamp that this scorecard was reviewed 1-on-1 with the agent',
+            onclick: () => {
+              draft.reviewed = draft.reviewed ? null : { on: _today, by: _me };
+              upsertCard(profileId, { reviewed: draft.reviewed });
+              render();
+            },
+          }, draft.reviewed ? '\u2713 Reviewed ' + fmt.dateShort(draft.reviewed.on) : '\u2713 Reviewed with agent')
+          : (draft.reviewed ? el('span', { class: 'text-[11px] font-semibold', style: { color: '#5F8A1F' } },
+              '\u2713 Reviewed ' + fmt.dateShort(draft.reviewed.on)) : null),
+          canEdit && !locked ? el('button', {
+            class: 'rounded-lg px-3 py-2 text-xs font-bold border transition hover:brightness-95',
+            style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
+            title: 'Lock this scorecard \u2014 no more edits unless an admin unlocks it',
+            onclick: () => {
+              if (!confirm('Finalize ' + name + '\'s ' + periodLabel + ' scorecard? It locks for everyone (an admin can unlock).')) return;
+              draft.finalized = { on: _today, by: _me };
+              upsertCard(profileId, { finalized: draft.finalized });
+              render();
+            },
+          }, '\ud83d\udd12 Finalize & Lock') : null,
+          locked && _isAdminHere ? el('button', {
+            class: 'rounded-lg px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
+            style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+            title: 'Admin only \u2014 reopen this scorecard for edits',
+            onclick: () => {
+              if (!confirm('Unlock ' + name + '\'s ' + periodLabel + ' scorecard for edits?')) return;
+              draft.finalized = null;
+              upsertCard(profileId, { finalized: null });
+              render();
+            },
+          }, 'Unlock') : null,
+        ),
+        el('div', { class: 'flex gap-2' },
+          canEditNow ? el('button', {
+            class: 'rounded-lg px-3 py-2 text-xs font-semibold border',
+            style: { borderColor: '#DC2626', color: '#DC2626' },
+            title: 'Clear all entries for this agent + period',
+            onclick: () => {
+              if (!confirm('Clear ' + name + '\'s scorecard for ' + periodLabel + '?')) return;
+              delete state._scorecardData[cardKey];
+              saveDemoData();
+              close();
+            },
+          }, 'Clear Scorecard') : null,
+          el('button', {
+            class: 'rounded-lg px-4 py-2 text-sm font-bold',
+            style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+            onclick: close,
+          }, 'Done'),
+        ),
       ),
     );
   };
@@ -36650,7 +36839,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
 
 // Template editor — edit metric weights + attendance penalty weights.
 // Phase-1 single-template editor; Phase-2 would extend to multi-template.
-function openScorecardTemplateModal() {
+function openScorecardTemplateModal(dept = 'inside_sales') {
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   const modal = el('div', {
@@ -36660,10 +36849,13 @@ function openScorecardTemplateModal() {
   overlay.append(modal);
   const close = () => { overlay.remove(); mountApp(); };
 
-  const tpl = JSON.parse(JSON.stringify(getScorecardTemplate())); // deep-clone draft
+  const tpl = JSON.parse(JSON.stringify(getScorecardTemplate(dept))); // deep-clone draft
+  const deptLabel = (SCORECARD_DEPTS.find(d => d.id === dept) || {}).label || dept;
 
   const persist = () => {
-    state._scorecardTemplate = tpl;
+    if (!state._scorecardTemplates || typeof state._scorecardTemplates !== 'object') state._scorecardTemplates = {};
+    state._scorecardTemplates[dept] = tpl;
+    if (dept === 'inside_sales') state._scorecardTemplate = tpl; // legacy key kept in sync
     saveDemoData();
   };
 
@@ -36677,7 +36869,7 @@ function openScorecardTemplateModal() {
         el('div', {},
           el('h2', { class: 'text-xl font-bold' }, '⚙ Scorecard Template'),
           el('div', { class: 'text-xs text-muted- mt-1' },
-            'Configure the metrics + weights every agent scorecard uses.'),
+            'Configure the metrics + weights every ' + deptLabel + ' scorecard uses.'),
         ),
         el('button', { class: 'text-2xl text-muted-', onclick: close }, '×'),
       ),
@@ -36796,8 +36988,9 @@ function openScorecardTemplateModal() {
           style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
           title: 'Reset template to defaults (does not clear saved scorecards)',
           onclick: () => {
-            if (!confirm('Reset template to defaults? Existing scorecards are kept.')) return;
-            state._scorecardTemplate = null;
+            if (!confirm('Reset the ' + deptLabel + ' template to defaults? Existing scorecards are kept.')) return;
+            if (state._scorecardTemplates) delete state._scorecardTemplates[dept];
+            if (dept === 'inside_sales') state._scorecardTemplate = null;
             saveDemoData();
             close();
           },
