@@ -10198,7 +10198,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       return !(m > 1) && !/sentricon/i.test(String(x.subscription || ''));
     };
     const _realCancel = (x) => _cxlR(x) && !_isExcludableCancel(x);
-    let sold = 0, serviced = 0, soldRev = 0, servicedRev = 0, activeRev = 0, agingRev = 0, cancelledRev = 0, frozenRev = 0, rorRev = 0, exclRev = 0, exclCancelRev = 0, otsCancelRev = 0;
+    let sold = 0, serviced = 0, activeN = 0, soldRev = 0, servicedRev = 0, activeRev = 0, agingRev = 0, cancelledRev = 0, frozenRev = 0, rorRev = 0, exclRev = 0, exclCancelRev = 0, otsCancelRev = 0;
     const audit = { passed: 0, failed: 0, noaudit: 0, pending: 0 };
     const attr = { passed: [0, 0], failed: [0, 0] };
     for (const x of all) {
@@ -10208,7 +10208,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       if (svc) {
         serviced++; servicedRev += cv;
         if (_cxlR(x)) cancelledRev += cv;
-        else if (_actR(x)) { activeRev += cv; if (_isAging(x)) agingRev += cv; }
+        else if (_actR(x)) { activeN++; activeRev += cv; if (_isAging(x)) agingRev += cv; }
         else frozenRev += cv;
         if (_ror(x)) rorRev += cv;
         if (_ror(x) || _isOTS(x)) {
@@ -10264,6 +10264,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       group('Production', [
         tile('Sold', fmt.int(sold), null, null, drill('Sold', () => true)),
         tile('Serviced', fmt.int(serviced), null, null, drill('Serviced', _svcR)),
+        tile('Active', fmt.int(activeN), 'still on the books', activeN > 0 ? good : null, drill('Active accounts', x => _svcR(x) && _actR(x))),
         tile('Sold/Serviced', pctS(soldSvc), null, soldSvc == null ? null : (soldSvc >= 0.85 ? good : soldSvc < 0.65 ? bad : null)),
       ]),
       group('Audit', [
