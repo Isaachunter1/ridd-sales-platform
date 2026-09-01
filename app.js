@@ -49512,6 +49512,12 @@ function _isUpsellContract(sale) {
   return !!ct && /^(d2d |office )?upsell/i.test(String(ct.name || ''));
 }
 function upfrontCollectedPct(sales) {
+  // Rollout guard: until the "Charged Upfront" flag is actually in use
+  // anywhere (old sales all default to false), the tier stays at 100% —
+  // otherwise history that predates the flag would dock everyone to 85%.
+  const anyFlagged = (state.allSales || []).some(x => !!x.upfront_collected)
+    || (state.mySales || []).some(x => !!x.upfront_collected);
+  if (!anyFlagged) return null;
   const eligible = (sales || []).filter(x => !isRenewalSource(x) && !_isUpsellContract(x));
   if (!eligible.length) return null;   // nothing eligible — no tier penalty
   return eligible.filter(x => !!x.upfront_collected).length / eligible.length;
