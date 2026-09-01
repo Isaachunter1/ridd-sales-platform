@@ -3442,7 +3442,8 @@ function mountAuth(opts = {}) {
     const mode = form.dataset.mode;
     if (mode === 'login') {
       heading.textContent    = 'Sign in';
-      subheading.textContent = 'RIDD Sales App';
+      subheading.textContent = '';           // (dropped the 'RIDD Sales App' line per Isaac)
+      subheading.style.display = 'none';
       emailField.style.display = 'block';
       passField.style.display  = 'block';
       passField.querySelector('input').required = true;
@@ -3453,6 +3454,7 @@ function mountAuth(opts = {}) {
     } else if (mode === 'forgot') {
       heading.textContent    = 'Reset password';
       subheading.textContent = 'Enter your email and we’ll send you a reset link.';
+      subheading.style.display = '';
       emailField.style.display = 'block';
       passField.style.display  = 'none';
       passField.querySelector('input').required = false;
@@ -3463,6 +3465,7 @@ function mountAuth(opts = {}) {
     } else if (mode === 'recover') {
       heading.textContent    = 'Set a new password';
       subheading.textContent = 'Pick the password you’ll use from now on.';
+      subheading.style.display = '';
       emailField.style.display = 'none';
       passField.style.display  = 'block';
       passField.querySelector('input').required = true;
@@ -4853,7 +4856,7 @@ function applyUserLayout(root) {
     e.n.style.opacity = isHid ? '.35' : '';
     const mk = (glyph, title, onclick, disabled) => el('button', {
       class: 'cursor-pointer',
-      style: { minWidth: '26px', height: '26px', borderRadius: '8px', border: 'none', background: 'var(--text)', color: 'var(--bg)', fontSize: glyph.length > 1 ? '10px' : '12px', fontWeight: '900', opacity: disabled ? '.35' : '1', boxShadow: 'var(--shadow-lg)', display: 'grid', placeItems: 'center', padding: glyph.length > 1 ? '0 8px' : '0' },
+      style: { minWidth: '26px', height: '26px', borderRadius: '0', border: 'none', background: 'var(--text)', color: 'var(--bg)', fontSize: glyph.length > 1 ? '10px' : '12px', fontWeight: '900', opacity: disabled ? '.35' : '1', boxShadow: 'var(--shadow-lg)', display: 'grid', placeItems: 'center', padding: glyph.length > 1 ? '0 8px' : '0' },
       title, onclick: disabled ? undefined : (ev) => { ev.stopPropagation(); onclick(); },
     }, glyph);
     e.n.append(el('div', { style: { position: 'absolute', top: '6px', right: '6px', zIndex: 35, display: 'flex', gap: '4px' } },
@@ -4933,7 +4936,7 @@ function _ensureEditBanner() {
   if (!state._editMode) return;
   document.body.append(el('div', {
     id: 'editModeBanner',
-    style: { position: 'fixed', bottom: '18px', left: '50%', transform: 'translateX(-50%)', zIndex: 80, display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--text)', color: 'var(--bg)', borderRadius: '999px', padding: '8px 14px', boxShadow: 'var(--shadow-lg)', fontSize: '12px', fontWeight: '700', whiteSpace: 'nowrap', maxWidth: 'calc(100vw - 24px)' } },
+    style: { position: 'fixed', bottom: '18px', left: '50%', transform: 'translateX(-50%)', zIndex: 80, display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--text)', color: 'var(--bg)', borderRadius: '0', padding: '8px 14px', boxShadow: 'var(--shadow-lg)', fontSize: '12px', fontWeight: '700', whiteSpace: 'nowrap', maxWidth: 'calc(100vw - 24px)' } },
     '\u270f\ufe0f Edit mode \u2014 \u2191\u2193 move \u00b7 Hide/Show \u00b7 your view only',
     el('button', {
       class: 'cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-black',
@@ -5512,7 +5515,7 @@ function mountApp() {
     const fab = el('button', {
       class: 'fab',
       title: 'New Sale',
-      style: { width: '56px', height: '56px', borderRadius: '999px', padding: '0', justifyContent: 'center' },
+      style: { width: '56px', height: '56px', borderRadius: '0', padding: '0', justifyContent: 'center' },
       onclick: () => openNewSaleModal(),
     },
       el('span', { class: 'text-3xl leading-none', style: { marginTop: '-2px' } }, '+'),
@@ -5899,7 +5902,7 @@ function viewDashboard() {
     // ─── Top row: + New Sale + date filter + office view ───
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       el('button', {
-        class: 'flex-1 min-w-0 rounded-xl px-5 py-2.5 text-sm font-bold transition hover:brightness-95',
+        class: 'rounded-xl px-4 py-2 text-xs font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openNewSaleModal(),
       }, '+ New Sale'),
@@ -6083,7 +6086,7 @@ function viewDashboard() {
                         fmt.usd0(rev) + (goal > 0 ? ' / ' + fmt.usd0(goal) + ' · ' + Math.round(rev / goal * 100) + '%' : ''),
                         (renByRep[p.id] || 0) > 0 ? el('span', { class: 'font-normal', style: { color: 'var(--text-subtle)' }, title: 'Renewal production — real revenue, but individual goals are NEW-revenue goals' }, '  +' + fmt.usd0(renByRep[p.id]) + ' renewal') : null)),
                     el('div', { class: 'goal-track', style: { position: 'relative' } },
-                      el('div', { style: { background: 'var(--accent)', height: '100%', width: pct.toFixed(1) + '%', borderRadius: '999px', transition: 'width .3s' } }),
+                      el('div', { style: { background: 'var(--accent)', height: '100%', width: pct.toFixed(1) + '%', borderRadius: '0', transition: 'width .3s' } }),
                       goal > 0 ? el('div', {
                         title: 'Where today sits on the SEASONAL plan — ' + (seasonalPct * 100).toFixed(1) + '% of the year\'s weighted goal should be sold by today',
                         style: { position: 'absolute', top: '-2px', bottom: '-2px', left: seasonalMarkerPct.toFixed(1) + '%', width: '2px', background: 'var(--text)', opacity: '.6' },
@@ -6093,7 +6096,7 @@ function viewDashboard() {
                       title: fmt.usd0(Math.max(0, goal - rev)) + ' left to the annual goal \u00f7 ' + _daysLeftYear + ' selling days (Mon\u2013Sat, holidays off) left this year',
                     },
                       todayNeed > 0
-                        ? '\ud83c\udfaf ' + fmt.usd0(todayNeed) + '/day rest of year to hit the annual goal'
+                        ? fmt.usd0(todayNeed) + '/day rest of year to hit the annual goal'
                         : '\u2713 annual goal hit \u2014 everything from here is gravy'));
                 })));
       }
@@ -6114,11 +6117,11 @@ function viewDashboard() {
             // Stacked bar
             el('div', { class: 'goal-track flex overflow-hidden', style: { position: 'relative' } },
               el('div', {
-                style: { background: '#DF643A', height: '100%', width: newPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '999px 0 0 999px' },
+                style: { background: '#DF643A', height: '100%', width: newPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '0' },
                 title: 'New: ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(1) + '%)',
               }),
               el('div', {
-                style: { background: '#757667', height: '100%', width: renewalPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '0 999px 999px 0' },
+                style: { background: '#757667', height: '100%', width: renewalPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '0' },
                 title: 'Renewal: ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(1) + '%)',
               }),
             ),
@@ -6153,7 +6156,7 @@ function viewDashboard() {
             // day, rest of THIS month, to be back on the year plan by
             // month-end. Uses the Goals tab's monthly allocation (seasonal).
             const _monthly = bar.label.startsWith('New') ? g.monthly_new : g.monthly_renewal;
-            let needLine = null;
+            let needLine = null, needLineMob = null;
             if (Array.isArray(_monthly) && _monthly.length === 12 && bar.target > 0) {
               const _mi = now2.getMonth();
               const _dim = new Date(now2.getFullYear(), _mi + 1, 0).getDate();
@@ -6174,13 +6177,12 @@ function viewDashboard() {
               const _monLabel = now2.toLocaleDateString('en-US', { month: 'long' });
               if (_monTarget > 0 && _weekdaysInMonth > 0) {
                 const _dayGoal = _monTarget / _weekdaysInMonth;
-                needLine = el('div', {
-                  class: 'text-[10px] tabular-nums mt-1 font-semibold',
-                  style: { color: 'var(--text)' },
-                  title: _monLabel + ' target ' + fmt.usd0(_monTarget) + ' ÷ ' + _weekdaysInMonth + ' weekdays (holidays off) · weekends are bonus',
-                },
-                  el('span', { style: { color: bar.color } }, '🎯 Weekday goal: '),
-                  fmt.usd0(_dayGoal) + '/day');
+                const _wgTitle = _monLabel + ' target ' + fmt.usd0(_monTarget) + ' ÷ ' + _weekdaysInMonth + ' weekdays (holidays off) · weekends are bonus';
+                // Rides inline to the right of the goal amount (per Isaac).
+                needLine = el('span', { class: 'text-xs tabular-nums font-semibold whitespace-nowrap hidden sm:inline', style: { color: 'var(--text-muted)' }, title: _wgTitle },
+                  '· weekday goal ', el('span', { style: { color: bar.color, fontWeight: '700' } }, fmt.usd0(_dayGoal) + '/day'));
+                needLineMob = el('span', { class: 'text-[10px] tabular-nums font-semibold', style: { color: 'var(--text-muted)' }, title: _wgTitle },
+                  fmt.usd0(_dayGoal) + '/day goal');
               }
             }
             return el('div', {},
@@ -6193,6 +6195,7 @@ function viewDashboard() {
                   el('span', { class: 'text-sm font-bold whitespace-nowrap hidden sm:inline', style: { color: bar.color } }, fmt.pct(pct)),
                   // Goal rides next to the % (per Isaac)
                   el('span', { class: 'text-xs tabular-nums font-bold whitespace-nowrap hidden sm:inline', style: { color: 'var(--text-muted)' } }, 'of ' + fmt.usd0(bar.target)),
+                  needLine,
                 ),
                 el('div', { class: 'flex items-center gap-2 min-w-0 justify-end' },
                   el('span', { class: 'text-xs tabular-nums whitespace-nowrap font-semibold' }, fmt.usd0(bar.actual)),
@@ -6217,14 +6220,15 @@ function viewDashboard() {
                     color: paceAhead ? '#DF643A' : '#DC2626',
                   },
                 }, (paceAhead ? '+' : '') + paceDiff.toFixed(1) + '% vs year pace'),
+                needLineMob,
               ),
               el('div', { class: 'goal-track', style: { position: 'relative' } },
-                el('div', { style: { background: bar.color, height: '100%', borderRadius: '999px', transition: 'width .3s', width: (pct * 100).toFixed(2) + '%' } }),
+                el('div', { style: { background: bar.color, height: '100%', borderRadius: '0', transition: 'width .3s', width: (pct * 100).toFixed(2) + '%' } }),
                 el('div', {
                   style: {
                     position: 'absolute', top: '-3px', bottom: '-3px',
                     left: paceMarkerPct.toFixed(1) + '%',
-                    width: '2px', background: '#DC2626', borderRadius: '2px',
+                    width: '2px', background: '#DC2626', borderRadius: '0',
                   },
                   title: 'Expected pace',
                 }),
@@ -6232,7 +6236,6 @@ function viewDashboard() {
               el('div', { class: 'goal-ticks mt-1' },
                 ...goalTicks(bar.target).map(t => el('span', {}, t)),
               ),
-              needLine,
             );
           }),
         ),
@@ -6253,39 +6256,7 @@ function viewDashboard() {
       ['New Revenue',     fmt.usd0(newRevenue)],
       ['Renewal Revenue', fmt.usd0(renewalRevenue)],
     ]),
-    // Admin-only reconcile export — the EXACT rows behind the tiles above,
-    // one per sale, for diffing against the CRM leaderboard's "Show Table"
-    // (join on Customer #). Ends the "why are these $40K apart" guessing.
-    isAdmin ? el('div', { class: 'flex justify-end', style: { marginTop: '-8px' } },
-      el('button', {
-        class: 'text-[11px] font-semibold underline cursor-pointer',
-        style: { color: 'var(--text-muted)', background: 'none', border: 'none' },
-        title: 'Download the exact rows these tiles count (current range) — diff against the CRM leaderboard table',
-        onclick: () => {
-          try {
-            const esc = (v) => { const t = String(v == null ? '' : v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
-            const cols = ['customer_number', 'customer_name', 'rep', 'sold_date', 'revenue', 'class', 'service', 'origin'];
-            const lines = [cols.join(',')];
-            approved.forEach(s => {
-              const rep = state.allProfiles.find(p => p.id === s.rep_id);
-              lines.push([
-                s.customer_number || '', s.customer_name || '',
-                rep ? rep.full_name : flipLastFirst(s._crmRep || ''),
-                s.sold_date || '', Number(s.revenue_amount || 0),
-                (s._crmRenewal ?? renewalIds.has(s.source_id)) ? 'renewal' : 'new',
-                s._crmService || nameFromId(state.serviceTypes, s.service_type_id) || '',
-                s._crm ? 'crm' : (s._pendingSync ? 'app-pending' : 'app'),
-              ].map(esc).join(','));
-            });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv' }));
-            a.download = 'ridd-warroom-rows-' + new Date().toISOString().slice(0, 10) + '.csv';
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-            toast('Exported ' + approved.length.toLocaleString() + ' rows — the exact set the tiles count', 'success');
-          } catch (e) { toast('Export failed: ' + ((e && e.message) || e), 'error'); }
-        },
-      }, '⬇ Reconcile export (tile rows)')) : null,
+    // (Reconcile export link removed per Isaac — the CSV logic lives in git history if ever needed.)
 
     // ─── Split: Today's Sales (30%) | Leaderboard (70%) ───
     // Mobile stacks LEADERBOARD first (per Isaac) — CSS order flips below
@@ -9412,7 +9383,7 @@ function openIndicatorRepCard(rep, allReps = []) {
             + (rec ? ' — ' + rec.n + ' account' + (rec.n === 1 ? '' : 's') + ' · $' + Math.round(rec.rev).toLocaleString() + ' · tap for the accounts' : (future ? '' : ' — no sale')),
           onclick: rec ? (() => { _calDrillIso = selected ? null : iso; renderBody(); }) : undefined,
           style: {
-            height: 'clamp(30px, 7vw, 40px)', borderRadius: '8px', fontSize: '12px',
+            height: 'clamp(30px, 7vw, 40px)', borderRadius: '0', fontSize: '12px',
             background: rec ? shade(rec.n) : 'var(--card)',
             color: rec ? '#3A1D12' : (future ? 'var(--text-subtle)' : 'var(--text-muted)'),
             border: selected ? '2px solid var(--text)' : (isToday ? '2px solid var(--accent)' : '1px solid var(--border)'),
@@ -10058,7 +10029,7 @@ function openIndicatorRepCard(rep, allReps = []) {
           },
             el('span', { class: 'inline-block text-muted-', style: { width: '10px' } }, '▸'),
             el('div', { class: 'truncate min-w-0', title: sub.name }, sub.name),
-            el('div', { style: { background: 'var(--border)', height: '8px', borderRadius: '4px', overflow: 'hidden' } },
+            el('div', { style: { background: 'var(--border)', height: '8px', borderRadius: '0', overflow: 'hidden' } },
               el('div', {
                 style: { width: (pct * 100).toFixed(1) + '%', height: '100%', background: 'var(--accent)' },
               }),
@@ -10790,9 +10761,10 @@ function todaysSalesPanel(windowSales, range) {
 
   return el('div', { class: 'card overflow-hidden flex flex-col' },
     header,
-    el('div', { class: 'scroll-x' },
+    // ~10 rows visible, the rest scroll in place (per Isaac).
+    el('div', { class: 'scroll-x', style: { maxHeight: '412px', overflowY: 'auto' } },
       el('table', { class: 'w-full text-[12px]' },
-        el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
+        el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '1' } },
           el('tr', {},
             el('th', { class: 'text-left pl-4 pr-2 py-1.5 font-semibold', title: 'Change your time zone under the gear → My Settings' }, 'Time · ' + (_TZ_SHORT[warRoomTz()] || 'MT')),
             el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Rep'),
@@ -11301,7 +11273,7 @@ function viewSales() {
     // queues these filters live up in the toggle row instead. ──
     queueFilter === 'upfront' && el('div', { class: 'flex items-center gap-2 flex-wrap' },
       el('button', {
-        class: 'flex-1 min-w-0 rounded-xl px-5 py-2.5 text-sm font-bold transition hover:brightness-95',
+        class: 'rounded-xl px-4 py-2 text-xs font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openNewSaleModal(),
       }, '+ New Sale'),
@@ -12078,6 +12050,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
     rep_id:         existingSale?.rep_id || defaultRepId || state.profile.id,
     paid_in_full:   !!existingSale?.paid_in_full,
     is_commercial:  !!existingSale?.is_commercial,
+    upfront_collected: !!existingSale?.upfront_collected,
     pay_per_service:!!existingSale?.pay_per_service,
   };
 
@@ -12303,6 +12276,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
           pay_per_service: modalState.pay_per_service,
           paid_in_full: modalState.paid_in_full || (ct?.name === 'Paid in Full'),
           is_commercial: modalState.is_commercial || (ct?.name === 'Commercial'),
+          upfront_collected: !!modalState.upfront_collected,
           revenue_amount: revenue,
           sold_date: data.sold_date,
           commission_date: data.commission_date || null,
@@ -12460,7 +12434,8 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
     // queue), so these are the early manual call, not the only gate.
     el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5' },
       checkboxCard('Paid in Full', 'No hold on backend — full commission is paid upfront (auto-detected from CRM; override here)', (v) => { modalState.paid_in_full = v; updateFooter(); }, modalState.paid_in_full),
-      checkboxCard('Commercial', 'Commercial property — pays the commercial (half) rate. $2k+ ACV rows are flagged in the queue for this check.', (v) => { modalState.is_commercial = v; updateFooter(); }, modalState.is_commercial),
+      checkboxCard('Commercial', 'Commercial property — pays the commercial rate (base − 3.5pts). $2k+ ACV rows are flagged in the queue for this check.', (v) => { modalState.is_commercial = v; updateFooter(); }, modalState.is_commercial),
+      checkboxCard('Charged Upfront', 'Payment collected at signing — feeds the Charge Upfront % tier on the Pay tab (70%+ collected pays 100% of commission; lower tiers pay 95 / 90 / 85%).', (v) => { modalState.upfront_collected = v; updateFooter(); }, modalState.upfront_collected),
     ),
 
     mk('Notes',
@@ -12771,8 +12746,13 @@ function viewPay() {
     const estSale = { ...s, audit_status: 'serviced' };
     return a + getCommissionAmount(repId, estSale);
   }, 0);
-  const salesPay   = sumCommission(servicedStaged);  // full commission
-  const belowPay   = sumCommission(belowStaged);     // half commission (via getCommissionAmount)
+  // Charge-upfront tier (sheet O29-O31): the share of this period's staged
+  // accounts where payment was collected upfront sets a multiplier on the
+  // WHOLE upfront commission (100 / 95 / 90 / 85%).
+  const upfrontPct  = upfrontCollectedPct([...servicedStaged, ...belowStaged]);
+  const upfrontMult = upfrontTierPayPct(upfrontPct);
+  const salesPay   = sumCommission(servicedStaged) * upfrontMult;  // full commission × upfront tier
+  const belowPay   = sumCommission(belowStaged) * upfrontMult;     // half commission × upfront tier
 
   // Close rate bonus (sheet O17): tiered — ≥60% pays 3% of subscription
   // revenue, ≥50% pays 2%, below that $0. Subscription revenue = serviced
@@ -12962,6 +12942,8 @@ function viewPay() {
       }, fmt.usd(amount)),
     );
   };
+  // Same row, but a text value (percentages etc.) instead of money.
+  const stubTextRow = (label, text) => { const r = stubRow(label, 0); r.lastChild.textContent = text; return r; };
 
   // ── PAY section: rep_type × stub_mode configuration ──
   // Each row: [label, value, color?, isTotal?]. To add rows for a new rep
@@ -13139,6 +13121,12 @@ function viewPay() {
       !isLoyaltyRep && isBackendStub && stubRow('Subscription Revenue', periodSubscriptionRev),
       stubRow('Total Revenue',     periodTotalRevenue),
       stubRow('Quarterly Revenue', quarterRevenue),
+
+      // CHARGE UPFRONT (sheet O29-O31) — collected-upfront share sets the
+      // tier that multiplies the whole upfront commission.
+      stubSectionHeader('CHARGE UPFRONT'),
+      stubTextRow('Charge Upfront %', upfrontPct == null ? '\u2014 (no eligible accounts)' : (upfrontPct * 100).toFixed(1) + '%'),
+      stubTextRow('Upfront Pay %',    Math.round(upfrontMult * 100) + '%'),
 
       // BACKEND PAY components — QUARTERLY BACKEND PAY is highlighted gray
       // for loyalty reps in Backend mode (matches the printed template
@@ -13480,8 +13468,9 @@ function notifyPayrollRun(sales, period, kind) {
     } else {
       const serviced = repSales.filter(s => s.audit_status === 'serviced');
       const below    = repSales.filter(s => s.audit_status === 'below_minimums');
-      const salesPay = serviced.reduce((a, s) => a + getCommissionAmount(repId, s), 0);
-      const belowPay = below.reduce((a, s) => a + getCommissionAmount(repId, s), 0);
+      const _upM = upfrontTierPayPct(upfrontCollectedPct([...serviced, ...below]));
+      const salesPay = serviced.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upM;
+      const belowPay = below.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upM;
       summary = {
         serviced: serviced.length,
         below: below.length,
@@ -14013,7 +14002,7 @@ function openAgentScheduleModal(rep) {
   card.append(
     el('div', { class: 'px-5 py-4 border-b flex items-center justify-between', style: { borderColor: 'var(--border)' } },
       el('div', { class: 'flex items-center gap-2' },
-        el('span', { style: { width: '10px', height: '10px', borderRadius: '3px', background: calendarAgentColor(rep.id), display: 'inline-block' } }),
+        el('span', { style: { width: '10px', height: '10px', borderRadius: '0', background: calendarAgentColor(rep.id), display: 'inline-block' } }),
         el('div', {},
           el('h2', { class: 'text-base font-bold leading-none' }, rep.full_name || 'Agent'),
           el('div', { class: 'text-[10px] text-muted- mt-1 uppercase tracking-wider font-semibold' }, (DEPARTMENTS.find(x => x.id === dept) || {}).name || dept))),
@@ -14068,7 +14057,7 @@ function calendarAgentSidebar(meId, isAdmin, anchor) {
             onclick: () => { state._calFocus = isFocus ? null : p.id; mountApp(); },
           },
             cb,
-            el('span', { style: { width: '9px', height: '9px', borderRadius: '3px', background: c, display: 'inline-block', flexShrink: '0' } }),
+            el('span', { style: { width: '9px', height: '9px', borderRadius: '0', background: c, display: 'inline-block', flexShrink: '0' } }),
             el('span', { class: 'text-xs font-medium truncate flex-1 min-w-0' + (p.id === meId ? ' font-bold' : '') }, (p.full_name || '(no name)') + (p.id === meId ? ' · you' : '')),
             (() => {
               const h = hoursFor(p.id);
@@ -15865,7 +15854,7 @@ function openRaffleSpinModal(raffleSorted, totalTickets, windowLabel) {
       position: 'absolute', top: '50%', left: '50%',
       transform: 'translate(-50%, -50%)',
       width: HUB_W + 'px', height: HUB_H + 'px',
-      borderRadius: '14px',
+      borderRadius: '0',
       background: '#1D1D1D',
       border: '3px solid #fff',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -15917,7 +15906,7 @@ function openRaffleSpinModal(raffleSorted, totalTickets, windowLabel) {
       position: 'absolute', display: 'none',
       pointerEvents: 'none',
       background: '#1D1D1D', color: '#fff',
-      padding: '8px 12px', borderRadius: '8px',
+      padding: '8px 12px', borderRadius: '0',
       fontSize: '11px', fontWeight: '500',
       zIndex: '4',
       boxShadow: '0 6px 18px rgba(0,0,0,0.5)',
@@ -16468,7 +16457,7 @@ function _riddChartTipEl() {
     Object.assign(t.style, {
       position: 'fixed', pointerEvents: 'none', zIndex: '9999', opacity: '0',
       transition: 'opacity .12s ease', maxWidth: '340px',
-      padding: '10px 13px', borderRadius: '12px',
+      padding: '10px 13px', borderRadius: '0',
       border: '1px solid var(--border-2)',
       boxShadow: '0 12px 32px rgba(0,0,0,.35)',
       backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
@@ -16607,7 +16596,7 @@ function _ensureAskWidget() {
     if (!C.msgs.length) msgsEl.append(el('div', { class: 'text-xs text-muted-', style: { padding: '8px' } },
       'Ask about the numbers on screen — "who\'s pacing to hit goal?", "compare Pere and Drew this month", "why is renewal revenue down?" Answers come from the live synced data.'));
     C.msgs.forEach(m => msgsEl.append(el('div', {
-      style: { alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', padding: '8px 11px', borderRadius: '12px', fontSize: '12.5px', lineHeight: '1.45', whiteSpace: 'pre-wrap',
+      style: { alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', padding: '8px 11px', borderRadius: '0', fontSize: '12.5px', lineHeight: '1.45', whiteSpace: 'pre-wrap',
                background: m.role === 'user' ? 'var(--accent)' : 'var(--card-2)', color: m.role === 'user' ? 'var(--accent-text)' : 'var(--text)' },
     }, m.content)));
     if (C.busy) msgsEl.append(el('div', { class: 'text-xs text-muted-', style: { padding: '4px 8px' } }, 'Thinking…'));
@@ -17062,7 +17051,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
   const hero = el('div', { style: {
       position: 'relative', overflow: 'hidden', background: '#000',
       padding: 'clamp(22px,4vw,40px) clamp(20px,3.5vw,38px) clamp(24px,4vw,38px)',
-      borderRadius: '10px 10px 0 0',
+      borderRadius: '0',
     } },
     // grain + scattered stars (decorative layer)
     el('div', { style: { position: 'absolute', inset: '0', backgroundImage: 'repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px)', pointerEvents: 'none', zIndex: '0' } }),
@@ -17256,7 +17245,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
     const col = champ ? ORANGE : (r.alive ? GREEN : MAG);
     const txt = champ ? 'Champion' : (r.alive ? 'Still standing' : 'Out · Wk ' + (r.elimWeek + 1));
     return el('div', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '5px', fontFamily: DISP, fontSize: '.72rem', letterSpacing: '.08em', textTransform: 'uppercase', color: col } },
-      el('span', { style: { width: '7px', height: '7px', borderRadius: '999px', background: col, display: 'inline-block', flex: '0 0 auto' } }), txt);
+      el('span', { style: { width: '7px', height: '7px', borderRadius: '0', background: col, display: 'inline-block', flex: '0 0 auto' } }), txt);
   };
   const nameCell = (r) => el('td', { style: { position: 'sticky', left: '0', zIndex: '1', background: '#000', boxShadow: 'inset -2px 0 0 ' + CYAN, borderBottom: HAIR, padding: '12px 20px 12px 16px', whiteSpace: 'nowrap' } },
     el('div', { style: { fontFamily: DISP, fontSize: '1.35rem', letterSpacing: '.02em', textTransform: 'uppercase', lineHeight: '1.05', color: r.rep === R.champion ? RED : (r.alive ? WHITE : DIM) } },
@@ -17279,7 +17268,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
   const totalCell = (r) => el('td', { style: { position: 'sticky', right: '0', zIndex: '1', background: '#000', boxShadow: 'inset 2px 0 0 ' + CYAN, borderBottom: HAIR, padding: '12px 18px', whiteSpace: 'nowrap', textAlign: 'center' } },
     cellBody(r.runTotal || EMPTY_RB, 'total'));
 
-  const dot = (c) => el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '999px', background: c, marginRight: '6px' } });
+  const dot = (c) => el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '0', background: c, marginRight: '6px' } });
   const legend = el('div', { style: { display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap', padding: '11px 16px', fontFamily: DISP, fontSize: '.7rem', letterSpacing: '.1em', textTransform: 'uppercase' } },
     el('span', { style: { color: WHITE, opacity: '.45' } }, 'Weekly revenue'),
     el('span', { style: { color: WHITE, opacity: '.95', fontWeight: '700' } }, dot(GREEN), 'Qualified'),
@@ -17461,7 +17450,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
         el('div', { style: { fontFamily: DISP, fontSize: '.58rem', letterSpacing: '.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,.35)' } },
           'Qualified = passed + pending on the comp day · serviced by the following Friday'),
         el('button', {
-          style: { fontFamily: DISP, fontSize: '.75rem', letterSpacing: '.08em', textTransform: 'uppercase', color: '#0A0A0A', background: GREEN, border: 'none', borderRadius: '999px', padding: '8px 14px', cursor: 'pointer' },
+          style: { fontFamily: DISP, fontSize: '.75rem', letterSpacing: '.08em', textTransform: 'uppercase', color: '#0A0A0A', background: GREEN, border: 'none', borderRadius: '0', padding: '8px 14px', cursor: 'pointer' },
           onclick: () => {
             overlay.remove();
             try {
@@ -17507,7 +17496,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
       el('div', { style: { fontFamily: DISP, fontSize: '.56rem', color: 'rgba(255,255,255,.4)', letterSpacing: '.12em', textTransform: 'uppercase', whiteSpace: 'nowrap' } }, label),
       el('div', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1.1', color, whiteSpace: 'nowrap' } }, val));
     return el('div', { style: {
-      position: 'relative', borderRadius: '12px', padding: '14px 16px 12px', cursor: 'pointer',
+      position: 'relative', borderRadius: '0', padding: '14px 16px 12px', cursor: 'pointer',
       background: champ ? 'linear-gradient(135deg, rgba(240,172,30,.16), #101010 65%)' : '#101010',
       border: '1px solid ' + (champ ? ORANGE : (rank <= 3 ? 'rgba(240,172,30,.45)' : 'rgba(255,255,255,.12)')),
       boxShadow: 'inset 0 -3px 0 ' + ((_lmsLiveNow ? liveQual : lastQual) ? GREEN : 'rgba(255,255,255,.08)'),
@@ -17551,7 +17540,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
         .map(({ r, pl }) => el('span', {
           'data-lms': (r.rep + ' ' + firstLast(r.rep)).toLowerCase(),
           style: { fontFamily: DISP, textTransform: 'uppercase', fontSize: '.98rem', letterSpacing: '.03em',
-                   padding: '6px 14px', borderRadius: '999px', border: '1px solid rgba(255,255,255,.2)',
+                   padding: '6px 14px', borderRadius: '0', border: '1px solid rgba(255,255,255,.2)',
                    color: WHITE, whiteSpace: 'nowrap', cursor: 'pointer' },
           title: firstLast(r.rep) + ' — ' + money(_qual(r)) + ' qualified · out week ' + (k + 1)
             + (pl ? ' · that round #' + pl.place + ' of ' + pl.of + ' (top ' + pl.advanceN + ' advanced' + (pl.place === pl.advanceN + 1 ? ' — ONE spot short' : '') + ')' : '')
@@ -17790,7 +17779,7 @@ function nrlaBranchClocks(teams, cfg, opts) {
       class: o.RO ? '' : 'cursor-pointer transition hover:brightness-110',
       style: Object.assign({
         display: 'inline-flex', alignItems: 'center', gap: '5px',
-        padding: o.small ? '3px 9px' : '4px 11px', borderRadius: '999px',
+        padding: o.small ? '3px 9px' : '4px 11px', borderRadius: '0',
         fontSize: o.small ? '10px' : '11px', whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis',
       }, o.dark
         ? { background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.18)', color: 'rgba(255,255,255,.85)' }
@@ -18926,7 +18915,7 @@ function nrlaBoard(rawSales, opts) {
     'radial-gradient(ellipse 55% 42% at 68% 60%, rgba(255,255,255,.075), rgba(255,255,255,0) 70%),' +
     'radial-gradient(ellipse 65% 50% at 25% 95%, rgba(255,255,255,.05), rgba(255,255,255,0) 70%),' +
     'linear-gradient(180deg, #03070D 0%, #081221 55%, #0E1C30 100%)';
-  const chip = (bg, fg, txt, extra) => el('span', { style: Object.assign({ display: 'inline-block', padding: '3px 10px', borderRadius: '999px', background: bg, color: fg, fontWeight: '900', fontSize: '11px', letterSpacing: '.03em' }, extra || {}) }, txt);
+  const chip = (bg, fg, txt, extra) => el('span', { style: Object.assign({ display: 'inline-block', padding: '3px 10px', borderRadius: '0', background: bg, color: fg, fontWeight: '900', fontSize: '11px', letterSpacing: '.03em' }, extra || {}) }, txt);
   // When the comp data was last synced/derived — shown BIG on the banner.
   // Pinned to Eastern time (most reps viewing the board are ET).
   const syncStr = (() => {
@@ -18950,7 +18939,7 @@ function nrlaBoard(rawSales, opts) {
             const lr = R.rounds.find(r => r.live);
             if (!lr) return null;
             const t = lr.phase === 'seed' ? 'Round ' + lr.num : lr.phase === 'semi' ? 'Semifinals' : 'Championship';
-            return el('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 12px', borderRadius: '999px', background: GREEN, color: '#04310A', fontWeight: '900', fontSize: '12px', letterSpacing: '.03em', marginBottom: '6px' } },
+            return el('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 12px', borderRadius: '0', background: GREEN, color: '#04310A', fontWeight: '900', fontSize: '12px', letterSpacing: '.03em', marginBottom: '6px' } },
               el('span', { style: { animation: 'nrlaPulse 1.2s ease-in-out infinite' } }, '●'), 'LIVE · ' + t);
           })(),
         ),
@@ -19216,7 +19205,7 @@ function nrlaBoard(rawSales, opts) {
   // round via the picker (same as the rep leaderboard). Seeds / W / L always
   // reflect the full seeding race; the money columns re-scope. ──
   const resDot = (r, i) => el('span', {
-    style: { display: 'inline-grid', placeItems: 'center', width: '16px', height: '16px', borderRadius: '4px', fontSize: '9px', fontWeight: '900', marginRight: '2px',
+    style: { display: 'inline-grid', placeItems: 'center', width: '16px', height: '16px', borderRadius: '0', fontSize: '9px', fontWeight: '900', marginRight: '2px',
       background: r === 'W' ? GREEN : r === 'L' ? REDD : '#9e9e9e', color: '#fff' },
     title: 'Seeding round ' + (i + 1) + ': ' + (r === 'W' ? 'Win' : r === 'L' ? 'Loss' : 'Tie'),
   }, r);
@@ -19691,7 +19680,7 @@ function nrlaBoard(rawSales, opts) {
         m.tag ? el('div', { class: 'px-3 py-0.5 text-[9px] font-black uppercase tracking-widest', style: { color: PINK, background: 'rgba(242,20,140,.06)', borderBottom: '1px solid var(--text)' } }, m.tag) : null,
         sideRow(m.a, m, m.aLabel, editable ? { ri, mi: i, side: 'a' } : null, rd.live),
         el('div', { style: { position: 'relative', borderTop: '1px dashed var(--text)' } },
-          el('span', { style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', fontSize: '8px', fontWeight: '900', letterSpacing: '.12em', background: 'var(--card)', color: 'var(--text)', padding: '1px 7px', borderRadius: '999px', border: '1px solid var(--text)', lineHeight: '1.2' } }, 'VS')),
+          el('span', { style: { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', fontSize: '8px', fontWeight: '900', letterSpacing: '.12em', background: 'var(--card)', color: 'var(--text)', padding: '1px 7px', borderRadius: '0', border: '1px solid var(--text)', lineHeight: '1.2' } }, 'VS')),
         sideRow(m.b, m, m.bLabel, editable ? { ri, mi: i, side: 'b' } : null, rd.live)));
     });
     if (!rd.matchups.length) kids.push(el('div', { class: 'px-3 py-3 text-[11px] text-center', style: { color: 'var(--text-subtle)' } }, 'Matchups set after seeding.'));
@@ -19801,10 +19790,10 @@ function nrlaBoard(rawSales, opts) {
           });
         const rev = rows.reduce((a, x) => a + (Number(x.contractValue) || 0), 0);
         return el('div', { class: 'mb-3' },
-          el('div', { class: 'px-3 py-1.5 text-[10px] font-black uppercase tracking-widest flex items-center justify-between', style: { background: 'var(--card-2)', borderRadius: '8px 8px 0 0', border: '1px solid var(--border)', borderBottom: 'none' } },
+          el('div', { class: 'px-3 py-1.5 text-[10px] font-black uppercase tracking-widest flex items-center justify-between', style: { background: 'var(--card-2)', borderRadius: '0', border: '1px solid var(--border)', borderBottom: 'none' } },
             el('span', {}, label + ' · ' + day.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' })),
             el('span', { class: 'tabular-nums' }, rows.length + ' accts · ' + money(rev))),
-          el('div', { class: 'scroll-x', style: { border: '1px solid var(--border)', borderRadius: '0 0 8px 8px' } },
+          el('div', { class: 'scroll-x', style: { border: '1px solid var(--border)', borderRadius: '0' } },
             rows.length === 0
               ? el('div', { class: 'p-4 text-center text-xs italic', style: { color: 'var(--text-muted)' } }, 'No qualifying D2D accounts this day.')
               : el('table', { class: 'w-full text-[11px]' },
@@ -20185,7 +20174,7 @@ function _mbBoxArt(w, opts) {
     lidEl = el('div', { style: { position: 'absolute', left: '3%', bottom: (B + Math.round(L * 0.72)) + 'px', width: '94%', height: Math.round(L * 2.5) + 'px', transformOrigin: '50% 100%', zIndex: 0 } },
       el('div', { style: { position: 'absolute', inset: '0', clipPath: 'polygon(7% 0, 93% 0, 100% 100%, 0 100%)', background: suedeLid, backgroundSize: '4px 4px, 100% 100%' } }),
       el('div', { style: { position: 'absolute', inset: '7% 10% 6% 10%', clipPath: 'polygon(3% 0, 97% 0, 100% 100%, 0 100%)', background: 'linear-gradient(180deg, #0d3a24 0%, #124528 55%, #0a2718 100%)', boxShadow: 'inset 0 0 18px rgba(0,0,0,.7)' } },
-        el('div', { style: { position: 'absolute', inset: '9%', border: '1px solid rgba(232,198,106,.35)', borderRadius: '4px' } })));
+        el('div', { style: { position: 'absolute', inset: '9%', border: '1px solid rgba(232,198,106,.35)', borderRadius: '0' } })));
     box.style.zIndex = '2';
   }
   root.append(box);
@@ -20610,7 +20599,7 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
     const bg = (typeof getTeamColor === 'function' && getTeamColor(tm.t)) || '#1D1D1D';
     const fg = (typeof groupHeaderTextColor === 'function') ? groupHeaderTextColor(bg) : '#fff';
     return el('div', {},
-    el('div', { style: { padding: '6px 8px', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.06em', background: bg, color: fg, whiteSpace: 'nowrap', borderRadius: '4px 4px 0 0' } },
+    el('div', { style: { padding: '6px 8px', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.06em', background: bg, color: fg, whiteSpace: 'nowrap', borderRadius: '0' } },
       tm.t + ' \u00b7 ' + tm.list.length + ' rep' + (tm.list.length === 1 ? '' : 's')),
     el('table', { style: { width: '100%', borderCollapse: 'collapse', border: '1px solid #333', background: 'rgba(10,10,10,.72)' } },
       el('thead', { style: { background: '#161616' } }, el('tr', {},
@@ -20639,7 +20628,7 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
           el('div', { style: { fontSize: '20px' } }, '\ud83d\udc0d'),
           el('div', { style: { fontSize: '8.5px', color: '#8a8a8a', fontWeight: '700', marginTop: '2px' } },
             new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + (pages.length ? ' \u00b7 p.' + (pages.length + 1) : ' \u00b7 RIDDMADE')))),
-      i === 0 ? el('div', { style: { border: '2px solid #E0402A', borderRadius: '6px', padding: '9px 14px', margin: '0 0 14px', background: 'rgba(10,10,10,.85)' } },
+      i === 0 ? el('div', { style: { border: '2px solid #E0402A', borderRadius: '0', padding: '9px 14px', margin: '0 0 14px', background: 'rgba(10,10,10,.85)' } },
         el('div', { style: { fontSize: '10px', fontWeight: '900', color: '#F5A623', textTransform: 'uppercase', letterSpacing: '.03em' } },
           'Target = your best Sun\u2013Sat week of the season \u00b7 MINIMUM: Rookies $7,000 \u00b7 Vets $10,000 \u00b7 Pending/Serviced only \u00b7 failed audits + last resorts don\u2019t count')) : null,
       el('div', { style: { display: 'flex', gap: '22px', alignItems: 'flex-start' } },
@@ -20731,8 +20720,8 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
                   el('div', { class: 'text-[10px] font-bold uppercase mt-0.5', style: { letterSpacing: '.12em', color: 'var(--text-muted)' } },
                     'for the next ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' \u00b7 ' + fmt.usd0(remaining) + ' to go'))
               : el('div', { class: 'text-xs text-muted- font-bold' }, live ? '' : 'Starts ' + new Date(KOBE_FROM + 'T00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })))),
-      el('div', { class: 'mt-3', style: { height: '7px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
-        el('div', { style: { width: pct.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: mine.earned ? '#DF643A' : MAMBA } }))));
+      el('div', { class: 'mt-3', style: { height: '7px', borderRadius: '0', background: 'var(--card-2)', overflow: 'hidden' } },
+        el('div', { style: { width: pct.toFixed(0) + '%', height: '100%', borderRadius: '0', background: mine.earned ? '#DF643A' : MAMBA } }))));
   }
   // ── Everyone: chase board ── Company view by default; the dropdown
   // scopes to a single team, and every row carries the rep's team (per Isaac).
@@ -20835,8 +20824,8 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
           el('td', { class: 'px-3 py-2 text-right tabular-nums hidden sm:table-cell', style: { color: perDay ? MAMBA : 'var(--text-subtle)', fontWeight: perDay ? '700' : '400' } }, perDay ? fmt.usd0(perDay) : '\u2014'),
           el('td', { class: 'px-3 py-2' },
             el('div', { class: 'flex items-center gap-1.5' },
-              el('div', { style: { flex: '1', minWidth: '34px', height: '5px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
-                el('div', { style: { width: pct.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: r.earned ? '#DF643A' : MAMBA } })),
+              el('div', { style: { flex: '1', minWidth: '34px', height: '5px', borderRadius: '0', background: 'var(--card-2)', overflow: 'hidden' } },
+                el('div', { style: { width: pct.toFixed(0) + '%', height: '100%', borderRadius: '0', background: r.earned ? '#DF643A' : MAMBA } })),
               el('span', { class: 'text-[11px] tabular-nums font-bold whitespace-nowrap', style: { color: r.earned ? '#DF643A' : 'var(--text-muted)' } }, pct.toFixed(0) + '%'))));
       }))))));
   return el('div', { class: 'flex flex-col gap-4' }, ...nodes);
@@ -21350,8 +21339,8 @@ function mysteryBoxSection(isAdmin) {
           ? el('td', { class: 'px-3 py-2' })
           : el('td', { class: 'px-3 py-2 whitespace-nowrap', style: { minWidth: '160px' } },
               el('div', { class: 'flex items-center gap-1.5' },
-                el('div', { style: { flex: '1', minWidth: '34px', height: '5px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
-                  el('div', { style: { width: pctTo.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: pctTo >= 75 ? '#DF643A' : pctTo >= 40 ? '#D97706' : 'var(--border-2)' } })),
+                el('div', { style: { flex: '1', minWidth: '34px', height: '5px', borderRadius: '0', background: 'var(--card-2)', overflow: 'hidden' } },
+                  el('div', { style: { width: pctTo.toFixed(0) + '%', height: '100%', borderRadius: '0', background: pctTo >= 75 ? '#DF643A' : pctTo >= 40 ? '#D97706' : 'var(--border-2)' } })),
                 el('span', { class: 'text-[11px] tabular-nums font-bold whitespace-nowrap', style: { color: pctTo >= 75 ? '#DF643A' : 'var(--text-muted)' } },
                   fmt.usd0(Math.max(0, r.goal - r.rev)) + ' to go'))));
     };
@@ -21742,7 +21731,7 @@ function islSection(raw, cfg, isAdmin) {
   wrap.append(el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-5 flex items-center justify-between gap-3 flex-wrap', style: { background: '#F6C915', color: '#1F3B8B' } },
       el('div', {},
-        el('div', { style: { display: 'inline-block', background: '#fff', border: '3px solid #1F3B8B', borderRadius: '4px', padding: '4px 14px', fontWeight: '900', fontSize: '22px', letterSpacing: '.35em', color: '#1F3B8B', boxShadow: '0 2px 6px rgba(0,0,0,.18)' } }, 'BELIEVE'),
+        el('div', { style: { display: 'inline-block', background: '#fff', border: '3px solid #1F3B8B', borderRadius: '0', padding: '4px 14px', fontWeight: '900', fontSize: '22px', letterSpacing: '.35em', color: '#1F3B8B', boxShadow: '0 2px 6px rgba(0,0,0,.18)' } }, 'BELIEVE'),
         el('div', { class: 'font-display text-3xl leading-none mt-2', style: { color: '#1F3B8B' } }, 'RIDD INSIDE SALES LEAGUE'),
         el('div', { class: 'text-[11px] font-bold uppercase tracking-wide mt-1', style: { color: '#1F3B8B', opacity: '.8' } },
           'Round ' + (selIdx + 1) + ' \u00b7 ' + mmdd(rS) + '/' + rS.getFullYear() + ' \u2013 ' + mmdd(rE) + '/' + rE.getFullYear() + ' \u00b7 Pending/Serviced \u00b7 AutoPay + agreement required')),
@@ -21793,7 +21782,7 @@ function islSection(raw, cfg, isAdmin) {
     };
     const _szBtn = (glyph, title, onclick, disabled) => el('button', {
       class: 'cursor-pointer font-black',
-      style: { width: '20px', height: '20px', borderRadius: '6px', border: '1px solid rgba(255,255,255,.4)', background: 'rgba(255,255,255,.12)', color: 'inherit', fontSize: '13px', lineHeight: '1', padding: '0', opacity: disabled ? '.35' : '1' },
+      style: { width: '20px', height: '20px', borderRadius: '0', border: '1px solid rgba(255,255,255,.4)', background: 'rgba(255,255,255,.12)', color: 'inherit', fontSize: '13px', lineHeight: '1', padding: '0', opacity: disabled ? '.35' : '1' },
       title, onclick: disabled ? undefined : onclick,
     }, glyph);
     wrap.append(el('div', { class: 'card overflow-hidden' },
@@ -23147,14 +23136,14 @@ function springStandingsCard() {
         return el('div', { style: { fontSize: '11px', fontWeight: '800', lineHeight: '1.7', whiteSpace: 'nowrap' } }, (m ? m.bugs : 0) + ' Bugs');
       };
       const status = r.official
-        ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#fff', background: '#DF643A', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' } }, '🔒 Official — audits settled')
+        ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#fff', background: '#DF643A', padding: '2px 8px', borderRadius: '0', textTransform: 'uppercase' } }, '🔒 Official — audits settled')
         : r.hasData && r.finished
-          ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#fff', background: '#ED1C24', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase', cursor: r.pendingN ? 'pointer' : 'default' },
+          ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#fff', background: '#ED1C24', padding: '2px 8px', borderRadius: '0', textTransform: 'uppercase', cursor: r.pendingN ? 'pointer' : 'default' },
               title: r.pendingN ? 'Click to see the pending accounts' : '',
               onclick: r.pendingN ? () => openSpringPendingModal(idx + 1, roundLabel(r), r.sc ? r.sc.pending : []) : null },
               r.pendingN + ' audit' + (r.pendingN === 1 ? '' : 's') + ' pending')
           : r.hasData
-            ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#141414', background: '#FFB899', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' } }, 'Live')
+            ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#141414', background: '#FFB899', padding: '2px 8px', borderRadius: '0', textTransform: 'uppercase' } }, 'Live')
             : null;
       return el('div', { style: { padding: '6px 30px 14px' } },
         el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
@@ -23191,7 +23180,7 @@ function springStandingsCard() {
       ...rounds.map((r, i) => el('button', {
         class: 'cursor-pointer transition hover:brightness-95',
         style: {
-          fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', padding: '4px 12px', borderRadius: '999px',
+          fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', padding: '4px 12px', borderRadius: '0',
           background: i === state._scRoundSel ? '#141414' : 'transparent',
           color: i === state._scRoundSel ? '#fff' : '#141414',
           border: '1px solid #141414', whiteSpace: 'nowrap',
@@ -23621,7 +23610,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
   // Green gradient for the bug count (0 → 6), echoing the Spring Cleaning poster.
   const BUG_COLORS = ['#b8bdc2', '#FFB899', '#FF8A5C', '#FF6B3D', '#DF643A', '#C8552E', '#9C3F1E'];
   const bugBadge = (bugs) => el('span', {
-    style: { display: 'inline-block', minWidth: '30px', textAlign: 'center', padding: '2px 9px', borderRadius: '999px',
+    style: { display: 'inline-block', minWidth: '30px', textAlign: 'center', padding: '2px 9px', borderRadius: '0',
       background: BUG_COLORS[Math.max(0, Math.min(6, bugs))], color: '#fff', fontWeight: '900', fontSize: '12px' },
   }, String(bugs));
   // 4-round cumulative RIDDCOIN reward tiers (matches the poster's bug-count bars).
@@ -23640,7 +23629,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
           el('div', { style: { fontWeight: '900', fontSize: '30px', letterSpacing: '-0.02em', color: '#141414', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
           el('div', { style: { fontWeight: '800', fontSize: '10.5px', letterSpacing: '0.06em', color: '#141414', marginTop: '3px', textTransform: 'uppercase' } },
             'Team Quality Based Competition by RIDDMADE™'),
-          indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: '#9C3F1E', color: '#fff', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, indicatorCompWindowStr()),
+          indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '0', background: '#9C3F1E', color: '#fff', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, indicatorCompWindowStr()),
           indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#A9441F', marginTop: '4px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
         ),
         el('div', { class: 'sc-sweep-track', title: 'Sweepin\' up' },
@@ -23729,7 +23718,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
       el('div', { class: 'flex items-center gap-x-3 gap-y-1.5 flex-wrap' },
         el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, '🐛 4-round reward'),
         ...COIN_TIERS.map(t => el('span', { class: 'inline-flex items-center gap-1.5' },
-          el('span', { style: { display: 'inline-block', width: '26px', textAlign: 'center', padding: '1px 0', borderRadius: '4px', background: t.color, color: '#fff', fontWeight: '900', fontSize: '10px' } }, String(t.bugs)),
+          el('span', { style: { display: 'inline-block', width: '26px', textAlign: 'center', padding: '1px 0', borderRadius: '0', background: t.color, color: '#fff', fontWeight: '900', fontSize: '10px' } }, String(t.bugs)),
           el('span', { style: { color: 'var(--text-muted)', fontWeight: '700' } }, '= ' + t.coin + '/rep'),
         )),
       ),
@@ -23858,7 +23847,7 @@ function indicatorTopGunBoard(sales, proSet) {
 
   const classCard = (def) => {
     const reps = classes[def.key] || [];
-    return el('div', { style: { borderRadius: '6px', overflow: 'hidden', border: '3px solid ' + def.color, background: def.color } },
+    return el('div', { style: { borderRadius: '0', overflow: 'hidden', border: '3px solid ' + def.color, background: def.color } },
       el('div', { class: 'flex items-stretch' },
         el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '96px', padding: '12px', borderRight: '2px solid ' + CREAM } },
           el('div', { style: { width: '54px', height: '54px', borderRadius: '50%', border: '3px solid ' + CREAM, display: 'flex', alignItems: 'center', justifyContent: 'center', color: CREAM, fontWeight: '900', fontSize: '26px', fontFamily: 'Georgia, serif' } }, def.badge),
@@ -23874,7 +23863,7 @@ function indicatorTopGunBoard(sales, proSet) {
         ? el('div', { style: { padding: '10px 16px', color: CREAM, fontSize: '11px', fontStyle: 'italic', opacity: '0.85' } },
             def.key === 'pro' ? 'No audit-passed production in this window yet.'
               : 'No reps tagged "' + (def.key === 'rookie' ? 'Rookie' : 'Vet') + '" in Manage Teams yet.')
-        : el('div', { style: { background: CREAM, margin: '0 8px 8px', borderRadius: '4px', overflow: 'hidden' } },
+        : el('div', { style: { background: CREAM, margin: '0 8px 8px', borderRadius: '0', overflow: 'hidden' } },
             // ~10 rows tall, then scroll through the rest of the class.
             el('div', { style: { maxHeight: '300px', overflowY: 'auto' } },
               el('table', { class: 'w-full', style: { fontSize: '11px' } },
@@ -25506,14 +25495,14 @@ function manageTeamsPanel(opts) {
               ? el('img', {
                   src: teamLogo, alt: t + ' logo',
                   style: {
-                    width: '44px', height: '44px', borderRadius: '8px',
+                    width: '44px', height: '44px', borderRadius: '0',
                     objectFit: 'cover', background: '#fff',
                     border: '1px solid var(--border-2)',
                   },
                 })
               : el('div', {
                   style: {
-                    width: '44px', height: '44px', borderRadius: '8px',
+                    width: '44px', height: '44px', borderRadius: '0',
                     background: teamColor, color: '#fff',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontWeight: '700', fontSize: '14px',
@@ -26007,7 +25996,7 @@ function indPresetRibbon() {
       background: open ? 'var(--accent)' : 'var(--card)',
       border: '1px solid ' + (open ? 'var(--accent)' : 'var(--border-2)'),
       borderLeft: 'none',
-      borderRadius: '0 8px 8px 0',
+      borderRadius: '0',
       boxShadow: 'var(--shadow-lg)',
     },
     title: open ? 'Hide the saved presets' : 'Saved presets \u2014 save the whole page setup and jump between views in one click',
@@ -26906,7 +26895,7 @@ function viewIndicators() {
             'Filters',
             nonDefault ? el('span', {
               class: 'absolute tabular-nums',
-              style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '7px', background: 'var(--accent)', color: '#3A1D12', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
+              style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '0', background: 'var(--accent)', color: '#3A1D12', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
             }, String(nonDefault)) : null,
           );
           if (state._indFiltersOpen) bindCloser();                 // panel restored open after a filter change re-render
@@ -26981,7 +26970,7 @@ function viewIndicators() {
               // Little count badge when some offices/teams are excluded.
               excludedNow.size ? el('span', {
                 class: 'absolute tabular-nums',
-                style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '7px', background: 'var(--accent)', color: '#3A1D12', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
+                style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '0', background: 'var(--accent)', color: '#3A1D12', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
               }, String(excludedNow.size)) : null,
             );
             return el('div', { style: { position: 'relative' } }, btn, panel);
@@ -27940,8 +27929,8 @@ function myStatsCard() {
         el('span', { class: 'font-semibold' }, money(ytdRev) + ' of ' + money(goal) + ' YTD'),
         el('span', { class: 'font-bold tabular-nums', style: { color: delta >= 0 ? '#DF643A' : '#DC2626' } },
           (delta >= 0 ? '▲ ' + money(delta) + ' ahead of pace' : '▼ ' + money(-delta) + ' behind pace'))),
-      el('div', { style: { height: '10px', borderRadius: '6px', background: 'var(--card-2)', overflow: 'hidden', position: 'relative' } },
-        el('div', { style: { height: '100%', width: pct + '%', background: 'var(--accent)', borderRadius: '6px' } }),
+      el('div', { style: { height: '10px', borderRadius: '0', background: 'var(--card-2)', overflow: 'hidden', position: 'relative' } },
+        el('div', { style: { height: '100%', width: pct + '%', background: 'var(--accent)', borderRadius: '0' } }),
         // Pace marker — where today sits in the year.
         el('div', { title: 'Where today sits in the year', style: { position: 'absolute', top: '0', bottom: '0', left: Math.min(99.5, yearFrac * 100) + '%', width: '2px', background: 'var(--text)' } }))) : null,
     el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
@@ -28359,7 +28348,7 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
             el('div', {},
               el('div', { style: { fontWeight: '900', fontSize: '20px', letterSpacing: '-0.01em', color: '#1D1D1D', textTransform: 'uppercase', lineHeight: '1' } }, 'Avg Pest Initial Competitions'),
               el('div', { style: { fontWeight: '800', fontSize: '10px', letterSpacing: '0.08em', color: '#1D1D1D', opacity: '0.8', marginTop: '3px', textTransform: 'uppercase' } }, 'Door-to-Door · by RIDDMADE™'),
-              indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: '#1D1D1D', color: '#DF643A', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, '📅 ' + indicatorCompWindowStr()),
+              indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '0', background: '#1D1D1D', color: '#DF643A', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, '📅 ' + indicatorCompWindowStr()),
               indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#1D1D1D', opacity: '0.7', marginTop: '3px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
             ),
           ),
@@ -29657,7 +29646,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       class: 'flex-1 px-2 py-2 text-center min-w-0',
       style: {
         background: leader ? color + '14' : 'transparent',
-        borderRadius: '8px',
+        borderRadius: '0',
       },
     },
       // Font shrinks on narrow screens so a full revenue figure never
@@ -30730,7 +30719,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
               },
                 el('div', { class: 'w-[200px] sm:w-[240px] truncate font-medium shrink-0', title: s.name, style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, s.name),
                 el('div', { class: 'flex-1 rounded-full relative', style: { background: 'var(--card-2)', height: '22px' } },
-                  el('div', { style: { width: _pct + '%', height: '100%', background: 'var(--accent)', borderRadius: '999px', opacity: String(0.55 + 0.45 * (s.share / maxShare)), transition: 'width .3s', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
+                  el('div', { style: { width: _pct + '%', height: '100%', background: 'var(--accent)', borderRadius: '0', opacity: String(0.55 + 0.45 * (s.share / maxShare)), transition: 'width .3s', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
                     _inBar ? el('span', { class: 'tabular-nums font-black', style: { color: '#fff', fontSize: '11.5px', lineHeight: '1', textShadow: '0 1px 1px rgba(0,0,0,.2)' } }, fmt.int(s.count)) : null),
                   _inBar ? null : el('span', { class: 'tabular-nums font-black', style: { position: 'absolute', left: 'calc(' + _pct + '% + 8px)', top: '50%', transform: 'translateY(-50%)', color: 'var(--text)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(s.count)),
                 ),
@@ -32504,8 +32493,8 @@ function buildTeamReportNode(teamName, ctx) {
       el('div', { style: { fontSize: '10px', fontWeight: '700', letterSpacing: '0.18em', color: '#666' } }, 'SERVICE ABOVE ALL'),
     ),
     teamLogo
-      ? el('img', { src: teamLogo, alt: teamName, style: { height: '72px', width: '72px', borderRadius: '12px', objectFit: 'cover', border: '2px solid ' + teamColor, background: '#fff' } })
-      : el('div', { style: { width: '72px', height: '72px', borderRadius: '12px', background: teamColor, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: '900' } }, teamName.slice(0, 1).toUpperCase()),
+      ? el('img', { src: teamLogo, alt: teamName, style: { height: '72px', width: '72px', borderRadius: '0', objectFit: 'cover', border: '2px solid ' + teamColor, background: '#fff' } })
+      : el('div', { style: { width: '72px', height: '72px', borderRadius: '0', background: teamColor, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: '900' } }, teamName.slice(0, 1).toUpperCase()),
   );
 
   // Title block — team name in its color + window label.
@@ -32525,7 +32514,7 @@ function buildTeamReportNode(teamName, ctx) {
   const powerBanner = el('div', {
     style: {
       padding: '14px 18px', background: '#1D1D1D', color: '#fff',
-      borderRadius: '10px', marginBottom: '18px',
+      borderRadius: '0', marginBottom: '18px',
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     },
   },
@@ -32543,7 +32532,7 @@ function buildTeamReportNode(teamName, ctx) {
   const stat = (label, value, rank) => el('div', {
     style: {
       padding: '12px 14px', background: '#F7F8F6',
-      border: '1px solid #E5E5E0', borderRadius: '8px',
+      border: '1px solid #E5E5E0', borderRadius: '0',
     },
   },
     el('div', { style: { fontSize: '10px', fontWeight: '800', color: '#888', letterSpacing: '0.08em', textTransform: 'uppercase' } }, label),
@@ -32591,8 +32580,8 @@ function buildTeamReportNode(teamName, ctx) {
           rank ? '#' + rank + ' of ' + totalRanked : '—'),
       ),
       // Progress bar: filled portion = team's relative position (1 = best)
-      el('div', { style: { background: '#EAEAE4', height: '10px', borderRadius: '5px', overflow: 'hidden' } },
-        el('div', { style: { width: fillPct.toFixed(1) + '%', height: '100%', background: barColor, borderRadius: '5px' } }),
+      el('div', { style: { background: '#EAEAE4', height: '10px', borderRadius: '0', overflow: 'hidden' } },
+        el('div', { style: { width: fillPct.toFixed(1) + '%', height: '100%', background: barColor, borderRadius: '0' } }),
       ),
     );
   };
@@ -32640,7 +32629,7 @@ function buildTeamReportNode(teamName, ctx) {
       el('span', { style: { color: '#666', fontWeight: '600' } }, lbl),
       el('span', { style: { color: '#1D1D1D', fontWeight: '700', fontVariantNumeric: 'tabular-nums' } }, val),
     );
-    return el('div', { style: { flex: '1', padding: '10px 14px', background: '#F7F8F6', border: '1px solid #E5E5E0', borderRadius: '8px' } },
+    return el('div', { style: { flex: '1', padding: '10px 14px', background: '#F7F8F6', border: '1px solid #E5E5E0', borderRadius: '0' } },
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', paddingBottom: '6px', borderBottom: '1px solid #E5E5E0' } },
         el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: color, display: 'inline-block' } }),
         el('span', { style: { fontSize: '11px', fontWeight: '900', letterSpacing: '0.1em', color: color, textTransform: 'uppercase' } }, label),
@@ -32945,8 +32934,8 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       return el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' } },
         el('div', { style: { width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
         el('div', { style: { width: '120px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
-        el('div', { style: { flex: '1', height: '20px', borderRadius: '999px', background: '#f1f1ec', position: 'relative' } },
-          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '999px', background: dark ? '#1D1D1D' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
+        el('div', { style: { flex: '1', height: '20px', borderRadius: '0', background: '#f1f1ec', position: 'relative' } },
+          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '0', background: dark ? '#1D1D1D' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
             inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmtV(val)) : null),
           inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#1D1D1D', whiteSpace: 'nowrap' } }, fmtV(val))));
     };
@@ -32999,8 +32988,8 @@ function buildRookieVetReportNode(allReps, opts = {}) {
         el('div', { style: { width: '104px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
         el('div', { style: { width: '54px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, q + ' >$20K'),
         el('div', { style: { width: '66px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, subs + ' subs/rep'),
-        el('div', { style: { flex: '1', height: '20px', borderRadius: '999px', background: '#f1f1ec', position: 'relative' } },
-          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '999px', background: dark ? '#1D1D1D' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
+        el('div', { style: { flex: '1', height: '20px', borderRadius: '0', background: '#f1f1ec', position: 'relative' } },
+          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '0', background: dark ? '#1D1D1D' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
             inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmt.usd0(val)) : null),
           inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#1D1D1D', whiteSpace: 'nowrap' } }, fmt.usd0(val))));
     };
@@ -33101,7 +33090,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
         el('div', {
           style: {
             padding: '12px', fontSize: '11px', color: '#888',
-            fontStyle: 'italic', border: '1px dashed #ddd', borderRadius: '4px',
+            fontStyle: 'italic', border: '1px dashed #ddd', borderRadius: '0',
           },
         }, 'No ' + label.toLowerCase() + ' assigned in Manage Teams.'),
       );
@@ -33654,7 +33643,7 @@ function openTVDashboard() {
         padding: '4px 10px',
         background: 'rgba(223,100,58,0.15)',
         border: '1px solid #DF643A',
-        borderRadius: '999px',
+        borderRadius: '0',
       },
     },
       el('div', {
@@ -33682,7 +33671,7 @@ function openTVDashboard() {
         el('div', { style: { fontSize: '14px', color: '#888' } }, dateStr),
       ),
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '16px' } },
-        el('div', { style: { display: 'inline-flex', borderRadius: '12px', overflow: 'hidden', border: '1px solid #333' } },
+        el('div', { style: { display: 'inline-flex', borderRadius: '0', overflow: 'hidden', border: '1px solid #333' } },
           ...RANGES.map(r => el('button', {
             style: {
               padding: '6px 14px', fontSize: '12px', fontWeight: '800',
@@ -33707,7 +33696,7 @@ function openTVDashboard() {
             style: {
               padding: '5px 8px', fontSize: '12px',
               background: '#1A1A1A', color: '#fff',
-              border: '1px solid #333', borderRadius: '6px',
+              border: '1px solid #333', borderRadius: '0',
               colorScheme: 'dark',
             },
             onchange: (e) => { state._tvDashboardCustomStart = e.target.value; render(); },
@@ -33719,7 +33708,7 @@ function openTVDashboard() {
             style: {
               padding: '5px 8px', fontSize: '12px',
               background: '#1A1A1A', color: '#fff',
-              border: '1px solid #333', borderRadius: '6px',
+              border: '1px solid #333', borderRadius: '0',
               colorScheme: 'dark',
             },
             onchange: (e) => { state._tvDashboardCustomEnd = e.target.value; render(); },
@@ -33787,7 +33776,7 @@ function openTVDashboard() {
           el('span', { style: { fontSize: '14px', fontWeight: '800', color: '#1D1D1D', fontVariantNumeric: 'tabular-nums' } }, fmtMoney(opts.periodGoal)),
         ),
         // Progress bar — dark track on the lime tile, white fill.
-        el('div', { style: { height: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '3px', overflow: 'hidden' } },
+        el('div', { style: { height: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '0', overflow: 'hidden' } },
           el('div', {
             style: {
               width: opts.goalProgressPct.toFixed(1) + '%',
@@ -33853,9 +33842,9 @@ function openTVDashboard() {
     },
       el('div', { style: { fontSize: '14px', fontWeight: '800', letterSpacing: '0.2em', color: '#888', marginBottom: '6px' } }, 'REPS · ' + range.label.toUpperCase()),
       ranked.length === 0
-        ? el('div', { style: { padding: '30px', textAlign: 'center', color: '#666', fontStyle: 'italic', background: '#1A1A1A', borderRadius: '12px' } },
+        ? el('div', { style: { padding: '30px', textAlign: 'center', color: '#666', fontStyle: 'italic', background: '#1A1A1A', borderRadius: '0' } },
             'No sales yet for ' + range.label.toLowerCase())
-        : el('div', { style: { background: '#1A1A1A', borderRadius: '12px', border: '1px solid #2A2A2A', overflow: 'auto' } },
+        : el('div', { style: { background: '#1A1A1A', borderRadius: '0', border: '1px solid #2A2A2A', overflow: 'auto' } },
             el('table', { style: { width: '100%', borderCollapse: 'collapse' } },
               el('thead', {}, el('tr', {},
                 el('th', { style: { ...thS, textAlign: 'left', paddingLeft: '14px' } }, ''),
@@ -34622,7 +34611,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelO
     el('span', {
       style: {
         position: 'relative', display: 'inline-block',
-        width: '20px', height: '11px', borderRadius: '999px',
+        width: '20px', height: '11px', borderRadius: '0',
         background: compareOn ? 'rgba(0,0,0,.25)' : 'var(--border-2)',
         transition: 'background .15s',
       },
@@ -34630,7 +34619,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelO
       el('span', {
         style: {
           position: 'absolute', top: '1px', left: compareOn ? '10px' : '1px',
-          width: '9px', height: '9px', borderRadius: '999px',
+          width: '9px', height: '9px', borderRadius: '0',
           background: compareOn ? '#fff' : 'var(--text-muted)',
           transition: 'left .15s',
         },
@@ -36410,7 +36399,7 @@ function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen }) {
             style: has ? { color: b.color } : { color: 'var(--text-muted)' },
           }, has ? v.toFixed(0) + '%' : '—'),
         ),
-        el('div', { style: { height: '5px', borderRadius: '3px', background: 'var(--card-2)', overflow: 'hidden' } },
+        el('div', { style: { height: '5px', borderRadius: '0', background: 'var(--card-2)', overflow: 'hidden' } },
           has && el('div', {
             style: {
               width: Math.min(100, Math.max(0, v)) + '%',
@@ -37835,7 +37824,7 @@ document.addEventListener('visibilitychange', () => {
       style: {
         position: 'fixed', left: '50%', top: 'calc(env(safe-area-inset-top, 0px) + 64px)',
         transform: 'translateX(-50%) scale(.6)', zIndex: 4000,
-        width: '38px', height: '38px', borderRadius: '999px',
+        width: '38px', height: '38px', borderRadius: '0',
         background: 'var(--card)', border: '1px solid var(--border-2)',
         boxShadow: 'var(--shadow-lg)', display: 'flex', alignItems: 'center',
         justifyContent: 'center', fontSize: '18px', opacity: '0',
@@ -38316,7 +38305,7 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
                 onmouseenter: clickable ? (e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; } : undefined,
                 onmouseleave: clickable ? (e) => { e.currentTarget.style.background = 'transparent'; } : undefined,
               },
-                el('div', { style: { width: '8px', height: '8px', borderRadius: '2px', background: colorFor(s.label, i), flexShrink: '0' } }),
+                el('div', { style: { width: '8px', height: '8px', borderRadius: '0', background: colorFor(s.label, i), flexShrink: '0' } }),
                 el('div', { class: 'flex-1 truncate', style: { color: 'var(--text)' } }, s.label),
                 el('div', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, formatter(s.value)),
               );
@@ -38333,7 +38322,7 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
                 onmouseenter: clickable ? (e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; } : undefined,
                 onmouseleave: clickable ? (e) => { e.currentTarget.style.background = 'transparent'; } : undefined,
               },
-                el('div', { style: { width: '8px', height: '8px', borderRadius: '2px', background: 'var(--text-subtle)', flexShrink: '0' } }),
+                el('div', { style: { width: '8px', height: '8px', borderRadius: '0', background: 'var(--text-subtle)', flexShrink: '0' } }),
                 el('div', { class: 'flex-1', style: { color: 'var(--text-muted)' } }, 'Other (' + otherCount + ')'),
                 el('div', { class: 'tabular-nums', style: { color: 'var(--text-muted)' } }, formatter(otherTotal)),
               );
@@ -39407,13 +39396,13 @@ function viewMarketing() {
       el('div', { class: 'flex items-center justify-between mb-3' },
         el('h3', { class: 'text-sm font-bold' }, 'Spend vs Marketed Revenue · Last 12 Weeks'),
         el('div', { class: 'flex items-center gap-3 text-[10px]', style: { color: 'var(--text-muted)' } },
-          el('span', {}, el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', background: '#94A3B8', marginRight: '4px' } }), 'Spend'),
-          el('span', {}, el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', background: 'var(--accent)', marginRight: '4px' } }), 'Revenue'))),
+          el('span', {}, el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '0', background: '#94A3B8', marginRight: '4px' } }), 'Spend'),
+          el('span', {}, el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '0', background: 'var(--accent)', marginRight: '4px' } }), 'Revenue'))),
       el('div', { class: 'flex items-end gap-2', style: { height: '110px' } },
         ...weeks.map(w => {
           const cell = el('div', { class: 'flex-1 flex items-end justify-center gap-0.5 cursor-help', style: { height: '100%' } },
-            el('div', { style: { width: '38%', height: Math.max(2, Math.round(w.spend / maxV * 105)) + 'px', background: '#94A3B8', borderRadius: '3px 3px 0 0' } }),
-            el('div', { style: { width: '38%', height: Math.max(2, Math.round(w.revenue / maxV * 105)) + 'px', background: 'var(--accent)', borderRadius: '3px 3px 0 0' } }));
+            el('div', { style: { width: '38%', height: Math.max(2, Math.round(w.spend / maxV * 105)) + 'px', background: '#94A3B8', borderRadius: '0' } }),
+            el('div', { style: { width: '38%', height: Math.max(2, Math.round(w.revenue / maxV * 105)) + 'px', background: 'var(--accent)', borderRadius: '0' } }));
           attachTooltip(cell, {
             title: 'Week of ' + w.w0.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
             desc: 'Spend ' + money0(w.spend) + ' · Revenue ' + money0(w.revenue) + (w.spend > 0 ? ' · ' + (w.revenue / w.spend).toFixed(1) + '× ROAS' : ''),
@@ -39605,7 +39594,7 @@ function openRcItemModal(i) {
   let idx = 0;
   const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-  const mainImg = el('div', { style: { width: '100%', aspectRatio: '1 / 1', borderRadius: '12px', background: 'var(--card-2)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' } });
+  const mainImg = el('div', { style: { width: '100%', aspectRatio: '1 / 1', borderRadius: '0', background: 'var(--card-2)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' } });
   const thumbsRow = el('div', { class: 'flex items-center gap-1.5 mt-2 flex-wrap' });
   const renderGallery = () => {
     mainImg.innerHTML = '';
@@ -39615,7 +39604,7 @@ function openRcItemModal(i) {
     if (meta.photos.length > 1) meta.photos.forEach((u, j) => thumbsRow.append(el('img', {
       src: u, alt: '',
       class: 'cursor-pointer',
-      style: { width: '52px', height: '52px', objectFit: 'cover', borderRadius: '8px', border: j === idx ? '2px solid var(--accent)' : '2px solid var(--border-2)', opacity: j === idx ? '1' : '.7' },
+      style: { width: '52px', height: '52px', objectFit: 'cover', borderRadius: '0', border: j === idx ? '2px solid var(--accent)' : '2px solid var(--border-2)', opacity: j === idx ? '1' : '.7' },
       onclick: () => { idx = j; renderGallery(); },
     })));
   };
@@ -39769,7 +39758,7 @@ function viewMarketplace() {
               onclick: () => openRcItemModal(i),
             },
               meta.photos.length
-                ? el('div', { style: { width: '100%', aspectRatio: '1 / 1', borderRadius: '10px', overflow: 'hidden', background: 'var(--card-2)' } },
+                ? el('div', { style: { width: '100%', aspectRatio: '1 / 1', borderRadius: '0', overflow: 'hidden', background: 'var(--card-2)' } },
                     el('img', { src: meta.photos[0], alt: i.name, style: { width: '100%', height: '100%', objectFit: 'cover' } }))
                 : el('div', { class: 'text-3xl' }, '🎁'),
               el('div', { class: 'font-bold text-sm leading-tight' }, i.name),
@@ -39936,7 +39925,7 @@ function viewMarketplace() {
       });
       const photoStrip = !i ? null : el('div', { class: 'flex items-center gap-1.5 flex-wrap w-full pb-1' },
         ...meta.photos.map((u, j) => el('div', { class: 'relative', style: { position: 'relative' } },
-          el('img', { src: u, alt: '', title: j === 0 ? 'Cover photo' : '', style: { width: '44px', height: '44px', objectFit: 'cover', borderRadius: '8px', border: j === 0 ? '2px solid var(--accent)' : '2px solid var(--border-2)' } }),
+          el('img', { src: u, alt: '', title: j === 0 ? 'Cover photo' : '', style: { width: '44px', height: '44px', objectFit: 'cover', borderRadius: '0', border: j === 0 ? '2px solid var(--accent)' : '2px solid var(--border-2)' } }),
           el('button', {
             class: 'cursor-pointer', title: 'Remove this photo',
             style: { position: 'absolute', top: '-6px', right: '-6px', width: '16px', height: '16px', lineHeight: '14px', fontSize: '10px', borderRadius: '50%', background: '#DC2626', color: '#fff', border: 'none', padding: '0' },
@@ -43797,7 +43786,7 @@ function openReportingServicesModal(area, label) {
               el('div', { class: 'tabular-nums font-semibold whitespace-nowrap' }, n.toLocaleString() + ' · ' + pct.toFixed(1) + '%'),
             ),
             el('div', { class: 'h-2 rounded-full mt-1 overflow-hidden', style: { background: 'var(--border)' } },
-              el('div', { style: { width: pct.toFixed(1) + '%', height: '100%', background: 'var(--accent)', borderRadius: '999px' } })),
+              el('div', { style: { width: pct.toFixed(1) + '%', height: '100%', background: 'var(--accent)', borderRadius: '0' } })),
           ),
         );
       }),
@@ -44164,10 +44153,10 @@ function reportingGeographic() {
   const svcLegend = metricKey === 'service' ? el('div', { class: 'card p-3 flex items-center gap-x-4 gap-y-1.5 flex-wrap text-xs' },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mr-1', style: { color: 'var(--text-subtle)' } }, 'Service types'),
     ...svcTop.map(s => el('div', { class: 'flex items-center gap-1.5' },
-      el('span', { style: { display: 'inline-block', width: '11px', height: '11px', borderRadius: '2px', background: svcColorMap.get(s) } }),
+      el('span', { style: { display: 'inline-block', width: '11px', height: '11px', borderRadius: '0', background: svcColorMap.get(s) } }),
       el('span', {}, s + ' (' + svcCounts[s].toLocaleString() + ')'))),
     el('div', { class: 'flex items-center gap-1.5' },
-      el('span', { style: { display: 'inline-block', width: '11px', height: '11px', borderRadius: '2px', background: '#9aa0a6' } }),
+      el('span', { style: { display: 'inline-block', width: '11px', height: '11px', borderRadius: '0', background: '#9aa0a6' } }),
       el('span', {}, 'Other')),
   ) : null;
 
@@ -44176,7 +44165,7 @@ function reportingGeographic() {
   const mapId = 'reporting-geo-map';
   const mapEl = el('div', {
     id: mapId,
-    style: { width: '100%', height: '500px', borderRadius: '12px', overflow: 'hidden' },
+    style: { width: '100%', height: '500px', borderRadius: '0', overflow: 'hidden' },
   });
 
   const mapLevel = state.reportingMapLevel || 'country';
@@ -45158,7 +45147,7 @@ function viewD2dDashboard() {
       const bc = (typeof BRANCH_COLORS !== 'undefined') ? BRANCH_COLORS[label.toUpperCase()] : null;
       return bc ? el('span', {
         title: label.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()),
-        style: { width: '9px', height: '9px', borderRadius: '3px', background: bc, border: '1px solid var(--border-2)', display: 'inline-block', flexShrink: '0', marginRight: '7px' },
+        style: { width: '9px', height: '9px', borderRadius: '0', background: bc, border: '1px solid var(--border-2)', display: 'inline-block', flexShrink: '0', marginRight: '7px' },
       }) : null;
     };
     const lbCard = el('div', { class: 'card overflow-hidden' },
@@ -45217,7 +45206,44 @@ function viewD2dDashboard() {
       recordTile('Earliest Sale', earliestSale),
       recordTile('Latest Sale', latestSale),
       recordTile('Biggest Sale', biggestSale, true)) : null;
-    return el('div', { class: 'flex flex-col gap-4' }, recordsCard, lbCard);
+    // \u2500\u2500 Sales feed (per Isaac) \u2014 same Today's Sales list as the Inside
+    // Sales dashboard: newest first, ~10 rows visible, the rest scroll.
+    const _feedTitle = ({ today: "Today's Sales", yesterday: "Yesterday's Sales", week: "This Week's Sales", month: "This Month's Sales", year: "This Year's Sales", all: 'All Sales' })[r] || 'Sales';
+    const _feedRows = [...rows].sort((a, b) => {
+      const _da = _d2dIso(a) || '', _db = _d2dIso(b) || '';
+      if (_da !== _db) return _db.localeCompare(_da);
+      const ta = _tod(a), tb = _tod(b);
+      return (tb == null ? -1 : tb) - (ta == null ? -1 : ta);
+    });
+    const feedCard = el('div', { class: 'card overflow-hidden flex flex-col' },
+      el('div', { class: 'px-5 py-3 flex items-center justify-between border-b', style: { borderColor: 'var(--border)' } },
+        el('h3', { class: 'text-base font-bold' }, _feedTitle),
+        el('span', { class: 'text-xs text-muted-' }, fmt.int(_feedRows.length))),
+      _feedRows.length === 0
+        ? el('div', { class: 'flex-1 flex items-center justify-center py-16 text-muted- text-sm' }, 'No sales')
+        : el('div', { class: 'scroll-x', style: { maxHeight: '412px', overflowY: 'auto' } },
+          el('table', { class: 'w-full text-[12px]' },
+            el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '1' } },
+              el('tr', {},
+                el('th', { class: 'text-left pl-4 pr-2 py-1.5 font-semibold' }, showDate ? 'Date' : 'Time'),
+                el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Rep'),
+                el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Service'),
+                el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Contract'),
+                el('th', { class: 'text-right pr-4 pl-2 py-1.5 font-semibold' }, 'Value'))),
+            el('tbody', {},
+              ..._feedRows.slice(0, 400).map(sr => {
+                const _m = Number(sr.contract) || 0;
+                return el('tr', { class: 'border-t border-' },
+                  el('td', { class: 'pl-4 pr-2 py-2 text-muted- tabular-nums text-[11px] whitespace-nowrap' }, showDate ? (_d2dIso(sr) || '\u2014') : _timeStr(sr)),
+                  el('td', { class: 'px-2 py-2 whitespace-nowrap' }, el('span', { class: 'flex items-center' }, _ofcChip(sr.office), (getCanonicalRepName(sr.rep) || '\u2014').split(' ')[0])),
+                  el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap overflow-hidden', style: { maxWidth: '150px', textOverflow: 'ellipsis' } }, String(sr.subscription || '\u2014')),
+                  el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap' }, /sentricon/i.test(String(sr.subscription || '')) ? '12 Mo' : (_m > 1 ? _m + ' Mo' : 'One-Time')),
+                  el('td', { class: 'pr-4 pl-2 py-2 text-right font-semibold tabular-nums' }, fmt.usd0(Number(sr.contractValue) || 0)));
+              })))));
+    return el('div', { class: 'flex flex-col gap-4' }, recordsCard,
+      el('div', { class: 'grid grid-cols-1 lg:grid-cols-[3fr_7fr] gap-4' },
+        el('div', { class: 'order-2 lg:order-1 min-w-0' }, feedCard),
+        el('div', { class: 'order-1 lg:order-2 min-w-0' }, lbCard)));
   };
   renderRange();
   lbHost.append(buildBoards());
@@ -45600,8 +45626,9 @@ function commissionComputeOfficeStaff(emp, startMs, endMs) {
   const cancelled = sales.filter(s => s.audit_status === 'cancelled');
   const isMultiYear = (s) => [18, 24].includes(Number(s.contract_months));
 
-  const salesPay   = serviced.reduce((a, s) => a + getCommissionAmount(repId, s), 0);
-  const belowPay   = below.reduce((a, s) => a + getCommissionAmount(repId, s), 0);
+  const _upMult = upfrontTierPayPct(upfrontCollectedPct([...serviced, ...below]));
+  const salesPay   = serviced.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upMult;
+  const belowPay   = below.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upMult;
   const pendingPay = pending.reduce((a, s) => a + getCommissionAmount(repId, { ...s, audit_status: 'serviced' }), 0);
 
   const multiYearBonus = serviced.filter(s => isMultiYear(s) && !isRenewalSource(s)).reduce((a, s) => a + getBackendAmount(s), 0);
@@ -48180,7 +48207,7 @@ function adminConfigurations() {
     ),
     // ── Reporting rules — fine-grained levers ──
     (() => {
-      const sw = (on) => el('div', { style: { width: '38px', height: '22px', borderRadius: '11px', background: on ? 'var(--accent)' : 'var(--border-2)', position: 'relative', flex: 'none' } },
+      const sw = (on) => el('div', { style: { width: '38px', height: '22px', borderRadius: '0', background: on ? 'var(--accent)' : 'var(--border-2)', position: 'relative', flex: 'none' } },
         el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)' } }));
       const toggleRow = (label, desc, on, onToggle) => el('div', { class: 'flex items-center justify-between gap-3 cursor-pointer py-1', onclick: onToggle },
         el('div', {}, el('div', { class: 'text-sm font-semibold' }, label), el('div', { class: 'text-[11px] text-muted-' }, desc)), sw(on));
@@ -49090,24 +49117,26 @@ function adminPricing(opts = {}) {
       ),
     ),
 
-    // ── Paid in Full (derived, not a fixed rate) ──
-    (() => {
-      const my18 = Number(s.multi_year_rate_18 || 0), my24 = Number(s.multi_year_rate_24 || 0);
-      const crEst = closeRateTierPct(0.50, s);
-      const base = 7;
-      const exRow = (term, myRate) => el('div', { class: 'flex items-center justify-between py-1.5 text-xs', style: { borderTop: '1px solid var(--border)' } },
-        el('span', { class: 'text-muted-' }, term + ' agreement'),
-        el('span', { class: 'tabular-nums' }, base + '% + ' + myRate + '% + ' + crEst + '% = ', el('b', {}, (base + myRate + crEst) + '%')));
-      return el('div', { class: 'card p-5' },
-        el('h3', { class: 'text-sm font-bold mb-1' }, 'Paid in Full'),
-        el('p', { class: 'text-xs text-muted- mb-3' },
-          'No fixed rate. Paid-in-Full accounts are paid everything upfront (no backend hold), so the rate = the contract-type upfront + the multi-year backend for the term + a close-rate bonus at the 50%-estimate tier (' + crEst + '%). These values come from the Backend Pay and Close Rate Bonus settings below.'),
-        el('div', { class: 'flex flex-col' },
-          exRow('12-month', 0),
-          exRow('18-month', my18),
-          exRow('24-month', my24)),
-        el('div', { class: 'text-[11px] text-muted- mt-2' }, 'Examples use a 7% base upfront; a rep’s Commission Bump (in Users) still adds on top.'));
-    })(),
+    // ── Paid in Full (sheet O32: contract base + flat modifier) ──
+    el('div', { class: 'card p-5' },
+      el('div', { class: 'flex items-center justify-between' },
+        el('div', {},
+          el('h3', { class: 'text-sm font-bold' }, 'Paid in Full Modifier'),
+          el('p', { class: 'text-xs text-muted- mt-0.5' },
+            'Added on top of the contract-type base when Paid in Full is checked \u2014 base 7% + 5 = 12% on any term. PIF accounts still earn the multi-year + close-rate backend at quarter end.'),
+        ),
+        el('div', { class: 'flex items-center gap-1 shrink-0 ml-4' },
+          el('span', { class: 'text-sm text-muted-' }, '+'),
+          el('input', {
+            type: 'text', inputmode: 'numeric',
+            class: 'rounded-lg border px-2 py-1.5 text-sm font-bold w-16 text-right',
+            value: s.pif_modifier ?? 5,
+            onchange: e => { s.pif_modifier = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
+          }),
+          el('span', { class: 'text-sm text-muted-' }, 'pts'),
+        ),
+      ),
+    ),
 
     // ── Commercial override ──
     el('div', { class: 'card p-5' },
@@ -49126,6 +49155,33 @@ function adminPricing(opts = {}) {
           el('span', { class: 'text-sm text-muted-' }, '%'),
         ),
       ),
+    ),
+
+    // ── Charge Upfront Tier (sheet O29-O31) ──
+    el('div', { class: 'card p-5' },
+      el('h3', { class: 'text-sm font-bold mb-1' }, 'Charge Upfront Tier'),
+      el('p', { class: 'text-xs text-muted- mb-3' },
+        'The share of a rep\u2019s commissionable accounts (serviced + below-min; renewals and upsells don\u2019t count) marked \u201cCharged Upfront\u201d sets what percent of their WHOLE upfront commission pays out.'),
+      el('div', { class: 'flex flex-col' },
+        ...(s.upfront_tiers || []).map((t, i) => el('div', { class: 'flex items-center justify-between py-1.5 text-xs', style: { borderTop: i ? '1px solid var(--border)' : 'none' } },
+          el('span', { class: 'flex items-center gap-1 text-muted-' },
+            '\u2265',
+            el('input', {
+              type: 'text', inputmode: 'numeric',
+              class: 'rounded-lg border px-2 py-1 text-xs font-bold w-14 text-right',
+              value: t.min,
+              onchange: e => { t.min = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
+            }),
+            '% collected upfront'),
+          el('span', { class: 'flex items-center gap-1' },
+            'pays',
+            el('input', {
+              type: 'text', inputmode: 'numeric',
+              class: 'rounded-lg border px-2 py-1 text-xs font-bold w-14 text-right',
+              value: t.pay,
+              onchange: e => { t.pay = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
+            }),
+            el('b', {}, '%'), ' of upfront pay')))),
     ),
 
     // ── Commission by Contract Type ──
@@ -49264,17 +49320,11 @@ function getCommissionRate(repId, sale) {
   // 1. Base rate (Paid-in-Full / Commercial overrides, else contract type).
   let baseRate = BASE;
   if (sale?.paid_in_full) {
-    // Paid-in-Full pays everything upfront — no backend hold. So the upfront
-    // rate rolls in what would otherwise be quarter-end backend: the base
-    // upfront + the multi-year backend for the term + the close-rate bonus at
-    // the 50%-estimate tier (PIF accounts assume a 50%+ close rate). E.g. a
-    // 24-mo PIF = 7% + 3% (24-mo) + 2% (50% close-rate) = 12%; a 12-mo PIF =
-    // 7% + 0% + 2% = 9%.
-    const m = Number(sale?.contract_months);
-    let myRate = 0;
-    if (m === 18) myRate = Number(s.multi_year_rate_18 || 0) / 100;
-    else if (m === 24) myRate = Number(s.multi_year_rate_24 || 0) / 100;
-    baseRate = contractRate() + myRate + (closeRateTierPct(0.50, s) / 100);
+    // Paid-in-Full (sheet O32): the contract base + a flat +5pt modifier —
+    // 7% + 5% = 12% on ANY term. PIF accounts still earn the multi-year and
+    // close-rate backend at quarter end like any other subscription (their
+    // revenue sits in the same sheet columns those formulas sum).
+    baseRate = contractRate() + (Number(s.pif_modifier ?? 5) / 100);
   } else if (sale?.is_commercial && s.commercial_rate != null) {
     baseRate = s.commercial_rate / 100;
   } else if (sale?.contract_type_id && s.contract_commissions) {
@@ -49335,6 +49385,21 @@ function ensurePaySettings() {
     { min_close_rate: 50, rate: 2.0 },
   ];
 
+  // PIF modifier (sheet O32): Paid-in-Full pays the contract base + a flat
+  // +5 points (7% + 5% = 12% on any term). PIF accounts STILL earn the
+  // multi-year + close-rate backend like any other subscription.
+  s.pif_modifier = s.pif_modifier ?? 5.0;
+
+  // Charge-upfront tier (sheet O29-O31): % of commissionable accounts
+  // where payment was collected upfront -> pays this % of the WHOLE
+  // upfront commission. >=70% -> 100 · >=50% -> 95 · >=35% -> 90 · else 85.
+  s.upfront_tiers = s.upfront_tiers || [
+    { min: 70, pay: 100 },
+    { min: 50, pay: 95 },
+    { min: 35, pay: 90 },
+    { min: 0,  pay: 85 },
+  ];
+
   // One-time migration to the sheet's contract rates. Only rewrites values
   // still sitting at the legacy 7.0 default so admin overrides survive.
   if (!s.sheet_defaults_v1) {
@@ -49354,6 +49419,14 @@ function ensurePaySettings() {
     s.sheet_defaults_v1 = true;
     saveDemoData();
   }
+  // v2 (Sales_Loyalty Reporting sheet, Sep 2026): commercial modifier is
+  // -(base × 0.5) = -3.5pts, so commercial pays 3.5% (was 5%). Only rewrites
+  // the untouched default so an admin override survives.
+  if (!s.sheet_defaults_v2) {
+    if (s.commercial_rate === 5.0) s.commercial_rate = 3.5;
+    s.sheet_defaults_v2 = true;
+    saveDemoData();
+  }
   return s;
 }
 
@@ -49370,11 +49443,13 @@ function isRenewalSource(sale) {
 // sheet, which has no renewal column for upsell/commercial/OTS.
 function renewalFlatFor(sale, s) {
   const flat = (s || ensurePaySettings()).renewal_flat;
-  if (sale?.paid_in_full) return Number(flat.pif || 0);
+  // Sheet pays renewals BY TERM ($25/$30/$35) — a PIF renewal earns its
+  // term's flat, not a special rate. flat.pif only covers term-less PIFs.
   const m = Number(sale?.contract_months);
   if (m === 12) return Number(flat.m12 || 0);
   if (m === 18) return Number(flat.m18 || 0);
   if (m === 24) return Number(flat.m24 || 0);
+  if (sale?.paid_in_full) return Number(flat.pif || 0);
   return 0;
 }
 
@@ -49395,12 +49470,13 @@ function getCommissionAmount(repId, sale) {
 
 // Per-sale backend pay in dollars (quarter-end). Sheet rules: standard
 // sources earn 18mo ×2% / 24mo ×3% of revenue; renewal-source serviced
-// revenue earns the renewal backend rate. PIF pays everything upfront —
-// no backend.
+// revenue earns the renewal backend rate. PIF rows are included (they sit
+// in the same sheet columns the multi-year formula sums).
 function getBackendAmount(sale) {
   const s = ensurePaySettings();
   const rev = Number(sale?.revenue_amount || 0);
-  if (sale?.paid_in_full) return 0;
+  // (PIF used to skip backend — the sheet's multi-year sums include PIF
+  // rows, so PIF earns 18/24-month backend like everything else now.)
   if (isRenewalSource(sale)) return rev * (Number(s.renewal_backend_rate) / 100);
   const m = Number(sale?.contract_months);
   if (m === 18) return rev * (Number(s.multi_year_rate_18) / 100);
@@ -49427,11 +49503,32 @@ function closeRateTierPct(closeRate, s) {
   return 0;
 }
 
+// ── Charge-upfront tier (sheet O29-O31) ──────────────────────────────────
+// % of commissionable accounts (serviced + below-min; renewal sources and
+// upsell contract types don't count either way) where payment was collected
+// upfront. The tier multiplies the WHOLE upfront commission.
+function _isUpsellContract(sale) {
+  const ct = (state.contractTypes || []).find(c => c.id === sale?.contract_type_id);
+  return !!ct && /^(d2d |office )?upsell/i.test(String(ct.name || ''));
+}
+function upfrontCollectedPct(sales) {
+  const eligible = (sales || []).filter(x => !isRenewalSource(x) && !_isUpsellContract(x));
+  if (!eligible.length) return null;   // nothing eligible — no tier penalty
+  return eligible.filter(x => !!x.upfront_collected).length / eligible.length;
+}
+function upfrontTierPayPct(pct) {
+  if (pct == null) return 1;
+  const s = ensurePaySettings();
+  const tiers = (s.upfront_tiers || []).slice().sort((a, b) => Number(b.min) - Number(a.min));
+  for (const t of tiers) if (pct * 100 >= Number(t.min)) return Number(t.pay) / 100;
+  return 1;
+}
+
 // Subscription revenue for a set of sales (sheet O8): 12/18/24-month or
 // PIF contracts from standard (non-renewal) sources, excluding commercial.
 function subscriptionRevenueOf(sales) {
   return sales.reduce((a, s) => {
-    if (isRenewalSource(s) || s.is_commercial) return a;
+    if (isRenewalSource(s)) return a;   // (commercial rows COUNT — sheet's E:G sums include them)
     const m = Number(s.contract_months);
     if (s.paid_in_full || m === 12 || m === 18 || m === 24) return a + Number(s.revenue_amount || 0);
     return a;
@@ -51568,7 +51665,7 @@ function adminReps() {
     const wrap = el('button', {
       class: 'relative shrink-0 cursor-pointer rounded-full',
       title: 'Click to change photo',
-      style: { lineHeight: '0', borderRadius: '9999px', transition: 'box-shadow .12s' },
+      style: { lineHeight: '0', borderRadius: '0', transition: 'box-shadow .12s' },
       onmouseenter: (e) => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent)'; const b = e.currentTarget.querySelector('[data-cam]'); if (b) b.style.opacity = '1'; },
       onmouseleave: (e) => { e.currentTarget.style.boxShadow = 'none'; const b = e.currentTarget.querySelector('[data-cam]'); if (b) b.style.opacity = '0'; },
       onclick: (e) => { e.stopPropagation(); changeProfileAvatar(p); },
