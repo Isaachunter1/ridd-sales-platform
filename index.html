@@ -5,7 +5,7 @@
 <!-- Pinch-zoom stays ENABLED (accessibility + dense tables on phones).
      Double-tap zoom is already suppressed by touch-action: manipulation. -->
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<meta name="theme-color" content="#FFFFFF" />
+<meta name="theme-color" content="#000000" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
 <link rel="apple-touch-icon" href="favicon.svg" />
@@ -27,12 +27,8 @@
      from app.js (ensureMapLibs) the first time a map view renders — they
      no longer download on every page load. -->
 <!-- (RIDD Tailwind tokens now live in the prebuilt tailwind.css — see note above.) -->
-<link rel="preconnect" href="https://rsms.me/" />
 <!-- Fonts load ASYNC (media=print swap trick): the splash paints on system
-     fonts instantly instead of white-screening behind two third-party CSS
-     round-trips (rsms.me + fonts.googleapis.com). -->
-<link rel="stylesheet" href="https://rsms.me/inter/inter.css" media="print" onload="this.media='all'" />
-<noscript><link rel="stylesheet" href="https://rsms.me/inter/inter.css" /></noscript>
+     fonts instantly instead of white-screening behind third-party CSS. -->
 <!-- Boot-path network warmup: the app can't render until the Supabase SDK
      module arrives and the session/profile queries answer — start those
      connections during HTML parse instead of after the 1.8MB script parses. -->
@@ -46,8 +42,8 @@
 <link rel="preconnect" href="https://iqlrndyuiolbxhhwmsqv.supabase.co" crossorigin />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&display=swap" media="print" onload="this.media='all'" />
-<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&display=swap" /></noscript>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" /></noscript>
 <style>
   /* ═══════════════ THEME TOKENS ═══════════════ */
   :root[data-theme="light"] {
@@ -66,8 +62,8 @@
     --header-text: #FAFAFA;
     --sidebar-bg:  #FFFFFF;
     --sidebar-border:#ECECEC;
-    --accent:      #8DC63F;
-    --accent-hover:#7bb132;
+    --accent:      #DF643A;
+    --accent-hover:#C8552E;
     --accent-text: #0A0A0A;
     --shadow-sm:   0 1px 2px rgba(0,0,0,.03);
     --shadow:      0 1px 2px rgba(0,0,0,.05);
@@ -75,23 +71,23 @@
     --font-display: 'Anton', 'Inter', ui-sans-serif, system-ui, sans-serif;
   }
   :root[data-theme="dark"] {
-    --bg:          #0B0B0B;
-    --bg-subtle:   #111111;
-    --card:        #141414;
-    --card-2:      #1A1A1A;
-    --border:      #242424;
-    --border-2:    #313131;
+    --bg:          #000000;
+    --bg-subtle:   #0A0B0D;
+    --card:        #0E0E0F;
+    --card-2:      #161616;
+    --border:      #232322;
+    --border-2:    #323230;
     --text:        #F4F4F4;
     --text-muted:  #8A8A8A;
     --text-subtle: #5E5E5E;
     --input-bg:    #121212;
     --input-border:#313131;
-    --header-bg:   #0B0B0B;
+    --header-bg:   #000000;
     --header-text: #F4F4F4;
-    --sidebar-bg:  #0E0E0E;
+    --sidebar-bg:  #000000;
     --sidebar-border:#242424;
-    --accent:      #A4D65E;
-    --accent-hover:#b6e277;
+    --accent:      #FF6B3D;
+    --accent-hover:#FF855C;
     --accent-text: #0A0A0A;
     --shadow-sm:   0 1px 2px rgba(0,0,0,.4);
     --shadow:      0 1px 3px rgba(0,0,0,.5);
@@ -100,15 +96,15 @@
   }
 
   html {
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-family: 'Archivo', Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;      /* crisp, macOS-style glyphs */
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    font-feature-settings: 'cv02','cv03','cv04','cv11';  /* Inter's cleaner alternates */
   }
-  /* Variable Inter when available — smoother weights, sharper hinting. */
-  @supports (font-variation-settings: normal) {
-    html { font-family: 'Inter var', Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  /* Eyebrow labels (the tiny uppercase tracked captions everywhere) render
+     in IBM Plex Mono — the whyridd.com editorial signature. */
+  [class*="tracking-widest"], [class*="tracking-wider"], .hb-kicker {
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   body {
     background: var(--bg);
@@ -130,7 +126,7 @@
     /* Calendar month grid: shallow cells, tiny type, chips collapse to the
        count badge — tap the day for detail (that flow already exists). */
     .cal-month-cell { min-height: 58px !important; padding: 3px !important; }
-    .cal-month-cell .cal-slot-bar { padding: 3px 4px !important; border-radius: 6px; }
+    .cal-month-cell .cal-slot-bar { padding: 3px 4px !important; border-radius: 0; }
     .cal-month-cell .cal-slot-bar > div:first-child span:first-child { font-size: 8px !important; letter-spacing: 0 !important; }
     .cal-month-cell .cal-rep-chips { display: none !important; }           /* chips → count badge only */
     .cal-month-cell .cal-slot-bar > div:last-child.text-\[11px\] { display: none !important; } /* "No reps" hint */
@@ -148,17 +144,20 @@
     .flex.gap-2.flex-wrap > .flex-1[style*="min-width: 105px"],
     .flex.gap-2.flex-wrap > .flex-1[style*="minWidth"] { min-width: 46% !important; }
   }  /* no sideways rubber-band / swipe-nav on trackpads (X only — the -y variant froze wheel scroll once) */
+  /* whyridd.com is razor-sharp: kill the radius on every box utility while
+     keeping .rounded-full (avatars, count badges, status pills) round. */
+  .rounded, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-3xl { border-radius: 0 !important; }
   .card {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 0;
     box-shadow: var(--shadow-sm);
     transition: background-color .15s ease, border-color .15s ease;
   }
   .card-2 {
     background: var(--card-2);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 0;
   }
   /* Hypebeast display type — Anton poster face for tab titles + hero numbers. */
   .font-display { font-family: var(--font-display); font-weight: 400 !important; letter-spacing: .015em; }
@@ -182,16 +181,16 @@
 
   /* Chips */
   .chip { display:inline-flex; align-items:center; padding:3px 10px; border-radius:999px; font-size:11px; font-weight:600; letter-spacing:.02em; text-transform:uppercase; }
-  .chip-pending   { background:rgba(141,198,63,.12); color:#5F8A1F; border:1px solid rgba(141,198,63,.35); }
-  .chip-approved  { background:rgba(141,198,63,.18); color:#4A7119; border:1px solid rgba(141,198,63,.45); }
-  .chip-serviced  { background:rgba(141,198,63,.14); color:#5F8A1F; border:1px solid rgba(141,198,63,.40); }
+  .chip-pending   { background:rgba(223,100,58,.12); color:#C8552E; border:1px solid rgba(223,100,58,.35); }
+  .chip-approved  { background:rgba(223,100,58,.18); color:#A9441F; border:1px solid rgba(223,100,58,.45); }
+  .chip-serviced  { background:rgba(223,100,58,.14); color:#C8552E; border:1px solid rgba(223,100,58,.40); }
   .chip-below     { background:rgba(234,88,12,.10);  color:#B45309; border:1px solid rgba(234,88,12,.30); }
   .chip-nsf       { background:rgba(220,38,38,.10);  color:#B91C1C; border:1px solid rgba(220,38,38,.30); }
   .chip-rejected  { background:rgba(220,38,38,.15);  color:#991B1B; border:1px solid rgba(220,38,38,.45); }
 
-  :root[data-theme="dark"] .chip-pending   { color:#a4d558; }
-  :root[data-theme="dark"] .chip-approved  { color:#c7e68f; }
-  :root[data-theme="dark"] .chip-serviced  { color:#a4d558; }
+  :root[data-theme="dark"] .chip-pending   { color:#FF7A50; }
+  :root[data-theme="dark"] .chip-approved  { color:#FFA98C; }
+  :root[data-theme="dark"] .chip-serviced  { color:#FF7A50; }
   :root[data-theme="dark"] .chip-below     { color:#ffcc7a; }
   :root[data-theme="dark"] .chip-nsf       { color:#fca5a5; }
   :root[data-theme="dark"] .chip-rejected  { color:#f87171; }
@@ -221,14 +220,14 @@
   input:focus, select:focus, textarea:focus {
     outline: none !important;
     border-color: var(--accent) !important;
-    box-shadow: 0 0 0 2px rgba(141,198,63,.25) !important;
+    box-shadow: 0 0 0 2px rgba(223,100,58,.25) !important;
   }
 
   /* Bingo card */
   .bingo-square {
     aspect-ratio: 1/1;
     display: flex; flex-direction: column; justify-content: center; align-items: center;
-    text-align: center; padding: 8px; border-radius: 10px;
+    text-align: center; padding: 8px; border-radius: 0;
     border: 1px solid var(--border-2);
     background: var(--card-2);
     font-size: 11px; line-height: 1.2;
@@ -236,7 +235,7 @@
     transition: all .2s;
   }
   .bingo-square[data-met="true"] {
-    background: rgba(141,198,63,.14);
+    background: rgba(223,100,58,.14);
     border-color: var(--accent);
     color: var(--text);
   }
@@ -249,7 +248,7 @@
   .scroll-x::-webkit-scrollbar-thumb { background:var(--border-2); border-radius:3px; }
 
   /* Spinner */
-  .spinner { display:inline-block; width:16px; height:16px; border:2px solid rgba(141,198,63,.25); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+  .spinner { display:inline-block; width:16px; height:16px; border:2px solid rgba(223,100,58,.25); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
   /* Styled hover tooltip — replaces the browser's plain title bubble app-wide */
   .app-tip { position:fixed; z-index:10000; max-width:280px; padding:6px 10px; border-radius:8px;
     background:#1D1D1D; color:#F3F3F3; font-size:11px; font-weight:600; line-height:1.4;
@@ -391,7 +390,7 @@
     background: var(--eerie, #1D1D1D);
     color: #F3F3F3;
     padding: 8px 12px;
-    border-radius: 8px;
+    border-radius: 0;
     font-size: 11px;
     line-height: 1.4;
     pointer-events: none;
@@ -404,7 +403,7 @@
     white-space: normal;
   }
   .ridd-tooltip.show { opacity: 1; transform: translateY(0); }
-  .ridd-tooltip strong { color: #8DC63F; display: block; font-size: 11px; margin-bottom: 2px; }
+  .ridd-tooltip strong { color: #DF643A; display: block; font-size: 11px; margin-bottom: 2px; }
   .ridd-tooltip .desc { color: rgba(243,243,243,.82); font-size: 11px; white-space: pre-line; }
   .ridd-tooltip.wide { max-width: 340px; }
   .ridd-tooltip::after {
@@ -644,8 +643,8 @@
 
   /* ═══════════ SLEEK PASS — crisper type, softer surfaces, calmer motion ═══════════ */
   :root { --ease-out: cubic-bezier(.22,.61,.36,1); }
-  .card { border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 12px 32px -24px rgba(0,0,0,.28); }
-  .card-2 { border-radius: 12px; }
+  .card { border-radius: 0; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 12px 32px -24px rgba(0,0,0,.28); }
+  .card-2 { border-radius: 0; }
   button {
     transition: background-color .15s var(--ease-out), color .15s var(--ease-out),
                 border-color .15s var(--ease-out), box-shadow .15s var(--ease-out),
@@ -660,7 +659,7 @@
   }
   /* Modals: frosted-glass overlay + gentle rise-in. */
   .modal-overlay { backdrop-filter: blur(14px) saturate(1.15); -webkit-backdrop-filter: blur(14px) saturate(1.15); animation: _ovlIn .16s var(--ease-out); }
-  .modal-overlay > .card { border-radius: 18px; animation: _cardIn .22s var(--ease-out); }
+  .modal-overlay > .card { border-radius: 0; animation: _cardIn .22s var(--ease-out); }
   @keyframes _ovlIn { from { opacity: 0; } }
   @keyframes _cardIn { from { opacity: 0; transform: translateY(10px) scale(.985); } }
   @keyframes nrlaPulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }

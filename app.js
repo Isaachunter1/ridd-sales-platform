@@ -1308,7 +1308,7 @@ async function openIndicatorConfigHistoryModal() {
     body.append(el('div', { class: 'flex items-center justify-between gap-3 px-5 py-2.5 border-b', style: { borderColor: 'var(--border)' } },
       el('div', { class: 'min-w-0' },
         el('div', { class: 'text-sm font-bold' }, when,
-          i === 0 ? el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(47,214,47,.15)', color: '#1b7f3b' } }, 'current') : null),
+          i === 0 ? el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(255,107,61,.15)', color: '#DF643A' } }, 'current') : null),
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, summarize(r.config) + (who(r.updated_by) ? ' · by ' + who(r.updated_by) : ''))),
       i === 0 ? null : el('button', {
         class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer shrink-0',
@@ -3419,7 +3419,7 @@ function mountAuth(opts = {}) {
       if (!row) return;
       const ok = r.test(p);
       row.textContent = (ok ? '✓ ' : '○ ') + r.label;
-      row.style.color = ok ? '#1b7f3b' : 'var(--text-subtle)';
+      row.style.color = ok ? '#DF643A' : 'var(--text-subtle)';
     });
   });
   const submitBtn  = el('button', { type: 'submit', class: 'w-full rounded-lg bg-lime hover:bg-lime-600 text-eerie font-semibold py-2.5 transition' });
@@ -3960,7 +3960,7 @@ function reportingAuditing() {
   const repTeamOf = (rep) => (repMeta[rep] || {}).team || 'Unassigned';
 
   const rate = (pair) => pair[1] > 0 ? pair[0] / pair[1] : null;
-  const GOOD = 'rgba(141,198,63,.18)', BAD = 'rgba(220,38,38,.14)';
+  const GOOD = 'rgba(223,100,58,.18)', BAD = 'rgba(220,38,38,.14)';
   const passShade = (p) => p == null ? '' : (p >= 0.85 ? GOOD : p < 0.65 ? BAD : '');
 
   // ── UI bits ──
@@ -3993,7 +3993,7 @@ function reportingAuditing() {
     const _meta = (typeof reportingActiveSnapshotMeta === 'function') ? reportingActiveSnapshotMeta() : null;
     const asOf = _meta && _meta.uploaded_at ? new Date(_meta.uploaded_at).toLocaleDateString() : null;
     const pctS = (p) => p == null ? '—' : (p * 100).toFixed(1) + '%';
-    const good = '#5F8A1F', bad = '#DC2626';
+    const good = '#DF643A', bad = '#DC2626';
     const overlay = el('div', { class: 'modal-overlay' });
     const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
     const key = (e) => { if (e.key === 'Escape') close(); };
@@ -4094,7 +4094,7 @@ function reportingAuditing() {
       td_(fmt.int(s.activeSubs)),
       td_(s.sold > 0 ? (s.serviced / s.sold * 100).toFixed(1) + '%' : '—'),
       td_(fmt.int(auditedN)),
-      td_(fmt.int(s.passed), { bg: 'rgba(141,198,63,.08)' }),
+      td_(fmt.int(s.passed), { bg: 'rgba(223,100,58,.08)' }),
       td_(fmt.int(s.failed), { bg: s.failed > 0 ? 'rgba(220,38,38,.08)' : 'transparent' }),
       td_(fmt.int(s.noaudit)),
       td_(fmt.int(s.pending)),
@@ -4314,7 +4314,7 @@ function reportingAuditing() {
         const p = rate2(b);
         let color = null;
         if (p != null && coAvg[i] != null && b.elig >= 5) {
-          if (p <= coAvg[i] * 0.8) color = '#5F8A1F';
+          if (p <= coAvg[i] * 0.8) color = '#DF643A';
           else if (p >= coAvg[i] * 1.5 && p > 0.02) color = '#DC2626';
         }
         return el('td', {
@@ -4708,7 +4708,7 @@ function openMySettingsModal() {
       if (!row) return;
       const ok = r.test(pw1.value);
       row.textContent = (ok ? '✓ ' : '○ ') + r.label;
-      row.style.color = ok ? '#1b7f3b' : 'var(--text-subtle)';
+      row.style.color = ok ? '#DF643A' : 'var(--text-subtle)';
     });
   });
   const pwBtn = el('button', {
@@ -5971,7 +5971,7 @@ function viewDashboard() {
 
       // Progress bars for New and Renewal
       const progressBars = [
-        { label: 'New Revenue',     actual: ytdDept.new,     target: newTarget,     color: '#8CD63F' },
+        { label: 'New Revenue',     actual: ytdDept.new,     target: newTarget,     color: '#DF643A' },
         { label: 'Renewal Revenue', actual: ytdDept.renewal, target: renewalTarget, color: '#757667' },
       ];
 
@@ -6070,7 +6070,7 @@ function viewDashboard() {
                         avatarNode(p.avatar_url, p.initials, 'w-6 h-6 text-[9px]'),
                         el('span', { class: 'text-xs font-semibold truncate group-hover:underline' }, p.full_name),
                         goal > 0
-                          ? el('span', { class: 'text-[10px] font-bold whitespace-nowrap', style: { color: delta >= 0 ? '#1b7f3b' : '#DC2626' },
+                          ? el('span', { class: 'text-[10px] font-bold whitespace-nowrap', style: { color: delta >= 0 ? '#DF643A' : '#DC2626' },
                               title: (delta >= 0 ? fmt.usd0(delta) + ' ahead of' : fmt.usd0(-delta) + ' behind') + ' the seasonal pace (year shape from the Goals tab\'s monthly allocation)' },
                               delta >= 0 ? '▲ ahead' : '▼ behind')
                           : el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no goal set'),
@@ -6114,7 +6114,7 @@ function viewDashboard() {
             // Stacked bar
             el('div', { class: 'goal-track flex overflow-hidden', style: { position: 'relative' } },
               el('div', {
-                style: { background: '#8CD63F', height: '100%', width: newPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '999px 0 0 999px' },
+                style: { background: '#DF643A', height: '100%', width: newPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '999px 0 0 999px' },
                 title: 'New: ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(1) + '%)',
               }),
               el('div', {
@@ -6125,7 +6125,7 @@ function viewDashboard() {
             // Legend
             el('div', { class: 'flex items-center gap-4 mt-1.5' },
               el('div', { class: 'flex items-center gap-1.5' },
-                el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: '#8CD63F' } }),
+                el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: '#DF643A' } }),
                 el('span', { class: 'text-[11px]' }, 'New'),
                 el('span', { class: 'text-[11px] font-semibold tabular-nums' }, fmt.usd0(ytdDept.new)),
                 el('span', { class: 'text-[10px] text-muted-' }, '(' + newPctOfTotal.toFixed(0) + '%)'),
@@ -6199,8 +6199,8 @@ function viewDashboard() {
                   el('span', {
                     class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap hidden sm:inline',
                     style: {
-                      background: paceAhead ? 'rgba(141,198,63,.12)' : 'rgba(220,38,38,.08)',
-                      color: paceAhead ? '#5F8A1F' : '#DC2626',
+                      background: paceAhead ? 'rgba(223,100,58,.12)' : 'rgba(220,38,38,.08)',
+                      color: paceAhead ? '#DF643A' : '#DC2626',
                     },
                   }, (paceAhead ? '+' : '') + paceDiff.toFixed(1) + '%'),
                 ),
@@ -6213,8 +6213,8 @@ function viewDashboard() {
                 el('span', {
                   class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full',
                   style: {
-                    background: paceAhead ? 'rgba(141,198,63,.12)' : 'rgba(220,38,38,.08)',
-                    color: paceAhead ? '#5F8A1F' : '#DC2626',
+                    background: paceAhead ? 'rgba(223,100,58,.12)' : 'rgba(220,38,38,.08)',
+                    color: paceAhead ? '#DF643A' : '#DC2626',
                   },
                 }, (paceAhead ? '+' : '') + paceDiff.toFixed(1) + '% vs year pace'),
               ),
@@ -6736,9 +6736,9 @@ function computeLeaderboard(tab = 'total', range = null) {
 //     Transfers automatically when someone beats the record.
 const BADGE_DEFS = {
   first_blood: { label: 'First Blood', emoji: '🩸', color: '#DC2626', desc: 'First sale of the day (resets daily)' },
-  best_day:    { label: 'Best Day',    emoji: '🏆', color: '#8DC63F', desc: 'Holds the company best-day record' },
-  best_week:   { label: 'Best Week',   emoji: '🏆', color: '#8DC63F', desc: 'Holds the company best-week record' },
-  best_month:  { label: 'Best Month',  emoji: '🏆', color: '#8DC63F', desc: 'Holds the company best-month record' },
+  best_day:    { label: 'Best Day',    emoji: '🏆', color: '#DF643A', desc: 'Holds the company best-day record' },
+  best_week:   { label: 'Best Week',   emoji: '🏆', color: '#DF643A', desc: 'Holds the company best-week record' },
+  best_month:  { label: 'Best Month',  emoji: '🏆', color: '#DF643A', desc: 'Holds the company best-month record' },
 };
 
 // Returns a map { rep_id: Set([...badge codes]) }
@@ -7339,7 +7339,7 @@ function openCrmReconcileModal() {
         });
         const pick = el('button', {
           class: 'rounded-lg px-4 py-2 text-sm font-bold cursor-pointer transition hover:brightness-95',
-          style: { background: 'var(--brand, #8DC63F)', color: '#fff' },
+          style: { background: 'var(--brand, #DF643A)', color: '#fff' },
           onclick: () => inp.click(),
         }, 'Choose CSV file…');
         return el('span', {}, inp, pick);
@@ -7834,7 +7834,7 @@ function openCoachModeModal() {
           el('button', {
             class: 'rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest border transition hover:brightness-95',
             style: inactiveOnly
-              ? { borderColor: 'var(--accent)', color: 'var(--accent)', background: 'rgba(141,198,63,.10)' }
+              ? { borderColor: 'var(--accent)', color: 'var(--accent)', background: 'rgba(223,100,58,.10)' }
               : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
             title: inactiveOnly ? 'Show every flagged rep' : 'Show only reps silent ≥30 days',
             onclick: () => { inactiveOnly = !inactiveOnly; renderBody(); },
@@ -7906,7 +7906,7 @@ function miniSparkline(values, slope = 0) {
   const max = Math.max(1, ...values);
   if (values.length === 0) return el('div', { style: { width: W + 'px', height: H + 'px' } });
   const slopePct = slope * 100;
-  const stroke = slopePct >= 5 ? '#5F8A1F' : slopePct <= -5 ? '#DC2626' : 'var(--text-muted)';
+  const stroke = slopePct >= 5 ? '#DF643A' : slopePct <= -5 ? '#DC2626' : 'var(--text-muted)';
   const step = values.length > 1 ? W / (values.length - 1) : W;
   const points = values.map((v, i) => {
     const x = i * step;
@@ -8626,7 +8626,7 @@ function openImportInsightsModal(insights) {
 
   const pctBadge = (pct, opts = {}) => {
     const v = pct === Infinity ? 'NEW' : ((pct >= 0 ? '+' : '') + (pct * 100).toFixed(0) + '%');
-    const color = pct === Infinity ? '#5F8A1F' : (pct >= 0 ? '#5F8A1F' : '#DC2626');
+    const color = pct === Infinity ? '#DF643A' : (pct >= 0 ? '#DF643A' : '#DC2626');
     return el('span', {
       class: 'tabular-nums font-bold ' + (opts.big ? 'text-base' : 'text-xs'),
       style: { color },
@@ -9323,7 +9323,7 @@ function openIndicatorRepCard(rep, allReps = []) {
         return el('div', {
           class: 'rounded-lg border p-3 text-center cursor-pointer transition hover:brightness-95',
           style: selected
-            ? { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.12)', boxShadow: '0 0 0 1px var(--accent)' }
+            ? { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.12)', boxShadow: '0 0 0 1px var(--accent)' }
             : { borderColor: 'var(--border)', background: 'var(--card-2)' },
           onclick: () => {
             drillKey = selected ? null : stat.key;
@@ -9389,7 +9389,7 @@ function openIndicatorRepCard(rep, allReps = []) {
         const rec = byDay.get(iso);
         if (rec) { monthDays++; monthAccts += rec.n; monthRev += rec.rev; if (rec.n > maxN) maxN = rec.n; }
       }
-      const shade = (n) => 'rgba(141,198,63,' + Math.min(1, 0.3 + 0.7 * (n / maxN)).toFixed(2) + ')';
+      const shade = (n) => 'rgba(223,100,58,' + Math.min(1, 0.3 + 0.7 * (n / maxN)).toFixed(2) + ')';
       const arrow = (dir, disabled) => el('button', {
         class: 'rounded-lg border font-bold cursor-pointer transition hover:brightness-95',
         style: { width: '26px', height: '26px', lineHeight: '1', borderColor: 'var(--border-2)',
@@ -9414,7 +9414,7 @@ function openIndicatorRepCard(rep, allReps = []) {
           style: {
             height: 'clamp(30px, 7vw, 40px)', borderRadius: '8px', fontSize: '12px',
             background: rec ? shade(rec.n) : 'var(--card)',
-            color: rec ? '#1D2E0A' : (future ? 'var(--text-subtle)' : 'var(--text-muted)'),
+            color: rec ? '#3A1D12' : (future ? 'var(--text-subtle)' : 'var(--text-muted)'),
             border: selected ? '2px solid var(--text)' : (isToday ? '2px solid var(--accent)' : '1px solid var(--border)'),
             opacity: future ? '.45' : '1',
             cursor: rec ? 'pointer' : 'default',
@@ -9453,8 +9453,8 @@ function openIndicatorRepCard(rep, allReps = []) {
               // Audit chip: Passed / No Audit → green, Failed → red, else Pending.
               const _fl = x.customerFlags || '';
               const _audit = SC_FAIL_RE.test(_fl) ? ['Failed', '#DC2626', 'rgba(220,38,38,.12)']
-                : SC_PASS_RE.test(_fl) ? ['Passed', '#5F8A1F', 'rgba(141,198,63,.18)']
-                : SC_NOAUDIT_RE.test(_fl) ? ['No Audit', '#5F8A1F', 'rgba(141,198,63,.14)']
+                : SC_PASS_RE.test(_fl) ? ['Passed', '#DF643A', 'rgba(223,100,58,.18)']
+                : SC_NOAUDIT_RE.test(_fl) ? ['No Audit', '#DF643A', 'rgba(223,100,58,.14)']
                 : ['Pending', '#B45309', 'rgba(245,158,11,.14)'];
               const _ct = Number(x.contract) || 0;
               const _init = Number(x.initialPrice) || 0;
@@ -9604,7 +9604,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                 el('span', {
                   class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded',
                   style: on
-                    ? { background: 'rgba(141,198,63,.16)', color: '#5F8A1F' }
+                    ? { background: 'rgba(223,100,58,.16)', color: '#DF643A' }
                     : { background: 'rgba(220,38,38,.12)', color: '#B91C1C' },
                 }, on ? 'On' : 'Off'),
               ),
@@ -9613,7 +9613,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                   class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded',
                   style: cancelled
                     ? { background: 'rgba(220,38,38,.12)', color: '#B91C1C' }
-                    : { background: 'rgba(141,198,63,.16)', color: '#5F8A1F' },
+                    : { background: 'rgba(223,100,58,.16)', color: '#DF643A' },
                 }, cancelled ? 'Cancelled' : 'Active'),
               ),
               el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || (s.dateSold || '—').split(' ')[0]),
@@ -9650,7 +9650,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       .sort((a, b) => b.rec.revenue - a.rec.revenue);
     return el('div', {
       class: 'rounded-lg border mt-3',
-      style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.04)' },
+      style: { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.04)' },
     },
       el('div', { class: 'flex items-center justify-between px-4 py-2.5 border-b', style: { borderColor: 'var(--border)' } },
         el('div', {},
@@ -9692,8 +9692,8 @@ function openIndicatorRepCard(rep, allReps = []) {
               const tr = el('tr', {
                 class: 'border-t border- transition' + (isMe ? ' js-leader-current' : '') + (canExpand ? ' cursor-pointer hover:brightness-95' : ''),
                 style: isExpanded
-                  ? { background: 'rgba(141,198,63,.10)', fontWeight: isMe ? '600' : '500' }
-                  : (isMe ? { background: 'rgba(141,198,63,.18)', fontWeight: '600' } : {}),
+                  ? { background: 'rgba(223,100,58,.10)', fontWeight: isMe ? '600' : '500' }
+                  : (isMe ? { background: 'rgba(223,100,58,.18)', fontWeight: '600' } : {}),
                 onclick: canExpand ? (() => { recordsLeaderExpanded = isExpanded ? null : row.name; renderBody(); }) : undefined,
               },
                 el('td', { class: 'pl-4 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: 'var(--accent)' } : {} }, '#' + (i + 1)),
@@ -9990,7 +9990,7 @@ function openIndicatorRepCard(rep, allReps = []) {
               style: {
                 height: 'clamp(22px, 4vw, 44px)',
                 background: count > 0
-                  ? 'rgba(141,198,63,' + (0.12 + intensity * 0.85).toFixed(3) + ')'
+                  ? 'rgba(223,100,58,' + (0.12 + intensity * 0.85).toFixed(3) + ')'
                   : 'var(--border)',
                 outline: isHot ? '2px solid var(--accent)' : 'none',
                 outlineOffset: '-1px',
@@ -10010,7 +10010,7 @@ function openIndicatorRepCard(rep, allReps = []) {
         el('span', {}, 'Less'),
         ...[0.15, 0.35, 0.55, 0.75, 0.95].map(intensity => el('div', {
           class: 'rounded',
-          style: { width: '14px', height: '14px', background: 'rgba(141,198,63,' + intensity.toFixed(2) + ')' },
+          style: { width: '14px', height: '14px', background: 'rgba(223,100,58,' + intensity.toFixed(2) + ')' },
         })),
         el('span', {}, 'More'),
         el('span', { class: 'ml-3' }, 'max ', el('span', { style: { color: 'var(--text)', fontWeight: '600' } }, maxCell + ' sale' + (maxCell === 1 ? '' : 's'))),
@@ -10084,7 +10084,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     const drillSales = buildDrillSales();
     const drillLabel = scopedStats.find(s => s.key === drillKey)?.label || '';
     const subPills = drillSubs[drillKey];
-    return el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.04)' } },
+    return el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.04)' } },
       el('div', { class: 'px-4 py-3 flex items-start justify-between gap-3 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
           el('div', {},
@@ -10157,7 +10157,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                           el('span', {
                             class: 'text-[10px] font-semibold px-2 py-0.5 rounded',
                             style: on
-                              ? { background: 'rgba(141,198,63,.16)', color: '#5F8A1F' }
+                              ? { background: 'rgba(223,100,58,.16)', color: '#DF643A' }
                               : { background: 'rgba(220,38,38,.12)', color: '#B91C1C' },
                           }, on ? 'On' : 'Off'),
                         ),
@@ -10233,7 +10233,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     const rateOf = (pair) => pair[1] > 0 ? pair[0] / pair[1] : null;
     const pctS = (p) => p == null ? '—' : (p * 100).toFixed(1) + '%';
     const money = (v) => v ? '$' + Math.round(v).toLocaleString() : '—';
-    const good = '#5F8A1F', bad = '#DC2626';
+    const good = '#DF643A', bad = '#DC2626';
     const drill = (label, pred) => () => { retDrill = (retDrill && retDrill.label === label) ? null : { label, pred }; renderBody(); };
     const tile = (label, val, sub, color, onClick) => el('div', {
         class: 'rounded-xl p-3' + (onClick ? ' cursor-pointer hover:brightness-95 transition' : ''),
@@ -10250,7 +10250,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     const drillPanel = () => {
       if (!retDrill) return null;
       const rows = all.filter(retDrill.pred).sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''));
-      return el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.04)' } },
+      return el('div', { class: 'rounded-lg border', style: { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.04)' } },
         el('div', { class: 'px-4 py-3 flex items-center justify-between gap-3 border-b', style: { borderColor: 'var(--border)' } },
           el('div', {},
             el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--accent)' } }, retDrill.label),
@@ -10981,7 +10981,7 @@ function leaderboardSection(range) {
             const isMe = r.rep_id === state.profile.id;
             return el('tr', {
               class: 'border-t border- hover:brightness-95 transition',
-              style: isMe ? { background: 'rgba(141,198,63,.08)' } : {},
+              style: isMe ? { background: 'rgba(223,100,58,.08)' } : {},
             },
               el('td', {
                 class: 'pl-4 pr-1 py-2 font-bold tabular-nums' + (i === 0 && r.count > 0 ? ' text-base' : ''),
@@ -11408,7 +11408,7 @@ function salesCardsMobile(rows, { isAdmin = false, queueFilter = 'upfront' } = {
           rptM
             ? el('span', {
                 class: 'inline-block px-2 py-0.5 rounded-full text-[10px] font-bold',
-                style: rptM.isActive ? { background: 'rgba(141,198,63,.15)', color: '#5F8A1F' } : { background: 'rgba(220,38,38,.12)', color: '#B91C1C' },
+                style: rptM.isActive ? { background: 'rgba(223,100,58,.15)', color: '#DF643A' } : { background: 'rgba(220,38,38,.12)', color: '#B91C1C' },
               }, rptM.status)
             : el('span', { style: { color: 'var(--text-subtle)' } }, 'No CSV match'),
           rptM && el('span', { class: 'text-muted-', style: (rptM.daysPastDue > 0) ? { color: '#DC2626', fontWeight: '600' } : {} },
@@ -11647,13 +11647,13 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 // current? Rendered alongside the value-exactness chip so an
                 // auditor's only manual job is the signed contract.
                 const lcChips = [];
-                if (s.crm_serviced_at) lcChips.push(chip('✓ Svc', 'rgba(141,198,63,.15)', '#5F8A1F',
+                if (s.crm_serviced_at) lcChips.push(chip('✓ Svc', 'rgba(223,100,58,.15)', '#DF643A',
                   'Initial service completed ' + s.crm_serviced_at + (s.crm_completed_services ? ' · ' + s.crm_completed_services + ' service(s) run' : '')));
                 else if (s.crm_checked_at && s.crm_serviced_at === null && s.crm_completed_services === 0) lcChips.push(chip('⏳ Svc', 'var(--card-2)', 'var(--text-muted)', 'No initial service completed yet'));
                 if (s.crm_days_past_due != null) {
                   lcChips.push(Number(s.crm_days_past_due) > 0
                     ? chip('⚠ ' + s.crm_days_past_due + 'd', 'rgba(220,38,38,.12)', '#B91C1C', 'Customer is ' + s.crm_days_past_due + ' day(s) past due' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : ''))
-                    : chip('✓ Paid', 'rgba(141,198,63,.15)', '#5F8A1F', 'Account is current' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : '')));
+                    : chip('✓ Paid', 'rgba(223,100,58,.15)', '#DF643A', 'Account is current' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : '')));
                 }
                 // $2k+ annualized value → auditor must confirm whether the
                 // property is commercial (commercial pays the half rate —
@@ -11689,7 +11689,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 }
                 const withLc = (node) => lcChips.length ? el('span', { class: 'inline-flex items-center gap-1 flex-wrap' }, node, ...lcChips) : node;
                 if (v.status === 'verified') {
-                  return withLc(chip('✓ ' + fmt.usd(v.cv), 'rgba(141,198,63,.15)', '#5F8A1F',
+                  return withLc(chip('✓ ' + fmt.usd(v.cv), 'rgba(223,100,58,.15)', '#DF643A',
                     'EXACT CRM match — the warehouse shows this precise contract value on customer #' + (s.customer_number || '?')
                     + (v.sub ? ' (' + v.sub + ')' : '') + (v.live ? ' · live check' : '')));
                 }
@@ -11727,7 +11727,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                   ? el('span', {
                       class: 'inline-block px-2 py-0.5 rounded-full text-[10px] font-bold',
                       style: rpt.isActive
-                        ? { background: 'rgba(141,198,63,.15)', color: '#5F8A1F' }
+                        ? { background: 'rgba(223,100,58,.15)', color: '#DF643A' }
                         : { background: 'rgba(220,38,38,.12)', color: '#B91C1C' },
                       title: (rpt.subscription ? 'Live sub: ' + rpt.subscription : '')
                         + (rpt.cancelDate ? ' \u00b7 canceled ' + fmt.dateShortYear(rpt.cancelDate) + (rpt.cancelReason ? ' (' + rpt.cancelReason + ')' : '') : '')
@@ -11919,7 +11919,7 @@ function assignAuditor2(saleId, auditorId) {
 // Editable by admin AND auditor; reps see a read-only chip.
 const LOCK_STATUSES = [
   { id: 'pending',    label: 'Pending',    bg: 'rgba(117,118,103,.18)', fg: 'var(--text-muted)' },
-  { id: 'lock',       label: 'Lock',       bg: 'rgba(141,198,63,.20)',  fg: '#4F8E1C' },
+  { id: 'lock',       label: 'Lock',       bg: 'rgba(223,100,58,.20)',  fg: '#4F8E1C' },
   { id: 'chargeback', label: 'Chargeback', bg: 'rgba(220,38,38,.15)',   fg: '#B91C1C' },
 ];
 function lockStatusChip(status) {
@@ -12931,7 +12931,7 @@ function viewPay() {
       case 'gold': bg = '#C8A565'; fg = '#1D1D1D'; break;
       case 'sand': bg = '#8E6F47'; fg = '#FFFFFF'; break;
       case 'red':  bg = '#9B2C2C'; fg = '#FFFFFF'; break;
-      case 'lime': bg = '#9FCE5C'; fg = '#1D1D1D'; break;
+      case 'lime': bg = '#FF8A5C'; fg = '#1D1D1D'; break;
       case 'gray': bg = '#D1D1D1'; fg = '#1D1D1D'; break;
       case 'teal': bg = '#1F6F84'; fg = '#FFFFFF'; break;
     }
@@ -13094,7 +13094,7 @@ function viewPay() {
           }),
           el('span', {}, '%'),
           el('span', {
-            style: meetsCloseRate ? { color: '#5F8A1F', fontWeight: '700' } : { color: '#B91C1C', fontWeight: '700' },
+            style: meetsCloseRate ? { color: '#DF643A', fontWeight: '700' } : { color: '#B91C1C', fontWeight: '700' },
           }, meetsCloseRate ? '✓ bump' : '✗ no bump'),
         ),
 
@@ -13653,7 +13653,7 @@ function competitionCard(comp, { compact = false } = {}) {
               const cv = p ? Number(p.current_value) : 0;
               return el('div', {
                 class: 'flex items-center justify-between p-3 rounded-lg border border-eerie3 bg-eerie',
-                style: met ? { borderColor: '#8DC63F', background: 'rgba(141,198,63,.08)' } : {},
+                style: met ? { borderColor: '#DF643A', background: 'rgba(223,100,58,.08)' } : {},
               },
                 el('div', {},
                   el('div', { class: 'text-sm font-medium' }, rule.label),
@@ -13847,7 +13847,7 @@ function calendarDeptAgents() {
 }
 // Stable per-agent color (Google-Calendar style). Hash on the profile id so
 // an agent keeps their color across sessions and devices.
-const CAL_AGENT_COLORS = ['#2563EB', '#D97706', '#0D9488', '#9333EA', '#DC2626', '#5F8A1F', '#DB2777', '#4F46E5', '#B45309', '#0891B2', '#7C3AED', '#65A30D'];
+const CAL_AGENT_COLORS = ['#2563EB', '#D97706', '#0D9488', '#9333EA', '#DC2626', '#DF643A', '#DB2777', '#4F46E5', '#B45309', '#0891B2', '#7C3AED', '#FACC15'];
 function calendarAgentColor(repId) {
   let h = 0; const s = String(repId || '');
   for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
@@ -14214,7 +14214,7 @@ function renderSlotBar(iso, slot, meId, repById, opts = {}) {
     'data-slot-bar': 'true',
     class: 'cal-slot-bar w-full text-left rounded-lg border transition hover:brightness-95 p-2 flex flex-col gap-1',
     style: includesMe
-      ? { borderColor: 'var(--accent)', background: 'rgba(141,198,63,0.10)', color: 'var(--text)' }
+      ? { borderColor: 'var(--accent)', background: 'rgba(223,100,58,0.10)', color: 'var(--text)' }
       : { borderColor: 'var(--border)', background: 'var(--card-2)', color: 'var(--text)' },
     onclick: (e) => { e.stopPropagation(); openSlotModal(iso, slot.slot_id); },
   },
@@ -14287,7 +14287,7 @@ function renderWeekGrid(anchor, today, meId, repById) {
       const iso = isoDate(d);
       return el('div', {
         class: 'flex-1 p-3 text-center',
-        style: { background: iso === todayIso ? 'rgba(141,198,63,0.16)' : 'transparent',
+        style: { background: iso === todayIso ? 'rgba(223,100,58,0.16)' : 'transparent',
                  boxShadow: iso === todayIso ? 'inset 0 0 0 2px var(--accent)' : 'none',
                  color: iso === todayIso ? 'var(--accent)' : 'var(--text-muted)' },
       },
@@ -14333,7 +14333,7 @@ function renderWeekGrid(anchor, today, meId, repById) {
       style: {
         height: gridHeight + 'px',
         borderLeft: '1px solid var(--border)',
-        background: iso === todayIso ? 'rgba(141,198,63,0.12)' : 'transparent',
+        background: iso === todayIso ? 'rgba(223,100,58,0.12)' : 'transparent',
       },
       onclick: isAdmin ? (e) => {
         // Ignore clicks on existing shift blocks — those handle their own click
@@ -14383,7 +14383,7 @@ function renderWeekGrid(anchor, today, meId, repById) {
           width: `calc(${widthPct}% - 4px)`,
           padding: '6px 8px',
           borderColor: includesMe ? 'var(--accent)' : 'var(--border-2)',
-          background: includesMe ? 'rgba(141,198,63,0.14)' : 'var(--card-2)',
+          background: includesMe ? 'rgba(223,100,58,0.14)' : 'var(--card-2)',
           color: 'var(--text)',
         },
         onclick: () => openSlotModal(iso, slot.slot_id),
@@ -14470,7 +14470,7 @@ function renderMonthGrid(anchor, today, meId, repById) {
             borderColor: 'var(--border)',
             borderRightWidth: (idx + 1) % 7 === 0 ? '0' : '1px',
             minHeight: '120px',
-            background: holiday ? 'rgba(242,20,140,0.05)' : isToday ? 'rgba(141,198,63,0.14)' : 'transparent',
+            background: holiday ? 'rgba(242,20,140,0.05)' : isToday ? 'rgba(223,100,58,0.14)' : 'transparent',
             boxShadow: isToday ? 'inset 0 0 0 2px var(--accent)' : 'none',
           },
           onclick: isAdmin ? () => openNewShiftModal(iso) : null,
@@ -15038,7 +15038,7 @@ function assignmentRow(a, slot, reps, repById, meId, isAdmin, redraw) {
   const pendingReq = state.shiftSwapRequests.find(r => r.shift_id === a.id && r.status === 'pending');
   const wrap = el('div', { class: 'rounded-lg border p-2.5 flex flex-col gap-2', style: {
     borderColor: isMine ? 'var(--accent)' : 'var(--border)',
-    background: isMine ? 'rgba(141,198,63,0.08)' : 'var(--card-2)',
+    background: isMine ? 'rgba(223,100,58,0.08)' : 'var(--card-2)',
   } });
   wrap.append(
     el('div', { class: 'flex items-center justify-between gap-2' },
@@ -15529,17 +15529,17 @@ function groupHeaderTextColor(bg) {
   // white) still flips to dark text.
   return lum > 200 ? '#1D1D1D' : '#fff';
 }
-const RIDD_COLOR = '#8DC63F';
+const RIDD_COLOR = '#DF643A';
 // Default palette for teams. Avoids red so excluded teams keep their distinct
 // red tint. Teams without an explicit user-picked color are assigned one
 // deterministically from this list (hash of team name → palette index) so the
 // same team always renders in the same color across charts and tables.
-// Curated to live alongside the RIDD lime accent (#8DC63F) — mid-saturation
+// Curated to live alongside the RIDD lime accent (#DF643A) — mid-saturation
 // mid-value hues that read as a coordinated brand-extended set rather than a
 // rainbow. Lime sibling first so it ties back to the brand; reds avoided
 // since red is reserved for excluded teams.
 const TEAM_COLOR_PALETTE = [
-  '#5C8A1A', // deep lime — anchors to the brand accent
+  '#C8552E', // deep lime — anchors to the brand accent
   '#3D7A66', // pine
   '#2D6E8C', // teal-blue
   '#476BA8', // royal blue
@@ -15770,7 +15770,7 @@ function openRaffleSpinModal(raffleSorted, totalTickets, windowLabel) {
   // Cycle through a small palette so adjacent wedges visually separate.
   // Reps' actual team color isn't used because nearby wedges would blur
   // together if they share a team.
-  const COLORS = ['#8DC63F', '#0EA5E9', '#A78256', '#9333EA', '#F59E0B', '#EC4899', '#10B981', '#DC2626', '#6366F1', '#14B8A6'];
+  const COLORS = ['#DF643A', '#0EA5E9', '#A78256', '#9333EA', '#F59E0B', '#EC4899', '#10B981', '#DC2626', '#6366F1', '#14B8A6'];
 
   // Precompute each wedge's angular boundaries + midpoint. Angles are in
   // radians on the canvas's coordinate system (0 = 3 o'clock, +y = down).
@@ -15869,7 +15869,7 @@ function openRaffleSpinModal(raffleSorted, totalTickets, windowLabel) {
       background: '#1D1D1D',
       border: '3px solid #fff',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: '#8DC63F',
+      color: '#DF643A',
       fontWeight: '900', fontSize: '18px',
       letterSpacing: '0.5px',
       zIndex: '2',
@@ -15889,7 +15889,7 @@ function openRaffleSpinModal(raffleSorted, totalTickets, windowLabel) {
   centerHub.addEventListener('mouseenter', () => {
     if (spinning) return;
     centerHub.style.transform = 'translate(-50%, -50%) scale(1.07)';
-    centerHub.style.boxShadow = '0 8px 22px rgba(141,198,63,0.45)';
+    centerHub.style.boxShadow = '0 8px 22px rgba(223,100,58,0.45)';
   });
   centerHub.addEventListener('mouseleave', () => {
     centerHub.style.transform = 'translate(-50%, -50%) scale(1)';
@@ -15969,7 +15969,7 @@ function openRaffleSpinModal(raffleSorted, totalTickets, windowLabel) {
     const team = getRepTeam(seg.rep.name);
     tooltip.innerHTML = '';
     tooltip.append(
-      el('div', { style: { fontWeight: '800', fontSize: '12px', color: '#8DC63F' } }, seg.rep.name),
+      el('div', { style: { fontWeight: '800', fontSize: '12px', color: '#DF643A' } }, seg.rep.name),
       el('div', { style: { marginTop: '3px', fontVariantNumeric: 'tabular-nums' } },
         fmt.int(seg.rep.total) + ' tickets · ' + (seg.fraction * 100).toFixed(1) + '% chance'),
       team && el('div', { style: { marginTop: '2px', color: 'rgba(255,255,255,.6)' } }, team),
@@ -16096,7 +16096,7 @@ function getGroupColor(name) {
   if (!name) return '#666';
   if (state.indicatorsGroupBy === 'teams') return getTeamColor(name);
   if (state.indicatorsGroupBy === 'dept') {
-    return ({ 'SALES REP': '#5F8A1F', 'OFFICE STAFF': '#2b8cbe', 'TECHNICIAN': '#B45309' })[String(name).toUpperCase()] || '#666';
+    return ({ 'SALES REP': '#DF643A', 'OFFICE STAFF': '#2b8cbe', 'TECHNICIAN': '#B45309' })[String(name).toUpperCase()] || '#666';
   }
   if (state.indicatorsGroupBy === 'company') return COMPANY_COLORS[String(name).toUpperCase()] || '#666';
   const up = String(name).toUpperCase();
@@ -17399,7 +17399,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
           el('span', { style: { color: '#DC2626' } }, '🚫 ' + money(sum(groups.late)) + ' out of window'),
           deadline ? el('span', { style: { color: 'var(--text-muted)' } }, 'service cutoff: ' + _dOf(deadline)) : null),
         el('div', { class: 'p-4 overflow-auto' },
-          section('📅 Scheduled in time', groups.intime, '#5F8A1F', 'Service booked (or done) on/before the cutoff — stays pending until the audit lands.'),
+          section('📅 Scheduled in time', groups.intime, '#DF643A', 'Service booked (or done) on/before the cutoff — stays pending until the audit lands.'),
           section('⏳ Unscheduled — at risk', groups.open, '#B45309', 'No service date yet. Counting for now, but flips to failed if the cutoff passes unserviced.'),
           section('🚫 Scheduled past the cutoff — not counting', groups.late, '#DC2626', 'Booked after the deadline, so already excluded. Pull the appointment up before the cutoff and it counts again on the next sync.')));
     };
@@ -18424,7 +18424,7 @@ function openNrlaRosterModal(rawSales) {
       saveBtn.title = 'Unsynced changes — click to push them to the server now';
     } else {
       saveBtn.textContent = '✓ Saved';
-      Object.assign(saveBtn.style, { background: 'transparent', color: '#1b7f3b', border: '1px solid #1b7f3b' });
+      Object.assign(saveBtn.style, { background: 'transparent', color: '#DF643A', border: '1px solid #DF643A' });
       saveBtn.title = 'Everything is saved and synced — every admin sees this roster';
     }
   };
@@ -18556,7 +18556,7 @@ function openNrlaRosterModal(rawSales) {
     addTeam.innerHTML = '';
     allTeamChoices.filter(b => !exNow.has(b)).forEach(b => addTeam.append(el('option', { value: b }, b)));
     if ([...addTeam.options].some(o => o.value === _keepSel)) addTeam.value = _keepSel;
-    if (state._nrlaMergeSrc) listWrap.append(el('div', { class: 'px-5 py-2 flex items-center justify-between gap-2', style: { background: 'rgba(27,127,59,.10)', borderBottom: '1px solid var(--border)', position: 'sticky', top: '0', zIndex: '2' } },
+    if (state._nrlaMergeSrc) listWrap.append(el('div', { class: 'px-5 py-2 flex items-center justify-between gap-2', style: { background: 'rgba(223,100,58,.10)', borderBottom: '1px solid var(--border)', position: 'sticky', top: '0', zIndex: '2' } },
       el('span', { class: 'text-xs font-bold' }, '⛓ Merging “' + state._nrlaMergeSrc + '” — click “Keep this” on the row that\'s the SAME person (that spelling wins)'),
       el('button', { class: 'text-[11px] font-bold rounded px-2 py-1 cursor-pointer border shrink-0', style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' }, onclick: () => { state._nrlaMergeSrc = null; renderList(); } }, 'Cancel')));
     const totalPicked = Object.values(cfg.rosters || {}).reduce((a, l) => a + (Array.isArray(l) ? l.length : 0), 0);
@@ -18668,7 +18668,7 @@ function openNrlaRosterModal(rawSales) {
                 ? el('span', { class: 'text-[10px] font-black uppercase tracking-wider shrink-0', style: { color: PINK } }, 'merging…')
                 : el('button', {
                     class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer shrink-0',
-                    style: { background: '#1b7f3b', color: '#fff' },
+                    style: { background: '#DF643A', color: '#fff' },
                     title: 'Keep “' + name + '” — fold “' + mergeSrc + '” and all their sales into this rep',
                     onclick: (e) => { e.preventDefault(); e.stopPropagation(); doMerge(mergeSrc, name); },
                   }, 'Keep this'))
@@ -18763,7 +18763,7 @@ function openNrlaTeamRepsModal(team, R, nameOf) {
               r.n === 0 ? el('span', { class: 'ml-2 text-[9px] uppercase', style: { color: 'var(--text-subtle)' } }, 'no production yet') : null),
             td(String(r.n), true),
             td(money(r.total), true, { fontWeight: '800' }),
-            td(money(r.passed), true, { color: '#1b7f3b' }),
+            td(money(r.passed), true, { color: '#DF643A' }),
             td('(' + money(r.pending) + ')', true, { color: '#D97706' }),
             td(money(r.failed), true, { color: '#E8271B' }),
             td(teamTotal > 0 ? ((r.total / teamTotal) * 100).toFixed(1) + '%' : '—', true, { color: BLUE, fontWeight: '700' }))))
@@ -18803,7 +18803,7 @@ function openNrlaAccountsModal(R, nameOf, opts) {
 
   const money2 = (v) => '$' + Math.round(v || 0).toLocaleString();
   const BUCKET_CHIP = {
-    passed:  { t: 'Passed',  bg: 'rgba(27,127,59,.12)', c: '#1b7f3b' },
+    passed:  { t: 'Passed',  bg: 'rgba(223,100,58,.12)', c: '#DF643A' },
     pending: { t: 'Pending', bg: 'rgba(217,119,6,.12)', c: '#D97706' },
     failed:  { t: 'Failed',  bg: 'rgba(220,38,38,.10)', c: '#DC2626' },
   };
@@ -19332,7 +19332,7 @@ function nrlaBoard(rawSales, opts) {
                   const r0 = resultOf(rd, s.team);
                   const res = r0 && r0.res;
                   const oppName = r0 ? (r0.opp ? nameOf(r0.opp) : 'BYE') : null;
-                  const col = res === 'W' ? '#1b7f3b' : res === 'L' ? REDD : null;
+                  const col = res === 'W' ? '#DF643A' : res === 'L' ? REDD : null;
                   return el('td', {
                     class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap font-bold' + (RO || !st ? '' : ' cursor-pointer hover:underline'),
                     style: col ? { color: col } : {},
@@ -19403,8 +19403,8 @@ function nrlaBoard(rawSales, opts) {
                 el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, reps),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, reps > 0 ? money((st.passed + st.pending) / reps) : '—'),
                 _drillTd(s.team, 'total',  money(st.total), 'font-black', null),
-                _drillTd(s.team, 'passed',  money(st.passed), 'font-bold', '#1b7f3b'),
-                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#1b7f3b' } },
+                _drillTd(s.team, 'passed',  money(st.passed), 'font-bold', '#DF643A'),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#DF643A' } },
                   st.total > 0 ? (st.passed / st.total * 100).toFixed(0) + '%' : '—'),
                 _drillTd(s.team, 'pending', '(' + money(st.pending) + ')', '', '#D97706'),
                 _drillTd(s.team, 'failed',  money(st.failed), 'font-bold', REDD),
@@ -19431,8 +19431,8 @@ function nrlaBoard(rawSales, opts) {
                 el('td', { class: 'px-2 py-2 tabular-nums font-black' }, repsTot),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, repsTot > 0 ? money((tot.passed + tot.pending) / repsTot) : '—'),
                 _drillTd(null, 'total',  money(tot.total), 'font-black', null),
-                _drillTd(null, 'passed',  money(tot.passed), 'font-black', '#1b7f3b'),
-                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: '#1b7f3b' } },
+                _drillTd(null, 'passed',  money(tot.passed), 'font-black', '#DF643A'),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: '#DF643A' } },
                   tot.total > 0 ? (tot.passed / tot.total * 100).toFixed(0) + '%' : '—'),
                 _drillTd(null, 'pending', '(' + money(tot.pending) + ')', 'font-black', '#D97706'),
                 _drillTd(null, 'failed',  money(tot.failed), 'font-black', REDD),
@@ -19518,7 +19518,7 @@ function nrlaBoard(rawSales, opts) {
             top.length ? '' : el('tr', {}, el('td', { class: 'px-3 py-4 text-center text-[11px]', colspan: '10', style: { color: 'var(--text-subtle)' } }, 'No qualifying production in this round yet.')),
             ...top.map((r, i) => el('tr', {
               class: 'border-t transition' + (RO ? '' : ' cursor-pointer hover:brightness-95'),
-              style: { borderColor: 'var(--border)', background: i === 0 ? 'rgba(47,214,47,.07)' : (i % 2 ? 'rgba(14,28,48,.04)' : 'transparent') },
+              style: { borderColor: 'var(--border)', background: i === 0 ? 'rgba(255,107,61,.07)' : (i % 2 ? 'rgba(14,28,48,.04)' : 'transparent') },
               title: RO ? undefined : 'See all of ' + nameOf(r.team) + '\'s reps',
               onclick: RO ? undefined : () => openNrlaTeamRepsModal(r.team, R, nameOf),
             },
@@ -19527,7 +19527,7 @@ function nrlaBoard(rawSales, opts) {
               el('td', { class: 'px-2 py-2 whitespace-nowrap', style: { color: 'var(--text-muted)' } }, nameOf(r.team)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, money(qual(r) / roundsStarted)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(r.total)),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#1b7f3b' } }, money(r.passed)),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#DF643A' } }, money(r.passed)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap', style: { color: '#D97706' } }, '(' + money(r.pending) + ')'),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: REDD } }, money(r.failed)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, r.n > 0 ? money(r.total / r.n) : '—'),
@@ -19543,7 +19543,7 @@ function nrlaBoard(rawSales, opts) {
                 el('td', {}, ''),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, money(t.q / roundsStarted)),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(t.total)),
-                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: '#1b7f3b' } }, money(t.passed)),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: '#DF643A' } }, money(t.passed)),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: '#D97706' } }, '(' + money(t.pending) + ')'),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: REDD } }, money(t.failed)),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, t.n > 0 ? money(t.total / t.n) : '—'),
@@ -19642,7 +19642,7 @@ function nrlaBoard(rawSales, opts) {
     const won = m.winner === side.team;
     // Live rounds: the CURRENT leader glows green (nothing's final yet).
     // Finished rounds: the winner keeps the pink stamp.
-    const hi = live ? 'rgba(47,214,47,.10)' : 'rgba(242,20,140,.07)';
+    const hi = live ? 'rgba(255,107,61,.10)' : 'rgba(242,20,140,.07)';
     const hiText = live ? GREEN : PINK;
     return el('div', Object.assign({
       class: 'flex items-center justify-between gap-2 px-3 py-2',
@@ -19702,7 +19702,7 @@ function nrlaBoard(rawSales, opts) {
     const body = playoff && rd.matchups.length
       ? [el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' } }, ...kids)]
       : kids;
-    return el('div', { class: 'rounded-lg overflow-hidden' + (playoff ? ' nrla-playoff' : ''), style: { border: '1.5px solid ' + (rd.live ? GREEN : 'var(--text)'), boxShadow: rd.live ? '0 0 0 1px ' + GREEN + ', 0 8px 24px -16px rgba(47,214,47,.5)' : 'none' } },
+    return el('div', { class: 'rounded-lg overflow-hidden' + (playoff ? ' nrla-playoff' : ''), style: { border: '1.5px solid ' + (rd.live ? GREEN : 'var(--text)'), boxShadow: rd.live ? '0 0 0 1px ' + GREEN + ', 0 8px 24px -16px rgba(255,107,61,.5)' : 'none' } },
       el('div', { class: 'flex items-center justify-between px-3 py-1.5', style: { background: headBg } },
         el('span', { class: 'text-[11px] font-black uppercase tracking-wider', style: { color: headFg } }, title + ' · ' + dspan(rd.d1, rd.d2) + (dayLabel ? ' · ' + dayLabel : '')),
         el('div', { class: 'flex items-center gap-1.5' },
@@ -19825,7 +19825,7 @@ function nrlaBoard(rawSales, opts) {
                       // already written it off (card said 5, chips said 30).
                       let _st = (typeof _auditStatusOf === 'function') ? _auditStatusOf(x.customerFlags) : 'pending';
                       if (_st === 'pending' && (Number(x.initialPrice) || 0) < 99) _st = 'lastresort';
-                      const _stMeta = _st === 'passed' ? ['Passed', '#5F8A1F', 'rgba(141,198,63,.14)']
+                      const _stMeta = _st === 'passed' ? ['Passed', '#DF643A', 'rgba(223,100,58,.14)']
                         : _st === 'failed' ? ['Failed', '#B91C1C', 'rgba(220,38,38,.10)']
                         : _st === 'noaudit' ? ['No Audit', 'var(--text-muted)', 'var(--card-2)']
                         : _st === 'lastresort' ? ['Last Resort', 'var(--text-muted)', 'var(--card-2)']
@@ -20029,7 +20029,7 @@ function openMbRepModal(rep, day) {
   const ord = { pending: 0, failed: 1, passed: 2 };
   rows.sort((x, y) => (ord[x.bucket] - ord[y.bucket]) || (y.cv - x.cv));
   const sum = (b) => rows.filter(r => r.bucket === b).reduce((a2, r) => a2 + r.cv, 0);
-  const B = { passed: { c: '#5F8A1F', bg: 'rgba(141,198,63,.14)', lab: 'Passed' },
+  const B = { passed: { c: '#DF643A', bg: 'rgba(223,100,58,.14)', lab: 'Passed' },
               pending: { c: '#B45309', bg: 'rgba(240,172,30,.16)', lab: 'Pending' },
               failed: { c: '#B91C1C', bg: 'rgba(220,38,38,.10)', lab: 'Failed' } };
   const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
@@ -20732,7 +20732,7 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
                     'for the next ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' \u00b7 ' + fmt.usd0(remaining) + ' to go'))
               : el('div', { class: 'text-xs text-muted- font-bold' }, live ? '' : 'Starts ' + new Date(KOBE_FROM + 'T00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })))),
       el('div', { class: 'mt-3', style: { height: '7px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
-        el('div', { style: { width: pct.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: mine.earned ? '#8DC63F' : MAMBA } }))));
+        el('div', { style: { width: pct.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: mine.earned ? '#DF643A' : MAMBA } }))));
   }
   // ── Everyone: chase board ── Company view by default; the dropdown
   // scopes to a single team, and every row carries the rep's team (per Isaac).
@@ -20831,13 +20831,13 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
           el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(r.bestRev),
             el('div', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, wkLbl(r.bestWk))),
           el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, fmt.usd0(r.cur)),
-          el('td', { class: 'px-3 py-2 text-right tabular-nums hidden sm:table-cell', style: remaining ? {} : { color: '#5F8A1F', fontWeight: '700' } }, remaining ? fmt.usd0(remaining) : '\u2713'),
+          el('td', { class: 'px-3 py-2 text-right tabular-nums hidden sm:table-cell', style: remaining ? {} : { color: '#DF643A', fontWeight: '700' } }, remaining ? fmt.usd0(remaining) : '\u2713'),
           el('td', { class: 'px-3 py-2 text-right tabular-nums hidden sm:table-cell', style: { color: perDay ? MAMBA : 'var(--text-subtle)', fontWeight: perDay ? '700' : '400' } }, perDay ? fmt.usd0(perDay) : '\u2014'),
           el('td', { class: 'px-3 py-2' },
             el('div', { class: 'flex items-center gap-1.5' },
               el('div', { style: { flex: '1', minWidth: '34px', height: '5px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
-                el('div', { style: { width: pct.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: r.earned ? '#8DC63F' : MAMBA } })),
-              el('span', { class: 'text-[11px] tabular-nums font-bold whitespace-nowrap', style: { color: r.earned ? '#5F8A1F' : 'var(--text-muted)' } }, pct.toFixed(0) + '%'))));
+                el('div', { style: { width: pct.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: r.earned ? '#DF643A' : MAMBA } })),
+              el('span', { class: 'text-[11px] tabular-nums font-bold whitespace-nowrap', style: { color: r.earned ? '#DF643A' : 'var(--text-muted)' } }, pct.toFixed(0) + '%'))));
       }))))));
   return el('div', { class: 'flex flex-col gap-4' }, ...nodes);
 }
@@ -20953,7 +20953,7 @@ function openKothDayModal(name, day, raw) {
   // revenue at all (it sits outside Total Sold). One shared "NOT COUNTED"
   // label made four rows look like the one the tile was counting.
   const CHIP = {
-    passed:   ['#5F8A1F', 'COUNTS'],
+    passed:   ['#DF643A', 'COUNTS'],
     pending:  ['#B45309', 'PENDING'],
     failed:   ['#DC2626', 'DOES NOT COUNT'],
     excluded: ['#6B7280', 'NOT REVENUE'],
@@ -20994,7 +20994,7 @@ function openKothDayModal(name, day, raw) {
       }, 'Close')),
     el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4' },
       stat('Total Sold', passedV + pendingV + failedV),
-      stat('Counts', passedV, '#5F8A1F'),
+      stat('Counts', passedV, '#DF643A'),
       stat('Pending Audit', pendingV, '#B45309'),
       stat('Does Not Count', failedV, '#DC2626')),
     tableOf(inBase),
@@ -21134,7 +21134,7 @@ function mysteryBoxSection(isAdmin) {
   const nodes = [];
   mine.forEach(b => {
     const isOpened = !!opened[b.id];
-    nodes.push(el('div', { class: 'card p-4 flex items-center justify-between gap-3 flex-wrap', style: { borderLeft: '3px solid #8DC63F' } },
+    nodes.push(el('div', { class: 'card p-4 flex items-center justify-between gap-3 flex-wrap', style: { borderLeft: '3px solid #DF643A' } },
       el('div', { class: 'flex items-center gap-3 min-w-0' },
         el('div', { style: { fontSize: '34px' } }, isOpened ? '🎉' : '🎁'),
         el('div', { class: 'min-w-0' },
@@ -21142,7 +21142,7 @@ function mysteryBoxSection(isAdmin) {
           el('div', { class: 'text-xs text-muted-' }, isOpened ? 'Opened ' + new Date(opened[b.id]).toLocaleDateString() + ' — see your admin to claim.' : 'Tap to open it. No takebacks.'))),
       !isOpened ? el('button', {
         class: 'rounded-xl px-4 py-2.5 text-sm font-bold transition hover:brightness-95',
-        style: { background: '#8DC63F', color: '#1D1D1D' },
+        style: { background: '#DF643A', color: '#1D1D1D' },
         onclick: () => openMysteryBoxOverlay(b),
       }, 'Open the box') : null));
   });
@@ -21217,7 +21217,7 @@ function mysteryBoxSection(isAdmin) {
                   class: 'text-xs', style: { color: '#DC2626' }, title: 'Remove this incentive',
                   onclick: () => { const o = { ...(state._mbOdds || {}) }; delete o[p]; _mbSaveCfg({ pool: poolNow.filter((_, j) => j !== i), odds: o }); mountApp(); },
                 }, '\u2715')))),
-            el('div', { class: 'flex items-center justify-end gap-1 pt-1.5 text-[11px] tabular-nums font-bold', style: { color: total === 100 ? '#5F8A1F' : '#D97706' } },
+            el('div', { class: 'flex items-center justify-end gap-1 pt-1.5 text-[11px] tabular-nums font-bold', style: { color: total === 100 ? '#DF643A' : '#D97706' } },
               'Total ' + total + '%' + (total === 100 ? ' \u2713' : ' \u2014 should sum to 100')));
         })() : el('div', { class: 'text-xs text-muted- mb-2' }, 'No incentives yet \u2014 add the ones boxes can reveal.'),
         el('div', { class: 'flex items-center gap-2' },
@@ -21293,7 +21293,7 @@ function mysteryBoxSection(isAdmin) {
             qualified.length ? el('span', { class: 'tabular-nums', style: { opacity: '.6' } }, ' \u00b7 ' + fmt.usd0(qualified.reduce((a2, r) => a2 + r.rev, 0)) + ' sold') : null) : null,
           (isAdmin && qualified.length) ? el('button', {
             class: 'text-[11px] font-bold px-3 py-1 rounded-lg border mt-1.5',
-            style: { borderColor: 'rgba(141,198,63,.5)', color: '#8DC63F', background: 'rgba(141,198,63,.08)' },
+            style: { borderColor: 'rgba(223,100,58,.5)', color: '#DF643A', background: 'rgba(223,100,58,.08)' },
             title: 'Grant every qualified rep RIDDCOIN for this window \u2014 one ledger row each, reason auto-filled',
             onclick: () => _mbPayWinners(qualified, { from: mbFrom, to: mbTo }),
           }, '\ud83e\ude99 Pay winners') : null),
@@ -21334,7 +21334,7 @@ function mysteryBoxSection(isAdmin) {
       const pctTo = r.goal > 0 ? Math.min(100, r.rev / r.goal * 100) : 0;
       return el('tr', {
         class: 'border-t cursor-pointer hover:brightness-95 transition',
-        style: { borderColor: 'var(--border)', background: isQ ? 'rgba(141,198,63,.06)' : '' },
+        style: { borderColor: 'var(--border)', background: isQ ? 'rgba(223,100,58,.06)' : '' },
         title: 'Click for ' + r.name + '\u2019s accounts \u2014 verify revenue and chase pending audits',
         onclick: () => openMbRepModal(r, { from: mbFrom, to: mbTo }),
       },
@@ -21351,14 +21351,14 @@ function mysteryBoxSection(isAdmin) {
           : el('td', { class: 'px-3 py-2 whitespace-nowrap', style: { minWidth: '160px' } },
               el('div', { class: 'flex items-center gap-1.5' },
                 el('div', { style: { flex: '1', minWidth: '34px', height: '5px', borderRadius: '999px', background: 'var(--card-2)', overflow: 'hidden' } },
-                  el('div', { style: { width: pctTo.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: pctTo >= 75 ? '#8DC63F' : pctTo >= 40 ? '#D97706' : 'var(--border-2)' } })),
-                el('span', { class: 'text-[11px] tabular-nums font-bold whitespace-nowrap', style: { color: pctTo >= 75 ? '#5F8A1F' : 'var(--text-muted)' } },
+                  el('div', { style: { width: pctTo.toFixed(0) + '%', height: '100%', borderRadius: '999px', background: pctTo >= 75 ? '#DF643A' : pctTo >= 40 ? '#D97706' : 'var(--border-2)' } })),
+                el('span', { class: 'text-[11px] tabular-nums font-bold whitespace-nowrap', style: { color: pctTo >= 75 ? '#DF643A' : 'var(--text-muted)' } },
                   fmt.usd0(Math.max(0, r.goal - r.rev)) + ' to go'))));
     };
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-2.5 flex items-center justify-between', style: { background: 'var(--text)', color: 'var(--bg)' } },
         el('div', { class: 'font-black uppercase tracking-widest text-sm' }, (isRk ? 'Rookies' : 'Veterans') + ' \u00b7 ' + fmt.usd0(goal)),
-        el('div', { class: 'text-xs font-bold tabular-nums px-2 py-0.5 rounded', style: { background: qual2.length ? '#8DC63F' : 'rgba(255,255,255,.15)', color: qual2.length ? '#1D1D1D' : 'var(--bg)' } }, qual2.length + ' earned')),
+        el('div', { class: 'text-xs font-bold tabular-nums px-2 py-0.5 rounded', style: { background: qual2.length ? '#DF643A' : 'rgba(255,255,255,.15)', color: qual2.length ? '#1D1D1D' : 'var(--bg)' } }, qual2.length + ' earned')),
       (qual2.length || chase.length) ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
           ...[['name', 'Rep'], ['n', 'Passed Accts', 'Accounts counting toward the box (passed audit / no audit)'], ['total', 'Total', 'Pending/Serviced revenue (the FieldRoutes gate) \u2014 Passed + Pending + Failed'], ['rev', 'Passed', 'Passed audit or no audit, $99+ initial \u2014 the only revenue that counts toward the box'], ['pending', 'Pending', 'No audit flag yet (not Last Resort) \u2014 moves to Passed or Failed as audits land'], ['failed', 'Failed', 'Failed audit + Last Resort (<$99) \u2014 does not count'], ['progress', 'To Go', 'Sort by % of goal']].map(([k, h, tip]) => {
@@ -21494,7 +21494,7 @@ function openIslRepModal(nm, recs, roundLabel) {
         el('div', { class: 'text-[11px]', style: { color: '#F6C915' } }, roundLabel + ' \u00b7 Passed Revenue ' + fmt.usd0(sum(counted)))),
       el('button', { class: 'text-2xl leading-none cursor-pointer', style: { color: '#fff' }, onclick: close }, '\u00d7')),
     el('div', { class: 'overflow-auto' },
-      counted.length ? secHead('\u2705 Counted \u00b7 ' + counted.length, '#5F8A1F', sum(counted)) : null,
+      counted.length ? secHead('\u2705 Counted \u00b7 ' + counted.length, '#DF643A', sum(counted)) : null,
       ...counted.map(r => row(r, false)),
       failed.length ? secHead('\u26d4 Failed audit \u00b7 deducted \u00b7 ' + failed.length, '#DC2626', sum(failed)) : null,
       ...failed.map(r => row(r, false)),
@@ -21824,11 +21824,11 @@ function islSection(raw, cfg, isAdmin) {
           const down = i === rows.length - 1 && di < _renderDivs.length - 1;   // relegates \u25bc
           return el('tr', {
             class: 'border-t cursor-pointer hover:brightness-95 transition',
-            style: { borderColor: 'var(--border)', background: up ? 'rgba(141,198,63,.07)' : down ? 'rgba(220,38,38,.06)' : '' },
+            style: { borderColor: 'var(--border)', background: up ? 'rgba(223,100,58,.07)' : down ? 'rgba(220,38,38,.06)' : '' },
             title: 'Click for ' + nm + '\u2019s accounts \u2014 counted, failed, and excluded',
             onclick: () => openIslRepModal(nm, _repRecs.get(nm) || [], 'Round ' + (selIdx + 1) + ' \u00b7 ' + mmdd(rS) + ' \u2013 ' + mmdd(rE)),
           },
-            el('td', { class: 'px-3 py-2 font-black tabular-nums', style: { color: i === 0 ? (di === 0 ? '#5F8A1F' : 'var(--text)') : 'var(--text-muted)' } }, String(i + 1)),
+            el('td', { class: 'px-3 py-2 font-black tabular-nums', style: { color: i === 0 ? (di === 0 ? '#DF643A' : 'var(--text)') : 'var(--text-muted)' } }, String(i + 1)),
             el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, nm),
             el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(st.fr)),
             el('td', { class: 'px-3 py-2 text-right tabular-nums', style: { color: st.fail ? '#DC2626' : 'var(--text-subtle)' } }, st.fail ? '\u2212' + fmt.usd0(st.fail) : '\u2014'),
@@ -21837,7 +21837,7 @@ function islSection(raw, cfg, isAdmin) {
             el('td', { class: 'px-3 py-2 text-right tabular-nums' }, st.acv > 0 ? fmt.usd0(st.acv) : '\u2014'),
             el('td', { class: 'px-3 py-2 text-right tabular-nums' }, st.ap != null ? (st.ap * 100).toFixed(0) + '%' : '\u2014'),
             el('td', { class: 'px-3 py-2 text-right tabular-nums font-black' }, fmt.usd0(st.passed)),
-            el('td', { class: 'px-3 py-2 text-center font-black' }, up ? el('span', { style: { color: '#5F8A1F' }, title: 'Promotes at rotation' }, '\u25b2') : down ? el('span', { style: { color: '#DC2626' }, title: 'Relegates at rotation' }, '\u25bc') : ''));
+            el('td', { class: 'px-3 py-2 text-center font-black' }, up ? el('span', { style: { color: '#DF643A' }, title: 'Promotes at rotation' }, '\u25b2') : down ? el('span', { style: { color: '#DC2626' }, title: 'Relegates at rotation' }, '\u25bc') : ''));
         }))))));
   });
   return wrap;
@@ -22368,7 +22368,7 @@ function viewNrlaPublic() {
       // 🏢 competing-offices toggles moved INTO the 👥 modal.
       el('button', {
         class: 'cursor-pointer transition hover:brightness-95 rounded-full',
-        style: { width: '26px', height: '26px', background: '#1b5e20', color: '#fff', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0', border: 'none' },
+        style: { width: '26px', height: '26px', background: '#9C3F1E', color: '#fff', display: 'grid', placeItems: 'center', fontSize: '13px', lineHeight: '1', padding: '0', border: 'none' },
         title: 'Download the standings poster as a PDF',
         onclick: () => {
           const node = document.getElementById('spring-standings-poster');
@@ -23030,7 +23030,7 @@ function springStandingsCard() {
     // ── Info boxes ──
     const CATS_LIST = ['Revenue', 'Average Pest Initial', 'Per Rep Average', 'Average Contract Value', '24 Month Agreement %', 'Autopay %', 'Passed Audit %'];
     const PAYOUT = [['1st Place', 6], ['2nd Place', 5], ['3rd Place', 4], ['4th Place', 3], ['5th Place', 2], ['6th Place', 1], ['7th Place', 0]];
-    const TIERS = [[24, '®300k', '#1b5e20'], [20, '®200k', '#43a047'], [16, '®100k', '#9ccc65'], [12, '®50k', '#cddc39']];
+    const TIERS = [[24, '®300k', '#9C3F1E'], [20, '®200k', '#DF643A'], [16, '®100k', '#FF8A5C'], [12, '®50k', '#FFB899']];
     // Compact info row (per Isaac): categories + per-round payout share ONE
     // box (orange | red halves), tiers slim on the right — shorter banners
     // pull the bug tracker and round tables up the page.
@@ -23047,7 +23047,7 @@ function springStandingsCard() {
           n + ' Bugs Exterminated = ' + coin + ' per rep'))));
 
     // ── BUG COUNT tracker — every slot has a spider ──
-    const MILESTONES = { 12: ['12', '@50K', '#cddc39', '#141414'], 16: ['16', '@100K', '#9ccc65', '#141414'], 20: ['20', '@200K', '#43a047', '#fff'], 24: ['24', '@300K', '#1b5e20', '#fff'] };
+    const MILESTONES = { 12: ['12', '@50K', '#FFB899', '#141414'], 16: ['16', '@100K', '#FF8A5C', '#141414'], 20: ['20', '@200K', '#DF643A', '#fff'], 24: ['24', '@300K', '#9C3F1E', '#fff'] };
     const SLOTS = 24;
     // SVG spiders (not emoji) — emoji rasterize as broken glyphs in the
     // PDF export; SVG paints identically on screen and in html2canvas.
@@ -23140,21 +23140,21 @@ function springStandingsCard() {
         return el('div', { style: { display: 'grid', gridTemplateColumns: '36px 1fr 30px', gap: '8px', fontSize: '11px', lineHeight: '1.7', alignItems: 'baseline' } },
           el('span', { style: { fontWeight: '900', color: '#fff' } }, abbrev(b)),
           el('span', { style: { fontWeight: '800', color: '#fff', fontVariantNumeric: 'tabular-nums', textAlign: 'right' } }, m ? m.totalPoints : 0),
-          el('span', { style: { fontWeight: '900', color: m && m.place === 1 ? '#cddc39' : '#e8e8e2', textAlign: 'right' } }, m ? ordinal(m.place) : ''));
+          el('span', { style: { fontWeight: '900', color: m && m.place === 1 ? '#FFB899' : '#e8e8e2', textAlign: 'right' } }, m ? ordinal(m.place) : ''));
       };
       const bugRow = (b) => {
         const m = byOffice[b];
         return el('div', { style: { fontSize: '11px', fontWeight: '800', lineHeight: '1.7', whiteSpace: 'nowrap' } }, (m ? m.bugs : 0) + ' Bugs');
       };
       const status = r.official
-        ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#fff', background: '#43a047', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' } }, '🔒 Official — audits settled')
+        ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#fff', background: '#DF643A', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' } }, '🔒 Official — audits settled')
         : r.hasData && r.finished
           ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#fff', background: '#ED1C24', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase', cursor: r.pendingN ? 'pointer' : 'default' },
               title: r.pendingN ? 'Click to see the pending accounts' : '',
               onclick: r.pendingN ? () => openSpringPendingModal(idx + 1, roundLabel(r), r.sc ? r.sc.pending : []) : null },
               r.pendingN + ' audit' + (r.pendingN === 1 ? '' : 's') + ' pending')
           : r.hasData
-            ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#141414', background: '#cddc39', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' } }, 'Live')
+            ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#141414', background: '#FFB899', padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase' } }, 'Live')
             : null;
       return el('div', { style: { padding: '6px 30px 14px' } },
         el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
@@ -23313,7 +23313,7 @@ function openSpringRepMarketModal(sales, officeList) {
               class: 'rounded-full px-2.5 py-0.5 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
               style: off
                 ? { background: 'transparent', color: 'var(--text-muted)', border: '1px dashed var(--border-2)', textDecoration: 'line-through' }
-                : { background: '#1b5e20', color: '#fff', border: '1px solid #1b5e20' },
+                : { background: '#9C3F1E', color: '#fff', border: '1px solid #9C3F1E' },
               title: off ? b + ' is sitting this comp out — click to include' : 'Click to pull ' + b + ' out of the comp',
               onclick: () => {
                 comp.excludedBranches = off
@@ -23335,7 +23335,7 @@ function openSpringRepMarketModal(sales, officeList) {
           const effective = ov || home;
           const sel = el('select', {
             class: 'rounded-lg px-2 py-1.5 text-xs font-semibold cursor-pointer',
-            style: ov ? { border: '2px solid #1b5e20', color: '#1b5e20' } : {},
+            style: ov ? { border: '2px solid #9C3F1E', color: '#9C3F1E' } : {},
             onchange: (e) => {
               const v = e.target.value;
               if (!v || v === home) delete comp.repBranchOverrides[name];
@@ -23348,7 +23348,7 @@ function openSpringRepMarketModal(sales, officeList) {
           return el('div', { class: 'flex items-center justify-between gap-3 px-5 py-2 border-b', style: { borderColor: 'var(--border)' } },
             el('div', { class: 'min-w-0' },
               el('div', { class: 'text-sm font-semibold truncate' }, name,
-                ov && el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(27,94,32,.12)', color: '#1b5e20' } }, 'moved')),
+                ov && el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(156,63,30,.12)', color: '#9C3F1E' } }, 'moved')),
               el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } },
                 r.n + ' acct' + (r.n === 1 ? '' : 's') + ' · knocks ' + home)),
             sel);
@@ -23467,11 +23467,11 @@ function openAvgPestRaffleHelpModal() {
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
 
   const block = (title, body) => el('div', { class: 'mb-4' },
-    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: '#2f5e1c' } }, title),
+    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: '#A9441F' } }, title),
     el('div', { class: 'text-[13px] leading-relaxed', style: { color: 'var(--text-muted)' } }, body));
 
   const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
-    el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: '#8DC63F' } },
+    el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: '#DF643A' } },
       el('div', {},
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: '#1D1D1D', opacity: '0.8' } }, 'By RIDDMADE™'),
         el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#1D1D1D', textTransform: 'uppercase' } }, 'Avg Pest Initial Competitions'),
@@ -23570,7 +23570,7 @@ function openSpringCompetingModal(branchList) {
         class: 'rounded-full px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
         style: off
           ? { background: 'transparent', color: 'var(--text-muted)', border: '1px dashed var(--border-2)', textDecoration: 'line-through' }
-          : { background: '#1b5e20', color: '#fff', border: '1px solid #1b5e20' },
+          : { background: '#9C3F1E', color: '#fff', border: '1px solid #9C3F1E' },
         title: off ? b + ' is sitting this comp out — click to include' : 'Click to pull ' + b + ' out of the comp',
         onclick: () => {
           const u = String(b).toUpperCase();
@@ -23619,29 +23619,29 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
     def.fmt(m[def.key]), placeBadge(m.places[def.key]));
 
   // Green gradient for the bug count (0 → 6), echoing the Spring Cleaning poster.
-  const BUG_COLORS = ['#b8bdc2', '#cddc39', '#9ccc65', '#66bb6a', '#43a047', '#2e7d32', '#1b5e20'];
+  const BUG_COLORS = ['#b8bdc2', '#FFB899', '#FF8A5C', '#FF6B3D', '#DF643A', '#C8552E', '#9C3F1E'];
   const bugBadge = (bugs) => el('span', {
     style: { display: 'inline-block', minWidth: '30px', textAlign: 'center', padding: '2px 9px', borderRadius: '999px',
       background: BUG_COLORS[Math.max(0, Math.min(6, bugs))], color: '#fff', fontWeight: '900', fontSize: '12px' },
   }, String(bugs));
   // 4-round cumulative RIDDCOIN reward tiers (matches the poster's bug-count bars).
   const COIN_TIERS = [
-    { bugs: 12, coin: '®50K',  color: '#cddc39' },
-    { bugs: 16, coin: '®100K', color: '#9ccc65' },
-    { bugs: 20, coin: '®200K', color: '#43a047' },
-    { bugs: 24, coin: '®300K', color: '#1b5e20' },
+    { bugs: 12, coin: '®50K',  color: '#FFB899' },
+    { bugs: 16, coin: '®100K', color: '#FF8A5C' },
+    { bugs: 20, coin: '®200K', color: '#DF643A' },
+    { bugs: 24, coin: '®300K', color: '#9C3F1E' },
   ];
 
   return el('div', { class: 'card overflow-hidden' },
     // ── Poster-style banner header ──
-    el('div', { style: { background: '#E7E7DF', padding: '14px 16px', borderBottom: '3px solid #1b5e20' } },
+    el('div', { style: { background: '#E7E7DF', padding: '14px 16px', borderBottom: '3px solid #9C3F1E' } },
       el('div', { class: 'flex items-center justify-between gap-3' },
         el('div', { class: 'shrink-0' },
           el('div', { style: { fontWeight: '900', fontSize: '30px', letterSpacing: '-0.02em', color: '#141414', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
           el('div', { style: { fontWeight: '800', fontSize: '10.5px', letterSpacing: '0.06em', color: '#141414', marginTop: '3px', textTransform: 'uppercase' } },
             'Team Quality Based Competition by RIDDMADE™'),
-          indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: '#1b5e20', color: '#fff', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, indicatorCompWindowStr()),
-          indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#3a5a2a', marginTop: '4px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
+          indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: '#9C3F1E', color: '#fff', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, indicatorCompWindowStr()),
+          indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#A9441F', marginTop: '4px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
         ),
         el('div', { class: 'sc-sweep-track', title: 'Sweepin\' up' },
           el('div', { class: 'sc-walker' },
@@ -23658,10 +23658,10 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
     // each branch becomes a stacked card: rank + bugs + points up top, the
     // six scored categories in a two-column grid, revenue strip below. ──
     el('div', { class: 'sm:hidden' },
-      ...ranked.map((m, i) => el('div', { class: 'px-3 py-3', style: { borderTop: i ? '1px solid var(--border)' : 'none', background: i % 2 ? 'rgba(27,94,32,0.04)' : 'transparent' } },
+      ...ranked.map((m, i) => el('div', { class: 'px-3 py-3', style: { borderTop: i ? '1px solid var(--border)' : 'none', background: i % 2 ? 'rgba(156,63,30,0.04)' : 'transparent' } },
         el('div', { class: 'flex items-center justify-between gap-2 mb-2' },
           el('div', { class: 'flex items-center gap-2 min-w-0' },
-            el('span', { class: 'font-black tabular-nums', style: { color: i < 3 ? '#1b5e20' : 'var(--text-muted)' } }, '#' + m.place),
+            el('span', { class: 'font-black tabular-nums', style: { color: i < 3 ? '#9C3F1E' : 'var(--text-muted)' } }, '#' + m.place),
             el('span', { class: 'font-bold truncate' }, m.office),
             el('span', { class: 'text-[10px] text-muted- whitespace-nowrap' }, m.reps + ' reps')),
           el('div', { class: 'flex items-center gap-2 shrink-0' },
@@ -23678,11 +23678,11 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
           el('span', { style: { color: '#b8860b' } }, 'Pending ' + usd(m.pendingRevenue)))))),
     el('div', { class: 'overflow-x-auto hidden sm:block' },
       el('table', { class: 'w-full text-xs' },
-        el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#1b5e20', color: '#fff' } },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: '#9C3F1E', color: '#fff' } },
           el('tr', {},
             // Branch column frozen — sticky through horizontal scroll (the
             // green header bg carries over so rows never show through).
-            el('th', { class: 'text-left px-3 py-2.5 font-bold', style: { position: 'sticky', left: '0', zIndex: '3', background: '#1b5e20' } }, 'Branch'),
+            el('th', { class: 'text-left px-3 py-2.5 font-bold', style: { position: 'sticky', left: '0', zIndex: '3', background: '#9C3F1E' } }, 'Branch'),
             el('th', { class: 'text-left px-2 py-2.5 font-bold', title: 'Reps with a qualifying sale this round' }, 'Reps'),
             ...catDefs.map(d => el('th', {
               class: 'text-left px-2 py-2.5 font-bold',
@@ -23700,7 +23700,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
         el('tbody', {},
           ...ranked.map((m, i) => el('tr', {
             class: 'border-t',
-            style: { borderColor: 'var(--border)', background: i % 2 ? 'rgba(27,94,32,0.04)' : 'transparent' },
+            style: { borderColor: 'var(--border)', background: i % 2 ? 'rgba(156,63,30,0.04)' : 'transparent' },
           },
             // (accounts count dropped — the row is about the standings, and
             // sticky cells need an OPAQUE bg; the zebra tint is baked in so
@@ -23708,7 +23708,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
             el('td', {
               class: 'px-3 py-2 font-bold whitespace-nowrap',
               style: { position: 'sticky', left: '0', zIndex: '1', backgroundColor: 'var(--card)',
-                       backgroundImage: i % 2 ? 'linear-gradient(rgba(27,94,32,0.04), rgba(27,94,32,0.04))' : 'none' },
+                       backgroundImage: i % 2 ? 'linear-gradient(rgba(156,63,30,0.04), rgba(156,63,30,0.04))' : 'none' },
             },
               el('span', { style: { color: 'var(--text)' } }, m.office)),
             el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap font-bold' }, m.reps),
@@ -24061,7 +24061,7 @@ function isRepExcluded(repName) {
 // Independent of team: each rep can be tagged 'rookie' | 'vet' (or unset).
 const REP_TIERS = [
   { id: 'rookie', label: 'Rookie', color: '#0EA5E9' },
-  { id: 'vet',    label: 'Vet',    color: '#8DC63F' },
+  { id: 'vet',    label: 'Vet',    color: '#DF643A' },
 ];
 // ── Tier resolution — YEAR-AWARE so tags never need redoing in January ──
 // Sales history drives the DEFAULT: a rep whose first sale year is the
@@ -25185,7 +25185,7 @@ function manageTeamsPanel(opts) {
         onclick: () => { state._indicatorManageTierFilter = ''; render(); },
       }, 'All · ' + reps.length),
       tierChip('rookie',   'Rookie',   '#0EA5E9', tierCounts.rookie),
-      tierChip('vet',      'Vet',      '#8DC63F', tierCounts.vet),
+      tierChip('vet',      'Vet',      '#DF643A', tierCounts.vet),
       tierChip('untagged', 'Untagged', '#9B6B2C', tierCounts.untagged),
     );
 
@@ -25216,7 +25216,7 @@ function manageTeamsPanel(opts) {
           : { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border-2)' },
         onclick: () => { state._indicatorManageActiveFilter = ''; render(); },
       }, 'All · ' + reps.length),
-      activeChip('active',   'Active',   '#5F8A1F', activeCounts.active),
+      activeChip('active',   'Active',   '#DF643A', activeCounts.active),
       activeChip('inactive', 'Inactive', '#DC2626', activeCounts.inactive),
     );
 
@@ -25634,7 +25634,7 @@ function manageTeamsPanel(opts) {
           class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
           style: {
             borderColor: 'var(--border-2)',
-            background: tierMeta ? 'rgba(141,198,63,.08)' : 'var(--card-2)',
+            background: tierMeta ? 'rgba(223,100,58,.08)' : 'var(--card-2)',
             color: tierMeta ? tierMeta.color : 'var(--text)',
             fontWeight: tierMeta ? '700' : '400',
           },
@@ -25657,7 +25657,7 @@ function manageTeamsPanel(opts) {
         const activeToggle = el('button', {
           class: 'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest transition cursor-pointer',
           style: active
-            ? { background: 'rgba(141,198,63,.18)', color: '#5F8A1F' }
+            ? { background: 'rgba(223,100,58,.18)', color: '#DF643A' }
             : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px dashed var(--border-2)' },
           title: active ? 'Click to mark Inactive' : 'Click to mark Active',
           onclick: () => { setRepActive(repName, !active); render(); },
@@ -26497,7 +26497,7 @@ function viewIndicators() {
                 el('td', { class: 'py-1.5 pr-2 tabular-nums text-muted- text-xs' }, '#' + (i + 1)),
                 el('td', { class: 'py-1.5 pr-2 font-semibold' }, name),
                 el('td', { class: 'py-1.5 text-right tabular-nums', title: tot > v + 0.5 ? 'Company-wide this window: ' + fmt.usd0(tot) : '' }, fmt.usd0(v)),
-                el('td', { class: 'py-1.5 pl-2 text-right text-xs font-bold whitespace-nowrap', style: { color: q ? (home === b ? '#5F8A1F' : 'var(--text-muted)') : 'var(--text-muted)' },
+                el('td', { class: 'py-1.5 pl-2 text-right text-xs font-bold whitespace-nowrap', style: { color: q ? (home === b ? '#DF643A' : 'var(--text-muted)') : 'var(--text-muted)' },
                   title: q ? ('Sold ' + fmt.usd0(tot) + ' company-wide — counted in their top-revenue column') : ('Under $20K company-wide (' + fmt.usd0(tot) + ')') }, mark),
               );
             })))),
@@ -26906,7 +26906,7 @@ function viewIndicators() {
             'Filters',
             nonDefault ? el('span', {
               class: 'absolute tabular-nums',
-              style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '7px', background: 'var(--accent)', color: '#16321a', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
+              style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '7px', background: 'var(--accent)', color: '#3A1D12', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
             }, String(nonDefault)) : null,
           );
           if (state._indFiltersOpen) bindCloser();                 // panel restored open after a filter change re-render
@@ -26981,7 +26981,7 @@ function viewIndicators() {
               // Little count badge when some offices/teams are excluded.
               excludedNow.size ? el('span', {
                 class: 'absolute tabular-nums',
-                style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '7px', background: 'var(--accent)', color: '#16321a', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
+                style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '7px', background: 'var(--accent)', color: '#3A1D12', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
               }, String(excludedNow.size)) : null,
             );
             return el('div', { style: { position: 'relative' } }, btn, panel);
@@ -27840,7 +27840,7 @@ function maybeShowWeeklyRecap() {
         statBox('Revenue', money(lastRev)),
         statBox('Accounts', String(lastWk.length)),
         statBox('Best Day', bestDayEntry ? money(bestDayEntry[1]) : '—')),
-      prevRev > 0 || lastRev > 0 ? el('div', { class: 'text-xs text-center font-semibold', style: { color: delta >= 0 ? '#1b7f3b' : '#B45309' } },
+      prevRev > 0 || lastRev > 0 ? el('div', { class: 'text-xs text-center font-semibold', style: { color: delta >= 0 ? '#DF643A' : '#B45309' } },
         (prevRev > 0 ? (delta >= 0 ? '▲ ' : '▼ ') + money(Math.abs(delta)) + ' vs the week before · ' : '') + cheer) : null,
       el('button', {
         class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95',
@@ -27938,7 +27938,7 @@ function myStatsCard() {
     goal > 0 ? el('div', { class: 'mb-3' },
       el('div', { class: 'flex items-baseline justify-between text-xs mb-1' },
         el('span', { class: 'font-semibold' }, money(ytdRev) + ' of ' + money(goal) + ' YTD'),
-        el('span', { class: 'font-bold tabular-nums', style: { color: delta >= 0 ? '#1b7f3b' : '#DC2626' } },
+        el('span', { class: 'font-bold tabular-nums', style: { color: delta >= 0 ? '#DF643A' : '#DC2626' } },
           (delta >= 0 ? '▲ ' + money(delta) + ' ahead of pace' : '▼ ' + money(-delta) + ' behind pace'))),
       el('div', { style: { height: '10px', borderRadius: '6px', background: 'var(--card-2)', overflow: 'hidden', position: 'relative' } },
         el('div', { style: { height: '100%', width: pct + '%', background: 'var(--accent)', borderRadius: '6px' } }),
@@ -28195,10 +28195,10 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
             ),
             el('tbody', {},
               ...rankedByPest.map((r, i) => el('tr', { class: 'border-t border-' },
-                el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: '#8DC63F' } : {} }, i + 1),
+                el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: '#DF643A' } : {} }, i + 1),
                 el('td', { class: 'px-2 py-2 font-semibold' }, r.name),
                 el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, fmt.int(r.count)),
-                el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums font-black', style: i === 0 ? { color: '#8DC63F' } : {} }, fmt.usd(r.avgPest)),
+                el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums font-black', style: i === 0 ? { color: '#DF643A' } : {} }, fmt.usd(r.avgPest)),
               )),
             ),
           ),
@@ -28211,10 +28211,10 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
       el('div', { class: 'flex items-baseline gap-2 flex-wrap' },
         el('h3', { class: 'text-base font-black', style: { letterSpacing: '0.02em', textTransform: 'uppercase' } }, '🎟️ Raffle Tickets'),
         el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Entries'),
-        el('span', { class: 'text-base font-black tabular-nums', style: { color: '#8DC63F' } }, fmt.int(raffleTotalTickets)),
+        el('span', { class: 'text-base font-black tabular-nums', style: { color: '#DF643A' } }, fmt.int(raffleTotalTickets)),
       ),
       el('div', { class: 'flex items-center gap-3' },
-        el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: '#8DC63F', color: '#1D1D1D' }, title: 'Spin a wheel to pick a winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
+        el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: '#DF643A', color: '#1D1D1D' }, title: 'Spin a wheel to pick a winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
         el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export raffle tickets', onclick: () => exportRaffleCsv() }, '↓ Export'),
       ),
     ),
@@ -28237,12 +28237,12 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
             ),
             el('tbody', {},
               ...raffleSorted.map((r, i) => el('tr', { class: 'border-t border-' },
-                el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: '#8DC63F' } : {} }, i + 1),
+                el('td', { class: 'pl-5 pr-2 py-2 font-bold tabular-nums', style: i === 0 ? { color: '#DF643A' } : {} }, i + 1),
                 el('td', { class: 'px-2 py-2 font-semibold' }, r.name),
                 el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, r.tier1 ? fmt.int(r.tier1) : '—'),
                 el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, r.tier2 ? fmt.int(r.tier2) : '—'),
                 el('td', { class: 'px-2 py-2 text-left tabular-nums text-muted-' }, r.tier3 ? fmt.int(r.tier3) : '—'),
-                el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums font-black', style: { color: '#8DC63F' } }, fmt.int(r.total)),
+                el('td', { class: 'pl-2 pr-5 py-2 text-left tabular-nums font-black', style: { color: '#DF643A' } }, fmt.int(r.total)),
               )),
             ),
           ),
@@ -28348,18 +28348,18 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
     return el('div', {
       'data-section': 'd2d-comp',
       class: 'rounded-xl border overflow-hidden',
-      style: { borderColor: '#8DC63F', background: 'var(--card-2)' },
+      style: { borderColor: '#DF643A', background: 'var(--card-2)' },
     },
       // Spanning banner that unifies both scoped tables under one competition
       // heading while keeping the two cards visually separate below it.
-      el('div', { style: { background: '#8DC63F', padding: '12px 16px', borderBottom: '3px solid #2f5e1c' } },
+      el('div', { style: { background: '#DF643A', padding: '12px 16px', borderBottom: '3px solid #A9441F' } },
         el('div', { class: 'flex items-center justify-between gap-3' },
           el('div', { class: 'flex items-center gap-3' },
             el('div', { style: { fontSize: '26px', lineHeight: '1' } }, '🏆'),
             el('div', {},
               el('div', { style: { fontWeight: '900', fontSize: '20px', letterSpacing: '-0.01em', color: '#1D1D1D', textTransform: 'uppercase', lineHeight: '1' } }, 'Avg Pest Initial Competitions'),
               el('div', { style: { fontWeight: '800', fontSize: '10px', letterSpacing: '0.08em', color: '#1D1D1D', opacity: '0.8', marginTop: '3px', textTransform: 'uppercase' } }, 'Door-to-Door · by RIDDMADE™'),
-              indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: '#1D1D1D', color: '#8DC63F', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, '📅 ' + indicatorCompWindowStr()),
+              indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '999px', background: '#1D1D1D', color: '#DF643A', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, '📅 ' + indicatorCompWindowStr()),
               indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#1D1D1D', opacity: '0.7', marginTop: '3px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
             ),
           ),
@@ -29149,7 +29149,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       const clickable = !!expandKey;
       return el('tr', {
         class: 'border-t border-' + (clickable ? ' cursor-pointer hover:brightness-95 transition' : ''),
-        style: isOpen ? { background: 'rgba(141,198,63,.08)' } : {},
+        style: isOpen ? { background: 'rgba(223,100,58,.08)' } : {},
         onclick: clickable ? () => { state._aggRecordsExpanded = isOpen ? null : expandKey; mountApp(); } : undefined,
       },
         el('td', { class: 'pl-5 pr-3 py-3 align-top' },
@@ -29344,7 +29344,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               },
                 el('div', {
                   class: 'flex items-center justify-between gap-3 px-3 py-2 cursor-pointer hover:brightness-95 transition',
-                  style: isOpen ? { background: 'rgba(141,198,63,.08)' } : {},
+                  style: isOpen ? { background: 'rgba(223,100,58,.08)' } : {},
                   onclick: () => {
                     groupExpanded[scope] = isOpen ? null : g.name;
                     mountApp();
@@ -29371,7 +29371,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 ),
                 isOpen && el('div', {
                   class: 'border-t p-3',
-                  style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.04)' },
+                  style: { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.04)' },
                 },
                   el('div', { class: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3' },
                     miniTable('Top 10 Days',     'day',   subTops.topDays,   false),
@@ -29385,7 +29385,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         ),
       );
 
-      return el('tr', { class: 'border-t border-', style: { background: 'rgba(141,198,63,.04)' } },
+      return el('tr', { class: 'border-t border-', style: { background: 'rgba(223,100,58,.04)' } },
         el('td', { class: 'p-0', colspan: 5 },
           el('div', { class: 'p-3' },
             el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' },
@@ -29650,7 +29650,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     ];
 
     const ROOKIE_COLOR = '#0EA5E9';
-    const VET_COLOR    = '#8DC63F';
+    const VET_COLOR    = '#DF643A';
     const ALL_COLOR    = '#94A3B8';
 
     const sideCell = (val, color, leader, subtitle) => el('div', {
@@ -29838,7 +29838,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     { key: 'auditPct', label: 'Audit %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums whitespace-nowrap' },
         el('span', {
           class: 'font-semibold',
-          style: { color: r.auditPct >= 0.9 ? '#5F8A1F' : r.auditPct < 0.7 ? '#DC2626' : 'var(--text)' },
+          style: { color: r.auditPct >= 0.9 ? '#DF643A' : r.auditPct < 0.7 ? '#DC2626' : 'var(--text)' },
           title: 'Accounts not flagged Failed Audit ÷ all accounts (no-audit + pending count as good)',
         }, (r.auditPct * 100).toFixed(1) + '%')) },
     { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
@@ -30443,7 +30443,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   if (myIdx < 0) myIdx = mySig ? displayReps.findIndex(r => _meSig(r.name) === mySig) : -1;
                   const pinned = myIdx >= 0 ? [el('tr', {
                     class: 'border-t cursor-pointer transition hover:brightness-95',
-                    style: { background: 'rgba(141,198,63,.10)', boxShadow: 'inset 3px 0 0 var(--accent)' },
+                    style: { background: 'rgba(223,100,58,.10)', boxShadow: 'inset 3px 0 0 var(--accent)' },
                     title: 'You — your live spot on the board (rank #' + (myIdx + 1) + ')',
                     onclick: () => openIndicatorRepCard(displayReps[myIdx], allReps),
                   },
@@ -30477,7 +30477,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           const me = displayReps[myIdx];
           return [el('div', {
             class: 'rounded-xl border px-3 py-2.5 flex flex-col cursor-pointer',
-            style: { borderColor: 'var(--accent)', background: 'rgba(141,198,63,.08)', borderLeftWidth: '3px' },
+            style: { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.08)', borderLeftWidth: '3px' },
             onclick: () => openIndicatorRepCard(me._orig || me, allReps),
           },
             el('div', { class: 'flex items-center gap-2' },
@@ -30712,7 +30712,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
                 el('div', { class: 'w-16 text-right tabular-nums shrink-0 font-bold' }, _n > 0 ? fmt.usd0(_init / _n) : '\u2014'),
                 el('div', { class: 'w-12 text-right tabular-nums shrink-0 font-bold' }, _my == null ? '\u2014' : (_my * 100).toFixed(0) + '%'),
                 el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-bold' }, _n > 0 ? (_ap / _n * 100).toFixed(0) + '%' : '\u2014'),
-                el('div', { class: 'w-14 text-right tabular-nums font-black shrink-0', style: { color: _attr >= 0.10 ? '#DC2626' : _attr >= 0.05 ? '#D97706' : '#5F8A1F' } }, (_attr * 100).toFixed(1) + '%'));
+                el('div', { class: 'w-14 text-right tabular-nums font-black shrink-0', style: { color: _attr >= 0.10 ? '#DC2626' : _attr >= 0.05 ? '#D97706' : '#DF643A' } }, (_attr * 100).toFixed(1) + '%'));
             })(),
             ...(() => {
               // Bars scale to the BIGGEST subscription (relative), so the #1
@@ -30740,7 +30740,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
                 el('div', { class: 'w-16 text-right tabular-nums text-muted- shrink-0' }, s.avgInit > 0 ? fmt.usd0(s.avgInit) : '—'),
                 el('div', { class: 'w-12 text-right tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%'),
                 el('div', { class: 'w-14 text-right tabular-nums text-muted- shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—'),
-                el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0', style: { color: s.attr >= 0.10 ? '#DC2626' : s.attr >= 0.05 ? '#D97706' : '#5F8A1F' } }, (s.attr * 100).toFixed(1) + '%'),
+                el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0', style: { color: s.attr >= 0.10 ? '#DC2626' : s.attr >= 0.05 ? '#D97706' : '#DF643A' } }, (s.attr * 100).toFixed(1) + '%'),
               );
               })());
             })(),
@@ -31506,7 +31506,7 @@ const _chartInstances = {};
 //   • custom — admin picks each rep from the chip row
 // Metric: revenue | count | acv | avg_pest | my_pct (per-week values).
 const REP_TREND_PALETTE = [
-  '#8DC63F', '#0EA5E9', '#9333EA', '#EA580C', '#DC2626',
+  '#DF643A', '#0EA5E9', '#9333EA', '#EA580C', '#DC2626',
   '#F59E0B', '#059669', '#A78256', '#EC4899', '#6366F1',
 ];
 function repTrendColor(idx) { return REP_TREND_PALETTE[idx % REP_TREND_PALETTE.length]; }
@@ -32246,7 +32246,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
 // chosen accent color without committing to 8-digit hex (which Chart.js
 // quietly accepts but background-color CSS doesn't always interpolate well).
 function _hexToRgba(hex, alpha) {
-  if (!hex || !hex.startsWith('#') || hex.length < 7) return 'rgba(141,198,63,' + alpha + ')';
+  if (!hex || !hex.startsWith('#') || hex.length < 7) return 'rgba(223,100,58,' + alpha + ')';
   const r = parseInt(hex.substring(1, 3), 16);
   const g = parseInt(hex.substring(3, 5), 16);
   const b = parseInt(hex.substring(5, 7), 16);
@@ -32500,7 +32500,7 @@ function buildTeamReportNode(teamName, ctx) {
     el('div', {},
       companyLogo
         ? el('img', { src: companyLogo, alt: 'RIDD', style: { height: '48px', display: 'block', marginBottom: '6px' } })
-        : el('div', { style: { fontSize: '28px', fontWeight: '900', color: '#8DC63F', letterSpacing: '-0.02em' } }, 'RIDD'),
+        : el('div', { style: { fontSize: '28px', fontWeight: '900', color: '#DF643A', letterSpacing: '-0.02em' } }, 'RIDD'),
       el('div', { style: { fontSize: '10px', fontWeight: '700', letterSpacing: '0.18em', color: '#666' } }, 'SERVICE ABOVE ALL'),
     ),
     teamLogo
@@ -32533,7 +32533,7 @@ function buildTeamReportNode(teamName, ctx) {
       el('div', { style: { fontSize: '11px', fontWeight: '800', letterSpacing: '0.18em' } }, 'POWER RANKING'),
       el('div', { style: { fontSize: '10px', opacity: '0.6', marginTop: '2px' } }, 'Sum of per-metric ranks · 1 = best'),
     ),
-    el('div', { style: { fontSize: '36px', fontWeight: '900', color: teamRank === 1 ? '#8DC63F' : '#fff', lineHeight: '1' } },
+    el('div', { style: { fontSize: '36px', fontWeight: '900', color: teamRank === 1 ? '#DF643A' : '#fff', lineHeight: '1' } },
       teamRank ? '#' + teamRank + ' of ' + totalRanked : '—'),
   );
 
@@ -32548,7 +32548,7 @@ function buildTeamReportNode(teamName, ctx) {
   },
     el('div', { style: { fontSize: '10px', fontWeight: '800', color: '#888', letterSpacing: '0.08em', textTransform: 'uppercase' } }, label),
     el('div', { style: { fontSize: '22px', fontWeight: '900', marginTop: '4px', color: '#1D1D1D' } }, value),
-    rank != null && el('div', { style: { fontSize: '10px', fontWeight: '700', color: rank === 1 ? '#5F8A1F' : rank <= 3 ? '#8DC63F' : '#888', marginTop: '4px' } },
+    rank != null && el('div', { style: { fontSize: '10px', fontWeight: '700', color: rank === 1 ? '#DF643A' : rank <= 3 ? '#DF643A' : '#888', marginTop: '4px' } },
       'Rank #' + rank + ' of ' + totalRanked),
   );
   const stats = el('div', {
@@ -32579,7 +32579,7 @@ function buildTeamReportNode(teamName, ctx) {
     // Color buckets: top 3 green, bottom 3 red, middle amber
     const isStrong = rank && rank <= Math.min(3, Math.floor(totalRanked / 2));
     const isWeak   = rank && rank >  Math.max(totalRanked - 3, Math.ceil(totalRanked / 2));
-    const barColor = isStrong ? '#5F8A1F' : isWeak ? '#DC2626' : '#C28A1F';
+    const barColor = isStrong ? '#DF643A' : isWeak ? '#DC2626' : '#C28A1F';
     return el('div', { style: { marginBottom: '10px' } },
       // Top row: label + value on left, rank badge on right.
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' } },
@@ -32655,7 +32655,7 @@ function buildTeamReportNode(teamName, ctx) {
   const cohort = showCohort
     ? el('div', { style: { display: 'flex', gap: '10px', marginBottom: '18px' } },
         cohortColumn('Rookie', '#0EA5E9', rookieStats),
-        cohortColumn('Vet',    '#5F8A1F', vetStats),
+        cohortColumn('Vet',    '#DF643A', vetStats),
       )
     : null;
 
@@ -32729,11 +32729,11 @@ function buildTeamReportNode(teamName, ctx) {
         ? el('tr', {}, el('td', { colspan: 12, style: { padding: '14px', textAlign: 'center', color: '#888', fontStyle: 'italic', fontSize: '11px' } }, 'No reps on this team'))
         : teamRepsFull.map((r, i) => {
             const tierLabel = r.tier === 'rookie' ? 'Rookie' : r.tier === 'vet' ? 'Vet' : '—';
-            const tierColor = r.tier === 'rookie' ? '#0EA5E9' : r.tier === 'vet' ? '#5F8A1F' : '#999';
+            const tierColor = r.tier === 'rookie' ? '#0EA5E9' : r.tier === 'vet' ? '#DF643A' : '#999';
             const noSales   = r.sold === 0;
             const rowBg     = i % 2 === 0 ? '#FFFFFF' : '#FAFAF7';
             return el('tr', { style: { borderBottom: '1px solid #EAEAE4', background: rowBg, opacity: noSales ? '0.5' : '1' } },
-              td((i + 1).toString(), 'left', { style: { fontWeight: '800', color: i === 0 ? '#8DC63F' : '#1D1D1D' } }),
+              td((i + 1).toString(), 'left', { style: { fontWeight: '800', color: i === 0 ? '#DF643A' : '#1D1D1D' } }),
               td(r.name, 'left', { style: { fontWeight: '600', whiteSpace: 'normal', wordBreak: 'break-word' } }),
               td(tierLabel, 'left', { style: { fontWeight: '700', color: tierColor } }),
               td(fmt.int(r.sold),                       'right'),
@@ -32879,7 +32879,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     el('div', {
       style: {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        gap: '14px', borderBottom: '2px solid #8DC63F', paddingBottom: '4px', marginBottom: '6px',
+        gap: '14px', borderBottom: '2px solid #DF643A', paddingBottom: '4px', marginBottom: '6px',
       },
     },
       // Title hard-left so it lines up with the leaderboard's left edge;
@@ -32892,7 +32892,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
         companyLogo
           ? el('img', { src: companyLogo, alt: 'RIDD', style: { height: '26px' } })
-          : el('div', { style: { fontSize: '18px', fontWeight: '900', color: '#8DC63F', letterSpacing: '-0.02em' } }, 'RIDD'),
+          : el('div', { style: { fontSize: '18px', fontWeight: '900', color: '#DF643A', letterSpacing: '-0.02em' } }, 'RIDD'),
         el('div', { style: { fontSize: '10px', color: '#666', fontWeight: '600', textAlign: 'right' } }, dateStr),
       ),
     ),
@@ -32946,12 +32946,12 @@ function buildRookieVetReportNode(allReps, opts = {}) {
         el('div', { style: { width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
         el('div', { style: { width: '120px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
         el('div', { style: { flex: '1', height: '20px', borderRadius: '999px', background: '#f1f1ec', position: 'relative' } },
-          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '999px', background: dark ? '#1D1D1D' : '#8DC63F', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
-            inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#8DC63F' : '#fff', whiteSpace: 'nowrap' } }, fmtV(val)) : null),
+          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '999px', background: dark ? '#1D1D1D' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
+            inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmtV(val)) : null),
           inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#1D1D1D', whiteSpace: 'nowrap' } }, fmtV(val))));
     };
     return el('div', {},
-      el('div', { style: { fontSize: '12px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '0 0 4px' } }, title),
+      el('div', { style: { fontSize: '12px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A9441F', margin: '0 0 4px' } }, title),
       bar('', totalLab, totalVal, true),
       ...rows.map(([o, v], i) => bar('#' + (i + 1), o, v, false)));
   };
@@ -33000,12 +33000,12 @@ function buildRookieVetReportNode(allReps, opts = {}) {
         el('div', { style: { width: '54px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, q + ' >$20K'),
         el('div', { style: { width: '66px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, subs + ' subs/rep'),
         el('div', { style: { flex: '1', height: '20px', borderRadius: '999px', background: '#f1f1ec', position: 'relative' } },
-          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '999px', background: dark ? '#1D1D1D' : '#8DC63F', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
-            inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#8DC63F' : '#fff', whiteSpace: 'nowrap' } }, fmt.usd0(val)) : null),
+          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '999px', background: dark ? '#1D1D1D' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
+            inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmt.usd0(val)) : null),
           inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#1D1D1D', whiteSpace: 'nowrap' } }, fmt.usd0(val))));
     };
     return el('div', {},
-      el('div', { style: { fontSize: '12px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#3F6A14', margin: '0 0 4px' } }, 'YTD PRA'),
+      el('div', { style: { fontSize: '12px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A9441F', margin: '0 0 4px' } }, 'YTD PRA'),
       row('', 'Company', String(sumSummer.reps || 0), sumSummer.reps > 0 ? (sumSummer.subs / sumSummer.reps).toFixed(1) : '—', sumSummer.reps > 0 ? sumSummer.revenue / sumSummer.reps : 0, true),
       ...praRows.map((r, i) => row('#' + (i + 1), r.o, String(r.q || 0), r.q > 0 ? r.subsPra.toFixed(1) : '—', r.q > 0 ? r.revPra : 0, false)));
   })();
@@ -33020,14 +33020,14 @@ function buildRookieVetReportNode(allReps, opts = {}) {
       boxSizing: 'border-box',
     },
   },
-    el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', borderBottom: '2px solid #8DC63F', paddingBottom: '4px', marginBottom: '10px' } },
+    el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', borderBottom: '2px solid #DF643A', paddingBottom: '4px', marginBottom: '10px' } },
       el('div', {},
         el('div', { style: { fontSize: '18px', fontWeight: '900', letterSpacing: '-0.01em', lineHeight: '1.1' } }, 'Team Rollups'),
         el('div', { style: { fontSize: '10px', color: '#666', marginTop: '1px' } }, 'Team Revenue · Team ACV · Avg Pest Initial · YTD PRA — every rep in the window · ' + deptLabel)),
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
         companyLogo
           ? el('img', { src: companyLogo, alt: 'RIDD', style: { height: '26px' } })
-          : el('div', { style: { fontSize: '18px', fontWeight: '900', color: '#8DC63F', letterSpacing: '-0.02em' } }, 'RIDD'),
+          : el('div', { style: { fontSize: '18px', fontWeight: '900', color: '#DF643A', letterSpacing: '-0.02em' } }, 'RIDD'),
         el('div', { style: { fontSize: '10px', color: '#666', fontWeight: '600', textAlign: 'right' } }, dateStr))),
     el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 36px', alignItems: 'start' } },
       _mixPanel('Team Revenue', revRows, 'Total', sumAll('revenue'), fmt.usd0),
@@ -33128,12 +33128,12 @@ function buildRookieVetReportNode(allReps, opts = {}) {
         borderBottom: '1px solid #f0f0f0',
         whiteSpace: 'nowrap',
         fontWeight: opts2.bold || opts2.leader ? '800' : '400',
-        color: opts2.leader ? '#3F6A14' : (opts2.color || '#1D1D1D'),
+        color: opts2.leader ? '#A9441F' : (opts2.color || '#1D1D1D'),
         fontVariantNumeric: 'tabular-nums',
       };
       if (opts2.leader) {
-        style.background = 'rgba(141,198,63,0.18)';
-        style.boxShadow  = 'inset 0 0 0 1px rgba(141,198,63,0.55)';
+        style.background = 'rgba(223,100,58,0.18)';
+        style.boxShadow  = 'inset 0 0 0 1px rgba(223,100,58,0.55)';
       }
       return el('td', { style }, content);
     };
@@ -33204,7 +33204,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
               amount > 0
                 ? el('div', { style: { lineHeight: '1.15' } },
                     el('div', {}, fmt.usd0(amount)),
-                    when ? el('div', { style: { fontSize: '7.5px', fontWeight: '600', color: isLeader ? '#3F6A14' : '#999' } }, when) : null)
+                    when ? el('div', { style: { fontSize: '7.5px', fontWeight: '600', color: isLeader ? '#A9441F' : '#999' } }, when) : null)
                 : '—',
               'right', { leader: isLeader })),
           )),
@@ -33652,18 +33652,18 @@ function openTVDashboard() {
       style: {
         display: 'flex', alignItems: 'center', gap: '6px',
         padding: '4px 10px',
-        background: 'rgba(141,198,63,0.15)',
-        border: '1px solid #8DC63F',
+        background: 'rgba(223,100,58,0.15)',
+        border: '1px solid #DF643A',
         borderRadius: '999px',
       },
     },
       el('div', {
         id: 'tv-live-dot',
-        style: { width: '8px', height: '8px', borderRadius: '50%', background: '#8DC63F', transition: 'opacity .3s' },
+        style: { width: '8px', height: '8px', borderRadius: '50%', background: '#DF643A', transition: 'opacity .3s' },
       }),
-      el('span', { style: { fontSize: '10px', fontWeight: '900', letterSpacing: '0.18em', color: '#8DC63F' } }, 'LIVE'),
+      el('span', { style: { fontSize: '10px', fontWeight: '900', letterSpacing: '0.18em', color: '#DF643A' } }, 'LIVE'),
     );
-    const timeEl = el('div', { style: { fontSize: '14px', fontWeight: '600', color: '#8DC63F', letterSpacing: '0.05em' } },
+    const timeEl = el('div', { style: { fontSize: '14px', fontWeight: '600', color: '#DF643A', letterSpacing: '0.05em' } },
       new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
     const syncEl = (() => {
       const t = state.indicatorsUploadedAt ? new Date(state.indicatorsUploadedAt) : null;
@@ -33687,7 +33687,7 @@ function openTVDashboard() {
             style: {
               padding: '6px 14px', fontSize: '12px', fontWeight: '800',
               letterSpacing: '0.1em', textTransform: 'uppercase',
-              background: state._tvDashboardRange === r.id ? '#8DC63F' : 'transparent',
+              background: state._tvDashboardRange === r.id ? '#DF643A' : 'transparent',
               color: state._tvDashboardRange === r.id ? '#0A0A0A' : '#888',
               border: 'none', cursor: 'pointer',
             },
@@ -33770,7 +33770,7 @@ function openTVDashboard() {
         // TOTAL tile matches the range buttons' accent lime exactly, so
         // the top strip reads as one brand color. Dark text for contrast
         // (same pairing as the TODAY button). Other tiles stay dark.
-        background: opts.isTotal ? '#8DC63F' : '#1A1A1A',
+        background: opts.isTotal ? '#DF643A' : '#1A1A1A',
         textAlign: 'center',
         borderRight: '1px solid #0A0A0A',
         position: 'relative',
@@ -33831,17 +33831,17 @@ function openTVDashboard() {
       const recMix = sales2.length > 0 ? (subs2.length / sales2.length) * 100 : 0;
       const acv = sales2.length > 0 ? rep.revenue / sales2.length : 0;
       const tdS = { padding: '12px 10px', fontSize: '16px', fontWeight: '700', color: '#ddd', fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: 'nowrap' };
-      return el('tr', { style: { borderTop: '1px solid #2A2A2A', background: rank === 1 ? 'linear-gradient(90deg, #8DC63F18 0%, transparent 70%)' : 'transparent' } },
+      return el('tr', { style: { borderTop: '1px solid #2A2A2A', background: rank === 1 ? 'linear-gradient(90deg, #DF643A18 0%, transparent 70%)' : 'transparent' } },
         el('td', { style: { padding: '12px 0 12px 14px', width: '46px' } }, (() => {
           const a = avatarNode(rep.profile.avatar_url, rep.profile.initials || (rep.profile.full_name || '?').slice(0, 2), 'w-9 h-9 text-[11px]');
           a.style.flexShrink = '0';
           return a;
         })()),
         el('td', { style: { padding: '12px 10px', minWidth: '0' } },
-          el('div', { style: { fontSize: '17px', fontWeight: '800', color: rank === 1 ? '#8DC63F' : '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '220px' } }, rep.profile.full_name || 'Rep'),
+          el('div', { style: { fontSize: '17px', fontWeight: '800', color: rank === 1 ? '#DF643A' : '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '220px' } }, rep.profile.full_name || 'Rep'),
           el('div', { style: { fontSize: '11px', color: '#777' } }, (state.offices || []).find(o => o.id === rep.profile.office_id)?.name || '—')),
         el('td', { style: tdS }, String(subs2.length)),
-        el('td', { style: { ...tdS, color: '#8DC63F', fontWeight: '900', fontSize: '17px' } }, fmtMoney(rep.revenue)),
+        el('td', { style: { ...tdS, color: '#DF643A', fontWeight: '900', fontSize: '17px' } }, fmtMoney(rep.revenue)),
         el('td', { style: tdS }, fmtMoney(acv)),
         el('td', { style: tdS }, (c12 + cMY) > 0 ? myPct.toFixed(0) + '%' : '—'),
         el('td', { style: { ...tdS, paddingRight: '14px' } }, recMix.toFixed(0) + '%'),
@@ -33878,7 +33878,7 @@ function openTVDashboard() {
       },
     },
       el('span', { style: { color: big ? '#fff' : '#888', fontWeight: big ? '800' : '600', letterSpacing: big ? '0.02em' : '0.05em' } }, label),
-      el('span', { style: { color: big ? '#8DC63F' : '#fff', fontWeight: '900', fontVariantNumeric: 'tabular-nums' } }, value),
+      el('span', { style: { color: big ? '#DF643A' : '#fff', fontWeight: '900', fontVariantNumeric: 'tabular-nums' } }, value),
     );
 
     const statsCard = el('div', {
@@ -33887,7 +33887,7 @@ function openTVDashboard() {
       el('div', { style: { textAlign: 'center', padding: '24px 0', borderBottom: '2px solid #222', marginBottom: '12px' } },
         companyLogo
           ? el('img', { src: companyLogo, alt: 'RIDD', style: { height: '80px', display: 'inline-block', filter: 'brightness(1.1)' } })
-          : el('div', { style: { fontSize: '56px', fontWeight: '900', color: '#8DC63F', letterSpacing: '-0.02em' } }, 'RIDD'),
+          : el('div', { style: { fontSize: '56px', fontWeight: '900', color: '#DF643A', letterSpacing: '-0.02em' } }, 'RIDD'),
         el('div', { style: { fontSize: '12px', fontWeight: '700', letterSpacing: '0.18em', color: '#666', marginTop: '4px' } }, 'PEST CONTROL'),
         el('div', { style: { fontSize: '11px', color: '#666', marginTop: '8px' } }, range.label + ' · ' + range.start + (range.start !== range.end ? ' → ' + range.end : '')),
       ),
@@ -34237,7 +34237,7 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay,
   ];
 
   const lineColor = accentColor || 'var(--accent)';
-  const fillColor = accentColor ? _hexToRgba(accentColor, 0.15) : 'rgba(141,198,63,.15)';
+  const fillColor = accentColor ? _hexToRgba(accentColor, 0.15) : 'rgba(223,100,58,.15)';
 
   // Take a sales array → metric value for a given bucket. Now sales-set is a
   // parameter so the overlay (when present) can compute against a different
@@ -34713,7 +34713,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelO
           }
         : (compareRep ? {
             sales: compareRep.sales,
-            color: getRepTeam(compareRep.name) ? getTeamColor(getRepTeam(compareRep.name)) : '#8DC63F',
+            color: getRepTeam(compareRep.name) ? getTeamColor(getRepTeam(compareRep.name)) : '#DF643A',
             label: compareRep.name,
           } : null),
       { titleNode: _scopeTitle, rightNode: scopeSelector, controlsInto: panelOpts.controlsInto },
@@ -35274,7 +35274,7 @@ function indicatorYoYTrendChart() {
           if (gran === 'year') {
             // One point per year, ALL history on a single line per series —
             // the Years checkboxes don't apply in this view.
-            const scopePalette0 = ['#8DC63F', '#0EA5E9', '#F59E0B', '#A855F7', '#EF4444', '#14B8A6', '#EC4899', '#F97316'];
+            const scopePalette0 = ['#DF643A', '#0EA5E9', '#F59E0B', '#A855F7', '#EF4444', '#14B8A6', '#EC4899', '#F97316'];
             _yoySelScopes.forEach((sc, si) => {
               const A = scopeAccs[si];
               const scopeLab = multiScope ? _scopeLabelOf(sc) : '';
@@ -35282,16 +35282,16 @@ function indicatorYoYTrendChart() {
                 const tierLab = tier === 'all' ? '' : tier === 'rookie' ? 'Rookies' : 'Vets';
                 const label = [scopeLab, tierLab].filter(Boolean).join(' · ') || 'Company';
                 const color = multiScope ? scopePalette0[si % scopePalette0.length]
-                  : tier === 'rookie' ? '#F59E0B' : tier === 'vet' ? '#818CF8' : '#8DC63F';
+                  : tier === 'rookie' ? '#F59E0B' : tier === 'vet' ? '#818CF8' : '#DF643A';
                 const data = yearsPresent.map(y => { const _b = _bucketsOfIn(A, y, tier) || {}; return valOf(_b[1], y === prevY); });
-                lines.push({ label, data, borderColor: color, backgroundColor: 'rgba(141,198,63,.10)', fill: lines.length === 0 && kind !== 'pct' && _yoySelScopes.length * _yoySelTiers.length === 1, spanGaps: true, borderWidth: 3, tension: 0.25, pointRadius: 3.5, pointHoverRadius: 6 });
+                lines.push({ label, data, borderColor: color, backgroundColor: 'rgba(223,100,58,.10)', fill: lines.length === 0 && kind !== 'pct' && _yoySelScopes.length * _yoySelTiers.length === 1, spanGaps: true, borderWidth: 3, tension: 0.25, pointRadius: 3.5, pointHoverRadius: 6 });
               });
             });
             return lines;
           }
           const _totalSeries = _yoySelYears.length * _yoySelTiers.length * _yoySelScopes.length;
           const MAX_SERIES = 14;   // beyond this the chart is spaghetti — trim scopes/years/tiers
-          const scopePalette = ['#8DC63F', '#0EA5E9', '#F59E0B', '#A855F7', '#EF4444', '#14B8A6', '#EC4899', '#F97316'];
+          const scopePalette = ['#DF643A', '#0EA5E9', '#F59E0B', '#A855F7', '#EF4444', '#14B8A6', '#EC4899', '#F97316'];
           _yoySelScopes.forEach((sc, si) => {
             const A = scopeAccs[si];
             const scopeLab = multiScope ? ' · ' + _scopeLabelOf(sc) : '';
@@ -35299,7 +35299,7 @@ function indicatorYoYTrendChart() {
               if (!_yoySelYears.includes(y)) return;   // only the years picked in the Years dropdown plot
               const isCur = y === curY;
               const idx = curY - y; // 0 = current, 1 = prior year, …
-              const yColor = isCur ? '#8DC63F' : (idx === 1 ? muted : palette[(idx - 2 + palette.length) % palette.length]);
+              const yColor = isCur ? '#DF643A' : (idx === 1 ? muted : palette[(idx - 2 + palette.length) % palette.length]);
               _yoySelTiers.forEach((tier) => {
                 if (lines.length >= MAX_SERIES) return;
                 // Color priority: multiple SCOPES → one color per scope
@@ -35324,7 +35324,7 @@ function indicatorYoYTrendChart() {
                 const _liveIdx = (isCur && lastDataWeek >= _curBucketNow) ? _curBucketNow - 1 : -1;
                 const plotVals = _liveIdx >= 0 ? vals.map((v, i) => (i >= _liveIdx ? null : v)) : vals;
                 lines.push(isCur
-                  ? { label, data: plotVals, borderColor: color, backgroundColor: 'rgba(141,198,63,.12)', fill: kind !== 'pct' && _totalSeries === 1, spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 }
+                  ? { label, data: plotVals, borderColor: color, backgroundColor: 'rgba(223,100,58,.12)', fill: kind !== 'pct' && _totalSeries === 1, spanGaps: true, borderWidth: 3, tension: 0.3, pointRadius: 2, pointHoverRadius: 5, order: 0 }
                   : { label, data: vals, borderColor: color, borderDash: [6, 4], backgroundColor: 'transparent', fill: false, spanGaps: true, borderWidth: 2, tension: 0.3, pointRadius: 1.5, pointHoverRadius: 5, order: idx });
                 // TRENDLINE (per Isaac): single-scope views always carry a
                 // least-squares trend over this line's completed weeks —
@@ -35775,7 +35775,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
           y: {
             reverse: isRanking,
             beginAtZero: !isRanking,
-            grid: { color: isRanking ? 'rgba(141,198,63,.15)' : gridColor },
+            grid: { color: isRanking ? 'rgba(223,100,58,.15)' : gridColor },
             ticks: { font: { size: 10 }, color: tickColor,
               callback: isRanking
                 ? undefined
@@ -36168,7 +36168,7 @@ function computeAttendanceScore(att, tplAtt, periodKey) {
 // scorecard conventions: ≥90 strong, 75–89 watch, <75 intervene.
 function scorecardBand(score) {
   if (score == null || !Number.isFinite(score)) return { color: 'var(--text-muted)', bg: 'var(--card-2)', label: '—' };
-  if (score >= 90) return { color: '#5F8A1F', bg: 'rgba(141,198,63,.16)', label: 'Strong' };
+  if (score >= 90) return { color: '#DF643A', bg: 'rgba(223,100,58,.16)', label: 'Strong' };
   if (score >= 75) return { color: '#92400E', bg: 'rgba(245,158,11,.18)', label: 'Watch' };
   return { color: '#B91C1C', bg: 'rgba(220,38,38,.14)', label: 'Intervene' };
 }
@@ -36310,7 +36310,7 @@ function viewScorecards() {
       avgComposite != null ? avgComposite.toFixed(1) + '%' : '—',
       avgComposite != null ? scorecardBand(avgComposite).label : 'no scores yet',
       avgComposite != null ? scorecardBand(avgComposite).color : null),
-    scorecardSummaryCard('Strong (≥90)',     strongCount.toString(),    'on or above target', '#5F8A1F'),
+    scorecardSummaryCard('Strong (≥90)',     strongCount.toString(),    'on or above target', '#DF643A'),
     scorecardSummaryCard('Needs Coaching',   (interveneCount + watchCount).toString(),
       interveneCount + ' intervene · ' + watchCount + ' watch',
       interveneCount > 0 ? '#B91C1C' : (watchCount > 0 ? '#92400E' : null)),
@@ -36475,7 +36475,7 @@ function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen }) {
   const stampChips = [];
   if (card && card.finalized) stampChips.push(el('span', {
     class: 'rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider',
-    style: { background: 'rgba(95,138,31,.12)', color: '#5F8A1F' },
+    style: { background: 'rgba(223,100,58,.12)', color: '#DF643A' },
     title: 'Finalized & locked' + (card.finalized.by ? ' by ' + card.finalized.by : '') + (card.finalized.on ? ' \u00b7 ' + fmt.dateShort(card.finalized.on) : ''),
   }, '\ud83d\udd12 Final'));
   if (card && card.reviewed) stampChips.push(el('span', {
@@ -36566,7 +36566,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
     );
 
     if (locked) modal.append(
-      el('div', { class: 'rounded-lg border px-3 py-2 text-[11px] mb-4', style: { borderColor: '#5F8A1F', background: 'rgba(95,138,31,.08)', color: '#5F8A1F' } },
+      el('div', { class: 'rounded-lg border px-3 py-2 text-[11px] mb-4', style: { borderColor: '#DF643A', background: 'rgba(223,100,58,.08)', color: '#DF643A' } },
         '\ud83d\udd12 Finalized' + (draft.finalized.by ? ' by ' + draft.finalized.by : '') + (draft.finalized.on ? ' \u00b7 ' + fmt.dateShort(draft.finalized.on) : '') + (_isAdminHere ? ' \u2014 unlock below to edit.' : ' \u2014 this scorecard is locked.')));
     else if (!canEdit) modal.append(
       el('div', { class: 'rounded-lg border px-3 py-2 text-[11px] mb-4', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text-muted)' } },
@@ -36775,7 +36775,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
           canEdit ? el('button', {
             class: 'rounded-lg px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
             style: draft.reviewed
-              ? { borderColor: '#5F8A1F', color: '#5F8A1F', background: 'rgba(95,138,31,.08)' }
+              ? { borderColor: '#DF643A', color: '#DF643A', background: 'rgba(223,100,58,.08)' }
               : { borderColor: 'var(--border-2)', color: 'var(--text)' },
             title: draft.reviewed
               ? 'Reviewed with the agent on ' + fmt.dateShort(draft.reviewed.on) + (draft.reviewed.by ? ' by ' + draft.reviewed.by : '') + ' \u2014 click to clear'
@@ -36786,7 +36786,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
               render();
             },
           }, draft.reviewed ? '\u2713 Reviewed ' + fmt.dateShort(draft.reviewed.on) : '\u2713 Reviewed with agent')
-          : (draft.reviewed ? el('span', { class: 'text-[11px] font-semibold', style: { color: '#5F8A1F' } },
+          : (draft.reviewed ? el('span', { class: 'text-[11px] font-semibold', style: { color: '#DF643A' } },
               '\u2713 Reviewed ' + fmt.dateShort(draft.reviewed.on)) : null),
           canEdit && !locked ? el('button', {
             class: 'rounded-lg px-3 py-2 text-xs font-bold border transition hover:brightness-95',
@@ -36889,7 +36889,7 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
           el('h3', { class: 'text-xs font-bold uppercase tracking-widest text-muted-' }, 'Metrics'),
           el('span', {
             class: 'text-[11px] tabular-nums font-semibold',
-            style: { color: weightWarn ? '#DC2626' : '#5F8A1F' },
+            style: { color: weightWarn ? '#DC2626' : '#DF643A' },
           }, 'Weights total ' + Math.round(totalWeight * 100) + '%' + (weightWarn ? ' (should equal 100%)' : ' ✓')),
         ),
         ...tpl.metrics.map(m => el('div', { class: 'flex items-center gap-2 mb-2' },
@@ -37415,7 +37415,7 @@ async function uploadReportingCsv(file) {
 // first slice (which is usually the largest) lands on RIDD's brand lime.
 // Cycled when there are more slices than colors.
 const REPORTING_PALETTE = [
-  '#8DC63F', // RIDD lime
+  '#DF643A', // RIDD lime
   '#1D4D4F', // dark teal
   '#F0AC1E', // gold
   '#3B82F6', // blue
@@ -37423,7 +37423,7 @@ const REPORTING_PALETTE = [
   '#9333EA', // purple
   '#14B8A6', // teal
   '#F97316', // orange
-  '#84CC16', // green
+  '#FACC15', // green
   '#EC4899', // pink
   '#06B6D4', // cyan
   '#6B7280', // gray
@@ -38493,7 +38493,7 @@ function openReportingAreaStatsModal({ area, peers, kind }) {
     const pct = eligible.length > 1 ? (eligible.length - rank) / (eligible.length - 1) : 1;
     pcts.push(pct);
     const median = sorted[Math.floor(sorted.length / 2)];
-    const tone = pct >= 0.67 ? '#5F8A1F' : pct <= 0.33 ? '#DC2626' : '#B45309';
+    const tone = pct >= 0.67 ? '#DF643A' : pct <= 0.33 ? '#DC2626' : '#B45309';
     rowsEls.push(el('div', { class: 'py-2 border-t border-' },
       el('div', { class: 'flex items-center justify-between gap-3 text-xs' },
         el('span', { class: 'font-semibold' }, m.label),
@@ -38508,8 +38508,8 @@ function openReportingAreaStatsModal({ area, peers, kind }) {
   });
   const avgPct = pcts.length ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
   const standing = avgPct == null ? null
-    : avgPct >= 0.8 ? ['One of your best ' + peerNoun, '#5F8A1F']
-    : avgPct >= 0.55 ? ['Above the pack', '#5F8A1F']
+    : avgPct >= 0.8 ? ['One of your best ' + peerNoun, '#DF643A']
+    : avgPct >= 0.55 ? ['Above the pack', '#DF643A']
     : avgPct >= 0.45 ? ['Middle of the pack', '#B45309']
     : avgPct >= 0.2 ? ['Below the pack', '#B45309']
     : ['One of your weakest ' + peerNoun, '#DC2626'];
@@ -38730,7 +38730,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
         el('span', { style: { color: 'var(--text-muted)' } }, 'Showing ' + shown.toLocaleString() + ' of ' + sortedCache.length.toLocaleString() + ' rows'),
         el('button', {
           class: 'rounded-full px-4 py-1.5 font-semibold border cursor-pointer transition hover:brightness-110',
-          style: { background: 'var(--accent)', color: '#16321a', borderColor: 'var(--accent)' },
+          style: { background: 'var(--accent)', color: '#3A1D12', borderColor: 'var(--accent)' },
           onclick: () => { renderLimit += RENDER_PAGE * 2; renderRows(); },
         }, 'Show ' + Math.min(RENDER_PAGE * 2, remaining).toLocaleString() + ' more'),
         el('button', {
@@ -39338,7 +39338,7 @@ function viewMarketing() {
     kpi('Ad Spend', spendDaily ? money0(adSpend) : '—', spendDaily ? 'Meta ' + money0(metaSpend) + ' · Google ' + money0(googleSpend) : 'Windsor feed'),
     kpi('Marketed Revenue', money0(mkRevenue), mkAccounts + ' accounts · non-D2D sources'),
     kpi('Blended CPA', cpa ? money0(cpa) : '—', 'ad spend ÷ marketed accounts'),
-    kpi('ROAS', roas ? roas.toFixed(1) + '×' : '—', 'marketed revenue ÷ ad spend', roas >= 3 ? '#1b7f3b' : roas > 0 ? '#B45309' : null),
+    kpi('ROAS', roas ? roas.toFixed(1) + '×' : '—', 'marketed revenue ÷ ad spend', roas >= 3 ? '#DF643A' : roas > 0 ? '#B45309' : null),
     kpi('Leads', bySrcMonth ? mkLeads.toLocaleString() : '—', 'GoHighLevel'),
     kpi('Lead → Sale', conv ? (conv * 100).toFixed(1) + '%' : '—', 'accounts ÷ leads')));
   const feedNotes = el('div', {}, feedNote(spendSlot, 'Windsor', 'set WINDSOR_API_KEY in Netlify'), feedNote(leadsSlot, 'GoHighLevel', 'set GHL_PRIVATE_TOKEN + GHL_LOCATION_ID'), feedNote(qboSlot, 'QuickBooks', 'finish the QBO OAuth setup in qbo-spend.js'));
@@ -39375,7 +39375,7 @@ function viewMarketing() {
               el('td', { class: 'px-2 py-2.5 text-right tabular-nums font-semibold' }, money0(r.revenue)),
               el('td', { class: 'px-2 py-2.5 text-right tabular-nums' }, rCpl ? money0(rCpl) : '—'),
               el('td', { class: 'px-2 py-2.5 text-right tabular-nums' }, rCpa ? money0(rCpa) : '—'),
-              el('td', { class: 'px-4 py-2.5 text-right tabular-nums font-bold', style: rRoas != null ? { color: rRoas >= 3 ? '#1b7f3b' : rRoas >= 1.5 ? '#B45309' : '#DC2626' } : {} }, rRoas != null ? rRoas.toFixed(1) + '×' : '—'));
+              el('td', { class: 'px-4 py-2.5 text-right tabular-nums font-bold', style: rRoas != null ? { color: rRoas >= 3 ? '#DF643A' : rRoas >= 1.5 ? '#B45309' : '#DC2626' } : {} }, rRoas != null ? rRoas.toFixed(1) + '×' : '—'));
           }))))));
 
   // ── 12-week trend: spend vs marketed revenue ──
@@ -39433,7 +39433,7 @@ function viewMarketing() {
     channelRows.filter(r => r.paid && r.spend > 500).forEach(r => {
       const rr = r.revenue / r.spend;
       if (rr < 1.5) sigs.push({ c: '#DC2626', t: r.label + ' ROAS is ' + rr.toFixed(1) + '× this period (' + money0(r.spend) + ' spend → ' + money0(r.revenue) + ') — review campaigns or attribution' });
-      else if (rr >= 4) sigs.push({ c: '#1b7f3b', t: r.label + ' returning ' + rr.toFixed(1) + '× (' + money0(r.spend) + ' → ' + money0(r.revenue) + ') — room to scale budget' });
+      else if (rr >= 4) sigs.push({ c: '#DF643A', t: r.label + ' returning ' + rr.toFixed(1) + '× (' + money0(r.spend) + ' → ' + money0(r.revenue) + ') — room to scale budget' });
     });
     const vendorRev = channelRows.filter(r => !r.paid).reduce((a, r) => a + r.revenue, 0);
     if (vendorRev > 0 && qboSpend === 0 && !qboSlot.data) sigs.push({ c: '#B45309', t: money0(vendorRev) + ' of revenue comes from vendor channels (Angi, Yelp, eLocal…) with no spend tracked — finish the QuickBooks hookup to see their true CPA' });
@@ -39627,7 +39627,7 @@ function openRcItemModal(i) {
       el('div', {}, mainImg, thumbsRow),
       el('div', { class: 'flex flex-col' },
         el('div', { class: 'font-display text-2xl leading-tight' }, i.name),
-        el('div', { class: 'font-black tabular-nums text-xl mt-1', style: { color: '#8DC63F' } }, _rcCoin(i.cost)),
+        el('div', { class: 'font-black tabular-nums text-xl mt-1', style: { color: '#DF643A' } }, _rcCoin(i.cost)),
         i.stock != null ? el('div', { class: 'text-xs mt-0.5', style: { color: out ? '#DC2626' : 'var(--text-muted)' } }, out ? 'Out of stock' : i.stock + ' left in stock') : null,
         meta.text ? el('p', { class: 'text-sm mt-3', style: { color: 'var(--text-muted)', lineHeight: '1.55' } }, meta.text) : null,
         el('button', {
@@ -39652,7 +39652,7 @@ function openRcUserHistory(uid) {
       el('div', {},
         el('h3', { class: 'text-base font-bold' }, names[uid] || 'User'),
         el('div', { class: 'text-xs text-muted-' }, rows.length + ' ledger entr' + (rows.length === 1 ? 'y' : 'ies') + ' · balance ',
-          el('span', { class: 'font-black tabular-nums', style: { color: bal >= 0 ? '#5F8A1F' : '#B91C1C' } }, _rcCoin(bal)))),
+          el('span', { class: 'font-black tabular-nums', style: { color: bal >= 0 ? '#DF643A' : '#B91C1C' } }, _rcCoin(bal)))),
       el('button', { class: 'text-xl leading-none cursor-pointer px-2', onclick: () => overlay.remove() }, '×')),
     el('div', { style: { maxHeight: '62vh', overflowY: 'auto' } },
       el('table', { class: 'w-full text-xs' },
@@ -39660,7 +39660,7 @@ function openRcUserHistory(uid) {
           rows.length === 0 ? el('tr', {}, el('td', { class: 'py-6 text-center text-muted-' }, 'No RIDDCOIN activity yet.')) : null,
           ...rows.map(r => el('tr', { class: 'border-t border-' },
             el('td', { class: 'py-1.5 pr-2 whitespace-nowrap text-muted- tabular-nums' }, _rcWhen(r.created_at)),
-            el('td', { class: 'py-1.5 pr-2 text-right tabular-nums font-black', style: { color: r.delta > 0 ? '#5F8A1F' : '#B91C1C' } }, (r.delta > 0 ? '+' : '') + _rcCoin(r.delta)),
+            el('td', { class: 'py-1.5 pr-2 text-right tabular-nums font-black', style: { color: r.delta > 0 ? '#DF643A' : '#B91C1C' } }, (r.delta > 0 ? '+' : '') + _rcCoin(r.delta)),
             el('td', { class: 'py-1.5 pr-2' }, r.reason || '—'),
             el('td', { class: 'py-1.5 text-muted- whitespace-nowrap' }, names[r.created_by] || '—'))))))));
   document.body.append(overlay);
@@ -39687,7 +39687,7 @@ function viewMarketplace() {
       el('div', { class: 'text-xs mt-1', style: { opacity: '.7' } }, 'Earn RIDDCOIN all season · spend it at year-end prize pickup')),
     el('div', { class: 'text-right' },
       el('div', { class: 'text-[9px] font-black uppercase', style: { letterSpacing: '.18em', opacity: '.6' } }, 'Your RIDDCOIN'),
-      el('div', { class: 'font-display text-4xl leading-none tabular-nums', style: { color: '#8DC63F' } }, _rcCoin(myBal)))));
+      el('div', { class: 'font-display text-4xl leading-none tabular-nums', style: { color: '#DF643A' } }, _rcCoin(myBal)))));
 
   // Schema not installed yet → setup card (the localhost model shows this
   // until riddcoin.sql is run once in the Supabase SQL Editor).
@@ -39731,13 +39731,13 @@ function viewMarketplace() {
             const spin = _rcSpinCfg(i);
             if (spin) {
               const oddsTitle = spin.pool.map(p2 => p2.name + ' · ' + (Number(p2.odds) || 0) + '%' + (Number(p2.value) > 0 ? ' · worth ' + _rcCoin(p2.value) : '')).join('\n');
-              return el('div', { class: 'card p-4 flex flex-col gap-2', style: { borderColor: '#8DC63F' } },
+              return el('div', { class: 'card p-4 flex flex-col gap-2', style: { borderColor: '#DF643A' } },
                 el('div', { class: 'text-3xl' }, '🎰'),
                 el('div', { class: 'font-bold text-sm leading-tight' }, i.name),
                 el('div', { class: 'text-[11px] text-muted-', title: oddsTitle }, spin.pool.length + ' possible prizes — hover to peek the odds'),
                 el('div', { class: 'flex items-center justify-between mt-auto pt-2' },
                   el('div', {},
-                    el('div', { class: 'font-black tabular-nums', style: { color: '#8DC63F' } }, _rcCoin(i.cost)),
+                    el('div', { class: 'font-black tabular-nums', style: { color: '#DF643A' } }, _rcCoin(i.cost)),
                     i.stock != null ? el('div', { class: 'text-[10px] text-muted-' }, out ? 'Out of stock' : i.stock + ' left') : null),
                   el('button', {
                     class: 'px-3 py-1.5 rounded-lg text-xs font-bold' + ((out || cant) ? ' opacity-50' : ' cursor-pointer hover:brightness-95'),
@@ -39776,7 +39776,7 @@ function viewMarketplace() {
               meta.text ? el('div', { class: 'text-[11px] text-muted-', style: { display: '-webkit-box', WebkitLineClamp: '2', WebkitBoxOrient: 'vertical', overflow: 'hidden' } }, meta.text) : null,
               el('div', { class: 'flex items-center justify-between mt-auto pt-2' },
                 el('div', {},
-                  el('div', { class: 'font-black tabular-nums', style: { color: '#8DC63F' } }, _rcCoin(i.cost)),
+                  el('div', { class: 'font-black tabular-nums', style: { color: '#DF643A' } }, _rcCoin(i.cost)),
                   i.stock != null ? el('div', { class: 'text-[10px] text-muted-' }, out ? 'Out of stock' : i.stock + ' left') : null),
                 el('button', {
                   class: 'px-3 py-1.5 rounded-lg text-xs font-bold' + ((out || cant) ? ' opacity-50' : ' cursor-pointer hover:brightness-95'),
@@ -39819,7 +39819,7 @@ function viewMarketplace() {
         ...rows.map(r => el('tr', { class: 'border-t border-' },
           el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted- tabular-nums' }, _rcWhen(r.created_at)),
           showUser ? el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap' }, names[r.user_id] || '—') : null,
-          el('td', { class: 'px-3 py-2 text-right tabular-nums font-black', style: { color: r.delta > 0 ? '#5F8A1F' : '#B91C1C' } }, (r.delta > 0 ? '+' : '') + _rcCoin(r.delta)),
+          el('td', { class: 'px-3 py-2 text-right tabular-nums font-black', style: { color: r.delta > 0 ? '#DF643A' : '#B91C1C' } }, (r.delta > 0 ? '+' : '') + _rcCoin(r.delta)),
           el('td', { class: 'px-3 py-2 hidden sm:table-cell' },
             el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded uppercase', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, r.kind)),
           el('td', { class: 'px-3 py-2' }, r.reason || '—'),
@@ -39829,7 +39829,7 @@ function viewMarketplace() {
             if (!si) return _refunded.has(String(r.id)) ? el('span', { class: 'text-[10px] font-bold text-muted-' }, 'sold back') : '';
             return el('button', {
               class: 'px-2 py-1 rounded text-[10px] font-bold cursor-pointer border transition hover:brightness-95',
-              style: { borderColor: 'rgba(141,198,63,.5)', color: '#5F8A1F' },
+              style: { borderColor: 'rgba(223,100,58,.5)', color: '#DF643A' },
               title: si.prize + ' is worth ' + _rcCoin(si.value) + ' \u2014 sell it back to RIDD for 90% and keep spinning',
               onclick: async () => {
                 if (!confirm('Sell "' + si.prize + '" back to RIDD for ' + _rcCoin(si.payout) + ' (90% of its ' + _rcCoin(si.value) + ' value)? The prize goes back to RIDD and the coins hit your balance now.')) return;
@@ -39867,7 +39867,7 @@ function viewMarketplace() {
           },
             el('td', { class: 'px-3 py-2 tabular-nums text-muted-' }, '#' + (i + 1)),
             el('td', { class: 'px-3 py-2 font-semibold' }, names[uid] || uid),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums font-black', style: { color: bal >= 0 ? '#5F8A1F' : '#B91C1C' } }, _rcCoin(bal))))))));
+            el('td', { class: 'px-3 py-2 text-right tabular-nums font-black', style: { color: bal >= 0 ? '#DF643A' : '#B91C1C' } }, _rcCoin(bal))))))));
   }
 
   // ── MANAGE (admin): grant/deduct + catalog ──
@@ -40017,7 +40017,7 @@ function viewMarketplace() {
             class: 'px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
             onclick: () => { d.pool.push({ name: '', odds: 0, rarity: 'bronze', value: 0 }); mountApp(); },
           }, '+ Add prize'),
-          el('div', { class: 'text-[11px] font-bold tabular-nums', style: { color: totalOdds === 100 ? '#5F8A1F' : '#D97706' } },
+          el('div', { class: 'text-[11px] font-bold tabular-nums', style: { color: totalOdds === 100 ? '#DF643A' : '#D97706' } },
             'Total ' + totalOdds + '%' + (totalOdds === 100 ? ' ✓' : ' — should be 100')),
           el('button', {
             class: 'px-3 py-1.5 rounded text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
@@ -40421,7 +40421,7 @@ function reportingCustomerHealth() {
 
   const BUCKETS = [
     ['critical', 'Critical', '#DC2626'], ['atrisk', 'At Risk', '#D97706'],
-    ['watch', 'Watch', '#B45309'], ['healthy', 'Healthy', '#5F8A1F'],
+    ['watch', 'Watch', '#B45309'], ['healthy', 'Healthy', '#DF643A'],
   ];
   const bucketAgg = {};
   BUCKETS.forEach(([k]) => bucketAgg[k] = { n: 0, arr: 0 });
@@ -40490,7 +40490,7 @@ function reportingCustomerHealth() {
         })(),
         factor === 'apay' && (() => {
           const easy = list.filter(c => c.flags.apayEasy);
-          return el('div', { class: 'text-[11px] font-semibold', style: { color: '#5F8A1F' } },
+          return el('div', { class: 'text-[11px] font-semibold', style: { color: '#DF643A' } },
             '💡 ' + easy.length.toLocaleString() + ' of these pay reliably by hand (zero past due, 3+ months in) — the easiest autopay conversions, sorted to the top. ' +
             fmt.usd0(easy.reduce((a, c) => a + c.arr, 0)) + ' ARR protected if they flip.');
         })(),
@@ -40512,7 +40512,7 @@ function reportingCustomerHealth() {
               el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Why'))),
           el('tbody', {},
             ...list.slice(0, 300).map(c => {
-              const color = c.bucket === 'critical' ? '#DC2626' : c.bucket === 'atrisk' ? '#D97706' : c.bucket === 'watch' ? '#B45309' : '#5F8A1F';
+              const color = c.bucket === 'critical' ? '#DC2626' : c.bucket === 'atrisk' ? '#D97706' : c.bucket === 'watch' ? '#B45309' : '#DF643A';
               return el('tr', { class: 'border-t tabular-nums', style: { borderColor: 'var(--border)' } },
                 el('td', { class: 'px-3 py-2 font-black', style: { color } }, c.score),
                 el('td', { class: 'px-2 py-2' },
@@ -40701,7 +40701,7 @@ function reportingRenewals() {
   const LOG = state._renewalLog || {};
   const logOf = (x) => LOG[String(x.id)] || {};
   const RESULTS = ['Resigned', 'Not Interested', 'No Answer', 'Follow Up'];
-  const RESULT_COLOR = { 'Resigned': '#5F8A1F', 'Not Interested': '#DC2626', 'No Answer': '#D97706', 'Follow Up': '#0EA5E9' };
+  const RESULT_COLOR = { 'Resigned': '#DF643A', 'Not Interested': '#DC2626', 'No Answer': '#D97706', 'Follow Up': '#0EA5E9' };
   const disp = state._renewalDisp || 'towork';
   const matchDisp = (x) => {
     const r = logOf(x).result || '';
@@ -40805,7 +40805,7 @@ function reportingRenewals() {
       el('p', { class: 'text-xs mt-0.5 mb-2', style: { color: 'var(--text-muted)' } },
         'The call list refreshes itself from the CRM every hour — no more manual list pulls. Window opens 2 months before term end (month 10/16/22). Dispositions, attempts, and notes save instantly and are shared across every agent (same fields as the old tracking sheet). Customers holding any "Renewal - …" subscription never appear here.'),
       chips,
-      renewedN > 0 && el('div', { class: 'text-[11px] font-bold tabular-nums mt-1.5', style: { color: '#5F8A1F' } },
+      renewedN > 0 && el('div', { class: 'text-[11px] font-bold tabular-nums mt-1.5', style: { color: '#DF643A' } },
         '✓ ' + renewedN.toLocaleString() + ' contracts at/past term already renewed via a Renewal source (' + fmt.usd0(renewedArr) + ' ARR) — excluded.'),
       // ── Results scoreboard — computed from the disposition log itself.
       (() => {
@@ -40825,7 +40825,7 @@ function reportingRenewals() {
           el('div', { class: 'flex items-baseline gap-3 flex-wrap' },
             el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Results so far'),
             el('div', { class: 'text-xs tabular-nums' },
-              el('b', { style: { color: '#5F8A1F' } }, resigned.toLocaleString() + ' resigned'),
+              el('b', { style: { color: '#DF643A' } }, resigned.toLocaleString() + ' resigned'),
               el('span', { style: { color: 'var(--text-muted)' } }, ' of ' + worked.toLocaleString() + ' worked (' + (worked ? (resigned / worked * 100).toFixed(0) : 0) + '%) · '
                 + (cnt['Not Interested'] || 0) + ' not interested · ' + (cnt['No Answer'] || 0) + ' no answer · ' + (cnt['Follow Up'] || 0) + ' follow-ups open'))),
           agents.length > 1 && el('div', { class: 'flex gap-x-4 gap-y-1 flex-wrap mt-1.5 text-[11px] tabular-nums' },
@@ -40913,7 +40913,7 @@ function reportingContractLength() {
   });
   const med = (arr) => { if (!arr.length) return null; const s = arr.slice().sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
   const pctUnder = (arr, m) => arr.length ? arr.filter(v => v < m).length / arr.length : 0;
-  const TERM_COLOR = { 12: '#0EA5E9', 18: '#D97706', 24: '#5F8A1F' };
+  const TERM_COLOR = { 12: '#0EA5E9', 18: '#D97706', 24: '#DF643A' };
 
   // Reason mix table — top reasons across all three terms.
   const allReasons = new Map();
@@ -41039,7 +41039,7 @@ function reportingContractLength() {
                 el('td', { class: 'px-2 py-1.5 font-semibold' }, y),
                 ...TERMS.map((t, i) => el('td', {
                   class: 'px-2 py-1.5 text-right' + (vals[i] != null && vals[i] === best ? ' font-bold' : ''),
-                  style: vals[i] != null && vals[i] === best ? { color: '#5F8A1F' } : {},
+                  style: vals[i] != null && vals[i] === best ? { color: '#DF643A' } : {},
                   title: o[t].n + ' subs old enough to measure',
                 }, vals[i] != null ? pct(vals[i]) : el('span', { style: { color: 'var(--text-subtle)' } }, '—'))));
             }))))]),
@@ -41386,7 +41386,7 @@ function reportingOverview() {
   const diffColor = (a, b, higherIsBetter = true) => {
     if (a === b) return 'var(--text-muted)';
     const better = higherIsBetter ? (b > a) : (b < a);
-    return better ? '#16a34a' : '#dc2626';
+    return better ? '#DF643A' : '#dc2626';
   };
   const compareRow = (label, valA, valB, formatter, higherIsBetter = true, sub) => el('div', {
     class: 'grid items-center py-2.5 px-4 text-sm border-t',
@@ -41829,7 +41829,7 @@ function reportingServiceConfigPanel() {
                 const paintPill = (hidden) => {
                   hidPill.textContent = hidden ? '✓ Hidden' : 'Hide';
                   Object.assign(hidPill.style, hidden
-                    ? { background: 'var(--accent)', color: '#16321a', borderColor: 'var(--accent)' }
+                    ? { background: 'var(--accent)', color: '#3A1D12', borderColor: 'var(--accent)' }
                     : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' });
                 };
                 paintPill(!!c.is_hidden);
@@ -41963,7 +41963,7 @@ function reportingCancelConfigPanel() {
                   pill.textContent = excluded ? '✕ Excluded' : '✓ Counts';
                   Object.assign(pill.style, excluded
                     ? { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' }
-                    : { background: 'var(--accent)', color: '#16321a', borderColor: 'var(--accent)' });
+                    : { background: 'var(--accent)', color: '#3A1D12', borderColor: 'var(--accent)' });
                 };
                 paint(excludedNow);
                 pill.onclick = () => {
@@ -42087,7 +42087,7 @@ function reportingSourceConfigPanel() {
                   pill.textContent = excluded ? '✕ Excluded' : '✓ Included';
                   Object.assign(pill.style, excluded
                     ? { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' }
-                    : { background: 'var(--accent)', color: '#16321a', borderColor: 'var(--accent)' });
+                    : { background: 'var(--accent)', color: '#3A1D12', borderColor: 'var(--accent)' });
                 };
                 paint(excluded0);
                 pill.onclick = () => {
@@ -42292,8 +42292,8 @@ function reportingIsPacer() {
   const ytdPace = anyGoal && ytdGoal > 0 ? ytdAct / ytdGoal : null;
   const annPct = annual ? ytdAct / annual : null;
   const expCum = IS_PACER_CUM[curM];
-  const paceColor = (p) => p == null ? 'var(--text-muted)' : p >= 1 ? '#4d7c0f' : p >= 0.85 ? '#b45309' : '#DC2626';
-  const paceBg = (p) => p == null ? 'transparent' : p >= 1 ? 'rgba(141,198,63,.15)' : p >= 0.85 ? 'rgba(245,158,11,.12)' : 'rgba(220,38,38,.10)';
+  const paceColor = (p) => p == null ? 'var(--text-muted)' : p >= 1 ? '#DF643A' : p >= 0.85 ? '#b45309' : '#DC2626';
+  const paceBg = (p) => p == null ? 'transparent' : p >= 1 ? 'rgba(223,100,58,.15)' : p >= 0.85 ? 'rgba(245,158,11,.12)' : 'rgba(220,38,38,.10)';
   const pctS = (p) => p == null ? '—' : Math.round(p * 100) + '%';
 
   const kpi = (label, val, sub, color) => el('div', { class: 'flex-1', style: { minWidth: '130px' } },
@@ -42456,8 +42456,8 @@ function reportingMktgSpendRevChart() {
     const datasets = [
       { type: 'bar', label: 'Spend ' + curY, data: spendCur, backgroundColor: barCur, order: 3 },
       ...(hasPrev ? [{ type: 'bar', label: 'Spend ' + prevY, data: spendPrev, backgroundColor: barPrev, order: 3 }] : []),
-      { type: 'line', label: 'IS Rev ' + curY, data: revCur, borderColor: '#8DC63F', backgroundColor: '#8DC63F', borderWidth: 2, tension: 0.3, fill: false, pointRadius: 2, order: 1 },
-      ...(hasPrev ? [{ type: 'line', label: 'IS Rev ' + prevY, data: revPrev, borderColor: '#8DC63F', backgroundColor: '#8DC63F', borderWidth: 2, borderDash: [5, 4], tension: 0.3, fill: false, pointRadius: 2, order: 2 }] : []),
+      { type: 'line', label: 'IS Rev ' + curY, data: revCur, borderColor: '#DF643A', backgroundColor: '#DF643A', borderWidth: 2, tension: 0.3, fill: false, pointRadius: 2, order: 1 },
+      ...(hasPrev ? [{ type: 'line', label: 'IS Rev ' + prevY, data: revPrev, borderColor: '#DF643A', backgroundColor: '#DF643A', borderWidth: 2, borderDash: [5, 4], tension: 0.3, fill: false, pointRadius: 2, order: 2 }] : []),
     ];
     _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
       data: { labels: lbl, datasets },
@@ -42748,7 +42748,7 @@ function reportingLeadAttribution() {
   const pills = [['all', 'All ' + results.length], ['matched', 'Matched ' + nMatched], ['unmatched', 'No match ' + (results.length - nMatched)], ['mismatch', 'Source mismatch ' + nMis]];
   const pillBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap mb-3' }, ...pills.map(([k, lab]) => el('button', {
     class: 'text-[11px] font-semibold rounded-full px-3 py-1 border cursor-pointer transition',
-    style: filt === k ? { background: 'var(--accent)', color: '#16321a', borderColor: 'var(--accent)' } : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+    style: filt === k ? { background: 'var(--accent)', color: '#3A1D12', borderColor: 'var(--accent)' } : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
     onclick: () => { state.reportingLeadFilter = k; state.reportingLeadLimit = 200; mountApp(); },
   }, lab)));
 
@@ -42788,17 +42788,17 @@ function reportingLeadAttribution() {
         el('td', { class: cellCls + ' text-muted-' }, r.leadSrc || '—'),
         el('td', { class: cellCls },
           r.matched
-            ? el('span', { class: 'text-[10px] font-bold', style: { color: '#5F8A1F' } }, '✓ ' + r.via)
+            ? el('span', { class: 'text-[10px] font-bold', style: { color: '#DF643A' } }, '✓ ' + r.via)
             : el('span', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-subtle)' } }, '—')),
         el('td', { class: cellCls }, r.cust ? r.cust.name : '—'),
         el('td', { class: cellCls + ' text-muted-' }, r.cust ? (r.cust.source || '—') : '—'),
         el('td', { class: cellCls },
           r.srcOk == null ? el('span', { style: { color: 'var(--text-subtle)' } }, '—')
-            : r.srcOk ? el('span', { style: { color: '#5F8A1F', fontWeight: '700' } }, '✓')
+            : r.srcOk ? el('span', { style: { color: '#DF643A', fontWeight: '700' } }, '✓')
               : el('span', { class: 'px-1.5 py-0.5 rounded text-[10px] font-bold', style: { background: 'rgba(220,38,38,.12)', color: '#B91C1C' } }, '✕ mismatch')))))));
 
   const moreBar = shown0.length > shown.length ? el('div', { class: 'flex justify-center pt-2' },
-    el('button', { class: 'text-[11px] font-semibold rounded-full px-4 py-1.5 border cursor-pointer', style: { background: 'var(--accent)', color: '#16321a', borderColor: 'var(--accent)' },
+    el('button', { class: 'text-[11px] font-semibold rounded-full px-4 py-1.5 border cursor-pointer', style: { background: 'var(--accent)', color: '#3A1D12', borderColor: 'var(--accent)' },
       onclick: () => { state.reportingLeadLimit = (state.reportingLeadLimit || 200) + 400; mountApp(); } }, 'Show ' + Math.min(400, shown0.length - shown.length) + ' more (' + shown.length.toLocaleString() + ' of ' + shown0.length.toLocaleString() + ')')) : null;
 
   return el('div', { class: 'card p-4' }, head,
@@ -42896,7 +42896,7 @@ function reportingInsideSales() {
   const num = (v) => v == null ? '—' : Math.round(v).toLocaleString();
   const pct = (v) => v == null ? '—' : (v * 100).toFixed(1) + '%';
   const x2  = (v) => v == null ? '—' : v.toFixed(2);
-  const GOOD = 'rgba(141,198,63,.18)', BAD = 'rgba(220,38,38,.14)';
+  const GOOD = 'rgba(223,100,58,.18)', BAD = 'rgba(220,38,38,.14)';
   const shade = (v, goodIf, badIf) => v == null ? '' : (goodIf(v) ? GOOD : (badIf(v) ? BAD : ''));
 
   // Excel-style cells: full gridlines, dense rows, right-aligned numbers.
@@ -42914,7 +42914,7 @@ function reportingInsideSales() {
         value: na ? 'N/A' : (v == null ? '' : v), placeholder: '—',
         class: 'w-full text-right text-xs px-2 py-1',
         style: { background: 'transparent', border: 'none', outline: 'none', color: na ? 'var(--text-muted)' : 'var(--text)' },
-        onfocus: (e) => { e.target.style.background = 'rgba(141,198,63,.12)'; },
+        onfocus: (e) => { e.target.style.background = 'rgba(223,100,58,.12)'; },
         onblur: (e) => { e.target.style.background = 'transparent'; },
         onchange: (e) => {
           let val = e.target.value.trim();
@@ -43148,7 +43148,7 @@ function reportingUploadsPanel() {
                 const isActive = u.id === state.reportingActiveUploadId;
                 return el('tr', {
                   class: 'border-t cursor-pointer hover:brightness-95 transition',
-                  style: { borderColor: 'var(--border)', background: isActive ? 'rgba(141,198,63,.08)' : 'transparent' },
+                  style: { borderColor: 'var(--border)', background: isActive ? 'rgba(223,100,58,.08)' : 'transparent' },
                   title: isActive ? 'This snapshot is currently loaded' : 'Click to load this snapshot',
                   onclick: () => {
                     if (u.id === state.reportingActiveUploadId) return;
@@ -43912,7 +43912,7 @@ function reportingQuantileScale(values, metricKey) {
   const NO_DATA = '#F3F4F6';
   const palette = metricKey === 'attrition'
     ? ['rgba(220,38,38,0.18)', 'rgba(220,38,38,0.36)', 'rgba(220,38,38,0.56)', 'rgba(220,38,38,0.76)', 'rgba(220,38,38,0.95)']
-    : ['rgba(141,198,63,0.22)', 'rgba(141,198,63,0.42)', 'rgba(141,198,63,0.62)', 'rgba(141,198,63,0.80)', 'rgba(141,198,63,0.95)'];
+    : ['rgba(223,100,58,0.22)', 'rgba(223,100,58,0.42)', 'rgba(223,100,58,0.62)', 'rgba(223,100,58,0.80)', 'rgba(223,100,58,0.95)'];
 
   const sorted = (values || [])
     .filter(v => v != null && Number.isFinite(v) && v > 0)
@@ -44589,7 +44589,7 @@ function reportingGeographic() {
       s.knock = (s.countyStrong ? 40 : 0) + (1 - p) * 35 + Math.max(0, Math.min(1, s.momentum)) * 25;
     });
     const CLS = [
-      ['fortress', '🏰 Fortress', '#5F8A1F', 'Big footprint, healthy retention — defend + attach'],
+      ['fortress', '🏰 Fortress', '#DF643A', 'Big footprint, healthy retention — defend + attach'],
       ['rising', '📈 Rising', '#0EA5E9', 'New starts up 30%+ YoY — feed these routes'],
       ['whitespace', '🎯 Whitespace', '#A855F7', 'Thin presence in a county that retains well — knock here'],
       ['fix', '🩹 Fix first', '#DC2626', 'Big footprint, churn above 1.3× median — service problem, not a sales problem'],
@@ -44646,7 +44646,7 @@ function reportingGeographic() {
                 el('td', { class: 'px-2 py-1.5 text-right font-black', style: { color: '#A855F7' } }, Math.round(s.knock)),
                 el('td', { class: 'px-2 py-1.5 text-right' }, s.z.subs),
                 el('td', { class: 'px-2 py-1.5 text-right' }, s.new12 + (s.prev12 ? ' (was ' + s.prev12 + ')' : '')),
-                el('td', { class: 'px-2 py-1.5 text-right', style: { color: '#5F8A1F', fontWeight: '700' } }, s.countyStrong ? 'strong' : '—'))))))));
+                el('td', { class: 'px-2 py-1.5 text-right', style: { color: '#DF643A', fontWeight: '700' } }, s.countyStrong ? 'strong' : '—'))))))));
   })();
 
   return el('div', { class: 'flex flex-col gap-4' },
@@ -44974,7 +44974,7 @@ function commissionRenderCards(B, repName) {
   const ROW = (label, valNode, kind) => el('div', {
     class: 'flex items-center justify-between gap-3 px-3 py-2 text-sm',
     style: { borderTop: '1px solid var(--border)',
-      background: kind === 'rev' ? 'rgba(59,130,246,.08)' : kind === 'comm' ? 'rgba(141,198,63,.10)' : kind === 'total' ? 'rgba(141,198,63,.18)' : 'transparent' } },
+      background: kind === 'rev' ? 'rgba(59,130,246,.08)' : kind === 'comm' ? 'rgba(223,100,58,.10)' : kind === 'total' ? 'rgba(223,100,58,.18)' : 'transparent' } },
     el('span', { class: kind === 'total' ? 'font-bold' : '' }, label),
     el('span', { class: 'tabular-nums ' + (kind === 'total' ? 'font-bold' : '') }, valNode));
   const breakdown = el('div', { class: 'card overflow-hidden' },
@@ -45173,11 +45173,11 @@ function viewD2dDashboard() {
           const isMe = _sigMe(o.name) === meSig || isMyRepName(o.name);
           return el('tr', {
             class: 'border-t' + (clickable ? ' cursor-pointer' : ''),
-            style: { borderColor: 'var(--border)', background: isMe ? 'rgba(141,198,63,.08)' : '' },
+            style: { borderColor: 'var(--border)', background: isMe ? 'rgba(223,100,58,.08)' : '' },
             title: clickable ? 'Open player card' : '',
             onclick: clickable ? () => openIndicatorRepCard(_enrichRepFromRawSales(o.name, state._indicatorRawSales || []), []) : undefined,
             onmouseenter: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = 'var(--card-2)'; } : undefined,
-            onmouseleave: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = isMe ? 'rgba(141,198,63,.08)' : ''; } : undefined,
+            onmouseleave: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = isMe ? 'rgba(223,100,58,.08)' : ''; } : undefined,
           },
             el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, String(i + 1)),
             el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, _ofcChip(o.office), o.name + (isMe ? ' · You' : '')),
@@ -45348,7 +45348,7 @@ function viewD2dUpfront() {
       el('span', {}, 'Overrides (downline)'), el('span', { class: 'tabular-nums' }, money(upOverrides))),
     el('div', { class: 'flex items-center justify-between px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)' } },
       el('span', {}, 'Deductions'), el('span', { class: 'tabular-nums' }, money(-upDeduct))),
-    el('div', { class: 'flex items-center justify-between px-3 py-2.5', style: { borderTop: '2px solid var(--text)', background: 'rgba(141,198,63,.18)' } },
+    el('div', { class: 'flex items-center justify-between px-3 py-2.5', style: { borderTop: '2px solid var(--text)', background: 'rgba(223,100,58,.18)' } },
       el('span', { class: 'font-display text-lg' }, 'NET DUE'), el('span', { class: 'font-display text-lg tabular-nums' }, money(netDue))),
     el('div', { class: 'flex items-center justify-between px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)', background: 'rgba(59,130,246,.08)' } },
       el('span', { class: 'font-semibold' }, 'Weekly Pay (÷ ' + payPeriods + ')'), el('span', { class: 'tabular-nums font-semibold' }, money(weeklyPay))),
@@ -45414,7 +45414,7 @@ function viewD2dUpfront() {
           el('div', { class: 'flex items-center gap-1.5' },
             el('span', {
               class: 'text-xs font-bold px-2.5 py-2 rounded-xl whitespace-nowrap',
-              style: _lock ? { background: 'rgba(141,198,63,.18)', color: '#5F8A1F' } : { background: 'rgba(240,172,30,.16)', color: '#B45309' },
+              style: _lock ? { background: 'rgba(223,100,58,.18)', color: '#DF643A' } : { background: 'rgba(240,172,30,.16)', color: '#B45309' },
               title: _lock ? ('Locked by ' + (_lock.name || 'admin') + ' · ' + String(_lock.at || '').slice(0, 10)) : 'Draft — numbers may still move; lock before running commissions',
             }, _lock ? '🔒 Locked' : '📝 Draft'),
             el('button', {
@@ -45494,10 +45494,10 @@ function viewD2dUpfront() {
           },
         }, '▶ Run Commissions'))),
     el('div', { class: 'grid grid-cols-2 lg:grid-cols-4 gap-3' },
-      stat('Net Due (period)', money(netDue), 'take-home after deductions', '#8DC63F'),
+      stat('Net Due (period)', money(netDue), 'take-home after deductions', '#DF643A'),
       stat('Weekly Pay', money(weeklyPay), 'across ' + payPeriods + ' weekly periods'),
       stat('Accounts Sold', String(R.sold), money(R.payableRev) + ' payable revenue'),
-      stat('Active Accounts', String(activeN), null, '#8DC63F'),
+      stat('Active Accounts', String(activeN), null, '#DF643A'),
       stat('Canceled / Frozen', lostN + ' (' + pctS(R.sold ? lostN / R.sold * 100 : 0) + ')', R.canceled + ' canceled · ' + frozenN + ' frozen', lostN ? '#DC2626' : null),
       stat('With Balance', R.withBalance + ' (' + pctS(R.sold ? R.withBalance / R.sold * 100 : 0) + ')'),
       stat('Multi-Year Rate', pctS(R.myPct)),
@@ -45519,7 +45519,7 @@ function viewD2dUpfront() {
         ? el('span', { class: 'text-xs font-bold', style: { color: '#DC2626' }, title: String(r.subscription_cancellation_reason || 'Cancelled') + ' · ' + r.subscription_date_canceled }, 'Canceled')
         : /frozen/i.test(String(r.subscription_status || ''))
           ? el('span', { class: 'text-xs font-bold', style: { color: '#D97706' } }, 'Frozen')
-          : el('span', { class: 'text-xs font-bold', style: { color: '#5F8A1F' } }, 'Active');
+          : el('span', { class: 'text-xs font-bold', style: { color: '#DF643A' } }, 'Active');
       const payTotal = rowsSorted.reduce((a, r) => a + (Number(r.subscription_contract_value) || 0) * rateOf(catOf(r)), 0);
       return el('div', { class: 'card overflow-hidden' },
         el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
@@ -45542,7 +45542,7 @@ function viewD2dUpfront() {
                 el('span', { class: 'text-xs font-bold px-2 py-0.5 rounded-full', style: c === 'unclassified'
                   ? { background: 'rgba(245,158,11,.14)', color: '#B45309' }
                   : c === 'exclude' ? { background: 'var(--card-2)', color: 'var(--text-subtle)' }
-                  : { background: 'rgba(141,198,63,.12)', color: '#5F8A1F' } }, CAT_LBL[c] || c)),
+                  : { background: 'rgba(223,100,58,.12)', color: '#DF643A' } }, CAT_LBL[c] || c)),
               el('td', { class: 'px-4 py-2 tabular-nums' }, money(cv2)),
               el('td', { class: 'px-4 py-2 tabular-nums' }, rate ? Math.round(rate * 100) + '%' : '—'),
               el('td', { class: 'px-4 py-2 tabular-nums font-semibold' }, rate ? money(cv2 * rate) : '—'),
@@ -45629,7 +45629,7 @@ function commissionRenderOfficeStaff(B, repName) {
   const ROW = (label, valNode, kind) => el('div', {
     class: 'flex items-center justify-between gap-3 px-3 py-2 text-sm',
     style: { borderTop: '1px solid var(--border)',
-      background: kind === 'rev' ? 'rgba(59,130,246,.08)' : kind === 'comm' ? 'rgba(141,198,63,.10)' : kind === 'total' ? 'rgba(141,198,63,.18)' : 'transparent' } },
+      background: kind === 'rev' ? 'rgba(59,130,246,.08)' : kind === 'comm' ? 'rgba(223,100,58,.10)' : kind === 'total' ? 'rgba(223,100,58,.18)' : 'transparent' } },
     el('span', { class: kind === 'total' ? 'font-bold' : '' }, label),
     el('span', { class: 'tabular-nums ' + (kind === 'total' ? 'font-bold' : '') }, valNode));
   const breakdown = el('div', { class: 'card overflow-hidden' },
@@ -46036,7 +46036,7 @@ function reportingServices() {
             onclick: () => drillSvc(r.svc),
           },
             el('td', { class: 'px-3 py-1.5 font-semibold truncate', style: { maxWidth: '260px' } }, r.svc),
-            el('td', { class: 'px-2 py-1.5', style: { color: '#5F8A1F', fontWeight: '600' } }, fmt.int(r.a)),
+            el('td', { class: 'px-2 py-1.5', style: { color: '#DF643A', fontWeight: '600' } }, fmt.int(r.a)),
             el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-muted)' } }, fmt.int(r.c)),
             el('td', { class: 'px-2 py-1.5 font-bold' }, fmt.int(r.total)),
             el('td', { class: 'px-2 py-1.5', style: r.cxl > 0.4 ? { color: '#DC2626', fontWeight: '700' } : { color: 'var(--text-muted)' } }, (r.cxl * 100).toFixed(1) + '%'),
@@ -46125,7 +46125,7 @@ function reportingServices() {
             el('td', { class: 'px-3 py-1.5 font-semibold' }, r.area),
             el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-muted)' } }, fmt.int(r.cust)),
             el('td', { class: 'px-2 py-1.5' }, fmt.int(r.multi)),
-            el('td', { class: 'px-2 py-1.5 font-bold', style: { color: r.rate >= companyAttach ? '#5F8A1F' : 'var(--text-muted)' } }, (r.rate * 100).toFixed(1) + '%'),
+            el('td', { class: 'px-2 py-1.5 font-bold', style: { color: r.rate >= companyAttach ? '#DF643A' : 'var(--text-muted)' } }, (r.rate * 100).toFixed(1) + '%'),
             el('td', { class: 'px-2 py-1.5 truncate', style: { maxWidth: '220px', color: 'var(--text-muted)' } }, r.top)))))));
 
   return el('div', { class: 'flex flex-col gap-4' },
@@ -46345,7 +46345,7 @@ function reportingWaterfall() {
                   title: stepTitle,
                 }, fmtCell(v),
                   stepPct != null && v > 0
-                    ? el('span', { style: { fontSize: '9px', marginLeft: '4px', fontWeight: '700', color: stepPct > 0 ? '#B91C1C' : '#1b7f3b', opacity: '.85' } },
+                    ? el('span', { style: { fontSize: '9px', marginLeft: '4px', fontWeight: '700', color: stepPct > 0 ? '#B91C1C' : '#DF643A', opacity: '.85' } },
                         (stepPct >= 0 ? '−' : '+') + Math.abs(stepPct).toFixed(1) + '%')
                     : (cohortBase > 0 && v > 0) ? el('span', { style: { fontSize: '9px', opacity: '.65', marginLeft: '4px' } }, Math.round(v / cohortBase * 100) + '%') : null);
               }),
@@ -46484,7 +46484,7 @@ function reportingWaterfall() {
             if (prevPts == null) return el('span', { class: 'font-bold', style: { color: '#B45309' } }, 'new vs ' + prevLabel);
             const d = nowPts - prevPts;
             if (Math.abs(d) < 0.005) return el('span', { class: 'font-bold' }, 'flat vs ' + prevLabel);
-            return el('span', { class: 'font-bold', style: { color: d > 0 ? '#DC2626' : '#5F8A1F' } },
+            return el('span', { class: 'font-bold', style: { color: d > 0 ? '#DC2626' : '#DF643A' } },
               (d > 0 ? '▲ +' : '▼ −') + Math.abs(d).toFixed(2) + ' pts vs ' + prevLabel);
           })()));
     };
@@ -46554,7 +46554,7 @@ function reportingWaterfall() {
             .filter(([k]) => !byReason.some(g => g.key === k))
             .sort((a, b) => b[1] - a[1]).slice(0, 4);
           if (!gone.length) return null;
-          return el('div', { class: 'mt-2 text-[10px]', style: { color: '#5F8A1F' } },
+          return el('div', { class: 'mt-2 text-[10px]', style: { color: '#DF643A' } },
             '✓ Zero churn this period from: ' + gone.map(([k, pts]) => k + ' (was ' + pts.toFixed(2) + ' pts in ' + prevLabel + ')').join(' · '));
         })(),
         el('div', { class: 'flex gap-5 flex-wrap mt-4' },
@@ -46940,7 +46940,7 @@ function reportingWaterfall() {
         return (key === TOTAL_KEY ? (cancelsByYm[ym] || 0) : ((reasonsByYm[ym] || {})[key] || 0)) / den;
       };
       const cid = 'chart-churn-yoy-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
-      const palette2 = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899', '#6366f1', '#84cc16'];
+      const palette2 = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899', '#6366f1', '#FACC15'];
       const DASHES = [[], [6, 4], [2, 3], [10, 4, 2, 4]];
       const hint = el('div', { class: 'px-4 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } },
         'Jan–Dec, one line per year — same months stack for YoY' + (selSeries.length > 1 ? ' · dash pattern = series' : ' · ' + nameOf(selSeries[0])));
@@ -46957,7 +46957,7 @@ function reportingWaterfall() {
         yrs.forEach((y, yi) => selSeries.forEach((key, si) => dsets.push({
           label: String(y) + (selSeries.length > 1 ? ' · ' + nameOf(key) : ''),
           data: Array.from({ length: 12 }, (_, mi) => valOf(key, y, mi + 1)),
-          borderColor: y === curY ? '#8DC63F' : palette2[yi % palette2.length],
+          borderColor: y === curY ? '#DF643A' : palette2[yi % palette2.length],
           backgroundColor: 'transparent',
           borderWidth: y === curY ? 3 : 2,
           borderDash: DASHES[si % DASHES.length],
@@ -47012,7 +47012,7 @@ function reportingWaterfall() {
       const maxStart = Math.max(0, seq.length - VISIBLE);
       if (state._churnPanStart == null || state._churnPanStart > maxStart) state._churnPanStart = maxStart;
       const cid = 'chart-churn-timeline-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
-      const palette = ['#0EA5E9', '#F59E0B', '#A855F7', '#14B8A6', '#EC4899', '#8DC63F', '#F97316', '#6366F1', '#84CC16', '#EF4444'];
+      const palette = ['#0EA5E9', '#F59E0B', '#A855F7', '#14B8A6', '#EC4899', '#DF643A', '#F97316', '#6366F1', '#FACC15', '#EF4444'];
       const hint = el('div', { class: 'px-4 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } },
         '↔ Drag to move through time · showing ' + VISIBLE + ' of ' + seq.length + ' months · reason lines are their share of the monthly rate and sum to the total');
       const wrapEl = el('div', { class: 'px-4 pb-4 pt-1', style: { position: 'relative', height: '280px' } },
@@ -47438,7 +47438,7 @@ function reportingWaterfall() {
     let datasets = [];
     const isDark = state.theme === 'dark';
     const gray = isDark ? '#6b6b63' : '#B8B8AE';
-    const SEG_COLORS = { all: isDark ? '#E6E6DC' : '#1D1D1D', lr: '#DC2626', std: '#8DC63F' };
+    const SEG_COLORS = { all: isDark ? '#E6E6DC' : '#1D1D1D', lr: '#DC2626', std: '#DF643A' };
     const _dashFor = (y) => y === curY ? [] : (curY - y === 1 ? [6, 4] : [3, 3]);
     // Baseline: one dashed gray line — the selected PRIOR years averaged
     // (all accounts). Needs at least one pre-current year selected.
@@ -47503,7 +47503,7 @@ function reportingWaterfall() {
             ...METRICS.map(([k, lbl]) => el('button', {
               class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition',
               style: segsSel.includes(k)
-                ? { background: k === 'lr' ? '#DC2626' : k === 'std' ? '#8DC63F' : 'var(--text)', color: k === 'std' ? '#1D1D1D' : 'var(--bg)' }
+                ? { background: k === 'lr' ? '#DC2626' : k === 'std' ? '#DF643A' : 'var(--text)', color: k === 'std' ? '#1D1D1D' : 'var(--bg)' }
                 : { background: 'var(--card-2)', color: 'var(--text-muted)' },
               title: k === 'base' ? 'Average monthly attrition across the selected prior years (all accounts)' : k === 'lr' ? '<$99 initial, sold since Jun 5 2026' : '',
               onclick: () => {
@@ -47621,7 +47621,7 @@ function reportingWaterfall() {
         el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(t.subs)),
         el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(t.active)),
         el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(t.cancelled)),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold', style: attr != null && attr >= 0.15 ? { color: '#DC2626' } : attr != null && attr < 0.08 ? { color: '#5F8A1F' } : {} }, pct(t.cancelled, t.subs)),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold', style: attr != null && attr >= 0.15 ? { color: '#DC2626' } : attr != null && attr < 0.08 ? { color: '#DF643A' } : {} }, pct(t.cancelled, t.subs)),
         el('td', { class: 'px-3 py-2 text-right tabular-nums' }, pct(t.active, t.subs)),
         el('td', { class: 'px-3 py-2 text-right tabular-nums' }, pct(t.arvCxl, t.arv)));
     };
@@ -47722,14 +47722,14 @@ function reportingWaterfall() {
         el('div', { class: 'flex items-center gap-4 flex-wrap' },
           stat('Cancelled', cxl, arvCxl, '#DC2626'),
           stat('Aging', aging, arvAging, '#D97706'),
-          stat('Retained', kept, arv - arvCxl - arvAging, '#5F8A1F'),
+          stat('Retained', kept, arv - arvCxl - arvAging, '#DF643A'),
           el('div', { class: 'text-right pl-2', style: { borderLeft: '1px solid var(--border)' } },
             el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'True attrition'),
-            el('div', { class: 'text-2xl font-black tabular-nums', style: { color: rate >= 0.15 ? '#DC2626' : rate < 0.08 ? '#5F8A1F' : 'var(--text)' } },
+            el('div', { class: 'text-2xl font-black tabular-nums', style: { color: rate >= 0.15 ? '#DC2626' : rate < 0.08 ? '#DF643A' : 'var(--text)' } },
               (rate * 100).toFixed(1) + '%')))),
       el('div', { class: 'px-4 pb-4' },
         el('div', { class: 'w-full rounded-full overflow-hidden flex', style: { height: '14px', background: 'var(--card-2)' } },
-          seg(kept, '#5F8A1F', 'Retained'),
+          seg(kept, '#DF643A', 'Retained'),
           seg(aging, '#D97706', 'Aging (' + _agDays + '+ days past due)'),
           seg(cxl, '#DC2626', 'Cancelled')),
         el('div', { class: 'flex items-center justify-between pt-1.5 text-[10px] text-muted-' },
@@ -47815,7 +47815,7 @@ function adminPermissions() {
           background: on ? 'var(--accent)' : 'transparent',
           borderColor: on ? 'var(--accent)' : 'var(--border-2)',
           color: on ? 'var(--accent-text)' : 'var(--text-subtle)',
-          boxShadow: overridden ? '0 0 0 2px rgba(141,198,63,.25)' : 'none',
+          boxShadow: overridden ? '0 0 0 2px rgba(223,100,58,.25)' : 'none',
         },
         title: (on ? 'Visible' : 'Hidden') + ' for ' + (ROLE_LABEL[role] || role) + (overridden ? ' \u00b7 changed from default' : ''),
         onclick: () => setPerm(role, d.id, !on),
@@ -48071,7 +48071,7 @@ function adminDataHygiene() {
       el('h2', { class: 'text-lg font-bold' }, '🧹 Data Hygiene'),
       el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
         'The anomaly hunts, made permanent — every check runs on the live snapshot each time you open this page. Each card names the fix in FieldRoutes; exports go to whoever cleans it up. Goal: every count reads 0.'),
-      el('div', { class: 'text-sm font-black tabular-nums mt-1.5', style: { color: total > 0 ? '#D97706' : '#5F8A1F' } },
+      el('div', { class: 'text-sm font-black tabular-nums mt-1.5', style: { color: total > 0 ? '#D97706' : '#DF643A' } },
         total > 0 ? total.toLocaleString() + ' rows need attention across ' + checks.filter(c => (c.custom ? c.custom.length : c.rows.length) > 0).length + ' checks' : '✓ All clean')),
     ...checks.map(c => {
       const n = c.custom ? c.custom.length : c.rows.length;
@@ -48082,7 +48082,7 @@ function adminDataHygiene() {
             el('div', { class: 'flex items-center gap-2' },
               el('span', {}, c.icon),
               el('h3', { class: 'text-sm font-bold' }, c.title),
-              el('span', { class: 'text-sm font-black tabular-nums px-2 py-0.5 rounded-full', style: { background: n > 0 ? SEV[c.sev] + '18' : 'rgba(141,198,63,.14)', color: n > 0 ? SEV[c.sev] : '#5F8A1F' } }, n.toLocaleString()),
+              el('span', { class: 'text-sm font-black tabular-nums px-2 py-0.5 rounded-full', style: { background: n > 0 ? SEV[c.sev] + '18' : 'rgba(223,100,58,.14)', color: n > 0 ? SEV[c.sev] : '#DF643A' } }, n.toLocaleString()),
               (n > 0 && !c.custom) ? el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, isOpen ? '▴ close' : '▾ view rows') : null),
             el('p', { class: 'text-[11px] mt-1', style: { color: 'var(--text-muted)' } }, c.fix))),
         // Inline row table (per Isaac — no exports, just look through them).
@@ -48397,7 +48397,7 @@ function dataIntegrityPanel() {
   const SALE_COLS = ['Rep', 'Cust ID', 'Customer', 'Office', 'Source', 'Contract', 'Sold'];
   const check = (key, title, count, tone, note, detail) => {
     const open = !!state._integrityOpen[key];
-    const color = tone === 'bad' ? '#DC2626' : tone === 'warn' ? '#D97706' : '#5F8A1F';
+    const color = tone === 'bad' ? '#DC2626' : tone === 'warn' ? '#D97706' : '#DF643A';
     return el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center gap-2.5 flex-wrap' + (detail ? ' cursor-pointer' : ''),
         onclick: detail ? (() => { state._integrityOpen[key] = !open; mountApp(); }) : undefined },
@@ -48484,7 +48484,7 @@ function monthlyArchivePanel() {
           el('div', { class: 'flex items-center gap-2' },
             el('span', {
               class: 'text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded',
-              style: { background: 'rgba(95,138,31,.14)', color: '#5F8A1F' },
+              style: { background: 'rgba(223,100,58,.14)', color: '#DF643A' },
               title: 'Written once, on the first nightly run after the month closed, and never rewritten. Later changes to these accounts do not move these numbers.',
             }, 'Locked'),
             el('span', { class: 'text-[10px] text-muted-' }, 'captured ' + new Date(snap.generatedAt).toLocaleDateString()),
@@ -48572,7 +48572,7 @@ function indicatorsUploadsPanel() {
             el('tbody', {},
               ...snaps.map((s, i) => {
                 const isLive = i === 0 && (!liveAt || s.uploadedAt === liveAt);
-                return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: isLive ? 'rgba(141,198,63,.08)' : 'transparent' } },
+                return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: isLive ? 'rgba(223,100,58,.08)' : 'transparent' } },
                   el('td', { class: 'pl-4 pr-2 py-2.5' },
                     el('div', { class: 'font-medium' }, s.fileName || '(no filename)'),
                     isLive && el('div', { class: 'text-[10px] uppercase tracking-wider font-semibold mt-0.5', style: { color: 'var(--accent)' } }, 'Active'),
@@ -48673,7 +48673,7 @@ function goalQuarterlyCard(g) {
           el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
             el('td', { class: 'px-3 py-1.5 text-left font-semibold' }, 'Quarterly amount'),
             ...qAmts.map(a => td(usd(a))), td(usd(yr), true)),
-          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'rgba(141,198,63,.06)' } },
+          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: 'rgba(223,100,58,.06)' } },
             el('td', { class: 'px-3 py-1.5 text-left font-semibold' }, 'Per-rep quota'),
             ...qAmts.map(a => td(usd(reps > 0 ? a / reps : 0), true)), td(usd(reps > 0 ? yr / reps : 0), true)))));
   };
@@ -48736,7 +48736,7 @@ function goalMonthlyCard(g, persist) {
         el('tbody', {},
           ...M.map((lbl, m) => {
             const nv = g.monthly_new[m] || 0, rv = g.monthly_renewal[m] || 0;
-            return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: m === curM ? 'rgba(141,198,63,.06)' : 'transparent' } },
+            return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)', background: m === curM ? 'rgba(223,100,58,.06)' : 'transparent' } },
               el('td', { class: 'px-3 py-1.5 text-left' }, curveCell(g.monthly_new, m)),
               el('td', { class: 'px-3 py-1.5 text-left' }, curveCell(g.monthly_renewal, m)),
               el('td', { class: 'px-3 py-1.5 text-left font-semibold' }, lbl + (m === curM ? ' ·' : '')),
@@ -48911,7 +48911,7 @@ function adminSources() {
                   el('td', { class: 'pl-4 pr-2 py-2.5 font-medium' }, s.name, frChip(s)),
                   el('td', { class: 'px-2 py-2.5' },
                     s.is_renewal
-                      ? el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(141,198,63,.16)', color: '#5F8A1F' } }, 'Renewal')
+                      ? el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(223,100,58,.16)', color: '#DF643A' } }, 'Renewal')
                       : el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' } }, 'New'),
                   ),
                   el('td', { class: 'pr-4 pl-2 py-2.5 text-right' },
@@ -48919,7 +48919,7 @@ function adminSources() {
                       class: 'inline-block rounded-lg px-3 py-1.5 text-[11px] font-bold',
                       style: isHidden
                         ? { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }
-                        : { background: 'rgba(141,198,63,.16)', color: '#5F8A1F', border: '1px solid rgba(141,198,63,.3)' },
+                        : { background: 'rgba(223,100,58,.16)', color: '#DF643A', border: '1px solid rgba(223,100,58,.3)' },
                       title: 'Managed in FieldRoutes — hide or show it there and it updates here within ~30 min.',
                     }, isHidden ? 'Hidden' : 'Visible'),
                   ),
@@ -49445,13 +49445,13 @@ function adminBackup() {
   // logActivity call rolls up to a readable badge here without having to
   // touch the table each time.
   const ACTION_META = {
-    sale_logged:               { label: 'Logged',        bg: 'rgba(141,198,63,.12)', fg: '#5F8A1F' },
+    sale_logged:               { label: 'Logged',        bg: 'rgba(223,100,58,.12)', fg: '#DF643A' },
     sale_edited:               { label: 'Edited',        bg: 'rgba(245,158,11,.15)', fg: '#92400E' },
     audit:                     { label: 'Audited',       bg: 'rgba(234,88,12,.10)',  fg: '#B45309' },
     staged:                    { label: 'Staged',        bg: 'rgba(14,165,233,.10)', fg: '#0284C7' },
-    payroll_processed:         { label: 'Processed',     bg: 'rgba(141,198,63,.18)', fg: '#5F8A1F' },
+    payroll_processed:         { label: 'Processed',     bg: 'rgba(223,100,58,.18)', fg: '#DF643A' },
     backend_payroll_processed: { label: 'Backend Paid',  bg: 'rgba(61,122,102,.18)', fg: '#3D7A66' },
-    lock_status_changed:       { label: 'Lock',          bg: 'rgba(92,138,26,.18)',  fg: '#5C8A1A' },
+    lock_status_changed:       { label: 'Lock',          bg: 'rgba(200,85,46,.18)',  fg: '#C8552E' },
     audit2_assigned:           { label: 'Auditor 2',     bg: 'rgba(147,51,234,.12)', fg: '#7E22CE' },
     slack_dm_sent:             { label: 'Slack DM',      bg: 'rgba(74,21,75,.14)',   fg: '#7E22CE' },
     slack_post:                { label: 'Slack Post',    bg: 'rgba(14,165,233,.14)', fg: '#0284C7' },
@@ -49459,7 +49459,7 @@ function adminBackup() {
     report_upload:             { label: 'Report Upload', bg: 'rgba(61,122,102,.14)', fg: '#3D7A66' },
     user_edited:               { label: 'User',          bg: 'rgba(245,158,11,.15)', fg: '#92400E' },
     team_change:               { label: 'Teams',         bg: 'rgba(14,165,233,.12)', fg: '#0284C7' },
-    comp_change:               { label: 'Comp',          bg: 'rgba(27,94,32,.12)',   fg: '#1b5e20' },
+    comp_change:               { label: 'Comp',          bg: 'rgba(156,63,30,.12)',   fg: '#9C3F1E' },
     config_change:             { label: 'Config',        bg: 'rgba(117,118,103,.18)',fg: '#757667' },
     snapshot_change:           { label: 'Snapshot',      bg: 'rgba(234,88,12,.12)',  fg: '#B45309' },
   };
@@ -49472,7 +49472,7 @@ function adminBackup() {
   // Map a sale (live) → which Sales-tab queue it currently lives in. Mirrors
   // the predicates in viewSales so this stays in sync with the actual nav.
   const TAB_META = {
-    'Sales':     { bg: 'rgba(141,198,63,.15)', fg: '#5F8A1F' },
+    'Sales':     { bg: 'rgba(223,100,58,.15)', fg: '#DF643A' },
     'Pending':   { bg: 'rgba(234,88,12,.12)',  fg: '#B45309' },
     'Cancelled': { bg: 'rgba(220,38,38,.12)',  fg: '#B91C1C' },
     'History':   { bg: 'rgba(117,118,103,.18)', fg: 'var(--text-muted)' },
@@ -49681,7 +49681,7 @@ const IMPORT_TYPES = {
     short: 'Historical',
     description: 'Already audited, paid upfront, and locked. Bringing in for reporting only — no further processing.',
     icon: '🗂️',
-    accent: '#5C8A1A',
+    accent: '#C8552E',
     apply: (row) => {
       const stamp = row.sold_date ? row.sold_date + 'T12:00:00.000Z' : new Date().toISOString();
       const now = new Date().toISOString();
@@ -50261,7 +50261,7 @@ function openImportSalesModal(importType) {
         el('div', { class: 'flex items-center justify-between mb-3' },
           el('h3', { class: 'text-sm font-bold' }, 'Preview · first ' + previewRows.length + ' row' + (previewRows.length === 1 ? '' : 's')),
           el('span', { class: 'text-[11px]' },
-            el('span', { style: { color: '#5C8A1A', fontWeight: '600' } }, '✓ ' + okCount + ' ready'),
+            el('span', { style: { color: '#C8552E', fontWeight: '600' } }, '✓ ' + okCount + ' ready'),
             errCount > 0 && el('span', { class: 'ml-3', style: { color: '#DC2626', fontWeight: '600' } }, '✗ ' + errCount + ' will be skipped'),
           ),
         ),
@@ -50286,7 +50286,7 @@ function openImportSalesModal(importType) {
                   el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums' }, r.idx + 1),
                   el('td', { class: 'px-2 py-1.5' },
                     ok
-                      ? el('span', { class: 'text-[10px] font-bold', style: { color: '#5C8A1A' } }, '✓')
+                      ? el('span', { class: 'text-[10px] font-bold', style: { color: '#C8552E' } }, '✓')
                       : el('span', { class: 'text-[10px] font-bold', style: { color: '#DC2626' } }, '✗'),
                   ),
                   el('td', { class: 'px-2 py-1.5 truncate max-w-[160px]' }, r.customerName || '—'),
@@ -50479,7 +50479,7 @@ function adminSlack() {
   // cron = needs an external scheduler (won't fire from the browser).
   const statusPill = (kind) => {
     const m = {
-      live:   { label: 'Live · webhook',                                         bg: 'rgba(141,198,63,.18)', fg: '#5F8A1F' },
+      live:   { label: 'Live · webhook',                                         bg: 'rgba(223,100,58,.18)', fg: '#DF643A' },
       server: { label: DEMO ? 'Demo stub · needs server' : 'Live · server',      bg: 'rgba(14,165,233,.14)', fg: '#0284C7' },
       cron:   { label: 'Needs cron host',                                        bg: 'rgba(245,158,11,.16)', fg: '#92400E' },
     };
@@ -50800,7 +50800,7 @@ function adminSlack() {
             oninput: (e) => { p.slack_user_id = e.target.value; persist(); },
           }),
           p.slack_user_id
-            ? el('span', { class: 'text-[10px] font-bold shrink-0', style: { color: '#5F8A1F' } }, '✓')
+            ? el('span', { class: 'text-[10px] font-bold shrink-0', style: { color: '#DF643A' } }, '✓')
             : el('span', { class: 'text-[10px] text-muted- italic shrink-0', style: { whiteSpace: 'nowrap' } }, 'no DM'),
         )),
       ),
@@ -51478,7 +51478,7 @@ function adminReps() {
   // (Tier filter is applied a few lines down, once repKeyForPerson exists.)
 
   const statusChip = (active) => el('span', { class: 'chip', style: active
-    ? { background: 'rgba(141,198,63,.14)', color: '#5F8A1F', border: '1px solid rgba(141,198,63,.4)' }
+    ? { background: 'rgba(223,100,58,.14)', color: '#DF643A', border: '1px solid rgba(223,100,58,.4)' }
     : { background: 'rgba(220,38,38,.08)', color: '#B91C1C', border: '1px solid rgba(220,38,38,.25)' } }, active ? 'Active' : 'Inactive');
 
   // Readable last-login from the CRM string ("YYYY-MM-DD HH:MM:SS" or blank).
@@ -51554,7 +51554,7 @@ function adminReps() {
     const tierMeta = (typeof repTierMeta === 'function') ? repTierMeta(curTier) : null;
     const tierSel = el('select', {
       class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
-      style: { borderColor: 'var(--border-2)', background: tierMeta ? 'rgba(141,198,63,.08)' : 'var(--card-2)', color: tierMeta ? tierMeta.color : 'var(--text)', fontWeight: tierMeta ? '700' : '400' },
+      style: { borderColor: 'var(--border-2)', background: tierMeta ? 'rgba(223,100,58,.08)' : 'var(--card-2)', color: tierMeta ? tierMeta.color : 'var(--text)', fontWeight: tierMeta ? '700' : '400' },
       onchange: (e) => { setRepTier(key, e.target.value); mountApp(); },
     },
       el('option', { value: '', selected: !curTier }, '— Tier —'),
@@ -52165,7 +52165,7 @@ function openUserEditor(existing = null, prefill = null) {
   const body = el('div', { class: 'px-6 pb-4 overflow-y-auto flex-1 flex flex-col gap-4' },
     // CRM link badge — shown when this user is (or will be) tied to a
     // FieldRoutes employee, so their app sales reconcile against the CRM.
-    modal.fr_id ? el('div', { class: 'rounded-lg px-3 py-2 text-xs flex items-center gap-2', style: { background: 'rgba(141,198,63,.12)', border: '1px solid rgba(141,198,63,.35)', color: 'var(--text)' } },
+    modal.fr_id ? el('div', { class: 'rounded-lg px-3 py-2 text-xs flex items-center gap-2', style: { background: 'rgba(223,100,58,.12)', border: '1px solid rgba(223,100,58,.35)', color: 'var(--text)' } },
       el('span', { style: { color: 'var(--accent)', fontWeight: '700' } }, '↔ Linked to FieldRoutes'),
       el('span', { class: 'text-muted-' }, 'Employee #' + modal.fr_id + (prefill ? ' · details pre-filled from the CRM' : ''))) : null,
     // Last app login lives here now (was a whole column on the Users table).
