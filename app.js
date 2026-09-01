@@ -25988,10 +25988,10 @@ function indPresetRibbon() {
   const tab = el('button', {
     class: 'cursor-pointer select-none font-bold uppercase',
     style: {
-      position: 'fixed', left: '0', top: '200px', zIndex: 40,
+      position: 'fixed', left: '0', top: '210px', zIndex: 40,
       writingMode: 'vertical-rl',
-      fontSize: '10px', letterSpacing: '.14em',
-      padding: '12px 5px',
+      fontSize: '9px', letterSpacing: '.1em',
+      padding: '8px 3px',
       color: open ? 'var(--accent-text)' : 'var(--text-muted)',
       background: open ? 'var(--accent)' : 'var(--card)',
       border: '1px solid ' + (open ? 'var(--accent)' : 'var(--border-2)'),
@@ -29832,16 +29832,16 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         }, (r.auditPct * 100).toFixed(1) + '%')) },
     { key: 'acv',        label: 'ACV',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, fmt.usd(r.acv)) },
     // Selling-day metrics — averages over days WITH ≥1 sale only.
-    { key: 'sellingDays', label: 'Sell Days',   align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Days with at least one sale' }, fmt.int(r.sellingDays || 0)) },
-    { key: 'revPerDay',   label: '$ / Day',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average revenue per SELLING day (days off don\'t count)' }, fmt.usd0(r.revPerDay || 0)) },
-    { key: 'acctsPerDay', label: 'Accts / Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average accounts per SELLING day' }, (r.acctsPerDay || 0).toFixed(1)) },
+    { key: 'sellingDays', label: 'Days',   align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Days with at least one sale' }, fmt.int(r.sellingDays || 0)) },
+    { key: 'revPerDay',   label: '$/Day',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average revenue per SELLING day (days off don\'t count)' }, fmt.usd0(r.revPerDay || 0)) },
+    { key: 'acctsPerDay', label: 'Accts/Day', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', title: 'Average accounts per SELLING day' }, (r.acctsPerDay || 0).toFixed(1)) },
     // Avg Pest Initial = avg of initialPrice EXCLUDING Sentricon / German Roach
     // / Interior Flea (matches the door-to-door comp). Avg Initial = avg of
     // every sale's initialPrice with no exclusions (overall pricing power).
-    { key: 'avgPest',    label: 'Avg Pest Init', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
-    { key: 'avgInitial', label: 'Avg Initial',   align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
+    { key: 'avgPest',    label: 'Pest Init', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgPest > 0 ? fmt.usd(r.avgPest) : '—') },
+    { key: 'avgInitial', label: 'Avg Init',      align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.avgInitial > 0 ? fmt.usd(r.avgInitial) : '—') },
     { key: 'myPct',      label: 'MY %',     align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.myPct * 100).toFixed(1) + '%') },
-    { key: 'autoPayPct', label: 'Auto Pay %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%') },
+    { key: 'autoPayPct', label: 'APay %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, (r.autoPayPct * 100).toFixed(1) + '%') },
     { key: 'cancels',    label: 'Cancels',  align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums' }, r.cancels > 0 ? fmt.int(r.cancels) : '—') },
     { key: 'cancelPct',  label: 'Cancel %', align: 'left', defaultDir: 'desc', cell: r => el('td', { class: 'px-2 py-2 text-left tabular-nums', style: r.cancelPct > 0.1 ? { color: '#DC2626', fontWeight: '600' } : {} }, r.cancelPct > 0 ? (r.cancelPct * 100).toFixed(1) + '%' : '—') },
     // ─── Records: Best Day / Week / Month moved to the end of the row so
@@ -30283,7 +30283,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 const align = c.align === 'right' ? 'text-right' : 'text-left';
                 const padLeft = c.key === 'cancelPct' ? 'pl-2 pr-5' : 'px-2';
                 return el('th', {
-                  class: align + ' ' + padLeft + ' py-2 font-semibold cursor-pointer select-none hover:text-default transition',
+                  class: align + ' ' + padLeft + ' py-2 font-semibold cursor-pointer select-none hover:text-default transition whitespace-nowrap',
                   style: isSorting ? { color: 'var(--accent)' } : {},   // (bold Best-Day rule starts on the body rows, not the header — per Isaac)
                   onclick: () => {
                     // Record columns cycle between two custom sort modes —
