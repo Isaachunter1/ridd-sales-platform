@@ -180,7 +180,7 @@
   .border2-     { border-color: var(--border-2); }
 
   /* Chips */
-  .chip { display:inline-flex; align-items:center; padding:3px 10px; border-radius:999px; font-size:11px; font-weight:600; letter-spacing:.02em; text-transform:uppercase; }
+  .chip { display:inline-flex; align-items:center; padding:3px 10px; border-radius: 0; font-size:11px; font-weight:600; letter-spacing:.02em; text-transform:uppercase; }
   .chip-pending   { background:rgba(223,100,58,.12); color:#C8552E; border:1px solid rgba(223,100,58,.35); }
   .chip-approved  { background:rgba(223,100,58,.18); color:#A9441F; border:1px solid rgba(223,100,58,.45); }
   .chip-serviced  { background:rgba(223,100,58,.14); color:#C8552E; border:1px solid rgba(223,100,58,.40); }
@@ -245,12 +245,12 @@
   /* Scrollbars */
   .scroll-x { overflow-x:auto; scrollbar-width:thin; }
   .scroll-x::-webkit-scrollbar { height:6px; }
-  .scroll-x::-webkit-scrollbar-thumb { background:var(--border-2); border-radius:3px; }
+  .scroll-x::-webkit-scrollbar-thumb { background:var(--border-2); border-radius: 0; }
 
   /* Spinner */
   .spinner { display:inline-block; width:16px; height:16px; border:2px solid rgba(223,100,58,.25); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
   /* Styled hover tooltip — replaces the browser's plain title bubble app-wide */
-  .app-tip { position:fixed; z-index:10000; max-width:280px; padding:6px 10px; border-radius:8px;
+  .app-tip { position:fixed; z-index:10000; max-width:280px; padding:6px 10px; border-radius: 0;
     background:#1D1D1D; color:#F3F3F3; font-size:11px; font-weight:600; line-height:1.4;
     box-shadow:0 8px 24px rgba(0,0,0,.35); pointer-events:none; opacity:0; transition:opacity .12s; display:none; }
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -345,7 +345,7 @@
   /* Goal progress bar track */
   .goal-track {
     background: var(--border);
-    border-radius: 999px;
+    border-radius: 0;
     height: 10px;
     overflow: hidden;
     position: relative;
@@ -353,7 +353,7 @@
   .goal-fill {
     background: var(--accent);
     height: 100%;
-    border-radius: 999px;
+    border-radius: 0;
     transition: width .3s ease;
   }
   .goal-ticks {
@@ -428,7 +428,7 @@
   }
   .page-header .icon-btn {
     background: rgba(255,255,255,.08);
-    border-radius: 999px;
+    border-radius: 0;
     width: 36px; height: 36px;
     align-items: center; justify-content: center;
     color: var(--header-text);
@@ -444,7 +444,7 @@
   .fab {
     position: fixed; right: 20px; bottom: 20px;
     background: var(--accent); color: var(--accent-text);
-    border-radius: 999px; padding: 14px 22px;
+    border-radius: 0; padding: 14px 22px;
     font-weight: 700; font-size: 14px;
     box-shadow: var(--shadow-lg);
     z-index: 30;
@@ -466,10 +466,10 @@
   /* Tabs (pill-style for Revenue Goal) */
   .pill-tabs {
     display: inline-flex; padding: 4px; gap: 4px;
-    background: var(--card-2); border-radius: 999px; border: 1px solid var(--border);
+    background: var(--card-2); border-radius: 0; border: 1px solid var(--border);
   }
   .pill-tabs button {
-    padding: 6px 14px; border-radius: 999px;
+    padding: 6px 14px; border-radius: 0;
     font-size: 13px; font-weight: 600; color: var(--text-muted);
     transition: all .15s ease;
   }
@@ -499,7 +499,7 @@
   /* Global search bar */
   .search-bar { position: relative; flex: 1; max-width: 360px; margin: 0 12px; }
   .search-bar input {
-    width: 100%; border-radius: 999px !important;
+    width: 100%; border-radius: 0 !important;
     padding: 7px 14px 7px 36px !important; font-size: 13px;
     background: rgba(255,255,255,.1) !important;
     border: 1px solid rgba(255,255,255,.15) !important;
@@ -666,7 +666,7 @@
   /* Slim, quiet scrollbars. */
   * { scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; }
   *::-webkit-scrollbar { width: 8px; height: 8px; }
-  *::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 99px; }
+  *::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 0; }
   *::-webkit-scrollbar-thumb:hover { background: var(--text-subtle); }
   *::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
   ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
@@ -837,11 +837,11 @@
   /* Subtle overlay scrollbars (macOS/iOS style). */
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text) 22%, transparent); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
-  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--text) 35%, transparent); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text) 22%, transparent); border-radius: 0; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--text) 35%, transparent); border-radius: 0; }
 
   /* Calm, consistent focus ring — keyboard users only (focus-visible). */
-  :focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; border-radius: 6px; }
+  :focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; border-radius: 0; }
 
   @media (prefers-reduced-motion: no-preference) {
     /* Press feedback — everything tappable gives a little. */
