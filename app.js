@@ -25990,14 +25990,13 @@ function indPresetRibbon() {
     style: {
       position: 'fixed', left: '0', top: '210px', zIndex: 40,
       writingMode: 'vertical-rl',
-      fontSize: '9px', letterSpacing: '.1em',
-      padding: '8px 3px',
+      fontSize: '8px', letterSpacing: '.06em',
+      padding: '5px 2px',
       color: open ? 'var(--accent-text)' : 'var(--text-muted)',
       background: open ? 'var(--accent)' : 'var(--card)',
       border: '1px solid ' + (open ? 'var(--accent)' : 'var(--border-2)'),
       borderLeft: 'none',
       borderRadius: '0',
-      boxShadow: 'var(--shadow-lg)',
     },
     title: open ? 'Hide the saved presets' : 'Saved presets \u2014 save the whole page setup and jump between views in one click',
     onclick: () => { state._indPresetsOpen = !state._indPresetsOpen; mountApp(); },
@@ -43456,6 +43455,65 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
   _statusEl.textContent = 'Loading ZIP boundaries (' + _geoStates.length + ' state file' + (_geoStates.length === 1 ? '' : 's') + ')…';
   container.appendChild(_statusEl);
 
+  // ── ZIP selection mode (per Isaac) ──────────────────────────────────
+  // Toggle "Select ZIPs", then click zips to build a highlighted set —
+  // exactly the yellow-territory look of a printed zip map. The pill
+  // shows live totals for the selection; Copy grabs the zip list.
+  const _selSet = state._geoZipSel || (state._geoZipSel = new Set());
+  const _layerByZip = new Map();          // zip -> polygon layer (restyle on toggle)
+  const _labelPts = [];                   // { ll, zip } for zoomed-in zip labels
+  container._zipSelectMode = !!state._geoZipSelMode;
+  const SEL_STYLE = { fillColor: '#FFD84D', fillOpacity: 0.9, color: '#C8552E', weight: 1.6 };
+  const _selBtn = document.createElement('button');
+  _selBtn.style.cssText = 'position:absolute;right:10px;top:10px;z-index:801;font:700 11px Archivo,sans-serif;padding:6px 10px;border:1px solid #1d1d1d;cursor:pointer;';
+  const _paintSelBtn = () => {
+    _selBtn.textContent = container._zipSelectMode ? '\u2713 Selecting ZIPs \u2014 click zips' : 'Select ZIPs';
+    _selBtn.style.background = container._zipSelectMode ? '#DF643A' : '#fff';
+    _selBtn.style.color = container._zipSelectMode ? '#000' : '#1d1d1d';
+  };
+  _paintSelBtn();
+  _selBtn.onclick = () => { container._zipSelectMode = state._geoZipSelMode = !container._zipSelectMode; _paintSelBtn(); _paintSummary(); };
+  container.appendChild(_selBtn);
+  const _sumEl = document.createElement('div');
+  _sumEl.style.cssText = 'position:absolute;left:10px;bottom:10px;z-index:801;background:#fff;border:1px solid #1d1d1d;font:600 11px Archivo,sans-serif;color:#1d1d1d;padding:6px 10px;display:none;align-items:center;gap:10px;';
+  container.appendChild(_sumEl);
+  const _paintSummary = () => {
+    if (!_selSet.size) { _sumEl.style.display = 'none'; return; }
+    let subs = 0, arr = 0, withData = 0;
+    _selSet.forEach(zip => { const z = byZip.get(zip) || byZip.get(zip.replace(/^0+/, '')); if (z) { withData++; subs += (z.subs || 0); arr += (z.arv || 0); } });
+    _sumEl.style.display = 'flex';
+    _sumEl.innerHTML = '';
+    const txt = document.createElement('span');
+    txt.textContent = _selSet.size + ' ZIP' + (_selSet.size === 1 ? '' : 's') + ' \u00b7 ' + subs.toLocaleString() + ' subs \u00b7 ' + fmt.usd0(arr) + (withData < _selSet.size ? ' \u00b7 ' + (_selSet.size - withData) + ' no data' : '');
+    _sumEl.appendChild(txt);
+    const mkA = (label, fn) => { const a = document.createElement('button'); a.textContent = label; a.style.cssText = 'font:700 10px Archivo,sans-serif;text-transform:uppercase;letter-spacing:.05em;border:none;background:none;color:#C8552E;cursor:pointer;padding:0;'; a.onclick = fn; _sumEl.appendChild(a); };
+    mkA('Copy', () => { try { navigator.clipboard.writeText([..._selSet].sort().join(', ')); toast('Copied ' + _selSet.size + ' ZIPs', 'success'); } catch (e) { toast('Copy failed', 'error'); } });
+    mkA('Clear', () => { const zips = [..._selSet]; _selSet.clear(); zips.forEach(z => { const l = _layerByZip.get(z); if (l && l._baseStyle) l.setStyle(l._baseStyle); }); _paintSummary(); });
+  };
+  _paintSummary();
+  const _toggleSel = (zip, layerObj) => {
+    if (_selSet.has(zip)) { _selSet.delete(zip); if (layerObj._baseStyle) layerObj.setStyle(layerObj._baseStyle); }
+    else { _selSet.add(zip); layerObj.setStyle(SEL_STYLE); try { layerObj.bringToFront(); } catch (e) {} }
+    _paintSummary();
+  };
+  // ZIP number labels once zoomed in (like a printed zip map) — rebuilt
+  // for the visible viewport on every move so a state's ~1k zips never
+  // all mount at once.
+  const _labelLayer = L.layerGroup().addTo(map);
+  const _refreshLabels = () => {
+    _labelLayer.clearLayers();
+    if (map.getZoom() < 9) return;
+    const b = map.getBounds().pad(0.1);
+    let n = 0;
+    for (const pt of _labelPts) {
+      if (!b.contains(pt.ll)) continue;
+      if (++n > 400) break;
+      _labelLayer.addLayer(L.tooltip({ permanent: true, direction: 'center', className: 'zip-label', interactive: false, opacity: 1 })
+        .setLatLng(pt.ll).setContent(pt.zip));
+    }
+  };
+  map.on('zoomend moveend', _refreshLabels);
+
   (() => {
     // Quintile scale across just this state's zips so the color spread
     // is meaningful inside the state (one big zip doesn't dominate).
@@ -43491,7 +43549,7 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
         const z = byZip.get(zip) || byZip.get(zip.replace(/^0+/, ''));
         const isHighlight = normalizedTarget && zip === normalizedTarget;
         const v = zipMetricFor(z);
-        return {
+        const base = {
           fillColor: colorFor(v),
           // Fade ZIPs with no qualifying value (e.g. ≤10 service types, or
           // below the attrition sub-floor) so the colored ones stand out.
@@ -43499,14 +43557,19 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
           color: isHighlight ? '#DC2626' : '#6B7280',
           weight: isHighlight ? 3 : 0.4,
         };
+        return _selSet.has(zip) ? SEL_STYLE : base;
       },
       onEachFeature: (feature, layerObj) => {
         const zip = String(feature.properties.ZCTA5CE10 || feature.properties.zip || '').padStart(5, '0');
         const z = byZip.get(zip) || byZip.get(zip.replace(/^0+/, ''));
         const isHighlight = normalizedTarget && zip === normalizedTarget;
         if (isHighlight) highlightedPolygon = layerObj;
+        _layerByZip.set(zip, layerObj);
+        try { _labelPts.push({ ll: layerObj.getBounds().getCenter(), zip }); } catch (e) {}
+        try { layerObj._baseStyle = layer.options.style(feature); } catch (e) {}
         if (!z) {
           layerObj.bindTooltip('ZIP ' + zip + '<br><i>No data in current filter</i>', { sticky: true });
+          layerObj.on('click', () => { if (container._zipSelectMode) _toggleSel(zip, layerObj); });
           return;
         }
         const v = zipMetricFor(z);
@@ -43518,15 +43581,15 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
           + metricLabel + ': ' + display + '<br>'
           + z.subs + ' subs · ' + z.customers + ' customers';
         layerObj.bindTooltip(tooltipHtml, { sticky: true });
-        layerObj.on('click', () => onZipClick(z));
+        layerObj.on('click', () => { if (container._zipSelectMode) _toggleSel(zip, layerObj); else onZipClick(z); });
         // Mouseover / mouseout reset to the default border. Skip the
         // reset for the highlighted polygon so the red ring stays
         // visible even after the user mouses over it.
         layerObj.on('mouseover', (e) => {
-          if (!isHighlight) e.target.setStyle({ weight: 2, color: '#1d1d1d' });
+          if (!isHighlight && !_selSet.has(zip)) e.target.setStyle({ weight: 2, color: '#1d1d1d' });
         });
         layerObj.on('mouseout',  (e) => {
-          if (!isHighlight) e.target.setStyle({ weight: 0.4, color: '#6B7280' });
+          if (!isHighlight && !_selSet.has(zip)) e.target.setStyle({ weight: 0.4, color: '#6B7280' });
         });
       },
     }).addTo(map);
@@ -49518,7 +49581,10 @@ function upfrontCollectedPct(sales) {
   const anyFlagged = (state.allSales || []).some(x => !!x.upfront_collected)
     || (state.mySales || []).some(x => !!x.upfront_collected);
   if (!anyFlagged) return null;
-  const eligible = (sales || []).filter(x => !isRenewalSource(x) && !_isUpsellContract(x));
+  // Sentricon is excluded from the charge-upfront denominator (rep pay tab
+  // C29 filters "<>Sentricon - Retreat") — termite jobs bill differently.
+  const _isSentricon = (x) => { const ct = (state.serviceTypes || []).find(t => t.id === x?.service_type_id); return !!ct && /sentricon/i.test(String(ct.name || '')) || /sentricon/i.test(String(x?._crmService || '')); };
+  const eligible = (sales || []).filter(x => !isRenewalSource(x) && !_isUpsellContract(x) && !_isSentricon(x));
   if (!eligible.length) return null;   // nothing eligible — no tier penalty
   return eligible.filter(x => !!x.upfront_collected).length / eligible.length;
 }
