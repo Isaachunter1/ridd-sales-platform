@@ -248,6 +248,11 @@
   .scroll-x::-webkit-scrollbar-thumb { background:var(--border-2); border-radius: 0; }
 
   /* Spinner */
+  /* ZIP number labels on the Geographic map (printed-zip-map style). */
+  .zip-label { background: transparent !important; border: none !important; box-shadow: none !important;
+    font: 700 10px 'IBM Plex Mono', ui-monospace, monospace; color: #1d1d1d;
+    text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 4px #fff; pointer-events: none; }
+  .zip-label::before { display: none; }
   .spinner { display:inline-block; width:16px; height:16px; border:2px solid rgba(223,100,58,.25); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
   /* Styled hover tooltip — replaces the browser's plain title bubble app-wide */
   .app-tip { position:fixed; z-index:10000; max-width:280px; padding:6px 10px; border-radius: 0;
