@@ -341,6 +341,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_scorecardTemplate',
   '_scorecardTemplates',   // per-department templates (inside_sales / loyalty)
   '_scorecardData',
+  '_scorecardAudits',   // call-audit cache (cloud table call_audits is the record)
   '_scorecardPeriod',
 ];
 
@@ -36161,6 +36162,292 @@ function scorecardBand(score) {
   return { color: '#B91C1C', bg: 'rgba(220,38,38,.14)', label: 'Intervene' };
 }
 
+
+// ── Call-audit QA rubrics (per Isaac) ─────────────────────────────────
+// Replaces the old sheet's binary 0/1 call grading. Each call is graded
+// against weighted sections; every criterion is Yes (full) / Partial
+// (half) / No (0) / N-A (out of the denominator), so a call doesn't have
+// to be perfect to score well — it earns points for what was done right.
+// Compliance sections flag the call when any criterion is a hard No.
+const SCORECARD_CALL_RUBRICS = {
+  inside_sales: {
+    call: [
+      { id: 'discovery', label: 'Discovery', weight: 20, criteria: [
+        { id: 'probe',   label: 'Asked probing questions to identify the pest & situation' },
+        { id: 'home',    label: 'Confirmed home / property details' },
+        { id: 'concern', label: 'Uncovered the customer’s real concern' },
+      ] },
+      { id: 'value', label: 'Value Build', weight: 25, criteria: [
+        { id: 'topdown', label: 'Started top-down at the right package' },
+        { id: 'tied',    label: 'Tied coverage to the customer’s issue' },
+        { id: 'explain', label: 'Explained the initial + recurring service clearly' },
+      ] },
+      { id: 'close', label: 'Close & Objections', weight: 30, criteria: [
+        { id: 'rebuttal', label: 'Handled objections with a real rebuttal' },
+        { id: 'urgency',  label: 'Created urgency & asked for the sale' },
+        { id: 'price',    label: 'Defended price before discounting' },
+      ] },
+      { id: 'compliance', label: 'Compliance & Terms', weight: 25, flag: true, criteria: [
+        { id: 'floor',    label: 'Stayed at / above the pricing floor' },
+        { id: 'terms',    label: 'Reviewed agreement terms & length' },
+        { id: 'contract', label: 'Sent the contract for signature (no verbal-only)' },
+      ] },
+    ],
+    accuracy: [
+      { id: 'acc', label: 'Accuracy', weight: 100, criteria: [
+        { id: 'notes',    label: 'Call notes logged accurately' },
+        { id: 'build',    label: 'Subscription / pricing built right in FieldRoutes' },
+        { id: 'followup', label: 'Follow-up scheduled if unbooked' },
+      ] },
+    ],
+  },
+  loyalty: {
+    call: [
+      { id: 'discovery', label: 'Reason Discovery', weight: 25, criteria: [
+        { id: 'listen', label: 'Listened & probed WHY they want to cancel' },
+        { id: 'ack',    label: 'Acknowledged the concern before pitching' },
+      ] },
+      { id: 'value', label: 'Value Rebuild', weight: 30, criteria: [
+        { id: 'tied',   label: 'Rebuttal tied to their specific reason' },
+        { id: 'remind', label: 'Reminded them of coverage / service history' },
+      ] },
+      { id: 'save', label: 'Save Attempt', weight: 30, criteria: [
+        { id: 'offer', label: 'Made a real save offer' },
+        { id: 'ask',   label: 'Asked them to stay' },
+      ] },
+      { id: 'compliance', label: 'Compliance', weight: 15, flag: true, criteria: [
+        { id: 'honest',  label: 'No false promises — accurate policy' },
+        { id: 'process', label: 'Followed the cancel / save process' },
+      ] },
+    ],
+    accuracy: [
+      { id: 'acc', label: 'Accuracy', weight: 100, criteria: [
+        { id: 'reason',   label: 'Cancellation reason coded correctly' },
+        { id: 'notes',    label: 'Account notes logged accurately' },
+        { id: 'saveback', label: 'Save-back / cancel processed correctly' },
+      ] },
+    ],
+  },
+};
+
+// grades: { 'sectionId.criterionId': 2|1|0 } — missing/null = N/A (excluded).
+function callAuditScore(grades, dept, kind) {
+  const rub = (SCORECARD_CALL_RUBRICS[dept] || SCORECARD_CALL_RUBRICS.inside_sales)[kind] || [];
+  let wEarned = 0, wPossible = 0, flagged = false, graded = 0;
+  for (const sec of rub) {
+    let e = 0, pp = 0;
+    for (const c of sec.criteria) {
+      const g = (grades || {})[sec.id + '.' + c.id];
+      if (g == null) continue;
+      pp += 2; e += Number(g) || 0; graded++;
+      if (sec.flag && Number(g) === 0) flagged = true;
+    }
+    if (pp > 0) { wEarned += (e / pp) * sec.weight; wPossible += sec.weight; }
+  }
+  return { score: wPossible > 0 ? wEarned / wPossible * 100 : null, flagged, graded };
+}
+
+function callAuditRollup(profileId, period) {
+  const list = ((state._scorecardAudits || {})[profileId + '|' + period]) || [];
+  const calls = list.map(a => Number(a.call_score)).filter(Number.isFinite);
+  const accs  = list.map(a => Number(a.accuracy_score)).filter(Number.isFinite);
+  const avg = (xs) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+  return { n: list.length, call: avg(calls), accuracy: avg(accs), flags: list.filter(a => a.flagged).length };
+}
+
+// ── Scorecards cloud persistence (per Isaac: make the swap permanent) ──
+// Cards + call audits live in their own Supabase tables (scorecard_cards /
+// call_audits — run scorecards_v1.sql once). Local state stays the working
+// cache so the render code is unchanged: loads hydrate it, edits write
+// through. DEMO mode stays local-only.
+async function loadScorecardCloud(period) {
+  if (typeof DEMO !== 'undefined' && DEMO) return;
+  if (typeof supabase === 'undefined' || !supabase) return;
+  if (state._scorecardCloudFor === period || state._scorecardCloudLoading) return;
+  state._scorecardCloudLoading = true;
+  try {
+    const [cards, audits] = await Promise.all([
+      supabase.from('scorecard_cards').select('*').eq('period', period),
+      supabase.from('call_audits').select('*').eq('period', period).order('call_date', { ascending: true }),
+    ]);
+    if (!cards.error) {
+      state._scorecardData = state._scorecardData || {};
+      for (const row of (cards.data || [])) {
+        const d = row.data || {};
+        state._scorecardData[row.profile_id + '|' + row.period] = {
+          metrics: d.metrics || {}, attendance: d.attendance || {}, notes: d.notes || '',
+          finalized: row.finalized || null, reviewed: row.reviewed || null,
+        };
+      }
+    }
+    if (!audits.error) {
+      state._scorecardAudits = state._scorecardAudits || {};
+      for (const k of Object.keys(state._scorecardAudits)) if (k.endsWith('|' + period)) delete state._scorecardAudits[k];
+      for (const a of (audits.data || [])) {
+        const k = a.profile_id + '|' + a.period;
+        (state._scorecardAudits[k] = state._scorecardAudits[k] || []).push(a);
+      }
+    }
+    state._scorecardCloudFor = period;
+  } catch (e) { console.warn('scorecard cloud load failed', e); }
+  state._scorecardCloudLoading = false;
+  if (state.view === 'scorecards') mountApp();
+}
+
+function saveScorecardCardCloud(profileId, period, dept, tpl) {
+  if (typeof DEMO !== 'undefined' && DEMO) return;
+  if (typeof supabase === 'undefined' || !supabase) return;
+  const card = (state._scorecardData || {})[profileId + '|' + period];
+  if (!card) return;
+  let final = null;
+  try {
+    const sc = computeScorecardScore(card, tpl, period);
+    if (sc && sc.coverage > 0) final = Number(sc.final.toFixed(2));
+  } catch (e) { /* score stays null */ }
+  supabase.from('scorecard_cards').upsert({
+    profile_id: profileId, period, dept,
+    data: { metrics: card.metrics || {}, attendance: card.attendance || {}, notes: card.notes || '' },
+    weights: (tpl && Array.isArray(tpl.metrics)) ? tpl.metrics.map(m => ({ id: m.id, label: m.label, weight: m.weight })) : null,
+    final_score: final,
+    finalized: card.finalized || null,
+    reviewed: card.reviewed || null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'profile_id,period' }).then(({ error }) => {
+    if (error) console.warn('scorecard cloud save failed:', error.message);
+  });
+}
+
+function saveCallAuditRow(row) {
+  const k = row.profile_id + '|' + row.period;
+  state._scorecardAudits = state._scorecardAudits || {};
+  (state._scorecardAudits[k] = state._scorecardAudits[k] || []).push(row);
+  saveDemoData();
+  if (!(typeof DEMO !== 'undefined' && DEMO) && typeof supabase !== 'undefined' && supabase) {
+    const payload = { ...row };
+    delete payload.id;
+    supabase.from('call_audits').insert(payload).select().then(({ data, error }) => {
+      if (!error && data && data[0]) row.id = data[0].id;
+      else if (error) console.warn('call audit save failed:', error.message);
+    });
+  }
+}
+
+function deleteCallAuditRow(a) {
+  const k = a.profile_id + '|' + a.period;
+  const list = (state._scorecardAudits || {})[k] || [];
+  const i = list.indexOf(a);
+  if (i >= 0) list.splice(i, 1);
+  saveDemoData();
+  if (!(typeof DEMO !== 'undefined' && DEMO) && typeof supabase !== 'undefined' && supabase && a.id && !String(a.id).startsWith('local-'))
+    supabase.from('call_audits').delete().eq('id', a.id).then(({ error }) => { if (error) console.warn('call audit delete failed:', error.message); });
+}
+
+// Grade-a-call modal: rubric sections with Yes / Partial / No / N-A per
+// criterion, live score, meta fields matching the old audit sheet.
+function openCallAuditModal(profile, period, dept, onDone) {
+  const overlay = el('div', { class: 'modal-overlay', style: { zIndex: '210' } });
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  const modal = el('div', { class: 'card w-full max-w-2xl p-6 my-8 overflow-y-auto', style: { maxHeight: 'calc(100vh - 64px)' } });
+  overlay.append(modal);
+  const rub = SCORECARD_CALL_RUBRICS[dept] || SCORECARD_CALL_RUBRICS.inside_sales;
+  const meta = { call_date: new Date().toISOString().slice(0, 10), call_ref: '', customer_ref: '', call_type: '', outcome: '', notes: '' };
+  const grades = {};
+  const OUTCOMES = dept === 'loyalty'
+    ? ['Saved', 'Cancelled', 'Pending', 'Resign', 'Other']
+    : ['Qualified - Booked', 'Qualified - Unbooked', 'Not Qualified', 'Follow-Up Set', 'Other'];
+  const GRADE_BTNS = [[2, 'Yes'], [1, 'Half'], [0, 'No'], [null, 'N/A']];
+  const render = () => {
+    modal.innerHTML = '';
+    const callSc = callAuditScore(grades, dept, 'call');
+    const accSc  = callAuditScore(grades, dept, 'accuracy');
+    modal.append(el('div', { class: 'flex items-start justify-between gap-4 mb-4' },
+      el('div', {},
+        el('h2', { class: 'text-xl font-bold' }, 'Audit a Call'),
+        el('div', { class: 'text-xs text-muted- mt-1' }, (profile.full_name || 'Agent') + ' · ' + period)),
+      el('div', { class: 'flex items-center gap-3' },
+        el('div', { class: 'text-right' },
+          el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-bold' }, 'Call'),
+          el('div', { class: 'text-lg font-black tabular-nums', style: { color: 'var(--accent)' } }, callSc.score == null ? '—' : callSc.score.toFixed(0) + '%')),
+        el('div', { class: 'text-right' },
+          el('div', { class: 'text-[9px] uppercase tracking-widest text-muted- font-bold' }, 'Accuracy'),
+          el('div', { class: 'text-lg font-black tabular-nums', style: { color: 'var(--accent)' } }, accSc.score == null ? '—' : accSc.score.toFixed(0) + '%')),
+        el('button', { class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×'))));
+    if (callSc.flagged) modal.append(el('div', { class: 'rounded-lg border px-3 py-2 text-[11px] mb-3', style: { borderColor: '#DC2626', background: 'rgba(220,38,38,.08)', color: '#DC2626' } },
+      '⚑ Compliance flag — a compliance criterion is graded No. The call still scores; the flag rides with it.'));
+    const inp = (key, ph, type) => el('input', {
+      type: type || 'text', placeholder: ph, value: meta[key] || '',
+      class: 'rounded-lg border px-3 py-1.5 text-sm w-full',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+      oninput: (e) => { meta[key] = e.target.value; },
+    });
+    modal.append(el('div', { class: 'grid grid-cols-2 gap-2 mb-3' },
+      inp('call_date', 'Call date', 'date'),
+      el('select', {
+        class: 'rounded-lg border px-3 py-1.5 text-sm w-full cursor-pointer',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+        onchange: (e) => { meta.outcome = e.target.value; },
+      }, el('option', { value: '' }, 'Outcome…'), ...OUTCOMES.map(o => el('option', { value: o, selected: meta.outcome === o }, o))),
+      inp('call_ref', 'Five9 / phone #'),
+      inp('customer_ref', 'FieldRoutes customer #'),
+      el('div', { style: { gridColumn: 'span 2' } }, inp('call_type', 'Call type (e.g. Pest quote, Rodent service, Resign)'))));
+    const secBlock = (sec, kind) => el('div', { class: 'mb-3' },
+      el('div', { class: 'flex items-center justify-between mb-1' },
+        el('div', { class: 'text-[11px] font-bold uppercase tracking-wider' }, sec.label + (sec.flag ? ' ⚑' : '')),
+        kind === 'call' ? el('div', { class: 'text-[10px] text-muted-' }, sec.weight + '% of call score') : null),
+      ...sec.criteria.map(c => {
+        const k = sec.id + '.' + c.id;
+        const cur = grades[k];
+        return el('div', { class: 'flex items-center justify-between gap-2 border-t py-1.5', style: { borderColor: 'var(--border)' } },
+          el('div', { class: 'text-xs flex-1 min-w-0' }, c.label),
+          el('div', { class: 'flex gap-1 shrink-0' }, ...GRADE_BTNS.map(([v, lab]) => {
+            const on = v == null ? (k in grades && grades[k] == null) : cur === v;
+            return el('button', {
+              class: 'rounded border px-2 py-0.5 text-[10px] font-bold transition',
+              style: on
+                ? { borderColor: 'var(--accent)', background: 'var(--accent)', color: 'var(--accent-text)' }
+                : { borderColor: 'var(--border-2)', background: 'transparent', color: 'var(--text-muted)' },
+              onclick: () => { if (v == null) grades[k] = null; else grades[k] = v; render(); },
+            }, lab);
+          })));
+      }));
+    modal.append(el('div', { class: 'mb-1' }, ...rub.call.map(sec => secBlock(sec, 'call'))));
+    modal.append(el('div', { class: 'mb-3' }, ...rub.accuracy.map(sec => secBlock(sec, 'accuracy'))));
+    modal.append(el('textarea', {
+      rows: 3, placeholder: 'Coaching notes — what was great, what to improve…',
+      class: 'rounded-lg border px-3 py-2 text-sm w-full mb-3',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+      oninput: (e) => { meta.notes = e.target.value; },
+    }, meta.notes || ''));
+    modal.append(el('div', { class: 'flex items-center justify-between gap-3' },
+      el('div', { class: 'text-[10px] text-muted-' }, 'Ungraded rows count as N/A — the call is scored only on what you grade.'),
+      el('button', {
+        class: 'rounded-lg px-4 py-2 text-sm font-bold',
+        style: { background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', cursor: 'pointer' },
+        onclick: () => {
+          const cs = callAuditScore(grades, dept, 'call');
+          const as2 = callAuditScore(grades, dept, 'accuracy');
+          if (!cs.graded && !as2.graded) { alert('Grade at least one criterion first.'); return; }
+          saveCallAuditRow({
+            id: 'local-' + Math.random().toString(36).slice(2),
+            profile_id: profile.id, period, dept,
+            call_date: meta.call_date || null, call_ref: meta.call_ref || null,
+            customer_ref: meta.customer_ref || null, call_type: meta.call_type || null,
+            outcome: meta.outcome || null, notes: meta.notes || null,
+            grades: { ...grades },
+            call_score: cs.score == null ? null : Number(cs.score.toFixed(1)),
+            accuracy_score: as2.score == null ? null : Number(as2.score.toFixed(1)),
+            flagged: !!cs.flagged,
+            created_by: state.profile?.id || null,
+          });
+          overlay.remove();
+          if (onDone) onDone();
+        },
+      }, 'Save audit')));
+  };
+  render();
+  document.body.append(overlay);
+}
+
 function viewScorecards() {
   const isAdmin = isAdminRole(state.profile?.role);
   const isLead = typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role);
@@ -36178,6 +36465,7 @@ function viewScorecards() {
     state._scorecardPeriod = opts[0]?.key || new Date().toISOString().slice(0, 7);
   }
   const period = state._scorecardPeriod;
+  loadScorecardCloud(period);   // hydrate cards + call audits from Supabase (no-op in demo)
   const periodOpts = scorecardPeriodOptions();
   // Storage key uses the profile.id (stable across renames / email
   // changes) rather than a display name from the CSV, so a rep editing
@@ -36198,6 +36486,7 @@ function viewScorecards() {
       reviewed:   patch.reviewed  !== undefined ? patch.reviewed  : (cur.reviewed  || null),
     };
     saveDemoData();
+    saveScorecardCardCloud(profileId, period, dept, tpl);
   };
 
   // Roster — every active app user (profile). Scorecards are
@@ -36732,6 +37021,52 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
       }),
     );
     modal.append(attSection);
+
+    // ── Call Audits (per Isaac) — rubric-graded QA replaces the 0/1 sheet.
+    (() => {
+      const _dept = scorecardDeptOf(profile);
+      const _ak = profileId + '|' + period;
+      const _audits = (state._scorecardAudits || {})[_ak] || [];
+      const _roll = callAuditRollup(profileId, period);
+      const scoreBadge = (lab, v) => el('span', { class: 'text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded shrink-0', style: { background: 'var(--card-2)', color: Number.isFinite(Number(v)) ? 'var(--text)' : 'var(--text-muted)' } },
+        lab + ' ' + (Number.isFinite(Number(v)) ? Math.round(Number(v)) + '%' : '—'));
+      const auditRow = (a) => el('div', { class: 'border-t py-1.5', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'flex items-center gap-2' },
+          el('div', { class: 'text-[11px] tabular-nums text-muted- shrink-0' }, String(a.call_date || '').slice(5, 10) || '—'),
+          el('div', { class: 'text-xs font-semibold truncate flex-1 min-w-0' }, (a.call_type || 'Call') + (a.outcome ? ' · ' + a.outcome : '')),
+          a.flagged ? el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: '#DC2626' }, title: 'Compliance flag' }, '⚑') : null,
+          scoreBadge('Call', a.call_score), scoreBadge('Acc', a.accuracy_score),
+          canEditNow ? el('button', { class: 'text-sm text-muted- shrink-0', title: 'Delete this audit', style: { background: 'transparent', border: 'none', cursor: 'pointer' }, onclick: () => { deleteCallAuditRow(a); render(); } }, '×') : null),
+        a.notes ? el('div', { class: 'text-[10px] text-muted- mt-0.5', style: { paddingLeft: '40px' } }, a.notes) : null);
+      modal.append(el('div', { class: 'mb-5' },
+        el('div', { class: 'flex items-center justify-between mb-2' },
+          el('h3', { class: 'text-xs font-bold uppercase tracking-widest text-muted-' }, 'Call Audits' + (_audits.length ? ' · ' + _audits.length : '')),
+          canEditNow ? el('button', {
+            class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
+            style: { background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', cursor: 'pointer' },
+            onclick: () => openCallAuditModal(profile, period, _dept, () => render()),
+          }, '+ Audit a call') : null),
+        _audits.length
+          ? el('div', {}, ..._audits.map(auditRow))
+          : el('div', { class: 'text-[11px] text-muted-' }, 'No calls audited for this month yet.' + (canEditNow ? ' Grade a few — they roll up into the Audit and Accuracy scores.' : '')),
+        _roll.n ? el('div', { class: 'flex items-center justify-between gap-2 mt-2 rounded-lg border px-3 py-2', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+          el('div', { class: 'text-[11px]' },
+            el('span', { class: 'font-bold' }, 'Rollup from ' + _roll.n + ' call' + (_roll.n === 1 ? '' : 's') + ': '),
+            'Audit ' + (_roll.call == null ? '—' : _roll.call.toFixed(1) + '%') + ' · Accuracy ' + (_roll.accuracy == null ? '—' : _roll.accuracy.toFixed(1) + '%')
+            + (_roll.flags ? ' · ' : ''),
+            _roll.flags ? el('span', { style: { color: '#DC2626', fontWeight: '700' } }, _roll.flags + ' flagged') : null),
+          canEditNow ? el('button', {
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold shrink-0',
+            style: { borderColor: 'var(--accent)', color: 'var(--accent)', background: 'transparent', cursor: 'pointer' },
+            title: 'Write the call rollup into the Audit Score and Accuracy Score metrics above',
+            onclick: () => {
+              if (_roll.call != null) draft.metrics.audit = Number(_roll.call.toFixed(1));
+              if (_roll.accuracy != null) draft.metrics.accuracy = Number(_roll.accuracy.toFixed(1));
+              upsertCard(profileId, { metrics: draft.metrics });
+              render();
+            },
+          }, 'Apply to metrics →') : null) : null));
+    })();
 
     // ── Coaching notes
     modal.append(
