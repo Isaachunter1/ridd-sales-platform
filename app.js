@@ -38037,7 +38037,22 @@ function reportingFlaggedActive(rows, isActive) {
 // and strip trailing punctuation — the CRM carries both "Unspecified." and
 // "Unspecified", and "Sales Rep Error " with a trailing space. Without this,
 // a Configurations choice can silently miss a variant spelling.
-function _normCancelReason(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '').toLowerCase(); }
+// FieldRoutes renamed several cancellation reasons over time; exports keep
+// the label as it read when the cancel was logged, so the same reason ID
+// shows up under two spellings. Canonicalize the legacy names everywhere.
+const _CANCEL_REASON_ALIASES = {
+  'inbound renewal': 'renewal - inbound',
+  'outbound renewal': 'renewal - outbound',
+  'loyalty renewal': 'renewal - loyalty',
+  'service pro upsell renewal': 'renewal - service pro upsell',
+};
+const _CANCEL_REASON_DISPLAY = {
+  'inbound renewal': 'Renewal - Inbound',
+  'outbound renewal': 'Renewal - Outbound',
+  'loyalty renewal': 'Renewal - Loyalty',
+  'service pro upsell renewal': 'Renewal - Service Pro Upsell',
+};
+function _normCancelReason(s) { const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '').toLowerCase(); return _CANCEL_REASON_ALIASES[t] || t; }
 function reportingExcludedCancelReasons() {
   const cfg = state.reportingCancelConfig || [];
   return new Set(cfg.filter(c => c.counts_attrition === false).map(c => _normCancelReason(c.reason)));
@@ -38046,7 +38061,8 @@ function reportingCancelReasonOf(r) {
   // Tidy for display/grouping too — otherwise "Unspecified." and
   // "Unspecified" chart as two different reasons.
   const raw = String(r.subscription_cancellation_reason || '').replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '');
-  return raw || 'Unspecified';
+  if (!raw) return 'Unspecified';
+  return _CANCEL_REASON_DISPLAY[raw.toLowerCase()] || raw;
 }
 
 // Lead sources the admin marked as NOT counting (Configurations tab). Subs
@@ -39076,7 +39092,7 @@ function reportingChartData(scopeRows, serviceConfig) {
       pastDueOffice: reportingGroupSum(pastDueRows, r => r.office_name || 'Unspecified', r => r.subscription_contract_value),
       tenure:      tenureSlices,
       agreement:   agreementSlices,
-      cancels:     reportingGroupCount(realCancels, r => r.subscription_cancellation_reason || 'Unspecified'),
+      cancels:     reportingGroupCount(realCancels, r => reportingCancelReasonOf(r)),
       sources:     reportingGroupCount(scopeRows,   r => r.subscription_source || 'Unspecified'),
       onetimeSubs: reportingGroupCount(oneTimeRows, r => r.subscription || 'Unspecified'),
       onetimeRev:  reportingGroupSum(oneTimeRows,   r => r.subscription || 'Unspecified', r => r.subscription_contract_value),
@@ -39098,7 +39114,7 @@ function reportingChartData(scopeRows, serviceConfig) {
       pastDueOffice: { source: pastDueRows,   key: r => r.office_name || 'Unspecified' },
       tenure:        { source: scopeRows,     key: r => reportingTenureBucket(r.initial_service, today) },
       agreement:     { source: scopeRows.filter(r => (Number(r.agreement_length) || 0) > 0), key: r => { const m = Number(r.agreement_length) || 0; return (m === 12 || m === 18 || m === 24) ? m + ' mo' : 'Other'; } },
-      cancels:       { source: realCancels,   key: r => r.subscription_cancellation_reason || 'Unspecified' },
+      cancels:       { source: realCancels,   key: r => reportingCancelReasonOf(r) },
       sources:       { source: scopeRows,     key: r => r.subscription_source || 'Unspecified' },
       onetimeSubs:   { source: oneTimeRows,   key: r => r.subscription || 'Unspecified' },
       onetimeRev:    { source: oneTimeRows,   key: r => r.subscription || 'Unspecified' },
@@ -47652,7 +47668,7 @@ function reportingWaterfall() {
     const _fx = state._rtAttrExcl;
     const _isRorT = (r) => _reporting3dayRor(r);
     const _isRenewalT = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
-      || /^\s*renewal/i.test(String(r.subscription_cancellation_reason || ''));
+      || /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
     const _isOneTimeT = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
       || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
     const _exclReasons = reportingExcludedCancelReasons();
@@ -47770,7 +47786,7 @@ function reportingWaterfall() {
     const _yOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
     const _alive = (r) => /active/i.test(String(r.subscription_status || ''));
     const _isRenew = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
-      || /^\s*renewal/i.test(String(r.subscription_cancellation_reason || ''));
+      || /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
     const _isOne = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
       || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
     const _exclR = reportingExcludedCancelReasons();
@@ -47842,7 +47858,7 @@ function reportingWaterfall() {
     const _yrL = state._rtAttrYear || 'all';
     const _yOfL = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
     const _isRenewL = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
-      || /^\s*renewal/i.test(String(r.subscription_cancellation_reason || ''));
+      || /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
     const _isOneL = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
       || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
     const rowsL = [];
@@ -47884,7 +47900,7 @@ function reportingWaterfall() {
     // by-reason lifetime table (merges trailing-period label variants)
     const byReason = {};
     for (const x of rowsL) {
-      const k = String(x.r.subscription_cancellation_reason || '').trim().replace(/\.+\s*$/, '') || '(no reason logged)';
+      const k = String(x.r.subscription_cancellation_reason || '').trim() ? reportingCancelReasonOf(x.r) : '(no reason logged)';
       (byReason[k] = byReason[k] || []).push(x);
     }
     const rks = Object.keys(byReason).filter(k => byReason[k].length >= 10)
@@ -47958,43 +47974,8 @@ function reportingWaterfall() {
           el('tbody', {}, ...rks.map(reasonRow)))));
   })();
 
-  // \u2500\u2500 Cancel Hygiene (per Isaac) \u2500\u2500 fixable FieldRoutes data problems
-  // that quietly distort attrition: cancels with NO reason ever logged, and
-  // 3-day RORs hiding under other reason codes (plus the reverse). These are
-  // corrected ON THE ACCOUNT in FieldRoutes; the next sync cleans the matrix.
-  const cancelHygieneCard = (() => {
-    const _cxlH = (r) => r.subscription_date_canceled && !/active/i.test(String(r.subscription_status || ''));
-    const _isRorReason = (r) => /^3\s*day\s*ror$/i.test(reportingCancelReasonOf(r));
-    const _isSalesRepH = (r) => { const t = String(r.sold_by_type || '').trim().toLowerCase(); return !t || t === 'sales rep'; };
-    const _quickH = (r) => { if (!r.sold_date || !r.subscription_date_canceled) return false; const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000; return d >= 0 && d <= 3; };
-    const noReason = [], miscodedRor = [], rorTooLate = [];
-    for (const r of popA) {
-      if (!_cxlH(r)) continue;
-      const raw = String(r.subscription_cancellation_reason || '').trim();
-      if (!raw) { noReason.push(r); continue; }
-      if (_isSalesRepH(r) && _quickH(r) && !_isRorReason(r)) miscodedRor.push(r);
-      else if (_isRorReason(r) && !_quickH(r)) rorTooLate.push(r);
-    }
-    if (!noReason.length && !miscodedRor.length && !rorTooLate.length) return null;
-    const hRow = (label, desc, rows2, color) => rows2.length ? el('button', {
-      class: 'w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:brightness-95 border-t',
-      style: { borderColor: 'var(--border)', background: 'transparent', cursor: 'pointer' },
-      onclick: () => openReportingDrillModal({ chartTitle: 'Cancel hygiene \u2014 ' + label, sliceLabel: fmt.int(rows2.length) + ' account' + (rows2.length === 1 ? '' : 's'), rows: rows2, formatValue: (v) => fmt.usd0(v) }),
-    },
-      el('div', { class: 'min-w-0' },
-        el('div', { class: 'text-xs font-bold' }, label),
-        el('div', { class: 'text-[10px] text-muted-' }, desc)),
-      el('div', { class: 'text-sm font-black tabular-nums shrink-0', style: { color } }, fmt.int(rows2.length))) : null;
-    return el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3' },
-        el('div', { class: 'font-display text-lg' }, 'Cancel Hygiene'),
-        el('div', { class: 'text-[11px] text-muted-' }, 'Fixable FieldRoutes data problems that distort attrition \u2014 correct these on the account in FieldRoutes and the next snapshot cleans the numbers.')),
-      hRow('No cancellation reason', 'Cancelled with a date but no reason ever logged \u2014 counts as "Unspecified" churn today', noReason, '#DC2626'),
-      hRow('ROR hiding under another reason', 'Sales-rep sale cancelled within 3 days of sold but coded as something else \u2014 the date rule catches it, the reason matrix does not', miscodedRor, '#D97706'),
-      hRow('Coded 3 Day ROR but cancelled late', 'Reason says 3 Day ROR, but the cancel is more than 3 days after the sale \u2014 either the reason or the dates are wrong', rorTooLate, '#D97706'));
-  })();
-
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body, repTypeAttritionCard, trueAttritionBar, lifetimeCard, cancelHygieneCard);
+  // Cancel Hygiene moved to Settings > Admin > Data Integrity (per Isaac).
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body, repTypeAttritionCard, trueAttritionBar, lifetimeCard);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -48231,6 +48212,25 @@ function adminDataHygiene() {
     id: 'noreason', icon: '❓', title: 'Cancels with blank / Unspecified reason',
     fix: 'Unexplainable churn — make the cancellation reason mandatory in FieldRoutes and backfill these.',
     rows: all.filter(r => r.subscription_date_canceled && /^(unspecified)?$/i.test(reportingCancelReasonOf(r).trim())),
+    sev: 'med',
+  });
+  // 2b + 2c. Cancel Hygiene (moved from the Retention tab, per Isaac):
+  // RORs hiding under other reason codes, and 3-day-ROR-coded cancels whose
+  // dates say otherwise. Recode the reason (or fix the dates) in FieldRoutes.
+  const _quickCxl = (r) => { if (!r.sold_date || !r.subscription_date_canceled) return false; const d = (new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000; return d >= 0 && d <= 3; };
+  const _rorReason = (r) => /^3\s*day\s*ror$/i.test(reportingCancelReasonOf(r));
+  const _salesRepSold = (r) => { const t = String(r.sold_by_type || '').trim().toLowerCase(); return !t || t === 'sales rep'; };
+  const _cxlOnly = (r) => r.subscription_date_canceled && !/active/i.test(String(r.subscription_status || ''));
+  checks.push({
+    id: 'miscodedror', icon: '\ud83d\udd01', title: 'ROR hiding under another reason',
+    fix: 'Sales-rep sale cancelled within 3 days of sold but coded as something else \u2014 recode the reason to 3 Day ROR in FieldRoutes.',
+    rows: all.filter(r => _cxlOnly(r) && String(r.subscription_cancellation_reason || '').trim() && _salesRepSold(r) && _quickCxl(r) && !_rorReason(r)),
+    sev: 'med',
+  });
+  checks.push({
+    id: 'rorlate', icon: '\ud83d\udcc5', title: 'Coded 3 Day ROR but cancelled late',
+    fix: 'Reason says 3 Day ROR but the cancel is more than 3 days after the sale \u2014 either the reason or the dates are wrong in FieldRoutes.',
+    rows: all.filter(r => _cxlOnly(r) && _rorReason(r) && !_quickCxl(r)),
     sev: 'med',
   });
   // 3. Active recurring subs carrying $0 ARV.
