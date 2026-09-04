@@ -47974,8 +47974,178 @@ function reportingWaterfall() {
           el('tbody', {}, ...rks.map(reasonRow)))));
   })();
 
+
+  // -- Renewal Retention (per Isaac) -- do renewed accounts stick better
+  // than accounts left month-to-month? NOT renewals vs new sales (renewals
+  // only happen within 2 months of term end, so new accounts are not a fair
+  // baseline). Fair frame: of accounts that REACHED contract end, compare
+  // the ones that renewed against the ones riding month-to-month.
+  const renewalRetentionCard = (() => {
+    const MS_D = 86400000;
+    const now = new Date();
+    const _aliveR = (r) => /active/i.test(String(r.subscription_status || ''));
+    const _sentR = (r) => /sentricon/i.test(String(r.subscription || ''));
+    const _endOf = (r) => {
+      const m = Number(r.agreement_length) || 0;
+      const d = r.sold_date ? new Date(r.sold_date) : null;
+      if (!d || isNaN(d) || m < 12) return null;
+      const e = new Date(d); e.setMonth(e.getMonth() + m); return e;
+    };
+    const _renReasonR = (r) => /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
+    const ren = { subs: 0, active: 0, cxl: 0, arvKept: 0, lives: [], rows: [] };
+    const m2m = { reached: 0, renewedAway: 0, active: 0, cxl: 0, arvKept: 0, lives: [], rows: [] };
+    for (const r of popA) {
+      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
+      if (_sentR(r)) continue;
+      const arv = Number(r.annual_recurring_value) || 0;
+      const cd = r.subscription_date_canceled ? new Date(r.subscription_date_canceled) : null;
+      const alive = _aliveR(r);
+      if (reportingSourceClass(r.subscription_source) === 'renewal') {
+        ren.subs++; ren.rows.push(r);
+        if (cd && !alive) {
+          ren.cxl++;
+          const sd = r.sold_date ? new Date(r.sold_date) : null;
+          if (sd && !isNaN(sd) && cd >= sd) ren.lives.push((cd - sd) / MS_D);
+        } else { ren.active++; ren.arvKept += arv; }
+        continue;
+      }
+      const end = _endOf(r);
+      if (!end || end > now) continue;                 // still in term / no real term
+      if (cd && !alive && cd <= end) continue;         // died in term - never reached the choice
+      m2m.reached++;
+      if (cd && !alive && _renReasonR(r)) { m2m.renewedAway++; continue; }  // became a renewal sub
+      m2m.rows.push(r);
+      if (cd && !alive) { m2m.cxl++; m2m.lives.push(Math.max(0, (cd - end) / MS_D)); }
+      else { m2m.active++; m2m.arvKept += arv; }
+    }
+    if (!ren.subs && !m2m.reached) return null;
+    const _medD = (a) => { if (!a.length) return null; const t = [...a].sort((x, y) => x - y); return t[Math.floor((t.length - 1) / 2)]; };
+    const renAttr = ren.subs ? ren.cxl / ren.subs : null;
+    const m2mDen = m2m.active + m2m.cxl;
+    const m2mAttr = m2mDen ? m2m.cxl / m2mDen : null;
+    const moTxtR = (d) => d == null ? '—' : (d / 30.44).toFixed(1) + ' mo';
+    const colR = (title, sub, o, attr, medLife, medLabel, rows2, brd) => el('div', { class: 'flex-1 px-4 py-3', style: { minWidth: '240px', borderLeft: brd ? '1px solid var(--border)' : 'none' } },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold text-muted-' }, title),
+      el('div', { class: 'text-[10px] text-muted- mb-2' }, sub),
+      el('div', { class: 'text-3xl font-black tabular-nums', style: { color: attr != null && attr >= 0.3 ? '#DC2626' : 'var(--accent)' } },
+        attr == null ? '—' : (attr * 100).toFixed(1) + '%',
+        el('span', { class: 'text-xs font-normal text-muted-' }, ' attrition')),
+      el('div', { class: 'text-[11px] text-muted- mt-1.5' },
+        fmt.int(o.active) + ' active · ' + fmt.int(o.cxl) + ' cancelled · ' + fmt.usd0(o.arvKept) + ' ARR retained'),
+      el('div', { class: 'text-[11px] text-muted-' }, medLabel + ': ' + moTxtR(medLife)),
+      rows2.length ? el('button', {
+        class: 'text-[10px] font-semibold mt-1.5', style: { color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 },
+        onclick: () => openReportingDrillModal({ chartTitle: title, sliceLabel: fmt.int(rows2.length) + ' accounts', rows: rows2, formatValue: (v) => fmt.usd0(v) }),
+      }, 'Click to inspect ' + fmt.int(rows2.length) + ' rows →') : null);
+    const delta = (renAttr != null && m2mAttr != null) ? m2mAttr - renAttr : null;
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'Renewal Retention'),
+          el('div', { class: 'text-[11px] text-muted-' },
+            'Accounts that reached contract end: renewed vs. left month-to-month. Not comparable to new sales — renewals only happen at term end, so this is the fair frame. Sentricon excluded.')),
+        delta != null ? el('div', { class: 'text-right' },
+          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Renewal advantage'),
+          el('div', { class: 'text-2xl font-black tabular-nums', style: { color: delta > 0 ? '#DF643A' : '#DC2626' } },
+            (delta > 0 ? '−' : '+') + Math.abs(delta * 100).toFixed(1) + ' pts',
+            el('span', { class: 'text-xs font-normal text-muted-' }, ' attrition'))) : null),
+      el('div', { class: 'flex flex-wrap' },
+        colR('Renewed accounts', 'Source = Renewal · whole life is post-renewal', ren, renAttr, _medD(ren.lives), 'Median life on renewal term (cancels)', ren.rows, false),
+        colR('Month-to-month', fmt.int(m2m.reached) + ' reached term end · ' + fmt.int(m2m.renewedAway) + ' renewed away · rest ride M2M', m2m, m2mAttr, _medD(m2m.lives), 'Median M2M survival after term (cancels)', m2m.rows, true)));
+  })();
+
+  // -- Renewal Outreach queue (per Isaac) -- who to call. Eligible = active,
+  // never renewed (source is not Renewal), not Sentricon, real 12/18/24-mo
+  // term, and within 2 months of contract end OR already month-to-month.
+  // 61-120 days out shows as a planning bucket. Sorted most-overdue first.
+  const renewalQueueCard = (() => {
+    const MS_D = 86400000;
+    const now = new Date();
+    const rowsQ = [];
+    for (const r of popA) {
+      if (!/active/i.test(String(r.subscription_status || ''))) continue;
+      if (r.subscription_date_canceled) continue;
+      if (/sentricon/i.test(String(r.subscription || ''))) continue;          // never renew Sentricon
+      if (reportingSourceClass(r.subscription_source) === 'renewal') continue; // never renew twice
+      const m = Number(r.agreement_length) || 0;
+      if (m < 12) continue;
+      const sd = r.sold_date ? new Date(r.sold_date) : null;
+      if (!sd || isNaN(sd)) continue;
+      const end = new Date(sd); end.setMonth(end.getMonth() + m);
+      const days = Math.round((end - now) / MS_D);   // + = days until term end, - = days past
+      if (days > 120) continue;
+      rowsQ.push({ r, end, days, bucket: days < 0 ? 'm2m' : days <= 60 ? 'open' : 'soon' });
+    }
+    if (!rowsQ.length) return null;
+    rowsQ.sort((a, b) => a.days - b.days);
+    if (!state._rtRenewQ) state._rtRenewQ = { m2m: true, open: true, soon: false };
+    const _qf = state._rtRenewQ;
+    const shown = rowsQ.filter(x => _qf[x.bucket]);
+    const sumArv = (xs) => xs.reduce((t, x) => t + (Number(x.r.annual_recurring_value) || 0), 0);
+    const BUCKETS = [
+      ['m2m',  'Month-to-month', 'past contract end — renew now', '#DC2626'],
+      ['open', 'Window open',    '≤60 days to contract end — eligible', '#DF643A'],
+      ['soon', 'Approaching',    '61–120 days out — planning only', 'var(--text-muted)'],
+    ];
+    const _fmtDt = (d) => (d.getMonth() + 1) + '/' + d.getDate() + '/' + String(d.getFullYear()).slice(2);
+    const daysLbl = (x) => x.days < 0
+      ? el('span', { class: 'font-bold', style: { color: '#DC2626' } }, 'M2M ' + fmt.int(-x.days) + 'd')
+      : el('span', { class: 'font-bold', style: { color: x.days <= 60 ? '#DF643A' : 'var(--text-muted)' } }, 'in ' + fmt.int(x.days) + 'd');
+    const thQ = (lab, right) => el('th', { class: (right ? 'text-right' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'Renewal Outreach'),
+          el('div', { class: 'text-[11px] text-muted-' },
+            'Active accounts at or near contract end · never renewed · no Sentricon · eligible within 60 days of expiry or month-to-month'
+            + (office !== 'all' ? ' · ' + officeLabel(office) : '') + '.')),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          ...BUCKETS.map(([k, lab, desc, color]) => {
+            const xs = rowsQ.filter(x => x.bucket === k);
+            return el('button', {
+              class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+              style: _qf[k]
+                ? { borderColor: 'var(--accent)', color: 'var(--accent-text)', background: 'var(--accent)' }
+                : { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'transparent' },
+              title: desc + ' · ' + fmt.usd0(sumArv(xs)) + ' ARR',
+              onclick: () => { _qf[k] = !_qf[k]; mountApp(); },
+            }, lab + ' · ' + fmt.int(xs.length));
+          }),
+          el('button', {
+            class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+            onclick: () => openReportingDrillModal({
+              chartTitle: 'Renewal Outreach queue',
+              sliceLabel: fmt.int(shown.length) + ' accounts · ' + fmt.usd0(sumArv(shown)) + ' ARR at stake',
+              rows: shown.map(x => x.r), formatValue: (v) => fmt.usd0(v) }),
+          }, 'Inspect / export →'))),
+      el('div', { class: 'px-4 py-2 text-[11px] text-muted- border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
+        el('span', {}, fmt.int(shown.length) + ' in the queue · ' + fmt.usd0(sumArv(shown)) + ' ARR at stake'),
+        el('span', {}, 'sorted most overdue first')),
+      !shown.length ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'Nothing in the selected buckets.') :
+      el('div', { class: 'overflow-x-auto', style: { maxHeight: '440px', overflowY: 'auto' } },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: 0, zIndex: 1 } }, el('tr', { style: { background: 'var(--card-2)' } },
+            thQ('Renewal'), thQ('Customer'), thQ('Phone'), thQ('Office'), thQ('Subscription'), thQ('Source'), thQ('Sold', 1), thQ('Term', 1), thQ('Contract End', 1), thQ('ARV', 1))),
+          el('tbody', {}, ...shown.map(x => el('tr', {
+            class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border)' },
+            onclick: () => openReportingDrillModal({ chartTitle: _custDisplayName(x.r), sliceLabel: 'Renewal ' + (x.days < 0 ? fmt.int(-x.days) + ' days month-to-month' : 'window in ' + fmt.int(x.days) + ' days'), rows: [x.r], formatValue: (v) => fmt.usd0(v) }),
+          },
+            el('td', { class: 'px-3 py-2 whitespace-nowrap tabular-nums' }, daysLbl(x)),
+            el('td', { class: 'px-3 py-2 whitespace-nowrap font-semibold' }, _custDisplayName(x.r),
+              el('span', { class: 'text-[10px] font-normal text-muted-' }, x.r.customer_id ? ' #' + x.r.customer_id : '')),
+            el('td', { class: 'px-3 py-2 whitespace-nowrap tabular-nums' }, x.r.phone || '—'),
+            el('td', { class: 'px-3 py-2 whitespace-nowrap' }, x.r.office_name || '—'),
+            el('td', { class: 'px-3 py-2 whitespace-nowrap' }, x.r.subscription || '—'),
+            el('td', { class: 'px-3 py-2 whitespace-nowrap' }, x.r.subscription_source || '—'),
+            el('td', { class: 'px-3 py-2 text-right whitespace-nowrap tabular-nums' }, x.r.sold_date ? _fmtDt(new Date(x.r.sold_date)) : '—'),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (Number(x.r.agreement_length) || 0) + ' mo'),
+            el('td', { class: 'px-3 py-2 text-right whitespace-nowrap tabular-nums font-semibold' }, _fmtDt(x.end)),
+            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(Number(x.r.annual_recurring_value) || 0))))))));
+  })();
+
   // Cancel Hygiene moved to Settings > Admin > Data Integrity (per Isaac).
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body, repTypeAttritionCard, trueAttritionBar, lifetimeCard);
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body, repTypeAttritionCard, trueAttritionBar, lifetimeCard, renewalRetentionCard, renewalQueueCard);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
