@@ -39043,6 +39043,7 @@ function reportingChartData(scopeRows, serviceConfig) {
   return {
     stats: {
       subs:             scopeRows.length,
+      servicedSubs:     servicedRows.length,
       recurring:        recurringRows.length,
       activeRecurring:  activeRecurring.length,
       activeSubs:       activeSubs.length,
@@ -41400,7 +41401,7 @@ function reportingOverview() {
           el('div', { class: 'text-right' }, officeLabel(compareOffice)),
           el('div', { class: 'text-right' }, 'Δ'),
         ),
-        compareRow('Subscriptions',     dataA.stats.subs,            dataB.stats.subs,            (n) => n.toLocaleString()),
+        compareRow('Subscriptions Serviced', dataA.stats.servicedSubs != null ? dataA.stats.servicedSubs : dataA.stats.subs, dataB.stats.servicedSubs != null ? dataB.stats.servicedSubs : dataB.stats.subs, (n) => n.toLocaleString()),
         compareRow('Active Recurring',  dataA.stats.activeRecurring, dataB.stats.activeRecurring, (n) => n.toLocaleString()),
         compareRow('Active ARV',        dataA.stats.activeArr,       dataB.stats.activeArr,       (n) => '$' + Math.round(n).toLocaleString()),
         compareRow('Unique Customers',  dataA.stats.uniqueCustomers, dataB.stats.uniqueCustomers, (n) => n.toLocaleString()),
@@ -41571,13 +41572,13 @@ function reportingOverview() {
     + (dataA.stats.subs != null ? '. Hidden service types (Configurations tab) are always excluded.' : '');
   const CARD_HELP = {
     customers: 'Distinct Customer IDs that have AT LEAST ONE active subscription. A customer with 3 active subs counts once; a customer whose subs are all Frozen/cancelled is not counted.\n\n' + scopeNote,
-    subs:      'COUNT of every visible subscription row in the snapshot — Active AND Frozen, recurring AND one-time. "Marked recurring" = those with Annual Recurring Value > $0 (or manually flagged recurring in Configurations).\n\n' + scopeNote,
+    subs:      'COUNT of subscriptions that have RECEIVED AN INITIAL SERVICE (at least 1 completed service) \u2014 Active AND Frozen, recurring AND one-time. Sold-but-never-serviced subs are excluded from the headline; the sub-line shows the raw total. \u201cRecurring\u201d = Annual Recurring Value > $0 (or manually flagged recurring in Configurations).\n\n' + scopeNote,
     active:    'COUNT of subscriptions that are BOTH:\n• Status = "Active" (exactly), AND\n• have NO cancellation date (a date there means frozen/lapsed),\nAND are recurring (ARV > $0 or flagged recurring). Frozen subs are excluded.\n\n' + scopeNote,
     arr:       'SUM of Annual Recurring Value across the Active recurring subscriptions above (same Active + recurring filter). Frozen and one-time subs contribute $0.\n\n' + scopeNote,
     cancels:   'COUNT of subscriptions that have a cancellation date AND are recurring (one-time cancels are NOT counted — they\'re not real attrition; 3-day RORs ARE counted). Rate = these ÷ all visible subs in scope.\n\n' + scopeNote,
   };
   const COLUMN_CARDS = [
-    { key: 'subs',      label: 'Subscriptions',           value: dataA.stats.subs.toLocaleString(),                          sub: dataA.stats.recurring.toLocaleString() + ' marked recurring',        chartIds: ['sources', 'agreement', 'onetimeSubs', 'retiredSubs'] },
+    { key: 'subs',      label: 'Subscriptions Serviced',  value: (dataA.stats.servicedSubs != null ? dataA.stats.servicedSubs : dataA.stats.subs).toLocaleString(), sub: 'received an initial service \u00b7 of ' + dataA.stats.subs.toLocaleString() + ' total \u00b7 ' + dataA.stats.recurring.toLocaleString() + ' recurring', chartIds: ['sources', 'agreement', 'onetimeSubs', 'retiredSubs'] },
     { key: 'active',    label: 'Subscriptions Active',    value: (reportingActiveInclOneTime() ? dataA.stats.activeSubs : dataA.stats.activeRecurring).toLocaleString(), sub: reportingActiveInclOneTime() ? 'currently in service · incl. one-time' : 'currently in service · recurring', chartIds: ['activesubs'] },
     { key: 'customers', label: 'Customers Active',        value: (dataA.stats.activeCustomers != null ? dataA.stats.activeCustomers : dataA.stats.uniqueCustomers).toLocaleString(), sub: (dataA.stats.distinctActiveServices != null ? dataA.stats.distinctActiveServices : dataA.stats.distinctServices) + ' active services', chartIds: ['customers', 'tenure'] },
     { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice', 'onetimeRev'] },
@@ -41632,7 +41633,7 @@ function reportingOverview() {
   // list — the same set the number is counting — so any miscategorized sub is
   // one click away. Row sources are pulled from the chart drill specs.
   const cardDrills = {
-    subs:    { rows: (dataA.drill && dataA.drill.sources && dataA.drill.sources.source) || [], label: 'every subscription in scope' },
+    subs:    { rows: (dataA.drill && dataA.drill.serviced && dataA.drill.serviced.source) || [], label: 'subscriptions with a completed initial service' },
     active:  { rows: (dataA.drill && dataA.drill.rarr    && dataA.drill.rarr.source)    || [], label: 'active recurring subscriptions' },
     arr:     { rows: (dataA.drill && dataA.drill.rarr    && dataA.drill.rarr.source)    || [], label: 'active recurring subscriptions' },
     cancels: { rows: (dataA.drill && dataA.drill.cancels && dataA.drill.cancels.source) || [], label: 'cancelled recurring subscriptions' },
