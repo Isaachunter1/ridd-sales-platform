@@ -47827,6 +47827,136 @@ function reportingWaterfall() {
           el('span', {}, fmt.int(cxl + aging) + ' lost or at risk \u00b7 ' + fmt.usd0(arvCxl + arvAging)))));
   })();
 
+
+  // -- Customer Lifetime (per Isaac) -- how long cancelled customers lasted,
+  // sold date -> cancel date, as a month-of-life histogram (the "when do we
+  // lose them" curve) and a by-reason lifetime table. Same population rules
+  // as this tab; the noise classes (3-day ROR, one-time, renewals) exclude
+  // by default via the chips, and the card follows the Attrition year picker.
+  // Red bars = the collections cliff (months 2-5); amber = the 12-month
+  // contract-end window (months 11-13).
+  const lifetimeCard = (() => {
+    if (!state._rtLifeExcl) state._rtLifeExcl = { ror: true, renewal: true, onetime: true };
+    const _lx = state._rtLifeExcl;
+    const _yrL = state._rtAttrYear || 'all';
+    const _yOfL = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
+    const _isRenewL = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
+      || /^\s*renewal/i.test(String(r.subscription_cancellation_reason || ''));
+    const _isOneL = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
+      || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
+    const rowsL = [];
+    for (const r of popA) {
+      if (_yrL !== 'all' && _yOfL(r) !== _yrL) continue;
+      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
+      if (!r.sold_date || !r.subscription_date_canceled) continue;
+      if (/active/i.test(String(r.subscription_status || ''))) continue;   // save-back stays retained
+      if (_lx.ror && _reporting3dayRor(r)) continue;
+      if (_lx.renewal && _isRenewL(r)) continue;
+      if (_lx.onetime && _isOneL(r)) continue;
+      const t = Math.round((new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000);
+      if (!(t >= 0 && t <= 4000)) continue;
+      rowsL.push({ r, t });
+    }
+    if (!rowsL.length) return null;
+    const _med = (arr) => { const s2 = [...arr].sort((a, b) => a - b); return s2[Math.floor((s2.length - 1) / 2)]; };
+    const allT = rowsL.map(x => x.t);
+    const medAll = _med(allT);
+    const avgAll = allT.reduce((a, b) => a + b, 0) / allT.length;
+    const moTxt = (d) => (d / 30.44).toFixed(1) + ' mo';
+    // month-of-life histogram: 0..23, then 24+
+    const buckets = Array.from({ length: 25 }, () => []);
+    for (const x of rowsL) buckets[Math.min(24, Math.floor(x.t / 30))].push(x.r);
+    const maxB = Math.max(...buckets.map(b => b.length), 1);
+    const barL = (b, i) => el('button', {
+      class: 'flex-1 flex flex-col justify-end cursor-pointer transition hover:brightness-110',
+      style: { minWidth: 0, background: 'transparent', border: 'none', padding: '0 1px', height: '100%' },
+      title: (i === 24 ? 'Month 24+' : 'Month ' + i) + ' of life — ' + fmt.int(b.length) + ' cancel' + (b.length === 1 ? '' : 's'),
+      onclick: () => b.length && openReportingDrillModal({
+        chartTitle: 'Cancelled in ' + (i === 24 ? 'month 24+' : 'month ' + i) + ' of customer life',
+        sliceLabel: fmt.int(b.length) + ' account' + (b.length === 1 ? '' : 's'),
+        rows: b, formatValue: (v) => fmt.usd0(v) }),
+    }, el('div', {
+      style: {
+        height: (b.length ? Math.max(2, b.length / maxB * 84) : 0) + 'px',
+        background: (i >= 2 && i <= 5) ? '#DC2626' : (i >= 11 && i <= 13) ? '#D97706' : 'var(--accent)',
+      } }));
+    // by-reason lifetime table (merges trailing-period label variants)
+    const byReason = {};
+    for (const x of rowsL) {
+      const k = String(x.r.subscription_cancellation_reason || '').trim().replace(/\.+\s*$/, '') || '(no reason logged)';
+      (byReason[k] = byReason[k] || []).push(x);
+    }
+    const rks = Object.keys(byReason).filter(k => byReason[k].length >= 10)
+      .sort((a, b) => byReason[b].length - byReason[a].length);
+    const thL = (lab, right) => el('th', { class: (right ? 'text-right' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
+    const reasonRow = (k) => {
+      const xs = byReason[k];
+      const ts = xs.map(x => x.t);
+      const med = _med(ts);
+      const avg = ts.reduce((a, b) => a + b, 0) / ts.length;
+      const in90 = ts.filter(t => t <= 90).length / ts.length;
+      const in365 = ts.filter(t => t <= 365).length / ts.length;
+      const arvs = xs.map(x => Number(x.r.annual_recurring_value) || 0);
+      const avgArv = arvs.reduce((a, b) => a + b, 0) / (arvs.length || 1);
+      return el('tr', {
+        class: 'border-t cursor-pointer transition hover:brightness-95',
+        style: { borderColor: 'var(--border)' },
+        onclick: () => openReportingDrillModal({
+          chartTitle: 'Customer lifetime — ' + k,
+          sliceLabel: fmt.int(xs.length) + ' cancels · median ' + fmt.int(med) + ' days',
+          rows: xs.map(x => x.r), formatValue: (v) => fmt.usd0(v) }),
+      },
+        el('td', { class: 'px-3 py-2 whitespace-nowrap font-semibold' }, k),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(xs.length)),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, fmt.int(med) + 'd',
+          el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + moTxt(med))),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(Math.round(avg)) + 'd'),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums', style: in90 >= 0.5 ? { color: '#DC2626', fontWeight: '700' } : {} }, (in90 * 100).toFixed(0) + '%'),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (in365 * 100).toFixed(0) + '%'),
+        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(avgArv)));
+    };
+    const statL = (lab, val, sub) => el('div', { class: 'text-right' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, lab),
+      el('div', { class: 'text-sm font-bold tabular-nums' }, val,
+        sub ? el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + sub) : null));
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-3' },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'Customer Lifetime'),
+          el('div', { class: 'text-[11px] text-muted-' },
+            'Sold date → cancel date for cancelled accounts · '
+            + (_yrL === 'all' ? 'all years in the book' : 'sold ' + _yrL)
+            + (office !== 'all' ? ' · ' + officeLabel(office) : '')
+            + ' · click a bar or a reason to see the accounts.')),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          ...[['ror', '3-Day ROR'], ['renewal', 'Renewals'], ['onetime', 'One-Time']].map(([k, lab]) => el('button', {
+            class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+            style: _lx[k]
+              ? { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'transparent' }
+              : { borderColor: 'var(--accent)', color: 'var(--accent-text)', background: 'var(--accent)' },
+            title: _lx[k] ? lab + ' excluded — click to include' : lab + ' included — click to exclude',
+            onclick: () => { _lx[k] = !_lx[k]; mountApp(); },
+          }, (_lx[k] ? 'Excl. ' : 'Incl. ') + lab)),
+          statL('Median life', fmt.int(medAll) + 'd', moTxt(medAll)),
+          statL('Average', fmt.int(Math.round(avgAll)) + 'd', moTxt(avgAll)),
+          statL('Cancels', fmt.int(rowsL.length), null))),
+      el('div', { class: 'px-4 pb-2' },
+        el('div', { class: 'flex items-end', style: { height: '92px' } }, ...buckets.map(barL)),
+        el('div', { class: 'flex pt-1' }, ...buckets.map((b, i) => el('div', {
+          class: 'flex-1 text-center text-[9px] text-muted- tabular-nums',
+          style: { minWidth: 0 } }, (i % 3 === 0 || i === 24) ? (i === 24 ? '24+' : String(i)) : ''))),
+        el('div', { class: 'flex items-center justify-between pt-1 text-[10px] text-muted-' },
+          el('span', {}, 'Month of customer life at cancel'),
+          el('span', { class: 'flex items-center gap-3' },
+            el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#DC2626', display: 'inline-block' } }), 'collections cliff (mo 2–5)'),
+            el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#D97706', display: 'inline-block' } }), 'contract end (mo 11–13)')))),
+      el('div', { class: 'overflow-x-auto border-t', style: { borderColor: 'var(--border)' } },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
+            thL('Cancellation Reason'), thL('Cancels', 1), thL('Median Life', 1), thL('Avg', 1), thL('Gone ≤90d', 1), thL('Gone ≤1yr', 1), thL('Avg ARV', 1))),
+          el('tbody', {}, ...rks.map(reasonRow)))));
+  })();
+
   // \u2500\u2500 Cancel Hygiene (per Isaac) \u2500\u2500 fixable FieldRoutes data problems
   // that quietly distort attrition: cancels with NO reason ever logged, and
   // 3-day RORs hiding under other reason codes (plus the reverse). These are
@@ -47863,7 +47993,7 @@ function reportingWaterfall() {
       hRow('Coded 3 Day ROR but cancelled late', 'Reason says 3 Day ROR, but the cancel is more than 3 days after the sale \u2014 either the reason or the dates are wrong', rorTooLate, '#D97706'));
   })();
 
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body, repTypeAttritionCard, trueAttritionBar, cancelHygieneCard);
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body, repTypeAttritionCard, trueAttritionBar, lifetimeCard, cancelHygieneCard);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
