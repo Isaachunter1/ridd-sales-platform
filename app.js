@@ -30752,9 +30752,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       el('div', { class: 'flex items-center justify-between mb-4 flex-wrap gap-3' },
         el('div', {},
           el('h3', { class: 'text-base font-bold' }, opts.title || '📦 Sales Mix'),
-          el('span', { class: 'text-xs text-muted-' },
-            '% weight = share of ' + fmt.int(totalSubCount) + ' account' + (totalSubCount === 1 ? '' : 's') +
-            (opts.subtitleSuffix || '')),
+          // (Subtitle "% weight = share of N accounts" retired — per Isaac.)
         ),
         opts.headerExtra || null,
       ),
