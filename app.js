@@ -41034,7 +41034,7 @@ function viewReporting() {
     reportingMethodologyBar(),
     isMarketing                            ? reportingMarketingPnl() :
     state.reportingSubTab === 'is'         ? reportingMarketingPnl() :
-    state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingAuditExportCard(), el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel())) :
+    state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingAuditExportCard(), el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()), reportingMarketingGoalsPanel()) :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
@@ -43254,29 +43254,6 @@ function reportingRefreshGhlLeads() {
   reportingLoadGhlLeads();
 }
 
-// ── MARKETING REPORT v2 (per Isaac, Sep 2026) ────────────────────────────
-// One story, two joins: FieldRoutes (sales / serviced / revenue / cancels by
-// office and by lead source) × QuickBooks (marketing spend by branch account).
-// Channel-level spend (Meta, Google, lead partners) has no live feed now that
-// Windsor is gone, so it's entered by hand per source per month and synced
-// to every admin through the shared config (_compExtras.marketing).
-const MKTG_PERIODS = [['mtd', 'This month'], ['last_month', 'Last month'], ['qtd', 'This quarter'], ['ytd', 'Year to date'], ['last_year', 'Last year'], ['custom', 'Custom']];
-function _mktgMonths(period, customStart, customEnd) {
-  const now = new Date(); const y = now.getFullYear(), m = now.getMonth();
-  const ym = (yy, mm) => yy + '-' + String(mm + 1).padStart(2, '0');
-  const range = (yy, m0, m1) => { const out = []; for (let i = m0; i <= m1; i++) out.push(ym(yy, i)); return out; };
-  if (period === 'mtd') return [ym(y, m)];
-  if (period === 'last_month') return m === 0 ? [ym(y - 1, 11)] : [ym(y, m - 1)];
-  if (period === 'qtd') return range(y, Math.floor(m / 3) * 3, m);
-  if (period === 'last_year') return range(y - 1, 0, 11);
-  if (period === 'custom' && customStart && customEnd) {
-    const out = []; let [cy, cm] = customStart.split('-').map(Number); const [ey, em] = customEnd.split('-').map(Number);
-    while (cy < ey || (cy === ey && cm <= em)) { out.push(cy + '-' + String(cm).padStart(2, '0')); if (++cm > 12) { cm = 1; cy++; } if (out.length > 36) break; }
-    return out;
-  }
-  return range(y, 0, m);   // ytd
-}
-const _mktgPrevYear = (months) => months.map(x => (Number(x.slice(0, 4)) - 1) + x.slice(4));
 // QuickBooks branch accounts → sales-data office names.
 const _MKTG_QBO_OFFICE = { 'utah': 'SALT LAKE', 'michigan': 'DETROIT', 'executive': null, 'corporate': null };
 function _mktgQboOffice(acct) {
@@ -43285,197 +43262,418 @@ function _mktgQboOffice(acct) {
   if (key in _MKTG_QBO_OFFICE) return _MKTG_QBO_OFFICE[key];   // null = company-level (unallocated)
   return base.toUpperCase();
 }
+// ── MARKETING REPORT v3 (per Isaac, Sep 2026) ────────────────────────────
+// Brings the RIDD Reporting workbook into the app: P&L (branch × month),
+// CAC (monthly rollup), Providers (lead partner × month), Spend entry (the
+// branch × channel allocation that goes to the controller), Projections.
+// Sources: FieldRoutes snapshot for revenue / subs / bookings; QuickBooks
+// for booked marketing spend (reconciliation row); everything else is
+// entered by hand and synced to every admin via the shared config
+// (_compExtras.marketing). Quota + goals live in Configurations.
+const MKTG_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MKTG_DEFAULT_CHANNELS = ['Facebook', 'Google Ads', 'Google Local Services', 'Angi', 'Baton', 'DoLead', 'ElectGen', 'Pest Net', 'Service Direct'];
+const MKTG_RPS = new Set(['DETROIT', 'JOPLIN', 'LITTLE ROCK']);   // RIDD Pest Solutions branches; the rest are RPC
 function _mktgStore() {
   state._compExtras = state._compExtras || {};
   const m = state._compExtras.marketing = (state._compExtras.marketing && typeof state._compExtras.marketing === 'object') ? state._compExtras.marketing : {};
-  m.channelSpend = m.channelSpend || {};     // { 'YYYY-MM': { 'Facebook': 1234, ... } }
+  m.spend      = m.spend      || {};   // { ym: { channel: { BRANCH: amt } } }  ← the controller allocation
+  m.wages      = m.wages      || {};   // { ym: { BRANCH: amt } }
+  m.incentives = m.incentives || {};   // { ym: { BRANCH: amt } }
+  m.leads      = m.leads      || {};   // { ym: { channel: n } }
+  m.channels   = Array.isArray(m.channels) && m.channels.length ? m.channels : MKTG_DEFAULT_CHANNELS.slice();
+  const s = m.settings = m.settings || {};
+  if (s.isGoal == null) s.isGoal = 4000000;
+  if (s.renewalsGoal == null) s.renewalsGoal = 1600000;
+  if (s.isReps == null) s.isReps = 6;
+  if (s.loyaltyReps == null) s.loyaltyReps = 5;
+  if (!Array.isArray(s.seasonal) || s.seasonal.length !== 12) s.seasonal = [0.025, 0.03, 0.05, 0.095, 0.10, 0.12, 0.175, 0.145, 0.10, 0.09, 0.05, 0.02];
+  if (!Array.isArray(s.renewalSeasonal) || s.renewalSeasonal.length !== 12) s.renewalSeasonal = [0.14, 0.12, 0.10, 0.08, 0.07, 0.05, 0.06, 0.06, 0.06, 0.06, 0.07, 0.13];
+  if (s.adSpendPct == null) s.adSpendPct = 0.45;
+  if (s.wagesPct == null) s.wagesPct = 0.14;
+  if (s.incentivesPct == null) s.incentivesPct = 0.01;
+  s.targets = s.targets || {};
+  if (s.targets.adSpendCac == null) s.targets.adSpendCac = 0.39;
+  if (s.targets.wagesCac == null) s.targets.wagesCac = 0.15;
+  if (s.targets.roas == null) s.targets.roas = 3;
+  if (s.targets.spendPerJob == null) s.targets.spendPerJob = 340;
+  s.branchGoals = s.branchGoals || {};        // { BRANCH: revenue goal }
+  s.branchAttrition = s.branchAttrition || {}; // { BRANCH: 0.38 }
+  s.channelProjections = s.channelProjections || {}; // { channel: [12 spend] }
   return m;
 }
-function _mktgSaveStore() {
+function _mktgSave() {
   saveDemoData();
   if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
 }
-function reportingMarketingPnl() {
-  reportingLoadGhlLeads();
+const _mktgYm = (y, i) => y + '-' + String(i + 1).padStart(2, '0');
+const _mktgTC = (o) => String(o || '').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
+// FieldRoutes actuals for one calendar year: per branch/month + per source/month.
+function _mktgActuals(year) {
   const rows = state.reportingSubscriptions || [];
-  const SP = state.reportingIsSpend || {};
-  const GHL = (state.reportingGhlLeads && state.reportingGhlLeads.bySourceMonth) || {};
-  const store = _mktgStore();
   const isExcl = reportingExcludedSources();
-  if (!state._mktPeriod) state._mktPeriod = 'ytd';
-  const period = state._mktPeriod;
-  const months = _mktgMonths(period, state._mktCustomStart, state._mktCustomEnd);
-  const prevMonths = _mktgPrevYear(months);
-  const mset = new Set(months), pset = new Set(prevMonths);
-  const singleMonth = months.length === 1 ? months[0] : null;
-  const TC = (o) => String(o || '').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
-  const norm = (x) => String(x || '').trim().toLowerCase();
-
-  // ── FieldRoutes side: NEW business sold by Office Staff, Pending/Serviced gate.
   const gate = (r) => {
     const _ist = String(r.initial_status || '').toLowerCase();
     return _ist ? (_ist === 'pending' || _ist === 'completed') : !(!r.initial_service && r.subscription_date_canceled);
   };
-  const mk = () => ({ sales: 0, serviced: 0, revenue: 0, cancels: 0 });
-  const byOffice = {}, byOfficePrev = {}, bySource = {}, bySourcePrev = {}, tot = mk(), totPrev = mk();
+  const mk = () => ({ rev: 0, subs: 0, upRev: 0, upsells: 0, bookings: 0, serviced: 0, cancels: 0 });
+  const branch = {}, source = {}, total = Array.from({ length: 12 }, mk);
+  const branches = new Set(), sources = new Set();
   for (const r of rows) {
-    const sd = r.sold_date; if (!sd) continue;
-    const ym = String(sd).slice(0, 7);
-    const cur = mset.has(ym), prev = pset.has(ym);
-    if (!cur && !prev) continue;
-    const src = reportingSourceOf(r);
-    if (isExcl.has(src)) continue;
-    if (reportingSourceClass(src) !== 'new') continue;
+    const sd = r.sold_date; if (!sd || String(sd).slice(0, 4) !== String(year)) continue;
+    const mi = Number(String(sd).slice(5, 7)) - 1; if (!(mi >= 0 && mi < 12)) continue;
+    const src = reportingSourceOf(r); if (isExcl.has(src)) continue;
+    const cls = reportingSourceClass(src); if (cls === 'renewal') continue;
     if (!reportingIsOfficeStaff(r)) continue;
     if (!gate(r)) continue;
-    const off = String(r.office_name || 'Unknown').toUpperCase();
-    const bump = (b) => {
-      b.sales++; b.revenue += Number(r.subscription_contract_value) || 0;
-      if (String(r.initial_status || '').toLowerCase() === 'completed' || r.initial_serviced_date) b.serviced++;
-      if (r.subscription_date_canceled) b.cancels++;
-    };
-    if (cur) { bump(byOffice[off] = byOffice[off] || mk()); bump(bySource[src] = bySource[src] || mk()); bump(tot); }
-    else { bump(byOfficePrev[off] = byOfficePrev[off] || mk()); bump(bySourcePrev[src] = bySourcePrev[src] || mk()); bump(totPrev); }
-  }
-  // ── QuickBooks side: spend by branch for the same months.
-  const spendByOffice = {}, spendByOfficePrev = {}; let spendTot = 0, spendTotPrev = 0, spendUnalloc = 0;
-  for (const ym in SP) {
-    const cur = mset.has(ym), prev = pset.has(ym);
-    if (!cur && !prev) continue;
-    for (const acct in SP[ym]) {
-      const amt = Number(SP[ym][acct]) || 0; if (!amt) continue;
-      const off = _mktgQboOffice(acct);
-      if (cur) { spendTot += amt; if (off) spendByOffice[off] = (spendByOffice[off] || 0) + amt; else spendUnalloc += amt; }
-      else { spendTotPrev += amt; if (off) spendByOfficePrev[off] = (spendByOfficePrev[off] || 0) + amt; }
+    const off = String(r.office_name || 'UNKNOWN').toUpperCase();
+    branches.add(off); sources.add(src);
+    const b = (branch[off] = branch[off] || Array.from({ length: 12 }, mk))[mi];
+    const s = (source[src] = source[src] || Array.from({ length: 12 }, mk))[mi];
+    const cv = Number(r.subscription_contract_value) || 0;
+    for (const x of [b, s, total[mi]]) {
+      if (cls === 'upsell') { x.upsells++; x.upRev += cv; }
+      else { x.subs++; x.rev += cv; }
+      x.bookings++;
+      if (String(r.initial_status || '').toLowerCase() === 'completed' || r.initial_serviced_date) x.serviced++;
+      if (r.subscription_date_canceled) x.cancels++;
     }
   }
-  // ── Manual channel spend + GHL leads for the months in view.
-  const chSpend = {}; let chSpendTot = 0;
-  for (const ym of months) { const m = store.channelSpend[ym] || {}; for (const s in m) { const v = Number(m[s]) || 0; chSpend[s] = (chSpend[s] || 0) + v; chSpendTot += v; } }
-  const leadsBySrc = {}; let leadsTot = 0;
-  const ghlIndex = {}; for (const ym of months) { const m = GHL[ym] || {}; for (const s in m) { ghlIndex[norm(s)] = (ghlIndex[norm(s)] || 0) + (Number(m[s]) || 0); } }
-  Object.keys(bySource).forEach(s => { const n = ghlIndex[norm(s)] || 0; leadsBySrc[s] = n; leadsTot += n; });
+  return { branch, source, total, branches: [...branches].sort(), sources: [...sources].sort() };
+}
+function _mktgBranchList(year) {
+  const a = _mktgActuals(year);
+  const m = _mktgStore();
+  const set = new Set(a.branches);
+  Object.keys(m.settings.branchGoals).forEach(b => set.add(b));
+  for (const ym in m.spend) for (const ch in m.spend[ym]) Object.keys(m.spend[ym][ch]).forEach(b => set.add(b));
+  set.delete('UNKNOWN');
+  const rpc = [...set].filter(b => !MKTG_RPS.has(b)).sort(), rps = [...set].filter(b => MKTG_RPS.has(b)).sort();
+  return { rpc, rps, all: [...rpc, ...rps] };
+}
+const _mktgSpendBranchMonth = (m, ym, b) => { let t = 0; const M = m.spend[ym] || {}; for (const ch in M) t += Number(M[ch][b]) || 0; return t; };
+const _mktgSpendChannelMonth = (m, ym, ch) => { let t = 0; const C = (m.spend[ym] || {})[ch] || {}; for (const b in C) t += Number(C[b]) || 0; return t; };
+const _mktgYearSel = () => { if (!state._mktYear) state._mktYear = new Date().getFullYear(); return state._mktYear; };
 
-  // ── helpers
-  const usd0 = (v) => fmt.usd0(v), usd = (v) => v == null ? '—' : fmt.usd(v);
-  const pct = (a, b) => b > 0 ? (a / b * 100).toFixed(1) + '%' : '—';
-  const ratio = (a, b) => b > 0 ? (a / b).toFixed(2) + 'x' : '—';
-  const delta = (cur, prev, moneyish) => {
-    if (!prev) return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no prior');
-    const d = (cur - prev) / prev; const up = d >= 0;
-    return el('span', { class: 'text-[10px] font-semibold', style: { color: up ? '#16A34A' : '#DC2626' } }, (up ? '▲ ' : '▼ ') + Math.abs(d * 100).toFixed(0) + '% vs LY');
+// ── shared table helpers ──
+function _mktgTh(t, right, title) { return el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right === false ? 'text-left' : 'text-right'), style: { color: 'var(--text-muted)' }, title: title || '' }, t); }
+function _mktgTd(v, opts = {}) { return el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap ' + (opts.left ? 'text-left' : 'text-right') + (opts.bold ? ' font-bold' : ''), style: opts.style || {} }, v == null ? '—' : v); }
+// A month-matrix card: rows × Jan..Dec + Total. `cell(rowKey, mi)` returns a
+// number (or null); `total(rowKey)` optional override; fmt formats.
+function _mktgMatrixCard(title, note, rows, cell, fmtFn, opts = {}) {
+  const totalOf = (rk) => { if (opts.total) return opts.total(rk); let t = 0, any = false; for (let i = 0; i < 12; i++) { const v = cell(rk, i); if (v != null) { t += v; any = true; } } return any ? t : null; };
+  const rowEl = (rk) => {
+    const isGroup = opts.groupRows && opts.groupRows.has(rk);
+    return el('tr', { class: 'border-t border-' + (isGroup ? ' font-bold' : ''), style: isGroup ? { background: 'var(--card-2)' } : {} },
+      _mktgTd(opts.label ? opts.label(rk) : rk, { left: true, bold: true, style: { position: 'sticky', left: 0, background: isGroup ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
+      ...Array.from({ length: 12 }, (_, i) => { const v = cell(rk, i); return _mktgTd(v == null ? '—' : fmtFn(v, rk, i), { style: opts.cellStyle ? (opts.cellStyle(v, rk, i) || {}) : {} }); }),
+      _mktgTd((() => { const t = totalOf(rk); return t == null ? '—' : fmtFn(t, rk, 'total'); })(), { bold: true }));
   };
-  const src = (t) => el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, t);
-  const tile = (label, value, sub, sourceTxt) => el('div', { class: 'card p-4 flex flex-col gap-0.5' },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
-    el('div', { class: 'text-2xl font-black tabular-nums leading-none mt-1' }, value),
-    sub ? el('div', { class: 'mt-1' }, sub) : null,
-    src(sourceTxt));
-
-  // ── Period control
-  const periodBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
-    el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-      ...MKTG_PERIODS.map(([v, l]) => el('button', {
-        class: 'px-2.5 py-1 text-[11px] font-semibold transition',
-        style: period === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
-        onclick: () => { state._mktPeriod = v; if (v === 'custom' && !state._mktCustomStart) { state._mktCustomStart = months[0]; state._mktCustomEnd = months[months.length - 1]; } mountApp(); },
-      }, l))),
-    period === 'custom' ? el('div', { class: 'flex items-center gap-1' },
-      el('input', { type: 'month', class: 'rounded-lg border px-2.5 py-1 text-[11px]', value: state._mktCustomStart || '', onchange: (e) => { state._mktCustomStart = e.target.value; mountApp(); } }),
-      el('span', { class: 'text-xs text-muted-' }, '→'),
-      el('input', { type: 'month', class: 'rounded-lg border px-2.5 py-1 text-[11px]', value: state._mktCustomEnd || '', onchange: (e) => { state._mktCustomEnd = e.target.value; mountApp(); } })) : null,
-    el('span', { class: 'text-[11px] text-muted- ml-auto' },
-      months.length === 1 ? reportingMonthLbl(months[0]) : reportingMonthLbl(months[0]) + ' → ' + reportingMonthLbl(months[months.length - 1])
-      + ' · spend ' + (state._isSpendSource === 'QuickBooks' ? 'live from QuickBooks' : 'from file') + (spendUnalloc ? ' · ' + usd0(spendUnalloc) + ' unallocated (Executive)' : '')));
-
-  // ── Tiles
-  const cac = tot.sales > 0 ? spendTot / tot.sales : null, cacPrev = totPrev.sales > 0 ? spendTotPrev / totPrev.sales : null;
-  const roas = spendTot > 0 ? tot.revenue / spendTot : null, roasPrev = spendTotPrev > 0 ? totPrev.revenue / spendTotPrev : null;
-  const tiles = el('div', { class: 'grid grid-cols-2 lg:grid-cols-6 gap-3' },
-    tile('Marketing spend', usd0(spendTot), delta(spendTot, spendTotPrev), 'QuickBooks · branch marketing accounts'),
-    tile('New sales', fmt.int(tot.sales), delta(tot.sales, totPrev.sales), 'FieldRoutes · office staff · pending/serviced'),
-    tile('New revenue', usd0(tot.revenue), delta(tot.revenue, totPrev.revenue), 'FieldRoutes · contract value'),
-    tile('Blended CAC', cac == null ? '—' : usd0(cac), cac != null && cacPrev != null ? delta(-cac, -cacPrev) : null, 'spend ÷ new sales'),
-    tile('ROAS', roas == null ? '—' : roas.toFixed(2) + 'x', roas != null && roasPrev != null ? delta(roas, roasPrev) : null, 'new revenue ÷ spend'),
-    tile('Serviced', pct(tot.serviced, tot.sales), el('span', { class: 'text-[10px] text-muted-' }, fmt.int(tot.serviced) + ' of ' + fmt.int(tot.sales)), 'FieldRoutes · initial completed'));
-
-  // ── Branch table (FieldRoutes × QuickBooks — the reliable join)
-  const offices = [...new Set([...Object.keys(byOffice), ...Object.keys(spendByOffice)])].sort((a, b) => (byOffice[b]?.revenue || 0) - (byOffice[a]?.revenue || 0));
-  const th = (t, right, title) => el('th', { class: 'px-2 py-2 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)' }, title: title || '' }, t);
-  const td = (v, opts = {}) => el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap ' + (opts.left ? 'text-left' : 'text-right') + (opts.bold ? ' font-bold' : ''), style: opts.style || {} }, v);
-  const branchRow = (o, b, sp, prevB, prevSp, isTotal) => {
-    const c = b.sales > 0 ? sp / b.sales : null;
-    const r = sp > 0 ? b.revenue / sp : null;
-    const pc = prevB && prevB.sales > 0 && prevSp ? prevSp / prevB.sales : null;
-    return el('tr', { class: 'border-t border-' + (isTotal ? ' font-bold' : ''), style: isTotal ? { background: 'var(--card-2)' } : {} },
-      td(isTotal ? 'Total' : TC(o), { left: true, bold: true }),
-      td(usd0(sp)), td(fmt.int(b.sales)), td(fmt.int(b.serviced)), td(usd0(b.revenue), { bold: true }),
-      td(c == null ? '—' : usd0(c), { style: c != null && pc != null ? { color: c <= pc ? '#16A34A' : '#DC2626' } : {} }),
-      td(r == null ? '—' : r.toFixed(2) + 'x'),
-      td(pct(b.cancels, b.sales), { style: { color: b.sales > 0 && b.cancels / b.sales >= 0.10 ? '#DC2626' : 'inherit' } }),
-      td(prevB ? usd0(prevB.revenue) : '—', { style: { color: 'var(--text-muted)' } }));
-  };
-  const branchCard = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'By branch'),
-      src('spend: QuickBooks branch marketing accounts · sales, serviced, revenue, cancels: FieldRoutes (office staff, new business)')),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
-      el('thead', {}, el('tr', {}, th('Branch'), th('Spend', 1), th('Sales', 1), th('Serviced', 1), th('Revenue', 1), th('CAC', 1, 'Spend ÷ sales · green = better than last year'), th('ROAS', 1, 'Revenue ÷ spend'), th('Cancel %', 1), th('Rev LY', 1, 'Same months last year'))),
-      el('tbody', {},
-        ...offices.map(o => branchRow(o, byOffice[o] || mk(), spendByOffice[o] || 0, byOfficePrev[o], spendByOfficePrev[o] || 0, false)),
-        branchRow('Total', tot, spendTot, totPrev, spendTotPrev, true)))));
-
-  // ── Channel table (FieldRoutes source × manual spend × GHL leads)
-  const sources = Object.keys(bySource).sort((a, b) => bySource[b].revenue - bySource[a].revenue);
-  const spendCell = (s) => {
-    if (!singleMonth) return td(chSpend[s] ? usd0(chSpend[s]) : '—', { style: { color: chSpend[s] ? 'inherit' : 'var(--text-subtle)' } });
-    const cur = (store.channelSpend[singleMonth] || {})[s];
-    const inp = el('input', {
-      type: 'number', step: '1', min: '0', placeholder: '0', value: cur != null ? String(cur) : '',
-      class: 'rounded-lg border px-2.5 py-1 text-[11px] text-right', style: { width: '92px', borderColor: 'var(--border-2)' },
-      title: 'Spend for ' + s + ' in ' + reportingMonthLbl(singleMonth) + ' — saved for every admin',
-      onchange: (e) => {
-        const v = parseFloat(e.target.value);
-        store.channelSpend[singleMonth] = store.channelSpend[singleMonth] || {};
-        if (isNaN(v) || v <= 0) delete store.channelSpend[singleMonth][s]; else store.channelSpend[singleMonth][s] = Math.round(v * 100) / 100;
-        _mktgSaveStore(); mountApp();
-      },
-    });
-    return el('td', { class: 'px-2 py-1 text-right' }, inp);
-  };
-  const chanRow = (s, b, isTotal) => {
-    const sp = isTotal ? chSpendTot : (chSpend[s] || 0);
-    const leads = isTotal ? leadsTot : (leadsBySrc[s] || 0);
-    return el('tr', { class: 'border-t border-' + (isTotal ? ' font-bold' : ''), style: isTotal ? { background: 'var(--card-2)' } : {} },
-      td(isTotal ? 'Total' : s, { left: true, bold: true }),
-      isTotal ? td(usd0(sp)) : spendCell(s),
-      td(leads ? fmt.int(leads) : '—', { style: { color: leads ? 'inherit' : 'var(--text-subtle)' } }),
-      td(fmt.int(b.sales)), td(fmt.int(b.serviced)), td(usd0(b.revenue), { bold: true }),
-      td(sp > 0 && leads > 0 ? usd0(sp / leads) : '—'),
-      td(pct(b.sales, leads)),
-      td(sp > 0 && b.sales > 0 ? usd0(sp / b.sales) : '—'),
-      td(ratio(b.revenue, sp)),
-      td(pct(b.cancels, b.sales), { style: { color: b.sales > 0 && b.cancels / b.sales >= 0.10 ? '#DC2626' : 'inherit' } }));
-  };
-  const chanCard = el('div', { class: 'card overflow-hidden' },
+  return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {},
-        el('h3', { class: 'text-sm font-bold' }, 'By lead source'),
-        src('sales, serviced, revenue, cancels: FieldRoutes · leads: GoHighLevel · spend: entered by hand per month' + (singleMonth ? ' — type into the Spend column to save' : ' — pick a single month to enter spend'))),
-      el('span', { class: 'text-[10px] text-muted-' }, 'Sources hidden in Configurations → Lead Sources are excluded')),
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, title), note ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, note) : null),
+      opts.headerExtra || null),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
-      el('thead', {}, el('tr', {}, th('Source'), th('Spend', 1, 'Manual entry'), th('Leads', 1, 'GoHighLevel contacts by source'), th('Sales', 1), th('Serviced', 1), th('Revenue', 1), th('CPL', 1, 'Spend ÷ leads'), th('Close %', 1, 'Sales ÷ leads'), th('CAC', 1, 'Spend ÷ sales'), th('ROAS', 1), th('Cancel %', 1))),
-      el('tbody', {}, ...sources.map(s => chanRow(s, bySource[s], false)), chanRow('Total', tot, true)))));
+      el('thead', {}, el('tr', {}, _mktgTh(opts.firstCol || '', false), ...MKTG_MONTHS.map(mn => _mktgTh(mn)), _mktgTh('Total'))),
+      el('tbody', {}, ...rows.map(rowEl)))));
+}
+const _mktgUsd0 = (v) => fmt.usd0(v);
+const _mktgPct = (v) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(0) + '%';
+const _mktgX = (v) => v == null || !isFinite(v) ? '—' : v.toFixed(2) + 'x';
+const _mktgDiv = (a, b) => (b > 0 ? a / b : null);
+function _mktgYearBar(sub) {
+  const y = _mktgYearSel();
+  const SUBS = [['pnl', 'P&L'], ['cac', 'CAC'], ['providers', 'Providers'], ['spend', 'Spend entry'], ['projections', 'Projections']];
+  return el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
+    el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+      ...SUBS.map(([v, l]) => el('button', {
+        class: 'px-2.5 py-1 text-[11px] font-semibold transition',
+        style: sub === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+        onclick: () => { state._mktSub = v; mountApp(); },
+      }, l))),
+    el('div', { class: 'inline-flex items-center gap-1 ml-auto' },
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y - 1; mountApp(); } }, '‹'),
+      el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(y)),
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y + 1; mountApp(); } }, '›')),
+    el('span', { class: 'text-[10px] text-muted-' }, 'FieldRoutes: revenue · subs · bookings   ·   QuickBooks: booked spend   ·   hand-entered: allocation, wages, leads'));
+}
 
+// ── P&L: branch × month ──
+function _mktgPnl() {
+  const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), B = _mktgBranchList(y);
+  const groups = new Set(['RPC', 'RPS', 'RIDD']);
+  const rows = [...B.rpc, 'RPC', ...B.rps, 'RPS', 'RIDD'];
+  const members = (rk) => rk === 'RPC' ? B.rpc : rk === 'RPS' ? B.rps : rk === 'RIDD' ? B.all : [rk];
+  const sum = (rk, f) => members(rk).reduce((t, b) => t + (f(b) || 0), 0);
+  const rev = (rk, i) => sum(rk, b => (a.branch[b] ? a.branch[b][i].rev + a.branch[b][i].upRev : 0));
+  const ad  = (rk, i) => sum(rk, b => _mktgSpendBranchMonth(m, _mktgYm(y, i), b));
+  const wg  = (rk, i) => sum(rk, b => Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0);
+  const inc = (rk, i) => sum(rk, b => Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0);
+  const tot = (rk, i) => ad(rk, i) + wg(rk, i) + inc(rk, i);
+  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? rk : _mktgTC(rk), firstCol: 'Branch' };
+  const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
+  const T = m.settings.targets;
+  const goalStyle = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#16A34A' : '#DC2626', fontWeight: '600' };
+  // QuickBooks reconciliation: booked marketing per branch vs what was allocated.
+  const SP = state.reportingIsSpend || {};
+  const qbo = (b, i) => { const M = SP[_mktgYm(y, i)] || {}; let t = 0; for (const acct in M) { const off = (typeof _mktgQboOffice === 'function') ? _mktgQboOffice(acct) : null; if (off === b) t += Number(M[acct]) || 0; } return t; };
   return el('div', { class: 'flex flex-col gap-4' },
-    periodBar,
-    tiles,
-    branchCard,
-    chanCard,
-    el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4' },
-      reportingMktgSpendRevChart(),
-      reportingMktgLeadsChart()),
+    _mktgMatrixCard('New revenue', 'FieldRoutes · office staff · new + upsell · pending/serviced · by sold month', rows, rev, _mktgUsd0, opts),
+    _mktgMatrixCard('Ad spend', 'hand-entered allocation (Spend entry) — what goes to the controller', rows, ad, _mktgUsd0, opts),
+    _mktgMatrixCard('Wages', 'hand-entered (Spend entry)', rows, wg, _mktgUsd0, opts),
+    _mktgMatrixCard('Incentives', 'hand-entered (Spend entry)', rows, inc, _mktgUsd0, opts),
+    _mktgMatrixCard('Total spend', 'ad spend + wages + incentives', rows, tot, _mktgUsd0, opts),
+    _mktgMatrixCard('ROAS', 'new revenue ÷ ad spend · goal ' + T.roas + '+', rows, (rk, i) => _mktgDiv(rev(rk, i), ad(rk, i)), _mktgX, { ...opts, total: ratioTotal(rev, ad), cellStyle: goalStyle(T.roas, (v, g) => v >= g) }),
+    _mktgMatrixCard('CAC', 'total spend ÷ new revenue', rows, (rk, i) => _mktgDiv(tot(rk, i), rev(rk, i)), _mktgPct, { ...opts, total: ratioTotal(tot, rev) }),
+    _mktgMatrixCard('Ad spend % of CAC', 'ad spend ÷ new revenue · goal ' + Math.round(T.adSpendCac * 100) + '%', rows, (rk, i) => _mktgDiv(ad(rk, i), rev(rk, i)), _mktgPct, { ...opts, total: ratioTotal(ad, rev), cellStyle: goalStyle(T.adSpendCac, (v, g) => v <= g) }),
+    _mktgMatrixCard('Wages % of CAC', 'wages ÷ new revenue · goal ' + Math.round(T.wagesCac * 100) + '%', rows, (rk, i) => _mktgDiv(wg(rk, i), rev(rk, i)), _mktgPct, { ...opts, total: ratioTotal(wg, rev), cellStyle: goalStyle(T.wagesCac, (v, g) => v <= g) }),
+    _mktgMatrixCard('QuickBooks booked vs allocated', 'QuickBooks branch marketing accounts minus the hand-entered allocation · should read $0 once the controller books the month', B.all, (b, i) => { const q = qbo(b, i), al = _mktgSpendBranchMonth(m, _mktgYm(y, i), b); return (q || al) ? q - al : null; }, (v) => (v > 0 ? '+' : '') + fmt.usd0(v), { label: _mktgTC, firstCol: 'Branch', cellStyle: (v) => v == null ? {} : { color: Math.abs(v) < 1 ? '#16A34A' : '#D97706' } }),
   );
+}
+
+// ── CAC: monthly rollup ──
+function _mktgCac() {
+  const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), B = _mktgBranchList(y), s = m.settings;
+  const rev = (i) => a.total[i].rev, upRev = (i) => a.total[i].upRev, subs = (i) => a.total[i].subs, ups = (i) => a.total[i].upsells;
+  const ad = (i) => B.all.reduce((t, b) => t + _mktgSpendBranchMonth(m, _mktgYm(y, i), b), 0);
+  const wg = (i) => B.all.reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
+  const inc = (i) => B.all.reduce((t, b) => t + (Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0), 0);
+  const tot = (i) => ad(i) + wg(i) + inc(i);
+  const proj = (i) => { let t = 0; for (const b in s.branchGoals) t += (Number(s.branchGoals[b]) || 0) * (s.seasonal[i] || 0); return t; };
+  const ROWS = [
+    ['CAC %', (i) => _mktgDiv(tot(i), rev(i) + upRev(i)), _mktgPct, 'ratio', [tot, (i) => rev(i) + upRev(i)]],
+    ['ROAS', (i) => _mktgDiv(rev(i) + upRev(i), ad(i)), _mktgX, 'ratio', [(i) => rev(i) + upRev(i), ad]],
+    ['Cost per job', (i) => _mktgDiv(tot(i), subs(i) + ups(i)), _mktgUsd0, 'ratio', [tot, (i) => subs(i) + ups(i)]],
+    ['Weighted ACV', (i) => _mktgDiv(rev(i) + upRev(i), subs(i) + ups(i)), _mktgUsd0, 'ratio', [(i) => rev(i) + upRev(i), (i) => subs(i) + ups(i)]],
+    ['Projected revenue', proj, _mktgUsd0, 'sum'],
+    ['% of projection', (i) => _mktgDiv(rev(i) + upRev(i), proj(i)), _mktgPct, 'ratio', [(i) => rev(i) + upRev(i), proj]],
+    ['New subscriptions', subs, fmt.int, 'sum'],
+    ['Upsells', ups, fmt.int, 'sum'],
+    ['Total new sales', (i) => subs(i) + ups(i), fmt.int, 'sum'],
+    ['New revenue', rev, _mktgUsd0, 'sum'],
+    ['Upsell revenue', upRev, _mktgUsd0, 'sum'],
+    ['Total new revenue', (i) => rev(i) + upRev(i), _mktgUsd0, 'sum'],
+    ['Marketing (ad spend)', ad, _mktgUsd0, 'sum'],
+    ['Wages', wg, _mktgUsd0, 'sum'],
+    ['Incentives', inc, _mktgUsd0, 'sum'],
+    ['Total spend', tot, _mktgUsd0, 'sum'],
+  ];
+  const byKey = Object.fromEntries(ROWS.map(r => [r[0], r]));
+  return el('div', { class: 'flex flex-col gap-4' },
+    _mktgMatrixCard('CAC · RIDD', 'FieldRoutes revenue & counts · hand-entered spend · projection from Configurations', ROWS.map(r => r[0]),
+      (rk, i) => byKey[rk][1](i),
+      (v, rk) => byKey[rk][2](v),
+      { firstCol: 'Metric', groupRows: new Set(['Total new sales', 'Total new revenue', 'Total spend']),
+        total: (rk) => { const r = byKey[rk]; if (r[3] === 'sum') { let t = 0; for (let i = 0; i < 12; i++) t += r[1](i) || 0; return t; } let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += r[4][0](i) || 0; d += r[4][1](i) || 0; } return _mktgDiv(n, d); } }));
+}
+
+// ── Providers: lead partner × month ──
+function _mktgProviders() {
+  const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), T = m.settings.targets;
+  const channels = [...new Set([...m.channels, ...a.sources.filter(s => reportingSourceClass(s) === 'new')])].sort();
+  const rows = [...channels, 'RIDD'];
+  const groups = new Set(['RIDD']);
+  const srcRow = (ch) => a.source[ch];
+  const rev = (ch, i) => ch === 'RIDD' ? channels.reduce((t, c) => t + rev(c, i), 0) : (srcRow(ch) ? srcRow(ch)[i].rev + srcRow(ch)[i].upRev : 0);
+  const book = (ch, i) => ch === 'RIDD' ? channels.reduce((t, c) => t + book(c, i), 0) : (srcRow(ch) ? srcRow(ch)[i].bookings : 0);
+  const sp = (ch, i) => ch === 'RIDD' ? channels.reduce((t, c) => t + sp(c, i), 0) : _mktgSpendChannelMonth(m, _mktgYm(y, i), ch);
+  const leads = (ch, i) => ch === 'RIDD' ? channels.reduce((t, c) => t + leads(c, i), 0) : (Number((m.leads[_mktgYm(y, i)] || {})[ch]) || 0);
+  const opts = { groupRows: groups, firstCol: 'Source' };
+  const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
+  const gs = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#16A34A' : '#DC2626', fontWeight: '600' };
+  return el('div', { class: 'flex flex-col gap-4' },
+    _mktgMatrixCard('Revenue', 'FieldRoutes · new + upsell revenue by subscription source', rows, rev, _mktgUsd0, opts),
+    _mktgMatrixCard('Ad spend', 'hand-entered allocation (Spend entry), summed across branches', rows, sp, _mktgUsd0, opts),
+    _mktgMatrixCard('Leads', 'hand-entered (Spend entry)', rows, leads, fmt.int, opts),
+    _mktgMatrixCard('Bookings', 'FieldRoutes · accounts sold by source', rows, book, fmt.int, opts),
+    _mktgMatrixCard('Cost per lead', 'ad spend ÷ leads', rows, (ch, i) => _mktgDiv(sp(ch, i), leads(ch, i)), _mktgUsd0, { ...opts, total: ratioTotal(sp, leads) }),
+    _mktgMatrixCard('Ad spend per job', 'ad spend ÷ bookings · goal under ' + fmt.usd0(T.spendPerJob), rows, (ch, i) => _mktgDiv(sp(ch, i), book(ch, i)), _mktgUsd0, { ...opts, total: ratioTotal(sp, book), cellStyle: gs(T.spendPerJob, (v, g) => v <= g) }),
+    _mktgMatrixCard('ROAS', 'revenue ÷ ad spend · goal ' + T.roas + '+', rows, (ch, i) => _mktgDiv(rev(ch, i), sp(ch, i)), _mktgX, { ...opts, total: ratioTotal(rev, sp), cellStyle: gs(T.roas, (v, g) => v >= g) }),
+    _mktgMatrixCard('Ad spend CAC', 'ad spend ÷ revenue (no wages) · goal ' + Math.round(T.adSpendCac * 100) + '%', rows, (ch, i) => _mktgDiv(sp(ch, i), rev(ch, i)), _mktgPct, { ...opts, total: ratioTotal(sp, rev), cellStyle: gs(T.adSpendCac, (v, g) => v <= g) }),
+    _mktgMatrixCard('Revenue weight', 'share of the month’s revenue', channels, (ch, i) => _mktgDiv(rev(ch, i), rev('RIDD', i)), _mktgPct, { firstCol: 'Source', total: (ch) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += rev(ch, i); d += rev('RIDD', i); } return _mktgDiv(n, d); } }),
+    _mktgMatrixCard('Spend weight', 'share of the month’s ad spend', channels, (ch, i) => _mktgDiv(sp(ch, i), sp('RIDD', i)), _mktgPct, { firstCol: 'Source', total: (ch) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += sp(ch, i); d += sp('RIDD', i); } return _mktgDiv(n, d); } }),
+  );
+}
+
+// ── Spend entry: the controller allocation (branch × channel) for one month ──
+function _mktgSpendEntry() {
+  const y = _mktgYearSel(), m = _mktgStore(), B = _mktgBranchList(y);
+  if (state._mktEntryMonth == null || !String(state._mktEntryMonth).startsWith(y + '-')) {
+    const now = new Date(); state._mktEntryMonth = (now.getFullYear() === y) ? _mktgYm(y, now.getMonth()) : _mktgYm(y, 0);
+  }
+  const ym = state._mktEntryMonth;
+  const channels = m.channels;
+  const inp = (val, onSave, opts = {}) => el('input', {
+    type: 'number', step: '0.01', min: '0', placeholder: '0', value: val != null && val !== 0 ? String(val) : '',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] text-right', style: { width: opts.w || '96px', borderColor: 'var(--border-2)' },
+    onchange: (e) => { const v = parseFloat(e.target.value); onSave(isNaN(v) ? 0 : Math.round(v * 100) / 100); _mktgSave(); mountApp(); },
+  });
+  const cellSet = (ch, b, v) => { m.spend[ym] = m.spend[ym] || {}; m.spend[ym][ch] = m.spend[ym][ch] || {}; if (v > 0) m.spend[ym][ch][b] = v; else delete m.spend[ym][ch][b]; };
+  const monthSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { state._mktEntryMonth = e.target.value; mountApp(); } },
+    ...MKTG_MONTHS.map((mn, i) => el('option', { value: _mktgYm(y, i), selected: _mktgYm(y, i) === ym }, mn + ' ' + y)));
+  const addChannel = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' },
+    onclick: () => { const n = prompt('New channel / lead partner name (must match the FieldRoutes source name to join revenue):'); if (n && n.trim() && !m.channels.includes(n.trim())) { m.channels.push(n.trim()); _mktgSave(); mountApp(); } } }, '+ Channel');
+  const addBranch = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' },
+    onclick: () => { const n = prompt('Branch name (as it appears in FieldRoutes, e.g. TAMPA):'); if (n && n.trim()) { const k = n.trim().toUpperCase(); m.settings.branchGoals[k] = m.settings.branchGoals[k] || 0; _mktgSave(); mountApp(); } } }, '+ Branch');
+  // Copy last month's allocation as a starting point.
+  const copyPrev = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' },
+    title: 'Copy the previous month’s allocation, wages, incentives and leads into this month (only fills blanks)',
+    onclick: () => {
+      const [yy, mm] = ym.split('-').map(Number); const prev = mm === 1 ? _mktgYm(yy - 1, 11) : _mktgYm(yy, mm - 2);
+      let n = 0;
+      for (const ch in (m.spend[prev] || {})) for (const b in m.spend[prev][ch]) { if (!((m.spend[ym] || {})[ch] || {})[b]) { cellSet(ch, b, Number(m.spend[prev][ch][b]) || 0); n++; } }
+      for (const k of ['wages', 'incentives', 'leads']) { m[k][ym] = m[k][ym] || {}; for (const b in (m[k][prev] || {})) if (m[k][ym][b] == null) { m[k][ym][b] = m[k][prev][b]; n++; } }
+      _mktgSave(); toast('Copied ' + n + ' value' + (n === 1 ? '' : 's') + ' from ' + reportingMonthLbl(prev), 'success'); mountApp();
+    } }, 'Copy last month');
+  // Export the controller sheet (branch × channel + total) as CSV.
+  const exportBtn = el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+    onclick: () => {
+      const esc = (v) => { const s2 = v == null ? '' : String(v); return /[",\n]/.test(s2) ? '"' + s2.replace(/"/g, '""') + '"' : s2; };
+      const lines = [['Branch', ...channels, 'Total', 'Wages', 'Incentives'].map(esc).join(',')];
+      B.all.forEach(b => lines.push([_mktgTC(b), ...channels.map(ch => (((m.spend[ym] || {})[ch] || {})[b] || 0).toFixed(2)), _mktgSpendBranchMonth(m, ym, b).toFixed(2), (Number((m.wages[ym] || {})[b]) || 0).toFixed(2), (Number((m.incentives[ym] || {})[b]) || 0).toFixed(2)].map(esc).join(',')));
+      lines.push(['Total', ...channels.map(ch => _mktgSpendChannelMonth(m, ym, ch).toFixed(2)), B.all.reduce((t, b) => t + _mktgSpendBranchMonth(m, ym, b), 0).toFixed(2), '', ''].map(esc).join(','));
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      const a2 = document.createElement('a'); a2.href = URL.createObjectURL(blob); a2.download = 'RIDD-marketing-spend-' + ym + '.csv'; a2.click();
+    } }, '⬇ Controller sheet (.csv)');
+  const th = (t, right) => _mktgTh(t, right !== false);
+  const matrix = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Ad spend allocation · ' + reportingMonthLbl(ym)),
+        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'branch × channel · this is the sheet the controller books from · saved for every admin')),
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, monthSel, copyPrev, addChannel, addBranch, exportBtn)),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+      el('thead', {}, el('tr', {}, th('Branch', false), ...channels.map(ch => th(ch)), th('Total'), th('Wages'), th('Incentives'))),
+      el('tbody', {},
+        ...B.all.map(b => el('tr', { class: 'border-t border-' },
+          _mktgTd(_mktgTC(b), { left: true, bold: true, style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
+          ...channels.map(ch => el('td', { class: 'px-1 py-1 text-right' }, inp(((m.spend[ym] || {})[ch] || {})[b], (v) => cellSet(ch, b, v), { w: '88px' }))),
+          _mktgTd(fmt.usd0(_mktgSpendBranchMonth(m, ym, b)), { bold: true }),
+          el('td', { class: 'px-1 py-1 text-right' }, inp((m.wages[ym] || {})[b], (v) => { m.wages[ym] = m.wages[ym] || {}; if (v > 0) m.wages[ym][b] = v; else delete m.wages[ym][b]; })),
+          el('td', { class: 'px-1 py-1 text-right' }, inp((m.incentives[ym] || {})[b], (v) => { m.incentives[ym] = m.incentives[ym] || {}; if (v > 0) m.incentives[ym][b] = v; else delete m.incentives[ym][b]; })))),
+        el('tr', { class: 'border-t font-bold', style: { background: 'var(--card-2)' } },
+          _mktgTd('Total', { left: true, bold: true, style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }),
+          ...channels.map(ch => _mktgTd(fmt.usd0(_mktgSpendChannelMonth(m, ym, ch)))),
+          _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + _mktgSpendBranchMonth(m, ym, b), 0)), { bold: true }),
+          _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + (Number((m.wages[ym] || {})[b]) || 0), 0))),
+          _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + (Number((m.incentives[ym] || {})[b]) || 0), 0))))))));
+  // Leads by channel for the month (GHL prefill when it has the source).
+  const GHL = ((state.reportingGhlLeads && state.reportingGhlLeads.bySourceMonth) || {})[ym] || {};
+  const ghlFor = (ch) => { const k = Object.keys(GHL).find(s2 => String(s2).trim().toLowerCase() === ch.toLowerCase()); return k ? Number(GHL[k]) || 0 : null; };
+  const leadsCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, 'Leads · ' + reportingMonthLbl(ym)),
+      el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'hand-entered per channel · GoHighLevel count shown as a hint where it has the source')),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+      el('thead', {}, el('tr', {}, th('Channel', false), th('Leads'), th('GHL says'))),
+      el('tbody', {}, ...channels.map(ch => el('tr', { class: 'border-t border-' },
+        _mktgTd(ch, { left: true, bold: true }),
+        el('td', { class: 'px-1 py-1 text-right' }, inp((m.leads[ym] || {})[ch], (v) => { m.leads[ym] = m.leads[ym] || {}; if (v > 0) m.leads[ym][ch] = v; else delete m.leads[ym][ch]; })),
+        _mktgTd(ghlFor(ch) == null ? '—' : fmt.int(ghlFor(ch)), { style: { color: 'var(--text-muted)' } })))))));
+  return el('div', { class: 'flex flex-col gap-4' }, matrix, leadsCard);
+}
+
+// ── Projections ──
+function _mktgProjections() {
+  const y = _mktgYearSel(), m = _mktgStore(), s = m.settings, B = _mktgBranchList(y), a = _mktgActuals(y);
+  const groups = new Set(['RPC', 'RPS', 'RIDD']);
+  const rows = [...B.rpc, 'RPC', ...B.rps, 'RPS', 'RIDD'];
+  const members = (rk) => rk === 'RPC' ? B.rpc : rk === 'RPS' ? B.rps : rk === 'RIDD' ? B.all : [rk];
+  const goal = (b) => Number(s.branchGoals[b]) || 0;
+  const pRev = (rk, i) => members(rk).reduce((t, b) => t + goal(b) * (s.seasonal[i] || 0), 0);
+  const pAd  = (rk, i) => pRev(rk, i) * s.adSpendPct;
+  const pWg  = (rk, i) => pRev(rk, i) * s.wagesPct;
+  const pInc = (rk, i) => pRev(rk, i) * s.incentivesPct;
+  const aRev = (rk, i) => members(rk).reduce((t, b) => t + (a.branch[b] ? a.branch[b][i].rev + a.branch[b][i].upRev : 0), 0);
+  const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? rk : _mktgTC(rk), firstCol: 'Branch' };
+  const num = (v, onSave, opts2 = {}) => el('input', { type: 'number', step: opts2.step || '1', value: v == null ? '' : String(v), class: 'rounded-lg border px-2.5 py-1 text-[11px] text-right', style: { width: opts2.w || '110px', borderColor: 'var(--border-2)' },
+    onchange: (e) => { const x = parseFloat(e.target.value); onSave(isNaN(x) ? 0 : x); _mktgSave(); mountApp(); } });
+  const goalsCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, 'Branch goals · ' + y),
+      el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'revenue goal per branch · ad spend ' + Math.round(s.adSpendPct * 100) + '% · wages ' + Math.round(s.wagesPct * 100) + '% · incentives ' + Math.round(s.incentivesPct * 100) + '% (rates in Configurations)')),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+      el('thead', {}, el('tr', {}, _mktgTh('Branch', false), _mktgTh('Revenue goal'), _mktgTh('Ad spend'), _mktgTh('Wages'), _mktgTh('Incentives'), _mktgTh('Total spend'), _mktgTh('Attrition %', true, 'Projected annual attrition — sets replacement revenue'), _mktgTh('YTD actual'), _mktgTh('% of goal'))),
+      el('tbody', {},
+        ...B.all.map(b => { const g = goal(b); const ytd = aRev(b, 0) + [1,2,3,4,5,6,7,8,9,10,11].reduce((t, i) => t + aRev(b, i), 0); return el('tr', { class: 'border-t border-' },
+          _mktgTd(_mktgTC(b), { left: true, bold: true }),
+          el('td', { class: 'px-1 py-1 text-right' }, num(g, (v) => { s.branchGoals[b] = v; })),
+          _mktgTd(fmt.usd0(g * s.adSpendPct)), _mktgTd(fmt.usd0(g * s.wagesPct)), _mktgTd(fmt.usd0(g * s.incentivesPct)), _mktgTd(fmt.usd0(g * (s.adSpendPct + s.wagesPct + s.incentivesPct)), { bold: true }),
+          el('td', { class: 'px-1 py-1 text-right' }, num(s.branchAttrition[b] != null ? Math.round(s.branchAttrition[b] * 100) : '', (v) => { s.branchAttrition[b] = v / 100; }, { w: '70px' })),
+          _mktgTd(fmt.usd0(ytd)), _mktgTd(g > 0 ? (ytd / g * 100).toFixed(0) + '%' : '—', { style: { color: g > 0 && ytd / g >= 1 ? '#16A34A' : 'inherit' } })); }),
+        el('tr', { class: 'border-t font-bold', style: { background: 'var(--card-2)' } },
+          _mktgTd('RIDD', { left: true, bold: true }),
+          _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + goal(b), 0)), { bold: true }),
+          _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + goal(b), 0) * s.adSpendPct)), _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + goal(b), 0) * s.wagesPct)), _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + goal(b), 0) * s.incentivesPct)),
+          _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + goal(b), 0) * (s.adSpendPct + s.wagesPct + s.incentivesPct)), { bold: true }), _mktgTd(''), _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + [0,1,2,3,4,5,6,7,8,9,10,11].reduce((u, i) => u + aRev(b, i), 0), 0))), _mktgTd(''))))));
+  // Channel projections: planned spend by channel × month.
+  const channels = m.channels;
+  const chProj = (ch, i) => Number((s.channelProjections[ch] || [])[i]) || 0;
+  const chCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, 'Lead-partner spend plan · ' + y),
+      el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'planned ad spend per channel per month · compare to Providers → Ad spend')),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+      el('thead', {}, el('tr', {}, _mktgTh('Channel', false), ...MKTG_MONTHS.map(mn => _mktgTh(mn)), _mktgTh('Total'))),
+      el('tbody', {},
+        ...channels.map(ch => el('tr', { class: 'border-t border-' },
+          _mktgTd(ch, { left: true, bold: true, style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }),
+          ...MKTG_MONTHS.map((_, i) => el('td', { class: 'px-1 py-1 text-right' }, num(chProj(ch, i) || '', (v) => { s.channelProjections[ch] = s.channelProjections[ch] || Array(12).fill(0); s.channelProjections[ch][i] = v; }, { w: '84px' }))),
+          _mktgTd(fmt.usd0([0,1,2,3,4,5,6,7,8,9,10,11].reduce((t, i) => t + chProj(ch, i), 0)), { bold: true }))),
+        el('tr', { class: 'border-t font-bold', style: { background: 'var(--card-2)' } },
+          _mktgTd('Total', { left: true, bold: true }),
+          ...MKTG_MONTHS.map((_, i) => _mktgTd(fmt.usd0(channels.reduce((t, ch) => t + chProj(ch, i), 0)))),
+          _mktgTd(fmt.usd0(channels.reduce((t, ch) => t + [0,1,2,3,4,5,6,7,8,9,10,11].reduce((u, i) => u + chProj(ch, i), 0), 0)), { bold: true }))))));
+  return el('div', { class: 'flex flex-col gap-4' },
+    goalsCard,
+    _mktgMatrixCard('Projected revenue', 'branch goal × seasonal allocation (Configurations)', rows, pRev, _mktgUsd0, opts),
+    _mktgMatrixCard('Actual vs projected', 'FieldRoutes actual ÷ projected', rows, (rk, i) => { const p = pRev(rk, i); return p > 0 ? aRev(rk, i) / p : null; }, _mktgPct, { ...opts, cellStyle: (v) => v == null ? {} : { color: v >= 1 ? '#16A34A' : v >= 0.8 ? '#D97706' : '#DC2626', fontWeight: '600' }, total: (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += aRev(rk, i); d += pRev(rk, i); } return _mktgDiv(n, d); } }),
+    _mktgMatrixCard('Projected ad spend', 'projected revenue × ' + Math.round(s.adSpendPct * 100) + '%', rows, pAd, _mktgUsd0, opts),
+    _mktgMatrixCard('Projected wages', 'projected revenue × ' + Math.round(s.wagesPct * 100) + '%', rows, pWg, _mktgUsd0, opts),
+    _mktgMatrixCard('Projected incentives', 'projected revenue × ' + Math.round(s.incentivesPct * 100) + '%', rows, pInc, _mktgUsd0, opts),
+    _mktgMatrixCard('Projected total spend', 'ad spend + wages + incentives', rows, (rk, i) => pAd(rk, i) + pWg(rk, i) + pInc(rk, i), _mktgUsd0, opts),
+    chCard);
+}
+
+// ── Configurations card: quota + projection rates + targets ──
+function reportingMarketingGoalsPanel() {
+  const m = _mktgStore(), s = m.settings;
+  const num = (v, onSave, opts = {}) => el('input', { type: 'number', step: opts.step || '1', value: v == null ? '' : String(v), class: 'rounded-lg border px-2.5 py-1 text-[11px] text-right', style: { width: opts.w || '110px', borderColor: 'var(--border-2)' },
+    onchange: (e) => { const x = parseFloat(e.target.value); onSave(isNaN(x) ? 0 : x); _mktgSave(); mountApp(); } });
+  const row = (label, node, hint) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' } },
+    el('div', { class: 'min-w-0' }, el('div', { class: 'text-[12px] font-semibold' }, label), hint ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, hint) : null), node);
+  const pctIn = (get, set) => num(Math.round(get() * 100), (v) => set(v / 100), { w: '70px' });
+  const isMonthly = (i) => s.isGoal * (s.seasonal[i] || 0), rnMonthly = (i) => s.renewalsGoal * (s.renewalSeasonal[i] || 0);
+  const q = (arr, from) => arr.slice(from, from + 3).reduce((t, v) => t + v, 0);
+  const seasonalTable = (title, arr, total, reps, key) => el('div', { class: 'mt-3' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-muted)' } }, title + ' · ' + (Math.round(arr.reduce((t, v) => t + v, 0) * 1000) / 10) + '% allocated'),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
+      el('thead', {}, el('tr', {}, _mktgTh('', false), ...MKTG_MONTHS.map(mn => _mktgTh(mn)))),
+      el('tbody', {},
+        el('tr', { class: 'border-t border-' }, _mktgTd('%', { left: true, bold: true }), ...arr.map((v, i) => el('td', { class: 'px-1 py-1 text-right' }, num(Math.round(v * 1000) / 10, (x) => { s[key][i] = x / 100; }, { w: '56px', step: '0.5' })))),
+        el('tr', { class: 'border-t border-' }, _mktgTd('Quota', { left: true, bold: true }), ...arr.map((v, i) => _mktgTd(fmt.usd0(total * v)))),
+        el('tr', { class: 'border-t border-', style: { background: 'var(--card-2)' } }, _mktgTd('Per rep / qtr', { left: true, bold: true }), ...[0, 3, 6, 9].flatMap(f => [_mktgTd(fmt.usd0(total * q(arr, f) / Math.max(1, reps)), { bold: true }), _mktgTd(''), _mktgTd('')]))))));
+  return el('div', { class: 'card p-5' },
+    el('h2', { class: 'text-base font-bold' }, '🎯 Marketing goals & quota'),
+    el('div', { class: 'text-[10px] mt-0.5 mb-2', style: { color: 'var(--text-muted)' } }, 'Drives the Marketing report’s Projections and CAC targets. Saved for every admin.'),
+    row('Inside Sales goal', num(s.isGoal, (v) => { s.isGoal = v; }), 'annual new revenue'),
+    row('Inside Sales reps', num(s.isReps, (v) => { s.isReps = v; }, { w: '70px' })),
+    row('Renewals goal', num(s.renewalsGoal, (v) => { s.renewalsGoal = v; }), 'annual renewal revenue'),
+    row('Loyalty reps', num(s.loyaltyReps, (v) => { s.loyaltyReps = v; }, { w: '70px' })),
+    row('Ad spend % of revenue', pctIn(() => s.adSpendPct, (v) => { s.adSpendPct = v; }), 'projection rate'),
+    row('Wages % of revenue', pctIn(() => s.wagesPct, (v) => { s.wagesPct = v; }), 'projection rate'),
+    row('Incentives % of revenue', pctIn(() => s.incentivesPct, (v) => { s.incentivesPct = v; }), 'projection rate'),
+    row('Target · ad spend CAC', pctIn(() => s.targets.adSpendCac, (v) => { s.targets.adSpendCac = v; }), 'ad spend ÷ revenue, at or under'),
+    row('Target · wages CAC', pctIn(() => s.targets.wagesCac, (v) => { s.targets.wagesCac = v; }), 'wages ÷ revenue, at or under'),
+    row('Target · ROAS', num(s.targets.roas, (v) => { s.targets.roas = v; }, { w: '70px', step: '0.1' }), 'revenue ÷ ad spend, at or over'),
+    row('Target · ad spend per job', num(s.targets.spendPerJob, (v) => { s.targets.spendPerJob = v; }, { w: '90px' }), 'at or under'),
+    seasonalTable('Inside Sales seasonal allocation', s.seasonal, s.isGoal, s.isReps, 'seasonal'),
+    seasonalTable('Renewals seasonal allocation', s.renewalSeasonal, s.renewalsGoal, s.loyaltyReps, 'renewalSeasonal'));
+}
+
+function reportingMarketingPnl() {
+  reportingLoadGhlLeads();
+  const sub = ['pnl', 'cac', 'providers', 'spend', 'projections'].includes(state._mktSub) ? state._mktSub : 'pnl';
+  const body = sub === 'cac' ? _mktgCac() : sub === 'providers' ? _mktgProviders() : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
+  return el('div', { class: 'flex flex-col gap-4' }, _mktgYearBar(sub), body);
 }
 
 const REPORTING_MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
