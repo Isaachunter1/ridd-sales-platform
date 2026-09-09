@@ -1312,7 +1312,7 @@ async function openIndicatorConfigHistoryModal() {
           i === 0 ? el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(255,107,61,.15)', color: '#DF643A' } }, 'current') : null),
         el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, summarize(r.config) + (who(r.updated_by) ? ' · by ' + who(r.updated_by) : ''))),
       i === 0 ? null : el('button', {
-        class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer shrink-0',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer shrink-0',
         style: { background: '#F2148C', color: '#fff' },
         onclick: () => {
           if (!confirm('Restore the config from ' + when + '? This becomes the shared copy for every admin.')) return;
@@ -3155,12 +3155,12 @@ function _armSplashWatchdog() {
         el('div', { style: { fontSize: '12px', color: 'var(--text-muted)' } }, 'Taking longer than usual\u2026'),
         el('div', { class: 'flex items-center', style: { gap: '10px' } },
           el('button', {
-            class: 'rounded-xl px-4 py-2 text-sm font-bold',
+            class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold',
             style: { background: 'var(--accent)', color: 'var(--accent-text)' },
             onclick: () => location.reload(),
           }, 'Retry'),
           el('button', {
-            class: 'rounded-xl border px-4 py-2 text-sm font-semibold',
+            class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold',
             style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
             onclick: async () => { try { await supabase.auth.signOut(); } catch (e) { /* best effort */ } location.reload(); },
           }, 'Sign out'))));
@@ -3275,11 +3275,11 @@ function mountError(err) {
         el('pre', { class: 'text-xs whitespace-pre-wrap mt-1', style: { color: 'var(--text-subtle)' } }, msg)),
       el('div', { class: 'flex items-center gap-2 mt-3' },
         el('button', {
-          class: 'px-4 py-2 rounded-lg bg-lime text-eerie font-semibold',
+          class: 'px-2.5 py-1 rounded-lg bg-lime text-eerie font-semibold text-[11px]',
           onclick: () => location.reload(),
         }, isNet ? 'Try again' : 'Reload'),
         isAuth && el('button', {
-          class: 'px-4 py-2 rounded-lg border font-semibold',
+          class: 'px-2.5 py-1 rounded-lg border font-semibold text-[11px]',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: async () => { try { await supabase.auth.signOut(); } catch (e) { /* best effort */ } location.reload(); },
         }, 'Sign in again')))));
@@ -3711,7 +3711,7 @@ function mobileBottomNav() {
           ...(isAdmin ? [['reporting','Reporting',iconPie]] : []),
           ...(isAdmin ? [['admin','Settings',iconGear]] : [])
         ].map(([k,label,iconFn]) => el('button', {
-          class: 'flex items-center gap-3 w-full px-4 py-2.5 text-sm',
+          class: 'flex items-center gap-3 w-full px-2.5 py-1 text-[11px]',
           style: state.view === k ? { color: 'var(--accent)', fontWeight: '600' } : { color: 'var(--text)' },
           onclick: () => { state.view = k; state._navChosen = true; history.replaceState(null,'',VIEW_TO_HASH[k]||'#'+k); mountApp(); },
         }, iconFn(18), label)),
@@ -4254,13 +4254,13 @@ function reportingAuditing() {
       }),
       el('div', { class: 'flex-1' }),
       el('button', {
-        class: 'rounded-xl border px-3 py-2 text-xs font-semibold transition hover:brightness-95',
+        class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Export every in-scope D2D account (audit status, flags, revenue) to Excel \u2014 incl. a sheet of accounts with no audit flag',
         onclick: () => exportAuditingXlsx(scopedAccounts, rangeLabel),
       }, '\u2b07'),
       el('button', {
-        class: 'rounded-xl border px-3 py-2 text-xs font-semibold transition hover:brightness-95',
+        class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Assign reps to teams / tiers (same as the Indicators tab)',
         onclick: () => openManageTeamsModal(),
@@ -4477,7 +4477,7 @@ function insideSalesTabsFor(role) {
 function salesModeToggle(mode) {
   if (!isAdminRole(state.profile?.role)) return null;
   const btn = (m, label) => el('button', {
-    class: 'px-3 py-1.5 text-xs font-bold transition',
+    class: 'px-2.5 py-1 text-[11px] font-bold transition',
     style: mode === m ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
     onclick: () => {
       if (m === mode) return;
@@ -4506,7 +4506,7 @@ function insideSalesSubTabs() {
     ...tabs.map(([k, label]) => {
       const active = state.view === k;
       return el('button', {
-        class: 'px-3 sm:px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
+        class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap',
         style: {
           borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
           color: active ? 'var(--text)' : 'var(--text-muted)',
@@ -4537,7 +4537,7 @@ function d2dSalesSubTabs() {
     ...tabs.map(([k, label]) => {
       const active = state.view === k;
       return el('button', {
-        class: 'px-3 sm:px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
+        class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap',
         style: {
           borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
           color: active ? 'var(--text)' : 'var(--text-muted)',
@@ -4644,7 +4644,7 @@ function openMySettingsModal() {
   const slackOn = el('input', { type: 'checkbox', class: 'cursor-pointer' });
   slackOn.checked = !!p.slack_notify;
   const slackBtn = el('button', {
-    class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95 whitespace-nowrap',
+    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95 whitespace-nowrap',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     onclick: async () => {
       try {
@@ -4676,7 +4676,7 @@ function openMySettingsModal() {
     class: 'flex-1 rounded-lg border px-3 py-2 text-sm',
   });
   const goalBtn = el('button', {
-    class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95 whitespace-nowrap',
+    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95 whitespace-nowrap',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     onclick: async (e) => {
       const btn = e.currentTarget;
@@ -4716,7 +4716,7 @@ function openMySettingsModal() {
     });
   });
   const pwBtn = el('button', {
-    class: 'rounded-lg px-4 py-2 text-sm font-bold border transition hover:brightness-95',
+    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
     style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
     onclick: async (e) => {
       const btn = e.currentTarget;
@@ -4779,7 +4779,7 @@ function openMySettingsModal() {
           }
           if (window._riddInstallEvt) {
             return el('button', {
-              class: 'rounded-lg px-4 py-2 text-sm font-bold border transition hover:brightness-95 self-start',
+              class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 self-start',
               style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
               onclick: async (e) => {
                 const evt = window._riddInstallEvt;
@@ -4901,7 +4901,7 @@ function openFeedbackModal() {
     placeholder: 'Bug, idea, confusing screen, wrong number \u2014 anything. Screenshots can go to your manager; this sends the words straight to the app team.',
   });
   const send = el('button', {
-    class: 'rounded-xl px-4 py-2 text-sm font-bold cursor-pointer',
+    class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold cursor-pointer',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     onclick: async () => {
       const text = ta.value.trim();
@@ -5015,7 +5015,7 @@ function mountApp() {
         el('div', { class: 'text-lg font-bold' }, 'Access deactivated'),
         el('div', { class: 'text-sm text-muted-' }, 'This account is no longer active. If that\u2019s a mistake, reach out to your admin.'),
         el('button', {
-          class: 'mt-2 rounded-lg px-4 py-2 text-sm font-semibold border transition hover:brightness-95',
+          class: 'mt-2 rounded-lg px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: async () => { if (typeof DEMO !== 'undefined' && DEMO) { location.href = location.pathname; return; } await supabase.auth.signOut(); },
         }, 'Sign out'))));
@@ -5175,7 +5175,7 @@ function mountApp() {
         : k === 'd2d_group' ? D2D_SALES_TAB_KEYS.has(state.view)
         : state.view === k;
       return el('button', {
-        class: 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition',
+        class: 'w-full flex items-center gap-3 px-2.5 py-1 rounded-lg text-[11px] font-medium transition',
         style: active
           ? { background: 'var(--accent)', color: 'var(--accent-text)' }
           : { color: 'var(--text)' },
@@ -5304,7 +5304,7 @@ function mountApp() {
           style: { position: 'absolute', top: 'calc(100% + 8px)', right: '0', minWidth: '210px', padding: '6px', display: 'none', zIndex: 60, boxShadow: 'var(--shadow-lg)' },
         });
         const item = (icon, label, onclick) => el('button', {
-          class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium cursor-pointer transition flex items-center gap-2',
+          class: 'w-full text-left px-2.5 py-1 rounded-lg text-[11px] font-medium cursor-pointer transition flex items-center gap-2',
           style: { background: 'transparent', border: 'none', color: 'var(--text)' },
           onmouseenter: (e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; },
           onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
@@ -5426,7 +5426,7 @@ function mountApp() {
     },
       el('span', { class: 'text-xs font-semibold' }, '\ud83d\udc41 Viewing as ' + ((typeof ROLE_LABEL !== 'undefined' && ROLE_LABEL[viewAsRole()]) || viewAsRole())),
       el('button', {
-        class: 'rounded-lg px-3 py-1 text-[11px] font-bold transition hover:brightness-95',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => setViewAsRole(''),
       }, 'Back to Admin'),
@@ -5448,7 +5448,7 @@ function mountApp() {
     },
       el('span', { class: 'text-xs font-semibold' }, '\ud83e\uddea Sandbox \u2014 changes are NOT being saved'),
       el('button', {
-        class: 'rounded-lg px-3 py-1 text-[11px] font-bold transition hover:brightness-95',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: '#F59E0B', color: '#fff' },
         onclick: () => sandboxExit(),
       }, 'Exit & discard'),
@@ -5814,7 +5814,7 @@ function viewTechs() {
   return el('div', { class: 'flex flex-col gap-5 w-full' },
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       el('button', {
-        class: 'flex-1 min-w-0 rounded-xl px-5 py-2.5 text-sm font-bold transition hover:brightness-95',
+        class: 'flex-1 min-w-0 rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => { state._saleFormPreset = 'tech'; openNewSaleModal(); state._saleFormPreset = null; },   // modal builds synchronously — consume then clear
       }, '+ Log Upsell'),
@@ -5903,7 +5903,7 @@ function viewDashboard() {
     // ─── Top row: + New Sale + date filter + office view ───
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       el('button', {
-        class: 'rounded-xl px-4 py-2 text-xs font-bold transition hover:brightness-95',
+        class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openNewSaleModal(),
       }, '+ New Sale'),
@@ -5941,7 +5941,7 @@ function viewDashboard() {
 
       // Office view toggle (admin only)
       isAdmin && el('button', {
-        class: 'px-3 py-2 text-xs rounded-xl border transition font-medium',
+        class: 'px-2.5 py-1 text-[11px] rounded-xl border transition font-medium',
         style: state.dashOfficeView
           ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
           : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -7287,7 +7287,7 @@ function openCrmReconcileModal() {
   });
   const resBox = el('div', { class: 'text-xs mt-3', style: { whiteSpace: 'pre-wrap', fontFamily: 'ui-monospace, Menlo, monospace', lineHeight: '1.65' } });
   const copyBtn = el('button', {
-    class: 'rounded-lg px-3 py-2 text-xs font-bold cursor-pointer border transition hover:brightness-95',
+    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
     style: { borderColor: 'var(--border-2)', display: 'none' },
   }, 'Copy report');
   overlay.append(el('div', { class: 'card p-5 w-full', style: { maxWidth: '860px' } },
@@ -7310,14 +7310,14 @@ function openCrmReconcileModal() {
           rd.readAsText(f);
         });
         const pick = el('button', {
-          class: 'rounded-lg px-4 py-2 text-sm font-bold cursor-pointer transition hover:brightness-95',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
           style: { background: 'var(--brand, #DF643A)', color: '#fff' },
           onclick: () => inp.click(),
         }, 'Choose CSV file…');
         return el('span', {}, inp, pick);
       })(),
       el('button', {
-        class: 'rounded-lg px-4 py-2 text-sm font-bold cursor-pointer transition hover:brightness-95 border',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         onclick: () => run(ta.value, resBox, copyBtn),
       }, 'Run pasted text'),
@@ -7816,7 +7816,7 @@ function openCoachModeModal() {
               + ' silent ≥30 days · candidates to flip Inactive'),
         ),
         el('button', {
-          class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold transition hover:brightness-95',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
           style: { background: '#DC2626', color: '#fff' },
           title: 'Mark all silent-30+ reps as Inactive in Manage Teams (one undo per rep)',
           onclick: bulkMarkInactive,
@@ -8686,7 +8686,7 @@ function openImportInsightsModal(insights) {
   modal.append(
     el('div', { class: 'flex justify-end mt-5' },
       el('button', {
-        class: 'rounded-lg px-4 py-2 text-sm font-bold cursor-pointer',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => overlay.remove(),
       }, 'Got it'),
@@ -8989,7 +8989,7 @@ function openRepCustomizeModal() {
             arrow('▼', i === p.order.length - 1, () => { const o = [...p.order]; [o[i + 1], o[i]] = [o[i], o[i + 1]]; commit({ ...p, order: o }); }),
             el('span', { class: 'text-sm font-semibold flex-1 min-w-0 truncate' }, label),
             el('button', {
-              class: 'text-[11px] font-bold px-2 py-1 rounded-lg border transition hover:brightness-95',
+              class: 'text-[11px] font-bold px-2.5 py-1 rounded-lg border transition hover:brightness-95',
               style: hidden ? { borderColor: 'var(--border-2)', color: 'var(--text-muted)' } : { borderColor: 'var(--accent)', color: 'var(--accent)' },
               onclick: () => {
                 const nh = hidden ? p.hidden.filter(x => x !== k) : [...p.hidden, k];
@@ -9013,7 +9013,7 @@ function openRepCustomizeModal() {
           ...INDICATOR_RANGE_PRESETS.filter(x => x.id !== 'custom').map(x =>
             el('option', { value: x.id, selected: p.dateDefault === x.id }, x.label))),
         el('button', {
-          class: 'mt-2 rounded-xl px-3 py-2 text-xs font-bold border transition hover:brightness-95',
+          class: 'mt-2 rounded-xl px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
           style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
           onclick: () => { try { localStorage.removeItem(REP_LAYOUT_KEY); } catch { } state._repDateDefaultApplied = false; render(); mountApp(); },
         }, '↺ Reset to default layout')));
@@ -10822,7 +10822,7 @@ function todaysSalesPanel(windowSales, range) {
         ),
       ),
       rows.length > (state._dashFeedLimit || 25) && el('button', {
-        class: 'w-full px-4 py-2.5 text-center text-xs font-semibold border-t border- cursor-pointer transition hover:brightness-95',
+        class: 'w-full px-2.5 py-1 text-center text-[11px] font-semibold border-t border- cursor-pointer transition hover:brightness-95',
         style: { color: 'var(--accent)' },
         onclick: () => { state._dashFeedLimit = (state._dashFeedLimit || 25) + 50; mountApp(); },
       }, 'Show more · ' + fmt.int(rows.length - (state._dashFeedLimit || 25)) + ' remaining'),
@@ -10869,7 +10869,7 @@ function leaderboardSection(range) {
         (() => {
           const on = lbHidden.size > 0;
           const btn = el('button', {
-            class: 'rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
             style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', color: on ? 'var(--accent)' : 'var(--text-muted)' },
             title: 'Show or hide individual reps on this leaderboard',
             onclick: (e) => { e.stopPropagation(); state.dashLeaderFilterOpen = !state.dashLeaderFilterOpen; mountApp(); },
@@ -11204,7 +11204,7 @@ function viewSales() {
       { id: 'cancels', label: 'Cancels' },
       { id: 'history', label: 'History' },
     ].map(t => el('button', {
-      class: 'px-3 py-2 text-xs font-semibold rounded-lg border transition flex items-center gap-2 whitespace-nowrap',
+      class: 'px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition flex items-center gap-2 whitespace-nowrap',
       style: queueFilter === t.id
         ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
         : { background: 'var(--card)', color: 'var(--text)', borderColor: 'var(--border-2)' },
@@ -11242,7 +11242,7 @@ function viewSales() {
       ...(state.allProfiles||[]).map(p => el('option', { value: p.id, selected: sf.repId === p.id }, p.full_name)),
     ),
     (sf.status || sf.repId) && el('button', {
-      class: 'text-xs font-semibold px-2 py-2', style: { color: 'var(--accent)' },
+      class: 'text-[11px] font-semibold px-2.5 py-1', style: { color: 'var(--accent)' },
       onclick: () => { Object.assign(sf, { dateStart:'', dateEnd:'', status:'', repId:'', contractTypeId:'' }); mountApp(); },
     }, 'Clear'),
   ];
@@ -11274,7 +11274,7 @@ function viewSales() {
     // queues these filters live up in the toggle row instead. ──
     queueFilter === 'upfront' && el('div', { class: 'flex items-center gap-2 flex-wrap' },
       el('button', {
-        class: 'rounded-xl px-4 py-2 text-xs font-bold transition hover:brightness-95',
+        class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openNewSaleModal(),
       }, '+ New Sale'),
@@ -12076,7 +12076,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
       repSelect,
     ),
     el('button', {
-      class: 'rounded-lg border px-3 py-1.5 text-sm text-muted- hover:text-default transition',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] text-muted- hover:text-default transition',
       style: { borderColor: 'var(--border-2)' },
       onclick: () => overlay.remove(),
     }, '← Back'),
@@ -13083,7 +13083,7 @@ function viewPay() {
 
         // Run button (mode-aware)
         el('button', {
-          class: 'px-3 py-1.5 rounded-lg text-xs font-bold transition hover:brightness-95',
+          class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
           style: {
             background: isBackendStub ? '#0EA5E9' : 'var(--accent)',
             color: isBackendStub ? '#FFFFFF' : 'var(--accent-text)',
@@ -13095,7 +13095,7 @@ function viewPay() {
         }, isBackendStub ? 'Run Backend →' : 'Run Pay Period →'),
 
         el('button', {
-          class: 'px-3 py-1.5 rounded-lg text-xs font-medium border',
+          class: 'px-2.5 py-1 rounded-lg text-[11px] font-medium border',
           style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
           onclick: () => downloadPayrollCsv(commissionable, period),
         }, '↓ CSV'),
@@ -13566,7 +13566,7 @@ function viewCompetitions() {
     container.append(el('div', { class: 'card p-10 text-center' },
       el('div', { class: 'text-battle-2 text-sm mb-2' }, 'No competitions yet.'),
       isAdminRole(state.profile?.role) && el('button', {
-        class: 'mt-2 px-4 py-2 rounded-xl bg-lime text-eerie font-semibold',
+        class: 'mt-2 px-2.5 py-1 rounded-xl bg-lime text-eerie font-semibold text-[11px]',
         onclick: () => { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); },
       }, 'Create one \u2192'),
     ));
@@ -13948,7 +13948,7 @@ function openAgentScheduleModal(rep) {
 
   const footer = el('div', { class: 'px-5 py-4 border-t flex items-center justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
     el('button', {
-      class: 'rounded-lg border px-3 py-2 text-xs font-semibold transition hover:brightness-95',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
       style: { borderColor: '#DC2626', color: '#DC2626' },
       title: 'Delete every one of this agent’s shifts from today forward (past shifts are kept). One-offs included.',
       onclick: () => {
@@ -13964,9 +13964,9 @@ function openAgentScheduleModal(rep) {
       },
     }, 'Clear upcoming'),
     el('div', { class: 'flex items-center gap-2' },
-      el('button', { class: 'rounded-lg border px-3 py-2 text-xs font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => overlay.remove() }, 'Cancel'),
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => overlay.remove() }, 'Cancel'),
       el('button', {
-        class: 'rounded-lg px-4 py-2 text-xs font-bold transition hover:brightness-95',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => {
           const active = days.filter(d => d.on && d.start && d.end && d.start < d.end);
@@ -14113,7 +14113,7 @@ function viewCalendar() {
       ),
       el('div', { class: 'inline-flex rounded-xl border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
         ...['week', 'month'].map(v => el('button', {
-          class: 'px-4 py-2 text-sm font-medium transition',
+          class: 'px-2.5 py-1 text-[11px] font-medium transition',
           style: state.calendarView === v
             ? { background: 'var(--accent)', color: 'var(--accent-text)' }
             : { background: 'transparent', color: 'var(--text)' },
@@ -14127,12 +14127,12 @@ function viewCalendar() {
       ),
       el('div', { class: 'flex items-center gap-1' },
         el('button', {
-          class: 'px-3 py-2 text-sm rounded-lg border hover:brightness-95 transition',
+          class: 'px-2.5 py-1 text-[11px] rounded-lg border hover:brightness-95 transition',
           style: { borderColor: 'var(--border-2)' },
           onclick: () => { state.calendarAnchor = isoDate(shiftAnchor(anchor, state.calendarView, -1)); mountApp(); },
         }, '‹'),
         el('button', {
-          class: 'px-3 py-2 text-sm rounded-lg border font-medium hover:brightness-95 transition',
+          class: 'px-2.5 py-1 text-[11px] rounded-lg border font-medium hover:brightness-95 transition',
           style: { borderColor: 'var(--border-2)' },
           onclick: () => {
             state.calendarAnchor = state.calendarView === 'week' ? isoDate(startOfWeek(today)) : isoDate(startOfMonth(today));
@@ -14140,7 +14140,7 @@ function viewCalendar() {
           },
         }, 'Today'),
         el('button', {
-          class: 'px-3 py-2 text-sm rounded-lg border hover:brightness-95 transition',
+          class: 'px-2.5 py-1 text-[11px] rounded-lg border hover:brightness-95 transition',
           style: { borderColor: 'var(--border-2)' },
           onclick: () => { state.calendarAnchor = isoDate(shiftAnchor(anchor, state.calendarView, 1)); mountApp(); },
         }, '›'),
@@ -14149,7 +14149,7 @@ function viewCalendar() {
         calendarWindowLabel(anchor, state.calendarView)),
       el('div', { class: 'flex-1' }),
       isAdmin && el('button', {
-        class: 'rounded-lg px-3 py-2 text-sm font-bold transition hover:brightness-95',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openNewShiftModal(isoDate(today)),
       }, '+ New shift'),
@@ -14536,12 +14536,12 @@ function swapRequestCard(req, repById, direction) {
     ),
     direction === 'incoming' && el('div', { class: 'flex gap-1.5' },
       el('button', {
-        class: 'rounded-lg px-3 py-1.5 text-xs font-bold',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => resolveSwap(req.id, 'accepted'),
       }, 'Accept'),
       el('button', {
-        class: 'rounded-lg px-3 py-1.5 text-xs font-semibold border',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         onclick: () => resolveSwap(req.id, 'declined'),
       }, 'Decline'),
@@ -14550,7 +14550,7 @@ function swapRequestCard(req, repById, direction) {
       el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded',
         style: { background: 'var(--card)', color: 'var(--text-muted)' } }, 'Pending'),
       el('button', {
-        class: 'rounded-lg px-3 py-1.5 text-xs font-semibold border',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         onclick: () => resolveSwap(req.id, 'cancelled'),
       }, 'Cancel'),
@@ -14606,7 +14606,7 @@ function openNewShiftModal(defaultIso, opts = {}) {
       el('div', { class: 'text-xs text-muted- mt-0.5' }, 'Adjust individual days directly from the calendar.'),
     ),
     el('button', {
-      class: 'rounded-lg border px-3 py-1.5 text-xs text-muted-',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] text-muted-',
       style: { borderColor: 'var(--border-2)' },
       onclick: () => overlay.remove(),
     }, 'Cancel'),
@@ -14629,7 +14629,7 @@ function openNewShiftModal(defaultIso, opts = {}) {
       const on = formState.days.has(i);
       dayRow.append(el('button', {
         type: 'button',
-        class: 'rounded-full px-3 py-1.5 text-xs font-semibold border transition',
+        class: 'rounded-full px-2.5 py-1 text-[11px] font-semibold border transition',
         style: on
           ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
           : { background: 'transparent', color: 'var(--text)', borderColor: 'var(--border-2)' },
@@ -14653,7 +14653,7 @@ function openNewShiftModal(defaultIso, opts = {}) {
     ['single', 'range'].forEach(m => {
       modeToggle.append(el('button', {
         type: 'button',
-        class: 'px-4 py-2 text-xs font-semibold transition',
+        class: 'px-2.5 py-1 text-[11px] font-semibold transition',
         style: formState.mode === m
           ? { background: 'var(--accent)', color: 'var(--accent-text)' }
           : { background: 'transparent', color: 'var(--text)' },
@@ -14728,7 +14728,7 @@ function openNewShiftModal(defaultIso, opts = {}) {
     }, '✓');
     const row = el('button', {
       type: 'button',
-      class: 'w-full flex items-center text-left text-sm py-2 px-3 rounded-md transition hover:brightness-95',
+      class: 'w-full flex items-center text-left text-[11px] py-1 px-2.5 rounded-md transition hover:brightness-95',
       onclick: () => {
         const next = !formState.rep_ids.has(r.id);
         if (next) formState.rep_ids.add(r.id);
@@ -14749,7 +14749,7 @@ function openNewShiftModal(defaultIso, opts = {}) {
   // ── Footer: Create ──
   const footer = el('div', { class: 'px-5 py-4 border-t flex items-center justify-end gap-2', style: { borderColor: 'var(--border)' } },
     el('button', {
-      class: 'rounded-lg px-4 py-2.5 text-sm font-bold transition hover:brightness-95',
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
       style: { background: 'var(--accent)', color: 'var(--accent-text)' },
       onclick: () => {
         if (formState.start >= formState.end) { toast('End time must be after start time', 'warn'); return; }
@@ -14864,19 +14864,19 @@ function applyRecurringChange(assignment, label, applyFn, redraw) {
   const card = el('div', { class: 'card w-full max-w-sm my-8 overflow-hidden' },
     el('div', { class: 'flex items-center justify-between px-5 py-4 border-b', style: { borderColor: 'var(--border)' } },
       el('h2', { class: 'text-base font-bold' }, `${label} recurring shift?`),
-      el('button', { class: 'rounded-lg border px-3 py-1.5 text-xs', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Cancel'),
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Cancel'),
     ),
     el('div', { class: 'px-5 py-4 flex flex-col gap-3' },
       el('p', { class: 'text-sm' },
         `This shift is scheduled on ${series.length} ${weekday}s (this one + ${series.length - 1} upcoming).`),
       el('div', { class: 'flex flex-col gap-2' },
         el('button', {
-          class: 'rounded-lg px-4 py-2.5 text-sm font-bold text-left',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold text-left',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: () => { overlay.remove(); commit('this', `Only ${dateLabel} updated`); },
         }, `Only this day · ${dateLabel}`),
         el('button', {
-          class: 'rounded-lg px-4 py-2.5 text-sm font-semibold border text-left',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border text-left',
           style: { borderColor: '#DC2626', color: '#DC2626' },
           onclick: () => { overlay.remove(); commit('all', `${series.length} ${weekday} shifts updated`); },
         }, `This + all ${series.length - 1} upcoming ${weekday}s`),
@@ -14913,7 +14913,7 @@ function openSlotModal(iso, slotId) {
           dateLabel + (isAdmin ? ' · Admin edit' : '')),
       ),
       el('button', {
-        class: 'rounded-lg border px-3 py-1.5 text-xs text-muted-',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] text-muted-',
         style: { borderColor: 'var(--border-2)' },
         onclick: () => overlay.remove(),
       }, 'Close'),
@@ -14960,7 +14960,7 @@ function openSlotModal(iso, slotId) {
         el('div', { class: 'text-[10px] text-muted-' },
           `Leave times at ${fmtTime(slot.slot_start)}–${fmtTime(slot.slot_end)} for a full shift, or narrow them for partial coverage.`),
         el('button', {
-          class: 'rounded-lg px-4 py-2.5 text-sm font-bold transition hover:brightness-95',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: () => {
             const repId = addSelect.value;
@@ -15059,7 +15059,7 @@ function assignmentRow(a, slot, reps, repById, meId, isAdmin, redraw) {
 
   const actions = el('div', { class: 'flex flex-wrap gap-1.5' });
   const btn = (label, onclick, variant) => el('button', {
-    class: 'rounded-lg px-3 py-1.5 text-xs font-semibold' + (variant === 'primary' ? '' : ' border'),
+    class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold' + (variant === 'primary' ? '' : ' border'),
     style: variant === 'primary'
       ? { background: 'var(--accent)', color: 'var(--accent-text)' }
       : variant === 'danger'
@@ -15122,14 +15122,14 @@ function openSplitSheet(assignment, slot, redraw) {
   const card = el('div', { class: 'card w-full max-w-sm my-8 overflow-hidden' },
     el('div', { class: 'flex items-center justify-between px-5 py-4 border-b', style: { borderColor: 'var(--border)' } },
       el('h2', { class: 'text-base font-bold' }, 'Split shift'),
-      el('button', { class: 'rounded-lg border px-3 py-1.5 text-xs', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Cancel'),
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Cancel'),
     ),
     el('div', { class: 'px-5 py-4 flex flex-col gap-3' },
       el('p', { class: 'text-sm text-muted-' },
         `Your ${fmtTime(assignment.start)}–${fmtTime(assignment.end)} shift will be split in two. You keep both halves — then Transfer just the half you need covered.`),
       el('label', { class: 'block text-xs font-semibold' }, 'Split at', splitAt),
       el('button', {
-        class: 'rounded-lg px-4 py-2.5 text-sm font-bold',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => {
           const t = splitAt.value;
@@ -15173,14 +15173,14 @@ function openTransferSheet(assignment, reps, redraw) {
   const card = el('div', { class: 'card w-full max-w-sm my-8 overflow-hidden' },
     el('div', { class: 'flex items-center justify-between px-5 py-4 border-b', style: { borderColor: 'var(--border)' } },
       el('h2', { class: 'text-base font-bold' }, 'Request transfer'),
-      el('button', { class: 'rounded-lg border px-3 py-1.5 text-xs', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Cancel'),
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Cancel'),
     ),
     el('div', { class: 'px-5 py-4 flex flex-col gap-3' },
       el('p', { class: 'text-sm text-muted-' }, `Transferring ${fmtTime(assignment.start)}–${fmtTime(assignment.end)}. The other rep has to accept.`),
       el('label', { class: 'block text-xs font-semibold' }, 'Transfer to', target),
       el('label', { class: 'block text-xs font-semibold' }, 'Note', note),
       el('button', {
-        class: 'rounded-lg px-4 py-2.5 text-sm font-bold',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => {
           const toId = target.value;
@@ -15217,14 +15217,14 @@ function openReassignSheet(assignment, reps, redraw) {
   const card = el('div', { class: 'card w-full max-w-sm my-8 overflow-hidden' },
     el('div', { class: 'flex items-center justify-between px-5 py-4 border-b', style: { borderColor: 'var(--border)' } },
       el('h2', { class: 'text-base font-bold' }, 'Reassign shift'),
-      el('button', { class: 'rounded-lg border px-3 py-1.5 text-xs', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Cancel'),
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Cancel'),
     ),
     el('div', { class: 'px-5 py-4 flex flex-col gap-3' },
       el('p', { class: 'text-sm text-muted-' },
         `Currently assigned to ${currentRep?.full_name || 'unknown'} (${fmtTime(assignment.start)}–${fmtTime(assignment.end)}). Admin reassignment is instant — no request/accept.`),
       el('label', { class: 'block text-xs font-semibold' }, 'Reassign to', target),
       el('button', {
-        class: 'rounded-lg px-4 py-2.5 text-sm font-bold',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => {
           const toId = target.value;
@@ -15257,7 +15257,7 @@ function openEditTimesSheet(assignment, slot, redraw) {
   const card = el('div', { class: 'card w-full max-w-sm my-8 overflow-hidden' },
     el('div', { class: 'flex items-center justify-between px-5 py-4 border-b', style: { borderColor: 'var(--border)' } },
       el('h2', { class: 'text-base font-bold' }, 'Edit shift time'),
-      el('button', { class: 'rounded-lg border px-3 py-1.5 text-xs', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Cancel'),
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Cancel'),
     ),
     el('div', { class: 'px-5 py-4 flex flex-col gap-3' },
       el('p', { class: 'text-sm text-muted-' },
@@ -15267,7 +15267,7 @@ function openEditTimesSheet(assignment, slot, redraw) {
         el('label', { class: 'text-[10px] font-semibold flex-1 text-muted-' }, 'End',   endInput),
       ),
       el('button', {
-        class: 'rounded-lg px-4 py-2.5 text-sm font-bold',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => {
           const start = startInput.value;
@@ -15720,12 +15720,12 @@ function openLogoCropper(file, teamName, onDone) {
       ),
       el('div', { class: 'flex items-center justify-end gap-2 pt-2 border-t', style: { borderColor: 'var(--border)' } },
         el('button', {
-          class: 'rounded-lg border px-3 py-1.5 text-xs',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)' },
           onclick: cleanup,
         }, 'Cancel'),
         el('button', {
-          class: 'rounded-lg px-4 py-1.5 text-xs font-bold',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: save,
         }, 'Save'),
@@ -16635,7 +16635,7 @@ function _ensureAskWidget() {
     msgsEl,
     el('div', { class: 'flex items-end border-t border-' },
       input,
-      el('button', { class: 'px-4 py-2.5 text-xs font-bold cursor-pointer', style: { color: 'var(--accent)' }, onclick: send }, 'Send')));
+      el('button', { class: 'px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { color: 'var(--accent)' }, onclick: send }, 'Send')));
   // ── Speed dial: ONE floating button fans out to the two actions (the
   // separate + FAB and 💬 used to stack on top of each other). ──
   const optBtn = (icon, labelTxt, onPick) => el('button', {
@@ -17825,7 +17825,7 @@ function openNrlaTzModal(teams, cfg, save) {
     ),
     el('div', { class: 'p-4 pt-3' },
       el('button', {
-        class: 'w-full rounded-xl px-4 py-2.5 text-sm font-bold transition hover:brightness-95',
+        class: 'w-full rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => { overlay.remove(); save('branch time zones'); },
       }, 'Save'),
@@ -18400,7 +18400,7 @@ function openNrlaRosterModal(rawSales) {
   //   Saving…  → sync to the server is in flight
   //   Save     → unsynced changes exist (click to push right now)
   //   ✓ Saved  → everything is on the server; every admin sees it
-  const saveBtn = el('button', { class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition shrink-0' }, '…');
+  const saveBtn = el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition shrink-0' }, '…');
   const refreshSaveBtn = () => {
     const busy = typeof _indCfgUpsertBusy !== 'undefined' && _indCfgUpsertBusy;
     const dirty = typeof _indCfgDirty === 'function' && _indCfgDirty();
@@ -18431,7 +18431,7 @@ function openNrlaRosterModal(rawSales) {
         'Only rostered reps count for a team · a team with no roster counts everyone · ', pickedNote)),
     el('div', { class: 'flex items-center gap-2 shrink-0' },
       el('button', {
-        class: 'rounded-lg border px-2.5 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
         title: 'Config history — every saved change (teams, rosters, comps), with one-click restore',
         onclick: () => openIndicatorConfigHistoryModal(),
@@ -18496,7 +18496,7 @@ function openNrlaRosterModal(rawSales) {
   const addBar = el('div', { class: 'px-5 py-2 border-b flex items-center gap-2 flex-wrap', style: { borderColor: 'var(--border)', background: 'rgba(242,20,140,.04)' } },
     el('span', { class: 'text-[10px] uppercase tracking-widest font-bold shrink-0', style: { color: PINK } }, '＋ Add rep'),
     addName, addId, addTeam,
-    el('button', { class: 'rounded-lg px-3 py-2 text-xs font-bold cursor-pointer shrink-0', style: { background: PINK, color: '#fff' }, onclick: doAdd }, 'Add'));
+    el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer shrink-0', style: { background: PINK, color: '#fff' }, onclick: doAdd }, 'Add'));
   const footer = el('div', { class: 'px-5 py-3 text-[10px] border-t', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } },
     'Rosters are authoritative: they set who competes for each team and the PRA denominator. Use the team dropdown on a rep to move them to the branch they\'re competing for — their production follows them. New reps are matched to their sales by NAME once the sync catches up. Synced to every admin.');
   // ── Competing branches (moved here from the board, per Isaac) — every
@@ -18548,7 +18548,7 @@ function openNrlaRosterModal(rawSales) {
     if ([...addTeam.options].some(o => o.value === _keepSel)) addTeam.value = _keepSel;
     if (state._nrlaMergeSrc) listWrap.append(el('div', { class: 'px-5 py-2 flex items-center justify-between gap-2', style: { background: 'rgba(223,100,58,.10)', borderBottom: '1px solid var(--border)', position: 'sticky', top: '0', zIndex: '2' } },
       el('span', { class: 'text-xs font-bold' }, '⛓ Merging “' + state._nrlaMergeSrc + '” — click “Keep this” on the row that\'s the SAME person (that spelling wins)'),
-      el('button', { class: 'text-[11px] font-bold rounded px-2 py-1 cursor-pointer border shrink-0', style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' }, onclick: () => { state._nrlaMergeSrc = null; renderList(); } }, 'Cancel')));
+      el('button', { class: 'text-[11px] font-bold rounded px-2.5 py-1 cursor-pointer border shrink-0', style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' }, onclick: () => { state._nrlaMergeSrc = null; renderList(); } }, 'Cancel')));
     const totalPicked = Object.values(cfg.rosters || {}).reduce((a, l) => a + (Array.isArray(l) ? l.length : 0), 0);
     pickedNote.textContent = totalPicked + ' reps picked';
     const sections = teams.map(t => {
@@ -18837,7 +18837,7 @@ function openNrlaAccountsModal(R, nameOf, opts) {
     oninput: (e) => renderRows(e.target.value),
   });
   const csvBtn = el('button', {
-    class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
+    class: 'rounded px-2.5 py-1 text-[11px] font-black cursor-pointer',
     style: { background: 'rgba(255,255,255,.25)', color: '#fff' },
     title: 'Download this list as a CSV',
     onclick: () => {
@@ -19562,7 +19562,7 @@ function nrlaBoard(rawSales, opts) {
       el('div', { class: 'flex items-center gap-2' },
         el('span', { class: 'text-[10px] font-bold', style: { color: 'rgba(255,255,255,.9)' } }, 'per rep, by placement'),
         RO ? null : el('button', {
-          class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
+          class: 'rounded px-2.5 py-1 text-[11px] font-black cursor-pointer',
           style: { background: 'rgba(255,255,255,.25)', color: '#fff' },
           title: 'Payout sheet — every rostered rep listed; 4+ PASSED-audit accounts on the season qualifies for the prize (per Isaac)',
           onclick: () => {
@@ -20461,9 +20461,9 @@ function _mbArmWithPrizeChooser(repName, profileId) {
     el('div', { class: 'text-xs text-muted- mb-3' }, repName + ' — pick what the box reveals. The spin cycles the rest of the pool as decoys.'),
     sel,
     el('div', { class: 'flex justify-end gap-2 mt-4' },
-      el('button', { class: 'rounded-lg px-3 py-2 text-sm', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, 'Cancel'),
+      el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px]', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, 'Cancel'),
       el('button', {
-        class: 'rounded-lg px-4 py-2 text-sm font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => {
           let prize = sel.value === '__new__' ? '' : sel.value;
           if (prize === '__roll__') {
@@ -20978,7 +20978,7 @@ function openKothDayModal(name, day, raw) {
         el('div', { class: 'font-display text-2xl leading-none' }, name),
         el('div', { class: 'text-xs text-muted- mt-1' }, fmtFull(day))),
       el('button', {
-        class: 'px-3 py-1.5 text-xs font-bold rounded-full',
+        class: 'px-2.5 py-1 text-[11px] font-bold rounded-full',
         style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
         onclick: () => overlay.remove(),
       }, 'Close')),
@@ -21131,7 +21131,7 @@ function mysteryBoxSection(isAdmin) {
           el('div', { class: 'font-display text-lg' }, isOpened ? 'You won: ' + _mbDec(b.prize) : 'You have a Mystery Box!'),
           el('div', { class: 'text-xs text-muted-' }, isOpened ? 'Opened ' + new Date(opened[b.id]).toLocaleDateString() + ' — see your admin to claim.' : 'Tap to open it. No takebacks.'))),
       !isOpened ? el('button', {
-        class: 'rounded-xl px-4 py-2.5 text-sm font-bold transition hover:brightness-95',
+        class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: '#DF643A', color: '#1D1D1D' },
         onclick: () => openMysteryBoxOverlay(b),
       }, 'Open the box') : null));
@@ -21213,7 +21213,7 @@ function mysteryBoxSection(isAdmin) {
         el('div', { class: 'flex items-center gap-2' },
           pin,
           el('button', {
-            class: 'rounded-lg px-3 py-2 text-xs font-bold shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+            class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
             onclick: () => {
               const p = pin.value.trim();
               if (!p) return;
@@ -21243,7 +21243,7 @@ function mysteryBoxSection(isAdmin) {
       dIn(mbTo, (v) => { state._mbDateTo = v; if (state._mbDateFrom && state._mbDateFrom > v) state._mbDateFrom = v; }),
       el('div', { class: 'ml-auto flex items-center gap-2.5' },
         isAdmin ? el('button', {
-          class: 'text-[11px] font-bold px-3 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+          class: 'text-[11px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           title: 'Run a spin \u2014 rolls a prize from the incentive list by its percentages',
           onclick: () => {
@@ -21282,7 +21282,7 @@ function mysteryBoxSection(isAdmin) {
             el('span', { style: { color: '#F87171' } }, _mbHdr.qR.length + ' rookie' + (_mbHdr.qR.length === 1 ? '' : 's')),
             qualified.length ? el('span', { class: 'tabular-nums', style: { opacity: '.6' } }, ' \u00b7 ' + fmt.usd0(qualified.reduce((a2, r) => a2 + r.rev, 0)) + ' sold') : null) : null,
           (isAdmin && qualified.length) ? el('button', {
-            class: 'text-[11px] font-bold px-3 py-1 rounded-lg border mt-1.5',
+            class: 'text-[11px] font-bold px-2.5 py-1 rounded-lg border mt-1.5',
             style: { borderColor: 'rgba(223,100,58,.5)', color: '#DF643A', background: 'rgba(223,100,58,.08)' },
             title: 'Grant every qualified rep RIDDCOIN for this window \u2014 one ledger row each, reason auto-filled',
             onclick: () => _mbPayWinners(qualified, { from: mbFrom, to: mbTo }),
@@ -21448,7 +21448,7 @@ function openIslRosterModal(cfg, repRows, onSave) {
         el('button', { class: 'text-2xl leading-none cursor-pointer', style: { color: '#fff' }, onclick: close }, '\u00d7')),
       el('div', { class: 'overflow-auto p-2' },
         ...repRows.map(r => el('button', {
-          class: 'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer text-left transition hover:brightness-95',
+          class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] cursor-pointer text-left transition hover:brightness-95',
           style: { background: isIn(r.name) ? 'var(--card-2)' : 'transparent', opacity: isIn(r.name) ? '1' : '.55' },
           onclick: () => toggle(r.name),
         },
@@ -21907,7 +21907,7 @@ function viewNrlaPublic() {
       ...COMP_REPTYPE_TABS.map(t => {
         const on = repTypeTab === t;
         return el('button', {
-          class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
+          class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap',
           style: on ? { color: 'var(--text)', boxShadow: 'inset 0 -2px 0 var(--accent)' } : { color: 'var(--text-muted)' },
           onclick: () => { state._compsRepTypeTab = t; mountApp(); },
         }, t);
@@ -21919,7 +21919,7 @@ function viewNrlaPublic() {
     wrap.append(el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap', style: { borderLeft: '3px solid var(--text)' } },
       el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Competition'),
       el('button', {
-        class: 'text-xs font-bold rounded-full px-3 py-1 border transition cursor-pointer whitespace-nowrap',
+        class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border transition cursor-pointer whitespace-nowrap',
         style: { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' },
       }, 'Inside Sales League')));
     const _islCfg = (_cXtra.isl && typeof _cXtra.isl === 'object') ? _cXtra.isl : (_cXtra.isl = { start: '2026-07-01' });
@@ -21976,7 +21976,7 @@ function viewNrlaPublic() {
     el('div', { class: 'hidden sm:flex items-center gap-2 flex-wrap' },
       el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Competition'),
       ...comps.map(c => el('button', {
-        class: 'text-xs font-bold rounded-full px-3 py-1 border transition cursor-pointer whitespace-nowrap',
+        class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border transition cursor-pointer whitespace-nowrap',
         style: c.id === sel.id
           ? { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' }
           : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
@@ -22068,7 +22068,7 @@ function viewNrlaPublic() {
         el('option', { value: '', selected: !_kSelYr }, (sel.kobeFrom || KOBE_FROM).slice(0, 4)),
         ..._kYears.filter(y => y !== (sel.kobeFrom || KOBE_FROM).slice(0, 4)).map(y => el('option', { value: y, selected: _kSelYr === y }, y))),
       isAdmin ? el('button', {
-        class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border ml-auto',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border ml-auto',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'PDF: every active rep\u2019s best Sun\u2013Sat week of the season (the number they have to beat), biggest first',
         onclick: () => {
@@ -22223,7 +22223,7 @@ function viewNrlaPublic() {
         },
       });
       return el('span', { style: { position: 'relative' } }, el('button', {
-        class: 'text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+        class: 'text-[11px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
         style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
         title: 'Start the season — pick the first comp day, and the next 4 recurring Saturdays are added automatically. Click any chip to move its date; use + for more.',
         onclick: () => { try { seedInp.showPicker ? seedInp.showPicker() : seedInp.click(); } catch { seedInp.click(); } },
@@ -22405,7 +22405,7 @@ function viewNrlaPublic() {
     // Reset, with the rules ⓘ to the right of both.
     compWinBar.append(el('div', { class: 'ml-auto flex items-center gap-2' },
       el('button', {
-        class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Export Top Gun (Standings + all accounts by class)',
         onclick: () => exportTopGunXlsx(windowedD2d, proSet),
@@ -25035,13 +25035,13 @@ function manageTeamsPanel(opts) {
         // .xlsx cleanly with the tabs preserved). One tab per team plus
         // a Summary tab at the front.
         el('button', {
-          class: 'rounded-lg border px-3 py-1.5 text-xs font-semibold transition hover:brightness-95',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: () => exportManageTeamsXlsx(),
           title: 'Download an .xlsx with one tab per team (open in Google Sheets to send to managers)',
         }, '📊 Export'),
         el('button', {
-          class: 'rounded-lg border px-3 py-1.5 text-xs font-semibold transition hover:brightness-95',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: () => exportTiersXlsx(),
           title: 'Download a flat list of every rep + their Rookie/Vet tier and FieldRoutes id — to load into the CRM',
@@ -25050,7 +25050,7 @@ function manageTeamsPanel(opts) {
         // grouping + timeframe of the Indicators render that stashed the
         // context, so it reports on exactly what that page is showing.
         (typeof state._indTeamReportCtx === 'function') && el('button', {
-          class: 'rounded-lg border px-3 py-1.5 text-xs font-semibold transition hover:brightness-95',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: () => {
             const ctx = state._indTeamReportCtx && state._indTeamReportCtx();
@@ -25060,7 +25060,7 @@ function manageTeamsPanel(opts) {
           title: 'Download a PDF report per team (Teams mode) or per branch (Branch mode), for the timeframe currently set on Indicators',
         }, '📄 Reports'),
         embedded ? null : el('button', {
-          class: 'rounded-lg border px-3 py-1.5 text-xs',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)' },
           onclick: close,
         }, 'Done'),
@@ -25085,7 +25085,7 @@ function manageTeamsPanel(opts) {
     const addBar = el('div', { class: 'px-5 py-3 border-b flex items-center gap-2', style: { borderColor: 'var(--border)' } },
       newTeamInput,
       el('button', {
-        class: 'rounded-lg px-3 py-1.5 text-xs font-bold',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: commitNewTeam,
       }, '+ Add'),
@@ -25307,7 +25307,7 @@ function manageTeamsPanel(opts) {
           const flips = dupePairs.filter(pr => _sig(pr.bad) === _sig(pr.good));
           if (flips.length < 2) return null;
           return el('button', {
-            class: 'rounded-lg px-3 py-1.5 text-[11px] font-bold shrink-0 transition hover:brightness-95',
+            class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold shrink-0 transition hover:brightness-95',
             style: { background: '#C28A1F', color: '#fff' },
             title: 'Same name, different word order. Keeps the "Last, First" spelling the sales data uses.',
             onclick: () => {
@@ -25443,7 +25443,7 @@ function manageTeamsPanel(opts) {
           el('div', { class: 'flex items-center gap-2' },
             renameInput,
             el('button', {
-              class: 'rounded-lg px-3 py-1.5 text-xs font-bold',
+              class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
               style: { background: 'var(--accent)', color: 'var(--accent-text)' },
               onclick: commitRename,
             }, 'Save'),
@@ -25513,7 +25513,7 @@ function manageTeamsPanel(opts) {
                 }, (t || '?').slice(0, 1).toUpperCase()),
             hiddenLogoFile,
             el('button', {
-              class: 'rounded-lg border px-3 py-1.5 text-xs font-semibold',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold',
               style: { borderColor: 'var(--border-2)' },
               onclick: () => hiddenLogoFile.click(),
             }, teamLogo ? 'Replace logo' : 'Upload logo'),
@@ -25540,7 +25540,7 @@ function manageTeamsPanel(opts) {
                 : 'Off — reps on this team count in all metrics.'),
           ),
           el('button', {
-            class: 'rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-widest cursor-pointer transition',
+            class: 'rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest cursor-pointer transition',
             style: excluded
               ? { background: '#DC2626', color: '#fff' }
               : { background: 'var(--card)', color: 'var(--text-muted)', border: '1px solid var(--border-2)' },
@@ -25550,7 +25550,7 @@ function manageTeamsPanel(opts) {
         // Remove team row
         el('div', { class: 'flex justify-end' },
           el('button', {
-            class: 'rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer',
+            class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
             style: { color: '#DC2626', border: '1px solid rgba(220, 38, 38, .35)', background: 'transparent' },
             onclick: () => {
               const msg = repCount > 0
@@ -25850,7 +25850,7 @@ function manageTeamsPanel(opts) {
               onclick: () => { const e = empById.get(sel.value); if (e) { const _tgt = _frEmpNameLF(e); mergeDuplicateRep(rep, _tgt); toast('Linked to ' + _tgt, 'success'); render(); } } }, 'Link')));
       };
       crmLinkPanel = el('div', { class: 'border-b', style: { borderColor: 'var(--border)', background: open ? 'rgba(13,148,136,.05)' : 'transparent' } },
-        el('button', { class: 'w-full flex items-center justify-between gap-2 px-5 py-2.5 cursor-pointer', style: { background: 'transparent' },
+        el('button', { class: 'w-full flex items-center justify-between gap-2 px-2.5 py-1 cursor-pointer text-[11px]', style: { background: 'transparent' },
           onclick: () => { state._indicatorCrmLinkOpen = !open; render(); } },
           el('span', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: '#0D9488' } },
             '🔗 Link names to CRM · ' + withCand.length + ' to review' + (noCand.length ? ' · ' + noCand.length + ' no match' : '')),
@@ -26016,7 +26016,7 @@ function indPresetRibbon() {
         el('div', { class: 'flex-1 min-w-0 text-[11px] font-semibold truncate' },
           'Filters changed from \u201c' + lastP.name + '\u201d'),
         el('button', {
-          class: 'rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer shrink-0',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer shrink-0',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           title: 'Overwrite \u201c' + lastP.name + '\u201d with the page\u2019s current setup',
           onclick: () => {
@@ -26038,7 +26038,7 @@ function indPresetRibbon() {
       return el('div', { class: 'flex items-center gap-2 mb-2' },
         nameIn,
         el('button', {
-          class: 'rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer shrink-0',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer shrink-0',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           title: 'Snapshot the page exactly as it\u2019s set up right now \u2014 metric, type, date range, grouping, leaderboard filters, mix grouping, trend metric',
           onclick: () => {
@@ -26841,7 +26841,7 @@ function viewIndicators() {
               _fRow('Date', dateSel),
               _fRow('Group', groupSel),
               (_applyBtn = el('button', {
-                class: 'rounded-xl px-3 py-2.5 text-xs font-bold border transition hover:brightness-95 w-full',
+                class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 w-full',
                 style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
                 onclick: () => {
                   if (_staged.group === 'teams' && (!rawSalesAvailable || state.indicatorsComps)) {
@@ -26881,7 +26881,7 @@ function viewIndicators() {
             document.addEventListener('mousedown', closer);
           }, 0);
           const btn = el('button', {
-            class: 'relative rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95 shrink-0',
+            class: 'relative rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95 shrink-0',
             style: { borderColor: nonDefault ? 'var(--accent)' : 'var(--border-2)', color: 'var(--text)' },
             title: 'Filters — Metric, Type, Date, Group',
             onclick: (e) => {
@@ -26905,7 +26905,7 @@ function viewIndicators() {
         // ✏️ Customize (rep accounts) — reorder / show-hide the page
         // sections + personal default date range, saved on this device.
         _repLite && el('button', {
-          class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95 shrink-0',
+          class: 'rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95 shrink-0',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           title: 'Customize my page — section order, visibility, default date range',
           onclick: () => openRepCustomizeModal(),
@@ -26954,7 +26954,7 @@ function viewIndicators() {
             const icon = iconTrophy();
             icon.style.width = '15px'; icon.style.height = '15px';
             const btn = el('button', {
-              class: 'relative rounded-xl px-3 py-2 border cursor-pointer transition hover:brightness-95 shrink-0 flex items-center justify-center',
+              class: 'relative rounded-xl px-2.5 py-1 border cursor-pointer transition hover:brightness-95 shrink-0 flex items-center justify-center text-[11px]',
               style: { color: excludedNow.size ? 'var(--accent)' : 'var(--text)', borderColor: excludedNow.size ? 'var(--accent)' : 'var(--border-2)' },
               title: 'Power Ranking — choose which ' + noun + ' are scored (deselected ones keep their stats but earn no points)'
                 + (excludedNow.size ? ' · ' + excludedNow.size + ' ' + noun + ' out' : ''),
@@ -26977,7 +26977,7 @@ function viewIndicators() {
           })(),
         // Manage teams (rep assignments + tier + exclusion + colors)
         !_repLite && el('button', {
-          class: 'rounded-xl px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
+          class: 'rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: () => openManageTeamsModal(),
           title: 'Manage teams — assign reps, pick a color, toggle Exclude from metrics',
@@ -27015,7 +27015,7 @@ function viewIndicators() {
           let menu = null;
           if (state.indicatorsCsvMenu) {
             const opt = (label, fn) => el('button', {
-              class: 'w-full text-left px-3 py-2 rounded-lg text-xs font-semibold transition hover:brightness-95',
+              class: 'w-full text-left px-2.5 py-1 rounded-lg text-[11px] font-semibold transition hover:brightness-95',
               style: { color: 'var(--text)' },
               onclick: (e) => { e.stopPropagation(); state.indicatorsCsvMenu = false; if (menu) menu.style.display = 'none'; fn(); },
             }, label);
@@ -27194,7 +27194,7 @@ function viewIndicators() {
         ...comps.map(c => {
           const on = c.id === activeId;
           return el('button', {
-            class: 'text-xs font-bold rounded-full px-3 py-1 border transition cursor-pointer whitespace-nowrap',
+            class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border transition cursor-pointer whitespace-nowrap',
             style: on
               ? { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' }
               : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
@@ -27217,12 +27217,12 @@ function viewIndicators() {
               setTimeout(() => input.focus(), 0);
               return el('span', { class: 'flex items-center gap-1' },
                 input,
-                el('button', { class: 'text-[11px] font-bold rounded px-2 py-1 cursor-pointer', style: { background: 'var(--text)', color: 'var(--bg)' }, onclick: save }, 'Save'),
-                el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => { state._indicatorAddingComp = false; liveRerender(); } }, 'Cancel'),
+                el('button', { class: 'text-[11px] font-bold rounded px-2.5 py-1 cursor-pointer', style: { background: 'var(--text)', color: 'var(--bg)' }, onclick: save }, 'Save'),
+                el('button', { class: 'text-[11px] rounded px-2.5 py-1 cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => { state._indicatorAddingComp = false; liveRerender(); } }, 'Cancel'),
               );
             })()
           : el('button', {
-              class: 'text-xs font-bold rounded-full px-3 py-1 border border-dashed cursor-pointer transition hover:brightness-95',
+              class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border border-dashed cursor-pointer transition hover:brightness-95',
               style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
               onclick: () => { state._indicatorAddingComp = true; liveRerender(); },
             }, '+ Add'),
@@ -27241,14 +27241,14 @@ function viewIndicators() {
             setTimeout(() => input.focus(), 0);
             return el('span', { class: 'flex items-center gap-1 ml-auto' },
               input,
-              el('button', { class: 'text-[11px] font-bold rounded px-2 py-1 cursor-pointer', style: { background: 'var(--text)', color: 'var(--bg)' }, onclick: save }, 'Save'),
-              el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => { state._indicatorRenamingComp = null; liveRerender(); } }, 'Cancel'),
+              el('button', { class: 'text-[11px] font-bold rounded px-2.5 py-1 cursor-pointer', style: { background: 'var(--text)', color: 'var(--bg)' }, onclick: save }, 'Save'),
+              el('button', { class: 'text-[11px] rounded px-2.5 py-1 cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: () => { state._indicatorRenamingComp = null; liveRerender(); } }, 'Cancel'),
             );
           }
           return el('span', { class: 'flex items-center gap-1 ml-auto' },
-            el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer border leading-none', style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' }, title: 'Rename', onclick: () => { state._indicatorRenamingComp = active.id; liveRerender(); } }, '✏️'),
+            el('button', { class: 'text-[11px] rounded px-2.5 py-1 cursor-pointer border leading-none', style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' }, title: 'Rename', onclick: () => { state._indicatorRenamingComp = active.id; liveRerender(); } }, '✏️'),
             comps.length > 1
-              ? el('button', { class: 'text-[11px] rounded px-2 py-1 cursor-pointer border leading-none', style: { color: '#DC2626', borderColor: 'rgba(220,38,38,.4)' }, title: 'Remove', onclick: () => { if (window.confirm('Remove competition “' + active.name + '”? This can’t be undone.')) { deleteCompetition(active.id); liveRerender(); } } }, '🗑')
+              ? el('button', { class: 'text-[11px] rounded px-2.5 py-1 cursor-pointer border leading-none', style: { color: '#DC2626', borderColor: 'rgba(220,38,38,.4)' }, title: 'Remove', onclick: () => { if (window.confirm('Remove competition “' + active.name + '”? This can’t be undone.')) { deleteCompetition(active.id); liveRerender(); } } }, '🗑')
               : null,
           );
         })(),
@@ -27832,7 +27832,7 @@ function maybeShowWeeklyRecap() {
       prevRev > 0 || lastRev > 0 ? el('div', { class: 'text-xs text-center font-semibold', style: { color: delta >= 0 ? '#DF643A' : '#B45309' } },
         (prevRev > 0 ? (delta >= 0 ? '▲ ' : '▼ ') + money(Math.abs(delta)) + ' vs the week before · ' : '') + cheer) : null,
       el('button', {
-        class: 'rounded-lg px-4 py-2 text-sm font-bold transition hover:brightness-95',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: close,
       }, 'Let\'s go')));
@@ -28159,7 +28159,7 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
         el('div', {},
           el('h3', { class: 'text-base font-black', style: { letterSpacing: '0.02em', textTransform: 'uppercase' } }, '🏆 Avg Pest Initial'),
         ),
-        el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95 shrink-0', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export top-5 avg pest initial sales', onclick: exportAvgPestCsv }, '↓ Export'),
+        el('button', { class: 'px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition hover:brightness-95 shrink-0', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export top-5 avg pest initial sales', onclick: exportAvgPestCsv }, '↓ Export'),
       ),
     ),
     compPendingExcluded > 0 && el('div', {
@@ -28203,8 +28203,8 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
         el('span', { class: 'text-base font-black tabular-nums', style: { color: '#DF643A' } }, fmt.int(raffleTotalTickets)),
       ),
       el('div', { class: 'flex items-center gap-3' },
-        el('button', { class: 'px-3 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: '#DF643A', color: '#1D1D1D' }, title: 'Spin a wheel to pick a winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
-        el('button', { class: 'px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export raffle tickets', onclick: () => exportRaffleCsv() }, '↓ Export'),
+        el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: '#DF643A', color: '#1D1D1D' }, title: 'Spin a wheel to pick a winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
+        el('button', { class: 'px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export raffle tickets', onclick: () => exportRaffleCsv() }, '↓ Export'),
       ),
     ),
     raffleSorted.length === 0
@@ -30057,7 +30057,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             type: 'text',
             placeholder: 'Search rep…',
             value: state._indicatorRepNameSearch || '',
-            class: 'rounded-lg border px-3 py-2.5 text-sm flex-1 min-w-0',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] flex-1 min-w-0',
             style: { borderColor: 'var(--border-2)', minWidth: '160px' },
             oninput: (e) => {
               state._indicatorRepNameSearch = e.target.value;
@@ -30071,7 +30071,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           // Rep picker — check specific reps to build a downline view.
           (() => {
             const btn = el('button', {
-              class: 'rounded-lg border px-3 py-2.5 text-xs font-semibold transition hover:brightness-95 whitespace-nowrap',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
               style: { borderColor: repPick ? 'var(--accent)' : 'var(--border-2)', color: repPick ? 'var(--accent)' : 'var(--text)' },
               title: 'Pick specific reps (a downline). Save the selection with the Presets ribbon on the left edge.',
               onclick: (e) => { e.stopPropagation(); state._indRepPickOpen = !state._indRepPickOpen; mountApp(); },
@@ -30126,7 +30126,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           // export — names the exact accounts (and rules) behind any gap
           // between this board and the legacy Sales Leaderboard tool.
           isAdminRole(state.profile?.role) ? el('button', {
-            class: 'rounded-lg px-3 py-2.5 text-sm font-bold cursor-pointer transition hover:brightness-95 border shrink-0',
+            class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border shrink-0',
             style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
             title: 'Reconcile vs CRM — paste the CRM SalesReport CSV and see, account by account, why any number differs',
             onclick: () => openCrmReconcileModal(),
@@ -30136,7 +30136,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           // full active roster regardless of the current page filters.
           (() => {
             const btn = el('button', {
-              class: 'rounded-lg px-3 py-2.5 text-sm font-bold cursor-pointer transition hover:brightness-95 border shrink-0',
+              class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border shrink-0',
               style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
               title: 'Download a PDF leaderboard: top 15 overall + top 15 rookies, with column-leading metrics highlighted',
               onclick: async () => {
@@ -30155,7 +30155,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
 
           state.indicatorDept === 'office' ? el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
             ...[['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal']].map(([v, l]) => el('button', {
-              class: 'px-3 py-2.5 text-sm font-bold transition cursor-pointer',
+              class: 'px-2.5 py-1 text-[11px] font-bold transition cursor-pointer',
               style: (state._indRepRevMode || 'new') === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
               title: v === 'new' ? 'New business only (default)' : v === 'renewal' ? 'Renewal-source revenue only' : 'Everything',
               onclick: () => { state._indRepRevMode = v; mountApp(); },
@@ -30179,7 +30179,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             const activeN = offCount + (tierFilter ? 1 : 0) + (teamFilter ? 1 : 0) + (officeFilter ? 1 : 0);
             const wrap = el('div', { class: 'relative' });
             wrap.append(el('button', {
-              class: 'rounded-lg px-4 py-2.5 text-sm font-bold cursor-pointer transition border flex items-center gap-1.5',
+              class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition border flex items-center gap-1.5',
               style: activeN
                 ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
                 : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -30200,7 +30200,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               const tierRow = el('div', { class: 'px-2.5 pb-1' },
                 el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
                   ...pillOpts.map(p => el('button', {
-                    class: 'px-2.5 py-1.5 text-[11px] font-semibold transition',
+                    class: 'px-2.5 py-1 text-[11px] font-semibold transition',
                     style: tierFilter === p.id
                       ? { background: p.color || 'var(--accent)', color: '#fff' }
                       : { background: 'transparent', color: 'var(--text)' },
@@ -30233,7 +30233,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 secLabel('Office'), el('div', { class: 'px-2.5 pb-1' }, officeSel),
                 secLabel('Cancel types'),
                 ...opts.map(([key, label, tip]) => el('button', {
-                  class: 'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+                  class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
                   style: { color: 'var(--text)', background: state[key] ? 'var(--card-2)' : 'transparent' },
                   title: tip,
                   onclick: (e) => { e.stopPropagation(); state[key] = !state[key]; saveDemoData(); mountApp(); },
@@ -30579,7 +30579,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 ),
               );
             }).concat(displayReps.length > 25 ? [el('button', {
-              class: 'rounded-xl border px-3 py-2.5 text-xs font-bold transition hover:brightness-95',
+              class: 'rounded-xl border px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
               style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
               onclick: (e) => { e.stopPropagation(); state._repLbShowAll = !state._repLbShowAll; mountApp(); },
             }, state._repLbShowAll ? 'Show top 25' : 'Show all ' + displayReps.length + ' reps')] : [])),
@@ -30631,7 +30631,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const _mixTC = (o) => String(o || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
   const mixGroupTabs = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
     ...[['subscription', 'Subscriptions'], ['office', 'Offices'], ['team', 'Teams']].map(([v, l]) => el('button', {
-      class: 'px-2.5 py-1.5 text-[11px] font-semibold transition',
+      class: 'px-2.5 py-1 text-[11px] font-semibold transition',
       style: mixGroup === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
       onclick: () => { state._indicatorMixGroup = v; mountApp(); },
     }, l)));
@@ -31674,7 +31674,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
           { id: 'branch', label: 'Branch' },
           { id: 'custom', label: 'Custom' },
         ].map(m => el('button', {
-          class: 'px-3 py-1.5 text-[11px] font-semibold transition',
+          class: 'px-2.5 py-1 text-[11px] font-semibold transition',
           style: cfg.mode === m.id
             ? { background: 'var(--accent)', color: 'var(--accent-text)' }
             : { background: 'transparent', color: 'var(--text)' },
@@ -32225,7 +32225,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
           'Drill into a single rep')));
       panel.querySelectorAll('select').forEach(x => { x.classList.add('w-full'); });
       const btn = el('button', {
-        class: 'rounded-xl border px-3 py-1.5 text-xs font-semibold transition hover:brightness-95 flex items-center gap-1.5',
+        class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 flex items-center gap-1.5',
         style: _activeN
           ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
           : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -33979,7 +33979,7 @@ function openTeamReportsModal(ctx) {
     const teamColor = getTeamColor(team);
     const teamLogo  = getTeamLogo(team);
     const dlBtn = el('button', {
-      class: 'rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer transition hover:brightness-95',
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
       style: { background: 'var(--accent)', color: 'var(--accent-text)' },
       onclick: async () => {
         dlBtn.disabled = true; dlBtn.textContent = '…';
@@ -34011,7 +34011,7 @@ function openTeamReportsModal(ctx) {
   });
 
   const downloadAllBtn = el('button', {
-    class: 'rounded-lg px-4 py-2 text-sm font-bold cursor-pointer transition hover:brightness-95',
+    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     onclick: async () => {
       downloadAllBtn.disabled = true; downloadAllBtn.textContent = 'Generating…';
@@ -34613,7 +34613,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelO
 
   // Compare on/off pill — small switch styled to match the surrounding pills.
   const compareToggle = el('button', {
-    class: 'inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold cursor-pointer transition',
+    class: 'inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition',
     style: compareOn
       ? { borderColor: 'var(--accent)', background: 'var(--accent)', color: 'var(--accent-text)' }
       : { borderColor: 'var(--border-2)', background: 'transparent', color: 'var(--text)' },
@@ -35029,7 +35029,7 @@ function indicatorYoYTrendChart() {
     const granRow = (gid, lab) => {
       const glyph = el('span', { style: { fontSize: '12px' } }, '');
       const row = el('button', {
-        class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+        class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
         style: { color: 'var(--text)' },
         onclick: (e) => { e.stopPropagation(); _stagedGran = gid; paintGran(); _yDirty(); },
       }, glyph, el('span', {}, lab));
@@ -35048,7 +35048,7 @@ function indicatorYoYTrendChart() {
       ...yearsPresent.slice().sort((a, b) => b - a).map(y => {
         const glyph = el('span', { style: { fontSize: '13px' } }, _stagedYears.includes(y) ? '☑' : '☐');
         const row = el('button', {
-          class: 'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+          class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
           style: { color: 'var(--text)', background: _stagedYears.includes(y) ? 'var(--card-2)' : 'transparent' },
           onclick: (e) => {
             e.stopPropagation();
@@ -35062,7 +35062,7 @@ function indicatorYoYTrendChart() {
         return row;
       }),
       (_yApply = el('button', {
-        class: 'w-full rounded-lg px-2.5 py-2 text-xs font-bold border transition hover:brightness-95 mt-1',
+        class: 'w-full rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 mt-1',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         onclick: (e) => {
           e.stopPropagation();
@@ -35074,7 +35074,7 @@ function indicatorYoYTrendChart() {
       }, 'Apply')));
     paintGran();
     const btn = el('button', {
-      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer border flex items-center gap-1.5',
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer border flex items-center gap-1.5',
       style: _yoySelYears.length > 1
         ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
         : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -35122,7 +35122,7 @@ function indicatorYoYTrendChart() {
       ...YOY_TIERS.map(([tid, lab]) => {
         const glyph = el('span', { style: { fontSize: '13px' } }, _staged.includes(tid) ? '☑' : '☐');
         const row = el('button', {
-          class: 'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+          class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
           style: { color: 'var(--text)', background: _staged.includes(tid) ? 'var(--card-2)' : 'transparent' },
           onclick: (e) => {
             e.stopPropagation();
@@ -35136,7 +35136,7 @@ function indicatorYoYTrendChart() {
         return row;
       }),
       (_tApply = el('button', {
-        class: 'w-full rounded-lg px-2.5 py-2 text-xs font-bold border transition hover:brightness-95 mt-1',
+        class: 'w-full rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 mt-1',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         onclick: (e) => {
           e.stopPropagation();
@@ -35149,7 +35149,7 @@ function indicatorYoYTrendChart() {
       ? 'All'
       : _yoySelTiers.map(t => (YOY_TIERS.find(x => x[0] === t) || [])[1] || t).join(' + ');
     const btn = el('button', {
-      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer border flex items-center gap-1.5',
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer border flex items-center gap-1.5',
       style: _tierSplit
         ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
         : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -35195,7 +35195,7 @@ function indicatorYoYTrendChart() {
     const rowBtn = (key, lab) => {
       const glyph = el('span', { style: { fontSize: '13px' } }, _staged.includes(key) ? '☑' : '☐');
       const row = el('button', {
-        class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+        class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
         style: { color: 'var(--text)', background: _staged.includes(key) ? 'var(--card-2)' : 'transparent' },
         onclick: (e) => {
           e.stopPropagation();
@@ -35242,7 +35242,7 @@ function indicatorYoYTrendChart() {
       el('div', { class: 'px-1.5 pb-1' }, repSearch),
       repList,
       (_sApply = el('button', {
-        class: 'w-full rounded-lg px-2.5 py-2 text-xs font-bold border transition hover:brightness-95 mt-1',
+        class: 'w-full rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 mt-1',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         onclick: (e) => {
           e.stopPropagation();
@@ -35257,7 +35257,7 @@ function indicatorYoYTrendChart() {
       : _yoySelScopes.length === 1 ? _scopeLabelOf(_yoySelScopes[0])
       : _yoySelScopes.length + ' selected';
     const btn = el('button', {
-      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer border flex items-center gap-1.5',
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer border flex items-center gap-1.5',
       style: multi
         ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
         : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -35901,7 +35901,7 @@ function viewHistory({ embedded = false } = {}) {
       ...state.sources.map(s => el('option', { value: s.id }, s.name)),
     ),
     el('button', {
-      class: 'px-3 py-2 rounded-lg border border-battleship text-battle-2 hover:text-lime hover:border-lime text-sm transition',
+      class: 'px-2.5 py-1 rounded-lg border border-battleship text-battle-2 hover:text-lime hover:border-lime text-[11px] transition',
       onclick: () => downloadCsv(filterRows()),
     }, 'Export CSV'),
   );
@@ -36469,7 +36469,7 @@ function openCallAuditModal(profile, period, dept, onDone) {
     modal.append(el('div', { class: 'flex items-center justify-between gap-3' },
       el('div', { class: 'text-[10px] text-muted-' }, 'Ungraded rows count as N/A — the call is scored only on what you grade.'),
       el('button', {
-        class: 'rounded-lg px-4 py-2 text-sm font-bold',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
         style: { background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', cursor: 'pointer' },
         onclick: () => {
           const cs = callAuditScore(grades, dept, 'call');
@@ -36593,7 +36593,7 @@ function viewScorecards() {
       // so reps shouldn't be able to retune the formula their own
       // manager scores them on.
       isAdmin && el('button', {
-        class: 'rounded-lg px-3 py-1.5 text-xs font-bold border transition hover:brightness-95',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Edit template metrics, weights, and attendance penalties',
         onclick: () => openScorecardTemplateModal(dept),
@@ -37144,7 +37144,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
           // Stampable even on a locked card (reviews often happen AFTER
           // finalizing); click again to clear a mis-stamp.
           canEdit ? el('button', {
-            class: 'rounded-lg px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
+            class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95',
             style: draft.reviewed
               ? { borderColor: '#DF643A', color: '#DF643A', background: 'rgba(223,100,58,.08)' }
               : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -37160,7 +37160,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
           : (draft.reviewed ? el('span', { class: 'text-[11px] font-semibold', style: { color: '#DF643A' } },
               '\u2713 Reviewed ' + fmt.dateShort(draft.reviewed.on)) : null),
           canEdit && !locked ? el('button', {
-            class: 'rounded-lg px-3 py-2 text-xs font-bold border transition hover:brightness-95',
+            class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
             style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
             title: 'Lock this scorecard \u2014 no more edits unless an admin unlocks it',
             onclick: () => {
@@ -37171,7 +37171,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
             },
           }, '\ud83d\udd12 Finalize & Lock') : null,
           locked && _isAdminHere ? el('button', {
-            class: 'rounded-lg px-3 py-2 text-xs font-semibold border transition hover:brightness-95',
+            class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95',
             style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
             title: 'Admin only \u2014 reopen this scorecard for edits',
             onclick: () => {
@@ -37184,7 +37184,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
         ),
         el('div', { class: 'flex gap-2' },
           canEditNow ? el('button', {
-            class: 'rounded-lg px-3 py-2 text-xs font-semibold border',
+            class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border',
             style: { borderColor: '#DC2626', color: '#DC2626' },
             title: 'Clear all entries for this agent + period',
             onclick: () => {
@@ -37195,7 +37195,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
             },
           }, 'Clear Scorecard') : null,
           el('button', {
-            class: 'rounded-lg px-4 py-2 text-sm font-bold',
+            class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
             style: { background: 'var(--accent)', color: 'var(--accent-text)' },
             onclick: close,
           }, 'Done'),
@@ -37355,7 +37355,7 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
       ),
       el('div', { class: 'flex justify-end gap-2 mt-5' },
         el('button', {
-          class: 'rounded-lg px-3 py-2 text-xs font-semibold border',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border',
           style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
           title: 'Reset template to defaults (does not clear saved scorecards)',
           onclick: () => {
@@ -37367,7 +37367,7 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
           },
         }, 'Reset Template'),
         el('button', {
-          class: 'rounded-lg px-4 py-2 text-sm font-bold',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: close,
         }, 'Done'),
@@ -38914,7 +38914,7 @@ function openReportingAreaStatsModal({ area, peers, kind }) {
     el('div', { class: 'px-4 pb-2 overflow-y-auto' }, ...rowsEls),
     el('div', { class: 'p-4 pt-2' },
       el('button', {
-        class: 'w-full rounded-xl px-4 py-2.5 text-xs font-bold border transition hover:brightness-95',
+        class: 'w-full rounded-xl px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         onclick: () => {
           overlay.remove();
@@ -38999,7 +38999,7 @@ function openReportingSliceStatsModal({ chartTitle, sliceLabel, rows, siblings, 
         miniBars('By service', bySvc))),
     el('div', { class: 'p-4 pt-2' },
       el('button', {
-        class: 'w-full rounded-xl px-4 py-2.5 text-xs font-bold border transition hover:brightness-95',
+        class: 'w-full rounded-xl px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         onclick: () => {
           overlay.remove();
@@ -39116,12 +39116,12 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
       moreBar.append(
         el('span', { style: { color: 'var(--text-muted)' } }, 'Showing ' + shown.toLocaleString() + ' of ' + sortedCache.length.toLocaleString() + ' rows'),
         el('button', {
-          class: 'rounded-full px-4 py-1.5 font-semibold border cursor-pointer transition hover:brightness-110',
+          class: 'rounded-full px-2.5 py-1 font-semibold border cursor-pointer transition hover:brightness-110 text-[11px]',
           style: { background: 'var(--accent)', color: '#3A1D12', borderColor: 'var(--accent)' },
           onclick: () => { renderLimit += RENDER_PAGE * 2; renderRows(); },
         }, 'Show ' + Math.min(RENDER_PAGE * 2, remaining).toLocaleString() + ' more'),
         el('button', {
-          class: 'rounded-full px-4 py-1.5 font-semibold border cursor-pointer transition hover:brightness-110',
+          class: 'rounded-full px-2.5 py-1 font-semibold border cursor-pointer transition hover:brightness-110 text-[11px]',
           style: { background: 'transparent', color: 'var(--text)', borderColor: 'var(--border-2)' },
           title: 'May be slow for very large lists',
           onclick: () => { renderLimit = sortedCache.length; renderRows(); },
@@ -39204,7 +39204,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
       ),
       el('div', { class: 'flex items-center gap-2 shrink-0' },
         rows.length > 0 && el('button', {
-          class: 'rounded-lg px-3 py-1.5 text-xs font-semibold border cursor-pointer transition hover:brightness-110',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border cursor-pointer transition hover:brightness-110',
           style: { background: 'var(--card-2)', color: 'var(--text)', borderColor: 'var(--border)' },
           title: 'Download all ' + rows.length.toLocaleString() + ' rows as CSV',
           onclick: exportCsv,
@@ -39698,12 +39698,12 @@ function viewMarketing() {
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       el('div', { class: 'inline-flex rounded-xl border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
         ...PERIODS.map(([k, lab]) => el('button', {
-          class: 'px-3 py-2 text-xs font-semibold transition',
+          class: 'px-2.5 py-1 text-[11px] font-semibold transition',
           style: period === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text)' },
           onclick: () => { state._mkPeriod = k; mountApp(); },
         }, lab))),
       el('button', {
-        class: 'px-3 py-2 text-xs font-bold rounded-xl border transition hover:brightness-95',
+        class: 'px-2.5 py-1 text-[11px] font-bold rounded-xl border transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Force-refresh all three feeds right now (bypasses the 30–60 min caches)',
         onclick: () => { state._mkSpend = state._mkLeads = state._mkQbo = null; state._mkBust = Date.now(); mountApp(); },
@@ -40019,7 +40019,7 @@ function openRcItemModal(i) {
         i.stock != null ? el('div', { class: 'text-xs mt-0.5', style: { color: out ? '#DC2626' : 'var(--text-muted)' } }, out ? 'Out of stock' : i.stock + ' left in stock') : null,
         meta.text ? el('p', { class: 'text-sm mt-3', style: { color: 'var(--text-muted)', lineHeight: '1.55' } }, meta.text) : null,
         el('button', {
-          class: 'w-full rounded-xl px-4 py-2.5 text-sm font-bold mt-auto' + ((out || cant) ? ' opacity-50' : ' cursor-pointer hover:brightness-95'),
+          class: 'w-full rounded-xl px-2.5 py-1 text-[11px] font-bold mt-auto' + ((out || cant) ? ' opacity-50' : ' cursor-pointer hover:brightness-95'),
           style: { background: 'var(--accent)', color: 'var(--accent-text)', marginTop: 'auto' },
           disabled: (out || cant) ? 'disabled' : null,
           title: out ? 'Out of stock' : cant ? 'Not enough RIDDCOIN (you have ' + _rcCoin(myBal) + ')' : '',
@@ -40096,7 +40096,7 @@ function viewMarketplace() {
   const tab = TABS.some(([k]) => k === state._rcTab) ? state._rcTab : 'store';
   wrap.append(el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
     ...TABS.map(([k, l]) => el('button', {
-      class: 'px-3 py-1.5 rounded-xl text-xs font-bold border transition hover:brightness-95',
+      class: 'px-2.5 py-1 rounded-xl text-[11px] font-bold border transition hover:brightness-95',
       style: k === tab ? { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' }
                        : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
       onclick: () => { state._rcTab = k; mountApp(); },
@@ -40128,7 +40128,7 @@ function viewMarketplace() {
                     el('div', { class: 'font-black tabular-nums', style: { color: '#DF643A' } }, _rcCoin(i.cost)),
                     i.stock != null ? el('div', { class: 'text-[10px] text-muted-' }, out ? 'Out of stock' : i.stock + ' left') : null),
                   el('button', {
-                    class: 'px-3 py-1.5 rounded-lg text-xs font-bold' + ((out || cant) ? ' opacity-50' : ' cursor-pointer hover:brightness-95'),
+                    class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold' + ((out || cant) ? ' opacity-50' : ' cursor-pointer hover:brightness-95'),
                     style: { background: 'var(--text)', color: 'var(--bg)' },
                     disabled: (out || cant) ? 'disabled' : null,
                     title: out ? 'Out of stock' : cant ? 'Not enough RIDDCOIN (you have ' + _rcCoin(myBal) + ')' : 'One spin · prize rolled by the odds',
@@ -40167,7 +40167,7 @@ function viewMarketplace() {
                   el('div', { class: 'font-black tabular-nums', style: { color: '#DF643A' } }, _rcCoin(i.cost)),
                   i.stock != null ? el('div', { class: 'text-[10px] text-muted-' }, out ? 'Out of stock' : i.stock + ' left') : null),
                 el('button', {
-                  class: 'px-3 py-1.5 rounded-lg text-xs font-bold' + ((out || cant) ? ' opacity-50' : ' cursor-pointer hover:brightness-95'),
+                  class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold' + ((out || cant) ? ' opacity-50' : ' cursor-pointer hover:brightness-95'),
                   style: { background: 'var(--accent)', color: 'var(--accent-text)' },
                   disabled: (out || cant) ? 'disabled' : null,
                   title: out ? 'Out of stock' : cant ? 'Not enough RIDDCOIN (you have ' + _rcCoin(myBal) + ')' : 'Redeem for ' + _rcCoin(i.cost),
@@ -40282,8 +40282,8 @@ function viewMarketplace() {
       el('h3', { class: 'text-sm font-bold mb-2' }, '🪙 Grant / deduct RIDDCOIN'),
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
         userSel, amtIn, whyIn,
-        el('button', { class: 'px-3 py-2 rounded-lg text-xs font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => doGrant(1) }, '+ Add'),
-        el('button', { class: 'px-3 py-2 rounded-lg text-xs font-bold cursor-pointer border', style: { borderColor: '#DC2626', color: '#DC2626' }, onclick: () => doGrant(-1) }, '− Deduct'))));
+        el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => doGrant(1) }, '+ Add'),
+        el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer border', style: { borderColor: '#DC2626', color: '#DC2626' }, onclick: () => doGrant(-1) }, '− Deduct'))));
 
     // Catalog manager
     const saveItem = async (payload) => {
@@ -40331,7 +40331,7 @@ function viewMarketplace() {
             onclick: () => doSave(meta.photos.filter((_, k) => k !== j), false),
           }, '✕'))),
         el('button', {
-          class: 'px-2 py-1.5 rounded text-[11px] font-semibold cursor-pointer border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+          class: 'px-2.5 py-1 rounded text-[11px] font-semibold cursor-pointer border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
           title: 'Add photos — the first one is the store-card cover',
           onclick: () => photoIn.click(),
         }, '📷 Add photos'), photoIn);
@@ -40340,11 +40340,11 @@ function viewMarketplace() {
           nameIn, costIn, stockIn,
           el('label', { class: 'text-[10px] text-muted- flex items-center gap-1' }, activeIn, 'live'),
           el('button', {
-            class: 'px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+            class: 'px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
             onclick: () => doSave(null, false),
           }, i ? 'Save' : '+ Add'),
           i ? el('button', {
-            class: 'px-2 py-1.5 rounded text-[11px] cursor-pointer', style: { color: '#DC2626' }, title: 'Remove this item',
+            class: 'px-2.5 py-1 rounded text-[11px] cursor-pointer', style: { color: '#DC2626' }, title: 'Remove this item',
             onclick: () => { if (confirm('Remove "' + i.name + '" from the store?')) doSave(null, true); },
           }, '✕') : null),
         descIn,
@@ -40402,13 +40402,13 @@ function viewMarketplace() {
           el('button', { class: 'text-xs cursor-pointer', style: { color: '#DC2626' }, title: 'Remove prize', onclick: () => { d.pool.splice(idx, 1); mountApp(); } }, '✕'))),
         el('div', { class: 'flex items-center justify-between gap-2 mt-2 flex-wrap' },
           el('button', {
-            class: 'px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+            class: 'px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
             onclick: () => { d.pool.push({ name: '', odds: 0, rarity: 'bronze', value: 0 }); mountApp(); },
           }, '+ Add prize'),
           el('div', { class: 'text-[11px] font-bold tabular-nums', style: { color: totalOdds === 100 ? '#DF643A' : '#D97706' } },
             'Total ' + totalOdds + '%' + (totalOdds === 100 ? ' ✓' : ' — should be 100')),
           el('button', {
-            class: 'px-3 py-1.5 rounded text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+            class: 'px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
             onclick: async () => {
               const nm = String(d.name || '').trim();
               const cost = Math.round(Number(d.cost) || 0);
@@ -40484,16 +40484,16 @@ function viewTraining() {
           style: { maxWidth: '100%', height: 'auto', display: 'block' } }),
       ),
       mod.screens.length > 1 ? el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' },
-        el('button', { class: 'rounded-lg border px-3 py-2 text-xs font-semibold', style: { borderColor: 'var(--border-2)' },
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' },
           onclick: () => { state._trainingScreen = Math.max(0, i - 1); mountApp(); } }, '← Prev'),
         el('div', { class: 'flex gap-1 flex-wrap justify-center' },
           ...mod.screens.map((s, j) => el('button', {
-            class: 'text-[11px] px-2 py-1 rounded font-semibold',
+            class: 'text-[11px] px-2.5 py-1 rounded font-semibold',
             style: { background: j === i ? 'var(--accent)' : 'var(--card-2)', color: j === i ? 'var(--accent-text)' : 'var(--text)' },
             onclick: () => { state._trainingScreen = j; mountApp(); },
           }, s.label || ('Screen ' + (j + 1)))),
         ),
-        el('button', { class: 'rounded-lg border px-3 py-2 text-xs font-semibold', style: { borderColor: 'var(--border-2)' },
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' },
           onclick: () => { state._trainingScreen = Math.min(mod.screens.length - 1, i + 1); mountApp(); } }, 'Next →'),
       ) : null,
     );
@@ -40824,7 +40824,7 @@ function reportingCustomerHealth() {
   if (factor === 'apay') list.sort((a, b) => (b.flags.apayEasy ? 1 : 0) - (a.flags.apayEasy ? 1 : 0) || b.arr - a.arr);
 
   const exportBtn = el('button', {
-    class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     title: 'Download the filtered list as a call sheet (CSV)',
     onclick: () => _reportingCsvDownload('customer-health-' + sel + '.csv',
@@ -40871,7 +40871,7 @@ function reportingCustomerHealth() {
           const cnt = (k) => k === 'all' ? inBucket.length : inBucket.filter(c => c.flags[k]).length;
           return el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
             ...F.map(([k, l]) => el('button', {
-              class: 'px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95',
+              class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
               style: factor === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
               onclick: () => { state._healthFactor = k; mountApp(); },
             }, l + ' · ' + cnt(k).toLocaleString())));
@@ -40982,7 +40982,7 @@ function reportingNextBest() {
   const estIf10 = list.slice(0, Math.ceil(list.length * 0.1)).reduce((a, o) => a + o.estArv, 0);
 
   const exportBtn = el('button', {
-    class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     title: 'Download the filtered opportunity list (CSV) — hand it to techs / office staff as a pitch sheet',
     onclick: () => _reportingCsvDownload('next-best-service' + (famFilter === 'all' ? '' : '-' + famFilter.toLowerCase().replace(/\s+/g, '-')) + '.csv',
@@ -41104,13 +41104,13 @@ function reportingRenewals() {
     : allRecs.filter(x => (logOf(x).result || '') === k).length;
   const chips = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
     ...chipDefs.map(([k, l]) => el('button', {
-      class: 'px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition hover:brightness-95',
+      class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
       style: disp === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
       onclick: () => { state._renewalDisp = k; mountApp(); },
     }, l + ' · ' + chipCount(k).toLocaleString())));
 
   const exportBtn = (L, name, extraHdr, extraFn) => el('button', {
-    class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     onclick: () => _reportingCsvDownload(name,
       ['Customer ID', 'Customer Name', 'Phone', 'Email', 'Office Name', 'Subscription Type', 'ARV', 'Contract', 'Months In', extraHdr, 'Auto Pay', 'Days Past Due', 'Attempts', 'Office Rep', 'Result', 'Notes'],
@@ -41462,7 +41462,7 @@ function viewQueues() {
   const sec = ['health', 'nextbest'].includes(state._queuesSection) ? state._queuesSection : 'renewals';
   const pills = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
     ...[['renewals', '🔁 Renewals'], ['health', '❤️‍🩹 Customer Health'], ['nextbest', '🎯 Next Best Service']].map(([k, l]) => el('button', {
-      class: 'px-3 py-1.5 rounded-lg text-xs font-bold transition hover:brightness-95',
+      class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
       style: sec === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
       onclick: () => { state._queuesSection = k; mountApp(); },
     }, l)));
@@ -41497,7 +41497,7 @@ function reportingAuditExportCard() {
       el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
         'Every row in the snapshot — including hidden/excluded ones — with the raw CRM fields AND every judgment the app makes about the row (visible, recurring, active, counted as churn + the reason it isn\u2019t, ROR, retention population). XLOOKUP it against a manual CRM export by Customer ID to reconcile.')),
     el('button', {
-      class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95 shrink-0',
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95 shrink-0',
       style: { background: 'var(--accent)', color: 'var(--accent-text)' },
       onclick: () => {
         const { all, isHidden, isRecurring, isActive, isRealCancel } = reportingFilters();
@@ -41565,7 +41565,7 @@ function reportingSubTabs() {
     ...tabs.map(([k, label]) => {
       const active = state.reportingSubTab === k;
       return el('button', {
-        class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
+        class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap',
         style: {
           borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
           color: active ? 'var(--text)' : 'var(--text-muted)',
@@ -41656,7 +41656,7 @@ function reportingFilterBar(scope, opts = {}) {
 
   const compareBtn = el('button', {
     // Sized to match the pickers beside it (same font/padding as the selects)
-    class: 'rounded-lg px-3 py-2 text-sm font-semibold transition hover:brightness-95 self-end',
+    class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 self-end',
     style: inCompare
       ? { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border)' }
       : { background: 'var(--accent)', color: 'var(--accent-text)' },
@@ -41945,7 +41945,7 @@ function reportingOverview() {
         el('div', { class: 'px-4 pb-2 overflow-y-auto' }, ...rowsEls),
         el('div', { class: 'p-4 pt-2' },
           el('button', {
-            class: 'w-full rounded-xl px-4 py-2.5 text-xs font-bold border transition hover:brightness-95',
+            class: 'w-full rounded-xl px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
             style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
             onclick: () => {
               overlay.remove();
@@ -42212,7 +42212,7 @@ function reportingServiceConfigPanel() {
                 // the on/off state always paints, regardless of browser accent
                 // rendering. Updates in place — no full re-render.
                 const hidPill = el('button', {
-                  class: 'text-[11px] font-bold rounded-full px-3 py-1 border cursor-pointer transition whitespace-nowrap',
+                  class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border cursor-pointer transition whitespace-nowrap',
                 });
                 const paintPill = (hidden) => {
                   hidPill.textContent = hidden ? '✓ Hidden' : 'Hide';
@@ -42345,7 +42345,7 @@ function reportingCancelConfigPanel() {
                   style: { borderColor: 'var(--border)', opacity: excludedNow ? '0.6' : '1' },
                 });
                 const pill = el('button', {
-                  class: 'text-[11px] font-bold rounded-full px-3 py-1 border cursor-pointer transition whitespace-nowrap',
+                  class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border cursor-pointer transition whitespace-nowrap',
                 });
                 const paint = (excluded) => {
                   pill.textContent = excluded ? '✕ Excluded' : '✓ Counts';
@@ -42469,7 +42469,7 @@ function reportingSourceConfigPanel() {
                   style: { borderColor: 'var(--border)', opacity: excluded0 ? '0.6' : '1' },
                 });
                 const pill = el('button', {
-                  class: 'text-[11px] font-bold rounded-full px-3 py-1 border cursor-pointer transition whitespace-nowrap',
+                  class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border cursor-pointer transition whitespace-nowrap',
                 });
                 const paint = (excluded) => {
                   pill.textContent = excluded ? '✕ Excluded' : '✓ Included';
@@ -42856,7 +42856,7 @@ function reportingMktgSpendRevChart() {
     ? 'QuickBooks · pulled ' + (state._isSpendPulledAt ? new Date(state._isSpendPulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'just now')
     : state._isSpendSource === 'file' ? '\u26a0 static snapshot \u2014 QuickBooks feed unavailable' : 'loading spend\u2026';
   const _spendRefresh = el('button', {
-    class: 'text-[11px] font-semibold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+    class: 'text-[11px] font-semibold px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text-muted)' },
     title: 'Re-pull marketing spend from QuickBooks now (bypasses the 1-hour cache)',
     onclick: async (e) => {
@@ -42910,7 +42910,7 @@ function reportingMktgLeadsChart() {
   const L = state.reportingGhlLeads;
   const loadingMore = !!state._ghlLoading || (!state._ghlDone && !!state._ghlCursor);
   const refreshBtn = el('button', {
-    class: 'text-[11px] font-semibold px-2 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
+    class: 'text-[11px] font-semibold px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text-muted)' },
     title: 'Re-pull leads from GoHighLevel',
     onclick: () => reportingRefreshGhlLeads(),
@@ -43070,7 +43070,7 @@ function reportingLeadAttribution() {
     },
   });
   const uploadBtn = el('button', {
-    class: 'px-3 py-2 rounded-lg text-xs font-bold transition hover:brightness-95',
+    class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     title: 'CSV with phone + email columns (and a source column)',
     onclick: () => fileInput.click(),
@@ -43135,7 +43135,7 @@ function reportingLeadAttribution() {
   const filt = state.reportingLeadFilter || 'all';
   const pills = [['all', 'All ' + results.length], ['matched', 'Matched ' + nMatched], ['unmatched', 'No match ' + (results.length - nMatched)], ['mismatch', 'Source mismatch ' + nMis]];
   const pillBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap mb-3' }, ...pills.map(([k, lab]) => el('button', {
-    class: 'text-[11px] font-semibold rounded-full px-3 py-1 border cursor-pointer transition',
+    class: 'text-[11px] font-semibold rounded-full px-2.5 py-1 border cursor-pointer transition',
     style: filt === k ? { background: 'var(--accent)', color: '#3A1D12', borderColor: 'var(--accent)' } : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
     onclick: () => { state.reportingLeadFilter = k; state.reportingLeadLimit = 200; mountApp(); },
   }, lab)));
@@ -43186,7 +43186,7 @@ function reportingLeadAttribution() {
               : el('span', { class: 'px-1.5 py-0.5 rounded text-[10px] font-bold', style: { background: 'rgba(220,38,38,.12)', color: '#B91C1C' } }, '✕ mismatch')))))));
 
   const moreBar = shown0.length > shown.length ? el('div', { class: 'flex justify-center pt-2' },
-    el('button', { class: 'text-[11px] font-semibold rounded-full px-4 py-1.5 border cursor-pointer', style: { background: 'var(--accent)', color: '#3A1D12', borderColor: 'var(--accent)' },
+    el('button', { class: 'text-[11px] font-semibold rounded-full px-2.5 py-1 border cursor-pointer', style: { background: 'var(--accent)', color: '#3A1D12', borderColor: 'var(--accent)' },
       onclick: () => { state.reportingLeadLimit = (state.reportingLeadLimit || 200) + 400; mountApp(); } }, 'Show ' + Math.min(400, shown0.length - shown.length) + ' more (' + shown.length.toLocaleString() + ' of ' + shown0.length.toLocaleString() + ')')) : null;
 
   return el('div', { class: 'card p-4' }, head,
@@ -43198,7 +43198,7 @@ function reportingLeadAttribution() {
           el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, l),
           el('div', { class: 'text-base font-bold tabular-nums' }, v)))),
     el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' }, pillBar,
-      el('button', { class: 'text-[11px] font-semibold rounded-lg px-3 py-1.5 border cursor-pointer', style: { background: 'var(--card-2)', color: 'var(--text)', borderColor: 'var(--border)' }, onclick: exportCsv }, '↓ Export results')),
+      el('button', { class: 'text-[11px] font-semibold rounded-lg px-2.5 py-1 border cursor-pointer', style: { background: 'var(--card-2)', color: 'var(--text)', borderColor: 'var(--border)' }, onclick: exportCsv }, '↓ Export results')),
     table, moreBar);
 }
 
@@ -43491,7 +43491,7 @@ function reportingInsideSales() {
         scroller.addEventListener('pointercancel', endDrag);
 
         const navBtn = (txt, fn, title) => el('button', {
-          class: 'px-2.5 py-1 text-xs rounded-lg border font-semibold transition hover:brightness-95',
+          class: 'px-2.5 py-1 text-[11px] rounded-lg border font-semibold transition hover:brightness-95',
           style: { borderColor: 'var(--border)', background: 'var(--card)', color: 'var(--text)' },
           title: title || '', onclick: fn,
         }, txt);
@@ -43561,7 +43561,7 @@ function reportingUploadsPanel() {
                     (u.row_count || 0).toLocaleString()),
                   el('td', { class: 'pr-4 pl-2 py-2.5 text-right' },
                     el('button', {
-                      class: 'text-xs px-2.5 py-1.5 rounded-lg font-semibold transition hover:brightness-95',
+                      class: 'text-[11px] px-2.5 py-1 rounded-lg font-semibold transition hover:brightness-95',
                       style: { color: '#DC2626', border: '1px solid var(--border)', background: 'transparent' },
                       onclick: async (e) => {
                         e.stopPropagation();
@@ -44599,7 +44599,7 @@ function reportingGeographic() {
     ...metrics.map(m => {
       const active = m.key === metricKey;
       return el('button', {
-        class: 'px-3 py-1.5 rounded-lg text-xs font-semibold transition hover:brightness-95',
+        class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold transition hover:brightness-95',
         style: active
           ? { background: 'var(--accent)', color: 'var(--accent-text)' }
           : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
@@ -44750,7 +44750,7 @@ function reportingGeographic() {
     ...[['zip', 'By ZIP'], ['county', 'By County']].map(([key, label]) => {
       const active = drillBy === key;
       return el('button', {
-        class: 'px-3 py-1 rounded-md text-xs font-semibold transition hover:brightness-95',
+        class: 'px-2.5 py-1 rounded-md text-[11px] font-semibold transition hover:brightness-95',
         style: active
           ? { background: 'var(--accent)', color: 'var(--accent-text)' }
           : { background: 'transparent', color: 'var(--text-muted)' },
@@ -44774,7 +44774,7 @@ function reportingGeographic() {
   const breadcrumb = mapLevel === 'state' && drilledState
     ? el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' },
         el('button', {
-          class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: () => {
             state.reportingMapLevel = 'country';
@@ -44794,7 +44794,7 @@ function reportingGeographic() {
         ),
         drillToggle,
         stateSubsForBreadcrumb.length > 0 && el('button', {
-          class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
           style: { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border)' },
           onclick: () => openReportingDrillModal({
             chartTitle: drilledStateName || drilledState,
@@ -44884,7 +44884,7 @@ function reportingGeographic() {
           sortedItems.length.toLocaleString() + ' distinct ' + breakdown.nounPlural + ' · click a column to sort · click a row to see how it compares (customers are one click deeper)'),
       ),
       el('button', {
-        class: 'shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+        class: 'shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         title: 'Download these ' + breakdown.nounPlural + ' as a CSV (account counts per ' + (breakdown.labelKey === 'county' ? 'county' : 'ZIP') + ')',
         onclick: () => exportReportingGeoCsv(sortedItems, breakdown.labelKey, exportScopeTag),
@@ -45058,7 +45058,7 @@ function reportingGeographic() {
           el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
             'Every ZIP in scope (3+ subs), classified by footprint size, retention vs the median, and 12-month momentum. The knock list = thin ZIPs inside counties where our book already sticks — sell where we already know it works.')),
         el('button', {
-          class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: () => _reportingCsvDownload('territory-intelligence.csv',
             ['ZIP', 'State', 'County', 'Class', 'Knock Score', 'Subs', 'Customers', 'ARR', 'Attrition %', 'New Starts 12mo', 'Prior 12mo', 'Momentum %'],
@@ -45847,7 +45847,7 @@ function viewD2dUpfront() {
   const ratesPanel = el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between gap-2 mb-1' },
       el('div', { class: 'text-sm font-bold' }, 'Upfront rates · ' + _frEmpName(emp)),
-      U.overridden ? el('button', { class: 'text-[11px] rounded px-2 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: clearU }, 'Reset to default') : null),
+      U.overridden ? el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: clearU }, 'Reset to default') : null),
     el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Paid on contract value, off the top. These are separate from the backend (Pay tab) rates. Editing here overrides just this rep.'),
     el('div', { class: 'grid grid-cols-3 gap-3' },
       rateField('Pest %', U.pest, 'pest'), rateField('Bundle %', U.bundle, 'bundle'), rateField('Ancillary %', U.anc, 'anc')));
@@ -45907,7 +45907,7 @@ function viewD2dUpfront() {
               title: _lock ? ('Locked by ' + (_lock.name || 'admin') + ' · ' + String(_lock.at || '').slice(0, 10)) : 'Draft — numbers may still move; lock before running commissions',
             }, _lock ? '🔒 Locked' : '📝 Draft'),
             el('button', {
-              class: 'rounded-xl px-2.5 py-2 text-xs font-bold border cursor-pointer transition hover:brightness-95 whitespace-nowrap',
+              class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold border cursor-pointer transition hover:brightness-95 whitespace-nowrap',
               style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
               title: _lock ? 'Reopen this period (the lock history note is replaced)' : 'Freeze this pay period so commissions can be run against it',
               onclick: () => {
@@ -45925,7 +45925,7 @@ function viewD2dUpfront() {
         // publishes their result, and emails each rep at the address on
         // their FieldRoutes account. Admin-JWT-gated server side.
         el('button', {
-          class: 'rounded-xl px-4 py-2 text-sm font-bold transition hover:brightness-95 whitespace-nowrap',
+          class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95 whitespace-nowrap',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           title: 'Compute every rep for this period, publish, and email each rep at their FieldRoutes address',
           onclick: async (e) => {
@@ -46244,7 +46244,7 @@ function commissionCalculator() {
   const ratesPanel = el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between gap-2 mb-1' },
       el('div', { class: 'text-sm font-bold' }, 'Rate override · ' + _frEmpName(emp)),
-      R.overridden ? el('button', { class: 'text-[11px] rounded px-2 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: clearOverride }, 'Reset to ' + typeLabel + ' default') : null),
+      R.overridden ? el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: clearOverride }, 'Reset to ' + typeLabel + ' default') : null),
     el('div', { class: 'text-[11px] text-muted- mb-3' },
       typeLabel + ' default: Pest ' + pct(typeDef.pest * 100) + ' · Anc ×' + typeDef.ancMult + ' · Bundle ×' + typeDef.bundleMult + '. Edit below only to override this rep (negotiated deal). Defaults are set in Settings → Commissions.'),
     el('div', { class: 'grid grid-cols-3 gap-3' },
@@ -46376,7 +46376,7 @@ function reportingReconciliation() {
 
   const rangeBtns = el('div', { class: 'inline-flex rounded-xl border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
     ...[[30, '30d'], [90, '90d'], [365, '1y'], [0, 'All']].map(([d, lbl]) => el('button', {
-      class: 'px-3 py-2 text-xs font-semibold transition',
+      class: 'px-2.5 py-1 text-[11px] font-semibold transition',
       style: days === d ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'transparent', color: 'var(--text)' },
       onclick: () => { state._reconDays = d; mountApp(); },
     }, lbl)));
@@ -46634,7 +46634,7 @@ function reportingWaterfall() {
   const _sec = state._retenSection || 'retention';
   const _secBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
     ...[['retention', '📊 Retention'], ['health', '❤️‍🩹 Customer Health'], ['nextbest', '🎯 Next Best Service'], ['renewals', '🔁 Renewals'], ['contract', '📄 Contract Length']].map(([k, l]) => el('button', {
-      class: 'px-3 py-1.5 rounded-lg text-xs font-bold transition hover:brightness-95',
+      class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
       style: _sec === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
       onclick: () => { state._retenSection = k; mountApp(); },
     }, l)));
@@ -46682,7 +46682,7 @@ function reportingWaterfall() {
     ...modes.map(([k, label]) => {
       const active = mode === k;
       return el('button', {
-        class: 'px-3 py-1.5 rounded-lg text-xs font-semibold transition hover:brightness-95',
+        class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold transition hover:brightness-95',
         style: active
           ? { background: 'var(--accent)', color: 'var(--accent-text)' }
           : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
@@ -46706,7 +46706,7 @@ function reportingWaterfall() {
       // Row-level export of EXACTLY what this tab counts — for reconciling
       // against the hand-built workbook (diff by Customer ID + Subscription).
       el('button', {
-        class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Download the exact population this tab counts (after all filters), one row per subscription',
         onclick: () => {
@@ -46770,7 +46770,7 @@ function reportingWaterfall() {
       el('option', { value: 'all', selected: (_isB ? compareOffice : office) === 'all' }, 'All Offices'),
       ...scope.offices.map(o => el('option', { value: o, selected: (_isB ? compareOffice : office) === o }, o)));
     const _cmpBtn = el('button', {
-      class: 'rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer transition hover:brightness-95',
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
       style: inCompare
         ? { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border)' }
         : { background: 'var(--accent)', color: 'var(--accent-text)' },
@@ -47202,7 +47202,7 @@ function reportingWaterfall() {
         ...yearsAvail.slice().sort((a, b) => b - a).map(y => {
           const on = yearsShown.includes(y);
           return el('button', {
-            class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+            class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
             style: { color: 'var(--text)', background: on ? 'var(--card-2)' : 'transparent' },
             onclick: (e) => {
               e.stopPropagation();
@@ -47214,7 +47214,7 @@ function reportingWaterfall() {
           }, el('span', { style: { fontSize: '13px' } }, on ? '☑' : '☐'), el('span', {}, String(y)));
         }));
       const btn = el('button', {
-        class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
         style: yearsShown.length > 1
           ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
           : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -47278,7 +47278,7 @@ function reportingWaterfall() {
       const rowFor = (key, labelTxt, count) => {
         const on = selNow.includes(key);
         return el('button', {
-          class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+          class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
           style: { color: 'var(--text)', background: on ? 'var(--card-2)' : 'transparent' },
           onclick: (e) => {
             e.stopPropagation();
@@ -47299,7 +47299,7 @@ function reportingWaterfall() {
         el('div', { class: 'px-2.5 pt-2 pb-0.5 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'By cancellation reason'),
         ...reasonTotals.map(([r, n]) => rowFor(r, r, n)));
       const btn = el('button', {
-        class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
         style: selNow.length > 1 || selNow[0] !== TOTAL_KEY
           ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
           : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -47335,7 +47335,7 @@ function reportingWaterfall() {
     }, ...[['12', '12 mo'], ['24', '24 mo'], ['36', '36 mo'], ['all', 'All']]
       .map(([v, l]) => { const o = el('option', { value: v }, l); if (String(state._churnWindow || 'all') === v) o.selected = true; return o; }));
     const trendBtn = el('button', {
-      class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
       style: state._churnTrend
         ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
         : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -47351,7 +47351,7 @@ function reportingWaterfall() {
       const rowFor = (y) => {
         const on = isAll || graphYearsSel.includes(y);
         return el('button', {
-          class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+          class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
           style: { color: 'var(--text)', background: (!isAll && on) ? 'var(--card-2)' : 'transparent' },
           onclick: (e) => {
             e.stopPropagation();
@@ -47370,14 +47370,14 @@ function reportingWaterfall() {
         style: { top: 'calc(100% + 6px)', right: '0', minWidth: '140px', maxHeight: '280px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._churnGraphYearsOpen ? 'block' : 'none' },
       },
         el('button', {
-          class: 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer text-left transition hover:brightness-95',
+          class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
           style: { color: 'var(--text)', background: isAll ? 'var(--card-2)' : 'transparent' },
           onclick: (e) => { e.stopPropagation(); state._churnGraphYears = []; state._churnGraphYearsOpen = true; state._churnPanStart = null; mountApp(); },
         }, el('span', { style: { fontSize: '13px' } }, isAll ? '☑' : '☐'), el('span', {}, 'All years')),
         el('div', { class: 'px-2.5 pt-2 pb-0.5 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Specific years'),
         ...yearsAvail.slice().sort((a, b) => b - a).map(rowFor));
       const btn = el('button', {
-        class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
         style: !isAll
           ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
           : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -47408,7 +47408,7 @@ function reportingWaterfall() {
     // = year; when multiple series are picked, dash pattern = series.
     const yoyOn = !!state._churnYoY;
     const yoyBtn = el('button', {
-      class: 'rounded-lg px-2.5 py-1.5 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
       style: yoyOn
         ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
         : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -47980,7 +47980,7 @@ function reportingWaterfall() {
           // view's baseline (prior selected years averaged).
           el('div', { class: 'flex items-center gap-1 flex-wrap' },
             ...yearsAvail.map(y => el('button', {
-              class: 'px-2 py-1 rounded-lg text-[11px] font-bold transition',
+              class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition',
               style: yearsSel.includes(y) ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
               onclick: () => {
                 const cur = new Set(yearsSel);
@@ -48495,7 +48495,7 @@ function reportingWaterfall() {
             }, lab + ' · ' + fmt.int(xs.length));
           }),
           el('button', {
-            class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer whitespace-nowrap',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer whitespace-nowrap',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
             onclick: () => openReportingDrillModal({
               chartTitle: 'Renewal Outreach queue',
@@ -48765,7 +48765,7 @@ function viewAdmin() {
   ];
 
   const navBtn = ([k, label, icon]) => el('button', {
-    class: 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-left',
+    class: 'flex items-center gap-3 px-2.5 py-1 rounded-lg text-[11px] font-medium transition text-left',
     style: state.adminSection === k
       ? { background: 'var(--bg-subtle)', color: 'var(--text)', fontWeight: '600' }
       : { color: 'var(--text-muted)' },
@@ -48785,7 +48785,7 @@ function viewAdmin() {
     // Sign out — moved from the nav menu; bottom of the Settings sidebar.
     el('div', { class: 'mt-2 pt-2 border-t', style: { borderColor: 'var(--border)' } },
       el('button', {
-        class: 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-left w-full',
+        class: 'flex items-center gap-3 px-2.5 py-1 rounded-lg text-[11px] font-medium transition text-left w-full',
         style: { color: '#DC2626' },
         onmouseenter: (e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; },
         onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
@@ -48825,7 +48825,7 @@ function viewAdmin() {
         }))),
     ),
     el('button', {
-      class: 'rounded-xl px-3 py-2.5 text-sm font-semibold border shrink-0',
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-semibold border shrink-0',
       style: { color: '#DC2626', borderColor: 'var(--border-2)' },
       onclick: async () => {
         if (typeof DEMO !== 'undefined' && DEMO) { location.href = location.pathname; return; }
@@ -49018,7 +49018,7 @@ function adminConfigurations() {
 
   const recurMode = reportingRecurringMode();
   const modeBtn = (k, label, desc) => el('button', {
-    class: 'flex-1 text-left rounded-lg px-3 py-2 border transition cursor-pointer',
+    class: 'flex-1 text-left rounded-lg px-2.5 py-1 border transition cursor-pointer text-[11px]',
     style: recurMode === k
       ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
       : { background: 'var(--card)', color: 'var(--text)', borderColor: 'var(--border-2)' },
@@ -49106,7 +49106,7 @@ function adminConfigurations() {
             el('div', { class: 'flex items-center justify-between mt-1.5' },
               el('span', { class: 'text-[10px] text-muted-' }, (state.indicatorDeletedCustIds || []).length + ' excluded'),
               el('button', {
-                class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+                class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
                 style: { background: 'var(--accent)', color: 'var(--accent-text)' },
                 onclick: () => {
                   const ids = [...new Set(String(ta.value || '').split(/[\s,;]+/).map(x => x.trim()).filter(x => /^\d+$/.test(x)))];
@@ -49139,7 +49139,7 @@ function adminConfigurations() {
             el('div', { class: 'flex items-center justify-between mt-1.5' },
               el('span', { class: 'text-[10px] text-muted-' }, _n + ' term' + (_n === 1 ? '' : 's') + ', blank restores the default (sentricon)'),
               el('button', {
-                class: 'rounded-lg px-3 py-1.5 text-xs font-bold transition hover:brightness-95',
+                class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
                 style: { background: 'var(--accent)', color: 'var(--accent-text)' },
                 onclick: () => {
                   const terms = [...new Set(String(ta.value || '').split(/[,;\n]+/).map(x => x.trim().toLowerCase()).filter(Boolean))];
@@ -49175,7 +49175,7 @@ function adminUploads() {
     // Data Integrity + Data Hygiene merged into ONE tab (per Isaac) - both
     // were "what is the data doing wrong", split for no real reason.
     ...[['history', 'Upload History'], ['activity', 'App Activity'], ['archive', 'Monthly Archive'], ['integrity', 'Data Integrity']].map(([k, label]) => el('button', {
-      class: 'px-3.5 py-1.5 rounded-md text-sm font-semibold transition',
+      class: 'px-2.5 py-1 rounded-md text-[11px] font-semibold transition',
       style: tab === k
         ? { background: 'var(--card)', color: 'var(--text)', boxShadow: 'var(--shadow-sm)' }
         : { background: 'transparent', color: 'var(--text-muted)' },
@@ -49842,7 +49842,7 @@ function adminCommissions() {
   const tabs = el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
     ...COMMISSION_REP_TYPES.map(t => {
       const on = type === t;
-      return el('button', { class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap',
+      return el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap',
         style: { borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent', color: on ? 'var(--text)' : 'var(--text-muted)', marginBottom: '-1px' },
         onclick: () => { state._commRulesTab = t; mountApp(); } }, t === 'Sales Rep' ? 'Sales Reps' : t === 'Technician' ? 'Technicians' : t);
     }));
@@ -51271,14 +51271,14 @@ function openImportSalesModal(importType) {
       // Actions
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
         el('button', {
-          class: 'px-4 py-2 rounded-lg text-sm font-semibold border',
+          class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold border',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: () => { wiz.step = 'upload'; wiz.headers = []; wiz.rows = []; wiz.fileName = null; render(); },
         }, '← Back'),
         el('div', { class: 'flex items-center gap-3' },
           errCount > 0 && allValid && el('span', { class: 'text-[11px] text-muted-' }, errCount + ' rows with errors will be skipped'),
           el('button', {
-            class: 'px-4 py-2 rounded-lg text-sm font-bold transition',
+            class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition',
             style: allValid && okCount > 0
               ? { background: 'var(--accent)', color: 'var(--accent-text)' }
               : { background: 'var(--card-2)', color: 'var(--text-muted)', cursor: 'not-allowed' },
@@ -51394,7 +51394,7 @@ function openImportSalesModal(importType) {
       ),
       el('div', { class: 'flex items-center justify-end gap-3' },
         el('button', {
-          class: 'px-4 py-2 rounded-lg text-sm font-semibold border',
+          class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold border',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: () => {
             wiz.step = 'upload'; wiz.headers = []; wiz.rows = []; wiz.fileName = null; wiz.summary = null;
@@ -51402,7 +51402,7 @@ function openImportSalesModal(importType) {
           },
         }, 'Import another file'),
         el('button', {
-          class: 'px-4 py-2 rounded-lg text-sm font-bold',
+          class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: () => { overlay.remove(); mountApp(); },
         }, 'Done'),
@@ -51543,7 +51543,7 @@ function adminSlack() {
               oninput: (e) => { ch.webhook = e.target.value; persist(); },
             }),
             el('button', {
-              class: 'px-3 py-2 rounded-lg border text-xs font-semibold transition',
+              class: 'px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition',
               style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
               onclick: async (ev) => {
                 if (!ch.webhook) { toast('Add a webhook URL first', 'warn'); return; }
@@ -51565,7 +51565,7 @@ function adminSlack() {
           )),
         ),
         el('button', {
-          class: 'mt-3 px-3 py-1.5 rounded-lg border text-xs font-medium',
+          class: 'mt-3 px-2.5 py-1 rounded-lg border text-[11px] font-medium',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: () => {
             const nextId = Math.max(0, ...s.slack_channels.map(c => c.id)) + 1;
@@ -51681,7 +51681,7 @@ function adminSlack() {
             ...profiles.filter(p => p.is_active !== false).map(p => el('option', { value: p.id }, p.full_name)),
           ),
           el('button', {
-            class: 'px-4 py-2 rounded-lg text-sm font-semibold',
+            class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold',
             style: { background: 'var(--accent)', color: 'var(--accent-text)' },
             onclick: () => {
               const sel = document.getElementById('paystub-rep-picker');
@@ -51910,7 +51910,7 @@ function adminCompetitions() {
   const host = el('div', { class: 'flex flex-col gap-4' });
   host.append(
     el('button', {
-      class: 'self-start px-4 py-2 rounded-xl bg-lime text-eerie font-semibold',
+      class: 'self-start px-2.5 py-1 rounded-xl bg-lime text-eerie font-semibold text-[11px]',
       onclick: () => openCompEditor(),
     }, '+ New competition'),
   );
@@ -51926,11 +51926,11 @@ function adminCompetitions() {
         ),
         el('div', { class: 'flex gap-2' },
           el('button', {
-            class: 'text-xs px-3 py-1.5 rounded-lg border border-battleship text-battle-2 hover:border-lime hover:text-lime',
+            class: 'text-[11px] px-2.5 py-1 rounded-lg border border-battleship text-battle-2 hover:border-lime hover:text-lime',
             onclick: () => openCompEditor(c),
           }, 'Edit'),
           el('button', {
-            class: 'text-xs px-3 py-1.5 rounded-lg border border- text-muted- hover:border-red-500 hover:text-red-400 transition',
+            class: 'text-[11px] px-2.5 py-1 rounded-lg border border- text-muted- hover:border-red-500 hover:text-red-400 transition',
             onclick: async () => {
               if (!confirm('Delete "' + c.name + '" and all its rules?')) return;
               if (DEMO) {
@@ -52053,8 +52053,8 @@ function openCompEditor(existing = null) {
 
   form.append(
     el('div', { class: 'flex justify-end gap-2 pt-2 border-t border-eerie3' },
-      el('button', { type: 'button', class: 'px-4 py-2 rounded-lg text-battle-2 hover:text-smoke', onclick: () => overlay.remove() }, 'Cancel'),
-      el('button', { type: 'submit', class: 'px-4 py-2 rounded-lg bg-lime text-eerie font-semibold' }, 'Save'),
+      el('button', { type: 'button', class: 'px-2.5 py-1 rounded-lg text-battle-2 hover:text-smoke text-[11px]', onclick: () => overlay.remove() }, 'Cancel'),
+      el('button', { type: 'submit', class: 'px-2.5 py-1 rounded-lg bg-lime text-eerie font-semibold text-[11px]' }, 'Save'),
     ),
   );
 
@@ -52265,7 +52265,7 @@ function adminReps() {
         },
           el('div', { class: 'px-3 pt-1.5 pb-2 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'View the app as\u2026'),
           ...[['rep_sales', 'Rep - Sales Rep'], ['rep_partner', 'Rep - Partner'], ['rep_team_lead', 'Rep - Team Lead'], ['rep_office', 'Rep - Office Staff'], ['rep_office_lead', 'Rep - Inside Sales Team Lead'], ['rep_loyalty_lead', 'Rep - Loyalty Team Lead'], ['auditor', 'Auditor']].map(([v, label]) => el('button', {
-            class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition',
+            class: 'w-full text-left px-2.5 py-1 rounded-lg text-[11px] font-medium transition',
             style: { color: 'var(--text)' },
             onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
             onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
@@ -52274,7 +52274,7 @@ function adminReps() {
           // ── Sandbox: live data in, no writes out ──
           el('div', { class: 'px-3 pt-2 pb-1 mt-1 border-t text-[10px] uppercase tracking-widest font-semibold', style: { borderColor: 'var(--border)', color: 'var(--text-subtle)' } }, 'Demo / rehearse'),
           el('button', {
-            class: 'w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition',
+            class: 'w-full text-left px-2.5 py-1 rounded-lg text-[11px] font-medium transition',
             style: { color: 'var(--text)' },
             title: 'Work against live data while every save is dropped \u2014 partners keep seeing the real app untouched. Refresh or Exit restores live.',
             onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
@@ -52304,7 +52304,7 @@ function adminReps() {
         return wrap;
       })(),
       el('button', {
-        class: 'px-4 py-2 rounded-xl font-semibold text-sm transition hover:brightness-95',
+        class: 'px-2.5 py-1 rounded-xl font-semibold text-[11px] transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openUserEditor(),
       }, '+ New user'))));
@@ -52329,7 +52329,7 @@ function adminReps() {
     ...REP_TYPE_TABS.map(t => {
       const on = typeTab === t;
       return el('button', {
-        class: 'px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap flex items-center gap-2',
+        class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap flex items-center gap-2',
         style: { borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent', color: on ? 'var(--text)' : 'var(--text-muted)', marginBottom: '-1px' },
         onclick: () => { state._adminUserTypeTab = t; mountApp(); },
       }, REP_TYPE_TAB_LABEL[t],
@@ -52366,12 +52366,12 @@ function adminReps() {
       el('div', {}, _fLabel('Branch'), _fSel('office', 'Branch', _officeOpts.map(o => ({ v: o, t: o })))),
       el('div', {}, _fLabel('Tier'), _fSel('tier', 'Tier', (typeof REP_TIERS !== 'undefined' ? REP_TIERS : []).map(t => ({ v: t.id, t: t.label })))),
       _fActive ? el('button', {
-        class: 'text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition hover:brightness-95',
+        class: 'text-[11px] font-bold px-2.5 py-1 rounded-lg border transition hover:brightness-95',
         style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
         onclick: () => { state._adminUserFilters = {}; mountApp(); },
       }, '× Clear (' + _fActive + ')') : null);
     const btn = el('button', {
-      class: 'px-3 py-2 rounded-xl border text-xs font-semibold transition hover:brightness-95 flex items-center gap-1.5',
+      class: 'px-2.5 py-1 rounded-xl border text-[11px] font-semibold transition hover:brightness-95 flex items-center gap-1.5',
       style: _fActive
         ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
         : { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -52405,7 +52405,7 @@ function adminReps() {
         { id: 'inactive', label: 'Inactive', count: inTab.length - aCount },
         { id: 'all', label: 'All', count: inTab.length },
       ].map(t => el('button', {
-        class: 'px-3 py-2 text-xs font-semibold transition flex items-center gap-1.5',
+        class: 'px-2.5 py-1 text-[11px] font-semibold transition flex items-center gap-1.5',
         style: activeFilter === t.id ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'transparent', color: 'var(--text)' },
         onclick: () => { state._adminUserActiveFilter = t.id; mountApp(); },
       }, el('span', {}, t.label),
@@ -52566,7 +52566,7 @@ function adminReps() {
         // Row-level password-reset button retired (per Isaac) - the reset
         // link lives in Edit User (sendPasswordResetLink via the editor's
         // Send Reset Link button), so the row stays one action wide.
-        el('button', { class: 'text-xs px-3 py-1.5 rounded-lg border border- text-muted- hover:text-default transition', onclick: () => openUserEditor(p) }, 'Edit')));
+        el('button', { class: 'text-[11px] px-2.5 py-1 rounded-lg border border- text-muted- hover:text-default transition', onclick: () => openUserEditor(p) }, 'Edit')));
   };
   const rosterRow = (x) => {
     const e = x.emp;
@@ -52585,7 +52585,7 @@ function adminReps() {
       tierCell(x),                                                       // Tier
       el('td', { class: 'px-3 py-3 text-center' }, statusChip(false)),
       el('td', { class: 'px-3 py-3 text-right' },
-        el('button', { class: 'text-xs px-3 py-1.5 rounded-lg font-bold transition hover:brightness-95 whitespace-nowrap', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        el('button', { class: 'text-[11px] px-2.5 py-1 rounded-lg font-bold transition hover:brightness-95 whitespace-nowrap', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: () => openUserEditor(null, {
             // REAL first+last (matches CRM sold_by), never the nickname —
             // a nickname profile can't match its own sales rows.
@@ -52621,7 +52621,7 @@ function adminReps() {
     const _pFirst = page * PAGE_SIZE + 1;
     const _pLast = Math.min(rosterPeople.length, (page + 1) * PAGE_SIZE);
     const pagerBtn = (label, enabled, go) => el('button', {
-      class: 'rounded-lg border px-3 py-1.5 text-xs font-bold transition' + (enabled ? ' hover:brightness-95 cursor-pointer' : ''),
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold transition' + (enabled ? ' hover:brightness-95 cursor-pointer' : ''),
       style: enabled
         ? { borderColor: 'var(--border-2)', color: 'var(--text)' }
         : { borderColor: 'var(--border)', color: 'var(--text-subtle)', cursor: 'default' },
@@ -52653,7 +52653,7 @@ function adminReps() {
           el('div', {},
             el('h3', { class: 'text-base font-bold' }, '↔ FieldRoutes links to review'),
             el('p', { class: 'text-xs text-muted-' }, suggestions.length + ' app user' + (suggestions.length === 1 ? '' : 's') + ' matched a CRM employee by email. Confirm to link.')),
-          el('button', { class: 'px-3 py-2 rounded-lg text-xs font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
             onclick: async () => { for (const s of suggestions) { await applyFieldRoutesLink(s.p.id, s.e.employee_id); } } }, 'Link all ' + suggestions.length)),
         el('div', { class: 'flex flex-col divide-y', style: { borderColor: 'var(--border)' } },
           ...suggestions.slice(0, 30).map(({ p, e }) => el('div', { class: 'flex items-center justify-between gap-3 py-2 text-sm' },
@@ -52661,7 +52661,7 @@ function adminReps() {
               el('span', { class: 'font-semibold' }, p.full_name),
               el('span', { class: 'text-muted-' }, ' → ' + _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : '') + (e.type_label ? ' · ' + e.type_label : '')),
               el('div', { class: 'text-[11px] text-muted-' }, p.email)),
-            el('button', { class: 'text-xs px-3 py-1.5 rounded-lg border font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)' },
+            el('button', { class: 'text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)' },
               onclick: () => applyFieldRoutesLink(p.id, e.employee_id) }, 'Link'))))));
     }
   }
@@ -52752,9 +52752,9 @@ function openAvatarCropModal(file, onDone) {
         el('span', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, '🔍'),
         zoomInput),
       el('div', { class: 'w-full flex gap-2 justify-end' },
-        el('button', { class: 'px-4 py-2 rounded-lg text-sm font-semibold border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: close }, 'Cancel'),
+        el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: close }, 'Cancel'),
         el('button', {
-          class: 'px-5 py-2 rounded-lg text-sm font-bold transition hover:brightness-95',
+          class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
           style: { background: 'var(--accent)', color: 'var(--accent-text)' },
           onclick: () => {
             // Export the circle's bounding square. 160px (≈8-15KB) — big
@@ -53304,7 +53304,7 @@ function openUserEditor(existing = null, prefill = null) {
   // Forgot Password link on the sign-in screen isn't working for me."
   const resetBtn = existing ? el('button', {
     type: 'button',
-    class: 'px-4 py-2 rounded-lg text-xs font-semibold border transition hover:brightness-95',
+    class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition hover:brightness-95',
     style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
     onclick: async (e) => {
       const btn = e.currentTarget;
@@ -53343,8 +53343,8 @@ function openUserEditor(existing = null, prefill = null) {
   // create-with-password.)
 
   const footer = el('div', { class: 'px-6 py-4 border-t flex items-center gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
-    el('button', { type: 'submit', class: 'px-5 py-2 rounded-lg font-semibold text-sm', style: { background: '#1D1D1D', color: '#F3F3F3' } }, 'Save'),
-    el('button', { type: 'button', class: 'px-5 py-2 rounded-lg font-semibold text-sm border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => overlay.remove() }, 'Cancel'),
+    el('button', { type: 'submit', class: 'px-2.5 py-1 rounded-lg font-semibold text-[11px]', style: { background: '#1D1D1D', color: '#F3F3F3' } }, 'Save'),
+    el('button', { type: 'button', class: 'px-2.5 py-1 rounded-lg font-semibold text-[11px] border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => overlay.remove() }, 'Cancel'),
     resetBtn,
   );
 
