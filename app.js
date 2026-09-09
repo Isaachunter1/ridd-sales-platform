@@ -24364,6 +24364,11 @@ function findDuplicateRepCandidates() {
     const ln = String(e.lname || '').trim(), fn = String(e.fname || '').trim();
     if (ln && fn) allNames.add(ln + ', ' + fn);          // sales-data shape is "Last, First"
   });
+  const rosterNames = new Set();
+  (state.frRoster || []).forEach(e => {
+    const ln = String(e && e.lname || '').trim(), fn = String(e && e.fname || '').trim();
+    if (ln && fn) rosterNames.add(ln + ', ' + fn);
+  });
   const dismissed = new Set(state._indicatorDismissedDupes || []);
   // Names already merged into something else — skip them so the
   // scanner doesn't re-suggest the same pair after a merge.
@@ -24473,10 +24478,17 @@ function findDuplicateRepCandidates() {
         const _rowsOf = (n) => (state._indicatorRawSales || []).reduce((acc, s) => acc + (s.rep === n ? 1 : 0), 0);
         if (_rowsOf(a) >= _rowsOf(b)) { good = a; bad = b; } else { good = b; bad = a; }
       }
-      // NOTE typo pairs deliberately do NOT get the squash treatment. Identical
-      // letters mean it is certainly one human; one letter apart might be two
-      // real people (Anderson/Andersen). So a typo pair is only offered when
-      // one side has no sales at all, where merging cannot corrupt anybody.
+      // Typo pairs where BOTH spellings have sales (Coates/Coats, per Isaac)
+      // are still surfaced — but never auto-merged: they land in the review
+      // list for a human to confirm, keeper = the spelling the FieldRoutes
+      // roster uses (if exactly one side is on it), else the one with more
+      // rows. One letter apart CAN be two real people (Anderson/Andersen).
+      else if (isTypoDupe) {
+        const _onRoster = (n) => rosterNames.has(n);
+        const _rowsOf = (n) => (state._indicatorRawSales || []).reduce((acc, s) => acc + (s.rep === n ? 1 : 0), 0);
+        if (_onRoster(a) !== _onRoster(b)) { if (_onRoster(a)) { good = a; bad = b; } else { good = b; bad = a; } }
+        else if (_rowsOf(a) >= _rowsOf(b)) { good = a; bad = b; } else { good = b; bad = a; }
+      }
       else continue;
 
       const key = bad + '||' + good;
