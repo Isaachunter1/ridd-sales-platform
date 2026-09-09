@@ -43357,8 +43357,8 @@ const _mktgSpendChannelMonth = (m, ym, ch) => { let t = 0; const C = (m.spend[ym
 const _mktgYearSel = () => { if (!state._mktYear) state._mktYear = new Date().getFullYear(); return state._mktYear; };
 
 // ── shared table helpers ──
-function _mktgTh(t, right, title) { return el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right === false ? 'text-left' : 'text-right'), style: { color: 'var(--text-muted)' }, title: title || '' }, t); }
-function _mktgTd(v, opts = {}) { return el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap ' + (opts.left ? 'text-left' : 'text-right') + (opts.bold ? ' font-bold' : ''), style: opts.style || {} }, v == null ? '—' : v); }
+function _mktgTh(t, right, title) { return el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right === false ? 'text-left' : 'text-left'), style: { color: 'var(--text-muted)' }, title: title || '' }, t); }
+function _mktgTd(v, opts = {}) { return el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap ' + (opts.left ? 'text-left' : 'text-left') + (opts.bold ? ' font-bold' : ''), style: opts.style || {} }, v == null ? '—' : v); }
 // A month-matrix card: rows × Jan..Dec + Total. `cell(rowKey, mi)` returns a
 // number (or null); `total(rowKey)` optional override; fmt formats.
 function _mktgMatrixCard(title, note, rows, cell, fmtFn, opts = {}) {
@@ -43371,7 +43371,7 @@ function _mktgMatrixCard(title, note, rows, cell, fmtFn, opts = {}) {
       _mktgTd((() => { const t = totalOf(rk); return t == null ? '—' : fmtFn(t, rk, 'total'); })(), { bold: true }));
   };
   return el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+    el('div', { class: 'px-5 py-3 border-b flex items-start gap-4 gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, title), note ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, note) : null),
       opts.headerExtra || null),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
@@ -43392,7 +43392,7 @@ function _mktgYearBar(sub) {
         style: sub === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
         onclick: () => { state._mktSub = v; mountApp(); },
       }, l))),
-    el('div', { class: 'inline-flex items-center gap-1 ml-auto' },
+    el('div', { class: 'inline-flex items-center gap-1 ' },
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y - 1; mountApp(); } }, '‹'),
       el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(y)),
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y + 1; mountApp(); } }, '›')),
@@ -43506,7 +43506,7 @@ function _mktgSpendEntry() {
   const channels = m.channels;
   const inp = (val, onSave, opts = {}) => el('input', {
     type: 'number', step: '0.01', min: '0', placeholder: '0', value: val != null && val !== 0 ? String(val) : '',
-    class: 'rounded-lg border px-2.5 py-1 text-[11px] text-right', style: { width: opts.w || '96px', borderColor: 'var(--border-2)' },
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] text-left', style: { width: opts.w || '96px', borderColor: 'var(--border-2)' },
     onchange: (e) => { const v = parseFloat(e.target.value); onSave(isNaN(v) ? 0 : Math.round(v * 100) / 100); _mktgSave(); mountApp(); },
   });
   const cellSet = (ch, b, v) => { m.spend[ym] = m.spend[ym] || {}; m.spend[ym][ch] = m.spend[ym][ch] || {}; if (v > 0) m.spend[ym][ch][b] = v; else delete m.spend[ym][ch][b]; };
@@ -43538,7 +43538,7 @@ function _mktgSpendEntry() {
     } }, '⬇ Controller sheet (.csv)');
   const th = (t, right) => _mktgTh(t, right !== false);
   const matrix = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+    el('div', { class: 'px-5 py-3 border-b flex items-center gap-4 gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Ad spend allocation · ' + reportingMonthLbl(ym)),
         el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'branch × channel · this is the sheet the controller books from · saved for every admin')),
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, monthSel, copyPrev, addChannel, addBranch, exportBtn)),
@@ -43547,10 +43547,10 @@ function _mktgSpendEntry() {
       el('tbody', {},
         ...B.all.map(b => el('tr', { class: 'border-t border-' },
           _mktgTd(_mktgTC(b), { left: true, bold: true, style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
-          ...channels.map(ch => el('td', { class: 'px-1 py-1 text-right' }, inp(((m.spend[ym] || {})[ch] || {})[b], (v) => cellSet(ch, b, v), { w: '88px' }))),
+          ...channels.map(ch => el('td', { class: 'px-1 py-1 text-left' }, inp(((m.spend[ym] || {})[ch] || {})[b], (v) => cellSet(ch, b, v), { w: '88px' }))),
           _mktgTd(fmt.usd0(_mktgSpendBranchMonth(m, ym, b)), { bold: true }),
-          el('td', { class: 'px-1 py-1 text-right' }, inp((m.wages[ym] || {})[b], (v) => { m.wages[ym] = m.wages[ym] || {}; if (v > 0) m.wages[ym][b] = v; else delete m.wages[ym][b]; })),
-          el('td', { class: 'px-1 py-1 text-right' }, inp((m.incentives[ym] || {})[b], (v) => { m.incentives[ym] = m.incentives[ym] || {}; if (v > 0) m.incentives[ym][b] = v; else delete m.incentives[ym][b]; })))),
+          el('td', { class: 'px-1 py-1 text-left' }, inp((m.wages[ym] || {})[b], (v) => { m.wages[ym] = m.wages[ym] || {}; if (v > 0) m.wages[ym][b] = v; else delete m.wages[ym][b]; })),
+          el('td', { class: 'px-1 py-1 text-left' }, inp((m.incentives[ym] || {})[b], (v) => { m.incentives[ym] = m.incentives[ym] || {}; if (v > 0) m.incentives[ym][b] = v; else delete m.incentives[ym][b]; })))),
         el('tr', { class: 'border-t font-bold', style: { background: 'var(--card-2)' } },
           _mktgTd('Total', { left: true, bold: true, style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1 } }),
           ...channels.map(ch => _mktgTd(fmt.usd0(_mktgSpendChannelMonth(m, ym, ch)))),
@@ -43568,7 +43568,7 @@ function _mktgSpendEntry() {
       el('thead', {}, el('tr', {}, th('Channel', false), th('Leads'), th('GHL says'))),
       el('tbody', {}, ...channels.map(ch => el('tr', { class: 'border-t border-' },
         _mktgTd(ch, { left: true, bold: true }),
-        el('td', { class: 'px-1 py-1 text-right' }, inp((m.leads[ym] || {})[ch], (v) => { m.leads[ym] = m.leads[ym] || {}; if (v > 0) m.leads[ym][ch] = v; else delete m.leads[ym][ch]; })),
+        el('td', { class: 'px-1 py-1 text-left' }, inp((m.leads[ym] || {})[ch], (v) => { m.leads[ym] = m.leads[ym] || {}; if (v > 0) m.leads[ym][ch] = v; else delete m.leads[ym][ch]; })),
         _mktgTd(ghlFor(ch) == null ? '—' : fmt.int(ghlFor(ch)), { style: { color: 'var(--text-muted)' } })))))));
   return el('div', { class: 'flex flex-col gap-4' }, matrix, leadsCard);
 }
@@ -43586,7 +43586,7 @@ function _mktgProjections() {
   const pInc = (rk, i) => pRev(rk, i) * s.incentivesPct;
   const aRev = (rk, i) => members(rk).reduce((t, b) => t + (a.branch[b] ? a.branch[b][i].rev + a.branch[b][i].upRev : 0), 0);
   const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? rk : _mktgTC(rk), firstCol: 'Branch' };
-  const num = (v, onSave, opts2 = {}) => el('input', { type: 'number', step: opts2.step || '1', value: v == null ? '' : String(v), class: 'rounded-lg border px-2.5 py-1 text-[11px] text-right', style: { width: opts2.w || '110px', borderColor: 'var(--border-2)' },
+  const num = (v, onSave, opts2 = {}) => el('input', { type: 'number', step: opts2.step || '1', value: v == null ? '' : String(v), class: 'rounded-lg border px-2.5 py-1 text-[11px] text-left', style: { width: opts2.w || '110px', borderColor: 'var(--border-2)' },
     onchange: (e) => { const x = parseFloat(e.target.value); onSave(isNaN(x) ? 0 : x); _mktgSave(); mountApp(); } });
   const goalsCard = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
@@ -43597,9 +43597,9 @@ function _mktgProjections() {
       el('tbody', {},
         ...B.all.map(b => { const g = goal(b); const ytd = aRev(b, 0) + [1,2,3,4,5,6,7,8,9,10,11].reduce((t, i) => t + aRev(b, i), 0); return el('tr', { class: 'border-t border-' },
           _mktgTd(_mktgTC(b), { left: true, bold: true }),
-          el('td', { class: 'px-1 py-1 text-right' }, num(g, (v) => { s.branchGoals[b] = v; })),
+          el('td', { class: 'px-1 py-1 text-left' }, num(g, (v) => { s.branchGoals[b] = v; })),
           _mktgTd(fmt.usd0(g * s.adSpendPct)), _mktgTd(fmt.usd0(g * s.wagesPct)), _mktgTd(fmt.usd0(g * s.incentivesPct)), _mktgTd(fmt.usd0(g * (s.adSpendPct + s.wagesPct + s.incentivesPct)), { bold: true }),
-          el('td', { class: 'px-1 py-1 text-right' }, num(s.branchAttrition[b] != null ? Math.round(s.branchAttrition[b] * 100) : '', (v) => { s.branchAttrition[b] = v / 100; }, { w: '70px' })),
+          el('td', { class: 'px-1 py-1 text-left' }, num(s.branchAttrition[b] != null ? Math.round(s.branchAttrition[b] * 100) : '', (v) => { s.branchAttrition[b] = v / 100; }, { w: '70px' })),
           _mktgTd(fmt.usd0(ytd)), _mktgTd(g > 0 ? (ytd / g * 100).toFixed(0) + '%' : '—', { style: { color: g > 0 && ytd / g >= 1 ? '#16A34A' : 'inherit' } })); }),
         el('tr', { class: 'border-t font-bold', style: { background: 'var(--card-2)' } },
           _mktgTd('RIDD', { left: true, bold: true }),
@@ -43618,7 +43618,7 @@ function _mktgProjections() {
       el('tbody', {},
         ...channels.map(ch => el('tr', { class: 'border-t border-' },
           _mktgTd(ch, { left: true, bold: true, style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1 } }),
-          ...MKTG_MONTHS.map((_, i) => el('td', { class: 'px-1 py-1 text-right' }, num(chProj(ch, i) || '', (v) => { s.channelProjections[ch] = s.channelProjections[ch] || Array(12).fill(0); s.channelProjections[ch][i] = v; }, { w: '84px' }))),
+          ...MKTG_MONTHS.map((_, i) => el('td', { class: 'px-1 py-1 text-left' }, num(chProj(ch, i) || '', (v) => { s.channelProjections[ch] = s.channelProjections[ch] || Array(12).fill(0); s.channelProjections[ch][i] = v; }, { w: '84px' }))),
           _mktgTd(fmt.usd0([0,1,2,3,4,5,6,7,8,9,10,11].reduce((t, i) => t + chProj(ch, i), 0)), { bold: true }))),
         el('tr', { class: 'border-t font-bold', style: { background: 'var(--card-2)' } },
           _mktgTd('Total', { left: true, bold: true }),
@@ -43638,9 +43638,9 @@ function _mktgProjections() {
 // ── Configurations card: quota + projection rates + targets ──
 function reportingMarketingGoalsPanel() {
   const m = _mktgStore(), s = m.settings;
-  const num = (v, onSave, opts = {}) => el('input', { type: 'number', step: opts.step || '1', value: v == null ? '' : String(v), class: 'rounded-lg border px-2.5 py-1 text-[11px] text-right', style: { width: opts.w || '110px', borderColor: 'var(--border-2)' },
+  const num = (v, onSave, opts = {}) => el('input', { type: 'number', step: opts.step || '1', value: v == null ? '' : String(v), class: 'rounded-lg border px-2.5 py-1 text-[11px] text-left', style: { width: opts.w || '110px', borderColor: 'var(--border-2)' },
     onchange: (e) => { const x = parseFloat(e.target.value); onSave(isNaN(x) ? 0 : x); _mktgSave(); mountApp(); } });
-  const row = (label, node, hint) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' } },
+  const row = (label, node, hint) => el('div', { class: 'flex items-center gap-4 gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' } },
     el('div', { class: 'min-w-0' }, el('div', { class: 'text-[12px] font-semibold' }, label), hint ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, hint) : null), node);
   const pctIn = (get, set) => num(Math.round(get() * 100), (v) => set(v / 100), { w: '70px' });
   const isMonthly = (i) => s.isGoal * (s.seasonal[i] || 0), rnMonthly = (i) => s.renewalsGoal * (s.renewalSeasonal[i] || 0);
@@ -43650,7 +43650,7 @@ function reportingMarketingGoalsPanel() {
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[11px]' },
       el('thead', {}, el('tr', {}, _mktgTh('', false), ...MKTG_MONTHS.map(mn => _mktgTh(mn)))),
       el('tbody', {},
-        el('tr', { class: 'border-t border-' }, _mktgTd('%', { left: true, bold: true }), ...arr.map((v, i) => el('td', { class: 'px-1 py-1 text-right' }, num(Math.round(v * 1000) / 10, (x) => { s[key][i] = x / 100; }, { w: '56px', step: '0.5' })))),
+        el('tr', { class: 'border-t border-' }, _mktgTd('%', { left: true, bold: true }), ...arr.map((v, i) => el('td', { class: 'px-1 py-1 text-left' }, num(Math.round(v * 1000) / 10, (x) => { s[key][i] = x / 100; }, { w: '56px', step: '0.5' })))),
         el('tr', { class: 'border-t border-' }, _mktgTd('Quota', { left: true, bold: true }), ...arr.map((v, i) => _mktgTd(fmt.usd0(total * v)))),
         el('tr', { class: 'border-t border-', style: { background: 'var(--card-2)' } }, _mktgTd('Per rep / qtr', { left: true, bold: true }), ...[0, 3, 6, 9].flatMap(f => [_mktgTd(fmt.usd0(total * q(arr, f) / Math.max(1, reps)), { bold: true }), _mktgTd(''), _mktgTd('')]))))));
   return el('div', { class: 'card p-5' },
