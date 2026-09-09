@@ -13174,7 +13174,7 @@ function viewPay() {
 
     // ─── Layout (per Isaac): left = Pay Stub then Backend Pay; right = By
     // Source (accounts + revenue only) then Metrics. ───
-    el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' },
+    el('div', { class: 'pay-3col items-start' },
       el('div', { class: 'flex flex-col gap-4' },
 
       // PAY STUB — this pay period's upfront
@@ -13211,7 +13211,6 @@ function viewPay() {
       ),
       ),   // left column
 
-      el('div', { class: 'flex flex-col gap-4' },
       // BY SOURCE — accounts + revenue per source (the sheet's grid, trimmed
       // to what reps look at; hidden / unlisted sources flag in red).
       paySourceBreakdown(repId, { serviced: servicedStaged, below_minimums: belowStaged, pending }),
@@ -13238,7 +13237,6 @@ function viewPay() {
         row('Upfront 24-Mo Pay', $(s.renewal_flat.m24)),
         row('Upfront PIF Pay', $(s.renewal_flat.pif)),
       ),
-      ),   // right column
     ),
   );
 }
