@@ -2978,15 +2978,27 @@ function setViewAsRole(role) {
 // their own remount) is what made small saves feel slow and bouncy. These
 // refresh exactly what changed: one query burst, one render.
 async function refreshSalesData() {
-  const [salesRes, lb] = await Promise.all([
+  const [salesRes, lb, gh] = await Promise.all([
     supabase.from('sales').select('*').order('sold_date', { ascending: false }),
     supabase.from('leaderboard').select('*'),
+    loadUnloggedSales(),
   ]);
   if (salesRes.data) {
     state.allSales = salesRes.data;
     state.mySales  = salesRes.data.filter(s => s.rep_id === state.profile.id);
   }
   if (lb.data) state.leaderboard = lb.data;
+  if (gh) state.unloggedSales = gh;
+}
+// 👻 Unlogged ("ghost") sales the sync found in FieldRoutes for a rep that
+// were never logged here. RLS scopes reps to their own rows. Best-effort:
+// until unlogged_sales.sql is run the query errors and we keep [].
+async function loadUnloggedSales() {
+  try {
+    const { data, error } = await supabase.from('unlogged_sales').select('*').order('sold_date', { ascending: false });
+    if (error) return null;
+    return data || [];
+  } catch (e) { return null; }
 }
 async function refreshProfilesData() {
   const { data } = await supabase.from('profiles').select('*').order('full_name');
@@ -3029,6 +3041,7 @@ async function loadData() {
   // Competitions/rules/progress + the legacy leaderboard table hydrate
   // right after first paint instead of holding the splash hostage.
   const [salesRes, profiles] = await Promise.all([salesQuery, profilesQuery]);
+  loadUnloggedSales().then(gh => { if (gh) { state.unloggedSales = gh; if (state.view === 'sales') mountApp(); } });
   setTimeout(() => {
     Promise.all([
       supabase.from('competitions').select('*').order('start_date', { ascending: false }),
@@ -11232,6 +11245,11 @@ function viewSales() {
       ...filterControls(),
     ),
 
+    // 👻 Unlogged sales (per Isaac) — CRM subscriptions in this rep's name
+    // with a signed agreement that were never logged here. Ghosted rows the
+    // rep can Claim (opens Log Sale pre-filled) or mark Not mine.
+    queueFilter === 'upfront' ? unloggedSalesBlock(isAdmin) : null,
+
     // ── Table ──
     filtered.length === 0
       ? el('div', { class: 'card p-10 text-center text-muted- text-sm' },
@@ -11280,6 +11298,81 @@ function viewSales() {
           ),
         ),
   );
+}
+
+// 👻 Unlogged ("ghost") sales strip — sits above the Pending Upfront table.
+// Reps see their own open ghosts; admins see every rep's. Claim opens the
+// normal Log Sale form pre-filled from the CRM row and, once the sale is
+// inserted, marks the ghost claimed (linked to the new sale). Not mine
+// dismisses it (admins can still see dismissed rows in the DB).
+function unloggedSalesBlock(isAdmin) {
+  const all = state.unloggedSales || [];
+  const mine = all.filter(g => g.status === 'open' && (isAdmin || g.rep_id === state.profile?.id));
+  if (!mine.length) return null;
+  const repName = (id) => (state.allProfiles || []).find(p => p.id === id)?.full_name || '';
+  const norm = (x) => String(x || '').trim().toLowerCase();
+  const resolve = async (g, status, saleId) => {
+    const upd = { status, resolved_at: new Date().toISOString(), resolved_by: state.profile?.id || null };
+    if (saleId) upd.sale_id = saleId;
+    if (DEMO) { Object.assign(g, upd); saveDemoData(); mountApp(); return; }
+    const { error } = await supabase.from('unlogged_sales').update(upd).eq('id', g.id);
+    if (error) { toast('Could not update: ' + error.message, 'error'); return; }
+    Object.assign(g, upd);
+    mountApp();
+  };
+  const claim = (g) => {
+    // Map the CRM names onto the app's lookup ids; anything that doesn't
+    // resolve is left blank for the rep to pick.
+    const ctName = (Number(g.contract_months) || 12) + ' Months';
+    const prefill = {
+      rep_id: g.rep_id,
+      customer_name: g.customer_name,
+      customer_number: g.customer_number,
+      office_id: (state.offices || []).find(o => norm(o.name) === norm(g.office_name))?.id ?? null,
+      contract_type_id: (state.contractTypes || []).find(c => norm(c.name) === norm(ctName))?.id ?? null,
+      service_type_id: (state.serviceTypes || []).find(t => norm(t.name) === norm(g.crm_subscription))?.id ?? null,
+      source_id: (state.sources || []).find(o => norm(o.name) === norm(g.subscription_source))?.id ?? null,
+      initial_amount: g.initial_amount,
+      monthly_amount: g.monthly_amount,
+      sold_date: g.sold_date,
+      notes: 'Claimed from FieldRoutes (unlogged) · signed ' + (g.contract_signed_at || '—'),
+    };
+    openNewSaleModal(g.rep_id, null, { prefill, onLogged: (saleId) => resolve(g, 'claimed', saleId) });
+  };
+  const row = (g) => el('div', {
+    class: 'flex items-center justify-between gap-3 px-4 py-2 border-t flex-wrap',
+    style: { borderColor: 'var(--border)', opacity: '.62' },
+    title: 'In FieldRoutes this subscription is sold by ' + (repName(g.rep_id) || 'this rep') + ' with a signed agreement, but it was never logged here.',
+  },
+    el('div', { class: 'flex items-center gap-3 min-w-0 flex-wrap' },
+      el('span', { class: 'text-[11px]' }, '\ud83d\udc7b'),
+      el('span', { class: 'font-semibold text-sm truncate' }, g.customer_name || ('Customer ' + g.customer_number)),
+      el('span', { class: 'text-[11px] text-muted- tabular-nums' }, '#' + g.customer_number),
+      isAdmin ? el('span', { class: 'text-[11px] font-semibold' }, repName(g.rep_id)) : null,
+      el('span', { class: 'text-[11px] text-muted-' }, g.crm_subscription + ' \u00b7 ' + (g.contract_months || 12) + ' mo' + (g.subscription_source ? ' \u00b7 ' + g.subscription_source : '')),
+      el('span', { class: 'text-[11px] text-muted- tabular-nums' }, 'sold ' + g.sold_date + (g.contract_signed_at ? ' \u00b7 signed ' + g.contract_signed_at : '')),
+      el('span', { class: 'text-sm font-bold tabular-nums' }, fmt.usd(g.revenue_amount || 0)),
+    ),
+    el('div', { class: 'flex items-center gap-2 shrink-0' },
+      el('button', {
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: () => claim(g),
+      }, 'Claim'),
+      el('button', {
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+        onclick: () => { if (confirm('Mark this subscription as not yours? It will leave your board.')) resolve(g, 'dismissed'); },
+      }, 'Not mine'),
+    ),
+  );
+  return el('div', { class: 'card overflow-hidden mb-4' },
+    el('div', { class: 'flex items-center justify-between gap-3 px-4 py-2.5' },
+      el('div', { class: 'flex items-center gap-2' },
+        el('span', { class: 'font-bold text-sm' }, 'Unlogged sales'),
+        el('span', { class: 'text-[11px] text-muted-' }, mine.length + ' in FieldRoutes under ' + (isAdmin ? 'reps\u2019 names' : 'your name') + ', signed, not logged here')),
+      el('span', { class: 'text-[10px] text-muted-' }, 'Claim to log it and start the audit \u00b7 Not mine to dismiss')),
+    ...mine.map(row));
 }
 
 // Mobile-only card list. Mirrors salesTable for phones: each sale is a tap-
@@ -12000,14 +12093,17 @@ function openRepBreakdownModal() {
 // ──────────────────────────────────────────────────────────────────────────
 // SALES LOG MODAL — matches the mockup exactly
 // ──────────────────────────────────────────────────────────────────────────
-function openNewSaleModal(defaultRepId, existingSale = null) {
+function openNewSaleModal(defaultRepId, existingSale = null, opts = {}) {
   const isAdmin = isAdminRole(state.profile?.role);
   const profiles = state.allProfiles.length ? state.allProfiles : [state.profile];
   const isEdit = !!existingSale;
+  // 👻 Claiming a ghost: same NEW-sale form, pre-filled from the CRM row
+  // (opts.prefill, shaped like a sale). opts.onLogged fires after the insert.
+  const prefill = (!isEdit && opts && opts.prefill) ? opts.prefill : null;
   // State captured inside the modal (for live footer + checkbox fields that aren't form-bound).
   // When editing, seed from the existing sale so the checkboxes/PPS state are correct on open.
   const modalState = {
-    rep_id:         existingSale?.rep_id || defaultRepId || state.profile.id,
+    rep_id:         existingSale?.rep_id || prefill?.rep_id || defaultRepId || state.profile.id,
     paid_in_full:   !!existingSale?.paid_in_full,
     is_commercial:  !!existingSale?.is_commercial,
     upfront_collected: !!existingSale?.upfront_collected,
@@ -12292,10 +12388,11 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
           return;
         }
 
-        const { error } = await supabase.from('sales').insert(saleRow);
+        const { data: insRow, error } = await supabase.from('sales').insert(saleRow).select('id').maybeSingle();
         if (error) throw error;
         notifySaleLogged(saleRow);
         toast('Sale logged — awaiting audit', 'success');
+        if (opts && typeof opts.onLogged === 'function') { try { await opts.onLogged(insRow ? insRow.id : null, saleRow); } catch (e) { console.warn('[ridd] onLogged hook failed', e); } }
         await refreshSalesData();
         if (addAnotherInput.checked) { resetFormForAnother(); return; }
         overlay.remove();
@@ -12532,14 +12629,16 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
   rebuildServiceOptions();
   renderRecurringHost();
 
-  // Pre-fill all form fields when editing an existing sale. Has to run after
-  // rebuildServiceOptions so the service dropdown has its filtered options.
-  if (isEdit) {
+  // Pre-fill all form fields when editing an existing sale (or claiming a
+  // ghost). Has to run after rebuildServiceOptions so the service dropdown
+  // has its filtered options.
+  if (isEdit || prefill) {
+    const seed = isEdit ? existingSale : prefill;
     const setVal = (name, v) => { const el = form.querySelector(`[name="${name}"]`); if (el && v != null) el.value = v; };
     // Split the stored name back into the First | Last inputs. Handles both
     // "Jane Smith" and "Smith, Jane" spellings.
     {
-      const full = String(existingSale.customer_name || '').trim();
+      const full = String(seed.customer_name || '').trim();
       let first = full, last = '';
       if (full.includes(',')) {
         const [l, f] = full.split(',');
@@ -12551,25 +12650,25 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
       setVal('customer_first', first);
       setVal('customer_last', last);
     }
-    setVal('customer_number', existingSale.customer_number);
-    setVal('office_id', existingSale.office_id);
-    setVal('contract_type_id', existingSale.contract_type_id);
+    setVal('customer_number', seed.customer_number);
+    setVal('office_id', seed.office_id);
+    setVal('contract_type_id', seed.contract_type_id);
     rebuildServiceOptions(); // re-filter services for the chosen contract type
-    setVal('service_type_id', existingSale.service_type_id);
-    setVal('source_id', existingSale.source_id);
-    setVal('initial_amount', existingSale.initial_amount);
-    if (existingSale.pay_per_service) {
+    setVal('service_type_id', seed.service_type_id);
+    setVal('source_id', seed.source_id);
+    setVal('initial_amount', seed.initial_amount);
+    if (seed.pay_per_service) {
       pps.checked = true;
       renderRecurringHost();
-      setVal('num_services', existingSale.num_services);
-      setVal('amount_per_service', existingSale.monthly_amount);
+      setVal('num_services', seed.num_services);
+      setVal('amount_per_service', seed.monthly_amount);
     } else {
-      setVal('monthly_amount', existingSale.monthly_amount);
+      setVal('monthly_amount', seed.monthly_amount);
     }
-    setVal('sold_date', existingSale.sold_date);
-    setVal('commission_date', existingSale.commission_date);
-    setVal('notes', existingSale.notes);
-    repSelect.value = existingSale.rep_id;
+    setVal('sold_date', seed.sold_date);
+    setVal('commission_date', seed.commission_date);
+    setVal('notes', seed.notes);
+    repSelect.value = seed.rep_id;
   }
 
   updateFooter();
