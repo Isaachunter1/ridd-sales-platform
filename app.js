@@ -30681,36 +30681,40 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   // the retired Cancel Analysis card; Attr % column covers the cancel-rate
   // job). Table itself lives in indicatorSubscriptionMixCard, shared with
   // the rep player cards. ──
-  if (state._indicatorSubMixOffice == null) state._indicatorSubMixOffice = '';
+  // (The "All offices" dropdown is gone — per Isaac. Drill in instead:
+  // on the Offices or Teams view, click a row to see THAT office's / team's
+  // subscription breakdown; a back chip returns to the group list.)
   const mixGroup = ['office', 'team'].includes(state._indicatorMixGroup) ? state._indicatorMixGroup : 'subscription';
-  const subOfficeFilter = mixGroup === 'subscription' ? state._indicatorSubMixOffice : '';
-  const subOffices = [...new Set(rawSales.map(s => s.office).filter(Boolean))].sort();
-  const subSales = subOfficeFilter
-    ? rawSales.filter(s => s.office === subOfficeFilter)
-    : rawSales;
   const _mixTC = (o) => String(o || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  const officeKeyOf = (s) => _mixTC(s.office || 'Unknown');
+  const teamKeyOf   = (s) => (typeof getRepTeam === 'function' && getRepTeam(s.rep)) || 'Unassigned';
+  const drill = (state._indicatorMixDrill && state._indicatorMixDrill.group === mixGroup && mixGroup !== 'subscription')
+    ? state._indicatorMixDrill : null;
+  const subSales = drill
+    ? rawSales.filter(s => (mixGroup === 'office' ? officeKeyOf(s) : teamKeyOf(s)) === drill.key)
+    : rawSales;
   const mixGroupTabs = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
     ...[['subscription', 'Subscriptions'], ['office', 'Offices'], ['team', 'Teams']].map(([v, l]) => el('button', {
       class: 'px-2.5 py-1 text-[11px] font-semibold transition',
       style: mixGroup === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
-      onclick: () => { state._indicatorMixGroup = v; mountApp(); },
+      onclick: () => { state._indicatorMixGroup = v; state._indicatorMixDrill = null; mountApp(); },
     }, l)));
+  const groupNoun = mixGroup === 'office' ? 'Office' : mixGroup === 'team' ? 'Team' : 'Subscription';
   sections.push(indicatorSubscriptionMixCard(subSales, {
-    keyOf: mixGroup === 'office' ? (s) => _mixTC(s.office || 'Unknown')
-      : mixGroup === 'team' ? (s) => (typeof getRepTeam === 'function' && getRepTeam(s.rep)) || 'Unassigned'
+    keyOf: drill ? null : mixGroup === 'office' ? officeKeyOf : mixGroup === 'team' ? teamKeyOf : null,
+    firstCol: drill ? 'Subscription' : groupNoun,
+    title: drill ? '\ud83d\udce6 Sales Mix \u00b7 ' + drill.key : undefined,
+    onRowClick: (!drill && mixGroup !== 'subscription')
+      ? (name) => { state._indicatorMixDrill = { group: mixGroup, key: name }; mountApp(); }
       : null,
-    firstCol: mixGroup === 'office' ? 'Office' : mixGroup === 'team' ? 'Team' : 'Subscription',
-    subtitleSuffix: subOfficeFilter ? ' in ' + _mixTC(subOfficeFilter) : '',
+    rowTitle: (!drill && mixGroup !== 'subscription') ? 'Click for this ' + groupNoun.toLowerCase() + '\u2019s subscription breakdown' : '',
     headerExtra: el('div', { class: 'flex items-center gap-2 flex-wrap' },
-      mixGroupTabs,
-      mixGroup === 'subscription' ? el('select', {
-        class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
-        style: { borderColor: 'var(--border-2)' },
-        onchange: e => { state._indicatorSubMixOffice = e.target.value; mountApp(); },
-      },
-        el('option', { value: '', selected: !subOfficeFilter }, 'All offices'),
-        ...subOffices.map(o => el('option', { value: o, selected: subOfficeFilter === o }, _mixTC(o))),
-      ) : null),
+      drill ? el('button', {
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        onclick: () => { state._indicatorMixDrill = null; mountApp(); },
+      }, '\u2190 All ' + groupNoun.toLowerCase() + 's') : null,
+      mixGroupTabs),
   }));
 
   return sections;
@@ -30772,7 +30776,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
         el('div', { class: 'w-14 text-right shrink-0', title: 'Reportable cancels ÷ accounts (RORs, SNS, combined, one-time and renewals excluded)' }, 'Attr %'),
       ),
       topSubscriptions.length === 0
-        ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, 'No accounts in this office.')
+        ? el('div', { class: 'text-xs text-muted- italic py-3 text-center' }, 'No accounts here.')
         : el('div', { class: 'flex flex-col' },
             // TOTAL reference row on top (per Isaac) — full-width dark bar,
             // count riding inside it, blended metrics across ALL accounts.
@@ -30812,7 +30816,9 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
                 const _pct = Math.max(1.5, s.share / maxShare * 100);
                 const _inBar = _pct >= 15;
                 return el('div', {
-                class: 'flex items-center gap-3 text-[13px] py-2.5 transition hover:brightness-95 rounded' + (i > 0 ? ' border-t border-' : ''),
+                class: 'flex items-center gap-3 text-[13px] py-2.5 transition hover:brightness-95 rounded' + (i > 0 ? ' border-t border-' : '') + (opts.onRowClick ? ' cursor-pointer' : ''),
+                title: opts.rowTitle || '',
+                onclick: opts.onRowClick ? () => opts.onRowClick(s.name) : undefined,
               },
                 el('div', { class: 'w-[200px] sm:w-[240px] truncate font-medium shrink-0', title: s.name, style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, s.name),
                 el('div', { class: 'flex-1 rounded-full relative', style: { background: 'var(--card-2)', height: '22px' } },
