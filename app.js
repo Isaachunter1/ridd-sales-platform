@@ -3405,10 +3405,10 @@ function mountAuth(opts = {}) {
   const subheading = el('p', { class: 'text-battle-2 text-sm mb-2' });
   const emailField = el('label', { class: 'block text-sm' },
     el('span', { class: 'text-battle-2 block mb-1' }, 'Email'),
-    el('input', { name: 'email', type: 'email', required: true, class: 'w-full rounded-lg border px-3 py-2', placeholder: 'you@ridd.com' }));
+    el('input', { name: 'email', type: 'email', required: true, class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', placeholder: 'you@ridd.com' }));
   const passField  = el('label', { class: 'block text-sm' },
     el('span', { class: 'text-battle-2 block mb-1' }, 'Password'),
-    el('input', { name: 'password', type: 'password', required: true, minlength: 6, class: 'w-full rounded-lg border px-3 py-2', placeholder: '••••••••' }));
+    el('input', { name: 'password', type: 'password', required: true, minlength: 6, class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', placeholder: '••••••••' }));
   // Live policy checklist — shown only on the "Set a new password" screen.
   const policyList = el('div', { class: 'text-[11px] flex flex-col gap-1', style: { display: 'none', lineHeight: '1.4' } },
     ...PASSWORD_POLICY.map(r => el('div', { 'data-req': r.label, style: { color: 'var(--text-subtle)', transition: 'color .15s' } }, '○ ' + r.label)));
@@ -3969,7 +3969,7 @@ function reportingAuditing() {
 
   // ── UI bits ──
   const sel = (value, opts, onchange, title) => el('select', {
-    class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer', title: title || '', onchange,
+    class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer', title: title || '', onchange,
   }, ...opts.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === value) o.selected = true; return o; }));
 
   // Everything on this tab is left-justified per request.
@@ -4243,13 +4243,13 @@ function reportingAuditing() {
       }, 'Accounts sold in this window'),
       preset === 'custom' && el('input', {
         type: 'date', value: state.auditCustomStart || '',
-        class: 'rounded-xl px-2 py-1.5 text-xs',
+        class: 'rounded-xl px-2.5 py-1 text-[11px]',
         onchange: (e) => { state.auditCustomStart = e.target.value; mountApp(); },
       }),
       preset === 'custom' && el('span', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, '→'),
       preset === 'custom' && el('input', {
         type: 'date', value: state.auditCustomEnd || '',
-        class: 'rounded-xl px-2 py-1.5 text-xs',
+        class: 'rounded-xl px-2.5 py-1 text-[11px]',
         onchange: (e) => { state.auditCustomEnd = e.target.value; mountApp(); },
       }),
       el('div', { class: 'flex-1' }),
@@ -4373,7 +4373,7 @@ function reportingAuditing() {
         (fT === 'all' || (repTeamOf(n) || 'Unassigned') === fT) &&
         (fO === 'all' || repOfficeOf(n) === fO));
       const sel = (val, opts, onpick, allLabel) => el('select', {
-        class: 'rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
         style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
         onchange: (e) => onpick(e.target.value),
       },
@@ -4384,7 +4384,7 @@ function reportingAuditing() {
         el('input', {
           id: 'audit-rep-search', type: 'text', placeholder: 'Search rep…',
           value: state._auditRepSearch || '',
-          class: 'rounded-lg border px-3 py-1.5 text-xs',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)', minWidth: '160px' },
           oninput: (e) => {
             state._auditRepSearch = e.target.value;
@@ -4517,7 +4517,7 @@ function insideSalesSubTabs() {
     }));
   const tabSelect = el('div', { class: 'sm:hidden flex-1 min-w-0 py-1.5' },
     el('select', {
-      class: 'w-full rounded-lg border px-3 py-2 text-sm font-bold',
+      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] font-bold',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       onchange: (e) => go(e.target.value),
     }, ...tabs.map(([k, label]) => el('option', { value: k, selected: state.view === k }, label))));
@@ -4548,7 +4548,7 @@ function d2dSalesSubTabs() {
     }));
   const tabSelect = el('div', { class: 'sm:hidden flex-1 min-w-0 py-1.5' },
     el('select', {
-      class: 'w-full rounded-lg border px-3 py-2 text-sm font-bold',
+      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] font-bold',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       onchange: (e) => go(e.target.value),
     }, ...tabs.map(([k, label]) => el('option', { value: k, selected: state.view === k }, label))));
@@ -4639,7 +4639,7 @@ function openMySettingsModal() {
   // via the set_my_slack RPC (slack_notify.sql). ──
   const slackId = el('input', {
     type: 'text', value: p.slack_member_id || '', placeholder: 'Slack Member ID, e.g. U0123ABCD',
-    class: 'flex-1 rounded-lg border px-3 py-2 text-sm', style: { minWidth: '0' },
+    class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px]', style: { minWidth: '0' },
   });
   const slackOn = el('input', { type: 'checkbox', class: 'cursor-pointer' });
   slackOn.checked = !!p.slack_notify;
@@ -4673,7 +4673,7 @@ function openMySettingsModal() {
     type: 'number', min: '0', step: '1000',
     value: p.annual_revenue_goal || '',
     placeholder: 'e.g. 500000',
-    class: 'flex-1 rounded-lg border px-3 py-2 text-sm',
+    class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px]',
   });
   const goalBtn = el('button', {
     class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95 whitespace-nowrap',
@@ -4702,8 +4702,8 @@ function openMySettingsModal() {
   }, 'Save Goal');
 
   // ── Change password — same policy + live checklist as the reset screen. ──
-  const pw1 = el('input', { type: 'password', placeholder: 'New password', autocomplete: 'new-password', class: 'w-full rounded-lg border px-3 py-2 text-sm' });
-  const pw2 = el('input', { type: 'password', placeholder: 'Confirm new password', autocomplete: 'new-password', class: 'w-full rounded-lg border px-3 py-2 text-sm' });
+  const pw1 = el('input', { type: 'password', placeholder: 'New password', autocomplete: 'new-password', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' });
+  const pw2 = el('input', { type: 'password', placeholder: 'Confirm new password', autocomplete: 'new-password', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' });
   const policyList = el('div', { class: 'flex flex-col gap-1 text-[11px]' },
     ...PASSWORD_POLICY.map(r => el('div', { 'data-req': r.label, style: { color: 'var(--text-subtle)', transition: 'color .15s' } }, '○ ' + r.label)));
   pw1.addEventListener('input', () => {
@@ -4759,7 +4759,7 @@ function openMySettingsModal() {
       el('div', { class: 'flex flex-col gap-2' },
         secLabel('Time Zone'),
         el('select', {
-          class: 'w-full rounded-lg border px-3 py-2 text-sm',
+          class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
           onchange: (e) => { setUserTzPref(e.target.value); toast('Time zone updated', 'success'); scheduleBackgroundRemount(); },
         }, ...USER_TZ_CHOICES.map(([v, label]) => el('option', { value: v, selected: userTzPref() === v }, label))),
@@ -5803,7 +5803,7 @@ function viewTechs() {
   });
   const board = [...byTech.entries()].map(([nm, t]) => ({ nm, ...t })).sort((a, b) => b.rev - a.rev);
   const rangeSel = el('select', {
-    class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+    class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
     onchange: (e) => { state._techRange = e.target.value; mountApp(); },
   }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This Week'], ['month', 'This Month'], ['year', 'This Year'], ['all', 'All Time']]
     .map(([v, l]) => { const o = el('option', { value: v }, l); if ((state._techRange || 'today') === v) o.selected = true; return o; }));
@@ -5910,7 +5910,7 @@ function viewDashboard() {
 
       // Date filter
       el('select', {
-        class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+        class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
         onchange: e => {
           state.dashDateRange = e.target.value;
           if (state.dashDateRange === 'custom') {
@@ -5934,9 +5934,9 @@ function viewDashboard() {
 
       // Custom range inputs
       state.dashDateRange === 'custom' && el('div', { class: 'flex items-center gap-2' },
-        el('input', { type: 'date', class: 'rounded-xl px-2 py-1.5 text-xs', value: state.dashCustomStart || '', onchange: e => { state.dashCustomStart = e.target.value; mountApp(); } }),
+        el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state.dashCustomStart || '', onchange: e => { state.dashCustomStart = e.target.value; mountApp(); } }),
         el('span', { class: 'text-muted- text-xs' }, '→'),
-        el('input', { type: 'date', class: 'rounded-xl px-2 py-1.5 text-xs', value: state.dashCustomEnd || '', onchange: e => { state.dashCustomEnd = e.target.value; mountApp(); } }),
+        el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state.dashCustomEnd || '', onchange: e => { state.dashCustomEnd = e.target.value; mountApp(); } }),
       ),
 
       // Office view toggle (admin only)
@@ -9000,7 +9000,7 @@ function openRepCustomizeModal() {
         }),
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mt-2', style: { color: 'var(--text-subtle)' } }, 'My default date range'),
         el('select', {
-          class: 'rounded-xl px-3 py-2 text-sm font-medium cursor-pointer w-full',
+          class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full',
           onchange: (e) => {
             const v = e.target.value;
             const np = { ..._repLayoutPrefs(), dateDefault: v };
@@ -10373,7 +10373,7 @@ function openIndicatorRepCard(rep, allReps = []) {
           style: { background: 'var(--card-2)', border: '1px solid var(--border)' },
         }, scopeRangeLabel),
         el('select', {
-          class: 'rounded-lg border px-2.5 py-1 text-xs font-semibold cursor-pointer bg-transparent',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer bg-transparent',
           style: { borderColor: 'var(--border-2)' },
           onchange: (e) => { cardScope = e.target.value; _trendWkOff = 0; renderBody(); },
         },
@@ -11225,7 +11225,7 @@ function viewSales() {
   // and Cancels), where there's no + New Sale button to share the row with.
   const filterControls = () => [
     el('select', {
-      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
       style: { maxWidth: '140px' },
       onchange: e => { sf.status = e.target.value; mountApp(); },
     },
@@ -11234,7 +11234,7 @@ function viewSales() {
         el('option', { value: s, selected: sf.status === s }, s.replace('_',' '))),
     ),
     isAdmin && el('select', {
-      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
       style: { maxWidth: '140px' },
       onchange: e => { sf.repId = e.target.value; mountApp(); },
     },
@@ -11771,7 +11771,7 @@ function statusSelect(saleId) {
   const current = sale?.audit_status || 'pending';
   if (!canAudit) return statusChip(current);
   return el('select', {
-    class: 'rounded-lg border px-2 py-1 text-xs font-medium cursor-pointer',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-medium cursor-pointer',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
     onchange: (e) => {
       const val = e.target.value;
@@ -11802,7 +11802,7 @@ function auditorSelect(saleId) {
       current?.full_name || '\u2014');
   }
   return el('select', {
-    class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
     style: { borderColor: 'var(--border-2)' },
     onchange: (e) => { assignAuditor(saleId, e.target.value || null); },
   },
@@ -11851,7 +11851,7 @@ function auditor2Select(saleId) {
       current?.full_name || '—');
   }
   return el('select', {
-    class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
     style: { borderColor: 'var(--border-2)' },
     onchange: (e) => { assignAuditor2(saleId, e.target.value || null); },
   },
@@ -11909,7 +11909,7 @@ function lockStatusSelect(saleId) {
   const current = sale?.lock_status || 'pending';
   if (!canAudit) return lockStatusChip(current);
   return el('select', {
-    class: 'rounded-lg border px-2 py-1 text-xs font-medium cursor-pointer',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-medium cursor-pointer',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
     onchange: (e) => {
       const val = e.target.value;
@@ -12063,7 +12063,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
 
   // ── HEADER ──
   const repSelect = el('select', {
-    class: 'rounded-lg border px-3 py-1.5 text-sm font-medium',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-medium',
     disabled: !isAdmin,
     onchange: e => { modalState.rep_id = e.target.value; updateFooter(); },
   },
@@ -12087,8 +12087,8 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
     el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- block mb-1.5 font-semibold' }, label),
     input,
   );
-  const inp = (name, attrs = {}) => el('input', { name, class: 'w-full rounded-lg border px-3 py-2.5 text-sm', ...attrs });
-  const sel = (name, options, attrs = {}) => el('select', { name, class: 'w-full rounded-lg border px-3 py-2.5 text-sm', ...attrs },
+  const inp = (name, attrs = {}) => el('input', { name, class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', ...attrs });
+  const sel = (name, options, attrs = {}) => el('select', { name, class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', ...attrs },
     el('option', { value: '' }, '— select —'),
     ...options.map(o => el('option', { value: o.id, selected: attrs.value == o.id }, o.name)),
   );
@@ -12097,7 +12097,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
   // The VALUE is the contract_type id; contract_months is derived via implied_months on submit.
   const contractTypeSelect = el('select', {
     name: 'contract_type_id',
-    class: 'w-full rounded-lg border px-3 py-2.5 text-sm',
+    class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
     required: true,
     onchange: () => { updateFooter(); rebuildServiceOptions(); checkValidity(); },
   },
@@ -12122,7 +12122,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
   //   no selection       → all services
   const serviceSelect = el('select', {
     name: 'service_type_id',
-    class: 'w-full rounded-lg border px-3 py-2.5 text-sm',
+    class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
     required: true,
     onchange: () => checkValidity(),
   });
@@ -12375,7 +12375,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
 
       mk('Office', el('select', {
         name: 'office_id',
-        class: 'w-full rounded-lg border px-3 py-2.5 text-sm',
+        class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
         required: true,
         onchange: () => checkValidity(),
       },
@@ -12387,7 +12387,7 @@ function openNewSaleModal(defaultRepId, existingSale = null) {
       mk('Service', serviceSelect),
       mk('Source', el('select', {
         name: 'source_id',
-        class: 'w-full rounded-lg border px-3 py-2.5 text-sm',
+        class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
         required: true,
         onchange: () => { checkValidity(); updateFooter(); },
       },
@@ -12999,7 +12999,7 @@ function viewPay() {
       // Rep + year + period selectors (rep is admin-only)
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
         isAdmin && profilesForPicker.length > 0 && el('select', {
-          class: 'rounded-lg border px-3 py-1.5 text-sm',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px]',
           onchange: e => {
             state.payViewRepId = e.target.value === state.profile.id ? null : e.target.value;
             mountApp();
@@ -13014,7 +13014,7 @@ function viewPay() {
             .map(p => el('option', { value: p.id, selected: state.payViewRepId === p.id }, p.full_name)),
         ),
         el('select', {
-          class: 'rounded-lg border px-3 py-1.5 text-sm',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px]',
           onchange: e => {
             state.payYear = Number(e.target.value);
             state.payPeriodId = currentPayPeriodId(state.payYear);
@@ -13024,7 +13024,7 @@ function viewPay() {
           ...years.map(y => el('option', { value: y, selected: y === state.payYear }, y)),
         ),
         el('select', {
-          class: 'rounded-lg border px-3 py-1.5 text-sm',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px]',
           onchange: e => { state.payPeriodId = Number(e.target.value); mountApp(); },
         },
           ...periods.map(p => el('option', {
@@ -13061,7 +13061,7 @@ function viewPay() {
           el('input', {
             type: 'number', step: '1', min: 0, max: 100,
             value: Math.round(closeRate * 100),
-            class: 'rounded border px-2 py-1 text-xs w-16 text-right tabular-nums',
+            class: 'rounded border px-2.5 py-1 text-[11px] w-16 text-right tabular-nums',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
             onchange: (e) => {
               const pct = parseFloat(e.target.value);
@@ -13940,7 +13940,7 @@ function openAgentScheduleModal(rep) {
     el('div', { class: 'flex items-center gap-2 mt-1' },
       el('span', { class: 'text-xs font-bold uppercase tracking-wider text-muted-' }, 'Build ahead'),
       el('select', {
-        class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer', style: { borderColor: 'var(--border-2)' },
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer', style: { borderColor: 'var(--border-2)' },
         onchange: (e) => { horizonWeeks = Number(e.target.value) || 12; },
       }, ...[[4, '4 weeks'], [8, '8 weeks'], [12, '12 weeks'], [26, '26 weeks'], [52, '52 weeks']].map(([v, l]) => el('option', { value: String(v), selected: v === 12 }, l)))),
     el('div', { class: 'text-[11px] text-muted-' },
@@ -14101,7 +14101,7 @@ function viewCalendar() {
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       // Department selector — scopes everything below it
       el('select', {
-        class: 'rounded-xl border px-3 py-2 text-sm font-semibold cursor-pointer',
+        class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
         style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)' },
         onchange: (e) => {
           state.calendarDepartment = e.target.value;
@@ -14676,7 +14676,7 @@ function openNewShiftModal(defaultIso, opts = {}) {
 
   // ── Date (Single or "Starting" in Range mode) ──
   const startDateInput = el('input', {
-    type: 'date', class: 'rounded-lg border px-3 py-2 text-sm',
+    type: 'date', class: 'rounded-lg border px-2.5 py-1 text-[11px]',
     value: formState.start_date, style: { borderColor: 'var(--border-2)' },
     onchange: (e) => {
       formState.start_date = e.target.value;
@@ -14936,7 +14936,7 @@ function openSlotModal(iso, slotId) {
     if (isAdmin) {
       const unassignedReps = activeReps.filter(r => !assigns.some(a => a.rep_id === r.id));
       const addSelect = el('select', {
-        class: 'flex-1 rounded-lg border px-3 py-2 text-sm',
+        class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px]',
         style: { borderColor: 'var(--border-2)' },
       },
         el('option', { value: '' }, 'Choose rep…'),
@@ -15162,7 +15162,7 @@ function openTransferSheet(assignment, reps, redraw) {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const meId = state.profile.id;
   const others = reps.filter(r => r.id !== meId && r.is_active !== false);
-  const target = el('select', { class: 'w-full rounded-lg border px-3 py-2 text-sm', style: { borderColor: 'var(--border-2)' } },
+  const target = el('select', { class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' } },
     el('option', { value: '' }, 'Choose rep…'),
     ...others.map(r => el('option', { value: r.id }, r.full_name))
   );
@@ -15210,7 +15210,7 @@ function openReassignSheet(assignment, reps, redraw) {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const currentRep = reps.find(r => r.id === assignment.rep_id);
   const others = reps.filter(r => r.id !== assignment.rep_id && r.is_active !== false);
-  const target = el('select', { class: 'w-full rounded-lg border px-3 py-2 text-sm', style: { borderColor: 'var(--border-2)' } },
+  const target = el('select', { class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' } },
     el('option', { value: '' }, 'Choose rep…'),
     ...others.map(r => el('option', { value: r.id }, r.full_name))
   );
@@ -17379,7 +17379,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
           el('div', { class: 'flex items-center gap-2 flex-wrap' },
             el('h2', { class: 'text-lg font-bold' }, 'Pending Revenue'),
             el('select', {
-              class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
               style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
               onchange: (e) => { mIdx = Number(e.target.value); render(); },
             }, ...R.rounds.map((r2, i2) => { const o = el('option', { value: String(i2) }, 'Week ' + r2.week + ' · ' + _mmdd(r2.iso)); if (i2 === mIdx) o.selected = true; return o; }))),
@@ -17557,7 +17557,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
     el('div', { style: { padding: '14px 16px 0' } },
       el('input', {
         type: 'text', placeholder: 'Search rep…',
-        class: 'rounded-lg px-3 py-2 text-xs w-full',
+        class: 'rounded-lg px-2.5 py-1 text-[11px] w-full',
         style: { maxWidth: '300px', background: '#101010', border: '1px solid rgba(255,255,255,.22)', color: '#fff' },
         oninput: (e) => {
           const q = e.target.value.trim().toLowerCase();
@@ -17818,7 +17818,7 @@ function openNrlaTzModal(teams, cfg, save) {
       ...teams.map(t => el('div', { class: 'flex items-center justify-between gap-3 py-2 border-b border-' },
         el('span', { class: 'text-sm font-semibold' }, _nrlaTitle(t)),
         el('select', {
-          class: 'rounded-lg px-2 py-1.5 text-xs cursor-pointer',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] cursor-pointer',
           onchange: (e) => { cfg.branchTz[t] = e.target.value; },
         }, ...OPTS.map(([v, l]) => el('option', { value: v, selected: nrlaBranchTzOf(cfg, t) === v }, l))),
       )),
@@ -18222,7 +18222,7 @@ function openNrlaRepMarketModal(sales) {
     const movedCount = Object.keys(comp.repBranchOverrides).length;
     const searchInput = el('input', {
       type: 'text', value: state._nrlaRepSearch || '', placeholder: 'Search reps…',
-      class: 'w-full rounded-lg border px-3 py-2 text-sm',
+      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
       style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
     });
     searchInput.addEventListener('input', (e) => { state._nrlaRepSearch = e.target.value; render(); setTimeout(() => { const el2 = card.querySelector('input'); if (el2) { el2.focus(); el2.setSelectionRange(el2.value.length, el2.value.length); } }, 0); });
@@ -18254,7 +18254,7 @@ function openNrlaRepMarketModal(sales) {
           const ov = comp.repBranchOverrides[name] ? String(comp.repBranchOverrides[name]).toUpperCase() : '';
           const effective = ov || home;
           const sel = el('select', {
-            class: 'rounded-lg px-2 py-1.5 text-xs font-semibold cursor-pointer',
+            class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
             style: ov ? { border: '2px solid ' + NAVY, color: NAVY } : {},
             onchange: (e) => {
               const v = e.target.value;
@@ -18440,7 +18440,7 @@ function openNrlaRosterModal(rawSales) {
       el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '×')));
   const searchInput = el('input', {
     type: 'text', value: state._nrlaRosterSearch || '', placeholder: 'Search reps…',
-    class: 'w-full rounded-lg border px-3 py-2 text-sm',
+    class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
     style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
   });
   let searchTimer = null;
@@ -18455,17 +18455,17 @@ function openNrlaRosterModal(rawSales) {
   // the moment their first sale syncs.
   const addName = el('input', {
     type: 'text', placeholder: 'New rep — type it like FieldRoutes shows it ("Brayden Austin" works too)…',
-    class: 'flex-1 rounded-lg border px-3 py-2 text-sm min-w-0',
+    class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] min-w-0',
     style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
   });
   const addId = el('input', {
     type: 'text', placeholder: 'Rep ID (optional)',
-    class: 'rounded-lg border px-2 py-2 text-xs',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px]',
     style: { width: '110px', background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
     title: 'FieldRoutes sales-rep ID (e.g. 19515) — stored with the rep for reference and future ID-based matching',
   });
   const addTeam = el('select', {
-    class: 'rounded-lg border px-2 py-2 text-xs font-semibold cursor-pointer',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
     style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
   }, ...allTeamChoices.map(b => el('option', { value: b }, b)));
   const doAdd = () => {
@@ -18720,7 +18720,7 @@ function openNrlaTeamRepsModal(team, R, nameOf) {
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
     const teamTotal = rows.reduce((a, r) => a + r.total, 0);
     const scopeSel = el('select', {
-      class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
+      class: 'rounded px-2.5 py-1 text-[11px] font-black cursor-pointer',
       style: { border: 'none', background: 'rgba(255,255,255,.25)', color: '#fff' },
       title: 'Season, or a single round',
       onchange: (e) => { scope = e.target.value; render(); },
@@ -18832,7 +18832,7 @@ function openNrlaAccountsModal(R, nameOf, opts) {
     if (rows.length > 400) tbody.append(el('tr', {}, el('td', { class: 'px-3 py-3 text-center text-[11px] italic', colspan: '6', style: { color: 'var(--text-subtle)' } }, 'Showing top 400 by value — search to narrow, or export the CSV for everything.')));
   };
   const search = el('input', {
-    class: 'rounded px-2 py-1 text-[11px]', placeholder: 'Search customer / rep / ID…',
+    class: 'rounded px-2.5 py-1 text-[11px]', placeholder: 'Search customer / rep / ID…',
     style: { border: 'none', background: 'rgba(255,255,255,.25)', color: '#fff', minWidth: '180px' },
     oninput: (e) => renderRows(e.target.value),
   });
@@ -19112,7 +19112,7 @@ function nrlaBoard(rawSales, opts) {
   // Season dropdown — Live + every archived season.
   if ((state._nrlaArchives || []).length) {
     compWinBar.append(el('select', {
-      class: 'rounded-lg border px-2 py-1.5 text-xs font-bold cursor-pointer',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       title: 'View a past season\u2019s archived final standings',
       onchange: (e) => { state._nrlaArchiveSel = e.target.value; mountApp(); },
@@ -19261,7 +19261,7 @@ function nrlaBoard(rawSales, opts) {
         onclick: () => { state._nrlaStandView = v; rerender(); },
       }, l)));
     const scopeSel = el('select', {
-      class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
+      class: 'rounded px-2.5 py-1 text-[11px] font-black cursor-pointer',
       style: { border: 'none', background: 'rgba(255,255,255,.25)', color: '#fff' },
       title: 'Scope the revenue columns to the whole season or a single round (seeds and W-L always show the full race)',
       onchange: (e) => { state._nrlaStandScope = e.target.value; rerender(); },
@@ -19462,7 +19462,7 @@ function nrlaBoard(rawSales, opts) {
     // Season PRA = qualifying ÷ rounds played; a single round IS one window.
     const roundsStarted = scope === 'season' ? Math.max(1, R.rounds.filter(r => r.started).length) : 1;
     const scopeSel = el('select', {
-      class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
+      class: 'rounded px-2.5 py-1 text-[11px] font-black cursor-pointer',
       style: { border: 'none', background: 'rgba(255,255,255,.25)', color: '#fff' },
       title: 'Scope the leaderboard to the whole season or a single round',
       onchange: (e) => { state._nrlaRepBoardScope = e.target.value; rerender(); },
@@ -19470,7 +19470,7 @@ function nrlaBoard(rawSales, opts) {
       (() => { const o = el('option', { value: 'season', style: { color: '#000' } }, 'Season'); if (scope === 'season') o.selected = true; return o; })(),
       ...R.rounds.map((rd, i) => { const o = el('option', { value: String(i), style: { color: '#000' } }, roundLabel(rd)); if (scope === String(i)) o.selected = true; return o; }));
     const teamSel = el('select', {
-      class: 'rounded px-2 py-1 text-[11px] font-black cursor-pointer',
+      class: 'rounded px-2.5 py-1 text-[11px] font-black cursor-pointer',
       style: { border: 'none', background: 'rgba(255,255,255,.25)', color: '#fff' },
       title: 'All teams = Top 10 race · pick a team to see EVERY rep on it with team totals (data check)',
       onchange: (e) => { state._nrlaRepBoardTeam = e.target.value; rerender(); },
@@ -19725,7 +19725,7 @@ function nrlaBoard(rawSales, opts) {
   const _keepScroll = (fn) => { const sx = window.scrollX, sy = window.scrollY; fn(); setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
   const roundPicker = el('div', { class: 'px-3 pt-3 flex items-center gap-2 flex-wrap' },
     el('select', {
-      class: 'rounded-xl px-3 py-2 text-xs font-black uppercase tracking-wider cursor-pointer',
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-black uppercase tracking-wider cursor-pointer',
       style: { border: '1.5px solid ' + (R.rounds[_selIdx] && R.rounds[_selIdx].live ? GREEN : 'var(--border-2)'), background: 'var(--card)', color: 'var(--text)' },
       onchange: (e) => { const i = Number(e.target.value); _keepScroll(() => { state._nrlaRoundSel = i; }); },
     },
@@ -19832,7 +19832,7 @@ function nrlaBoard(rawSales, opts) {
                     })))));
       };
       const _mSel = (val, opts, onpick, activeBorder) => el('select', {
-        class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
         style: { borderColor: activeBorder ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
         onchange: (e) => onpick(e.target.value),
       }, ...opts.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (String(v) === String(val)) o.selected = true; return o; }));
@@ -20443,7 +20443,7 @@ function _mbArmWithPrizeChooser(repName, profileId) {
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   const pool = state._mbPool || [];
   const odds = state._mbOdds || {};
-  const sel = el('select', { class: 'w-full rounded-lg border px-3 py-2.5 text-sm', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } },
+  const sel = el('select', { class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } },
     pool.length ? el('option', { value: '__roll__' }, '\ud83c\udfb2 Roll by the odds') : null,
     ...pool.map(p => el('option', { value: p }, p + (Number(odds[p]) ? ' \u00b7 ' + odds[p] + '%' : ''))),
     el('option', { value: '__new__' }, '＋ Add a new prize…'));
@@ -20735,7 +20735,7 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
       el('div', { class: 'font-black uppercase tracking-widest text-sm' }, 'The Chase'),
       el('div', { class: 'flex items-center gap-2' },
         el('select', {
-          class: 'rounded-lg px-2 py-1.5 text-xs font-bold cursor-pointer',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer',
           style: { background: 'rgba(255,255,255,.12)', color: '#fff', border: '1px solid rgba(255,255,255,.25)' },
           title: 'Scope the chase \u2014 whole company or a single team',
           onchange: (e) => { state._kobeTeamSel = e.target.value; mountApp(); },
@@ -20745,7 +20745,7 @@ function kobeWeekSection(raw, KOBE_FROM, KOBE_TO, FINAL_REPS) {
         // In-place filter (show/hide rows) so typing never rebuilds the page.
         el('input', {
           type: 'text', placeholder: 'Search rep\u2026', value: state._kobeSearch || '',
-          class: 'rounded-lg px-2.5 py-1.5 text-xs font-semibold',
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold',
           style: { background: 'rgba(255,255,255,.12)', color: '#fff', border: '1px solid rgba(255,255,255,.25)', width: '160px' },
           oninput: (e) => {
             state._kobeSearch = e.target.value;
@@ -21106,7 +21106,7 @@ function kothSection(raw, cfg, isAdmin) {
         : el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No chasers on this hill yet.'));
   };
   const yearSel = el('select', {
-    class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+    class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
     onchange: (e) => { state._kothYear = Number(e.target.value); mountApp(); },
   }, ...years.map(y => el('option', { value: String(y), selected: y === year }, y === KOTH_SEASON_YEAR ? y + ' season' : String(y))));
   return el('div', { class: 'flex flex-col gap-4' },
@@ -21167,7 +21167,7 @@ function mysteryBoxSection(isAdmin) {
     const prizeEditor = (isAdmin && state._mbPrizeOpen) ? (() => {
       const pin = el('input', {
         type: 'text', placeholder: 'New incentive\u2026',
-        class: 'rounded-lg border px-3 py-2 text-sm flex-1 min-w-0',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] flex-1 min-w-0',
         style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
         onkeydown: (e) => { if (e.key === 'Enter') e.target.nextSibling.click(); },
       });
@@ -21193,7 +21193,7 @@ function mysteryBoxSection(isAdmin) {
                   el('input', {
                     type: 'number', min: '0', max: '100', step: '1', value: odds[p] != null ? String(odds[p]) : '',
                     placeholder: '\u2014',
-                    class: 'rounded border px-2 py-1 text-xs text-right tabular-nums',
+                    class: 'rounded border px-2.5 py-1 text-[11px] text-right tabular-nums',
                     style: { width: '58px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
                     onchange: (e) => {
                       const o = { ...(state._mbOdds || {}) };
@@ -21691,7 +21691,7 @@ function islSection(raw, cfg, isAdmin) {
   // Round DROPDOWN (per Isaac) — pick any round; finished ones show 🔒
   // (their frozen snapshot renders, immune to later CRM movement).
   bar.append(el('select', {
-    class: 'rounded-lg border px-2 py-1.5 text-xs font-bold cursor-pointer',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
     onchange: (e) => { state._islRoundSel = Number(e.target.value); mountApp(); },
   }, ...Array.from({ length: curIdx + 1 }, (_, i) => {
@@ -22006,7 +22006,7 @@ function viewNrlaPublic() {
     // Mobile: one compact dropdown row (pills wrapped to 3 lines on phones)
     el('div', { class: 'sm:hidden flex items-center gap-2' },
       el('select', {
-        class: 'flex-1 min-w-0 rounded-lg border px-2 py-2.5 text-sm font-bold',
+        class: 'flex-1 min-w-0 rounded-lg border px-2.5 py-1 text-[11px] font-bold',
         style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
         onchange: (e) => { state._compsTabSel = e.target.value; mountApp(); },
       }, ...comps.map(c => el('option', { value: c.id, selected: c.id === sel.id }, (c.favorite ? '★ ' : '') + c.name))),
@@ -22058,7 +22058,7 @@ function viewNrlaPublic() {
         ? [kIn('kobeFrom', 'start'), el('span', { class: 'text-muted-' }, '→'), kIn('kobeTo', 'end')]
         : [el('span', { class: 'text-[11px] font-bold tabular-nums' }, (sel.kobeFrom || '—') + ' → ' + (sel.kobeTo || '—'))]),
       el('select', {
-        class: 'rounded-lg border px-2 py-1.5 text-xs font-bold cursor-pointer',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer',
         style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
         title: 'Look back at every rep\u2019s best week of a given year',
         onchange: (e) => { state._kobeYear = e.target.value; mountApp(); },
@@ -22309,7 +22309,7 @@ function viewNrlaPublic() {
   const applyWin = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
   const dateInput = (key) => el('input', {
     type: 'date', value: cf[key] || '',
-    class: 'rounded border px-2 py-1 text-xs',
+    class: 'rounded border px-2.5 py-1 text-[11px]',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
     onchange: (e) => { cf[key] = e.target.value; applyWin(); },
   });
@@ -23265,7 +23265,7 @@ function openSpringRepMarketModal(sales, officeList) {
     const movedCount = Object.keys(comp.repBranchOverrides).length;
     const searchInput = el('input', {
       type: 'text', value: state._scRepSearch || '', placeholder: 'Search reps…',
-      class: 'w-full rounded-lg border px-3 py-2 text-sm',
+      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
       style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
     });
     searchInput.addEventListener('input', (e) => { state._scRepSearch = e.target.value; render(); setTimeout(() => { const el2 = card.querySelector('input'); if (el2) { el2.focus(); el2.setSelectionRange(el2.value.length, el2.value.length); } }, 0); });
@@ -23324,7 +23324,7 @@ function openSpringRepMarketModal(sales, officeList) {
           const ov = comp.repBranchOverrides[name] ? String(comp.repBranchOverrides[name]).toUpperCase() : '';
           const effective = ov || home;
           const sel = el('select', {
-            class: 'rounded-lg px-2 py-1.5 text-xs font-semibold cursor-pointer',
+            class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
             style: ov ? { border: '2px solid #9C3F1E', color: '#9C3F1E' } : {},
             onchange: (e) => {
               const v = e.target.value;
@@ -25025,7 +25025,7 @@ function manageTeamsPanel(opts) {
         el('div', { class: 'flex items-center gap-1.5 mr-1' },
           el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-muted)' } }, 'Year'),
           el('select', {
-            class: 'rounded-lg border px-2 py-1.5 text-xs font-semibold cursor-pointer',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
             style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
             title: 'Team assignments are tracked per year — pick which year to view/edit',
             onchange: (e) => { state._teamYear = e.target.value; _activeTeamMap(); saveDemoData(); render(); },
@@ -25070,7 +25070,7 @@ function manageTeamsPanel(opts) {
     // ── Add team bar ──
     const newTeamInput = el('input', {
       type: 'text', placeholder: 'Add new team',
-      class: 'flex-1 rounded-lg border px-3 py-1.5 text-sm',
+      class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px]',
       style: { borderColor: 'var(--border-2)' },
       onkeydown: (e) => { if (e.key === 'Enter') { commitNewTeam(); } },
     });
@@ -25377,7 +25377,7 @@ function manageTeamsPanel(opts) {
 
       const renameInput = el('input', {
         type: 'text', value: t,
-        class: 'flex-1 rounded-lg border px-3 py-1.5 text-sm font-semibold',
+        class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold',
         style: { borderColor: 'var(--border-2)' },
         onkeydown: (e) => { if (e.key === 'Enter') commitRename(); },
       });
@@ -25401,7 +25401,7 @@ function manageTeamsPanel(opts) {
       const hexInput = el('input', {
         type: 'text', value: teamColor, maxlength: 7,
         placeholder: '#RRGGBB',
-        class: 'rounded-lg border px-2 py-1 text-xs tabular-nums w-[88px]',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums w-[88px]',
         style: { borderColor: 'var(--border-2)' },
       });
       const applyHex = () => {
@@ -25572,7 +25572,7 @@ function manageTeamsPanel(opts) {
       el('input', {
         id: 'manage-reps-search',
         type: 'text', placeholder: 'Search rep…', value: search,
-        class: 'w-full rounded-lg border px-3 py-1.5 text-sm',
+        class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
         style: { borderColor: 'var(--border-2)' },
         oninput: (e) => {
           // Filter the list IN PLACE — show/hide existing rows — instead of
@@ -25591,7 +25591,7 @@ function manageTeamsPanel(opts) {
         const currentTier = getRepTier(repName);
         const teamExcluded = isTeamExcluded(currentTeam);
         const teamSel = el('select', {
-          class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
           style: {
             borderColor: 'var(--border-2)',
             background: teamExcluded ? 'rgba(220, 38, 38, .08)' : 'var(--card-2)',
@@ -25621,7 +25621,7 @@ function manageTeamsPanel(opts) {
 
         const tierMeta = repTierMeta(currentTier);
         const tierSel = el('select', {
-          class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
           style: {
             borderColor: 'var(--border-2)',
             background: tierMeta ? 'rgba(223,100,58,.08)' : 'var(--card-2)',
@@ -25840,7 +25840,7 @@ function manageTeamsPanel(opts) {
       };
       const rowFor = (rep) => {
         const cands = candidatesFor(rep);
-        const sel = el('select', { class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)', maxWidth: '260px' } },
+        const sel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)', maxWidth: '260px' } },
           ...cands.map((e, i) => el('option', { value: String(e.employee_id), selected: i === 0 }, _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : ''))));
         return el('div', { class: 'flex items-center justify-between gap-3 px-5 py-2 border-b text-sm', style: { borderColor: 'var(--border)' } },
           el('span', { class: 'font-medium truncate flex-1 min-w-0' }, rep),
@@ -26032,7 +26032,7 @@ function indPresetRibbon() {
     (() => {
       const nameIn = el('input', {
         type: 'text', placeholder: 'Name this preset\u2026',
-        class: 'flex-1 min-w-0 rounded-lg border px-2.5 py-1.5 text-xs',
+        class: 'flex-1 min-w-0 rounded-lg border px-2.5 py-1 text-[11px]',
         style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)' },
       });
       return el('div', { class: 'flex items-center gap-2 mb-2' },
@@ -26779,7 +26779,7 @@ function viewIndicators() {
           // than anything comps or payroll will ever pay on.
           const metricSel = _repLite ? (() => { state.indicatorAcctStatus = 'pending_serviced'; return null; })() :
             el('select', {
-              class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
+              class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full',
               style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
               onchange: e => { _staged.acct = e.target.value; _markDirty(); },
             },
@@ -26788,7 +26788,7 @@ function viewIndicators() {
             );
           // Emp Type — classified from the Customer Report's "Sold By Type".
           const typeSel = el('select', {
-            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
+            class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             onchange: e => { _staged.dept = e.target.value; _markDirty(); },
           },
@@ -26801,14 +26801,14 @@ function viewIndicators() {
           // presets cover it). Selecting Custom pre-fills THIS WEEK's range;
           // the actual custom pickers render in their own row below the bar.
           const dateSel = isRange ? el('select', {
-            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
+            class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full',
             onchange: e => { _staged.preset = e.target.value; _markDirty(); },
           },
             ...indicatorPresetOptions().map(p => el('option', {
               value: p.id, selected: _staged.preset === p.id,
             }, p.label)),
           ) : el('select', {
-            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
+            class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full',
             onchange: e => { state.indicatorsWeek = Number(e.target.value); mountApp(); },
           },
             ...allWeeks.map(w => {
@@ -26822,7 +26822,7 @@ function viewIndicators() {
           // Group By — Branch (Office) vs Teams. Teams needs raw sales +
           // Comps off; an invalid pick heals to Branch.
           const groupSel = el('select', {
-            class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer w-full',
+            class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer w-full',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             title: (rawSalesAvailable && !state.indicatorsComps) ? '' : 'Teams needs a raw-sales upload and Comps off',
             onchange: e => { _staged.group = e.target.value; _markDirty(); },
@@ -27165,9 +27165,9 @@ function viewIndicators() {
         // flex-col, only visible when Custom is selected.
         isRange && state.indicatorsRangePreset === 'custom' && el('div', { class: 'flex items-center gap-1 justify-end flex-wrap' },
           el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mr-1' }, 'Custom range'),
-          el('input', { type: 'date', class: 'rounded-xl border px-2 py-2 text-xs', value: state.indicatorsCustomStart || rangeBounds.start, onchange: e => { state.indicatorsCustomStart = e.target.value; mountApp(); } }),
+          el('input', { type: 'date', class: 'rounded-xl border px-2.5 py-1 text-[11px]', value: state.indicatorsCustomStart || rangeBounds.start, onchange: e => { state.indicatorsCustomStart = e.target.value; mountApp(); } }),
           el('span', { class: 'text-muted- text-xs' }, '→'),
-          el('input', { type: 'date', class: 'rounded-xl border px-2 py-2 text-xs', value: state.indicatorsCustomEnd   || rangeBounds.end,   onchange: e => { state.indicatorsCustomEnd   = e.target.value; mountApp(); } }),
+          el('input', { type: 'date', class: 'rounded-xl border px-2.5 py-1 text-[11px]', value: state.indicatorsCustomEnd   || rangeBounds.end,   onchange: e => { state.indicatorsCustomEnd   = e.target.value; mountApp(); } }),
         ),
               ), // close inner flex-col gap-2
             ), // close max-w wrapper
@@ -27206,7 +27206,7 @@ function viewIndicators() {
           ? (() => {
               const input = el('input', {
                 type: 'text', placeholder: 'Competition name…',
-                class: 'rounded border px-2 py-1 text-xs',
+                class: 'rounded border px-2.5 py-1 text-[11px]',
                 style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
               });
               const save = () => { const v = input.value.trim(); if (v) { addCompetition(v); } state._indicatorAddingComp = false; liveRerender(); };
@@ -27233,7 +27233,7 @@ function viewIndicators() {
           if (state._indicatorRenamingComp === active.id) {
             const input = el('input', {
               type: 'text', value: active.name,
-              class: 'rounded border px-2 py-1 text-xs',
+              class: 'rounded border px-2.5 py-1 text-[11px]',
               style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             });
             const save = () => { const v = input.value.trim(); if (v) renameCompetition(active.id, v); state._indicatorRenamingComp = null; liveRerender(); };
@@ -27282,7 +27282,7 @@ function viewIndicators() {
       }
       const dateInput = (key) => el('input', {
         type: 'date', value: cf[key] || '',
-        class: 'rounded border px-2 py-1 text-xs',
+        class: 'rounded border px-2.5 py-1 text-[11px]',
         style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
         onchange: (e) => { cf[key] = e.target.value; apply(); },
       });
@@ -28034,7 +28034,7 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
         el('input', {
           type: 'date',
           value: cf.start,
-          class: 'rounded border px-2 py-1 text-xs',
+          class: 'rounded border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)' },
           onchange: (e) => { cf.start = e.target.value; rerender(); },
         }),
@@ -28042,7 +28042,7 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
         el('input', {
           type: 'date',
           value: cf.end,
-          class: 'rounded border px-2 py-1 text-xs',
+          class: 'rounded border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)' },
           onchange: (e) => { cf.end = e.target.value; rerender(); },
         }),
@@ -30095,7 +30095,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               // big roster - same trick the leaderboard search uses.
               el('input', {
                 type: 'text', placeholder: 'Find a rep\u2026',
-                class: 'rounded-lg border px-2 py-1.5 text-xs w-full',
+                class: 'rounded-lg border px-2.5 py-1 text-[11px] w-full',
                 style: { borderColor: 'var(--border-2)' },
                 oninput: (e) => {
                   const q = (e.target.value || '').trim().toLowerCase();
@@ -30211,7 +30211,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 const teams = distinctTeams().filter(t => !isTeamExcluded(t));
                 const hasUnassigned = _activeUnassignedTeam;
                 return el('select', {
-                  class: 'rounded-lg border px-3 py-1.5 text-xs cursor-pointer w-full',
+                  class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer w-full',
                   style: { borderColor: 'var(--border-2)' },
                   onchange: (e) => { state._indicatorRepTeamFilter = e.target.value; mountApp(); },
                 },
@@ -30220,7 +30220,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   hasUnassigned && el('option', { value: '__unassigned__', selected: teamFilter === '__unassigned__' }, '— Unassigned —'));
               })() : null;
               const officeSel = el('select', {
-                class: 'rounded-lg border px-3 py-1.5 text-xs cursor-pointer w-full',
+                class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer w-full',
                 style: { borderColor: 'var(--border-2)' },
                 onchange: (e) => { state._indicatorRepOfficeFilter = e.target.value; mountApp(); },
               },
@@ -30644,7 +30644,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     headerExtra: el('div', { class: 'flex items-center gap-2 flex-wrap' },
       mixGroupTabs,
       mixGroup === 'subscription' ? el('select', {
-        class: 'rounded-lg border px-3 py-1.5 text-xs cursor-pointer',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
         style: { borderColor: 'var(--border-2)' },
         onchange: e => { state._indicatorSubMixOffice = e.target.value; mountApp(); },
       },
@@ -32184,7 +32184,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
   };
   const pickerSel = (placeholder, opts, selected, onpick, title) => {
     const sel = el('select', {
-      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
       title: title || '',
       onchange: (e) => onpick(e.target.value),
     },
@@ -34470,7 +34470,7 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay,
   const renderChart = () => { chartHolder.innerHTML = ''; chartHolder.append(buildMini(chosen())); };
   renderChart();
   const metricSelect = el('select', {
-    class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+    class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
     onchange: (e) => { state._miniTrendMetric = e.target.value; renderChart(); },
   },
     ...metrics.map(m => el('option', { value: m.id, selected: chosen().id === m.id }, m.label)));
@@ -34746,7 +34746,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelO
   // selected; compare excludes the primary from its options.
   const optionLabel = (x) => compareType === 'branch' ? titleCase(x) : x;
   const primarySelect = compareOn ? el('select', {
-    class: 'rounded-xl border px-3 py-1.5 text-[11px] font-semibold cursor-pointer bg-transparent',
+    class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold cursor-pointer bg-transparent',
     style: { borderColor: 'var(--border-2)' },
     title: 'Primary ' + (compareType === 'team' ? 'team' : 'branch'),
     onchange: (e) => {
@@ -34765,7 +34765,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelO
   ) : null;
 
   const compareSelect = compareOn ? el('select', {
-    class: 'rounded-xl border px-3 py-1.5 text-[11px] font-semibold cursor-pointer bg-transparent',
+    class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold cursor-pointer bg-transparent',
     style: { borderColor: 'var(--border-2)' },
     title: 'Compare against',
     onchange: (e) => {
@@ -35059,7 +35059,7 @@ function indicatorYoYTrendChart() {
     }
     const cur = (metric === 'revenue' && isOffice) ? 'revenue|' + revType : metric;
     return el('select', {
-      class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
       onchange: (e) => {
         const v = e.target.value;
         if (v.indexOf('revenue|') === 0) { state._indicatorYoYMetric = 'revenue'; state._indicatorYoYRevType = v.split('|')[1]; }
@@ -35293,7 +35293,7 @@ function indicatorYoYTrendChart() {
     };
     const repSearch = el('input', {
       type: 'text', placeholder: 'Search reps…', autocomplete: 'off',
-      class: 'w-full rounded-lg px-2.5 py-1.5 text-xs',
+      class: 'w-full rounded-lg px-2.5 py-1 text-[11px]',
       style: { background: 'var(--card-2)', border: '1px solid var(--border-2)', color: 'var(--text)' },
       oninput: (e) => paintReps(e.target.value),
       onclick: (e) => e.stopPropagation(),
@@ -35950,12 +35950,12 @@ function viewHistory({ embedded = false } = {}) {
   const tableHost = el('div', {});
   const filterBar = el('div', { class: 'card p-3 flex flex-wrap gap-2 items-center' },
     el('input', {
-      class: 'flex-1 min-w-[200px] rounded-lg border px-3 py-2 text-sm',
+      class: 'flex-1 min-w-[200px] rounded-lg border px-2.5 py-1 text-[11px]',
       placeholder: 'Search customer or notes…',
       oninput: e => { filterState.q = e.target.value.toLowerCase(); renderTable(); },
     }),
     el('select', {
-      class: 'rounded-lg border px-3 py-2 text-sm',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px]',
       onchange: e => { filterState.status = e.target.value; renderTable(); },
     },
       el('option', { value: '' }, 'All statuses'),
@@ -35966,7 +35966,7 @@ function viewHistory({ embedded = false } = {}) {
       el('option', { value: 'reschedule' },     'Reschedule'),
     ),
     el('select', {
-      class: 'rounded-lg border px-3 py-2 text-sm',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px]',
       onchange: e => { filterState.source = e.target.value; renderTable(); },
     },
       el('option', { value: '' }, 'All sources'),
@@ -36496,14 +36496,14 @@ function openCallAuditModal(profile, period, dept, onDone) {
       '⚑ Compliance flag — a compliance criterion is graded No. The call still scores; the flag rides with it.'));
     const inp = (key, ph, type) => el('input', {
       type: type || 'text', placeholder: ph, value: meta[key] || '',
-      class: 'rounded-lg border px-3 py-1.5 text-sm w-full',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] w-full',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
       oninput: (e) => { meta[key] = e.target.value; },
     });
     modal.append(el('div', { class: 'grid grid-cols-2 gap-2 mb-3' },
       inp('call_date', 'Call date', 'date'),
       el('select', {
-        class: 'rounded-lg border px-3 py-1.5 text-sm w-full cursor-pointer',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] w-full cursor-pointer',
         style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
         onchange: (e) => { meta.outcome = e.target.value; },
       }, el('option', { value: '' }, 'Outcome…'), ...OUTCOMES.map(o => el('option', { value: o, selected: meta.outcome === o }, o))),
@@ -36643,7 +36643,7 @@ function viewScorecards() {
       // Department scope — admins switch between departments; leads and
       // reps see a pinned pill for their own.
       isAdmin ? el('select', {
-        class: 'rounded-lg border px-3 py-1.5 text-sm cursor-pointer',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
         style: { borderColor: 'var(--border-2)' },
         title: 'Which department\u2019s scorecards (and template) to show',
         onchange: (e) => { state._scorecardDept = e.target.value; mountApp(); },
@@ -36654,7 +36654,7 @@ function viewScorecards() {
         }, deptLabel),
       el('label', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Period'),
       el('select', {
-        class: 'rounded-lg border px-3 py-1.5 text-sm cursor-pointer',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
         style: { borderColor: 'var(--border-2)' },
         onchange: (e) => { state._scorecardPeriod = e.target.value; mountApp(); },
       },
@@ -37007,7 +37007,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
             disabled: canEditNow ? null : true,
             placeholder: '0–100',
             value: has ? String(v) : '',
-            class: 'rounded-lg border px-3 py-1.5 text-sm tabular-nums text-right',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-right',
             style: { borderColor: 'var(--border-2)', width: '90px' },
             oninput: (e) => {
               const num = e.target.value === '' ? null : Number(e.target.value);
@@ -37084,7 +37084,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
           disabled: canEditNow ? null : true,
           value: String(workingDays),
           placeholder: String(autoWorkingDays || ''),
-          class: 'rounded-lg border px-3 py-1.5 text-sm tabular-nums text-right',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-right',
           style: { borderColor: 'var(--border-2)', width: '90px' },
           oninput: (e) => {
             const raw = e.target.value;
@@ -37128,7 +37128,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
             type: 'number', min: '0', step: '1',
             disabled: canEditNow ? null : true,
             value: String(n),
-            class: 'rounded-lg border px-3 py-1.5 text-sm tabular-nums text-right',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-right',
             style: { borderColor: 'var(--border-2)', width: '90px' },
             oninput: (e) => {
               const v = Number(e.target.value) || 0;
@@ -37321,7 +37321,7 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
         el('label', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Template Name'),
         el('input', {
           type: 'text', value: tpl.name,
-          class: 'mt-1 w-full rounded-lg border px-3 py-1.5 text-sm',
+          class: 'mt-1 w-full rounded-lg border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)' },
           oninput: (e) => { tpl.name = e.target.value; persist(); },
         }),
@@ -37338,14 +37338,14 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
         ...tpl.metrics.map(m => el('div', { class: 'flex items-center gap-2 mb-2' },
           el('input', {
             type: 'text', value: m.label,
-            class: 'rounded-lg border px-3 py-1.5 text-sm flex-1',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] flex-1',
             style: { borderColor: 'var(--border-2)' },
             oninput: (e) => { m.label = e.target.value; persist(); },
           }),
           el('input', {
             type: 'number', min: '0', max: '100', step: '1',
             value: String(Math.round(m.weight * 100)),
-            class: 'rounded-lg border px-3 py-1.5 text-sm tabular-nums text-right',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-right',
             style: { borderColor: 'var(--border-2)', width: '80px' },
             title: 'Weight (percent)',
             oninput: (e) => { m.weight = (Number(e.target.value) || 0) / 100; persist(); render(); },
@@ -37366,7 +37366,7 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
             type: 'number', min: '0', step: '1',
             value: String(tpl.attendance.workingDays || ''),
             placeholder: 'auto',
-            class: 'rounded-lg border px-3 py-1.5 text-sm tabular-nums text-right',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-right',
             style: { borderColor: 'var(--border-2)', width: '80px' },
             oninput: (e) => {
               const raw = e.target.value;
@@ -37385,14 +37385,14 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
           return el('div', { class: 'flex items-center gap-2 mb-2' },
             el('input', {
               type: 'text', value: p.label,
-              class: 'rounded-lg border px-3 py-1.5 text-sm flex-1',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] flex-1',
               style: { borderColor: 'var(--border-2)' },
               oninput: (e) => { p.label = e.target.value; persist(); },
             }),
             el('input', {
               type: 'number', min: '0', step: '0.5',
               value: String(weightVal),
-              class: 'rounded-lg border px-3 py-1.5 text-sm tabular-nums text-right',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-right',
               style: { borderColor: 'var(--border-2)', width: '80px' },
               title: p.unit === 'percent'
                 ? 'Flat % deduction per occurrence'
@@ -37405,7 +37405,7 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
               },
             }),
             el('select', {
-              class: 'rounded-lg border px-2 py-1.5 text-xs cursor-pointer',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
               style: { borderColor: 'var(--border-2)' },
               title: 'Unit — fixed % per occurrence, or working-days lost (scales with month)',
               onchange: (e) => {
@@ -38887,7 +38887,7 @@ function openReportingArrCombineModal(data, chartTitle) {
     });
   };
   const searchBox = el('input', {
-    class: 'w-full rounded-lg border px-3 py-2 text-xs',
+    class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
     placeholder: 'Search service types — e.g. "sentricon"…',
     oninput: (e) => { q = String(e.target.value || '').toLowerCase().trim(); renderList(); },
@@ -40333,12 +40333,12 @@ function viewMarketplace() {
   // ── MANAGE (admin): grant/deduct + catalog ──
   if (tab === 'manage' && isAdmin) {
     // Grant / deduct
-    const userSel = el('select', { class: 'rounded-lg border px-2 py-2 text-sm flex-1 min-w-0', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } },
+    const userSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] flex-1 min-w-0', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } },
       el('option', { value: '' }, 'Pick a user…'),
       ...Object.entries(names).sort((a, b) => String(a[1]).localeCompare(String(b[1])))
         .map(([id, nm]) => el('option', { value: id }, nm)));
-    const amtIn = el('input', { type: 'number', min: '1', step: '1', placeholder: 'Amount', class: 'rounded-lg border px-2 py-2 text-sm tabular-nums', style: { width: '110px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
-    const whyIn = el('input', { type: 'text', placeholder: 'Reason (required — lands in the ledger)', class: 'rounded-lg border px-2 py-2 text-sm flex-1 min-w-0', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+    const amtIn = el('input', { type: 'number', min: '1', step: '1', placeholder: 'Amount', class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums', style: { width: '110px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+    const whyIn = el('input', { type: 'text', placeholder: 'Reason (required — lands in the ledger)', class: 'rounded-lg border px-2.5 py-1 text-[11px] flex-1 min-w-0', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
     const doGrant = async (sign) => {
       const uid = userSel.value, amt = Math.abs(Number(amtIn.value) || 0), why = whyIn.value.trim();
       if (!uid) return toast('Pick a user', 'warn');
@@ -40366,10 +40366,10 @@ function viewMarketplace() {
     };
     const itemRow = (i) => {
       const meta = i ? _rcMeta(i) : { text: '', photos: [] };
-      const nameIn = el('input', { type: 'text', value: i ? i.name : '', placeholder: 'Item name…', class: 'rounded border px-2 py-1.5 text-xs flex-1 min-w-0', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
-      const costIn = el('input', { type: 'number', min: '1', value: i ? String(i.cost) : '', placeholder: 'Cost', class: 'rounded border px-2 py-1.5 text-xs tabular-nums', style: { width: '84px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
-      const stockIn = el('input', { type: 'number', min: '0', value: (i && i.stock != null) ? String(i.stock) : '', placeholder: '∞', title: 'Stock — blank = unlimited', class: 'rounded border px-2 py-1.5 text-xs tabular-nums', style: { width: '64px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
-      const descIn = el('input', { type: 'text', value: meta.text, placeholder: 'Description shown on the product page…', class: 'rounded border px-2 py-1.5 text-xs w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+      const nameIn = el('input', { type: 'text', value: i ? i.name : '', placeholder: 'Item name…', class: 'rounded border px-2.5 py-1 text-[11px] flex-1 min-w-0', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+      const costIn = el('input', { type: 'number', min: '1', value: i ? String(i.cost) : '', placeholder: 'Cost', class: 'rounded border px-2.5 py-1 text-[11px] tabular-nums', style: { width: '84px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+      const stockIn = el('input', { type: 'number', min: '0', value: (i && i.stock != null) ? String(i.stock) : '', placeholder: '∞', title: 'Stock — blank = unlimited', class: 'rounded border px-2.5 py-1 text-[11px] tabular-nums', style: { width: '64px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+      const descIn = el('input', { type: 'text', value: meta.text, placeholder: 'Description shown on the product page…', class: 'rounded border px-2.5 py-1 text-[11px] w-full', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
       const activeIn = el('input', { type: 'checkbox', checked: i ? !!i.active : true, title: 'Visible in the store' });
       const doSave = (photos, del) => {
         const nm = nameIn.value.trim(); const cost = Number(costIn.value) || 0;
@@ -40438,7 +40438,7 @@ function viewMarketplace() {
       const totalOdds = d.pool.reduce((a2, p2) => a2 + (Number(p2.odds) || 0), 0);
       const inp = (val, ph, w, onin) => el('input', {
         type: 'text', value: val, placeholder: ph,
-        class: 'rounded border px-2 py-1.5 text-xs' + (w ? '' : ' flex-1 min-w-0'),
+        class: 'rounded border px-2.5 py-1 text-[11px]' + (w ? '' : ' flex-1 min-w-0'),
         style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', ...(w ? { width: w } : {}) },
         oninput: onin,
       });
@@ -40446,7 +40446,7 @@ function viewMarketplace() {
         el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
           el('h3', { class: 'text-sm font-bold' }, '🎰 Spin builder'),
           spins.length ? el('select', {
-            class: 'rounded border px-2 py-1.5 text-xs', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            class: 'rounded border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             onchange: (e) => loadDraft(items.find(it => it.id === e.target.value) || null),
           },
             el('option', { value: '' }, d.id ? 'New spin…' : 'Edit existing…'),
@@ -40955,7 +40955,7 @@ function reportingCustomerHealth() {
             fmt.usd0(easy.reduce((a, c) => a + c.arr, 0)) + ' ARR protected if they flip.');
         })(),
         el('input', {
-          class: 'w-full rounded-lg border px-3 py-2 text-xs',
+          class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
           placeholder: 'Search name / ID / office…', value: state._healthQ || '',
           oninput: (e) => { state._healthQ = e.target.value; clearTimeout(state._healthQt); state._healthQt = setTimeout(() => mountApp(), 350); },
@@ -41207,7 +41207,7 @@ function reportingRenewals() {
         onclick: () => { _renewalLogSave(x.id, { attempts: (Number(g.attempts) || 0) + 1 }); mountApp(); },
       }, '+1'));
     const notes = el('input', {
-      class: 'rounded-lg border px-2 py-1 text-[11px]',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px]',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '170px' },
       placeholder: 'notes…', value: g.notes || '',
       onchange: (e) => _renewalLogSave(x.id, { notes: e.target.value }),
@@ -41713,7 +41713,7 @@ function reportingFilterBar(scope, opts = {}) {
 
   const officePicker = (selected, onChange, hint) => {
     const sel = el('select', {
-      class: 'rounded-lg border px-3 py-2 text-sm cursor-pointer',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', minWidth: '180px' },
       onchange: (e) => onChange(e.target.value),
     },
@@ -41755,7 +41755,7 @@ function reportingFilterBar(scope, opts = {}) {
     el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Time range'),
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       el('select', {
-        class: 'rounded-lg border px-3 py-2 text-sm cursor-pointer',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
         style: { borderColor: 'var(--border-2)', background: 'var(--card)', minWidth: '170px' },
         onchange: (e) => {
           state.reportingDateRange = e.target.value;
@@ -41772,7 +41772,7 @@ function reportingFilterBar(scope, opts = {}) {
       ),
       datePreset === 'custom' && el('input', {
         type: 'date',
-        class: 'rounded-lg border px-2 py-2 text-sm',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px]',
         style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
         value: state.reportingDateStart || '',
         onchange: (e) => { state.reportingDateStart = e.target.value; mountApp(); },
@@ -41780,7 +41780,7 @@ function reportingFilterBar(scope, opts = {}) {
       datePreset === 'custom' && el('span', { class: 'text-xs', style: { color: 'var(--text-muted)' } }, '→'),
       datePreset === 'custom' && el('input', {
         type: 'date',
-        class: 'rounded-lg border px-2 py-2 text-sm',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px]',
         style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
         value: state.reportingDateEnd || '',
         onchange: (e) => { state.reportingDateEnd = e.target.value; mountApp(); },
@@ -42764,7 +42764,7 @@ function reportingIsPacer() {
   const goalInput = el('input', {
     type: 'text', inputmode: 'numeric', placeholder: 'e.g. 4,000,000',
     value: annual != null ? annual.toLocaleString() : '',
-    class: 'w-28 text-right text-xs rounded border px-2 py-1',
+    class: 'w-28 text-right text-[11px] rounded border px-2.5 py-1',
     style: { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--text)' },
     onchange: (e) => {
       const v = e.target.value.replace(/[$,\s]/g, '');
@@ -43372,7 +43372,7 @@ function reportingInsideSales() {
       el('input', {
         type: opts.allowNA ? 'text' : 'number', inputmode: 'decimal',
         value: na ? 'N/A' : (v == null ? '' : v), placeholder: '—',
-        class: 'w-full text-right text-xs px-2 py-1',
+        class: 'w-full text-right text-[11px] px-2.5 py-1',
         style: { background: 'transparent', border: 'none', outline: 'none', color: na ? 'var(--text-muted)' : 'var(--text)' },
         onfocus: (e) => { e.target.style.background = 'rgba(223,100,58,.12)'; },
         onblur: (e) => { e.target.style.background = 'transparent'; },
@@ -45619,7 +45619,7 @@ function viewD2dDashboard() {
     rangeHost.innerHTML = '';
     const _rangeKids = [
       el('select', {
-        class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+        class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
         onchange: (e) => {
           state._d2dLbRange = e.target.value;
           if (state._d2dLbRange === 'custom') {
@@ -45631,9 +45631,9 @@ function viewD2dDashboard() {
       }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This Week'], ['month', 'This Month'], ['year', 'This Year'], ['custom', 'Custom…']]
         .map(([v, l]) => el('option', { value: v, selected: state._d2dLbRange === v }, l))),
       state._d2dLbRange === 'custom' ? el('div', { class: 'flex items-center gap-2' },
-        el('input', { type: 'date', class: 'rounded-xl px-2 py-1.5 text-xs', value: state._d2dCustomStart || '', onchange: (e) => { state._d2dCustomStart = e.target.value; _rebuildBoards(); } }),
+        el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state._d2dCustomStart || '', onchange: (e) => { state._d2dCustomStart = e.target.value; _rebuildBoards(); } }),
         el('span', { class: 'text-muted- text-xs' }, '→'),
-        el('input', { type: 'date', class: 'rounded-xl px-2 py-1.5 text-xs', value: state._d2dCustomEnd || '', onchange: (e) => { state._d2dCustomEnd = e.target.value; _rebuildBoards(); } })) : null,
+        el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state._d2dCustomEnd || '', onchange: (e) => { state._d2dCustomEnd = e.target.value; _rebuildBoards(); } })) : null,
     ];
     rangeHost.append(..._rangeKids.filter(Boolean));   // append() stringifies null — filter first
   };
@@ -45878,18 +45878,18 @@ function viewD2dUpfront() {
     el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mt-0.5' }, label),
     sub ? el('div', { class: 'text-[10px] text-muted-' }, sub) : null);
   const lblS = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
-  const dateInput = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-3 py-2 text-sm', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
-  const repSelect = el('select', { class: 'rounded-xl border px-3 py-2 text-sm font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
+  const dateInput = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
+  const repSelect = el('select', { class: 'rounded-xl border px-2.5 py-1 text-[11px] font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
     ...salesReps.map(e => el('option', { value: e.employee_id, selected: e.employee_id === state._commEmpId }, _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : ''))));
   const rateField = (label, frac, key) => el('label', { class: 'block' }, lblS(label),
     el('div', { class: 'flex items-center gap-1' },
       el('input', { type: 'number', step: '1', min: '0', max: '100', value: Math.round(frac * 1000) / 10,
-        class: 'w-full rounded-lg border px-2 py-1.5 text-sm text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
+        class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
         onchange: (e) => saveU({ [key]: (parseFloat(e.target.value) || 0) / 100 }) }),
       el('span', { class: 'text-xs text-muted-' }, '%')));
   const numField = (label, val, onCommit) => el('label', { class: 'block' }, lblS(label),
     el('input', { type: 'number', step: '0.01', value: (val == null ? '' : val),
-      class: 'w-full rounded-lg border px-2 py-1.5 text-sm text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
+      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
       onchange: (e) => onCommit(e.target.value) }));
 
   const earnRow = (label, rev, rate, pay) => el('div', { class: 'flex items-center justify-between gap-3 px-3 py-2.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
@@ -45956,7 +45956,7 @@ function viewD2dUpfront() {
           const curVal = state._upfrontStart + '|' + state._upfrontEnd;
           return el('label', { class: 'block' }, lblS('Pay period'),
             el('select', {
-              class: 'rounded-xl border px-3 py-2 text-sm font-medium',
+              class: 'rounded-xl border px-2.5 py-1 text-[11px] font-medium',
               style: { borderColor: 'var(--border-2)' },
               onchange: (e) => {
                 const v = e.target.value; if (!v) return;
@@ -46269,10 +46269,10 @@ function commissionCalculator() {
   if (emp.isApp) {
     const lblO = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
     const optForO = (e) => el('option', { value: e.employee_id, selected: e.employee_id === state._commEmpId }, _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : ''));
-    const repSelectO = el('select', { class: 'rounded-xl border px-3 py-2 text-sm font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
+    const repSelectO = el('select', { class: 'rounded-xl border px-2.5 py-1 text-[11px] font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
       salesReps.length ? el('optgroup', { label: 'Sales Reps · CRM' }, ...salesReps.map(optForO)) : null,
       officeStaff.length ? el('optgroup', { label: 'Office Staff · Inside Sales' }, ...officeStaff.map(optForO)) : null);
-    const dateInputO = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-3 py-2 text-sm', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
+    const dateInputO = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
     const B = commissionComputeOfficeStaff(emp, startMs, endMs);
     const { breakdown, stats } = commissionRenderOfficeStaff(B, _frEmpName(emp));
     const note = el('div', { class: 'card p-3 text-xs', style: { borderLeft: '3px solid var(--accent)' } },
@@ -46304,7 +46304,7 @@ function commissionCalculator() {
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
   const numField = (label, val, onCommit, opts = {}) => el('label', { class: 'block' }, lbl(label),
     el('input', { type: 'number', step: opts.step || '0.01', value: (val == null ? '' : val), placeholder: opts.ph || '',
-      class: 'w-full rounded-lg border px-2 py-1.5 text-sm text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
+      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
       onchange: (e) => onCommit(e.target.value) }));
 
   // ---- breakdown + stats (shared with the rep's own pay view) ----
@@ -46339,10 +46339,10 @@ function commissionCalculator() {
 
   // ---- controls ----
   const optFor = (e) => el('option', { value: e.employee_id, selected: e.employee_id === state._commEmpId }, _frEmpName(e) + (e.office_name ? ' · ' + e.office_name : ''));
-  const repSelect = el('select', { class: 'rounded-xl border px-3 py-2 text-sm font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
+  const repSelect = el('select', { class: 'rounded-xl border px-2.5 py-1 text-[11px] font-medium', style: { borderColor: 'var(--border-2)', maxWidth: '260px' }, onchange: (e) => { state._commEmpId = e.target.value; mountApp(); } },
     salesReps.length ? el('optgroup', { label: 'Sales Reps · CRM' }, ...salesReps.map(optFor)) : null,
     officeStaff.length ? el('optgroup', { label: 'Office Staff · Inside Sales' }, ...officeStaff.map(optFor)) : null);
-  const dateInput = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-3 py-2 text-sm', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
+  const dateInput = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
 
   return el('div', { class: 'flex flex-col gap-4 w-full' },
     el('div', { class: 'flex items-end justify-between flex-wrap gap-3' },
@@ -46551,13 +46551,13 @@ function reportingServices() {
 
   // ── Controls ──
   const areaSel = el('select', {
-    class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
     onchange: (e) => { state._svcAreaMode = e.target.value; mountApp(); },
   }, ...[['office', 'By Office'], ['county', 'By County'], ['zip', 'By Zip'], ['state', 'By State']]
     .map(([v, l]) => { const o = el('option', { value: v }, l); if (areaMode === v) o.selected = true; return o; }));
   const officeSel = el('select', {
-    class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
     onchange: (e) => { state.reportingOffice = e.target.value; mountApp(); },
   },
@@ -46608,7 +46608,7 @@ function reportingServices() {
   const svcNames = svcList.map(([svc]) => svc);
   const selSvc = svcNames.includes(state._svcFocus) ? state._svcFocus : (svcNames[0] || '');
   const focusSel = el('select', {
-    class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', maxWidth: '240px' },
     onchange: (e) => { state._svcFocus = e.target.value; mountApp(); },
   }, ...svcNames.map(sv => { const o = el('option', { value: sv }, sv); if (sv === selSvc) o.selected = true; return o; }));
@@ -46767,7 +46767,7 @@ function reportingWaterfall() {
     (mode === 'contract' || mode === 'rep') && el('div', { class: 'flex items-center gap-1.5' },
       el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Cohort'),
       el('select', {
-        class: 'rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
         style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
         onchange: (e) => { state.reportingWaterfallCohort = e.target.value; mountApp(); },
       },
@@ -46835,7 +46835,7 @@ function reportingWaterfall() {
     };
     const _isB = sideLabel === '__B__';
     const _officeSel = el('select', {
-      class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', minWidth: '150px' },
       onchange: (e) => { state[_isB ? 'reportingCompareOffice' : 'reportingOffice'] = e.target.value; mountApp(); },
     },
@@ -47400,7 +47400,7 @@ function reportingWaterfall() {
     // Window (zoom) — widen to 36mo/All and the seasonal humps stack up for
     // YoY reading; drag still pans within the window.
     const windowSel = el('select', {
-      class: 'rounded-lg border px-2 py-1.5 text-[11px] font-bold cursor-pointer',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       title: 'How many months are visible at once',
       onchange: (e) => { state._churnWindow = e.target.value; state._churnPanStart = null; mountApp(); },
@@ -48202,7 +48202,7 @@ function reportingWaterfall() {
             onclick: () => { _fx[k] = !_fx[k]; mountApp(); },
           }, (_fx[k] ? 'Excl. ' : 'Incl. ') + lab)),
           el('select', {
-            class: 'rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
             onchange: (e) => { state._rtAttrYear = e.target.value === 'all' ? 'all' : Number(e.target.value); mountApp(); },
           },
@@ -48886,7 +48886,7 @@ function viewAdmin() {
 
   const mobileNav = el('div', { class: 'sm:hidden flex items-center gap-2' },
     el('select', {
-      class: 'flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold cursor-pointer',
+      class: 'flex-1 rounded-xl px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
       onchange: (e) => { state.adminSection = e.target.value; mountApp(); },
     },
       ...groups.map(g => el('optgroup', { label: g.label },
@@ -49486,7 +49486,7 @@ function monthlyArchivePanel() {
       listWrap.append(
         el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Month'),
         el('select', {
-          class: 'rounded-xl px-3 py-2 text-xs font-medium cursor-pointer',
+          class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
           style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
           onchange: (e) => showSnap(e.target.value),
         }, ...files.map((f, i) => el('option', { value: f.name, selected: i === 0 },
@@ -49607,7 +49607,7 @@ function goalRepCountField(label, val, onCommit) {
   return el('label', { class: 'block' },
     el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, label),
     el('input', { type: 'number', min: '1', step: '1', value: val,
-      class: 'w-full rounded-lg border px-3 py-2 text-sm font-bold text-left', style: { borderColor: 'var(--border-2)' },
+      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] font-bold text-left', style: { borderColor: 'var(--border-2)' },
       onchange: (e) => onCommit(e.target.value) }));
 }
 
@@ -49650,7 +49650,7 @@ function goalMonthlyCard(g, persist) {
   const curM = new Date().getMonth();
   const cell = (arr, m) => el('input', {
     type: 'text', inputmode: 'numeric', value: Math.round(arr[m] || 0).toLocaleString(),
-    class: 'w-24 text-left text-xs rounded border px-2 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
+    class: 'w-24 text-left text-[11px] rounded border px-2.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
     onchange: (e) => { arr[m] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); mountApp(); },
   });
   // Editable seasonal curve %: each month's share of its line's annual total.
@@ -49671,7 +49671,7 @@ function goalMonthlyCard(g, persist) {
     const pct = tot > 0 ? (arr[m] || 0) / tot * 100 : 0;
     return el('input', {
       type: 'text', inputmode: 'decimal', value: pct.toFixed(1),
-      class: 'w-16 text-left text-xs rounded border px-2 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
+      class: 'w-16 text-left text-[11px] rounded border px-2.5 py-1 tabular-nums', style: { borderColor: 'var(--border-2)' },
       onchange: (e) => { reshapeCurve(arr, m, (parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0) / 100); persist(); mountApp(); },
     });
   };
@@ -49908,7 +49908,7 @@ function adminCommissions() {
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
   const numField = (label, val, onCommit, opts = {}) => el('label', { class: 'block' }, lbl(label),
     el('input', { type: 'number', step: opts.step || '0.01', value: (val == null ? '' : val),
-      class: 'w-full rounded-lg border px-2 py-1.5 text-sm text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
+      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
       onchange: (e) => onCommit(e.target.value) }));
 
   const tabs = el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
@@ -49943,7 +49943,7 @@ function adminCommissions() {
   const svcAgg = new Map();
   for (const r of (state.reportingSubscriptions || [])) { const s = r.subscription || '(blank)'; svcAgg.set(s, (svcAgg.get(s) || 0) + (Number(r.subscription_contract_value) || 0)); }
   const svcList = [...svcAgg.entries()].sort((a, b) => (cfg.serviceCategories[a[0]] ? 1 : 0) - (cfg.serviceCategories[b[0]] ? 1 : 0) || b[1] - a[1]);
-  const catSelect = (svc) => { const cur = cfg.serviceCategories[svc] || ''; return el('select', { class: 'rounded-lg border px-2 py-1 text-xs', style: { borderColor: 'var(--border-2)' }, onchange: (e) => saveCat(svc, e.target.value) },
+  const catSelect = (svc) => { const cur = cfg.serviceCategories[svc] || ''; return el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onchange: (e) => saveCat(svc, e.target.value) },
     ...[['', 'Unclassified'], ['pest', 'Pest'], ['bundle', 'Bundle'], ['ancillary', 'Ancillary'], ['exclude', 'Exclude']].map(([v, t]) => el('option', { value: v, selected: cur === v }, t))); };
   const svcPanel = el('div', { class: 'card p-4' },
     el('div', { class: 'text-sm font-bold mb-1' }, 'Service → category map (global)'),
@@ -50030,7 +50030,7 @@ function adminPricing(opts = {}) {
             el('input', {
               type: 'text',
               inputmode: 'numeric',
-              class: 'rounded-lg border px-2 py-1.5 text-sm font-bold w-16 text-right',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-right',
               value: s.below_min_multiplier,
               onchange: e => { s.below_min_multiplier = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
             }),
@@ -50059,7 +50059,7 @@ function adminPricing(opts = {}) {
           el('span', { class: 'text-sm text-muted-' }, '+'),
           el('input', {
             type: 'text', inputmode: 'numeric',
-            class: 'rounded-lg border px-2 py-1.5 text-sm font-bold w-16 text-right',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-right',
             value: s.pif_modifier ?? 5,
             onchange: e => { s.pif_modifier = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
           }),
@@ -50078,7 +50078,7 @@ function adminPricing(opts = {}) {
         el('div', { class: 'flex items-center gap-1 shrink-0 ml-4' },
           el('input', {
             type: 'text', inputmode: 'numeric',
-            class: 'rounded-lg border px-2 py-1.5 text-sm font-bold w-16 text-right',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-right',
             value: s.commercial_rate,
             onchange: e => { s.commercial_rate = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
           }),
@@ -50098,7 +50098,7 @@ function adminPricing(opts = {}) {
             '\u2265',
             el('input', {
               type: 'text', inputmode: 'numeric',
-              class: 'rounded-lg border px-2 py-1 text-xs font-bold w-14 text-right',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-14 text-right',
               value: t.min,
               onchange: e => { t.min = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
             }),
@@ -50107,7 +50107,7 @@ function adminPricing(opts = {}) {
             'pays',
             el('input', {
               type: 'text', inputmode: 'numeric',
-              class: 'rounded-lg border px-2 py-1 text-xs font-bold w-14 text-right',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-14 text-right',
               value: t.pay,
               onchange: e => { t.pay = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
             }),
@@ -50604,7 +50604,7 @@ function adminBackup() {
           }, '×'),
         ),
         el('select', {
-          class: 'rounded-lg border px-2 py-2 text-xs cursor-pointer',
+          class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
           style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' },
           onchange: (e) => { state._activityLogAction = e.target.value; mountApp(); },
         },
@@ -51275,7 +51275,7 @@ function openImportSalesModal(importType) {
                 f.hint && el('div', { class: 'text-[10px] text-muted-' }, f.hint),
               ),
               el('select', {
-                class: 'rounded-lg border px-2 py-1 text-[12px] bg-transparent',
+                class: 'rounded-lg border px-2.5 py-1 text-[11px] bg-transparent',
                 style: {
                   borderColor: isMissing ? '#DC2626' : 'var(--border-2)',
                   minWidth: '160px', maxWidth: '200px',
@@ -51554,7 +51554,7 @@ function adminSlack() {
         label,
       ),
       el('select', {
-        class: 'rounded-lg border px-3 py-2 text-sm flex-1',
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] flex-1',
         onchange: (e) => { s[key].channel = e.target.value; persist(); },
       },
         el('option', { value: '' }, 'Select channel…'),
@@ -51589,7 +51589,7 @@ function adminSlack() {
       },
         el('input', {
           type: 'password',
-          class: 'w-full rounded-lg border px-3 py-2 text-sm font-mono',
+          class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] font-mono',
           placeholder: 'xoxb-...',
           value: s.slack_bot_token,
           oninput: (e) => { s.slack_bot_token = e.target.value; persist(); },
@@ -51602,13 +51602,13 @@ function adminSlack() {
         el('div', { class: 'flex flex-col gap-2' },
           ...s.slack_channels.map((ch, i) => el('div', { class: 'flex items-center gap-2 flex-wrap' },
             el('input', {
-              class: 'rounded-lg border px-3 py-2 text-sm',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px]',
               style: { width: '160px' },
               value: ch.name,
               oninput: (e) => { ch.name = e.target.value; persist(); },
             }),
             el('input', {
-              class: 'flex-1 rounded-lg border px-3 py-2 text-sm font-mono',
+              class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] font-mono',
               style: { minWidth: '240px' },
               placeholder: 'https://hooks.slack.com/services/...',
               value: ch.webhook,
@@ -51675,7 +51675,7 @@ function adminSlack() {
           el('div', { class: 'flex items-center gap-2' },
             el('span', { class: 'text-xs text-muted- font-mono shrink-0' }, '[Rep name]'),
             el('input', {
-              class: 'flex-1 rounded-lg border px-3 py-2 text-sm',
+              class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px]',
               value: s.first_blood.message,
               oninput: (e) => { s.first_blood.message = e.target.value; persist(); },
             }),
@@ -51684,7 +51684,7 @@ function adminSlack() {
         el('div', { class: 'grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-2 items-center' },
           el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Image URL'),
           el('input', {
-            class: 'rounded-lg border px-3 py-2 text-sm',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px]',
             placeholder: 'https://i.imgur.com/...',
             value: s.first_blood.image_url,
             oninput: (e) => { s.first_blood.image_url = e.target.value; persist(); },
@@ -51705,7 +51705,7 @@ function adminSlack() {
             'Enabled',
           ),
           el('select', {
-            class: 'rounded-lg border px-3 py-2 text-sm',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px]',
             onchange: (e) => { if (!s.weekly_digest) s.weekly_digest = {}; s.weekly_digest.day = e.target.value; persist(); },
           },
             ...['Friday', 'Saturday', 'Sunday', 'Monday'].map(d =>
@@ -51746,7 +51746,7 @@ function adminSlack() {
           el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Manual send'),
           el('select', {
             id: 'paystub-rep-picker',
-            class: 'rounded-lg border px-3 py-2 text-sm',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px]',
           },
             el('option', { value: '' }, 'Select a rep…'),
             el('option', { value: '__all__' }, '— All active reps —'),
@@ -51830,7 +51830,7 @@ function adminSlack() {
             el('span', { class: 'text-sm font-medium truncate' }, p.full_name),
           ),
           el('input', {
-            class: 'flex-1 rounded-lg border px-3 py-2 text-sm font-mono',
+            class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px] font-mono',
             placeholder: 'U01AB2CD3EF',
             value: p.slack_user_id || '',
             oninput: (e) => { p.slack_user_id = e.target.value; persist(); },
@@ -52086,7 +52086,7 @@ function openCompEditor(existing = null) {
     },
   });
 
-  const inp = (name, attrs = {}) => el('input', { name, class: 'w-full rounded-lg border px-3 py-2 text-sm', ...attrs });
+  const inp = (name, attrs = {}) => el('input', { name, class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', ...attrs });
   const mk = (label, input) => el('label', { class: 'block text-sm' },
     el('span', { class: 'text-battle-2 block mb-1 text-xs' }, label), input);
 
@@ -52102,11 +52102,11 @@ function openCompEditor(existing = null) {
     el('h2', { class: 'text-xl font-bold' }, existing ? 'Edit competition' : 'New competition'),
     el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-3' },
       mk('Name', inp('name', { required: true, value: existing?.name || '' })),
-      mk('Category', el('select', { name: 'category', class: 'w-full rounded-lg border px-3 py-2 text-sm' },
+      mk('Category', el('select', { name: 'category', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' },
         el('option', { value: 'inside_sales', selected: existing?.category === 'inside_sales' }, 'Inside Sales'),
         el('option', { value: 'loyalty', selected: existing?.category === 'loyalty' }, 'Loyalty'),
       )),
-      mk('Type', el('select', { name: 'type', class: 'w-full rounded-lg border px-3 py-2 text-sm' },
+      mk('Type', el('select', { name: 'type', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' },
         el('option', { value: 'bingo', selected: existing?.type === 'bingo' }, 'Bingo'),
         el('option', { value: 'royalty', selected: existing?.type === 'royalty' }, 'Royalty'),
       )),
@@ -52417,7 +52417,7 @@ function adminReps() {
   const _officeOpts = [...new Set(inTab.flatMap(x => { const e = x.frEmp || x.emp; return String((e && e.office_name) || '').split(',').map(s => s.trim()).filter(Boolean); }))].sort();
   const _fActive = ['role', 'office', 'tier'].filter(k => F[k]).length;
   const _fSel = (key, label, opts) => el('select', {
-    class: 'rounded-lg border px-2 py-1.5 text-xs cursor-pointer w-full',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer w-full',
     style: { borderColor: F[key] ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', fontWeight: F[key] ? '700' : '400' },
     title: 'Filter the list by ' + label.toLowerCase(),
     onchange: (e) => { F[key] = e.target.value; mountApp(); },
@@ -52485,7 +52485,7 @@ function adminReps() {
     _filtersWrap,
     el('input', {
       id: 'admin-user-search',
-      class: 'rounded-xl border px-3 py-2 text-xs flex-1 min-w-0', style: { borderColor: 'var(--border-2)', minWidth: '180px' },
+      class: 'rounded-xl border px-2.5 py-1 text-[11px] flex-1 min-w-0', style: { borderColor: 'var(--border-2)', minWidth: '180px' },
       placeholder: 'Search ' + REP_TYPE_TAB_LABEL[typeTab] + '…', value: state._adminUserSearch,
       // The debounced mountApp() rebuilds the whole page, which replaces
       // this input and dropped focus mid-word - typing felt like the page
@@ -52589,7 +52589,7 @@ function adminReps() {
     const curTier = getRepTier(key);
     const tierMeta = (typeof repTierMeta === 'function') ? repTierMeta(curTier) : null;
     const tierSel = el('select', {
-      class: 'rounded-lg border px-2 py-1 text-xs cursor-pointer',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
       style: { borderColor: 'var(--border-2)', background: tierMeta ? 'rgba(223,100,58,.08)' : 'var(--card-2)', color: tierMeta ? tierMeta.color : 'var(--text)', fontWeight: tierMeta ? '700' : '400' },
       onchange: (e) => { setRepTier(key, e.target.value); mountApp(); },
     },
@@ -53232,7 +53232,7 @@ function openUserEditor(existing = null, prefill = null) {
       // Rep - Sales Rep here, so saving them migrates to an explicit role.
       let seedRole = existing?.role || prefill?.role || 'rep_sales';
       if (seedRole === 'rep') seedRole = 'rep_sales';
-      const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-3 py-2 text-sm' },
+      const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' },
         el('option', { value: 'rep_sales',  selected: seedRole === 'rep_sales' },  'Rep - Sales Rep'),
         el('option', { value: 'rep_partner', selected: seedRole === 'rep_partner' }, 'Rep - Partner'),
         el('option', { value: 'rep_team_lead', selected: seedRole === 'rep_team_lead' }, 'Rep - Team Lead'),
@@ -53311,7 +53311,7 @@ function openUserEditor(existing = null, prefill = null) {
         }),
       );
 
-      const repTypeSelect = el('select', { name: 'rep_type', class: 'w-full rounded-lg border px-3 py-2 text-sm' },
+      const repTypeSelect = el('select', { name: 'rep_type', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' },
         el('option', { value: 'sales_rep',   selected: (existing?.rep_type || 'sales_rep') === 'sales_rep' }, 'Sales Rep'),
         el('option', { value: 'loyalty_rep', selected: existing?.rep_type === 'loyalty_rep' }, 'Loyalty Rep'),
       );
