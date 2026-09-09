@@ -25209,6 +25209,15 @@ function manageTeamsPanel(opts) {
     }[_mtSortCol] || ((a, b) => a.localeCompare(b));
     filteredReps = filteredReps.slice().sort(_mtCmp);
     if (_mtSortDir === 'desc') filteredReps.reverse();
+    // Untagged reps FIRST (per Isaac) — anyone with no team or no tier floats
+    // to the top of the list, whatever the sort, so they're the first thing
+    // fixed. Within each group the chosen sort still applies.
+    {
+      const _needs = (n) => !getRepTeam(n) || !getRepTier(n);
+      const top = filteredReps.filter(_needs), rest = filteredReps.filter(n => !_needs(n));
+      filteredReps = [...top, ...rest];
+      state._mtUntaggedFirstCount = top.length;
+    }
     // NOTE: the search box is applied client-side (show/hide rows) so typing
     // never triggers a full re-render — see applyRepSearch() below.
 
@@ -25806,7 +25815,15 @@ function manageTeamsPanel(opts) {
 
     // Rep list (id is stable so we can preserve scroll position across re-renders)
     const repList = el('div', { id: 'manage-reps-list', class: 'flex-1 overflow-y-auto' },
-      ...filteredReps.map(repName => {
+      ...filteredReps.map((repName, _ri) => {
+        // Divider between the untagged block on top and everyone else.
+        const _divider = (_ri === state._mtUntaggedFirstCount && _ri > 0)
+          ? el('div', { class: 'px-5 py-1 text-[10px] uppercase tracking-widest font-bold border-t border-b', style: { color: 'var(--text-subtle)', borderColor: 'var(--border)', background: 'var(--card-2)' } }, 'Everyone else')
+          : null;
+        const _untaggedHead = (_ri === 0 && state._mtUntaggedFirstCount > 0)
+          ? el('div', { class: 'px-5 py-1 text-[10px] uppercase tracking-widest font-bold border-b', style: { color: '#C28A1F', borderColor: 'var(--border)', background: 'rgba(255,193,7,.06)' } }, state._mtUntaggedFirstCount + ' need a team or tier')
+          : null;
+        const _row = (() => {
         const currentTeam = getRepTeam(repName);
         const currentTier = getRepTier(repName);
         const teamExcluded = isTeamExcluded(currentTeam);
@@ -25940,6 +25957,8 @@ function manageTeamsPanel(opts) {
               : [activeToggle, tierSel, teamSel]),
           ),
         );
+        })();
+        return (_untaggedHead || _divider) ? el('div', { style: { display: 'contents' } }, _untaggedHead, _divider, _row) : _row;
       }),
       filteredReps.length === 0 && el('div', { class: 'px-5 py-6 text-center text-sm text-muted- italic' },
         reps.length === 0 ? 'No reps found — upload a raw-sales CSV first.' : 'No reps match the current filters.'),
@@ -25948,9 +25967,8 @@ function manageTeamsPanel(opts) {
     // Show/hide rep rows by the search box without re-rendering the modal.
     const applyRepSearch = () => {
       const q = (state._indicatorTeamSearch || '').trim().toLowerCase();
-      for (const row of repList.children) {
-        const name = row.getAttribute && row.getAttribute('data-rep');
-        if (name == null) continue;
+      for (const row of repList.querySelectorAll('[data-rep]')) {
+        const name = row.getAttribute('data-rep');
         row.style.display = (!q || name.includes(q)) ? '' : 'none';
       }
     };
