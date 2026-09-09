@@ -13013,7 +13013,7 @@ function viewPay() {
   const BASE_PCT = Number(viewedProfile.upfront_commission_rate || 0.07) * 100;
   const ctRate = (re) => { const cc = (s.contract_commissions || []).find(c => re.test(String(c.name || ''))); return cc ? Number(cc.rate) : null; };
   const upsellRate = ctRate(/^upsell/i), otsRate = ctRate(/one time/i);
-  const commercialRate = s.commercial_rate != null ? Number(s.commercial_rate) : null;
+  const commercialRate = BASE_PCT * (Number(s.commercial_multiplier ?? 50) / 100);
   const tierLabel = (() => {
     if (upfrontPct == null) return '—';
     const tiers = (s.upfront_tiers || []).slice().sort((a, b) => Number(b.min) - Number(a.min));
@@ -13164,7 +13164,7 @@ function viewPay() {
         row('Upfront Tier', tierLabel === '—' ? '70% +' : tierLabel),
         row('Upfront Pay %', pctS(upfrontMult * 100, 2)),
         row('PIF Modifier', signedPct(Number(s.pif_modifier ?? 5))),
-        row('Commercial Modifier', commercialRate == null ? '—' : signedPct(commercialRate - BASE_PCT)),
+        row('Commercial Modifier', signedPct(commercialRate - BASE_PCT)),
         row('OTS Modifier', otsRate == null ? '—' : signedPct(otsRate - BASE_PCT)),
         row('Upsell Modifier', upsellRate == null ? '—' : signedPct(upsellRate - BASE_PCT)),
         row('Below Min Pay Modifier', pctS(Number(s.below_min_multiplier ?? 50), 2)),
@@ -50742,7 +50742,7 @@ function adminPricing(opts = {}) {
   s.below_min_multiplier = s.below_min_multiplier ?? 50; // 50% = half commission
 
   // Commercial + Paid in Full override rates (override the contract type base rate when checked)
-  s.commercial_rate = s.commercial_rate ?? 7.0;
+  s.commercial_multiplier = s.commercial_multiplier ?? 50;   // % of the rep's own upfront rate
   s.paid_in_full_rate = s.paid_in_full_rate ?? 7.0;
 
   const persist = () => { saveDemoData(); saveAppSettings(); };
@@ -50814,16 +50814,16 @@ function adminPricing(opts = {}) {
       el('div', { class: 'flex items-center gap-4' },
         el('div', {},
           el('h3', { class: 'text-sm font-bold' }, 'Commercial Override'),
-          el('p', { class: 'text-xs text-muted- mt-0.5' }, 'Overrides the contract type base rate when the "Commercial" box is checked on a sale. Typically for accounts with ACV > $2,000 on commercial properties.'),
+          el('p', { class: 'text-xs text-muted- mt-0.5' }, 'When the "Commercial" box is checked on a sale, the rep earns this share of THEIR OWN upfront % (a 7% rep at 50% pays 3.5%; an 8% rep pays 4%). Typically for accounts with ACV > $2,000 on commercial properties.'),
         ),
         el('div', { class: 'flex items-center gap-1 shrink-0 ml-4' },
           el('input', {
             type: 'text', inputmode: 'numeric',
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-left',
-            value: s.commercial_rate,
-            onchange: e => { s.commercial_rate = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
+            value: s.commercial_multiplier,
+            onchange: e => { s.commercial_multiplier = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
           }),
-          el('span', { class: 'text-sm text-muted-' }, '%'),
+          el('span', { class: 'text-sm text-muted-' }, '% of rep upfront'),
         ),
       ),
     ),
@@ -50996,8 +50996,14 @@ function getCommissionRate(repId, sale) {
     // close-rate backend at quarter end like any other subscription (their
     // revenue sits in the same sheet columns those formulas sum).
     baseRate = contractRate() + (Number(s.pif_modifier ?? 5) / 100);
-  } else if (sale?.is_commercial && s.commercial_rate != null) {
-    baseRate = s.commercial_rate / 100;
+  } else if (sale?.is_commercial) {
+    // Commercial (per Isaac): HALF of whatever THIS rep's upfront % is —
+    // not a flat rate. Multiplier lives in Settings → Commissions (default 50%).
+    const repUpfront = Number(profile?.upfront_commission_rate || BASE);
+    const rate0 = repUpfront * ((Number(s.commercial_multiplier ?? 50)) / 100);
+    let rate = rate0;
+    if (sale?.audit_status === 'below_minimums') rate *= (s.below_min_multiplier ?? 50) / 100;
+    return Math.round(rate * 10000) / 10000;
   } else if (sale?.contract_type_id && s.contract_commissions) {
     baseRate = contractRate();
   }
