@@ -10825,15 +10825,21 @@ function todaysSalesPanel(windowSales, range) {
   return el('div', { class: 'card overflow-hidden flex flex-col' },
     header,
     // ~10 rows visible, the rest scroll in place (per Isaac).
-    el('div', { class: 'scroll-x', style: { maxHeight: '412px', overflowY: 'auto' } },
-      el('table', { class: 'w-full text-[12px]' },
+    // Fixed column layout so the feed never needs a sideways scroll (per
+    // Isaac): Time / Contract / ACV get fixed widths, Rep + Service share
+    // the rest and ellipsize.
+    el('div', { style: { maxHeight: '412px', overflowY: 'auto', overflowX: 'hidden' } },
+      el('table', { class: 'w-full text-[11px]', style: { tableLayout: 'fixed' } },
+        el('colgroup', {},
+          el('col', { style: { width: '58px' } }), el('col', { style: { width: '30%' } }), el('col', {}),
+          el('col', { style: { width: '54px' } }), el('col', { style: { width: '62px' } })),
         el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '1' } },
           el('tr', {},
-            el('th', { class: 'text-left pl-4 pr-2 py-1.5 font-semibold', title: 'Change your time zone under the gear → My Settings' }, 'Time · ' + (_TZ_SHORT[warRoomTz()] || 'MT')),
-            el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Rep'),
-            el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Service'),
-            el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'Contract'),
-            el('th', { class: 'text-right pr-4 pl-2 py-1.5 font-semibold' }, 'ACV'),
+            el('th', { class: 'text-left pl-3 pr-1 py-1.5 font-semibold', title: 'Shown in ' + (_TZ_SHORT[warRoomTz()] || 'MT') + ' — change your time zone under the gear → My Settings' }, 'Time'),
+            el('th', { class: 'text-left px-1 py-1.5 font-semibold' }, 'Rep'),
+            el('th', { class: 'text-left px-1 py-1.5 font-semibold' }, 'Service'),
+            el('th', { class: 'text-left px-1 py-1.5 font-semibold' }, 'Contract'),
+            el('th', { class: 'text-right pr-3 py-1.5 font-semibold' }, 'ACV'),
           ),
         ),
         el('tbody', {},
@@ -10855,11 +10861,12 @@ function todaysSalesPanel(windowSales, range) {
               if (m) {
                 const shift = (_TZ_RAW_OFFSET[_dispTz] ?? 1) - _saleHourOffset(s._crmOffice);
                 const h = (Number(m[1]) + shift + 24) % 24;
-                timeStr = (h % 12 || 12) + ':' + m[2] + ' ' + (h >= 12 ? 'PM' : 'AM');
+                timeStr = (h % 12 || 12) + ':' + m[2] + (h >= 12 ? 'p' : 'a');
               }
             } else if (s.created_at) {
               try { timeStr = new Date(s.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: _dispTz }); }
               catch (e) { timeStr = new Date(s.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); }
+              timeStr = timeStr.replace(/\s*AM$/i, 'a').replace(/\s*PM$/i, 'p');
             }
             const svcName = nameFromId(state.serviceTypes, s.service_type_id);
             const pendingChip = s._pendingSync ? el('span', {
@@ -10868,17 +10875,18 @@ function todaysSalesPanel(windowSales, range) {
               title: 'Logged just now — counted immediately; the CRM copy replaces this row on the next hourly sync.',
             }, '⏳ syncing') : null;
             const ctName  = contractTypeName(s);
+            const _ell = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
             return el('tr', { class: 'border-t border-' },
-              el('td', { class: 'pl-4 pr-2 py-2 text-muted- tabular-nums text-[11px] whitespace-nowrap' }, timeStr),
-              el('td', { class: 'px-2 py-2' },
-                el('div', { class: 'flex items-center gap-1.5' },
+              el('td', { class: 'pl-3 pr-1 py-2 text-muted- tabular-nums whitespace-nowrap' }, timeStr),
+              el('td', { class: 'px-1 py-2', style: _ell },
+                el('div', { class: 'flex items-center gap-1.5 min-w-0' },
                   avatarNode(rep?.avatar_url, rep?.initials || crmInitials, 'w-5 h-5 text-[8px]'),
-                  el('span', { class: 'font-medium' }, first),
+                  el('span', { class: 'font-medium', style: _ell }, first),
                 ),
               ),
-              el('td', { class: 'px-2 py-2 text-muted- truncate max-w-[140px]' }, (svcName && svcName !== '—') ? svcName : (s._crmService || '—'), pendingChip),
-              el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap' }, ctName),
-              el('td', { class: 'pr-4 pl-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap' }, fmt.usd0(saleAcv(s))),
+              el('td', { class: 'px-1 py-2 text-muted-', style: _ell, title: (svcName && svcName !== '—') ? svcName : (s._crmService || '') }, (svcName && svcName !== '—') ? svcName : (s._crmService || '—'), pendingChip),
+              el('td', { class: 'px-1 py-2 text-muted- whitespace-nowrap' }, ctName),
+              el('td', { class: 'pr-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap' }, fmt.usd0(saleAcv(s))),
             );
           }),
         ),
