@@ -84,7 +84,7 @@ let boundaryLayer = null;
 let recomputeTimer = null;
 
 const map = L.map('map', { preferCanvas:true }).setView([33.9, -84.4], 9);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
   attribution:'© OpenStreetMap © CARTO', subdomains:'abcd', maxZoom:19
 }).addTo(map);
 
