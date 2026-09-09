@@ -46422,18 +46422,25 @@ function viewD2dDashboard() {
   };
   wrap.append(rangeHost);
 
-  // ── Hero tiles: Today · This Week · This Month · This Year ──
-  const tile = (label, rows) => {
-    const cv = rows.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
-    return el('div', { class: 'card p-4 min-w-0' },
-      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, label),
-      el('div', { class: 'text-2xl font-display tabular-nums mt-1' }, fmt.usd0(cv)),
-      el('div', { class: 'text-xs text-muted- tabular-nums' }, rows.length + (rows.length === 1 ? ' account' : ' accounts')));
-  };
+  // ── Hero: Today · This Week · This Month · This Year — ONE combined
+  // card with four stats side by side (per Isaac, same look as the Inside
+  // Sales KPI cards) instead of four separate tiles. ──
+  const kpiMulti = (stats, cols) => el('div', { class: 'card p-4 sm:p-5 grid ' + (cols === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-4') },
+    ...stats.map(([label, value, sub], i) => el('div', {
+      class: 'min-w-0 flex flex-col justify-center px-2 sm:px-4 text-center' + (i > 0 ? ' border-l' : ''),
+      style: i > 0 ? { borderColor: 'var(--border)' } : {},
+    },
+      el('div', { class: 'text-[9px] sm:text-[10px] text-muted- uppercase tracking-widest font-semibold truncate' }, label),
+      typeof value === 'string' ? el('div', { class: 'font-display text-2xl sm:text-4xl mt-1.5 tabular-nums truncate leading-none' }, value) : value,
+      sub ? el('div', { class: 'text-[11px] text-muted- tabular-nums mt-1 truncate' }, sub) : null)));
   const byRange = (r) => raw.filter(s => { const iso = _d2dIso(s); return iso && inRange(iso, r); });
-  wrap.append(el('div', { class: 'grid grid-cols-2 lg:grid-cols-4 gap-3' },
-    tile('Today', byRange('today')), tile('This Week', byRange('week')),
-    tile('This Month', byRange('month')), tile('This Year', byRange('year'))));
+  const heroStat = (label, rows) => {
+    const cv = rows.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
+    return [label, fmt.usd0(cv), rows.length + (rows.length === 1 ? ' account' : ' accounts')];
+  };
+  wrap.append(kpiMulti([
+    heroStat('Today', byRange('today')), heroStat('This Week', byRange('week')),
+    heroStat('This Month', byRange('month')), heroStat('This Year', byRange('year'))], 4));
 
   const buildBoards = () => {
     const r = state._d2dLbRange;
@@ -46509,21 +46516,16 @@ function viewD2dDashboard() {
     const latestSale = timed.length ? timed.reduce((a, b) => (_tod(b) > _tod(a) ? b : a)) : null;
     const biggestSale = rows.length ? rows.reduce((a, b) => ((Number(b.contractValue) || 0) > (Number(a.contractValue) || 0) ? b : a)) : null;
     const _timeStr = (s) => { const t = _parseIndicatorTime(s); return t ? ((t.hour % 12 || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour < 12 ? 'a' : 'p') + ' ' + _officeTzShort(s.office)) : '—'; };
-    const recordTile = (label, s, leadValue) => el('div', { class: 'card p-4 min-w-0' },
-      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, label),
-      s ? el('div', { class: 'min-w-0' },
-        el('div', { class: 'font-display text-lg mt-1 flex items-center whitespace-nowrap overflow-hidden' },
-          _ofcChip(s.office),
-          leadValue ? fmt.usd0(Number(s.contractValue) || 0) : _timeStr(s)),
-        el('div', { class: 'text-xs text-muted- tabular-nums mt-0.5 whitespace-nowrap overflow-hidden' },
-          (getCanonicalRepName(s.rep) || '—') + ' · '
-          + (leadValue ? _timeStr(s) : fmt.usd0(Number(s.contractValue) || 0))
-          + (showDate ? ' · ' + _d2dIso(s) : '')))
-        : el('div', { class: 'text-lg font-display mt-1 text-muted-' }, '—'));
-    const recordsCard = rows.length ? el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-3' },
-      recordTile('Earliest Sale', earliestSale),
-      recordTile('Latest Sale', latestSale),
-      recordTile('Biggest Sale', biggestSale, true)) : null;
+    // Records: one combined card, three stats side by side.
+    const recordStat = (label, s, leadValue) => [label,
+      s ? el('div', { class: 'font-display text-2xl mt-1.5 flex items-center justify-center whitespace-nowrap overflow-hidden leading-none' },
+            _ofcChip(s.office), leadValue ? fmt.usd0(Number(s.contractValue) || 0) : _timeStr(s))
+        : el('div', { class: 'font-display text-2xl mt-1.5 text-muted- leading-none' }, '—'),
+      s ? (getCanonicalRepName(s.rep) || '—') + ' · ' + (leadValue ? _timeStr(s) : fmt.usd0(Number(s.contractValue) || 0)) + (showDate ? ' · ' + _d2dIso(s) : '') : ''];
+    const recordsCard = rows.length ? kpiMulti([
+      recordStat('Earliest Sale', earliestSale),
+      recordStat('Latest Sale', latestSale),
+      recordStat('Biggest Sale', biggestSale, true)], 3) : null;
     // \u2500\u2500 Sales feed (per Isaac) \u2014 same Today's Sales list as the Inside
     // Sales dashboard: newest first, ~10 rows visible, the rest scroll.
     const _feedTitle = ({ today: "Today's Sales", yesterday: "Yesterday's Sales", week: "This Week's Sales", month: "This Month's Sales", year: "This Year's Sales", all: 'All Sales' })[r] || 'Sales';
