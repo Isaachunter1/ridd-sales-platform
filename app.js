@@ -26029,8 +26029,22 @@ function manageTeamsPanel(opts) {
     const filterBar = el('div', { class: 'px-5 py-2.5 border-b flex flex-wrap items-center gap-x-2.5 gap-y-2', style: { borderColor: 'var(--border)' } },
       mkFilter('Team', teamSelect, [
         { value: '', label: 'All · ' + reps.length },
-        ...chipEntries.map(([t, n]) => ({ value: t, label: t + ' · ' + n })),
+        ...chipEntries.map(([t, n]) => ({ value: t, label: t + ' · ' + (n === 0 && t !== '(unassigned)' ? '0 (empty)' : n) })),
       ], (v) => { state._indicatorManageTeamFilter = v; render(); }),
+      // + Team — creates a team (the old "Add new team" bar is gone, per
+      // Isaac). Reps can also pick "+ New team…" straight from their row.
+      el('button', {
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Create a team — pick a team from a rep\u2019s row to assign them, or use \u201c+ New team\u2026\u201d there',
+        onclick: () => {
+          const name = prompt('New team name:');
+          if (!name || !name.trim()) return;
+          if (!addTeam(name)) { toast('Team already exists', 'warn'); return; }
+          state._indicatorManageTeamFilter = name.trim();
+          render();
+        },
+      }, '+ Team'),
       mkFilter('Tier', tierSelect, [
         { value: '', label: 'All · ' + (tierCounts.rookie + tierCounts.vet + tierCounts.untagged) },
         { value: 'rookie', label: 'Rookie · ' + tierCounts.rookie },
@@ -26178,7 +26192,7 @@ function manageTeamsPanel(opts) {
 
     card.innerHTML = '';
     card.append(
-      header, addBar, filterBar,
+      header, filterBar,
       ...(crmLinkPanel ? [crmLinkPanel] : []),
       ...(dupesPanel ? [dupesPanel] : []),
       ...(detailPanel ? [detailPanel] : []),
