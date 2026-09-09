@@ -26027,7 +26027,31 @@ function manageTeamsPanel(opts) {
         return [...score.entries()].filter(([, hits]) => hits >= 2)
           .sort((a, b) => b[1] - a[1]).map(([e]) => e).slice(0, 8);
       };
-      const unmatched = [...appNames].filter(n => n && !getRepAliasTarget(n) && !crmSigSet.has(_nameSig(n))).sort((a, b) => a.localeCompare(b));
+      let unmatched = [...appNames].filter(n => n && !getRepAliasTarget(n) && !crmSigSet.has(_nameSig(n))).sort((a, b) => a.localeCompare(b));
+      // AUTO-LINK the unambiguous ones (per Isaac): when a sales-data name and
+      // exactly one CRM employee carry the same name parts — same first + last
+      // once punctuation, order, case, middle initials and nicknames are
+      // ignored — link them without asking. Anything with a competing
+      // candidate, or where the parts don't fully match, stays in the review
+      // list below. Runs once per Manage Teams open.
+      const _core = (n) => _toks(n).filter(t => t.length > 1);   // drop middle initials
+      const _sameParts = (a, b) => { const A = new Set(_core(a)), B = new Set(_core(b)); return A.size >= 2 && A.size === B.size && [...A].every(t => B.has(t)); };
+      {
+        let autoLinked = 0;
+        unmatched.forEach(rep => {
+          const cands = candidatesFor(rep);
+          const exact = cands.filter(e => _sameParts(rep, _frEmpName(e)) || _sameParts(rep, (typeof _frRealName === 'function' ? _frRealName(e) : '')));
+          if (exact.length !== 1) return;
+          const ln = String(exact[0].lname || '').trim(), fn = String((exact[0].nickname || exact[0].fname) || '').trim();
+          const tgt = (ln && fn) ? (ln + ', ' + fn) : _frEmpName(exact[0]);
+          if (!tgt || tgt === rep) return;
+          if (mergeDuplicateRep(rep, tgt)) autoLinked++;
+        });
+        if (autoLinked) {
+          toast('Auto-linked ' + autoLinked + ' rep name' + (autoLinked === 1 ? '' : 's') + ' to the CRM spelling', 'success');
+          unmatched = unmatched.filter(n => !getRepAliasTarget(n));
+        }
+      }
       const withCand = [], noCand = [];
       unmatched.forEach(n => { (candidatesFor(n).length ? withCand : noCand).push(n); });
       const open = !!state._indicatorCrmLinkOpen;
@@ -26057,10 +26081,10 @@ function manageTeamsPanel(opts) {
         el('button', { class: 'w-full flex items-center justify-between gap-2 px-2.5 py-1 cursor-pointer text-[11px]', style: { background: 'transparent' },
           onclick: () => { state._indicatorCrmLinkOpen = !open; render(); } },
           el('span', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: '#0D9488' } },
-            '🔗 Link names to CRM · ' + withCand.length + ' to review' + (noCand.length ? ' · ' + noCand.length + ' no match' : '')),
+            '🔗 Link names to CRM · ' + withCand.length + ' need a look' + (noCand.length ? ' · ' + noCand.length + ' no match' : '')),
           el('span', { class: 'text-[11px] text-muted-' }, open ? 'Hide ▲' : 'Show ▼')),
         open ? el('div', { class: 'flex flex-col' },
-          el('div', { class: 'px-5 py-2 text-[11px] text-muted- italic' }, 'Pick each rep’s CRM match and Link — the app renames them to the CRM spelling everywhere.'),
+          el('div', { class: 'px-5 py-2 text-[11px] text-muted- italic' }, 'Exact first+last matches are linked automatically. These share only part of a name with a CRM employee — pick the right one and Link, or leave them.'),
           el('div', { class: 'flex flex-col overflow-y-auto', style: { maxHeight: '340px' } },
             ...withCand.slice(0, 150).map(rowFor),
             withCand.length > 150 ? el('div', { class: 'px-5 py-2 text-[11px] text-muted-' }, 'Showing first 150 of ' + withCand.length + ' — link some and the rest will surface.') : null,
