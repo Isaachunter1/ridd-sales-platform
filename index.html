@@ -122,6 +122,9 @@
      the month calendar (7 columns of 120px cells on a 380px screen) and the
      Revenue Goals card at the top of Sales. General rules below keep dense
      desktop layouts breathable on phones without touching desktop. */
+  /* Pay tab: stub column wide, By Source + Metrics narrow beside it. */
+  .pay-3col { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  @media (min-width: 1024px) { .pay-3col { grid-template-columns: minmax(0, 1.35fr) minmax(0, .85fr) minmax(0, .85fr); } }
   /* Sales-log queue strip: four equal segments across the full row. */
   .queue-strip > button { flex: 1 1 0; min-width: 0; }
   @media (max-width: 640px) { .queue-strip > button { padding-left: 4px; padding-right: 4px; font-size: 10px; } }
