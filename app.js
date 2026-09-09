@@ -50649,7 +50649,7 @@ function adminCommissions() {
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
   const numField = (label, val, onCommit, opts = {}) => el('label', { class: 'block' }, lbl(label),
     el('input', { type: 'number', step: opts.step || '0.01', value: (val == null ? '' : val),
-      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
+      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-left tabular-nums', style: { borderColor: 'var(--border-2)' },
       onchange: (e) => onCommit(e.target.value) }));
 
   const tabs = el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
@@ -50692,7 +50692,7 @@ function adminCommissions() {
     svcList.length === 0
       ? el('div', { class: 'rounded-lg border border-dashed p-6 text-center text-xs text-muted-', style: { borderColor: 'var(--border-2)' } }, 'No services loaded yet — open the Reporting tab once so the snapshot loads, then come back.')
       : el('div', { class: 'flex flex-col divide-y', style: { borderColor: 'var(--border)' } },
-          ...svcList.slice(0, 80).map(([svc, rev]) => el('div', { class: 'flex items-center justify-between gap-3 py-2' },
+          ...svcList.slice(0, 80).map(([svc, rev]) => el('div', { class: 'flex items-center gap-4 gap-3 py-2' },
             el('div', { class: 'min-w-0' }, el('div', { class: 'text-sm font-medium truncate' }, svc), el('div', { class: 'text-[11px] text-muted-' }, money(rev))),
             catSelect(svc)))));
 
@@ -50755,14 +50755,14 @@ function adminPricing(opts = {}) {
       el('h3', { class: 'text-sm font-bold mb-1' }, 'Pay by Status'),
       el('p', { class: 'text-xs text-muted- mb-3' }, 'How audit status affects commission payout.'),
       el('div', { class: 'flex flex-col gap-2' },
-        el('div', { class: 'flex items-center justify-between py-2 border-b', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'flex items-center gap-4 py-2 border-b', style: { borderColor: 'var(--border)' } },
           el('div', {},
             el('div', { class: 'text-sm font-semibold' }, 'Serviced'),
             el('div', { class: 'text-xs text-muted-' }, 'Full commission — account has been audited and serviced'),
           ),
           el('div', { class: 'text-sm font-bold', style: { color: 'var(--accent)' } }, '100%'),
         ),
-        el('div', { class: 'flex items-center justify-between py-2 border-b', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'flex items-center gap-4 py-2 border-b', style: { borderColor: 'var(--border)' } },
           el('div', {},
             el('div', { class: 'text-sm font-semibold' }, 'Below Minimums'),
             el('div', { class: 'text-xs text-muted-' }, 'Reduced commission — account audited but below service minimums'),
@@ -50771,14 +50771,14 @@ function adminPricing(opts = {}) {
             el('input', {
               type: 'text',
               inputmode: 'numeric',
-              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-right',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-left',
               value: s.below_min_multiplier,
               onchange: e => { s.below_min_multiplier = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
             }),
             el('span', { class: 'text-sm text-muted-' }, '%'),
           ),
         ),
-        el('div', { class: 'flex items-center justify-between py-2' },
+        el('div', { class: 'flex items-center gap-4 py-2' },
           el('div', {},
             el('div', { class: 'text-sm font-semibold' }, 'NSF / Cancelled / Not Payable'),
             el('div', { class: 'text-xs text-muted-' }, 'No commission paid'),
@@ -50790,7 +50790,7 @@ function adminPricing(opts = {}) {
 
     // ── Paid in Full (sheet O32: contract base + flat modifier) ──
     el('div', { class: 'card p-5' },
-      el('div', { class: 'flex items-center justify-between' },
+      el('div', { class: 'flex items-center gap-4' },
         el('div', {},
           el('h3', { class: 'text-sm font-bold' }, 'Paid in Full Modifier'),
           el('p', { class: 'text-xs text-muted- mt-0.5' },
@@ -50800,7 +50800,7 @@ function adminPricing(opts = {}) {
           el('span', { class: 'text-sm text-muted-' }, '+'),
           el('input', {
             type: 'text', inputmode: 'numeric',
-            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-right',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-left',
             value: s.pif_modifier ?? 5,
             onchange: e => { s.pif_modifier = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
           }),
@@ -50811,7 +50811,7 @@ function adminPricing(opts = {}) {
 
     // ── Commercial override ──
     el('div', { class: 'card p-5' },
-      el('div', { class: 'flex items-center justify-between' },
+      el('div', { class: 'flex items-center gap-4' },
         el('div', {},
           el('h3', { class: 'text-sm font-bold' }, 'Commercial Override'),
           el('p', { class: 'text-xs text-muted- mt-0.5' }, 'Overrides the contract type base rate when the "Commercial" box is checked on a sale. Typically for accounts with ACV > $2,000 on commercial properties.'),
@@ -50819,7 +50819,7 @@ function adminPricing(opts = {}) {
         el('div', { class: 'flex items-center gap-1 shrink-0 ml-4' },
           el('input', {
             type: 'text', inputmode: 'numeric',
-            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-right',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-16 text-left',
             value: s.commercial_rate,
             onchange: e => { s.commercial_rate = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
           }),
@@ -50834,12 +50834,12 @@ function adminPricing(opts = {}) {
       el('p', { class: 'text-xs text-muted- mb-3' },
         'The share of a rep\u2019s commissionable accounts (serviced + below-min; renewals and upsells don\u2019t count) marked \u201cCharged Upfront\u201d sets what percent of their WHOLE upfront commission pays out.'),
       el('div', { class: 'flex flex-col' },
-        ...(s.upfront_tiers || []).map((t, i) => el('div', { class: 'flex items-center justify-between py-1.5 text-xs', style: { borderTop: i ? '1px solid var(--border)' : 'none' } },
+        ...(s.upfront_tiers || []).map((t, i) => el('div', { class: 'flex items-center gap-4 py-1.5 text-xs', style: { borderTop: i ? '1px solid var(--border)' : 'none' } },
           el('span', { class: 'flex items-center gap-1 text-muted-' },
             '\u2265',
             el('input', {
               type: 'text', inputmode: 'numeric',
-              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-14 text-right',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-14 text-left',
               value: t.min,
               onchange: e => { t.min = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
             }),
@@ -50848,7 +50848,7 @@ function adminPricing(opts = {}) {
             'pays',
             el('input', {
               type: 'text', inputmode: 'numeric',
-              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-14 text-right',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold w-14 text-left',
               value: t.pay,
               onchange: e => { t.pay = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
             }),
@@ -50897,7 +50897,7 @@ function adminPricing(opts = {}) {
             el('span', { class: 'absolute left-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '$'),
             el('input', {
               type: 'text', inputmode: 'numeric',
-              class: 'w-full rounded-lg border pl-7 pr-3 py-2 text-sm text-right',
+              class: 'w-full rounded-lg border pl-7 pr-3 py-2 text-sm text-left',
               value: s.renewal_flat[key],
               onchange: e => { s.renewal_flat[key] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
             }),
@@ -50922,7 +50922,7 @@ function adminPricing(opts = {}) {
           el('div', { class: 'relative' },
             el('input', {
               type: 'text', inputmode: 'numeric',
-              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm text-right',
+              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm text-left',
               value: s[key],
               onchange: e => { s[key] = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
             }),
@@ -50947,7 +50947,7 @@ function adminPricing(opts = {}) {
           el('div', { class: 'relative' },
             el('input', {
               type: 'text', inputmode: 'numeric',
-              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm text-right',
+              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm text-left',
               value: t.min_close_rate,
               onchange: e => { t.min_close_rate = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
             }),
@@ -50956,7 +50956,7 @@ function adminPricing(opts = {}) {
           el('div', { class: 'relative' },
             el('input', {
               type: 'text', inputmode: 'numeric',
-              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm text-right',
+              class: 'w-full rounded-lg border pl-3 pr-7 py-2 text-sm text-left',
               value: t.rate,
               onchange: e => { t.rate = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0; persist(); },
             }),
