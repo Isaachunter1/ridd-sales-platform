@@ -225,6 +225,21 @@
     border: 1px solid var(--input-border) !important;
   }
   input::placeholder, textarea::placeholder { color: var(--text-subtle) !important; }
+  /* Standard control box (px-2.5 py-1 text-[11px]) — pin the line box so a
+     native <select> (iOS gives it a taller intrinsic height) and a button
+     holding an emoji (taller glyph line box) come out the exact same height
+     as a plain text button beside them. Selects drop the UA chrome and get
+     a small chevron instead. */
+  select.text-\[11px\], input.text-\[11px\], button.text-\[11px\] {
+    line-height: 16.5px !important; min-height: 0 !important; height: auto !important;
+    box-sizing: border-box;
+  }
+  select.text-\[11px\] {
+    -webkit-appearance: none !important; appearance: none !important;
+    padding-right: 22px !important;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round'/></svg>") !important;
+    background-repeat: no-repeat !important; background-position: right 8px center !important;
+  }
   input:focus, select:focus, textarea:focus {
     outline: none !important;
     border-color: var(--accent) !important;
