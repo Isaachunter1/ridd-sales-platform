@@ -5276,7 +5276,6 @@ function mountApp() {
       // a single gear. The unread badge rides the gear itself.
       (() => {
         const wrap = el('div', { class: 'relative' });
-        const unreadCount = (state.auditLog || []).filter(e => isNotifEntry(e) && (!state.notifLastSeen || e.timestamp > state.notifLastSeen)).length;
         const gearBtn = el('button', {
           class: 'icon-btn show',
           style: state._editMode ? { background: 'var(--accent)', color: 'var(--accent-text)' } : {},
@@ -5285,10 +5284,7 @@ function mountApp() {
         // The bell moved in here, so its unread badge rides the gear -
         // otherwise folding notifications into a menu would hide the only
         // signal that there ARE any.
-        if (unreadCount > 0) {
-          gearBtn.append(el('span', { class: 'notif-badge' }, unreadCount > 9 ? '9+' : String(unreadCount)));
-        }
-        const notifDd = buildNotifDropdown();
+        // (Notifications, Edit layout and Feedback retired from this menu — per Isaac.)
         const dd = el('div', {
           class: 'card',
           style: { position: 'absolute', top: 'calc(100% + 8px)', right: '0', minWidth: '210px', padding: '6px', display: 'none', zIndex: 60, boxShadow: 'var(--shadow-lg)' },
@@ -5305,28 +5301,6 @@ function mountApp() {
             if (isAdmin) { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); }
             else openMySettingsModal();
           }),
-          state.view !== 'admin' && item('\u270f\ufe0f', state._editMode ? 'Done editing' : 'Edit layout', () => {
-            state._editMode = !state._editMode;
-            if (state._editMode && state.view === 'indicators') state._indPresetsOpen = true;
-            mountApp();
-          }),
-          // Notifications + sync live here now (per Isaac) - the icon row is
-          // down to one gear.
-          item('\ud83d\udd14', 'Notifications' + (unreadCount > 0 ? ' \u00b7 ' + (unreadCount > 9 ? '9+' : String(unreadCount)) : ''), () => {
-            notifDd.style.display = 'block';
-            // Opening counts as seeing everything in there, same as the old
-            // bell did - clear the badge in place rather than remounting,
-            // which would tear the dropdown down again.
-            if (unreadCount > 0) {
-              state.notifLastSeen = new Date().toISOString();
-              saveDemoData();
-              const badge = gearBtn.querySelector('.notif-badge');
-              if (badge) badge.remove();
-            }
-            setTimeout(() => document.addEventListener('mousedown', function closer(e) {
-              if (!notifDd.contains(e.target) && !gearBtn.contains(e.target)) { notifDd.style.display = 'none'; document.removeEventListener('mousedown', closer); }
-            }), 0);
-          }),
           isAdmin
             ? item('\u21bb', state._revhawkSyncing ? 'Syncing\u2026' : 'Manual sync', () => {
                 if (state._revhawkSyncing) return;
@@ -5339,13 +5313,10 @@ function mountApp() {
                 try { if (typeof refreshSalesData === 'function') refreshSalesData(); } catch (err) { /* ignore */ }
                 setTimeout(() => { try { gearBtn.classList.remove('icon-spin'); } catch (err) { /* gone */ } }, 4000);
               }),
-          item('\ud83d\udce3', 'Feedback', () => openFeedbackModal()),
           item(state.theme === 'light' ? '\ud83c\udf19' : '\u2600\ufe0f', state.theme === 'light' ? 'Dark mode' : 'Light mode', () => toggleTheme()),
           INSIDE_SALES_TAB_KEYS.has(state.view) && item('\ud83d\udcfa', 'TV Display', () => openTVDashboard()),
         ].forEach(n => { if (n) dd.append(n); });
-        wrap.append(notifDd);
         gearBtn.onclick = () => {
-          notifDd.style.display = 'none';   // never both panels at once
           const willOpen = dd.style.display !== 'block';
           dd.style.display = willOpen ? 'block' : 'none';
           if (willOpen) setTimeout(() => document.addEventListener('mousedown', function closer(e) {
