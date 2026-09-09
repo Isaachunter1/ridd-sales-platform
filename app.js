@@ -13091,19 +13091,19 @@ function viewPay() {
   // Stub primitives — bordered stack with dark section headers, matching
   // the sheet's look but on the app's tokens.
   const hdr = (label, right) => el('div', {
-    class: 'grid px-3 py-2 text-[10px] font-black uppercase tracking-widest',
-    style: { gridTemplateColumns: '1fr auto', background: 'var(--text)', color: 'var(--card)' },
-  }, el('span', {}, label), right ? el('span', { class: 'text-right' }, right) : null);
+    class: 'grid px-3 py-2 text-[10px] font-black uppercase tracking-widest gap-3',
+    style: { gridTemplateColumns: '1fr 1fr', background: 'var(--text)', color: 'var(--card)' },
+  }, el('span', {}, label), right ? el('span', { class: 'text-left' }, right) : null);
   const tone = (t) => t === 'sand' ? { background: '#8E6F47', color: '#fff' }
     : t === 'green' ? { background: '#3D7A66', color: '#fff' }
     : t === 'total' ? { background: 'var(--accent)', color: 'var(--accent-text)' }
     : {};
   const row = (label, value, opts = {}) => el('div', {
-    class: 'grid items-center px-3 py-1.5 border-t text-[11px]',
-    style: Object.assign({ gridTemplateColumns: '1fr auto', borderColor: 'var(--border)' }, tone(opts.tone)),
+    class: 'grid items-center px-3 py-1.5 border-t text-[11px] gap-3',
+    style: Object.assign({ gridTemplateColumns: '1fr 1fr', borderColor: 'var(--border)' }, tone(opts.tone)),
   },
     el('span', { class: 'uppercase tracking-wide ' + (opts.tone ? 'font-bold' : 'font-semibold'), style: opts.red ? { color: '#DC2626' } : {} }, label),
-    typeof value === 'string' || typeof value === 'number' ? el('span', { class: 'text-right tabular-nums ' + (opts.tone ? 'font-black' : 'font-semibold') }, value) : value);
+    typeof value === 'string' || typeof value === 'number' ? el('span', { class: 'text-left tabular-nums ' + (opts.tone ? 'font-black' : 'font-semibold') }, value) : value);
   const $ = (v) => fmt.usd(v);
   const block = (...kids) => el('div', { class: 'card overflow-hidden' }, ...kids);
 
@@ -13116,27 +13116,11 @@ function viewPay() {
       },
         el('option', { value: state.profile.id, selected: !state.payViewRepId || state.payViewRepId === state.profile.id }, state.profile.full_name + ' (you)'),
         ...profilesForPicker.filter(p => p.id !== state.profile.id).map(p => el('option', { value: p.id, selected: state.payViewRepId === p.id }, p.full_name)))
-    : el('span', { class: 'text-right font-semibold' }, viewedProfile.full_name);
+    : el('span', { class: 'text-left font-semibold' }, viewedProfile.full_name);
 
-  // Close-rate row: admins edit inline (hardcoded input per Isaac — never
-  // derived); reps just see it.
-  const closeRateCell = isAdmin
-    ? el('span', { class: 'flex items-center justify-end gap-1' },
-        el('input', {
-          type: 'number', step: '1', min: 0, max: 100, value: Math.round(closeRate * 100),
-          class: 'rounded border px-2.5 py-1 text-[11px] w-16 text-right tabular-nums',
-          style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
-          onchange: (e) => {
-            const pct = parseFloat(e.target.value);
-            if (!Number.isFinite(pct)) return;
-            const next = Math.round(Math.max(0, Math.min(100, pct))) / 100;
-            const target = state.allProfiles.find(p => p.id === repId);
-            if (target) target.close_rate_target = next;
-            if (state.profile?.id === repId) state.profile.close_rate_target = next;
-            saveDemoData(); mountApp();
-          },
-        }), el('span', {}, '%'))
-    : pctS(closeRate * 100);
+  // Close rate is set per rep by an admin in Settings → Users (per Isaac —
+  // hand-maintained, never derived). Read-only here.
+  const closeRateCell = pctS(closeRate * 100, 2);
 
   const deptLabel = isLoyaltyRep ? 'LOYALTY' : 'INSIDE SALES';
 
@@ -13205,7 +13189,7 @@ function viewPay() {
         row('Multi-Year % Pay', $(multiYearBonusQuarter)),
         row('Close Rate % Pay', $(closeRateBonusQuarter)),
         row('Renewal Pay', $(renewalPayQuarter)),
-        row('Cancels', el('span', { class: 'text-right tabular-nums font-semibold', style: { color: '#DC2626' } }, (cancelsClawback > 0 ? '-' : '') + $(cancelsClawback)), { red: true }),
+        row('Cancels', el('span', { class: 'text-left tabular-nums font-semibold', style: { color: '#DC2626' } }, (cancelsClawback > 0 ? '-' : '') + $(cancelsClawback)), { red: true }),
         row('Backend Pay', $(backendPayNet), { tone: 'total' }),
         el('div', { class: 'px-3 py-1.5 border-t text-[10px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
           'Pending backend: ' + fmt.usd0(pendingBackend) + ' on ' + fmt.usd0(pendingBackendRevenue) + ' revenue awaiting the backend audit'),
@@ -13311,11 +13295,11 @@ function paySourceBreakdown(repId, salesByStatus) {
   ];
 
   const th = (txt, right) => el('th', {
-    class: 'px-2 py-2 text-[10px] uppercase tracking-widest font-bold whitespace-nowrap' + (right ? ' text-right' : ' text-left'),
+    class: 'px-2 py-2 text-[10px] uppercase tracking-widest font-bold whitespace-nowrap' + (right ? ' text-left' : ' text-left'),
     style: { background: '#000', color: '#fff' },
   }, txt);
   const td = (content, opts = {}) => el('td', {
-    class: 'px-2 py-1.5 text-xs tabular-nums whitespace-nowrap' + (opts.right ? ' text-right' : ' text-left'),
+    class: 'px-2 py-1.5 text-xs tabular-nums whitespace-nowrap' + (opts.right ? ' text-left' : ' text-left'),
     style: {
       borderBottom: '1px solid var(--border)',
       fontWeight: opts.bold ? '700' : '400',
@@ -53058,20 +53042,18 @@ function openUserEditor(existing = null, prefill = null) {
         is_active: modal.is_active,
         // Round to 4 decimal places to avoid float noise (0.07+0.005=0.074999...)
         upfront_commission_rate: Math.round(totalRate * 10000) / 10000,
-        // Close rate is set on the Pay tab now — preserve whatever's already
-        // on the rep, defaulting to 50% (the 2% bump threshold).
-        close_rate_target: existing?.close_rate_target ?? 0.50,
+        // Close rate is an admin-set, hand-maintained input per rep (per
+        // Isaac — matches the sheet's SETTINGS tab; never derived).
+        close_rate_target: Number.isFinite(parseFloat(data.close_rate_pct)) ? Math.max(0, Math.min(100, parseFloat(data.close_rate_pct))) / 100 : (existing?.close_rate_target ?? 0.50),
         // Pay Stub personalization (drives the Pay tab's Upfront Pay rows).
-        // Loyalty Pay and Other Pay are edited inline on the Pay tab now —
-        // preserve whatever's already on the rep record here.
         rep_type: data.rep_type || 'sales_rep',
         // The field only shows for office-staff roles; a hidden input still
         // submits its (prefilled) value, and blank falls back to the record
         // so a save can never silently wipe a stored amount.
         golden_phone_amount:    Number.isFinite(parseFloat(data.golden_phone_amount)) ? parseFloat(data.golden_phone_amount) : (existing?.golden_phone_amount ?? 0),
         loyalty_royalty_amount: parseFloat(data.loyalty_royalty_amount) || 0,
-        loyalty_pay_amount:     existing?.loyalty_pay_amount ?? 0,
-        other_pay_amount:       existing?.other_pay_amount ?? 0,
+        loyalty_pay_amount:     Number.isFinite(parseFloat(data.loyalty_pay_amount)) ? parseFloat(data.loyalty_pay_amount) : (existing?.loyalty_pay_amount ?? 0),
+        other_pay_amount:       Number.isFinite(parseFloat(data.other_pay_amount)) ? parseFloat(data.other_pay_amount) : (existing?.other_pay_amount ?? 0),
         // CRM bridge — phone carried from FieldRoutes, plus the employee-ID link
         // that joins this app user to their CRM sales.
         phone: (data.phone || '').trim() || null,
@@ -53452,6 +53434,16 @@ function openUserEditor(existing = null, prefill = null) {
       // instead).
       const goldenPhoneRow    = mk('Golden Phone',    moneyInp('golden_phone_amount',    existing?.golden_phone_amount));
       const loyaltyRoyaltyRow = mk('Loyalty Royalty', moneyInp('loyalty_royalty_amount', existing?.loyalty_royalty_amount));
+      // Sheet SETTINGS-tab fields (per Isaac): close rate, other pay, loyalty pay.
+      const closeRateRow = mk('Close Rate (%)', el('div', { class: 'relative' },
+        inp('close_rate_pct', {
+          type: 'number', step: '1', min: 0, max: 100, placeholder: '50',
+          value: existing?.close_rate_target != null ? Math.round(Number(existing.close_rate_target) * 100) : '',
+          class: 'w-full rounded-lg border pl-3 pr-8 py-2 text-sm',
+        }),
+        el('span', { class: 'absolute right-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '%')));
+      const otherPayRow   = mk('Other Pay',   moneyInp('other_pay_amount',   existing?.other_pay_amount));
+      const loyaltyPayRow = mk('Loyalty Pay', moneyInp('loyalty_pay_amount', existing?.loyalty_pay_amount));
 
       const OFFICE_ROLES = new Set(['rep_office', 'rep_office_lead', 'rep_loyalty_lead']);
       const grid = el('div', { class: 'flex flex-col gap-3' });
@@ -53463,11 +53455,10 @@ function openUserEditor(existing = null, prefill = null) {
         loyaltyRoyaltyRow.style.display = isLoyalty ? '' : 'none';
       };
       repTypeSelect.addEventListener('change', applyRepTypeVisibility);
-      grid.append(goldenPhoneRow, loyaltyRoyaltyRow);
+      grid.append(closeRateRow, otherPayRow, loyaltyPayRow, goldenPhoneRow, loyaltyRoyaltyRow);
 
       const section = el('div', { class: 'flex flex-col gap-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
         el('h4', { class: 'text-[11px] uppercase tracking-widest font-bold text-muted-' }, 'Pay Stub'),
-        el('p', { class: 'text-[10px] text-muted-' }, 'Loyalty Pay and Other Pay are edited inline on the Pay tab so they can flex period-to-period.'),
         mk('Rep Type', repTypeSelect),
         grid,
       );
