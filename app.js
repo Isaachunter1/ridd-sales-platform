@@ -4474,7 +4474,7 @@ function insideSalesTabsFor(role) {
 function salesModeToggle(mode) {
   if (!isAdminRole(state.profile?.role)) return null;
   const btn = (m, label) => el('button', {
-    class: 'px-2.5 py-1 text-[11px] font-bold transition',
+    class: 'sales-mode-btn px-2.5 py-1 text-[11px] font-bold transition',
     style: mode === m ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
     onclick: () => {
       if (m === mode) return;
@@ -4488,7 +4488,7 @@ function salesModeToggle(mode) {
       mountApp();
     },
   }, label);
-  return el('div', { class: 'inline-flex rounded-lg border overflow-hidden mr-2 shrink-0', style: { borderColor: 'var(--border-2)' } },
+  return el('div', { class: 'sales-mode-toggle inline-flex rounded-lg border overflow-hidden mr-2 shrink-0', style: { borderColor: 'var(--border-2)' } },
     btn('inside', 'Inside Sales'), btn('d2d', 'D2D Sales'), btn('techs', 'Technicians'));
 }
 function insideSalesSubTabs() {
@@ -4512,7 +4512,7 @@ function insideSalesSubTabs() {
         onclick: () => go(k),
       }, label);
     }));
-  const tabSelect = el('div', { class: 'sm:hidden flex-1 min-w-0 py-1.5' },
+  const tabSelect = el('div', { class: 'sales-tab-select sm:hidden flex-1 min-w-0 py-1.5' },
     el('select', {
       class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] font-bold',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
@@ -4543,7 +4543,7 @@ function d2dSalesSubTabs() {
         onclick: () => go(k),
       }, label);
     }));
-  const tabSelect = el('div', { class: 'sm:hidden flex-1 min-w-0 py-1.5' },
+  const tabSelect = el('div', { class: 'sales-tab-select sm:hidden flex-1 min-w-0 py-1.5' },
     el('select', {
       class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] font-bold',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
@@ -5233,7 +5233,7 @@ function mountApp() {
     style: { position: 'fixed', top: '0', left: '0', right: '0', zIndex: 30 },
   },
    el('div', { class: 'flex items-center justify-between gap-3 w-full max-w-[1600px] mx-auto' },
-    el('div', { class: 'flex items-center gap-3 relative' },
+    el('div', { class: 'flex items-center gap-3 relative min-w-0' },
       gridBtn,
       navMenu,
       el('h1', { class: 'hb-topbar-title font-bold tracking-wider' }, TAB_TITLES[state.view] || ''),
@@ -5250,7 +5250,7 @@ function mountApp() {
         const lvl = pullErr ? 'red' : (typeof indicatorsSyncStaleness === 'function') ? indicatorsSyncStaleness() : null;
         const c = lvl === 'red' ? '#DC2626' : lvl === 'amber' ? '#D97706' : null;
         return txt ? el('span', {
-          class: 'hidden sm:block text-[11px] whitespace-nowrap cursor-pointer',
+          class: 'block text-[11px] whitespace-nowrap cursor-pointer truncate min-w-0',
           onclick: pullErr ? (() => { try { refreshIndicatorsFromCloud(true); toast('Retrying\u2026', 'success'); } catch (e) { /* poll retries */ } }) : undefined,
           style: { color: c || 'var(--text-muted)', marginLeft: '10px', alignSelf: 'center', fontWeight: lvl === 'red' ? '700' : '' },
           title: pullErr ? 'THIS DEVICE can\u2019t reach the server (' + state._indPullError.msg + ') — showing older data. Tap to retry.'
@@ -5373,22 +5373,7 @@ function mountApp() {
   const _viewChanged = state._lastAnimView !== state.view;
   state._lastAnimView = state.view;
   const contentWrap = el('div', { class: 'p-4 sm:p-6 w-full max-w-[1600px] mx-auto overflow-x-auto' + (_viewChanged ? ' view-enter' : '') });
-  // Mobile freshness line — the header stamp is hidden below the sm
-  // breakpoint (no room next to the icon cluster), so phones get the same
-  // stamp as the first content line on every tab instead.
-  (() => {
-    const txt = (typeof indicatorsSyncStampText === 'function') ? indicatorsSyncStampText() : '';
-    if (!txt) return;
-    const pullErr = state._indPullError && (Date.now() - state._indPullError.at) < 3 * 3600000;
-    const lvl = pullErr ? 'red' : (typeof indicatorsSyncStaleness === 'function') ? indicatorsSyncStaleness() : null;
-    const c = lvl === 'red' ? '#DC2626' : lvl === 'amber' ? '#D97706' : 'var(--text-muted)';
-    contentWrap.append(el('div', {
-      class: 'sm:hidden text-[10px] tabular-nums -mt-1 mb-2',
-      style: { color: c, fontWeight: lvl ? '700' : '500' },
-      onclick: pullErr ? (() => { try { refreshIndicatorsFromCloud(true); toast('Retrying\u2026', 'success'); } catch (e) { /* poll retries */ } }) : undefined,
-      title: pullErr ? 'THIS PHONE can\u2019t reach the server — showing older data. Tap to retry.' : 'Syncs land hourly on the hour, 8am–11pm ET',
-    }, '↻ Last sync: ' + txt + (pullErr ? ' · CAN\u2019T REACH SERVER' : lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '')));
-  })();
+  // (Mobile freshness line retired — the header stamp shows on phones now, per Isaac.)
   usagePing('view', state.view);
   main.append(pageHeader, contentWrap);
 
