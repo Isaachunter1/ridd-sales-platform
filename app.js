@@ -46475,6 +46475,9 @@ function viewD2dDashboard() {
         style: { width: '9px', height: '9px', borderRadius: '0', background: bc, border: '1px solid var(--border-2)', display: 'inline-block', flexShrink: '0', marginRight: '7px' },
       }) : null;
     };
+    const showDate = r !== 'today' && r !== 'yesterday';
+    const _tod = (s) => { const t = _parseIndicatorTime(s); return t ? t.hour * 60 + t.minute : null; };
+    const _timeStr = (s) => { const t = _parseIndicatorTime(s); return t ? ((t.hour % 12 || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour < 12 ? 'a' : 'p') + ' ' + _officeTzShort(s.office)) : '—'; };
     const lbCard = el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'font-display text-lg' }, 'Leaderboard')),
@@ -46512,17 +46515,49 @@ function viewD2dDashboard() {
               tdT(fmt.usd0(T.n ? T.init / T.n : 0)), tdT(fmt.usd0(T.pestN ? T.pestInit / T.pestN : 0)),
               tdT((T.n ? (T.lastResort / T.n * 100).toFixed(1) : '0.0') + '%'));
           })(),
-          ...reps.slice(0, 100).map((o, i) => {
+          ...reps.slice(0, 100).flatMap((o, i) => {
           const team = getRepTeam(o.name) || '';
           const clickable = canViewRepDetails(o.name, team);
           const isMe = _sigMe(o.name) === meSig || isMyRepName(o.name);
-          return el('tr', {
+          // Click = expand the rep's accounts for this range inline (per
+          // Isaac — not the player card). One rep open at a time.
+          const isOpen = state._d2dLbOpen === o.name;
+          const repRows = isOpen ? rows.filter(x => getCanonicalRepName(x.rep) === o.name).sort((a, b) => {
+            const _da = _d2dIso(a) || '', _db = _d2dIso(b) || '';
+            if (_da !== _db) return _db.localeCompare(_da);
+            const ta = _tod(a), tb = _tod(b);
+            return (tb == null ? -1 : tb) - (ta == null ? -1 : ta);
+          }) : [];
+          const detailRow = isOpen ? el('tr', { style: { background: 'var(--card-2)' } },
+            el('td', { colspan: 11, class: 'px-4 py-2' },
+              el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, o.name + ' \u00b7 ' + repRows.length + ' account' + (repRows.length === 1 ? '' : 's')),
+              el('table', { class: 'w-full text-[12px]' },
+                el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' }, el('tr', {},
+                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, showDate ? 'Date' : 'Time'),
+                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Customer'),
+                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Service'),
+                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Contract'),
+                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Initial'),
+                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Value'),
+                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'APay'))),
+                el('tbody', {}, ...repRows.map(sr => {
+                  const _m = Number(sr.contract) || 0;
+                  return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+                    el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, showDate ? (_d2dIso(sr) || '\u2014') : _timeStr(sr)),
+                    el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap' }, String(sr.customer || '\u2014')),
+                    el('td', { class: 'px-2 py-1.5 text-muted- whitespace-nowrap overflow-hidden', style: { maxWidth: '180px', textOverflow: 'ellipsis' } }, String(sr.subscription || '\u2014')),
+                    el('td', { class: 'px-2 py-1.5 text-muted- whitespace-nowrap' }, /sentricon/i.test(String(sr.subscription || '')) ? '12 Mo' : (_m > 1 ? _m + ' Mo' : 'One-Time')),
+                    el('td', { class: 'px-2 py-1.5 tabular-nums' }, fmt.usd0(Number(sr.initialPrice) || 0)),
+                    el('td', { class: 'px-2 py-1.5 tabular-nums font-semibold' }, fmt.usd0(Number(sr.contractValue) || 0)),
+                    el('td', { class: 'px-2 py-1.5 text-muted-' }, (sr.autoPay && sr.autoPay !== 'No') ? 'Yes' : 'No'));
+                }))))) : null;
+          return [el('tr', {
             class: 'border-t' + (clickable ? ' cursor-pointer' : ''),
-            style: { borderColor: 'var(--border)', background: isMe ? 'rgba(223,100,58,.08)' : '' },
-            title: clickable ? 'Open player card' : '',
-            onclick: clickable ? () => openIndicatorRepCard(_enrichRepFromRawSales(o.name, state._indicatorRawSales || []), []) : undefined,
+            style: { borderColor: 'var(--border)', background: isMe ? 'rgba(223,100,58,.08)' : (isOpen ? 'var(--card-2)' : '') },
+            title: clickable ? (isOpen ? 'Hide accounts' : 'Show accounts sold in this range') : '',
+            onclick: clickable ? () => { state._d2dLbOpen = isOpen ? null : o.name; _rebuildBoards(); } : undefined,
             onmouseenter: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = 'var(--card-2)'; } : undefined,
-            onmouseleave: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = isMe ? 'rgba(223,100,58,.08)' : ''; } : undefined,
+            onmouseleave: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = isOpen ? 'var(--card-2)' : ''; } : undefined,
           },
             el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, String(i + 1)),
             el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, _ofcChip(o.office), o.name + (isMe ? ' · You' : '')),
@@ -46534,19 +46569,16 @@ function viewD2dDashboard() {
             el('td', { class: 'px-4 py-2 tabular-nums' }, (o.n ? Math.round(o.apay / o.n * 100) : 0) + '%'),
             el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(o.n ? o.init / o.n : 0)),
             el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(o.pestN ? o.pestInit / o.pestN : 0)),
-            el('td', { class: 'px-4 py-2 tabular-nums', style: (o.n && o.lastResort / o.n >= 0.2) ? { color: '#DC2626', fontWeight: '600' } : {} }, (o.n ? (o.lastResort / o.n * 100).toFixed(1) : '0.0') + '%'));
+            el('td', { class: 'px-4 py-2 tabular-nums', style: (o.n && o.lastResort / o.n >= 0.2) ? { color: '#DC2626', fontWeight: '600' } : {} }, (o.n ? (o.lastResort / o.n * 100).toFixed(1) : '0.0') + '%')), detailRow].filter(Boolean);
         }))))
         : el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No sales in this range yet.'));
     // ── Day records: earliest · latest · biggest sale in the range ──
     // Times are each selling office's local clock, so "earliest" means the
     // earliest knock in that rep's own day (not the earliest in UTC).
-    const showDate = r !== 'today' && r !== 'yesterday';
-    const _tod = (s) => { const t = _parseIndicatorTime(s); return t ? t.hour * 60 + t.minute : null; };
     const timed = rows.filter(s => _tod(s) != null);
     const earliestSale = timed.length ? timed.reduce((a, b) => (_tod(b) < _tod(a) ? b : a)) : null;
     const latestSale = timed.length ? timed.reduce((a, b) => (_tod(b) > _tod(a) ? b : a)) : null;
     const biggestSale = rows.length ? rows.reduce((a, b) => ((Number(b.contractValue) || 0) > (Number(a.contractValue) || 0) ? b : a)) : null;
-    const _timeStr = (s) => { const t = _parseIndicatorTime(s); return t ? ((t.hour % 12 || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour < 12 ? 'a' : 'p') + ' ' + _officeTzShort(s.office)) : '—'; };
     // Records: one combined card, three stats side by side.
     const recordStat = (label, s, leadValue) => [label,
       s ? el('div', { class: 'font-display text-2xl mt-1.5 flex items-center justify-center whitespace-nowrap overflow-hidden leading-none' },
