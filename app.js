@@ -3774,15 +3774,14 @@ function dashOfficeStats(approved, isRenewal) {
   for (const s of approved) {
     const k = officeName(s);
     let r = by.get(k);
-    if (!r) { r = { name: k, sales: 0, nw: 0, ren: 0, rev: 0, newRev: 0, rec: 0, reps: new Set() }; by.set(k, r); }
+    if (!r) { r = { name: k, sales: 0, nw: 0, ren: 0, rev: 0, newRev: 0, renRev: 0, rec: 0 }; by.set(k, r); }
     const rev = Number(s.revenue_amount || 0);
     r.sales += 1; r.rev += rev;
     if (isRecurringSale(s)) r.rec += 1;
-    if (isRenewal(s)) r.ren += 1; else { r.nw += 1; r.newRev += rev; }
-    r.reps.add(s.rep_id || s._crmRep || '?');
+    if (isRenewal(s)) { r.ren += 1; r.renRev += rev; } else { r.nw += 1; r.newRev += rev; }
   }
   const rows = [...by.values()].sort((a, b) => b.rev - a.rev || b.sales - a.sales);
-  const tot = rows.reduce((t, r) => ({ sales: t.sales + r.sales, nw: t.nw + r.nw, ren: t.ren + r.ren, rev: t.rev + r.rev, newRev: t.newRev + r.newRev, rec: t.rec + r.rec, reps: t.reps + r.reps.size }), { sales: 0, nw: 0, ren: 0, rev: 0, newRev: 0, rec: 0, reps: 0 });
+  const tot = rows.reduce((t, r) => ({ sales: t.sales + r.sales, nw: t.nw + r.nw, ren: t.ren + r.ren, rev: t.rev + r.rev, newRev: t.newRev + r.newRev, renRev: t.renRev + r.renRev, rec: t.rec + r.rec }), { sales: 0, nw: 0, ren: 0, rev: 0, newRev: 0, renRev: 0, rec: 0 });
   const acv = (r) => r.sales ? fmt.usd0(r.rev / r.sales) : '—';
   const recMix = (r) => r.sales ? Math.round(r.rec / r.sales * 100) + '%' : '—';
   const open = !!state.dashOfficeView;
@@ -3793,7 +3792,7 @@ function dashOfficeStats(approved, isRenewal) {
   },
     el('div', { class: 'flex items-center gap-2 min-w-0' },
       el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Office stats'),
-      el('span', { class: 'text-[11px] text-muted- truncate' }, rows.length + ' office' + (rows.length === 1 ? '' : 's') + ' · ' + fmt.int(tot.sales) + ' sales · ' + fmt.usd0(tot.rev) + ' · ' + fmt.usd0(tot.newRev) + ' new · ' + acv(tot) + ' ACV · ' + recMix(tot) + ' rec')),
+      el('span', { class: 'text-[11px] text-muted- truncate' }, rows.length + ' office' + (rows.length === 1 ? '' : 's') + ' · ' + fmt.int(tot.sales) + ' sales · ' + fmt.usd0(tot.rev) + ' · ' + fmt.usd0(tot.newRev) + ' new · ' + fmt.usd0(tot.renRev) + ' renewal · ' + acv(tot) + ' ACV · ' + recMix(tot) + ' rec')),
     el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' } }, open ? '− Collapse' : '+ Expand'));
   if (!open) return el('div', { class: 'card' }, header);
   const th = (t, right) => el('th', { class: 'px-2 py-1 text-[10px] uppercase tracking-widest font-semibold text-muted- whitespace-nowrap ' + (right ? 'text-right' : 'text-left') }, t);
@@ -3801,12 +3800,12 @@ function dashOfficeStats(approved, isRenewal) {
   const line = (r, isTot) => el('tr', { class: isTot ? 'border-t font-bold' : 'border-t', style: { borderColor: 'var(--border)' } },
     td(isTot ? 'Total' : r.name, false, isTot ? '' : 'font-semibold'),
     td(fmt.int(r.sales), true), td(fmt.int(r.nw), true), td(fmt.int(r.ren), true),
-    td(fmt.usd0(r.rev), true), td(fmt.usd0(r.newRev), true), td(acv(r), true), td(recMix(r), true), td(fmt.int(isTot ? r.reps : r.reps.size), true));
+    td(fmt.usd0(r.rev), true), td(fmt.usd0(r.newRev), true), td(fmt.usd0(r.renRev), true), td(acv(r), true), td(recMix(r), true));
   return el('div', { class: 'card' },
     header,
     el('div', { class: 'overflow-x-auto px-1 pb-2' },
       el('table', { class: 'w-full' },
-        el('thead', {}, el('tr', {}, th('Office'), th('Sales', 1), th('New', 1), th('Renewals', 1), th('Revenue', 1), th('New Revenue', 1), th('ACV', 1), th('Rec Mix', 1), th('Reps', 1))),
+        el('thead', {}, el('tr', {}, th('Office'), th('Sales', 1), th('New', 1), th('Renewals', 1), th('Revenue', 1), th('New Revenue', 1), th('Renewal Revenue', 1), th('ACV', 1), th('Rec Mix', 1))),
         el('tbody', {},
           ...(rows.length ? rows.map(r => line(r, false)) : [el('tr', {}, el('td', { class: 'px-2 py-2 text-[11px] text-muted-', colspan: 9 }, 'No sales in this window.'))]),
           rows.length ? line(tot, true) : null))));
