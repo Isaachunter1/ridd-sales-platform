@@ -44735,9 +44735,10 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
     scrollWheelZoom: true,
   });
   container._leafletMap = map;
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap, © CARTO',
-    subdomains: 'abcd',
+  // Basemap: Esri Light Gray Canvas — same quiet look as the old CARTO light
+  // tiles, free with attribution and NO API key (CARTO gates its basemaps now).
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles \u00a9 Esri \u2014 Esri, HERE, Garmin, \u00a9 OpenStreetMap contributors',
     maxZoom: 14,
   }).addTo(map);
   setTimeout(() => { try { map.invalidateSize(); } catch (e) { /* torn down */ } }, 400);
@@ -44965,9 +44966,10 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
     scrollWheelZoom: true,
   });
   container._leafletMap = map;
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap, © CARTO',
-    subdomains: 'abcd',
+  // Basemap: Esri Light Gray Canvas — same quiet look as the old CARTO light
+  // tiles, free with attribution and NO API key (CARTO gates its basemaps now).
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles \u00a9 Esri \u2014 Esri, HERE, Garmin, \u00a9 OpenStreetMap contributors',
     maxZoom: 14,
   }).addTo(map);
   setTimeout(() => { try { map.invalidateSize(); } catch (e) { /* torn down */ } }, 400);
@@ -45332,9 +45334,10 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
   });
   container._leafletMap = map;
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap, © CARTO',
-    subdomains: 'abcd',
+  // Basemap: Esri Light Gray Canvas — same quiet look as the old CARTO light
+  // tiles, free with attribution and NO API key (CARTO gates its basemaps now).
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles \u00a9 Esri \u2014 Esri, HERE, Garmin, \u00a9 OpenStreetMap contributors',
     maxZoom: 10,
   }).addTo(map);
   setTimeout(() => { try { map.invalidateSize(); } catch (e) { /* torn down */ } }, 400);
