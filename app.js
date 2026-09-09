@@ -30822,8 +30822,8 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
       el('div', { class: 'scroll-x' }, el('div', { style: { minWidth: '860px' } },
       // Header row
       el('div', { class: 'flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted- font-semibold pb-1.5' },
-        el('div', { class: 'w-[200px] sm:w-[240px] shrink-0', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 2 } }, opts.firstCol || 'Subscription'),
-        el('div', { class: 'flex-1' }),   // bar track stretches with the card now — count rides inside the bar
+        el('div', { class: 'w-[200px] sm:w-[240px] shrink-0', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 2, boxShadow: '1px 0 0 var(--border)' } }, opts.firstCol || 'Subscription'),
+        el('div', { class: 'flex-1 text-right pr-2' }, 'Total'),   // bar track stretches with the card — count rides inside the bar
         el('div', { class: 'w-14 text-right shrink-0' }, '% Mix'),
         el('div', { class: 'w-24 text-right shrink-0' }, 'Revenue'),
         el('div', { class: 'w-16 text-right shrink-0' }, 'ACV'),
@@ -30850,7 +30850,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
               const _my = (_mu + _tw) > 0 ? _mu / (_mu + _tw) : null;
               const _attr = _n > 0 ? _cx / _n : 0;
               return el('div', { class: 'flex items-center gap-3 text-[13px] py-2.5', style: { borderBottom: '3px solid var(--text)' } },
-                el('div', { class: 'w-[200px] sm:w-[240px] truncate font-black shrink-0', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, 'Total'),
+                el('div', { class: 'w-[200px] sm:w-[240px] truncate font-black shrink-0', style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }, 'Total'),
                 el('div', { class: 'flex-1 rounded-full', style: { background: 'var(--text)', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
                   el('span', { class: 'tabular-nums font-black', style: { color: 'var(--accent)', fontSize: '11.5px', lineHeight: '1' } }, fmt.int(_n))),
                 el('div', { class: 'w-14 text-right tabular-nums font-bold shrink-0', style: { color: 'var(--accent)' } }, '100%'),
@@ -30877,7 +30877,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
                 title: opts.rowTitle || '',
                 onclick: opts.onRowClick ? () => opts.onRowClick(s.name) : undefined,
               },
-                el('div', { class: 'w-[200px] sm:w-[240px] truncate font-medium shrink-0', title: s.name, style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1 } }, s.name),
+                el('div', { class: 'w-[200px] sm:w-[240px] truncate font-medium shrink-0', title: s.name, style: { position: 'sticky', left: '0', background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }, s.name),
                 el('div', { class: 'flex-1 rounded-full relative', style: { background: 'var(--card-2)', height: '22px' } },
                   el('div', { style: { width: _pct + '%', height: '100%', background: 'var(--accent)', borderRadius: '0', opacity: String(0.55 + 0.45 * (s.share / maxShare)), transition: 'width .3s', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '9px' } },
                     _inBar ? el('span', { class: 'tabular-nums font-black', style: { color: '#fff', fontSize: '11.5px', lineHeight: '1', textShadow: '0 1px 1px rgba(0,0,0,.2)' } }, fmt.int(s.count)) : null),
