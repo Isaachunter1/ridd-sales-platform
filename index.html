@@ -149,6 +149,14 @@
        the rep-type toggle above (the desktop mb-4 read as a gap on phones). */
     .sales-subtabs { margin-bottom: 6px !important; }
     .sales-subtabs .sales-tab-select { padding-bottom: 6px; }
+    /* Indicators leaderboard header: title + tools on one row, search on
+       its own full-width row underneath; the rep count is dropped. */
+    .lb-head .lb-tools { display: contents; }
+    .lb-head .lb-count { display: none; }
+    .lb-head { justify-content: flex-start !important; }
+    .lb-head .lb-title { order: 1; margin-right: auto; }
+    .lb-head .lb-tools > * { order: 2; }
+    .lb-head .lb-search { order: 3; flex: 0 0 100% !important; }
     /* Dashboard toolbar: + New Sale grows to fill the row on phones. */
     .dash-toolbar .dash-newsale { flex: 1 1 auto; }
     .dash-toolbar > select, .dash-toolbar > button:not(.dash-newsale) { flex: 0 0 auto; }
