@@ -46477,11 +46477,42 @@ function viewD2dDashboard() {
     };
     const lbCard = el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
-        el('div', { class: 'font-display text-lg' }, 'Rep Leaderboard')),
+        el('div', { class: 'font-display text-lg' }, 'Leaderboard')),
       reps.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
           ...['#', 'Rep', 'Team', 'Accts', 'Revenue', 'ACV', 'MY %', 'APay %', 'Avg Initial', 'Avg Pest Init', 'Last Resort %'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap', title: h === 'MY %' ? 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)' : h === 'Last Resort %' ? 'Accounts under $99 initial \u00f7 all accounts' : '' }, h)))),
-        el('tbody', {}, ...reps.slice(0, 100).map((o, i) => {
+        el('tbody', {},
+          // Total row (per Isaac — mirrors the Indicators leaderboard): sums +
+          // sales-weighted rates across every rep shown; click opens the
+          // combined player card.
+          (() => {
+            const T = reps.reduce((t, o) => ({ n: t.n + o.n, cv: t.cv + o.cv, apay: t.apay + o.apay, init: t.init + o.init, pestInit: t.pestInit + o.pestInit, pestN: t.pestN + o.pestN, multi: t.multi + o.multi, twelve: t.twelve + o.twelve, lastResort: t.lastResort + o.lastResort }),
+              { n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0 });
+            const canTot = rows.length > 0 && canViewRepDetails('Total', '');
+            const openTot = () => {
+              if (!canTot) return;
+              const peers = reps.map(o => ({ name: o.name, sales: rows.filter(x => getCanonicalRepName(x.rep) === o.name) })).filter(p => p.sales.length);
+              openIndicatorRepCard(_scopeRep({ name: 'Total', sales: rows }, () => true), peers);
+            };
+            const tdT = (v, cls) => el('td', { class: 'px-4 py-2 tabular-nums font-bold ' + (cls || '') }, v);
+            return el('tr', {
+              class: canTot ? 'cursor-pointer transition hover:brightness-95' : '',
+              title: canTot ? 'Open the combined player card for every rep shown' : '',
+              onclick: canTot ? openTot : undefined,
+              style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2), inset 0 1px 0 var(--border)' },
+            },
+              el('td', { class: 'px-4 py-2' }, ''),
+              el('td', { class: 'px-4 py-2 whitespace-nowrap' },
+                el('span', { class: 'font-black text-[11px] uppercase tracking-wider' }, 'Total'),
+                el('span', { class: 'text-[10px] text-muted- ml-1.5' }, reps.length + ' reps')),
+              el('td', { class: 'px-4 py-2' }, ''),
+              tdT(String(T.n)), tdT(fmt.usd0(T.cv)), tdT(fmt.usd0(T.n ? T.cv / T.n : 0)),
+              tdT(((T.multi + T.twelve) ? Math.round(T.multi / (T.multi + T.twelve) * 100) : 0) + '%'),
+              tdT((T.n ? Math.round(T.apay / T.n * 100) : 0) + '%'),
+              tdT(fmt.usd0(T.n ? T.init / T.n : 0)), tdT(fmt.usd0(T.pestN ? T.pestInit / T.pestN : 0)),
+              tdT((T.n ? (T.lastResort / T.n * 100).toFixed(1) : '0.0') + '%'));
+          })(),
+          ...reps.slice(0, 100).map((o, i) => {
           const team = getRepTeam(o.name) || '';
           const clickable = canViewRepDetails(o.name, team);
           const isMe = _sigMe(o.name) === meSig || isMyRepName(o.name);
