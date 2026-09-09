@@ -33114,6 +33114,48 @@ async function downloadTeamPdf(teamName, ctx) {
   }
 }
 
+// ONE PDF for every team / office (per Isaac) — one page per group in the
+// same document, instead of firing N separate downloads.
+async function downloadCombinedTeamPdf(names, ctx, onProgress) {
+  try {
+    await loadPdfLibsOnce();
+  } catch {
+    toast('Could not load PDF libraries — check your connection', 'error');
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const margin = 18;
+  const usableW = pageW - margin * 2, usableH = pageH - margin * 2;
+  let pages = 0;
+  for (let i = 0; i < names.length; i++) {
+    const name = names[i];
+    if (onProgress) onProgress(name, i, names.length);
+    const reportEl = buildTeamReportNode(name, ctx);
+    reportEl.style.position = 'fixed'; reportEl.style.left = '-99999px'; reportEl.style.top = '0'; reportEl.style.zIndex = '-1';
+    document.body.append(reportEl);
+    await new Promise(r => setTimeout(r, 900));   // Chart.js needs a frame
+    try {
+      const canvas = await html2canvas(reportEl, { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true });
+      let imgW = usableW, imgH = (canvas.height * imgW) / canvas.width;
+      if (imgH > usableH) { imgH = usableH; imgW = (canvas.width * imgH) / canvas.height; }
+      if (pages > 0) pdf.addPage();
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin + (usableW - imgW) / 2, margin, imgW, imgH);
+      pages++;
+    } catch (err) {
+      console.error('[ridd] combined PDF page failed for ' + name, err);
+    } finally {
+      reportEl.remove();
+    }
+  }
+  if (!pages) { toast('Nothing to export', 'warn'); return; }
+  const noun = (ctx.groupMode === 'branch') ? 'Offices' : 'Teams';
+  pdf.save('RIDD-' + noun + '-' + new Date().toISOString().slice(0, 10) + '.pdf');
+  toast('Downloaded ' + noun + ' report (' + pages + ' page' + (pages === 1 ? '' : 's') + ')', 'success');
+}
+
 // Sales leaderboard PDF — admin-facing one-pager. Two tables: Top 15
 // Overall (any tier) and Top 15 Rookies, both ranked by revenue.
 // Column-leading cells get a green accent so the manager can scan
@@ -34243,6 +34285,7 @@ function openTeamReportsModal(ctx) {
     return list.filter(b => b !== 'Unassigned');
   };
   const labelOf = (m) => m === 'rep' ? 'Rep' : m === 'branch' ? 'Office' : 'Team';
+  const allLabel = (m) => '\ud83d\udcc4 All ' + (m === 'branch' ? 'offices' : 'teams') + ' \u00b7 one PDF';
   const ctxFor = (m) => Object.assign({}, ctx, { groupMode: m });
 
   const status = el('div', { class: 'text-xs text-muted-', style: { minHeight: '16px' } });
@@ -34365,7 +34408,7 @@ function openTeamReportsModal(ctx) {
     items.forEach(item => list.append(mkRow(item, mode)));
     status.textContent = '';
     // No "Download all" in Reps mode (per Isaac — 40+ PDFs at once is a mess).
-    if (downloadAllBtn) { downloadAllBtn.disabled = false; downloadAllBtn.textContent = '📄 Download all'; downloadAllBtn.style.display = mode === 'rep' ? 'none' : ''; }
+    if (downloadAllBtn) { downloadAllBtn.disabled = false; downloadAllBtn.textContent = allLabel(mode); downloadAllBtn.style.display = mode === 'rep' ? 'none' : ''; }
   };
 
   const modeSelect = el('select', {
@@ -34375,6 +34418,9 @@ function openTeamReportsModal(ctx) {
     onchange: (e) => { mode = e.target.value; paint(); },
   }, ...MODES.map(([v, l]) => el('option', { value: v, selected: v === mode }, l)));
 
+  // ONE PDF with every team / office on its own page (per Isaac) — replaces
+  // the old Download-all that fired a separate file per group. Hidden in
+  // Reps mode.
   downloadAllBtn = el('button', {
     class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
@@ -34382,15 +34428,15 @@ function openTeamReportsModal(ctx) {
       const m = mode, items = itemsFor(m);
       if (!items.length) return;
       downloadAllBtn.disabled = true; modeSelect.disabled = true; downloadAllBtn.textContent = 'Generating…';
-      for (let i = 0; i < items.length; i++) {
-        status.textContent = 'Generating ' + items[i] + ' (' + (i + 1) + '/' + items.length + ')…';
-        await downloadTeamPdf(items[i], ctxFor(m));
+      try {
+        await downloadCombinedTeamPdf(items, ctxFor(m), (nm, i, n) => { status.textContent = 'Adding ' + nm + ' (' + (i + 1) + '/' + n + ')…'; });
+        status.textContent = 'Done — one PDF, ' + items.length + ' pages.';
+      } finally {
+        modeSelect.disabled = false;
+        downloadAllBtn.disabled = false; downloadAllBtn.textContent = allLabel(m);
       }
-      status.textContent = 'Done — ' + items.length + ' reports.';
-      modeSelect.disabled = false;
-      downloadAllBtn.disabled = false; downloadAllBtn.textContent = '📄 Download all';
     },
-  }, '📄 Download all');
+  }, '📄 All offices · one PDF');
 
   // Search strip — only shown in Reps mode (rosters run long).
   const searchWrap = el('div', { class: 'px-4 pt-3 pb-2 border-b', style: { borderColor: 'var(--border)' } }, search);
