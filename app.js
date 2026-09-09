@@ -26198,12 +26198,31 @@ function indPresetRibbon() {
     style: open
       ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
       : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-    title: open ? 'Hide the saved presets' : 'Saved presets \u2014 save the whole page setup and jump between views in one click',
-    onclick: () => { state._indPresetsOpen = !state._indPresetsOpen; mountApp(); },
-  }, 'Presets', el('span', { style: { fontSize: '9px' } }, open ? '\u25b4' : '\u25be'));
-  const panel = !open ? null : el('div', {
+    title: 'Saved presets \u2014 save the whole page setup and jump between views in one click',
+    // Toggle IN PLACE (per Isaac) — no full re-render just to show/hide the drawer.
+    onclick: (e) => {
+      e.stopPropagation();
+      const nowOpen = panel.style.display !== 'block';
+      state._indPresetsOpen = nowOpen;
+      panel.style.display = nowOpen ? 'block' : 'none';
+      caret.textContent = nowOpen ? '\u25b4' : '\u25be';
+      Object.assign(tab.style, nowOpen
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+        : { background: '', color: 'var(--text)', borderColor: 'var(--border-2)' });
+      if (nowOpen) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+        if (panel.contains(ev.target) || tab.contains(ev.target)) return;
+        panel.style.display = 'none'; state._indPresetsOpen = false;
+        caret.textContent = '\u25be';
+        Object.assign(tab.style, { background: '', color: 'var(--text)', borderColor: 'var(--border-2)' });
+        document.removeEventListener('mousedown', closer);
+      }), 0);
+    },
+  }, 'Presets');
+  const caret = el('span', { style: { fontSize: '9px' } }, open ? '\u25b4' : '\u25be');
+  tab.append(caret);
+  const panel = el('div', {
     class: 'card',
-    style: { position: 'absolute', left: '0', top: 'calc(100% + 6px)', zIndex: 39, width: 'min(300px, calc(100vw - 32px))', maxHeight: '62vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)', padding: '10px' },
+    style: { position: 'absolute', left: '0', top: 'calc(100% + 6px)', zIndex: 39, width: 'min(300px, calc(100vw - 32px))', maxHeight: '62vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)', padding: '10px', display: open ? 'block' : 'none' },
   },
     // When the preset you applied has been CHANGED on the page, a Save
     // button pops in to overwrite it in place (per Isaac) — Save as New
