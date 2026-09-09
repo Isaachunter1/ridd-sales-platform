@@ -5430,6 +5430,8 @@ function mountApp() {
   state._lastAnimView = state.view;
   // Competitions always opens on its landing page (per Isaac).
   if (_viewChanged && state.view === 'nrla') state._compsLanding = true;
+  // Pay always opens on the CURRENT pay period (per Isaac).
+  if (_viewChanged && state.view === 'pay') { state.payYear = null; state.payPeriodId = null; }
   const contentWrap = el('div', { class: 'p-4 sm:p-6 w-full max-w-[1600px] mx-auto overflow-x-auto' + (_viewChanged ? ' view-enter' : '') });
   // (Mobile freshness line retired — the header stamp shows on phones now, per Isaac.)
   usagePing('view', state.view);
@@ -12845,29 +12847,40 @@ function newSaleForm(onDone) {
 // ──────────────────────────────────────────────────────────────────────────
 // PAY PERIOD HELPERS — 26 biweekly periods per year, anchored to Jan 1
 // ──────────────────────────────────────────────────────────────────────────
+// Pay periods (per Isaac): bi-weekly, anchored to Sep 6 – Sep 19, 2026 and
+// every 14 days either side of that — NOT Jan 1 blocks. A year's list is
+// every period that starts in that year (the first one may spill in from
+// December, so the whole year is covered).
+const PAY_PERIOD_ANCHOR = '2026-09-06';
 function getPayPeriods(year) {
-  const periods = [];
+  const [ay, am, ad] = PAY_PERIOD_ANCHOR.split('-').map(Number);
+  const anchor = new Date(ay, am - 1, ad);
+  const fmtOpt = { month: 'short', day: 'numeric' };
+  const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  // Walk back to the first period that touches Jan 1 of `year`.
   const jan1 = new Date(year, 0, 1);
-  for (let i = 0; i < 26; i++) {
-    const start = new Date(year, 0, 1 + i * 14);
-    const end   = new Date(year, 0, 1 + i * 14 + 13);
-    const fmtOpt = { month: 'short', day: 'numeric' };
+  const dayDiff = Math.round((jan1 - anchor) / 86400000);
+  let k = Math.floor(dayDiff / 14);
+  const periods = [];
+  for (let i = 0; i < 30; i++, k++) {
+    const start = new Date(anchor); start.setDate(anchor.getDate() + k * 14);
+    if (start.getFullYear() > year) break;
+    const end = new Date(start); end.setDate(start.getDate() + 13); end.setHours(23, 59, 59, 999);
+    if (end < jan1) continue;
     periods.push({
-      id: i + 1,
-      start, end,
+      id: periods.length + 1, start, end,
       label: `${start.toLocaleDateString('en-US', fmtOpt)} – ${end.toLocaleDateString('en-US', fmtOpt)}`,
-      isoStart: start.toISOString().slice(0, 10),
-      isoEnd:   end.toISOString().slice(0, 10),
+      isoStart: iso(start), isoEnd: iso(end),
     });
   }
   return periods;
 }
 function currentPayPeriodId(year) {
   const now = new Date();
-  if (now.getFullYear() !== year) return year < now.getFullYear() ? 26 : 1;
   const periods = getPayPeriods(year);
   const p = periods.find(p => now >= p.start && now <= p.end);
-  return p ? p.id : 1;
+  if (p) return p.id;
+  return now.getFullYear() > year ? periods.length : 1;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
