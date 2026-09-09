@@ -3749,10 +3749,11 @@ function mobileBottomNav() {
   return nav;
 }
 
-// Compact per-branch table for the Inside Sales dashboard (replaces the
-// old 🏢 Office toggle). Rows = branches with a sale in the window, sorted
-// by revenue; a Total row ties back to the KPI cards above it.
-function dashBranchTable(approved, isRenewal) {
+// Office stats for the Inside Sales dashboard (replaces the old 🏢 Office
+// toggle). Collapsed by default to a one-line bar; click expands a table —
+// one row per office with a sale in the window, sorted by revenue, plus a
+// Total row that ties back to the KPI cards below it.
+function dashOfficeStats(approved, isRenewal) {
   const officeName = (s) => {
     const o = (state.offices || []).find(o => o.id === s.office_id);
     const raw = o ? o.name : String(s._crmOffice || '').split(',')[0].trim();
@@ -3762,27 +3763,39 @@ function dashBranchTable(approved, isRenewal) {
   for (const s of approved) {
     const k = officeName(s);
     let r = by.get(k);
-    if (!r) { r = { name: k, sales: 0, nw: 0, ren: 0, rev: 0, reps: new Set() }; by.set(k, r); }
-    r.sales += 1;
-    if (isRenewal(s)) r.ren += 1; else r.nw += 1;
-    r.rev += Number(s.revenue_amount || 0);
+    if (!r) { r = { name: k, sales: 0, nw: 0, ren: 0, rev: 0, newRev: 0, reps: new Set() }; by.set(k, r); }
+    const rev = Number(s.revenue_amount || 0);
+    r.sales += 1; r.rev += rev;
+    if (isRenewal(s)) r.ren += 1; else { r.nw += 1; r.newRev += rev; }
     r.reps.add(s.rep_id || s._crmRep || '?');
   }
   const rows = [...by.values()].sort((a, b) => b.rev - a.rev || b.sales - a.sales);
-  const tot = rows.reduce((t, r) => ({ sales: t.sales + r.sales, nw: t.nw + r.nw, ren: t.ren + r.ren, rev: t.rev + r.rev, reps: t.reps + r.reps.size }), { sales: 0, nw: 0, ren: 0, rev: 0, reps: 0 });
-  const th = (t, right) => el('th', { class: 'px-2 py-1 text-[10px] uppercase tracking-widest font-semibold text-muted- ' + (right ? 'text-right' : 'text-left') }, t);
-  const td = (t, right, cls) => el('td', { class: 'px-2 py-1 text-[11px] tabular-nums ' + (right ? 'text-right' : 'text-left') + (cls ? ' ' + cls : '') }, t);
+  const tot = rows.reduce((t, r) => ({ sales: t.sales + r.sales, nw: t.nw + r.nw, ren: t.ren + r.ren, rev: t.rev + r.rev, newRev: t.newRev + r.newRev, reps: t.reps + r.reps.size }), { sales: 0, nw: 0, ren: 0, rev: 0, newRev: 0, reps: 0 });
+  const open = !!state.dashOfficeView;
+  const header = el('button', {
+    class: 'w-full flex items-center justify-between gap-3 px-3 py-2 text-left',
+    onclick: () => { state.dashOfficeView = !open; mountApp(); },
+    title: open ? 'Collapse' : 'Expand office breakdown',
+  },
+    el('div', { class: 'flex items-center gap-2 min-w-0' },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Office stats'),
+      el('span', { class: 'text-[11px] text-muted- truncate' }, rows.length + ' office' + (rows.length === 1 ? '' : 's') + ' · ' + fmt.int(tot.sales) + ' sales · ' + fmt.usd0(tot.rev) + ' · ' + fmt.usd0(tot.newRev) + ' new')),
+    el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' } }, open ? '− Collapse' : '+ Expand'));
+  if (!open) return el('div', { class: 'card' }, header);
+  const th = (t, right) => el('th', { class: 'px-2 py-1 text-[10px] uppercase tracking-widest font-semibold text-muted- whitespace-nowrap ' + (right ? 'text-right' : 'text-left') }, t);
+  const td = (t, right, cls) => el('td', { class: 'px-2 py-1 text-[11px] tabular-nums whitespace-nowrap ' + (right ? 'text-right' : 'text-left') + (cls ? ' ' + cls : '') }, t);
   const line = (r, isTot) => el('tr', { class: isTot ? 'border-t font-bold' : 'border-t', style: { borderColor: 'var(--border)' } },
     td(isTot ? 'Total' : r.name, false, isTot ? '' : 'font-semibold'),
     td(fmt.int(r.sales), true), td(fmt.int(r.nw), true), td(fmt.int(r.ren), true),
-    td(fmt.usd0(r.rev), true), td(fmt.int(isTot ? r.reps : r.reps.size), true));
-  return el('div', { class: 'card p-3 overflow-x-auto' },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-subtle)' } }, 'Branch stats'),
-    el('table', { class: 'w-full' },
-      el('thead', {}, el('tr', {}, th('Branch'), th('Sales', 1), th('New', 1), th('Renewals', 1), th('Revenue', 1), th('Reps', 1))),
-      el('tbody', {},
-        ...(rows.length ? rows.map(r => line(r, false)) : [el('tr', {}, el('td', { class: 'px-2 py-2 text-[11px] text-muted-', colspan: 6 }, 'No sales in this window.'))]),
-        rows.length ? line(tot, true) : null)));
+    td(fmt.usd0(r.rev), true), td(fmt.usd0(r.newRev), true), td(fmt.int(isTot ? r.reps : r.reps.size), true));
+  return el('div', { class: 'card' },
+    header,
+    el('div', { class: 'overflow-x-auto px-1 pb-2' },
+      el('table', { class: 'w-full' },
+        el('thead', {}, el('tr', {}, th('Office'), th('Sales', 1), th('New', 1), th('Renewals', 1), th('Revenue', 1), th('New Revenue', 1), th('Reps', 1))),
+        el('tbody', {},
+          ...(rows.length ? rows.map(r => line(r, false)) : [el('tr', {}, el('td', { class: 'px-2 py-2 text-[11px] text-muted-', colspan: 7 }, 'No sales in this window.'))]),
+          rows.length ? line(tot, true) : null))));
 }
 
 function officeDashboard(windowSales) {
@@ -6243,6 +6256,11 @@ function viewDashboard() {
       );
     })(),
 
+    // ─── Office stats (per Isaac): replaces the old 🏢 Office toggle — a
+    // collapsed bar under the revenue pacer that expands into a per-office
+    // table (sales / new / renewals / revenue / new revenue / reps). ───
+    dashOfficeStats(approved, isRenewal),
+
     // ─── KPI cards: one combined Sales card + one combined Revenue card.
     // Three stats sit side by side inside each card (instead of three
     // separate cards) so the dashboard stays compact — especially on
@@ -6258,11 +6276,6 @@ function viewDashboard() {
       ['Renewal Revenue', fmt.usd0(renewalRevenue)],
     ]),
     // (Reconcile export link removed per Isaac — the CSV logic lives in git history if ever needed.)
-
-    // ─── Branch stats (per Isaac): replaces the old 🏢 Office toggle — a
-    // small always-on table of inside-sales numbers by branch for the
-    // selected window, sitting between the revenue cards and the feed. ───
-    dashBranchTable(approved, isRenewal),
 
     // ─── Split: Today's Sales (30%) | Leaderboard (70%) ───
     // Mobile stacks LEADERBOARD first (per Isaac) — CSS order flips below
