@@ -160,8 +160,6 @@ const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', '
 const PERM_DEFS = [
   { id: 'view_comps',       label: 'Competitions tab',    group: 'Tabs' },
   { id: 'view_indicators',  label: 'Indicators tab',      group: 'Tabs' },
-  { id: 'view_marketplace', label: 'Marketplace tab',     group: 'Tabs' },
-  { id: 'view_training',    label: 'Training tab',        group: 'Tabs' },
   { id: 'ind_card',         label: 'My Player Card',      group: 'Indicators sections' },
   { id: 'ind_table',        label: 'Indicators table',    group: 'Indicators sections' },
   { id: 'ind_power_chart',  label: 'Power Ranking chart', group: 'Indicators sections' },
@@ -172,12 +170,12 @@ const PERM_DEFS = [
   { id: 'ind_class',        label: '\ud83c\udf93 Class Metrics', group: 'Indicators sections' },
 ];
 const PERM_DEFAULTS = {
-  rep_sales:       { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
-  rep_office:      { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
-  rep_partner:     { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
-  rep_team_lead:   { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
-  rep_office_lead: { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
-  rep_loyalty_lead: { view_comps: 1, view_indicators: 1, view_marketplace: 1, view_training: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
+  rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
+  rep_office:      { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
+  rep_partner:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
+  rep_team_lead:   { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
+  rep_office_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
+  rep_loyalty_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
   auditor:         {},   // auditors live in the Sales queue — grant extras here as needed
 };
 // Effective permission role: legacy 'rep' resolves by CRM type.
@@ -3524,7 +3522,7 @@ const TAB_TITLES = {
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'d2d_upfront', '#techs':'techs', '#training':'training', '#marketplace':'marketplace', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'d2d_upfront', '#techs':'techs', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -3705,7 +3703,6 @@ function mobileBottomNav() {
           // handles the scoping). Indicators stays admin-only since
           // it's leadership-only data.
           ['scorecards','Scorecards',iconClipboard],
-          ['training','Training',iconClipboard],
           ['hall_of_fame','Hall of Fame',iconCrown],
           ...(isAdmin ? [['indicators','Indicators',iconChart]] : []),
           ...(isAdmin ? [['reporting','Reporting',iconPie]] : []),
@@ -5088,8 +5085,6 @@ function mountApp() {
   // defaults match the old hardcoded list exactly.
   const repCanSee = (v) => (v === 'nrla' && userCan('view_comps'))
     || (v === 'indicators' && userCan('view_indicators'))
-    || (v === 'training' && userCan('view_training'))
-    || (v === 'marketplace' && userCan('view_marketplace'))
     || (isTechType && v === 'techs')                       // Technicians: their own tab (was unreachable — audit #1)
     || (isSalesRepType && D2D_SALES_TAB_KEYS.has(v))       // Sales Reps: the D2D Sales group
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
@@ -5107,9 +5102,7 @@ function mountApp() {
   // grant Indicators/Competitions/etc. from Settings → Permissions).
   if (isAuditor) {
     const _audBlocked = (state.view === 'indicators' && !userCan('view_indicators'))
-      || (state.view === 'nrla' && !userCan('view_comps'))
-      || (state.view === 'marketplace' && !userCan('view_marketplace'))
-      || (state.view === 'training' && !userCan('view_training'));
+      || (state.view === 'nrla' && !userCan('view_comps'));
     if (_audBlocked) {
       state.view = 'sales';
       history.replaceState(null, '', VIEW_TO_HASH.sales || '#sales');
@@ -5131,8 +5124,6 @@ function mountApp() {
       : [['d2d_group', 'Sales', iconDollar()]]),
     ...(userCan('view_comps') ? [['nrla', 'Competitions', iconTrophy()]] : []),
     ...(userCan('view_indicators') ? [['indicators', 'Indicators', iconChart()]] : []),
-    ...(userCan('view_marketplace') ? [['marketplace', 'Marketplace', iconDollar()]] : []),
-    ...(userCan('view_training') ? [['training', 'Training', iconClipboard()]] : []),
   ] : [
     // Auditors only have the Sales tab, so call the entry what it is.
     // ONE "Sales" entry for every role — admins toggle Inside Sales ⇄ D2D
@@ -5143,8 +5134,6 @@ function mountApp() {
     ...(isAuditor && !userCan('view_comps') ? [] : [['nrla', 'Competitions', iconTrophy()]]),
     ...(isAdmin || (isAuditor && userCan('view_indicators')) ? [['indicators', 'Indicators', iconChart()]] : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
-    ...(isAuditor && !userCan('view_marketplace') ? [] : [['marketplace', 'Marketplace', iconDollar()]]),
-    ...(isAuditor && !userCan('view_training') ? [] : [['training', 'Training', iconClipboard()]]),
   ];
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
@@ -5477,10 +5466,15 @@ function mountApp() {
     d2d_dashboard: viewD2dDashboard,
     d2d_upfront:  viewD2dUpfront,
     techs:        viewTechs,
-    training:     viewTraining,
-    marketplace:  viewMarketplace,
     admin:        viewAdmin,
   }[state.view];
+  // Retired tabs (Training, Marketplace) — a stale saved view or old
+  // bookmark lands on Sales instead of crashing the render.
+  if (typeof view !== 'function') {
+    state.view = 'sales';
+    try { history.replaceState(null, '', VIEW_TO_HASH.sales || '#sales'); } catch (e) {}
+    return mountApp();
+  }
   if (INSIDE_SALES_TAB_KEYS.has(state.view)) state._lastIsTab = state.view;
   if (D2D_SALES_TAB_KEYS.has(state.view)) state._lastD2dTab = state.view;
   const node = view();
@@ -5505,7 +5499,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_upfront', 'techs', 'training', 'marketplace', 'auditing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_upfront', 'techs', 'auditing']);
   document.querySelector('.fab')?.remove();
   // + FAB is OFFICE STAFF only (per Isaac) — admins don't log sales from a
   // floating button, and the retired AI speed-dial no longer replaces it.
