@@ -30628,7 +30628,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         })(),
         ...(displayReps.length === 0
           ? [el('div', { class: 'text-center text-xs text-muted- italic py-6' }, 'No reps match the current filters.')]
-          : (state._repLbShowAll ? displayReps : displayReps.slice(0, 25)).map((r, i) => {
+          : (state._repLbShowAll ? displayReps : displayReps.slice(0, 10)).map((r, i) => {   // mobile: top 10 (per Isaac)
               const tierMeta = repTierMeta(r.tier);
               const teamColor = r.team ? getTeamColor(r.team) : null;
               // Multi-branch reps (per Isaac): primary office = where they
@@ -30684,11 +30684,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                     fmt.int(r.count) + ' sales' + (r.revPerDay > 0 ? ' · ' + fmt.usd0(r.revPerDay) + '/day' : '')),
                 ),
               );
-            }).concat(displayReps.length > 25 ? [el('button', {
+            }).concat(displayReps.length > 10 ? [el('button', {
               class: 'rounded-xl border px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
               style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
               onclick: (e) => { e.stopPropagation(); state._repLbShowAll = !state._repLbShowAll; mountApp(); },
-            }, state._repLbShowAll ? 'Show top 25' : 'Show all ' + displayReps.length + ' reps')] : [])),
+            }, state._repLbShowAll ? 'Show top 10' : 'Show all ' + displayReps.length + ' reps')] : [])),
       ),
     ),
   );
