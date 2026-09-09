@@ -22031,8 +22031,10 @@ function viewNrlaPublic() {
       title: 'Open ' + c.name,
       onclick: () => open(c.id),
     }, (c.favorite ? '\u2605 ' : '') + c.name);
-    wrap.append(el('div', { class: 'card overflow-hidden', style: { background: 'var(--accent)', color: ink, border: 'none' } },
-      el('div', { class: 'comp-landing-pad', style: { paddingBottom: '24px' } },
+    // Poster fills the screen below the top bar + rep-type tabs (per Isaac):
+    // the headline block grows, the competition buttons sit at the bottom.
+    wrap.append(el('div', { class: 'card overflow-hidden comp-landing-poster', style: { background: 'var(--accent)', color: ink, border: 'none' } },
+      el('div', { class: 'comp-landing-pad comp-landing-top', style: { paddingBottom: '24px' } },
         eyebrow('01 / Competitions \u00b7 ' + repTypeTab),
         el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3 items-start' },
           el('div', { style: { fontFamily: 'var(--font-display)', fontSize: 'clamp(56px, 9vw, 128px)', lineHeight: '.9', letterSpacing: '.01em', textTransform: 'uppercase', color: ink } },
