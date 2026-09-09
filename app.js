@@ -34364,7 +34364,8 @@ function openTeamReportsModal(ctx) {
     if (!items.length) list.append(el('div', { class: 'px-4 py-6 text-center text-xs text-muted- italic' }, 'No ' + lab.toLowerCase() + 's in this window.'));
     items.forEach(item => list.append(mkRow(item, mode)));
     status.textContent = '';
-    if (downloadAllBtn) { downloadAllBtn.disabled = false; downloadAllBtn.textContent = '📄 Download all' + (mode === 'rep' ? ' (' + items.length + ')' : ''); }
+    // No "Download all" in Reps mode (per Isaac — 40+ PDFs at once is a mess).
+    if (downloadAllBtn) { downloadAllBtn.disabled = false; downloadAllBtn.textContent = '📄 Download all'; downloadAllBtn.style.display = mode === 'rep' ? 'none' : ''; }
   };
 
   const modeSelect = el('select', {
@@ -34387,7 +34388,7 @@ function openTeamReportsModal(ctx) {
       }
       status.textContent = 'Done — ' + items.length + ' reports.';
       modeSelect.disabled = false;
-      downloadAllBtn.disabled = false; downloadAllBtn.textContent = '📄 Download all' + (m === 'rep' ? ' (' + items.length + ')' : '');
+      downloadAllBtn.disabled = false; downloadAllBtn.textContent = '📄 Download all';
     },
   }, '📄 Download all');
 
