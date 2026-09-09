@@ -13006,222 +13006,111 @@ function viewPay() {
     ? upfrontSalesPay + loyaltyRoyaltyAmt + quarterlyBackendPay + quotaPayAmt + loyaltyPayAmt
     : upfrontSalesPay + goldenPhoneAmt    + quarterlyBackendPay + quotaPayAmt + loyaltyPayAmt;
 
-  // ── Stub mode ── (must come before the labels below, which read it)
-  if (!state.payStubMode) state.payStubMode = 'pay_period';
-  const stubMode      = state.payStubMode;
-  const isBackendStub = stubMode === 'backend';
+  // ── Layout (per Isaac's pay-tab sheet, Sep 2026): three stacked blocks —
+  // PAY STUB (this period's upfront), BACKEND PAY (the quarter's backend),
+  // METRICS (the rates that drove the math). Same rows, app styling.
+  const s = ensurePaySettings();
+  const BASE_PCT = Number(viewedProfile.upfront_commission_rate || 0.07) * 100;
+  const ctRate = (re) => { const cc = (s.contract_commissions || []).find(c => re.test(String(c.name || ''))); return cc ? Number(cc.rate) : null; };
+  const upsellRate = ctRate(/^upsell/i), otsRate = ctRate(/one time/i);
+  const commercialRate = s.commercial_rate != null ? Number(s.commercial_rate) : null;
+  const tierLabel = (() => {
+    if (upfrontPct == null) return '—';
+    const tiers = (s.upfront_tiers || []).slice().sort((a, b) => Number(b.min) - Number(a.min));
+    for (const t of tiers) if (upfrontPct * 100 >= Number(t.min)) return Number(t.min) > 0 ? Number(t.min) + '% +' : '< ' + (tiers[tiers.length - 2] ? Number(tiers[tiers.length - 2].min) : 35) + '%';
+    return '—';
+  })();
+  const hasSub = (x) => { const m = Number(x.contract_months); return !!x.paid_in_full || m === 12 || m === 18 || m === 24; };
+  const eligibleBackendRevPeriod = servicedStaged.filter(x => hasBackend(x) || (!isRenewalSource(x) && hasSub(x))).reduce((a, x) => a + Number(x.revenue_amount || 0), 0);
+  const otherPayTotal = upfrontTotal - upfrontSalesPay;
+  // Cancels clawback: quarter sales cancelled after they'd been paid out —
+  // the commission that was paid comes back off the backend stub.
+  const cancelsClawback = quarterSales
+    .filter(x => x.audit_status === 'cancelled' && x.staged_at)
+    .reduce((a, x) => a + getCommissionAmount(repId, { ...x, audit_status: 'serviced' }), 0);
+  const backendPayNet = quarterlyBackendPay - cancelsClawback;
+  const pctS = (v, d = 0) => (v == null || !isFinite(v)) ? '—' : (Number(v).toFixed(d)) + '%';
+  const signedPct = (v) => v == null ? '—' : (v > 0 ? '+' : '') + (Math.round(v * 100) / 100) + '%';
 
-  // Section header labels are rep-type aware in Pay Period mode: loyalty
-  // reps see the verbose "Pay Period ..." names; sales reps see the short
-  // names. Backend mode always uses verbose names for both.
-  const labelRevenue    = (isBackendStub || isLoyaltyRep) ? 'Pay Period Revenue' : 'Revenue';
-  const labelBackendPay = (isBackendStub || isLoyaltyRep) ? 'Pay Period Backend Pay' : 'Backend';
+  // Stub primitives — bordered stack with dark section headers, matching
+  // the sheet's look but on the app's tokens.
+  const hdr = (label, right) => el('div', {
+    class: 'grid px-3 py-2 text-[10px] font-black uppercase tracking-widest',
+    style: { gridTemplateColumns: '1fr auto', background: 'var(--text)', color: 'var(--card)' },
+  }, el('span', {}, label), right ? el('span', { class: 'text-right' }, right) : null);
+  const tone = (t) => t === 'sand' ? { background: '#8E6F47', color: '#fff' }
+    : t === 'green' ? { background: '#3D7A66', color: '#fff' }
+    : t === 'total' ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+    : {};
+  const row = (label, value, opts = {}) => el('div', {
+    class: 'grid items-center px-3 py-1.5 border-t text-[11px]',
+    style: Object.assign({ gridTemplateColumns: '1fr auto', borderColor: 'var(--border)' }, tone(opts.tone)),
+  },
+    el('span', { class: 'uppercase tracking-wide ' + (opts.tone ? 'font-bold' : 'font-semibold'), style: opts.red ? { color: '#DC2626' } : {} }, label),
+    typeof value === 'string' || typeof value === 'number' ? el('span', { class: 'text-right tabular-nums ' + (opts.tone ? 'font-black' : 'font-semibold') }, value) : value);
+  const $ = (v) => fmt.usd(v);
+  const block = (...kids) => el('div', { class: 'card overflow-hidden' }, ...kids);
 
-  // ── Stub building blocks ──
-  // The stub is a black-bordered table of cells matching the printed RIDD
-  // pay-stub templates: black section headers, white rows, colored highlights
-  // for the payout lines.
-  const stubSectionHeader = (label) => el('div', {
-    style: {
-      padding: '10px 14px',
-      background: '#000', color: '#fff',
-      fontSize: '11px', fontWeight: '800', letterSpacing: '.18em',
-      textTransform: 'uppercase',
-      border: '1px solid #000', borderBottom: 'none',
-    },
-  }, label);
-
-  // Two-cell stub row (label | value). `color` tints the whole row;
-  // `redLabel` italicizes the label in red (used for Post-Service Cancels);
-  // `total` bolds both cells.
-  const stubRow = (label, amount, opts = {}) => {
-    let bg = '#fff', fg = '#000';
-    switch (opts.color) {
-      case 'gold': bg = '#C8A565'; fg = '#1D1D1D'; break;
-      case 'sand': bg = '#8E6F47'; fg = '#FFFFFF'; break;
-      case 'red':  bg = '#9B2C2C'; fg = '#FFFFFF'; break;
-      case 'lime': bg = '#FF8A5C'; fg = '#1D1D1D'; break;
-      case 'gray': bg = '#D1D1D1'; fg = '#1D1D1D'; break;
-      case 'teal': bg = '#1F6F84'; fg = '#FFFFFF'; break;
-    }
-    return el('div', {
-      style: {
-        display: 'grid', gridTemplateColumns: '1fr 130px',
-        borderLeft: '1px solid #000', borderRight: '1px solid #000',
-        borderBottom: '1px solid #000',
+  // Agent picker (admins) / name (reps) inside the stub's AGENT row.
+  const agentCell = (isAdmin && profilesForPicker.length > 0)
+    ? el('select', {
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', maxWidth: '180px' },
+        onchange: e => { state.payViewRepId = e.target.value === state.profile.id ? null : e.target.value; mountApp(); },
       },
-    },
-      el('div', {
-        style: {
-          padding: '8px 14px', background: bg,
-          color: opts.redLabel ? '#DC2626' : fg,
-          fontSize: '11px', letterSpacing: '.04em', textTransform: 'uppercase',
-          fontWeight: opts.total ? '800' : '500',
-          fontStyle: opts.redLabel ? 'italic' : 'normal',
-        },
-      }, label),
-      el('div', {
-        style: {
-          padding: '8px 14px', background: bg, color: fg,
-          fontVariantNumeric: 'tabular-nums',
-          fontWeight: opts.total ? '800' : '600',
-          fontSize: '12px', textAlign: 'right',
-          borderLeft: '1px solid #000',
-        },
-      }, fmt.usd(amount)),
-    );
-  };
-  // Same row, but a text value (percentages etc.) instead of money.
-  const stubTextRow = (label, text) => { const r = stubRow(label, 0); r.lastChild.textContent = text; return r; };
+        el('option', { value: state.profile.id, selected: !state.payViewRepId || state.payViewRepId === state.profile.id }, state.profile.full_name + ' (you)'),
+        ...profilesForPicker.filter(p => p.id !== state.profile.id).map(p => el('option', { value: p.id, selected: state.payViewRepId === p.id }, p.full_name)))
+    : el('span', { class: 'text-right font-semibold' }, viewedProfile.full_name);
 
-  // ── PAY section: rep_type × stub_mode configuration ──
-  // Each row: [label, value, color?, isTotal?]. To add rows for a new rep
-  // type, drop another key into PAY_ROWS — no other code changes needed.
-  // Colors available on stubRow: gold, sand, red, lime, gray, teal, null.
-  const PAY_ROWS = {
-    sales_rep: {
-      pay_period: [
-        ['Golden Phone', goldenPhoneAmt,    'gold'],
-        ['Sales Pay',    upfrontSalesPay,   'sand'],
-        ['Total Pay',    totalPayPayPeriod, 'lime', true],
-      ],
-      backend: [
-        ['Backend',      quarterlyBackendPay],
-        ['Quota',        quotaPayAmt,       'gray'],
-        ['Golden Phone', goldenPhoneAmt,    'gold'],
-        ['Sales Pay',    upfrontSalesPay,   'sand'],
-        ['Loyalty Pay',  loyaltyPayAmt,     'red'],
-        ['Total Pay',    totalPayBackend,   'lime', true],
-      ],
-    },
-    loyalty_rep: {
-      pay_period: [
-        ['Loyalty Royalty', loyaltyRoyaltyAmt, 'gold'],
-        ['Sales Pay',       upfrontSalesPay,   'sand'],
-        ['Revhawk Pay',     revhawkPayAmt,     'teal'],
-        ['Loyalty Pay',     loyaltyPayAmt,     'red'],
-        ['Total Pay',       totalPayPayPeriod, 'lime', true],
-      ],
-      backend: [
-        ['Backend',         quarterlyBackendPay],
-        ['Quota',           quotaPayAmt,       'gray'],
-        ['Loyalty Royalty', loyaltyRoyaltyAmt, 'gold'],
-        ['Sales Pay',       upfrontSalesPay,   'sand'],
-        ['Loyalty Pay',     loyaltyPayAmt,     'red'],
-        ['Total Pay',       totalPayBackend,   'lime', true],
-      ],
-    },
-  };
-  const currentPayRows = (PAY_ROWS[repType] || PAY_ROWS.sales_rep)[stubMode];
-
-  return el('div', { class: 'flex flex-col gap-4 max-w-[760px] mx-auto' },
-
-    // ─── Page header: matches the printed RIDD pay-stub branding ───
-    el('div', { class: 'flex items-end justify-between flex-wrap gap-3' },
-      el('div', {},
-        el('div', { class: 'text-2xl font-black tracking-tight' }, 'RIDD'),
-        el('div', { class: 'text-base font-bold tracking-wide' }, 'PAY STUBS'),
-        el('div', { class: 'text-[10px] font-semibold tracking-[.18em] text-muted-' }, 'SERVICE ABOVE ALL'),
-        el('div', { class: 'text-[10px] text-muted-' }, 'EST. 2020*'),
-      ),
-      // Rep + year + period selectors (rep is admin-only)
-      el('div', { class: 'flex items-center gap-2 flex-wrap' },
-        isAdmin && profilesForPicker.length > 0 && el('select', {
-          class: 'rounded-lg border px-2.5 py-1 text-[11px]',
-          onchange: e => {
-            state.payViewRepId = e.target.value === state.profile.id ? null : e.target.value;
-            mountApp();
+  // Close-rate row: admins edit inline (hardcoded input per Isaac — never
+  // derived); reps just see it.
+  const closeRateCell = isAdmin
+    ? el('span', { class: 'flex items-center justify-end gap-1' },
+        el('input', {
+          type: 'number', step: '1', min: 0, max: 100, value: Math.round(closeRate * 100),
+          class: 'rounded border px-2.5 py-1 text-[11px] w-16 text-right tabular-nums',
+          style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+          onchange: (e) => {
+            const pct = parseFloat(e.target.value);
+            if (!Number.isFinite(pct)) return;
+            const next = Math.round(Math.max(0, Math.min(100, pct))) / 100;
+            const target = state.allProfiles.find(p => p.id === repId);
+            if (target) target.close_rate_target = next;
+            if (state.profile?.id === repId) state.profile.close_rate_target = next;
+            saveDemoData(); mountApp();
           },
-        },
-          el('option', {
-            value: state.profile.id,
-            selected: !state.payViewRepId || state.payViewRepId === state.profile.id,
-          }, state.profile.full_name + ' (you)'),
-          ...profilesForPicker
-            .filter(p => p.id !== state.profile.id)
-            .map(p => el('option', { value: p.id, selected: state.payViewRepId === p.id }, p.full_name)),
-        ),
+        }), el('span', {}, '%'))
+    : pctS(closeRate * 100);
+
+  const deptLabel = isLoyaltyRep ? 'LOYALTY' : 'INSIDE SALES';
+
+  return el('div', { class: 'flex flex-col gap-4 w-full' },
+
+    // ─── Toolbar: year + period (left) · admin Run / CSV (right) ───
+    el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
+      el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('select', {
           class: 'rounded-lg border px-2.5 py-1 text-[11px]',
-          onchange: e => {
-            state.payYear = Number(e.target.value);
-            state.payPeriodId = currentPayPeriodId(state.payYear);
-            mountApp();
-          },
-        },
-          ...years.map(y => el('option', { value: y, selected: y === state.payYear }, y)),
-        ),
+          onchange: e => { state.payYear = Number(e.target.value); state.payPeriodId = currentPayPeriodId(state.payYear); mountApp(); },
+        }, ...years.map(y => el('option', { value: y, selected: y === state.payYear }, y))),
         el('select', {
           class: 'rounded-lg border px-2.5 py-1 text-[11px]',
           onchange: e => { state.payPeriodId = Number(e.target.value); mountApp(); },
-        },
-          ...periods.map(p => el('option', {
-            value: p.id,
-            selected: p.id === state.payPeriodId,
-          }, p.label + (p.id === nowPid && state.payYear === today.getFullYear() ? ' (Current)' : ''))),
-        ),
+        }, ...periods.map(p => el('option', { value: p.id, selected: p.id === state.payPeriodId },
+          p.label + (p.id === nowPid && state.payYear === today.getFullYear() ? ' (Current)' : '')))),
       ),
-    ),
-
-    // ─── Mode toggle + admin tools ───
-    el('div', { class: 'flex items-center justify-between flex-wrap gap-3' },
-      // Toggle: PAY PERIOD | BACKEND
-      el('div', { class: 'inline-flex rounded-lg overflow-hidden', style: { border: '1px solid #000' } },
-        ...[
-          { id: 'pay_period', label: 'PAY PERIOD' },
-          { id: 'backend',    label: 'BACKEND' },
-        ].map(t => el('button', {
-          style: stubMode === t.id
-            ? { padding: '8px 18px', fontSize: '11px', fontWeight: '800', letterSpacing: '.18em', background: '#000', color: '#fff' }
-            : { padding: '8px 18px', fontSize: '11px', fontWeight: '700', letterSpacing: '.18em', background: 'transparent', color: 'var(--text-muted)' },
-          onclick: () => { state.payStubMode = t.id; mountApp(); },
-        }, t.label)),
-      ),
-
-      // Admin toolbar: close-rate chip + Run + Export
-      isAdmin && el('div', { class: 'flex items-center gap-3 flex-wrap' },
-        // Close-rate inline editor (only matters in Backend mode but always
-        // editable so the admin can prep ahead of quarter end).
-        el('div', {
-          style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-muted)' },
-        },
-          el('span', {}, 'Close rate'),
-          el('input', {
-            type: 'number', step: '1', min: 0, max: 100,
-            value: Math.round(closeRate * 100),
-            class: 'rounded border px-2.5 py-1 text-[11px] w-16 text-right tabular-nums',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
-            onchange: (e) => {
-              const pct = parseFloat(e.target.value);
-              if (!Number.isFinite(pct)) return;
-              const clamped = Math.max(0, Math.min(100, pct));
-              const next = Math.round(clamped) / 100;
-              const target = state.allProfiles.find(p => p.id === repId);
-              if (target) target.close_rate_target = next;
-              if (state.profile?.id === repId) state.profile.close_rate_target = next;
-              saveDemoData();
-              mountApp();
-            },
-          }),
-          el('span', {}, '%'),
-          el('span', {
-            style: meetsCloseRate ? { color: '#DF643A', fontWeight: '700' } : { color: '#B91C1C', fontWeight: '700' },
-          }, meetsCloseRate ? '✓ bump' : '✗ no bump'),
-        ),
-
-        // Run button (mode-aware)
+      isAdmin && el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('button', {
           class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
-          style: {
-            background: isBackendStub ? '#0EA5E9' : 'var(--accent)',
-            color: isBackendStub ? '#FFFFFF' : 'var(--accent-text)',
-            opacity: !isBackendStub && commissionable.length === 0 ? '.45' : '1',
-            cursor: !isBackendStub && commissionable.length === 0 ? 'not-allowed' : 'pointer',
-          },
-          disabled: !isBackendStub && commissionable.length === 0,
-          onclick: () => isBackendStub ? processBackendPayroll(period, repId) : processPayroll(commissionable, period),
-        }, isBackendStub ? 'Run Backend →' : 'Run Pay Period →'),
-
+          style: { background: 'var(--accent)', color: 'var(--accent-text)', opacity: commissionable.length === 0 ? '.45' : '1', cursor: commissionable.length === 0 ? 'not-allowed' : 'pointer' },
+          disabled: commissionable.length === 0,
+          onclick: () => processPayroll(commissionable, period),
+        }, 'Run Pay Period →'),
+        el('button', {
+          class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
+          style: { background: '#3D7A66', color: '#fff' },
+          onclick: () => processBackendPayroll(period, repId),
+        }, 'Run Backend →'),
         el('button', {
           class: 'px-2.5 py-1 rounded-lg text-[11px] font-medium border',
           style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
@@ -13230,57 +13119,63 @@ function viewPay() {
       ),
     ),
 
-    // ─── The stub itself ───
-    el('div', {},
-      // Rep-name banner (white row above the first section)
-      el('div', {
-        style: {
-          padding: '10px 14px',
-          background: '#fff', color: '#000',
-          fontSize: '11px', fontWeight: '700', letterSpacing: '.04em',
-          textTransform: 'uppercase',
-          border: '1px solid #000',
-        },
-      }, viewedProfile.full_name),
+    // ─── The three stub blocks ───
+    el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' },
 
-      // REVENUE — loyalty reps in Backend mode get a Subscription Revenue
-      // row at the top of this section (recurring services tally).
-      stubSectionHeader(labelRevenue),
-      isLoyaltyRep && isBackendStub && stubRow('Subscription Revenue', subscriptionRevenue),
-      !isLoyaltyRep && isBackendStub && stubRow('Subscription Revenue', periodSubscriptionRev),
-      stubRow('Total Revenue',     periodTotalRevenue),
-      stubRow('Quarterly Revenue', quarterRevenue),
+      // PAY STUB — this pay period's upfront
+      block(
+        hdr('Pay Stub', deptLabel),
+        row('Agent', agentCell),
+        row('Subscriptions', fmt.int(commissionable.length)),
+        row('Eligible Backend Revenue', $(eligibleBackendRevPeriod)),
+        row('Total Revenue', $(periodTotalRevenue)),
+        row('Est. Multi-Year Pay', $(multiYearBonus)),
+        row('Est. Close Rate % Pay', $(closeRateBonus)),
+        row('Est. Renewal Pay', $(renewalPay)),
+        row('Est. Backend Pay', $(payPeriodBackendPay)),
+        row('Below Minimums', $(belowPay), { tone: 'sand' }),
+        row('Sales Pay', $(salesPay), { tone: 'green' }),
+        row('Other Pay', $(otherPayTotal), { tone: 'green' }),
+        row('Total Pay', $(upfrontTotal), { tone: 'total' }),
+        pending.length ? el('div', { class: 'px-3 py-1.5 border-t text-[10px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
+          pending.length + ' sale' + (pending.length === 1 ? '' : 's') + ' still pending audit (' + fmt.usd0(pendingRev) + ' · est. ' + fmt.usd0(pendingPay) + ' pay)') : null,
+      ),
 
-      // CHARGE UPFRONT (sheet O29-O31) — collected-upfront share sets the
-      // tier that multiplies the whole upfront commission.
-      stubSectionHeader('CHARGE UPFRONT'),
-      stubTextRow('Charge Upfront %', upfrontPct == null ? '\u2014 (no eligible accounts)' : (upfrontPct * 100).toFixed(1) + '%'),
-      stubTextRow('Upfront Pay %',    Math.round(upfrontMult * 100) + '%'),
+      // BACKEND PAY — the quarter that contains this period
+      block(
+        hdr('Backend Pay', 'Q' + (Math.floor(period.start.getMonth() / 3) + 1) + ' ' + period.start.getFullYear()),
+        row('Eligible Subscriptions', fmt.int(quarterEligible.length)),
+        row('Eligible Revenue', $(eligibleRevenue)),
+        row('Multi-Year % Pay', $(multiYearBonusQuarter)),
+        row('Close Rate % Pay', $(closeRateBonusQuarter)),
+        row('Renewal Pay', $(renewalPayQuarter)),
+        row('Cancels', el('span', { class: 'text-right tabular-nums font-semibold', style: { color: '#DC2626' } }, (cancelsClawback > 0 ? '-' : '') + $(cancelsClawback)), { red: true }),
+        row('Backend Pay', $(backendPayNet), { tone: 'total' }),
+        el('div', { class: 'px-3 py-1.5 border-t text-[10px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
+          'Pending backend: ' + fmt.usd0(pendingBackend) + ' on ' + fmt.usd0(pendingBackendRevenue) + ' revenue awaiting the backend audit'),
+      ),
 
-      // BACKEND PAY components — QUARTERLY BACKEND PAY is highlighted gray
-      // for loyalty reps in Backend mode (matches the printed template
-      // emphasizing this as the quarter-end payout).
-      stubSectionHeader(labelBackendPay),
-      stubRow('Multi-Year Pay',         multiYearBonus),
-      stubRow('Close Rate % Pay',       closeRateBonus),
-      stubRow('Renewal Pay',            renewalPay),
-      stubRow('Pay Period Backend Pay', payPeriodBackendPay),
-      stubRow('Quarterly Backend Pay',  quarterlyBackendPay, (isLoyaltyRep && isBackendStub) ? { color: 'gray' } : {}),
-
-      // BACKEND (Backend mode only)
-      isBackendStub && stubSectionHeader('Backend'),
-      isBackendStub && stubRow('Eligible Revenue',     eligibleRevenue),
-      isBackendStub && stubRow('Post-Service Cancels', postServiceCancels, { redLabel: true }),
-
-      // PENDING BACKEND (Backend mode only)
-      isBackendStub && stubSectionHeader('Pending Backend'),
-      isBackendStub && stubRow('Pending Backend Revenue', pendingBackendRevenue),
-      isBackendStub && stubRow('Pending Backend',         pendingBackend),
-
-      // PAY — rows configured per rep_type × stubMode in PAY_ROWS above
-      stubSectionHeader('Pay'),
-      ...currentPayRows.map(([lbl, val, color, total]) =>
-        stubRow(lbl, val, { color: color || null, total: !!total })
+      // METRICS — the rates behind the numbers
+      block(
+        hdr('Metrics'),
+        row('Upfront %', pctS(BASE_PCT, 2)),
+        row('Close Rate %', closeRateCell),
+        row('Charge Upfront %', upfrontPct == null ? '100.00%' : pctS(upfrontPct * 100, 2)),
+        row('Upfront Tier', tierLabel === '—' ? '70% +' : tierLabel),
+        row('Upfront Pay %', pctS(upfrontMult * 100, 2)),
+        row('PIF Modifier', signedPct(Number(s.pif_modifier ?? 5))),
+        row('Commercial Modifier', commercialRate == null ? '—' : signedPct(commercialRate - BASE_PCT)),
+        row('OTS Modifier', otsRate == null ? '—' : signedPct(otsRate - BASE_PCT)),
+        row('Upsell Modifier', upsellRate == null ? '—' : signedPct(upsellRate - BASE_PCT)),
+        row('Below Min Pay Modifier', pctS(Number(s.below_min_multiplier ?? 50), 2)),
+        row('Close Rate Bonus %', pctS(closeRateTierPct(closeRate, s), 2)),
+        row('18 Mo Backend Bonus %', pctS(Number(s.multi_year_rate_18), 2)),
+        row('24 Mo Backend Bonus %', pctS(Number(s.multi_year_rate_24), 2)),
+        row('Renewal Backend Bonus', pctS(Number(s.renewal_backend_rate), 2)),
+        row('Upfront 12-Mo Pay', $(s.renewal_flat.m12)),
+        row('Upfront 18-Mo Pay', $(s.renewal_flat.m18)),
+        row('Upfront 24-Mo Pay', $(s.renewal_flat.m24)),
+        row('Upfront PIF Pay', $(s.renewal_flat.pif)),
       ),
     ),
 
