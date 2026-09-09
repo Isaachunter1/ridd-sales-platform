@@ -145,6 +145,10 @@
     .sales-mode-toggle { display: flex !important; width: 100%; margin-right: 0 !important; }
     .sales-mode-btn { flex: 1 1 0; }
     .sales-tab-select { flex: 0 0 100% !important; }
+    /* Same breathing room below the Dashboard dropdown as between it and
+       the rep-type toggle above (the desktop mb-4 read as a gap on phones). */
+    .sales-subtabs { margin-bottom: 6px !important; }
+    .sales-subtabs .sales-tab-select { padding-bottom: 6px; }
     /* Dashboard toolbar: + New Sale grows to fill the row on phones. */
     .dash-toolbar .dash-newsale { flex: 1 1 auto; }
     .dash-toolbar > select, .dash-toolbar > button:not(.dash-newsale) { flex: 0 0 auto; }
