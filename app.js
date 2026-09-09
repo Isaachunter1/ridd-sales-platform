@@ -41000,7 +41000,7 @@ function viewReporting() {
   const isMarketing = state.reportingSubTab === 'marketing';
 
   return el('div', { class: 'flex flex-col gap-4' },
-    reportingTopBar(),
+    // (Active Snapshot bar retired — per Isaac; the header stamp already says when the data synced.)
     reportingSubTabs(),
     reportingMethodologyBar(),
     isMarketing                            ? reportingMarketingPnl() :

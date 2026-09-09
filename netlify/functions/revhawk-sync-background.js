@@ -111,7 +111,8 @@ cust AS (
     ANY_VALUE(fieldRoutes_email) AS email, ANY_VALUE(fieldRoutes_aPay) AS apay,
     ANY_VALUE(fieldRoutes_responsibleBalanceAge) AS dpd,
     ANY_VALUE(fieldRoutes_responsibleBalance) AS resp_balance,
-    ANY_VALUE(fieldRoutes_customerSource) AS csource
+    ANY_VALUE(fieldRoutes_customerSource) AS csource,
+    ANY_VALUE(fieldRoutes_officeID) AS office_id
   FROM \`${PROJECT}.${DATASET}.FieldRoutesCustomer\` GROUP BY 1
 ),
 cxl AS (
@@ -186,7 +187,13 @@ SELECT
   cust.zip AS zip_code,
   SAFE_CAST(cust.dpd AS INT64) AS days_past_due,
   SAFE_CAST(cust.resp_balance AS FLOAT64) AS responsible_balance,
-  CASE s.fieldRoutes_officeID ${buildOfficeCase()} ELSE CONCAT('Office ', s.fieldRoutes_officeID) END AS office_name,
+  -- Phantom NEGATIVE office ids on a subscription ("-6") are a corrupted copy
+  -- of the customer's real office (6 = the same branch) — resolve through the
+  -- customer record so those accounts land on their branch instead of an
+  -- "Office -6" row (per Isaac). Still-negative after that = truly phantom.
+  CASE COALESCE(IF(SAFE_CAST(s.fieldRoutes_officeID AS INT64) < 0, NULLIF(cust.office_id, ''), NULL), s.fieldRoutes_officeID)
+    ${buildOfficeCase()}
+    ELSE CONCAT('Office ', COALESCE(IF(SAFE_CAST(s.fieldRoutes_officeID AS INT64) < 0, NULLIF(cust.office_id, ''), NULL), s.fieldRoutes_officeID)) END AS office_name,
   SAFE_CAST(s.fieldRoutes_agreementLength AS INT64) AS agreement_length,
   SAFE_CAST(s.fieldRoutes_contractValue AS FLOAT64) AS subscription_contract_value,
   SAFE_CAST(s.fieldRoutes_initialServiceTotal AS FLOAT64) AS initial_price,
@@ -216,7 +223,7 @@ WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''
   -- Phantom offices lingering in the CRM (negative office IDs, e.g. -1 / -7).
   -- These aren't real branches we sold from — exclude them from the snapshot
   -- entirely so they never touch revenue, subs, or any downstream metric.
-  AND COALESCE(s.fieldRoutes_officeID, '') NOT IN ('-1', '-7')
+  AND SAFE_CAST(COALESCE(IF(SAFE_CAST(s.fieldRoutes_officeID AS INT64) < 0, NULLIF(cust.office_id, ''), NULL), s.fieldRoutes_officeID) AS INT64) > 0
   -- Orphaned subscriptions: the rep created a card, then DELETED the customer
   -- (e.g. couldn't close it), but the subscription lingers in the warehouse.
   -- FieldRoutes doesn't propagate the delete, so these would show "pending"
