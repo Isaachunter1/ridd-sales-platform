@@ -229,6 +229,17 @@
     border: 1px solid var(--input-border) !important;
   }
   input::placeholder, textarea::placeholder { color: var(--text-subtle) !important; }
+  /* Competitions landing (poster card) */
+  .comp-landing-pad { padding: 32px 24px 0; }
+  .comp-landing-bottom { padding-top: 24px; padding-bottom: 32px; }
+  .comp-landing-rule { margin: 0 24px; border-top: 1px solid rgba(0,0,0,.25); }
+  .comp-landing-copy { font-size: 14px; }
+  @media (min-width: 640px) {
+    .comp-landing-pad { padding: 40px 48px 0; }
+    .comp-landing-bottom { padding-top: 24px; padding-bottom: 40px; }
+    .comp-landing-rule { margin: 0 48px; }
+    .comp-landing-copy { font-size: 15px; padding-top: 12px; }
+  }
   /* Standard control box (px-2.5 py-1 text-[11px]) — pin the line box so a
      native <select> (iOS gives it a taller intrinsic height) and a button
      holding an emoji (taller glyph line box) come out the exact same height

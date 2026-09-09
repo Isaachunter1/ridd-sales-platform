@@ -5357,6 +5357,8 @@ function mountApp() {
   // in-place re-renders (filters, toggles) stay instant and steady.
   const _viewChanged = state._lastAnimView !== state.view;
   state._lastAnimView = state.view;
+  // Competitions always opens on its landing page (per Isaac).
+  if (_viewChanged && state.view === 'nrla') state._compsLanding = true;
   const contentWrap = el('div', { class: 'p-4 sm:p-6 w-full max-w-[1600px] mx-auto overflow-x-auto' + (_viewChanged ? ' view-enter' : '') });
   // (Mobile freshness line retired — the header stamp shows on phones now, per Isaac.)
   usagePing('view', state.view);
@@ -21950,7 +21952,7 @@ function viewNrlaPublic() {
   // ── Rep-type tabs — comps are organized by WHO competes. Everything built
   // so far is a Sales-Rep (D2D) competition; Office Staff comps get their own
   // home here when they're built. Viewers land on their own type's tab.
-  const COMP_REPTYPE_TABS = ['Sales Reps', 'Office Staff'];
+  const COMP_REPTYPE_TABS = ['Sales Reps', 'Office Staff', 'Technicians'];
   // ★ The admin-starred default comp applies across ALL user types (per
   // Isaac): everyone LANDS on the starred comp's tab, whatever their role.
   // The tab switcher is open to every account — other types' boards are
@@ -21969,10 +21971,54 @@ function viewNrlaPublic() {
         return el('button', {
           class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap',
           style: on ? { color: 'var(--text)', boxShadow: 'inset 0 -2px 0 var(--accent)' } : { color: 'var(--text-muted)' },
-          onclick: () => { state._compsRepTypeTab = t; mountApp(); },
+          onclick: () => { state._compsRepTypeTab = t; state._compsLanding = true; mountApp(); },
         }, t);
       })));
   }
+  // ── Landing page (per Isaac) — poster-style front door: eyebrow, big
+  // headline, one button per competition for the selected rep type. Picking
+  // a competition opens its page; "← Competitions" comes back here.
+  if (state._compsLanding !== false || repTypeTab === 'Technicians') {
+    const landingComps = repTypeTab === 'Sales Reps' ? comps
+      : repTypeTab === 'Office Staff' ? [{ id: 'isl', name: 'Inside Sales League' }]
+      : [];
+    const open = (id) => {
+      state._compsLanding = false;
+      if (repTypeTab === 'Sales Reps') state._compsTabSel = id;
+      mountApp();
+    };
+    const mono = { fontFamily: "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace" };
+    const ink = '#111';
+    const eyebrow = (t) => el('div', { class: 'text-[11px] tracking-[.22em] uppercase', style: { ...mono, color: 'rgba(0,0,0,.65)' } }, t);
+    const compBtn = (c) => el('button', {
+      class: 'px-5 py-3 text-left transition hover:brightness-110',
+      style: { background: ink, color: 'var(--accent)', border: '2px solid ' + ink, fontFamily: 'var(--font-display)', fontSize: '22px', letterSpacing: '.03em', textTransform: 'uppercase', lineHeight: '1' },
+      title: 'Open ' + c.name,
+      onclick: () => open(c.id),
+    }, (c.favorite ? '\u2605 ' : '') + c.name);
+    wrap.append(el('div', { class: 'card overflow-hidden', style: { background: 'var(--accent)', color: ink, border: 'none' } },
+      el('div', { class: 'comp-landing-pad', style: { paddingBottom: '24px' } },
+        eyebrow('01 / Competitions \u00b7 ' + repTypeTab),
+        el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3 items-start' },
+          el('div', { style: { fontFamily: 'var(--font-display)', fontSize: 'clamp(56px, 9vw, 128px)', lineHeight: '.9', letterSpacing: '.01em', textTransform: 'uppercase', color: ink } },
+            'Built to', el('br'), 'break', el('br'), 'records.'),
+          el('div', { class: 'leading-relaxed comp-landing-copy', style: { ...mono, color: 'rgba(0,0,0,.85)', maxWidth: '520px' } },
+            el('p', { class: 'mb-4' }, 'Every board on these pages is pulled live from the company database. If a number changes in FieldRoutes, it changes here.'),
+            el('p', {}, 'Published rules, published standings. Nobody\u2019s scoring is a secret and nobody\u2019s is special.')))),
+      el('div', { class: 'comp-landing-rule' }),
+      el('div', { class: 'comp-landing-pad comp-landing-bottom' },
+        eyebrow('02 / ' + (landingComps.length ? 'Pick a competition' : 'No competitions yet')),
+        landingComps.length
+          ? el('div', { class: 'flex flex-wrap gap-3 mt-4' }, ...landingComps.map(compBtn))
+          : el('div', { class: 'mt-4 comp-landing-copy', style: { ...mono, color: 'rgba(0,0,0,.7)' } }, 'Nothing is running for ' + repTypeTab.toLowerCase() + ' right now \u2014 check back when the next season opens.'))));
+    return wrap;
+  }
+  const backBtn = el('button', {
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 self-start',
+    style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+    onclick: () => { state._compsLanding = true; mountApp(); },
+  }, '\u2190 Competitions');
+  wrap.append(backBtn);
   if (repTypeTab === 'Office Staff') {
     // 🏆 RIDD Inside Sales League — the first Office Staff competition
     // (per Isaac). Config rides the synced _compExtras map under 'isl'.
