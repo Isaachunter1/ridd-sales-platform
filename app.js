@@ -25507,6 +25507,34 @@ function manageTeamsPanel(opts) {
         if (keep !== drop && mergeDuplicateRep(drop, keep)) n++;
       });
       if (n) { saveIndicatorState(); toast('Merged ' + n + ' order-flipped name' + (n === 1 ? '' : 's') + ' automatically', 'success'); dupePairs = findDuplicateRepCandidates(); }
+      // ONE name shape everywhere (per Isaac): the roster shows "Last, First"
+      // like FieldRoutes. Names still stored "First Last" (old team-map keys
+      // with no second spelling to merge into) get renamed to that shape —
+      // via the roster's lname/fname when the person is on it, else by
+      // flipping a plain two-word name. Longer names not on the roster are
+      // left alone (can't tell which words are the surname).
+      let flipped = 0;
+      const _rosterByFL = new Map();
+      (state.frRoster || []).forEach(e => {
+        const ln = String(e && e.lname || '').trim(), fn = String(e && (e.nickname || e.fname) || '').trim();
+        if (ln && fn) _rosterByFL.set((fn + ' ' + ln).toLowerCase().replace(/[^a-z\s]/g, ''), ln + ', ' + fn);
+      });
+      const _allRepNames = new Set([
+        ...(state._indicatorRawSales || []).map(x => x.rep).filter(Boolean),
+        ...Object.keys(state._indicatorRepTier || {}), ...Object.keys(state._indicatorRepOffice || {}),
+      ]);
+      _allTeamYearMaps().forEach(m => Object.keys(m).forEach(k => _allRepNames.add(k)));
+      _allRepNames.forEach(nm => {
+        if (!nm || nm.includes(',') || getRepAliasTarget(nm)) return;
+        const key = nm.toLowerCase().replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
+        let tgt = _rosterByFL.get(key) || null;
+        if (!tgt) {
+          const parts = nm.trim().split(/\s+/);
+          if (parts.length === 2) tgt = parts[1] + ', ' + parts[0];
+        }
+        if (tgt && tgt !== nm && mergeDuplicateRep(nm, tgt)) flipped++;
+      });
+      if (flipped) { saveIndicatorState(); toast('Renamed ' + flipped + ' rep' + (flipped === 1 ? '' : 's') + ' to Last, First', 'success'); dupePairs = findDuplicateRepCandidates(); }
     }
     const _dupesOpen = !!state._indicatorDupesOpen;
     const renderDupeLine = (name, includeTeam = true) => {
