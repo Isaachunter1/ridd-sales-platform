@@ -47001,17 +47001,14 @@ function viewD2dUpfront() {
 }
 
 function viewCommission() {
-  if (!isAdminRole(state.profile?.role)) return commissionMyPay();
-  // Admins: one Pay tab (per Isaac) — Upfront ⇄ Backend segmented toggle
-  // on top, the old Upfront tab and the calculator underneath.
-  const mode = state._d2dPayMode === 'backend' ? 'backend' : 'upfront';
-  const toggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden self-start', style: { borderColor: 'var(--border-2)' } },
-    ...[['upfront', 'Upfront'], ['backend', 'Backend']].map(([k, l]) => el('button', {
-      class: 'px-2.5 py-1 text-[11px] font-bold transition',
-      style: mode === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
-      onclick: () => { state._d2dPayMode = k; mountApp(); },
-    }, l)));
-  return el('div', { class: 'flex flex-col gap-4 w-full' }, toggle, mode === 'backend' ? commissionCalculator() : viewD2dUpfront());
+  // D2D Pay — wiped clean (per Isaac, Sep 2026) to be rebuilt from scratch.
+  // The old Upfront stub + Backend calculator (viewD2dUpfront /
+  // commissionCalculator / commissionMyPay) are still in the file and in
+  // git history; nothing routes to them until the new design lands.
+  return el('div', { class: 'flex flex-col gap-4 w-full' },
+    el('div', { class: 'card p-10 text-center text-sm text-muted-' },
+      el('div', { class: 'font-display text-lg mb-1', style: { color: 'var(--text)' } }, 'Pay'),
+      'D2D pay is being rebuilt. Nothing to show here yet.'));
 }
 
 // ── Rep-facing view: your OWN published commission, read-only. Reps can't read
