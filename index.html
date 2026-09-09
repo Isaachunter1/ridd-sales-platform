@@ -122,6 +122,9 @@
      the month calendar (7 columns of 120px cells on a 380px screen) and the
      Revenue Goals card at the top of Sales. General rules below keep dense
      desktop layouts breathable on phones without touching desktop. */
+  /* Dashboard toolbar: + New Sale fills the row; Today + info hug the right. */
+  .dash-toolbar .dash-newsale { flex: 1 1 auto; }
+  .dash-toolbar > select, .dash-toolbar > button:not(.dash-newsale), .dash-toolbar > div { flex: 0 0 auto; }
   @media (max-width: 640px) {
     /* Calendar month grid: shallow cells, tiny type, chips collapse to the
        count badge — tap the day for detail (that flow already exists). */
@@ -157,9 +160,6 @@
     .lb-head .lb-title { order: 1; margin-right: auto; }
     .lb-head .lb-tools > * { order: 2; }
     .lb-head .lb-search { order: 3; flex: 0 0 100% !important; }
-    /* Dashboard toolbar: + New Sale grows to fill the row on phones. */
-    .dash-toolbar .dash-newsale { flex: 1 1 auto; }
-    .dash-toolbar > select, .dash-toolbar > button:not(.dash-newsale) { flex: 0 0 auto; }
     /* Stat tiles built with inline minWidth flex rows stack cleaner. */
     .flex.gap-2.flex-wrap > .flex-1[style*="min-width: 105px"],
     .flex.gap-2.flex-wrap > .flex-1[style*="minWidth"] { min-width: 46% !important; }
