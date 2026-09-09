@@ -46476,7 +46476,25 @@ function viewD2dDashboard() {
       if ((Number(s.initialPrice) || 0) < 99) o.lastResort++;   // Last Resort — same <$99 rule as Indicators/LMS
       byRep.set(nm, o);
     });
-    const reps = [...byRep.values()].sort((a, b) => b.cv - a.cv);
+    // Sortable headers (per Isaac) — default revenue desc.
+    if (!state._d2dLbSort) state._d2dLbSort = { key: 'cv', dir: 'desc' };
+    const _sortKey = state._d2dLbSort.key, _sortDir = state._d2dLbSort.dir;
+    const _metric = (o, k) => k === 'name' ? o.name : k === 'team' ? (getRepTeam(o.name) || '')
+      : k === 'n' ? o.n : k === 'cv' ? o.cv : k === 'acv' ? (o.n ? o.cv / o.n : 0)
+      : k === 'my' ? ((o.multi + o.twelve) ? o.multi / (o.multi + o.twelve) : 0)
+      : k === 'apay' ? (o.n ? o.apay / o.n : 0) : k === 'init' ? (o.n ? o.init / o.n : 0)
+      : k === 'pest' ? (o.pestN ? o.pestInit / o.pestN : 0) : k === 'lr' ? (o.n ? o.lastResort / o.n : 0) : 0;
+    const reps = [...byRep.values()].sort((a, b) => {
+      const va = _metric(a, _sortKey), vb = _metric(b, _sortKey);
+      const c = typeof va === 'string' ? va.localeCompare(vb) : (va - vb);
+      return (_sortDir === 'asc' ? c : -c) || (b.cv - a.cv);
+    });
+    const _setSort = (k) => {
+      const cur = state._d2dLbSort;
+      state._d2dLbSort = { key: k, dir: cur.key === k ? (cur.dir === 'desc' ? 'asc' : 'desc') : (k === 'name' || k === 'team' ? 'asc' : 'desc') };
+      _rebuildBoards();
+    };
+    const _stickyL = (left) => ({ position: 'sticky', left: left, background: 'var(--card)', zIndex: 1 });
     const _sigMe = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
     const meSig = _sigMe(state.profile?.full_name);
     // Branch color chip (workbook palette) — used on the leaderboard rows
@@ -46530,7 +46548,12 @@ function viewD2dDashboard() {
         rangeHost),
       reps.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-          ...['#', 'Rep', 'Team', 'Accts', 'Revenue', 'ACV', 'MY %', 'APay %', 'Avg Initial', 'Avg Pest Init', 'Last Resort %'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap', title: h === 'MY %' ? 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)' : h === 'Last Resort %' ? 'Accounts under $99 initial \u00f7 all accounts' : '' }, h)))),
+          ...[['#', null], ['Rep', 'name'], ['Team', 'team'], ['Accts', 'n'], ['Revenue', 'cv'], ['ACV', 'acv'], ['MY %', 'my'], ['APay %', 'apay'], ['Avg Initial', 'init'], ['Avg Pest Init', 'pest'], ['Last Resort %', 'lr']].map(([h, k], i) => el('th', {
+            class: 'px-4 py-2 whitespace-nowrap' + (k ? ' cursor-pointer select-none' : ''),
+            style: Object.assign({}, i === 0 ? Object.assign(_stickyL('0'), { zIndex: 2, minWidth: '40px', width: '40px' }) : i === 1 ? Object.assign(_stickyL('40px'), { zIndex: 2 }) : {}, k && _sortKey === k ? { color: 'var(--accent)', fontWeight: '800' } : {}),
+            title: h === 'MY %' ? 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)' : h === 'Last Resort %' ? 'Accounts under $99 initial \u00f7 all accounts' : (k ? 'Sort by ' + h : ''),
+            onclick: k ? () => _setSort(k) : undefined,
+          }, h)))),
         el('tbody', {},
           // Total row (per Isaac — mirrors the Indicators leaderboard): sums +
           // sales-weighted rates across every rep shown; click expands the
@@ -46551,8 +46574,8 @@ function viewD2dDashboard() {
               onclick: canTot ? openTot : undefined,
               style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2), inset 0 1px 0 var(--border)' },
             },
-              el('td', { class: 'px-4 py-2 text-base leading-none', style: { fontFamily: 'Georgia, "Times New Roman", serif' } }, '\ud835\udd7d'),
-              el('td', { class: 'px-4 py-2 whitespace-nowrap' },
+              el('td', { class: 'px-4 py-2 text-base leading-none', style: Object.assign(_stickyL('0'), { background: 'var(--card-2)', fontFamily: 'Georgia, "Times New Roman", serif' }) }, '\ud835\udd7d'),
+              el('td', { class: 'px-4 py-2 whitespace-nowrap', style: Object.assign(_stickyL('40px'), { background: 'var(--card-2)' }) },
                 el('span', { class: 'font-black text-[11px] uppercase tracking-wider' }, 'Total'),
                 el('span', { class: 'text-[10px] text-muted- ml-1.5' }, reps.length + ' reps')),
               el('td', { class: 'px-4 py-2 font-bold whitespace-nowrap' }, 'RIDD'),
@@ -46579,8 +46602,8 @@ function viewD2dDashboard() {
             onmouseenter: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = 'var(--card-2)'; } : undefined,
             onmouseleave: clickable ? (e) => { if (!isMe) e.currentTarget.style.background = isOpen ? 'var(--card-2)' : ''; } : undefined,
           },
-            el('td', { class: 'px-4 py-2 tabular-nums text-muted-' }, String(i + 1)),
-            el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap' }, _ofcChip(o.office), o.name + (isMe ? ' · You' : '')),
+            el('td', { class: 'px-4 py-2 tabular-nums text-muted-', style: Object.assign(_stickyL('0'), isMe || isOpen ? { background: 'var(--card-2)' } : {}) }, String(i + 1)),
+            el('td', { class: 'px-4 py-2 font-semibold whitespace-nowrap', style: Object.assign(_stickyL('40px'), isMe || isOpen ? { background: 'var(--card-2)' } : {}) }, _ofcChip(o.office), o.name + (isMe ? ' · You' : '')),
             el('td', { class: 'px-4 py-2 text-muted- whitespace-nowrap' }, team || '—'),
             el('td', { class: 'px-4 py-2 tabular-nums' }, String(o.n)),
             el('td', { class: 'px-4 py-2 tabular-nums font-semibold' }, fmt.usd0(o.cv)),
