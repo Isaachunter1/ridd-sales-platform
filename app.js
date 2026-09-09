@@ -27080,10 +27080,17 @@ function viewIndicators() {
             style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '250px', padding: '12px', boxShadow: 'var(--shadow-lg)', display: state._indFiltersOpen ? 'block' : 'none' },
           },
             el('div', { class: 'flex flex-col gap-3' },
-              _fRow('Metric', metricSel),
-              _fRow('Type', typeSel),
-              _fRow('Date', dateSel),
-              _fRow('Group', groupSel),
+              // Off-default filters get an orange outline so the badge count
+              // is traceable to the box that caused it (per Isaac).
+              ...(() => {
+                const hl = (node, on) => { if (node && on) { node.style.borderColor = 'var(--accent)'; node.style.boxShadow = '0 0 0 2px rgba(223,100,58,.25)'; } return node; };
+                return [
+                  _fRow('Metric', hl(metricSel, !_repLite && (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
+                  _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== 'all')),
+                  _fRow('Date',   hl(dateSel,   isRange && state.indicatorsRangePreset !== 'this_year')),
+                  _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
+                ];
+              })(),
               (_applyBtn = el('button', {
                 class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 w-full',
                 style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
