@@ -5152,11 +5152,12 @@ function mountApp() {
   },
     // Brand block at the top
     el('div', {
-      class: 'px-3 py-2.5 mb-1 border-b',
+      class: 'px-3 py-2.5 mb-1 border-b flex items-baseline gap-2',
       style: { borderColor: 'var(--border)' },
     },
       el('div', { class: 'text-xl font-display leading-none', style: { color: 'var(--accent)', letterSpacing: '.02em' } }, CFG.COMPANY_NAME),
-      el('div', { class: 'text-[9px] tracking-[.22em] mt-0.5', style: { color: 'var(--text-subtle)' } }, CFG.COMPANY_TAGLINE),
+      // Tagline beside the wordmark, not under it (per Isaac).
+      el('div', { class: 'text-[9px] tracking-[.22em] whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, CFG.COMPANY_TAGLINE),
     ),
     // Nav items
     ...navItems.map(([k, label, icon]) => {
