@@ -46420,7 +46420,8 @@ function viewD2dDashboard() {
     ];
     rangeHost.append(..._rangeKids.filter(Boolean));   // append() stringifies null — filter first
   };
-  wrap.append(rangeHost);
+  // (Range control lives in the Leaderboard header, right side — per Isaac —
+  // since the hero card above is fixed Today/Week/Month/Year.)
 
   // ── Hero: Today · This Week · This Month · This Year — ONE combined
   // card with four stats side by side (per Isaac, same look as the Inside
@@ -46512,7 +46513,8 @@ function viewD2dDashboard() {
         }))));
     const lbCard = el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
-        el('div', { class: 'font-display text-lg' }, 'Leaderboard')),
+        el('div', { class: 'font-display text-lg' }, 'Leaderboard'),
+        rangeHost),
       reps.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
           ...['#', 'Rep', 'Team', 'Accts', 'Revenue', 'ACV', 'MY %', 'APay %', 'Avg Initial', 'Avg Pest Init', 'Last Resort %'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap', title: h === 'MY %' ? 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)' : h === 'Last Resort %' ? 'Accounts under $99 initial \u00f7 all accounts' : '' }, h)))),
