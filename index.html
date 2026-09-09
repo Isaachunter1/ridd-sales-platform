@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <!-- Pinch-zoom stays ENABLED (accessibility + dense tables on phones).
      Double-tap zoom is already suppressed by touch-action: manipulation. -->
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover" />
 <meta name="theme-color" content="#000000" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
@@ -598,9 +598,10 @@
        Must cover ALL controls — inputs created without a type attribute
        (most of the Sales Log form) never matched the old [type=…]
        selectors, so iOS kept zooming and the layout stuck "too big". */
-    .modal-overlay input, .modal-overlay select, .modal-overlay textarea {
-      font-size: 16px !important;
-    }
+    /* (16px bump retired — maximum-scale=1 on the viewport meta stops the
+       iOS focus-zoom instead, so phone controls keep the standard 11px and
+       line up with the buttons beside them. Pinch-zoom still works: iOS
+       ignores maximum-scale for pinch, only for the input auto-zoom.) */
 
     /* Wide tables: keep the REP column pinned while the metrics scroll —
        phone users lose track of whose row they're reading otherwise. */
@@ -705,10 +706,7 @@
   .overflow-x-auto, .overflow-auto, .overflow-y-auto { -webkit-overflow-scrolling: touch; }
   /* iOS zooms the whole page when focusing inputs under 16px — bump form
      text on touch devices only; desktop sizing untouched. */
-  @media (pointer: coarse) {
-    input[type="text"], input[type="date"], input[type="number"], input[type="email"],
-    input[type="password"], input[type="search"], select, textarea { font-size: 16px; }
-  }
+  /* (pointer:coarse 16px rule retired — see the viewport meta note above.) */
   h1, h2 { text-wrap: balance; }
   /* NRLA playoff cards: double-width on desktop grids, but collapse to a
      normal single column on phones (a span-2 item in a 1-column auto-fill

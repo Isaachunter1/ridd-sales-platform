@@ -800,7 +800,123 @@ exports.handler = async (event) => {
           if (added || skippedNoRep || svcCreated) console.log('[revhawk-sync] inside-sales auto-add: +' + added + ' subscription(s), ' + skippedDup + ' already logged, ' + skippedNoRep + ' seller(s) with no app profile' + (svcCreated ? ', ' + svcCreated + ' service type(s) created' : ''));
         }
       } catch (aaErr) {
-        console.error('[revhawk-sync] inside-sales auto-add skipped:', String((aaErr && aaErr.message) || aaErr));
+        if (!(aaErr && aaErr._skip)) console.error('[revhawk-sync] inside-sales auto-add skipped:', String((aaErr && aaErr.message) || aaErr));
+      }
+
+      // ── 👻 UNLOGGED SALES ("ghost" rows, per Isaac) ─────────────────────
+      // A subscription the CRM says an inside-sales rep sold, with a SIGNED
+      // e-sign agreement, that the rep never logged in the app. Instead of
+      // auto-logging it (the Jul 2026 reversal stands — the manual log is the
+      // commission record), it lands in public.unlogged_sales and shows on
+      // that rep's Sales log as a ghost row with a Claim button. Claiming
+      // opens the normal Log Sale form pre-filled; the sale then goes through
+      // audit like any other. Keyed by subscription + customer + sold date so
+      // reruns are idempotent; a ghost the rep later logs by hand flips to
+      // 'logged' automatically. Requires unlogged_sales.sql (best-effort).
+      try {
+        const lookback = Number(process.env.INSIDE_GHOST_LOOKBACK_DAYS) || 45;
+        const START = (process.env.INSIDE_GHOST_START || '').trim()
+          || new Date(Date.now() - lookback * 86400000).toISOString().slice(0, 10);
+        const EXCLUDED_SVCS = new Set(['ACH Chargeback', 'Early Cancellation Fee', 'German Roach Initial', 'Rodent Station Removal']);
+        const masterOf = new Map();
+        roster.forEach(e => String(e.employee_ids || e.employee_id || '').split(',').forEach(id => { const t = id.trim(); if (t) masterOf.set(t, String(e.employee_id)); }));
+        const { data: profs3 } = await supabase.from('profiles').select('id, fieldroutes_employee_id, role').not('fieldroutes_employee_id', 'is', null);
+        const profByEmp = new Map();
+        (profs3 || []).forEach(p => {
+          const pid = String(p.fieldroutes_employee_id || '').trim();
+          if (!pid) return;
+          profByEmp.set(pid, p);
+          const master = masterOf.get(pid) || pid;
+          if (!profByEmp.has(master)) profByEmp.set(master, p);
+        });
+        roster.forEach(e => {
+          const ids = String(e.employee_ids || e.employee_id || '').split(',').map(x => x.trim()).filter(Boolean);
+          const hit = ids.map(id => profByEmp.get(id)).find(Boolean);
+          if (hit) ids.forEach(id => { if (!profByEmp.has(id)) profByEmp.set(id, hit); });
+        });
+        const norm = (x) => String(x || '').trim().toLowerCase();
+        // Only subscriptions the CRM attributes to an inside-sales seller,
+        // with a COMPLETED e-sign document, inside the lookback window.
+        const pool = objects.filter(r =>
+          String(r.sold_by_type || '').trim() === 'Office Staff'
+          && String(r.contract_state || '') === 'signed'
+          && r.customer_id && r.sold_date && String(r.sold_date).slice(0, 10) >= START
+          && !EXCLUDED_SVCS.has(String(r.subscription || '').trim()));
+        if (pool.length) {
+          const [exQ, ghQ] = await Promise.all([
+            supabase.from('sales').select('id, customer_number, revenue_amount, sold_date, crm_subscription').gte('sold_date', START),
+            supabase.from('unlogged_sales').select('id, customer_number, crm_subscription, sold_date, status, sale_id').gte('sold_date', START),
+          ]);
+          if (ghQ.error) throw new Error(ghQ.error.message);   // table missing → logged below, nothing else affected
+          const haveKey = new Map();
+          const haveRevenue = [];
+          (exQ.data || []).forEach(x => {
+            haveKey.set(norm(x.customer_number) + '|' + norm(x.crm_subscription) + '|' + String(x.sold_date).slice(0, 10), x.id);
+            haveRevenue.push({ id: x.id, cust: norm(x.customer_number), rev: Number(x.revenue_amount) || 0, t: Date.parse(String(x.sold_date)) || 0 });
+          });
+          const ghostByKey = new Map((ghQ.data || []).map(g => [norm(g.customer_number) + '|' + norm(g.crm_subscription) + '|' + String(g.sold_date).slice(0, 10), g]));
+          const stamp = new Date().toISOString();
+          let created = 0, refreshed = 0, autoLogged = 0, skippedNoRep = 0;
+          const seenKeys = new Set();
+          for (const r of pool) {
+            const soldIso = String(r.sold_date).slice(0, 10);
+            const sub = String(r.subscription || '').trim() || 'Unknown';
+            const cv = Number(r.subscription_contract_value) || 0;
+            const key = norm(r.customer_id) + '|' + norm(sub) + '|' + soldIso;
+            if (seenKeys.has(key)) continue;
+            seenKeys.add(key);
+            const soldT = Date.parse(soldIso) || 0;
+            // Already logged (exact key, or the ±7-day / ±$1 revenue match the
+            // verifier uses)? Then it's not a ghost — and if a ghost row exists
+            // for it, mark it logged so it leaves the rep's board.
+            let loggedId = haveKey.get(key) || null;
+            if (!loggedId) {
+              const m = haveRevenue.find(h => h.cust === norm(r.customer_id) && Math.abs(h.rev - cv) <= 1 && Math.abs(h.t - soldT) <= 7 * 86400000);
+              if (m) loggedId = m.id;
+            }
+            const existing = ghostByKey.get(key);
+            if (loggedId) {
+              if (existing && existing.status === 'open') {
+                await supabase.from('unlogged_sales').update({ status: 'logged', sale_id: loggedId, resolved_at: stamp, last_seen_at: stamp }).eq('id', existing.id);
+                autoLogged++;
+              }
+              continue;
+            }
+            const soldById = String(r.sold_by_id || '').trim();
+            const prof = profByEmp.get(soldById) || profByEmp.get(masterOf.get(soldById) || '') || null;
+            if (!prof || !/^rep/.test(String(prof.role || 'rep'))) { skippedNoRep++; continue; }
+            const months = Number(r.agreement_length) || 12;
+            const initial = Number(r.initial_price) || 0;
+            const monthly = Math.max(0, Math.round(((cv - initial) / 11) * 100) / 100);
+            const row = {
+              rep_id: prof.id,
+              customer_number: String(r.customer_id),
+              customer_name: [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ') || ('Customer ' + r.customer_id),
+              office_name: r.office_name || null,
+              crm_subscription: sub,
+              subscription_source: r.subscription_source || null,
+              contract_months: months,
+              initial_amount: initial,
+              monthly_amount: monthly,
+              revenue_amount: cv,
+              sold_date: soldIso,
+              contract_signed_at: r.contract_signed_at ? String(r.contract_signed_at).slice(0, 10) : null,
+              last_seen_at: stamp,
+            };
+            if (existing) {
+              // Keep the CRM picture fresh on open rows; never reopen a
+              // claimed/dismissed one.
+              if (existing.status === 'open') { await supabase.from('unlogged_sales').update(row).eq('id', existing.id); refreshed++; }
+              continue;
+            }
+            const { error: gErr } = await supabase.from('unlogged_sales').insert(Object.assign({ status: 'open', first_seen_at: stamp }, row));
+            if (gErr) { console.warn('[revhawk-sync] ghost insert failed for cust ' + r.customer_id + ': ' + gErr.message); continue; }
+            created++;
+          }
+          if (created || autoLogged) console.log('[revhawk-sync] unlogged sales: +' + created + ' ghost(s), ' + refreshed + ' refreshed, ' + autoLogged + ' resolved as logged, ' + skippedNoRep + ' seller(s) without a rep account');
+        }
+      } catch (ghErr) {
+        console.warn('[revhawk-sync] unlogged-sales pass skipped (run unlogged_sales.sql?):', String((ghErr && ghErr.message) || ghErr).slice(0, 200));
       }
     } catch (re) {
       rosterError = String((re && re.message) || re);
