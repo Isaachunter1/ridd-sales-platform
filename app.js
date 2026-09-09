@@ -13232,6 +13232,22 @@ function viewPay() {
 
 // The Pay tab's by-source grid. `salesByStatus` carries the same three
 // buckets the stub uses; a segmented toggle picks which one renders.
+// Sources hidden from the Pay tab's By Source grid (per Isaac) — admin
+// toggles on Settings → Sources, shared across admins via the indicator
+// config. A hidden source that still has sales is FLAGGED, never dropped.
+function payHiddenSources() {
+  state._compExtras = state._compExtras || {};
+  const h = state._compExtras.payHiddenSources;
+  return (h && typeof h === 'object') ? h : (state._compExtras.payHiddenSources = {});
+}
+function togglePayHiddenSource(id) {
+  const h = payHiddenSources();
+  if (h[id]) delete h[id]; else h[id] = true;
+  saveDemoData();
+  if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
+  mountApp();
+}
+
 function paySourceBreakdown(repId, salesByStatus) {
   if (!state.paySourceStatus) state.paySourceStatus = 'serviced';
   const status = state.paySourceStatus;
@@ -13281,9 +13297,18 @@ function paySourceBreakdown(repId, salesByStatus) {
   // providers show up with no extra setup); inactive ones only if they
   // still have sales in this bucket. Standard sources first, A→Z, then
   // renewal sources.
+  const hidden = payHiddenSources();
   const sources = state.sources
-    .filter(o => o.is_active !== false || agg.has(o.id))
+    .filter(o => !hidden[o.id] && (o.is_active !== false || agg.has(o.id)))
     .sort((x, y) => (x.is_renewal - y.is_renewal) || x.name.localeCompare(y.name));
+  // Flagged (per Isaac — mirrors the sheet): sales whose source is hidden
+  // from this grid, or isn't in the Sources list at all. They still count
+  // toward pay; the row is highlighted so someone fixes the source.
+  const knownIds = new Set(state.sources.map(o => o.id));
+  const flagged = [...agg.keys()]
+    .filter(id => hidden[id] || !knownIds.has(id))
+    .map(id => ({ id, name: knownIds.has(id) ? (state.sources.find(o => o.id === id)?.name || '?') : (id ? 'Unknown source #' + id : 'No source'), is_renewal: !!state.sources.find(o => o.id === id)?.is_renewal, _flag: hidden[id] ? 'hidden on Pay' : 'not in Sources' }))
+    .sort((x, y) => x.name.localeCompare(y.name));
 
   const totals = { accounts: 0, revenue: 0, pay: 0 };
   for (const a of agg.values()) { totals.accounts += a.accounts; totals.revenue += a.revenue; totals.pay += a.pay; }
@@ -13340,6 +13365,15 @@ function paySourceBreakdown(repId, salesByStatus) {
               }),
               td(zero ? '—' : fmt.usd(a.pay), { right: true, bold: !zero, dim: zero }),
             );
+          }),
+          ...flagged.map(src => {
+            const a = agg.get(src.id);
+            return el('tr', { style: { background: 'rgba(220,38,38,.08)' }, title: src._flag === 'hidden on Pay' ? 'This source is hidden on the Pay tab (Settings → Sources) but still has sales in this bucket.' : 'This source is not in Settings → Sources — check the sale\u2019s source.' },
+              td(el('span', {}, el('span', { style: { color: '#DC2626', fontWeight: '800' } }, '\u26a0 '), src.name, el('span', { class: 'ml-1 text-[9px] uppercase tracking-wider', style: { color: '#DC2626' } }, src._flag)), {}),
+              td(fmt.int(a.accounts), { right: true }),
+              td(fmt.usd(a.revenue), { right: true }),
+              ...BUCKETS.map(b => { const v = a.buckets[b.key] || 0; return td(!v ? '\u2014' : (src.is_renewal ? fmt.int(v) : fmt.usd(v)), { right: true, dim: !v }); }),
+              td(fmt.usd(a.pay), { right: true, bold: true }));
           }),
           el('tr', {},
             td('TOTAL', { bold: true }),
@@ -50724,12 +50758,13 @@ function adminSources() {
           el('tr', { style: { background: 'var(--card-2)' } },
             el('th', { class: 'text-left pl-4 pr-2 py-2 font-semibold' }, 'Source'),
             el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Type'),
-            el('th', { class: 'text-right pr-4 pl-2 py-2 font-semibold w-44' }, 'Visibility'),
+            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Visibility'),
+            el('th', { class: 'text-left pr-4 pl-2 py-2 font-semibold' }, 'Pay tab'),
           ),
         ),
         el('tbody', {},
           ...(sorted.length === 0
-            ? [el('tr', {}, el('td', { class: 'px-4 py-6 text-center text-xs text-muted- italic', colspan: 3 }, 'No sources yet — the FieldRoutes sync fills this in automatically (runs every 30 min).'))]
+            ? [el('tr', {}, el('td', { class: 'px-4 py-6 text-center text-xs text-muted- italic', colspan: 4 }, 'No sources yet — the FieldRoutes sync fills this in automatically (runs every 30 min).'))]
             : sorted.map(s => {
                 const isHidden = s.is_active === false;
                 return el('tr', {
@@ -50742,7 +50777,7 @@ function adminSources() {
                       ? el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(223,100,58,.16)', color: '#DF643A' } }, 'Renewal')
                       : el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' } }, 'New'),
                   ),
-                  el('td', { class: 'pr-4 pl-2 py-2.5 text-right' },
+                  el('td', { class: 'px-2 py-2.5 text-left' },
                     el('span', {
                       class: 'inline-block rounded-lg px-3 py-1.5 text-[11px] font-bold',
                       style: isHidden
@@ -50751,6 +50786,17 @@ function adminSources() {
                       title: 'Managed in FieldRoutes — hide or show it there and it updates here within ~30 min.',
                     }, isHidden ? 'Hidden' : 'Visible'),
                   ),
+                  el('td', { class: 'pr-4 pl-2 py-2.5 text-left' }, (() => {
+                    const off = !!payHiddenSources()[s.id];
+                    return el('button', {
+                      class: 'inline-block rounded-lg px-3 py-1.5 text-[11px] font-bold transition hover:brightness-95',
+                      style: off
+                        ? { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }
+                        : { background: 'rgba(61,122,102,.16)', color: '#3D7A66', border: '1px solid rgba(61,122,102,.3)' },
+                      title: off ? 'Hidden from the Pay tab\u2019s By Source grid \u2014 sales on it still pay and show flagged. Click to show.' : 'Shown on the Pay tab\u2019s By Source grid. Click to hide.',
+                      onclick: () => togglePayHiddenSource(s.id),
+                    }, off ? 'Hidden on Pay' : 'On Pay');
+                  })()),
                 );
               })),
         ),
