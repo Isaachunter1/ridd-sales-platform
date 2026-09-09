@@ -11298,7 +11298,7 @@ function viewSales() {
   // from the Dashboard so the metrics stay front and center.
   const queueRow = el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, queueToggle);
   const filterBar = queueFilter !== 'history'
-    ? el('div', { class: 'card p-3 flex flex-wrap gap-2 items-center' }, ...filterControls())
+    ? el('div', { class: 'flex flex-wrap gap-2 items-center' }, ...filterControls())
     : null;
 
   // History pill swaps in the (settled) history view inline — same toggle on
@@ -36276,7 +36276,7 @@ function viewHistory({ embedded = false } = {}) {
   }
 
   const tableHost = el('div', {});
-  const filterBar = el('div', { class: 'card p-3 flex flex-wrap gap-2 items-center' },
+  const filterBar = el('div', { class: 'flex flex-wrap gap-2 items-center' },
     el('input', {
       class: 'flex-1 min-w-[200px] rounded-lg border px-2.5 py-1 text-[11px]',
       placeholder: 'Search customer or notes…',
@@ -36300,10 +36300,6 @@ function viewHistory({ embedded = false } = {}) {
       el('option', { value: '' }, 'All sources'),
       ...state.sources.map(s => el('option', { value: s.id }, s.name)),
     ),
-    el('button', {
-      class: 'px-2.5 py-1 rounded-lg border border-battleship text-battle-2 hover:text-lime hover:border-lime text-[11px] transition',
-      onclick: () => downloadCsv(filterRows()),
-    }, 'Export CSV'),
   );
 
   function filterRows() {
