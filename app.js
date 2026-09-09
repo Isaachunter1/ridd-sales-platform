@@ -11265,13 +11265,12 @@ function viewSales() {
     }, 'Clear'),
   ];
 
-  const onReviewQueue = (queueFilter === 'backend' || queueFilter === 'cancels');
-
-  // Top row: queue toggle on the left. On the review queues the status/rep
-  // filters move up here, right-aligned.
+  // Top row: queue toggle on the left, status/rep filters right-aligned on
+  // every active queue (per Isaac). No + New Sale here — sales are logged
+  // from the Dashboard so the metrics stay front and center.
   const queueRow = el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
     queueToggle,
-    onReviewQueue ? el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...filterControls()) : null,
+    queueFilter !== 'history' ? el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...filterControls()) : null,
   );
 
   // History pill swaps in the (settled) history view inline — same toggle on
@@ -11288,16 +11287,6 @@ function viewSales() {
   return el('div', { class: 'flex flex-col gap-5 w-full' },
     queueRow,
 
-    // ── Pending Upfront only: + New Sale + filters on its right. On the review
-    // queues these filters live up in the toggle row instead. ──
-    queueFilter === 'upfront' && el('div', { class: 'flex items-center gap-2 flex-wrap' },
-      el('button', {
-        class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        onclick: () => openNewSaleModal(),
-      }, '+ New Sale'),
-      ...filterControls(),
-    ),
 
     // 👻 Unlogged sales (per Isaac) — CRM subscriptions in this rep's name
     // with a signed agreement that were never logged here. Ghosted rows the
