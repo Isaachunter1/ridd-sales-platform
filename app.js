@@ -5625,6 +5625,34 @@ if (!window._riddFitWired) {
 // CRM sales by office staff without an app account carry rep_id=null and
 // rank on the leaderboard under their CRM name (synthetic rows).
 let _wrBridgeCache = { src: null, roster: null, profiles: null, out: null };
+// Dashboard → the SAME player card the Indicators leaderboard opens (per
+// Isaac). Resolves the app profile to its CRM seller name via the bridged
+// pool, rebuilds the office-staff rep roster from the raw CRM rows, and
+// hands it to openIndicatorRepCard. Falls back to the old profile modal
+// only when the person has no CRM sales at all.
+function openDashboardPlayerCard(profileIdOrCrmName) {
+  const isCrm = typeof profileIdOrCrmName === 'string' && profileIdOrCrmName.startsWith('crm:');
+  const p = isCrm ? null : (state.allProfiles || []).find(x => x.id === profileIdOrCrmName);
+  let nm = isCrm ? getCanonicalRepName(profileIdOrCrmName.slice(4)) : '';
+  if (!nm) {
+    const counts = new Map();
+    for (const s of dashboardSales()) if (s.rep_id === profileIdOrCrmName && s._crmRep) counts.set(s._crmRep, (counts.get(s._crmRep) || 0) + 1);
+    nm = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || getCanonicalRepName(p?.full_name || '');
+  }
+  const prevDept = state.indicatorDept, prevAcct = state.indicatorAcctStatus;
+  let raw = [];
+  try { state.indicatorDept = 'office'; state.indicatorAcctStatus = 'pending_serviced'; raw = indicatorSales(); }
+  catch (e) { raw = []; }
+  finally { state.indicatorDept = prevDept; state.indicatorAcctStatus = prevAcct; }
+  if (!nm || !raw.some(x => getCanonicalRepName(x.rep) === nm)) {
+    if (p) openRepProfileModal(p.id); else toast('No CRM sales for this rep yet', 'warn');
+    return;
+  }
+  const allReps = _buildAllRepsFromRawSales(raw);
+  const rep = allReps.find(r => r.name === nm) || _enrichRepFromRawSales(nm, raw);
+  openIndicatorRepCard(rep, allReps);
+}
+
 function warRoomCrmSales() {
   const prevDept = state.indicatorDept;
   const prevAcct = state.indicatorAcctStatus;
@@ -6095,7 +6123,7 @@ function viewDashboard() {
                       el('div', {
                         class: 'flex items-center gap-2 min-w-0 cursor-pointer group',
                         title: 'Open ' + (p.full_name || 'this rep') + '\'s player card',
-                        onclick: () => openRepProfileModal(p.id),
+                        onclick: () => openDashboardPlayerCard(p.id),
                       },
                         avatarNode(p.avatar_url, p.initials, 'w-6 h-6 text-[9px]'),
                         el('span', { class: 'text-xs font-semibold truncate group-hover:underline' }, p.full_name),
@@ -10993,9 +11021,9 @@ function leaderboardSection(range) {
               }, i + 1),
               el('td', { class: 'px-2 py-2', style: { position: 'sticky', left: '40px', background: 'var(--card)', zIndex: 1 } },
                 el('div', {
-                  class: 'flex items-center gap-2' + (r._noProfile ? '' : ' cursor-pointer'),
-                  onclick: r._noProfile ? null : () => openRepProfileModal(r.rep_id),
-                  title: r._noProfile ? (r.full_name + ' — CRM seller without an app account') : ('View ' + r.first_name + '\'s profile'),
+                  class: 'flex items-center gap-2 cursor-pointer',
+                  onclick: () => openDashboardPlayerCard(r.rep_id),
+                  title: 'Open ' + (r.full_name || r.first_name) + '\'s player card',
                 },
                   avatarNode(r.avatar_url, r.initials, 'w-7 h-7 text-[9px]'),
                   el('div', { class: 'flex-1 min-w-0' },
