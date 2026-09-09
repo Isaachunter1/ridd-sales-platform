@@ -37654,7 +37654,7 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
       ),
       // Metrics
       el('div', { class: 'mb-4' },
-        el('div', { class: 'flex items-baseline justify-between mb-2' },
+        el('div', { class: 'flex items-baseline gap-3 mb-2' },
           el('h3', { class: 'text-xs font-bold uppercase tracking-widest text-muted-' }, 'Metrics'),
           el('span', {
             class: 'text-[11px] tabular-nums font-semibold',
@@ -37671,7 +37671,7 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
           el('input', {
             type: 'number', min: '0', max: '100', step: '1',
             value: String(Math.round(m.weight * 100)),
-            class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-right',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-left',
             style: { borderColor: 'var(--border-2)', width: '80px' },
             title: 'Weight (percent)',
             oninput: (e) => { m.weight = (Number(e.target.value) || 0) / 100; persist(); render(); },
@@ -37682,17 +37682,23 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
       // Attendance penalties
       el('div', { class: 'mb-4' },
         el('h3', { class: 'text-xs font-bold uppercase tracking-widest text-muted- mb-2' }, 'Attendance Penalties'),
+        el('div', { class: 'text-[10px] text-muted- mb-2' },
+          'How it works: every agent starts the month at 100%. Each occurrence below takes points off — a "days" penalty costs that many working days (1 day out of a 26-day month = 3.8%), a "%" penalty is a flat deduction (10% per same-day call out). Score = 100 − total deductions, floored at 0.'),
         el('div', { class: 'flex items-center gap-2 mb-2' },
           el('div', { class: 'flex-1' },
             el('label', { class: 'text-xs font-semibold' }, 'Default Working Days'),
-            el('div', { class: 'text-[10px] text-muted- mt-0.5' },
-              'Each scorecard auto-computes Mon–Sat days for its month. This is a fallback only.'),
+            el('div', { class: 'text-[10px] text-muted- mt-0.5' }, (() => {
+              const now = new Date();
+              const key = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+              const n = workingDaysForPeriod(key);
+              return 'Auto: ' + n + ' working days (Mon–Sat) in ' + now.toLocaleString('en-US', { month: 'long', year: 'numeric' }) + '. Each scorecard uses its own month; type a number only to override.';
+            })()),
           ),
           el('input', {
             type: 'number', min: '0', step: '1',
             value: String(tpl.attendance.workingDays || ''),
-            placeholder: 'auto',
-            class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-right',
+            placeholder: 'auto · ' + workingDaysForPeriod(new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0')),
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-left',
             style: { borderColor: 'var(--border-2)', width: '80px' },
             oninput: (e) => {
               const raw = e.target.value;
@@ -37718,7 +37724,7 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
             el('input', {
               type: 'number', min: '0', step: '0.5',
               value: String(weightVal),
-              class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-right',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums text-left',
               style: { borderColor: 'var(--border-2)', width: '80px' },
               title: p.unit === 'percent'
                 ? 'Flat % deduction per occurrence'
@@ -37751,7 +37757,7 @@ function openScorecardTemplateModal(dept = 'inside_sales') {
           );
         }),
       ),
-      el('div', { class: 'flex justify-end gap-2 mt-5' },
+      el('div', { class: 'flex gap-2 mt-5' },
         el('button', {
           class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border',
           style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
