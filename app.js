@@ -25254,15 +25254,7 @@ function manageTeamsPanel(opts) {
         // 🏆 Power Ranking scoring picker (moved here from the Indicators bar,
         // per Isaac): which offices / teams earn ranking points.
         powerRankPickerBtn(),
-        // Export every team as a multi-tab .xlsx (Google Sheets imports
-        // .xlsx cleanly with the tabs preserved). One tab per team plus
-        // a Summary tab at the front.
-        el('button', {
-          class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-          onclick: () => exportManageTeamsXlsx(),
-          title: 'Download the roster as an .xlsx — one tab per team plus a Summary tab (opens in Google Sheets with the tabs intact)',
-        }, '📊 Roster .xlsx'),
+        // (Roster .xlsx export lives inside Reports now — per Isaac.)
         // (🏷 Tiers export retired — per Isaac.)
         // Moved here from the Indicators top bar (per Isaac). Uses the
         // grouping + timeframe of the Indicators render that stashed the
@@ -34336,6 +34328,30 @@ function openTeamReportsModal(ctx) {
           el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, 'Top 15 overall + top 15 rookies, column leaders highlighted'))),
       lbReps.length ? dl : el('span', { class: 'text-[11px] text-muted-' }, 'Open Indicators first'));
   })();
+  // 📊 Roster workbook — one tab per team plus a Summary tab (moved here
+  // from the Manage Teams header, per Isaac).
+  const rosterRow = (() => {
+    const dl = el('button', {
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+      style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+      onclick: async () => {
+        dl.disabled = true; dl.textContent = '…';
+        try { await exportManageTeamsXlsx(); }
+        catch (err) { console.error('[ridd] roster export threw', err); toast('Export failed: ' + (err.message || 'unknown'), 'error'); }
+        finally { dl.disabled = false; dl.textContent = 'Download .xlsx'; }
+      },
+    }, 'Download .xlsx');
+    return el('div', {
+      class: 'flex items-center justify-between gap-3 px-4 py-2.5 border-b',
+      style: { borderColor: 'var(--border)', background: 'var(--card-2)' },
+    },
+      el('div', { class: 'flex items-center gap-3 min-w-0' },
+        el('span', { style: { width: '28px', height: '28px', borderRadius: '50%', background: 'var(--text)', color: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: '0' } }, '\ud83d\udcca'),
+        el('div', { class: 'min-w-0' },
+          el('div', { class: 'font-semibold truncate' }, 'Roster \u00b7 Excel'),
+          el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, 'One tab per team + Summary \u00b7 opens in Google Sheets with tabs intact'))),
+      dl);
+  })();
   const paint = () => {
     const items = itemsFor(mode);
     const lab = labelOf(mode);
@@ -34388,6 +34404,7 @@ function openTeamReportsModal(ctx) {
         el('button', { class: 'text-2xl cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
     ),
     lbRow,
+    rosterRow,
     searchWrap,
     list,
     el('div', { class: 'flex items-center justify-between gap-3 px-5 py-3 border-t', style: { borderColor: 'var(--border)' } },
