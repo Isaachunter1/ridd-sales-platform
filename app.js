@@ -46504,7 +46504,7 @@ function viewD2dDashboard() {
               onclick: canTot ? openTot : undefined,
               style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2), inset 0 1px 0 var(--border)' },
             },
-              el('td', { class: 'px-4 py-2' }, ''),
+              el('td', { class: 'px-4 py-2 text-base leading-none', style: { fontFamily: 'Georgia, "Times New Roman", serif' } }, '\ud835\udd7d'),
               el('td', { class: 'px-4 py-2 whitespace-nowrap' },
                 el('span', { class: 'font-black text-[11px] uppercase tracking-wider' }, 'Total'),
                 el('span', { class: 'text-[10px] text-muted- ml-1.5' }, reps.length + ' reps')),
