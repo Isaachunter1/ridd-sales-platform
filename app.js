@@ -46560,10 +46560,9 @@ function viewD2dDashboard() {
                   el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap' }, /sentricon/i.test(String(sr.subscription || '')) ? '12 Mo' : (_m > 1 ? _m + ' Mo' : 'One-Time')),
                   el('td', { class: 'pr-4 pl-2 py-2 text-right font-semibold tabular-nums' }, fmt.usd0(Number(sr.contractValue) || 0)));
               })))));
-    return el('div', { class: 'flex flex-col gap-4' }, recordsCard,
-      el('div', { class: 'grid grid-cols-1 lg:grid-cols-[3fr_7fr] gap-4' },
-        el('div', { class: 'order-2 lg:order-1 min-w-0' }, feedCard),
-        el('div', { class: 'order-1 lg:order-2 min-w-0' }, lbCard)));
+    // (Sales feed dropped from this tab per Isaac — the leaderboard gets the full width.)
+    void feedCard;
+    return el('div', { class: 'flex flex-col gap-4' }, recordsCard, lbCard);
   };
   renderRange();
   lbHost.append(buildBoards());
