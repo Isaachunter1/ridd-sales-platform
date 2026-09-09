@@ -11219,17 +11219,19 @@ function viewSales() {
   // Individual pills that WRAP rather than one segmented strip — the strip
   // overflowed into a horizontal scroll/slider on mobile. Wrapping keeps every
   // pill visible and static on any width.
-  const queueToggle = el('div', { class: 'flex flex-wrap gap-2 self-start' },
+  // One joined segmented strip that spans the row (per Isaac — same look
+  // as the Inside / D2D / Technicians toggle), equal-width segments.
+  const queueToggle = el('div', { class: 'queue-strip flex w-full rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
     ...[
       { id: 'upfront', label: 'Sales' },
       { id: 'backend', label: 'Pending Backend Lock' },
       { id: 'cancels', label: 'Archived' },
       { id: 'history', label: 'History' },
-    ].map(t => el('button', {
-      class: 'px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition flex items-center gap-2 whitespace-nowrap',
+    ].map((t, i) => el('button', {
+      class: 'px-2.5 py-1 text-[11px] font-bold transition flex items-center justify-center gap-2 whitespace-nowrap' + (i ? ' border-l' : ''),
       style: queueFilter === t.id
-        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
-        : { background: 'var(--card)', color: 'var(--text)', borderColor: 'var(--border-2)' },
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--border-2)' }
+        : { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
       onclick: () => { state._salesQueueFilter = t.id; mountApp(); },
     },
       el('span', {}, t.label),

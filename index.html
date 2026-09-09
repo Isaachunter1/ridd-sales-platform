@@ -122,6 +122,9 @@
      the month calendar (7 columns of 120px cells on a 380px screen) and the
      Revenue Goals card at the top of Sales. General rules below keep dense
      desktop layouts breathable on phones without touching desktop. */
+  /* Sales-log queue strip: four equal segments across the full row. */
+  .queue-strip > button { flex: 1 1 0; min-width: 0; }
+  @media (max-width: 640px) { .queue-strip > button { padding-left: 4px; padding-right: 4px; font-size: 10px; } }
   /* Dashboard toolbar: + New Sale fills the row; Today + info hug the right. */
   .dash-toolbar .dash-newsale { flex: 1 1 auto; }
   .dash-toolbar > select, .dash-toolbar > button:not(.dash-newsale), .dash-toolbar > div { flex: 0 0 auto; }
@@ -995,6 +998,6 @@
 <div id="toasts" class="fixed right-4 z-50 flex flex-col gap-2 pointer-events-none items-end" style="top: calc(1rem + env(safe-area-inset-top, 0px)); left: 1rem;"></div>
 
 <!-- Supabase JS (ESM from CDN) + the app -->
-<script type="module" src="app-aea843e6.immutable.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>
