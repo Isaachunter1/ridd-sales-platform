@@ -34863,10 +34863,17 @@ function indicatorYoYTrendChart() {
   // Rep-only views fall back to Revenue and hide the PRA option entirely.
   const _yoyAllReps = _yoyRepOnly || _yoySelScopes.every(sc => sc.t === 'rep');
   if (_yoyAllReps && metric === 'pra') metric = 'revenue';
-  const _scopeLabelOf = (sc) => sc.t === 'co' ? 'Company' : String(sc.v || '');
+  // Department scopes (per Isaac): Office Staff / Sales Rep / Technician as
+  // their own overlay lines, keyed by the same dept buckets the page-level
+  // Type toggle uses (_indicatorDeptOf → office / d2d / techs).
+  const _YOY_DEPTS = [['office', 'Office Staff'], ['d2d', 'Sales Rep'], ['techs', 'Technician']];
+  const _scopeLabelOf = (sc) => sc.t === 'co' ? 'Company'
+    : sc.t === 'dept' ? ((_YOY_DEPTS.find(d => d[0] === sc.v) || [])[1] || String(sc.v || ''))
+    : String(sc.v || '');
   const _scopeKey = (sc) => sc.t + ':' + (sc.v || '');
   const _scopeMatchFn = (sc) => {
     if (sc.t === 'co') return () => true;
+    if (sc.t === 'dept') return (s) => _indicatorDeptOf(s) === sc.v;
     if (sc.t === 'office') return (s) => _yoyOfficeOf(s) === sc.v;
     if (sc.t === 'team') return (s) => (typeof getRepTeam === 'function' && getRepTeam(getCanonicalRepName(s.rep))) === sc.v;
     return (s) => getCanonicalRepName(s.rep) === sc.v;   // rep
@@ -35225,6 +35232,8 @@ function indicatorYoYTrendChart() {
       style: { top: 'calc(100% + 6px)', right: '0', minWidth: '230px', maxHeight: '340px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._yoyScopesOpen ? 'block' : 'none' },
     },
       rowBtn('co:', 'Company (everything on this page)'),
+      secTitle('Department'),
+      ..._YOY_DEPTS.map(([k, lab]) => rowBtn('dept:' + k, lab)),
       offices.length ? secTitle('Offices') : null,
       ...offices.map(o => rowBtn('office:' + o, o)),
       teams.length ? secTitle('Teams') : null,
@@ -35252,7 +35261,7 @@ function indicatorYoYTrendChart() {
       style: multi
         ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
         : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-      title: 'Overlay offices, teams, or individual reps as their own lines (multiplies with Years and Type — up to 14 lines)',
+      title: 'Overlay departments, offices, teams, or individual reps as their own lines (multiplies with Years and Type — up to 14 lines)',
       onclick: (e) => {
         e.stopPropagation();
         const open = panel.style.display === 'block';
