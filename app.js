@@ -2183,6 +2183,14 @@ const el = (tag, attrs = {}, ...children) => {
 const fmt = {
   usd:   n => (n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })),
   usd0:  n => (n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })),
+  // Compact money for tight cells: $16.99M · $846.7K · $993 (per Isaac).
+  usdShort: n => {
+    if (n == null) return '—';
+    const v = Number(n), a = Math.abs(v), sign = v < 0 ? '-' : '';
+    if (a >= 1e6) return sign + '$' + (a / 1e6).toFixed(2) + 'M';
+    if (a >= 1e4) return sign + '$' + (a / 1e3).toFixed(1) + 'K';
+    return sign + '$' + a.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  },
   pct:   n => (n == null ? '—' : (Number(n) * 100).toFixed(2) + '%'),
   int:   n => (n == null ? '—' : Number(n).toLocaleString('en-US')),
   date:  s => (s ? new Date(s + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }) : '—'),
@@ -29713,7 +29721,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       reps20k: v => fmt.int(v),
       repsServiced: v => fmt.int(v),
       praServiced:  v => fmt.usd0(v),
-      revenue: v => fmt.usd0(v),
+      revenue: v => fmt.usdShort(v),   // $16.99M — the full figure squished the phone columns (per Isaac)
       avgInit: v => fmt.usd0(v),
       avgInitial: v => fmt.usd0(v),
       pra:     v => fmt.usd0(v),
@@ -29804,9 +29812,11 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       );
     };
 
-    const headerCell = (label, color, count) => el('div', { class: 'flex-1 flex items-center justify-center gap-2 py-3 px-3' },
-      el('span', { class: 'inline-block w-3 h-3 rounded-full', style: { background: color } }),
-      el('div', { class: 'text-sm font-black uppercase tracking-wide', style: { color } }, label),
+    // Class name on top, rep count underneath (per Isaac).
+    const headerCell = (label, color, count) => el('div', { class: 'flex-1 flex flex-col items-center justify-center py-3 px-3' },
+      el('div', { class: 'flex items-center gap-2' },
+        el('span', { class: 'inline-block w-3 h-3 rounded-full', style: { background: color } }),
+        el('div', { class: 'text-sm font-black uppercase tracking-wide', style: { color } }, label)),
       el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, count + ' rep' + (count === 1 ? '' : 's')),
     );
 
