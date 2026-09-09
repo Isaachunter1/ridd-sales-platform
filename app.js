@@ -43454,12 +43454,27 @@ function _mktgPnl() {
 // ── CAC: monthly rollup ──
 function _mktgCac() {
   const y = _mktgYearSel(), m = _mktgStore(), a = _mktgActuals(y), B = _mktgBranchList(y), s = m.settings;
-  const rev = (i) => a.total[i].rev, upRev = (i) => a.total[i].upRev, subs = (i) => a.total[i].subs, ups = (i) => a.total[i].upsells;
-  const ad = (i) => B.all.reduce((t, b) => t + _mktgSpendBranchMonth(m, _mktgYm(y, i), b), 0);
-  const wg = (i) => B.all.reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
-  const inc = (i) => B.all.reduce((t, b) => t + (Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0), 0);
+  // Scope (per Isaac): RIDD · RPC · RPS · or any single office.
+  const scope = state._mktCacScope || 'RIDD';
+  const scopeBranches = scope === 'RIDD' ? B.all : scope === 'RPC' ? B.rpc : scope === 'RPS' ? B.rps : [scope];
+  const zero = { rev: 0, upRev: 0, subs: 0, upsells: 0 };
+  const cell = (i) => scopeBranches.reduce((t, b) => { const x = (a.branch[b] || [])[i] || zero; return { rev: t.rev + x.rev, upRev: t.upRev + x.upRev, subs: t.subs + x.subs, upsells: t.upsells + x.upsells }; }, { ...zero });
+  const rev = (i) => cell(i).rev, upRev = (i) => cell(i).upRev, subs = (i) => cell(i).subs, ups = (i) => cell(i).upsells;
+  // Ad spend: QuickBooks booked per branch, falling back to the hand-entered allocation for unbooked months.
+  const SP = state.reportingIsSpend || {};
+  const qbo = (b, i) => { const M = SP[_mktgYm(y, i)] || {}; let t = 0; for (const acct in M) { const off = (typeof _mktgQboOffice === 'function') ? _mktgQboOffice(acct) : null; if (off === b) t += Number(M[acct]) || 0; } return t; };
+  const ad = (i) => scopeBranches.reduce((t, b) => t + (qbo(b, i) || _mktgSpendBranchMonth(m, _mktgYm(y, i), b)), 0);
+  const wg = (i) => scopeBranches.reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
+  const inc = (i) => scopeBranches.reduce((t, b) => t + (Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const tot = (i) => ad(i) + wg(i) + inc(i);
-  const proj = (i) => { let t = 0; for (const b in s.branchGoals) t += (Number(s.branchGoals[b]) || 0) * (s.seasonal[i] || 0); return t; };
+  const proj = (i) => { let t = 0; for (const b of scopeBranches) t += (Number(s.branchGoals[b]) || 0) * (s.seasonal[i] || 0); return t; };
+  const scopeSel = el('select', {
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer font-semibold',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+    onchange: (e) => { state._mktCacScope = e.target.value; mountApp(); },
+  },
+    ...[['RIDD', 'RIDD (all)'], ['RPC', 'RPC'], ['RPS', 'RPS']].map(([v, l]) => el('option', { value: v, selected: scope === v }, l)),
+    ...B.all.map(b => el('option', { value: b, selected: scope === b }, _mktgTC(b))));
   const ROWS = [
     ['CAC %', (i) => _mktgDiv(tot(i), rev(i) + upRev(i)), _mktgPct, 'ratio', [tot, (i) => rev(i) + upRev(i)]],
     ['ROAS', (i) => _mktgDiv(rev(i) + upRev(i), ad(i)), _mktgX, 'ratio', [(i) => rev(i) + upRev(i), ad]],
@@ -43480,7 +43495,8 @@ function _mktgCac() {
   ];
   const byKey = Object.fromEntries(ROWS.map(r => [r[0], r]));
   return el('div', { class: 'flex flex-col gap-4' },
-    _mktgMatrixCard('CAC · RIDD', 'FieldRoutes revenue & counts · hand-entered spend · projection from Configurations', ROWS.map(r => r[0]),
+    el('div', { class: 'flex items-center gap-2 flex-wrap' }, el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold text-muted-' }, 'Office'), scopeSel),
+    _mktgMatrixCard('CAC · ' + (['RIDD', 'RPC', 'RPS'].includes(scope) ? scope : _mktgTC(scope)), 'FieldRoutes revenue & counts · QuickBooks ad spend (allocation for unbooked months) · wages / incentives from Spend entry · projection from Configurations', ROWS.map(r => r[0]),
       (rk, i) => byKey[rk][1](i),
       (v, rk) => byKey[rk][2](v),
       { firstCol: 'Metric', groupRows: new Set(['Total new sales', 'Total new revenue', 'Total spend']),
