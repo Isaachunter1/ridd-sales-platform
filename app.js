@@ -46508,7 +46508,7 @@ function viewD2dDashboard() {
               el('td', { class: 'px-4 py-2 whitespace-nowrap' },
                 el('span', { class: 'font-black text-[11px] uppercase tracking-wider' }, 'Total'),
                 el('span', { class: 'text-[10px] text-muted- ml-1.5' }, reps.length + ' reps')),
-              el('td', { class: 'px-4 py-2' }, ''),
+              el('td', { class: 'px-4 py-2 font-bold whitespace-nowrap' }, 'RIDD'),
               tdT(String(T.n)), tdT(fmt.usd0(T.cv)), tdT(fmt.usd0(T.n ? T.cv / T.n : 0)),
               tdT(((T.multi + T.twelve) ? Math.round(T.multi / (T.multi + T.twelve) * 100) : 0) + '%'),
               tdT((T.n ? Math.round(T.apay / T.n * 100) : 0) + '%'),
