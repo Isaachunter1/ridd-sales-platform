@@ -11612,11 +11612,19 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 // Lifecycle chips (stamped hourly by the sync once
                 // sales_crm_lifecycle.sql has been run): serviced yet? paid /
                 // current? Rendered alongside the value-exactness chip so an
-                // auditor's only manual job is the signed contract.
+                // signed-agreement chip rides along too (FieldRoutesContract).
                 const lcChips = [];
                 if (s.crm_serviced_at) lcChips.push(chip('✓ Svc', 'rgba(223,100,58,.15)', '#DF643A',
                   'Initial service completed ' + s.crm_serviced_at + (s.crm_completed_services ? ' · ' + s.crm_completed_services + ' service(s) run' : '')));
                 else if (s.crm_checked_at && s.crm_serviced_at === null && s.crm_completed_services === 0) lcChips.push(chip('⏳ Svc', 'var(--card-2)', 'var(--text-muted)', 'No initial service completed yet'));
+                // Signed agreement (per Isaac) — stamped by the sync from the
+                // FieldRoutes e-sign documents (sales_crm_agreement.sql).
+                if (s.crm_contract_state === 'signed') lcChips.push(chip('✓ Signed', 'rgba(223,100,58,.15)', '#DF643A',
+                  'Agreement e-signed' + (s.crm_contract_signed_at ? ' ' + s.crm_contract_signed_at : '')));
+                else if (s.crm_contract_state === 'sent') lcChips.push(chip('✉ Sent', 'rgba(245,158,11,.14)', '#B45309',
+                  'Agreement sent for e-signature but not signed yet'));
+                else if (s.crm_contract_state === 'none' && s.crm_checked_at) lcChips.push(chip('✗ No agreement', 'rgba(220,38,38,.12)', '#B91C1C',
+                  'No e-sign document on this subscription or customer in FieldRoutes'));
                 if (s.crm_days_past_due != null) {
                   lcChips.push(Number(s.crm_days_past_due) > 0
                     ? chip('⚠ ' + s.crm_days_past_due + 'd', 'rgba(220,38,38,.12)', '#B91C1C', 'Customer is ' + s.crm_days_past_due + ' day(s) past due' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : ''))

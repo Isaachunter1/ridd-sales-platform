@@ -131,6 +131,30 @@ appt AS (
   FROM \`${PROJECT}.${DATASET}.FieldRoutesAppointment\`
   WHERE fieldRoutes_dateCompleted IS NOT NULL AND fieldRoutes_dateCompleted NOT LIKE '0000%' AND fieldRoutes_dateCompleted != ''
   GROUP BY 1
+),
+sig AS (
+  -- Signed agreement (per Isaac): FieldRoutesContract rows are the e-sign
+  -- documents. documentState COMPLETED = signed (dateSigned real); WIP = sent
+  -- but not signed yet. Only ~1/3 of contracts carry a subscriptionID, so we
+  -- key by subscription first and fall back to the customer (a COMPLETED
+  -- contract signed on/after the sub was added).
+  SELECT fieldRoutes_subscriptionID AS sid, fieldRoutes_customerID AS cid,
+         fieldRoutes_documentState AS doc_state,
+         SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(fieldRoutes_dateSigned,10),'0000-00-00')) AS signed_on
+  FROM \`${PROJECT}.${DATASET}.FieldRoutesContract\`
+  WHERE fieldRoutes_documentState IN ('COMPLETED','WIP')
+),
+sigsub AS (
+  SELECT sid,
+         MAX(IF(doc_state='COMPLETED', signed_on, NULL)) AS signed_on,
+         COUNTIF(doc_state='WIP') AS wip
+  FROM sig WHERE sid IS NOT NULL AND sid NOT IN ('','0') GROUP BY 1
+),
+sigcust AS (
+  SELECT cid,
+         MAX(IF(doc_state='COMPLETED', signed_on, NULL)) AS signed_on,
+         COUNTIF(doc_state='WIP') AS wip
+  FROM sig WHERE cid IS NOT NULL AND cid != '' GROUP BY 1
 )
 SELECT
   s.fieldRoutes_customerID AS customer_id,
@@ -169,13 +193,25 @@ SELECT
   s.fieldRoutes_frequency AS recurring_frequency,
   cust.phone AS phone,
   cust.email AS email,
-  NULLIF(COALESCE(NULLIF(s.fieldRoutes_leadSource,''), cust.csource), '') AS lead_source
+  NULLIF(COALESCE(NULLIF(s.fieldRoutes_leadSource,''), cust.csource), '') AS lead_source,
+  -- Signed agreement: date the e-sign doc was COMPLETED (sub-level first,
+  -- else a customer-level doc signed on/after the day the sub was added).
+  CAST(COALESCE(sigsub.signed_on,
+           IF(sigcust.signed_on >= DATE_SUB(SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00')), INTERVAL 1 DAY),
+              sigcust.signed_on, NULL)) AS STRING) AS contract_signed_at,
+  CASE
+    WHEN sigsub.signed_on IS NOT NULL
+      OR sigcust.signed_on >= DATE_SUB(SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00')), INTERVAL 1 DAY) THEN 'signed'
+    WHEN COALESCE(sigsub.wip,0) > 0 OR COALESCE(sigcust.wip,0) > 0 THEN 'sent'
+    ELSE 'none' END AS contract_state
 FROM \`${PROJECT}.${DATASET}.FieldRoutesSubscription\` s
 LEFT JOIN cust  ON cust.cid  = s.fieldRoutes_customerID
 LEFT JOIN emp   ON emp.eid   = s.fieldRoutes_soldBy
 LEFT JOIN flags ON flags.cid = s.fieldRoutes_customerID
 LEFT JOIN cxl   ON cxl.sid   = s.id
 LEFT JOIN appt  ON appt.aid  = s.fieldRoutes_initialAppointmentID
+LEFT JOIN sigsub  ON sigsub.sid  = s.fieldRoutes_subscriptionID
+LEFT JOIN sigcust ON sigcust.cid = s.fieldRoutes_customerID
 WHERE s.fieldRoutes_customerID IS NOT NULL AND s.fieldRoutes_customerID != ''
   -- Phantom offices lingering in the CRM (negative office IDs, e.g. -1 / -7).
   -- These aren't real branches we sold from — exclude them from the snapshot
@@ -878,8 +914,16 @@ exports.handler = async (event) => {
       const since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
       let _lifecycleCols = true;   // flips off if sales_crm_lifecycle.sql hasn't been run
       let { data: appSales, error: asErr } = await supabase.from('sales')
-        .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance')
+        .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state')
         .gte('sold_date', since);
+      let _agreementCols = true;   // flips off if sales_crm_agreement.sql hasn't been run
+      if (asErr && /crm_contract_signed_at|crm_contract_state/i.test(asErr.message || '')) {
+        _agreementCols = false;
+        console.warn('[revhawk-sync] agreement columns missing - run sales_crm_agreement.sql to enable signed-agreement stamps');
+        ({ data: appSales, error: asErr } = await supabase.from('sales')
+          .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance')
+          .gte('sold_date', since));
+      }
       if (asErr && /column|schema cache/i.test(asErr.message || '')) {
         _lifecycleCols = false;
         console.warn('[revhawk-sync] lifecycle columns missing - run sales_crm_lifecycle.sql to enable serviced/paid stamps');
@@ -901,7 +945,7 @@ exports.handler = async (event) => {
           const cust = s.customer_number != null ? String(s.customer_number).trim() : '';
           const rev = Number(s.revenue_amount) || 0;
           let status = 'not_found', cv = null, subName = null;
-          const lc = { serviced_at: null, completed: 0, dpd: null, balance: null, pif: false };
+          const lc = { serviced_at: null, completed: 0, dpd: null, balance: null, pif: false, signed_at: null, contract_state: null };
           const subs = cust ? byCust.get(cust) : null;
           if (subs && subs.length) {
             const soldT = Date.parse(s.sold_date || '') || 0;
@@ -929,6 +973,10 @@ exports.handler = async (event) => {
             lc.completed = Number(best.subscription_completed_services) || 0;
             lc.dpd = (best.days_past_due === null || best.days_past_due === undefined || best.days_past_due === '') ? null : (Number(best.days_past_due) || 0);
             lc.balance = (best.responsible_balance === null || best.responsible_balance === undefined || best.responsible_balance === '') ? null : (Math.round((Number(best.responsible_balance) || 0) * 100) / 100);
+            // Signed agreement (per Isaac) — from FieldRoutesContract via the
+            // snapshot query: 'signed' (+ date) / 'sent' (e-sign out, unsigned) / 'none'.
+            lc.signed_at = best.contract_signed_at ? String(best.contract_signed_at).slice(0, 10) : null;
+            lc.contract_state = best.contract_state ? String(best.contract_state) : 'none';
             // PAID-IN-FULL auto-detect: initial invoice covers >=90% of the
             // contract value AND no balance owing — the customer paid the
             // year upfront. One-way stamp (never un-sets) so a later balance
@@ -945,11 +993,22 @@ exports.handler = async (event) => {
             (s.crm_days_past_due == null ? null : Number(s.crm_days_past_due)) !== lc.dpd ||
             (s.crm_balance == null ? null : Number(s.crm_balance)) !== lc.balance);
           const pifChanged = lc.pif && !s.paid_in_full;
-          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged) continue;
+          const sigChanged = _agreementCols && (
+            String(s.crm_contract_signed_at || '') !== String(lc.signed_at || '') ||
+            String(s.crm_contract_state || '') !== String(lc.contract_state || ''));
+          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged && !sigChanged) continue;
           const upd = { crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp };
           if (_lifecycleCols) { upd.crm_serviced_at = lc.serviced_at; upd.crm_completed_services = lc.completed; upd.crm_days_past_due = lc.dpd; upd.crm_balance = lc.balance; }
+          if (_agreementCols) { upd.crm_contract_signed_at = lc.signed_at; upd.crm_contract_state = lc.contract_state; }
           if (pifChanged) upd.paid_in_full = true;
           let { error } = await supabase.from('sales').update(upd).eq('id', s.id);
+          if (error && _agreementCols && /crm_contract_signed_at|crm_contract_state/i.test(error.message || '')) {
+            // sales_crm_agreement.sql not run yet — drop the agreement stamps and retry.
+            _agreementCols = false;
+            console.warn('[revhawk-sync] agreement columns missing — run sales_crm_agreement.sql to enable signed-agreement stamps');
+            delete upd.crm_contract_signed_at; delete upd.crm_contract_state;
+            ({ error } = await supabase.from('sales').update(upd).eq('id', s.id));
+          }
           if (error && _lifecycleCols && /column|schema cache/i.test(error.message || '')) {
             // sales_crm_lifecycle.sql not run yet — degrade to legacy stamp.
             _lifecycleCols = false;
