@@ -49843,16 +49843,9 @@ function adminConfigurations() {
     el('div', { class: 'font-semibold shrink-0', style: { color: 'var(--text)', width: '132px' } }, term),
     el('div', { class: 'text-muted- leading-relaxed' }, def));
 
-  return el('div', { class: 'flex flex-col gap-4' },
-    el('div', {},
-      el('h2', { class: 'text-lg font-bold' }, 'Configurations'),
-      el('p', { class: 'text-xs text-muted- mt-0.5' },
-        'Everything that decides how the dashboards count revenue, churn, and retention — in one place. These rules apply across Reporting and Indicators.'),
-    ),
-    // Plain-English breakdown of how every reporting number is built.
-    el('div', { class: 'card p-4', style: { background: 'var(--card-2)' } },
-      el('div', { class: 'text-[11px] uppercase tracking-widest font-semibold mb-2', style: { color: 'var(--text-subtle)' } }, 'How reporting works'),
-      el('div', { class: 'flex flex-col gap-1.5' },
+  // Plain-English breakdown of how every reporting number is built — lives
+  // behind the ⓘ next to the heading (per Isaac).
+  const howItWorks = () => el('div', { class: 'flex flex-col gap-1.5' },
         defRow('Data source', 'A live mirror of FieldRoutes (RevHawk), re-synced automatically every evening — no manual uploads.'),
         defRow('Active', 'Subscription status is Active AND it has no cancel date. (Active status with a cancel date = a lapsed / frozen sub, not active.)'),
         defRow('Recurring', 'Decided by the Recurring basis setting below — each sub’s annual recurring value, or the manual Service-Type list.'),
@@ -49861,7 +49854,12 @@ function adminConfigurations() {
         defRow('Cancelled', 'A recurring sub with a real cancel. Excludes one-time services, the cancel reasons excluded below, and 3-day RORs / sold-not-started (buyer’s remorse, not attrition).'),
         defRow('Marketing / IS', 'Counts Office-Staff-sold accounts only (rep type comes straight from the report); Renewal sources are excluded from new-business pace.'),
         defRow('Three rules', 'Service lifecycle, excluded Sources, and excluded Cancel reasons — set in the panels below.'),
-      ),
+      );
+
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'flex items-center gap-2' },
+      el('h2', { class: 'text-lg font-bold' }, 'Configurations'),
+      configInfoBtn('How reporting works', howItWorks()),
     ),
     // Recurring basis — the single biggest accuracy lever.
     el('div', { class: 'card p-4' },
