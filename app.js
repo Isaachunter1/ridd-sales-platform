@@ -49737,6 +49737,7 @@ function viewAdmin() {
       ['teams',   'Teams',          '🤝'],
       ['config',  'Configurations', '🧮'],
       ['perms',   'Permissions',    '🔐'],
+      ['comps',   'Competitions',   '🏆'],
       ['uploads', 'Admin',          '🗂'],
     ] },
     { label: 'Inside Sales Settings', items: [
@@ -49787,6 +49788,7 @@ function viewAdmin() {
     uploads: adminUploads,
     sources: adminSources,
     slack:   adminSlack,
+    comps:   adminCompetitionSchedule,
     pricing: adminCommissions,   // "Commissions" — CRM commission rules by rep type
     backup:  adminBackup,
   };
@@ -51646,6 +51648,165 @@ function adminBackup() {
     ),
 
   );
+}
+
+// ── Settings → Competitions (per Isaac) ─────────────────────────────────
+// The competition calendar: every comp with its start / end, how it
+// recurs, and the weekday it kicks off on — plus a month grid so you can
+// see when the next rounds land. Planning data only (the boards keep
+// their own scoring windows); synced to every admin via _compExtras.
+const COMP_RECUR = [['none', 'One-off'], ['weekly', 'Weekly'], ['biweekly', 'Every 2 weeks'], ['monthly', 'Monthly'], ['quarterly', 'Quarterly'], ['yearly', 'Yearly']];
+const COMP_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function compScheduleStore() {
+  state._compExtras = state._compExtras || {};
+  const sc = state._compExtras.compSchedule;
+  return (sc && typeof sc === 'object') ? sc : (state._compExtras.compSchedule = {});
+}
+function compScheduleSave() {
+  saveDemoData();
+  if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
+}
+// Every competition the landing page can show, with its group.
+function compScheduleList() {
+  const out = [];
+  const seen = new Set();
+  const push = (id, name, group) => { if (!seen.has(id)) { seen.add(id); out.push({ id, name, group }); } };
+  try { (getIndicatorCompetitions() || []).forEach(c => push(c.id, c.name, 'Sales Reps')); } catch (e) { /* no config yet */ }
+  push('mystery_box', 'Mystery Boxes', 'Sales Reps'); push('koth', 'KOTH', 'Sales Reps'); push('kobe_week', 'Kobe Week', 'Sales Reps');
+  push('isl', 'Inside Sales League', 'Office Staff');
+  const sc = compScheduleStore();
+  Object.keys(sc).forEach(id => { if (sc[id] && sc[id].custom) push(id, sc[id].name || 'Custom', sc[id].group || 'Sales Reps'); });
+  return out;
+}
+const _csIso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+const _csDate = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12) : null; };
+// Occurrences of a scheduled comp from its start, out `horizonDays` — each
+// { start, end } as Date. Weekday pin (dow) snaps monthly/quarterly/yearly
+// repeats to the first matching weekday on/after the nominal date.
+function compOccurrences(cfg, horizonDays = 548) {
+  const s0 = _csDate(cfg.start); if (!s0) return [];
+  const e0 = _csDate(cfg.end) || s0;
+  const len = Math.max(0, Math.round((e0 - s0) / 86400000));
+  const stop = new Date(); stop.setDate(stop.getDate() + horizonDays);
+  const out = [];
+  const dow = cfg.dow === '' || cfg.dow == null ? null : Number(cfg.dow);
+  const snap = (d) => { if (dow == null) return d; const x = new Date(d); while (x.getDay() !== dow) x.setDate(x.getDate() + 1); return x; };
+  let i = 0;
+  while (out.length < 60) {
+    let st;
+    if (cfg.recur === 'weekly') { st = new Date(s0); st.setDate(s0.getDate() + 7 * i); }
+    else if (cfg.recur === 'biweekly') { st = new Date(s0); st.setDate(s0.getDate() + 14 * i); }
+    else if (cfg.recur === 'monthly') { st = new Date(s0); st.setMonth(s0.getMonth() + i); st = snap(st); }
+    else if (cfg.recur === 'quarterly') { st = new Date(s0); st.setMonth(s0.getMonth() + 3 * i); st = snap(st); }
+    else if (cfg.recur === 'yearly') { st = new Date(s0); st.setFullYear(s0.getFullYear() + i); st = snap(st); }
+    else { if (i > 0) break; st = s0; }
+    if (st > stop) break;
+    const en = new Date(st); en.setDate(st.getDate() + len);
+    out.push({ start: st, end: en });
+    i++;
+  }
+  return out;
+}
+function adminCompetitionSchedule() {
+  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
+  const sc = compScheduleStore();
+  const comps = compScheduleList();
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  const COLORS = ['#DF643A', '#3D7A66', '#1F6F84', '#8E6F47', '#C8A565', '#9B2C2C', '#757667', '#5B5BD6', '#B45309', '#0EA5E9'];
+  const colorOf = (i) => COLORS[i % COLORS.length];
+  const fmtD = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const inp = (id, key, type, extra = {}) => el('input', Object.assign({
+    type, value: (sc[id] && sc[id][key]) || '',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px]',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+    onchange: (e) => { sc[id] = sc[id] || {}; sc[id][key] = e.target.value; if (key === 'start' && (sc[id].dow == null || sc[id].dow === '')) { const d = _csDate(e.target.value); if (d) sc[id].dow = String(d.getDay()); } compScheduleSave(); mountApp(); },
+  }, extra));
+  const sel = (id, key, opts) => el('select', {
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+    onchange: (e) => { sc[id] = sc[id] || {}; sc[id][key] = e.target.value; compScheduleSave(); mountApp(); },
+  }, ...opts.map(([v, l]) => el('option', { value: v, selected: String((sc[id] && sc[id][key]) ?? '') === String(v) }, l)));
+
+  // ── Table ──
+  const th = (t) => el('th', { class: 'text-left px-2 py-2 text-[9px] uppercase tracking-wider font-semibold text-muted- whitespace-nowrap' }, t);
+  const rows = comps.map((c, i) => {
+    const cfg = sc[c.id] || {};
+    const occ = compOccurrences(cfg);
+    const upcoming = occ.filter(o => o.end >= today).slice(0, 3);
+    const live = occ.find(o => o.start <= today && o.end >= today);
+    return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+      el('td', { class: 'px-2 py-2 whitespace-nowrap' },
+        el('span', { class: 'inline-block mr-2 align-middle', style: { width: '9px', height: '9px', background: colorOf(i) } }),
+        cfg.custom
+          ? el('input', { type: 'text', value: cfg.name || '', class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', width: '150px' }, onchange: (e) => { cfg.name = e.target.value; compScheduleSave(); mountApp(); } })
+          : el('span', { class: 'font-semibold' }, c.name),
+        live ? el('span', { class: 'ml-2 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(61,122,102,.16)', color: '#3D7A66' } }, 'Live') : null),
+      el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap' }, cfg.custom ? sel(c.id, 'group', [['Sales Reps', 'Sales Reps'], ['Office Staff', 'Office Staff'], ['Technicians', 'Technicians']]) : c.group),
+      el('td', { class: 'px-2 py-2' }, inp(c.id, 'start', 'date')),
+      el('td', { class: 'px-2 py-2' }, inp(c.id, 'end', 'date')),
+      el('td', { class: 'px-2 py-2' }, sel(c.id, 'recur', COMP_RECUR)),
+      el('td', { class: 'px-2 py-2' }, sel(c.id, 'dow', [['', 'Any'], ...COMP_DOW.map((d, k) => [String(k), d])])),
+      el('td', { class: 'px-2 py-2 text-[11px] text-muted- whitespace-nowrap' },
+        upcoming.length ? upcoming.map(o => fmtD(o.start) + (o.end > o.start ? ' – ' + fmtD(o.end) : '')).join(' · ') : (cfg.start ? 'Ended' : '—')),
+      el('td', { class: 'px-2 py-2 whitespace-nowrap' }, cfg.custom ? el('button', {
+        class: 'text-[11px] font-semibold', style: { color: '#DC2626' },
+        onclick: () => { if (!confirm('Remove ' + (cfg.name || 'this competition') + ' from the schedule?')) return; delete sc[c.id]; compScheduleSave(); mountApp(); },
+      }, 'Remove') : (cfg.start ? el('button', {
+        class: 'text-[11px] font-semibold text-muted-',
+        onclick: () => { delete sc[c.id]; compScheduleSave(); mountApp(); },
+      }, 'Clear') : null)));
+  });
+  const table = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-3 flex items-center gap-3 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, 'Schedule'),
+      el('span', { class: 'text-[11px] text-muted-' }, 'Set each comp’s first run + how it repeats; "Starts on" pins the weekday for monthly / quarterly / yearly repeats.'),
+      el('button', {
+        class: 'ml-auto rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: () => { const id = 'custom_' + Date.now(); sc[id] = { custom: true, name: 'New competition', group: 'Sales Reps', recur: 'none' }; compScheduleSave(); mountApp(); },
+      }, '+ Competition')),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+      el('thead', {}, el('tr', {}, th('Competition'), th('Group'), th('Start'), th('End'), th('Repeats'), th('Starts on'), th('Next runs'), th(''))),
+      el('tbody', {}, ...rows))));
+
+  // ── Month calendar ──
+  if (!state._compCalYm) state._compCalYm = _csIso(today).slice(0, 7);
+  const [cy, cm] = state._compCalYm.split('-').map(Number);
+  const first = new Date(cy, cm - 1, 1, 12), daysIn = new Date(cy, cm, 0).getDate();
+  const shiftMonth = (n) => { const d = new Date(cy, cm - 1 + n, 1); state._compCalYm = _csIso(d).slice(0, 7); mountApp(); };
+  const perDay = Array.from({ length: daysIn }, () => []);
+  comps.forEach((c, i) => {
+    const cfg = sc[c.id]; if (!cfg || !cfg.start) return;
+    compOccurrences(cfg).forEach(o => {
+      for (let d = 1; d <= daysIn; d++) {
+        const day = new Date(cy, cm - 1, d, 12);
+        if (day >= o.start && day <= o.end) perDay[d - 1].push({ name: cfg.name || c.name, color: colorOf(i), starts: _csIso(day) === _csIso(o.start) });
+      }
+    });
+  });
+  const cells = [];
+  for (let k = 0; k < first.getDay(); k++) cells.push(el('div', { class: 'p-1', style: { minHeight: '64px', background: 'var(--card-2)', opacity: '.5' } }));
+  for (let d = 1; d <= daysIn; d++) {
+    const isToday = _csIso(new Date(cy, cm - 1, d, 12)) === _csIso(today);
+    const items = perDay[d - 1];
+    cells.push(el('div', { class: 'p-1 flex flex-col gap-0.5', style: { minHeight: '64px', borderTop: '1px solid var(--border)', background: isToday ? 'rgba(223,100,58,.08)' : 'var(--card)' } },
+      el('div', { class: 'text-[10px] tabular-nums font-semibold', style: { color: isToday ? 'var(--accent)' : 'var(--text-muted)' } }, String(d)),
+      ...items.slice(0, 3).map(it => el('div', { class: 'text-[9px] font-bold truncate px-1', style: { background: it.color, color: '#fff', opacity: it.starts ? '1' : '.75' }, title: it.name + (it.starts ? ' — starts' : '') }, (it.starts ? '▸ ' : '') + it.name)),
+      items.length > 3 ? el('div', { class: 'text-[9px] text-muted-' }, '+' + (items.length - 3) + ' more') : null));
+  }
+  const calendar = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-4 py-3 flex items-center gap-2 border-b', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, 'Calendar'),
+      el('div', { class: 'ml-auto flex items-center gap-1' },
+        el('button', { class: 'px-2.5 py-1 text-[11px] rounded-lg border', style: { borderColor: 'var(--border-2)' }, onclick: () => shiftMonth(-1) }, '‹'),
+        el('span', { class: 'text-[11px] font-semibold px-2 tabular-nums' }, first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })),
+        el('button', { class: 'px-2.5 py-1 text-[11px] rounded-lg border', style: { borderColor: 'var(--border-2)' }, onclick: () => shiftMonth(1) }, '›'),
+        el('button', { class: 'px-2.5 py-1 text-[11px] rounded-lg border ml-1', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._compCalYm = _csIso(today).slice(0, 7); mountApp(); } }, 'Today'))),
+    el('div', { class: 'grid grid-cols-7' }, ...COMP_DOW.map(d => el('div', { class: 'px-1 py-1 text-[9px] uppercase tracking-wider font-semibold text-muted-', style: { background: 'var(--card-2)' } }, d))),
+    el('div', { class: 'grid grid-cols-7' }, ...cells));
+
+  return el('div', { class: 'flex flex-col gap-4' },
+    el('h2', { class: 'text-lg font-bold' }, 'Competitions'),
+    table, calendar);
 }
 
 function adminSlack() {
