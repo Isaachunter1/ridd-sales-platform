@@ -43256,6 +43256,22 @@ function reportingRefreshGhlLeads() {
   reportingLoadGhlLeads();
 }
 
+// QuickBooks marketing spend loader (shared by the legacy IS report and the
+// Marketing tab): /api/qbo-spend → Advertising & Marketing by branch account
+// by month; falls back to the static is-spend.json if QBO isn't configured.
+function reportingLoadQboSpend(force) {
+  if (force) { state.reportingIsSpend = null; state._isSpendLoading = false; }
+  if (state.reportingIsSpend != null || state._isSpendLoading) return;
+  state._isSpendLoading = true;
+  const useFile = () => fetch('/is-spend.json').then(r => r.ok ? r.json() : {})
+    .then(j => { state.reportingIsSpend = j || {}; state._isSpendSource = 'file'; state._isSpendLoading = false; mountApp(); })
+    .catch(() => { state.reportingIsSpend = {}; state._isSpendLoading = false; mountApp(); });
+  _apiAuthHeaders().then(h => fetch('/api/qbo-spend' + (force ? '?_=' + Date.now() : ''), { headers: h })).then(r => r.ok ? r.json() : null).then(j => {
+    if (j && j.bySourceMonth && Object.keys(j.bySourceMonth).length) {
+      state.reportingIsSpend = j.bySourceMonth; state._isSpendSource = 'QuickBooks'; state._isSpendPulledAt = j.pulledAt; state._isSpendLoading = false; mountApp();
+    } else { useFile(); }
+  }).catch(useFile);
+}
 // QuickBooks branch accounts → sales-data office names.
 const _MKTG_QBO_OFFICE = { 'utah': 'SALT LAKE', 'michigan': 'DETROIT', 'executive': null, 'corporate': null };
 function _mktgQboOffice(acct) {
@@ -43407,7 +43423,13 @@ function _mktgPnl() {
   const members = (rk) => rk === 'RPC' ? B.rpc : rk === 'RPS' ? B.rps : rk === 'RIDD' ? B.all : [rk];
   const sum = (rk, f) => members(rk).reduce((t, b) => t + (f(b) || 0), 0);
   const rev = (rk, i) => sum(rk, b => (a.branch[b] ? a.branch[b][i].rev + a.branch[b][i].upRev : 0));
-  const ad  = (rk, i) => sum(rk, b => _mktgSpendBranchMonth(m, _mktgYm(y, i), b));
+  // QuickBooks booked marketing per branch per month (Advertising & Marketing → "<Branch> Marketing").
+  const SP = state.reportingIsSpend || {};
+  const qbo = (b, i) => { const M = SP[_mktgYm(y, i)] || {}; let t = 0; for (const acct in M) { const off = (typeof _mktgQboOffice === 'function') ? _mktgQboOffice(acct) : null; if (off === b) t += Number(M[acct]) || 0; } return t; };
+  // Ad spend (per Isaac): LIVE from QuickBooks — the branch "… Marketing"
+  // sub-accounts under Advertising & Marketing on the P&L — with the
+  // hand-entered allocation only filling months QuickBooks hasn't booked yet.
+  const ad  = (rk, i) => sum(rk, b => { const q = qbo(b, i); return q || _mktgSpendBranchMonth(m, _mktgYm(y, i), b); });
   const wg  = (rk, i) => sum(rk, b => Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0);
   const inc = (rk, i) => sum(rk, b => Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0);
   const tot = (rk, i) => ad(rk, i) + wg(rk, i) + inc(rk, i);
@@ -43415,12 +43437,9 @@ function _mktgPnl() {
   const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
   const T = m.settings.targets;
   const goalStyle = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#16A34A' : '#DC2626', fontWeight: '600' };
-  // QuickBooks reconciliation: booked marketing per branch vs what was allocated.
-  const SP = state.reportingIsSpend || {};
-  const qbo = (b, i) => { const M = SP[_mktgYm(y, i)] || {}; let t = 0; for (const acct in M) { const off = (typeof _mktgQboOffice === 'function') ? _mktgQboOffice(acct) : null; if (off === b) t += Number(M[acct]) || 0; } return t; };
   return el('div', { class: 'flex flex-col gap-4' },
     _mktgMatrixCard('New revenue', 'FieldRoutes · office staff · new + upsell · pending/serviced · by sold month', rows, rev, _mktgUsd0, opts),
-    _mktgMatrixCard('Ad spend', 'hand-entered allocation (Spend entry) — what goes to the controller', rows, ad, _mktgUsd0, opts),
+    _mktgMatrixCard('Ad spend', (state._isSpendSource === 'QuickBooks' ? 'QuickBooks · Advertising & Marketing by branch' + (state._isSpendPulledAt ? ' · pulled ' + new Date(state._isSpendPulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '') : 'QuickBooks not connected — showing the hand-entered allocation') + ' · unbooked months fall back to Spend entry', rows, ad, _mktgUsd0, opts),
     _mktgMatrixCard('Wages', 'hand-entered (Spend entry)', rows, wg, _mktgUsd0, opts),
     _mktgMatrixCard('Incentives', 'hand-entered (Spend entry)', rows, inc, _mktgUsd0, opts),
     _mktgMatrixCard('Total spend', 'ad spend + wages + incentives', rows, tot, _mktgUsd0, opts),
@@ -43673,6 +43692,7 @@ function reportingMarketingGoalsPanel() {
 
 function reportingMarketingPnl() {
   reportingLoadGhlLeads();
+  reportingLoadQboSpend();
   const sub = ['pnl', 'cac', 'providers', 'spend', 'projections'].includes(state._mktSub) ? state._mktSub : 'pnl';
   const body = sub === 'cac' ? _mktgCac() : sub === 'providers' ? _mktgProviders() : sub === 'spend' ? _mktgSpendEntry() : sub === 'projections' ? _mktgProjections() : _mktgPnl();
   return el('div', { class: 'flex flex-col gap-4' }, _mktgYearBar(sub), body);
@@ -44098,17 +44118,7 @@ function reportingInsideSales() {
   // Marketing spend: pull LIVE from QuickBooks (/api/qbo-spend → Advertising &
   // Marketing by branch by month). Falls back to the static is-spend.json
   // snapshot if the QuickBooks function isn't configured yet (env vars unset).
-  if (state.reportingIsSpend == null && !state._isSpendLoading) {
-    state._isSpendLoading = true;
-    const useFile = () => fetch('/is-spend.json').then(r => r.ok ? r.json() : {})
-      .then(j => { state.reportingIsSpend = j || {}; state._isSpendSource = 'file'; state._isSpendLoading = false; mountApp(); })
-      .catch(() => { state.reportingIsSpend = {}; state._isSpendLoading = false; mountApp(); });
-    _apiAuthHeaders().then(h => fetch('/api/qbo-spend', { headers: h })).then(r => r.ok ? r.json() : null).then(j => {
-      if (j && j.bySourceMonth && Object.keys(j.bySourceMonth).length) {
-        state.reportingIsSpend = j.bySourceMonth; state._isSpendSource = 'QuickBooks'; state._isSpendPulledAt = j.pulledAt; state._isSpendLoading = false; mountApp();
-      } else { useFile(); }
-    }).catch(useFile);
-  }
+  reportingLoadQboSpend();
   const MAN = state.reportingIsManual || {};
   const SP  = state.reportingIsSpend  || {};
   const rowsAll = state.reportingSubscriptions || [];
