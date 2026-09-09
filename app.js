@@ -13172,8 +13172,10 @@ function viewPay() {
       ),
     ),
 
-    // ─── The three stub blocks ───
-    el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' },
+    // ─── Layout (per Isaac): left = Pay Stub then Backend Pay; right = By
+    // Source (accounts + revenue only) then Metrics. ───
+    el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' },
+      el('div', { class: 'flex flex-col gap-4' },
 
       // PAY STUB — this pay period's upfront
       block(
@@ -13207,6 +13209,12 @@ function viewPay() {
         el('div', { class: 'px-3 py-1.5 border-t text-[10px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
           'Pending backend: ' + fmt.usd0(pendingBackend) + ' on ' + fmt.usd0(pendingBackendRevenue) + ' revenue awaiting the backend audit'),
       ),
+      ),   // left column
+
+      el('div', { class: 'flex flex-col gap-4' },
+      // BY SOURCE — accounts + revenue per source (the sheet's grid, trimmed
+      // to what reps look at; hidden / unlisted sources flag in red).
+      paySourceBreakdown(repId, { serviced: servicedStaged, below_minimums: belowStaged, pending }),
 
       // METRICS — the rates behind the numbers
       block(
@@ -13230,16 +13238,8 @@ function viewPay() {
         row('Upfront 24-Mo Pay', $(s.renewal_flat.m24)),
         row('Upfront PIF Pay', $(s.renewal_flat.pif)),
       ),
+      ),   // right column
     ),
-
-    // ─── BY SOURCE breakdown (replicates the IS PAY sheet grid) ───
-    // Rows come straight from the sources catalog: every active source shows
-    // automatically (add a lead provider in Settings → Sources and it appears
-    // here with $0s), deactivated sources only linger while they still have
-    // sales in the period. Renewal sources show account counts (they pay
-    // flat $/account); standard sources show revenue per contract bucket.
-    paySourceBreakdown(repId, { serviced: servicedStaged, below_minimums: belowStaged, pending }),
-
   );
 }
 
@@ -13361,8 +13361,6 @@ function paySourceBreakdown(repId, salesByStatus) {
       el('table', { class: 'w-full', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {},
           th('Source'), th('Accts', true), th('Revenue', true),
-          ...BUCKETS.map(b => th(b.label, true)),
-          th('Pay', true),
         )),
         el('tbody', {},
           ...sources.map(src => {
@@ -13372,11 +13370,6 @@ function paySourceBreakdown(repId, salesByStatus) {
               td(el('span', {}, src.name, src.is_renewal ? el('span', { class: 'ml-1 text-[9px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, 'flat') : null), { dim: zero }),
               td(zero ? '—' : fmt.int(a.accounts), { right: true, dim: zero }),
               td(zero ? '—' : fmt.usd(a.revenue), { right: true, dim: zero }),
-              ...BUCKETS.map(b => {
-                const v = a.buckets[b.key] || 0;
-                return td(!v ? '—' : (src.is_renewal ? fmt.int(v) : fmt.usd(v)), { right: true, dim: !v });
-              }),
-              td(zero ? '—' : fmt.usd(a.pay), { right: true, bold: !zero, dim: zero }),
             );
           }),
           ...flagged.map(src => {
@@ -13384,16 +13377,12 @@ function paySourceBreakdown(repId, salesByStatus) {
             return el('tr', { style: { background: 'rgba(220,38,38,.08)' }, title: src._flag === 'hidden on Pay' ? 'This source is hidden on the Pay tab (Settings → Sources) but still has sales in this bucket.' : 'This source is not in Settings → Sources — check the sale\u2019s source.' },
               td(el('span', {}, el('span', { style: { color: '#DC2626', fontWeight: '800' } }, '\u26a0 '), src.name, el('span', { class: 'ml-1 text-[9px] uppercase tracking-wider', style: { color: '#DC2626' } }, src._flag)), {}),
               td(fmt.int(a.accounts), { right: true }),
-              td(fmt.usd(a.revenue), { right: true }),
-              ...BUCKETS.map(b => { const v = a.buckets[b.key] || 0; return td(!v ? '\u2014' : (src.is_renewal ? fmt.int(v) : fmt.usd(v)), { right: true, dim: !v }); }),
-              td(fmt.usd(a.pay), { right: true, bold: true }));
+              td(fmt.usd(a.revenue), { right: true }));
           }),
           el('tr', {},
             td('TOTAL', { bold: true }),
             td(fmt.int(totals.accounts), { right: true, bold: true }),
             td(fmt.usd(totals.revenue), { right: true, bold: true }),
-            ...BUCKETS.map(() => td('', {})),
-            td(fmt.usd(totals.pay), { right: true, bold: true }),
           ),
         ),
       ),
