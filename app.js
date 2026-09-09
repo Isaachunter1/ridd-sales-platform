@@ -30231,6 +30231,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     }, 0);
   }
 
+  // Stash the full roster for the Top-15 PDF (Manage Teams → Reports).
+  state._indLbAllReps = allReps;
   sections.push(
     // overflow-visible while the Filters menu is open so the dropdown isn't
     // clipped at the card edge (per Isaac).
@@ -30427,27 +30429,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             wrap.id = 'rep-cancel-filter-wrap';
             return wrap;
           })(),
-          // Rookie/Vet PDF export — icon only, far right of the toolbar (per Isaac).
-          // Pulls from the unfiltered `allReps` so the report reflects the
-          // full active roster regardless of the current page filters.
-          (() => {
-            const btn = el('button', {
-              class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border shrink-0',
-              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-              title: 'Download a PDF leaderboard: top 15 overall + top 15 rookies, with column-leading metrics highlighted',
-              onclick: async () => {
-                btn.disabled = true;
-                btn.textContent = '…';
-                try {
-                  await downloadRookieVetPdf(allReps);
-                } finally {
-                  btn.disabled = false;
-                  btn.textContent = '📄';
-                }
-              },
-            }, '📄');
-            return (allReps.length > 0 && isAdminRole(state.profile?.role)) ? btn : null;
-          })(),
+          // (Top-15 PDF export moved into Manage Teams → Reports — per Isaac.)
         ),
       ),
       // Desktop / tablet: full table with horizontal scroll if needed.
@@ -34163,6 +34145,7 @@ function openTVDashboard() {
   document.body.append(overlay);
 }
 
+function _lbAllRepsForReport() { return Array.isArray(state._indLbAllReps) ? state._indLbAllReps : []; }
 function openTeamReportsModal(ctx) {
   const overlay = el('div', { class: 'modal-overlay' });
   const close = () => overlay.remove();
@@ -34248,6 +34231,32 @@ function openTeamReportsModal(ctx) {
     );
   };
 
+  // 📄 Top-15 leaderboard PDF (top 15 overall + top 15 rookies) — lives here
+  // now instead of the Leaderboard toolbar (per Isaac). Pulls the full
+  // active roster regardless of page filters.
+  const lbReps = (typeof _lbAllRepsForReport === 'function') ? _lbAllRepsForReport() : [];
+  const lbRow = (() => {
+    const dl = el('button', {
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+      style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+      onclick: async () => {
+        dl.disabled = true; dl.textContent = '…';
+        try { await downloadRookieVetPdf(lbReps); }
+        catch (err) { console.error('[ridd] leaderboard PDF threw', err); toast('PDF failed: ' + (err.message || 'unknown'), 'error'); }
+        finally { dl.disabled = false; dl.textContent = 'Download PDF'; }
+      },
+    }, 'Download PDF');
+    return el('div', {
+      class: 'flex items-center justify-between gap-3 px-4 py-2.5 border-b',
+      style: { borderColor: 'var(--border)', background: 'var(--card-2)' },
+    },
+      el('div', { class: 'flex items-center gap-3 min-w-0' },
+        el('span', { style: { width: '28px', height: '28px', borderRadius: '50%', background: 'var(--text)', color: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: '0' } }, '\ud83c\udfc6'),
+        el('div', { class: 'min-w-0' },
+          el('div', { class: 'font-semibold truncate' }, 'Leaderboard \u00b7 Top 15'),
+          el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, 'Top 15 overall + top 15 rookies, column leaders highlighted'))),
+      lbReps.length ? dl : el('span', { class: 'text-[11px] text-muted-' }, 'Open Indicators first'));
+  })();
   const paint = () => {
     const items = itemsFor(mode);
     const lab = labelOf(mode);
@@ -34299,6 +34308,7 @@ function openTeamReportsModal(ctx) {
         modeSelect,
         el('button', { class: 'text-2xl cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
     ),
+    lbRow,
     searchWrap,
     list,
     el('div', { class: 'flex items-center justify-between gap-3 px-5 py-3 border-t', style: { borderColor: 'var(--border)' } },
