@@ -3537,13 +3537,12 @@ const TAB_TITLES = {
   marketing:    'MARKETING',
   commission:   'SALES',
   d2d_dashboard: 'SALES',
-  d2d_upfront:  'SALES',
   admin:        'SETTINGS',
 };
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'d2d_upfront', '#techs':'techs', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'commission', '#techs':'techs', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -4542,7 +4541,6 @@ const INSIDE_SALES_TAB_KEYS = new Set([...INSIDE_SALES_TABS.map(([k]) => k), 'co
 // · Pay (the commission calculator / My Commission, now a sub-tab).
 const D2D_SALES_TABS = [
   ['d2d_dashboard', 'Dashboard'],
-  ['d2d_upfront',   'Upfront'],
   ['commission',    'Pay'],
 ];
 const D2D_SALES_TAB_KEYS = new Set(D2D_SALES_TABS.map(([k]) => k));
@@ -4614,7 +4612,7 @@ function insideSalesSubTabs() {
 function d2dSalesSubTabs() {
   // Upfront is an admin-only view — reps got a tab that dead-ended on a
   // placeholder (rep-UX audit #10). Filter it out for non-admins.
-  const tabs = isAdminRole(state.profile?.role) ? D2D_SALES_TABS : D2D_SALES_TABS.filter(([k]) => k !== 'd2d_upfront');
+  const tabs = D2D_SALES_TABS;
   const go = (k) => { state.view = k; state._navChosen = true; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
   const tabBar = el('div', { class: 'hidden sm:flex items-center flex-wrap gap-x-1 gap-y-0' },
     ...tabs.map(([k, label]) => {
@@ -5509,7 +5507,6 @@ function mountApp() {
     marketing:    viewMarketing,
     commission:   viewCommission,
     d2d_dashboard: viewD2dDashboard,
-    d2d_upfront:  viewD2dUpfront,
     techs:        viewTechs,
     admin:        viewAdmin,
   }[state.view];
@@ -5544,7 +5541,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_upfront', 'techs', 'auditing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'techs', 'auditing']);
   document.querySelector('.fab')?.remove();
   // + FAB is OFFICE STAFF only (per Isaac) — admins don't log sales from a
   // floating button, and the retired AI speed-dial no longer replaces it.
@@ -46690,7 +46687,7 @@ function viewD2dUpfront() {
         'Your upfront pay stub will live here — your admin runs and publishes it. Check the Pay tab for your published commission.'));
   }
   // Roster: CRM Sales Reps (same source as the calculator).
-  if (state.frRoster == null && !state._frRosterLoading) loadFieldRoutesRoster().then(() => { if (state.view === 'd2d_upfront') mountApp(); });
+  if (state.frRoster == null && !state._frRosterLoading) loadFieldRoutesRoster().then(() => { if (state.view === 'commission') mountApp(); });
   const roster = state.frRoster || [];
   const salesReps = roster.filter(e => e.type_label === 'Sales Rep').sort((a, b) => _frEmpName(a).localeCompare(_frEmpName(b)));
   if (!salesReps.length) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No Sales Reps in the roster yet — run a sync first.');
@@ -46724,7 +46721,7 @@ function viewD2dUpfront() {
     supabase.from('app_settings').select('value').eq('key', 'commission_locks').maybeSingle()
       .then(({ data }) => {
         state._commLocks = (data && data.value && data.value.locks) || {};
-        if (state.view === 'd2d_upfront') mountApp();
+        if (state.view === 'commission') mountApp();
       }).catch(() => { state._commLocks = {}; });
   }
   const _lockKey = String(state._upfrontStart) + '|' + String(state._upfrontEnd);
@@ -46773,40 +46770,40 @@ function viewD2dUpfront() {
   const rateField = (label, frac, key) => el('label', { class: 'block' }, lblS(label),
     el('div', { class: 'flex items-center gap-1' },
       el('input', { type: 'number', step: '1', min: '0', max: '100', value: Math.round(frac * 1000) / 10,
-        class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
+        class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-left tabular-nums', style: { borderColor: 'var(--border-2)' },
         onchange: (e) => saveU({ [key]: (parseFloat(e.target.value) || 0) / 100 }) }),
       el('span', { class: 'text-xs text-muted-' }, '%')));
   const numField = (label, val, onCommit) => el('label', { class: 'block' }, lblS(label),
     el('input', { type: 'number', step: '0.01', value: (val == null ? '' : val),
-      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
+      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-left tabular-nums', style: { borderColor: 'var(--border-2)' },
       onchange: (e) => onCommit(e.target.value) }));
 
-  const earnRow = (label, rev, rate, pay) => el('div', { class: 'flex items-center justify-between gap-3 px-3 py-2.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
+  const earnRow = (label, rev, rate, pay) => el('div', { class: 'flex items-center gap-4 gap-3 px-3 py-2.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
     el('div', { class: 'min-w-0' },
       el('div', { class: 'font-semibold' }, label),
       el('div', { class: 'text-[11px] text-muted- tabular-nums' }, money(rev) + ' revenue')),
     el('div', { class: 'flex items-center gap-3 shrink-0' },
       el('span', { class: 'text-xs font-bold px-2 py-1 rounded-lg tabular-nums', style: { background: 'var(--card-2)' } }, Math.round(rate * 100) + '%'),
-      el('span', { class: 'tabular-nums font-bold', style: { minWidth: '90px', textAlign: 'right' } }, money(pay))));
+      el('span', { class: 'tabular-nums font-bold', style: { minWidth: '90px', textAlign: 'left' } }, money(pay))));
 
   const earnings = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-3 py-2 font-display text-xl', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Upfront Earnings'),
     earnRow('Personal Pest', R.pestRev, U.pest, pestPay),
     earnRow('Personal Bundle', R.bundleRev, U.bundle, bundlePay),
     earnRow('Personal Ancillary', R.ancRev, U.anc, ancPay),
-    el('div', { class: 'flex items-center justify-between px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)' } },
+    el('div', { class: 'flex items-center gap-4 px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)' } },
       el('span', {}, 'Overrides (downline)'), el('span', { class: 'tabular-nums' }, money(upOverrides))),
-    el('div', { class: 'flex items-center justify-between px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)' } },
+    el('div', { class: 'flex items-center gap-4 px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)' } },
       el('span', {}, 'Deductions'), el('span', { class: 'tabular-nums' }, money(-upDeduct))),
-    el('div', { class: 'flex items-center justify-between px-3 py-2.5', style: { borderTop: '2px solid var(--text)', background: 'rgba(223,100,58,.18)' } },
+    el('div', { class: 'flex items-center gap-4 px-3 py-2.5', style: { borderTop: '2px solid var(--text)', background: 'rgba(223,100,58,.18)' } },
       el('span', { class: 'font-display text-lg' }, 'NET DUE'), el('span', { class: 'font-display text-lg tabular-nums' }, money(netDue))),
-    el('div', { class: 'flex items-center justify-between px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)', background: 'rgba(59,130,246,.08)' } },
+    el('div', { class: 'flex items-center gap-4 px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)', background: 'rgba(59,130,246,.08)' } },
       el('span', { class: 'font-semibold' }, 'Weekly Pay (÷ ' + payPeriods + ')'), el('span', { class: 'tabular-nums font-semibold' }, money(weeklyPay))),
     R.unclRev > 0 ? el('div', { class: 'px-3 py-2 text-[11px]', style: { borderTop: '1px solid var(--border)', color: '#D97706' } },
       '⚠ ' + money(R.unclRev) + ' in unmapped service types earns $0 here — map them in Settings → Commissions.') : null);
 
   const ratesPanel = el('div', { class: 'card p-4' },
-    el('div', { class: 'flex items-center justify-between gap-2 mb-1' },
+    el('div', { class: 'flex items-center gap-4 gap-2 mb-1' },
       el('div', { class: 'text-sm font-bold' }, 'Upfront rates · ' + _frEmpName(emp)),
       U.overridden ? el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: clearU }, 'Reset to default') : null),
     el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Paid on contract value, off the top. These are separate from the backend (Pay tab) rates. Editing here overrides just this rep.'),
@@ -46822,7 +46819,7 @@ function viewD2dUpfront() {
     el('div', { class: 'text-[11px] text-muted- mt-2' }, 'Deductions entered as a positive number. D2D pays weekly — 52 periods by default.'));
 
   return el('div', { class: 'flex flex-col gap-4 w-full' },
-    el('div', { class: 'flex items-end justify-between flex-wrap gap-3' },
+    el('div', { class: 'flex items-end gap-4 flex-wrap gap-3' },
       el('div', {},
         el('h1', { class: 'text-2xl font-bold' }, 'Upfront Pay'),
         el('p', { class: 'text-xs text-muted-' }, 'The season pay-stub model — live from FieldRoutes with the same gates as the Pay tab, priced at upfront rates.')),
@@ -46972,7 +46969,7 @@ function viewD2dUpfront() {
           : el('span', { class: 'text-xs font-bold', style: { color: '#DF643A' } }, 'Active');
       const payTotal = rowsSorted.reduce((a, r) => a + (Number(r.subscription_contract_value) || 0) * rateOf(catOf(r)), 0);
       return el('div', { class: 'card overflow-hidden' },
-        el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'px-4 py-3 flex items-center gap-4 flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
           el('div', { class: 'font-display text-lg' }, 'Accounts in this run · ' + _frEmpName(emp)),
           el('div', { class: 'text-xs text-muted- tabular-nums' }, rowsSorted.length + ' accounts · ' + money(payTotal) + ' upfront pay')),
         rowsSorted.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
@@ -47004,7 +47001,17 @@ function viewD2dUpfront() {
 }
 
 function viewCommission() {
-  return isAdminRole(state.profile?.role) ? commissionCalculator() : commissionMyPay();
+  if (!isAdminRole(state.profile?.role)) return commissionMyPay();
+  // Admins: one Pay tab (per Isaac) — Upfront ⇄ Backend segmented toggle
+  // on top, the old Upfront tab and the calculator underneath.
+  const mode = state._d2dPayMode === 'backend' ? 'backend' : 'upfront';
+  const toggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden self-start', style: { borderColor: 'var(--border-2)' } },
+    ...[['upfront', 'Upfront'], ['backend', 'Backend']].map(([k, l]) => el('button', {
+      class: 'px-2.5 py-1 text-[11px] font-bold transition',
+      style: mode === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+      onclick: () => { state._d2dPayMode = k; mountApp(); },
+    }, l)));
+  return el('div', { class: 'flex flex-col gap-4 w-full' }, toggle, mode === 'backend' ? commissionCalculator() : viewD2dUpfront());
 }
 
 // ── Rep-facing view: your OWN published commission, read-only. Reps can't read
@@ -47078,7 +47085,7 @@ function commissionRenderOfficeStaff(B, repName) {
   const money = (n) => { const v = Math.round((n || 0) * 100) / 100; return (v < 0 ? '-' : '') + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   const pct = (n) => (Math.round((n || 0) * 100) / 100).toFixed(2) + '%';
   const ROW = (label, valNode, kind) => el('div', {
-    class: 'flex items-center justify-between gap-3 px-3 py-2 text-sm',
+    class: 'flex items-center gap-4 gap-3 px-3 py-2 text-sm',
     style: { borderTop: '1px solid var(--border)',
       background: kind === 'rev' ? 'rgba(59,130,246,.08)' : kind === 'comm' ? 'rgba(223,100,58,.10)' : kind === 'total' ? 'rgba(223,100,58,.18)' : 'transparent' } },
     el('span', { class: kind === 'total' ? 'font-bold' : '' }, label),
@@ -47096,9 +47103,9 @@ function commissionRenderOfficeStaff(B, repName) {
     ROW('Close-Rate Bonus (' + pct(B.closeRate * 100) + ')', money(B.closeRateBonus), 'comm'),
     ROW('Backend Pay', money(B.backendPay), 'total'),
     ROW('Total Pay', money(B.totalPay), 'total'),
-    el('div', { class: 'px-3 py-2 text-sm flex items-center justify-between', style: { background: 'rgba(59,130,246,.08)', borderTop: '1px solid var(--border)' } },
+    el('div', { class: 'px-3 py-2 text-sm flex items-center gap-4', style: { background: 'rgba(59,130,246,.08)', borderTop: '1px solid var(--border)' } },
       el('span', { class: 'font-semibold' }, 'Pending Pay (est.)'), el('span', { class: 'tabular-nums font-semibold' }, money(B.pendingPay))));
-  const statRow = (label, val, tone) => el('div', { class: 'flex items-center justify-between px-3 py-1.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
+  const statRow = (label, val, tone) => el('div', { class: 'flex items-center gap-4 px-3 py-1.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
     el('span', {}, label), el('span', { class: 'tabular-nums font-semibold', style: tone ? { color: tone } : {} }, val));
   const stats = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-3 py-2 font-display text-lg', style: { background: 'var(--text)', color: 'var(--bg)' } }, 'Accounts'),
@@ -47169,7 +47176,7 @@ function commissionCalculator() {
       el('span', { class: 'text-muted-' }, 'Sourced from sales logged in-app. Rates (upfront % by contract type, below-min, renewal flat $, backend, close-rate bonus) are set in Settings → Commissions ▸ Office Staff.'),
       B.sold === 0 ? el('div', { class: 'mt-2 text-muted-' }, 'No sales logged for this rep in the selected window.') : null);
     return el('div', { class: 'flex flex-col gap-4 w-full' },
-      el('div', { class: 'flex items-end justify-between flex-wrap gap-3' },
+      el('div', { class: 'flex items-end gap-4 flex-wrap gap-3' },
         el('div', {},
           el('h1', { class: 'text-2xl font-bold' }, 'Commission Calculator'),
           el('p', { class: 'text-xs text-muted-' }, 'Sales Reps from live FieldRoutes (canonical gates: global excluded services, excluded sources, renewals out, sold-not-started out); Office Staff from Inside Sales logged in-app. Pick a rep and period; rates & rules are saved for everyone.')),
@@ -47193,7 +47200,7 @@ function commissionCalculator() {
   const lbl = (t) => el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold block mb-1' }, t);
   const numField = (label, val, onCommit, opts = {}) => el('label', { class: 'block' }, lbl(label),
     el('input', { type: 'number', step: opts.step || '0.01', value: (val == null ? '' : val), placeholder: opts.ph || '',
-      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-right tabular-nums', style: { borderColor: 'var(--border-2)' },
+      class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-left tabular-nums', style: { borderColor: 'var(--border-2)' },
       onchange: (e) => onCommit(e.target.value) }));
 
   // ---- breakdown + stats (shared with the rep's own pay view) ----
@@ -47203,7 +47210,7 @@ function commissionCalculator() {
   const typeLabel = emp.type_label || 'Sales Rep';
   const typeDef = commissionRulesForType(typeLabel);
   const ratesPanel = el('div', { class: 'card p-4' },
-    el('div', { class: 'flex items-center justify-between gap-2 mb-1' },
+    el('div', { class: 'flex items-center gap-4 gap-2 mb-1' },
       el('div', { class: 'text-sm font-bold' }, 'Rate override · ' + _frEmpName(emp)),
       R.overridden ? el('button', { class: 'text-[11px] rounded px-2.5 py-1 border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: clearOverride }, 'Reset to ' + typeLabel + ' default') : null),
     el('div', { class: 'text-[11px] text-muted- mb-3' },
@@ -47234,7 +47241,7 @@ function commissionCalculator() {
   const dateInput = (val, onCommit) => el('input', { type: 'date', value: val || '', class: 'rounded-xl border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { onCommit(e.target.value); mountApp(); } });
 
   return el('div', { class: 'flex flex-col gap-4 w-full' },
-    el('div', { class: 'flex items-end justify-between flex-wrap gap-3' },
+    el('div', { class: 'flex items-end gap-4 flex-wrap gap-3' },
       el('div', {},
         el('h1', { class: 'text-2xl font-bold' }, 'Commission Calculator'),
         el('p', { class: 'text-xs text-muted-' }, 'Sales Reps from live FieldRoutes (canonical gates: global excluded services, excluded sources, renewals out, sold-not-started out); Office Staff from Inside Sales logged in-app. Pick a rep and period; rates & rules are saved for everyone.')),
