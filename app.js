@@ -51283,7 +51283,12 @@ function adminBackup() {
   // Filter pipeline: action filter first (cheap), then text query against
   // sale ID, customer name, rep name, by_user, formatted status, and the
   // live tab bucket so a search for "history" finds settled sales.
+  // Drill-down (per Isaac): the log opens as a list of USERS; picking one
+  // shows that user's entries. `state._activityLogUser` is the drill key.
+  const drillUser = state._activityLogUser || null;
+  const userKey = (e) => (e.by_user || '').trim() || 'Unknown';
   const filtered = log.filter(e => {
+    if (drillUser && userKey(e) !== drillUser) return false;
     if (actionFilter !== 'all' && e.action !== actionFilter) return false;
     if (!q) return true;
     const hay = [
@@ -51300,6 +51305,45 @@ function adminBackup() {
   });
   const visible = filtered.slice(0, 200);
 
+  // ── Users roll-up (default view) ──
+  const byUser = new Map();
+  for (const e of log) {
+    const k = userKey(e);
+    let u = byUser.get(k);
+    if (!u) { u = { name: k, n: 0, last: 0, actions: new Map() }; byUser.set(k, u); }
+    u.n += 1;
+    const ts = new Date(e.timestamp).getTime() || 0;
+    if (ts > u.last) u.last = ts;
+    u.actions.set(e.action, (u.actions.get(e.action) || 0) + 1);
+  }
+  const users = [...byUser.values()]
+    .filter(u => !q || u.name.toLowerCase().includes(q))
+    .sort((a, b) => b.last - a.last);
+  const fmtWhen = (ms) => { if (!ms) return '—'; const t = new Date(ms); return t.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) + ' ' + t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
+  const usersTable = el('div', { class: 'scroll-x', style: { maxHeight: '480px', overflowY: 'auto' } },
+    el('table', { class: 'w-full text-[12px]' },
+      el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted- sticky top-0', style: { background: 'var(--card)' } },
+        el('tr', {},
+          el('th', { class: 'text-left pl-5 pr-2 py-2 font-semibold' }, 'User'),
+          el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Entries'),
+          el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Last activity'),
+          el('th', { class: 'text-left pl-2 pr-5 py-2 font-semibold' }, 'Top actions'))),
+      el('tbody', {},
+        users.length === 0 ? el('tr', {}, el('td', { class: 'p-6 text-center text-muted- text-sm italic', colspan: 4 }, 'No users match your search.')) : null,
+        ...users.map(u => el('tr', {
+          class: 'border-t border- cursor-pointer hover:brightness-95 transition',
+          title: 'View ' + u.name + '\u2019s activity',
+          onclick: () => { state._activityLogUser = u.name; state._activityLogSearch = ''; state._activityLogAction = 'all'; mountApp(); },
+        },
+          el('td', { class: 'pl-5 pr-2 py-2 font-semibold whitespace-nowrap' }, u.name + ' \u203a'),
+          el('td', { class: 'px-2 py-2 tabular-nums' }, fmt.int(u.n)),
+          el('td', { class: 'px-2 py-2 text-muted- tabular-nums whitespace-nowrap' }, fmtWhen(u.last)),
+          el('td', { class: 'pl-2 pr-5 py-2 whitespace-nowrap' },
+            ...[...u.actions.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => {
+              const meta = ACTION_META[k] || { label: k, bg: 'rgba(117,118,103,.18)', fg: 'var(--text-muted)' };
+              return el('span', { class: 'chip mr-1', style: { background: meta.bg, color: meta.fg } }, meta.label + ' \u00d7' + n);
+            })))))));
+
   return el('div', { class: 'flex flex-col gap-5' },
     el('h2', { class: 'text-xl font-bold' }, 'Activity Log'),
 
@@ -51307,11 +51351,16 @@ function adminBackup() {
     el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
-          el('h3', { class: 'text-sm font-bold' }, 'Activity Log'),
+          drillUser && el('button', {
+            class: 'text-[11px] font-semibold px-2.5 py-1 rounded-lg border',
+            style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+            onclick: () => { state._activityLogUser = null; state._activityLogSearch = ''; state._activityLogAction = 'all'; mountApp(); },
+          }, '\u2190 All users'),
+          el('h3', { class: 'text-sm font-bold' }, drillUser ? drillUser : 'Users'),
           el('span', { class: 'text-[11px] text-muted-' },
-            (q || actionFilter !== 'all')
-              ? filtered.length + ' of ' + log.length + ' match'
-              : log.length + ' entr' + (log.length === 1 ? 'y' : 'ies'),
+            drillUser
+              ? ((q || actionFilter !== 'all') ? filtered.length + ' of ' + log.filter(e => userKey(e) === drillUser).length + ' match' : filtered.length + ' entr' + (filtered.length === 1 ? 'y' : 'ies'))
+              : byUser.size + ' user' + (byUser.size === 1 ? '' : 's') + ' \u00b7 ' + log.length + ' entr' + (log.length === 1 ? 'y' : 'ies'),
           ),
         ),
         log.length > 0 && el('button', {
@@ -51328,7 +51377,7 @@ function adminBackup() {
         el('div', { class: 'relative flex-1 min-w-[220px]' },
           el('input', {
             type: 'text',
-            placeholder: 'Search by customer, sale ID (#42), rep, or user…',
+            placeholder: drillUser ? 'Search by customer, sale ID (#42), or rep…' : 'Search users…',
             value: state._activityLogSearch,
             class: 'w-full rounded-lg border pl-8 pr-3 py-2 text-xs',
             style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' },
@@ -51346,7 +51395,7 @@ function adminBackup() {
             title: 'Clear',
           }, '×'),
         ),
-        el('select', {
+        drillUser && el('select', {
           class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
           style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' },
           onchange: (e) => { state._activityLogAction = e.target.value; mountApp(); },
@@ -51359,6 +51408,8 @@ function adminBackup() {
 
       log.length === 0
         ? el('div', { class: 'p-6 text-center text-muted- text-sm' }, 'No activity yet. Log a sale to start the trail.')
+        : !drillUser
+        ? usersTable
         : visible.length === 0
           ? el('div', { class: 'p-6 text-center text-muted- text-sm italic' }, 'No entries match your search.')
           : el('div', { class: 'scroll-x', style: { maxHeight: '480px', overflowY: 'auto' } },
