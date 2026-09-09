@@ -24888,6 +24888,93 @@ function renameTeam(oldName, newNameRaw) {
 }
 
 function openManageTeamsModal() { return manageTeamsPanel({ embedded: false }); }
+
+// 🏆 Power Ranking scoring picker — a dropdown listing every office (Branch
+// mode) or team (Teams mode) with a checkbox: unchecked = still on the board,
+// but earns no ranking points. Follows the Indicators page's current
+// grouping; a Branch/Teams toggle inside lets an admin edit either list.
+function powerRankPickerBtn() {
+  const wrap = el('div', { style: { position: 'relative' } });
+  let mode = _rankExcludeMode();
+  const panel = el('div', {
+    class: 'card',
+    style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '70', minWidth: '240px', maxHeight: '340px', overflowY: 'auto', padding: '6px', boxShadow: 'var(--shadow-lg)', display: 'none' },
+  });
+  const titleCase = (x) => String(x || '').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
+  const optionsFor = (m) => {
+    if (m === 'teams') {
+      const map = (typeof _activeTeamMap === 'function') ? _activeTeamMap() : (state._indicatorRepTeam || {});
+      return [...new Set(Object.values(map).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    }
+    return [...new Set((state._indicatorRawSales || []).map(r => r.office).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  };
+  const paint = () => {
+    const store = state._indicatorRankExclude || {};
+    const excluded = new Set((store[mode] || []).filter(n => !/^office\s*-\s*\d/i.test(String(n || '').trim())));
+    const opts = optionsFor(mode);
+    panel.innerHTML = '';
+    panel.append(
+      el('div', { class: 'flex items-center justify-between gap-2 px-2 py-1.5' },
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'In Power Ranking'),
+        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+          ...[['branch', 'Offices'], ['teams', 'Teams']].map(([v, l]) => el('button', {
+            class: 'px-2.5 py-1 text-[10px] font-semibold transition',
+            style: mode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+            onclick: (e) => { e.stopPropagation(); mode = v; paint(); },
+          }, l)))),
+      el('div', { class: 'px-2 pb-1 text-[10px]', style: { color: 'var(--text-muted)' } },
+        'Unchecked ' + (mode === 'teams' ? 'teams' : 'offices') + ' stay on the board but earn no ranking points.'),
+      el('button', {
+        class: 'text-[10px] font-semibold px-2 py-1', style: { color: 'var(--accent)', cursor: 'pointer' },
+        onclick: (e) => {
+          e.stopPropagation();
+          if (!state._indicatorRankExclude) state._indicatorRankExclude = {};
+          state._indicatorRankExclude[mode] = [];
+          saveDemoData();
+          if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
+          paint();
+        },
+      }, 'Include all'),
+      ...opts.map(b => {
+        const out = excluded.has(b);
+        return el('label', {
+          class: 'flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs',
+          style: { color: 'var(--text)' },
+          title: out ? 'Excluded from the Power Ranking' : '',
+        },
+          el('input', { type: 'checkbox', checked: !out, onchange: (e) => {
+            e.stopPropagation();
+            if (!state._indicatorRankExclude) state._indicatorRankExclude = {};
+            const cur = new Set(state._indicatorRankExclude[mode] || []);
+            if (cur.has(b)) cur.delete(b); else cur.add(b);
+            state._indicatorRankExclude[mode] = [...cur];
+            logActivity('config_change', { detail: 'Power Ranking ' + (cur.has(b) ? 'excluded' : 'included') + ' ' + mode + ': ' + b });
+            saveDemoData();
+            if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
+            paint();
+          } }),
+          el('span', { class: 'truncate', style: out ? { opacity: '.45', textDecoration: 'line-through' } : {} }, titleCase(b)));
+      }),
+      opts.length ? null : el('div', { class: 'px-2 py-2 text-[11px] italic', style: { color: 'var(--text-muted)' } }, 'Nothing to list yet.'));
+  };
+  const btn = el('button', {
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
+    style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+    title: 'Power Ranking — choose which offices / teams are scored',
+    onclick: (e) => {
+      e.stopPropagation();
+      const open = panel.style.display === 'block';
+      if (open) { panel.style.display = 'none'; return; }
+      paint();
+      panel.style.display = 'block';
+      if (typeof clampDropdownPanel === 'function') clampDropdownPanel(panel);
+      const closer = (ev) => { if (!panel.contains(ev.target) && !btn.contains(ev.target)) { panel.style.display = 'none'; document.removeEventListener('mousedown', closer); } };
+      setTimeout(() => document.addEventListener('mousedown', closer), 0);
+    },
+  }, '\ud83c\udfc6 Power Ranking');
+  wrap.append(btn, panel);
+  return wrap;
+}
 // Core builder for the Manage Teams UI.
 //   embedded:false → floating modal (launched from the Audit view).
 //   embedded:true  → returns a plain in-page card for the Settings ▸ Teams tab
@@ -25145,6 +25232,9 @@ function manageTeamsPanel(opts) {
             onchange: (e) => { state._teamYear = e.target.value; _activeTeamMap(); saveDemoData(); render(); },
           }, ...teamYearOptions.map(y => el('option', { value: String(y), selected: String(y) === _teamYearKey() }, String(y)))),
         ),
+        // 🏆 Power Ranking scoring picker (moved here from the Indicators bar,
+        // per Isaac): which offices / teams earn ranking points.
+        powerRankPickerBtn(),
         // Export every team as a multi-tab .xlsx (Google Sheets imports
         // .xlsx cleanly with the tabs preserved). One tab per team plus
         // a Summary tab at the front.
@@ -26100,25 +26190,20 @@ function indPresetRibbon() {
   // FieldRoutes-style ribbon (per Isaac): a slim VERTICAL handle pinned to
   // the page's left edge, titled "Presets"; clicking it expands the saved-
   // preset drawer beside it.
+  // Now a regular toolbar button, left-justified on the Filters row (per
+  // Isaac) — the vertical left-edge handle is retired. The drawer drops
+  // down from the button.
   const tab = el('button', {
-    class: 'cursor-pointer select-none font-bold uppercase',
-    style: {
-      position: 'fixed', left: '0', top: '210px', zIndex: 40,
-      writingMode: 'vertical-rl',
-      fontSize: '8px', letterSpacing: '.06em',
-      padding: '5px 2px',
-      color: open ? 'var(--accent-text)' : 'var(--text-muted)',
-      background: open ? 'var(--accent)' : 'var(--card)',
-      border: '1px solid ' + (open ? 'var(--accent)' : 'var(--border-2)'),
-      borderLeft: 'none',
-      borderRadius: '0',
-    },
+    class: 'rounded-xl px-2.5 py-1 text-[11px] font-semibold border cursor-pointer transition hover:brightness-95 flex items-center gap-1.5 shrink-0',
+    style: open
+      ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+      : { borderColor: 'var(--border-2)', color: 'var(--text)' },
     title: open ? 'Hide the saved presets' : 'Saved presets \u2014 save the whole page setup and jump between views in one click',
     onclick: () => { state._indPresetsOpen = !state._indPresetsOpen; mountApp(); },
-  }, open ? 'Hide Presets' : 'Presets');
+  }, 'Presets', el('span', { style: { fontSize: '9px' } }, open ? '\u25b4' : '\u25be'));
   const panel = !open ? null : el('div', {
     class: 'card',
-    style: { position: 'fixed', left: '30px', top: '160px', zIndex: 39, width: '300px', maxHeight: '62vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)', padding: '10px' },
+    style: { position: 'absolute', left: '0', top: 'calc(100% + 6px)', zIndex: 39, width: 'min(300px, calc(100vw - 32px))', maxHeight: '62vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)', padding: '10px' },
   },
     // When the preset you applied has been CHANGED on the page, a Save
     // button pops in to overwrite it in place (per Isaac) — Save as New
@@ -26197,7 +26282,7 @@ function indPresetRibbon() {
           },
         }, '\ud83d\uddd1'));
     }));
-  return el('div', {}, tab, panel);
+  return el('div', { style: { position: 'relative' } }, tab, panel);
 }
 
 function viewIndicators() {
@@ -26820,8 +26905,14 @@ function viewIndicators() {
         // NOT get scrollY added (doing so inflated the spacer by however far
         // the page was scrolled when this ran → giant white void). The
         // spacer's own top IS absolute, so it does need scrollY.
-        const spTopAbs  = sp.getBoundingClientRect().top + window.scrollY;   // absolute — constant
-        const barBottom = bar.getBoundingClientRect().bottom;                // viewport — constant for a fixed bar
+        // Measure from LAYOUT (offsetTop chain + offsetHeight), not from
+        // viewport rects: on iOS the rect/scrollY pair drifts while the URL
+        // bar collapses or the page rubber-bands, which left a ~100px void
+        // above the first table on phones (per Isaac).
+        let spTopAbs = 0;
+        for (let n = sp; n; n = n.offsetParent) spTopAbs += n.offsetTop || 0;
+        const barTop    = parseFloat(getComputedStyle(bar).top) || 0;      // fixed bar's declared top
+        const barBottom = barTop + bar.offsetHeight;
         sp.style.height = Math.max(0, barBottom + 6 - spTopAbs) + 'px';      // content clears the bar at scroll-top
       };
       setTimeout(() => {
@@ -26853,11 +26944,10 @@ function viewIndicators() {
         },
           el('div', { class: 'w-full max-w-[1600px] mx-auto px-4 sm:px-6' },
             el('div', { class: 'flex flex-col gap-2' },
-              // Presets ribbon (per Isaac) — fixed vertical handle on the left
-              // edge; expands into the saved-preset drawer. Out of flow, so
-              // it adds no height to this bar.
+              el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' },
+              // Presets button — left-justified on the Filters row (per Isaac).
               indPresetRibbon(),
-              el('div', { class: 'flex items-center justify-end gap-2 flex-wrap' },
+              el('div', { class: 'flex items-center justify-end gap-2 flex-wrap ml-auto' },
         // (🔧 edit mode moved to the GLOBAL top bar — it now drives section
         // layout on every tab plus the row editing here.)
         // ⛃ FILTERS — Metric / Type / Date / Group live in ONE dropdown so
@@ -27027,75 +27117,26 @@ function viewIndicators() {
         // Custom date pickers still render in their own row below this bar
         // when the Date preset is Custom (see the dedicated row after the
         // toolbar div).
-          // Power Ranking selector — pick which offices/teams are scored. Default
-          // is everyone in; deselecting keeps an office/team on the board (stats
-          // still show + roll into totals) but drops it from the ranking points.
+          // 🏆 Manage Teams (per Isaac: the trophy is THE teams button now — the
+          // Power Ranking scoring picker lives inside Manage Teams).
           (() => {
-            if (state.indicatorsComps) return null; // Power Ranking is comps-OFF only — hide its trophy in comp mode
-            if (!isAdminRole(state.profile?.role)) return null; // admin analysis tool — reps don't need it
-            const excludedNow = rankExcludedSet();
-            const noun = groupBy === 'teams' ? 'teams' : 'offices';
-            const opts = activeBranches.filter(b => !(groupBy === 'teams' && b === 'Unassigned')).sort((a, b) => a.localeCompare(b));
-            const titleCase = (s) => s.split(' ').map(w => w ? w[0] + w.slice(1).toLowerCase() : w).join(' ');
-            const reRender = () => { const sx = window.scrollX, sy = window.scrollY; setTimeout(() => { mountApp(); requestAnimationFrame(() => window.scrollTo(sx, sy)); }, 0); };
-            const panel = el('div', {
-              class: 'card',
-              style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '230px', maxHeight: '340px', overflowY: 'auto', padding: '6px', boxShadow: 'var(--shadow-lg)', display: 'none' },
-            },
-              el('div', { class: 'flex items-center justify-between px-2 py-1.5' },
-                el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'In Power Ranking'),
-                el('button', {
-                  class: 'text-[10px] font-semibold', style: { color: 'var(--accent)', cursor: 'pointer' },
-                  onclick: (e) => { e.stopPropagation(); if (state._indicatorRankExclude) state._indicatorRankExclude[_rankExcludeMode()] = []; saveDemoData(); if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {}); reRender(); },
-                }, 'All'),
-              ),
-              ...opts.map(b => {
-                // Excluded entries read as OUT right here in the dropdown
-                // (faded + struck) — the table columns stay clean, per Isaac.
-                const _out = excludedNow.has(b);
-                return el('label', {
-                class: 'flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs',
-                style: { color: 'var(--text)' },
-                title: _out ? 'Excluded from the Power Ranking — stats still shown on the table, but no points earned' : '',
-                onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
-                onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
-              },
-                el('input', { type: 'checkbox', checked: !_out, onchange: () => { toggleRankExcluded(b); reRender(); } }),
-                el('span', { class: 'truncate', style: _out ? { opacity: '.45', textDecoration: 'line-through' } : {} }, titleCase(b)),
-              );
-              }),
-            );
+            if (_repLite) return null;
+            const excludedNow = (typeof rankExcludedSet === 'function') ? rankExcludedSet() : new Set();
             const icon = iconTrophy();
             icon.style.width = '15px'; icon.style.height = '15px';
-            const btn = el('button', {
+            return el('button', {
               class: 'relative rounded-xl px-2.5 py-1 border cursor-pointer transition hover:brightness-95 shrink-0 flex items-center justify-center text-[11px]',
               style: { color: excludedNow.size ? 'var(--accent)' : 'var(--text)', borderColor: excludedNow.size ? 'var(--accent)' : 'var(--border-2)' },
-              title: 'Power Ranking — choose which ' + noun + ' are scored (deselected ones keep their stats but earn no points)'
-                + (excludedNow.size ? ' · ' + excludedNow.size + ' ' + noun + ' out' : ''),
-              onclick: (e) => {
-                e.stopPropagation();
-                const open = panel.style.display === 'block';
-                panel.style.display = open ? 'none' : 'block';
-                if (!open) clampDropdownPanel(panel);
-                if (!open) { const closer = (ev) => { if (!panel.contains(ev.target) && !btn.contains(ev.target)) { panel.style.display = 'none'; document.removeEventListener('mousedown', closer); } }; setTimeout(() => document.addEventListener('mousedown', closer), 0); }
-              },
+              title: 'Manage teams — assign reps, pick a color, and choose which offices/teams are scored in the Power Ranking'
+                + (excludedNow.size ? ' · ' + excludedNow.size + ' out of the ranking' : ''),
+              onclick: () => openManageTeamsModal(),
             },
               icon,
-              // Little count badge when some offices/teams are excluded.
               excludedNow.size ? el('span', {
                 class: 'absolute tabular-nums',
-                style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '0', background: 'var(--accent)', color: '#3A1D12', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: '1' },
-              }, String(excludedNow.size)) : null,
-            );
-            return el('div', { style: { position: 'relative' } }, btn, panel);
+                style: { top: '-5px', right: '-5px', minWidth: '14px', height: '14px', padding: '0 3px', borderRadius: '0', background: 'var(--accent)', color: '#3A1D12', fontSize: '9px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+              }, String(excludedNow.size)) : null);
           })(),
-        // Manage teams (rep assignments + tier + exclusion + colors)
-        !_repLite && el('button', {
-          class: 'rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-          onclick: () => openManageTeamsModal(),
-          title: 'Manage teams — assign reps, pick a color, toggle Exclude from metrics',
-        }, '👥'),
         // Manual-data mode (admin, THIS browser only): upload the CRM's
         // SalesReport CSV and pin the whole Indicators tab to it — a
         // side-by-side truth check against the sync. Amber pill = active.
@@ -27274,7 +27315,8 @@ function viewIndicators() {
           // (↻ icon in the top bar). Exports live on each competition's card.
           return null;
         })(),
-        ),
+        ), // close right-hand cluster
+        ), // close toolbar row (Presets left · cluster right)
         // Custom date pickers — own row inside the sticky filter bar's
         // flex-col, only visible when Custom is selected.
         isRange && state.indicatorsRangePreset === 'custom' && el('div', { class: 'flex items-center gap-1 justify-end flex-wrap' },
