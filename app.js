@@ -30346,7 +30346,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 renewalRevenue: fmt.usd0(T.renewalRevenue),
                 auditPct: pct(wAudit),
                 acv: T.count > 0 ? fmt.usd(T.revenue / T.count) : '—',
-                sellingDays: fmt.int(T.sellingDays),
+                // Days = AVERAGE selling days per rep (per Isaac) — a summed
+                // rep-day count read as a nonsense "total". $/Day and Accts/Day
+                // still divide by the rep-day sum, so they stay per-rep-day.
+                sellingDays: displayReps.length > 0 ? (T.sellingDays / displayReps.length).toFixed(1) : '—',
                 revPerDay: T.sellingDays > 0 ? fmt.usd0(T.revenue / T.sellingDays) : '—',
                 acctsPerDay: T.sellingDays > 0 ? (T.count / T.sellingDays).toFixed(1) : '—',
                 avgPest: nPest > 0 ? fmt.usd(wPest / nPest) : '—',
@@ -30364,9 +30367,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 myPct: 'Sales-weighted average across the reps shown',
                 autoPayPct: 'Sales-weighted average across the reps shown',
                 acv: 'Total revenue ÷ total sales',
-                sellingDays: 'Sum of every rep\'s selling days (rep-days, so shared days count once per rep)',
-                revPerDay: 'Total revenue ÷ total selling days',
-                acctsPerDay: 'Total sales ÷ total selling days',
+                sellingDays: 'Average days with at least one sale per rep shown',
+                revPerDay: 'Total revenue ÷ total rep selling days',
+                acctsPerDay: 'Total sales ÷ total rep selling days',
                 avgPest: 'Sales-weighted average across reps with a value',
                 avgInitial: 'Sales-weighted average across reps with a value',
                 cancelPct: 'Total cancels ÷ total sales',
@@ -30456,6 +30459,42 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       // Mobile: stacked card per rep. Same data as the table, but laid out
       // top-down so it's readable on a phone without horizontal scroll.
       el('div', { class: 'sm:hidden p-3 flex flex-col gap-2' },
+        // Σ Mobile Total card (per Isaac) — the desktop table's Σ Totals row
+        // never made it to the stacked-card layout. Same filtered rep set,
+        // same combined player card on tap. Days = average per rep.
+        ...(() => {
+          if (!displayReps.length) return [];
+          let tCount = 0, tRev = 0, tDays = 0;
+          displayReps.forEach(r => { tCount += Number(r.count) || 0; tRev += Number(r.revenue) || 0; tDays += Number(r.sellingDays) || 0; });
+          const tRevPerDay = tDays > 0 ? tRev / tDays : 0;
+          const tAvgDays = (tDays / displayReps.length).toFixed(1);
+          const _totSales = displayReps.flatMap(r => ((r._orig || r).sales) || []);
+          const _canOpenTot = _totSales.length > 0 && canViewRepDetails('Total', '');
+          const _openTot = () => {
+            if (!_canOpenTot) return;
+            const peers = displayReps
+              .map(r => ({ name: r.name, sales: ((r._orig || r).sales) || [] }))
+              .filter(p => p.sales.length);
+            openIndicatorRepCard(_scopeRep({ name: 'Total', sales: _totSales }, () => true), peers);
+          };
+          return [el('div', {
+            class: 'rounded-xl border px-3 py-2.5 flex flex-col' + (_canOpenTot ? ' cursor-pointer transition hover:brightness-95' : ''),
+            style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', borderLeftWidth: '3px' },
+            title: _canOpenTot ? 'Open the combined player card for every rep shown' : '',
+            onclick: _canOpenTot ? _openTot : undefined,
+          },
+            el('div', { class: 'flex items-center gap-2' },
+              el('span', { class: 'font-black text-[11px] uppercase tracking-wider' }, 'Total'),
+              el('span', { class: 'text-[10px] text-muted-' }, displayReps.length + ' reps'),
+              el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(tRev))),
+            el('div', { class: 'flex items-baseline justify-end mt-0.5' },
+              el('span', { class: 'shrink-0 text-[11px] text-muted-' },
+                fmt.int(tCount) + ' sales' + (tRevPerDay > 0 ? ' · ' + fmt.usd0(tRevPerDay) + '/day' : ''))),
+            el('div', { class: 'text-[10px] mt-1' },
+              el('span', { style: { color: 'var(--text-muted)' } }, 'Avg Days w/ a Sale: '),
+              el('span', { class: 'font-semibold tabular-nums', title: 'Average days with at least one sale per rep shown' }, tAvgDays)),
+          )];
+        })(),
         // 📌 Mobile: pinned "You" card first with the true rank.
         ...(() => {
           const _meSig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
