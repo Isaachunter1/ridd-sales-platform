@@ -53000,8 +53000,6 @@ function adminReps() {
           stat('Active \u00b7 7d', String(active7.size)),
           stat('Tab views \u00b7 7d', String(rows7.filter(r => r.event === 'view').length)),
           stat('Feedback \u00b7 30d', String(us.rows.filter(r => r.event === 'feedback').length))),
-        topTabs.length ? el('div', { class: 'mt-3 text-[11px]', style: { color: 'var(--text-muted)' } },
-          'Top tabs (7d): ' + topTabs.map(([k, n]) => k + ' \u00d7' + n).join(' \u00b7 ')) : null,
         ...fb.map(r => el('div', { class: 'mt-2 text-[11px] rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)' } },
           el('span', { class: 'font-bold' }, '\ud83d\udce3 ' + nameOf(r.profile_id) + ': '), r.detail || ''))));
     }
@@ -53068,10 +53066,7 @@ function adminReps() {
   // ── Header ──
   host.append(el('div', { class: 'flex items-center justify-between flex-wrap gap-3' },
     el('div', {},
-      el('h3', { class: 'text-lg font-bold' }, 'Users'),
-      el('p', { class: 'text-xs text-muted-' }, roster.length
-        ? 'Synced from FieldRoutes. Active users can sign in; everyone else is in the CRM and can be added in a click. Historical sales are always kept.'
-        : 'Add reps, manage their profile, assign avatars. Run a sync to pull the FieldRoutes roster.')),
+      el('h3', { class: 'text-lg font-bold' }, 'Users')),
     el('div', { class: 'flex items-center gap-2' },
       // 👁 View-as — icon only; the hover tip explains it, the click opens
       // a small role menu. Renders the app exactly as that role sees it (the
