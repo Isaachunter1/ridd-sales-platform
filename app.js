@@ -30142,15 +30142,17 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // overflow-visible while the Filters menu is open so the dropdown isn't
     // clipped at the card edge (per Isaac).
     el('div', { class: 'card' + (state._repCancelMenuOpen ? '' : ' overflow-hidden'), 'data-section': 'rep-leaderboard' },
-      el('div', { class: 'px-5 py-3 border-b flex items-center justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
-        el('div', { class: 'flex items-center gap-3 flex-wrap' },
+      // Mobile (per Isaac): title + Filters share the top row, the search
+      // box gets the whole bottom row, the rep count drops (lb-head CSS).
+      el('div', { class: 'lb-head px-5 py-3 border-b flex items-center justify-between flex-wrap gap-3', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'lb-title flex items-center gap-3 flex-wrap' },
           el('h3', { class: 'text-base font-bold' }, 'Leaderboard'),
-          el('span', { class: 'text-xs text-muted-' },
+          el('span', { class: 'lb-count text-xs text-muted-' },
             filteredReps.length === allReps.length
               ? filteredReps.length + ' reps'
               : filteredReps.length + ' of ' + allReps.length + ' reps'),
         ),
-        el('div', { class: 'flex items-center gap-2 flex-wrap flex-1 sm:flex-initial' },
+        el('div', { class: 'lb-tools flex items-center gap-2 flex-wrap flex-1 sm:flex-initial' },
           // Search on the left; ONE Filters button on the right — tier,
           // team, office, and the cancel-type toggles all live inside its
           // panel now instead of crowding the header.
@@ -30163,7 +30165,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             type: 'text',
             placeholder: 'Search rep…',
             value: state._indicatorRepNameSearch || '',
-            class: 'rounded-lg border px-2.5 py-1 text-[11px] flex-1 min-w-0',
+            class: 'lb-search rounded-lg border px-2.5 py-1 text-[11px] flex-1 min-w-0',
             style: { borderColor: 'var(--border-2)', minWidth: '160px' },
             oninput: (e) => {
               state._indicatorRepNameSearch = e.target.value;
@@ -30584,7 +30586,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             openIndicatorRepCard(_scopeRep({ name: 'Total', sales: _totSales }, () => true), peers);
           };
           return [el('div', {
-            class: 'rounded-xl border px-3 py-2.5 flex flex-col' + (_canOpenTot ? ' cursor-pointer transition hover:brightness-95' : ''),
+            class: 'rounded-xl border px-3 py-2 flex flex-col' + (_canOpenTot ? ' cursor-pointer transition hover:brightness-95' : ''),
             style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', borderLeftWidth: '3px' },
             title: _canOpenTot ? 'Open the combined player card for every rep shown' : '',
             onclick: _canOpenTot ? _openTot : undefined,
@@ -30592,13 +30594,13 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             el('div', { class: 'flex items-center gap-2' },
               el('span', { class: 'font-black text-[11px] uppercase tracking-wider' }, 'Total'),
               el('span', { class: 'text-[10px] text-muted-' }, displayReps.length + ' reps'),
-              el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(tRev))),
-            el('div', { class: 'flex items-baseline justify-end mt-0.5' },
+              el('span', { class: 'text-xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(tRev))),
+            el('div', { class: 'flex items-baseline justify-between gap-2 mt-0.5' },
+              el('span', { class: 'text-[10px]' },
+                el('span', { style: { color: 'var(--text-muted)' } }, 'Avg Days w/ a Sale: '),
+                el('span', { class: 'font-semibold tabular-nums', title: 'Average days with at least one sale per rep shown' }, tAvgDays)),
               el('span', { class: 'shrink-0 text-[11px] text-muted-' },
                 fmt.int(tCount) + ' sales' + (tRevPerDay > 0 ? ' · ' + fmt.usd0(tRevPerDay) + '/day' : ''))),
-            el('div', { class: 'text-[10px] mt-1' },
-              el('span', { style: { color: 'var(--text-muted)' } }, 'Avg Days w/ a Sale: '),
-              el('span', { class: 'font-semibold tabular-nums', title: 'Average days with at least one sale per rep shown' }, tAvgDays)),
           )];
         })(),
         // 📌 Mobile: pinned "You" card first with the true rank.
@@ -30610,7 +30612,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           if (myIdx < 0) return [];
           const me = displayReps[myIdx];
           return [el('div', {
-            class: 'rounded-xl border px-3 py-2.5 flex flex-col cursor-pointer',
+            class: 'rounded-xl border px-3 py-2 flex flex-col cursor-pointer',
             style: { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.08)', borderLeftWidth: '3px' },
             onclick: () => openIndicatorRepCard(me._orig || me, allReps),
           },
@@ -30618,7 +30620,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               el('span', { class: 'font-black tabular-nums text-[12px]', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
               el('span', { class: 'font-bold truncate text-sm' }, me.name),
               el('span', { class: 'text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You'),
-              el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(me.revenue || 0))),
+              el('span', { class: 'text-xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(me.revenue || 0))),
             el('div', { class: 'flex items-baseline justify-between gap-2 mt-0.5' },
               el('span', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' } }, 'View my player card →'),
               el('span', { class: 'text-[11px] text-muted-' },
@@ -30648,7 +30650,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               const dot = () => el('span', { style: { color: 'var(--text-subtle)' } }, ' · ');
               return el('div', {
                 'data-replb': (r.name || '').toLowerCase(),
-                class: 'rounded-xl border px-3 py-2.5 flex flex-col cursor-pointer transition hover:brightness-95',
+                class: 'rounded-xl border px-3 py-2 flex flex-col cursor-pointer transition hover:brightness-95',
                 style: {
                   borderColor: 'var(--border)',
                   borderLeftWidth: '3px',
@@ -30669,19 +30671,17 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                     style: { background: 'var(--card-2)', color: 'var(--text-muted)' },
                     title: 'No sale within 75 days of the latest sale in the dataset. Still on the board because they sold inside this range.',
                   }, 'Inactive'),
-                  el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(r.revenue)),
+                  el('span', { class: 'text-xl leading-none font-black tabular-nums ml-auto shrink-0' }, fmt.usd0(r.revenue)),
                 ),
                 // Sales pace right under the revenue. (Team + office names
                 // dropped — the colored left border still hints the team, and
                 // multi-market office tags kept reading wrong to reps.)
-                el('div', { class: 'flex items-baseline justify-end mt-0.5' },
+                // Second line: Days w/ a Sale on the left, sales · $/day on the
+                // right (per Isaac — the stat used to sit a full line lower).
+                el('div', { class: 'flex items-baseline justify-between gap-2 mt-0.5' },
+                  el('span', { class: 'text-[10px]' }, iv('Days w/ a Sale:', fmt.int(r.sellingDays || 0))),
                   el('span', { class: 'shrink-0 text-[11px] text-muted-' },
                     fmt.int(r.count) + ' sales' + (r.revPerDay > 0 ? ' · ' + fmt.usd0(r.revPerDay) + '/day' : '')),
-                ),
-                // One stat only — the $/day denominator, plainly labeled.
-                // (Full stats are one tap away on the player card.)
-                el('div', { class: 'text-[10px] mt-1' },
-                  iv('Days w/ a Sale:', fmt.int(r.sellingDays || 0)),
                 ),
               );
             }).concat(displayReps.length > 25 ? [el('button', {
@@ -35168,7 +35168,7 @@ function indicatorYoYTrendChart() {
       } else opts.push([v, lab]);
     }
     const cur = (metric === 'revenue' && isOffice) ? 'revenue|' + revType : metric;
-    return el('select', {
+    const selEl = el('select', {
       class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
       onchange: (e) => {
         const v = e.target.value;
@@ -35177,6 +35177,18 @@ function indicatorYoYTrendChart() {
         mountApp();
       },
     }, ...opts.map(([v, lab]) => { const o = el('option', { value: v }, lab); if (v === cur) o.selected = true; return o; }));
+    // Face reads "Metric ▾" (per Isaac); the native select sits invisibly on
+    // top so a tap still opens the platform picker. Accent when off default.
+    const curLab = (opts.find(o => o[0] === cur) || [])[1] || 'Revenue';
+    const nonDefault = cur !== 'revenue' && cur !== 'revenue|total';
+    selEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;';
+    const face = el('span', {
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium border flex items-center gap-1.5 whitespace-nowrap',
+      style: nonDefault
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+        : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+    }, 'Metric', el('span', { style: { fontSize: '9px' } }, '\u25be'));
+    return el('div', { class: 'relative inline-flex', title: 'Metric: ' + curLab }, face, selEl);
   })();
 
   // Years picker — defaults to the CURRENT year only; check other years to
@@ -35272,7 +35284,10 @@ function indicatorYoYTrendChart() {
           document.removeEventListener('mousedown', closer);
         }), 0); }
       },
-    }, gran === 'year' ? 'Years · all' : (gran === 'month' ? 'Months' : 'Weeks') + ' · ' + _yoySelYears.length + 'y', el('span', { style: { fontSize: '9px' } }, state._yoyYearsOpen ? '▴' : '▾'));
+    }, 'Range', el('span', { style: { fontSize: '9px' } }, state._yoyYearsOpen ? '▴' : '▾'));
+    // Label inside the button (per Isaac); the current value rides the tooltip.
+    btn.title = 'Range: ' + (gran === 'year' ? 'Years · all' : (gran === 'month' ? 'Months' : 'Weeks') + ' · ' + _yoySelYears.length + 'y');
+    if (gran !== 'week' || _yoySelYears.length !== 1) { btn.style.background = 'var(--accent)'; btn.style.color = 'var(--accent-text)'; btn.style.borderColor = 'var(--accent)'; }
     // (value text kept as-is — the fixed "View" label is added at render)
     if (state._yoyYearsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
@@ -35347,7 +35362,8 @@ function indicatorYoYTrendChart() {
           document.removeEventListener('mousedown', closer);
         }), 0); }
       },
-    }, label, el('span', { style: { fontSize: '9px' } }, state._yoyTiersOpen ? '▴' : '▾'));
+    }, 'Type', el('span', { style: { fontSize: '9px' } }, state._yoyTiersOpen ? '▴' : '▾'));
+    btn.title = 'Type: ' + label + ' — ' + btn.title;
     if (state._yoyTiersOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
       if (wrap.contains(ev.target)) return;
@@ -35455,7 +35471,8 @@ function indicatorYoYTrendChart() {
           document.removeEventListener('mousedown', closer);
         }), 0); }
       },
-    }, label, el('span', { style: { fontSize: '9px' } }, state._yoyScopesOpen ? '▴' : '▾'));
+    }, 'Scope', el('span', { style: { fontSize: '9px' } }, state._yoyScopesOpen ? '▴' : '▾'));
+    btn.title = 'Scope: ' + label + ' — ' + btn.title;
     if (state._yoyScopesOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
       if (wrap.contains(ev.target)) return;
@@ -35671,13 +35688,9 @@ function indicatorYoYTrendChart() {
   return el('div', { class: 'card p-5' },
     el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-3' },
       el('h3', { class: 'text-sm font-bold' }, _yoyRepOnly ? 'Your Performance Trends' : 'Performance Trends'),
-      (() => {
-        const _lbl = (text, node) => node && el('div', { class: 'flex items-center gap-1.5' },
-          el('span', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, text),
-          node);
-        return el('div', { class: 'flex items-center gap-3 flex-wrap' },
-          _lbl('Scope', scopesWrap), _lbl('Type', tiersWrap), _lbl('View', yearsWrap), _lbl('Metric', metricSel));
-      })()),
+      // Labels live INSIDE the buttons now (Scope / Type / Range / Metric —
+      // per Isaac); the current value shows in each button's tooltip.
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, scopesWrap, tiersWrap, yearsWrap, metricSel)),
     cvsWrap);
 }
 
