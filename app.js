@@ -51741,7 +51741,6 @@ function adminCompetitionSchedule() {
           ? el('input', { type: 'text', value: cfg.name || '', class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', width: '150px' }, onchange: (e) => { cfg.name = e.target.value; compScheduleSave(); mountApp(); } })
           : el('span', { class: 'font-semibold' }, c.name),
         live ? el('span', { class: 'ml-2 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(61,122,102,.16)', color: '#3D7A66' } }, 'Live') : null),
-      el('td', { class: 'px-2 py-2 text-muted- whitespace-nowrap' }, cfg.custom ? sel(c.id, 'group', [['Sales Reps', 'Sales Reps'], ['Office Staff', 'Office Staff'], ['Technicians', 'Technicians']]) : c.group),
       el('td', { class: 'px-2 py-2' }, inp(c.id, 'start', 'date')),
       el('td', { class: 'px-2 py-2' }, inp(c.id, 'end', 'date')),
       el('td', { class: 'px-2 py-2' }, sel(c.id, 'recur', COMP_RECUR)),
@@ -51756,17 +51755,26 @@ function adminCompetitionSchedule() {
         onclick: () => { delete sc[c.id]; compScheduleSave(); mountApp(); },
       }, 'Clear') : null)));
   });
-  const table = el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-4 py-3 flex items-center gap-3 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'Schedule'),
-      el('span', { class: 'text-[11px] text-muted-' }, 'Set each comp’s first run + how it repeats; "Starts on" pins the weekday for monthly / quarterly / yearly repeats.'),
-      el('button', {
-        class: 'ml-auto rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        onclick: () => { const id = 'custom_' + Date.now(); sc[id] = { custom: true, name: 'New competition', group: 'Sales Reps', recur: 'none' }; compScheduleSave(); mountApp(); },
-      }, '+ Competition')),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
-      el('thead', {}, el('tr', {}, th('Competition'), th('Group'), th('Start'), th('End'), th('Repeats'), th('Starts on'), th('Next runs'), th(''))),
-      el('tbody', {}, ...rows))));
+  // One card per group (per Isaac): Sales Reps · Office Staff · Technicians.
+  const groupCard = (group) => {
+    const idx = comps.map((c, i) => [c, i]).filter(([c]) => ((sc[c.id] && sc[c.id].group) || c.group) === group);
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 flex items-center gap-3 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
+        el('h3', { class: 'text-sm font-bold' }, group),
+        el('span', { class: 'text-[11px] text-muted-' }, idx.length + ' competition' + (idx.length === 1 ? '' : 's')),
+        el('button', {
+          class: 'ml-auto rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          onclick: () => { const id = 'custom_' + Date.now(); sc[id] = { custom: true, name: 'New competition', group, recur: 'none' }; compScheduleSave(); mountApp(); },
+        }, '+ Competition')),
+      idx.length
+        ? el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+            el('thead', {}, el('tr', {}, th('Competition'), th('Start'), th('End'), th('Repeats'), th('Starts on'), th('Next runs'), th(''))),
+            el('tbody', {}, ...idx.map(([, i]) => rows[i]))))
+        : el('div', { class: 'px-4 py-6 text-center text-xs text-muted- italic' }, 'No ' + group.toLowerCase() + ' competitions scheduled yet.'));
+  };
+  const table = el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'text-[11px] text-muted-' }, 'Set each comp’s first run + how it repeats; "Starts on" pins the weekday for monthly / quarterly / yearly repeats.'),
+    groupCard('Sales Reps'), groupCard('Office Staff'), groupCard('Technicians'));
 
   // ── Month calendar ──
   if (!state._compCalYm) state._compCalYm = _csIso(today).slice(0, 7);
