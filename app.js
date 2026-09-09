@@ -25242,14 +25242,9 @@ function manageTeamsPanel(opts) {
           class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
           onclick: () => exportManageTeamsXlsx(),
-          title: 'Download an .xlsx with one tab per team (open in Google Sheets to send to managers)',
-        }, '📊 Export'),
-        el('button', {
-          class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-          onclick: () => exportTiersXlsx(),
-          title: 'Download a flat list of every rep + their Rookie/Vet tier and FieldRoutes id — to load into the CRM',
-        }, '🏷 Tiers'),
+          title: 'Download the roster as an .xlsx — one tab per team plus a Summary tab (opens in Google Sheets with the tabs intact)',
+        }, '📊 Roster .xlsx'),
+        // (🏷 Tiers export retired — per Isaac.)
         // Moved here from the Indicators top bar (per Isaac). Uses the
         // grouping + timeframe of the Indicators render that stashed the
         // context, so it reports on exactly what that page is showing.
@@ -25474,7 +25469,25 @@ function manageTeamsPanel(opts) {
     // non-prefix nicknames). Each pair gets a one-click Merge and a
     // Dismiss link (which is remembered across reloads). Hidden when
     // there's nothing to flag so the panel doesn't crowd Manage Teams.
-    const dupePairs = findDuplicateRepCandidates();
+    // Order-flips ("Aaron Morse" vs "Morse, Aaron") are the SAME name parts in
+    // a different order — one human, certainly. They used to fill this list
+    // 600+ deep; now they're merged silently (keeper = the "Last, First"
+    // spelling the sales data uses) so only real nickname/spelling pairs
+    // remain for a human to judge (per Isaac).
+    let dupePairs = findDuplicateRepCandidates();
+    {
+      const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+      const flips = dupePairs.filter(pr => _sig(pr.bad) === _sig(pr.good));
+      let n = 0;
+      flips.forEach(pr => {
+        const goodHasComma = pr.good.includes(','), badHasComma = pr.bad.includes(',');
+        const keep = (badHasComma && !goodHasComma) ? pr.bad : pr.good;
+        const drop = (keep === pr.bad) ? pr.good : pr.bad;
+        if (keep !== drop && mergeDuplicateRep(drop, keep)) n++;
+      });
+      if (n) { saveIndicatorState(); toast('Merged ' + n + ' order-flipped name' + (n === 1 ? '' : 's') + ' automatically', 'success'); dupePairs = findDuplicateRepCandidates(); }
+    }
+    const _dupesOpen = !!state._indicatorDupesOpen;
     const renderDupeLine = (name, includeTeam = true) => {
       const team = getRepTeam(name);
       const tier = getRepTier(name);
@@ -25489,16 +25502,18 @@ function manageTeamsPanel(opts) {
       );
     };
     const dupesPanel = dupePairs.length === 0 ? null : el('div', {
-      class: 'px-5 py-3 border-b',
-      style: {
-        borderColor: 'var(--border)',
-        background: 'rgba(255, 193, 7, .06)',
-      },
+      class: 'border-b',
+      style: { borderColor: 'var(--border)', background: _dupesOpen ? 'rgba(255, 193, 7, .06)' : 'transparent' },
     },
+      // Collapsed by default — the roster below is the point of this panel.
+      el('button', { class: 'w-full flex items-center justify-between gap-2 px-2.5 py-1 cursor-pointer text-[11px]', style: { background: 'transparent' },
+        onclick: () => { state._indicatorDupesOpen = !_dupesOpen; render(); } },
+        el('span', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: '#C28A1F' } },
+          '⚠️ ' + dupePairs.length + ' possible duplicate' + (dupePairs.length === 1 ? '' : 's')),
+        el('span', { class: 'text-[11px] text-muted-' }, _dupesOpen ? 'Hide' : 'Show')),
+      !_dupesOpen ? null : el('div', { class: 'px-5 pb-3' },
       el('div', { class: 'flex items-center justify-between mb-2' },
         el('div', { class: 'flex items-center gap-2' },
-          el('span', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: '#C28A1F' } },
-            '⚠️ ' + dupePairs.length + ' possible duplicate' + (dupePairs.length === 1 ? '' : 's')),
           el('span', { class: 'text-[10px] text-muted- italic' },
             'Auto-detected — nickname/prefix pairs, plus same-letters spellings (\u201cLeSueur\u201d vs \u201cLe Sueur\u201d) that are SPLITTING one rep\u2019s revenue. Merge folds the left name into the right.'),
         ),
@@ -25531,7 +25546,7 @@ function manageTeamsPanel(opts) {
           }, 'Merge all ' + flips.length + ' order-flips');
         })(),
       ),
-      el('div', { class: 'flex flex-col gap-1.5' },
+      el('div', { class: 'flex flex-col gap-1.5 overflow-y-auto', style: { maxHeight: '300px' } },
         ...dupePairs.map(({ bad, good }) => el('div', {
           class: 'flex items-center gap-2 px-2 py-2 rounded-lg',
           style: { background: 'var(--card-2)', border: '1px solid var(--border)' },
@@ -25568,6 +25583,7 @@ function manageTeamsPanel(opts) {
           ),
         )),
       ),
+      ),   // close collapsible body
     );
 
     // ── Inline detail panel ──
