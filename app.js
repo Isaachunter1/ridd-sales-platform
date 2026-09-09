@@ -5865,9 +5865,11 @@ function viewDashboard() {
   return el('div', { class: 'flex flex-col gap-5 w-full' },
 
     // ─── Top row: + New Sale + date filter + office view ───
-    el('div', { class: 'flex items-center gap-2 flex-wrap' },
+    el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar' },
+      // Mobile (per Isaac): + New Sale stretches so the row fills the width;
+      // Today / Office / info keep their natural size (dash-toolbar CSS).
       el('button', {
-        class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+        class: 'dash-newsale rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openNewSaleModal(),
       }, '+ New Sale'),
