@@ -49548,9 +49548,7 @@ function adminPermissions() {
                       mountApp();
                     },
                   }, ...PERM_SCOPES.map(sv => el('option', { value: sv, selected: sv === cur }, PERM_SCOPE_LABELS[sv]))));
-              }))))))),
-    el('div', { class: 'card p-4 text-xs', style: { color: 'var(--text-muted)' } },
-      'Notes: the \u201cIndicators table\u201d / \u201cPower Ranking chart\u201d boxes give a user type the analyst layout (their player card pins to the top of the page). Sections a user hides themselves via \u270f\ufe0f Customize stay hidden for them regardless. Technicians and Auditors keep their own fixed tabs; new permissions can be added to this matrix as the app grows.'));
+              }))))))));
 }
 
 // ──────────────────────────────────────────────────────────────────────────
