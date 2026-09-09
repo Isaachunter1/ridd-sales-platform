@@ -29247,7 +29247,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         style: isOpen ? { background: 'rgba(223,100,58,.08)' } : {},
         onclick: clickable ? () => { state._aggRecordsExpanded = isOpen ? null : expandKey; mountApp(); } : undefined,
       },
-        el('td', { class: 'pl-5 pr-3 py-3 align-top' },
+        // Scope column stays frozen while the record columns scroll (per Isaac).
+        el('td', { class: 'pl-5 pr-3 py-3 align-top', style: { position: 'sticky', left: '0', zIndex: '1', background: isOpen ? 'var(--card-2)' : 'var(--card)', boxShadow: '1px 0 0 var(--border)' } },
           el('div', { class: 'flex items-center gap-1.5' },
             clickable
               ? el('span', { class: 'inline-block text-muted-', style: { width: '10px', transition: 'transform .15s ease', transform: isOpen ? 'rotate(90deg)' : 'none', transformOrigin: 'center' } }, '▸')
@@ -29541,7 +29542,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         el('table', { class: 'w-full text-[12px]' },
           el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
             el('tr', {},
-              el('th', { class: 'text-left pl-5 pr-3 py-2 w-32' }, 'Scope'),
+              el('th', { class: 'text-left pl-5 pr-3 py-2 w-32', style: { position: 'sticky', left: '0', zIndex: '2', background: 'var(--card)', boxShadow: '1px 0 0 var(--border)' } }, 'Scope'),
               el('th', { class: 'text-left p-2' }, 'Best Day'),
               el('th', { class: 'text-left p-2' }, 'Best Week'),
               el('th', { class: 'text-left p-2' }, 'Best Month'),
