@@ -25057,7 +25057,7 @@ function manageTeamsPanel(opts) {
             if (!ctx) { toast('Open the Indicators tab first so the report has a timeframe', 'warn'); return; }
             openTeamReportsModal(ctx);
           },
-          title: 'Download a PDF report per team (Teams mode) or per branch (Branch mode), for the timeframe currently set on Indicators',
+          title: 'Download PDF reports per team, per office, or per rep (pick the grouping inside), for the timeframe currently set on Indicators',
         }, '📄 Reports'),
         embedded ? null : el('button', {
           class: 'rounded-lg border px-2.5 py-1 text-[11px]',
@@ -32328,8 +32328,12 @@ function buildTeamReportNode(teamName, ctx) {
   // both windows from state._indicatorRawSales directly so the PDF
   // always shows the same two windows regardless of what filter is
   // currently active on the page.
-  const teamLogo    = getTeamLogo(teamName);
-  const teamColor   = getTeamColor(teamName);
+  // Rep mode (per Isaac): the "group" is one rep — brand the page with
+  // their team's logo/color when they have a team.
+  const _isRepMode  = (ctx.groupMode || 'team') === 'rep';
+  const _brandKey   = _isRepMode ? ((typeof getRepTeam === 'function' && getRepTeam(teamName)) || teamName) : teamName;
+  const teamLogo    = getTeamLogo(_brandKey);
+  const teamColor   = getTeamColor(_brandKey);
   const companyLogo = state.companyLogo || '';
   const PEST_EXCLUDE_RE = /sentricon|german\s*roach|interior\s*flea/i;
   // PENDING/SERVICED revenue (per Isaac) — the PDF used to read the raw
@@ -32349,9 +32353,14 @@ function buildTeamReportNode(teamName, ctx) {
   // shape is identical; only the keying changes.
   const groupMode = ctx.groupMode || 'team';
   const isBranch  = groupMode === 'branch';
-  const groupKeyOf = (s) => isBranch
-    ? (s.office || 'Unassigned')
-    : (getRepTeam(getCanonicalRepName(s.rep || 'Unknown')) || 'Unassigned');
+  const isRep     = groupMode === 'rep';
+  // Rep Reports key off the canonical rep name — every rep becomes their
+  // own "group", so ranks/power ranking read "#N of M reps".
+  const groupKeyOf = (s) => isRep
+    ? getCanonicalRepName(s.rep || 'Unknown')
+    : isBranch
+      ? (s.office || 'Unassigned')
+      : (getRepTeam(getCanonicalRepName(s.rep || 'Unknown')) || 'Unassigned');
 
   // Aggregate raw sales inside a date range into the same shape the
   // page-level viewIndicators emits (branchData + riddTotal + rankings
@@ -32463,7 +32472,7 @@ function buildTeamReportNode(teamName, ctx) {
   const teamSales = ytd.rawSales.filter(s => groupKeyOf(s) === teamName);
   const teamRepNames = new Set([
     ...teamSales.map(s => s.rep).filter(Boolean),
-    ...(isBranch ? [] : Object.entries(state._indicatorRepTeam || {})
+    ...((isBranch || isRep) ? [] : Object.entries(state._indicatorRepTeam || {})
       .filter(([_, t]) => t === teamName)
       .map(([rep]) => rep)),
   ]);
@@ -32658,10 +32667,10 @@ function buildTeamReportNode(teamName, ctx) {
   };
   const rookieStats = cohortStats(teamRookies);
   const vetStats    = cohortStats(teamVets);
-  const showCohort  = (rookieStats.reps + vetStats.reps) > 0;
+  const showCohort  = !isRep && (rookieStats.reps + vetStats.reps) > 0;   // one rep isn't a cohort
 
   const cohortHeader = showCohort
-    ? el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#1D1D1D', margin: '8px 0 8px 0', textTransform: 'uppercase' } }, 'Rookie vs Vet · This Team')
+    ? el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#1D1D1D', margin: '8px 0 8px 0', textTransform: 'uppercase' } }, 'Rookie vs Vet · This ' + (isBranch ? 'Branch' : 'Team'))
     : null;
   const cohortColumn = (label, color, s) => {
     const line = (lbl, val) => el('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px' } },
@@ -32696,7 +32705,7 @@ function buildTeamReportNode(teamName, ctx) {
   const repsHeader = el('div', {
     style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '14px 0 6px 0' },
   },
-    el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#1D1D1D', textTransform: 'uppercase' } }, 'Team Ranks'),
+    el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#1D1D1D', textTransform: 'uppercase' } }, isRep ? 'Rep Breakdown' : isBranch ? 'Branch Ranks' : 'Team Ranks'),
     el('div', { style: { fontSize: '10px', color: '#888', fontWeight: '600' } },
       teamRepsFull.length + ' rep' + (teamRepsFull.length === 1 ? '' : 's') + ' · sorted by sales'),
   );
@@ -33965,83 +33974,146 @@ function openTeamReportsModal(ctx) {
   const overlay = el('div', { class: 'modal-overlay' });
   const close = () => overlay.remove();
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  // Same modal serves Team Reports and Branch Reports — items list is
-  // either teams (from Manage Teams) or branches (office names),
-  // depending on which mode the Indicators page is in.
-  const groupMode = ctx.groupMode || 'team';
-  const isBranch  = groupMode === 'branch';
-  const itemLabel = isBranch ? 'Branch' : 'Team';
-  const teams = (ctx.branches || []).filter(b => b !== 'Unassigned');
+  // One modal, three report groupings (per Isaac): Teams (Manage Teams),
+  // Offices (branch name from the upload), or Reps (one PDF per rep — an
+  // individual breakdown ranked against every other rep). A dropdown in
+  // the header switches the list; it opens on whatever grouping the
+  // Indicators page is in.
+  const MODES = [['team', 'Teams'], ['branch', 'Offices'], ['rep', 'Reps']];
+  let mode = ['team', 'branch', 'rep'].includes(ctx.groupMode) ? ctx.groupMode : 'team';
+  const rawSales = ctx.rawSales || state._indicatorRawSales || [];
+  const repNames = [...new Set(rawSales.map(s => s.rep ? getCanonicalRepName(s.rep) : '').filter(Boolean))].sort();
+  const itemsFor = (m) => {
+    if (m === 'rep') return repNames;
+    if (m === 'branch') {
+      const fromCtx = ctx.groupMode === 'branch' ? (ctx.branches || []) : [];
+      const list = fromCtx.length ? fromCtx : [...new Set(rawSales.map(s => s.office).filter(Boolean))].sort();
+      return list.filter(b => b !== 'Unassigned');
+    }
+    const fromCtx = ctx.groupMode === 'team' ? (ctx.branches || []) : [];
+    const list = fromCtx.length ? fromCtx
+      : (typeof getRepTeam === 'function' ? [...new Set(repNames.map(n => getRepTeam(n)).filter(Boolean))].sort() : []);
+    return list.filter(b => b !== 'Unassigned');
+  };
+  const labelOf = (m) => m === 'rep' ? 'Rep' : m === 'branch' ? 'Office' : 'Team';
+  const ctxFor = (m) => Object.assign({}, ctx, { groupMode: m });
 
   const status = el('div', { class: 'text-xs text-muted-', style: { minHeight: '16px' } });
+  const title   = el('h3', { class: 'text-base font-bold' });
+  const subline = el('p', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } });
+  const list    = el('div', { class: 'flex-1 overflow-y-auto' });
+  const search  = el('input', {
+    type: 'text', placeholder: 'Find a rep…', autocomplete: 'off',
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] w-full',
+    style: { borderColor: 'var(--border-2)' },
+    oninput: (e) => {
+      const q = (e.target.value || '').trim().toLowerCase();
+      list.querySelectorAll('[data-report-item]').forEach(row => {
+        row.style.display = (!q || (row.getAttribute('data-report-item') || '').includes(q)) ? '' : 'none';
+      });
+    },
+  });
 
-  const teamRows = teams.map(team => {
-    const teamColor = getTeamColor(team);
-    const teamLogo  = getTeamLogo(team);
+  let downloadAllBtn = null;
+  const mkRow = (item, m) => {
+    const isRep = m === 'rep';
+    const brand = isRep ? ((typeof getRepTeam === 'function' && getRepTeam(item)) || '') : item;
+    const color = getTeamColor(brand || item);
+    const logo  = getTeamLogo(brand || item);
     const dlBtn = el('button', {
       class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
       style: { background: 'var(--accent)', color: 'var(--accent-text)' },
       onclick: async () => {
         dlBtn.disabled = true; dlBtn.textContent = '…';
         try {
-          await downloadTeamPdf(team, ctx);
+          await downloadTeamPdf(item, ctxFor(m));
         } catch (err) {
           // downloadTeamPdf has its own try/catch but a synchronous
           // throw inside buildTeamReportNode (or before the inner try)
           // would otherwise leave the button stuck on "…" with no toast.
           console.error('[ridd] downloadTeamPdf threw', err);
-          toast('PDF failed for ' + team + ': ' + (err.message || 'unknown — check console'), 'error');
+          toast('PDF failed for ' + item + ': ' + (err.message || 'unknown — check console'), 'error');
         } finally {
           dlBtn.disabled = false; dlBtn.textContent = 'Download PDF';
         }
       },
     }, 'Download PDF');
     return el('div', {
+      'data-report-item': String(item).toLowerCase(),
       class: 'flex items-center justify-between gap-3 px-4 py-2.5 border-b',
       style: { borderColor: 'var(--border)' },
     },
       el('div', { class: 'flex items-center gap-3 min-w-0' },
-        teamLogo
-          ? el('img', { src: teamLogo, style: { width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', background: '#fff' } })
-          : el('span', { style: { width: '28px', height: '28px', borderRadius: '50%', background: teamColor, flexShrink: '0' } }),
-        el('span', { class: 'font-semibold truncate' }, team),
+        logo
+          ? el('img', { src: logo, style: { width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', background: '#fff' } })
+          : el('span', { style: { width: '28px', height: '28px', borderRadius: '50%', background: color, flexShrink: '0' } }),
+        el('div', { class: 'min-w-0' },
+          el('div', { class: 'font-semibold truncate' }, item),
+          (isRep && brand) ? el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, brand) : null),
       ),
       dlBtn,
     );
-  });
+  };
 
-  const downloadAllBtn = el('button', {
+  const paint = () => {
+    const items = itemsFor(mode);
+    const lab = labelOf(mode);
+    title.textContent = '📄 ' + lab + ' Reports';
+    subline.textContent = 'PDF per ' + lab.toLowerCase() + ' · ' + (ctx.windowLabel || 'current window') + ' · '
+      + (mode === 'rep' ? 'stats, ranks vs every rep, breakdown' : 'charts, ranks, top reps');
+    searchWrap.style.display = mode === 'rep' ? '' : 'none';
+    search.value = '';
+    list.innerHTML = '';
+    if (!items.length) list.append(el('div', { class: 'px-4 py-6 text-center text-xs text-muted- italic' }, 'No ' + lab.toLowerCase() + 's in this window.'));
+    items.forEach(item => list.append(mkRow(item, mode)));
+    status.textContent = '';
+    if (downloadAllBtn) { downloadAllBtn.disabled = false; downloadAllBtn.textContent = '📄 Download all' + (mode === 'rep' ? ' (' + items.length + ')' : ''); }
+  };
+
+  const modeSelect = el('select', {
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+    style: { borderColor: 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
+    title: 'Which grouping to report on — one PDF per team, office, or individual rep',
+    onchange: (e) => { mode = e.target.value; paint(); },
+  }, ...MODES.map(([v, l]) => el('option', { value: v, selected: v === mode }, l)));
+
+  downloadAllBtn = el('button', {
     class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     onclick: async () => {
-      downloadAllBtn.disabled = true; downloadAllBtn.textContent = 'Generating…';
-      for (let i = 0; i < teams.length; i++) {
-        status.textContent = 'Generating ' + teams[i] + ' (' + (i + 1) + '/' + teams.length + ')…';
-        await downloadTeamPdf(teams[i], ctx);
+      const m = mode, items = itemsFor(m);
+      if (!items.length) return;
+      downloadAllBtn.disabled = true; modeSelect.disabled = true; downloadAllBtn.textContent = 'Generating…';
+      for (let i = 0; i < items.length; i++) {
+        status.textContent = 'Generating ' + items[i] + ' (' + (i + 1) + '/' + items.length + ')…';
+        await downloadTeamPdf(items[i], ctxFor(m));
       }
-      status.textContent = 'Done — ' + teams.length + ' reports.';
-      downloadAllBtn.disabled = false; downloadAllBtn.textContent = '📄 Download all';
+      status.textContent = 'Done — ' + items.length + ' reports.';
+      modeSelect.disabled = false;
+      downloadAllBtn.disabled = false; downloadAllBtn.textContent = '📄 Download all' + (m === 'rep' ? ' (' + items.length + ')' : '');
     },
   }, '📄 Download all');
 
+  // Search strip — only shown in Reps mode (rosters run long).
+  const searchWrap = el('div', { class: 'px-4 pt-3 pb-2 border-b', style: { borderColor: 'var(--border)' } }, search);
   const card = el('div', {
     class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col',
     style: { maxHeight: 'calc(100vh - 64px)' },
   },
-    el('div', { class: 'flex items-center justify-between px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('div', {},
-        el('h3', { class: 'text-base font-bold' }, '📄 ' + itemLabel + ' Reports'),
-        el('p', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
-          'PDF per ' + itemLabel.toLowerCase() + ' · ' + (ctx.windowLabel || 'current window') + ' · charts, ranks, top reps'),
-      ),
-      el('button', { class: 'text-2xl cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: close }, '×'),
+    el('div', { class: 'flex items-center justify-between gap-3 px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'min-w-0' }, title, subline),
+      el('div', { class: 'flex items-center gap-2 shrink-0' },
+        modeSelect,
+        el('button', { class: 'text-2xl cursor-pointer', style: { color: 'var(--text-muted)' }, onclick: close }, '×')),
     ),
-    el('div', { class: 'flex-1 overflow-y-auto' }, ...teamRows),
+    searchWrap,
+    list,
     el('div', { class: 'flex items-center justify-between gap-3 px-5 py-3 border-t', style: { borderColor: 'var(--border)' } },
       status,
       downloadAllBtn,
     ),
   );
+  paint();
 
   overlay.append(card);
   document.body.append(overlay);
