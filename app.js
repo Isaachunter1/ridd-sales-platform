@@ -3749,6 +3749,42 @@ function mobileBottomNav() {
   return nav;
 }
 
+// Compact per-branch table for the Inside Sales dashboard (replaces the
+// old 🏢 Office toggle). Rows = branches with a sale in the window, sorted
+// by revenue; a Total row ties back to the KPI cards above it.
+function dashBranchTable(approved, isRenewal) {
+  const officeName = (s) => {
+    const o = (state.offices || []).find(o => o.id === s.office_id);
+    const raw = o ? o.name : String(s._crmOffice || '').split(',')[0].trim();
+    return (raw || 'Unassigned').toUpperCase();
+  };
+  const by = new Map();
+  for (const s of approved) {
+    const k = officeName(s);
+    let r = by.get(k);
+    if (!r) { r = { name: k, sales: 0, nw: 0, ren: 0, rev: 0, reps: new Set() }; by.set(k, r); }
+    r.sales += 1;
+    if (isRenewal(s)) r.ren += 1; else r.nw += 1;
+    r.rev += Number(s.revenue_amount || 0);
+    r.reps.add(s.rep_id || s._crmRep || '?');
+  }
+  const rows = [...by.values()].sort((a, b) => b.rev - a.rev || b.sales - a.sales);
+  const tot = rows.reduce((t, r) => ({ sales: t.sales + r.sales, nw: t.nw + r.nw, ren: t.ren + r.ren, rev: t.rev + r.rev, reps: t.reps + r.reps.size }), { sales: 0, nw: 0, ren: 0, rev: 0, reps: 0 });
+  const th = (t, right) => el('th', { class: 'px-2 py-1 text-[10px] uppercase tracking-widest font-semibold text-muted- ' + (right ? 'text-right' : 'text-left') }, t);
+  const td = (t, right, cls) => el('td', { class: 'px-2 py-1 text-[11px] tabular-nums ' + (right ? 'text-right' : 'text-left') + (cls ? ' ' + cls : '') }, t);
+  const line = (r, isTot) => el('tr', { class: isTot ? 'border-t font-bold' : 'border-t', style: { borderColor: 'var(--border)' } },
+    td(isTot ? 'Total' : r.name, false, isTot ? '' : 'font-semibold'),
+    td(fmt.int(r.sales), true), td(fmt.int(r.nw), true), td(fmt.int(r.ren), true),
+    td(fmt.usd0(r.rev), true), td(fmt.int(isTot ? r.reps : r.reps.size), true));
+  return el('div', { class: 'card p-3 overflow-x-auto' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-subtle)' } }, 'Branch stats'),
+    el('table', { class: 'w-full' },
+      el('thead', {}, el('tr', {}, th('Branch'), th('Sales', 1), th('New', 1), th('Renewals', 1), th('Revenue', 1), th('Reps', 1))),
+      el('tbody', {},
+        ...(rows.length ? rows.map(r => line(r, false)) : [el('tr', {}, el('td', { class: 'px-2 py-2 text-[11px] text-muted-', colspan: 6 }, 'No sales in this window.'))]),
+        rows.length ? line(tot, true) : null)));
+}
+
 function officeDashboard(windowSales) {
   const EXCLUDE = new Set(['cancelled','nsf','not_payable','reschedule','rejected']);
   return el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
@@ -5876,8 +5912,8 @@ function viewDashboard() {
 
     // ─── Top row: + New Sale + date filter + office view ───
     el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar' },
-      // Mobile (per Isaac): + New Sale stretches so the row fills the width;
-      // Today / Office / info keep their natural size (dash-toolbar CSS).
+      // + New Sale stretches to fill the row on every screen (per Isaac);
+      // Today / info keep their natural size on the right (dash-toolbar CSS).
       el('button', {
         class: 'dash-newsale rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
@@ -5915,21 +5951,9 @@ function viewDashboard() {
         el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state.dashCustomEnd || '', onchange: e => { state.dashCustomEnd = e.target.value; mountApp(); } }),
       ),
 
-      // Office view toggle (admin only)
-      isAdmin && el('button', {
-        class: 'px-2.5 py-1 text-[11px] rounded-xl border transition font-medium',
-        style: state.dashOfficeView
-          ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
-          : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-        onclick: () => { state.dashOfficeView = !state.dashOfficeView; mountApp(); },
-      }, state.dashOfficeView ? '✕ Office' : '🏢 Office'),
-
       configInfoBtn('Sales data',
         'Live from FieldRoutes. Every number on this page — goals, sales and revenue cards, the sales feed, and the leaderboard — comes from the CRM shared dataset (office-staff sales, refreshed by the hourly sync shown in the stamp), plus manually logged UPSELL rows (the one thing the CRM can\'t express). Reps manually log every sale for the pay/audit ledger — those logs are the commission record of the ORIGINAL contract — but regular logged sales are not re-counted here, since the CRM already carries them. Upsells count as New revenue. Office staff without an app account still count — their CRM sales rank under their CRM name. Contract values are exact CRM figures.'),
     ),
-
-    // ─── Office dashboard (if toggled) ───
-    isAdmin && state.dashOfficeView && officeDashboard(windowSales),
 
     // ─── Revenue Goal card — 3 bars: Total, New, Renewal ───
     (() => {
@@ -6234,6 +6258,11 @@ function viewDashboard() {
       ['Renewal Revenue', fmt.usd0(renewalRevenue)],
     ]),
     // (Reconcile export link removed per Isaac — the CSV logic lives in git history if ever needed.)
+
+    // ─── Branch stats (per Isaac): replaces the old 🏢 Office toggle — a
+    // small always-on table of inside-sales numbers by branch for the
+    // selected window, sitting between the revenue cards and the feed. ───
+    dashBranchTable(approved, isRenewal),
 
     // ─── Split: Today's Sales (30%) | Leaderboard (70%) ───
     // Mobile stacks LEADERBOARD first (per Isaac) — CSS order flips below
