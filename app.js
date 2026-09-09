@@ -5315,7 +5315,7 @@ function mountApp() {
             else openMySettingsModal();
           }),
           isAdmin
-            ? item('\u21bb', state._revhawkSyncing ? 'Syncing\u2026' : 'Manual sync', () => {
+            ? item('\u21bb', state._revhawkSyncing ? 'Syncing\u2026' : 'Resync', () => {
                 if (state._revhawkSyncing) return;
                 syncFromRevHawk(gearBtn);
               })
@@ -5327,7 +5327,7 @@ function mountApp() {
                 setTimeout(() => { try { gearBtn.classList.remove('icon-spin'); } catch (err) { /* gone */ } }, 4000);
               }),
           item(state.theme === 'light' ? '\ud83c\udf19' : '\u2600\ufe0f', state.theme === 'light' ? 'Dark mode' : 'Light mode', () => toggleTheme()),
-          INSIDE_SALES_TAB_KEYS.has(state.view) && item('\ud83d\udcfa', 'TV Display', () => openTVDashboard()),
+          // (TV Display retired from the menu — per Isaac. openTVDashboard() stays.)
         ].forEach(n => { if (n) dd.append(n); });
         gearBtn.onclick = () => {
           const willOpen = dd.style.display !== 'block';
