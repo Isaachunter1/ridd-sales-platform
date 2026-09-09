@@ -24910,7 +24910,7 @@ function powerRankPickerBtn() {
   let mode = _rankExcludeMode();
   const panel = el('div', {
     class: 'card',
-    style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '70', minWidth: '240px', maxHeight: '340px', overflowY: 'auto', padding: '6px', boxShadow: 'var(--shadow-lg)', display: 'none' },
+    style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '70', minWidth: '270px', maxHeight: '340px', overflowY: 'auto', padding: '6px', boxShadow: 'var(--shadow-lg)', display: 'none' },
   });
   const titleCase = (x) => String(x || '').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
   const optionsFor = (m) => {
@@ -24927,15 +24927,13 @@ function powerRankPickerBtn() {
     panel.innerHTML = '';
     panel.append(
       el('div', { class: 'flex items-center justify-between gap-2 px-2 py-1.5' },
-        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'In Power Ranking'),
-        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold whitespace-nowrap', style: { color: 'var(--text-subtle)' } }, 'Power Ranking'),
+        el('div', { class: 'inline-flex rounded-lg border overflow-hidden shrink-0', style: { borderColor: 'var(--border-2)' } },
           ...[['branch', 'Offices'], ['teams', 'Teams']].map(([v, l]) => el('button', {
             class: 'px-2.5 py-1 text-[10px] font-semibold transition',
             style: mode === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
             onclick: (e) => { e.stopPropagation(); mode = v; paint(); },
           }, l)))),
-      el('div', { class: 'px-2 pb-1 text-[10px]', style: { color: 'var(--text-muted)' } },
-        'Unchecked ' + (mode === 'teams' ? 'teams' : 'offices') + ' stay on the board but earn no ranking points.'),
       el('button', {
         class: 'text-[10px] font-semibold px-2 py-1', style: { color: 'var(--accent)', cursor: 'pointer' },
         onclick: (e) => {
@@ -24954,7 +24952,7 @@ function powerRankPickerBtn() {
           style: { color: 'var(--text)' },
           title: out ? 'Excluded from the Power Ranking' : '',
         },
-          el('input', { type: 'checkbox', checked: !out, onchange: (e) => {
+          (() => { const cb = el('input', { type: 'checkbox', onchange: (e) => {
             e.stopPropagation();
             if (!state._indicatorRankExclude) state._indicatorRankExclude = {};
             const cur = new Set(state._indicatorRankExclude[mode] || []);
@@ -24964,7 +24962,7 @@ function powerRankPickerBtn() {
             saveDemoData();
             if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
             paint();
-          } }),
+          } }); cb.checked = !out; return cb; })(),
           el('span', { class: 'truncate', style: out ? { opacity: '.45', textDecoration: 'line-through' } : {} }, titleCase(b)));
       }),
       opts.length ? null : el('div', { class: 'px-2 py-2 text-[11px] italic', style: { color: 'var(--text-muted)' } }, 'Nothing to list yet.'));
