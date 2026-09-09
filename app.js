@@ -43225,16 +43225,227 @@ function reportingRefreshGhlLeads() {
   reportingLoadGhlLeads();
 }
 
+// ── MARKETING REPORT v2 (per Isaac, Sep 2026) ────────────────────────────
+// One story, two joins: FieldRoutes (sales / serviced / revenue / cancels by
+// office and by lead source) × QuickBooks (marketing spend by branch account).
+// Channel-level spend (Meta, Google, lead partners) has no live feed now that
+// Windsor is gone, so it's entered by hand per source per month and synced
+// to every admin through the shared config (_compExtras.marketing).
+const MKTG_PERIODS = [['mtd', 'This month'], ['last_month', 'Last month'], ['qtd', 'This quarter'], ['ytd', 'Year to date'], ['last_year', 'Last year'], ['custom', 'Custom']];
+function _mktgMonths(period, customStart, customEnd) {
+  const now = new Date(); const y = now.getFullYear(), m = now.getMonth();
+  const ym = (yy, mm) => yy + '-' + String(mm + 1).padStart(2, '0');
+  const range = (yy, m0, m1) => { const out = []; for (let i = m0; i <= m1; i++) out.push(ym(yy, i)); return out; };
+  if (period === 'mtd') return [ym(y, m)];
+  if (period === 'last_month') return m === 0 ? [ym(y - 1, 11)] : [ym(y, m - 1)];
+  if (period === 'qtd') return range(y, Math.floor(m / 3) * 3, m);
+  if (period === 'last_year') return range(y - 1, 0, 11);
+  if (period === 'custom' && customStart && customEnd) {
+    const out = []; let [cy, cm] = customStart.split('-').map(Number); const [ey, em] = customEnd.split('-').map(Number);
+    while (cy < ey || (cy === ey && cm <= em)) { out.push(cy + '-' + String(cm).padStart(2, '0')); if (++cm > 12) { cm = 1; cy++; } if (out.length > 36) break; }
+    return out;
+  }
+  return range(y, 0, m);   // ytd
+}
+const _mktgPrevYear = (months) => months.map(x => (Number(x.slice(0, 4)) - 1) + x.slice(4));
+// QuickBooks branch accounts → sales-data office names.
+const _MKTG_QBO_OFFICE = { 'utah': 'SALT LAKE', 'michigan': 'DETROIT', 'executive': null, 'corporate': null };
+function _mktgQboOffice(acct) {
+  const base = String(acct || '').replace(/\s*(marketing|advertising)\s*$/i, '').trim();
+  const key = base.toLowerCase();
+  if (key in _MKTG_QBO_OFFICE) return _MKTG_QBO_OFFICE[key];   // null = company-level (unallocated)
+  return base.toUpperCase();
+}
+function _mktgStore() {
+  state._compExtras = state._compExtras || {};
+  const m = state._compExtras.marketing = (state._compExtras.marketing && typeof state._compExtras.marketing === 'object') ? state._compExtras.marketing : {};
+  m.channelSpend = m.channelSpend || {};     // { 'YYYY-MM': { 'Facebook': 1234, ... } }
+  return m;
+}
+function _mktgSaveStore() {
+  saveDemoData();
+  if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
+}
 function reportingMarketingPnl() {
   reportingLoadGhlLeads();
+  const rows = state.reportingSubscriptions || [];
+  const SP = state.reportingIsSpend || {};
+  const GHL = (state.reportingGhlLeads && state.reportingGhlLeads.bySourceMonth) || {};
+  const store = _mktgStore();
+  const isExcl = reportingExcludedSources();
+  if (!state._mktPeriod) state._mktPeriod = 'ytd';
+  const period = state._mktPeriod;
+  const months = _mktgMonths(period, state._mktCustomStart, state._mktCustomEnd);
+  const prevMonths = _mktgPrevYear(months);
+  const mset = new Set(months), pset = new Set(prevMonths);
+  const singleMonth = months.length === 1 ? months[0] : null;
+  const TC = (o) => String(o || '').split(' ').map(w => w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w).join(' ');
+  const norm = (x) => String(x || '').trim().toLowerCase();
+
+  // ── FieldRoutes side: NEW business sold by Office Staff, Pending/Serviced gate.
+  const gate = (r) => {
+    const _ist = String(r.initial_status || '').toLowerCase();
+    return _ist ? (_ist === 'pending' || _ist === 'completed') : !(!r.initial_service && r.subscription_date_canceled);
+  };
+  const mk = () => ({ sales: 0, serviced: 0, revenue: 0, cancels: 0 });
+  const byOffice = {}, byOfficePrev = {}, bySource = {}, bySourcePrev = {}, tot = mk(), totPrev = mk();
+  for (const r of rows) {
+    const sd = r.sold_date; if (!sd) continue;
+    const ym = String(sd).slice(0, 7);
+    const cur = mset.has(ym), prev = pset.has(ym);
+    if (!cur && !prev) continue;
+    const src = reportingSourceOf(r);
+    if (isExcl.has(src)) continue;
+    if (reportingSourceClass(src) !== 'new') continue;
+    if (!reportingIsOfficeStaff(r)) continue;
+    if (!gate(r)) continue;
+    const off = String(r.office_name || 'Unknown').toUpperCase();
+    const bump = (b) => {
+      b.sales++; b.revenue += Number(r.subscription_contract_value) || 0;
+      if (String(r.initial_status || '').toLowerCase() === 'completed' || r.initial_serviced_date) b.serviced++;
+      if (r.subscription_date_canceled) b.cancels++;
+    };
+    if (cur) { bump(byOffice[off] = byOffice[off] || mk()); bump(bySource[src] = bySource[src] || mk()); bump(tot); }
+    else { bump(byOfficePrev[off] = byOfficePrev[off] || mk()); bump(bySourcePrev[src] = bySourcePrev[src] || mk()); bump(totPrev); }
+  }
+  // ── QuickBooks side: spend by branch for the same months.
+  const spendByOffice = {}, spendByOfficePrev = {}; let spendTot = 0, spendTotPrev = 0, spendUnalloc = 0;
+  for (const ym in SP) {
+    const cur = mset.has(ym), prev = pset.has(ym);
+    if (!cur && !prev) continue;
+    for (const acct in SP[ym]) {
+      const amt = Number(SP[ym][acct]) || 0; if (!amt) continue;
+      const off = _mktgQboOffice(acct);
+      if (cur) { spendTot += amt; if (off) spendByOffice[off] = (spendByOffice[off] || 0) + amt; else spendUnalloc += amt; }
+      else { spendTotPrev += amt; if (off) spendByOfficePrev[off] = (spendByOfficePrev[off] || 0) + amt; }
+    }
+  }
+  // ── Manual channel spend + GHL leads for the months in view.
+  const chSpend = {}; let chSpendTot = 0;
+  for (const ym of months) { const m = store.channelSpend[ym] || {}; for (const s in m) { const v = Number(m[s]) || 0; chSpend[s] = (chSpend[s] || 0) + v; chSpendTot += v; } }
+  const leadsBySrc = {}; let leadsTot = 0;
+  const ghlIndex = {}; for (const ym of months) { const m = GHL[ym] || {}; for (const s in m) { ghlIndex[norm(s)] = (ghlIndex[norm(s)] || 0) + (Number(m[s]) || 0); } }
+  Object.keys(bySource).forEach(s => { const n = ghlIndex[norm(s)] || 0; leadsBySrc[s] = n; leadsTot += n; });
+
+  // ── helpers
+  const usd0 = (v) => fmt.usd0(v), usd = (v) => v == null ? '—' : fmt.usd(v);
+  const pct = (a, b) => b > 0 ? (a / b * 100).toFixed(1) + '%' : '—';
+  const ratio = (a, b) => b > 0 ? (a / b).toFixed(2) + 'x' : '—';
+  const delta = (cur, prev, moneyish) => {
+    if (!prev) return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no prior');
+    const d = (cur - prev) / prev; const up = d >= 0;
+    return el('span', { class: 'text-[10px] font-semibold', style: { color: up ? '#16A34A' : '#DC2626' } }, (up ? '▲ ' : '▼ ') + Math.abs(d * 100).toFixed(0) + '% vs LY');
+  };
+  const src = (t) => el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, t);
+  const tile = (label, value, sub, sourceTxt) => el('div', { class: 'card p-4 flex flex-col gap-0.5' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
+    el('div', { class: 'text-2xl font-black tabular-nums leading-none mt-1' }, value),
+    sub ? el('div', { class: 'mt-1' }, sub) : null,
+    src(sourceTxt));
+
+  // ── Period control
+  const periodBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
+    el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+      ...MKTG_PERIODS.map(([v, l]) => el('button', {
+        class: 'px-2.5 py-1 text-[11px] font-semibold transition',
+        style: period === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+        onclick: () => { state._mktPeriod = v; if (v === 'custom' && !state._mktCustomStart) { state._mktCustomStart = months[0]; state._mktCustomEnd = months[months.length - 1]; } mountApp(); },
+      }, l))),
+    period === 'custom' ? el('div', { class: 'flex items-center gap-1' },
+      el('input', { type: 'month', class: 'rounded-lg border px-2.5 py-1 text-[11px]', value: state._mktCustomStart || '', onchange: (e) => { state._mktCustomStart = e.target.value; mountApp(); } }),
+      el('span', { class: 'text-xs text-muted-' }, '→'),
+      el('input', { type: 'month', class: 'rounded-lg border px-2.5 py-1 text-[11px]', value: state._mktCustomEnd || '', onchange: (e) => { state._mktCustomEnd = e.target.value; mountApp(); } })) : null,
+    el('span', { class: 'text-[11px] text-muted- ml-auto' },
+      months.length === 1 ? reportingMonthLbl(months[0]) : reportingMonthLbl(months[0]) + ' → ' + reportingMonthLbl(months[months.length - 1])
+      + ' · spend ' + (state._isSpendSource === 'QuickBooks' ? 'live from QuickBooks' : 'from file') + (spendUnalloc ? ' · ' + usd0(spendUnalloc) + ' unallocated (Executive)' : '')));
+
+  // ── Tiles
+  const cac = tot.sales > 0 ? spendTot / tot.sales : null, cacPrev = totPrev.sales > 0 ? spendTotPrev / totPrev.sales : null;
+  const roas = spendTot > 0 ? tot.revenue / spendTot : null, roasPrev = spendTotPrev > 0 ? totPrev.revenue / spendTotPrev : null;
+  const tiles = el('div', { class: 'grid grid-cols-2 lg:grid-cols-6 gap-3' },
+    tile('Marketing spend', usd0(spendTot), delta(spendTot, spendTotPrev), 'QuickBooks · branch marketing accounts'),
+    tile('New sales', fmt.int(tot.sales), delta(tot.sales, totPrev.sales), 'FieldRoutes · office staff · pending/serviced'),
+    tile('New revenue', usd0(tot.revenue), delta(tot.revenue, totPrev.revenue), 'FieldRoutes · contract value'),
+    tile('Blended CAC', cac == null ? '—' : usd0(cac), cac != null && cacPrev != null ? delta(-cac, -cacPrev) : null, 'spend ÷ new sales'),
+    tile('ROAS', roas == null ? '—' : roas.toFixed(2) + 'x', roas != null && roasPrev != null ? delta(roas, roasPrev) : null, 'new revenue ÷ spend'),
+    tile('Serviced', pct(tot.serviced, tot.sales), el('span', { class: 'text-[10px] text-muted-' }, fmt.int(tot.serviced) + ' of ' + fmt.int(tot.sales)), 'FieldRoutes · initial completed'));
+
+  // ── Branch table (FieldRoutes × QuickBooks — the reliable join)
+  const offices = [...new Set([...Object.keys(byOffice), ...Object.keys(spendByOffice)])].sort((a, b) => (byOffice[b]?.revenue || 0) - (byOffice[a]?.revenue || 0));
+  const th = (t, right, title) => el('th', { class: 'px-2 py-2 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)' }, title: title || '' }, t);
+  const td = (v, opts = {}) => el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap ' + (opts.left ? 'text-left' : 'text-right') + (opts.bold ? ' font-bold' : ''), style: opts.style || {} }, v);
+  const branchRow = (o, b, sp, prevB, prevSp, isTotal) => {
+    const c = b.sales > 0 ? sp / b.sales : null;
+    const r = sp > 0 ? b.revenue / sp : null;
+    const pc = prevB && prevB.sales > 0 && prevSp ? prevSp / prevB.sales : null;
+    return el('tr', { class: 'border-t border-' + (isTotal ? ' font-bold' : ''), style: isTotal ? { background: 'var(--card-2)' } : {} },
+      td(isTotal ? 'Total' : TC(o), { left: true, bold: true }),
+      td(usd0(sp)), td(fmt.int(b.sales)), td(fmt.int(b.serviced)), td(usd0(b.revenue), { bold: true }),
+      td(c == null ? '—' : usd0(c), { style: c != null && pc != null ? { color: c <= pc ? '#16A34A' : '#DC2626' } : {} }),
+      td(r == null ? '—' : r.toFixed(2) + 'x'),
+      td(pct(b.cancels, b.sales), { style: { color: b.sales > 0 && b.cancels / b.sales >= 0.10 ? '#DC2626' : 'inherit' } }),
+      td(prevB ? usd0(prevB.revenue) : '—', { style: { color: 'var(--text-muted)' } }));
+  };
+  const branchCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, 'By branch'),
+      src('spend: QuickBooks branch marketing accounts · sales, serviced, revenue, cancels: FieldRoutes (office staff, new business)')),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+      el('thead', {}, el('tr', {}, th('Branch'), th('Spend', 1), th('Sales', 1), th('Serviced', 1), th('Revenue', 1), th('CAC', 1, 'Spend ÷ sales · green = better than last year'), th('ROAS', 1, 'Revenue ÷ spend'), th('Cancel %', 1), th('Rev LY', 1, 'Same months last year'))),
+      el('tbody', {},
+        ...offices.map(o => branchRow(o, byOffice[o] || mk(), spendByOffice[o] || 0, byOfficePrev[o], spendByOfficePrev[o] || 0, false)),
+        branchRow('Total', tot, spendTot, totPrev, spendTotPrev, true)))));
+
+  // ── Channel table (FieldRoutes source × manual spend × GHL leads)
+  const sources = Object.keys(bySource).sort((a, b) => bySource[b].revenue - bySource[a].revenue);
+  const spendCell = (s) => {
+    if (!singleMonth) return td(chSpend[s] ? usd0(chSpend[s]) : '—', { style: { color: chSpend[s] ? 'inherit' : 'var(--text-subtle)' } });
+    const cur = (store.channelSpend[singleMonth] || {})[s];
+    const inp = el('input', {
+      type: 'number', step: '1', min: '0', placeholder: '0', value: cur != null ? String(cur) : '',
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] text-right', style: { width: '92px', borderColor: 'var(--border-2)' },
+      title: 'Spend for ' + s + ' in ' + reportingMonthLbl(singleMonth) + ' — saved for every admin',
+      onchange: (e) => {
+        const v = parseFloat(e.target.value);
+        store.channelSpend[singleMonth] = store.channelSpend[singleMonth] || {};
+        if (isNaN(v) || v <= 0) delete store.channelSpend[singleMonth][s]; else store.channelSpend[singleMonth][s] = Math.round(v * 100) / 100;
+        _mktgSaveStore(); mountApp();
+      },
+    });
+    return el('td', { class: 'px-2 py-1 text-right' }, inp);
+  };
+  const chanRow = (s, b, isTotal) => {
+    const sp = isTotal ? chSpendTot : (chSpend[s] || 0);
+    const leads = isTotal ? leadsTot : (leadsBySrc[s] || 0);
+    return el('tr', { class: 'border-t border-' + (isTotal ? ' font-bold' : ''), style: isTotal ? { background: 'var(--card-2)' } : {} },
+      td(isTotal ? 'Total' : s, { left: true, bold: true }),
+      isTotal ? td(usd0(sp)) : spendCell(s),
+      td(leads ? fmt.int(leads) : '—', { style: { color: leads ? 'inherit' : 'var(--text-subtle)' } }),
+      td(fmt.int(b.sales)), td(fmt.int(b.serviced)), td(usd0(b.revenue), { bold: true }),
+      td(sp > 0 && leads > 0 ? usd0(sp / leads) : '—'),
+      td(pct(b.sales, leads)),
+      td(sp > 0 && b.sales > 0 ? usd0(sp / b.sales) : '—'),
+      td(ratio(b.revenue, sp)),
+      td(pct(b.cancels, b.sales), { style: { color: b.sales > 0 && b.cancels / b.sales >= 0.10 ? '#DC2626' : 'inherit' } }));
+  };
+  const chanCard = el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', {},
+        el('h3', { class: 'text-sm font-bold' }, 'By lead source'),
+        src('sales, serviced, revenue, cancels: FieldRoutes · leads: GoHighLevel · spend: entered by hand per month' + (singleMonth ? ' — type into the Spend column to save' : ' — pick a single month to enter spend'))),
+      el('span', { class: 'text-[10px] text-muted-' }, 'Sources hidden in Configurations → Lead Sources are excluded')),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]' },
+      el('thead', {}, el('tr', {}, th('Source'), th('Spend', 1, 'Manual entry'), th('Leads', 1, 'GoHighLevel contacts by source'), th('Sales', 1), th('Serviced', 1), th('Revenue', 1), th('CPL', 1, 'Spend ÷ leads'), th('Close %', 1, 'Sales ÷ leads'), th('CAC', 1, 'Spend ÷ sales'), th('ROAS', 1), th('Cancel %', 1))),
+      el('tbody', {}, ...sources.map(s => chanRow(s, bySource[s], false)), chanRow('Total', tot, true)))));
+
   return el('div', { class: 'flex flex-col gap-4' },
-    reportingIsPacer(),
+    periodBar,
+    tiles,
+    branchCard,
+    chanCard,
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4' },
       reportingMktgSpendRevChart(),
-      reportingMktgLeadsChart(),
-    ),
-    reportingLeadAttribution(),
-    reportingInsideSales(),
+      reportingMktgLeadsChart()),
   );
 }
 
