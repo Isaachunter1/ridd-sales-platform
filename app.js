@@ -46478,6 +46478,38 @@ function viewD2dDashboard() {
     const showDate = r !== 'today' && r !== 'yesterday';
     const _tod = (s) => { const t = _parseIndicatorTime(s); return t ? t.hour * 60 + t.minute : null; };
     const _timeStr = (s) => { const t = _parseIndicatorTime(s); return t ? ((t.hour % 12 || 12) + ':' + String(t.minute).padStart(2, '0') + (t.hour < 12 ? 'a' : 'p') + ' ' + _officeTzShort(s.office)) : '—'; };
+    const _feedTitle = ({ today: "Today's Sales", yesterday: "Yesterday's Sales", week: "This Week's Sales", month: "This Month's Sales", year: "This Year's Sales", all: 'All Sales' })[r] || 'Sales';
+    // Inline accounts table (used by every rep row AND the Total row).
+    const _sortRows = (list) => [...list].sort((a, b) => {
+      const _da = _d2dIso(a) || '', _db = _d2dIso(b) || '';
+      if (_da !== _db) return _db.localeCompare(_da);
+      const ta = _tod(a), tb = _tod(b);
+      return (tb == null ? -1 : tb) - (ta == null ? -1 : ta);
+    });
+    const accountsTable = (title, list, withRep) => el('td', { colspan: 11, class: 'px-4 py-2' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, title + ' \u00b7 ' + list.length + ' account' + (list.length === 1 ? '' : 's')),
+      el('table', { class: 'w-full text-[12px]' },
+        el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' }, el('tr', {},
+          el('th', { class: 'text-left px-2 py-1 font-semibold' }, showDate ? 'Date' : 'Time'),
+          withRep ? el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Rep') : null,
+          el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Customer'),
+          el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Service'),
+          el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Contract'),
+          el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Initial'),
+          el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Value'),
+          el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'APay'))),
+        el('tbody', {}, ...list.slice(0, 400).map(sr => {
+          const _m = Number(sr.contract) || 0;
+          return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, showDate ? (_d2dIso(sr) || '\u2014') : _timeStr(sr)),
+            withRep ? el('td', { class: 'px-2 py-1.5 whitespace-nowrap' }, el('span', { class: 'flex items-center' }, _ofcChip(sr.office), getCanonicalRepName(sr.rep) || '\u2014')) : null,
+            el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap' }, String(sr.customer || '\u2014')),
+            el('td', { class: 'px-2 py-1.5 text-muted- whitespace-nowrap overflow-hidden', style: { maxWidth: '180px', textOverflow: 'ellipsis' } }, String(sr.subscription || '\u2014')),
+            el('td', { class: 'px-2 py-1.5 text-muted- whitespace-nowrap' }, /sentricon/i.test(String(sr.subscription || '')) ? '12 Mo' : (_m > 1 ? _m + ' Mo' : 'One-Time')),
+            el('td', { class: 'px-2 py-1.5 tabular-nums' }, fmt.usd0(Number(sr.initialPrice) || 0)),
+            el('td', { class: 'px-2 py-1.5 tabular-nums font-semibold' }, fmt.usd0(Number(sr.contractValue) || 0)),
+            el('td', { class: 'px-2 py-1.5 text-muted-' }, (sr.autoPay && sr.autoPay !== 'No') ? 'Yes' : 'No'));
+        }))));
     const lbCard = el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'font-display text-lg' }, 'Leaderboard')),
@@ -46486,21 +46518,21 @@ function viewD2dDashboard() {
           ...['#', 'Rep', 'Team', 'Accts', 'Revenue', 'ACV', 'MY %', 'APay %', 'Avg Initial', 'Avg Pest Init', 'Last Resort %'].map(h => el('th', { class: 'px-4 py-2 whitespace-nowrap', title: h === 'MY %' ? 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)' : h === 'Last Resort %' ? 'Accounts under $99 initial \u00f7 all accounts' : '' }, h)))),
         el('tbody', {},
           // Total row (per Isaac — mirrors the Indicators leaderboard): sums +
-          // sales-weighted rates across every rep shown; click opens the
-          // combined player card.
-          (() => {
+          // sales-weighted rates across every rep shown; click expands the
+          // range's accounts.
+          ...(() => {
             const T = reps.reduce((t, o) => ({ n: t.n + o.n, cv: t.cv + o.cv, apay: t.apay + o.apay, init: t.init + o.init, pestInit: t.pestInit + o.pestInit, pestN: t.pestN + o.pestN, multi: t.multi + o.multi, twelve: t.twelve + o.twelve, lastResort: t.lastResort + o.lastResort }),
               { n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0 });
-            const canTot = rows.length > 0 && canViewRepDetails('Total', '');
-            const openTot = () => {
-              if (!canTot) return;
-              const peers = reps.map(o => ({ name: o.name, sales: rows.filter(x => getCanonicalRepName(x.rep) === o.name) })).filter(p => p.sales.length);
-              openIndicatorRepCard(_scopeRep({ name: 'Total', sales: rows }, () => true), peers);
-            };
+            // Click = expand every account sold in this range (per Isaac),
+            // not the combined player card.
+            const canTot = rows.length > 0;
+            const totOpen = state._d2dLbOpen === '__total__';
+            const openTot = () => { state._d2dLbOpen = totOpen ? null : '__total__'; _rebuildBoards(); };
             const tdT = (v, cls) => el('td', { class: 'px-4 py-2 tabular-nums font-bold ' + (cls || '') }, v);
-            return el('tr', {
+            const totDetail = totOpen ? el('tr', { style: { background: 'var(--card-2)' } }, accountsTable(_feedTitle, _sortRows(rows), true)) : null;
+            return [el('tr', {
               class: canTot ? 'cursor-pointer transition hover:brightness-95' : '',
-              title: canTot ? 'Open the combined player card for every rep shown' : '',
+              title: canTot ? (totOpen ? 'Hide accounts' : 'Show every account sold in this range') : '',
               onclick: canTot ? openTot : undefined,
               style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2), inset 0 1px 0 var(--border)' },
             },
@@ -46513,8 +46545,8 @@ function viewD2dDashboard() {
               tdT(((T.multi + T.twelve) ? Math.round(T.multi / (T.multi + T.twelve) * 100) : 0) + '%'),
               tdT((T.n ? Math.round(T.apay / T.n * 100) : 0) + '%'),
               tdT(fmt.usd0(T.n ? T.init / T.n : 0)), tdT(fmt.usd0(T.pestN ? T.pestInit / T.pestN : 0)),
-              tdT((T.n ? (T.lastResort / T.n * 100).toFixed(1) : '0.0') + '%'));
-          })(),
+              tdT((T.n ? (T.lastResort / T.n * 100).toFixed(1) : '0.0') + '%')), totDetail];
+          })().filter(Boolean),
           ...reps.slice(0, 100).flatMap((o, i) => {
           const team = getRepTeam(o.name) || '';
           const clickable = canViewRepDetails(o.name, team);
@@ -46522,35 +46554,8 @@ function viewD2dDashboard() {
           // Click = expand the rep's accounts for this range inline (per
           // Isaac — not the player card). One rep open at a time.
           const isOpen = state._d2dLbOpen === o.name;
-          const repRows = isOpen ? rows.filter(x => getCanonicalRepName(x.rep) === o.name).sort((a, b) => {
-            const _da = _d2dIso(a) || '', _db = _d2dIso(b) || '';
-            if (_da !== _db) return _db.localeCompare(_da);
-            const ta = _tod(a), tb = _tod(b);
-            return (tb == null ? -1 : tb) - (ta == null ? -1 : ta);
-          }) : [];
-          const detailRow = isOpen ? el('tr', { style: { background: 'var(--card-2)' } },
-            el('td', { colspan: 11, class: 'px-4 py-2' },
-              el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, o.name + ' \u00b7 ' + repRows.length + ' account' + (repRows.length === 1 ? '' : 's')),
-              el('table', { class: 'w-full text-[12px]' },
-                el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' }, el('tr', {},
-                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, showDate ? 'Date' : 'Time'),
-                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Customer'),
-                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Service'),
-                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Contract'),
-                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Initial'),
-                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'Value'),
-                  el('th', { class: 'text-left px-2 py-1 font-semibold' }, 'APay'))),
-                el('tbody', {}, ...repRows.map(sr => {
-                  const _m = Number(sr.contract) || 0;
-                  return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-                    el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, showDate ? (_d2dIso(sr) || '\u2014') : _timeStr(sr)),
-                    el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap' }, String(sr.customer || '\u2014')),
-                    el('td', { class: 'px-2 py-1.5 text-muted- whitespace-nowrap overflow-hidden', style: { maxWidth: '180px', textOverflow: 'ellipsis' } }, String(sr.subscription || '\u2014')),
-                    el('td', { class: 'px-2 py-1.5 text-muted- whitespace-nowrap' }, /sentricon/i.test(String(sr.subscription || '')) ? '12 Mo' : (_m > 1 ? _m + ' Mo' : 'One-Time')),
-                    el('td', { class: 'px-2 py-1.5 tabular-nums' }, fmt.usd0(Number(sr.initialPrice) || 0)),
-                    el('td', { class: 'px-2 py-1.5 tabular-nums font-semibold' }, fmt.usd0(Number(sr.contractValue) || 0)),
-                    el('td', { class: 'px-2 py-1.5 text-muted-' }, (sr.autoPay && sr.autoPay !== 'No') ? 'Yes' : 'No'));
-                }))))) : null;
+          const repRows = isOpen ? _sortRows(rows.filter(x => getCanonicalRepName(x.rep) === o.name)) : [];
+          const detailRow = isOpen ? el('tr', { style: { background: 'var(--card-2)' } }, accountsTable(o.name, repRows, false)) : null;
           return [el('tr', {
             class: 'border-t' + (clickable ? ' cursor-pointer' : ''),
             style: { borderColor: 'var(--border)', background: isMe ? 'rgba(223,100,58,.08)' : (isOpen ? 'var(--card-2)' : '') },
@@ -46591,7 +46596,6 @@ function viewD2dDashboard() {
       recordStat('Biggest Sale', biggestSale, true)], 3) : null;
     // \u2500\u2500 Sales feed (per Isaac) \u2014 same Today's Sales list as the Inside
     // Sales dashboard: newest first, ~10 rows visible, the rest scroll.
-    const _feedTitle = ({ today: "Today's Sales", yesterday: "Yesterday's Sales", week: "This Week's Sales", month: "This Month's Sales", year: "This Year's Sales", all: 'All Sales' })[r] || 'Sales';
     const _feedRows = [...rows].sort((a, b) => {
       const _da = _d2dIso(a) || '', _db = _d2dIso(b) || '';
       if (_da !== _db) return _db.localeCompare(_da);
