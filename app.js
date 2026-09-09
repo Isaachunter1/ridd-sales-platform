@@ -26205,21 +26205,18 @@ function indPresetRibbon() {
       const nowOpen = panel.style.display !== 'block';
       state._indPresetsOpen = nowOpen;
       panel.style.display = nowOpen ? 'block' : 'none';
-      caret.textContent = nowOpen ? '\u25b4' : '\u25be';
       Object.assign(tab.style, nowOpen
         ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
         : { background: '', color: 'var(--text)', borderColor: 'var(--border-2)' });
       if (nowOpen) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
         if (panel.contains(ev.target) || tab.contains(ev.target)) return;
         panel.style.display = 'none'; state._indPresetsOpen = false;
-        caret.textContent = '\u25be';
         Object.assign(tab.style, { background: '', color: 'var(--text)', borderColor: 'var(--border-2)' });
         document.removeEventListener('mousedown', closer);
       }), 0);
     },
   }, 'Presets');
-  const caret = el('span', { style: { fontSize: '9px' } }, open ? '\u25b4' : '\u25be');
-  tab.append(caret);
+  const caret = el('span');   // (caret retired — per Isaac, no ▾ on dropdown buttons)
   const panel = el('div', {
     class: 'card',
     style: { position: 'absolute', left: '0', top: 'calc(100% + 6px)', zIndex: 39, width: 'min(300px, calc(100vw - 32px))', maxHeight: '62vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)', padding: '10px', display: open ? 'block' : 'none' },
@@ -30302,36 +30299,6 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 'Save this selection from the Presets ribbon on the left edge.'));
             return el('span', { style: { position: 'relative' } }, btn, panel);
           })(),
-          // Admin-only: row-level reconcile against a pasted CRM SalesReport
-          // export — names the exact accounts (and rules) behind any gap
-          // between this board and the legacy Sales Leaderboard tool.
-          isAdminRole(state.profile?.role) ? el('button', {
-            class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border shrink-0',
-            style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-            title: 'Reconcile vs CRM — paste the CRM SalesReport CSV and see, account by account, why any number differs',
-            onclick: () => openCrmReconcileModal(),
-          }, '⚖') : null,
-          // Rookie/Vet PDF export — icon only, between search and Filters.
-          // Pulls from the unfiltered `allReps` so the report reflects the
-          // full active roster regardless of the current page filters.
-          (() => {
-            const btn = el('button', {
-              class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border shrink-0',
-              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-              title: 'Download a PDF leaderboard: top 15 overall + top 15 rookies, with column-leading metrics highlighted',
-              onclick: async () => {
-                btn.disabled = true;
-                btn.textContent = '…';
-                try {
-                  await downloadRookieVetPdf(allReps);
-                } finally {
-                  btn.disabled = false;
-                  btn.textContent = '📄';
-                }
-              },
-            }, '📄');
-            return (allReps.length > 0 && isAdminRole(state.profile?.role)) ? btn : null;
-          })(),
 
           state.indicatorDept === 'office' ? el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
             ...[['new', 'New'], ['total', 'Total'], ['renewal', 'Renewal']].map(([v, l]) => el('button', {
@@ -30366,8 +30333,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               title: 'Tier, team, office, and cancel-type filters',
               onclick: (e) => { e.stopPropagation(); state._repCancelMenuOpen = !state._repCancelMenuOpen; mountApp(); },
             },
-              el('span', {}, 'Filters' + (activeN ? ' · ' + activeN : '')),
-              el('span', { style: { fontSize: '9px' } }, state._repCancelMenuOpen ? '▴' : '▾')));
+              el('span', {}, 'Filters' + (activeN ? ' · ' + activeN : ''))));
             if (state._repCancelMenuOpen) {
               const secLabel = (t) => el('div', { class: 'px-2.5 pt-2 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t);
               // Tier pills (All / Rookie / Vet / Unassigned)
@@ -30436,6 +30402,27 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             }
             wrap.id = 'rep-cancel-filter-wrap';
             return wrap;
+          })(),
+          // Rookie/Vet PDF export — icon only, far right of the toolbar (per Isaac).
+          // Pulls from the unfiltered `allReps` so the report reflects the
+          // full active roster regardless of the current page filters.
+          (() => {
+            const btn = el('button', {
+              class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95 border shrink-0',
+              style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+              title: 'Download a PDF leaderboard: top 15 overall + top 15 rookies, with column-leading metrics highlighted',
+              onclick: async () => {
+                btn.disabled = true;
+                btn.textContent = '…';
+                try {
+                  await downloadRookieVetPdf(allReps);
+                } finally {
+                  btn.disabled = false;
+                  btn.textContent = '📄';
+                }
+              },
+            }, '📄');
+            return (allReps.length > 0 && isAdminRole(state.profile?.role)) ? btn : null;
           })(),
         ),
       ),
@@ -32424,7 +32411,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
             document.removeEventListener('mousedown', closer);
           }), 0);
         },
-      }, 'Filters' + (_activeN ? ' · ' + _activeN : ''), el('span', { style: { fontSize: '9px' } }, state._trendFiltersOpen ? '▴' : '▾'));
+      }, 'Filters' + (_activeN ? ' · ' + _activeN : ''));
       if (state._trendFiltersOpen) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
         if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
         if (wrap.contains(ev.target)) return;
@@ -35259,7 +35246,7 @@ function indicatorYoYTrendChart() {
       style: nonDefault
         ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
         : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-    }, 'Metric', el('span', { style: { fontSize: '9px' } }, '\u25be'));
+    }, 'Metric');
     return el('div', { class: 'relative inline-flex', title: 'Metric: ' + curLab }, face, selEl);
   })();
 
@@ -35356,7 +35343,7 @@ function indicatorYoYTrendChart() {
           document.removeEventListener('mousedown', closer);
         }), 0); }
       },
-    }, 'Range', el('span', { style: { fontSize: '9px' } }, state._yoyYearsOpen ? '▴' : '▾'));
+    }, 'Range');
     // Label inside the button (per Isaac); the current value rides the tooltip.
     btn.title = 'Range: ' + (gran === 'year' ? 'Years · all' : (gran === 'month' ? 'Months' : 'Weeks') + ' · ' + _yoySelYears.length + 'y');
     if (gran !== 'week' || _yoySelYears.length !== 1) { btn.style.background = 'var(--accent)'; btn.style.color = 'var(--accent-text)'; btn.style.borderColor = 'var(--accent)'; }
@@ -35434,7 +35421,7 @@ function indicatorYoYTrendChart() {
           document.removeEventListener('mousedown', closer);
         }), 0); }
       },
-    }, 'Type', el('span', { style: { fontSize: '9px' } }, state._yoyTiersOpen ? '▴' : '▾'));
+    }, 'Type');
     btn.title = 'Type: ' + label + ' — ' + btn.title;
     if (state._yoyTiersOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
@@ -35543,7 +35530,7 @@ function indicatorYoYTrendChart() {
           document.removeEventListener('mousedown', closer);
         }), 0); }
       },
-    }, 'Scope', el('span', { style: { fontSize: '9px' } }, state._yoyScopesOpen ? '▴' : '▾'));
+    }, 'Scope');
     btn.title = 'Scope: ' + label + ' — ' + btn.title;
     if (state._yoyScopesOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
@@ -47497,7 +47484,7 @@ function reportingWaterfall() {
             document.removeEventListener('mousedown', closer);
           }), 0); }
         },
-      }, 'Years · ' + yearsShown.length, el('span', { style: { fontSize: '9px' } }, state._churnYearsOpen ? '▴' : '▾'));
+      }, 'Years · ' + yearsShown.length);
       if (state._churnYearsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
         if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
         if (wrap.contains(ev.target)) return;
@@ -47582,7 +47569,7 @@ function reportingWaterfall() {
             document.removeEventListener('mousedown', closer);
           }), 0); }
         },
-      }, 'Series · ' + selNow.length, el('span', { style: { fontSize: '9px' } }, state._churnSeriesOpen ? '▴' : '▾'));
+      }, 'Series · ' + selNow.length);
       if (state._churnSeriesOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
         if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
         if (wrap.contains(ev.target)) return;
@@ -47660,7 +47647,7 @@ function reportingWaterfall() {
             document.removeEventListener('mousedown', closer);
           }), 0); }
         },
-      }, 'Years · ' + (isAll ? 'All' : graphYearsSel.length), el('span', { style: { fontSize: '9px' } }, state._churnGraphYearsOpen ? '▴' : '▾'));
+      }, 'Years · ' + (isAll ? 'All' : graphYearsSel.length));
       if (state._churnGraphYearsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
         if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
         if (wrap.contains(ev.target)) return;
@@ -52654,7 +52641,7 @@ function adminReps() {
           document.removeEventListener('mousedown', closer);
         }), 0);
       },
-    }, 'Filters' + (_fActive ? ' · ' + _fActive : ''), el('span', { style: { fontSize: '9px' } }, state._adminUserFiltersOpen ? '▴' : '▾'));
+    }, 'Filters' + (_fActive ? ' · ' + _fActive : ''));
     if (state._adminUserFiltersOpen) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
       if (wrap.contains(ev.target)) return;
