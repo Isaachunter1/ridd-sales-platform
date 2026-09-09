@@ -11132,13 +11132,15 @@ function viewSales() {
     ACTIVE_QUEUE.has(s.audit_status) &&
     s.audit_status !== 'pending' &&
     !s.backend_payroll_processed_at;
-  const isCancelled = (s) => s.audit_status === 'cancelled';
+  // Archived (per Isaac) = cancelled sales PLUS the ones parked as Not
+  // Payable / Reschedule — they're no longer in flight but aren't settled
+  // pay history either. History is strictly the locked / charged-back set.
+  const isCancelled = (s) => s.audit_status === 'cancelled' || HIST_TERMINAL.has(s.audit_status);
   // History = settled. A Lock/Chargeback sale only graduates here once the
   // RUN BACKEND payroll run has stamped backend_payroll_processed_at.
   const isHistory = (s) => {
     const lock = lockOf(s);
-    if ((lock === 'lock' || lock === 'chargeback') && s.backend_payroll_processed_at) return true;
-    return HIST_TERMINAL.has(s.audit_status);
+    return (lock === 'lock' || lock === 'chargeback') && !!s.backend_payroll_processed_at;
   };
   const queueCounts = {
     upfront: source.filter(isUpfrontPending).length,
@@ -11219,9 +11221,9 @@ function viewSales() {
   // pill visible and static on any width.
   const queueToggle = el('div', { class: 'flex flex-wrap gap-2 self-start' },
     ...[
-      { id: 'upfront', label: 'Pending Upfront' },
+      { id: 'upfront', label: 'Sales' },
       { id: 'backend', label: 'Pending Backend Lock' },
-      { id: 'cancels', label: 'Cancels' },
+      { id: 'cancels', label: 'Archived' },
       { id: 'history', label: 'History' },
     ].map(t => el('button', {
       class: 'px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition flex items-center gap-2 whitespace-nowrap',
@@ -11325,9 +11327,9 @@ function viewSales() {
             ? (queueFilter === 'backend'
                 ? 'No sales waiting on a backend-lock decision.'
                 : queueFilter === 'cancels'
-                  ? 'No cancelled sales.'
+                  ? 'Nothing archived \u2014 no cancelled, not-payable or rescheduled sales.'
                   : 'All caught up \u2014 no sales waiting for upfront audit.')
-            : 'Nothing pending. Log a sale with the + New Sale button.')
+            : 'Nothing pending. Log a sale from the Dashboard.')
       : el('div', {},
           // Mobile: card list (hidden on sm+). Tapping a card opens the same
           // edit modal as clicking a desktop row, so the rep can fix details
@@ -36357,8 +36359,8 @@ function viewHistory({ embedded = false } = {}) {
     const lock = s.lock_status || 'pending';
     // Lock/Chargeback don't count as settled until backend payroll has
     // actually run — same gate the Sales tab uses for History pill.
-    if ((lock === 'lock' || lock === 'chargeback') && s.backend_payroll_processed_at) return true;
-    return SETTLED_AUDIT.has(s.audit_status);
+    // Not Payable / Reschedule now live on the Sales tab's Archived pill.
+    return (lock === 'lock' || lock === 'chargeback') && !!s.backend_payroll_processed_at;
   };
   const rows = state.mySales.filter(isSettled).sort((a, b) => new Date(b.sold_date) - new Date(a.sold_date));
   const filterState = { q: '', status: '', source: '' };
