@@ -11166,6 +11166,8 @@ function viewSales() {
   if (sf.status) filtered = filtered.filter(s => s.audit_status === sf.status);
   if (sf.repId) filtered = filtered.filter(s => s.rep_id === sf.repId);
   if (sf.contractTypeId) filtered = filtered.filter(s => s.contract_type_id === Number(sf.contractTypeId));
+  if (sf.sourceId) filtered = filtered.filter(s => s.source_id === Number(sf.sourceId));
+  if (sf.q) { const q = sf.q.toLowerCase(); filtered = filtered.filter(s => ((s.customer_name || '') + ' ' + (s.customer_number || '') + ' ' + (s.notes || '')).toLowerCase().includes(q)); }
 
   // Sortable column headers — click toggles asc/desc, arrow indicator on
   // the active column. Default: newest first by created_at (FIFO inverted).
@@ -11238,10 +11240,24 @@ function viewSales() {
     )),
   );
 
-  // Status + rep filters — reused either inline with + New Sale (Pending
-  // Upfront) or moved up to the toggle row on the review queues (Backend Lock
-  // and Cancels), where there's no + New Sale button to share the row with.
+  // Filter bar (per Isaac): the same search / status / source / Export CSV
+  // strip History uses (minus Export CSV), on every active queue — plus a rep picker for admins.
   const filterControls = () => [
+    el('input', {
+      id: 'sales-queue-q',
+      class: 'flex-1 min-w-[200px] rounded-lg border px-2.5 py-1 text-[11px]',
+      placeholder: 'Search customer or notes…',
+      value: sf.q || '',
+      oninput: e => {
+        sf.q = e.target.value;
+        clearTimeout(state._salesQTimer);
+        state._salesQTimer = setTimeout(() => {
+          mountApp();
+          const inp = document.getElementById('sales-queue-q');
+          if (inp) { inp.focus(); const n = inp.value.length; try { inp.setSelectionRange(n, n); } catch (_) {} }
+        }, 250);
+      },
+    }),
     el('select', {
       class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
       style: { maxWidth: '140px' },
@@ -11259,19 +11275,27 @@ function viewSales() {
       el('option', { value: '', selected: !sf.repId }, 'All reps'),
       ...(state.allProfiles||[]).map(p => el('option', { value: p.id, selected: sf.repId === p.id }, p.full_name)),
     ),
-    (sf.status || sf.repId) && el('button', {
+    el('select', {
+      class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
+      style: { maxWidth: '160px' },
+      onchange: e => { sf.sourceId = e.target.value; mountApp(); },
+    },
+      el('option', { value: '', selected: !sf.sourceId }, 'All sources'),
+      ...(state.sources||[]).map(src => el('option', { value: src.id, selected: String(sf.sourceId) === String(src.id) }, src.name)),
+    ),
+    (sf.status || sf.repId || sf.sourceId || sf.q) && el('button', {
       class: 'text-[11px] font-semibold px-2.5 py-1', style: { color: 'var(--accent)' },
-      onclick: () => { Object.assign(sf, { dateStart:'', dateEnd:'', status:'', repId:'', contractTypeId:'' }); mountApp(); },
+      onclick: () => { Object.assign(sf, { dateStart:'', dateEnd:'', status:'', repId:'', contractTypeId:'', sourceId:'', q:'' }); mountApp(); },
     }, 'Clear'),
   ];
 
   // Top row: queue toggle on the left, status/rep filters right-aligned on
   // every active queue (per Isaac). No + New Sale here — sales are logged
   // from the Dashboard so the metrics stay front and center.
-  const queueRow = el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
-    queueToggle,
-    queueFilter !== 'history' ? el('div', { class: 'flex items-center gap-2 flex-wrap' }, ...filterControls()) : null,
-  );
+  const queueRow = el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, queueToggle);
+  const filterBar = queueFilter !== 'history'
+    ? el('div', { class: 'card p-3 flex flex-wrap gap-2 items-center' }, ...filterControls())
+    : null;
 
   // History pill swaps in the (settled) history view inline — same toggle on
   // top, but the body comes from viewHistory rather than the active-queue
@@ -11286,6 +11310,7 @@ function viewSales() {
 
   return el('div', { class: 'flex flex-col gap-5 w-full' },
     queueRow,
+    filterBar,
 
 
     // 👻 Unlogged sales (per Isaac) — CRM subscriptions in this rep's name
