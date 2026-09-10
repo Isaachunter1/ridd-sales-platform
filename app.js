@@ -11012,8 +11012,10 @@ function leaderboardSection(range) {
             }), { count: 0, revenue: 0, recurring: 0, ots: 0, initSum: 0, myW: 0, mixW: 0, apW: 0, apN: 0 });
             const stick = (left) => ({ position: 'sticky', left, background: 'var(--card-2)', zIndex: 1 });
             return el('tr', { class: 'border-b-2 tabular-nums font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
-              el('td', { class: 'pl-4 pr-1 py-2', style: Object.assign({ minWidth: '40px' }, stick('0')) }, '🏢'),
-              el('td', { class: 'px-2 py-2 whitespace-nowrap', style: stick('40px') }, 'RIDD'),
+              el('td', { class: 'pl-4 pr-1 py-2', style: Object.assign({ minWidth: '40px' }, stick('0')) }, lbOnly.size ? '\u2211' : '🏢'),
+              el('td', { class: 'px-2 py-2 whitespace-nowrap', style: stick('40px') },
+                lbOnly.size ? 'Total' : 'RIDD',
+                el('span', { class: 'text-[10px] text-muted- ml-1.5 font-normal' }, rows.length + ' rep' + (rows.length === 1 ? '' : 's'))),
               el('td', { class: 'px-2 py-2 text-right' }, fmt.int(t.count)),
               el('td', { class: 'px-2 py-2 text-right' }, t.count ? fmt.usd0(t.initSum / t.count) : '—'),
               el('td', { class: 'px-2 py-2 text-right' }, fmt.usd0(t.revenue)),
