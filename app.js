@@ -9169,13 +9169,23 @@ function canViewRepDetails(repName, repTeam) {
   }
   return false;   // 'self' / 'none' — self was already allowed above
 }
+// A combined (Total / RIDD) card is viewable when EVERY rep it rolls up is
+// viewable by this user — so a partner who filtered the board down to their
+// own team (or a preset of their reps) can open the Total card with the
+// sales + retention views, while a company-wide Total stays admin-only.
+function canViewAggregate(reps) {
+  const list = (reps || []).filter(r => r && r.name);
+  if (!list.length) return false;
+  return list.every(r => canViewRepDetails(r.name, r.team));
+}
 function openIndicatorRepCard(rep, allReps = []) {
   if (!rep) return;
   // PRIVACY GATE — admin: anyone · self: always · Rep - Partner: their own
   // team's reps too (they manage them) · everyone else: self only. The
   // leaderboard still shows headline numbers for all; the full card
-  // (accounts, drill-downs, retention) is what's gated.
-  if (!canViewRepDetails(rep.name, rep.team)) return;
+  // (accounts, drill-downs, retention) is what's gated. Aggregates pass
+  // when every member rep does (rep._members set by the Total rows).
+  if (Array.isArray(rep._members) ? !canViewAggregate(rep._members) : !canViewRepDetails(rep.name, rep.team)) return;
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
@@ -30671,13 +30681,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
               // Same pattern as the company-wide RIDD card on the comps
               // table; openIndicatorRepCard's own privacy gate still applies.
               const _totSales = displayReps.flatMap(r => ((r._orig || r).sales) || []);
-              const _canOpenTot = _totSales.length > 0 && canViewRepDetails('Total', '');
+              const _canOpenTot = _totSales.length > 0 && canViewAggregate(displayReps);
               const _openTot = () => {
                 if (!_canOpenTot) return;
                 const peers = displayReps
                   .map(r => ({ name: r.name, sales: ((r._orig || r).sales) || [] }))
                   .filter(p => p.sales.length);
-                openIndicatorRepCard(_scopeRep({ name: 'Total', sales: _totSales }, () => true), peers);
+                const _tot = _scopeRep({ name: 'Total', sales: _totSales }, () => true);
+                _tot._members = displayReps.map(r => ({ name: r.name, team: r.team }));
+                openIndicatorRepCard(_tot, peers);
               };
               return el('tr', {
                 class: _canOpenTot ? 'cursor-pointer transition hover:brightness-95' : '',
@@ -30758,13 +30770,15 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
           const tRevPerDay = tDays > 0 ? tRev / tDays : 0;
           const tAvgDays = (tDays / displayReps.length).toFixed(1);
           const _totSales = displayReps.flatMap(r => ((r._orig || r).sales) || []);
-          const _canOpenTot = _totSales.length > 0 && canViewRepDetails('Total', '');
+          const _canOpenTot = _totSales.length > 0 && canViewAggregate(displayReps);
           const _openTot = () => {
             if (!_canOpenTot) return;
             const peers = displayReps
               .map(r => ({ name: r.name, sales: ((r._orig || r).sales) || [] }))
               .filter(p => p.sales.length);
-            openIndicatorRepCard(_scopeRep({ name: 'Total', sales: _totSales }, () => true), peers);
+            const _tot = _scopeRep({ name: 'Total', sales: _totSales }, () => true);
+            _tot._members = displayReps.map(r => ({ name: r.name, team: r.team }));
+            openIndicatorRepCard(_tot, peers);
           };
           return [el('div', {
             class: 'rounded-xl border px-3 py-2 flex flex-col' + (_canOpenTot ? ' cursor-pointer transition hover:brightness-95' : ''),
