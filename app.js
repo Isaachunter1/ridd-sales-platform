@@ -46032,6 +46032,7 @@ function reportingGeographic() {
       el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
           el('tr', {},
+            el('th', { class: 'px-3 py-2 font-semibold text-left', style: { background: 'var(--card-2)', width: '40px' } }, '#'),
             tableHeader(breakdown.labelCol, breakdown.labelKey),
             tableHeader('State',       'state'),
             tableHeader('Office',      'office'),
@@ -46054,6 +46055,7 @@ function reportingGeographic() {
             if (!T.subs) return null;
             const td = (v, cls) => el('td', { class: 'px-3 py-2 text-left font-black ' + (cls || '') }, v);
             return el('tr', { class: 'tabular-nums', style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2)' } },
+              el('td', { class: 'px-3 py-2 text-base leading-none', style: { fontFamily: 'Georgia, "Times New Roman", serif' } }, '\ud835\udd7d'),
               td('RIDD'), td('All'), td(bOffice !== 'all' ? _mktgTC(bOffice) : 'All'),
               td(T.customers.toLocaleString()), td(T.subs.toLocaleString()),
               td('$' + Math.round(T.avgContract).toLocaleString()), td('$' + Math.round(T.arv).toLocaleString()),
@@ -46062,7 +46064,7 @@ function reportingGeographic() {
               td(T.avgTenure ? T.avgTenure.toFixed(1) + ' mo' : '\u2014'), td(Math.round(T.twoYrPct * 100) + '%'),
               td(Math.round(T.sentriconPct * 100) + '%'), td('$' + Math.round(T.ltv).toLocaleString()));
           })(),
-          ...sortedItems.map(it => el('tr', {
+          ...sortedItems.map((it, i) => el('tr', {
             class: 'border-t cursor-pointer hover:brightness-95 transition tabular-nums',
             style: { borderColor: 'var(--border)' },
             // Row click does three things in order:
@@ -46085,6 +46087,7 @@ function reportingGeographic() {
               });
             },
           },
+            el('td', { class: 'px-3 py-2 text-muted-' }, String(i + 1)),
             el('td', { class: 'px-3 py-2 font-semibold' }, breakdown.cellLabel(it)),
             el('td', { class: 'px-3 py-2' }, it.state || '—'),
             el('td', { class: 'px-3 py-2 whitespace-nowrap', title: 'Branch servicing most of this area\u2019s subs' }, it.office ? _mktgTC(it.office) : '—'),
