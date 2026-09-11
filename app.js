@@ -46108,7 +46108,6 @@ function reportingGeographic() {
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Real cancels (excluded reasons from Configurations don\u2019t count)' }, 'Cancels'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: isRetention ? 'Retention = 1 \u2212 cancels \u00f7 subs (10+ subs)' : 'Attrition = cancels \u00f7 subs (10+ subs)' }, isRetention ? 'Retention %' : 'Attrition %'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Active subs ÷ all subs' }, 'Active %'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'ARV per active sub' }, 'ARV / Active'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Average months on the books' }, 'Avg Tenure'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Share of subs past 24 months' }, '2yr+ %'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Share of customers with a Sentricon (termite) plan on their account' }, 'Sentricon %'),
@@ -46126,7 +46125,6 @@ function reportingGeographic() {
                 td(T.cancellations.toLocaleString()),
                 td(((isRetention ? 1 - T.cancelRate : T.cancelRate) * 100).toFixed(1) + '%'),
                 td(T.subs ? Math.round(T.active / T.subs * 100) + '%' : '\u2014'),
-                td(T.active ? '$' + Math.round(T.arv / T.active).toLocaleString() : '\u2014'),
                 td(T.avgTenure ? T.avgTenure.toFixed(1) + ' mo' : '\u2014'), td(Math.round(T.twoYrPct * 100) + '%'),
                 td(Math.round(T.sentriconPct * 100) + '%'), td('$' + Math.round(T.ltv).toLocaleString()),
                 td(rows.length + (summaryBy === 'state' ? ' states' : ' offices')));
@@ -46150,7 +46148,6 @@ function reportingGeographic() {
                 el('td', { class: 'px-3 py-2 text-left font-semibold', style: rated && !isRetention && s.cancelRate > 0.25 ? { color: '#DC2626' } : {} },
                   rated ? (v * 100).toFixed(1) + '%' : el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '< ' + floor + ' subs')),
                 el('td', { class: 'px-3 py-2 text-left' }, s.subs ? Math.round(s.active / s.subs * 100) + '%' : '—'),
-                el('td', { class: 'px-3 py-2 text-left' }, s.active ? '$' + Math.round(s.arv / s.active).toLocaleString() : '—'),
                 el('td', { class: 'px-3 py-2 text-left' }, s.avgTenure ? s.avgTenure.toFixed(1) + ' mo' : '—'),
                 el('td', { class: 'px-3 py-2 text-left' }, s.subs ? Math.round((s.twoYrPct || 0) * 100) + '%' : '—'),
                 el('td', { class: 'px-3 py-2 text-left' }, s.customers ? Math.round((s.sentriconPct || 0) * 100) + '%' : '—'),
