@@ -45987,9 +45987,10 @@ function reportingGeographic() {
   const breakdownTable = el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'p-4 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', { class: 'min-w-0' },
-        el('h2', { class: 'text-lg font-bold' }, breakdown.title),
-        el('p', { class: 'text-xs text-muted- mt-0.5' },
-          sortedItems.length.toLocaleString() + ' distinct ' + breakdown.nounPlural + ' · click a column to sort · click a row to see how it compares (customers are one click deeper) · sort by Avg Tenure or LTV / Cust to find the stickiest ' + breakdown.nounPlural),
+        el('div', { class: 'flex items-baseline gap-2 flex-wrap' },
+          el('h2', { class: 'text-lg font-bold' }, breakdown.title),
+          el('span', { class: 'text-[11px] font-semibold tabular-nums', style: { color: 'var(--accent)' }, title: 'Distinct ' + breakdown.nounPlural + ' with at least one recurring subscription' },
+            sortedItems.length.toLocaleString() + ' distinct ' + breakdown.nounPlural)),
       ),
       el('div', { class: 'flex items-center gap-2 shrink-0' },
         bOfficeSel,
@@ -46102,13 +46103,7 @@ function reportingGeographic() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'p-4 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex-1 min-w-0' },
-          el('h2', { class: 'text-lg font-bold' }, summaryBy === 'state' ? 'State breakdown' : 'Office breakdown'),
-          el('p', { class: 'text-xs text-muted- mt-0.5' },
-            summaryBy === 'state'
-              ? (office === 'all'
-                  ? 'Whole company by state — set the Office filter above to read one branch across state lines (e.g. Myrtle Beach: NC vs SC). Click a row to drill in.'
-                  : officeLabel(office) + '\u2019s book split by state — cross-border comparison for this branch only. Click a row to drill in.')
-              : 'Every branch\u2019s recurring book side by side \u2014 same rules as the Overview cards \u2014 flip to State for the cross-border view.')),
+          el('h2', { class: 'text-lg font-bold' }, summaryBy === 'state' ? 'State breakdown' : 'Office breakdown')),
         byToggle),
       el('div', { class: 'overflow-x-auto' },
         el('table', { class: 'w-full text-xs' },
