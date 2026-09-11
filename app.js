@@ -45259,6 +45259,25 @@ function openReportingServicesModal(area, label) {
   document.body.append(overlay);
 }
 
+// Roll a set of finalized geo buckets (ZIPs / counties / offices / states)
+// into one RIDD total — sums for counts and dollars, sub- or customer-
+// weighted for the rates — for the 𝕽 row pinned atop each table.
+function reportingGeoTotal(items) {
+  const t = { customers: 0, subs: 0, active: 0, contract: 0, arv: 0, cancellations: 0, tenureW: 0, twoYrW: 0, sentW: 0, ltvW: 0 };
+  for (const it of items || []) {
+    t.customers += it.customers || 0; t.subs += it.subs || 0; t.active += it.active || 0;
+    t.contract += it.contract || 0; t.arv += it.arv || 0; t.cancellations += it.cancellations || 0;
+    t.tenureW += (it.avgTenure || 0) * (it.subs || 0); t.twoYrW += (it.twoYrPct || 0) * (it.subs || 0);
+    t.sentW += (it.sentriconPct || 0) * (it.customers || 0); t.ltvW += (it.ltv || 0) * (it.customers || 0);
+  }
+  return {
+    name: 'RIDD', customers: t.customers, subs: t.subs, active: t.active, contract: t.contract, arv: t.arv, cancellations: t.cancellations,
+    avgContract: t.subs ? t.contract / t.subs : 0, cancelRate: t.subs ? t.cancellations / t.subs : 0,
+    avgTenure: t.subs ? t.tenureW / t.subs : 0, twoYrPct: t.subs ? t.twoYrW / t.subs : 0,
+    sentriconPct: t.customers ? t.sentW / t.customers : 0, ltv: t.customers ? t.ltvW / t.customers : 0,
+    attritionEligible: t.subs >= 10, rows: [],
+  };
+}
 function reportingGeoAggregate(rows) {
   const ATTRITION_MIN_SUBS = 10;
   // Same attrition exclusions as the Overview tab — reasons the admin marked
@@ -45982,6 +46001,21 @@ function reportingGeographic() {
           ),
         ),
         el('tbody', {},
+          // 𝕽 RIDD — everything in the table rolled up (per Isaac, like the leaderboards).
+          (() => {
+            const T = reportingGeoTotal(sortedItems);
+            if (!T.subs) return null;
+            const td = (v, cls) => el('td', { class: 'px-3 py-2 text-left font-black ' + (cls || '') }, v);
+            return el('tr', { class: 'tabular-nums', style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2)' } },
+              el('td', { class: 'px-3 py-2 text-base leading-none', style: { fontFamily: 'Georgia, "Times New Roman", serif' } }, '\ud835\udd7d'),
+              td('RIDD'), td(bOffice !== 'all' ? _mktgTC(bOffice) : 'All'),
+              td(T.customers.toLocaleString()), td(T.subs.toLocaleString()),
+              td('$' + Math.round(T.avgContract).toLocaleString()), td('$' + Math.round(T.arv).toLocaleString()),
+              td(T.cancellations.toLocaleString()),
+              td(((isRetention ? 1 - T.cancelRate : T.cancelRate) * 100).toFixed(1) + '%'),
+              td(T.avgTenure ? T.avgTenure.toFixed(1) + ' mo' : '\u2014'), td(Math.round(T.twoYrPct * 100) + '%'),
+              td(Math.round(T.sentriconPct * 100) + '%'), td('$' + Math.round(T.ltv).toLocaleString()));
+          })(),
           ...sortedItems.map(it => el('tr', {
             class: 'border-t cursor-pointer hover:brightness-95 transition tabular-nums',
             style: { borderColor: 'var(--border)' },
@@ -46079,6 +46113,24 @@ function reportingGeographic() {
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Realized recurring revenue per customer' }, 'LTV / Cust'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: summaryBy === 'state' ? 'Branches servicing this state, biggest first' : 'States this branch services, biggest first' }, summaryBy === 'state' ? 'Offices' : 'States'))),
           el('tbody', {},
+            (() => {
+              const T = reportingGeoTotal(rows);
+              if (!T.subs) return null;
+              const td = (v) => el('td', { class: 'px-3 py-2 text-left font-black' }, v);
+              return el('tr', { class: 'tabular-nums', style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2)' } },
+                el('td', { class: 'px-3 py-2 whitespace-nowrap' },
+                  el('span', { class: 'text-base leading-none mr-2', style: { fontFamily: 'Georgia, "Times New Roman", serif' } }, '\ud835\udd7d'),
+                  el('span', { class: 'font-black' }, 'RIDD')),
+                td(T.customers.toLocaleString()), td(T.subs.toLocaleString()), td(T.active.toLocaleString()),
+                td('$' + Math.round(T.avgContract).toLocaleString()), td('$' + Math.round(T.arv).toLocaleString()),
+                td(T.cancellations.toLocaleString()),
+                td(((isRetention ? 1 - T.cancelRate : T.cancelRate) * 100).toFixed(1) + '%'),
+                td(T.subs ? Math.round(T.active / T.subs * 100) + '%' : '\u2014'),
+                td(T.active ? '$' + Math.round(T.arv / T.active).toLocaleString() : '\u2014'),
+                td(T.avgTenure ? T.avgTenure.toFixed(1) + ' mo' : '\u2014'), td(Math.round(T.twoYrPct * 100) + '%'),
+                td(Math.round(T.sentriconPct * 100) + '%'), td('$' + Math.round(T.ltv).toLocaleString()),
+                td(rows.length + (summaryBy === 'state' ? ' states' : ' offices')));
+            })(),
             ...rows.map(s => {
               const rated = s.subs >= floor;
               const v = isRetention ? (1 - s.cancelRate) : s.cancelRate;
