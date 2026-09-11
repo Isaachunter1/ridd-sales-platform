@@ -37231,12 +37231,11 @@ function viewScorecards() {
   // missing this month's review, how many action items are open.
   if (typeof meetingCadence === 'function' && roster.length) {
     const cads = roster.map(p => meetingCadence(p.id));
-    const overdue = cads.filter(c => c.status === 'overdue' || c.status === 'never').length;
-    const reviewDue = cads.filter(c => !c.reviewThisMonth).length;
+    const noCoaching = cads.filter(c => !c.coachingThisMonth).length;
     const openItems = cads.reduce((t, c) => t + c.openItems, 0);
-    summaryStrip.append(scorecardSummaryCard('1:1 Cadence', overdue ? overdue + ' overdue' : 'On track',
-      reviewDue + ' without this month\u2019s review \u00b7 ' + openItems + ' open action item' + (openItems === 1 ? '' : 's'),
-      overdue ? '#B91C1C' : '#3D7A66'));
+    summaryStrip.append(scorecardSummaryCard('1:1 Cadence', noCoaching ? noCoaching + ' still to meet' : 'Everyone met',
+      (roster.length - noCoaching) + ' of ' + roster.length + ' coached this month \u00b7 ' + openItems + ' open action item' + (openItems === 1 ? '' : 's'),
+      noCoaching ? '#B91C1C' : '#3D7A66'));
     summaryStrip.className = 'grid grid-cols-2 sm:grid-cols-5 gap-3';
   }
   container.append(summaryStrip);
@@ -37437,18 +37436,19 @@ function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen, onMeetin
       ? el('span', { class: 'flex items-center gap-1.5 flex-wrap' }, ...stampChips)
       : el('span', { class: 'text-muted-' },
           isEmpty ? 'No score this period' : 'Click to edit / view detail'),
-    el('span', { class: 'flex items-center gap-1.5 shrink-0' },
-      cad ? el('button', {
-        class: 'rounded-lg px-2 py-1 text-[10px] font-bold border transition hover:brightness-95 whitespace-nowrap',
-        style: { borderColor: cad.color, color: cad.color },
-        title: cad.label + ' \u2014 open the 1:1 log',
-        onclick: (e) => { e.stopPropagation(); if (onMeetings) onMeetings(); },
-      }, cad.status === 'ok' ? '1:1 \u2713 ' + cad.days + 'd' : cad.status === 'never' ? '1:1 none' : cad.status === 'review_due' ? '1:1 review due' : '1:1 ' + cad.days + 'd!') : null,
-      el('button', {
-        class: 'rounded-lg px-2 py-1 text-[10px] font-bold border transition hover:brightness-95',
-        style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
-        onclick: (e) => { e.stopPropagation(); onOpen(); },
-      }, isEmpty ? '+ Score' : 'Open')),
+    // One button (per Isaac): + Log Meeting — red until this month's
+    // coaching 1:1 is logged, green after. The performance review (with
+    // the score) and the coaching session both live inside it.
+    cad ? el('button', {
+      class: 'rounded-lg px-2 py-1 text-[10px] font-bold border transition hover:brightness-95 whitespace-nowrap shrink-0',
+      style: { borderColor: cad.coachingThisMonth ? '#3D7A66' : '#DC2626', color: cad.coachingThisMonth ? '#3D7A66' : '#DC2626' },
+      title: (cad.coachingThisMonth ? 'Coaching 1:1 logged this month' : 'No coaching 1:1 logged this month') + ' \u2014 log a performance review or coaching session',
+      onclick: (e) => { e.stopPropagation(); if (onMeetings) onMeetings(); },
+    }, '+ Log Meeting') : el('button', {
+      class: 'rounded-lg px-2 py-1 text-[10px] font-bold border transition hover:brightness-95',
+      style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
+      onclick: (e) => { e.stopPropagation(); onOpen(); },
+    }, isEmpty ? '+ Score' : 'Open'),
   );
 
   return el('div', {
@@ -37851,7 +37851,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
 // ════════════════════════════════════════════════════════════════════════
 const MEETING_KINDS = {
   review:   { label: 'Performance review', short: 'Review',   color: '#DF643A', desc: 'Start of month — scorecard + metric review' },
-  coaching: { label: 'Coaching session',   short: 'Coaching', color: '#1F6F84', desc: 'Mid-month — training + what to actively work on' },
+  coaching: { label: 'Coaching session',   short: 'Coaching', color: '#1F6F84', desc: 'Mid-month review — training + what to actively work on' },
 };
 const MEETING_CADENCE_DAYS = 14;
 function _mtgAll() { return Array.isArray(state._scorecardMeetings) ? state._scorecardMeetings : (state._scorecardMeetings = []); }
@@ -37904,6 +37904,7 @@ function meetingCadence(profileId) {
   const days = last ? _mtgDays(last.meeting_date) : null;
   const ym = _mtgIso(new Date()).slice(0, 7);
   const reviewThisMonth = ms.some(m => m.kind === 'review' && String(m.period || m.meeting_date || '').slice(0, 7) === ym);
+  const coachingThisMonth = ms.some(m => m.kind === 'coaching' && String(m.period || m.meeting_date || '').slice(0, 7) === ym);
   const dayOfMonth = new Date().getDate();
   let status, color, label;
   if (!last) { status = 'never'; color = '#DC2626'; label = 'No 1:1 logged'; }
@@ -37911,7 +37912,7 @@ function meetingCadence(profileId) {
   else if (!reviewThisMonth && dayOfMonth > 10) { status = 'review_due'; color = '#B45309'; label = 'Monthly review not logged'; }
   else { status = 'ok'; color = '#3D7A66'; label = 'Last 1:1 ' + days + 'd ago'; }
   const openItems = ms.length ? (ms[0].action_items || []).filter(a => a && !a.done).length : 0;
-  return { last, days, status, color, label, reviewThisMonth, openItems, count: ms.length, nextKind: reviewThisMonth ? 'coaching' : 'review' };
+  return { last, days, status, color, label, reviewThisMonth, coachingThisMonth, openItems, count: ms.length, nextKind: reviewThisMonth ? 'coaching' : 'review' };
 }
 // Plain-English insights built from the meeting history + scorecards.
 function meetingInsights(profile, tpl) {
@@ -37990,6 +37991,58 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
       itemsBox.append(el('button', { class: 'self-start text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { (m.action_items = m.action_items || []).push({ text: '', done: false }); drawItems(); setTimeout(() => { const t = itemsBox.querySelectorAll('input[type=text]'); if (t.length) t[t.length - 1].focus(); }, 0); } }, '+ Action item'));
     };
     drawItems();
+    // ── Performance review: the SCORE lives here (per Isaac). Period
+    // defaults to the meeting's month; any prior / future month can be
+    // picked. Inputs write straight to that month's scorecard.
+    const reviewBlock = () => {
+      if (m.kind !== 'review') return null;
+      const now = new Date();
+      const opts = [];
+      for (let i = -12; i <= 2; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        opts.push({ key: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'), label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) });
+      }
+      if (!opts.some(o => o.key === m.period)) opts.push({ key: m.period, label: m.period });
+      opts.sort((a, b) => b.key.localeCompare(a.key));
+      const card = (state._scorecardData || {})[profile.id + '|' + m.period] || { metrics: {}, attendance: {} };
+      const sc = computeScorecardScore(card, tpl, m.period);
+      const band = scorecardBand(sc && sc.coverage > 0 ? sc.final : null);
+      const host = el('div', { class: 'rounded-lg border p-3 flex flex-col gap-2', style: { borderColor: 'var(--border)', background: 'var(--card)' } });
+      const head = el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Scorecard for'),
+        el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer font-semibold', style: { borderColor: 'var(--border-2)' },
+          onchange: (e) => { m.period = e.target.value; render(); } },
+          ...opts.map(o => el('option', { value: o.key, selected: o.key === m.period }, o.label))),
+        el('span', { class: 'ml-auto text-lg font-black tabular-nums', style: { color: band.color } }, sc && sc.coverage > 0 ? sc.final.toFixed(1) + '%' : '—'),
+        el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: band.bg, color: band.color } }, sc && sc.coverage > 0 ? band.label : 'not scored'));
+      host.append(head);
+      const rowsBox = el('div', { class: 'flex flex-col gap-1.5' });
+      (tpl.metrics || []).filter(x => x.source === 'manual').forEach(x => {
+        const v = card.metrics ? card.metrics[x.id] : undefined;
+        rowsBox.append(el('div', { class: 'flex items-center gap-2' },
+          el('span', { class: 'flex-1 text-[12px] font-semibold' }, x.label, el('span', { class: 'text-[10px] text-muted- font-normal ml-1' }, Math.round(x.weight * 100) + '%')),
+          el('input', { type: 'number', min: '0', max: '100', step: '0.1', placeholder: '0–100', value: Number.isFinite(v) ? String(v) : '',
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', width: '84px' },
+            onchange: (e) => { const n = e.target.value === '' ? null : Number(e.target.value); const mm = { ...(card.metrics || {}) }; if (n == null) delete mm[x.id]; else mm[x.id] = n; scorecardUpsertCard(profile.id, m.period, { metrics: mm }); render(); } })));
+      });
+      const att = tpl.attendance || {};
+      if ((att.penalties || []).length) {
+        const attScore = computeAttendanceScore(card.attendance || {}, att, m.period);
+        rowsBox.append(el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mt-1' }, 'Attendance · ' + attScore.toFixed(1) + '%'));
+        (att.penalties || []).forEach(pn => {
+          const v = card.attendance ? card.attendance[pn.id] : undefined;
+          rowsBox.append(el('div', { class: 'flex items-center gap-2' },
+            el('span', { class: 'flex-1 text-[12px]' }, pn.label),
+            el('input', { type: 'number', min: '0', step: '1', placeholder: '0', value: Number.isFinite(Number(v)) && v !== '' && v != null ? String(v) : '',
+              class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', width: '84px' },
+              onchange: (e) => { const a2 = { ...(card.attendance || {}) }; a2[pn.id] = e.target.value === '' ? 0 : Number(e.target.value); scorecardUpsertCard(profile.id, m.period, { attendance: a2 }); render(); } })));
+        });
+      }
+      host.append(rowsBox);
+      host.append(el('button', { class: 'self-start text-[11px] font-semibold', style: { color: 'var(--accent)' },
+        onclick: () => openScorecardDetailModal(profile, m.period, tpl, (pid, patch) => scorecardUpsertCard(pid, m.period, patch), canEdit) }, 'Full scorecard (audits, notes) →'));
+      return host;
+    };
     const k = MEETING_KINDS[m.kind];
     return el('div', { class: 'card p-4 flex flex-col gap-3', style: { borderLeft: '4px solid ' + k.color, background: 'var(--card-2)' } },
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
@@ -37997,6 +38050,7 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
           ...Object.entries(MEETING_KINDS).map(([kk, kv]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: m.kind === kk ? { background: kv.color, color: '#fff' } : { color: 'var(--text-muted)' }, onclick: () => { m.kind = kk; render(); } }, kv.short))),
         el('input', { type: 'date', value: m.meeting_date, class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { m.meeting_date = e.target.value; m.period = String(e.target.value).slice(0, 7); } }),
         el('span', { class: 'text-[11px] text-muted-' }, k.desc)),
+      reviewBlock(),
       el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, m.kind === 'review' ? 'Metric review — what the numbers said and why' : 'What we worked on'), inp('notes', m.kind === 'review' ? 'Where they landed vs the template, what drove it, what we agreed to change…' : 'Training covered, role-plays, calls reviewed, what to practise…', 4)),
       el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, 'Wins since last time'), inp('wins', 'What improved, what they nailed…', 2)),
       el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, 'Focus areas'), focusBox),
