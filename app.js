@@ -9188,10 +9188,29 @@ const isMyRepName = (name) => !!name && myRepNameSet().has(getCanonicalRepName(n
 // ── Rep-detail visibility — one gate for player cards + record expansions.
 // Admin: anyone. Self: always. Rep - Partner: also reps on THEIR OWN team.
 // Everyone else: self only.
+// App profile behind a dataset rep name (name signature match) — gives the
+// player card its real profile photo and the rep's department.
+function profileForRepName(repName) {
+  const sig = _repTypeNameSig(typeof getCanonicalRepName === 'function' ? getCanonicalRepName(repName) : repName);
+  if (!sig) return null;
+  return (state.allProfiles || []).find(p => _repTypeNameSig(p.full_name) === sig) || null;
+}
 function canViewRepDetails(repName, repTeam) {
   const me = state.profile;
   if (!me) return false;
   if (isAdminRole(me.role)) return true;
+  // Team leads (per Isaac): every card in their OWN department — an
+  // Inside Sales lead reaches Inside Sales agents, a Loyalty lead reaches
+  // Loyalty agents. Office-staff names without an app profile count as
+  // the lead's department only when the viewer is Inside Sales.
+  if (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(me.role)) {
+    const target = profileForRepName(repName);
+    if (target) return isOfficeStaffProfile(target) && scorecardDeptOf(target) === scorecardDeptOf(me);
+    try {
+      const t = (state._indicatorRepTypeBySig || {})[_repTypeNameSig(getCanonicalRepName(repName))];
+      if (t && /office\s*staff/i.test(t)) return scorecardDeptOf(me) === 'inside_sales';
+    } catch (e) { /* fall through */ }
+  }
   const _sigG = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
   // Self is ALWAYS viewable, whatever the configured reach.
   if (_sigG(repName) === _sigG(me.full_name) || isMyRepName(repName)) return true;
@@ -9257,7 +9276,10 @@ function openIndicatorRepCard(rep, allReps = []) {
   // leaderboard still shows headline numbers for all; the full card
   // (accounts, drill-downs, retention) is what's gated. Aggregates pass
   // when every member rep does (rep._members set by the Total rows).
-  if (Array.isArray(rep._members) ? !canViewAggregate(rep._members) : !canViewRepDetails(rep.name, rep.team)) return;
+  // Per Isaac: any rep may open another agent's card and read the SALES
+  // view; the Retention toggle (audits, attrition, account drill) needs
+  // full access — admin, own card, or a lead inside their department.
+  const fullAccess = Array.isArray(rep._members) ? canViewAggregate(rep._members) : canViewRepDetails(rep.name, rep.team);
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
@@ -10463,7 +10485,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     // the name into a one-word-per-line column on phones.
     return el('div', { class: 'flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-5' },
       el('div', { class: 'flex items-center gap-4 flex-1 min-w-0' },
-        avatarNode(null, initials, 'w-16 h-16 text-lg'),
+        avatarNode((profileForRepName(rep.name) || {}).avatar_url || null, initials, 'w-16 h-16 text-lg'),
         el('div', { class: 'flex-1 min-w-0' },
           el('div', { class: 'text-xl font-bold flex items-center gap-2 flex-wrap' },
             rep.name,
@@ -10497,7 +10519,7 @@ function openIndicatorRepCard(rep, allReps = []) {
         // player card (audits, serviced/active/cancelled revenue, attrition)
         // computed from this rep's sales in the shared dataset, so reps can
         // see it without the admin-only Reporting snapshot.
-        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+        fullAccess && el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
           ...[['sales', 'Sales'], ['retention', 'Retention']].map(([vid, lab]) => el('button', {
             class: 'px-2.5 py-1 text-[11px] font-semibold transition',
             style: cardView === vid
@@ -10535,7 +10557,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   function renderBody() {
     applyScope();  // refresh scopedRep / scopedAllRepRecords / scopedStats
     modal.innerHTML = '';
-    if (cardView === 'retention') { modal.append(header(), retentionBlock()); return; }
+    if (cardView === 'retention' && fullAccess) { modal.append(header(), retentionBlock()); return; }
     modal.append(
       header(),
       statsGrid(),
@@ -47123,7 +47145,7 @@ function viewD2dDashboard() {
           })().filter(Boolean),
           ...reps.slice(0, 100).flatMap((o, i) => {
           const team = getRepTeam(o.name) || '';
-          const clickable = canViewRepDetails(o.name, team);
+          const clickable = true;   // any rep may open the Sales view (per Isaac)
           const isMe = _sigMe(o.name) === meSig || isMyRepName(o.name);
           // Click = expand the rep's accounts for this range inline (per
           // Isaac — not the player card). One rep open at a time.
