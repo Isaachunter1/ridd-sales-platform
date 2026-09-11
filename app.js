@@ -45226,9 +45226,22 @@ function reportingGeoAggregate(rows) {
     arv: 0,
     cancellations: 0,
     active: 0,
+    // LTV / stickiness (per Isaac): months each sub has been on the books
+    // (first service → cancel date, or → today while still active), the
+    // recurring dollars that tenure earned (ARV ÷ 12 × months), and how
+    // many subs have made it past two years.
+    tenureMo: 0, tenureN: 0, ltvRev: 0, twoYr: 0,
     rows: [],
     state: null,
   });
+  const _today = Date.now();
+  const _tenureMonths = (r) => {
+    const s0 = r.initial_service || r.sold_date; if (!s0) return null;
+    const a = new Date(String(s0).slice(0, 10) + 'T00:00'); if (isNaN(a)) return null;
+    const b = r.subscription_date_canceled ? new Date(String(r.subscription_date_canceled).slice(0, 10) + 'T00:00') : new Date(_today);
+    const mo = (b - a) / (86400000 * 30.4375);
+    return mo > 0 ? mo : 0;
+  };
 
   const byState = new Map();
   // ZIP buckets are keyed on state+zip so two customers in different
@@ -45257,6 +45270,8 @@ function reportingGeoAggregate(rows) {
       // Active = currently in service: status says active AND no cancel
       // date (matches isActive() in reportingFilters).
       if ((r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled) m.active += 1;
+      const _tm = _tenureMonths(r);
+      if (_tm != null) { m.tenureMo += _tm; m.tenureN += 1; m.ltvRev += (Number(r.annual_recurring_value) || 0) / 12 * _tm; if (_tm >= 24) m.twoYr += 1; }
       m.rows.push(r);
     }
     // Stamp the bucket's display state + zip on first sight (constant
@@ -45278,6 +45293,9 @@ function reportingGeoAggregate(rows) {
     active: m.active,
     avgContract: m.subs > 0 ? m.contract / m.subs : 0,
     cancelRate:  m.subs > 0 ? m.cancellations / m.subs : 0,
+    avgTenure:   m.tenureN > 0 ? m.tenureMo / m.tenureN : 0,          // months
+    ltv:         m.customers.size > 0 ? m.ltvRev / m.customers.size : 0, // realized recurring $ per customer
+    twoYrPct:    m.tenureN > 0 ? m.twoYr / m.tenureN : 0,
     rows: m.rows,
   });
 
@@ -45444,7 +45462,7 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
 function exportReportingGeoCsv(items, kind, scopeTag) {
   if (!items || !items.length) { toast('Nothing to export', 'warn'); return; }
   const firstCol = kind === 'county' ? 'county' : 'zip';
-  const headers = [firstCol, 'state', 'offices', 'accounts', 'subscriptions', 'avg_contract_value', 'total_arv', 'active_subscriptions', 'cancellations', 'attrition_pct'];
+  const headers = [firstCol, 'state', 'offices', 'accounts', 'subscriptions', 'avg_contract_value', 'total_arv', 'active_subscriptions', 'cancellations', 'attrition_pct', 'avg_tenure_months', 'two_year_plus_pct', 'ltv_per_customer'];
   const lines = [headers.join(',')];
   for (const it of items) {
     // Distinct office names contributing to this ZIP/county, in volume order.
@@ -45467,6 +45485,9 @@ function exportReportingGeoCsv(items, kind, scopeTag) {
       // Mirror the table: attrition is only meaningful with 10+ subs, so
       // leave it blank below the floor rather than print a noisy rate.
       it.attritionEligible ? (it.cancelRate * 100).toFixed(1) : '',
+      (it.avgTenure || 0).toFixed(1),
+      Math.round((it.twoYrPct || 0) * 100),
+      Math.round(it.ltv || 0),
     ].join(','));
   }
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
@@ -45836,7 +45857,7 @@ function reportingGeographic() {
       el('div', { class: 'min-w-0' },
         el('h2', { class: 'text-lg font-bold' }, breakdown.title),
         el('p', { class: 'text-xs text-muted- mt-0.5' },
-          sortedItems.length.toLocaleString() + ' distinct ' + breakdown.nounPlural + ' · click a column to sort · click a row to see how it compares (customers are one click deeper)'),
+          sortedItems.length.toLocaleString() + ' distinct ' + breakdown.nounPlural + ' · click a column to sort · click a row to see how it compares (customers are one click deeper) · sort by Avg Tenure or LTV / Cust to find the stickiest ' + breakdown.nounPlural),
       ),
       el('button', {
         class: 'shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
@@ -45857,6 +45878,9 @@ function reportingGeographic() {
             tableHeader('Total ARV',   'arv',         true),
             tableHeader('Cancels',     'cancellations', true),
             tableHeader(isRetention ? 'Retention %' : 'Attrition %', 'cancelRate',  true),
+            tableHeader('Avg Tenure',  'avgTenure',   true),
+            tableHeader('2yr+ %',      'twoYrPct',    true),
+            tableHeader('LTV / Cust',  'ltv',         true),
           ),
         ),
         el('tbody', {},
@@ -45891,6 +45915,9 @@ function reportingGeographic() {
             el('td', { class: 'px-3 py-2 text-right' }, '$' + Math.round(it.arv).toLocaleString()),
             el('td', { class: 'px-3 py-2 text-right' }, it.cancellations.toLocaleString()),
             el('td', { class: 'px-3 py-2 text-right' }, fmtPctTable(it)),
+            el('td', { class: 'px-3 py-2 text-right', title: 'Average months on the books (first service → cancel, or → today if still active)' }, it.avgTenure ? it.avgTenure.toFixed(1) + ' mo' : '—'),
+            el('td', { class: 'px-3 py-2 text-right', title: 'Share of subs that have lasted 24+ months' }, it.subs ? Math.round(it.twoYrPct * 100) + '%' : '—'),
+            el('td', { class: 'px-3 py-2 text-right font-semibold', title: 'Realized recurring revenue per customer — ARV ÷ 12 × months on the books' }, it.ltv ? '$' + Math.round(it.ltv).toLocaleString() : '—'),
           )),
         ),
       ),
@@ -45949,113 +45976,6 @@ function reportingGeographic() {
             })))));
   })() : null;
 
-  // ── 🎯 TERRITORY INTELLIGENCE — per-ZIP classification from presence,
-  // retention, and momentum. Fortress = defend, Fix = churn problem inside
-  // a big footprint, Rising = momentum, Whitespace = knock targets (weak
-  // presence in a county where our book already retains well). ──
-  const territoryCard = (() => {
-    const zipsPool = (mapLevel === 'state' && drilledState) ? zipsInDrilledState : agg.zips;
-    const zs = zipsPool.filter(z => z.zip && z.zip !== 'Unknown' && z.subs >= 3);
-    if (zs.length < 8) return null;
-    const now3 = new Date();
-    const iso = (d) => d.toISOString().slice(0, 10);
-    const cut12 = iso(new Date(now3.getFullYear() - 1, now3.getMonth(), now3.getDate()));
-    const cut24 = iso(new Date(now3.getFullYear() - 2, now3.getMonth(), now3.getDate()));
-    const scoredZips = zs.map(z => {
-      let new12 = 0, prev12 = 0;
-      z.rows.forEach(r => {
-        const i0 = String(r.initial_service || '');
-        if (i0 >= cut12) new12++;
-        else if (i0 >= cut24) prev12++;
-      });
-      return { z, new12, prev12, momentum: prev12 >= 3 ? (new12 - prev12) / prev12 : (new12 >= 5 ? 1 : 0) };
-    });
-    const subsSorted = scoredZips.map(s => s.z.subs).sort((a, b) => a - b);
-    const pctl = (v) => subsSorted.length > 1 ? subsSorted.filter(x => x <= v).length / subsSorted.length : 0.5;
-    const rated = scoredZips.filter(s => s.z.attritionEligible);
-    const cxlSorted = rated.map(s => s.z.cancelRate).sort((a, b) => a - b);
-    const medCxl = cxlSorted.length ? cxlSorted[Math.floor(cxlSorted.length / 2)] : 0.3;
-    // County strength = avg cancel rate across its rated ZIPs.
-    const countyC = new Map();
-    rated.forEach(s => {
-      const k = (s.z.state || '') + '|' + (s.z.rows[0] && s.z.rows[0].county || '');
-      const o = countyC.get(k) || { sum: 0, n: 0 }; o.sum += s.z.cancelRate; o.n++; countyC.set(k, o);
-    });
-    scoredZips.forEach(s => {
-      const p = pctl(s.z.subs);
-      const goodRet = s.z.attritionEligible ? s.z.cancelRate <= medCxl : null;
-      const k = (s.z.state || '') + '|' + (s.z.rows[0] && s.z.rows[0].county || '');
-      const cs = countyC.get(k);
-      s.countyStrong = !!(cs && cs.n >= 2 && cs.sum / cs.n <= medCxl);
-      s.cls = (p >= 0.6 && goodRet === false && s.z.cancelRate > medCxl * 1.3) ? 'fix'
-        : (p >= 0.6 && goodRet !== false) ? 'fortress'
-        : (s.momentum >= 0.3 && s.new12 >= 5) ? 'rising'
-        : (p < 0.45 && s.countyStrong) ? 'whitespace'
-        : 'steady';
-      // Knock score: strong county + room to grow + momentum.
-      s.knock = (s.countyStrong ? 40 : 0) + (1 - p) * 35 + Math.max(0, Math.min(1, s.momentum)) * 25;
-    });
-    const CLS = [
-      ['fortress', '🏰 Fortress', '#DF643A', 'Big footprint, healthy retention — defend + attach'],
-      ['rising', '📈 Rising', '#0EA5E9', 'New starts up 30%+ YoY — feed these routes'],
-      ['whitespace', '🎯 Whitespace', '#A855F7', 'Thin presence in a county that retains well — knock here'],
-      ['fix', '🩹 Fix first', '#DC2626', 'Big footprint, churn above 1.3× median — service problem, not a sales problem'],
-      ['steady', '· Steady', '#9aa0a6', 'Nothing remarkable either way'],
-    ];
-    const counts = {}; CLS.forEach(([k]) => counts[k] = 0);
-    scoredZips.forEach(s => counts[s.cls]++);
-    const knocks = scoredZips.filter(s => s.cls === 'whitespace' || (s.cls === 'rising' && s.countyStrong))
-      .sort((a, b) => b.knock - a.knock);
-    return el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'p-4 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {},
-          el('h2', { class: 'text-lg font-bold' }, '🎯 Territory Intelligence'),
-          el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Every ZIP in scope (3+ subs), classified by footprint size, retention vs the median, and 12-month momentum. The knock list = thin ZIPs inside counties where our book already sticks — sell where we already know it works.')),
-        el('button', {
-          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-          onclick: () => _reportingCsvDownload('territory-intelligence.csv',
-            ['ZIP', 'State', 'County', 'Class', 'Knock Score', 'Subs', 'Customers', 'ARR', 'Attrition %', 'New Starts 12mo', 'Prior 12mo', 'Momentum %'],
-            scoredZips.slice().sort((a, b) => b.knock - a.knock).map(s => [s.z.zip, s.z.state, (s.z.rows[0] && s.z.rows[0].county) || '', s.cls, Math.round(s.knock), s.z.subs, s.z.customers, Math.round(s.z.arv), s.z.attritionEligible ? (s.z.cancelRate * 100).toFixed(1) : '', s.new12, s.prev12, (s.momentum * 100).toFixed(0)])),
-        }, '⬇ Export all ' + scoredZips.length.toLocaleString() + ' ZIPs')),
-      el('div', { class: 'p-4 flex gap-2 flex-wrap' },
-        ...CLS.map(([k, label, color, desc]) => el('div', { class: 'rounded-xl px-3 py-2', style: { background: 'var(--card-2)' }, title: desc },
-          el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color } }, label),
-          el('div', { class: 'text-lg font-black tabular-nums' }, counts[k]))),
-      ),
-      knocks.length > 0 && el('div', { class: 'px-4 pb-4' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, 'Top knock targets'),
-        el('div', { class: 'overflow-x-auto' },
-          el('table', { class: 'w-full text-xs' },
-            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
-              el('tr', {},
-                el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'ZIP'),
-                el('th', { class: 'text-left px-2 py-1.5 font-semibold' }, 'County'),
-                el('th', { class: 'text-right px-2 py-1.5 font-semibold' }, 'Knock score'),
-                el('th', { class: 'text-right px-2 py-1.5 font-semibold' }, 'Subs today'),
-                el('th', { class: 'text-right px-2 py-1.5 font-semibold' }, 'New starts 12mo'),
-                el('th', { class: 'text-right px-2 py-1.5 font-semibold' }, 'County retention'))),
-            el('tbody', {},
-              ...knocks.slice(0, 15).map(s => el('tr', {
-                class: 'border-t tabular-nums cursor-pointer hover:brightness-95 transition', style: { borderColor: 'var(--border)' },
-                title: 'Click to highlight this ZIP on the map',
-                onclick: () => {
-                  if (s.z.state) { state.reportingMapLevel = 'state'; state.reportingMapState = s.z.state; }
-                  state.reportingDrillBy = 'zip';
-                  state.reportingHighlightedZip = s.z.zip;
-                  state.reportingHighlightedCounty = null;
-                  mountApp();
-                },
-              },
-                el('td', { class: 'px-2 py-1.5 font-bold' }, s.z.zip + ' · ' + (s.z.state || '')),
-                el('td', { class: 'px-2 py-1.5' }, ((s.z.rows[0] && s.z.rows[0].county) || '—')),
-                el('td', { class: 'px-2 py-1.5 text-right font-black', style: { color: '#A855F7' } }, Math.round(s.knock)),
-                el('td', { class: 'px-2 py-1.5 text-right' }, s.z.subs),
-                el('td', { class: 'px-2 py-1.5 text-right' }, s.new12 + (s.prev12 ? ' (was ' + s.prev12 + ')' : '')),
-                el('td', { class: 'px-2 py-1.5 text-right', style: { color: '#DF643A', fontWeight: '700' } }, s.countyStrong ? 'strong' : '—'))))))));
-  })();
-
   return el('div', { class: 'flex flex-col gap-4' },
     filterBar,
     compareNotice,
@@ -46065,7 +45985,6 @@ function reportingGeographic() {
     breadcrumb,
     el('div', { class: 'card overflow-hidden' }, mapEl),
     stateSummaryTable,
-    territoryCard,
     breakdownTable,
   );
 }
