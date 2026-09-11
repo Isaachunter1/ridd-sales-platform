@@ -37517,26 +37517,23 @@ function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen, onMeetin
     stampChips.length
       ? el('span', { class: 'flex items-center gap-1.5 flex-wrap' }, ...stampChips)
       : el('span', { class: 'text-muted-' },
-          isEmpty ? 'No score this period' : 'Click to edit / view detail'),
+          isEmpty ? 'No score this period' : (cad && cad.last ? cad.label : 'Scored')),
     // One button (per Isaac): + Log Meeting — red until this month's
     // coaching 1:1 is logged, green after. The performance review (with
     // the score) and the coaching session both live inside it.
-    cad ? el('button', {
+    // The card itself is STATIC (per Isaac) — scoring, the full scorecard
+    // (audits / notes) and the 1:1 log all live behind this one button.
+    el('button', {
       class: 'rounded-lg px-2 py-1 text-[10px] font-bold border transition hover:brightness-95 whitespace-nowrap shrink-0',
-      style: { borderColor: cad.coachingThisMonth ? '#3D7A66' : '#DC2626', color: cad.coachingThisMonth ? '#3D7A66' : '#DC2626' },
-      title: (cad.coachingThisMonth ? 'Coaching 1:1 logged this month' : 'No coaching 1:1 logged this month') + ' \u2014 log a performance review or coaching session',
-      onclick: (e) => { e.stopPropagation(); if (onMeetings) onMeetings(); },
-    }, '+ Log Meeting') : el('button', {
-      class: 'rounded-lg px-2 py-1 text-[10px] font-bold border transition hover:brightness-95',
-      style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
-      onclick: (e) => { e.stopPropagation(); onOpen(); },
-    }, isEmpty ? '+ Score' : 'Open'),
+      style: { borderColor: cad && cad.coachingThisMonth ? '#3D7A66' : '#DC2626', color: cad && cad.coachingThisMonth ? '#3D7A66' : '#DC2626' },
+      title: (cad && cad.coachingThisMonth ? 'Coaching 1:1 logged this month' : 'No coaching 1:1 logged this month') + ' \u2014 log a performance review (score) or coaching session',
+      onclick: (e) => { e.stopPropagation(); if (onMeetings) onMeetings(); else if (onOpen) onOpen(); },
+    }, '+ Log Meeting'),
   );
 
   return el('div', {
-    class: 'card p-4 cursor-pointer transition hover:brightness-95',
+    class: 'card p-4',
     style: composite != null ? { borderLeft: '4px solid ' + band.color } : {},
-    onclick: onOpen,
   }, head, bars, spark, footer);
 }
 
