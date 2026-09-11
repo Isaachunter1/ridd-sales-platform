@@ -11045,7 +11045,7 @@ function leaderboardSection(range) {
             }), { count: 0, revenue: 0, recurring: 0, ots: 0, initSum: 0, myW: 0, mixW: 0, apW: 0, apN: 0 });
             const stick = (left) => ({ position: 'sticky', left, background: 'var(--card-2)', zIndex: 1 });
             return el('tr', { class: 'border-b-2 tabular-nums font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
-              el('td', { class: 'pl-4 pr-1 py-2', style: Object.assign({ minWidth: '40px' }, stick('0')) }, lbOnly.size ? '\u2211' : '🏢'),
+              el('td', { class: 'pl-4 pr-1 py-2 text-base leading-none', style: Object.assign({ minWidth: '40px', fontFamily: 'Georgia, "Times New Roman", serif' }, stick('0')) }, '\ud835\udd7d'),
               el('td', { class: 'px-2 py-2 whitespace-nowrap', style: stick('40px') },
                 lbOnly.size ? 'Total' : 'RIDD',
                 el('span', { class: 'text-[10px] text-muted- ml-1.5 font-normal' }, rows.length + ' rep' + (rows.length === 1 ? '' : 's'))),
@@ -30721,7 +30721,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 title: _canOpenTot ? 'Open the combined player card for every rep shown' : '',
                 onclick: _canOpenTot ? _openTot : undefined,
                 style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2), inset 0 1px 0 var(--border)' } },
-                el('td', { class: 'pl-5 pr-2 py-2' }, ''),
+                el('td', { class: 'pl-5 pr-2 py-2 text-base leading-none', style: { fontFamily: 'Georgia, "Times New Roman", serif' } }, '\ud835\udd7d'),
                 ...repCols.map(c => {
                   if (c.key === 'name') return el('td', { class: 'px-2 py-2' },
                     el('span', { class: 'font-black text-[11px] uppercase tracking-wider' }, 'Total'),
