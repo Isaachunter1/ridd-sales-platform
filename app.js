@@ -37010,6 +37010,26 @@ async function loadScorecardCloud(period) {
   if (state.view === 'scorecards') mountApp();
 }
 
+// Period-aware upsert used by the 1:1 meeting form (the performance
+// review scores ANY month, not just the page's selected period). Same
+// merge semantics as viewScorecards' upsertCard, then cloud save.
+function scorecardUpsertCard(profileId, period, patch) {
+  state._scorecardData = state._scorecardData || {};
+  const k = profileId + '|' + period;
+  const cur = state._scorecardData[k] || { metrics: {}, attendance: {}, notes: '' };
+  state._scorecardData[k] = {
+    metrics:    { ...(cur.metrics || {}),    ...(patch.metrics || {}) },
+    attendance: { ...(cur.attendance || {}), ...(patch.attendance || {}) },
+    notes:      patch.notes != null ? patch.notes : (cur.notes || ''),
+    finalized:  patch.finalized !== undefined ? patch.finalized : (cur.finalized || null),
+    reviewed:   patch.reviewed  !== undefined ? patch.reviewed  : (cur.reviewed  || null),
+  };
+  saveDemoData();
+  const p = (state.allProfiles || []).find(x => x.id === profileId);
+  const d = scorecardDeptOf(p || state.profile);
+  saveScorecardCardCloud(profileId, period, d, getScorecardTemplate(d));
+}
+
 function saveScorecardCardCloud(profileId, period, dept, tpl) {
   if (typeof DEMO !== 'undefined' && DEMO) return;
   if (typeof supabase === 'undefined' || !supabase) return;
