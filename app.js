@@ -39957,8 +39957,10 @@ function reportingChartData(scopeRows, serviceConfig) {
   }
 
   const activeArr = activeRecurring.reduce((s, r) => s + (Number(r.annual_recurring_value) || 0), 0);
-  const cancelRate = scopeRows.length > 0
-    ? ((realCancels.length / scopeRows.length) * 100)
+  // Rate over RECURRING subs (the card says "recurring subs only") — it used
+  // to divide by every row incl. one-time services, so it read low.
+  const cancelRate = recurringRows.length > 0
+    ? ((realCancels.length / recurringRows.length) * 100)
     : 0;
 
   // Receivables aging slices in stable bucket order (Current → 90+).
@@ -41191,7 +41193,7 @@ function openReportingMethodologyModal(tab) {
 
   const tabNotes = {
     overview:   'Headline cards + donuts cover every visible sub in scope. Active = status Active with no cancel date. ARR sums Annual Recurring Value over active recurring subs.',
-    geographic: 'Map + table use serviced + recurring subs only (one-time excluded). Attrition/Retention need 10+ subs in an area before a rate is shown. Retention = 1 − attrition.',
+    geographic: 'Map + tables use recurring subs only (one-time excluded) — the same set and rules as the Overview cards, so totals tie. Attrition = real cancels ÷ recurring subs; rates need 10+ subs in an area before they show. Retention = 1 − attrition.',
     reps:       'Per-rep counts use every visible sub in scope (sold_by). Active and ARV use the same Active + recurring rules as Overview.',
     waterfall:  'Population: recurring service types only (per the Lifecycle config), serviced subs only (retention starts at first service), after Hidden-service and excluded-source filters, branch rules, and the Retention-population rules from Configurations (renewal subs, $0 payers, and frozen-\u22641-service subs are excluded by default \u2014 the workbook\u2019s manual Steps 4\u20136). Each cell = subs of that row still active at that year\u2019s end: started on/before Dec 31 and not cancelled by then. Cancels with a reason excluded from attrition count as RETAINED, and the 3-day-ROR setting matches the Overview tab. Subscription/ARR rows are initial-service-year cohorts (all-time; the time range doesn\u2019t apply). Contract Length / Rep default to BOOK SIZE per year-end — new sales enter columns as they start — and the Cohort picker locks those rows to one start-year and follows it, a true retention curve. Rep mode shows the top 15 reps by sub count, attributed by Sold By. Colors grade each cell against the cohort size (cohort views) or the row\u2019s best year (book-size view). Each cell shows the count plus its share of the cohort still active, and hovering shows the step attrition vs the prior year (1 \u2212 survivors \u00f7 prior-year survivors). Contract Length groups to 12/18/24 months plus Other (odd or legacy lengths pending CRM cleanup); the Blended Attrition table compares each year\u2019s beginning-of-year book (existing cohorts only) to those SAME subs at year-end \u2014 new sales during the year never enter, and ARR mode measures it in dollars.',
     is:         'Inside Sales is a sold-date P&L: new revenue is committed-sold (auto-pay) subs by the month sold. It honors excluded Sources but, being sold-revenue, not the lifecycle/hidden/cancel rules.',
@@ -45539,7 +45541,7 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
 function exportReportingGeoCsv(items, kind, scopeTag) {
   if (!items || !items.length) { toast('Nothing to export', 'warn'); return; }
   const firstCol = kind === 'county' ? 'county' : 'zip';
-  const headers = [firstCol, 'state', 'offices', 'accounts', 'subscriptions', 'avg_contract_value', 'active_arv', 'active_subscriptions', 'cancellations', 'attrition_pct', 'avg_tenure_months', 'two_year_plus_pct', 'sentricon_customer_pct', 'ltv_per_customer'];
+  const headers = [firstCol, 'state', 'offices', 'accounts', 'subscriptions', 'avg_contract_value', 'active_arr', 'active_subscriptions', 'cancellations', 'attrition_pct', 'avg_tenure_months', 'two_year_plus_pct', 'sentricon_customer_pct', 'ltv_per_customer'];
   const lines = [headers.join(',')];
   for (const it of items) {
     // Distinct office names contributing to this ZIP/county, in volume order.
@@ -45599,8 +45601,12 @@ function reportingGeographic() {
   // Same recurring / active / real-cancel rules as the Overview tab
   // (reportingFilters) so the two pages agree — this tab used to run its
   // own Lifecycle-only recurring test and counted cancelled subs' ARV.
+  // Base = every recurring sub in scope — the Overview's exact set — so
+  // Subs / Active / Active ARR / Cancels tie to its cards. (The old
+  // serviced-only gate dropped ~1,100 active subs with no initial-service
+  // date on file and made every total run light.)
   const geoF = reportingFilters();
-  const scopeServiced = scopeA.filter(r => !!r.initial_service && geoF.isRecurring(r));
+  const scopeServiced = scopeA.filter(r => geoF.isRecurring(r));
   const agg = reportingGeoAggregate(scopeServiced, geoF);
 
   // "Top Service" map metric — colors each area by its most common service.
@@ -45931,10 +45937,10 @@ function reportingGeographic() {
     county: 'County. Click a row to see how it compares and drill to its customers.',
     state: 'State the area sits in.',
     office: 'The branch that services most of this area\u2019s subscriptions.',
-    customers: 'Distinct customers with a serviced, recurring subscription here.',
-    subs: 'Serviced recurring subscriptions (a customer with two plans counts twice).',
+    customers: 'Distinct customers with a recurring subscription here.',
+    subs: 'Recurring subscriptions (a customer with two plans counts twice) \u2014 the same set the Overview counts.',
     avgContract: 'Average contract value per subscription.',
-    arv: 'Annual recurring value of the ACTIVE subscriptions here (ties to the Overview\u2019s Active ARR).',
+    arv: 'Active ARR \u2014 annual recurring revenue from the active subscriptions here (same figure as the Overview card).',
     cancellations: 'Real cancels — excludes the cancel reasons marked as not-attrition in Configurations.',
     cancelRate: (isRetention ? 'Retention = 1 \u2212 cancels \u00f7 subs' : 'Attrition = cancels \u00f7 subs') + '. Only shown with 10+ subs so a single cancel can\u2019t swing it.',
     avgTenure: 'Average months each subscription has been on the books \u2014 first service to cancel date, or to today if still active.',
@@ -45995,7 +46001,7 @@ function reportingGeographic() {
             tableHeader('Customers',   'customers',  true),
             tableHeader('Subs',        'subs',       true),
             tableHeader('ACV',         'avgContract', true),
-            tableHeader('Active ARV',  'arv',         true),
+            tableHeader('Active ARR',  'arv',         true),
             tableHeader('Cancels',     'cancellations', true),
             tableHeader(isRetention ? 'Retention %' : 'Attrition %', 'cancelRate',  true),
             tableHeader('Avg Tenure',  'avgTenure',   true),
@@ -46093,18 +46099,18 @@ function reportingGeographic() {
               ? (office === 'all'
                   ? 'Whole company by state — set the Office filter above to read one branch across state lines (e.g. Myrtle Beach: NC vs SC). Click a row to drill in.'
                   : officeLabel(office) + '\u2019s book split by state — cross-border comparison for this branch only. Click a row to drill in.')
-              : 'Every branch\u2019s serviced recurring book side by side — flip to State for the cross-border view.')),
+              : 'Every branch\u2019s recurring book side by side \u2014 same rules as the Overview cards \u2014 flip to State for the cross-border view.')),
         byToggle),
       el('div', { class: 'overflow-x-auto' },
         el('table', { class: 'w-full text-xs' },
           el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
             el('tr', {},
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: summaryBy === 'state' ? 'Click a row to drill the map into that state' : 'Branch' }, summaryBy === 'state' ? 'State' : 'Office'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Distinct customers with a serviced, recurring subscription' }, 'Customers'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Serviced recurring subscriptions' }, 'Subs'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Distinct customers with a recurring subscription' }, 'Customers'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Recurring subscriptions (same set as the Overview)' }, 'Subs'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Subscriptions currently active (status Active, no cancel date)' }, 'Active'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Average contract value per subscription' }, 'ACV'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Annual recurring value of active subs (ties to the Overview\u2019s Active ARR)' }, 'Active ARV'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Active ARR \u2014 annual recurring revenue from active subs (same figure as the Overview card)' }, 'Active ARR'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Real cancels (excluded reasons from Configurations don\u2019t count)' }, 'Cancels'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: isRetention ? 'Retention = 1 \u2212 cancels \u00f7 subs (10+ subs)' : 'Attrition = cancels \u00f7 subs (10+ subs)' }, isRetention ? 'Retention %' : 'Attrition %'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Active subs ÷ all subs' }, 'Active %'),
