@@ -45870,6 +45870,25 @@ function reportingGeographic() {
         },
       };
 
+  // Office dropdown on the breakdown (per Isaac): All (default) or one
+  // branch. Filtering re-aggregates that branch's rows so a border ZIP shows
+  // only the selected office's accounts, not the majority office's.
+  const bOffices = [...new Set(scopeServiced.map(r => (r.office_name || '').trim()).filter(Boolean))].sort();
+  const bOffice = bOffices.includes(state.reportingGeoBreakdownOffice) ? state.reportingGeoBreakdownOffice : 'all';
+  if (bOffice !== 'all') {
+    const bAgg = reportingGeoAggregate(scopeServiced.filter(r => (r.office_name || '').trim() === bOffice));
+    const inState = (it) => !(mapLevel === 'state' && drilledState) || it.state === drilledState;
+    breakdown.items = (breakdown.labelKey === 'county' ? bAgg.counties : bAgg.zips).filter(inState);
+  }
+  const bOfficeSel = el('select', {
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer font-semibold',
+    style: { borderColor: bOffice !== 'all' ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: bOffice !== 'all' ? 'var(--accent)' : 'var(--text)' },
+    title: 'Limit the table to one branch\u2019s accounts',
+    onchange: (e) => { state.reportingGeoBreakdownOffice = e.target.value; mountApp(); },
+  },
+    el('option', { value: 'all', selected: bOffice === 'all' }, 'All offices'),
+    ...bOffices.map(o => el('option', { value: o, selected: bOffice === o }, _mktgTC(o))));
+
   let sortKey = state.reportingZipSort || 'subs';
   const sortDir = state.reportingZipSortDir || 'desc';
   // If the active sort column is the *other* mode's label column, fall back
@@ -45934,12 +45953,14 @@ function reportingGeographic() {
         el('p', { class: 'text-xs text-muted- mt-0.5' },
           sortedItems.length.toLocaleString() + ' distinct ' + breakdown.nounPlural + ' · click a column to sort · click a row to see how it compares (customers are one click deeper) · sort by Avg Tenure or LTV / Cust to find the stickiest ' + breakdown.nounPlural),
       ),
-      el('button', {
-        class: 'shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        title: 'Download these ' + breakdown.nounPlural + ' as a CSV (account counts per ' + (breakdown.labelKey === 'county' ? 'county' : 'ZIP') + ')',
-        onclick: () => exportReportingGeoCsv(sortedItems, breakdown.labelKey, exportScopeTag),
-      }, '⬇ Export CSV'),
+      el('div', { class: 'flex items-center gap-2 shrink-0' },
+        bOfficeSel,
+        el('button', {
+          class: 'shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+          style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          title: 'Download these ' + breakdown.nounPlural + ' as a CSV (account counts per ' + (breakdown.labelKey === 'county' ? 'county' : 'ZIP') + ')',
+          onclick: () => exportReportingGeoCsv(sortedItems, breakdown.labelKey, exportScopeTag + (bOffice !== 'all' ? '-' + bOffice.toLowerCase().replace(/\s+/g, '_') : '')),
+        }, '⬇ Export CSV')),
     ),
     el('div', { class: 'overflow-x-auto', style: { maxHeight: '500px' } },
       el('table', { class: 'w-full text-xs' },
