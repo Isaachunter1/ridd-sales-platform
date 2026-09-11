@@ -45290,6 +45290,7 @@ function reportingGeoAggregate(rows) {
   };
 
   const byState = new Map();
+  const byOffice = new Map();   // branch → same bucket shape (for the Office breakdown)
   // ZIP buckets are keyed on state+zip so two customers in different
   // states that share a zip code (or both have an empty zip that would
   // collapse to 'Unknown') don't get merged into a single bucket where
@@ -45304,10 +45305,12 @@ function reportingGeoAggregate(rows) {
     const county = r.county   || 'Unknown';
     const zipKey    = st + '|' + zip;
     const countyKey = st + '|' + county;
+    const offName = (r.office_name || 'Unknown').trim() || 'Unknown';
     if (!byState.has(st))           byState.set(st, seed());
+    if (!byOffice.has(offName))     byOffice.set(offName, seed());
     if (!byZip.has(zipKey))         byZip.set(zipKey, seed());
     if (!byCounty.has(countyKey))   byCounty.set(countyKey, seed());
-    for (const m of [byState.get(st), byZip.get(zipKey), byCounty.get(countyKey)]) {
+    for (const m of [byState.get(st), byOffice.get(offName), byZip.get(zipKey), byCounty.get(countyKey)]) {
       m.subs += 1;
       if (r.customer_id) m.customers.add(r.customer_id);
       m.contract += Number(r.subscription_contract_value) || 0;
@@ -45349,6 +45352,8 @@ function reportingGeoAggregate(rows) {
 
   const states = {};
   for (const [k, v] of byState.entries()) states[k] = finalize(v);
+  const offices = {};
+  for (const [k, v] of byOffice.entries()) offices[k] = finalize(v);
 
   const zips = [];
   for (const m of byZip.values()) {
@@ -45364,7 +45369,7 @@ function reportingGeoAggregate(rows) {
     counties.push({ county: m.county, state: m.state, ...f, attritionEligible: f.subs >= ATTRITION_MIN_SUBS });
   }
 
-  return { states, zips, counties, attritionMinSubs: ATTRITION_MIN_SUBS };
+  return { states, offices, zips, counties, attritionMinSubs: ATTRITION_MIN_SUBS };
 }
 
 // Build a 5-bin quantile color scale that's resilient to outliers.
@@ -45996,24 +46001,41 @@ function reportingGeographic() {
   // and each row is that branch's book within one state. Attrition/retention
   // uses the same 10-sub floor as everywhere else on the tab.
   const stateSummaryTable = (mapLevel !== 'state') ? (() => {
-    const rows = Object.entries(agg.states || {})
-      .filter(([code]) => code && code !== 'Unknown')
-      .map(([code, s]) => ({ code, name: REPORTING_STATE_CODE_TO_NAME[code] || code, ...s }))
-      .sort((a, b) => b.subs - a.subs);
-    if (rows.length < 2) return null;
+    // Office (default) ⇄ State — per Isaac. Same columns either way.
+    const summaryBy = state.reportingGeoSummaryBy === 'state' ? 'state' : 'office';
+    const rows = summaryBy === 'state'
+      ? Object.entries(agg.states || {})
+          .filter(([code]) => code && code !== 'Unknown')
+          .map(([code, s]) => ({ code, name: REPORTING_STATE_CODE_TO_NAME[code] || code, ...s }))
+          .sort((a, b) => b.subs - a.subs)
+      : Object.entries(agg.offices || {})
+          .filter(([name]) => name && name !== 'Unknown')
+          .map(([name, s]) => ({ code: null, name: _mktgTC(name), ...s }))
+          .sort((a, b) => b.subs - a.subs);
+    if (rows.length < 1) return null;
     const floor = (agg.attritionMinSubs || 10);
+    const byToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+      ...[['office', 'Office'], ['state', 'State']].map(([v, l]) => el('button', {
+        class: 'px-2.5 py-1 text-[11px] font-bold transition',
+        style: summaryBy === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+        onclick: () => { state.reportingGeoSummaryBy = v; mountApp(); },
+      }, l)));
     return el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'p-4 border-b', style: { borderColor: 'var(--border)' } },
-        el('h2', { class: 'text-lg font-bold' }, 'State breakdown'),
-        el('p', { class: 'text-xs text-muted- mt-0.5' },
-          office === 'all'
-            ? 'Whole company by state — set the Office filter above to read one branch across state lines (e.g. Myrtle Beach: NC vs SC).'
-            : officeLabel(office) + '\u2019s book split by state — cross-border comparison for this branch only. Click a row to drill in.')),
+      el('div', { class: 'p-4 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'flex-1 min-w-0' },
+          el('h2', { class: 'text-lg font-bold' }, summaryBy === 'state' ? 'State breakdown' : 'Office breakdown'),
+          el('p', { class: 'text-xs text-muted- mt-0.5' },
+            summaryBy === 'state'
+              ? (office === 'all'
+                  ? 'Whole company by state — set the Office filter above to read one branch across state lines (e.g. Myrtle Beach: NC vs SC). Click a row to drill in.'
+                  : officeLabel(office) + '\u2019s book split by state — cross-border comparison for this branch only. Click a row to drill in.')
+              : 'Every branch\u2019s serviced recurring book side by side — flip to State for the cross-border view.')),
+        byToggle),
       el('div', { class: 'overflow-x-auto' },
         el('table', { class: 'w-full text-xs' },
           el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
             el('tr', {},
-              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Click a row to drill the map into that state' }, 'State'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: summaryBy === 'state' ? 'Click a row to drill the map into that state' : 'Branch' }, summaryBy === 'state' ? 'State' : 'Office'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Distinct customers with a serviced, recurring subscription' }, 'Customers'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Serviced recurring subscriptions' }, 'Subs'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Subscriptions currently active (status Active, no cancel date)' }, 'Active'),
@@ -46026,16 +46048,16 @@ function reportingGeographic() {
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Average months on the books' }, 'Avg Tenure'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Share of subs past 24 months' }, '2yr+ %'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Realized recurring revenue per customer' }, 'LTV / Cust'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Branches servicing this state, biggest first' }, 'Offices'))),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: summaryBy === 'state' ? 'Branches servicing this state, biggest first' : 'States this branch services, biggest first' }, summaryBy === 'state' ? 'Offices' : 'States'))),
           el('tbody', {},
             ...rows.map(s => {
               const rated = s.subs >= floor;
               const v = isRetention ? (1 - s.cancelRate) : s.cancelRate;
               return el('tr', {
-                class: 'border-t cursor-pointer hover:brightness-95 transition tabular-nums',
+                class: 'border-t tabular-nums' + (s.code ? ' cursor-pointer hover:brightness-95 transition' : ''),
                 style: { borderColor: 'var(--border)' },
-                title: 'Drill into ' + s.name,
-                onclick: () => onStateClick(s.code),
+                title: s.code ? 'Drill into ' + s.name : '',
+                onclick: s.code ? () => onStateClick(s.code) : undefined,
               },
                 el('td', { class: 'px-3 py-2 font-semibold' }, s.name),
                 el('td', { class: 'px-3 py-2 text-left' }, s.customers.toLocaleString()),
@@ -46051,7 +46073,7 @@ function reportingGeographic() {
                 el('td', { class: 'px-3 py-2 text-left' }, s.avgTenure ? s.avgTenure.toFixed(1) + ' mo' : '—'),
                 el('td', { class: 'px-3 py-2 text-left' }, s.subs ? Math.round((s.twoYrPct || 0) * 100) + '%' : '—'),
                 el('td', { class: 'px-3 py-2 text-left font-semibold' }, s.ltv ? '$' + Math.round(s.ltv).toLocaleString() : '—'),
-                el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, (() => { const c = new Map(); for (const r of (s.rows || [])) { const o = r.office_name; if (o) c.set(o, (c.get(o) || 0) + 1); } return [...c.entries()].sort((a, b) => b[1] - a[1]).map(([o]) => _mktgTC(o)).join(' · ') || '—'; })()));
+                el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, (() => { const c = new Map(); for (const r of (s.rows || [])) { const o = summaryBy === 'state' ? r.office_name : r.state; if (o) c.set(o, (c.get(o) || 0) + 1); } return [...c.entries()].sort((a, b) => b[1] - a[1]).map(([o]) => summaryBy === 'state' ? _mktgTC(o) : o).join(' · ') || '—'; })()));
             })))));
   })() : null;
 
