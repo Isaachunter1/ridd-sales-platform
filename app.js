@@ -1589,12 +1589,25 @@ async function reportingIdbPut(uploadId, rows) {
       // Keep only this snapshot — old ones are stale once a new upload lands.
       const keysReq = store.getAllKeys();
       keysReq.onsuccess = () => {
-        (keysReq.result || []).forEach(k => { if (k !== uploadId) store.delete(k); });
+        (keysReq.result || []).forEach(k => { if (k !== uploadId && !String(k).startsWith('geo:')) store.delete(k); });
       };
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
     });
   } catch { /* cache is best-effort */ }
+}
+
+// Put without evicting — for static assets (state ZIP boundaries) that
+// should outlive snapshot rotations.
+async function reportingIdbPutKeep(key, value) {
+  try {
+    const db = await _reportingIdb();
+    await new Promise((resolve) => {
+      const tx = db.transaction(REPORTING_IDB_STORE, 'readwrite');
+      tx.objectStore(REPORTING_IDB_STORE).put(value, key);
+      tx.oncomplete = () => resolve(); tx.onerror = () => resolve();
+    });
+  } catch { /* best-effort */ }
 }
 
 // Phantom offices lingering in the CRM (negative office IDs surface as
@@ -1606,6 +1619,31 @@ async function reportingIdbPut(uploadId, rows) {
 const PHANTOM_OFFICE_NAMES = new Set(['Office -1', 'Office -7']);
 function stripPhantomOffices(rows) {
   return Array.isArray(rows) ? rows.filter(r => !PHANTOM_OFFICE_NAMES.has(String(r && r.office_name || '').trim())) : rows;
+}
+// Background warm-up (per Isaac — the Geographic tab sat on "Downloading
+// snapshot…" every morning): once the uploads list is in, quietly pull the
+// active snapshot into IndexedDB + state a few seconds after login, with the
+// progress toast suppressed. By the time anyone opens Reporting the rows are
+// already local. No-op for roles that can't read the snapshot anyway.
+function prefetchReportingSnapshot() {
+  try {
+    const id = state.reportingActiveUploadId;
+    if (!id || state.reportingSubscriptionsLoadedFor === id || state._reportingPrefetching) return;
+    if (!isAdminRole(state.profile?.role) && !(typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile))) return;
+    state._reportingPrefetching = true;
+    const run = () => {
+      state._reportingSilent = true;
+      loadReportingSubscriptions(id).then(rows => {
+        if (rows && rows.length && state.reportingActiveUploadId === id && state.reportingSubscriptionsLoadedFor !== id) {
+          state.reportingSubscriptions = rows;
+          state.reportingSubscriptionsLoadedFor = id;
+          if (typeof _refreshRepTypeMap === 'function') { try { _refreshRepTypeMap(); } catch (e) { /* optional */ } }
+          if (state.view === 'reporting') mountApp();
+        }
+      }).catch(() => {}).finally(() => { state._reportingSilent = false; state._reportingPrefetching = false; });
+    };
+    if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 8000 }); else setTimeout(run, 3000);
+  } catch (e) { state._reportingPrefetching = false; }
 }
 async function loadReportingSubscriptions(uploadId) {
   const rows = stripPhantomOffices(await _loadReportingSubscriptionsRaw(uploadId));
@@ -3086,6 +3124,7 @@ async function loadData() {
   // service config (both small).
   loadReportingMetadata()
     .then(() => autoDeriveIndicatorsFromSnapshot())   // hands-off: keep Indicators current with the nightly snapshot
+    .then(() => prefetchReportingSnapshot())          // warm the snapshot in the background so Reporting / Geographic open instantly
     .catch(err => console.warn('[ridd] reporting metadata load skipped', err));
 
   state.allSales     = salesRes.data || [];
@@ -38061,6 +38100,7 @@ function parseReportingCsv(text) {
 // Fixed progress bar shown during a reporting upload. Call with a percent
 // (0–100) + label to show/update it, or null to remove it.
 function reportingUploadProgress(pct, label) {
+  if (state._reportingSilent) return;   // background prefetch — no toast
   let bar = document.getElementById('rptUploadProg');
   if (pct == null) { if (bar) bar.remove(); return; }
   if (!bar) {
@@ -44633,6 +44673,11 @@ async function loadReportingZipGeo(stateCode) {
   if (!stateCode) return null;
   window._reportingZipGeoCache = window._reportingZipGeoCache || {};
   if (window._reportingZipGeoCache[stateCode]) return window._reportingZipGeoCache[stateCode];
+  // Boundaries never change — keep them in IndexedDB across reloads so the
+  // 1-5MB GitHub fetch happens once per browser, not once per visit.
+  const idbKey = 'geo:' + stateCode;
+  const stored = await reportingIdbGet(idbKey);
+  if (stored && stored.type === 'FeatureCollection') { window._reportingZipGeoCache[stateCode] = stored; return stored; }
   const url = reportingStateZipUrl(stateCode);
   if (!url) return null;
   // Primary (raw.githubusercontent) + a mirror of the same repo — corporate
@@ -44642,6 +44687,7 @@ async function loadReportingZipGeo(stateCode) {
     try {
       const geo = await _geoFetchJson(u, 90000);
       window._reportingZipGeoCache[stateCode] = geo;
+      reportingIdbPutKeep(idbKey, geo);
       return geo;
     } catch (e) {
       console.warn('[ridd] zip GeoJSON failed for ' + stateCode + ' via ' + u.split('/')[2], e && e.message);
@@ -45831,7 +45877,7 @@ function reportingGeographic() {
   const tableHeader = (label, key, alignRight) => {
     const isActive = sortKey === key;
     return el('th', {
-      class: 'px-3 py-2 font-semibold cursor-pointer select-none' + (alignRight ? ' text-right' : ' text-left'),
+      class: 'px-3 py-2 font-semibold cursor-pointer select-none' + ' text-left',
       style: { background: 'var(--card-2)', color: isActive ? 'var(--accent)' : undefined, fontWeight: isActive ? '800' : undefined },
       onclick: () => {
         if (state.reportingZipSort === key) {
@@ -45913,15 +45959,15 @@ function reportingGeographic() {
             el('td', { class: 'px-3 py-2 font-semibold' }, breakdown.cellLabel(it)),
             el('td', { class: 'px-3 py-2' }, it.state || '—'),
             el('td', { class: 'px-3 py-2 whitespace-nowrap', title: 'Branch servicing most of this area\u2019s subs' }, it.office ? _mktgTC(it.office) : '—'),
-            el('td', { class: 'px-3 py-2 text-right' }, it.customers.toLocaleString()),
-            el('td', { class: 'px-3 py-2 text-right' }, it.subs.toLocaleString()),
-            el('td', { class: 'px-3 py-2 text-right' }, '$' + Math.round(it.avgContract).toLocaleString()),
-            el('td', { class: 'px-3 py-2 text-right' }, '$' + Math.round(it.arv).toLocaleString()),
-            el('td', { class: 'px-3 py-2 text-right' }, it.cancellations.toLocaleString()),
-            el('td', { class: 'px-3 py-2 text-right' }, fmtPctTable(it)),
-            el('td', { class: 'px-3 py-2 text-right', title: 'Average months on the books (first service → cancel, or → today if still active)' }, it.avgTenure ? it.avgTenure.toFixed(1) + ' mo' : '—'),
-            el('td', { class: 'px-3 py-2 text-right', title: 'Share of subs that have lasted 24+ months' }, it.subs ? Math.round(it.twoYrPct * 100) + '%' : '—'),
-            el('td', { class: 'px-3 py-2 text-right font-semibold', title: 'Realized recurring revenue per customer — ARV ÷ 12 × months on the books' }, it.ltv ? '$' + Math.round(it.ltv).toLocaleString() : '—'),
+            el('td', { class: 'px-3 py-2 text-left' }, it.customers.toLocaleString()),
+            el('td', { class: 'px-3 py-2 text-left' }, it.subs.toLocaleString()),
+            el('td', { class: 'px-3 py-2 text-left' }, '$' + Math.round(it.avgContract).toLocaleString()),
+            el('td', { class: 'px-3 py-2 text-left' }, '$' + Math.round(it.arv).toLocaleString()),
+            el('td', { class: 'px-3 py-2 text-left' }, it.cancellations.toLocaleString()),
+            el('td', { class: 'px-3 py-2 text-left' }, fmtPctTable(it)),
+            el('td', { class: 'px-3 py-2 text-left', title: 'Average months on the books (first service → cancel, or → today if still active)' }, it.avgTenure ? it.avgTenure.toFixed(1) + ' mo' : '—'),
+            el('td', { class: 'px-3 py-2 text-left', title: 'Share of subs that have lasted 24+ months' }, it.subs ? Math.round(it.twoYrPct * 100) + '%' : '—'),
+            el('td', { class: 'px-3 py-2 text-left font-semibold', title: 'Realized recurring revenue per customer — ARV ÷ 12 × months on the books' }, it.ltv ? '$' + Math.round(it.ltv).toLocaleString() : '—'),
           )),
         ),
       ),
@@ -45951,13 +45997,19 @@ function reportingGeographic() {
           el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
             el('tr', {},
               el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'State'),
-              el('th', { class: 'px-3 py-2 text-right font-semibold' }, 'Customers'),
-              el('th', { class: 'px-3 py-2 text-right font-semibold' }, 'Subs'),
-              el('th', { class: 'px-3 py-2 text-right font-semibold' }, 'Active'),
-              el('th', { class: 'px-3 py-2 text-right font-semibold' }, 'ACV'),
-              el('th', { class: 'px-3 py-2 text-right font-semibold' }, 'Total ARV'),
-              el('th', { class: 'px-3 py-2 text-right font-semibold' }, 'Cancels'),
-              el('th', { class: 'px-3 py-2 text-right font-semibold' }, isRetention ? 'Retention %' : 'Attrition %'))),
+              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'Customers'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'Subs'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'Active'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'ACV'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'Total ARV'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'Cancels'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold' }, isRetention ? 'Retention %' : 'Attrition %'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Active subs ÷ all subs' }, 'Active %'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'ARV per active sub' }, 'ARV / Active'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Average months on the books' }, 'Avg Tenure'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Share of subs past 24 months' }, '2yr+ %'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Realized recurring revenue per customer' }, 'LTV / Cust'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Branches servicing this state, biggest first' }, 'Offices'))),
           el('tbody', {},
             ...rows.map(s => {
               const rated = s.subs >= floor;
@@ -45969,14 +46021,20 @@ function reportingGeographic() {
                 onclick: () => onStateClick(s.code),
               },
                 el('td', { class: 'px-3 py-2 font-semibold' }, s.name),
-                el('td', { class: 'px-3 py-2 text-right' }, s.customers.toLocaleString()),
-                el('td', { class: 'px-3 py-2 text-right' }, s.subs.toLocaleString()),
-                el('td', { class: 'px-3 py-2 text-right' }, s.active.toLocaleString()),
-                el('td', { class: 'px-3 py-2 text-right' }, '$' + Math.round(s.avgContract).toLocaleString()),
-                el('td', { class: 'px-3 py-2 text-right' }, '$' + Math.round(s.arv).toLocaleString()),
-                el('td', { class: 'px-3 py-2 text-right' }, s.cancellations.toLocaleString()),
-                el('td', { class: 'px-3 py-2 text-right font-semibold', style: rated && !isRetention && s.cancelRate > 0.25 ? { color: '#DC2626' } : {} },
-                  rated ? (v * 100).toFixed(1) + '%' : el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '< ' + floor + ' subs')));
+                el('td', { class: 'px-3 py-2 text-left' }, s.customers.toLocaleString()),
+                el('td', { class: 'px-3 py-2 text-left' }, s.subs.toLocaleString()),
+                el('td', { class: 'px-3 py-2 text-left' }, s.active.toLocaleString()),
+                el('td', { class: 'px-3 py-2 text-left' }, '$' + Math.round(s.avgContract).toLocaleString()),
+                el('td', { class: 'px-3 py-2 text-left' }, '$' + Math.round(s.arv).toLocaleString()),
+                el('td', { class: 'px-3 py-2 text-left' }, s.cancellations.toLocaleString()),
+                el('td', { class: 'px-3 py-2 text-left font-semibold', style: rated && !isRetention && s.cancelRate > 0.25 ? { color: '#DC2626' } : {} },
+                  rated ? (v * 100).toFixed(1) + '%' : el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '< ' + floor + ' subs')),
+                el('td', { class: 'px-3 py-2 text-left' }, s.subs ? Math.round(s.active / s.subs * 100) + '%' : '—'),
+                el('td', { class: 'px-3 py-2 text-left' }, s.active ? '$' + Math.round(s.arv / s.active).toLocaleString() : '—'),
+                el('td', { class: 'px-3 py-2 text-left' }, s.avgTenure ? s.avgTenure.toFixed(1) + ' mo' : '—'),
+                el('td', { class: 'px-3 py-2 text-left' }, s.subs ? Math.round((s.twoYrPct || 0) * 100) + '%' : '—'),
+                el('td', { class: 'px-3 py-2 text-left font-semibold' }, s.ltv ? '$' + Math.round(s.ltv).toLocaleString() : '—'),
+                el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, (() => { const c = new Map(); for (const r of (s.rows || [])) { const o = r.office_name; if (o) c.set(o, (c.get(o) || 0) + 1); } return [...c.entries()].sort((a, b) => b[1] - a[1]).map(([o]) => _mktgTC(o)).join(' · ') || '—'; })()));
             })))));
   })() : null;
 
