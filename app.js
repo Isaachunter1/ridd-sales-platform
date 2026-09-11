@@ -38045,7 +38045,8 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
   const render = () => {
     modal.innerHTML = '';
     const cad = meetingCadence(profile.id);
-    modal.append(
+    // DOM append() stringifies null — filter skipped conditional blocks out.
+    modal.append(...[
       el('div', { class: 'flex items-start justify-between gap-4 mb-4' },
         el('div', { class: 'flex items-center gap-3' },
           avatarNode(profile.avatar_url, profile.initials || (profile.full_name || '?').slice(0, 2), 'w-10 h-10 text-sm'),
@@ -38062,7 +38063,7 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
       el('div', { class: 'card p-4 mb-4', style: { background: 'var(--card-2)' } },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1.5', style: { color: 'var(--text-subtle)' } }, 'The story so far'),
         ...meetingInsights(profile, tpl).map(t => el('div', { class: 'text-[12px] leading-relaxed' }, '• ' + t))),
-      timeline());
+      timeline()].filter(Boolean));
   };
   render();
   document.body.append(overlay);
