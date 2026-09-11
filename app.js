@@ -38131,7 +38131,12 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
     return el('div', { class: 'card p-4 flex flex-col gap-3', style: { borderLeft: '4px solid ' + k.color, background: 'var(--card-2)' } },
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-          ...Object.entries(MEETING_KINDS).map(([kk, kv]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: m.kind === kk ? { background: kv.color, color: '#fff' } : { color: 'var(--text-muted)' }, onclick: () => { m.kind = kk; render(); } }, kv.short))),
+          ...Object.entries(MEETING_KINDS).map(([kk, kv]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: m.kind === kk ? { background: kv.color, color: '#fff' } : { color: 'var(--text-muted)' }, onclick: () => { m.kind = kk; render(); } }, kv.short)),
+          // Player card (per Isaac): the same Indicators card the dashboards
+          // open — sales, records, calendar, trends — right from the 1:1.
+          el('button', { class: 'px-2.5 py-1 text-[11px] font-bold border-l', style: { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
+            title: 'Open ' + (profile.full_name || 'this rep') + '\u2019s player card',
+            onclick: () => openDashboardPlayerCard(profile.id) }, 'Player card')),
         el('input', { type: 'date', value: m.meeting_date, class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { m.meeting_date = e.target.value; m.period = String(e.target.value).slice(0, 7); } }),
         el('span', { class: 'text-[11px] text-muted-' }, k.desc)),
       reviewBlock(),
