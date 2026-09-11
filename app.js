@@ -37149,7 +37149,7 @@ function viewScorecards() {
       // metrics + weights + attendance penalties every scorecard uses,
       // so reps shouldn't be able to retune the formula their own
       // manager scores them on.
-      isAdmin && el('button', {
+      canScoreRoster && el('button', {
         class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Edit template metrics, weights, and attendance penalties',
@@ -37233,9 +37233,10 @@ function viewScorecards() {
       }),
       // Admins edit anyone; a team lead edits everyone EXCEPT their own
       // card (no self-scoring); a rep opens their own card read-only.
-      onOpen: () => openScorecardDetailModal(profile, period, tpl, upsertCard,
-        isAdmin || (isLead && profile.id !== state.profile?.id)),
-      onMeetings: () => openMeetingLogModal(profile, dept, tpl, isAdmin || (isLead && profile.id !== state.profile?.id)),
+      // Admins and team leads have the SAME scorecard permissions (per
+      // Isaac): score any card in the department, log / edit 1:1s.
+      onOpen: () => openScorecardDetailModal(profile, period, tpl, upsertCard, canScoreRoster),
+      onMeetings: () => openMeetingLogModal(profile, dept, tpl, canScoreRoster),
     })),
   );
   container.append(grid);
