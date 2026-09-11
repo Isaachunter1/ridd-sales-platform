@@ -39049,6 +39049,20 @@ function reportingIsOfficeStaff(r) {
 // Filters + flag helpers used by every chart. Centralized so the rules
 // (hide hidden services, exclude 3-day RORs from churn, etc.) live in
 // one place and can't drift between charts.
+// A subscription that never became a customer: no completed initial service
+// (status not Completed and no serviced date) AND it's either sitting Frozen
+// in the CRM (the "removed" cards — e.g. custs 162628 / 178498) or was
+// cancelled as Sold-Not-Started / No Initial. Active-but-unscheduled and
+// Pending initials are NOT touched — those are still future business.
+const _NO_INITIAL_REASON_RE = /sold,?\s*not\s*started|no\s*initial/i;
+function reportingNeverStarted(r) {
+  if (!r) return false;
+  const initDone = String(r.initial_status || '').toLowerCase() === 'completed' || !!r.initial_serviced_date;
+  if (initDone) return false;
+  const frozen = String(r.subscription_status || '').toLowerCase() === 'frozen';
+  const snsReason = _NO_INITIAL_REASON_RE.test(String(reportingCancelReasonOf(r) || ''));
+  return frozen || snsReason;
+}
 function reportingFilters() {
   const cfgByName = new Map((state.reportingServiceConfig || []).map(c => [c.service_name, c]));
   const isHidden    = (r) => !!cfgByName.get(r.subscription)?.is_hidden;
@@ -39080,9 +39094,12 @@ function reportingFilters() {
   const all = reportingApplyBranchRules(state.reportingSubscriptions || []);
   // `visible` is the master set every snapshot-based tab reads from. It drops
   // Hidden service types AND subs from excluded lead sources (Configurations),
-  // so a source like Miscellaneous falls out of all reporting at once.
+  // so a source like Miscellaneous falls out of all reporting at once — and
+  // (per Isaac) subscriptions that NEVER STARTED: no initial service ever
+  // completed AND either frozen/removed in the CRM or cancelled as
+  // Sold-Not-Started / No Initial. Those are dead cards, not customers.
   const excludedSources = reportingExcludedSources();
-  const visible = all.filter(r => !isHidden(r) && !excludedSources.has(reportingSourceOf(r)));
+  const visible = all.filter(r => !isHidden(r) && !excludedSources.has(reportingSourceOf(r)) && !reportingNeverStarted(r));
   const recurring = visible.filter(isRecurring);
   return { all, visible, recurring, cfgByName, isHidden, isRecurring, isActive, isRealCancel };
 }
