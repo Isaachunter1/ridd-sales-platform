@@ -14119,7 +14119,7 @@ function calShortTime(hhmm) {
 // modal, swaps and holiday logic already speak, so nothing downstream
 // changes. One-off edits stay exactly that: click a day on the grid.
 function openAgentScheduleModal(rep) {
-  if (!isAdminRole(state.profile?.role) || !rep) return;
+  if (!calendarCanManage(state.profile?.role) || !rep) return;
   const dept = calendarAgentDept(rep);
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   // Seed from the agent's shifts over the NEXT 7 days so editing an
