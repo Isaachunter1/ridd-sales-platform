@@ -45278,11 +45278,12 @@ function reportingGeoTotal(items) {
     attritionEligible: t.subs >= 10, rows: [],
   };
 }
-function reportingGeoAggregate(rows) {
+function reportingGeoAggregate(rows, F) {
   const ATTRITION_MIN_SUBS = 10;
-  // Same attrition exclusions as the Overview tab — reasons the admin marked
-  // "don't count toward attrition" in Configurations are not counted here.
-  const excludedReasons = reportingExcludedCancelReasons();
+  // Overview's own predicates (recurring / active / real cancel incl. the
+  // excluded reasons + 3-day ROR rule) so every number here ties to the
+  // Overview cards. Fallback keeps the old behaviour if called without F.
+  F = F || reportingFilters();
 
   const seed = () => ({
     subs: 0,
@@ -45334,11 +45335,12 @@ function reportingGeoAggregate(rows) {
       m.subs += 1;
       if (r.customer_id) m.customers.add(r.customer_id);
       m.contract += Number(r.subscription_contract_value) || 0;
-      m.arv      += Number(r.annual_recurring_value) || 0;
-      if (r.subscription_date_canceled && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))) m.cancellations += 1;
-      // Active = currently in service: status says active AND no cancel
-      // date (matches isActive() in reportingFilters).
-      if ((r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled) m.active += 1;
+      const _act = F.isActive(r);
+      // ARV counts ACTIVE subs only — the same "Active ARR" the Overview
+      // shows. (It used to sum cancelled subs' ARV too, which is why the
+      // office total read $66M against the Overview's $39M.)
+      if (_act) { m.active += 1; m.arv += Number(r.annual_recurring_value) || 0; }
+      if (F.isRealCancel(r)) m.cancellations += 1;
       const _tm = _tenureMonths(r);
       if (_tm != null) { m.tenureMo += _tm; m.tenureN += 1; m.ltvRev += (Number(r.annual_recurring_value) || 0) / 12 * _tm; if (_tm >= 24) m.twoYr += 1; }
       if (r.customer_id && /sentricon/i.test(String(r.subscription || ''))) m.sentricon.add(r.customer_id);
@@ -45537,7 +45539,7 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
 function exportReportingGeoCsv(items, kind, scopeTag) {
   if (!items || !items.length) { toast('Nothing to export', 'warn'); return; }
   const firstCol = kind === 'county' ? 'county' : 'zip';
-  const headers = [firstCol, 'state', 'offices', 'accounts', 'subscriptions', 'avg_contract_value', 'total_arv', 'active_subscriptions', 'cancellations', 'attrition_pct', 'avg_tenure_months', 'two_year_plus_pct', 'sentricon_customer_pct', 'ltv_per_customer'];
+  const headers = [firstCol, 'state', 'offices', 'accounts', 'subscriptions', 'avg_contract_value', 'active_arv', 'active_subscriptions', 'cancellations', 'attrition_pct', 'avg_tenure_months', 'two_year_plus_pct', 'sentricon_customer_pct', 'ltv_per_customer'];
   const lines = [headers.join(',')];
   for (const it of items) {
     // Distinct office names contributing to this ZIP/county, in volume order.
@@ -45594,10 +45596,12 @@ function reportingGeographic() {
   //   2. recurring — real subscriptions (ARV > 0, or manually marked
   //      recurring in Configurations). One-time service types are excluded.
   // Other reporting tabs keep the full dataset.
-  const geoRecurringByName = reportingServiceRecurringMap();
-  const geoIsRecurring = (r) => !!geoRecurringByName.get(r.subscription);
-  const scopeServiced = scopeA.filter(r => !!r.initial_service && geoIsRecurring(r));
-  const agg = reportingGeoAggregate(scopeServiced);
+  // Same recurring / active / real-cancel rules as the Overview tab
+  // (reportingFilters) so the two pages agree — this tab used to run its
+  // own Lifecycle-only recurring test and counted cancelled subs' ARV.
+  const geoF = reportingFilters();
+  const scopeServiced = scopeA.filter(r => !!r.initial_service && geoF.isRecurring(r));
+  const agg = reportingGeoAggregate(scopeServiced, geoF);
 
   // "Top Service" map metric — colors each area by its most common service.
   // Top 15 services (by volume) get distinct colors + a legend; everything
@@ -45895,7 +45899,7 @@ function reportingGeographic() {
   const bOffices = [...new Set(scopeServiced.map(r => (r.office_name || '').trim()).filter(Boolean))].sort();
   const bOffice = bOffices.includes(state.reportingGeoBreakdownOffice) ? state.reportingGeoBreakdownOffice : 'all';
   if (bOffice !== 'all') {
-    const bAgg = reportingGeoAggregate(scopeServiced.filter(r => (r.office_name || '').trim() === bOffice));
+    const bAgg = reportingGeoAggregate(scopeServiced.filter(r => (r.office_name || '').trim() === bOffice), geoF);
     const inState = (it) => !(mapLevel === 'state' && drilledState) || it.state === drilledState;
     breakdown.items = (breakdown.labelKey === 'county' ? bAgg.counties : bAgg.zips).filter(inState);
   }
@@ -45930,7 +45934,7 @@ function reportingGeographic() {
     customers: 'Distinct customers with a serviced, recurring subscription here.',
     subs: 'Serviced recurring subscriptions (a customer with two plans counts twice).',
     avgContract: 'Average contract value per subscription.',
-    arv: 'Total annual recurring value of all subscriptions here.',
+    arv: 'Annual recurring value of the ACTIVE subscriptions here (ties to the Overview\u2019s Active ARR).',
     cancellations: 'Real cancels — excludes the cancel reasons marked as not-attrition in Configurations.',
     cancelRate: (isRetention ? 'Retention = 1 \u2212 cancels \u00f7 subs' : 'Attrition = cancels \u00f7 subs') + '. Only shown with 10+ subs so a single cancel can\u2019t swing it.',
     avgTenure: 'Average months each subscription has been on the books \u2014 first service to cancel date, or to today if still active.',
@@ -45991,7 +45995,7 @@ function reportingGeographic() {
             tableHeader('Customers',   'customers',  true),
             tableHeader('Subs',        'subs',       true),
             tableHeader('ACV',         'avgContract', true),
-            tableHeader('Total ARV',   'arv',         true),
+            tableHeader('Active ARV',  'arv',         true),
             tableHeader('Cancels',     'cancellations', true),
             tableHeader(isRetention ? 'Retention %' : 'Attrition %', 'cancelRate',  true),
             tableHeader('Avg Tenure',  'avgTenure',   true),
@@ -46070,9 +46074,8 @@ function reportingGeographic() {
           .map(([code, s]) => ({ code, name: REPORTING_STATE_CODE_TO_NAME[code] || code, ...s }))
           .sort((a, b) => b.subs - a.subs)
       : Object.entries(agg.offices || {})
-          .filter(([name]) => name && name !== 'Unknown')
-          .map(([name, s]) => ({ code: null, name: _mktgTC(name), ...s }))
-          .sort((a, b) => b.subs - a.subs);
+          .map(([name, s]) => ({ code: null, name: name === 'Unknown' ? 'No office' : _mktgTC(name), _unknown: name === 'Unknown', ...s }))
+          .sort((a, b) => (a._unknown - b._unknown) || (b.subs - a.subs));
     if (rows.length < 1) return null;
     const floor = (agg.attritionMinSubs || 10);
     const byToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
@@ -46101,7 +46104,7 @@ function reportingGeographic() {
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Serviced recurring subscriptions' }, 'Subs'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Subscriptions currently active (status Active, no cancel date)' }, 'Active'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Average contract value per subscription' }, 'ACV'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Total annual recurring value' }, 'Total ARV'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Annual recurring value of active subs (ties to the Overview\u2019s Active ARR)' }, 'Active ARV'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Real cancels (excluded reasons from Configurations don\u2019t count)' }, 'Cancels'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: isRetention ? 'Retention = 1 \u2212 cancels \u00f7 subs (10+ subs)' : 'Attrition = cancels \u00f7 subs (10+ subs)' }, isRetention ? 'Retention %' : 'Attrition %'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Active subs ÷ all subs' }, 'Active %'),
