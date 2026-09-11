@@ -46007,8 +46007,7 @@ function reportingGeographic() {
             if (!T.subs) return null;
             const td = (v, cls) => el('td', { class: 'px-3 py-2 text-left font-black ' + (cls || '') }, v);
             return el('tr', { class: 'tabular-nums', style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2)' } },
-              el('td', { class: 'px-3 py-2 text-base leading-none', style: { fontFamily: 'Georgia, "Times New Roman", serif' } }, '\ud835\udd7d'),
-              td('RIDD'), td(bOffice !== 'all' ? _mktgTC(bOffice) : 'All'),
+              td('RIDD'), td('All'), td(bOffice !== 'all' ? _mktgTC(bOffice) : 'All'),
               td(T.customers.toLocaleString()), td(T.subs.toLocaleString()),
               td('$' + Math.round(T.avgContract).toLocaleString()), td('$' + Math.round(T.arv).toLocaleString()),
               td(T.cancellations.toLocaleString()),
@@ -46118,9 +46117,7 @@ function reportingGeographic() {
               if (!T.subs) return null;
               const td = (v) => el('td', { class: 'px-3 py-2 text-left font-black' }, v);
               return el('tr', { class: 'tabular-nums', style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2)' } },
-                el('td', { class: 'px-3 py-2 whitespace-nowrap' },
-                  el('span', { class: 'text-base leading-none mr-2', style: { fontFamily: 'Georgia, "Times New Roman", serif' } }, '\ud835\udd7d'),
-                  el('span', { class: 'font-black' }, 'RIDD')),
+                td('RIDD'),
                 td(T.customers.toLocaleString()), td(T.subs.toLocaleString()), td(T.active.toLocaleString()),
                 td('$' + Math.round(T.avgContract).toLocaleString()), td('$' + Math.round(T.arv).toLocaleString()),
                 td(T.cancellations.toLocaleString()),
