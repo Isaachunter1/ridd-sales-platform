@@ -7583,7 +7583,12 @@ function getCardScopeBounds(preset) {
     if (d && (!latest || d > latest)) latest = d;
   }
   if (!latest) return null;
-  const anchor = new Date(latest); anchor.setHours(0, 0, 0, 0);
+  // Anchor = the latest sale day, but never past today: one future-dated
+  // row (a typo'd sold date) dragged every preset months ahead and made
+  // "This week" read 11/1–11/3 with zeros everywhere. Stale uploads still
+  // anchor to their own last day, live data anchors to today.
+  const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
+  const anchor = new Date(latest > todayD ? todayD : latest); anchor.setHours(0, 0, 0, 0);
   const endOfDay = (d) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
   switch (preset) {
     case 'today':      return { start: anchor, end: endOfDay(anchor) };
