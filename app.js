@@ -45293,6 +45293,8 @@ function reportingGeoAggregate(rows) {
     active: m.active,
     avgContract: m.subs > 0 ? m.contract / m.subs : 0,
     cancelRate:  m.subs > 0 ? m.cancellations / m.subs : 0,
+    // Office this area belongs to = the branch that services most of its subs.
+    office: (() => { const c = new Map(); for (const r of m.rows) { const o = r.office_name; if (o) c.set(o, (c.get(o) || 0) + 1); } return [...c.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || ''; })(),
     avgTenure:   m.tenureN > 0 ? m.tenureMo / m.tenureN : 0,          // months
     ltv:         m.customers.size > 0 ? m.ltvRev / m.customers.size : 0, // realized recurring $ per customer
     twoYrPct:    m.tenureN > 0 ? m.twoYr / m.tenureN : 0,
@@ -45872,6 +45874,7 @@ function reportingGeographic() {
           el('tr', {},
             tableHeader(breakdown.labelCol, breakdown.labelKey),
             tableHeader('State',       'state'),
+            tableHeader('Office',      'office'),
             tableHeader('Customers',   'customers',  true),
             tableHeader('Subs',        'subs',       true),
             tableHeader('ACV',         'avgContract', true),
@@ -45909,6 +45912,7 @@ function reportingGeographic() {
           },
             el('td', { class: 'px-3 py-2 font-semibold' }, breakdown.cellLabel(it)),
             el('td', { class: 'px-3 py-2' }, it.state || '—'),
+            el('td', { class: 'px-3 py-2 whitespace-nowrap', title: 'Branch servicing most of this area\u2019s subs' }, it.office ? _mktgTC(it.office) : '—'),
             el('td', { class: 'px-3 py-2 text-right' }, it.customers.toLocaleString()),
             el('td', { class: 'px-3 py-2 text-right' }, it.subs.toLocaleString()),
             el('td', { class: 'px-3 py-2 text-right' }, '$' + Math.round(it.avgContract).toLocaleString()),
