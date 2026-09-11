@@ -39576,6 +39576,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
   });
 
   const hasFlags = rows.some(r => r._flagReason);
+  const hasLoc = rows.some(r => r.state || r.zip_code);   // location columns (fixing CRM addresses)
   const totalContract = rows.reduce((s, r) => s + (Number(r.subscription_contract_value) || 0), 0);
   const totalArv      = rows.reduce((s, r) => s + (Number(r.annual_recurring_value) || 0), 0);
   const formatter = formatValue || fmt.usd0;
@@ -39595,6 +39596,11 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
   const cols = [
     { key: 'customer',     label: 'Customer',        align: 'left',  type: 'str', get: r => customerName(r).toLowerCase() },
     { key: 'office',       label: 'Office',          align: 'left',  type: 'str', get: r => (r.office_name || '').toLowerCase() },
+    ...(hasLoc ? [
+      { key: 'state',      label: 'State',           align: 'left',  type: 'str', get: r => (r.state || '').toUpperCase() },
+      { key: 'zip',        label: 'ZIP',             align: 'left',  type: 'str', get: r => String(r.zip_code || '') },
+      { key: 'county',     label: 'County',          align: 'left',  type: 'str', get: r => (r.county || '').toLowerCase() },
+    ] : []),
     { key: 'subscription', label: 'Subscription',    align: 'left',  type: 'str', get: r => (r.subscription || '').toLowerCase() },
     { key: 'status',       label: 'Status',          align: 'left',  type: 'str', get: r => (r.subscription_status || '').toLowerCase() },
     ...(hasFlags ? [{ key: 'svcs', label: 'Svcs', align: 'right', type: 'num', get: r => Number(r.subscription_completed_services) || 0 }] : []),
@@ -39633,6 +39639,9 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
       r.customer_id && el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + r.customer_id),
     ),
     el('td', { class: 'px-3 py-2' }, r.office_name || '—'),
+    hasLoc && el('td', { class: 'px-3 py-2 font-semibold' }, r.state || '—'),
+    hasLoc && el('td', { class: 'px-3 py-2 tabular-nums' }, r.zip_code || '—'),
+    hasLoc && el('td', { class: 'px-3 py-2' }, r.county || '—'),
     el('td', { class: 'px-3 py-2' }, r.subscription || '—'),
     el('td', { class: 'px-3 py-2' }, r.subscription_status || '—'),
     hasFlags && el('td', { class: 'px-3 py-2 text-right tabular-nums' }, String(Number(r.subscription_completed_services) || 0)),
@@ -46158,7 +46167,26 @@ function reportingGeographic() {
                 el('td', { class: 'px-3 py-2 text-left' }, s.subs ? Math.round((s.twoYrPct || 0) * 100) + '%' : '—'),
                 el('td', { class: 'px-3 py-2 text-left' }, s.customers ? Math.round((s.sentriconPct || 0) * 100) + '%' : '—'),
                 el('td', { class: 'px-3 py-2 text-left font-semibold' }, s.ltv ? '$' + Math.round(s.ltv).toLocaleString() : '—'),
-                el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, (() => { const c = new Map(); for (const r of (s.rows || [])) { const o = summaryBy === 'state' ? r.office_name : r.state; if (o) c.set(o, (c.get(o) || 0) + 1); } return [...c.entries()].sort((a, b) => b[1] - a[1]).map(([o]) => summaryBy === 'state' ? _mktgTC(o) : o).join(' · ') || '—'; })()));
+                el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, (() => {
+                  const c = new Map();
+                  for (const r of (s.rows || [])) { const o = summaryBy === 'state' ? r.office_name : (r.state || ''); c.set(o, (c.get(o) || 0) + 1); }
+                  const ents = [...c.entries()].sort((a, b) => b[1] - a[1]);
+                  if (!ents.length) return '\u2014';
+                  // Office view: every state is a chip → click for the customers
+                  // filed under it (per Isaac — spotting wrong states in the CRM).
+                  return el('span', { class: 'flex items-center gap-1 flex-wrap' }, ...ents.map(([o, n]) => summaryBy === 'state'
+                    ? el('span', {}, _mktgTC(o))
+                    : el('button', {
+                        class: 'px-1.5 py-0.5 rounded text-[10px] font-semibold transition hover:brightness-95',
+                        style: { background: 'var(--card-2)', border: '1px solid var(--border-2)', color: 'var(--text)' },
+                        title: n.toLocaleString() + ' sub' + (n === 1 ? '' : 's') + ' filed under ' + (o || 'no state') + ' \u2014 click to see the customers',
+                        onclick: (e) => {
+                          e.stopPropagation();
+                          const rows = (s.rows || []).filter(r => (r.state || '') === o);
+                          openReportingDrillModal({ chartTitle: s.name + ' \u2014 customers filed under ' + (o || 'no state'), sliceLabel: rows.length.toLocaleString() + ' subscription' + (rows.length === 1 ? '' : 's'), rows, formatValue: fmt.usd0 });
+                        },
+                      }, (o || '??') + ' \u00b7 ' + n.toLocaleString())));
+                })()));
             })))));
   })() : null;
 
