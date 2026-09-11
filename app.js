@@ -9169,6 +9169,28 @@ function canViewRepDetails(repName, repTeam) {
   }
   return false;   // 'self' / 'none' — self was already allowed above
 }
+// Popover helper: cards use overflow-hidden / scroll-x, which clips an
+// absolutely-positioned dropdown (the rep pickers were getting cut off after
+// two rows). Fix by pinning the panel to the viewport under its button once
+// it's in the DOM; re-pinned on scroll/resize while it's open.
+function _anchorPopover(panel, btn, align = 'left') {
+  panel.style.position = 'fixed';
+  panel.style.zIndex = '1000';
+  const place = () => {
+    if (!panel.isConnected) { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place); return; }
+    const r = btn.getBoundingClientRect();
+    const w = panel.offsetWidth || 260;
+    let left = align === 'right' ? r.right - w : r.left;
+    left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+    panel.style.left = left + 'px';
+    panel.style.top = (r.bottom + 6) + 'px';
+    panel.style.maxHeight = Math.max(160, window.innerHeight - r.bottom - 16) + 'px';
+    panel.style.overflowY = 'auto';
+  };
+  requestAnimationFrame(place);
+  window.addEventListener('scroll', place, true);
+  window.addEventListener('resize', place);
+}
 // A combined (Total / RIDD) card is viewable when EVERY rep it rolls up is
 // viewable by this user — so a partner who filtered the board down to their
 // own team (or a preset of their reps) can open the Total card with the
@@ -10964,7 +10986,7 @@ function leaderboardSection(range) {
           }, label);
           const panel = el('div', {
             class: 'card',
-            style: { position: 'absolute', right: '0', top: 'calc(100% + 6px)', zIndex: '60', minWidth: '210px', padding: '8px', boxShadow: 'var(--shadow-lg)' },
+            style: { minWidth: '210px', padding: '8px', boxShadow: 'var(--shadow-lg)' },
           },
             el('div', { class: 'flex items-center justify-between gap-2 px-1 pb-2' },
               el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Show reps'),
@@ -10984,6 +11006,7 @@ function leaderboardSection(range) {
                     return el('label', { class: 'flex items-center gap-2 px-1 py-1.5 rounded-lg cursor-pointer text-xs' },
                       cb, el('span', { class: 'truncate' }, r.full_name || r.first_name));
                   })));
+          _anchorPopover(panel, btn, 'right');
           return el('span', { style: { position: 'relative' } }, btn, panel);
         })(),
       ),
@@ -30413,7 +30436,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
             const cur = new Set(_pickArr || []);
             const panel = el('div', {
               class: 'card',
-              style: { position: 'absolute', left: '0', top: 'calc(100% + 6px)', zIndex: '60', width: '260px', padding: '8px', boxShadow: 'var(--shadow-lg)' },
+              style: { width: '260px', padding: '8px', boxShadow: 'var(--shadow-lg)' },
             },
               el('div', { class: 'flex items-center justify-between gap-2 px-1 pb-2' },
                 el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Downline'),
@@ -30435,8 +30458,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 },
               }),
               el('div', { class: 'flex flex-col mt-1.5', style: { maxHeight: '240px', overflowY: 'auto' } },
-                ...allReps.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(r => {
-                  const cb = el('input', { type: 'checkbox', style: { cursor: 'pointer', flexShrink: '0' } });
+                ...allReps.slice().sort((a, b) => (cur.has(b.name) - cur.has(a.name)) || (a.name || '').localeCompare(b.name || '')).map(r => {
+                  const cb = el('input', { type: 'checkbox', style: { cursor: 'pointer', flexShrink: '0', accentColor: 'var(--accent)' } });
+                  if (cur.has(r.name)) cb.setAttribute('checked', '');
                   cb.checked = cur.has(r.name);
                   cb.onchange = () => {
                     if (cb.checked) cur.add(r.name); else cur.delete(r.name);
@@ -30449,6 +30473,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                 })),
               el('div', { class: 'text-[10px] text-muted- px-1 pt-2' },
                 'Save this selection from the Presets ribbon on the left edge.'));
+            _anchorPopover(panel, btn, 'left');
             return el('span', { style: { position: 'relative' } }, btn, panel);
           })(),
 
