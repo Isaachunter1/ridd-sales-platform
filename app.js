@@ -340,6 +340,7 @@ const INDICATOR_SETTINGS_FIELDS = [
   '_scorecardTemplates',   // per-department templates (inside_sales / loyalty)
   '_scorecardData',
   '_scorecardAudits',   // call-audit cache (cloud table call_audits is the record)
+  '_scorecardMeetings', // 1:1 meeting log cache (cloud table scorecard_meetings is the record)
   '_scorecardPeriod',
 ];
 
@@ -37074,6 +37075,7 @@ function viewScorecards() {
   }
   const period = state._scorecardPeriod;
   loadScorecardCloud(period);   // hydrate cards + call audits from Supabase (no-op in demo)
+  loadScorecardMeetingsCloud();  // 1:1 meeting log (all agents, once per session)
   const periodOpts = scorecardPeriodOptions();
   // Storage key uses the profile.id (stable across renames / email
   // changes) rather than a display name from the CSV, so a rep editing
@@ -37121,12 +37123,7 @@ function viewScorecards() {
   const container = el('div', { class: 'flex flex-col gap-4' });
 
   const header = el('div', { class: 'card p-5 flex items-start justify-between gap-4 flex-wrap' },
-    el('div', {},
-      el('h2', { class: 'text-xl font-bold' }, 'Scorecards'),
-      el('p', { class: 'text-xs text-muted- mt-1' },
-        'Monthly performance review per agent. ' + tpl.name + ' template: ' +
-        tpl.metrics.map(m => m.label + ' ' + Math.round(m.weight * 100) + '%').join(' · ') + '.'),
-    ),
+    el('div', {}, el('h2', { class: 'text-xl font-bold' }, 'Scorecards')),
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       // Department scope — admins switch between departments; leads and
       // reps see a pinned pill for their own.
@@ -37200,6 +37197,18 @@ function viewScorecards() {
       interveneCount + ' intervene · ' + watchCount + ' watch',
       interveneCount > 0 ? '#B91C1C' : (watchCount > 0 ? '#92400E' : null)),
   );
+  // 1:1 cadence rollup (per Isaac): who's overdue for a meeting, who's
+  // missing this month's review, how many action items are open.
+  if (typeof meetingCadence === 'function' && roster.length) {
+    const cads = roster.map(p => meetingCadence(p.id));
+    const overdue = cads.filter(c => c.status === 'overdue' || c.status === 'never').length;
+    const reviewDue = cads.filter(c => !c.reviewThisMonth).length;
+    const openItems = cads.reduce((t, c) => t + c.openItems, 0);
+    summaryStrip.append(scorecardSummaryCard('1:1 Cadence', overdue ? overdue + ' overdue' : 'On track',
+      reviewDue + ' without this month\u2019s review \u00b7 ' + openItems + ' open action item' + (openItems === 1 ? '' : 's'),
+      overdue ? '#B91C1C' : '#3D7A66'));
+    summaryStrip.className = 'grid grid-cols-2 sm:grid-cols-5 gap-3';
+  }
   container.append(summaryStrip);
 
   // ── Agent grid ──────────────────────────────────────────────────
@@ -37226,6 +37235,7 @@ function viewScorecards() {
       // card (no self-scoring); a rep opens their own card read-only.
       onOpen: () => openScorecardDetailModal(profile, period, tpl, upsertCard,
         isAdmin || (isLead && profile.id !== state.profile?.id)),
+      onMeetings: () => openMeetingLogModal(profile, dept, tpl, isAdmin || (isLead && profile.id !== state.profile?.id)),
     })),
   );
   container.append(grid);
@@ -37244,7 +37254,7 @@ function scorecardSummaryCard(label, value, subtitle, color) {
   );
 }
 
-function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen }) {
+function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen, onMeetings }) {
   const composite = score && score.coverage > 0 ? score.final : null;
   const band = scorecardBand(composite);
   const isEmpty = !card || score.coverage === 0;
@@ -37369,16 +37379,26 @@ function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen }) {
     title: 'Reviewed with the agent' + (card.reviewed.by ? ' by ' + card.reviewed.by : ''),
   }, '\u2713 Reviewed' + (card.reviewed.on ? ' ' + fmt.dateShort(card.reviewed.on) : '')));
 
-  const footer = el('div', { class: 'mt-3 flex items-center justify-between text-[10px]' },
+  // 1:1 cadence (per Isaac): last meeting + what's due, and a button into
+  // the meeting log. Red = overdue (14+ days) or never met.
+  const cad = (typeof meetingCadence === 'function') ? meetingCadence(profile.id) : null;
+  const footer = el('div', { class: 'mt-3 flex items-center justify-between text-[10px] gap-2' },
     stampChips.length
       ? el('span', { class: 'flex items-center gap-1.5 flex-wrap' }, ...stampChips)
       : el('span', { class: 'text-muted-' },
           isEmpty ? 'No score this period' : 'Click to edit / view detail'),
-    el('button', {
-      class: 'rounded-lg px-2 py-1 text-[10px] font-bold border transition hover:brightness-95',
-      style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
-      onclick: (e) => { e.stopPropagation(); onOpen(); },
-    }, isEmpty ? '+ Score' : 'Open'),
+    el('span', { class: 'flex items-center gap-1.5 shrink-0' },
+      cad ? el('button', {
+        class: 'rounded-lg px-2 py-1 text-[10px] font-bold border transition hover:brightness-95 whitespace-nowrap',
+        style: { borderColor: cad.color, color: cad.color },
+        title: cad.label + ' \u2014 open the 1:1 log',
+        onclick: (e) => { e.stopPropagation(); if (onMeetings) onMeetings(); },
+      }, cad.status === 'ok' ? '1:1 \u2713 ' + cad.days + 'd' : cad.status === 'never' ? '1:1 none' : cad.status === 'review_due' ? '1:1 review due' : '1:1 ' + cad.days + 'd!') : null,
+      el('button', {
+        class: 'rounded-lg px-2 py-1 text-[10px] font-bold border transition hover:brightness-95',
+        style: { borderColor: 'var(--accent)', color: 'var(--accent)' },
+        onclick: (e) => { e.stopPropagation(); onOpen(); },
+      }, isEmpty ? '+ Score' : 'Open')),
   );
 
   return el('div', {
@@ -37770,6 +37790,234 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
 
 // Template editor — edit metric weights + attendance penalty weights.
 // Phase-1 single-template editor; Phase-2 would extend to multi-template.
+// ════════════════════════════════════════════════════════════════════════
+// SCORECARDS — 1:1 MEETING LOG (per Isaac, Sep 2026)
+// Team leads meet every agent twice a month: the first is the performance
+// / metric review (start of month), the second is coaching — training and
+// what to actively work on. Each meeting is logged against the agent, open
+// action items carry forward into the next one, and the timeline reads as
+// a story: what was asked, what changed, what the scorecard did next.
+// Table: public.scorecard_meetings (scorecard_meetings.sql).
+// ════════════════════════════════════════════════════════════════════════
+const MEETING_KINDS = {
+  review:   { label: 'Performance review', short: 'Review',   color: '#DF643A', desc: 'Start of month — scorecard + metric review' },
+  coaching: { label: 'Coaching session',   short: 'Coaching', color: '#1F6F84', desc: 'Mid-month — training + what to actively work on' },
+};
+const MEETING_CADENCE_DAYS = 14;
+function _mtgAll() { return Array.isArray(state._scorecardMeetings) ? state._scorecardMeetings : (state._scorecardMeetings = []); }
+function meetingsFor(profileId) {
+  return _mtgAll().filter(m => m.profile_id === profileId)
+    .sort((a, b) => String(b.meeting_date || '').localeCompare(String(a.meeting_date || '')) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
+}
+async function loadScorecardMeetingsCloud(force) {
+  if (typeof DEMO !== 'undefined' && DEMO) return;
+  if (typeof supabase === 'undefined' || !supabase) return;
+  if (state._scorecardMeetingsLoaded && !force) return;
+  state._scorecardMeetingsLoaded = true;
+  try {
+    const { data, error } = await supabase.from('scorecard_meetings').select('*').order('meeting_date', { ascending: false });
+    if (error) { if (/scorecard_meetings/i.test(error.message || '')) state._scorecardMeetingsMissing = true; else console.warn('meetings load', error); return; }
+    state._scorecardMeetings = data || [];
+    state._scorecardMeetingsMissing = false;
+    if (state.view === 'scorecards') mountApp();
+  } catch (e) { console.warn('meetings load failed', e); }
+}
+async function saveScorecardMeeting(m) {
+  const all = _mtgAll();
+  const local = (row) => { const i = all.findIndex(x => x.id === row.id); if (i >= 0) all[i] = row; else all.unshift(row); saveDemoData(); };
+  if ((typeof DEMO !== 'undefined' && DEMO) || state._scorecardMeetingsMissing || typeof supabase === 'undefined' || !supabase) {
+    local({ ...m, id: m.id || ('local-' + Date.now()), created_at: m.created_at || new Date().toISOString() });
+    return true;
+  }
+  const payload = { ...m, updated_at: new Date().toISOString() };
+  if (!payload.id) delete payload.id;
+  const { data, error } = await supabase.from('scorecard_meetings').upsert(payload).select().single();
+  if (error) { toast('Meeting save failed: ' + error.message, 'error'); return false; }
+  local(data);
+  return true;
+}
+async function deleteScorecardMeeting(id) {
+  const all = _mtgAll();
+  const i = all.findIndex(x => x.id === id); if (i >= 0) all.splice(i, 1);
+  saveDemoData();
+  if ((typeof DEMO !== 'undefined' && DEMO) || String(id).startsWith('local-') || typeof supabase === 'undefined' || !supabase) return;
+  const { error } = await supabase.from('scorecard_meetings').delete().eq('id', id);
+  if (error) toast('Delete failed: ' + error.message, 'error');
+}
+const _mtgIso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+const _mtgDays = (iso) => iso ? Math.floor((Date.now() - new Date(String(iso).slice(0, 10) + 'T12:00').getTime()) / 86400000) : null;
+const _mtgFmt = (iso) => iso ? new Date(String(iso).slice(0, 10) + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+// Cadence status for an agent: last meeting, days since, what's due.
+function meetingCadence(profileId) {
+  const ms = meetingsFor(profileId);
+  const last = ms[0] || null;
+  const days = last ? _mtgDays(last.meeting_date) : null;
+  const ym = _mtgIso(new Date()).slice(0, 7);
+  const reviewThisMonth = ms.some(m => m.kind === 'review' && String(m.period || m.meeting_date || '').slice(0, 7) === ym);
+  const dayOfMonth = new Date().getDate();
+  let status, color, label;
+  if (!last) { status = 'never'; color = '#DC2626'; label = 'No 1:1 logged'; }
+  else if (days > MEETING_CADENCE_DAYS) { status = 'overdue'; color = '#DC2626'; label = days + 'd since last 1:1 — overdue'; }
+  else if (!reviewThisMonth && dayOfMonth > 10) { status = 'review_due'; color = '#B45309'; label = 'Monthly review not logged'; }
+  else { status = 'ok'; color = '#3D7A66'; label = 'Last 1:1 ' + days + 'd ago'; }
+  const openItems = ms.length ? (ms[0].action_items || []).filter(a => a && !a.done).length : 0;
+  return { last, days, status, color, label, reviewThisMonth, openItems, count: ms.length, nextKind: reviewThisMonth ? 'coaching' : 'review' };
+}
+// Plain-English insights built from the meeting history + scorecards.
+function meetingInsights(profile, tpl) {
+  const ms = meetingsFor(profile.id).slice().reverse();   // oldest → newest
+  const out = [];
+  if (!ms.length) return ['No meetings logged yet — the story starts with the first one.'];
+  const scoreFor = (period) => { const c = (state._scorecardData || {})[profile.id + '|' + period]; const s = c ? computeScorecardScore(c, tpl, period) : null; return (s && s.coverage > 0) ? s.final : null; };
+  const periods = [...new Set(ms.map(m => String(m.period || m.meeting_date || '').slice(0, 7)))].filter(Boolean).sort();
+  const scored = periods.map(p => ({ p, s: scoreFor(p) })).filter(x => x.s != null);
+  if (scored.length >= 2) {
+    const a = scored[0].s, b = scored[scored.length - 1].s, d = b - a;
+    out.push('Composite ' + (d >= 0 ? 'up' : 'down') + ' ' + Math.abs(d).toFixed(1) + ' pts across ' + scored.length + ' reviewed months (' + a.toFixed(0) + '% → ' + b.toFixed(0) + '%)' + (d >= 5 ? ' — the coaching is landing.' : d <= -5 ? ' — worth a harder look at what changed.' : '.'));
+    let streak = 0; for (let i = scored.length - 1; i > 0 && scored[i].s >= scored[i - 1].s; i--) streak++;
+    if (streak >= 2) out.push(streak + ' straight months of improvement.');
+  }
+  const gaps = []; for (let i = 1; i < ms.length; i++) { const g = (new Date(ms[i].meeting_date) - new Date(ms[i - 1].meeting_date)) / 86400000; if (g > 0) gaps.push(g); }
+  if (gaps.length) { const avg = gaps.reduce((a, b) => a + b, 0) / gaps.length; out.push('Meeting every ' + Math.round(avg) + ' days on average' + (avg > MEETING_CADENCE_DAYS + 4 ? ' — behind the 2-week cadence.' : ' — on cadence.')); }
+  let asked = 0, done = 0, carriedTwice = 0;
+  ms.forEach(m => (m.action_items || []).forEach(a => { asked++; if (a.done) done++; if (a.carried_from && a.carried_count >= 2) carriedTwice++; }));
+  if (asked) out.push(done + ' of ' + asked + ' action items closed (' + Math.round(done / asked * 100) + '%)' + (carriedTwice ? ' · ' + carriedTwice + ' item' + (carriedTwice === 1 ? '' : 's') + ' carried 2+ meetings — stuck.' : '.'));
+  const fc = new Map(); ms.forEach(m => (m.focus || []).forEach(f => { const k = String(f).trim(); if (k) fc.set(k, (fc.get(k) || 0) + 1); }));
+  const rec = [...fc.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  if (rec.length) out.push('Keeps coming up: ' + rec.map(([k, n]) => k + ' (' + n + '×)').join(', ') + '.');
+  const lastM = ms[ms.length - 1];
+  if (lastM && lastM.kind === 'coaching' && (lastM.focus || []).length) out.push('Currently working on: ' + lastM.focus.join(', ') + '.');
+  return out;
+}
+
+function openMeetingLogModal(profile, dept, tpl, canEdit) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  const modal = el('div', { class: 'card w-full max-w-3xl p-6 my-8 overflow-y-auto', style: { maxHeight: 'calc(100vh - 64px)' } });
+  overlay.append(modal);
+  let editing = null;
+
+  const scoreFor = (period) => { const c = (state._scorecardData || {})[profile.id + '|' + period]; const s = c ? computeScorecardScore(c, tpl, period) : null; return (s && s.coverage > 0) ? s : null; };
+  const chip = (kind) => { const k = MEETING_KINDS[kind] || MEETING_KINDS.coaching; return el('span', { class: 'rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider', style: { background: k.color + '22', color: k.color } }, k.short); };
+
+  const startNew = (kind) => {
+    const ms = meetingsFor(profile.id);
+    const prev = ms[0];
+    const carried = prev ? (prev.action_items || []).filter(a => a && !a.done).map(a => ({ text: a.text, done: false, carried_from: prev.meeting_date, carried_count: (a.carried_count || 0) + 1 })) : [];
+    const today = _mtgIso(new Date());
+    editing = { profile_id: profile.id, dept, period: today.slice(0, 7), kind, meeting_date: today,
+      lead_id: state.profile?.id || null, lead_name: state.profile?.full_name || '', notes: '', wins: '', focus: [], action_items: carried };
+    render();
+  };
+
+  const form = () => {
+    const m = editing;
+    const inp = (key, ph, rows) => el(rows ? 'textarea' : 'input', Object.assign({
+      class: 'w-full rounded-lg border px-2.5 py-1.5 text-[12px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+      placeholder: ph, value: m[key] || '', oninput: (e) => { m[key] = e.target.value; },
+    }, rows ? { rows } : { type: 'text' }));
+    const focusSuggest = [...new Set([...(tpl.metrics || []).map(x => x.label), ...meetingsFor(profile.id).flatMap(x => x.focus || [])])];
+    const focusBox = el('div', { class: 'flex flex-wrap gap-1.5 items-center' });
+    const drawFocus = () => {
+      focusBox.innerHTML = '';
+      (m.focus || []).forEach((f, i) => focusBox.append(el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-semibold flex items-center gap-1', style: { background: 'rgba(223,100,58,.12)', color: '#DF643A' } }, f,
+        el('button', { class: 'text-[11px] leading-none', onclick: () => { m.focus.splice(i, 1); drawFocus(); } }, '×'))));
+      focusSuggest.filter(s => !(m.focus || []).includes(s)).slice(0, 8).forEach(s => focusBox.append(el('button', {
+        class: 'rounded-full px-2 py-0.5 text-[10px] border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+        onclick: () => { (m.focus = m.focus || []).push(s); drawFocus(); } }, '+ ' + s)));
+      focusBox.append(el('input', { type: 'text', placeholder: 'Add focus…', class: 'rounded-full border px-2 py-0.5 text-[10px]', style: { borderColor: 'var(--border-2)', width: '110px' },
+        onkeydown: (e) => { if (e.key === 'Enter' && e.target.value.trim()) { e.preventDefault(); (m.focus = m.focus || []).push(e.target.value.trim()); drawFocus(); } } }));
+    };
+    drawFocus();
+    const itemsBox = el('div', { class: 'flex flex-col gap-1.5' });
+    const drawItems = () => {
+      itemsBox.innerHTML = '';
+      (m.action_items || []).forEach((a, i) => itemsBox.append(el('div', { class: 'flex items-center gap-2' },
+        el('input', { type: 'checkbox', checked: !!a.done, style: { accentColor: 'var(--accent)' }, onchange: (e) => { a.done = e.target.checked; } }),
+        el('input', { type: 'text', value: a.text || '', class: 'flex-1 rounded-lg border px-2.5 py-1 text-[12px]', style: { borderColor: 'var(--border-2)' }, oninput: (e) => { a.text = e.target.value; } }),
+        a.carried_from ? el('span', { class: 'text-[9px] uppercase tracking-wider font-bold whitespace-nowrap', style: { color: '#B45309' }, title: 'Open item carried from the ' + _mtgFmt(a.carried_from) + ' meeting' }, 'carried' + (a.carried_count >= 2 ? ' ×' + a.carried_count : '')) : null,
+        el('button', { class: 'text-[12px] text-muted-', onclick: () => { m.action_items.splice(i, 1); drawItems(); } }, '×'))));
+      itemsBox.append(el('button', { class: 'self-start text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { (m.action_items = m.action_items || []).push({ text: '', done: false }); drawItems(); setTimeout(() => { const t = itemsBox.querySelectorAll('input[type=text]'); if (t.length) t[t.length - 1].focus(); }, 0); } }, '+ Action item'));
+    };
+    drawItems();
+    const k = MEETING_KINDS[m.kind];
+    return el('div', { class: 'card p-4 flex flex-col gap-3', style: { borderLeft: '4px solid ' + k.color, background: 'var(--card-2)' } },
+      el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+          ...Object.entries(MEETING_KINDS).map(([kk, kv]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-bold', style: m.kind === kk ? { background: kv.color, color: '#fff' } : { color: 'var(--text-muted)' }, onclick: () => { m.kind = kk; render(); } }, kv.short))),
+        el('input', { type: 'date', value: m.meeting_date, class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onchange: (e) => { m.meeting_date = e.target.value; m.period = String(e.target.value).slice(0, 7); } }),
+        el('span', { class: 'text-[11px] text-muted-' }, k.desc)),
+      el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, m.kind === 'review' ? 'Metric review — what the numbers said and why' : 'What we worked on'), inp('notes', m.kind === 'review' ? 'Where they landed vs the template, what drove it, what we agreed to change…' : 'Training covered, role-plays, calls reviewed, what to practise…', 4)),
+      el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, 'Wins since last time'), inp('wins', 'What improved, what they nailed…', 2)),
+      el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, 'Focus areas'), focusBox),
+      el('div', {}, el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, 'Action items — open ones carry into the next meeting'), itemsBox),
+      el('div', { class: 'flex items-center gap-2 pt-1' },
+        el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+          onclick: async () => {
+            if (!m.meeting_date) { toast('Pick a date', 'warn'); return; }
+            m.action_items = (m.action_items || []).filter(a => a && String(a.text || '').trim());
+            const sc = scoreFor(m.period); m.score_snapshot = sc ? sc.final : null;
+            if (await saveScorecardMeeting(m)) { editing = null; toast('Meeting logged', 'success'); render(); if (state.view === 'scorecards') mountApp(); }
+          } }, m.id ? 'Save changes' : 'Log meeting'),
+        el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => { editing = null; render(); } }, 'Cancel')));
+  };
+
+  const timeline = () => {
+    const ms = meetingsFor(profile.id);
+    if (!ms.length) return el('div', { class: 'card p-6 text-center text-sm text-muted-' }, 'No meetings logged yet.');
+    return el('div', { class: 'flex flex-col gap-3' }, ...ms.map((m, i) => {
+      const k = MEETING_KINDS[m.kind] || MEETING_KINDS.coaching;
+      const sc = m.score_snapshot != null ? Number(m.score_snapshot) : (scoreFor(m.period)?.final ?? null);
+      const prevReview = ms.slice(i + 1).find(x => x.kind === 'review');
+      const prevScore = prevReview ? (prevReview.score_snapshot != null ? Number(prevReview.score_snapshot) : (scoreFor(prevReview.period)?.final ?? null)) : null;
+      const delta = (m.kind === 'review' && sc != null && prevScore != null) ? sc - prevScore : null;
+      const items = m.action_items || [];
+      return el('div', { class: 'card p-4', style: { borderLeft: '4px solid ' + k.color } },
+        el('div', { class: 'flex items-center gap-2 flex-wrap mb-2' },
+          chip(m.kind),
+          el('span', { class: 'text-sm font-bold' }, _mtgFmt(m.meeting_date)),
+          el('span', { class: 'text-[11px] text-muted-' }, 'with ' + (m.lead_name || 'team lead')),
+          sc != null ? el('span', { class: 'ml-auto text-[11px] font-bold tabular-nums', style: { color: scorecardBand(sc).color }, title: 'Scorecard composite for ' + m.period }, sc.toFixed(1) + '%' + (delta != null ? ' (' + (delta >= 0 ? '+' : '') + delta.toFixed(1) + ' vs last review)' : '')) : null,
+          canEdit ? el('span', { class: 'flex items-center gap-2' + (sc == null ? ' ml-auto' : '') },
+            el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { editing = JSON.parse(JSON.stringify(m)); render(); } }, 'Edit'),
+            el('button', { class: 'text-[11px] font-semibold', style: { color: '#DC2626' }, onclick: async () => { if (!confirm('Delete this meeting?')) return; await deleteScorecardMeeting(m.id); render(); if (state.view === 'scorecards') mountApp(); } }, 'Delete')) : null),
+        m.notes ? el('div', { class: 'text-[12px] leading-relaxed whitespace-pre-wrap mb-2' }, m.notes) : null,
+        m.wins ? el('div', { class: 'text-[12px] mb-2' }, el('span', { class: 'font-bold', style: { color: '#3D7A66' } }, 'Wins: '), m.wins) : null,
+        (m.focus || []).length ? el('div', { class: 'flex items-center gap-1.5 flex-wrap mb-2' }, el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Focus'), ...m.focus.map(f => el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-semibold', style: { background: 'rgba(223,100,58,.12)', color: '#DF643A' } }, f))) : null,
+        items.length ? el('div', { class: 'flex flex-col gap-1' }, el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Action items'),
+          ...items.map(a => el('label', { class: 'flex items-center gap-2 text-[12px]' + (canEdit ? ' cursor-pointer' : '') },
+            el('input', { type: 'checkbox', checked: !!a.done, disabled: !canEdit, style: { accentColor: 'var(--accent)' }, onchange: async (e) => { a.done = e.target.checked; await saveScorecardMeeting(m); render(); } }),
+            el('span', { style: a.done ? { textDecoration: 'line-through', color: 'var(--text-muted)' } : {} }, a.text),
+            a.carried_from ? el('span', { class: 'text-[9px] uppercase tracking-wider font-bold', style: { color: '#B45309' } }, 'carried from ' + _mtgFmt(a.carried_from)) : null))) : null);
+    }));
+  };
+
+  const render = () => {
+    modal.innerHTML = '';
+    const cad = meetingCadence(profile.id);
+    modal.append(
+      el('div', { class: 'flex items-start justify-between gap-4 mb-4' },
+        el('div', { class: 'flex items-center gap-3' },
+          avatarNode(profile.avatar_url, profile.initials || (profile.full_name || '?').slice(0, 2), 'w-10 h-10 text-sm'),
+          el('div', {}, el('h2', { class: 'text-xl font-bold' }, profile.full_name), el('div', { class: 'text-[11px] font-semibold', style: { color: cad.color } }, cad.label + ' · ' + cad.count + ' meeting' + (cad.count === 1 ? '' : 's') + (cad.openItems ? ' · ' + cad.openItems + ' open item' + (cad.openItems === 1 ? '' : 's') : '')))),
+        el('button', { class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×')),
+      state._scorecardMeetingsMissing ? el('div', { class: 'card p-3 text-xs mb-3', style: { background: 'rgba(220,38,38,.08)', color: '#B91C1C' } }, 'The scorecard_meetings table isn’t in Supabase yet — run scorecard_meetings.sql. Meetings logged now stay on this device only.') : null,
+      canEdit && !editing ? el('div', { class: 'flex items-center gap-2 flex-wrap mb-4' },
+        ...Object.entries(MEETING_KINDS).map(([kk, kv]) => el('button', {
+          class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+          style: cad.nextKind === kk ? { background: kv.color, color: '#fff' } : { border: '1px solid var(--border-2)', color: 'var(--text)' },
+          title: kv.desc, onclick: () => startNew(kk) }, '+ ' + kv.label)),
+        el('span', { class: 'text-[11px] text-muted-' }, cad.nextKind === 'review' ? 'This month’s review hasn’t been logged yet.' : 'Review done for this month — next up is coaching.')) : null,
+      editing ? el('div', { class: 'mb-4' }, form()) : null,
+      el('div', { class: 'card p-4 mb-4', style: { background: 'var(--card-2)' } },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1.5', style: { color: 'var(--text-subtle)' } }, 'The story so far'),
+        ...meetingInsights(profile, tpl).map(t => el('div', { class: 'text-[12px] leading-relaxed' }, '• ' + t))),
+      timeline());
+  };
+  render();
+  document.body.append(overlay);
+}
+
 function openScorecardTemplateModal(dept = 'inside_sales') {
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
