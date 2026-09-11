@@ -37064,10 +37064,16 @@ function viewScorecards() {
   // Department scope (per Isaac): everyone DEFAULTS to their own
   // department; admins switch with the dropdown, leads + reps are pinned.
   const myDept = scorecardDeptOf(state.profile);
-  if (isAdmin && !state._scorecardDept) state._scorecardDept = myDept;
-  const dept = isAdmin ? (state._scorecardDept || myDept) : myDept;
-  const deptLabel = (SCORECARD_DEPTS.find(d => d.id === dept) || {}).label || dept;
-  const tpl = getScorecardTemplate(dept);
+  // Admins default to ALL departments, segmented (per Isaac); leads and
+  // reps are pinned to their own.
+  if (isAdmin && !state._scorecardDept) state._scorecardDept = 'all';
+  const dept = isAdmin ? (state._scorecardDept || 'all') : myDept;
+  const isAllDepts = dept === 'all';
+  const deptLabel = isAllDepts ? 'All departments' : ((SCORECARD_DEPTS.find(d => d.id === dept) || {}).label || dept);
+  // Template: the selected department's; in All view each card uses ITS
+  // department's template (tplFor below) and the header shows none.
+  const tpl = getScorecardTemplate(isAllDepts ? myDept : dept);
+  const tplFor = (p) => getScorecardTemplate(scorecardDeptOf(p));
   if (!state._scorecardData) state._scorecardData = {};
   if (!state._scorecardPeriod) {
     const opts = scorecardPeriodOptions();
@@ -37096,7 +37102,9 @@ function viewScorecards() {
       reviewed:   patch.reviewed  !== undefined ? patch.reviewed  : (cur.reviewed  || null),
     };
     saveDemoData();
-    saveScorecardCardCloud(profileId, period, dept, tpl);
+    const _p = (state.allProfiles || []).find(x => x.id === profileId);
+    const _d = _p ? scorecardDeptOf(_p) : (isAllDepts ? myDept : dept);
+    saveScorecardCardCloud(profileId, period, _d, getScorecardTemplate(_d));
   };
 
   // Roster — every active app user (profile). Scorecards are
@@ -37115,7 +37123,7 @@ function viewScorecards() {
   const roster = canScoreRoster
     ? allProfiles.filter(p => !isAdminRole(p.role) && !isAuditorRole(p.role)
         && typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(p)
-        && scorecardDeptOf(p) === dept)
+        && (isAllDepts || scorecardDeptOf(p) === dept))
         .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
     : allProfiles.filter(p => p.id === state.profile?.id);
 
@@ -37132,7 +37140,7 @@ function viewScorecards() {
         style: { borderColor: 'var(--border-2)' },
         title: 'Which department\u2019s scorecards (and template) to show',
         onchange: (e) => { state._scorecardDept = e.target.value; mountApp(); },
-      }, ...SCORECARD_DEPTS.map(d => el('option', { value: d.id, selected: d.id === dept }, d.label)))
+      }, el('option', { value: 'all', selected: isAllDepts }, 'All departments'), ...SCORECARD_DEPTS.map(d => el('option', { value: d.id, selected: d.id === dept }, d.label)))
       : el('span', {
           class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold',
           style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
@@ -37149,7 +37157,7 @@ function viewScorecards() {
       // metrics + weights + attendance penalties every scorecard uses,
       // so reps shouldn't be able to retune the formula their own
       // manager scores them on.
-      canScoreRoster && el('button', {
+      canScoreRoster && !isAllDepts && el('button', {
         class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
         title: 'Edit template metrics, weights, and attendance penalties',
@@ -37175,7 +37183,7 @@ function viewScorecards() {
   // Roster-level rollups for the summary strip up top.
   const scores = roster.map(profile => {
     const card = getCard(profile.id);
-    const score = card ? computeScorecardScore(card, tpl, period) : null;
+    const score = card ? computeScorecardScore(card, tplFor(profile), period) : null;
     return { profile, card, score };
   });
   const scored = scores.filter(s => s.score && s.score.coverage > 0);
@@ -37223,23 +37231,42 @@ function viewScorecards() {
   // Trend series (per Isaac): composite over the last 6 periods,
   // oldest \u2192 newest, null where a month was never scored.
   const _trendKeys = periodOpts.slice(0, 6).map(o => o.key).reverse();
-  const grid = el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' },
-    ...scores.map(({ profile, card, score }) => scorecardAgentCard({
-      profile, card, score, tpl,
+  const cardFor = ({ profile, card, score }) => {
+    const t = tplFor(profile), d = scorecardDeptOf(profile);
+    return scorecardAgentCard({
+      profile, card, score, tpl: t,
       trend: _trendKeys.map(k => {
         const c = state._scorecardData[profile.id + '|' + k];
-        const s = c ? computeScorecardScore(c, tpl, k) : null;
+        const s = c ? computeScorecardScore(c, t, k) : null;
         return (s && s.coverage > 0) ? { key: k, val: s.final } : { key: k, val: null };
       }),
-      // Admins edit anyone; a team lead edits everyone EXCEPT their own
-      // card (no self-scoring); a rep opens their own card read-only.
       // Admins and team leads have the SAME scorecard permissions (per
       // Isaac): score any card in the department, log / edit 1:1s.
-      onOpen: () => openScorecardDetailModal(profile, period, tpl, upsertCard, canScoreRoster),
-      onMeetings: () => openMeetingLogModal(profile, dept, tpl, canScoreRoster),
-    })),
-  );
-  container.append(grid);
+      onOpen: () => openScorecardDetailModal(profile, period, t, upsertCard, canScoreRoster),
+      onMeetings: () => openMeetingLogModal(profile, d, t, canScoreRoster),
+    });
+  };
+  if (isAllDepts) {
+    // Segmented by department (per Isaac): one section per dept, each with
+    // its own header + grid, in SCORECARD_DEPTS order.
+    for (const d of SCORECARD_DEPTS) {
+      const rows = scores.filter(x => scorecardDeptOf(x.profile) === d.id);
+      if (!rows.length) continue;
+      const dScored = rows.filter(x => x.score && x.score.coverage > 0);
+      const dAvg = dScored.length ? dScored.reduce((a, x) => a + x.score.final, 0) / dScored.length : null;
+      container.append(el('div', { class: 'flex items-center gap-3 mt-2' },
+        el('h3', { class: 'text-base font-bold' }, d.label),
+        el('span', { class: 'text-[11px] text-muted-' }, rows.length + ' agent' + (rows.length === 1 ? '' : 's') + (dAvg != null ? ' \u00b7 avg ' + dAvg.toFixed(1) + '%' : '')),
+        canScoreRoster ? el('button', {
+          class: 'ml-auto rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
+          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+          onclick: () => openScorecardTemplateModal(d.id),
+        }, '\u2699 ' + d.label + ' template') : null));
+      container.append(el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' }, ...rows.map(cardFor)));
+    }
+  } else {
+    container.append(el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3' }, ...scores.map(cardFor)));
+  }
 
   return container;
 }
