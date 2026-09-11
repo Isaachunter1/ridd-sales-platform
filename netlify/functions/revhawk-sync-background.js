@@ -104,16 +104,36 @@ emp AS (
   FROM \`${PROJECT}.${DATASET}.FieldRoutesEmployee\` GROUP BY 1
 ),
 cust AS (
+  -- NEWEST copy per customer. When an account is transferred between
+  -- branches (e.g. sold in Myrtle Beach, moved to Salt Lake) the warehouse
+  -- keeps BOTH customer rows, and ANY_VALUE() used to pick the stale one —
+  -- so the account stayed on the old office (custs 146807 / 156132 /
+  -- 177915, per Isaac). Latest updatedAt wins.
   SELECT fieldRoutes_customerID AS cid,
-    ANY_VALUE(fieldRoutes_lname) AS lname, ANY_VALUE(fieldRoutes_fname) AS fname,
-    ANY_VALUE(fieldRoutes_county) AS county, ANY_VALUE(fieldRoutes_state) AS state,
-    ANY_VALUE(fieldRoutes_zip) AS zip, ANY_VALUE(fieldRoutes_phone1) AS phone,
-    ANY_VALUE(fieldRoutes_email) AS email, ANY_VALUE(fieldRoutes_aPay) AS apay,
-    ANY_VALUE(fieldRoutes_responsibleBalanceAge) AS dpd,
-    ANY_VALUE(fieldRoutes_responsibleBalance) AS resp_balance,
-    ANY_VALUE(fieldRoutes_customerSource) AS csource,
-    ANY_VALUE(fieldRoutes_officeID) AS office_id
-  FROM \`${PROJECT}.${DATASET}.FieldRoutesCustomer\` GROUP BY 1
+    fieldRoutes_lname AS lname, fieldRoutes_fname AS fname,
+    fieldRoutes_county AS county, fieldRoutes_state AS state,
+    fieldRoutes_zip AS zip, fieldRoutes_phone1 AS phone,
+    fieldRoutes_email AS email, fieldRoutes_aPay AS apay,
+    fieldRoutes_responsibleBalanceAge AS dpd,
+    fieldRoutes_responsibleBalance AS resp_balance,
+    fieldRoutes_customerSource AS csource,
+    fieldRoutes_officeID AS office_id
+  FROM (
+    SELECT *, ROW_NUMBER() OVER (PARTITION BY fieldRoutes_customerID ORDER BY updatedAt DESC, createdAt DESC) AS rn
+    FROM \`${PROJECT}.${DATASET}.FieldRoutesCustomer\`
+    WHERE fieldRoutes_customerID IS NOT NULL AND fieldRoutes_customerID != ''
+  ) WHERE rn = 1
+),
+sub AS (
+  -- Same dedupe for subscriptions: a transferred account carries two rows
+  -- for ONE subscription id (old office + old seller, new office + new
+  -- seller). Without this the snapshot double-counts the sub AND files a
+  -- copy under the branch it left. 58 subs / 116 rows as of Sep 2026.
+  SELECT * EXCEPT (rn) FROM (
+    SELECT *, ROW_NUMBER() OVER (PARTITION BY fieldRoutes_subscriptionID ORDER BY updatedAt DESC, createdAt DESC) AS rn
+    FROM \`${PROJECT}.${DATASET}.FieldRoutesSubscription\`
+    WHERE fieldRoutes_subscriptionID IS NOT NULL AND fieldRoutes_subscriptionID != ''
+  ) WHERE rn = 1
 ),
 cxl AS (
   SELECT sid, TRIM(reason) AS reason FROM (
@@ -159,6 +179,7 @@ sigcust AS (
 )
 SELECT
   s.fieldRoutes_customerID AS customer_id,
+  s.fieldRoutes_subscriptionID AS subscription_id,
   cust.lname AS last_name,
   cust.fname AS first_name,
   NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00') AS sold_date,
@@ -211,7 +232,7 @@ SELECT
       OR sigcust.signed_on >= DATE_SUB(SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00')), INTERVAL 1 DAY) THEN 'signed'
     WHEN COALESCE(sigsub.wip,0) > 0 OR COALESCE(sigcust.wip,0) > 0 THEN 'sent'
     ELSE 'none' END AS contract_state
-FROM \`${PROJECT}.${DATASET}.FieldRoutesSubscription\` s
+FROM sub s
 LEFT JOIN cust  ON cust.cid  = s.fieldRoutes_customerID
 LEFT JOIN emp   ON emp.eid   = s.fieldRoutes_soldBy
 LEFT JOIN flags ON flags.cid = s.fieldRoutes_customerID

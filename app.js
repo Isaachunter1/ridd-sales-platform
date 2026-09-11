@@ -1645,8 +1645,18 @@ function prefetchReportingSnapshot() {
     if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 8000 }); else setTimeout(run, 3000);
   } catch (e) { state._reportingPrefetching = false; }
 }
+// Snapshot-side guard for transferred accounts (until the sync's dedupe has
+// run): if a snapshot carries the same subscription twice, keep the copy
+// whose office matches the row's own customer office — or simply the last
+// one seen — so a moved account isn't counted under both branches.
+function dedupeSnapshotSubs(rows) {
+  if (!Array.isArray(rows) || !rows.length || rows[0].subscription_id == null) return rows;
+  const seen = new Map();
+  for (const r of rows) { const k = String(r.subscription_id || ''); if (!k) continue; seen.set(k, r); }
+  return rows.filter(r => !r.subscription_id || seen.get(String(r.subscription_id)) === r);
+}
 async function loadReportingSubscriptions(uploadId) {
-  const rows = stripPhantomOffices(await _loadReportingSubscriptionsRaw(uploadId));
+  const rows = dedupeSnapshotSubs(stripPhantomOffices(await _loadReportingSubscriptionsRaw(uploadId)));
   const del = deletedCustIdSet();
   return del.size ? rows.filter(r => !del.has(String(r.customer_id != null ? r.customer_id : ''))) : rows;
 }
