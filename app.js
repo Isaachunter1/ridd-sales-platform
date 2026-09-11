@@ -45874,10 +45874,27 @@ function reportingGeographic() {
     return (sortDir === 'asc' ? 1 : -1) * (av < bv ? -1 : 1);
   });
 
+  // Hover descriptors for every column (per Isaac).
+  const HEADER_TIPS = {
+    zip: 'Five-digit ZIP code. Click a row to see how it compares and drill to its customers.',
+    county: 'County. Click a row to see how it compares and drill to its customers.',
+    state: 'State the area sits in.',
+    office: 'The branch that services most of this area\u2019s subscriptions.',
+    customers: 'Distinct customers with a serviced, recurring subscription here.',
+    subs: 'Serviced recurring subscriptions (a customer with two plans counts twice).',
+    avgContract: 'Average contract value per subscription.',
+    arv: 'Total annual recurring value of all subscriptions here.',
+    cancellations: 'Real cancels — excludes the cancel reasons marked as not-attrition in Configurations.',
+    cancelRate: (isRetention ? 'Retention = 1 \u2212 cancels \u00f7 subs' : 'Attrition = cancels \u00f7 subs') + '. Only shown with 10+ subs so a single cancel can\u2019t swing it.',
+    avgTenure: 'Average months each subscription has been on the books \u2014 first service to cancel date, or to today if still active.',
+    twoYrPct: 'Share of subscriptions that have lasted 24 months or more. Higher = stickier area.',
+    ltv: 'Realized recurring revenue per customer: each sub\u2019s ARV \u00f7 12 \u00d7 months on the books, summed, \u00f7 distinct customers.',
+  };
   const tableHeader = (label, key, alignRight) => {
     const isActive = sortKey === key;
     return el('th', {
       class: 'px-3 py-2 font-semibold cursor-pointer select-none' + ' text-left',
+      title: (HEADER_TIPS[key] || '') + ' Click to sort.',
       style: { background: 'var(--card-2)', color: isActive ? 'var(--accent)' : undefined, fontWeight: isActive ? '800' : undefined },
       onclick: () => {
         if (state.reportingZipSort === key) {
@@ -45996,14 +46013,14 @@ function reportingGeographic() {
         el('table', { class: 'w-full text-xs' },
           el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
             el('tr', {},
-              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'State'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'Customers'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'Subs'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'Active'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'ACV'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'Total ARV'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold' }, 'Cancels'),
-              el('th', { class: 'px-3 py-2 text-left font-semibold' }, isRetention ? 'Retention %' : 'Attrition %'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Click a row to drill the map into that state' }, 'State'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Distinct customers with a serviced, recurring subscription' }, 'Customers'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Serviced recurring subscriptions' }, 'Subs'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Subscriptions currently active (status Active, no cancel date)' }, 'Active'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Average contract value per subscription' }, 'ACV'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Total annual recurring value' }, 'Total ARV'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Real cancels (excluded reasons from Configurations don\u2019t count)' }, 'Cancels'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: isRetention ? 'Retention = 1 \u2212 cancels \u00f7 subs (10+ subs)' : 'Attrition = cancels \u00f7 subs (10+ subs)' }, isRetention ? 'Retention %' : 'Attrition %'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Active subs ÷ all subs' }, 'Active %'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'ARV per active sub' }, 'ARV / Active'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Average months on the books' }, 'Avg Tenure'),
