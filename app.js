@@ -36808,6 +36808,8 @@ function scorecardPeriodOptions() {
 // derives from the calculator below; other metrics are entered manually.
 // `periodKey` (YYYY-MM) lets the attendance helper compute working days
 // dynamically for the month being scored.
+// Scores are OUT OF 100, not percentages (per Isaac's sheet): 85.75, 90.
+function fmtScore(v, dp = 2) { return Number.isFinite(v) ? String(Math.round(v * Math.pow(10, dp)) / Math.pow(10, dp)) : '\u2014'; }
 function computeScorecardScore(card, tpl, periodKey) {
   if (!card) return null;
   const attendanceScore = computeAttendanceScore(card.attendance || {}, tpl.attendance, periodKey);
@@ -36824,11 +36826,13 @@ function computeScorecardScore(card, tpl, periodKey) {
       breakdown[m.id] = v;
     }
   }
-  // If the user only filled in some metrics, scale up to 100% so the
-  // composite is meaningful instead of a deceptive low number.
-  const final = totalWeight > 0 ? composite / totalWeight : 0;
+  // Straight weighted sum, exactly like the Performance score row on
+  // Isaac's sheet (Σ score × weight). A metric left blank contributes 0
+  // — the card shows how much of the template is filled so a partial
+  // month reads as partial, not as a bad month.
+  const final = composite;
   return {
-    final: Math.round(final * 10) / 10,
+    final: Math.round(final * 100) / 100,
     breakdown,
     attendanceScore,
     coverage: totalWeight, // 0..1 — how much of the template was filled
@@ -37325,7 +37329,7 @@ function viewScorecards() {
   const summaryStrip = el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
     scorecardSummaryCard('Roster', roster.length + ' agent' + (roster.length === 1 ? '' : 's'), scored.length + ' scored this period'),
     scorecardSummaryCard('Avg Composite',
-      avgComposite != null ? avgComposite.toFixed(1) + '%' : '—',
+      avgComposite != null ? fmtScore(avgComposite, 1) : '—',
       avgComposite != null ? scorecardBand(avgComposite).label : 'no scores yet',
       avgComposite != null ? scorecardBand(avgComposite).color : null),
     scorecardSummaryCard('Strong (≥90)',     strongCount.toString(),    'on or above target', '#DF643A'),
@@ -37383,7 +37387,7 @@ function viewScorecards() {
       const dAvg = dScored.length ? dScored.reduce((a, x) => a + x.score.final, 0) / dScored.length : null;
       container.append(el('div', { class: 'flex items-center gap-3 mt-2' },
         el('h3', { class: 'text-base font-bold' }, d.label),
-        el('span', { class: 'text-[11px] text-muted-' }, rows.length + ' agent' + (rows.length === 1 ? '' : 's') + (dAvg != null ? ' \u00b7 avg ' + dAvg.toFixed(1) + '%' : '')),
+        el('span', { class: 'text-[11px] text-muted-' }, rows.length + ' agent' + (rows.length === 1 ? '' : 's') + (dAvg != null ? ' \u00b7 avg ' + fmtScore(dAvg, 1) : '')),
         canScoreRoster ? el('button', {
           class: 'ml-auto rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95',
           style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -37436,7 +37440,7 @@ function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen, onMeetin
       el('div', {
         class: 'text-xl font-black tabular-nums leading-none',
         style: { color: band.color },
-      }, composite != null ? composite.toFixed(0) + '%' : '—'),
+      }, composite != null ? fmtScore(composite) : '—'),
       el('div', {
         class: 'text-[9px] uppercase tracking-widest font-bold mt-0.5',
         style: { color: band.color },
@@ -37453,12 +37457,15 @@ function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen, onMeetin
       const has = Number.isFinite(v);
       const b = scorecardBand(v);
       return el('div', {},
-        el('div', { class: 'flex items-center justify-between text-[10px] mb-0.5' },
-          el('span', { class: 'text-muted-' }, m.label + ' · ' + Math.round(m.weight * 100) + '%'),
-          el('span', {
-            class: 'tabular-nums font-semibold',
-            style: has ? { color: b.color } : { color: 'var(--text-muted)' },
-          }, has ? v.toFixed(0) + '%' : '—'),
+        // Sheet order (per Isaac): item · weight · score (out of 100).
+        el('div', { class: 'flex items-center justify-between text-[10px] mb-0.5 gap-2' },
+          el('span', { class: 'text-muted- truncate' }, m.label),
+          el('span', { class: 'flex items-center gap-2 shrink-0' },
+            el('span', { class: 'tabular-nums text-muted-', title: 'Weight — share of the final score' }, Math.round(m.weight * 100) + '%'),
+            el('span', {
+              class: 'tabular-nums font-semibold text-right',
+              style: Object.assign({ minWidth: '34px' }, has ? { color: b.color } : { color: 'var(--text-muted)' }),
+            }, has ? fmtScore(v) : '—')),
         ),
         el('div', { style: { height: '5px', borderRadius: '0', background: 'var(--card-2)', overflow: 'hidden' } },
           has && el('div', {
@@ -37510,7 +37517,7 @@ function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen, onMeetin
       c.setAttribute('cx', x(p.i).toFixed(1)); c.setAttribute('cy', y(p.val).toFixed(1)); c.setAttribute('r', '2.4');
       c.setAttribute('fill', scorecardBand(p.val).color);
       const t = document.createElementNS(NS, 'title');
-      t.textContent = p.key + ' \u00b7 ' + p.val.toFixed(1) + '%';
+      t.textContent = p.key + ' \u00b7 ' + fmtScore(p.val, 1);
       c.append(t);
       svg.append(c);
     }
@@ -37638,7 +37645,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
       },
         el('div', { class: 'flex items-baseline gap-3 flex-wrap' },
           el('div', { class: 'text-4xl font-black tabular-nums', style: { color: band.color, lineHeight: '1' } },
-            score.coverage > 0 ? score.final.toFixed(1) + '%' : '—'),
+            score.coverage > 0 ? fmtScore(score.final) : '—'),
           el('div', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: band.color } }, band.label),
           el('div', { class: 'text-[11px] text-muted- ml-auto' },
             score.coverage > 0
@@ -37728,7 +37735,7 @@ function openScorecardDetailModal(profile, period, tpl, upsertCard, canEdit = tr
         ),
         el('div', { class: 'text-right' },
           el('div', { class: 'text-2xl font-black tabular-nums', style: { color: attBand.color, lineHeight: '1' } },
-            attScore.toFixed(1) + '%'),
+            fmtScore(attScore, 1)),
           el('div', { class: 'text-[10px] text-muted- mt-0.5 tabular-nums' }, breakdownLabel),
         ),
       ),
@@ -38116,14 +38123,16 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
         el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer font-semibold', style: { borderColor: 'var(--border-2)' },
           onchange: (e) => { m.period = e.target.value; render(); } },
           ...opts.map(o => el('option', { value: o.key, selected: o.key === m.period }, o.label))),
-        el('span', { class: 'ml-auto text-lg font-black tabular-nums', style: { color: band.color } }, sc && sc.coverage > 0 ? sc.final.toFixed(1) + '%' : '—'),
+        el('span', { class: 'ml-auto text-lg font-black tabular-nums', style: { color: band.color } }, sc && sc.coverage > 0 ? fmtScore(sc.final) : '—'),
+        sc && sc.coverage > 0 && sc.coverage < 0.999 ? el('span', { class: 'text-[10px] text-muted-' }, Math.round(sc.coverage * 100) + '% filled') : null,
         el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: band.bg, color: band.color } }, sc && sc.coverage > 0 ? band.label : 'not scored'));
       host.append(head);
       const rowsBox = el('div', { class: 'flex flex-col gap-1.5' });
       (tpl.metrics || []).filter(x => x.source === 'manual').forEach(x => {
         const v = card.metrics ? card.metrics[x.id] : undefined;
         rowsBox.append(el('div', { class: 'flex items-center gap-2' },
-          el('span', { class: 'flex-1 text-[12px] font-semibold' }, x.label, el('span', { class: 'text-[10px] text-muted- font-normal ml-1' }, Math.round(x.weight * 100) + '%')),
+          el('span', { class: 'flex-1 text-[12px] font-semibold' }, x.label),
+          el('span', { class: 'text-[11px] text-muted- tabular-nums', style: { width: '36px', textAlign: 'right' }, title: 'Weight' }, Math.round(x.weight * 100) + '%'),
           el('input', { type: 'number', min: '0', max: '100', step: '0.1', placeholder: '0–100', value: Number.isFinite(v) ? String(v) : '',
             class: 'rounded-lg border px-2.5 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', width: '84px' },
             onchange: (e) => { const n = e.target.value === '' ? null : Number(e.target.value); const mm = { ...(card.metrics || {}) }; if (n == null) delete mm[x.id]; else mm[x.id] = n; scorecardUpsertCard(profile.id, m.period, { metrics: mm }); render(); } })));
@@ -38131,7 +38140,11 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
       const att = tpl.attendance || {};
       if ((att.penalties || []).length) {
         const attScore = computeAttendanceScore(card.attendance || {}, att, m.period);
-        rowsBox.append(el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mt-1' }, 'Attendance · ' + attScore.toFixed(1) + '%'));
+        const attW = ((tpl.metrics || []).find(x => x.source === 'attendance') || {}).weight;
+        rowsBox.append(el('div', { class: 'flex items-center gap-2 mt-1' },
+          el('span', { class: 'flex-1 text-[12px] font-semibold' }, 'Attendance Score', el('span', { class: 'text-[10px] text-muted- font-normal ml-1' }, 'auto from the counts below')),
+          attW != null ? el('span', { class: 'text-[11px] text-muted- tabular-nums', style: { width: '36px', textAlign: 'right' }, title: 'Weight' }, Math.round(attW * 100) + '%') : null,
+          el('span', { class: 'text-[11px] font-bold tabular-nums text-right', style: { width: '84px', color: scorecardBand(attScore).color } }, fmtScore(attScore, 1))));
         (att.penalties || []).forEach(pn => {
           const v = card.attendance ? card.attendance[pn.id] : undefined;
           rowsBox.append(el('div', { class: 'flex items-center gap-2' },
@@ -38189,7 +38202,7 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
           chip(m.kind),
           el('span', { class: 'text-sm font-bold' }, _mtgFmt(m.meeting_date)),
           el('span', { class: 'text-[11px] text-muted-' }, 'with ' + (m.lead_name || 'team lead')),
-          sc != null ? el('span', { class: 'ml-auto text-[11px] font-bold tabular-nums', style: { color: scorecardBand(sc).color }, title: 'Scorecard composite for ' + m.period }, sc.toFixed(1) + '%' + (delta != null ? ' (' + (delta >= 0 ? '+' : '') + delta.toFixed(1) + ' vs last review)' : '')) : null,
+          sc != null ? el('span', { class: 'ml-auto text-[11px] font-bold tabular-nums', style: { color: scorecardBand(sc).color }, title: 'Scorecard composite for ' + m.period }, fmtScore(sc, 1) + (delta != null ? ' (' + (delta >= 0 ? '+' : '') + delta.toFixed(1) + ' vs last review)' : '')) : null,
           canEdit ? el('span', { class: 'flex items-center gap-2' + (sc == null ? ' ml-auto' : '') },
             el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { editing = JSON.parse(JSON.stringify(m)); render(); } }, 'Edit'),
             el('button', { class: 'text-[11px] font-semibold', style: { color: '#DC2626' }, onclick: async () => { if (!confirm('Delete this meeting?')) return; await deleteScorecardMeeting(m.id); render(); if (state.view === 'scorecards') mountApp(); } }, 'Delete')) : null),
