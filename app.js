@@ -36787,21 +36787,19 @@ function getScorecardTemplate(dept = 'inside_sales') {
 }
 
 function scorecardPeriodOptions() {
-  // Generate the 12 most recent months ending at the latest sale date
-  // (or today, if no sales in the dataset). Anchoring on the dataset
-  // means a stale demo still surfaces useful periods.
-  let anchor = new Date();
-  const raw = state._indicatorRawSales || [];
-  for (const s of raw) {
-    const d = _parseIndicatorDay(s);
-    if (d && d > anchor) anchor = d;
-  }
+  // Months from the CURRENT month back to whichever is oldest: 12 months
+  // ago, the earliest scored card, or the earliest logged 1:1 — so history
+  // never falls off the dropdown as time goes on (per Isaac). Anchored to
+  // today, never a future-dated sale (that put November 2026 at the top).
+  const today = new Date();
+  const ym = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  let earliest = ym(new Date(today.getFullYear(), today.getMonth() - 11, 1));
+  const consider = (k) => { if (/^\d{4}-\d{2}$/.test(k || '') && k < earliest && k >= '2015-01') earliest = k; };
+  Object.keys(state._scorecardData || {}).forEach(k => consider(k.split('|')[1]));
+  (state._scorecardMeetings || []).forEach(m => consider(String(m.period || m.meeting_date || '').slice(0, 7)));
   const opts = [];
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(anchor.getFullYear(), anchor.getMonth() - i, 1);
-    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-    const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    opts.push({ key, label });
+  for (let d = new Date(today.getFullYear(), today.getMonth(), 1); ym(d) >= earliest; d = new Date(d.getFullYear(), d.getMonth() - 1, 1)) {
+    opts.push({ key: ym(d), label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) });
   }
   return opts;
 }
@@ -37192,6 +37190,7 @@ function viewScorecards() {
   loadScorecardCloud(period);   // hydrate cards + call audits from Supabase (no-op in demo)
   loadScorecardMeetingsCloud();  // 1:1 meeting log (all agents, once per session)
   const periodOpts = scorecardPeriodOptions();
+  if (period && !periodOpts.some(o => o.key === period)) periodOpts.push({ key: period, label: period });
   // Storage key uses the profile.id (stable across renames / email
   // changes) rather than a display name from the CSV, so a rep editing
   // their name in the user editor doesn't orphan their scorecard
