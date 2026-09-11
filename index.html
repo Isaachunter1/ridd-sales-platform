@@ -122,6 +122,8 @@
      the month calendar (7 columns of 120px cells on a 380px screen) and the
      Revenue Goals card at the top of Sales. General rules below keep dense
      desktop layouts breathable on phones without touching desktop. */
+  /* Calendar mobile hooks (styled inside the phone media query below). */
+  .cal-layout, .cal-sidebar, .cal-sidebar-head, .cal-agent-list, .cal-agent-row, .cal-agent-hours, .cal-agent-edit, .cal-add-badge, .cal-chip, .cal-chip-name, .cal-chip-time, .cal-legend { }
   /* Scorecards summary strip with the 1:1 cadence card (5 across on desktop). */
   @media (min-width: 640px) { .sm\:grid-cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
   /* Pay tab: stub column wide, By Source + Metrics narrow beside it. */
@@ -129,14 +131,35 @@
   @media (min-width: 1024px) { .pay-3col { grid-template-columns: minmax(0, 1.35fr) minmax(0, .85fr) minmax(0, .85fr); } }
   /* Sales-log queue strip: four equal segments across the full row. */
   .queue-strip > button { flex: 1 1 0; min-width: 0; }
-  @media (max-width: 640px) { .queue-strip > button { padding-left: 4px; padding-right: 4px; font-size: 10px; } }
+  .queue-strip-short { display: none; }
+  @media (max-width: 640px) {
+    .queue-strip > button { padding-left: 4px; padding-right: 4px; font-size: 10px; gap: 4px; }
+    .queue-strip-full { display: none; }
+    .queue-strip-short { display: inline; }
+  }
   /* Dashboard toolbar: + New Sale fills the row; Today + info hug the right. */
   .dash-toolbar .dash-newsale { flex: 1 1 auto; }
   .dash-toolbar > select, .dash-toolbar > button:not(.dash-newsale), .dash-toolbar > div { flex: 0 0 auto; }
   @media (max-width: 640px) {
-    /* Calendar month grid: shallow cells, tiny type, chips collapse to the
-       count badge — tap the day for detail (that flow already exists). */
-    .cal-month-cell { min-height: 58px !important; padding: 3px !important; }
+    /* ── Calendar on phones (per Isaac — Google Calendar month feel) ──
+       Agents become one horizontal chip strip; the month grid takes the
+       full width with short cells and slim per-agent chips (name only, no
+       times, no + badges). Tap a chip for the shift, a day to add. */
+    .cal-layout { flex-direction: column; }
+    .cal-sidebar { width: 100% !important; max-height: none !important; overflow: visible !important; padding: 8px !important; }
+    .cal-sidebar-head { padding-bottom: 4px; }
+    .cal-agent-list { flex-direction: row !important; flex-wrap: nowrap; overflow-x: auto; gap: 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .cal-agent-row { flex: 0 0 auto; border: 1px solid var(--border-2); border-radius: 999px; padding: 3px 8px 3px 6px !important; gap: 5px !important; }
+    .cal-agent-row input[type=checkbox] { width: 12px; height: 12px; }
+    .cal-agent-hours, .cal-agent-edit { display: none !important; }
+    .cal-month-cell { min-height: 58px !important; padding: 2px !important; gap: 1px !important; }
+    .cal-month-cell > .flex { margin-bottom: 0 !important; }
+    .cal-month-cell .text-xs { font-size: 10px !important; }
+    .cal-add-badge { display: none !important; }
+    .cal-chip { padding: 1px 3px !important; font-size: 8px !important; border-radius: 3px !important; line-height: 1.25; }
+    .cal-chip-time { display: none !important; }
+    .cal-legend { display: none !important; }
+    .cal-month-cell .text-\[9px\] { font-size: 8px !important; padding: 1px 3px !important; }
     .cal-month-cell .cal-slot-bar { padding: 3px 4px !important; border-radius: 0; }
     .cal-month-cell .cal-slot-bar > div:first-child span:first-child { font-size: 8px !important; letter-spacing: 0 !important; }
     .cal-month-cell .cal-rep-chips { display: none !important; }           /* chips → count badge only */

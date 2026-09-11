@@ -11386,10 +11386,10 @@ function viewSales() {
   // as the Inside / D2D / Technicians toggle), equal-width segments.
   const queueToggle = el('div', { class: 'queue-strip flex w-full rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
     ...[
-      { id: 'upfront', label: 'Sales' },
-      { id: 'backend', label: 'Pending Backend Lock' },
-      { id: 'cancels', label: 'Archived' },
-      { id: 'history', label: 'History' },
+      { id: 'upfront', label: 'Sales',                short: 'Sales' },
+      { id: 'backend', label: 'Pending Backend Lock', short: 'Backend' },
+      { id: 'cancels', label: 'Archived',             short: 'Archived' },
+      { id: 'history', label: 'History',              short: 'History' },
     ].map((t, i) => el('button', {
       class: 'px-2.5 py-1 text-[11px] font-bold transition flex items-center justify-center gap-2 whitespace-nowrap' + (i ? ' border-l' : ''),
       style: queueFilter === t.id
@@ -11397,7 +11397,9 @@ function viewSales() {
         : { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
       onclick: () => { state._salesQueueFilter = t.id; mountApp(); },
     },
-      el('span', {}, t.label),
+      // Phones get the short label (the four pills overlapped on 390px).
+      el('span', { class: 'queue-strip-full' }, t.label),
+      el('span', { class: 'queue-strip-short' }, t.short),
       el('span', {
         class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded',
         style: queueFilter === t.id
@@ -14238,8 +14240,8 @@ function calendarAgentSidebar(meId, isAdmin, anchor) {
     return t + (Number.isFinite(mins) ? Math.max(0, mins) / 60 : 0);
   }, 0);
   const fmtHrs = (h) => { const r = Math.round(h * 10) / 10; return (r % 1 ? r.toFixed(1) : String(r)) + 'h'; };
-  return el('div', { class: 'card p-3 flex flex-col gap-1 shrink-0', style: { width: '210px', maxHeight: '70vh', overflowY: 'auto' } },
-    el('div', { class: 'flex items-center justify-between px-1 pb-1' },
+  return el('div', { class: 'cal-sidebar card p-3 flex flex-col gap-1 shrink-0', style: { width: '210px', maxHeight: '70vh', overflowY: 'auto' } },
+    el('div', { class: 'cal-sidebar-head flex items-center justify-between px-1 pb-1' },
       el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Agents'),
       focus ? el('button', {
         class: 'text-[10px] font-bold', style: { color: 'var(--accent)', background: 'transparent' },
@@ -14247,7 +14249,7 @@ function calendarAgentSidebar(meId, isAdmin, anchor) {
       }, 'Show all') : null),
     agents.length === 0
       ? el('div', { class: 'text-[11px] text-muted- px-1 py-2' }, 'No agents of this type yet - agents file here by their user type (Loyalty reps under Loyalty, other office staff under Inside Sales).')
-      : el('div', { class: 'flex flex-col' }, ...agents.map(p => {
+      : el('div', { class: 'cal-agent-list flex flex-col' }, ...agents.map(p => {
           const c = calendarAgentColor(p.id);
           const hidden = state._calAgentHidden.has(p.id);
           const isFocus = focus === p.id;
@@ -14256,8 +14258,8 @@ function calendarAgentSidebar(meId, isAdmin, anchor) {
           cb.onclick = (e) => { e.stopPropagation(); };
           cb.onchange = () => { if (cb.checked) state._calAgentHidden.delete(p.id); else state._calAgentHidden.add(p.id); mountApp(); };
           return el('div', {
-            class: 'flex items-center gap-2 px-1.5 py-1.5 rounded-lg cursor-pointer transition',
-            style: isFocus ? { background: 'var(--card-2)' } : {},
+            class: 'cal-agent-row flex items-center gap-2 px-1.5 py-1.5 rounded-lg cursor-pointer transition',
+            style: isFocus ? { background: 'var(--card-2)', '--agent-color': c } : { '--agent-color': c },
             title: isFocus ? 'Showing only ' + (p.full_name || 'this agent') + ' - click to show everyone' : 'Click to view only ' + (p.full_name || 'this agent'),
             onclick: () => { state._calFocus = isFocus ? null : p.id; mountApp(); },
           },
@@ -14267,13 +14269,13 @@ function calendarAgentSidebar(meId, isAdmin, anchor) {
             (() => {
               const h = hoursFor(p.id);
               return el('span', {
-                class: 'text-[10px] tabular-nums shrink-0' + (h > 0 ? ' font-semibold' : ''),
+                class: 'cal-agent-hours text-[10px] tabular-nums shrink-0' + (h > 0 ? ' font-semibold' : ''),
                 style: { color: h > 0 ? 'var(--text-muted)' : 'var(--text-subtle)' },
                 title: (h > 0 ? fmtHrs(h) : 'No hours') + ' scheduled this ' + view,
               }, h > 0 ? fmtHrs(h) : '—');
             })(),
             isAdmin ? el('button', {
-              class: 'text-[11px] shrink-0 rounded px-1 transition hover:brightness-95',
+              class: 'cal-agent-edit text-[11px] shrink-0 rounded px-1 transition hover:brightness-95',
               style: { background: 'transparent', color: 'var(--text-muted)' },
               title: 'Build ' + (p.full_name || 'this agent') + '’s weekly schedule',
               onclick: (e) => { e.stopPropagation(); openAgentScheduleModal(p); },
@@ -14357,7 +14359,7 @@ function viewCalendar() {
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openNewShiftModal(isoDate(today)),
       }, '+ New shift'),
-      el('div', { class: 'flex items-center gap-3 text-xs text-muted-' },
+      el('div', { class: 'cal-legend flex items-center gap-3 text-xs text-muted-' },
         legendDot('var(--accent)', 'Includes you'),
         legendDot('var(--card-2)', 'Others only'),
       ),
@@ -14378,7 +14380,9 @@ function viewCalendar() {
     ),
 
     // ── Agent sidebar + grid — the Google-Calendar layout ──
-    el('div', { class: 'flex gap-4 items-start' },
+    // (Mobile: cal-layout stacks — the agent list becomes a scrolling chip
+    // strip above a full-width, compact month grid; see index.html.)
+    el('div', { class: 'cal-layout flex gap-4 items-start' },
       calendarAgentSidebar(meId, isAdmin, anchor),
       el('div', { class: 'flex-1 min-w-0' },
         state.calendarView === 'week'
@@ -14648,7 +14652,7 @@ function renderMonthGrid(anchor, today, meId, repById) {
     el('div', { class: 'grid grid-cols-7' },
       ...cells.map((d, idx) => {
         if (!d) {
-          return el('div', { class: 'border-r border-b', style: {
+          return el('div', { class: 'cal-month-cell border-r border-b', style: {
             borderColor: 'var(--border)',
             borderRightWidth: (idx + 1) % 7 === 0 ? '0' : '1px',
             minHeight: '120px',
@@ -14677,7 +14681,7 @@ function renderMonthGrid(anchor, today, meId, repById) {
           el('div', { class: 'flex items-center justify-between mb-0.5 pointer-events-none' },
             el('div', { class: 'text-xs font-bold', style: { color: isToday ? 'var(--accent)' : 'var(--text)' } }, String(d.getDate())),
             isAdmin && el('span', {
-              class: 'inline-flex items-center justify-center rounded-full text-[12px] font-bold leading-none',
+              class: 'cal-add-badge inline-flex items-center justify-center rounded-full text-[12px] font-bold leading-none',
               style: {
                 width: '18px', height: '18px',
                 background: 'var(--accent)', color: 'var(--accent-text)',
@@ -14702,15 +14706,15 @@ function renderMonthGrid(anchor, today, meId, repById) {
               const mine = a.rep_id === meId;
               return el('button', {
                 'data-slot-bar': 'true',
-                class: 'w-full text-left rounded-md px-1.5 py-1 text-[10px] font-semibold flex items-center gap-1 transition hover:brightness-95 overflow-hidden',
+                class: 'cal-chip w-full text-left rounded-md px-1.5 py-1 text-[10px] font-semibold flex items-center gap-1 transition hover:brightness-95 overflow-hidden',
                 style: mine
                   ? { background: 'var(--accent)', color: 'var(--accent-text)' }
                   : { background: c + '14', color: 'var(--text)', borderLeft: '3px solid ' + c },
                 title: calendarRepShort(a.rep_id, repById) + ' \u00b7 ' + calShortTime(calShiftTimes(a).st) + ' \u2013 ' + calShortTime(calShiftTimes(a).en),
                 onclick: (e) => { e.stopPropagation(); openSlotModal(iso, calShiftTimes(a).slotId); },
               },
-                el('span', { class: 'truncate' }, calendarRepShort(a.rep_id, repById)),
-                el('span', { class: 'ml-auto tabular-nums shrink-0', style: { color: mine ? 'var(--accent-text)' : 'var(--text-muted)', fontWeight: '600' } },
+                el('span', { class: 'cal-chip-name truncate' }, calendarRepShort(a.rep_id, repById)),
+                el('span', { class: 'cal-chip-time ml-auto tabular-nums shrink-0', style: { color: mine ? 'var(--accent-text)' : 'var(--text-muted)', fontWeight: '600' } },
                   calShortTime(calShiftTimes(a).st) + '\u2013' + calShortTime(calShiftTimes(a).en)));
             });
             if (rows.length > CAP) out.push(el('div', { class: 'text-[9px] text-muted- px-1 pointer-events-none' }, '+' + (rows.length - CAP) + ' more'));
