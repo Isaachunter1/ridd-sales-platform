@@ -45277,6 +45277,7 @@ function reportingGeoAggregate(rows) {
     // recurring dollars that tenure earned (ARV ÷ 12 × months), and how
     // many subs have made it past two years.
     tenureMo: 0, tenureN: 0, ltvRev: 0, twoYr: 0,
+    sentricon: new Set(),   // distinct customers with a Sentricon plan (per Isaac)
     rows: [],
     state: null,
   });
@@ -45321,6 +45322,7 @@ function reportingGeoAggregate(rows) {
       if ((r.subscription_status || '').toLowerCase() === 'active' && !r.subscription_date_canceled) m.active += 1;
       const _tm = _tenureMonths(r);
       if (_tm != null) { m.tenureMo += _tm; m.tenureN += 1; m.ltvRev += (Number(r.annual_recurring_value) || 0) / 12 * _tm; if (_tm >= 24) m.twoYr += 1; }
+      if (r.customer_id && /sentricon/i.test(String(r.subscription || ''))) m.sentricon.add(r.customer_id);
       m.rows.push(r);
     }
     // Stamp the bucket's display state + zip on first sight (constant
@@ -45347,6 +45349,7 @@ function reportingGeoAggregate(rows) {
     avgTenure:   m.tenureN > 0 ? m.tenureMo / m.tenureN : 0,          // months
     ltv:         m.customers.size > 0 ? m.ltvRev / m.customers.size : 0, // realized recurring $ per customer
     twoYrPct:    m.tenureN > 0 ? m.twoYr / m.tenureN : 0,
+    sentriconPct: m.customers.size > 0 ? m.sentricon.size / m.customers.size : 0,   // share of customers with a Sentricon plan
     rows: m.rows,
   });
 
@@ -45515,7 +45518,7 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
 function exportReportingGeoCsv(items, kind, scopeTag) {
   if (!items || !items.length) { toast('Nothing to export', 'warn'); return; }
   const firstCol = kind === 'county' ? 'county' : 'zip';
-  const headers = [firstCol, 'state', 'offices', 'accounts', 'subscriptions', 'avg_contract_value', 'total_arv', 'active_subscriptions', 'cancellations', 'attrition_pct', 'avg_tenure_months', 'two_year_plus_pct', 'ltv_per_customer'];
+  const headers = [firstCol, 'state', 'offices', 'accounts', 'subscriptions', 'avg_contract_value', 'total_arv', 'active_subscriptions', 'cancellations', 'attrition_pct', 'avg_tenure_months', 'two_year_plus_pct', 'sentricon_customer_pct', 'ltv_per_customer'];
   const lines = [headers.join(',')];
   for (const it of items) {
     // Distinct office names contributing to this ZIP/county, in volume order.
@@ -45540,6 +45543,7 @@ function exportReportingGeoCsv(items, kind, scopeTag) {
       it.attritionEligible ? (it.cancelRate * 100).toFixed(1) : '',
       (it.avgTenure || 0).toFixed(1),
       Math.round((it.twoYrPct || 0) * 100),
+      Math.round((it.sentriconPct || 0) * 100),
       Math.round(it.ltv || 0),
     ].join(','));
   }
@@ -45893,6 +45897,7 @@ function reportingGeographic() {
     cancelRate: (isRetention ? 'Retention = 1 \u2212 cancels \u00f7 subs' : 'Attrition = cancels \u00f7 subs') + '. Only shown with 10+ subs so a single cancel can\u2019t swing it.',
     avgTenure: 'Average months each subscription has been on the books \u2014 first service to cancel date, or to today if still active.',
     twoYrPct: 'Share of subscriptions that have lasted 24 months or more. Higher = stickier area.',
+    sentriconPct: 'Share of customers here that have a Sentricon (termite) plan on their account.',
     ltv: 'Realized recurring revenue per customer: each sub\u2019s ARV \u00f7 12 \u00d7 months on the books, summed, \u00f7 distinct customers.',
   };
   const tableHeader = (label, key, alignRight) => {
@@ -45951,6 +45956,7 @@ function reportingGeographic() {
             tableHeader(isRetention ? 'Retention %' : 'Attrition %', 'cancelRate',  true),
             tableHeader('Avg Tenure',  'avgTenure',   true),
             tableHeader('2yr+ %',      'twoYrPct',    true),
+            tableHeader('Sentricon %', 'sentriconPct', true),
             tableHeader('LTV / Cust',  'ltv',         true),
           ),
         ),
@@ -45989,6 +45995,7 @@ function reportingGeographic() {
             el('td', { class: 'px-3 py-2 text-left' }, fmtPctTable(it)),
             el('td', { class: 'px-3 py-2 text-left', title: 'Average months on the books (first service → cancel, or → today if still active)' }, it.avgTenure ? it.avgTenure.toFixed(1) + ' mo' : '—'),
             el('td', { class: 'px-3 py-2 text-left', title: 'Share of subs that have lasted 24+ months' }, it.subs ? Math.round(it.twoYrPct * 100) + '%' : '—'),
+            el('td', { class: 'px-3 py-2 text-left', title: 'Share of customers with a Sentricon plan' }, it.customers ? Math.round(it.sentriconPct * 100) + '%' : '—'),
             el('td', { class: 'px-3 py-2 text-left font-semibold', title: 'Realized recurring revenue per customer — ARV ÷ 12 × months on the books' }, it.ltv ? '$' + Math.round(it.ltv).toLocaleString() : '—'),
           )),
         ),
@@ -46047,6 +46054,7 @@ function reportingGeographic() {
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'ARV per active sub' }, 'ARV / Active'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Average months on the books' }, 'Avg Tenure'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Share of subs past 24 months' }, '2yr+ %'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Share of customers with a Sentricon (termite) plan on their account' }, 'Sentricon %'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Realized recurring revenue per customer' }, 'LTV / Cust'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: summaryBy === 'state' ? 'Branches servicing this state, biggest first' : 'States this branch services, biggest first' }, summaryBy === 'state' ? 'Offices' : 'States'))),
           el('tbody', {},
@@ -46072,6 +46080,7 @@ function reportingGeographic() {
                 el('td', { class: 'px-3 py-2 text-left' }, s.active ? '$' + Math.round(s.arv / s.active).toLocaleString() : '—'),
                 el('td', { class: 'px-3 py-2 text-left' }, s.avgTenure ? s.avgTenure.toFixed(1) + ' mo' : '—'),
                 el('td', { class: 'px-3 py-2 text-left' }, s.subs ? Math.round((s.twoYrPct || 0) * 100) + '%' : '—'),
+                el('td', { class: 'px-3 py-2 text-left' }, s.customers ? Math.round((s.sentriconPct || 0) * 100) + '%' : '—'),
                 el('td', { class: 'px-3 py-2 text-left font-semibold' }, s.ltv ? '$' + Math.round(s.ltv).toLocaleString() : '—'),
                 el('td', { class: 'px-3 py-2 whitespace-nowrap text-muted-' }, (() => { const c = new Map(); for (const r of (s.rows || [])) { const o = summaryBy === 'state' ? r.office_name : r.state; if (o) c.set(o, (c.get(o) || 0) + 1); } return [...c.entries()].sort((a, b) => b[1] - a[1]).map(([o]) => summaryBy === 'state' ? _mktgTC(o) : o).join(' · ') || '—'; })()));
             })))));
