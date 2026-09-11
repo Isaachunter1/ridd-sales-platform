@@ -47859,7 +47859,7 @@ function reportingWaterfall() {
         el('option', { value: 'all', selected: cohortSel === 'all' }, 'All years (book size)'),
         ...(waterfallA.allYears || []).map(y => el('option', { value: String(y), selected: String(cohortSel) === String(y) }, y + ' cohort')),
       )),
-    el('div', { class: 'ml-auto flex items-center gap-2' },
+    el('div', { class: ' flex items-center gap-2' },
       // Row-level export of EXACTLY what this tab counts — for reconciling
       // against the hand-built workbook (diff by Customer ID + Subscription).
       el('button', {
@@ -49260,17 +49260,17 @@ function reportingWaterfall() {
     const ORDER = ['Door to Door', 'Office Staff', 'Technician'];
     const keys = [...ORDER.filter(k => byType[k]), ...Object.keys(byType).filter(k => !ORDER.includes(k)).sort()];
     const pct = (a, b) => b > 0 ? (a / b * 100).toFixed(1) + '%' : '\u2014';
-    const th = (lab, right) => el('th', { class: (right ? 'text-right' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
+    const th = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
     const row = (label, t, bold) => {
       const attr = t.subs > 0 ? t.cancelled / t.subs : null;
       return el('tr', { class: 'border-t' + (bold ? ' font-bold' : ''), style: { borderColor: 'var(--border)', background: bold ? 'var(--card-2)' : '' } },
         el('td', { class: 'px-3 py-2 whitespace-nowrap' + (bold ? '' : ' font-semibold') }, label),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(t.subs)),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(t.active)),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(t.cancelled)),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold', style: attr != null && attr >= 0.15 ? { color: '#DC2626' } : attr != null && attr < 0.08 ? { color: '#DF643A' } : {} }, pct(t.cancelled, t.subs)),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, pct(t.active, t.subs)),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, pct(t.arvCxl, t.arv)));
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.subs)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.active)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.cancelled)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold', style: attr != null && attr >= 0.15 ? { color: '#DC2626' } : attr != null && attr < 0.08 ? { color: '#DF643A' } : {} }, pct(t.cancelled, t.subs)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct(t.active, t.subs)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct(t.arvCxl, t.arv)));
     };
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
@@ -49354,7 +49354,7 @@ function reportingWaterfall() {
       style: { width: pW(n).toFixed(2) + '%', background: color, height: '100%' },
       title: label + ' \u2014 ' + fmt.int(n) + ' (' + (n / subs * 100).toFixed(1) + '%)',
     }) : null;
-    const stat = (lab, n, v, color) => el('div', { class: 'text-right' },
+    const stat = (lab, n, v, color) => el('div', { class: 'text-left' },
       el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, lab),
       el('div', { class: 'text-sm font-bold tabular-nums', style: color ? { color } : {} },
         fmt.int(n), el('span', { class: 'text-[10px] font-normal text-muted-' }, ' \u00b7 ' + fmt.usd0(v))));
@@ -49370,7 +49370,7 @@ function reportingWaterfall() {
           stat('Cancelled', cxl, arvCxl, '#DC2626'),
           stat('Aging', aging, arvAging, '#D97706'),
           stat('Retained', kept, arv - arvCxl - arvAging, '#DF643A'),
-          el('div', { class: 'text-right pl-2', style: { borderLeft: '1px solid var(--border)' } },
+          el('div', { class: 'text-left pl-2', style: { borderLeft: '1px solid var(--border)' } },
             el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'True attrition'),
             el('div', { class: 'text-2xl font-black tabular-nums', style: { color: rate >= 0.15 ? '#DC2626' : rate < 0.08 ? '#DF643A' : 'var(--text)' } },
               (rate * 100).toFixed(1) + '%')))),
@@ -49425,7 +49425,7 @@ function reportingWaterfall() {
     for (const x of rowsL) buckets[Math.min(24, Math.floor(x.t / 30))].push(x.r);
     const maxB = Math.max(...buckets.map(b => b.length), 1);
     const barL = (b, i) => el('button', {
-      class: 'flex-1 flex flex-col justify-end cursor-pointer transition hover:brightness-110',
+      class: 'flex-1 flex flex-col  cursor-pointer transition hover:brightness-110',
       style: { minWidth: 0, background: 'transparent', border: 'none', padding: '0 1px', height: '100%' },
       title: (i === 24 ? 'Month 24+' : 'Month ' + i) + ' of life — ' + fmt.int(b.length) + ' cancel' + (b.length === 1 ? '' : 's'),
       onclick: () => b.length && openReportingDrillModal({
@@ -49445,7 +49445,7 @@ function reportingWaterfall() {
     }
     const rks = Object.keys(byReason).filter(k => byReason[k].length >= 10)
       .sort((a, b) => byReason[b].length - byReason[a].length);
-    const thL = (lab, right) => el('th', { class: (right ? 'text-right' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
+    const thL = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
     const reasonRow = (k) => {
       const xs = byReason[k];
       const ts = xs.map(x => x.t);
@@ -49464,15 +49464,15 @@ function reportingWaterfall() {
           rows: xs.map(x => x.r), formatValue: (v) => fmt.usd0(v) }),
       },
         el('td', { class: 'px-3 py-2 whitespace-nowrap font-semibold' }, k),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(xs.length)),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, fmt.int(med) + 'd',
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(xs.length)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, fmt.int(med) + 'd',
           el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + moTxt(med))),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(Math.round(avg)) + 'd'),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums', style: in90 >= 0.5 ? { color: '#DC2626', fontWeight: '700' } : {} }, (in90 * 100).toFixed(0) + '%'),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (in365 * 100).toFixed(0) + '%'),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(avgArv)));
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(Math.round(avg)) + 'd'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums', style: in90 >= 0.5 ? { color: '#DC2626', fontWeight: '700' } : {} }, (in90 * 100).toFixed(0) + '%'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (in365 * 100).toFixed(0) + '%'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(avgArv)));
     };
-    const statL = (lab, val, sub) => el('div', { class: 'text-right' },
+    const statL = (lab, val, sub) => el('div', { class: 'text-left' },
       el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, lab),
       el('div', { class: 'text-sm font-bold tabular-nums' }, val,
         sub ? el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + sub) : null));
@@ -49584,7 +49584,7 @@ function reportingWaterfall() {
           el('div', { class: 'font-display text-lg' }, 'Renewal Retention'),
           el('div', { class: 'text-[11px] text-muted-' },
             'Accounts that reached contract end: renewed vs. left month-to-month. Not comparable to new sales — renewals only happen at term end, so this is the fair frame. Sentricon excluded.')),
-        delta != null ? el('div', { class: 'text-right' },
+        delta != null ? el('div', { class: 'text-left' },
           el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Renewal advantage'),
           el('div', { class: 'text-2xl font-black tabular-nums', style: { color: delta > 0 ? '#DF643A' : '#DC2626' } },
             (delta > 0 ? '−' : '+') + Math.abs(delta * 100).toFixed(1) + ' pts',
@@ -49631,7 +49631,7 @@ function reportingWaterfall() {
     const daysLbl = (x) => x.days < 0
       ? el('span', { class: 'font-bold', style: { color: '#DC2626' } }, 'M2M ' + fmt.int(-x.days) + 'd')
       : el('span', { class: 'font-bold', style: { color: x.days <= 60 ? '#DF643A' : 'var(--text-muted)' } }, 'in ' + fmt.int(x.days) + 'd');
-    const thQ = (lab, right) => el('th', { class: (right ? 'text-right' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
+    const thQ = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
@@ -49678,10 +49678,10 @@ function reportingWaterfall() {
             el('td', { class: 'px-3 py-2 whitespace-nowrap' }, x.r.office_name || '—'),
             el('td', { class: 'px-3 py-2 whitespace-nowrap' }, x.r.subscription || '—'),
             el('td', { class: 'px-3 py-2 whitespace-nowrap' }, x.r.subscription_source || '—'),
-            el('td', { class: 'px-3 py-2 text-right whitespace-nowrap tabular-nums' }, x.r.sold_date ? _fmtDt(new Date(x.r.sold_date)) : '—'),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, (Number(x.r.agreement_length) || 0) + ' mo'),
-            el('td', { class: 'px-3 py-2 text-right whitespace-nowrap tabular-nums font-semibold' }, _fmtDt(x.end)),
-            el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(Number(x.r.annual_recurring_value) || 0))))))));
+            el('td', { class: 'px-3 py-2 text-left whitespace-nowrap tabular-nums' }, x.r.sold_date ? _fmtDt(new Date(x.r.sold_date)) : '—'),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (Number(x.r.agreement_length) || 0) + ' mo'),
+            el('td', { class: 'px-3 py-2 text-left whitespace-nowrap tabular-nums font-semibold' }, _fmtDt(x.end)),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(Number(x.r.annual_recurring_value) || 0))))))));
   })();
 
 
@@ -49737,9 +49737,9 @@ function reportingWaterfall() {
     named.sort((a, b) => (b[1].arrKept / b[1].subs) - (a[1].arrKept / a[1].subs));
     if (other.subs) named.push(['Other (small sources)', other]);
     const _medS = (a) => { if (!a.length) return null; const t = [...a].sort((x, y) => x - y); return t[Math.floor((t.length - 1) / 2)]; };
-    const thS = (lab, right, tip) => el('th', { class: (right ? 'text-right' : 'text-left') + ' px-3 py-2 whitespace-nowrap', title: tip || '' }, lab);
+    const thS = (lab, right, tip) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap', title: tip || '' }, lab);
     const pctCell = (n, d, redAt) => el('td', {
-      class: 'px-3 py-2 text-right tabular-nums',
+      class: 'px-3 py-2 text-left tabular-nums',
       style: d > 0 && n / d >= redAt ? { color: '#DC2626', fontWeight: '700' } : {},
     }, d > 0 ? (n / d * 100).toFixed(1) + '%' : '—');
     const srcRow = ([k, g]) => {
@@ -49753,15 +49753,15 @@ function reportingWaterfall() {
           rows: g.rows, formatValue: (v) => fmt.usd0(v) }),
       },
         el('td', { class: 'px-3 py-2 whitespace-nowrap font-semibold' }, k),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.int(g.subs)),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums font-black', style: { color: 'var(--accent)' } }, fmt.usd0(perSub)),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, fmt.usd0(g.arrKept)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(g.subs)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums font-black', style: { color: 'var(--accent)' } }, fmt.usd0(perSub)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(g.arrKept)),
         pctCell(g.active, g.subs, 2),   // never red — retention is good
         pctCell(g.cxl, g.subs, 0.5),
         pctCell(g.ror, g.subs, 0.08),
         pctCell(g.delinq, g.subs, 0.15),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, med == null ? '—' : (med / 30.44).toFixed(1) + ' mo'),
-        el('td', { class: 'px-3 py-2 text-right tabular-nums' }, g.subs ? fmt.usd0(g.arvSold / g.subs) : '—'));
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, med == null ? '—' : (med / 30.44).toFixed(1) + ' mo'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, g.subs ? fmt.usd0(g.arvSold / g.subs) : '—'));
     };
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
