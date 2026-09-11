@@ -122,6 +122,8 @@
      the month calendar (7 columns of 120px cells on a 380px screen) and the
      Revenue Goals card at the top of Sales. General rules below keep dense
      desktop layouts breathable on phones without touching desktop. */
+  /* Scorecards summary strip with the 1:1 cadence card (5 across on desktop). */
+  @media (min-width: 640px) { .sm\:grid-cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
   /* Pay tab: stub column wide, By Source + Metrics narrow beside it. */
   .pay-3col { display: grid; grid-template-columns: 1fr; gap: 16px; }
   @media (min-width: 1024px) { .pay-3col { grid-template-columns: minmax(0, 1.35fr) minmax(0, .85fr) minmax(0, .85fr); } }
