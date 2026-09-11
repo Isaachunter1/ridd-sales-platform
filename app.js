@@ -3057,8 +3057,31 @@ async function loadUnloggedSales() {
     return data || [];
   } catch (e) { return null; }
 }
+// Profiles RLS only hands non-admins their OWN row, so the calendar,
+// scorecards, and leaderboards rendered every other agent as "(removed)"
+// for team leads (Pere's report). `profiles_roster` is a limited-column
+// view (name / avatar / role / type / office — no pay fields) every
+// signed-in user can read; merge it in behind the full rows we DO get.
+// Best-effort: until profiles_roster.sql is run the view is missing and
+// we simply keep whatever `profiles` returned.
+async function fetchProfilesForMe() {
+  const full = await supabase.from('profiles').select('*').order('full_name');
+  let rows = full.data || null;
+  const admin = isAdminRole((state._realProfile || state.profile || {}).role);
+  if (!admin || (rows && rows.length <= 1)) {
+    try {
+      const ro = await supabase.from('profiles_roster').select('*').order('full_name');
+      if (!ro.error && Array.isArray(ro.data) && ro.data.length) {
+        const byId = new Map(ro.data.map(p => [p.id, p]));
+        (rows || []).forEach(p => byId.set(p.id, { ...(byId.get(p.id) || {}), ...p }));
+        rows = Array.from(byId.values()).sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+      }
+    } catch (e) { /* view not installed yet */ }
+  }
+  return { data: rows, error: full.error };
+}
 async function refreshProfilesData() {
-  const { data } = await supabase.from('profiles').select('*').order('full_name');
+  const { data } = await fetchProfilesForMe();
   if (data) {
     state.allProfiles = data;
     const me = data.find(p => p.id === (state._realProfile || state.profile || {}).id);
@@ -3092,7 +3115,7 @@ async function loadData() {
   // Admins see every rep on the Users tab and need names + avatars across the
   // sales/queue tables. Reps can only read their own profile per RLS, so for
   // them this select returns just one row — same as state.profile.
-  const profilesQuery = supabase.from('profiles').select('*').order('full_name');
+  const profilesQuery = fetchProfilesForMe();
 
   // CRITICAL PATH = what the default view needs: the user's sales + names.
   // Competitions/rules/progress + the legacy leaderboard table hydrate
@@ -14023,6 +14046,15 @@ function companyHolidayFor(isoStr) {
 
 // The calendar is an Inside Sales scheduling tool — ACTIVE OFFICE STAFF
 // only (per Isaac). D2D reps and technicians never appear on shifts.
+// Who can build / edit the schedule and approve swaps: admins plus the
+// office team leads (Inside Sales + Loyalty leads) — per Isaac, team
+// leads get the calendar. Reps only request swaps on their own shifts.
+function calendarCanManage(role) {
+  return isAdminRole(role) || isOfficeLeadRole(role);
+}
+// A swap request that is still in flight: waiting on the other rep, or
+// accepted by them and now waiting on a team lead / admin.
+function swapOpen(r) { return r && (r.status === 'pending' || r.status === 'awaiting_lead'); }
 function calendarEligibleProfiles(fallback) {
   const all = state.allProfiles.length ? state.allProfiles : [fallback].filter(Boolean);
   const staff = all.filter(p => p && p.is_active !== false && isSellerRole(p.role) && isOfficeStaffProfile(p));
@@ -14286,7 +14318,7 @@ function calendarAgentSidebar(meId, isAdmin, anchor) {
 function viewCalendar() {
   const me = state.profile;
   const meId = me.id;
-  const isAdmin = isAdminRole(me.role);
+  const isAdmin = calendarCanManage(me.role);
   const reps = calendarEligibleProfiles(me);
   const repById = Object.fromEntries(reps.map(r => [r.id, r]));
   if (!(state._calAgentHidden instanceof Set)) state._calAgentHidden = new Set();
@@ -14299,7 +14331,10 @@ function viewCalendar() {
   const deptShiftIds = new Set(deptShifts().map(s => s.id));
   const inDept = (r) => deptShiftIds.has(r.shift_id);
   const incoming = state.shiftSwapRequests.filter(r => r.to_rep_id === meId && r.status === 'pending' && inDept(r));
-  const outgoing = state.shiftSwapRequests.filter(r => r.from_rep_id === meId && r.status === 'pending' && inDept(r));
+  const outgoing = state.shiftSwapRequests.filter(r => r.from_rep_id === meId && swapOpen(r) && inDept(r));
+  // Accepted by the other rep — now a team lead / admin signs off before
+  // the shift actually moves.
+  const approvals = isAdmin ? state.shiftSwapRequests.filter(r => r.status === 'awaiting_lead' && inDept(r)) : [];
 
   return el('div', { class: 'flex flex-col gap-5 w-full' },
 
@@ -14366,6 +14401,11 @@ function viewCalendar() {
     ),
 
     // ── Incoming swaps ──
+    approvals.length > 0 && el('div', { class: 'card p-4 border-l-4', style: { borderLeftColor: '#B45309' } },
+      el('h3', { class: 'text-sm font-bold mb-1' }, `Shift swaps awaiting your approval (${approvals.length})`),
+      el('p', { class: 'text-xs text-muted- mb-3' }, 'Both reps agreed. Approve to move the shift, or reject to leave it where it is.'),
+      el('div', { class: 'flex flex-col gap-2' },
+        ...approvals.map(req => swapRequestCard(req, repById, 'approve')))),
     incoming.length > 0 && el('div', { class: 'card p-4 border-l-4', style: { borderLeftColor: 'var(--accent)' } },
       el('h3', { class: 'text-sm font-bold mb-3' }, `Shift transfers waiting on you (${incoming.length})`),
       el('div', { class: 'flex flex-col gap-2' },
@@ -14465,7 +14505,7 @@ function layoutSlots(slots) {
 }
 
 function renderWeekGrid(anchor, today, meId, repById) {
-  const isAdmin = isAdminRole(state.profile?.role);
+  const isAdmin = calendarCanManage(state.profile?.role);
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(anchor); d.setDate(anchor.getDate() + i); return d; });
   const todayIso = isoDate(today);
@@ -14635,7 +14675,7 @@ function renderWeekGrid(anchor, today, meId, repById) {
 }
 
 function renderMonthGrid(anchor, today, meId, repById) {
-  const isAdmin = isAdminRole(state.profile?.role);
+  const isAdmin = calendarCanManage(state.profile?.role);
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const lastDay = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate();
   const startPad = first.getDay();
@@ -14737,7 +14777,9 @@ function swapRequestCard(req, repById, direction) {
   return el('div', { class: 'flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 border', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
     el('div', { class: 'flex-1 min-w-0' },
       el('div', { class: 'text-sm font-semibold' },
-        direction === 'incoming' ? `${from?.full_name || 'A rep'} → you` : `You → ${to?.full_name || 'rep'}`),
+        direction === 'incoming' ? `${from?.full_name || 'A rep'} → you`
+          : direction === 'approve' ? `${from?.full_name || 'A rep'} → ${to?.full_name || 'rep'}`
+          : `You → ${to?.full_name || 'rep'}`),
       el('div', { class: 'text-xs text-muted- mt-0.5' },
         `${dateLabel} · ${fmtTime(shift.start)}–${fmtTime(shift.end)}`),
       req.note && el('div', { class: 'text-xs mt-1 italic', style: { color: 'var(--text-muted)' } }, '"' + req.note + '"'),
@@ -14754,9 +14796,22 @@ function swapRequestCard(req, repById, direction) {
         onclick: () => resolveSwap(req.id, 'declined'),
       }, 'Decline'),
     ),
+    direction === 'approve' && el('div', { class: 'flex gap-1.5' },
+      el('button', {
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
+        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+        onclick: () => resolveSwap(req.id, 'approved'),
+      }, 'Approve'),
+      el('button', {
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        onclick: () => resolveSwap(req.id, 'rejected'),
+      }, 'Reject'),
+    ),
     direction === 'outgoing' && el('div', { class: 'flex gap-1.5' },
-      el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded',
-        style: { background: 'var(--card)', color: 'var(--text-muted)' } }, 'Pending'),
+      el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded whitespace-nowrap',
+        style: { background: req.status === 'awaiting_lead' ? 'rgba(245, 158, 11, 0.15)' : 'var(--card)', color: req.status === 'awaiting_lead' ? '#B45309' : 'var(--text-muted)' } },
+        req.status === 'awaiting_lead' ? 'Lead approval' : 'Pending'),
       el('button', {
         class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
@@ -14769,25 +14824,39 @@ function swapRequestCard(req, repById, direction) {
 function resolveSwap(requestId, decision) {
   const req = state.shiftSwapRequests.find(r => r.id === requestId);
   if (!req) return;
-  if (decision === 'accepted') {
+  const me = state.profile || {};
+  const apply = () => {
     const shift = state.shifts.find(s => s.id === req.shift_id);
     if (shift) shift.rep_id = req.to_rep_id;
-    req.status = 'accepted';
+    req.status = 'approved';
+    req.approved_by = me.id;
+    req.resolved_at = new Date().toISOString();
+  };
+  let msg = 'Request updated', kind = 'info';
+  if (decision === 'accepted') {
+    // The other rep said yes. A team lead / admin accepting IS the
+    // approval; anyone else parks it for a lead to sign off.
+    if (calendarCanManage(me.role)) { apply(); msg = 'Shift transferred'; kind = 'success'; }
+    else { req.status = 'awaiting_lead'; req.accepted_at = new Date().toISOString(); msg = 'Accepted — waiting on team lead approval'; kind = 'success'; }
+  } else if (decision === 'approved') {
+    if (!calendarCanManage(me.role)) { toast('Only a team lead or admin can approve swaps', 'warn'); return; }
+    apply(); msg = 'Swap approved — shift transferred'; kind = 'success';
+  } else if (decision === 'rejected') {
+    if (!calendarCanManage(me.role)) { toast('Only a team lead or admin can reject swaps', 'warn'); return; }
+    req.status = 'rejected'; req.approved_by = me.id; req.resolved_at = new Date().toISOString(); msg = 'Swap rejected';
   } else if (decision === 'declined') {
-    req.status = 'declined';
+    req.status = 'declined'; req.resolved_at = new Date().toISOString(); msg = 'Request declined';
   } else if (decision === 'cancelled') {
-    req.status = 'cancelled';
+    req.status = 'cancelled'; req.resolved_at = new Date().toISOString(); msg = 'Request cancelled';
   }
-  req.resolved_at = new Date().toISOString();
   saveDemoData();
-  toast(decision === 'accepted' ? 'Shift transferred' : decision === 'declined' ? 'Request declined' : 'Request cancelled',
-        decision === 'accepted' ? 'success' : 'info');
+  toast(msg, kind);
   mountApp();
 }
 
 // ── Create-shift modal: pick days, times, reps, then fan out assignments ──
 function openNewShiftModal(defaultIso, opts = {}) {
-  if (!isAdminRole(state.profile?.role)) return;
+  if (!calendarCanManage(state.profile?.role)) return;
   // Agents of the CURRENT department view only - and each shift files under
   // the AGENT's own department (from their user type), not the dropdown.
   const reps = calendarDeptAgents();
@@ -15107,7 +15176,7 @@ function openSlotModal(iso, slotId) {
     const allReps    = state.allProfiles.length ? state.allProfiles : [state.profile];
     const activeReps = calendarEligibleProfiles(state.profile);
     const meId = state.profile.id;
-    const isAdmin = isAdminRole(state.profile?.role);
+    const isAdmin = calendarCanManage(state.profile?.role);
     const repById = Object.fromEntries(allReps.map(r => [r.id, r]));
     const assigns = assignmentsForSlot(iso, slotId);
     const dateLabel = new Date(iso + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
@@ -15233,7 +15302,8 @@ function assignmentRow(a, slot, reps, repById, meId, isAdmin, redraw) {
   const rep = repById[a.rep_id];
   const isMine = a.rep_id === meId;
   const isPartial = a.start !== slot.slot_start || a.end !== slot.slot_end;
-  const pendingReq = state.shiftSwapRequests.find(r => r.shift_id === a.id && r.status === 'pending');
+  const pendingReq = state.shiftSwapRequests.find(r => r.shift_id === a.id && swapOpen(r));
+  const awaitingLead = !!(pendingReq && pendingReq.status === 'awaiting_lead');
   const wrap = el('div', { class: 'rounded-lg border p-2.5 flex flex-col gap-2', style: {
     borderColor: isMine ? 'var(--accent)' : 'var(--border)',
     background: isMine ? 'rgba(223,100,58,0.08)' : 'var(--card-2)',
@@ -15261,7 +15331,7 @@ function assignmentRow(a, slot, reps, repById, meId, isAdmin, redraw) {
       pendingReq && el('span', {
         class: 'text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded whitespace-nowrap',
         style: { background: 'rgba(245, 158, 11, 0.15)', color: '#B45309' },
-      }, pendingReq.from_rep_id === meId ? 'Waiting' : 'Incoming'),
+      }, awaitingLead ? 'Lead approval' : pendingReq.from_rep_id === meId ? 'Waiting' : 'Incoming'),
     ),
   );
 
@@ -15291,8 +15361,16 @@ function assignmentRow(a, slot, reps, repById, meId, isAdmin, redraw) {
         }, redraw);
       }, 'danger'),
     );
+    // Lead / admin signs off on swaps both reps already agreed to
+    if (awaitingLead) {
+      const toRep = repById[pendingReq.to_rep_id];
+      actions.append(
+        btn('Approve → ' + (toRep?.full_name?.split(' ')[0] || 'rep'), () => { resolveSwap(pendingReq.id, 'approved'); redraw(); }, 'primary'),
+        btn('Reject', () => { resolveSwap(pendingReq.id, 'rejected'); redraw(); }),
+      );
+    }
     // Admin can also accept/decline if they happen to be the target of a swap
-    if (pendingReq && pendingReq.to_rep_id === meId) {
+    if (pendingReq && pendingReq.status === 'pending' && pendingReq.to_rep_id === meId) {
       actions.append(
         btn('Accept', () => { resolveSwap(pendingReq.id, 'accepted'); redraw(); }, 'primary'),
         btn('Decline', () => { resolveSwap(pendingReq.id, 'declined'); redraw(); }),
@@ -15305,10 +15383,10 @@ function assignmentRow(a, slot, reps, repById, meId, isAdmin, redraw) {
     } else if (isMine && pendingReq && pendingReq.from_rep_id === meId) {
       const toRep = repById[pendingReq.to_rep_id];
       actions.append(
-        el('span', { class: 'text-xs text-muted- flex-1' }, 'Awaiting ' + (toRep?.full_name?.split(' ')[0] || 'rep') + '…'),
+        el('span', { class: 'text-xs text-muted- flex-1' }, awaitingLead ? 'Waiting on team lead approval…' : 'Awaiting ' + (toRep?.full_name?.split(' ')[0] || 'rep') + '…'),
         btn('Cancel', () => { resolveSwap(pendingReq.id, 'cancelled'); redraw(); }),
       );
-    } else if (!isMine && pendingReq && pendingReq.to_rep_id === meId) {
+    } else if (!isMine && pendingReq && pendingReq.status === 'pending' && pendingReq.to_rep_id === meId) {
       actions.append(
         btn('Accept', () => { resolveSwap(pendingReq.id, 'accepted'); redraw(); }, 'primary'),
         btn('Decline', () => { resolveSwap(pendingReq.id, 'declined'); redraw(); }),
@@ -15384,7 +15462,7 @@ function openTransferSheet(assignment, reps, redraw) {
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Cancel'),
     ),
     el('div', { class: 'px-5 py-4 flex flex-col gap-3' },
-      el('p', { class: 'text-sm text-muted-' }, `Transferring ${fmtTime(assignment.start)}–${fmtTime(assignment.end)}. The other rep has to accept.`),
+      el('p', { class: 'text-sm text-muted-' }, `Transferring ${fmtTime(assignment.start)}–${fmtTime(assignment.end)}. The other rep has to accept, then a team lead approves before it moves.`),
       el('label', { class: 'block text-xs font-semibold' }, 'Transfer to', target),
       el('label', { class: 'block text-xs font-semibold' }, 'Note', note),
       el('button', {
@@ -15446,7 +15524,7 @@ function openReassignSheet(assignment, reps, redraw) {
               if (shift) shift.recurring = false;
             }
             const ids = new Set(affected.map(s => s.id));
-            state.shiftSwapRequests = state.shiftSwapRequests.filter(r => !ids.has(r.shift_id) || r.status !== 'pending');
+            state.shiftSwapRequests = state.shiftSwapRequests.filter(r => !ids.has(r.shift_id) || !swapOpen(r));
           }, redraw);
         },
       }, 'Reassign'),
