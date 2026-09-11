@@ -39152,13 +39152,12 @@ function reportingGroupAvg(rows, keyFn, valueFn) {
 // 90 days into a single tail bucket.
 function reportingAgingBucket(days) {
   const d = Number(days) || 0;
-  if (d <= 0)  return 'Current';
-  if (d <= 30) return '1–30 days';
+  if (d <= 30) return 'Current';     // FieldRoutes: ≤30 days is "current"
   if (d <= 60) return '31–60 days';
   if (d <= 90) return '61–90 days';
   return '90+ days';
 }
-const REPORTING_AGING_ORDER = ['Current', '1–30 days', '31–60 days', '61–90 days', '90+ days'];
+const REPORTING_AGING_ORDER = ['Current', '31–60 days', '61–90 days', '90+ days'];
 
 // Customer tenure bucket from initial_service date — years between then
 // and today. Returns 'Unknown' for missing / unparseable dates so the
@@ -39957,14 +39956,29 @@ function reportingChartData(scopeRows, serviceConfig) {
   const realCancels     = scopeRows.filter(isRealCancel);
   const servicedRows    = scopeRows.filter(isServiced);
   // Past due = any sub with days_past_due > 0, regardless of status.
-  const pastDueRows     = scopeRows.filter(r => (Number(r.days_past_due) || 0) > 0);
-  const pastDueAmount   = pastDueRows.reduce((sum, r) => sum + (Number(r.subscription_contract_value) || 0), 0);
-  const totalAR         = scopeRows.reduce((sum, r) => sum + (Number(r.subscription_contract_value) || 0), 0);
+  // ── Receivables = REAL balances (per Isaac, fact-checked against the
+  // FieldRoutes Receivables Aging card). The balance + its age live on the
+  // CUSTOMER, so count each customer once; "Current" = 30 days or less,
+  // past due = older than 30 (that's how FieldRoutes splits $2.13M into
+  // $144K current / $1.98M past due). Contract value is NOT a receivable —
+  // the old card summed it and called it AR.
+  const arByCust = new Map();
+  for (const r of scopeRows) {
+    const cid = r.customer_id; if (!cid || arByCust.has(cid)) continue;
+    const bal = Math.max(0, Number(r.responsible_balance) || 0);
+    arByCust.set(cid, { balance: bal, dpd: Number(r.days_past_due) || 0, office: r.office_name || 'Unspecified', row: r });
+  }
+  const arCusts         = [...arByCust.values()];
+  const pastDueCusts    = arCusts.filter(c => c.balance > 0 && c.dpd > 30);
+  const pastDueRows     = pastDueCusts.map(c => c.row);
+  const pastDueAmount   = pastDueCusts.reduce((sum, c) => sum + c.balance, 0);
+  const totalAR         = arCusts.reduce((sum, c) => sum + c.balance, 0);
   const pastDuePct      = totalAR > 0 ? (pastDueAmount / totalAR) * 100 : 0;
+  const totalContract   = scopeRows.reduce((sum, r) => sum + (Number(r.subscription_contract_value) || 0), 0);
   // Weighted average contract value across the entire scope — used as
   // the bottom-line total on the ACV pie since summing per-service
   // averages doesn't produce a meaningful overall number.
-  const weightedAvgACV  = scopeRows.length > 0 ? totalAR / scopeRows.length : 0;
+  const weightedAvgACV  = scopeRows.length > 0 ? totalContract / scopeRows.length : 0;
 
   // Customer "recurring vs other" split — a customer counts as recurring
   // if any of their active subs is on a recurring service.
@@ -40003,9 +40017,10 @@ function reportingChartData(scopeRows, serviceConfig) {
   // Empty buckets are kept at value 0 so the pie filters them out but
   // the legend order stays predictable across snapshots.
   const agingTotals = new Map(REPORTING_AGING_ORDER.map(k => [k, 0]));
-  for (const r of scopeRows) {
-    const bucket = reportingAgingBucket(r.days_past_due);
-    agingTotals.set(bucket, (agingTotals.get(bucket) || 0) + (Number(r.subscription_contract_value) || 0));
+  for (const c of arCusts) {
+    if (!c.balance) continue;
+    const bucket = reportingAgingBucket(c.dpd);
+    agingTotals.set(bucket, (agingTotals.get(bucket) || 0) + c.balance);
   }
   const receivablesSlices = REPORTING_AGING_ORDER.map(k => ({ label: k, value: agingTotals.get(k) || 0 }));
 
@@ -40067,7 +40082,7 @@ function reportingChartData(scopeRows, serviceConfig) {
       activeSubs:  reportingGroupCount(activeForCharts, r => r.subscription),
       serviced:    reportingGroupSum(servicedRows,  r => r.subscription, r => r.subscription_contract_value),
       aging:       receivablesSlices,
-      pastDueOffice: reportingGroupSum(pastDueRows, r => r.office_name || 'Unspecified', r => r.subscription_contract_value),
+      pastDueOffice: reportingGroupSum(pastDueCusts, c => c.office, c => c.balance),
       tenure:      tenureSlices,
       agreement:   agreementSlices,
       cancels:     reportingGroupCount(realCancels, r => reportingCancelReasonOf(r)),
@@ -42437,8 +42452,8 @@ function reportingOverview() {
     { id: 'rarrOffice', title: 'Recurring Annual Value by Office',  subline: 'Sum of Annual Recurring Value · active subs',           totalLabel: 'Active ARV',          formatValue: fmt.usd0, sliceKey: 'rarrOffice' },
     { id: 'customers',  title: 'Active Customers',         subline: 'Distinct customers with at least one active sub',       totalLabel: 'Active customers',    sliceKey: 'customers' },
     { id: 'activesubs', title: 'Active Subscriptions',     subline: 'Currently in service · by subscription type',           totalLabel: 'Active subs',         sliceKey: 'activeSubs' },
-    { id: 'aging',      title: 'Receivables Aging',        subline: (d) => 'Contract value by days past due · ' + d.stats.subs.toLocaleString() + ' subs',                                                          totalLabel: 'Total contract $',     formatValue: fmt.usd0, sliceKey: 'aging', preserveOrder: true },
-    { id: 'pastdue',    title: 'Past Due Revenue by Office', subline: (d) => '$' + Math.round(d.stats.pastDueAmount).toLocaleString() + ' past due · ' + d.stats.pastDuePct.toFixed(1) + '% of book',               totalLabel: 'Past due $',           formatValue: fmt.usd0, sliceKey: 'pastDueOffice' },
+    { id: 'aging',      title: 'Receivables Aging',        subline: (d) => 'Customer balances by age · $' + Math.round(d.stats.totalAR).toLocaleString() + ' total AR · ' + d.stats.pastDueCount.toLocaleString() + ' past due (31+ days)', totalLabel: 'Total AR',             formatValue: fmt.usd0, sliceKey: 'aging', preserveOrder: true },
+    { id: 'pastdue',    title: 'Past Due Balances by Office', subline: (d) => '$' + Math.round(d.stats.pastDueAmount).toLocaleString() + ' past due (31+ days) · ' + d.stats.pastDuePct.toFixed(1) + '% of AR',      totalLabel: 'Past due $',           formatValue: fmt.usd0, sliceKey: 'pastDueOffice' },
     { id: 'tenure',     title: 'Customer Tenure',          subline: 'Subs by years since initial service',                    totalLabel: 'Subs',                sliceKey: 'tenure',    preserveOrder: true },
     { id: 'agreement',  title: 'Agreement Length Mix',     subline: 'Distribution by contract length (months)',               totalLabel: 'Subs w/ term',        sliceKey: 'agreement', preserveOrder: true },
     { id: 'cancels',    title: 'Cancellation Reasons',     subline: 'All canceled recurring subs',                            totalLabel: 'Cancellations',       sliceKey: 'cancels' },
