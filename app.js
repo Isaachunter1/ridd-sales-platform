@@ -44171,6 +44171,7 @@ function _mktgPnl() {
   const wg  = (rk, i) => sum(rk, b => Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0);
   const inc = (rk, i) => sum(rk, b => Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0);
   const tot = (rk, i) => ad(rk, i) + wg(rk, i) + inc(rk, i);
+  const jobs = (rk, i) => sum(rk, b => (a.branch[b] ? a.branch[b][i].subs + a.branch[b][i].upsells : 0));
   const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? rk : _mktgTC(rk), firstCol: 'Branch' };
   const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
   const T = m.settings.targets;
@@ -44189,6 +44190,9 @@ function _mktgPnl() {
         cac:    { label: 'CAC',               note: 'total spend ÷ new revenue',                                                      cell: (rk, i) => _mktgDiv(tot(rk, i), rev(rk, i)), fmt: _mktgPct, total: ratioTotal(tot, rev) },
         adcac:  { label: 'Ad spend % of CAC', note: 'ad spend ÷ new revenue · goal ' + Math.round(T.adSpendCac * 100) + '%',         cell: (rk, i) => _mktgDiv(ad(rk, i), rev(rk, i)),  fmt: _mktgPct, total: ratioTotal(ad, rev),  style: goalStyle(T.adSpendCac, (v, g) => v <= g) },
         wgcac:  { label: 'Wages % of CAC',    note: 'wages ÷ new revenue · goal ' + Math.round(T.wagesCac * 100) + '%',              cell: (rk, i) => _mktgDiv(wg(rk, i), rev(rk, i)),  fmt: _mktgPct, total: ratioTotal(wg, rev),  style: goalStyle(T.wagesCac, (v, g) => v <= g) },
+        // Cost per job (per Isaac): total spend ÷ subscriptions sold (new +
+        // upsell, pending/serviced) — the same rows New revenue is built on.
+        cpj:    { label: 'Cost per job',      note: 'total spend ÷ subscriptions (new + upsell · pending/serviced · by sold month)',    cell: (rk, i) => _mktgDiv(tot(rk, i), jobs(rk, i)), fmt: _mktgUsd0, total: ratioTotal(tot, jobs) },
       };
       const key = METRICS[state._mktEffMetric] ? state._mktEffMetric : 'roas';
       const M = METRICS[key];
