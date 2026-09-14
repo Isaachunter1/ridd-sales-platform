@@ -5145,6 +5145,9 @@ function _ensureEditBanner() {
 }
 
 function mountApp() {
+  // Competitions landing paints the whole page orange (set again below
+  // by the landing renderer when it's the view being drawn).
+  try { document.body.classList.remove('comp-landing'); } catch (e) { /* pre-DOM */ }
   const _mountKeepX = window.scrollX || 0, _mountKeepY = window.scrollY || 0;
   // ── Shared-dataset freshness watch — EVERY view, not just Indicators. ──
   // PWAs essentially never reboot, so before this a device that sat on the
@@ -22265,6 +22268,10 @@ function viewNrlaPublic() {
     }, (c.favorite ? '\u2605 ' : '') + c.name);
     // Poster fills the screen below the top bar + rep-type tabs (per Isaac):
     // the headline block grows, the competition buttons sit at the bottom.
+    // Orange keeps going past the poster (per Isaac): the page background
+    // itself goes accent while the landing is up, so scrolling / iOS
+    // overscroll never shows the off-white behind it.
+    try { document.body.classList.add('comp-landing'); } catch (e) { /* noop */ }
     wrap.append(el('div', { class: 'card overflow-hidden comp-landing-poster', style: { background: 'var(--accent)', color: ink, border: 'none' } },
       el('div', { class: 'comp-landing-pad comp-landing-top', style: { paddingBottom: '24px' } },
         eyebrow('01 / Competitions \u00b7 ' + repTypeTab),

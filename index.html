@@ -181,8 +181,11 @@
     .sales-tab-select { flex: 0 0 100% !important; }
     /* Same breathing room below the Dashboard dropdown as between it and
        the rep-type toggle above (the desktop mb-4 read as a gap on phones). */
-    .sales-subtabs { margin-bottom: 6px !important; }
-    .sales-subtabs .sales-tab-select { padding-bottom: 6px; }
+    .sales-subtabs { margin-bottom: 12px !important; row-gap: 12px !important; border-bottom: 0 !important; }
+    .sales-subtabs .sales-tab-select { padding: 0 !important; }
+    /* …and the same 12px from + New Sale down to the Revenue Pacer (the
+       dashboard column's gap-5 is 20px; pull the toolbar's slot in by 8). */
+    .dash-toolbar { margin-bottom: -8px; }
     /* Indicators leaderboard header: title + tools on one row, search on
        its own full-width row underneath; the rep count is dropped. */
     .lb-head .lb-tools { display: contents; }
@@ -269,6 +272,7 @@
   }
   input::placeholder, textarea::placeholder { color: var(--text-subtle) !important; }
   /* Competitions landing (poster card) */
+  html:has(body.comp-landing), body.comp-landing { background: var(--accent); }
   .comp-landing-poster { display: flex; flex-direction: column; margin: 0 -16px -16px; min-height: calc(100vh - 76px - 16px - 46px); border-radius: 0 !important; }
   .comp-landing-top { flex: 1 1 auto; }
   @media (min-width: 640px) { .comp-landing-poster { margin: 0 -24px -24px; min-height: calc(100vh - 76px - 24px - 46px); } }
