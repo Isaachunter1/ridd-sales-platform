@@ -43195,26 +43195,31 @@ function putisDeriveMonths(M, yms, branches) {
   return putisDerive({ _: merged }, '_', branches);
 }
 // P&L Indicators — one month OR year-to-date, branch columns (the sheet's P&L tab).
-function putisIndicatorsCard(M, ym, branches) {
+function putisIndicatorsCard(M, ym, branches, opts = {}) {
   const FR = putisFieldRoutes();
+  const U = putisUnitMonthly();
   const isYtd = /^\d{4}-YTD$/.test(ym);
   const year = ym.slice(0, 4);
   const yms = isYtd ? Object.keys(M).filter(k => k.startsWith(year + '-') && /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).sort() : [ym];
+  const endYm = yms[yms.length - 1] || ym;
+  const bookAtEnd = U.eom && U.eom[endYm];   // month-end book for the period; falls back to today
   const cols = [...branches.map(b => ({ key: b, label: b, set: [b] })), { key: 'RIDD', label: 'RIDD', set: branches }];
   const D = Object.fromEntries(cols.map(c => [c.key, putisDeriveMonths(M, yms, c.set)]));
+  const UM = Object.fromEntries(cols.map(c => [c.key, putisMetrics(M, U, yms, c.set)]));
   const fr = (key) => {
     const set = cols.find(c => c.key === key).set;
     const t = { active: 0, arr: 0 };
-    for (const b of set) { const x = FR[b]; if (x) { t.active += x.active; t.arr += x.arr; } }
+    for (const b of set) { const x = bookAtEnd ? bookAtEnd[b] : FR[b]; if (x) { t.active += x.active; t.arr += x.arr; } }
     return t;
   };
+  const endLabel = new Date(endYm + '-15T12:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   const th = (t, tip) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)' }, title: tip || '' }, t);
   const td = (v, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' + (o.bold ? ' font-bold' : '') + (o.muted ? ' text-muted-' : '') + (o.title ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '' }, v);
   const section = (label, tip) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-subtle)' }, colspan: cols.length + 1, title: tip || '' }, label));
   const line = (label, f, o = {}) => el('tr', { class: 'border-t border-' + (o.bold ? ' font-semibold' : ''), style: o.bold ? { background: 'var(--card-2)' } : {} },
     td(label, { bold: true, title: o.tip, style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
     ...cols.map(c => { const v = f(D[c.key], c.key); const s = o.signed && typeof v === 'number' ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
-      return td(v == null || (typeof v === 'number' && !isFinite(v)) ? '—' : o.pct ? _putisPct1(v) : o.num ? Math.round(v).toLocaleString() : o.usd2 ? '$' + v.toFixed(2) : _putisUsd(v), { style: s, muted: o.muted }); }));
+      return td(v == null || (typeof v === 'number' && !isFinite(v)) ? '—' : o.pct ? _putisPct1(v) : o.num ? Math.round(v).toLocaleString() : o.x ? v.toFixed(2) + 'x' : o.mo ? v.toFixed(1) + ' mo' : o.usd2 ? '$' + v.toFixed(2) : _putisUsd(v), { style: s, muted: o.muted }); }));
   const TIPS = {
     'Total income': 'All "Sales:<Branch> Sales" income accounts.',
     'Chemicals & job supplies': '"Chemicals and Job Supplies": chemical products + job supplies COGS.',
@@ -43270,12 +43275,24 @@ function putisIndicatorsCard(M, ym, branches) {
     lineT('Interest paid', d => d.interest),
     lineT('Net income', d => d.netIncome, { bold: true, signed: true }),
     lineT('Adjusted EBITDA (before selling expense)', d => d.adjEbitda, { bold: true, signed: true }),
-    section('Data · FieldRoutes (today)', 'Operational counts from the FieldRoutes snapshot as of the last sync — not month-specific.'),
-    lineT('Recurring revenue (active ARR)', (d, k) => fr(k).arr),
-    lineT('Active accounts', (d, k) => fr(k).active, { num: true }),
+    section('Recurring book · FieldRoutes (at ' + endLabel + ' month end)', bookAtEnd ? 'Recurring subscriptions on the books at the end of the period: sold on or before the last day of ' + endLabel + ' and not cancelled by then.' : 'Operational counts from the FieldRoutes snapshot as of the last sync.'),
+    lineT('Recurring revenue (active ARR)', (d, k) => fr(k).arr, { bold: true, tip: 'Annual recurring value of every recurring subscription on the books at the end of the period (any cancel reason removes it).' }),
+    lineT('Active accounts', (d, k) => fr(k).active, { num: true, tip: 'Recurring subscriptions on the books at the end of the period.' }),
     lineT('ACV (ARR ÷ active accounts)', (d, k) => { const f = fr(k); return f.active ? f.arr / f.active : null; }),
-    lineT('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }),
-    lineT('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true }),
+    lineT('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }, { tip: 'Booked revenue for the period ÷ accounts on the books at period end.' }),
+    lineT('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true, tip: 'EBITDA for the period ÷ accounts on the books at period end.' }),
+    lineT('Revenue ÷ (ARR ÷ 12)', (d, k) => { const f = fr(k); return f.arr > 0 ? (d.revenue / yms.length) / (f.arr / 12) : null; }, { x: true, tip: PUTIS_KPI_TIPS.arrCoverage }),
+    section('Unit economics', 'Growth efficiency for the period — selling cost per new account against what an account is worth. New accounts, cancels and ARV follow the Retention-tab rules.'),
+    lineT('New recurring accounts', (d, k) => UM[k].newSubs, { num: true, tip: 'Recurring subscriptions sold in the period.' }),
+    lineT('New ARR sold', (d, k) => UM[k].newArr, { tip: 'Annual recurring value of the accounts sold in the period.' }),
+    lineT('ARR lost to cancels', (d, k) => UM[k].lostArr, { tip: 'Annual recurring value of real cancels in the period (Retention-tab rules: excluded reasons and 3-day ROR stripped).' }),
+    lineT('Net new ARR', (d, k) => UM[k].netNewArr, { bold: true, signed: true, tip: PUTIS_KPI_TIPS.netNewArr }),
+    lineT('CAC (selling cost ÷ new account)', (d, k) => UM[k].cac, { tip: PUTIS_KPI_TIPS.cac }),
+    lineT('Marketing ÷ new account', (d, k) => UM[k].mktgPerNew, { tip: 'Advertising & marketing dollars ÷ new recurring accounts sold.' }),
+    lineT('Churn / month', (d, k) => UM[k].monthlyChurn, { pct: true, tip: PUTIS_KPI_TIPS.monthlyChurn }),
+    lineT('LTV (gross profit per account)', (d, k) => UM[k].ltv, { tip: 'ACV × gross margin ÷ annualised churn — lifetime gross profit of one account.' }),
+    lineT('LTV ÷ CAC', (d, k) => UM[k].ltvCac, { x: true, bold: true, tip: PUTIS_KPI_TIPS.ltvCac }),
+    lineT('CAC payback (months)', (d, k) => UM[k].paybackMo, { mo: true, tip: PUTIS_KPI_TIPS.paybackMo }),
     section('Margins', 'Each line as a percentage of total income for the period.'),
     lineT('Product cost (M&S)', d => d.msPct, { pct: true }),
     lineT('Auto & fuel', d => d.autoPct, { pct: true }),
@@ -43291,9 +43308,11 @@ function putisIndicatorsCard(M, ym, branches) {
     lineT('Net profit', d => d.netPct, { pct: true, signed: true }),
   ];
   return el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'P&L detail · ' + (isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))),
-      el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'QuickBooks general ledger by branch · FieldRoutes for accounts + ARR · Corporate = un-branched accounts')),
+    el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', {},
+        el('h3', { class: 'text-sm font-bold' }, (opts.title || 'P&L Indicators') + ' · ' + (isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))),
+        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'QuickBooks general ledger by branch · FieldRoutes for accounts, ARR, churn · Corporate = un-branched accounts')),
+      opts.headerExtra || null),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th(''), ...cols.map(c => th(c.label, c.key === 'RIDD' ? 'Every branch in the ledger added together, including Corporate (un-branched accounts).' : c.key === 'Corporate' ? 'Accounts with no branch prefix: BayToast comish, interest expense, corporate rent, executive travel, executive marketing…' : 'QuickBooks sub-accounts whose name starts with "' + c.label + '".')))),
       el('tbody', {}, ...rows))));
@@ -43561,14 +43580,13 @@ function reportingPutis() {
   const lastAvail = scMonthsAvail[scMonthsAvail.length - 1] || (scYear === closedYr ? closedYm : scYear + '-12');
   let scRange = state._putisScoreRange;   // 'ytd' | 'YYYY-MM'
   if (!scRange || (scRange !== 'ytd' && !scMonthsAvail.includes(scRange))) scRange = scYear === closedYr ? closedYm : (scRange === 'ytd' ? 'ytd' : lastAvail);
-  const scYms = scRange === 'ytd' ? scMonthsAvail : [scRange];
   const monthName = (ym, o) => new Date(ym + '-15T12:00').toLocaleDateString('en-US', o);
-  const scTitle = 'P&L Indicators · ' + (scRange === 'ytd' ? scYear + ' YTD (thru ' + monthName(lastAvail, { month: 'short' }) + ')' : monthName(scRange, { month: 'long', year: 'numeric' }));
-  const scCard = putisBranchScorecard(M, U, scYms, opBranches, scTitle);
-  scCard.firstChild.append(el('div', { class: 'inline-flex items-center gap-1.5' },
+  const pickers = el('div', { class: 'inline-flex items-center gap-1.5' },
     sel(scYear, ledgerYears.map(y => [y, y]), (v) => { state._putisScoreYear = v; const avail = Object.keys(M).filter(k => k.startsWith(v + '-') && k < putisOpenMonth()).sort(); if (state._putisScoreRange !== 'ytd') state._putisScoreRange = v === closedYr ? closedYm : avail[avail.length - 1]; mountApp(); }),
-    sel(scRange, [['ytd', scYear + ' YTD'], ...scMonthsAvail.slice().reverse().map(ym => [ym, monthName(ym, { month: 'long' })])], (v) => { state._putisScoreRange = v; mountApp(); })));
-  wrap.append(scCard);
+    sel(scRange, [['ytd', scYear + ' YTD'], ...scMonthsAvail.slice().reverse().map(ym => [ym, monthName(ym, { month: 'long' })])], (v) => { state._putisScoreRange = v; mountApp(); }));
+  const scKey = scRange === 'ytd' ? scYear + '-YTD' : scRange;
+  const scBranches = scRange === 'ytd' ? putisBranchesWithData(M, scYear) : putisBranchesWithData(M, scYear).filter(b => M[scRange] && M[scRange][b]);
+  wrap.append(putisIndicatorsCard(M, scKey, scBranches, { headerExtra: pickers }));
 
   // ── 2. Trend (the original Putis Shid table) ──
   const sub = 'QuickBooks general ledger · months with nothing booked show —';
@@ -43584,16 +43602,6 @@ function reportingPutis() {
     wrap.append(putisTrendCard(M, year, [branchSel], 'Trend · ' + branchSel, sub, branchPicker()));
   }
 
-  // ── 4. Full P&L indicators (collapsed by default — the detail behind the scorecard) ──
-  const open = !!state._putisPnlOpen;
-  const monthOpts = [[year + '-YTD', year + ' year to date (closed months)'], ...Array.from({ length: 12 }, (_, i) => _mktgYm(year, i)).filter(ym => M[ym]).map(ym => [ym, new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + (ym === putisOpenMonth() ? ' · open' : '')])];
-  wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap mt-2' },
-    el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' }, onclick: () => { state._putisPnlOpen = !open; mountApp(); } }, (open ? '▾ ' : '▸ ') + 'Full P&L detail by branch (branch columns)'),
-    open && monthOpts.length ? sel(state._putisMonth, monthOpts, (v) => { state._putisMonth = v; mountApp(); }) : null));
-  if (open) {
-    if (/^\d{4}-YTD$/.test(state._putisMonth)) wrap.append(putisIndicatorsCard(M, state._putisMonth, putisBranchesWithData(M, state._putisMonth.slice(0, 4))));
-    else if (M[state._putisMonth]) wrap.append(putisIndicatorsCard(M, state._putisMonth, putisBranchesWithData(M, state._putisMonth.slice(0, 4)).filter(b => M[state._putisMonth][b])));
-  }
   return wrap;
 }
 
