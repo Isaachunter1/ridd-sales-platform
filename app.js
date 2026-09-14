@@ -43292,7 +43292,7 @@ function putisIndicatorsCard(M, ym, branches) {
   ];
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'P&L Indicators · ' + (isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))),
+      el('h3', { class: 'text-sm font-bold' }, 'P&L detail · ' + (isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))),
       el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'QuickBooks general ledger by branch · FieldRoutes for accounts + ARR · Corporate = un-branched accounts')),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th(''), ...cols.map(c => th(c.label, c.key === 'RIDD' ? 'Every branch in the ledger added together, including Corporate (un-branched accounts).' : c.key === 'Corporate' ? 'Accounts with no branch prefix: BayToast comish, interest expense, corporate rent, executive travel, executive marketing…' : 'QuickBooks sub-accounts whose name starts with "' + c.label + '".')))),
@@ -43463,7 +43463,6 @@ function putisBranchScorecard(M, U, yms, branches, title) {
     { id: 'ebitda', label: 'EBITDA', kind: 'usd', signed: true },
     { id: 'ebitdaPct', label: 'EBITDA %', kind: 'pct', signed: true },
     { id: 'adjEbitdaPct', label: 'Adj. %', kind: 'pct', signed: true, tip: PUTIS_KPI_TIPS.adjEbitdaPct },
-    { id: 'sellingPct', label: 'Selling %', kind: 'pct', lowGood: true },
     { id: 'gaPct', label: 'G&A %', kind: 'pct', lowGood: true },
     { id: 'active', label: 'Active accts', kind: 'int', tip: 'Active recurring accounts today (FieldRoutes).' },
     { id: 'arr', label: 'Active ARR', kind: 'usd' },
@@ -43474,7 +43473,6 @@ function putisBranchScorecard(M, U, yms, branches, title) {
     { id: 'paybackMo', label: 'Payback', kind: 'mo', lowGood: true, tip: PUTIS_KPI_TIPS.paybackMo },
     { id: 'monthlyChurn', label: 'Churn/mo', kind: 'pct', lowGood: true, tip: PUTIS_KPI_TIPS.monthlyChurn },
     { id: 'revPerActive', label: 'Rev/acct/mo', kind: 'usd2', tip: PUTIS_KPI_TIPS.revPerActive },
-    { id: 'gaPerActive', label: 'G&A/acct/mo', kind: 'usd2', lowGood: true, tip: PUTIS_KPI_TIPS.gaPerActive },
   ];
   const rows = branches.map(b => ({ name: b, m: putisMetrics(M, U, yms, [b]) }));
   const total = putisMetrics(M, U, yms, branches);
@@ -43557,7 +43555,7 @@ function reportingPutis() {
   // ── 1. Branch scorecard (closed month ⇄ YTD) ──
   const scScope = state._putisScoreScope === 'ytd' ? 'ytd' : 'month';
   const scYms = scScope === 'ytd' ? ytdMonths : [closedYm];
-  const scTitle = 'Branch scorecard · ' + (scScope === 'ytd' ? closedYr + ' YTD (thru ' + new Date(closedYm + '-15T12:00').toLocaleDateString('en-US', { month: 'short' }) + ')' : new Date(closedYm + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
+  const scTitle = 'P&L Indicators · ' + (scScope === 'ytd' ? closedYr + ' YTD (thru ' + new Date(closedYm + '-15T12:00').toLocaleDateString('en-US', { month: 'short' }) + ')' : new Date(closedYm + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
   const scCard = putisBranchScorecard(M, U, scYms, opBranches, scTitle);
   scCard.firstChild.append(seg(scScope, [['month', 'Closed month'], ['ytd', 'YTD']], (v) => { state._putisScoreScope = v; mountApp(); }));
   wrap.append(scCard);
@@ -43580,7 +43578,7 @@ function reportingPutis() {
   const open = !!state._putisPnlOpen;
   const monthOpts = [[year + '-YTD', year + ' year to date (closed months)'], ...Array.from({ length: 12 }, (_, i) => _mktgYm(year, i)).filter(ym => M[ym]).map(ym => [ym, new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + (ym === putisOpenMonth() ? ' · open' : '')])];
   wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap mt-2' },
-    el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' }, onclick: () => { state._putisPnlOpen = !open; mountApp(); } }, (open ? '▾ ' : '▸ ') + 'Full P&L indicators by branch'),
+    el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' }, onclick: () => { state._putisPnlOpen = !open; mountApp(); } }, (open ? '▾ ' : '▸ ') + 'Full P&L detail by branch (branch columns)'),
     open && monthOpts.length ? sel(state._putisMonth, monthOpts, (v) => { state._putisMonth = v; mountApp(); }) : null));
   if (open) {
     if (/^\d{4}-YTD$/.test(state._putisMonth)) wrap.append(putisIndicatorsCard(M, state._putisMonth, putisBranchesWithData(M, state._putisMonth.slice(0, 4))));
