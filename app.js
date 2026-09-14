@@ -1658,6 +1658,9 @@ function dedupeSnapshotSubs(rows) {
 }
 async function loadReportingSubscriptions(uploadId) {
   const rows = dedupeSnapshotSubs(stripPhantomOffices(await _loadReportingSubscriptionsRaw(uploadId)));
+  const orphans = rows.filter(r => r.customer_missing);
+  state._orphanSubs = orphans;
+  state._orphanCustIds = [...new Set(orphans.map(r => String(r.customer_id != null ? r.customer_id : '')).filter(Boolean))];
   const del = deletedCustIdSet();
   return del.size ? rows.filter(r => !del.has(String(r.customer_id != null ? r.customer_id : ''))) : rows;
 }
@@ -7199,8 +7202,20 @@ function frPendingServiced(s) {
 // (Settings → Configurations) is the source of truth — excluded from EVERY
 // dataset so app numbers align with the CRM exactly.
 function deletedCustIdSet() {
-  return new Set((state.indicatorDeletedCustIds || []).map(x => String(x).trim()).filter(Boolean));
+  const set = new Set((state.indicatorDeletedCustIds || []).map(x => String(x).trim()).filter(Boolean));
+  // Auto-detected orphans: subscriptions whose customer id has NO customer
+  // record in FieldRoutes any more (deleted in the CRM). Flagged by the sync
+  // as customer_missing; excluded here unless an admin turns the rule off.
+  if (reportingAutoExcludeOrphans()) for (const id of (state._orphanCustIds || [])) set.add(id);
+  return set;
 }
+function reportingAutoExcludeOrphans() {
+  const r = _adminRules(); if (r && typeof r.autoExclOrphans === 'boolean') return r.autoExclOrphans;
+  return true; }
+function setReportingAutoExcludeOrphans(b) { _setAdminRule('autoExclOrphans', !!b); }
+// Rows the sync flagged as having no CRM customer record. Kept aside (not in
+// the working snapshot) so Settings can list them for review.
+function orphanSubRows() { return state._orphanSubs || []; }
 function indicatorSales() {
   const dept = state.indicatorDept || 'all';
   const src = state._indicatorRawSales || [];
@@ -51748,6 +51763,33 @@ function adminConfigurations() {
           return el('div', { class: 'py-1' },
             el('div', { class: 'text-sm font-semibold' }, 'Deleted CRM accounts'),
             el('div', { class: 'text-[11px] text-muted- mb-2' }, 'Customer IDs deleted inside FieldRoutes. The warehouse mirror keeps their old rows, so without this list the app counts revenue the CRM no longer shows. Excluded from EVERY dataset, for every user.'),
+            (() => {
+              const o = orphanSubRows();
+              const nCust = new Set(o.map(r => String(r.customer_id || ''))).size;
+              const nActive = o.filter(r => /active/i.test(String(r.subscription_status || '')) && !r.subscription_date_canceled).length;
+              const on = reportingAutoExcludeOrphans();
+              return el('div', { class: 'rounded-lg border px-3 py-2 mb-2 flex flex-wrap items-center justify-between gap-2', style: { borderColor: 'var(--border-2)', background: 'var(--surface-2, transparent)' } },
+                el('div', { class: 'min-w-0' },
+                  el('div', { class: 'text-xs font-semibold' }, 'Auto-detected: ' + nCust.toLocaleString() + ' customer' + (nCust === 1 ? '' : 's') + ' with no CRM record'),
+                  el('div', { class: 'text-[11px] text-muted-' }, o.length.toLocaleString() + ' subscription' + (o.length === 1 ? '' : 's') + ' (' + nActive + ' still marked active). The sync flags any subscription whose customer id no longer exists in FieldRoutes — i.e. the account was deleted there. ' + (on ? 'Excluded app-wide automatically.' : 'Currently INCLUDED in every dataset.'))),
+                el('div', { class: 'flex items-center gap-2 shrink-0' },
+                  o.length ? el('button', {
+                    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
+                    style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+                    onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions with no FieldRoutes customer record', sliceLabel: o.length.toLocaleString() + ' subscription' + (o.length === 1 ? '' : 's') + ' \u00b7 deleted in the CRM', rows: o, formatValue: fmt.usd0 }),
+                  }, 'View list') : null,
+                  el('button', {
+                    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+                    style: on ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--surface-3, #eee)', color: 'var(--text)' },
+                    onclick: () => { setReportingAutoExcludeOrphans(!on); toast(!on ? 'Deleted-in-CRM accounts now excluded automatically' : 'Auto-exclusion off — orphan rows count again', 'success'); if (Array.isArray(state.reportingSubscriptions)) {
+                      const ids = new Set(state._orphanCustIds || []);
+                      state.reportingSubscriptions = !on
+                        ? state.reportingSubscriptions.filter(r => !ids.has(String(r.customer_id != null ? r.customer_id : '')))
+                        : state.reportingSubscriptions.concat(o.filter(r => !state.reportingSubscriptions.includes(r)));
+                    }
+                    mountApp(); },
+                  }, on ? 'Auto-exclude: on' : 'Auto-exclude: off')));
+            })(),
             ta,
             el('div', { class: 'flex items-center justify-between mt-1.5' },
               el('span', { class: 'text-[10px] text-muted-' }, (state.indicatorDeletedCustIds || []).length + ' excluded'),
