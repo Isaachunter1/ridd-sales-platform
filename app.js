@@ -25185,6 +25185,51 @@ function addTeam(name) {
   saveDemoData();
   return true;
 }
+// Team list manager (per Isaac): every team for the year with headcount,
+// remove with an are-you-sure that states how many reps become untagged.
+function openTeamsListModal(teamYear, onChange) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  const card = el('div', { class: 'card w-full max-w-md my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } });
+  overlay.append(card);
+  const yearMap = (state._indicatorRepTeamByYear || {})[String(teamYear)] || {};
+  const countIn = (t) => Object.values(yearMap).filter(v => v === t).length;
+  const countAll = (t) => _allTeamYearMaps().reduce((n, m) => n + Object.values(m).filter(v => v === t).length, 0);
+  const askRemove = (t) => {
+    const here = countIn(t), everywhere = countAll(t);
+    const ov = el('div', { class: 'modal-overlay', style: { zIndex: '2100' } });
+    ov.append(el('div', { class: 'card w-full max-w-sm p-5 flex flex-col gap-3' },
+      el('h3', { class: 'text-base font-bold' }, 'Remove “' + t + '”?'),
+      el('p', { class: 'text-sm' }, here
+        ? here + ' rep' + (here === 1 ? '' : 's') + ' in ' + teamYear + ' will move to untagged.'
+        : 'No reps are on this team in ' + teamYear + ' — nobody moves to untagged.'),
+      everywhere > here ? el('p', { class: 'text-[11px] text-muted-' }, (everywhere - here) + ' assignment' + (everywhere - here === 1 ? '' : 's') + ' in other years will be cleared too.') : null,
+      el('div', { class: 'flex justify-end gap-2 mt-1' },
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => ov.remove() }, 'Cancel'),
+        el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: '#DC2626', color: '#fff' },
+          onclick: () => { removeTeam(t); ov.remove(); if (state._indicatorManageTeamFilter === t) state._indicatorManageTeamFilter = ''; draw(); if (typeof onChange === 'function') onChange(); toast('Team removed: ' + t, 'success'); } }, 'Yes, remove'))));
+    document.body.append(ov);
+  };
+  const draw = () => {
+    card.innerHTML = '';
+    const teams = distinctTeamsForYear(teamYear).filter(t => t !== '(unassigned)');
+    card.append(
+      el('div', { class: 'flex items-center justify-between px-5 py-4 border-b', style: { borderColor: 'var(--border)' } },
+        el('div', {}, el('h2', { class: 'text-base font-bold' }, 'Teams · ' + teamYear), el('div', { class: 'text-[11px] text-muted-' }, teams.length + ' team' + (teams.length === 1 ? '' : 's'))),
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Done')),
+      el('div', { class: 'overflow-y-auto flex-1' },
+        ...teams.map(t => {
+          const n = countIn(t);
+          return el('div', { class: 'flex items-center gap-3 px-5 py-2.5 border-b', style: { borderColor: 'var(--border)' } },
+            el('div', { class: 'flex-1 min-w-0' },
+              el('div', { class: 'text-sm font-semibold truncate' }, t, isTeamExcluded(t) ? el('span', { class: 'ml-2 text-[9px] uppercase tracking-wider font-bold', style: { color: '#DC2626' } }, 'excluded') : null),
+              el('div', { class: 'text-[11px] text-muted-' }, n ? n + ' rep' + (n === 1 ? '' : 's') : 'empty')),
+            el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border', style: { color: '#DC2626', borderColor: 'rgba(220,38,38,.35)' }, onclick: () => askRemove(t) }, 'Remove'));
+        })));
+  };
+  draw();
+  document.body.append(overlay);
+}
 function removeTeam(name) {
   if (!name) return;
   if (state._indicatorTeams) {
@@ -26373,6 +26418,14 @@ function manageTeamsPanel(opts) {
           render();
         },
       }, '+ Team'),
+      // ⚙ Teams — every team with its headcount and a Remove button; the
+      // confirm names how many reps go untagged (per Isaac).
+      el('button', {
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Manage the team list — rename or remove teams',
+        onclick: () => openTeamsListModal(teamYear, render),
+      }, '⚙ Teams'),
       mkFilter('Tier', tierSelect, [
         { value: '', label: 'All · ' + (tierCounts.rookie + tierCounts.vet + tierCounts.untagged) },
         { value: 'rookie', label: 'Rookie · ' + tierCounts.rookie },
