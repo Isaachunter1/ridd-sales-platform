@@ -43563,7 +43563,7 @@ function reportingDataGate() {
 // Compute the active filter scope — office + date + compare state — and
 // the row sets each panel needs. Shared across every data sub-tab so
 // they all filter the same way.
-function reportingScope() {
+function reportingScope(opts = {}) {
   // Office-compare is a Waterfall-only feature now — clear it anywhere else
   // so no tab is stranded in compare with no exit control.
   if (state.reportingCompareMode && state.reportingSubTab !== 'waterfall') state.reportingCompareMode = false;
@@ -43572,7 +43572,10 @@ function reportingScope() {
   // make offices disappear from the picker (would be jarring if the
   // user lost their selection).
   const offices = reportingOfficeList(visible);
-  const office  = state.reportingOffice || 'all';
+  // opts.allOffices: the tab has no office control (Geographic — the map IS
+  // the office breakdown), so a selection made on another tab must not
+  // silently narrow it.
+  const office  = opts.allOffices ? 'all' : (state.reportingOffice || 'all');
   const inCompare = !!state.reportingCompareMode;
   const compareOffice = state.reportingCompareOffice || 'all';
   const datePreset = state.reportingDateRange || 'all';
@@ -43598,6 +43601,7 @@ function reportingScope() {
 function reportingFilterBar(scope, opts = {}) {
   const showDate    = opts.showDate    !== false;   // default: show the time range
   const showCompare = opts.showCompare === true;    // default: no compare button
+  const showOffice  = opts.showOffice  !== false;   // default: show the office picker
   const { offices, office, compareOffice, inCompare, datePreset, dateStart, dateEnd, dateLabel, inDate } = scope;
 
   const officePicker = (selected, onChange, hint) => {
@@ -43697,9 +43701,9 @@ function reportingFilterBar(scope, opts = {}) {
   // the right edge instead of wrapping underneath (per Isaac).
   return el('div', { class: 'card p-4 flex flex-col gap-2' },
     el('div', { class: 'flex items-end gap-3 flex-wrap rep-filter-row' },
-      officePicker(office, (v) => { state.reportingOffice = v; mountApp(); }, inCompare ? 'Office A' : 'Office'),
-      inCompare && el('div', { class: 'text-sm font-bold self-end pb-2', style: { color: 'var(--text-muted)' } }, 'vs'),
-      inCompare && officePicker(compareOffice, (v) => { state.reportingCompareOffice = v; mountApp(); }, 'Office B'),
+      showOffice && officePicker(office, (v) => { state.reportingOffice = v; mountApp(); }, inCompare ? 'Office A' : 'Office'),
+      showOffice && inCompare && el('div', { class: 'text-sm font-bold self-end pb-2', style: { color: 'var(--text-muted)' } }, 'vs'),
+      showOffice && inCompare && officePicker(compareOffice, (v) => { state.reportingCompareOffice = v; mountApp(); }, 'Office B'),
       showDate && datePicker,
       showCompare && compareBtn,
       el('div', { class: 'flex-1 rep-filter-spacer' }),
@@ -47070,9 +47074,10 @@ function exportReportingGeoCsv(items, kind, scopeTag) {
 function reportingGeographic() {
   const gate = reportingDataGate();
   if (gate) return gate;
-  const scope = reportingScope();
+  // Time range only — the map itself is the office breakdown (per Isaac).
+  const scope = reportingScope({ allOffices: true });
   const { scopeA, inCompare, office, officeLabel } = scope;
-  const filterBar = reportingFilterBar(scope);
+  const filterBar = reportingFilterBar(scope, { showOffice: false });
 
   // Geographic tab ignores compare-mode for now (a single map is hard
   // enough to read). Show a hint if the user is in compare mode.
@@ -47144,7 +47149,7 @@ function reportingGeographic() {
   const isRetention = metricKey === 'retention';
   const activeMetric = metrics.find(m => m.key === metricKey) || metrics[0];
 
-  const metricToggle = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
+  const metricToggle = el('div', { class: 'p-3 flex items-center gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Map metric'),
     ...metrics.map(m => {
       const active = m.key === metricKey;
@@ -47163,7 +47168,7 @@ function reportingGeographic() {
   );
 
   // Legend for the Top Service metric — top 15 services + their colors.
-  const svcLegend = metricKey === 'service' ? el('div', { class: 'card p-3 flex items-center gap-x-4 gap-y-1.5 flex-wrap text-xs' },
+  const svcLegend = metricKey === 'service' ? el('div', { class: 'p-3 flex items-center gap-x-4 gap-y-1.5 flex-wrap text-xs', style: { borderBottom: '1px solid var(--border)' } },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mr-1', style: { color: 'var(--text-subtle)' } }, 'Service types'),
     ...svcTop.map(s => el('div', { class: 'flex items-center gap-1.5' },
       el('span', { style: { display: 'inline-block', width: '11px', height: '11px', borderRadius: '0', background: svcColorMap.get(s) } }),
@@ -47671,10 +47676,10 @@ function reportingGeographic() {
     filterBar,
     compareNotice,
     svcOutBanner,
-    metricToggle,
-    svcLegend,
     breadcrumb,
-    el('div', { class: 'card overflow-hidden' }, mapEl),
+    // Metric picker (and service legend) live INSIDE the map card — they only
+    // drive the map, so they sit flush on top of it.
+    el('div', { class: 'card overflow-hidden' }, metricToggle, svcLegend, mapEl),
     stateSummaryTable,
     breakdownTable,
   );
