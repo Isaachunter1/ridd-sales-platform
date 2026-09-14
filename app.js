@@ -22283,10 +22283,52 @@ function viewNrlaPublic() {
             el('p', {}, 'Published rules, published standings. Nobody\u2019s scoring is a secret and nobody\u2019s is special.')))),
       el('div', { class: 'comp-landing-rule' }),
       el('div', { class: 'comp-landing-pad comp-landing-bottom' },
-        eyebrow('02 / ' + (landingComps.length ? 'Pick a competition' : 'No competitions yet')),
-        landingComps.length
-          ? el('div', { class: 'flex flex-wrap gap-3 mt-4' }, ...landingComps.map(compBtn))
-          : el('div', { class: 'mt-4 comp-landing-copy', style: { ...mono, color: 'rgba(0,0,0,.7)' } }, 'Nothing is running for ' + repTypeTab.toLowerCase() + ' right now \u2014 check back when the next season opens.'))));
+        // Per Isaac: ONE dropdown instead of a button per comp. Anything
+        // inside its scheduled window (Settings → Competitions) is featured
+        // as "Running now" — all of them if several overlap — and the
+        // dropdown preselects the running comp, else the ★ default, else
+        // the first. Admins star the default right here.
+        (() => {
+          if (!landingComps.length) return el('div', {},
+            eyebrow('02 / No competitions yet'),
+            el('div', { class: 'mt-4 comp-landing-copy', style: { ...mono, color: 'rgba(0,0,0,.7)' } }, 'Nothing is running for ' + repTypeTab.toLowerCase() + ' right now \u2014 check back when the next season opens.'));
+          const isFav = (c) => !!(c.favorite || (c.id === 'mystery_box' && state._compFavoriteMystery) || (_cXtra[c.id] && _cXtra[c.id].favorite));
+          const running = landingComps.filter(c => compRunningNow(c.id));
+          const preselect = (running[0] || landingComps.find(isFav) || landingComps[0]).id;
+          if (!landingComps.some(c => c.id === state._compsLandingPick)) state._compsLandingPick = preselect;
+          const pickId = state._compsLandingPick;
+          const picked = landingComps.find(c => c.id === pickId) || landingComps[0];
+          const fmtD = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const box = el('div', {});
+          if (running.length) {
+            box.append(eyebrow('02 / Running now' + (running.length > 1 ? ' \u00b7 ' + running.length + ' competitions' : '')),
+              el('div', { class: 'flex flex-wrap gap-3 mt-4' }, ...running.map(c => {
+                const occ = compRunningNow(c.id);
+                const b = compBtn(c);
+                b.append(el('div', { class: 'text-[10px] tracking-[.18em] mt-1', style: { ...mono, fontFamily: undefined, textTransform: 'none', letterSpacing: '.12em', opacity: .8 } }, fmtD(occ.start) + ' \u2013 ' + fmtD(occ.end)));
+                return b;
+              })));
+          }
+          box.append(eyebrow((running.length ? '03 / ' : '02 / ') + 'All competitions'), el('div', { class: 'flex flex-wrap items-stretch gap-2 mt-4' },
+            el('select', {
+              class: 'px-4 text-[13px] font-bold cursor-pointer',
+              style: { ...mono, borderRadius: '0', background: '#111', color: 'var(--accent)', border: '2px solid #111', minWidth: '240px', height: '46px' },
+              onchange: (e) => { state._compsLandingPick = e.target.value; mountApp(); },
+            }, ...landingComps.map(c => el('option', { value: c.id, selected: c.id === pickId }, (isFav(c) ? '\u2605 ' : '') + c.name + (compRunningNow(c.id) ? ' \u00b7 live' : '')))),
+            el('button', {
+              class: 'px-5 text-[13px] font-bold transition hover:brightness-110',
+              style: { ...mono, background: 'var(--accent)', color: '#111', border: '2px solid #111', height: '46px', textTransform: 'uppercase', letterSpacing: '.08em' },
+              onclick: () => open(picked.id),
+            }, 'Open \u2192'),
+            isAdmin && repTypeTab === 'Sales Reps' ? el('button', {
+              class: 'px-3 transition hover:brightness-110',
+              style: { fontSize: '18px', background: 'transparent', color: '#111', border: '2px dashed rgba(0,0,0,.45)', height: '46px' },
+              title: isFav(picked) ? '\u201c' + picked.name + '\u201d is the default everyone lands on. Click to unset.' : 'Make \u201c' + picked.name + '\u201d the default competition everyone lands on (a running comp still takes priority)',
+              onclick: () => setCompDefault(comps, picked, !isFav(picked)),
+            }, isFav(picked) ? '\u2605' : '\u2606') : null,
+          ));
+          return box;
+        })())));
     return wrap;
   }
   const backBtn = el('button', {
@@ -22329,28 +22371,7 @@ function viewNrlaPublic() {
     title: sel.favorite
       ? '“' + sel.name + '” is the default — everyone lands on it when opening this tab. Click to unset.'
       : 'Make “' + sel.name + '” the default competition everyone lands on when opening this tab',
-    onclick: () => {
-      const on = !sel.favorite;
-      comps.forEach(c => { delete c.favorite; });   // only one default at a time
-      state._compFavoriteMystery = false;
-      // Clear any virtual-pill stars too (only one default at a time).
-      Object.keys(_cXtra).forEach(k => { if (_cXtra[k]) delete _cXtra[k].favorite; });
-      if (on) {
-        // Virtual pills (Mystery Boxes, KOTH, Kobe Week, and any future
-        // comp without a config row) persist their star in synced fields;
-        // config-backed comps carry it on the comp object itself.
-        if (sel.id === 'mystery_box') state._compFavoriteMystery = true;
-        else {
-          sel.favorite = true;
-          const _cfgBacked = (typeof getIndicatorCompetitions === 'function' ? getIndicatorCompetitions() : []).some(c => c.id === sel.id);
-          if (!_cfgBacked) _cXtra[sel.id] = { ..._cXtra[sel.id], favorite: true };
-        }
-      }
-      logActivity('comp_change', { detail: on ? sel.name + ' set as the DEFAULT competition' : sel.name + ' unset as default competition' });
-      saveDemoData();                                // syncs to every user
-      if (typeof saveIndicatorState === 'function') saveIndicatorState();
-      mountApp();
-    },
+    onclick: () => setCompDefault(comps, sel, !sel.favorite),
   }, sel.favorite ? '★' : '☆') : null;
   // (Last sync stamp dropped from this bar — per Isaac.)
   wrap.append(el('div', { class: 'card p-3 flex flex-col gap-2', style: { borderLeft: '3px solid var(--text)' } },
@@ -29692,11 +29713,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       },
         // Scope column stays frozen while the record columns scroll (per Isaac).
         el('td', { class: 'pl-5 pr-3 py-3 align-top', style: { position: 'sticky', left: '0', zIndex: '1', background: isOpen ? 'var(--card-2)' : 'var(--card)', boxShadow: '1px 0 0 var(--border)' } },
+          // No caret (per Isaac) — the row is still clickable; the header
+          // copy already says so.
           el('div', { class: 'flex items-center gap-1.5' },
-            clickable
-              ? el('span', { class: 'inline-block text-muted-', style: { width: '10px', transition: 'transform .15s ease', transform: isOpen ? 'rotate(90deg)' : 'none', transformOrigin: 'center' } }, '▸')
-              : el('span', { class: 'inline-block', style: { width: '10px' } }),
-            el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, label),
+            el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold' + (isOpen ? '' : ' text-muted-'), style: isOpen ? { color: 'var(--accent)' } : {} }, label),
           ),
         ),
         recCell(rollup.bestDay,   { kind: 'day',   groupKind }),
@@ -52422,6 +52442,36 @@ function adminBackup() {
 // their own scoring windows); synced to every admin via _compExtras.
 const COMP_RECUR = [['none', 'One-off'], ['weekly', 'Weekly'], ['biweekly', 'Every 2 weeks'], ['monthly', 'Monthly'], ['quarterly', 'Quarterly'], ['yearly', 'Yearly']];
 const COMP_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// ★ Default competition (admin): one at a time, synced to everyone.
+// Virtual comps (Mystery Boxes, KOTH, …) persist their star in the synced
+// extras map; config-backed comps carry it on the comp object itself.
+function setCompDefault(comps, sel, on) {
+  const _cXtra = (state._compExtras && typeof state._compExtras === 'object') ? state._compExtras : (state._compExtras = {});
+  comps.forEach(c => { delete c.favorite; });
+  state._compFavoriteMystery = false;
+  Object.keys(_cXtra).forEach(k => { if (_cXtra[k] && typeof _cXtra[k] === 'object') delete _cXtra[k].favorite; });
+  if (on) {
+    if (sel.id === 'mystery_box') state._compFavoriteMystery = true;
+    else {
+      sel.favorite = true;
+      const _cfgBacked = (typeof getIndicatorCompetitions === 'function' ? getIndicatorCompetitions() : []).some(c => c.id === sel.id);
+      if (!_cfgBacked) _cXtra[sel.id] = { ..._cXtra[sel.id], favorite: true };
+    }
+  }
+  logActivity('comp_change', { detail: on ? sel.name + ' set as the DEFAULT competition' : sel.name + ' unset as default competition' });
+  saveDemoData();
+  if (typeof saveIndicatorState === 'function') saveIndicatorState();
+  mountApp();
+}
+// Is this competition inside one of its scheduled windows (Settings →
+// Competitions) right now? Used to auto-feature running comps.
+function compRunningNow(compId, now = new Date()) {
+  const cfg = compScheduleStore()[compId];
+  if (!cfg || !cfg.start) return null;
+  const t = new Date(now); t.setHours(12, 0, 0, 0);
+  const occ = compOccurrences(cfg).find(o => { const a = new Date(o.start); a.setHours(0, 0, 0, 0); const b = new Date(o.end); b.setHours(23, 59, 59, 999); return a <= t && t <= b; });
+  return occ || null;
+}
 function compScheduleStore() {
   state._compExtras = state._compExtras || {};
   const sc = state._compExtras.compSchedule;
