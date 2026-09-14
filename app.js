@@ -26483,6 +26483,7 @@ function manageTeamsPanel(opts) {
             el('button', { class: 'rounded-md px-2.5 py-1 text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
               onclick: () => { const e = empById.get(sel.value); if (e) { const _tgt = _frEmpNameLF(e); mergeDuplicateRep(rep, _tgt); toast('Linked to ' + _tgt, 'success'); render(); } } }, 'Link')));
       };
+      state._mtCrmNeedLook = withCand.length;
       crmLinkPanel = el('div', { class: 'border-b', style: { borderColor: 'var(--border)', background: open ? 'rgba(13,148,136,.05)' : 'transparent' } },
         el('button', { class: 'w-full flex items-center justify-between gap-2 px-2.5 py-1 cursor-pointer text-[11px]', style: { background: 'transparent' },
           onclick: () => { state._indicatorCrmLinkOpen = !open; render(); } },
@@ -26535,14 +26536,26 @@ function manageTeamsPanel(opts) {
           el('button', { class: 'font-bold', style: { color: '#DC2626' }, title: 'Remove "' + t + '" from every year and every list',
             onclick: () => { if (confirm('Remove team "' + t + '" everywhere (' + (yrs.join(', ') || 'registry') + ')?')) { removeTeam(t); render(); } } }, '×'));
       }))) : null;
+    // Data-hygiene tools (CRM name links, possible duplicates) tucked into
+    // ONE muted line, collapsed by default (per Isaac) — the roster is the
+    // point of this panel. Only shown when there is something to do.
+    const _hyOpen = !!state._mtHygieneOpen;
+    const _hyBits = [];
+    if (crmLinkPanel) _hyBits.push((state._mtCrmNeedLook || 0) + ' CRM name' + ((state._mtCrmNeedLook || 0) === 1 ? '' : 's') + ' to review');
+    if (dupesPanel) _hyBits.push(dupePairs.length + ' possible duplicate' + (dupePairs.length === 1 ? '' : 's'));
+    const hygienePanel = (crmLinkPanel || dupesPanel) ? el('div', { class: 'border-b', style: { borderColor: 'var(--border)' } },
+      el('button', { class: 'w-full flex items-center justify-between gap-2 px-5 py-1 text-[10px] uppercase tracking-widest', style: { background: 'transparent', color: 'var(--text-subtle)' },
+        onclick: () => { state._mtHygieneOpen = !_hyOpen; render(); } },
+        el('span', {}, 'Data hygiene · ' + _hyBits.join(' · ')),
+        el('span', {}, _hyOpen ? 'Hide ▲' : 'Show ▼')),
+      _hyOpen ? el('div', {}, ...[crmLinkPanel, dupesPanel].filter(Boolean)) : null) : null;
     card.innerHTML = '';
     card.append(
       header, filterBar,
-      ...(crmLinkPanel ? [crmLinkPanel] : []),
-      ...(dupesPanel ? [dupesPanel] : []),
       ...(stalePanel ? [stalePanel] : []),
       ...(detailPanel ? [detailPanel] : []),
       searchInput, sortHeader, repList,
+      ...(hygienePanel ? [hygienePanel] : []),
     );
     if (overlay) { overlay.innerHTML = ''; overlay.append(card); }
 
