@@ -42878,7 +42878,7 @@ function putisYear(M, year, branches) {
   return d;
 }
 
-function putisTrendCard(M, year, branches, title, subtitle) {
+function putisTrendCard(M, year, branches, title, subtitle, headerExtra) {
   const months = Array.from({ length: 12 }, (_, i) => putisDerive(M, _mktgYm(year, i), branches));
   const ytd = putisYear(M, year, branches), prior = putisYear(M, year - 1, branches);
   const showMoM = !!state._putisMoM;
@@ -42912,7 +42912,8 @@ function putisTrendCard(M, year, branches, title, subtitle) {
       td(yoy(row), { style: { color: 'var(--text-muted)' } })))));
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, title), subtitle ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, subtitle) : null)),
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, title), subtitle ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, subtitle) : null),
+      headerExtra || null),
     el('div', { class: 'scroll-x' }, table));
 }
 
@@ -43024,8 +43025,8 @@ function reportingPutis() {
   const sel = (val, opts, on) => el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => on(e.target.value) },
     ...opts.map(([v, l]) => el('option', { value: v, selected: v === val }, l)));
   // toolbar
+  const branchPicker = () => { const p = sel(branchSel, [['RIDD', 'RIDD · all branches'], ...branches.map(b => [b, b]), ['all', 'Every branch (stacked)']], (v) => { state._putisBranch = v; mountApp(); }); p.classList.add('ml-auto'); return p; };
   wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap' },
-    sel(branchSel, [['RIDD', 'RIDD · all branches'], ['all', 'Every branch (stacked)'], ...branches.map(b => [b, b])], (v) => { state._putisBranch = v; mountApp(); }),
     el('div', { class: 'inline-flex items-center gap-1' },
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = year - 1; mountApp(); } }, '‹'),
       el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(year)),
@@ -43037,13 +43038,14 @@ function reportingPutis() {
   // trend tables
   const sub = 'QuickBooks general ledger · months with nothing booked show —';
   if (branchSel === 'all') {
-    for (const b of branches) wrap.append(putisTrendCard(M, year, [b], b, sub));
+    let first = true;
+    for (const b of branches) { wrap.append(putisTrendCard(M, year, [b], b, sub, first ? branchPicker() : null)); first = false; }
     wrap.append(putisTrendCard(M, year, retained, 'RIDD overall (branches, excl. corporate)', sub));
     wrap.append(putisTrendCard(M, year, branches, 'RIDD total (incl. corporate)', sub));
   } else if (branchSel === 'RIDD') {
-    wrap.append(putisTrendCard(M, year, branches, 'RIDD · all branches + corporate', sub));
+    wrap.append(putisTrendCard(M, year, branches, 'RIDD · all branches + corporate', sub, branchPicker()));
   } else {
-    wrap.append(putisTrendCard(M, year, [branchSel], branchSel, sub));
+    wrap.append(putisTrendCard(M, year, [branchSel], branchSel, sub, branchPicker()));
   }
   // P&L indicators (one month)
   const monthOpts = [[year + '-YTD', year + ' year to date'], ...Array.from({ length: 12 }, (_, i) => _mktgYm(year, i)).filter(ym => M[ym]).map(ym => [ym, new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })])];
