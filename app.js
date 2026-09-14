@@ -43060,7 +43060,6 @@ const PUTIS_ROWS = [
   { head: 'Recurring book · FieldRoutes' },
   { id: 'arrEom',       label: 'Active ARR',       kind: 'usd', point: true, bold: true, tip: 'Annual recurring revenue at month end — the annual recurring value of every recurring subscription sold on or before the last day of the month and not cancelled by then (FieldRoutes snapshot, any cancel reason). YTD column = latest closed month; prior column = last December.' },
   { id: 'activeEom',    label: 'Active accounts',  kind: 'int', point: true, tip: 'Recurring subscriptions on the books at month end (same rule as Active ARR).' },
-  { id: 'arrToRev',     label: 'Revenue / (ARR÷12)', kind: 'x', point: true, tip: 'ARR realisation — the month’s booked revenue ÷ one-twelfth of month-end ARR. Above 1.0x = billing ran ahead of the recurring base (initials, upsells, one-times); well below = under-billing or seasonal timing.' },
   // ── Balance sheet (company only — QuickBooks has no per-branch balance sheet) ──
   { head: 'Debt · QuickBooks balance sheet', company: true },
   { id: 'ltDebt',       label: 'Long-term debt',   kind: 'usd', point: true, bold: true, company: true, lowGood: true, tip: 'Long-term liabilities at month end — total liabilities minus current liabilities on the QuickBooks balance sheet (the term debt). Balance-sheet history starts Dec 2025.' },
@@ -43281,7 +43280,6 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     lineT('ACV (ARR ÷ active accounts)', (d, k) => { const f = fr(k); return f.active ? f.arr / f.active : null; }),
     lineT('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }, { tip: 'Booked revenue for the period ÷ accounts on the books at period end.' }),
     lineT('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true, tip: 'EBITDA for the period ÷ accounts on the books at period end.' }),
-    lineT('Revenue ÷ (ARR ÷ 12)', (d, k) => { const f = fr(k); return f.arr > 0 ? (d.revenue / yms.length) / (f.arr / 12) : null; }, { x: true, tip: PUTIS_KPI_TIPS.arrCoverage }),
     section('Unit economics', 'Growth efficiency for the period — selling cost per new account against what an account is worth. New accounts, cancels and ARV follow the Retention-tab rules.'),
     lineT('New recurring accounts', (d, k) => UM[k].newSubs, { num: true, tip: 'Recurring subscriptions sold in the period.' }),
     lineT('New ARR sold', (d, k) => UM[k].newArr, { tip: 'Annual recurring value of the accounts sold in the period.' }),
@@ -43538,7 +43536,6 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
   const span = (endK, n, floorK) => { const ks = []; for (let i = 0; i < n; i++) { const k = shift(...endK.split('-').map(Number), -i); if (floorK && k < floorK) break; if (has(k) && k < openYm) ks.push(k); } return ks.length ? { d: putisDeriveMonths(M, ks, branches), n: ks.length, first: ks[ks.length - 1], last: ks[0] } : null; };
   const cur = one(ym), prev = one(prevYm), ly = one(lyYm);
   const ytd = span(ym, Mo, Y + '-01'), ytdLy = span(lyYm, Mo, (Y - 1) + '-01');
-  const ltm = span(ym, 12), ltmLy = span(lyYm, 12);
   const mon = (k, o) => new Date(k + '-15T12:00').toLocaleDateString('en-US', o);
   const rows = PUTIS_ROWS.filter(r => !r.company || company);
   const fmt = (row, v) => v == null || !isFinite(v) ? '—' : row.kind === 'pct' ? _putisPct1(v) : row.kind === 'x' ? v.toFixed(2) + 'x' : row.kind === 'int' ? Math.round(v).toLocaleString() : _putisUsd(v);
@@ -43573,11 +43570,9 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
     th(Y + ' YTD', ytd ? 'Jan–' + mon(ytd.last, { month: 'short' }) + ' ' + Y + ' (' + ytd.n + ' closed month' + (ytd.n === 1 ? '' : 's') + ').' : 'No closed months yet.', { group: true }),
     th((Y - 1) + ' YTD', ytdLy ? 'The same months of ' + (Y - 1) + ' (' + ytdLy.n + ').' : 'Not in the feed.'),
     th('YoY', 'YTD change against the same months last year.'),
-    th('LTM', ltm ? 'Last twelve closed months, ' + mon(ltm.first, { month: 'short', year: '2-digit' }) + '–' + mon(ltm.last, { month: 'short', year: '2-digit' }) + (ltm.n < 12 ? ' (' + ltm.n + ' available)' : '') + '.' : '', { group: true }),
-    th('Prior LTM', ltmLy ? 'The twelve months before that' + (ltmLy.n < 12 ? ' (' + ltmLy.n + ' available)' : '') + '.' : 'Not in the feed.'),
-    th('YoY', 'LTM change against the prior twelve months.'));
+    th('YoY', 'YTD change against the same months last year.'));
   const body = rows.map(row => {
-    if (row.head) return el('tr', {}, el('td', { colspan: '13', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', position: 'sticky', left: 0 } }, row.head));
+    if (row.head) return el('tr', {}, el('td', { colspan: '10', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', position: 'sticky', left: 0 } }, row.head));
     const isPt = !!row.point;
     const pd = (s) => s ? s.d : null;
     const bold = !!row.bold;
@@ -43587,18 +43582,16 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
       cell(row, ly, { group: true }), delta(row, cur, ly));
     if (isPt) {
       // Point-in-time rows have no YTD / LTM sum — show the period-end value once, no comparison.
-      tr.append(el('td', { class: 'px-2 py-1 text-right', style: { borderLeft: '1px solid var(--border)', color: 'var(--text-subtle)' } }, '—'), el('td', {}, ''), el('td', {}, ''),
-        el('td', { class: 'px-2 py-1 text-right', style: { borderLeft: '1px solid var(--border)', color: 'var(--text-subtle)' } }, '—'), el('td', {}, ''), el('td', {}, ''));
+      tr.append(el('td', { class: 'px-2 py-1 text-right', style: { borderLeft: '1px solid var(--border)', color: 'var(--text-subtle)' } }, '—'), el('td', {}, ''), el('td', {}, ''));
     } else {
-      tr.append(cell(row, pd(ytd), { bold, group: true }), cell(row, pd(ytdLy)), delta(row, pd(ytd), pd(ytdLy)),
-        cell(row, pd(ltm), { bold, group: true }), cell(row, pd(ltmLy)), delta(row, pd(ltm), pd(ltmLy)));
+      tr.append(cell(row, pd(ytd), { bold, group: true }), cell(row, pd(ytdLy)), delta(row, pd(ytd), pd(ytdLy)));
     }
     return tr;
   });
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {}, el('h3', { class: 'text-sm font-bold' }, title),
-        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Month vs prior month and same month last year · YTD vs prior YTD · last twelve months vs the twelve before · $ lines show % of revenue' + (ym === openYm ? ' · selected month is still open' : ''))),
+        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Month vs prior month and same month last year · YTD vs prior YTD · $ lines show % of revenue' + (ym === openYm ? ' · selected month is still open' : ''))),
       headerExtra || null),
     el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } }, el('thead', {}, head), el('tbody', {}, ...body))));
 }
