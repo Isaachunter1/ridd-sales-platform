@@ -51,6 +51,46 @@ async function pullWindsor(startYear) {
   return { bySourceMonth: out, total, pulledAt, source: 'windsor', rows: rows.length, ledger: { months: ledger, pulledAt, source: 'windsor' } };
 }
 
+// Balance sheet, month-end snapshots (Windsor's balancesheet__* report
+// fields, one row per year_month). Feeds the Putis Shid debt / leverage rows.
+// Non-fatal: if this pull fails the ledger still lands, just without debt.
+async function pullBalanceSheet(startYear) {
+  const key = process.env.WINDSOR_API_KEY;
+  const now = new Date();
+  const from = `${startYear}-01-01`, to = now.toISOString().slice(0, 10);
+  const F = {
+    assets: 'balancesheet__totalassets',
+    currentAssets: 'balancesheet__totalassets__currentassets',
+    cash: 'balancesheet__totalassets__currentassets__bankaccounts',
+    ar: 'balancesheet__totalassets__currentassets__ar',
+    liabilities: 'balancesheet__totalliabilitiesandequity__liabilities',
+    currentLiabilities: 'balancesheet__totalliabilitiesandequity__liabilities__currentliabilities',
+    ap: 'balancesheet__totalliabilitiesandequity__liabilities__currentliabilities__ap',
+    cards: 'balancesheet__totalliabilitiesandequity__liabilities__currentliabilities__creditcards',
+    otherCurrent: 'balancesheet__totalliabilitiesandequity__liabilities__currentliabilities__OtherCurrentLiabilities',
+    equity: 'balancesheet__totalliabilitiesandequity__equity',
+  };
+  const fields = ['year_month', ...Object.values(F)].join(',');
+  const url = `https://connectors.windsor.ai/quickbooks?api_key=${encodeURIComponent(key)}&date_from=${from}&date_to=${to}&fields=${fields}&_renderer=json`;
+  const r = await fetchT(url, { headers: { accept: 'application/json' } });
+  if (!r.ok || !r.json) throw new Error(`Windsor balancesheet ${r.status}: ${(r.text || '').slice(0, 200)}`);
+  const rows = Array.isArray(r.json) ? r.json : (r.json.data || r.json.result || []);
+  const out = {};
+  for (const row of rows) {
+    const m = String(row.year_month || '').match(/^(\d{4})\|(\d{1,2})$/); if (!m) continue;
+    const ym = m[1] + '-' + m[2].padStart(2, '0');
+    const o = {};
+    for (const k in F) {
+      // Windsor lower-cases some field ids in the response; try both.
+      const v = row[F[k]] != null ? row[F[k]] : row[F[k].toLowerCase()];
+      o[k] = Number(v) || 0;
+    }
+    o.ltDebt = o.liabilities - o.currentLiabilities;   // long-term liabilities = the term debt
+    out[ym] = o;
+  }
+  return out;
+}
+
 exports.handler = async (event) => {
   console.log('[qbo-refresh] invoked');
   const need = process.env.REVHAWK_SYNC_SECRET;
@@ -66,6 +106,8 @@ exports.handler = async (event) => {
     await store.set('spend_refreshing', { at: new Date().toISOString() });
     const data = await pullWindsor(startYear);
     const ledger = data.ledger; delete data.ledger;
+    try { ledger.balance = await pullBalanceSheet(startYear); console.log('[qbo-refresh] balance sheet months:', Object.keys(ledger.balance).length); }
+    catch (be) { console.warn('[qbo-refresh] balance sheet pull failed (non-fatal):', be && be.message); }
     await store.set('ledger', ledger);
     await store.set('spend', data);
     await store.delete('spend_refreshing').catch(() => {});

@@ -43056,7 +43056,46 @@ const PUTIS_ROWS = [
   { id: 'marketingPct', label: 'Marketing %',      kind: 'pct', lowGood: true, tip: 'Marketing as a % of revenue — marketing ÷ revenue.' },
   { id: 'ebitda',       label: 'EBITDA',           kind: 'usd', bold: true, signed: true, tip: 'Earnings before interest, taxes, depreciation & amortization — gross profit minus all operating expense (selling expense + housing + G&A). Interest and depreciation are excluded. Red = loss.' },
   { id: 'adjEbitda',    label: 'Adjusted EBITDA',  kind: 'usd', bold: true, signed: true, tip: 'EBITDA before the cost of selling — EBITDA + selling expense (commissions + marketing + incentives). What the service business earns on its own, separate from growth spend. The sheet’s F14 + F11 × F3.' },
+  // ── FieldRoutes book (point-in-time at month end) ──
+  { head: 'Recurring book · FieldRoutes' },
+  { id: 'arrEom',       label: 'Active ARR',       kind: 'usd', point: true, bold: true, tip: 'Annual recurring revenue at month end — the annual recurring value of every recurring subscription sold on or before the last day of the month and not cancelled by then (FieldRoutes snapshot, any cancel reason). YTD column = latest closed month; prior column = last December.' },
+  { id: 'activeEom',    label: 'Active accounts',  kind: 'int', point: true, tip: 'Recurring subscriptions on the books at month end (same rule as Active ARR).' },
+  { id: 'arrToRev',     label: 'Revenue / (ARR÷12)', kind: 'x', point: true, tip: 'ARR realisation — the month’s booked revenue ÷ one-twelfth of month-end ARR. Above 1.0x = billing ran ahead of the recurring base (initials, upsells, one-times); well below = under-billing or seasonal timing.' },
+  // ── Balance sheet (company only — QuickBooks has no per-branch balance sheet) ──
+  { head: 'Debt · QuickBooks balance sheet', company: true },
+  { id: 'ltDebt',       label: 'Long-term debt',   kind: 'usd', point: true, bold: true, company: true, lowGood: true, tip: 'Long-term liabilities at month end — total liabilities minus current liabilities on the QuickBooks balance sheet (the term debt). Balance-sheet history starts Dec 2025.' },
+  { id: 'totalLiab',    label: 'Total liabilities', kind: 'usd', point: true, company: true, lowGood: true, tip: 'Every liability at month end — A/P, credit cards, accrued/other current liabilities and long-term debt.' },
+  { id: 'cash',         label: 'Cash',             kind: 'usd', point: true, company: true, tip: 'Bank-account balances at month end.' },
+  { id: 'netDebt',      label: 'Net debt',         kind: 'usd', point: true, company: true, lowGood: true, tip: 'Long-term debt minus cash.' },
+  { id: 'debtToRev',    label: 'Debt / TTM revenue', kind: 'x', point: true, company: true, lowGood: true, tip: 'Long-term debt ÷ trailing-twelve-month booked revenue (annualised when fewer than 12 closed months are in the feed). 1.0x = one year of revenue owed.' },
+  { id: 'debtToArr',    label: 'Debt / ARR',       kind: 'x', point: true, company: true, lowGood: true, tip: 'Long-term debt ÷ month-end active ARR (FieldRoutes). The recurring-revenue lender view.' },
+  { id: 'leverage',     label: 'Net debt / TTM adj. EBITDA', kind: 'x', point: true, company: true, lowGood: true, tip: 'Net debt ÷ trailing-twelve-month adjusted EBITDA (annualised when fewer than 12 closed months). The standard PE leverage multiple; blank when TTM adjusted EBITDA is not positive.' },
 ];
+// Attach FieldRoutes month-end book + (company scope) balance-sheet / leverage
+// values to a derived month so the trend table can show them beside the P&L.
+function putisAugment(d, M, ym, branches, company) {
+  const U = putisUnitMonthly();
+  const E = U.eom && U.eom[ym];
+  if (E) { let arr = 0, n = 0, any = false; for (const b of branches) { const x = E[b]; if (!x) continue; any = true; arr += x.arr; n += x.active; } if (any) { d.arrEom = arr; d.activeEom = n; d.arrToRev = arr > 0 && d.any ? d.revenue / (arr / 12) : null; } }
+  if (!company) return d;
+  const B = state.reportingLedger && state.reportingLedger.balance && state.reportingLedger.balance[ym];
+  if (!B) return d;
+  d.ltDebt = B.ltDebt; d.totalLiab = B.liabilities; d.cash = B.cash; d.netDebt = B.ltDebt - B.cash;
+  // Trailing twelve closed months ending at ym (annualised if the feed is shorter).
+  let [y, m] = ym.split('-').map(Number); const yms = [];
+  for (let i = 0; i < 12; i++) { yms.push(y + '-' + String(m).padStart(2, '0')); if (--m < 1) { m = 12; y--; } }
+  const openYm = putisOpenMonth();
+  const closed = yms.filter(x => x < openYm && M && M[x]);
+  if (closed.length) {
+    const t = putisDeriveMonths(M, closed, branches);
+    const k = 12 / closed.length;
+    const ttmRev = t.revenue * k, ttmAdj = t.adjEbitda * k;
+    d.debtToRev = ttmRev > 0 ? B.ltDebt / ttmRev : null;
+    d.leverage = ttmAdj > 0 ? d.netDebt / ttmAdj : null;
+  }
+  d.debtToArr = d.arrEom > 0 ? B.ltDebt / d.arrEom : null;
+  return d;
+}
 const PUTIS_COL_TIPS = {
   month: 'Booked amounts for this calendar month from the QuickBooks general ledger. — means nothing is booked yet. The current month is open until the books close, so it moves.',
   ytd: 'Year to date — every booked month of the year added together. Percentage rows are recomputed from the summed dollars, not averaged.',
@@ -43087,37 +43126,51 @@ function putisYear(M, year, branches) {
   return d;
 }
 
-function putisTrendCard(M, year, branches, title, subtitle, headerExtra) {
-  const months = Array.from({ length: 12 }, (_, i) => putisDerive(M, _mktgYm(year, i), branches));
+function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = {}) {
+  const company = !!opts.company;
+  const months = Array.from({ length: 12 }, (_, i) => putisAugment(putisDerive(M, _mktgYm(year, i), branches), M, _mktgYm(year, i), branches, company));
   const ytd = putisYear(M, year, branches), prior = putisYear(M, year - 1, branches);
+  // Point-in-time rows: "YTD" = latest closed month with a value this year,
+  // "prior" = the last month of the prior year that has one.
+  const openYm = putisOpenMonth();
+  const latestPoint = (yr, id) => {
+    for (let i = 11; i >= 0; i--) { const ym = _mktgYm(yr, i); if (ym >= openYm) continue; const d = yr === year ? months[i] : putisAugment(putisDerive(M, ym, branches), M, ym, branches, company); if (d[id] != null) return d[id]; }
+    return null;
+  };
+  const rowsShown = PUTIS_ROWS.filter(r => !r.company || company);
+  const fmtRow = (row, v) => v == null || !isFinite(v) ? '—' : row.kind === 'pct' ? _putisPct1(v) : row.kind === 'x' ? v.toFixed(2) + 'x' : row.kind === 'int' ? Math.round(v).toLocaleString() : _putisUsd(v);
   const showMoM = !!state._putisMoM;
   const th = (t, extra, tip) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left ' + (extra || '') + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)' }, title: tip || '' }, t);
   const td = (content, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap align-top' + (o.bold ? ' font-bold' : '') + (o.title ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '' }, content);
   const cellVal = (row, d, prev) => {
-    const v = d.any ? d[row.id] : null;
-    const label = v == null ? '—' : row.kind === 'pct' ? _putisPct1(v) : _putisUsd(v);
+    const v = row.point ? d[row.id] : (d.any ? d[row.id] : null);
+    const label = fmtRow(row, v);
     const col = row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
     const node = el('div', { style: col }, label);
-    if (showMoM && prev && prev.any && v != null && prev[row.id] != null) {
+    if (showMoM && prev && v != null && prev[row.id] != null && isFinite(v) && isFinite(prev[row.id])) {
       const delta = v - prev[row.id];
       const good = row.lowGood ? delta <= 0 : delta >= 0;
-      node.append(el('div', { class: 'text-[9px]', style: { color: Math.abs(delta) < 1e-9 ? 'var(--text-subtle)' : good ? '#16A34A' : '#DC2626' } }, _putisSigned(delta, row.kind === 'pct')));
+      node.append(el('div', { class: 'text-[9px]', style: { color: Math.abs(delta) < 1e-9 ? 'var(--text-subtle)' : good ? '#16A34A' : '#DC2626' } }, signedRow(row, delta)));
     }
     return node;
   };
+  const signedRow = (row, v) => v == null || !isFinite(v) ? '' : row.kind === 'pct' ? _putisSigned(v, true) : row.kind === 'x' ? (v > 0 ? '+' : '') + v.toFixed(2) + 'x' : row.kind === 'int' ? (v > 0 ? '+' : '') + Math.round(v).toLocaleString() : _putisSigned(v, false);
+  const ytdVal = (row) => row.point ? latestPoint(year, row.id) : (ytd.months ? ytd[row.id] : null);
+  const priorVal = (row) => row.point ? latestPoint(year - 1, row.id) : (prior.months ? prior[row.id] : null);
   const yoy = (row) => {
-    if (!ytd.months || !prior.months) return '—';
-    const a = ytd[row.id], b = prior[row.id];
-    if (a == null || b == null) return '—';
-    return _putisSigned(a - b, row.kind === 'pct') || '—';
+    const a = ytdVal(row), b = priorVal(row);
+    if (a == null || b == null || !isFinite(a) || !isFinite(b)) return '—';
+    return signedRow(row, a - b) || '—';
   };
   const table = el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
     el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...MKTG_MONTHS.map((m, i) => { const isOpen = _mktgYm(year, i) === putisOpenMonth(); return th(isOpen ? m + ' · open' : m, isOpen ? 'italic' : '', isOpen ? 'Current month — books not closed yet, numbers move daily. Not included in YTD.' : PUTIS_COL_TIPS.month); }), th(year + ' YTD' + (String(year) === putisOpenMonth().slice(0, 4) ? ' (thru ' + MKTG_MONTHS[Math.max(0, new Date().getMonth() - 1)] + ')' : ''), '', PUTIS_COL_TIPS.ytd + ' The open (current) month is excluded.'), th((year - 1) + ' total', '', PUTIS_COL_TIPS.prior), th('YoY', '', PUTIS_COL_TIPS.yoy))),
-    el('tbody', {}, ...PUTIS_ROWS.map(row => el('tr', { class: 'border-t border-' + (row.bold ? ' font-semibold' : ''), style: row.bold ? { background: 'var(--card-2)' } : {} },
+    el('tbody', {}, ...rowsShown.map(row => row.head
+      ? el('tr', { class: 'border-t border-' }, el('td', { colspan: '16', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', position: 'sticky', left: 0 } }, row.head))
+      : el('tr', { class: 'border-t border-' + (row.bold ? ' font-semibold' : ''), style: row.bold ? { background: 'var(--card-2)' } : {} },
       td(row.label, { bold: true, title: row.tip, style: { position: 'sticky', left: 0, background: row.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
       ...months.map((d, i) => td(cellVal(row, d, i > 0 ? months[i - 1] : null), _mktgYm(year, i) === putisOpenMonth() ? { style: { opacity: '.45' }, title: 'Open month — not closed yet' } : {})),
-      td(ytd.months ? (row.kind === 'pct' ? _putisPct1(ytd[row.id]) : _putisUsd(ytd[row.id])) : '—', { bold: true, style: row.signed && ytd.months ? { color: ytd[row.id] < 0 ? '#DC2626' : '#16A34A' } : {} }),
-      td(prior.months ? (row.kind === 'pct' ? _putisPct1(prior[row.id]) : _putisUsd(prior[row.id])) : '—', { style: { color: 'var(--text-muted)' } }),
+      td(fmtRow(row, ytdVal(row)), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: row.signed && ytdVal(row) != null ? { color: ytdVal(row) < 0 ? '#DC2626' : '#16A34A' } : {} }),
+      td(fmtRow(row, priorVal(row)), { title: row.point ? 'Last month of the prior year with a value' : '', style: { color: 'var(--text-muted)' } }),
       td(yoy(row), { style: { color: 'var(--text-muted)' } })))));
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
@@ -43254,6 +43307,7 @@ function putisUnitMonthly() {
   if (state._putisUnitCache && state._putisUnitCacheFor === (state.reportingSnapshotStamp || (state.reportingSubscriptions || []).length)) return state._putisUnitCache;
   const out = {};   // {ym: {branch: {newSubs, newArr, cancels, lostArr}}}
   const active = {}; // {branch: {active, arr}} as of today
+  const delta = {}, eom = {}; // month-end ARR / active accounts per branch
   try {
     const F = reportingFilters();
     const seed = () => ({ newSubs: 0, newArr: 0, cancels: 0, lostArr: 0 });
@@ -43267,9 +43321,31 @@ function putisUnitMonthly() {
         if (/^\d{4}-\d{2}$/.test(cd)) { const x = ((out[cd] = out[cd] || {})[b] = (out[cd] || {})[b] || seed()); x.cancels++; x.lostArr += arv; }
       }
       if (F.isActive(r)) { const a = (active[b] = active[b] || { active: 0, arr: 0 }); a.active++; a.arr += arv; }
+      // Month-end book: +ARV from the sold month, -ARV from the month it was
+      // cancelled (any reason — the ARR is gone either way).
+      if (/^\d{4}-\d{2}$/.test(sd)) {
+        const dd = ((delta[sd] = delta[sd] || {})[b] = (delta[sd] || {})[b] || { arr: 0, n: 0 }); dd.arr += arv; dd.n++;
+        const cd = String(r.subscription_date_canceled || '').slice(0, 7);
+        if (/^\d{4}-\d{2}$/.test(cd) && cd >= sd) { const dc = ((delta[cd] = delta[cd] || {})[b] = (delta[cd] || {})[b] || { arr: 0, n: 0 }); dc.arr -= arv; dc.n--; }
+      }
+    }
+    // Prefix-sum the deltas month by month → {ym: {branch: {arr, active}}}.
+    const yms = Object.keys(delta).sort();
+    if (yms.length) {
+      const run = {};
+      const last = putisOpenMonth();
+      let [y, m] = yms[0].split('-').map(Number);
+      for (;;) {
+        const ym = y + '-' + String(m).padStart(2, '0');
+        const D = delta[ym] || {};
+        for (const b in D) { const x = (run[b] = run[b] || { arr: 0, active: 0 }); x.arr += D[b].arr; x.active += D[b].n; }
+        eom[ym] = {}; for (const b in run) eom[ym][b] = { arr: run[b].arr, active: run[b].active };
+        if (ym >= last) break;
+        if (++m > 12) { m = 1; y++; }
+      }
     }
   } catch (e) { /* snapshot not loaded */ }
-  state._putisUnitCache = { months: out, active };
+  state._putisUnitCache = { months: out, active, eom };
   state._putisUnitCacheFor = state.reportingSnapshotStamp || (state.reportingSubscriptions || []).length;
   return state._putisUnitCache;
 }
@@ -43493,9 +43569,9 @@ function reportingPutis() {
     let first = true;
     for (const b of branches) { wrap.append(putisTrendCard(M, year, [b], b, sub, first ? branchPicker() : null)); first = false; }
     wrap.append(putisTrendCard(M, year, opBranches, 'RIDD overall (branches, excl. corporate)', sub));
-    wrap.append(putisTrendCard(M, year, branches, 'RIDD total (incl. corporate)', sub));
+    wrap.append(putisTrendCard(M, year, branches, 'RIDD total (incl. corporate)', sub, null, { company: true }));
   } else if (branchSel === 'RIDD') {
-    wrap.append(putisTrendCard(M, year, branches, 'Trend · RIDD (all branches + corporate)', sub, branchPicker()));
+    wrap.append(putisTrendCard(M, year, branches, 'Trend · RIDD (all branches + corporate)', sub, branchPicker(), { company: true }));
   } else {
     wrap.append(putisTrendCard(M, year, [branchSel], 'Trend · ' + branchSel, sub, branchPicker()));
   }
