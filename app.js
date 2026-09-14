@@ -43067,7 +43067,7 @@ function putisDerive(M, ym, branches) {
   t.adjEbitda = t.ebitda + t.selling;
   t.netIncome = t.ebitda - t.interest - t.da;
   const pct = (v) => rev > 0 ? v / rev : null;
-  t.msPct = pct(t.ms); t.autoPct = pct(t.auto); t.techPct = pct(t.techWages); t.merchantPct = pct(t.merchant);
+  t.msPct = pct(t.ms); t.autoPct = pct(t.auto); t.techPct = pct(t.techWages); t.merchantPct = pct(t.merchant); t.cogsPct = pct(t.cogs);
   t.gpPct = pct(t.gp); t.gaPct = pct(t.ga); t.sellingPct = pct(t.selling); t.marketingPct = pct(t.marketing);
   t.housingPct = pct(t.housing); t.incentivesPct = pct(t.incentives); t.commissionsPct = pct(t.commissions);
   t.opexPct = pct(t.opex); t.ebitdaPct = pct(t.ebitda); t.adjEbitdaPct = pct(t.adjEbitda); t.netPct = pct(t.netIncome);
@@ -43133,6 +43133,7 @@ const PUTIS_ROWS = [
   { id: 'autoPct',      label: 'Auto/Fuel',        kind: 'pct', lowGood: true, tip: 'Auto & fuel as a % of revenue — "Auto and Fuel" (auto expenses + fuel expense) ÷ revenue. Lower is better.' },
   { id: 'techPct',      label: 'Tech Wages',       kind: 'pct', lowGood: true, tip: 'Technician labor as a % of revenue — "Technician Labor Wages" ÷ revenue. Lower is better.' },
   { id: 'merchantPct',  label: 'Merchant Fees',    kind: 'pct', lowGood: true, tip: 'Card-processing fees as a % of revenue — "Other COGS: Merchant Fees" ÷ revenue.' },
+  { id: 'cogs',         label: 'COGS',             kind: 'usd', lowGood: true, tip: 'Cost of goods sold in dollars — M&S + auto/fuel + tech wages + merchant fees.' },
   { id: 'gp',           label: 'Gross Profit',     kind: 'usd', bold: true,  tip: 'Gross profit — revenue minus the four cost-of-service lines above (M&S + auto/fuel + tech wages + merchant fees). What is left to cover selling and overhead.' },
   { id: 'gpPct',        label: 'Gross Profit %',   kind: 'pct',              tip: 'Gross margin — gross profit ÷ revenue. Higher is better.' },
   { id: 'gaPct',        label: 'G&A',              kind: 'pct', lowGood: true, tip: 'General & administrative as a % of revenue — every other operating expense group (insurance, legal, office expenses, office wages, postage, recruiting, rent & lease, travel, utilities, telephone, software, bank fees…) ÷ revenue. Excludes housing, selling expense and interest.' },
