@@ -42916,11 +42916,29 @@ function putisTrendCard(M, year, branches, title, subtitle) {
     el('div', { class: 'scroll-x' }, table));
 }
 
-// P&L Indicators — one month, branch columns (the sheet's P&L tab).
+// Sum several months into one synthetic month so putisDerive can roll it up (YTD).
+function putisDeriveMonths(M, yms, branches) {
+  if (yms.length === 1) return putisDerive(M, yms[0], branches);
+  const merged = {};
+  for (const ym of yms) {
+    const B = (M && M[ym]) || {};
+    for (const b of branches) {
+      const x = B[b]; if (!x) continue;
+      const t = (merged[b] = merged[b] || { revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, gaLines: {} });
+      for (const k of ['revenue', 'ms', 'auto', 'techWages', 'merchant', 'marketing', 'incentives', 'commissions', 'housing', 'ga', 'interest', 'da']) t[k] += x[k];
+      for (const g in x.gaLines) t.gaLines[g] = (t.gaLines[g] || 0) + x.gaLines[g];
+    }
+  }
+  return putisDerive({ _: merged }, '_', branches);
+}
+// P&L Indicators — one month OR year-to-date, branch columns (the sheet's P&L tab).
 function putisIndicatorsCard(M, ym, branches) {
   const FR = putisFieldRoutes();
+  const isYtd = /^\d{4}-YTD$/.test(ym);
+  const year = ym.slice(0, 4);
+  const yms = isYtd ? Object.keys(M).filter(k => k.startsWith(year + '-') && /^\d{4}-\d{2}$/.test(k)).sort() : [ym];
   const cols = [...branches.map(b => ({ key: b, label: b, set: [b] })), { key: 'RIDD', label: 'RIDD', set: branches }];
-  const D = Object.fromEntries(cols.map(c => [c.key, putisDerive(M, ym, c.set)]));
+  const D = Object.fromEntries(cols.map(c => [c.key, putisDeriveMonths(M, yms, c.set)]));
   const fr = (key) => {
     const set = cols.find(c => c.key === key).set;
     const t = { active: 0, arr: 0 };
@@ -42976,7 +42994,7 @@ function putisIndicatorsCard(M, ym, branches) {
   ];
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
-      el('h3', { class: 'text-sm font-bold' }, 'P&L Indicators · ' + new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })),
+      el('h3', { class: 'text-sm font-bold' }, 'P&L Indicators · ' + (isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))),
       el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'QuickBooks general ledger by branch · FieldRoutes for accounts + ARR · Corporate = un-branched accounts')),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th(''), ...cols.map(c => th(c.label)))),
@@ -43000,7 +43018,8 @@ function reportingPutis() {
   const branchSel = state._putisBranch && (branches.includes(state._putisBranch) || state._putisBranch === 'all' || state._putisBranch === 'RIDD') ? state._putisBranch : 'RIDD';
   const retained = branches.filter(b => b !== 'Corporate');
   const monthsWithData = Object.keys(M).filter(ym => ym.startsWith(String(year)) && Object.values(M[ym]).some(x => x.revenue)).sort();
-  if (!state._putisMonth || !M[state._putisMonth]) state._putisMonth = monthsWithData[monthsWithData.length - 1] || _mktgYm(year, new Date().getMonth());
+  const _isYtdPick = /^\d{4}-YTD$/.test(state._putisMonth || '');
+  if (!state._putisMonth || (!_isYtdPick && !M[state._putisMonth])) state._putisMonth = monthsWithData[monthsWithData.length - 1] || _mktgYm(year, new Date().getMonth());
   const pulled = state.reportingLedger.pulledAt ? new Date(state.reportingLedger.pulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
   const sel = (val, opts, on) => el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => on(e.target.value) },
     ...opts.map(([v, l]) => el('option', { value: v, selected: v === val }, l)));
@@ -43027,11 +43046,12 @@ function reportingPutis() {
     wrap.append(putisTrendCard(M, year, [branchSel], branchSel, sub));
   }
   // P&L indicators (one month)
-  const monthOpts = Array.from({ length: 12 }, (_, i) => _mktgYm(year, i)).filter(ym => M[ym]).map(ym => [ym, new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })]);
+  const monthOpts = [[year + '-YTD', year + ' year to date'], ...Array.from({ length: 12 }, (_, i) => _mktgYm(year, i)).filter(ym => M[ym]).map(ym => [ym, new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })])];
   wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap mt-2' },
     el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'P&L indicators · month'),
     monthOpts.length ? sel(state._putisMonth, monthOpts, (v) => { state._putisMonth = v; mountApp(); }) : el('span', { class: 'text-[11px] text-muted-' }, 'no months booked in ' + year)));
-  if (M[state._putisMonth]) wrap.append(putisIndicatorsCard(M, state._putisMonth, putisBranchesWithData(M, state._putisMonth.slice(0, 4)).filter(b => M[state._putisMonth][b])));
+  if (/^\d{4}-YTD$/.test(state._putisMonth)) wrap.append(putisIndicatorsCard(M, state._putisMonth, putisBranchesWithData(M, state._putisMonth.slice(0, 4))));
+  else if (M[state._putisMonth]) wrap.append(putisIndicatorsCard(M, state._putisMonth, putisBranchesWithData(M, state._putisMonth.slice(0, 4)).filter(b => M[state._putisMonth][b])));
   return wrap;
 }
 
