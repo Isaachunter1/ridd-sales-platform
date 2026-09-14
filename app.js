@@ -9308,12 +9308,11 @@ function canViewRepDetails(repName, repTeam) {
     } catch (e) { return false; }
   }
   if (scope === 'team' && typeof getRepTeam === 'function') {
-    // Viewer's team: resolve their dataset name by signature, then look up
-    // the team assignment (same maps Manage Teams writes).
-    let myTeam = getRepTeam(me.full_name) || '';
-    if (!myTeam) for (const n of myRepNameSet()) { myTeam = getRepTeam(n) || ''; if (myTeam) break; }
+    // Viewer's reach: the teams they lead (Settings → Users → Teams led)
+    // plus their own Manage Teams assignment.
+    const mine = myReachTeams();
     const theirTeam = repTeam || getRepTeam(repName) || (typeof getCanonicalRepName === 'function' ? getRepTeam(getCanonicalRepName(repName)) : '');
-    return !!(myTeam && theirTeam && myTeam === theirTeam);
+    return !!(theirTeam && mine.has(theirTeam));
   }
   return false;   // 'self' / 'none' — self was already allowed above
 }
@@ -17150,6 +17149,37 @@ function _hydrateTeamYears() {
 function getRepTeam(repName) {
   if (!repName) return '';
   return _repKeyedLookup(_activeTeamMap(), repName);
+}
+// ── Teams a partner / team lead is responsible for (per Isaac): set in
+// Settings → Users, synced with the indicator config. A partner's reach
+// on leaderboards / player cards = these teams + whatever team they're
+// assigned to themselves in Manage Teams.
+function partnerTeamsStore() {
+  state._compExtras = state._compExtras || {};
+  const pt = state._compExtras.partnerTeams;
+  return (pt && typeof pt === 'object') ? pt : (state._compExtras.partnerTeams = {});
+}
+function partnerTeamsOf(profileId) {
+  const v = partnerTeamsStore()[profileId];
+  return Array.isArray(v) ? v.filter(Boolean) : [];
+}
+function setPartnerTeams(profileId, teams) {
+  const st = partnerTeamsStore();
+  if (teams && teams.length) st[profileId] = [...new Set(teams)]; else delete st[profileId];
+  saveDemoData();
+  if (typeof saveIndicatorConfigToSupabase === 'function') saveIndicatorConfigToSupabase().catch(() => {});
+}
+function allTeamNames() {
+  const set = new Set(Object.values(_activeTeamMap() || {}).filter(Boolean));
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+function myReachTeams() {
+  const me = state.profile || {};
+  const set = new Set(partnerTeamsOf(me.id));
+  const own = getRepTeam(me.full_name) || '';
+  if (own) set.add(own);
+  if (!own && typeof myRepNameSet === 'function') for (const n of myRepNameSet()) { const t = getRepTeam(n) || ''; if (t) { set.add(t); break; } }
+  return set;
 }
 // Read a rep's team for a SPECIFIC year without disturbing the active pointer.
 function getRepTeamForYear(repName, year) {
@@ -54990,6 +55020,34 @@ function openUserEditor(existing = null, prefill = null) {
         checkRole();
       }, 0);
 
+      // ── Teams led (partners / team leads) — drives leaderboard + player
+      // card drill-down reach for everyone on those teams.
+      if (existing && existing.id) {
+        const teamsBox = el('div', { class: 'flex flex-wrap gap-1.5' });
+        const drawTeams = () => {
+          teamsBox.innerHTML = '';
+          const chosen = new Set(partnerTeamsOf(existing.id));
+          const names = allTeamNames();
+          if (!names.length) { teamsBox.append(el('span', { class: 'text-[11px] text-muted-' }, 'No teams set up yet (Indicators → Manage Teams).')); return; }
+          names.forEach(t => teamsBox.append(el('button', {
+            type: 'button',
+            class: 'rounded-full px-2.5 py-1 text-[11px] font-semibold border transition',
+            style: chosen.has(t) ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+            onclick: () => { const c = new Set(partnerTeamsOf(existing.id)); if (c.has(t)) c.delete(t); else c.add(t); setPartnerTeams(existing.id, [...c]); drawTeams(); },
+          }, t)));
+        };
+        drawTeams();
+        const teamsSection = el('div', { class: 'flex flex-col gap-2 pt-3 border-t', style: { borderColor: 'var(--border)' } },
+          el('h4', { class: 'text-[11px] uppercase tracking-widest font-bold text-muted-' }, 'Teams led'),
+          el('p', { class: 'text-[11px] text-muted-' }, 'Partners and team leads can open the player card / leaderboard drill-down for every rep on these teams (plus their own team from Manage Teams). Saves as you click.'),
+          teamsBox);
+        const _showTeams = () => {
+          const roleSel = form.querySelector('select[name="role"]');
+          teamsSection.style.display = roleSel && (roleSel.value === 'rep_partner' || roleSel.value === 'rep_team_lead') ? '' : 'none';
+        };
+        setTimeout(() => { const roleSel = form.querySelector('select[name="role"]'); if (roleSel) roleSel.addEventListener('change', _showTeams); _showTeams(); }, 0);
+        section.append(teamsSection);
+      }
       return section;
     })(),
   );
