@@ -43523,6 +43523,86 @@ function putisBranchScorecard(M, U, yms, branches, title) {
         el('tr', { class: 'border-t font-bold', style: { background: 'var(--card-2)' } }, el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }, 'RIDD'), ...COLS.map(c => td(c, total, true)))))));
 }
 
+// ── Comparative income statement (the banker's page) ─────────────────────
+// One month against the prior month and the same month last year, then YTD
+// against prior YTD, then LTM — every $ line with its % of revenue
+// underneath, every comparison as $ change and % change.
+function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
+  const company = !!opts.company;
+  const openYm = putisOpenMonth();
+  const shift = (y, m, k) => { let yy = y, mm = m + k; while (mm < 1) { mm += 12; yy--; } while (mm > 12) { mm -= 12; yy++; } return yy + '-' + String(mm).padStart(2, '0'); };
+  const [Y, Mo] = ym.split('-').map(Number);
+  const prevYm = shift(Y, Mo, -1), lyYm = shift(Y, Mo, -12);
+  const has = (k) => !!(M && M[k]);
+  const one = (k) => has(k) ? putisAugment(putisDerive(M, k, branches), M, k, branches, company) : null;
+  const span = (endK, n, floorK) => { const ks = []; for (let i = 0; i < n; i++) { const k = shift(...endK.split('-').map(Number), -i); if (floorK && k < floorK) break; if (has(k) && k < openYm) ks.push(k); } return ks.length ? { d: putisDeriveMonths(M, ks, branches), n: ks.length, first: ks[ks.length - 1], last: ks[0] } : null; };
+  const cur = one(ym), prev = one(prevYm), ly = one(lyYm);
+  const ytd = span(ym, Mo, Y + '-01'), ytdLy = span(lyYm, Mo, (Y - 1) + '-01');
+  const ltm = span(ym, 12), ltmLy = span(lyYm, 12);
+  const mon = (k, o) => new Date(k + '-15T12:00').toLocaleDateString('en-US', o);
+  const rows = PUTIS_ROWS.filter(r => !r.company || company);
+  const fmt = (row, v) => v == null || !isFinite(v) ? '—' : row.kind === 'pct' ? _putisPct1(v) : row.kind === 'x' ? v.toFixed(2) + 'x' : row.kind === 'int' ? Math.round(v).toLocaleString() : _putisUsd(v);
+  const val = (row, d) => d ? (row.point ? d[row.id] : (d.any ? d[row.id] : null)) : null;
+  const th = (t, tip, o = {}) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (o.left ? 'text-left' : 'text-right') + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)', position: 'sticky', top: 0, left: o.corner ? 0 : undefined, zIndex: o.corner ? 3 : 2, background: 'var(--card)', boxShadow: '0 1px 0 var(--border)', borderLeft: o.group ? '1px solid var(--border)' : undefined }, title: tip || '' }, t);
+  // A value cell: $ (or %) with the % of revenue underneath for $ rows.
+  const cell = (row, d, o = {}) => {
+    const v = val(row, d);
+    const node = el('div', { style: row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {} }, fmt(row, v));
+    if (row.kind === 'usd' && !row.point && v != null && d && d.revenue > 0 && row.id !== 'revenue') node.append(el('div', { class: 'text-[9px] font-normal', style: { color: 'var(--text-subtle)' } }, _putisPct1(v / d.revenue) + ' of rev'));
+    return el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap text-right align-top' + (o.bold ? ' font-bold' : ''), style: { borderLeft: o.group ? '1px solid var(--border)' : undefined, opacity: o.dim ? '.55' : undefined } }, node);
+  };
+  // A change cell: $ change + % change (pts for % rows), coloured by good/bad.
+  const delta = (row, a, b) => {
+    const va = val(row, a), vb = val(row, b);
+    if (va == null || vb == null || !isFinite(va) || !isFinite(vb)) return el('td', { class: 'px-2 py-1 text-right text-[11px]', style: { color: 'var(--text-subtle)' } }, '—');
+    const d = va - vb;
+    const good = row.lowGood ? d <= 0 : d >= 0;
+    const color = Math.abs(d) < 1e-9 ? 'var(--text-subtle)' : good ? '#16A34A' : '#DC2626';
+    const main = row.kind === 'pct' ? (d > 0 ? '+' : '') + (d * 100).toFixed(1) + ' pts' : row.kind === 'x' ? (d > 0 ? '+' : '') + d.toFixed(2) + 'x' : row.kind === 'int' ? (d > 0 ? '+' : '') + Math.round(d).toLocaleString() : (d > 0 ? '+' : '') + _putisUsd(d);
+    const node = el('div', { class: 'text-[11px] font-semibold', style: { color } }, main);
+    if (row.kind !== 'pct' && row.kind !== 'x' && Math.abs(vb) > 1e-9) node.append(el('div', { class: 'text-[9px] font-normal', style: { color } }, (d / Math.abs(vb) * 100).toFixed(1) + '%'));
+    return el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap text-right align-top' }, node);
+  };
+  const head = el('tr', {},
+    th('', '', { left: true, corner: true }),
+    th(mon(ym, { month: 'short', year: '2-digit' }), 'The selected month.', { group: true }),
+    th(mon(prevYm, { month: 'short', year: '2-digit' }), 'The month before.'),
+    th('MoM', 'Change from the prior month — $ (and %) or points.'),
+    th(mon(lyYm, { month: 'short', year: '2-digit' }), 'The same month last year.', { group: true }),
+    th('YoY', 'Change from the same month last year.'),
+    th(Y + ' YTD', ytd ? 'Jan–' + mon(ytd.last, { month: 'short' }) + ' ' + Y + ' (' + ytd.n + ' closed month' + (ytd.n === 1 ? '' : 's') + ').' : 'No closed months yet.', { group: true }),
+    th((Y - 1) + ' YTD', ytdLy ? 'The same months of ' + (Y - 1) + ' (' + ytdLy.n + ').' : 'Not in the feed.'),
+    th('YoY', 'YTD change against the same months last year.'),
+    th('LTM', ltm ? 'Last twelve closed months, ' + mon(ltm.first, { month: 'short', year: '2-digit' }) + '–' + mon(ltm.last, { month: 'short', year: '2-digit' }) + (ltm.n < 12 ? ' (' + ltm.n + ' available)' : '') + '.' : '', { group: true }),
+    th('Prior LTM', ltmLy ? 'The twelve months before that' + (ltmLy.n < 12 ? ' (' + ltmLy.n + ' available)' : '') + '.' : 'Not in the feed.'),
+    th('YoY', 'LTM change against the prior twelve months.'));
+  const body = rows.map(row => {
+    if (row.head) return el('tr', {}, el('td', { colspan: '13', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', position: 'sticky', left: 0 } }, row.head));
+    const isPt = !!row.point;
+    const pd = (s) => s ? s.d : null;
+    const bold = !!row.bold;
+    const tr = el('tr', { class: 'border-t border-' + (bold ? ' font-semibold' : ''), style: bold ? { background: 'var(--card-2)' } : {} },
+      el('td', { class: 'px-2 py-1 whitespace-nowrap font-bold cursor-help', style: { position: 'sticky', left: 0, background: bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' }, title: row.tip || '' }, row.label),
+      cell(row, cur, { bold, group: true, dim: ym === openYm }), cell(row, prev), delta(row, cur, prev),
+      cell(row, ly, { group: true }), delta(row, cur, ly));
+    if (isPt) {
+      // Point-in-time rows have no YTD / LTM sum — show the period-end value once, no comparison.
+      tr.append(el('td', { class: 'px-2 py-1 text-right', style: { borderLeft: '1px solid var(--border)', color: 'var(--text-subtle)' } }, '—'), el('td', {}, ''), el('td', {}, ''),
+        el('td', { class: 'px-2 py-1 text-right', style: { borderLeft: '1px solid var(--border)', color: 'var(--text-subtle)' } }, '—'), el('td', {}, ''), el('td', {}, ''));
+    } else {
+      tr.append(cell(row, pd(ytd), { bold, group: true }), cell(row, pd(ytdLy)), delta(row, pd(ytd), pd(ytdLy)),
+        cell(row, pd(ltm), { bold, group: true }), cell(row, pd(ltmLy)), delta(row, pd(ltm), pd(ltmLy)));
+    }
+    return tr;
+  });
+  return el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, title),
+        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Month vs prior month and same month last year · YTD vs prior YTD · last twelve months vs the twelve before · $ lines show % of revenue' + (ym === openYm ? ' · selected month is still open' : ''))),
+      headerExtra || null),
+    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } }, el('thead', {}, head), el('tbody', {}, ...body))));
+}
+
 function reportingPutis() {
   if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
   reportingLoadLedger();
@@ -43576,8 +43656,19 @@ function reportingPutis() {
   // ── 1. Trend (month-by-month, one scope at a time; RIDD by default) ──
   const sub = 'QuickBooks general ledger · months with nothing booked show —';
   const branchPicker = () => { const p = sel(branchSel, [['RIDD', 'RIDD'], ...branches.map(b => [b, b])], (v) => { state._putisBranch = v; mountApp(); }); p.classList.add('ml-auto'); return p; };
-  if (branchSel === 'RIDD') wrap.append(putisTrendCard(M, year, branches, 'RIDD', sub, branchPicker(), { company: true }));
-  else wrap.append(putisTrendCard(M, year, [branchSel], branchSel, sub, branchPicker()));
+  // Two ways to read it: the 12-month strip (Monthly) or the banker's
+  // comparative statement (Compare: month vs prior month / same month LY,
+  // YTD vs prior YTD, LTM vs prior LTM).
+  const view = state._putisView === 'compare' ? 'compare' : 'monthly';
+  const closedAll = Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).sort();
+  let cmpYm = state._putisCmpMonth; if (!cmpYm || !M[cmpYm]) cmpYm = closedYm;
+  const monthPick = () => sel(cmpYm, closedAll.slice().reverse().map(k => [k, new Date(k + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })]), (v) => { state._putisCmpMonth = v; mountApp(); });
+  const viewSeg = () => seg(view, [['monthly', 'Monthly'], ['compare', 'Compare']], (v) => { state._putisView = v; mountApp(); });
+  const trendHeader = () => { const h = el('div', { class: 'ml-auto inline-flex items-center gap-1.5 flex-wrap' }, viewSeg(), view === 'compare' ? monthPick() : null, branchPicker()); h.firstChild && (h.lastChild.classList.remove('ml-auto')); return h; };
+  const scopeSet = branchSel === 'RIDD' ? branches : [branchSel];
+  const scopeOpts = branchSel === 'RIDD' ? { company: true } : {};
+  if (view === 'compare') wrap.append(putisComparativeCard(M, cmpYm, scopeSet, branchSel, trendHeader(), scopeOpts));
+  else wrap.append(putisTrendCard(M, year, scopeSet, branchSel, sub, trendHeader(), scopeOpts));
 
   // ── 2. P&L Indicators (year dropdown + range dropdown: YTD or a single month) ──
   const ledgerYears = [...new Set(Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).map(k => k.slice(0, 4)))].sort().reverse();
