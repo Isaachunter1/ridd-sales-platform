@@ -44,7 +44,7 @@ async function fetchT(url, opts) {
 
 // ── Rotating refresh-token store (Netlify Blobs, optional) ──────────────────
 async function blobStore() {
-  try { const { getStore } = await import('@netlify/blobs'); return getStore('qbo'); } catch { return null; }
+  try { const { getStore } = await import('@netlify/blobs'); return getStore('qbo'); } catch (e) { console.warn('[qbo-spend] blobs init failed:', e && e.message); return null; }
 }
 async function getRefreshToken(store) {
   if (store) { try { const v = await store.get('refresh_token'); if (v) return v; } catch {} }
@@ -109,12 +109,14 @@ async function kickRefresh(event) {
   } catch (e) { console.warn('[qbo-spend] could not kick refresh:', e && e.message); }
 }
 async function windsorCached(event, force) {
-  if (!process.env.WINDSOR_API_KEY) return null;
+  if (!process.env.WINDSOR_API_KEY) { console.warn('[qbo-spend] WINDSOR_API_KEY not set — skipping Windsor path'); return null; }
   const store = await blobStore();
-  if (!store) return null;
-  let cached = null, refreshing = null;
-  try { cached = await store.get('spend', { type: 'json' }); } catch {}
+  if (!store) { console.warn('[qbo-spend] Netlify Blobs unavailable (is @netlify/blobs installed?) — skipping Windsor path'); return null; }
+  let cached = null, refreshing = null, lastErr = null;
+  try { cached = await store.get('spend', { type: 'json' }); } catch (e) { console.warn('[qbo-spend] blob read failed:', e && e.message); }
   try { refreshing = await store.get('spend_refreshing', { type: 'json' }); } catch {}
+  try { lastErr = await store.get('spend_error', { type: 'json' }); } catch {}
+  if (lastErr) console.warn('[qbo-spend] last background refresh error:', JSON.stringify(lastErr));
   const age = cached && cached.pulledAt ? Date.now() - new Date(cached.pulledAt).getTime() : Infinity;
   const inFlight = refreshing && refreshing.at && Date.now() - new Date(refreshing.at).getTime() < 5 * 60 * 1000;
   if ((force || age > CACHE_MS) && !inFlight) await kickRefresh(event);

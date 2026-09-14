@@ -16,7 +16,7 @@ async function fetchT(url, opts) {
   finally { clearTimeout(t); }
 }
 async function blobStore() {
-  try { const { getStore } = await import('@netlify/blobs'); return getStore('qbo'); } catch { return null; }
+  try { const { getStore } = await import('@netlify/blobs'); return getStore('qbo'); } catch (e) { console.error('[qbo-refresh] blobs init failed:', e && e.message); return null; }
 }
 
 async function pullWindsor(startYear) {
@@ -48,6 +48,7 @@ async function pullWindsor(startYear) {
 }
 
 exports.handler = async (event) => {
+  console.log('[qbo-refresh] invoked');
   const need = process.env.REVHAWK_SYNC_SECRET;
   if (need) {
     const got = (event && event.headers && (event.headers['x-sync-secret'] || event.headers['X-Sync-Secret'])) || '';
