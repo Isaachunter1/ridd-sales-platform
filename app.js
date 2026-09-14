@@ -43552,12 +43552,22 @@ function reportingPutis() {
   // (Executive-summary KPI strip retired per Isaac — the branch scorecard
   // carries the same ratios per branch + RIDD.)
 
-  // ── 1. Branch scorecard (closed month ⇄ YTD) ──
-  const scScope = state._putisScoreScope === 'ytd' ? 'ytd' : 'month';
-  const scYms = scScope === 'ytd' ? ytdMonths : [closedYm];
-  const scTitle = 'P&L Indicators · ' + (scScope === 'ytd' ? closedYr + ' YTD (thru ' + new Date(closedYm + '-15T12:00').toLocaleDateString('en-US', { month: 'short' }) + ')' : new Date(closedYm + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
+  // ── 1. P&L Indicators (year dropdown + range dropdown: YTD or a single month) ──
+  const ledgerYears = [...new Set(Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).map(k => k.slice(0, 4)))].sort().reverse();
+  if (!ledgerYears.length) ledgerYears.push(closedYr);
+  const scYear = ledgerYears.includes(String(state._putisScoreYear)) ? String(state._putisScoreYear) : closedYr;
+  // Closed months of that year that have something booked.
+  const scMonthsAvail = Object.keys(M).filter(k => k.startsWith(scYear + '-') && k < putisOpenMonth()).sort();
+  const lastAvail = scMonthsAvail[scMonthsAvail.length - 1] || (scYear === closedYr ? closedYm : scYear + '-12');
+  let scRange = state._putisScoreRange;   // 'ytd' | 'YYYY-MM'
+  if (!scRange || (scRange !== 'ytd' && !scMonthsAvail.includes(scRange))) scRange = scYear === closedYr ? closedYm : (scRange === 'ytd' ? 'ytd' : lastAvail);
+  const scYms = scRange === 'ytd' ? scMonthsAvail : [scRange];
+  const monthName = (ym, o) => new Date(ym + '-15T12:00').toLocaleDateString('en-US', o);
+  const scTitle = 'P&L Indicators · ' + (scRange === 'ytd' ? scYear + ' YTD (thru ' + monthName(lastAvail, { month: 'short' }) + ')' : monthName(scRange, { month: 'long', year: 'numeric' }));
   const scCard = putisBranchScorecard(M, U, scYms, opBranches, scTitle);
-  scCard.firstChild.append(seg(scScope, [['month', 'Closed month'], ['ytd', 'YTD']], (v) => { state._putisScoreScope = v; mountApp(); }));
+  scCard.firstChild.append(el('div', { class: 'inline-flex items-center gap-1.5' },
+    sel(scYear, ledgerYears.map(y => [y, y]), (v) => { state._putisScoreYear = v; const avail = Object.keys(M).filter(k => k.startsWith(v + '-') && k < putisOpenMonth()).sort(); if (state._putisScoreRange !== 'ytd') state._putisScoreRange = v === closedYr ? closedYm : avail[avail.length - 1]; mountApp(); }),
+    sel(scRange, [['ytd', scYear + ' YTD'], ...scMonthsAvail.slice().reverse().map(ym => [ym, monthName(ym, { month: 'long' })])], (v) => { state._putisScoreRange = v; mountApp(); })));
   wrap.append(scCard);
 
   // ── 2. Trend (the original Putis Shid table) ──
