@@ -39281,6 +39281,7 @@ function setReportingAgingDays(n) {
   _setAdminRule('agingDays', v);
   try { localStorage.setItem('ridd_rpt_aging_days', String(v)); } catch {} }
 function reportingExcludeRorChurn() {
+  if (state._retenWhatIf && typeof state._retenWhatIf.ror === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.ror;
   const r = _adminRules();
   if (r && typeof r.exclRorChurn === 'boolean') return r.exclRorChurn;
   try { return localStorage.getItem('ridd_rpt_excl_ror') === '1'; } catch { return false; } }
@@ -39300,6 +39301,7 @@ function retenExclRenewalSubs()   {
   return false; }   // default OFF since Sep 2026: the renewal IS the live book; the old sub closed "Renewal - …" is what leaves (retenPopExclReasons)
 function setRetenExclRenewalSubs(b)   { _setAdminRule('retenExclRenewals', !!b); try { localStorage.setItem('ridd_reten_excl_renewals', b ? '1' : '0'); } catch {} }
 function retenExclZeroPay()       {
+  if (state._retenWhatIf && typeof state._retenWhatIf.zero === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.zero;
   const r = _adminRules(); if (r && typeof r.retenExclZeroPay === 'boolean') return r.retenExclZeroPay;
   try { return localStorage.getItem('ridd_reten_excl_zeropay') !== '0'; } catch { return true; } }
 function setRetenExclZeroPay(b)       { _setAdminRule('retenExclZeroPay', !!b); try { localStorage.setItem('ridd_reten_excl_zeropay', b ? '1' : '0'); } catch {} }
@@ -39309,10 +39311,12 @@ function setRetenExclZeroPay(b)       { _setAdminRule('retenExclZeroPay', !!b); 
 // than the frozen-only rule below (which stays for when this is OFF).
 // Default ON, matching the hand report like the other Steps toggles.
 function retenExclOneSvc()  {
+  if (state._retenWhatIf && typeof state._retenWhatIf.oneSvc === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.oneSvc;
   const r = _adminRules(); if (r && typeof r.retenExclOneSvc === 'boolean') return r.retenExclOneSvc;
   try { return localStorage.getItem('ridd_reten_excl_onesvc') !== '0'; } catch { return true; } }
 function setRetenExclOneSvc(b)  { _setAdminRule('retenExclOneSvc', !!b); try { localStorage.setItem('ridd_reten_excl_onesvc', b ? '1' : '0'); } catch {} }
 function retenExclFrozenOneSvc()  {
+  if (state._retenWhatIf && typeof state._retenWhatIf.oneSvc === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.oneSvc;
   const r = _adminRules(); if (r && typeof r.retenExclFrozenOneSvc === 'boolean') return r.retenExclFrozenOneSvc;
   try { return localStorage.getItem('ridd_reten_excl_frozen1') !== '0'; } catch { return true; } }
 function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !!b); try { localStorage.setItem('ridd_reten_excl_frozen1', b ? '1' : '0'); } catch {} }
@@ -39322,6 +39326,7 @@ function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !
 // sub; Renewal-* = the old sub was replaced by the renewal, which stays).
 const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', 'Renewal - Outbound', 'Renewal - Loyalty', 'Renewal - Service Pro Upsell', 'Renewal - Inbound'];
 function retenPopExclReasons() {
+  if (!_retenWhatIf('popReasons', true)) return new Set();
   const r = _adminRules(); const v = r && Array.isArray(r.retenPopExclReasons) ? r.retenPopExclReasons : RETEN_POP_EXCL_REASONS_DEFAULT;
   return new Set(v.map(_normCancelReason));
 }
@@ -39335,6 +39340,7 @@ function retenOneSvcExemptTerms() {
 }
 function setRetenOneSvcExemptTerms(arr) { _setAdminRule('retenOneSvcExempt', arr); }
 function _retenOneSvcExempt(r) {
+  if (!_retenWhatIf('oneSvcExempt', true)) return false;
   const name = String(r.subscription || '').toLowerCase();
   if (retenOneSvcExemptTerms().some(t => name.includes(t))) return true;
   // Step 4: current-year accounts are exempt - they are just young, not dead.
@@ -39818,6 +39824,7 @@ const _CANCEL_REASON_DISPLAY = {
 };
 function _normCancelReason(s) { const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '').toLowerCase(); return _CANCEL_REASON_ALIASES[t] || t; }
 function reportingExcludedCancelReasons() {
+  if (!_retenWhatIf('exclReasons', true)) return new Set();
   const cfg = state.reportingCancelConfig || [];
   return new Set(cfg.filter(c => c.counts_attrition === false).map(c => _normCancelReason(c.reason)));
 }
@@ -49576,6 +49583,113 @@ function reportingServices() {
     el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, whereCard, attachCard));
 }
 
+// ── "How attrition is calculated" — step-by-step walkthrough with what-if
+// slicers (per Isaac). Every step shows how many subscriptions it removes
+// from the book (or how many cancels it strips), and any removable step can
+// be switched off for THIS session to see attrition with vs without it.
+// The official rules (Settings → Configurations) are untouched.
+function _retenWhatIf(key, official) {
+  const w = state._retenWhatIf;
+  if (!w || state.reportingSubTab !== 'waterfall' || typeof w[key] !== 'boolean') return official;
+  return w[key];
+}
+function retenWhatIfActive() {
+  const w = state._retenWhatIf; if (!w) return false;
+  return Object.keys(w).some(k => typeof w[k] === 'boolean' && w[k] !== _retenOfficial()[k]);
+}
+function _retenOfficial() {
+  const saved = state._retenWhatIf; state._retenWhatIf = null;
+  const o = { popReasons: retenPopExclReasons().size > 0, zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
+  state._retenWhatIf = saved;
+  return o;
+}
+function retenMethodCard(pop, _retenEff) {
+  const year = new Date().getFullYear();
+  const yStart = year + '-01-01', pStart = (year - 1) + '-01-01';
+  const recurringByName = reportingServiceRecurringMap();
+  const n0 = pop.length;
+  const s1 = pop.filter(r => !!recurringByName.get(r.subscription));
+  const s2 = s1.filter(r => !!r.initial_service && r.initial_service >= '2000-01-01');
+  // Population steps, applied in order so each count is "removed at this step".
+  const popSet = retenPopExclReasons();
+  const step1 = s2.filter(r => !(r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r)))));
+  const byReason1 = {}; s2.forEach(r => { if (r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r)))) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
+  const step2 = step1.filter(r => !(retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0));
+  const oneSvcAll = step2.filter(r => (Number(r.subscription_completed_services) || 0) <= 1);
+  const oneSvcKept = oneSvcAll.filter(r => _retenOneSvcExempt(r));
+  const step3 = step2.filter(r => !retenPopulationExcluded(r));
+  const book = _retenEff(pop);   // the real thing — should equal step3 in size
+  // Cancel steps for the current year (YTD) and last year.
+  const excl = reportingExcludedCancelReasons();
+  const cancelSteps = (yr) => {
+    const st = yr + '-01-01', en = yr + '-12-31';
+    const boy = book.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st));
+    const raw = boy.filter(r => r.subscription_date_canceled && r.subscription_date_canceled >= st && r.subscription_date_canceled <= en);
+    const exclN = raw.filter(r => excl.has(_normCancelReason(reportingCancelReasonOf(r)))).length;
+    const rorN = raw.filter(r => !excl.has(_normCancelReason(reportingCancelReasonOf(r))) && reportingExcludeRorChurn() && _reporting3dayRor(r)).length;
+    const counted = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en).length;
+    return { boy: boy.length, raw: raw.length, exclN, rorN, counted, rate: boy.length ? counted / boy.length : null };
+  };
+  const cur = cancelSteps(year), prev = cancelSteps(year - 1);
+  // Official numbers (rules exactly as saved) for the with-vs-without read.
+  let official = null;
+  if (retenWhatIfActive()) { const saved = state._retenWhatIf; state._retenWhatIf = null; try { const b = _retenEff(pop); const cs = (yr) => { const st = yr + '-01-01', en = yr + '-12-31'; const boy = b.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st)); const c = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en).length; return boy.length ? c / boy.length : null; }; official = { book: b.length, cur: cs(year), prev: cs(year - 1) }; } finally { state._retenWhatIf = saved; } }
+  const pct = (v) => v == null ? '—' : (v * 100).toFixed(1) + '%';
+  const n = (v) => Number(v || 0).toLocaleString();
+  const w = state._retenWhatIf || {};
+  const off = _retenOfficial();
+  const isOn = (k) => typeof w[k] === 'boolean' ? w[k] : off[k];
+  const chip = (k) => el('button', {
+    class: 'rounded-full px-2 py-0.5 text-[10px] font-bold transition hover:brightness-95 shrink-0',
+    style: isOn(k) ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
+    title: isOn(k) ? 'Applied — click to switch OFF for this session and see attrition without it' : 'Switched off for this session — click to apply again',
+    onclick: () => { const nw = { ...(state._retenWhatIf || {}) }; nw[k] = !isOn(k); state._retenWhatIf = nw; mountApp(); },
+  }, isOn(k) ? 'ON' : 'OFF');
+  const step = (num, title, detail, removed, chipKey, fixedNote) => el('div', { class: 'flex items-start gap-3 py-2 border-t border-' },
+    el('div', { class: 'w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0', style: { background: 'var(--card-2)', color: 'var(--text)' } }, String(num)),
+    el('div', { class: 'flex-1 min-w-0' },
+      el('div', { class: 'text-sm font-semibold' }, title),
+      el('div', { class: 'text-[11px] text-muted-' }, detail)),
+    el('div', { class: 'text-right shrink-0 tabular-nums' },
+      removed != null ? el('div', { class: 'text-sm font-bold', style: { color: removed ? '#DC2626' : 'var(--text-subtle)' } }, removed ? '−' + n(removed) : '0') : null,
+      fixedNote ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fixedNote) : null),
+    chipKey ? chip(chipKey) : el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0', style: { color: 'var(--text-subtle)', border: '1px solid var(--border)' }, title: 'Always applied' }, 'ALWAYS'));
+  const total = (label, val, sub) => el('div', { class: 'flex items-center justify-between py-2 border-t-2 border-', style: { borderColor: 'var(--border-2)' } },
+    el('div', {}, el('div', { class: 'text-sm font-black' }, label), sub ? el('div', { class: 'text-[11px] text-muted-' }, sub) : null),
+    el('div', { class: 'text-lg font-black tabular-nums' }, val));
+  const reasonList = Object.entries(byReason1).sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' ' + n(v)).join(' · ');
+  const open = state._retenMethodOpen !== false;
+  const whatIf = retenWhatIfActive();
+  const card = el('div', { class: 'card overflow-hidden', style: whatIf ? { outline: '2px solid var(--accent)' } : {} },
+    el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap cursor-pointer', onclick: () => { state._retenMethodOpen = !open; mountApp(); } },
+      el('div', { class: 'flex-1 min-w-0' },
+        el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'How attrition is calculated'),
+        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Step by step · switch any step off to see attrition with vs without it (this session only — saved rules unchanged)')),
+      el('div', { class: 'flex items-center gap-4 tabular-nums' },
+        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-lg font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
+        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-lg font-black' }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)),
+        whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null)));
+  if (!open) return card;
+  card.append(el('div', { class: 'px-5 pb-4' },
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-2 pb-1', style: { color: 'var(--text-subtle)' } }, 'A · Who is in the book (denominator)'),
+    el('div', { class: 'flex items-center justify-between py-2' }, el('div', { class: 'text-sm font-semibold' }, 'Subscriptions in scope'), el('div', { class: 'text-sm font-bold tabular-nums' }, n(n0))),
+    step(1, 'Recurring subscriptions only', 'One-time services are never part of a retention book.', n0 - s1.length, null),
+    step(2, 'Received an initial service', 'A sub that never started cannot retain or churn.', s1.length - s2.length, null),
+    step(3, 'Drop subs closed by ROR / Combined / Renewal', 'Cancellation reason in the Step 1 list (Settings): ' + [...popSet].map(x => x).join(', ') + '. These are not lost customers — a 3-day ROR never became one, Combined was folded into another sub, and a Renewal was replaced by the renewal sub (which stays, carrying the original start date).' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), s2.length - step1.length, 'popReasons'),
+    step(4, 'Drop $0 ARR subs', 'Nothing recurring to retain.', step1.length - step2.length, 'zero'),
+    step(5, 'Drop one-service subs (prior years)', 'A single completed visit is not yet a customer. Exempt: ' + retenOneSvcExemptTerms().join(', ') + ' (annual products) and anything sold in ' + year + ' — those ' + n(oneSvcKept.length) + ' stay in.', step2.length - step3.length, 'oneSvc'),
+    el('div', { class: 'flex items-center gap-3 py-1.5 border-t border-', style: { paddingLeft: '36px' } }, el('div', { class: 'flex-1 text-[11px] text-muted-' }, '↳ Keep the exemptions (Sentricon + current year) — switch off to drop every one-service sub.'), chip('oneSvcExempt')),
+    total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts'),
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-4 pb-1', style: { color: 'var(--text-subtle)' } }, 'B · Who counts as lost (numerator) — ' + year + ' YTD'),
+    el('div', { class: 'flex items-center justify-between py-2' }, el('div', {}, el('div', { class: 'text-sm font-semibold' }, 'Beginning-of-year book'), el('div', { class: 'text-[11px] text-muted-' }, 'Subs serviced before Jan 1 ' + year + ' and still on the books that day. Sales made during the year never enter the rate.')), el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.boy))),
+    el('div', { class: 'flex items-center justify-between py-2 border-t border-' }, el('div', { class: 'text-sm font-semibold' }, 'Cancelled so far this year (any reason)'), el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.raw))),
+    step(6, 'Strip excluded cancel reasons', 'Reasons flagged “doesn’t count as attrition” in Settings → Cancellation reasons (' + excl.size + ' reason' + (excl.size === 1 ? '' : 's') + ').', cur.exclN, 'exclReasons'),
+    step(7, 'Strip 3-day RORs', 'Door-to-door sales cancelled within 3 days of the sale — buyer’s remorse, not attrition.', cur.rorN, 'ror'),
+    total('Counted cancels', n(cur.counted), 'Attrition = counted cancels ÷ beginning-of-year book'),
+    total(year + ' YTD attrition', pct(cur.rate) + (official ? '  (official ' + pct(official.cur) + ')' : ''), (year - 1) + ' full year: ' + pct(prev.rate) + (official ? ' (official ' + pct(official.prev) + ')' : '') + ' · ' + n(prev.counted) + ' of ' + n(prev.boy))));
+  return card;
+}
+
 function reportingWaterfall() {
   const gate = reportingDataGate();
   if (gate) return gate;
@@ -49829,7 +49943,7 @@ function reportingWaterfall() {
   const _retenEff = (pop) => {
     // Memoized per population array + rules — four cards + drills share one
     // pass instead of each re-cloning the 65k-row book.
-    const _rulesKey = (retenExclRenewalSubs() ? 'R' : '') + (retenExclZeroPay() ? 'Z' : '') + (retenExclFrozenOneSvc() ? 'F' : '') + (retenExclOneSvc() ? 'O' : '') + '|' + [...retenPopExclReasons()].join(',') + '|' + retenOneSvcExemptTerms().join(',');
+    const _rulesKey = (retenExclRenewalSubs() ? 'R' : '') + (retenExclZeroPay() ? 'Z' : '') + (retenExclFrozenOneSvc() ? 'F' : '') + (retenExclOneSvc() ? 'O' : '') + (reportingExcludeRorChurn() ? 'r' : '') + '|' + [...retenPopExclReasons()].join(',') + '|' + retenOneSvcExemptTerms().join(',') + '|' + reportingExcludedCancelReasons().size + '|' + JSON.stringify(state._retenWhatIf || null);
     const hit = _retenEffCache.get(pop);
     if (hit && hit._rulesKey === _rulesKey) return hit;
     const recurringByName = reportingServiceRecurringMap();
@@ -51589,7 +51703,7 @@ function reportingWaterfall() {
   })();
 
   // Cancel Hygiene moved to Settings > Admin > Data Integrity (per Isaac).
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, body, repTypeAttritionCard, trueAttritionBar, lifetimeCard, renewalRetentionCard, renewalQueueCard, sourceLedgerCard);
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, retenMethodCard(popA, _retenEff), modeBar, body, repTypeAttritionCard, trueAttritionBar, lifetimeCard, renewalRetentionCard, renewalQueueCard, sourceLedgerCard);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
