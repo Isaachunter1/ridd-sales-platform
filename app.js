@@ -43204,8 +43204,10 @@ function reportingOverview() {
   }
   const defById = Object.fromEntries(chartDefs.map(d => [d.id, d]));
   const usedChartIds = new Set(COLUMN_CARDS.flatMap(c => c.chartIds));
+  // Phones: the five columns stack into one (rep-cols CSS) — no sideways
+  // scroll to find a chart (per Isaac).
   const columnsBlock = inCompare ? null : el('div', { class: 'overflow-x-auto' },
-    el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(5, minmax(235px, 1fr))', minWidth: '1230px', alignItems: 'start' } },
+    el('div', { class: 'grid gap-4 rep-cols', style: { gridTemplateColumns: 'repeat(5, minmax(235px, 1fr))', minWidth: '1230px', alignItems: 'start' } },
       ...COLUMN_CARDS.map(c => el('div', { class: 'flex flex-col gap-4' },
         popTile(c),
         ...c.chartIds.map(id => defById[id] ? makeCard(defById[id], dataA, 'a') : null),
@@ -43213,7 +43215,7 @@ function reportingOverview() {
     ));
 
   const chartGrid = inCompare
-    ? el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } },
+    ? el('div', { class: 'grid gap-4 rep-cols', style: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } },
         ...chartDefs.flatMap(def => [makeCard(def, dataA, 'a'), makeCard(def, dataB, 'b')]),
       )
     : el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' } },

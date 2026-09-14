@@ -186,6 +186,9 @@
     /* …and the same 12px from + New Sale down to the Revenue Pacer (the
        dashboard column's gap-5 is 20px; pull the toolbar's slot in by 8). */
     .dash-toolbar { margin-bottom: -8px; }
+    /* Reporting → Overview: the 5 metric columns (and compare pairs) stack
+       into ONE column on phones instead of a 1230px sideways scroll. */
+    .rep-cols { grid-template-columns: 1fr !important; min-width: 0 !important; }
     /* Indicators leaderboard header: title + tools on one row, search on
        its own full-width row underneath; the rep count is dropped. */
     .lb-head .lb-tools { display: contents; }
