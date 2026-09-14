@@ -44092,8 +44092,46 @@ function _mktgYearBar(sub) {
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y - 1; mountApp(); } }, '‹'),
       el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(y)),
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = y + 1; mountApp(); } }, '›')),
+    _mktgQboConnectBtn(),
     el('span', { class: 'text-[10px] text-muted-' }, 'FieldRoutes: revenue · subs · bookings   ·   QuickBooks: booked spend   ·   hand-entered: allocation, wages, leads'));
 }
+
+// One-click QuickBooks connect (admin): a plain navigation to the connect
+// function (the session token rides in the query — a redirect can't carry
+// a header). Intuit bounces back to /?qbo=connected#marketing.
+function _mktgQboConnectBtn() {
+  if (!isAdminRole(state.profile?.role)) return null;
+  const connected = state._isSpendSource === 'QuickBooks';
+  return el('button', {
+    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold border transition hover:brightness-95 whitespace-nowrap',
+    style: connected ? { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'var(--card)' } : { background: '#2CA01C', color: '#fff', borderColor: '#2CA01C' },
+    title: connected ? 'QuickBooks is connected — click to reconnect / switch company' : 'Authorize the app to read RIDD\u2019s QuickBooks P&L (Advertising & Marketing by branch)',
+    onclick: async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session || !session.access_token) { toast('Sign in again first', 'warn'); return; }
+        location.href = '/api/qbo-connect?t=' + encodeURIComponent(session.access_token);
+      } catch (e) { toast('Could not start the QuickBooks connect: ' + ((e && e.message) || e), 'error'); }
+    },
+  }, connected ? '\u2713 QuickBooks connected' : 'Connect QuickBooks');
+}
+// Result of the connect round-trip (?qbo=connected|error&msg=…).
+(() => {
+  try {
+    const u = new URL(location.href);
+    const r = u.searchParams.get('qbo');
+    if (!r) return;
+    const msg = u.searchParams.get('msg') || '';
+    u.searchParams.delete('qbo'); u.searchParams.delete('msg');
+    history.replaceState(null, '', u.pathname + (u.search || '') + (u.hash || '#marketing'));
+    const show = () => {
+      if (typeof toast !== 'function') return setTimeout(show, 300);
+      if (r === 'connected') { toast('QuickBooks connected \u2014 pulling ad spend\u2026', 'success'); if (typeof reportingLoadQboSpend === 'function') setTimeout(() => reportingLoadQboSpend(true), 1500); }
+      else toast('QuickBooks connect failed: ' + (msg || 'unknown error'), 'error');
+    };
+    setTimeout(show, 1200);
+  } catch (e) { /* noop */ }
+})();
 
 // ── P&L: branch × month ──
 function _mktgPnl() {
@@ -44491,8 +44529,9 @@ function reportingMktgSpendRevChart() {
   return el('div', { class: 'card p-4' },
     el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
       el('h3', { class: 'text-base font-bold' }, 'Marketing Spend vs Inside Sales Revenue'),
-      el('div', { class: 'flex items-center gap-2' },
+      el('div', { class: 'flex items-center gap-2 flex-wrap' },
         el('span', { class: 'text-[10px]', style: { color: state._isSpendSource === 'file' ? '#D97706' : 'var(--text-subtle)' } }, _spendStamp),
+        _mktgQboConnectBtn(),
         _spendRefresh)),
     el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Year-over-year by month · bars = marketing spend (months with verified QuickBooks data only) · lines = new contract revenue, office-staff sold, Pending/Serviced — same series as the pacer · ' + curY + ' solid vs ' + prevY + ' dashed'),
     cvsWrap,

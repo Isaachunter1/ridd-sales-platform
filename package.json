@@ -6,6 +6,7 @@
     "//build": "Netlify just serves index.html — no build step needed."
   },
   "dependencies": {
+    "@netlify/blobs": "^8.1.0",
     "@supabase/supabase-js": "^2.45.0"
   }
 }

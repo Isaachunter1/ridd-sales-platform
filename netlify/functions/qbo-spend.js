@@ -99,7 +99,7 @@ exports.handler = async (event) => {
   const { requireRole } = require('../lib/auth-gate.js');
   const gate = await requireRole(event, ['admin', 'admin_rep']);
   if (!gate.ok) return gate.response;
-  const needed = ['QBO_CLIENT_ID', 'QBO_CLIENT_SECRET', 'QBO_REALM_ID'];
+  const needed = ['QBO_CLIENT_ID', 'QBO_CLIENT_SECRET'];
   const missing = needed.filter(k => !process.env[k]);
   if (missing.length) return { statusCode: 500, body: JSON.stringify({ error: 'Missing env vars: ' + missing.join(', ') + ' (see qbo-spend.js setup notes)' }) };
 
@@ -107,7 +107,11 @@ exports.handler = async (event) => {
   const store = await blobStore();
   try {
     const refreshToken = await getRefreshToken(store);
-    if (!refreshToken) return { statusCode: 500, body: JSON.stringify({ error: 'No QBO_REFRESH_TOKEN set' }) };
+    // Realm (company) id: stored by the one-click connect (qbo-callback.js),
+    // env var as the manual fallback.
+    let realmId = process.env.QBO_REALM_ID || null;
+    if (store) { try { const v = await store.get('realm_id'); if (v) realmId = v; } catch {} }
+    if (!refreshToken || !realmId) return { statusCode: 409, body: JSON.stringify({ error: 'QuickBooks not connected yet — use Connect QuickBooks on the Marketing tab', notConnected: true }) };
     const { accessToken, newRefresh } = await refreshAccessToken(refreshToken);
     if (newRefresh && newRefresh !== refreshToken) await saveRefreshToken(store, newRefresh);
 
@@ -117,7 +121,7 @@ exports.handler = async (event) => {
     const startYear = q.year && /^\d{4}$/.test(q.year) ? Number(q.year) : now.getFullYear() - 1;
     const start = `${startYear}-01-01`;
     const end = now.toISOString().slice(0, 10);
-    const url = `${apiBase(env)}/v3/company/${process.env.QBO_REALM_ID}/reports/ProfitAndLoss`
+    const url = `${apiBase(env)}/v3/company/${realmId}/reports/ProfitAndLoss`
       + `?start_date=${start}&end_date=${end}&summarize_column_by=Month&accounting_method=Accrual&minorversion=70`;
     const r = await fetchT(url, { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } });
     if (!r.ok || !r.json) return { statusCode: 502, body: JSON.stringify({ error: `P&L report ${r.status}: ${(r.text || '').slice(0, 200)}` }) };
