@@ -44123,10 +44123,24 @@ function _mktgPnl() {
     _mktgMatrixCard('Wages', 'hand-entered (Spend entry)', rows, wg, _mktgUsd0, opts),
     _mktgMatrixCard('Incentives', 'hand-entered (Spend entry)', rows, inc, _mktgUsd0, opts),
     _mktgMatrixCard('Total spend', 'ad spend + wages + incentives', rows, tot, _mktgUsd0, opts),
-    _mktgMatrixCard('ROAS', 'new revenue ÷ ad spend · goal ' + T.roas + '+', rows, (rk, i) => _mktgDiv(rev(rk, i), ad(rk, i)), _mktgX, { ...opts, total: ratioTotal(rev, ad), cellStyle: goalStyle(T.roas, (v, g) => v >= g) }),
-    _mktgMatrixCard('CAC', 'total spend ÷ new revenue', rows, (rk, i) => _mktgDiv(tot(rk, i), rev(rk, i)), _mktgPct, { ...opts, total: ratioTotal(tot, rev) }),
-    _mktgMatrixCard('Ad spend % of CAC', 'ad spend ÷ new revenue · goal ' + Math.round(T.adSpendCac * 100) + '%', rows, (rk, i) => _mktgDiv(ad(rk, i), rev(rk, i)), _mktgPct, { ...opts, total: ratioTotal(ad, rev), cellStyle: goalStyle(T.adSpendCac, (v, g) => v <= g) }),
-    _mktgMatrixCard('Wages % of CAC', 'wages ÷ new revenue · goal ' + Math.round(T.wagesCac * 100) + '%', rows, (rk, i) => _mktgDiv(wg(rk, i), rev(rk, i)), _mktgPct, { ...opts, total: ratioTotal(wg, rev), cellStyle: goalStyle(T.wagesCac, (v, g) => v <= g) }),
+    // Efficiency (per Isaac): ROAS · CAC · Ad spend % of CAC · Wages % of
+    // CAC in ONE table with a dropdown, instead of four stacked matrices.
+    (() => {
+      const METRICS = {
+        roas:   { label: 'ROAS',              note: 'new revenue ÷ ad spend · goal ' + T.roas + '+',                                  cell: (rk, i) => _mktgDiv(rev(rk, i), ad(rk, i)), fmt: _mktgX,   total: ratioTotal(rev, ad), style: goalStyle(T.roas, (v, g) => v >= g) },
+        cac:    { label: 'CAC',               note: 'total spend ÷ new revenue',                                                      cell: (rk, i) => _mktgDiv(tot(rk, i), rev(rk, i)), fmt: _mktgPct, total: ratioTotal(tot, rev) },
+        adcac:  { label: 'Ad spend % of CAC', note: 'ad spend ÷ new revenue · goal ' + Math.round(T.adSpendCac * 100) + '%',         cell: (rk, i) => _mktgDiv(ad(rk, i), rev(rk, i)),  fmt: _mktgPct, total: ratioTotal(ad, rev),  style: goalStyle(T.adSpendCac, (v, g) => v <= g) },
+        wgcac:  { label: 'Wages % of CAC',    note: 'wages ÷ new revenue · goal ' + Math.round(T.wagesCac * 100) + '%',              cell: (rk, i) => _mktgDiv(wg(rk, i), rev(rk, i)),  fmt: _mktgPct, total: ratioTotal(wg, rev),  style: goalStyle(T.wagesCac, (v, g) => v <= g) },
+      };
+      const key = METRICS[state._mktEffMetric] ? state._mktEffMetric : 'roas';
+      const M = METRICS[key];
+      const picker = el('select', {
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer ml-auto',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        onchange: (e) => { state._mktEffMetric = e.target.value; mountApp(); },
+      }, ...Object.entries(METRICS).map(([k, v]) => el('option', { value: k, selected: k === key }, v.label)));
+      return _mktgMatrixCard('Efficiency · ' + M.label, M.note, rows, M.cell, M.fmt, { ...opts, total: M.total, cellStyle: M.style, headerExtra: picker });
+    })(),
     _mktgMatrixCard('QuickBooks booked vs allocated', 'QuickBooks branch marketing accounts minus the hand-entered allocation · should read $0 once the controller books the month', B.all, (b, i) => { const q = qbo(b, i), al = _mktgSpendBranchMonth(m, _mktgYm(y, i), b); return (q || al) ? q - al : null; }, (v) => (v > 0 ? '+' : '') + fmt.usd0(v), { label: _mktgTC, firstCol: 'Branch', cellStyle: (v) => v == null ? {} : { color: Math.abs(v) < 1 ? '#16A34A' : '#D97706' } }),
   );
 }
