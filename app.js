@@ -43150,11 +43150,11 @@ const PUTIS_ROWS = [
   { id: 'adjEbitdaPct', label: 'Adjusted EBITDA %', kind: 'pct', signed: true, tip: 'Adjusted EBITDA ÷ revenue — margin of the service base before growth spend.' },
   { id: 'netPct',       label: 'Net profit %',     kind: 'pct', signed: true, tip: 'Net income ÷ revenue.' },
   { head: 'Unit economics · FieldRoutes + ledger' },
-  { id: 'newSubs',      label: 'New recurring accounts', kind: 'int', unit: true, tip: 'Recurring subscriptions sold in the month (Retention-tab rules).' },
-  { id: 'newArr',       label: 'New ARR sold',     kind: 'usd', unit: true, tip: 'Annual recurring value of the accounts sold in the month.' },
-  { id: 'renewals',     label: 'Renewals',         kind: 'int', unit: true, tip: 'Existing customers re-signed onto a new plan (a sub closed "Renewal - …" replaced by a renewal-source sub). Not new accounts — the relationship never churned.' },
-  { id: 'expArr',       label: 'Renewal ARR change', kind: 'usd', unit: true, signed: true, tip: 'ARR gained (or given up) when customers renewed: new plan ARR minus the ARR of the plan it replaced. Expansion is green, contraction red.' },
-  { id: 'lostArr',      label: 'Churned ARR',      kind: 'usd', unit: true, red: true, lowGood: true, tip: 'Annual recurring value lost to real cancels in the month (excluded reasons and 3-day ROR stripped).' },
+  { id: 'newSubs',      label: 'New recurring accounts', kind: 'int', unit: true, drill: 'newRows', tip: 'Recurring subscriptions sold in the month (Retention-tab rules).' },
+  { id: 'newArr',       label: 'New ARR sold',     kind: 'usd', unit: true, drill: 'newRows', tip: 'Annual recurring value of the accounts sold in the month.' },
+  { id: 'renewals',     label: 'Renewals',         kind: 'int', unit: true, drill: 'renRows', tip: 'Existing customers re-signed onto a new plan (a sub closed "Renewal - …" replaced by a renewal-source sub). Not new accounts — the relationship never churned.' },
+  { id: 'expArr',       label: 'Renewal ARR change', kind: 'usd', unit: true, drill: 'renRows', signed: true, tip: 'ARR gained (or given up) when customers renewed: new plan ARR minus the ARR of the plan it replaced. Expansion is green, contraction red.' },
+  { id: 'lostArr',      label: 'Churned ARR',      kind: 'usd', unit: true, drill: 'cxlRows', red: true, lowGood: true, tip: 'Annual recurring value lost to real cancels in the month (excluded reasons and 3-day ROR stripped).' },
   { id: 'netNewArr',    label: 'Net new ARR',      kind: 'usd', unit: true, bold: true, signed: true, tip: 'New ARR sold + renewal ARR change − churned ARR. Positive = the book grew.' },
   { id: 'monthlyChurn', label: 'Churn / month',    kind: 'pct', unit: true, lowGood: true, tip: PUTIS_KPI_TIPS.monthlyChurn },
   { id: 'cac',          label: 'CAC',              kind: 'usd', unit: true, lowGood: true, tip: PUTIS_KPI_TIPS.cac },
@@ -43280,7 +43280,15 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
       ? el('tr', { class: 'border-t border-' }, el('td', { colspan: '16', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', position: 'sticky', left: 0 } }, row.head))
       : el('tr', { class: 'border-t border-' + (row.bold ? ' font-semibold' : ''), style: row.bold ? { background: 'var(--card-2)' } : {} },
       td(row.label, { bold: true, title: row.tip, style: { position: 'sticky', left: 0, background: row.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
-      ...months.map((d, i) => td(cellVal(row, d, i > 0 ? months[i - 1] : null), _mktgYm(year, i) === putisOpenMonth() ? { style: { opacity: '.45' }, title: 'Open month — not closed yet' } : {})),
+      ...months.map((d, i) => {
+        const ym = _mktgYm(year, i);
+        const c = td(cellVal(row, d, i > 0 ? months[i - 1] : null), ym === putisOpenMonth() ? { style: { opacity: '.45' }, title: 'Open month — not closed yet' } : {});
+        if (row.drill) {
+          const B = _U.months[ym] || {}; const list = []; for (const b of branches) { const x = B[b]; if (x && x[row.drill]) list.push(...x[row.drill]); }
+          if (list.length) { c.classList.add('cursor-pointer', 'hover:underline'); c.title = 'Click to see the ' + list.length.toLocaleString() + ' subscription' + (list.length === 1 ? '' : 's'); c.onclick = () => openReportingDrillModal({ chartTitle: title + ' · ' + row.label, sliceLabel: MKTG_MONTHS[i] + ' ' + year + ' · ' + list.length.toLocaleString() + ' subscription' + (list.length === 1 ? '' : 's'), rows: list, formatValue: fmt.usd0 }); }
+        }
+        return c;
+      }),
       td(fmtRow(row, ytdVal(row)), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: row.signed && ytdVal(row) != null ? { color: ytdVal(row) < 0 ? '#DC2626' : '#16A34A' } : {} }),
       td(fmtRow(row, priorVal(row)), { title: row.point ? 'Last month of the prior year with a value' : '', style: { color: 'var(--text-muted)' } }),
       td(yoy(row), { style: { color: 'var(--text-muted)' } })))));
@@ -43416,7 +43424,7 @@ function putisUnitMonthly() {
   const delta = {}, eom = {}; // month-end ARR / active accounts per branch
   try {
     const F = reportingFilters();
-    const seed = () => ({ newSubs: 0, newArr: 0, cancels: 0, lostArr: 0, renewals: 0, expArr: 0 });
+    const seed = () => ({ newSubs: 0, newArr: 0, cancels: 0, lostArr: 0, renewals: 0, expArr: 0, newRows: [], renRows: [], cxlRows: [] });
     for (const r of F.recurring) {
       const b = putisBranchOf(String(r.office_name || '').toLowerCase());
       const arv = Number(r.annual_recurring_value) || 0;
@@ -43426,12 +43434,12 @@ function putisUnitMonthly() {
         // A renewal continuation is the same customer on a new plan: not a
         // new account, and only the ARR CHANGE is growth (expansion or
         // contraction), never the whole renewal ARR.
-        if (r.is_renewal_cont) { x.renewals++; x.expArr += arv - (Number(r.renewal_prev_arv) || 0); }
-        else { x.newSubs++; x.newArr += arv; }
+        if (r.is_renewal_cont) { x.renewals++; x.expArr += arv - (Number(r.renewal_prev_arv) || 0); x.renRows.push(r); }
+        else { x.newSubs++; x.newArr += arv; x.newRows.push(r); }
       }
       if (F.isRealCancel(r)) {
         const cd = String(r.subscription_date_canceled || '').slice(0, 7);
-        if (/^\d{4}-\d{2}$/.test(cd)) { const x = ((out[cd] = out[cd] || {})[b] = (out[cd] || {})[b] || seed()); x.cancels++; x.lostArr += arv; }
+        if (/^\d{4}-\d{2}$/.test(cd)) { const x = ((out[cd] = out[cd] || {})[b] = (out[cd] || {})[b] || seed()); x.cancels++; x.lostArr += arv; x.cxlRows.push(r); }
       }
       if (F.isActive(r)) { const a = (active[b] = active[b] || { active: 0, arr: 0 }); a.active++; a.arr += arv; }
       // Month-end book: +ARV from the sold month, -ARV from the month it was
