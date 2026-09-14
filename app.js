@@ -1656,8 +1656,54 @@ function dedupeSnapshotSubs(rows) {
   for (const r of rows) { const k = String(r.subscription_id || ''); if (!k) continue; seen.set(k, r); }
   return rows.filter(r => !r.subscription_id || seen.get(String(r.subscription_id)) === r);
 }
+// Renewal chaining (per Isaac, Sep 2026): when a customer's sub is closed
+// with a "Renewal - …" reason and a renewal-source sub opens for the same
+// customer around the same time, that is ONE relationship changing plans,
+// not a churn + a new sale. We keep both rows (the renewal team's sale is
+// still a sale) but stamp the renewal sub with the chain's origin so the
+// retention cohorts, tenure and unit economics treat it as a continuation:
+//   origin_initial_service / origin_sold_date — the very first sub's dates
+//   renewal_prev_arv — ARR of the sub it replaced (expansion = new − prev)
+//   is_renewal_cont — true on the renewal sub; renewed_into on the old one
+function linkRenewalChains(rows) {
+  const isRenewalReason = (r) => /^renewal/i.test(String(reportingCancelReasonOf(r) || '').trim());
+  const isRenewalSource = (r) => /^renewal/i.test(String(r.subscription_source || '').trim());
+  const byCust = new Map();
+  for (const r of rows) { const k = r.customer_id != null ? String(r.customer_id) : ''; if (!k) continue; (byCust.get(k) || byCust.set(k, []).get(k)).push(r); }
+  const DAY = 86400000, BEFORE = 45 * DAY, AFTER = 60 * DAY;
+  const t = (d) => { if (!d) return NaN; const x = new Date(String(d).slice(0, 10) + 'T00:00'); return isNaN(x) ? NaN : x.getTime(); };
+  let links = 0;
+  for (const subs of byCust.values()) {
+    if (subs.length < 2) continue;
+    const olds = subs.filter(r => r.subscription_date_canceled && isRenewalReason(r));
+    if (!olds.length) continue;
+    const news = subs.filter(r => isRenewalSource(r) && r.sold_date).sort((a, b) => String(a.sold_date).localeCompare(String(b.sold_date)));
+    const used = new Set();
+    for (const n of news) {
+      const ns = t(n.sold_date); if (isNaN(ns)) continue;
+      let best = null, bestGap = Infinity;
+      for (const o of olds) {
+        if (o === n || used.has(o)) continue;
+        const oc = t(o.subscription_date_canceled); if (isNaN(oc)) continue;
+        const gap = ns - oc;                       // + = opened after the close
+        if (gap < -BEFORE || gap > AFTER) continue;
+        if (Math.abs(gap) < bestGap) { best = o; bestGap = Math.abs(gap); }
+      }
+      if (!best) continue;
+      used.add(best);
+      n.is_renewal_cont = true;
+      n.origin_initial_service = best.origin_initial_service || best.initial_service || null;
+      n.origin_sold_date = best.origin_sold_date || best.sold_date || null;
+      n.renewal_prev_arv = Number(best.annual_recurring_value) || 0;
+      best.renewed_into = n.subscription_id || true;
+      links++;
+    }
+  }
+  state._renewalLinks = links;
+  return rows;
+}
 async function loadReportingSubscriptions(uploadId) {
-  const rows = dedupeSnapshotSubs(stripPhantomOffices(await _loadReportingSubscriptionsRaw(uploadId)));
+  const rows = linkRenewalChains(dedupeSnapshotSubs(stripPhantomOffices(await _loadReportingSubscriptionsRaw(uploadId))));
   const orphans = rows.filter(r => r.customer_missing);
   state._orphanSubs = orphans;
   state._orphanCustIds = [...new Set(orphans.map(r => String(r.customer_id != null ? r.customer_id : '')).filter(Boolean))];
@@ -43105,8 +43151,10 @@ const PUTIS_ROWS = [
   { head: 'Unit economics · FieldRoutes + ledger' },
   { id: 'newSubs',      label: 'New recurring accounts', kind: 'int', unit: true, tip: 'Recurring subscriptions sold in the month (Retention-tab rules).' },
   { id: 'newArr',       label: 'New ARR sold',     kind: 'usd', unit: true, tip: 'Annual recurring value of the accounts sold in the month.' },
+  { id: 'renewals',     label: 'Renewals',         kind: 'int', unit: true, tip: 'Existing customers re-signed onto a new plan (a sub closed "Renewal - …" replaced by a renewal-source sub). Not new accounts — the relationship never churned.' },
+  { id: 'expArr',       label: 'Renewal ARR change', kind: 'usd', unit: true, signed: true, tip: 'ARR gained (or given up) when customers renewed: new plan ARR minus the ARR of the plan it replaced. Expansion is green, contraction red.' },
   { id: 'lostArr',      label: 'Churned ARR',      kind: 'usd', unit: true, red: true, lowGood: true, tip: 'Annual recurring value lost to real cancels in the month (excluded reasons and 3-day ROR stripped).' },
-  { id: 'netNewArr',    label: 'Net new ARR',      kind: 'usd', unit: true, bold: true, signed: true, tip: PUTIS_KPI_TIPS.netNewArr },
+  { id: 'netNewArr',    label: 'Net new ARR',      kind: 'usd', unit: true, bold: true, signed: true, tip: 'New ARR sold + renewal ARR change − churned ARR. Positive = the book grew.' },
   { id: 'monthlyChurn', label: 'Churn / month',    kind: 'pct', unit: true, lowGood: true, tip: PUTIS_KPI_TIPS.monthlyChurn },
   { id: 'cac',          label: 'CAC',              kind: 'usd', unit: true, lowGood: true, tip: PUTIS_KPI_TIPS.cac },
   { id: 'mktgPerNew',   label: 'Marketing ÷ new account', kind: 'usd', unit: true, lowGood: true, tip: 'Advertising & marketing dollars ÷ new recurring accounts sold.' },
@@ -43132,7 +43180,7 @@ const PUTIS_ROWS = [
 // values to a derived month so the trend table can show them beside the P&L.
 function putisAugment(d, M, ym, branches, company) {
   const U = putisUnitMonthly();
-  if (d.any || (U.months && U.months[ym])) { const um = putisMetrics(M, U, [ym], branches); for (const k of ['newSubs', 'newArr', 'lostArr', 'netNewArr', 'monthlyChurn', 'cac', 'mktgPerNew', 'acv', 'ltv', 'ltvCac', 'paybackMo']) d[k] = um[k]; }
+  if (d.any || (U.months && U.months[ym])) { const um = putisMetrics(M, U, [ym], branches); for (const k of ['newSubs', 'newArr', 'renewals', 'expArr', 'lostArr', 'netNewArr', 'monthlyChurn', 'cac', 'mktgPerNew', 'acv', 'ltv', 'ltvCac', 'paybackMo']) d[k] = um[k]; }
   const E = U.eom && U.eom[ym];
   if (E) { let arr = 0, n = 0, any = false; for (const b of branches) { const x = E[b]; if (!x) continue; any = true; arr += x.arr; n += x.active; } if (any) { d.arrEom = arr; d.activeEom = n; d.arrToRev = arr > 0 && d.any ? d.revenue / (arr / 12) : null; } }
   if (!company) return d;
@@ -43367,12 +43415,19 @@ function putisUnitMonthly() {
   const delta = {}, eom = {}; // month-end ARR / active accounts per branch
   try {
     const F = reportingFilters();
-    const seed = () => ({ newSubs: 0, newArr: 0, cancels: 0, lostArr: 0 });
+    const seed = () => ({ newSubs: 0, newArr: 0, cancels: 0, lostArr: 0, renewals: 0, expArr: 0 });
     for (const r of F.recurring) {
       const b = putisBranchOf(String(r.office_name || '').toLowerCase());
       const arv = Number(r.annual_recurring_value) || 0;
       const sd = String(r.sold_date || '').slice(0, 7);
-      if (/^\d{4}-\d{2}$/.test(sd)) { const x = ((out[sd] = out[sd] || {})[b] = (out[sd] || {})[b] || seed()); x.newSubs++; x.newArr += arv; }
+      if (/^\d{4}-\d{2}$/.test(sd)) {
+        const x = ((out[sd] = out[sd] || {})[b] = (out[sd] || {})[b] || seed());
+        // A renewal continuation is the same customer on a new plan: not a
+        // new account, and only the ARR CHANGE is growth (expansion or
+        // contraction), never the whole renewal ARR.
+        if (r.is_renewal_cont) { x.renewals++; x.expArr += arv - (Number(r.renewal_prev_arv) || 0); }
+        else { x.newSubs++; x.newArr += arv; }
+      }
       if (F.isRealCancel(r)) {
         const cd = String(r.subscription_date_canceled || '').slice(0, 7);
         if (/^\d{4}-\d{2}$/.test(cd)) { const x = ((out[cd] = out[cd] || {})[b] = (out[cd] || {})[b] || seed()); x.cancels++; x.lostArr += arv; }
@@ -43407,8 +43462,8 @@ function putisUnitMonthly() {
   return state._putisUnitCache;
 }
 function putisUnitSum(U, yms, branches) {
-  const t = { newSubs: 0, newArr: 0, cancels: 0, lostArr: 0, active: 0, arr: 0 };
-  for (const ym of yms) { const B = U.months[ym] || {}; for (const b of branches) { const x = B[b]; if (!x) continue; t.newSubs += x.newSubs; t.newArr += x.newArr; t.cancels += x.cancels; t.lostArr += x.lostArr; } }
+  const t = { newSubs: 0, newArr: 0, cancels: 0, lostArr: 0, renewals: 0, expArr: 0, active: 0, arr: 0 };
+  for (const ym of yms) { const B = U.months[ym] || {}; for (const b of branches) { const x = B[b]; if (!x) continue; t.newSubs += x.newSubs; t.newArr += x.newArr; t.cancels += x.cancels; t.lostArr += x.lostArr; t.renewals += x.renewals || 0; t.expArr += x.expArr || 0; } }
   for (const b of branches) { const a = U.active[b]; if (a) { t.active += a.active; t.arr += a.arr; } }
   return t;
 }
@@ -43427,7 +43482,7 @@ function putisMetrics(M, U, yms, branches) {
   m.ltv = m.grossAcv != null && m.annualChurn ? m.grossAcv / m.annualChurn : null;
   m.ltvCac = m.ltv != null && m.cac ? m.ltv / m.cac : null;
   m.paybackMo = m.cac != null && m.grossAcv ? m.cac / (m.grossAcv / 12) : null;
-  m.netNewArr = u.newArr - u.lostArr;
+  m.netNewArr = u.newArr + u.expArr - u.lostArr;   // new + renewal expansion − churned
   m.revPerActive = u.active ? d.revenue / n / u.active : null;        // monthly revenue per active account
   m.ebitdaPerActive = u.active ? d.ebitda / n / u.active : null;
   m.gaPerActive = u.active ? d.ga / n / u.active : null;
@@ -43557,7 +43612,7 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
   const has = (k) => !!(M && M[k]);
   const one = (k) => has(k) ? putisAugment(putisDerive(M, k, branches), M, k, branches, company) : null;
   const _U = putisUnitMonthly();
-  const span = (endK, n, floorK) => { const ks = []; for (let i = 0; i < n; i++) { const k = shift(...endK.split('-').map(Number), -i); if (floorK && k < floorK) break; if (has(k) && k < openYm) ks.push(k); } return ks.length ? { d: Object.assign(putisDeriveMonths(M, ks, branches), (() => { const um = putisMetrics(M, _U, ks, branches); const o = {}; for (const k of ['newSubs', 'newArr', 'lostArr', 'netNewArr', 'monthlyChurn', 'cac', 'mktgPerNew', 'acv', 'ltv', 'ltvCac', 'paybackMo']) o[k] = um[k]; return o; })()), n: ks.length, first: ks[ks.length - 1], last: ks[0] } : null; };
+  const span = (endK, n, floorK) => { const ks = []; for (let i = 0; i < n; i++) { const k = shift(...endK.split('-').map(Number), -i); if (floorK && k < floorK) break; if (has(k) && k < openYm) ks.push(k); } return ks.length ? { d: Object.assign(putisDeriveMonths(M, ks, branches), (() => { const um = putisMetrics(M, _U, ks, branches); const o = {}; for (const k of ['newSubs', 'newArr', 'renewals', 'expArr', 'lostArr', 'netNewArr', 'monthlyChurn', 'cac', 'mktgPerNew', 'acv', 'ltv', 'ltvCac', 'paybackMo']) o[k] = um[k]; return o; })()), n: ks.length, first: ks[ks.length - 1], last: ks[0] } : null; };
   const cur = one(ym), prev = one(prevYm), ly = one(lyYm);
   const ytd = span(ym, Mo, Y + '-01'), ytdLy = span(lyYm, Mo, (Y - 1) + '-01');
   const mon = (k, o) => new Date(k + '-15T12:00').toLocaleDateString('en-US', o);
@@ -47001,7 +47056,7 @@ function reportingGeoAggregate(rows, F) {
   });
   const _today = Date.now();
   const _tenureMonths = (r) => {
-    const s0 = r.initial_service || r.sold_date; if (!s0) return null;
+    const s0 = r.origin_initial_service || r.initial_service || r.origin_sold_date || r.sold_date; if (!s0) return null;
     const a = new Date(String(s0).slice(0, 10) + 'T00:00'); if (isNaN(a)) return null;
     const b = r.subscription_date_canceled ? new Date(String(r.subscription_date_canceled).slice(0, 10) + 'T00:00') : new Date(_today);
     const mo = (b - a) / (86400000 * 30.4375);
@@ -48008,7 +48063,9 @@ function buildReportingWaterfall(rows, mode, cohortYear) {
         && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
         && !(reportingExcludeRorChurn() && _reporting3dayRor(r))   // same ROR setting as Overview/Geographic attrition
         ? r.subscription_date_canceled : null;
-      return { ...r, _effCancel: realCancel };
+      // A renewal continuation keeps the relationship's ORIGINAL first-service
+      // date, so cohorts and tenure don't restart when a customer changes plans.
+      return { ...r, initial_service: r.origin_initial_service || r.initial_service, _effCancel: realCancel };
     });
   const initYears = rows
     .map(r => r.initial_service ? new Date(r.initial_service + 'T00:00').getFullYear() : null)
@@ -49767,7 +49824,7 @@ function reportingWaterfall() {
           && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
           && !(reportingExcludeRorChurn() && _reporting3dayRor(r))
           ? r.subscription_date_canceled : null;
-        return { ...r, _effCancel: realCancel };
+        return { ...r, initial_service: r.origin_initial_service || r.initial_service, _effCancel: realCancel };
       });
     out._rulesKey = _rulesKey;
     _retenEffCache.set(pop, out);
