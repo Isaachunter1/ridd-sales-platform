@@ -43048,11 +43048,20 @@ const PUTIS_COL_TIPS = {
   prior: 'Prior-year total — the same rows for every month of last year that QuickBooks has. The feed starts last January, so the comparison can be partial.',
   yoy: 'Year over year — this year’s YTD minus the prior-year total. Dollar rows show $ change; percentage rows show the change in points.',
 };
+// The current calendar month is still OPEN in the books (per Isaac: not
+// accurate until close) — YTD stops at the prior month and the defaults
+// point at the last closed month.
+function putisOpenMonth() { const n = new Date(); return _mktgYm(n.getFullYear(), n.getMonth()); }
+function putisLastClosedMonth() { const n = new Date(); const p = new Date(n.getFullYear(), n.getMonth() - 1, 1); return _mktgYm(p.getFullYear(), p.getMonth()); }
 // Year rollup for a row: $ rows sum; % rows recompute from summed dollars.
+// Skips the open month.
 function putisYear(M, year, branches) {
-  const t = { revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, months: 0 };
+  const t = { revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, merchantX: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, months: 0 };
+  const openYm = putisOpenMonth();
   for (let i = 0; i < 12; i++) {
-    const d = putisDerive(M, _mktgYm(year, i), branches);
+    const ym = _mktgYm(year, i);
+    if (ym >= openYm) continue;
+    const d = putisDerive(M, ym, branches);
     if (!d.any) continue;
     t.months++;
     for (const k of ['revenue', 'ms', 'auto', 'techWages', 'merchant', 'marketing', 'incentives', 'commissions', 'housing', 'ga', 'interest', 'da']) t[k] += d[k];
@@ -43088,10 +43097,10 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra) {
     return _putisSigned(a - b, row.kind === 'pct') || '—';
   };
   const table = el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
-    el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...MKTG_MONTHS.map(m => th(m, '', PUTIS_COL_TIPS.month)), th(year + ' YTD', '', PUTIS_COL_TIPS.ytd), th((year - 1) + ' total', '', PUTIS_COL_TIPS.prior), th('YoY', '', PUTIS_COL_TIPS.yoy))),
+    el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...MKTG_MONTHS.map((m, i) => { const isOpen = _mktgYm(year, i) === putisOpenMonth(); return th(isOpen ? m + ' · open' : m, isOpen ? 'italic' : '', isOpen ? 'Current month — books not closed yet, numbers move daily. Not included in YTD.' : PUTIS_COL_TIPS.month); }), th(year + ' YTD' + (String(year) === putisOpenMonth().slice(0, 4) ? ' (thru ' + MKTG_MONTHS[Math.max(0, new Date().getMonth() - 1)] + ')' : ''), '', PUTIS_COL_TIPS.ytd + ' The open (current) month is excluded.'), th((year - 1) + ' total', '', PUTIS_COL_TIPS.prior), th('YoY', '', PUTIS_COL_TIPS.yoy))),
     el('tbody', {}, ...PUTIS_ROWS.map(row => el('tr', { class: 'border-t border-' + (row.bold ? ' font-semibold' : ''), style: row.bold ? { background: 'var(--card-2)' } : {} },
       td(row.label, { bold: true, title: row.tip, style: { position: 'sticky', left: 0, background: row.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
-      ...months.map((d, i) => td(cellVal(row, d, i > 0 ? months[i - 1] : null))),
+      ...months.map((d, i) => td(cellVal(row, d, i > 0 ? months[i - 1] : null), _mktgYm(year, i) === putisOpenMonth() ? { style: { opacity: '.45' }, title: 'Open month — not closed yet' } : {})),
       td(ytd.months ? (row.kind === 'pct' ? _putisPct1(ytd[row.id]) : _putisUsd(ytd[row.id])) : '—', { bold: true, style: row.signed && ytd.months ? { color: ytd[row.id] < 0 ? '#DC2626' : '#16A34A' } : {} }),
       td(prior.months ? (row.kind === 'pct' ? _putisPct1(prior[row.id]) : _putisUsd(prior[row.id])) : '—', { style: { color: 'var(--text-muted)' } }),
       td(yoy(row), { style: { color: 'var(--text-muted)' } })))));
@@ -43122,7 +43131,7 @@ function putisIndicatorsCard(M, ym, branches) {
   const FR = putisFieldRoutes();
   const isYtd = /^\d{4}-YTD$/.test(ym);
   const year = ym.slice(0, 4);
-  const yms = isYtd ? Object.keys(M).filter(k => k.startsWith(year + '-') && /^\d{4}-\d{2}$/.test(k)).sort() : [ym];
+  const yms = isYtd ? Object.keys(M).filter(k => k.startsWith(year + '-') && /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).sort() : [ym];
   const cols = [...branches.map(b => ({ key: b, label: b, set: [b] })), { key: 'RIDD', label: 'RIDD', set: branches }];
   const D = Object.fromEntries(cols.map(c => [c.key, putisDeriveMonths(M, yms, c.set)]));
   const fr = (key) => {
@@ -43240,7 +43249,12 @@ function reportingPutis() {
   const retained = branches.filter(b => b !== 'Corporate');
   const monthsWithData = Object.keys(M).filter(ym => ym.startsWith(String(year)) && Object.values(M[ym]).some(x => x.revenue)).sort();
   const _isYtdPick = /^\d{4}-YTD$/.test(state._putisMonth || '');
-  if (!state._putisMonth || (!_isYtdPick && !M[state._putisMonth])) state._putisMonth = monthsWithData[monthsWithData.length - 1] || _mktgYm(year, new Date().getMonth());
+  if (!state._putisMonth || (!_isYtdPick && !M[state._putisMonth])) {
+    // Default = last CLOSED month (per Isaac); fall back to the latest booked month before it.
+    const closed = putisLastClosedMonth();
+    const candidates = monthsWithData.filter(ym => ym <= closed);
+    state._putisMonth = M[closed] ? closed : (candidates[candidates.length - 1] || monthsWithData[monthsWithData.length - 1] || closed);
+  }
   const pulled = state.reportingLedger.pulledAt ? new Date(state.reportingLedger.pulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
   const sel = (val, opts, on) => el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => on(e.target.value) },
     ...opts.map(([v, l]) => el('option', { value: v, selected: v === val }, l)));
@@ -43268,7 +43282,7 @@ function reportingPutis() {
     wrap.append(putisTrendCard(M, year, [branchSel], branchSel, sub, branchPicker()));
   }
   // P&L indicators (one month)
-  const monthOpts = [[year + '-YTD', year + ' year to date'], ...Array.from({ length: 12 }, (_, i) => _mktgYm(year, i)).filter(ym => M[ym]).map(ym => [ym, new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })])];
+  const monthOpts = [[year + '-YTD', year + ' year to date (closed months)'], ...Array.from({ length: 12 }, (_, i) => _mktgYm(year, i)).filter(ym => M[ym]).map(ym => [ym, new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + (ym === putisOpenMonth() ? ' · open' : '')])];
   wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap mt-2' },
     el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'P&L indicators · month'),
     monthOpts.length ? sel(state._putisMonth, monthOpts, (v) => { state._putisMonth = v; mountApp(); }) : el('span', { class: 'text-[11px] text-muted-' }, 'no months booked in ' + year)));
