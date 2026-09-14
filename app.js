@@ -43475,10 +43475,10 @@ function reportingPutis() {
     el('span', { class: 'text-[10px] text-muted- ml-auto' }, 'QuickBooks via Windsor' + (pulled ? ' · pulled ' + pulled : '') + (state.reportingLedger.refreshing ? ' · refreshing…' : '') + ' · FieldRoutes for accounts / ARR / churn'),
     el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Re-pull the ledger from QuickBooks now', onclick: () => { reportingLoadLedger(true); if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(true); } }, '↻')));
 
-  // ── 1. Executive summary (closed month, RIDD) ──
-  wrap.append(putisKpiStrip(M, U, closedYm, branches));
+  // (Executive-summary KPI strip retired per Isaac — the branch scorecard
+  // carries the same ratios per branch + RIDD.)
 
-  // ── 2. Branch scorecard (closed month ⇄ YTD) ──
+  // ── 1. Branch scorecard (closed month ⇄ YTD) ──
   const scScope = state._putisScoreScope === 'ytd' ? 'ytd' : 'month';
   const scYms = scScope === 'ytd' ? ytdMonths : [closedYm];
   const scTitle = 'Branch scorecard · ' + (scScope === 'ytd' ? closedYr + ' YTD (thru ' + new Date(closedYm + '-15T12:00').toLocaleDateString('en-US', { month: 'short' }) + ')' : new Date(closedYm + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
@@ -43486,7 +43486,7 @@ function reportingPutis() {
   scCard.firstChild.append(seg(scScope, [['month', 'Closed month'], ['ytd', 'YTD']], (v) => { state._putisScoreScope = v; mountApp(); }));
   wrap.append(scCard);
 
-  // ── 3. Trend (the original Putis Shid table) ──
+  // ── 2. Trend (the original Putis Shid table) ──
   const sub = 'QuickBooks general ledger · months with nothing booked show —';
   const branchPicker = () => { const p = sel(branchSel, [['RIDD', 'RIDD · all branches'], ...branches.map(b => [b, b]), ['all', 'Every branch (stacked)']], (v) => { state._putisBranch = v; mountApp(); }); p.classList.add('ml-auto'); return p; };
   if (branchSel === 'all') {
