@@ -124,6 +124,13 @@ async function windsorCached(event, force) {
   if (cached && cached.bySourceMonth) return { ...cached, stale: age > CACHE_MS, refreshing: !!(inFlight || force || age > CACHE_MS) };
   return { pending: true };
 }
+// ?full=1 → the whole ledger (every account × month) for the Putis Shid tab.
+async function ledgerCached() {
+  const { kvStore } = require('../lib/kv-store.js');
+  const store = kvStore('qbo');
+  if (!store) return null;
+  try { return await store.get('ledger'); } catch (e) { console.warn('[qbo-spend] ledger read failed:', e && e.message); return null; }
+}
 
 exports.handler = async (event) => {
   // ── Auth: admins only (shared gate) — this endpoint serves company
@@ -135,6 +142,11 @@ exports.handler = async (event) => {
     const q0 = (event && event.queryStringParameters) || {};
     try {
       const w = await windsorCached(event, !!q0._);
+      if (q0.full) {
+        const L = await ledgerCached();
+        if (L && L.months) return { statusCode: 200, headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=300' }, body: JSON.stringify({ ...L, refreshing: !!(w && w.refreshing) }) };
+        return { statusCode: 202, headers: { 'content-type': 'application/json', 'retry-after': '20' }, body: JSON.stringify({ pending: true, error: 'QuickBooks ledger is being pulled from Windsor — retry in ~30s' }) };
+      }
       if (w && w.bySourceMonth) {
         return { statusCode: 200, headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=300' }, body: JSON.stringify(w) };
       }

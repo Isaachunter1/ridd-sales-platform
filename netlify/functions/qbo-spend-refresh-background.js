@@ -28,14 +28,18 @@ async function pullWindsor(startYear) {
   const r = await fetchT(url, { headers: { accept: 'application/json' } });
   if (!r.ok || !r.json) throw new Error(`Windsor quickbooks ${r.status}: ${(r.text || '').slice(0, 200)}`);
   const rows = Array.isArray(r.json) ? r.json : (r.json.data || r.json.result || []);
-  const out = {};
+  const out = {};        // marketing only: {ym: {"Atlanta Marketing": $}}
+  const ledger = {};     // EVERY account: {ym: {"Advertising & Marketing:Atlanta Marketing": $}} — feeds the Putis Shid tab
   let any = false;
   for (const row of rows) {
-    const acct = String(row.generalledger__item__account_name || '');
-    if (!/^advertising\s*&\s*marketing:/i.test(acct)) continue;
+    const acct = String(row.generalledger__item__account_name || '').trim();
+    if (!acct) continue;
     const m = String(row.year_month || '').match(/^(\d{4})\|(\d{1,2})$/); if (!m) continue;
     const ym = m[1] + '-' + m[2].padStart(2, '0');
     const amt = Number(row.generalledger__item__subt_nat_amount); if (!amt) continue;
+    (ledger[ym] = ledger[ym] || {});
+    ledger[ym][acct] = (ledger[ym][acct] || 0) + amt;
+    if (!/^advertising\s*&\s*marketing:/i.test(acct)) continue;
     const name = acct.split(':').pop().trim();
     (out[ym] = out[ym] || {});
     out[ym][name] = (out[ym][name] || 0) + amt;
@@ -43,7 +47,8 @@ async function pullWindsor(startYear) {
   }
   if (!any) throw new Error('Windsor returned no Advertising & Marketing rows (' + rows.length + ' ledger rows)');
   let total = 0; for (const ym in out) for (const k in out[ym]) total += out[ym][k];
-  return { bySourceMonth: out, total, pulledAt: new Date().toISOString(), source: 'windsor', rows: rows.length };
+  const pulledAt = new Date().toISOString();
+  return { bySourceMonth: out, total, pulledAt, source: 'windsor', rows: rows.length, ledger: { months: ledger, pulledAt, source: 'windsor' } };
 }
 
 exports.handler = async (event) => {
@@ -60,6 +65,8 @@ exports.handler = async (event) => {
   try {
     await store.set('spend_refreshing', { at: new Date().toISOString() });
     const data = await pullWindsor(startYear);
+    const ledger = data.ledger; delete data.ledger;
+    await store.set('ledger', ledger);
     await store.set('spend', data);
     await store.delete('spend_refreshing').catch(() => {});
     console.log('[qbo-refresh] ok', data.rows, 'ledger rows,', Object.keys(data.bySourceMonth).length, 'months, total', Math.round(data.total), 'in', Date.now() - started, 'ms');

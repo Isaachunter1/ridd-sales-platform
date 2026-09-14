@@ -41724,6 +41724,7 @@ function viewReporting() {
     state.reportingSubTab === 'is'         ? reportingMarketingPnl() :
     state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingAuditExportCard(), el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()), reportingMarketingGoalsPanel()) :
     state.reportingSubTab === 'uploads'    ? reportingUploadsPanel() :
+    state.reportingSubTab === 'putis'      ? reportingPutis() :
     state.reportingSubTab === 'geographic' ? reportingGeographic() :
     state.reportingSubTab === 'waterfall'  ? reportingWaterfall() :
     // 'services' retired as a top tab; 'health'/'nextbest' fold into
@@ -42715,6 +42716,325 @@ function reportingAuditExportCard() {
     }, '⬇ Export full audit table'));
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PUTIS SHID — the executive P&L view (per Isaac's Executive Data Sheet).
+// Every number comes from the QuickBooks general ledger (via Windsor, cached
+// server-side — same feed as Marketing ad spend), classified by the branch
+// prefix on each sub-account ("Atlanta Marketing", "Myrtle Beach Tech
+// Wages", …) and the top-level account group. Sheet definitions:
+//   M&S            = Chemicals and Job Supplies (chemicals + job supplies)
+//   Auto/Fuel      = Auto and Fuel (auto expenses + fuel)
+//   Gross Profit   = Revenue − (M&S + Auto/Fuel + Tech Wages + Merchant Fees)
+//   Selling Exp    = Sales Commissions + Marketing + Incentives
+//   G&A            = every other operating expense except Housing + Interest
+//   EBITDA         = Gross Profit − (Selling + Housing + G&A)   (interest excluded)
+//   Adjusted EBITDA= EBITDA + Selling Expense  (the sheet's F14 + F11×F3)
+// ═══════════════════════════════════════════════════════════════════════════
+const PUTIS_BRANCHES = ['Atlanta', 'Charleston', 'Destin', 'Detroit', 'Joplin', 'Little Rock', 'Myrtle Beach', 'Raleigh', 'Salt Lake', 'Virginia Beach', 'Tampa'];
+const PUTIS_GROUP = {
+  'sales': 'revenue',
+  'chemicals and job supplies': 'ms',
+  'auto and fuel': 'auto',
+  'technician labor wages': 'techWages',
+  'other cogs': 'merchant',
+  'advertising & marketing': 'marketing',
+  'incentive costs': 'incentives',
+  'selling expenses': 'commissions',
+  'housing': 'housing',
+  'interest paid': 'interest',
+  // G&A buckets
+  'insurance': 'ga', 'legal fees': 'ga', 'legal & professional services': 'ga', 'office expenses': 'ga',
+  'office wages': 'ga', 'postage and delivery': 'ga', 'recruiting': 'ga', 'rent & lease': 'ga', 'travel': 'ga',
+  'bank charges & fees': 'ga', 'building cleaning': 'ga', 'car & truck': 'ga', 'geotab expenses': 'ga',
+  'telephone': 'ga', 'utilities': 'ga', 'payroll': 'ga', 'software': 'ga', 'dues & subscriptions': 'ga',
+  'meals & entertainment': 'ga', 'taxes & licenses': 'ga', 'repairs & maintenance': 'ga', 'uniforms': 'ga',
+  'depreciation': 'da', 'amortization': 'da', 'depreciation expense': 'da',
+};
+const PUTIS_GA_LINES = ['Insurance', 'Legal Fees', 'Office Expenses', 'Office Wages', 'Postage and Delivery', 'Recruiting', 'Rent & Lease', 'Travel'];
+function putisBranchOf(leaf) {
+  const L = String(leaf || '').trim().toLowerCase();
+  for (const b of PUTIS_BRANCHES) if (L.startsWith(b.toLowerCase())) return b;
+  if (L.startsWith('utah')) return 'Salt Lake';
+  return 'Corporate';   // Executive / Corporate / un-prefixed accounts (BayToast comish, interest, …)
+}
+function putisClassify(fullName) {
+  const parts = String(fullName || '').split(':').map(s => s.trim());
+  const top = (parts[0] || '').toLowerCase();
+  const cat = PUTIS_GROUP[top];
+  if (!cat) return null;                        // balance sheet, other income, Miami, …
+  const leaf = parts[parts.length - 1];
+  const branch = parts.length > 1 ? putisBranchOf(leaf) : 'Corporate';
+  return { cat, branch, top: parts[0], leaf };
+}
+// {ym: {branch: {revenue, ms, auto, techWages, merchant, marketing, incentives, commissions, housing, ga, interest, da, gaLines:{}}}}
+function putisMonthly() {
+  const L = state.reportingLedger && state.reportingLedger.months;
+  if (!L) return null;
+  if (state._putisCacheFor === state.reportingLedger.pulledAt && state._putisCache) return state._putisCache;
+  const out = {};
+  const seed = () => ({ revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, gaLines: {} });
+  for (const ym in L) {
+    for (const acct in L[ym]) {
+      const c = putisClassify(acct); if (!c) continue;
+      const amt = Number(L[ym][acct]) || 0; if (!amt) continue;
+      const B = (out[ym] = out[ym] || {});
+      const x = (B[c.branch] = B[c.branch] || seed());
+      x[c.cat] += amt;
+      if (c.cat === 'ga') x.gaLines[c.top] = (x.gaLines[c.top] || 0) + amt;
+    }
+  }
+  state._putisCache = out; state._putisCacheFor = state.reportingLedger.pulledAt;
+  return out;
+}
+// Roll a set of branches up for one month → derived lines.
+function putisDerive(M, ym, branches) {
+  const B = (M && M[ym]) || {};
+  const t = { revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, gaLines: {}, any: false };
+  for (const b of branches) {
+    const x = B[b]; if (!x) continue;
+    t.any = true;
+    for (const k of ['revenue', 'ms', 'auto', 'techWages', 'merchant', 'marketing', 'incentives', 'commissions', 'housing', 'ga', 'interest', 'da']) t[k] += x[k];
+    for (const g in x.gaLines) t.gaLines[g] = (t.gaLines[g] || 0) + x.gaLines[g];
+  }
+  const rev = t.revenue;
+  t.cogs = t.ms + t.auto + t.techWages + t.merchant;
+  t.gp = rev - t.cogs;
+  t.selling = t.commissions + t.marketing + t.incentives;
+  t.opex = t.selling + t.housing + t.ga;
+  t.ebitda = t.gp - t.opex;
+  t.adjEbitda = t.ebitda + t.selling;
+  t.netIncome = t.ebitda - t.interest - t.da;
+  const pct = (v) => rev > 0 ? v / rev : null;
+  t.msPct = pct(t.ms); t.autoPct = pct(t.auto); t.techPct = pct(t.techWages); t.merchantPct = pct(t.merchant);
+  t.gpPct = pct(t.gp); t.gaPct = pct(t.ga); t.sellingPct = pct(t.selling); t.marketingPct = pct(t.marketing);
+  t.housingPct = pct(t.housing); t.incentivesPct = pct(t.incentives); t.commissionsPct = pct(t.commissions);
+  t.opexPct = pct(t.opex); t.ebitdaPct = pct(t.ebitda); t.adjEbitdaPct = pct(t.adjEbitda); t.netPct = pct(t.netIncome);
+  return t;
+}
+function putisBranchesWithData(M, year) {
+  const set = new Set();
+  for (const ym in M) if (ym.startsWith(String(year))) for (const b in M[ym]) if (M[ym][b].revenue || M[ym][b].ga || M[ym][b].techWages) set.add(b);
+  const order = [...PUTIS_BRANCHES, 'Corporate'];
+  return order.filter(b => set.has(b));
+}
+// FieldRoutes side (reporting snapshot): active recurring subs + ARR per branch.
+function putisFieldRoutes() {
+  try {
+    const F = reportingFilters();
+    const out = {};
+    for (const r of F.recurring) {
+      if (!F.isActive(r)) continue;
+      const b = putisBranchOf(String(r.office_name || '').toLowerCase().replace(/\s+/g, ' '));
+      const x = (out[b] = out[b] || { active: 0, arr: 0, customers: new Set() });
+      x.active++; x.arr += Number(r.annual_recurring_value) || 0;
+      if (r.customer_id) x.customers.add(r.customer_id);
+    }
+    return out;
+  } catch (e) { return {}; }
+}
+function reportingLoadLedger(force) {
+  if (force) { state.reportingLedger = null; state._ledgerLoading = false; }
+  if (state.reportingLedger != null || state._ledgerLoading) return;
+  state._ledgerLoading = true;
+  _apiAuthHeaders().then(h => fetch('/api/qbo-spend?full=1' + (force ? '&_=' + Date.now() : ''), { headers: h })).then(r => r.ok ? r.json() : null).then(j => {
+    if (j && j.months) { state.reportingLedger = j; state._ledgerLoading = false; state._ledgerErr = null; mountApp(); }
+    else if (j && j.pending) { state._ledgerLoading = false; state._ledgerErr = 'pulling'; setTimeout(() => reportingLoadLedger(false), 25000); mountApp(); }
+    else { state._ledgerLoading = false; state._ledgerErr = 'unavailable'; state.reportingLedger = { months: {} }; mountApp(); }
+  }).catch(() => { state._ledgerLoading = false; state._ledgerErr = 'unavailable'; state.reportingLedger = { months: {} }; mountApp(); });
+}
+
+const _putisUsd = (v) => v == null ? '—' : (v < 0 ? '-' : '') + '$' + Math.round(Math.abs(v)).toLocaleString();
+const _putisPct1 = (v) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(1) + '%';
+const _putisSigned = (v, isPct) => v == null || !isFinite(v) ? '' : (v > 0 ? '+' : '') + (isPct ? (v * 100).toFixed(1) + ' pts' : _putisUsd(v));
+
+// Putis Shid rows (sheet order).
+const PUTIS_ROWS = [
+  { id: 'revenue',      label: 'Revenue',          kind: 'usd', bold: true },
+  { id: 'msPct',        label: 'M&S',              kind: 'pct', lowGood: true },
+  { id: 'autoPct',      label: 'Auto/Fuel',        kind: 'pct', lowGood: true },
+  { id: 'techPct',      label: 'Tech Wages',       kind: 'pct', lowGood: true },
+  { id: 'merchantPct',  label: 'Merchant Fees',    kind: 'pct', lowGood: true },
+  { id: 'gp',           label: 'Gross Profit',     kind: 'usd', bold: true },
+  { id: 'gpPct',        label: 'Gross Profit %',   kind: 'pct' },
+  { id: 'gaPct',        label: 'G&A',              kind: 'pct', lowGood: true },
+  { id: 'sellingPct',   label: 'Selling Expense',  kind: 'pct', lowGood: true },
+  { id: 'marketing',    label: 'Marketing',        kind: 'usd' },
+  { id: 'marketingPct', label: 'Marketing %',      kind: 'pct', lowGood: true },
+  { id: 'ebitda',       label: 'EBITDA',           kind: 'usd', bold: true, signed: true },
+  { id: 'adjEbitda',    label: 'Adjusted EBITDA',  kind: 'usd', bold: true, signed: true },
+];
+// Year rollup for a row: $ rows sum; % rows recompute from summed dollars.
+function putisYear(M, year, branches) {
+  const t = { revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, months: 0 };
+  for (let i = 0; i < 12; i++) {
+    const d = putisDerive(M, _mktgYm(year, i), branches);
+    if (!d.any) continue;
+    t.months++;
+    for (const k of ['revenue', 'ms', 'auto', 'techWages', 'merchant', 'marketing', 'incentives', 'commissions', 'housing', 'ga', 'interest', 'da']) t[k] += d[k];
+  }
+  const fake = { [year + '-00']: { X: { ...t, gaLines: {} } } };
+  const d = putisDerive(fake, year + '-00', ['X']);
+  d.months = t.months;
+  return d;
+}
+
+function putisTrendCard(M, year, branches, title, subtitle) {
+  const months = Array.from({ length: 12 }, (_, i) => putisDerive(M, _mktgYm(year, i), branches));
+  const ytd = putisYear(M, year, branches), prior = putisYear(M, year - 1, branches);
+  const showMoM = !!state._putisMoM;
+  const th = (t, extra) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left ' + (extra || ''), style: { color: 'var(--text-muted)' } }, t);
+  const td = (content, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap align-top' + (o.bold ? ' font-bold' : ''), style: o.style || {} }, content);
+  const cellVal = (row, d, prev) => {
+    const v = d.any ? d[row.id] : null;
+    const label = v == null ? '—' : row.kind === 'pct' ? _putisPct1(v) : _putisUsd(v);
+    const col = row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
+    const node = el('div', { style: col }, label);
+    if (showMoM && prev && prev.any && v != null && prev[row.id] != null) {
+      const delta = v - prev[row.id];
+      const good = row.lowGood ? delta <= 0 : delta >= 0;
+      node.append(el('div', { class: 'text-[9px]', style: { color: Math.abs(delta) < 1e-9 ? 'var(--text-subtle)' : good ? '#16A34A' : '#DC2626' } }, _putisSigned(delta, row.kind === 'pct')));
+    }
+    return node;
+  };
+  const yoy = (row) => {
+    if (!ytd.months || !prior.months) return '—';
+    const a = ytd[row.id], b = prior[row.id];
+    if (a == null || b == null) return '—';
+    return _putisSigned(a - b, row.kind === 'pct') || '—';
+  };
+  const table = el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
+    el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...MKTG_MONTHS.map(m => th(m)), th(year + ' YTD'), th((year - 1) + ' total'), th('YoY'))),
+    el('tbody', {}, ...PUTIS_ROWS.map(row => el('tr', { class: 'border-t border-' + (row.bold ? ' font-semibold' : ''), style: row.bold ? { background: 'var(--card-2)' } : {} },
+      td(row.label, { bold: true, style: { position: 'sticky', left: 0, background: row.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
+      ...months.map((d, i) => td(cellVal(row, d, i > 0 ? months[i - 1] : null))),
+      td(ytd.months ? (row.kind === 'pct' ? _putisPct1(ytd[row.id]) : _putisUsd(ytd[row.id])) : '—', { bold: true, style: row.signed && ytd.months ? { color: ytd[row.id] < 0 ? '#DC2626' : '#16A34A' } : {} }),
+      td(prior.months ? (row.kind === 'pct' ? _putisPct1(prior[row.id]) : _putisUsd(prior[row.id])) : '—', { style: { color: 'var(--text-muted)' } }),
+      td(yoy(row), { style: { color: 'var(--text-muted)' } })))));
+  return el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, title), subtitle ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, subtitle) : null)),
+    el('div', { class: 'scroll-x' }, table));
+}
+
+// P&L Indicators — one month, branch columns (the sheet's P&L tab).
+function putisIndicatorsCard(M, ym, branches) {
+  const FR = putisFieldRoutes();
+  const cols = [...branches.map(b => ({ key: b, label: b, set: [b] })), { key: 'RIDD', label: 'RIDD', set: branches }];
+  const D = Object.fromEntries(cols.map(c => [c.key, putisDerive(M, ym, c.set)]));
+  const fr = (key) => {
+    const set = cols.find(c => c.key === key).set;
+    const t = { active: 0, arr: 0 };
+    for (const b of set) { const x = FR[b]; if (x) { t.active += x.active; t.arr += x.arr; } }
+    return t;
+  };
+  const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', style: { color: 'var(--text-muted)' } }, t);
+  const td = (v, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' + (o.bold ? ' font-bold' : '') + (o.muted ? ' text-muted-' : ''), style: o.style || {} }, v);
+  const section = (label) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' }, colspan: cols.length + 1 }, label));
+  const line = (label, f, o = {}) => el('tr', { class: 'border-t border-' + (o.bold ? ' font-semibold' : ''), style: o.bold ? { background: 'var(--card-2)' } : {} },
+    td(label, { bold: true, style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
+    ...cols.map(c => { const v = f(D[c.key], c.key); const s = o.signed && typeof v === 'number' ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
+      return td(v == null || (typeof v === 'number' && !isFinite(v)) ? '—' : o.pct ? _putisPct1(v) : o.num ? Math.round(v).toLocaleString() : o.usd2 ? '$' + v.toFixed(2) : _putisUsd(v), { style: s, muted: o.muted }); }));
+  const rows = [
+    section('Income statement'),
+    line('Total income', d => d.revenue, { bold: true }),
+    line('Chemicals & job supplies', d => d.ms),
+    line('Auto & fuel', d => d.auto),
+    line('Technician labor wages', d => d.techWages),
+    line('Merchant fees', d => d.merchant),
+    line('Cost of goods sold', d => d.cogs, { bold: true }),
+    line('Gross profit', d => d.gp, { bold: true, signed: true }),
+    line('Advertising & marketing', d => d.marketing),
+    line('Sales commissions', d => d.commissions),
+    line('Incentive costs', d => d.incentives),
+    line('Housing', d => d.housing),
+    ...PUTIS_GA_LINES.map(g => line(g, d => d.gaLines[g] || 0, { muted: true })),
+    line('Other G&A', d => Object.keys(d.gaLines).filter(g => !PUTIS_GA_LINES.includes(g)).reduce((s, g) => s + d.gaLines[g], 0), { muted: true }),
+    line('Total expenses', d => d.opex, { bold: true }),
+    line('EBITDA', d => d.ebitda, { bold: true, signed: true }),
+    line('Interest paid', d => d.interest),
+    line('Net income', d => d.netIncome, { bold: true, signed: true }),
+    line('Adjusted EBITDA (before selling expense)', d => d.adjEbitda, { bold: true, signed: true }),
+    section('Data · FieldRoutes (today)'),
+    line('Recurring revenue (active ARR)', (d, k) => fr(k).arr),
+    line('Active accounts', (d, k) => fr(k).active, { num: true }),
+    line('ACV (ARR ÷ active accounts)', (d, k) => { const f = fr(k); return f.active ? f.arr / f.active : null; }),
+    line('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }),
+    line('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true }),
+    section('Margins'),
+    line('Product cost (M&S)', d => d.msPct, { pct: true }),
+    line('Auto & fuel', d => d.autoPct, { pct: true }),
+    line('Tech wages', d => d.techPct, { pct: true }),
+    line('Cost of goods sold', d => d.revenue > 0 ? d.cogs / d.revenue : null, { pct: true }),
+    line('Gross profit', d => d.gpPct, { pct: true, bold: true }),
+    line('OPEX', d => d.opexPct, { pct: true }),
+    line('Selling expense', d => d.sellingPct, { pct: true }),
+    line('G&A', d => d.gaPct, { pct: true }),
+    line('Marketing', d => d.marketingPct, { pct: true }),
+    line('EBITDA', d => d.ebitdaPct, { pct: true, bold: true, signed: true }),
+    line('Adjusted EBITDA', d => d.adjEbitdaPct, { pct: true, bold: true, signed: true }),
+    line('Net profit', d => d.netPct, { pct: true, signed: true }),
+  ];
+  return el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
+      el('h3', { class: 'text-sm font-bold' }, 'P&L Indicators · ' + new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })),
+      el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'QuickBooks general ledger by branch · FieldRoutes for accounts + ARR · Corporate = un-branched accounts')),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th(''), ...cols.map(c => th(c.label)))),
+      el('tbody', {}, ...rows))));
+}
+
+function reportingPutis() {
+  if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
+  reportingLoadLedger();
+  const M = putisMonthly();
+  const year = _mktgYearSel();
+  const wrap = el('div', { class: 'flex flex-col gap-4' });
+  if (!M) {
+    wrap.append(el('div', { class: 'card p-8 text-center' },
+      el('div', { class: 'text-sm font-bold' }, state._ledgerErr === 'unavailable' ? 'QuickBooks ledger unavailable' : 'Pulling the QuickBooks ledger…'),
+      el('div', { class: 'text-xs mt-1 text-muted-' }, state._ledgerErr === 'unavailable' ? 'The Windsor → QuickBooks feed didn’t answer. Check WINDSOR_API_KEY / the QuickBooks connection in Windsor, then ↻.' : 'First pull takes ~30s — this page refreshes itself.'),
+      el('button', { class: 'mt-3 rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => reportingLoadLedger(true) }, '↻ Retry')));
+    return wrap;
+  }
+  const branches = putisBranchesWithData(M, year);
+  const branchSel = state._putisBranch && (branches.includes(state._putisBranch) || state._putisBranch === 'all' || state._putisBranch === 'RIDD') ? state._putisBranch : 'RIDD';
+  const retained = branches.filter(b => b !== 'Corporate');
+  const monthsWithData = Object.keys(M).filter(ym => ym.startsWith(String(year)) && Object.values(M[ym]).some(x => x.revenue)).sort();
+  if (!state._putisMonth || !M[state._putisMonth]) state._putisMonth = monthsWithData[monthsWithData.length - 1] || _mktgYm(year, new Date().getMonth());
+  const pulled = state.reportingLedger.pulledAt ? new Date(state.reportingLedger.pulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+  const sel = (val, opts, on) => el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => on(e.target.value) },
+    ...opts.map(([v, l]) => el('option', { value: v, selected: v === val }, l)));
+  // toolbar
+  wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap' },
+    sel(branchSel, [['RIDD', 'RIDD · all branches'], ['all', 'Every branch (stacked)'], ...branches.map(b => [b, b])], (v) => { state._putisBranch = v; mountApp(); }),
+    el('div', { class: 'inline-flex items-center gap-1' },
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = year - 1; mountApp(); } }, '‹'),
+      el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(year)),
+      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = year + 1; mountApp(); } }, '›')),
+    el('label', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer' },
+      el('input', { type: 'checkbox', checked: !!state._putisMoM, style: { accentColor: 'var(--accent)' }, onchange: (e) => { state._putisMoM = e.target.checked; mountApp(); } }), 'MoM change'),
+    el('span', { class: 'text-[10px] text-muted- ml-auto' }, 'QuickBooks via Windsor' + (pulled ? ' · pulled ' + pulled : '') + (state.reportingLedger.refreshing ? ' · refreshing…' : '')),
+    el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Re-pull the ledger from QuickBooks now', onclick: () => { reportingLoadLedger(true); if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(true); } }, '↻')));
+  // trend tables
+  const sub = 'QuickBooks general ledger · months with nothing booked show —';
+  if (branchSel === 'all') {
+    for (const b of branches) wrap.append(putisTrendCard(M, year, [b], b, sub));
+    wrap.append(putisTrendCard(M, year, retained, 'RIDD overall (branches, excl. corporate)', sub));
+    wrap.append(putisTrendCard(M, year, branches, 'RIDD total (incl. corporate)', sub));
+  } else if (branchSel === 'RIDD') {
+    wrap.append(putisTrendCard(M, year, branches, 'RIDD · all branches + corporate', sub));
+  } else {
+    wrap.append(putisTrendCard(M, year, [branchSel], branchSel, sub));
+  }
+  // P&L indicators (one month)
+  const monthOpts = Array.from({ length: 12 }, (_, i) => _mktgYm(year, i)).filter(ym => M[ym]).map(ym => [ym, new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })]);
+  wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap mt-2' },
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'P&L indicators · month'),
+    monthOpts.length ? sel(state._putisMonth, monthOpts, (v) => { state._putisMonth = v; mountApp(); }) : el('span', { class: 'text-[11px] text-muted-' }, 'no months booked in ' + year)));
+  if (M[state._putisMonth]) wrap.append(putisIndicatorsCard(M, state._putisMonth, putisBranchesWithData(M, state._putisMonth.slice(0, 4)).filter(b => M[state._putisMonth][b])));
+  return wrap;
+}
+
 function reportingSubTabs() {
   const tabs = [
     ['overview',   'Overview'],
@@ -42722,6 +43042,7 @@ function reportingSubTabs() {
     ['waterfall',  'Retention'],
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
+    ['putis',      'Putis Shid'],
   ];
   return el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
     ...tabs.map(([k, label]) => {
