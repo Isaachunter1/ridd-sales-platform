@@ -3298,6 +3298,44 @@ function _armSplashWatchdog() {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(check, 800); });
 })();
 
+// ── RESUME RESYNC ────────────────────────────────────────────────────────
+// Everything except sales realtime loads ONCE at boot. Desktop users reload
+// all day so they never notice; a phone resumes the same page for days and
+// keeps showing the calendar / scorecards / settings / sales as they were
+// when it was last opened (Isaac: "mobile isn't syncing"). Re-pull the
+// cloud stores whenever the app comes back to the foreground (at most once
+// a minute) and every 5 minutes while it stays visible, then remount when
+// the user isn't mid-modal or typing.
+let _resyncAt = 0, _resyncBusy = false;
+async function resyncFromCloud(reason) {
+  if ((typeof DEMO !== 'undefined' && DEMO) || typeof supabase === 'undefined' || !supabase || !state.profile) return;
+  if (_resyncBusy || Date.now() - _resyncAt < 60 * 1000) return;
+  _resyncBusy = true; _resyncAt = Date.now();
+  const jobs = [];
+  const safe = (fn) => { try { const p = fn(); if (p && p.catch) jobs.push(p.catch(() => {})); } catch (e) { /* skip */ } };
+  safe(() => refreshSalesData());
+  safe(() => refreshProfilesData());
+  safe(() => refreshCompetitionsData());
+  safe(() => loadIndicatorConfigFromSupabase());
+  safe(() => loadAppSettings());
+  safe(() => loadCommissionConfig());
+  safe(() => loadCompanyGoal());
+  // Calendar: only when nothing local is waiting to push (a pending
+  // debounced edit would otherwise be clobbered by the server copy).
+  if (typeof _calFp === 'function' && _calFp() === _calCloudFp) safe(() => loadCalendarFromCloud());
+  // Scorecards: drop the per-period cache so the next render refetches.
+  state._scorecardCloudFor = null;
+  if (typeof loadScorecardMeetingsCloud === 'function') safe(() => loadScorecardMeetingsCloud(true));
+  try { await Promise.all(jobs); } catch (e) { /* individual jobs already swallowed */ }
+  _resyncBusy = false;
+  const busyTyping = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if (busyTyping || document.querySelector('.modal-overlay')) return;
+  scheduleBackgroundRemount();
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(() => resyncFromCloud('resume'), 300); });
+window.addEventListener('online', () => setTimeout(() => resyncFromCloud('online'), 300));
+setInterval(() => { if (document.visibilityState === 'visible') resyncFromCloud('interval'); }, 5 * 60 * 1000);
+
 // ── CLIENT ERROR TELEMETRY ───────────────────────────────────────────────
 // Uncaught errors + promise rejections post to /api/client-error (→ admin
 // Slack when SLACK_ADMIN_WEBHOOK is set, Netlify logs always). Deduped per
