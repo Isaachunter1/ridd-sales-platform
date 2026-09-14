@@ -30143,7 +30143,21 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // Type filter says: each rep's sales are re-fenced to Sales Rep dept and
     // reps with no D2D production drop out entirely.
     const allBucket = [];   // every D2D seller, tagged or not — the ALL column
+    // Scope (per Isaac): break the cohorts down by team or office. Stored
+    // as 'all' | 'team:<name>' | 'office:<name>'.
+    const _scope = String(state._classScope || 'all');
+    const _scopeKind = _scope.startsWith('team:') ? 'team' : _scope.startsWith('office:') ? 'office' : 'all';
+    const _scopeVal = _scope.replace(/^(team|office):/, '');
+    const _repOffice = (r) => String(r.office || ((r.sales || []).find(x => x.office) || {}).office || '').trim();
+    const _inScope = (r) => _scopeKind === 'all' ? true
+      : _scopeKind === 'team' ? (getRepTeam(r.name) || '') === _scopeVal
+      : _repOffice(r).toUpperCase() === _scopeVal.toUpperCase();
+    const _teamOpts = [...new Set(Object.values(repMap).map(r => getRepTeam(r.name) || '').filter(Boolean))].sort();
+    const _officeOpts = [...new Set(Object.values(repMap).map(_repOffice).filter(Boolean))].sort();
+    const _scopedNames = new Set();
     Object.values(repMap).forEach(r => {
+      if (!_inScope(r)) return;
+      _scopedNames.add(r.name);
       const d2dSales = (r.sales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === 'd2d' : true));
       if (!d2dSales.length) return;
       allBucket.push({ ...r, sales: d2dSales });
@@ -30204,7 +30218,8 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     // reps still selling, which is exactly the story the manager needs.
     // Same D2D fence as the cohorts above — "% of co." means percent of
     // DOOR-TO-DOOR production, not company-wide across departments.
-    const _d2dAll = (rawSales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === 'd2d' : true));
+    const _d2dAll = (rawSales || []).filter(s => (typeof _indicatorDeptOf === 'function' ? _indicatorDeptOf(s) === 'd2d' : true)
+      && (_scopeKind === 'all' || _scopedNames.has(getCanonicalRepName(s.rep))));
     const companyTotalSold    = _d2dAll.length;
     const companyTotalRevenue = _d2dAll.reduce((a, s) => a + Number(s.contractValue || 0), 0);
 
@@ -30315,10 +30330,20 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       el('span', { class: 'text-xs font-semibold', style: { color: 'var(--text-muted)' } }, count + ' rep' + (count === 1 ? '' : 's')),
     );
 
+    const scopePicker = el('select', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      title: 'Break the Rookie / Vet cohorts down by team or office',
+      onchange: (e) => { state._classScope = e.target.value; mountApp(); },
+    },
+      el('option', { value: 'all', selected: _scope === 'all' }, 'All D2D'),
+      _teamOpts.length ? el('optgroup', { label: 'Teams' }, ..._teamOpts.map(t => el('option', { value: 'team:' + t, selected: _scope === 'team:' + t }, t))) : null,
+      _officeOpts.length ? el('optgroup', { label: 'Offices' }, ..._officeOpts.map(o => el('option', { value: 'office:' + o, selected: _scope === 'office:' + o }, _mktgTC(o)))) : null);
     const tierCard = el('div', { class: 'card overflow-hidden', 'data-section': 'class-metrics' },
       el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {},
-          el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA · Serviced divides by Reps W/ Serviced.' }, '🎓 Class Metrics'),
+        el('div', { class: 'flex items-center gap-3 flex-wrap' },
+          el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA · Serviced divides by Reps W/ Serviced.' }, '🎓 Class Metrics'),,
+          scopePicker
         ),
         untagged > 0 && el('button', {
           class: 'text-[10px] italic px-2 py-1 rounded border cursor-pointer transition hover:brightness-95',
