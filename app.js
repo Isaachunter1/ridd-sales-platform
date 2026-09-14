@@ -42800,7 +42800,7 @@ function reportingFilterBar(scope, opts = {}) {
       el('option', { value: 'all', selected: selected === 'all' }, 'All Offices'),
       ...offices.map(o => el('option', { value: o, selected: selected === o }, o)),
     );
-    return el('div', { class: 'flex flex-col gap-1' },
+    return el('div', { class: 'flex flex-col gap-1 rep-filter-pick' },
       hint && el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, hint),
       sel,
     );
@@ -42831,7 +42831,7 @@ function reportingFilterBar(scope, opts = {}) {
     ['last_year',       'Last year'],
     ['custom',          'Custom range…'],
   ];
-  const datePicker = el('div', { class: 'flex flex-col gap-1' },
+  const datePicker = el('div', { class: 'flex flex-col gap-1 rep-filter-pick' },
     el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Time range'),
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       el('select', {
@@ -42884,14 +42884,16 @@ function reportingFilterBar(scope, opts = {}) {
     }, 'Clear time filter'),
   );
 
+  // Phones (rep-filter-row CSS): pickers share one row with the ⓘ hugging
+  // the right edge instead of wrapping underneath (per Isaac).
   return el('div', { class: 'card p-4 flex flex-col gap-2' },
-    el('div', { class: 'flex items-end gap-3 flex-wrap' },
+    el('div', { class: 'flex items-end gap-3 flex-wrap rep-filter-row' },
       officePicker(office, (v) => { state.reportingOffice = v; mountApp(); }, inCompare ? 'Office A' : 'Office'),
       inCompare && el('div', { class: 'text-sm font-bold self-end pb-2', style: { color: 'var(--text-muted)' } }, 'vs'),
       inCompare && officePicker(compareOffice, (v) => { state.reportingCompareOffice = v; mountApp(); }, 'Office B'),
       showDate && datePicker,
       showCompare && compareBtn,
-      el('div', { class: 'flex-1' }),
+      el('div', { class: 'flex-1 rep-filter-spacer' }),
       methodologyInfo,
     ),
     filterSummary,
