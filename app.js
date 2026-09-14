@@ -43063,6 +43063,23 @@ const _putisUsd = (v) => v == null ? '—' : (v < 0 ? '-' : '') + '$' + Math.rou
 const _putisPct1 = (v) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(1) + '%';
 const _putisSigned = (v, isPct) => v == null || !isFinite(v) ? '' : (v > 0 ? '+' : '') + (isPct ? (v * 100).toFixed(1) + ' pts' : _putisUsd(v));
 
+const PUTIS_KPI_TIPS = {
+  revenue: 'Booked revenue for the period (QuickBooks Sales accounts).',
+  gpPct: 'Gross margin — revenue after chemicals, auto/fuel, tech wages and merchant fees.',
+  ebitda: 'EBITDA — gross profit minus all operating expense. The bottom line before interest and depreciation.',
+  adjEbitdaPct: 'Adjusted EBITDA margin — EBITDA + selling expense (commissions, marketing, incentives) ÷ revenue. Profitability of the service base before growth spend.',
+  sellingPct: 'Selling expense ÷ revenue — the cost of growth (commissions + marketing + incentives).',
+  netNewArr: 'Net new ARR — annual recurring value sold in the period minus ARV lost to real cancels (Retention-tab rules). Positive = the book grew.',
+  ltvCac: 'LTV ÷ CAC — lifetime gross profit of an account (ACV × gross margin ÷ annual churn) divided by selling cost per new account. 3x+ is the usual PE bar.',
+  paybackMo: 'CAC payback — months of gross profit needed to recover the selling cost of a new account. Under 12 is healthy for route-based services.',
+  cac: 'CAC — selling expense (commissions + marketing + incentives) ÷ new recurring accounts sold in the period.',
+  monthlyChurn: 'Monthly churn — average real cancels per month ÷ active accounts today (Retention-tab rules: excluded reasons and 3-day ROR stripped).',
+  acv: 'ACV — active ARR ÷ active accounts.',
+  revPerActive: 'Monthly revenue per active account — booked revenue ÷ months ÷ active accounts today.',
+  arrCoverage: 'ARR realisation — booked monthly revenue ÷ (ARR ÷ 12). Above 1.0 means billing ran ahead of the recurring base (initials, upsells); below means under-billing or seasonal timing.',
+  gaPerActive: 'Monthly G&A per active account — overhead leverage. Should fall as branches scale.',
+  concentration: 'Share of company revenue from the largest branch.',
+};
 // Putis Shid rows (sheet order).
 const PUTIS_ROWS = [
   { id: 'revenue',      label: 'Revenue',          kind: 'usd', bold: true,  tip: 'Revenue — every QuickBooks "Sales:<Branch> Sales" income account for the month. Recognized revenue as booked on the P&L, not FieldRoutes contract value.' },
@@ -43419,23 +43436,6 @@ function putisMetrics(M, U, yms, branches) {
 }
 
 // ── Reorganised Putis Shid (per Isaac — "put your PE hat on") ───────────
-const PUTIS_KPI_TIPS = {
-  revenue: 'Booked revenue for the period (QuickBooks Sales accounts).',
-  gpPct: 'Gross margin — revenue after chemicals, auto/fuel, tech wages and merchant fees.',
-  ebitda: 'EBITDA — gross profit minus all operating expense. The bottom line before interest and depreciation.',
-  adjEbitdaPct: 'Adjusted EBITDA margin — EBITDA + selling expense (commissions, marketing, incentives) ÷ revenue. Profitability of the service base before growth spend.',
-  sellingPct: 'Selling expense ÷ revenue — the cost of growth (commissions + marketing + incentives).',
-  netNewArr: 'Net new ARR — annual recurring value sold in the period minus ARV lost to real cancels (Retention-tab rules). Positive = the book grew.',
-  ltvCac: 'LTV ÷ CAC — lifetime gross profit of an account (ACV × gross margin ÷ annual churn) divided by selling cost per new account. 3x+ is the usual PE bar.',
-  paybackMo: 'CAC payback — months of gross profit needed to recover the selling cost of a new account. Under 12 is healthy for route-based services.',
-  cac: 'CAC — selling expense (commissions + marketing + incentives) ÷ new recurring accounts sold in the period.',
-  monthlyChurn: 'Monthly churn — average real cancels per month ÷ active accounts today (Retention-tab rules: excluded reasons and 3-day ROR stripped).',
-  acv: 'ACV — active ARR ÷ active accounts.',
-  revPerActive: 'Monthly revenue per active account — booked revenue ÷ months ÷ active accounts today.',
-  arrCoverage: 'ARR realisation — booked monthly revenue ÷ (ARR ÷ 12). Above 1.0 means billing ran ahead of the recurring base (initials, upsells); below means under-billing or seasonal timing.',
-  gaPerActive: 'Monthly G&A per active account — overhead leverage. Should fall as branches scale.',
-  concentration: 'Share of company revenue from the largest branch.',
-};
 function _putisFmt(kind, v) {
   if (v == null || !isFinite(v)) return '—';
   if (kind === 'usd') return _putisUsd(v);
