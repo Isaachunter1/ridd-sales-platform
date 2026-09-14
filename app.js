@@ -43953,9 +43953,9 @@ function reportingLoadQboSpend(force) {
   if (force) { state.reportingIsSpend = null; state._isSpendLoading = false; }
   if (state.reportingIsSpend != null || state._isSpendLoading) return;
   state._isSpendLoading = true;
-  const useFile = () => fetch('/is-spend.json').then(r => r.ok ? r.json() : {})
-    .then(j => { state.reportingIsSpend = j || {}; state._isSpendSource = 'file'; state._isSpendLoading = false; mountApp(); })
-    .catch(() => { state.reportingIsSpend = {}; state._isSpendLoading = false; mountApp(); });
+  // No static / hand-entered fallback (per Isaac): QuickBooks via Windsor or
+  // nothing — an unbooked month shows blank rather than a made-up number.
+  const useFile = () => { state.reportingIsSpend = {}; state._isSpendSource = 'none'; state._isSpendLoading = false; mountApp(); };
   _apiAuthHeaders().then(h => fetch('/api/qbo-spend' + (force ? '?_=' + Date.now() : ''), { headers: h })).then(r => r.ok ? r.json() : null).then(j => {
     if (j && j.bySourceMonth && Object.keys(j.bySourceMonth).length) {
       state.reportingIsSpend = j.bySourceMonth; state._isSpendSource = 'QuickBooks'; state._isSpendPulledAt = j.pulledAt; state._isSpendLoading = false; mountApp();
@@ -44167,7 +44167,7 @@ function _mktgPnl() {
   // Ad spend (per Isaac): LIVE from QuickBooks — the branch "… Marketing"
   // sub-accounts under Advertising & Marketing on the P&L — with the
   // hand-entered allocation only filling months QuickBooks hasn't booked yet.
-  const ad  = (rk, i) => sum(rk, b => { const q = qbo(b, i); return q || _mktgSpendBranchMonth(m, _mktgYm(y, i), b); });
+  const ad  = (rk, i) => sum(rk, b => qbo(b, i));   // QuickBooks only — no allocation fallback (per Isaac)
   const wg  = (rk, i) => sum(rk, b => Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0);
   const inc = (rk, i) => sum(rk, b => Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0);
   const tot = (rk, i) => ad(rk, i) + wg(rk, i) + inc(rk, i);
@@ -44177,7 +44177,7 @@ function _mktgPnl() {
   const goalStyle = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#16A34A' : '#DC2626', fontWeight: '600' };
   return el('div', { class: 'flex flex-col gap-4' },
     _mktgMatrixCard('New revenue', 'FieldRoutes · office staff · new + upsell · pending/serviced · by sold month', rows, rev, _mktgUsd0, opts),
-    _mktgMatrixCard('Ad spend', (state._isSpendSource === 'QuickBooks' ? 'QuickBooks · Advertising & Marketing by branch' + (state._isSpendPulledAt ? ' · pulled ' + new Date(state._isSpendPulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '') : 'QuickBooks not connected — showing the hand-entered allocation') + ' · unbooked months fall back to Spend entry', rows, ad, _mktgUsd0, opts),
+    _mktgMatrixCard('Ad spend', (state._isSpendSource === 'QuickBooks' ? 'QuickBooks · Advertising & Marketing by branch' + (state._isSpendPulledAt ? ' · pulled ' + new Date(state._isSpendPulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '') : state._isSpendSource === 'none' ? 'QuickBooks feed unavailable — no spend to show' : 'loading QuickBooks spend…') + ' · P&L Advertising & Marketing · unbooked months show $0', rows, ad, _mktgUsd0, opts),
     _mktgMatrixCard('Wages', 'hand-entered (Spend entry)', rows, wg, _mktgUsd0, opts),
     _mktgMatrixCard('Incentives', 'hand-entered (Spend entry)', rows, inc, _mktgUsd0, opts),
     _mktgMatrixCard('Total spend', 'ad spend + wages + incentives', rows, tot, _mktgUsd0, opts),
@@ -44199,7 +44199,7 @@ function _mktgPnl() {
       }, ...Object.entries(METRICS).map(([k, v]) => el('option', { value: k, selected: k === key }, v.label)));
       return _mktgMatrixCard('Efficiency · ' + M.label, M.note, rows, M.cell, M.fmt, { ...opts, total: M.total, cellStyle: M.style, headerExtra: picker });
     })(),
-    _mktgMatrixCard('QuickBooks booked vs allocated', 'QuickBooks branch marketing accounts minus the hand-entered allocation · should read $0 once the controller books the month', B.all, (b, i) => { const q = qbo(b, i), al = _mktgSpendBranchMonth(m, _mktgYm(y, i), b); return (q || al) ? q - al : null; }, (v) => (v > 0 ? '+' : '') + fmt.usd0(v), { label: _mktgTC, firstCol: 'Branch', cellStyle: (v) => v == null ? {} : { color: Math.abs(v) < 1 ? '#16A34A' : '#D97706' } }),
+    // (QuickBooks booked vs allocated card dropped — ad spend is QuickBooks-only now.)
   );
 }
 
@@ -44215,7 +44215,7 @@ function _mktgCac() {
   // Ad spend: QuickBooks booked per branch, falling back to the hand-entered allocation for unbooked months.
   const SP = state.reportingIsSpend || {};
   const qbo = (b, i) => { const M = SP[_mktgYm(y, i)] || {}; let t = 0; for (const acct in M) { const off = (typeof _mktgQboOffice === 'function') ? _mktgQboOffice(acct) : null; if (off === b) t += Number(M[acct]) || 0; } return t; };
-  const ad = (i) => scopeBranches.reduce((t, b) => t + (qbo(b, i) || _mktgSpendBranchMonth(m, _mktgYm(y, i), b)), 0);
+  const ad = (i) => scopeBranches.reduce((t, b) => t + qbo(b, i), 0);   // QuickBooks only
   const wg = (i) => scopeBranches.reduce((t, b) => t + (Number((m.wages[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const inc = (i) => scopeBranches.reduce((t, b) => t + (Number((m.incentives[_mktgYm(y, i)] || {})[b]) || 0), 0);
   const tot = (i) => ad(i) + wg(i) + inc(i);
@@ -44527,7 +44527,7 @@ function reportingMktgSpendRevChart() {
   }, 50);
   const _spendStamp = state._isSpendSource === 'QuickBooks'
     ? 'QuickBooks · pulled ' + (state._isSpendPulledAt ? new Date(state._isSpendPulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'just now')
-    : state._isSpendSource === 'file' ? '\u26a0 static snapshot \u2014 QuickBooks feed unavailable' : 'loading spend\u2026';
+    : state._isSpendSource === 'none' ? '\u26a0 QuickBooks feed unavailable' : 'loading spend\u2026';
   const _spendRefresh = el('button', {
     class: 'text-[11px] font-semibold px-2.5 py-1 rounded-lg border cursor-pointer transition hover:brightness-95',
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text-muted)' },
@@ -44550,7 +44550,7 @@ function reportingMktgSpendRevChart() {
     el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
       el('h3', { class: 'text-base font-bold' }, 'Marketing Spend vs Inside Sales Revenue'),
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
-        el('span', { class: 'text-[10px]', style: { color: state._isSpendSource === 'file' ? '#D97706' : 'var(--text-subtle)' } }, _spendStamp),
+        el('span', { class: 'text-[10px]', style: { color: state._isSpendSource === 'none' ? '#D97706' : 'var(--text-subtle)' } }, _spendStamp),
         _mktgQboConnectBtn(),
         _spendRefresh)),
     el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Year-over-year by month · bars = marketing spend (months with verified QuickBooks data only) · lines = new contract revenue, office-staff sold, Pending/Serviced — same series as the pacer · ' + curY + ' solid vs ' + prevY + ' dashed'),
@@ -45051,7 +45051,7 @@ function reportingInsideSales() {
         autoRow('New Revenue (Sold)',   p => G(p).newRev,    usd, null),
       ],
       total: () => [ autoRow('TOTAL IS REVENUE', p => revAt(p), usd, null, { bold: true }) ] },
-    { label: 'Marketing Spend (' + (state._isSpendSource === 'QuickBooks' ? 'live · QuickBooks' : 'static snapshot — connect QuickBooks') + ')',
+    { label: 'Marketing Spend (' + (state._isSpendSource === 'QuickBooks' ? 'live · QuickBooks' : 'QuickBooks feed unavailable') + ')',
       detail: () => [ ...channels.map(ch => autoRow(ch, p => spendAt(ch, p) || null, usd, null, { indent: true, muted: true })) ],
       total: () => [ autoRow('ACTUAL MARKETING SPEND', p => mktAt(p), usd, null, { bold: true }) ] },
     { label: 'Payroll (manual)',
