@@ -43213,7 +43213,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     return t;
   };
   const endLabel = new Date(endYm + '-15T12:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  const th = (t, tip) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)' }, title: tip || '' }, t);
+  const th = (t, tip, corner) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)', position: 'sticky', top: 0, left: corner ? 0 : undefined, zIndex: corner ? 3 : 2, background: 'var(--card)', boxShadow: '0 1px 0 var(--border)' }, title: tip || '' }, t);
   const td = (v, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' + (o.bold ? ' font-bold' : '') + (o.muted ? ' text-muted-' : '') + (o.title ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '' }, v);
   const section = (label, tip) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-subtle)' }, colspan: cols.length + 1, title: tip || '' }, label));
   const line = (label, f, o = {}) => el('tr', { class: 'border-t border-' + (o.bold ? ' font-semibold' : ''), style: o.bold ? { background: 'var(--card-2)' } : {} },
@@ -43313,8 +43313,8 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
         el('h3', { class: 'text-sm font-bold' }, (opts.title || 'P&L Indicators') + ' · ' + (isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))),
         el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'QuickBooks general ledger by branch · FieldRoutes for accounts, ARR, churn · Corporate = un-branched accounts')),
       opts.headerExtra || null),
-    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th(''), ...cols.map(c => th(c.label, c.key === 'RIDD' ? 'Every branch in the ledger added together, including Corporate (un-branched accounts).' : c.key === 'Corporate' ? 'Accounts with no branch prefix: BayToast comish, interest expense, corporate rent, executive travel, executive marketing…' : 'QuickBooks sub-accounts whose name starts with "' + c.label + '".')))),
+    el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, th('', '', true), ...cols.map(c => th(c.label, c.key === 'RIDD' ? 'Every branch in the ledger added together, including Corporate (un-branched accounts).' : c.key === 'Corporate' ? 'Accounts with no branch prefix: BayToast comish, interest expense, corporate rent, executive travel, executive marketing…' : 'QuickBooks sub-accounts whose name starts with "' + c.label + '".')))),
       el('tbody', {}, ...rows))));
 }
 
@@ -43541,7 +43541,7 @@ function reportingPutis() {
   const U = putisUnitMonthly();
   const branches = putisBranchesWithData(M, year);
   const opBranches = branches.filter(b => b !== 'Corporate');
-  const branchSel = state._putisBranch && (branches.includes(state._putisBranch) || state._putisBranch === 'all' || state._putisBranch === 'RIDD') ? state._putisBranch : 'RIDD';
+  const branchSel = state._putisBranch && (branches.includes(state._putisBranch) || state._putisBranch === 'RIDD') ? state._putisBranch : 'RIDD';
   const monthsWithData = Object.keys(M).filter(ym => ym.startsWith(String(year)) && Object.values(M[ym]).some(x => x.revenue)).sort();
   const _isYtdPick = /^\d{4}-YTD$/.test(state._putisMonth || '');
   if (!state._putisMonth || (!_isYtdPick && !M[state._putisMonth])) {
@@ -43573,7 +43573,13 @@ function reportingPutis() {
   // (Executive-summary KPI strip retired per Isaac — the branch scorecard
   // carries the same ratios per branch + RIDD.)
 
-  // ── 1. P&L Indicators (year dropdown + range dropdown: YTD or a single month) ──
+  // ── 1. Trend (month-by-month, one scope at a time; RIDD by default) ──
+  const sub = 'QuickBooks general ledger · months with nothing booked show —';
+  const branchPicker = () => { const p = sel(branchSel, [['RIDD', 'RIDD'], ...branches.map(b => [b, b])], (v) => { state._putisBranch = v; mountApp(); }); p.classList.add('ml-auto'); return p; };
+  if (branchSel === 'RIDD') wrap.append(putisTrendCard(M, year, branches, 'RIDD', sub, branchPicker(), { company: true }));
+  else wrap.append(putisTrendCard(M, year, [branchSel], branchSel, sub, branchPicker()));
+
+  // ── 2. P&L Indicators (year dropdown + range dropdown: YTD or a single month) ──
   const ledgerYears = [...new Set(Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).map(k => k.slice(0, 4)))].sort().reverse();
   if (!ledgerYears.length) ledgerYears.push(closedYr);
   const scYear = ledgerYears.includes(String(state._putisScoreYear)) ? String(state._putisScoreYear) : closedYr;
@@ -43589,20 +43595,6 @@ function reportingPutis() {
   const scKey = scRange === 'ytd' ? scYear + '-YTD' : scRange;
   const scBranches = scRange === 'ytd' ? putisBranchesWithData(M, scYear) : putisBranchesWithData(M, scYear).filter(b => M[scRange] && M[scRange][b]);
   wrap.append(putisIndicatorsCard(M, scKey, scBranches, { headerExtra: pickers }));
-
-  // ── 2. Trend (the original Putis Shid table) ──
-  const sub = 'QuickBooks general ledger · months with nothing booked show —';
-  const branchPicker = () => { const p = sel(branchSel, [['RIDD', 'RIDD · all branches'], ...branches.map(b => [b, b]), ['all', 'Every branch (stacked)']], (v) => { state._putisBranch = v; mountApp(); }); p.classList.add('ml-auto'); return p; };
-  if (branchSel === 'all') {
-    let first = true;
-    for (const b of branches) { wrap.append(putisTrendCard(M, year, [b], b, sub, first ? branchPicker() : null)); first = false; }
-    wrap.append(putisTrendCard(M, year, opBranches, 'RIDD overall (branches, excl. corporate)', sub));
-    wrap.append(putisTrendCard(M, year, branches, 'RIDD total (incl. corporate)', sub, null, { company: true }));
-  } else if (branchSel === 'RIDD') {
-    wrap.append(putisTrendCard(M, year, branches, 'Trend · RIDD (all branches + corporate)', sub, branchPicker(), { company: true }));
-  } else {
-    wrap.append(putisTrendCard(M, year, [branchSel], 'Trend · ' + branchSel, sub, branchPicker()));
-  }
 
   return wrap;
 }
