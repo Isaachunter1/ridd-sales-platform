@@ -39251,7 +39251,7 @@ function setReportingExcludeRorChurn(b) {
 //     lands, so left in they'd count as "retained" forever
 function retenExclRenewalSubs()   {
   const r = _adminRules(); if (r && typeof r.retenExclRenewals === 'boolean') return r.retenExclRenewals;
-  try { return localStorage.getItem('ridd_reten_excl_renewals') !== '0'; } catch { return true; } }
+  return false; }   // default OFF since Sep 2026: the renewal IS the live book; the old sub closed "Renewal - …" is what leaves (retenPopExclReasons)
 function setRetenExclRenewalSubs(b)   { _setAdminRule('retenExclRenewals', !!b); try { localStorage.setItem('ridd_reten_excl_renewals', b ? '1' : '0'); } catch {} }
 function retenExclZeroPay()       {
   const r = _adminRules(); if (r && typeof r.retenExclZeroPay === 'boolean') return r.retenExclZeroPay;
@@ -39270,21 +39270,43 @@ function retenExclFrozenOneSvc()  {
   const r = _adminRules(); if (r && typeof r.retenExclFrozenOneSvc === 'boolean') return r.retenExclFrozenOneSvc;
   try { return localStorage.getItem('ridd_reten_excl_frozen1') !== '0'; } catch { return true; } }
 function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !!b); try { localStorage.setItem('ridd_reten_excl_frozen1', b ? '1' : '0'); } catch {} }
+// Step 1 (per Isaac, Sep 2026): subs CLOSED with one of these cancellation
+// reasons leave the retention book entirely - they are not customers lost
+// (3-day ROR = never really a customer; Combined = folded into another
+// sub; Renewal-* = the old sub was replaced by the renewal, which stays).
+const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', 'Renewal - Outbound', 'Renewal - Loyalty', 'Renewal - Service Pro Upsell', 'Renewal - Inbound'];
+function retenPopExclReasons() {
+  const r = _adminRules(); const v = r && Array.isArray(r.retenPopExclReasons) ? r.retenPopExclReasons : RETEN_POP_EXCL_REASONS_DEFAULT;
+  return new Set(v.map(_normCancelReason));
+}
+function setRetenPopExclReasons(arr) { _setAdminRule('retenPopExclReasons', arr); }
+// Step 3 exemption: one-service subs whose service name contains one of
+// these terms stay in the book (Sentricon is annual - one visit a year IS
+// the service).
+function retenOneSvcExemptTerms() {
+  const r = _adminRules(); const v = r && Array.isArray(r.retenOneSvcExempt) ? r.retenOneSvcExempt : ['sentricon'];
+  return v.map(x => String(x).toLowerCase()).filter(Boolean);
+}
+function setRetenOneSvcExemptTerms(arr) { _setAdminRule('retenOneSvcExempt', arr); }
+function _retenOneSvcExempt(r) {
+  const name = String(r.subscription || '').toLowerCase();
+  if (retenOneSvcExemptTerms().some(t => name.includes(t))) return true;
+  // Step 4: current-year accounts are exempt - they are just young, not dead.
+  const _sd = r.sold_date ? new Date(r.sold_date) : (r.initial_service ? new Date(r.initial_service) : null);
+  const _yr = _sd && !isNaN(_sd) ? _sd.getFullYear() : null;
+  return _yr != null && _yr >= new Date().getFullYear();
+}
 // One test, shared by the Retention tab prep + its population export.
+// Order = Isaac's hand method: (1) drop subs closed by ROR / combine /
+// renewal, (2) drop $0 ARR, (3) drop one-service subs unless Sentricon or
+// (4) current-year.
 function retenPopulationExcluded(r) {
+  if (r.subscription_date_canceled && retenPopExclReasons().has(_normCancelReason(reportingCancelReasonOf(r)))) return 'closed by ' + String(reportingCancelReasonOf(r) || '').trim();
   if (retenExclRenewalSubs() && reportingSourceClass(r.subscription_source) === 'renewal') return 'renewal sub';
   if (retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0) return '$0 paying';
-  // Year-aware (per Isaac): the 2+ services rule NEVER applies to accounts
-  // sold in the CURRENT year - they are just young, not dead. This mirrors
-  // the workbook, whose Step 6 only runs alongside "filter out current
-  // year". A prior-year account still sitting at <=1 service is the real
-  // quiet death the rule exists for.
-  if (retenExclOneSvc() && (Number(r.subscription_completed_services) || 0) <= 1) {
-    const _sd = r.sold_date ? new Date(r.sold_date) : null;
-    const _soldYr = _sd && !isNaN(_sd) ? _sd.getFullYear() : null;
-    if (_soldYr == null || _soldYr < new Date().getFullYear()) return 'under 2 services';
-  }
-  if (retenExclFrozenOneSvc() && /frozen/i.test(String(r.subscription_status || '')) && (Number(r.subscription_completed_services) || 0) <= 1) return 'frozen, 1 service';
+  const svc = Number(r.subscription_completed_services) || 0;
+  if (retenExclOneSvc() && svc <= 1 && !_retenOneSvcExempt(r)) return 'under 2 services';
+  if (retenExclFrozenOneSvc() && /frozen/i.test(String(r.subscription_status || '')) && svc <= 1 && !_retenOneSvcExempt(r)) return 'frozen, 1 service';
   return null;
 }
 function reportingActiveInclOneTime() {
@@ -49731,7 +49753,7 @@ function reportingWaterfall() {
   const _retenEff = (pop) => {
     // Memoized per population array + rules — four cards + drills share one
     // pass instead of each re-cloning the 65k-row book.
-    const _rulesKey = (retenExclRenewalSubs() ? 'R' : '') + (retenExclZeroPay() ? 'Z' : '') + (retenExclFrozenOneSvc() ? 'F' : '');
+    const _rulesKey = (retenExclRenewalSubs() ? 'R' : '') + (retenExclZeroPay() ? 'Z' : '') + (retenExclFrozenOneSvc() ? 'F' : '') + (retenExclOneSvc() ? 'O' : '') + '|' + [...retenPopExclReasons()].join(',') + '|' + retenOneSvcExemptTerms().join(',');
     const hit = _retenEffCache.get(pop);
     if (hit && hit._rulesKey === _rulesKey) return hit;
     const recurringByName = reportingServiceRecurringMap();
@@ -51932,12 +51954,30 @@ function adminConfigurations() {
         toggleRow('Exclude 3-day RORs from churn', 'Drop subs cancelled within 3 days of the sale (buyer’s remorse) from cancellation / attrition.', reportingExcludeRorChurn(), () => { setReportingExcludeRorChurn(!reportingExcludeRorChurn()); mountApp(); }),
         rule(),
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-1', style: { color: 'var(--text-subtle)' } }, 'Retention population (workbook Steps 4–6)'),
-        toggleRow('Exclude renewal subscriptions', 'Renewal-source subs are continuations of an existing customer, not new book — counting them double-counts the relationship.', retenExclRenewalSubs(), () => { setRetenExclRenewalSubs(!retenExclRenewalSubs()); mountApp(); }),
+        (() => {
+          const cur = [...retenPopExclReasons()].join(', ');
+          const ta = el('textarea', { rows: '2', class: 'w-full rounded-lg border px-3 py-2 text-xs', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', resize: 'vertical' } }, cur);
+          return el('div', { class: 'py-1' },
+            el('div', { class: 'text-sm font-semibold' }, 'Step 1 · Drop subs closed with these reasons'),
+            el('div', { class: 'text-[11px] text-muted- mb-2' }, 'A sub cancelled with one of these reasons leaves the retention book entirely — it was never lost (3-day ROR), was folded into another sub (Combined), or was replaced by a renewal sub that stays in the book (Renewal - …). Comma-separated; blank restores the default.'),
+            ta,
+            el('div', { class: 'flex justify-end mt-1.5' }, el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+              onclick: () => { const v = String(ta.value || '').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean); setRetenPopExclReasons(v.length ? v : RETEN_POP_EXCL_REASONS_DEFAULT); toast('Retention book updated', 'success'); mountApp(); } }, 'Save list')));
+        })(),
+        rule(),
+        toggleRow('Also exclude renewal-SOURCE subs', 'Off by default: the renewal sub is the live continuation and stays in the book (the old sub it replaced leaves via Step 1 above). Turn on only to drop both sides.', retenExclRenewalSubs(), () => { setRetenExclRenewalSubs(!retenExclRenewalSubs()); mountApp(); }),
         rule(),
         toggleRow('Exclude $0-paying subs', 'Subs with $0 annual recurring value drop from the retention book.', retenExclZeroPay(), () => { setRetenExclZeroPay(!retenExclZeroPay()); mountApp(); }),
         rule(),
-        toggleRow('Require 2+ services (prior years)', 'The workbook\u2019s Step 6: a sub with only one completed service drops from the retention book entirely - a one-visit account is not yet a legitimate customer, so its cancel is not legitimate attrition. Current-year accounts are EXEMPT (they are just young, not dead), mirroring how the hand report pairs this rule with filtering out the current year.', retenExclOneSvc(), () => { setRetenExclOneSvc(!retenExclOneSvc()); mountApp(); }),
-        toggleRow('Exclude frozen subs with ≤1 service', 'Quiet deaths — frozen right after the initial, no cancel date ever lands, so they would count as retained forever. (Redundant while \u201cRequire 2+ services\u201d is on.)', retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); }),
+        toggleRow('Step 3 · Require 2+ services (prior years)', 'A sub with only one completed service drops from the retention book - a one-visit account is not yet a legitimate customer, so its cancel is not legitimate attrition. Exempt: current-year accounts (Step 4 - just young, not dead) and the service terms below.', retenExclOneSvc(), () => { setRetenExclOneSvc(!retenExclOneSvc()); mountApp(); }),
+        (() => {
+          const ta = el('input', { type: 'text', value: retenOneSvcExemptTerms().join(', '), class: 'rounded-lg border px-2.5 py-1 text-xs', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '220px' },
+            onchange: (e) => { const v = String(e.target.value || '').split(/[,;]+/).map(x => x.trim().toLowerCase()).filter(Boolean); setRetenOneSvcExemptTerms(v.length ? v : ['sentricon']); toast('Exempt terms saved', 'success'); mountApp(); } });
+          return el('div', { class: 'flex items-center justify-between gap-3 py-1 pl-4' },
+            el('div', {}, el('div', { class: 'text-xs font-semibold' }, 'One-service exemptions'), el('div', { class: 'text-[11px] text-muted-' }, 'Service names containing any of these keep their one-service subs in the book (Sentricon is annual — one visit a year is the service).')),
+            ta);
+        })(),
+        toggleRow('Exclude frozen subs with ≤1 service', 'Quiet deaths — frozen right after the initial, no cancel date ever lands, so they would count as retained forever. Same exemptions as Step 3. (Redundant while Step 3 is on.)', retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); }),
         rule(),
         // ── Deleted-in-CRM accounts — orphan rows the RevHawk mirror keeps ──
         (() => {
