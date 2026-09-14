@@ -43217,7 +43217,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   const section = (label, tip) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-subtle)' }, colspan: cols.length + 1, title: tip || '' }, label));
   const line = (label, f, o = {}) => el('tr', { class: 'border-t border-' + (o.bold ? ' font-semibold' : ''), style: o.bold ? { background: 'var(--card-2)' } : {} },
     td(label, { bold: true, title: o.tip, style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
-    ...cols.map(c => { const v = f(D[c.key], c.key); const s = o.signed && typeof v === 'number' ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
+    ...cols.map(c => { const v = f(D[c.key], c.key); const s = o.red && typeof v === 'number' && v > 0 ? { color: '#DC2626' } : o.signed && typeof v === 'number' ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
       return td(v == null || (typeof v === 'number' && !isFinite(v)) ? '—' : o.pct ? _putisPct1(v) : o.num ? Math.round(v).toLocaleString() : o.x ? v.toFixed(2) + 'x' : o.mo ? v.toFixed(1) + ' mo' : o.usd2 ? '$' + v.toFixed(2) : _putisUsd(v), { style: s, muted: o.muted }); }));
   const TIPS = {
     'Total income': 'All "Sales:<Branch> Sales" income accounts.',
@@ -43283,11 +43283,11 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     section('Unit economics', 'Growth efficiency for the period — selling cost per new account against what an account is worth. New accounts, cancels and ARV follow the Retention-tab rules.'),
     lineT('New recurring accounts', (d, k) => UM[k].newSubs, { num: true, tip: 'Recurring subscriptions sold in the period.' }),
     lineT('New ARR sold', (d, k) => UM[k].newArr, { tip: 'Annual recurring value of the accounts sold in the period.' }),
-    lineT('ARR lost to cancels', (d, k) => UM[k].lostArr, { tip: 'Annual recurring value of real cancels in the period (Retention-tab rules: excluded reasons and 3-day ROR stripped).' }),
+    lineT('Churned ARR', (d, k) => UM[k].lostArr, { red: true, tip: 'Annual recurring value lost to real cancels in the period (Retention-tab rules: excluded reasons and 3-day ROR stripped).' }),
     lineT('Net new ARR', (d, k) => UM[k].netNewArr, { bold: true, signed: true, tip: PUTIS_KPI_TIPS.netNewArr }),
+    lineT('Churn / month', (d, k) => UM[k].monthlyChurn, { pct: true, tip: PUTIS_KPI_TIPS.monthlyChurn }),
     lineT('CAC (selling cost ÷ new account)', (d, k) => UM[k].cac, { tip: PUTIS_KPI_TIPS.cac }),
     lineT('Marketing ÷ new account', (d, k) => UM[k].mktgPerNew, { tip: 'Advertising & marketing dollars ÷ new recurring accounts sold.' }),
-    lineT('Churn / month', (d, k) => UM[k].monthlyChurn, { pct: true, tip: PUTIS_KPI_TIPS.monthlyChurn }),
     lineT('LTV (gross profit per account)', (d, k) => UM[k].ltv, { tip: 'ACV × gross margin ÷ annualised churn — lifetime gross profit of one account.' }),
     lineT('LTV ÷ CAC', (d, k) => UM[k].ltvCac, { x: true, bold: true, tip: PUTIS_KPI_TIPS.ltvCac }),
     lineT('CAC payback (months)', (d, k) => UM[k].paybackMo, { mo: true, tip: PUTIS_KPI_TIPS.paybackMo }),
