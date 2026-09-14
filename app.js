@@ -44178,10 +44178,25 @@ function _mktgPnl() {
   const goalStyle = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#16A34A' : '#DC2626', fontWeight: '600' };
   return el('div', { class: 'flex flex-col gap-4' },
     _mktgMatrixCard('New revenue', 'FieldRoutes · office staff · new + upsell · pending/serviced · by sold month', rows, rev, _mktgUsd0, opts),
-    _mktgMatrixCard('Ad spend', (state._isSpendSource === 'QuickBooks' ? 'QuickBooks · Advertising & Marketing by branch' + (state._isSpendPulledAt ? ' · pulled ' + new Date(state._isSpendPulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '') : state._isSpendSource === 'none' ? 'QuickBooks feed unavailable — no spend to show' : 'loading QuickBooks spend…') + ' · P&L Advertising & Marketing · unbooked months show $0', rows, ad, _mktgUsd0, opts),
-    _mktgMatrixCard('Wages', 'hand-entered (Spend entry)', rows, wg, _mktgUsd0, opts),
-    _mktgMatrixCard('Incentives', 'hand-entered (Spend entry)', rows, inc, _mktgUsd0, opts),
-    _mktgMatrixCard('Total spend', 'ad spend + wages + incentives', rows, tot, _mktgUsd0, opts),
+    // Spend (per Isaac): Ad spend · Wages · Incentives · Total spend in ONE
+    // table with a dropdown — default Total spend.
+    (() => {
+      const qboNote = (state._isSpendSource === 'QuickBooks' ? 'QuickBooks · Advertising & Marketing by branch' + (state._isSpendPulledAt ? ' · pulled ' + new Date(state._isSpendPulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '') : state._isSpendSource === 'none' ? 'QuickBooks feed unavailable — no spend to show' : 'loading QuickBooks spend…') + ' · P&L Advertising & Marketing · unbooked months show $0';
+      const SPEND = {
+        total: { label: 'Total spend', note: 'ad spend + wages + incentives', cell: tot },
+        ad:    { label: 'Ad spend',    note: qboNote,                          cell: ad },
+        wages: { label: 'Wages',       note: 'hand-entered (Spend entry)',     cell: wg },
+        inc:   { label: 'Incentives',  note: 'hand-entered (Spend entry)',     cell: inc },
+      };
+      const key = SPEND[state._mktSpendMetric] ? state._mktSpendMetric : 'total';
+      const M = SPEND[key];
+      const picker = el('select', {
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer ml-auto',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+        onchange: (e) => { state._mktSpendMetric = e.target.value; mountApp(); },
+      }, ...Object.entries(SPEND).map(([k, v]) => el('option', { value: k, selected: k === key }, v.label)));
+      return _mktgMatrixCard('Spend · ' + M.label, M.note, rows, M.cell, _mktgUsd0, { ...opts, headerExtra: picker });
+    })(),
     // Efficiency (per Isaac): ROAS · CAC · Ad spend % of CAC · Wages % of
     // CAC in ONE table with a dropdown, instead of four stacked matrices.
     (() => {
