@@ -552,6 +552,10 @@
   }
   .fab:hover { background: var(--accent-hover); transform: translateY(-1px); }
 
+  /* Leaflet stacks its panes at z-index 400–1000, which beat the fixed
+     page header (30) and let the map scroll OVER it. isolation: isolate
+     traps those z-indexes inside the map box, so it stacks like any card. */
+  .leaflet-container { isolation: isolate; position: relative; z-index: 0; }
   /* Modal overlay — z-index must beat Leaflet's controls (max 1000) so
      the Reporting tab's drill modals don't get drawn under the map. */
   .modal-overlay {
