@@ -43782,6 +43782,8 @@ function reportingSubTabs() {
         style: {
           borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
           color: active ? 'var(--text)' : 'var(--text-muted)',
+          background: active ? 'rgba(223,100,58,.10)' : 'transparent',   // super-light orange on the open tab (per Isaac)
+          borderRadius: '6px 6px 0 0',
           marginBottom: '-1px',
         },
         onclick: () => { state.reportingSubTab = k; mountApp(); },
