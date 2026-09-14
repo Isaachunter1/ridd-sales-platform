@@ -43056,6 +43056,25 @@ const PUTIS_ROWS = [
   { id: 'marketingPct', label: 'Marketing %',      kind: 'pct', lowGood: true, tip: 'Marketing as a % of revenue — marketing ÷ revenue.' },
   { id: 'ebitda',       label: 'EBITDA',           kind: 'usd', bold: true, signed: true, tip: 'Earnings before interest, taxes, depreciation & amortization — gross profit minus all operating expense (selling expense + housing + G&A). Interest and depreciation are excluded. Red = loss.' },
   { id: 'adjEbitda',    label: 'Adjusted EBITDA',  kind: 'usd', bold: true, signed: true, tip: 'EBITDA before the cost of selling — EBITDA + selling expense (commissions + marketing + incentives). What the service business earns on its own, separate from growth spend. The sheet’s F14 + F11 × F3.' },
+  { id: 'netIncome',    label: 'Net Income',       kind: 'usd', bold: true, signed: true, tip: 'EBITDA minus interest paid and depreciation/amortization.' },
+  { head: 'Margins · % of revenue' },
+  { id: 'cogsPct',      label: 'COGS %',           kind: 'pct', lowGood: true, tip: 'Cost of goods sold ÷ revenue — M&S + auto/fuel + tech wages + merchant fees.' },
+  { id: 'opexPct',      label: 'OPEX %',           kind: 'pct', lowGood: true, tip: 'All operating expense (selling + housing + G&A) ÷ revenue.' },
+  { id: 'ebitdaPct',    label: 'EBITDA %',         kind: 'pct', signed: true, tip: 'EBITDA ÷ revenue.' },
+  { id: 'adjEbitdaPct', label: 'Adjusted EBITDA %', kind: 'pct', signed: true, tip: 'Adjusted EBITDA ÷ revenue — margin of the service base before growth spend.' },
+  { id: 'netPct',       label: 'Net profit %',     kind: 'pct', signed: true, tip: 'Net income ÷ revenue.' },
+  { head: 'Unit economics · FieldRoutes + ledger' },
+  { id: 'newSubs',      label: 'New recurring accounts', kind: 'int', unit: true, tip: 'Recurring subscriptions sold in the month (Retention-tab rules).' },
+  { id: 'newArr',       label: 'New ARR sold',     kind: 'usd', unit: true, tip: 'Annual recurring value of the accounts sold in the month.' },
+  { id: 'lostArr',      label: 'Churned ARR',      kind: 'usd', unit: true, red: true, lowGood: true, tip: 'Annual recurring value lost to real cancels in the month (excluded reasons and 3-day ROR stripped).' },
+  { id: 'netNewArr',    label: 'Net new ARR',      kind: 'usd', unit: true, bold: true, signed: true, tip: PUTIS_KPI_TIPS.netNewArr },
+  { id: 'monthlyChurn', label: 'Churn / month',    kind: 'pct', unit: true, lowGood: true, tip: PUTIS_KPI_TIPS.monthlyChurn },
+  { id: 'cac',          label: 'CAC',              kind: 'usd', unit: true, lowGood: true, tip: PUTIS_KPI_TIPS.cac },
+  { id: 'mktgPerNew',   label: 'Marketing ÷ new account', kind: 'usd', unit: true, lowGood: true, tip: 'Advertising & marketing dollars ÷ new recurring accounts sold.' },
+  { id: 'acv',          label: 'ACV',              kind: 'usd', unit: true, tip: PUTIS_KPI_TIPS.acv },
+  { id: 'ltv',          label: 'LTV (gross profit per account)', kind: 'usd', unit: true, tip: 'ACV × gross margin ÷ annualised churn — lifetime gross profit of one account.' },
+  { id: 'ltvCac',       label: 'LTV ÷ CAC',        kind: 'x', unit: true, bold: true, tip: PUTIS_KPI_TIPS.ltvCac },
+  { id: 'paybackMo',    label: 'CAC payback',      kind: 'mo', unit: true, lowGood: true, tip: PUTIS_KPI_TIPS.paybackMo },
   // ── FieldRoutes book (point-in-time at month end) ──
   { head: 'Recurring book · FieldRoutes' },
   { id: 'arrEom',       label: 'Active ARR',       kind: 'usd', point: true, bold: true, tip: 'Annual recurring revenue at month end — the annual recurring value of every recurring subscription sold on or before the last day of the month and not cancelled by then (FieldRoutes snapshot, any cancel reason). YTD column = latest closed month; prior column = last December.' },
@@ -43074,6 +43093,7 @@ const PUTIS_ROWS = [
 // values to a derived month so the trend table can show them beside the P&L.
 function putisAugment(d, M, ym, branches, company) {
   const U = putisUnitMonthly();
+  if (d.any || (U.months && U.months[ym])) { const um = putisMetrics(M, U, [ym], branches); for (const k of ['newSubs', 'newArr', 'lostArr', 'netNewArr', 'monthlyChurn', 'cac', 'mktgPerNew', 'acv', 'ltv', 'ltvCac', 'paybackMo']) d[k] = um[k]; }
   const E = U.eom && U.eom[ym];
   if (E) { let arr = 0, n = 0, any = false; for (const b of branches) { const x = E[b]; if (!x) continue; any = true; arr += x.arr; n += x.active; } if (any) { d.arrEom = arr; d.activeEom = n; d.arrToRev = arr > 0 && d.any ? d.revenue / (arr / 12) : null; } }
   if (!company) return d;
@@ -43137,14 +43157,19 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
     return null;
   };
   const rowsShown = PUTIS_ROWS.filter(r => !r.company || company);
-  const fmtRow = (row, v) => v == null || !isFinite(v) ? '—' : row.kind === 'pct' ? _putisPct1(v) : row.kind === 'x' ? v.toFixed(2) + 'x' : row.kind === 'int' ? Math.round(v).toLocaleString() : _putisUsd(v);
+  const fmtRow = (row, v) => v == null || !isFinite(v) ? '—' : row.kind === 'pct' ? _putisPct1(v) : row.kind === 'x' ? v.toFixed(2) + 'x' : row.kind === 'mo' ? v.toFixed(1) + ' mo' : row.kind === 'int' ? Math.round(v).toLocaleString() : _putisUsd(v);
+  // Period rollups for the unit-economics rows (ratios recomputed over the period, not averaged).
+  const _U = putisUnitMonthly();
+  const _closedOf = (yr) => Array.from({ length: 12 }, (_, i) => _mktgYm(yr, i)).filter(k => k < openYm && M && M[k]);
+  const ytdU = _closedOf(year).length ? putisMetrics(M, _U, _closedOf(year), branches) : null;
+  const priorU = _closedOf(year - 1).length ? putisMetrics(M, _U, _closedOf(year - 1), branches) : null;
   const showMoM = !!state._putisMoM;
   const th = (t, extra, tip) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left ' + (extra || '') + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)' }, title: tip || '' }, t);
   const td = (content, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap align-top' + (o.bold ? ' font-bold' : '') + (o.title ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '' }, content);
   const cellVal = (row, d, prev) => {
-    const v = row.point ? d[row.id] : (d.any ? d[row.id] : null);
+    const v = (row.point || row.unit) ? d[row.id] : (d.any ? d[row.id] : null);
     const label = fmtRow(row, v);
-    const col = row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
+    const col = row.red && v > 0 ? { color: '#DC2626' } : row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
     const node = el('div', { style: col }, label);
     if (showMoM && prev && v != null && prev[row.id] != null && isFinite(v) && isFinite(prev[row.id])) {
       const delta = v - prev[row.id];
@@ -43153,9 +43178,9 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
     }
     return node;
   };
-  const signedRow = (row, v) => v == null || !isFinite(v) ? '' : row.kind === 'pct' ? _putisSigned(v, true) : row.kind === 'x' ? (v > 0 ? '+' : '') + v.toFixed(2) + 'x' : row.kind === 'int' ? (v > 0 ? '+' : '') + Math.round(v).toLocaleString() : _putisSigned(v, false);
-  const ytdVal = (row) => row.point ? latestPoint(year, row.id) : (ytd.months ? ytd[row.id] : null);
-  const priorVal = (row) => row.point ? latestPoint(year - 1, row.id) : (prior.months ? prior[row.id] : null);
+  const signedRow = (row, v) => v == null || !isFinite(v) ? '' : row.kind === 'pct' ? _putisSigned(v, true) : row.kind === 'x' ? (v > 0 ? '+' : '') + v.toFixed(2) + 'x' : row.kind === 'mo' ? (v > 0 ? '+' : '') + v.toFixed(1) + ' mo' : row.kind === 'int' ? (v > 0 ? '+' : '') + Math.round(v).toLocaleString() : _putisSigned(v, false);
+  const ytdVal = (row) => row.unit ? (ytdU ? ytdU[row.id] : null) : row.point ? latestPoint(year, row.id) : (ytd.months ? ytd[row.id] : null);
+  const priorVal = (row) => row.unit ? (priorU ? priorU[row.id] : null) : row.point ? latestPoint(year - 1, row.id) : (prior.months ? prior[row.id] : null);
   const yoy = (row) => {
     const a = ytdVal(row), b = priorVal(row);
     if (a == null || b == null || !isFinite(a) || !isFinite(b)) return '—';
@@ -43280,30 +43305,6 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     lineT('ACV (ARR ÷ active accounts)', (d, k) => { const f = fr(k); return f.active ? f.arr / f.active : null; }),
     lineT('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }, { tip: 'Booked revenue for the period ÷ accounts on the books at period end.' }),
     lineT('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true, tip: 'EBITDA for the period ÷ accounts on the books at period end.' }),
-    section('Unit economics', 'Growth efficiency for the period — selling cost per new account against what an account is worth. New accounts, cancels and ARV follow the Retention-tab rules.'),
-    lineT('New recurring accounts', (d, k) => UM[k].newSubs, { num: true, tip: 'Recurring subscriptions sold in the period.' }),
-    lineT('New ARR sold', (d, k) => UM[k].newArr, { tip: 'Annual recurring value of the accounts sold in the period.' }),
-    lineT('Churned ARR', (d, k) => UM[k].lostArr, { red: true, tip: 'Annual recurring value lost to real cancels in the period (Retention-tab rules: excluded reasons and 3-day ROR stripped).' }),
-    lineT('Net new ARR', (d, k) => UM[k].netNewArr, { bold: true, signed: true, tip: PUTIS_KPI_TIPS.netNewArr }),
-    lineT('Churn / month', (d, k) => UM[k].monthlyChurn, { pct: true, tip: PUTIS_KPI_TIPS.monthlyChurn }),
-    lineT('CAC (selling cost ÷ new account)', (d, k) => UM[k].cac, { tip: PUTIS_KPI_TIPS.cac }),
-    lineT('Marketing ÷ new account', (d, k) => UM[k].mktgPerNew, { tip: 'Advertising & marketing dollars ÷ new recurring accounts sold.' }),
-    lineT('LTV (gross profit per account)', (d, k) => UM[k].ltv, { tip: 'ACV × gross margin ÷ annualised churn — lifetime gross profit of one account.' }),
-    lineT('LTV ÷ CAC', (d, k) => UM[k].ltvCac, { x: true, bold: true, tip: PUTIS_KPI_TIPS.ltvCac }),
-    lineT('CAC payback (months)', (d, k) => UM[k].paybackMo, { mo: true, tip: PUTIS_KPI_TIPS.paybackMo }),
-    section('Margins', 'Each line as a percentage of total income for the period.'),
-    lineT('Product cost (M&S)', d => d.msPct, { pct: true }),
-    lineT('Auto & fuel', d => d.autoPct, { pct: true }),
-    lineT('Tech wages', d => d.techPct, { pct: true }),
-    lineT('Cost of goods sold', d => d.revenue > 0 ? d.cogs / d.revenue : null, { pct: true }),
-    lineT('Gross profit', d => d.gpPct, { pct: true, bold: true }),
-    lineT('OPEX', d => d.opexPct, { pct: true }),
-    lineT('Selling expense', d => d.sellingPct, { pct: true }),
-    lineT('G&A', d => d.gaPct, { pct: true }),
-    lineT('Marketing', d => d.marketingPct, { pct: true }),
-    lineT('EBITDA', d => d.ebitdaPct, { pct: true, bold: true, signed: true }),
-    lineT('Adjusted EBITDA', d => d.adjEbitdaPct, { pct: true, bold: true, signed: true }),
-    lineT('Net profit', d => d.netPct, { pct: true, signed: true }),
   ];
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
@@ -43533,19 +43534,20 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
   const prevYm = shift(Y, Mo, -1), lyYm = shift(Y, Mo, -12);
   const has = (k) => !!(M && M[k]);
   const one = (k) => has(k) ? putisAugment(putisDerive(M, k, branches), M, k, branches, company) : null;
-  const span = (endK, n, floorK) => { const ks = []; for (let i = 0; i < n; i++) { const k = shift(...endK.split('-').map(Number), -i); if (floorK && k < floorK) break; if (has(k) && k < openYm) ks.push(k); } return ks.length ? { d: putisDeriveMonths(M, ks, branches), n: ks.length, first: ks[ks.length - 1], last: ks[0] } : null; };
+  const _U = putisUnitMonthly();
+  const span = (endK, n, floorK) => { const ks = []; for (let i = 0; i < n; i++) { const k = shift(...endK.split('-').map(Number), -i); if (floorK && k < floorK) break; if (has(k) && k < openYm) ks.push(k); } return ks.length ? { d: Object.assign(putisDeriveMonths(M, ks, branches), (() => { const um = putisMetrics(M, _U, ks, branches); const o = {}; for (const k of ['newSubs', 'newArr', 'lostArr', 'netNewArr', 'monthlyChurn', 'cac', 'mktgPerNew', 'acv', 'ltv', 'ltvCac', 'paybackMo']) o[k] = um[k]; return o; })()), n: ks.length, first: ks[ks.length - 1], last: ks[0] } : null; };
   const cur = one(ym), prev = one(prevYm), ly = one(lyYm);
   const ytd = span(ym, Mo, Y + '-01'), ytdLy = span(lyYm, Mo, (Y - 1) + '-01');
   const mon = (k, o) => new Date(k + '-15T12:00').toLocaleDateString('en-US', o);
   const rows = PUTIS_ROWS.filter(r => !r.company || company);
-  const fmt = (row, v) => v == null || !isFinite(v) ? '—' : row.kind === 'pct' ? _putisPct1(v) : row.kind === 'x' ? v.toFixed(2) + 'x' : row.kind === 'int' ? Math.round(v).toLocaleString() : _putisUsd(v);
-  const val = (row, d) => d ? (row.point ? d[row.id] : (d.any ? d[row.id] : null)) : null;
+  const fmt = (row, v) => v == null || !isFinite(v) ? '—' : row.kind === 'pct' ? _putisPct1(v) : row.kind === 'x' ? v.toFixed(2) + 'x' : row.kind === 'mo' ? v.toFixed(1) + ' mo' : row.kind === 'int' ? Math.round(v).toLocaleString() : _putisUsd(v);
+  const val = (row, d) => d ? ((row.point || row.unit) ? d[row.id] : (d.any ? d[row.id] : null)) : null;
   const th = (t, tip, o = {}) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (o.left ? 'text-left' : 'text-right') + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)', position: 'sticky', top: 0, left: o.corner ? 0 : undefined, zIndex: o.corner ? 3 : 2, background: 'var(--card)', boxShadow: '0 1px 0 var(--border)', borderLeft: o.group ? '1px solid var(--border)' : undefined }, title: tip || '' }, t);
   // A value cell: $ (or %) with the % of revenue underneath for $ rows.
   const cell = (row, d, o = {}) => {
     const v = val(row, d);
-    const node = el('div', { style: row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {} }, fmt(row, v));
-    if (row.kind === 'usd' && !row.point && v != null && d && d.revenue > 0 && row.id !== 'revenue') node.append(el('div', { class: 'text-[9px] font-normal', style: { color: 'var(--text-subtle)' } }, _putisPct1(v / d.revenue) + ' of rev'));
+    const node = el('div', { style: row.red && v > 0 ? { color: '#DC2626' } : row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {} }, fmt(row, v));
+    if (row.kind === 'usd' && !row.point && !row.unit && v != null && d && d.revenue > 0 && row.id !== 'revenue') node.append(el('div', { class: 'text-[9px] font-normal', style: { color: 'var(--text-subtle)' } }, _putisPct1(v / d.revenue) + ' of rev'));
     return el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap text-right align-top' + (o.bold ? ' font-bold' : ''), style: { borderLeft: o.group ? '1px solid var(--border)' : undefined, opacity: o.dim ? '.55' : undefined } }, node);
   };
   // A change cell: $ change + % change (pts for % rows), coloured by good/bad.
@@ -43573,7 +43575,7 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
     th('YoY', 'YTD change against the same months last year.'));
   const body = rows.map(row => {
     if (row.head) return el('tr', {}, el('td', { colspan: '10', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', position: 'sticky', left: 0 } }, row.head));
-    const isPt = !!row.point;
+    const isPt = !!row.point;   // unit rows roll up over the period like $ rows
     const pd = (s) => s ? s.d : null;
     const bold = !!row.bold;
     const tr = el('tr', { class: 'border-t border-' + (bold ? ' font-semibold' : ''), style: bold ? { background: 'var(--card-2)' } : {} },
