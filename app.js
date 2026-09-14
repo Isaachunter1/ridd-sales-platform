@@ -43530,10 +43530,12 @@ function reportingPutis() {
   const year = _mktgYearSel();
   const wrap = el('div', { class: 'flex flex-col gap-4' });
   if (!M) {
+    const failed = state._ledgerErr === 'unavailable';
     wrap.append(el('div', { class: 'card p-8 text-center' },
-      el('div', { class: 'text-sm font-bold' }, state._ledgerErr === 'unavailable' ? 'QuickBooks ledger unavailable' : 'Pulling the QuickBooks ledger…'),
-      el('div', { class: 'text-xs mt-1 text-muted-' }, state._ledgerErr === 'unavailable' ? 'The Windsor → QuickBooks feed didn’t answer. Check WINDSOR_API_KEY / the QuickBooks connection in Windsor, then ↻.' : 'First pull takes ~30s — this page refreshes itself.'),
-      el('button', { class: 'mt-3 rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => reportingLoadLedger(true) }, '↻ Retry')));
+      failed ? null : el('span', { class: 'spinner', style: { width: '22px', height: '22px', marginBottom: '10px' } }),
+      el('div', { class: 'text-sm font-bold' }, failed ? 'QuickBooks ledger unavailable' : 'Loading QuickBooks…'),
+      el('div', { class: 'text-xs mt-1 text-muted-' }, failed ? 'The Windsor → QuickBooks feed didn’t answer. Check WINDSOR_API_KEY / the QuickBooks connection in Windsor, then retry.' : (state._ledgerErr === 'pulling' ? 'First pull of the ledger takes ~30s — this page refreshes itself.' : '')),
+      failed ? el('button', { class: 'mt-3 rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => reportingLoadLedger(true) }, 'Retry') : null));
     return wrap;
   }
   const U = putisUnitMonthly();
