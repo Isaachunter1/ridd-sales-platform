@@ -22,6 +22,12 @@ exports.handler = async () => {
       out[name] = { ok: false, error: String((e && e.message) || e), ms: Date.now() - started };
     }
   }
+  // QuickBooks (Windsor) ledger pull is a background job — kick it so the
+  // cached copy is fresh before the first Marketing open of the day.
+  try {
+    const r = await fetch(`${base}/.netlify/functions/qbo-spend-refresh-background`, { method: 'POST', headers: { 'x-sync-secret': process.env.REVHAWK_SYNC_SECRET || '' } });
+    out['qbo-spend-refresh'] = { ok: r.status === 202 || r.ok, status: r.status };
+  } catch (e) { out['qbo-spend-refresh'] = { ok: false, error: String((e && e.message) || e) }; }
   const failures = Object.entries(out).filter(([, v]) => !v.ok);
   if (failures.length) console.error('[marketing-refresh] FEED FAILURES:', JSON.stringify(out));
   else console.log('[marketing-refresh] all feeds healthy:', JSON.stringify(out));
