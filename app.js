@@ -25310,7 +25310,7 @@ function powerRankPickerBtn() {
       const closer = (ev) => { if (!panel.contains(ev.target) && !btn.contains(ev.target)) { panel.style.display = 'none'; document.removeEventListener('mousedown', closer); } };
       setTimeout(() => document.addEventListener('mousedown', closer), 0);
     },
-  }, '\ud83c\udfc6 Power Ranking');
+  }, '\ud83c\udfc6');   // icon only (per Isaac) — the title carries the label
   wrap.append(btn, panel);
   return wrap;
 }
@@ -25580,9 +25580,6 @@ function manageTeamsPanel(opts) {
             onchange: (e) => { state._teamYear = e.target.value; _activeTeamMap(); saveDemoData(); render(); },
           }, ...teamYearOptions.map(y => el('option', { value: String(y), selected: String(y) === _teamYearKey() }, String(y)))),
         ),
-        // 🏆 Power Ranking scoring picker (moved here from the Indicators bar,
-        // per Isaac): which offices / teams earn ranking points.
-        powerRankPickerBtn(),
         // (Roster .xlsx export lives inside Reports now — per Isaac.)
         // (🏷 Tiers export retired — per Isaac.)
         // Moved here from the Indicators top bar (per Isaac). Uses the
@@ -25596,8 +25593,10 @@ function manageTeamsPanel(opts) {
             if (!ctx) { toast('Open the Indicators tab first so the report has a timeframe', 'warn'); return; }
             openTeamReportsModal(ctx);
           },
-          title: 'Download PDF reports per team, per office, or per rep (pick the grouping inside), for the timeframe currently set on Indicators',
-        }, '📄 Reports'),
+          title: 'Reports — download PDF reports per team, per office, or per rep (pick the grouping inside), for the timeframe currently set on Indicators',
+        }, '📄'),
+        // 🏆 Power Ranking scoring picker — icon only, to the right of Reports (per Isaac).
+        powerRankPickerBtn(),
         embedded ? null : el('button', {
           class: 'rounded-lg border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)' },
