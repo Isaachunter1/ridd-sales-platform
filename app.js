@@ -42849,20 +42849,26 @@ const _putisSigned = (v, isPct) => v == null || !isFinite(v) ? '' : (v > 0 ? '+'
 
 // Putis Shid rows (sheet order).
 const PUTIS_ROWS = [
-  { id: 'revenue',      label: 'Revenue',          kind: 'usd', bold: true },
-  { id: 'msPct',        label: 'M&S',              kind: 'pct', lowGood: true },
-  { id: 'autoPct',      label: 'Auto/Fuel',        kind: 'pct', lowGood: true },
-  { id: 'techPct',      label: 'Tech Wages',       kind: 'pct', lowGood: true },
-  { id: 'merchantPct',  label: 'Merchant Fees',    kind: 'pct', lowGood: true },
-  { id: 'gp',           label: 'Gross Profit',     kind: 'usd', bold: true },
-  { id: 'gpPct',        label: 'Gross Profit %',   kind: 'pct' },
-  { id: 'gaPct',        label: 'G&A',              kind: 'pct', lowGood: true },
-  { id: 'sellingPct',   label: 'Selling Expense',  kind: 'pct', lowGood: true },
-  { id: 'marketing',    label: 'Marketing',        kind: 'usd' },
-  { id: 'marketingPct', label: 'Marketing %',      kind: 'pct', lowGood: true },
-  { id: 'ebitda',       label: 'EBITDA',           kind: 'usd', bold: true, signed: true },
-  { id: 'adjEbitda',    label: 'Adjusted EBITDA',  kind: 'usd', bold: true, signed: true },
+  { id: 'revenue',      label: 'Revenue',          kind: 'usd', bold: true,  tip: 'Revenue — every QuickBooks "Sales:<Branch> Sales" income account for the month. Recognized revenue as booked on the P&L, not FieldRoutes contract value.' },
+  { id: 'msPct',        label: 'M&S',              kind: 'pct', lowGood: true, tip: 'Materials & Supplies as a % of revenue — "Chemicals and Job Supplies" (chemical products + job supplies COGS) ÷ revenue. Lower is better.' },
+  { id: 'autoPct',      label: 'Auto/Fuel',        kind: 'pct', lowGood: true, tip: 'Auto & fuel as a % of revenue — "Auto and Fuel" (auto expenses + fuel expense) ÷ revenue. Lower is better.' },
+  { id: 'techPct',      label: 'Tech Wages',       kind: 'pct', lowGood: true, tip: 'Technician labor as a % of revenue — "Technician Labor Wages" ÷ revenue. Lower is better.' },
+  { id: 'merchantPct',  label: 'Merchant Fees',    kind: 'pct', lowGood: true, tip: 'Card-processing fees as a % of revenue — "Other COGS: Merchant Fees" ÷ revenue.' },
+  { id: 'gp',           label: 'Gross Profit',     kind: 'usd', bold: true,  tip: 'Gross profit — revenue minus the four cost-of-service lines above (M&S + auto/fuel + tech wages + merchant fees). What is left to cover selling and overhead.' },
+  { id: 'gpPct',        label: 'Gross Profit %',   kind: 'pct',              tip: 'Gross margin — gross profit ÷ revenue. Higher is better.' },
+  { id: 'gaPct',        label: 'G&A',              kind: 'pct', lowGood: true, tip: 'General & administrative as a % of revenue — every other operating expense group (insurance, legal, office expenses, office wages, postage, recruiting, rent & lease, travel, utilities, telephone, software, bank fees…) ÷ revenue. Excludes housing, selling expense and interest.' },
+  { id: 'sellingPct',   label: 'Selling Expense',  kind: 'pct', lowGood: true, tip: 'Cost of selling as a % of revenue — (sales commissions + advertising & marketing + incentive costs) ÷ revenue. Lower is better.' },
+  { id: 'marketing',    label: 'Marketing',        kind: 'usd',              tip: 'Advertising & marketing dollars — the "<Branch> Marketing" sub-accounts under Advertising & Marketing. Same feed as the Marketing tab’s ad spend.' },
+  { id: 'marketingPct', label: 'Marketing %',      kind: 'pct', lowGood: true, tip: 'Marketing as a % of revenue — marketing ÷ revenue.' },
+  { id: 'ebitda',       label: 'EBITDA',           kind: 'usd', bold: true, signed: true, tip: 'Earnings before interest, taxes, depreciation & amortization — gross profit minus all operating expense (selling expense + housing + G&A). Interest and depreciation are excluded. Red = loss.' },
+  { id: 'adjEbitda',    label: 'Adjusted EBITDA',  kind: 'usd', bold: true, signed: true, tip: 'EBITDA before the cost of selling — EBITDA + selling expense (commissions + marketing + incentives). What the service business earns on its own, separate from growth spend. The sheet’s F14 + F11 × F3.' },
 ];
+const PUTIS_COL_TIPS = {
+  month: 'Booked amounts for this calendar month from the QuickBooks general ledger. — means nothing is booked yet. The current month is open until the books close, so it moves.',
+  ytd: 'Year to date — every booked month of the year added together. Percentage rows are recomputed from the summed dollars, not averaged.',
+  prior: 'Prior-year total — the same rows for every month of last year that QuickBooks has. The feed starts last January, so the comparison can be partial.',
+  yoy: 'Year over year — this year’s YTD minus the prior-year total. Dollar rows show $ change; percentage rows show the change in points.',
+};
 // Year rollup for a row: $ rows sum; % rows recompute from summed dollars.
 function putisYear(M, year, branches) {
   const t = { revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, months: 0 };
@@ -42882,8 +42888,8 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra) {
   const months = Array.from({ length: 12 }, (_, i) => putisDerive(M, _mktgYm(year, i), branches));
   const ytd = putisYear(M, year, branches), prior = putisYear(M, year - 1, branches);
   const showMoM = !!state._putisMoM;
-  const th = (t, extra) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left ' + (extra || ''), style: { color: 'var(--text-muted)' } }, t);
-  const td = (content, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap align-top' + (o.bold ? ' font-bold' : ''), style: o.style || {} }, content);
+  const th = (t, extra, tip) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left ' + (extra || '') + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)' }, title: tip || '' }, t);
+  const td = (content, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap align-top' + (o.bold ? ' font-bold' : '') + (o.title ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '' }, content);
   const cellVal = (row, d, prev) => {
     const v = d.any ? d[row.id] : null;
     const label = v == null ? '—' : row.kind === 'pct' ? _putisPct1(v) : _putisUsd(v);
@@ -42903,9 +42909,9 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra) {
     return _putisSigned(a - b, row.kind === 'pct') || '—';
   };
   const table = el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
-    el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...MKTG_MONTHS.map(m => th(m)), th(year + ' YTD'), th((year - 1) + ' total'), th('YoY'))),
+    el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...MKTG_MONTHS.map(m => th(m, '', PUTIS_COL_TIPS.month)), th(year + ' YTD', '', PUTIS_COL_TIPS.ytd), th((year - 1) + ' total', '', PUTIS_COL_TIPS.prior), th('YoY', '', PUTIS_COL_TIPS.yoy))),
     el('tbody', {}, ...PUTIS_ROWS.map(row => el('tr', { class: 'border-t border-' + (row.bold ? ' font-semibold' : ''), style: row.bold ? { background: 'var(--card-2)' } : {} },
-      td(row.label, { bold: true, style: { position: 'sticky', left: 0, background: row.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
+      td(row.label, { bold: true, title: row.tip, style: { position: 'sticky', left: 0, background: row.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
       ...months.map((d, i) => td(cellVal(row, d, i > 0 ? months[i - 1] : null))),
       td(ytd.months ? (row.kind === 'pct' ? _putisPct1(ytd[row.id]) : _putisUsd(ytd[row.id])) : '—', { bold: true, style: row.signed && ytd.months ? { color: ytd[row.id] < 0 ? '#DC2626' : '#16A34A' } : {} }),
       td(prior.months ? (row.kind === 'pct' ? _putisPct1(prior[row.id]) : _putisUsd(prior[row.id])) : '—', { style: { color: 'var(--text-muted)' } }),
@@ -42946,59 +42952,94 @@ function putisIndicatorsCard(M, ym, branches) {
     for (const b of set) { const x = FR[b]; if (x) { t.active += x.active; t.arr += x.arr; } }
     return t;
   };
-  const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', style: { color: 'var(--text-muted)' } }, t);
-  const td = (v, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' + (o.bold ? ' font-bold' : '') + (o.muted ? ' text-muted-' : ''), style: o.style || {} }, v);
-  const section = (label) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' }, colspan: cols.length + 1 }, label));
+  const th = (t, tip) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)' }, title: tip || '' }, t);
+  const td = (v, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' + (o.bold ? ' font-bold' : '') + (o.muted ? ' text-muted-' : '') + (o.title ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '' }, v);
+  const section = (label, tip) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-subtle)' }, colspan: cols.length + 1, title: tip || '' }, label));
   const line = (label, f, o = {}) => el('tr', { class: 'border-t border-' + (o.bold ? ' font-semibold' : ''), style: o.bold ? { background: 'var(--card-2)' } : {} },
-    td(label, { bold: true, style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
+    td(label, { bold: true, title: o.tip, style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
     ...cols.map(c => { const v = f(D[c.key], c.key); const s = o.signed && typeof v === 'number' ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
       return td(v == null || (typeof v === 'number' && !isFinite(v)) ? '—' : o.pct ? _putisPct1(v) : o.num ? Math.round(v).toLocaleString() : o.usd2 ? '$' + v.toFixed(2) : _putisUsd(v), { style: s, muted: o.muted }); }));
+  const TIPS = {
+    'Total income': 'All "Sales:<Branch> Sales" income accounts.',
+    'Chemicals & job supplies': '"Chemicals and Job Supplies": chemical products + job supplies COGS.',
+    'Auto & fuel': '"Auto and Fuel": auto expenses + fuel expense.',
+    'Technician labor wages': '"Technician Labor Wages" by branch.',
+    'Merchant fees': '"Other COGS: Merchant Fees" — card processing.',
+    'Cost of goods sold': 'Chemicals & job supplies + auto & fuel + tech wages + merchant fees.',
+    'Gross profit': 'Total income − cost of goods sold (as $ or ÷ total income in Margins).',
+    'Advertising & marketing': '"Advertising & Marketing: <Branch> Marketing" — same feed as the Marketing tab.',
+    'Sales commissions': '"Selling Expenses" group — sales commissions, MD expenses, BayToast comish (corporate).',
+    'Incentive costs': '"Incentive Costs" — branch incentives, competition prizes, retreats.',
+    'Housing': '"Housing" — summer rep housing by branch. Operating expense, but not part of G&A or selling.',
+    'Other G&A': 'Remaining G&A groups: bank charges, building cleaning, car & truck, Geotab, telephone, utilities, payroll, software, legal & professional…',
+    'Total expenses': 'All operating expense: selling (commissions + marketing + incentives) + housing + G&A. Interest and depreciation excluded.',
+    'EBITDA': 'Gross profit − total expenses. Earnings before interest, taxes, depreciation & amortization.',
+    'Interest paid': '"Interest Paid" — interest expense (corporate).',
+    'Net income': 'EBITDA − interest paid − depreciation/amortization.',
+    'Adjusted EBITDA (before selling expense)': 'EBITDA + selling expense: the service business on its own, before growth spend.',
+    'Recurring revenue (active ARR)': 'Annual recurring value of every active recurring subscription in the branch — same rule as the Overview tab’s Active ARR. As of the last FieldRoutes sync.',
+    'Active accounts': 'Active recurring subscriptions right now (status Active, no cancel date).',
+    'ACV (ARR ÷ active accounts)': 'Average annual contract value per active account.',
+    'Revenue ÷ active account': 'Booked revenue this period per active account today.',
+    'EBITDA ÷ active account': 'EBITDA this period per active account today.',
+    'Product cost (M&S)': 'Chemicals & job supplies ÷ total income.',
+    'Tech wages': 'Technician labor wages ÷ total income.',
+    'OPEX': 'Total expenses ÷ total income.',
+    'Selling expense': '(Commissions + marketing + incentives) ÷ total income.',
+    'G&A': 'G&A ÷ total income.',
+    'Marketing': 'Advertising & marketing ÷ total income.',
+    'Adjusted EBITDA': 'Adjusted EBITDA ÷ total income.',
+    'Net profit': 'Net income ÷ total income.',
+  };
+  PUTIS_GA_LINES.forEach(g => { TIPS[g] = 'G&A line: the "' + g + '" account group, by branch.'; });
+  const _line = line;
+  const lineT = (label, f, o = {}) => _line(label, f, { ...o, tip: o.tip || TIPS[label] || '' });
   const rows = [
-    section('Income statement'),
-    line('Total income', d => d.revenue, { bold: true }),
-    line('Chemicals & job supplies', d => d.ms),
-    line('Auto & fuel', d => d.auto),
-    line('Technician labor wages', d => d.techWages),
-    line('Merchant fees', d => d.merchant),
-    line('Cost of goods sold', d => d.cogs, { bold: true }),
-    line('Gross profit', d => d.gp, { bold: true, signed: true }),
-    line('Advertising & marketing', d => d.marketing),
-    line('Sales commissions', d => d.commissions),
-    line('Incentive costs', d => d.incentives),
-    line('Housing', d => d.housing),
-    ...PUTIS_GA_LINES.map(g => line(g, d => d.gaLines[g] || 0, { muted: true })),
-    line('Other G&A', d => Object.keys(d.gaLines).filter(g => !PUTIS_GA_LINES.includes(g)).reduce((s, g) => s + d.gaLines[g], 0), { muted: true }),
-    line('Total expenses', d => d.opex, { bold: true }),
-    line('EBITDA', d => d.ebitda, { bold: true, signed: true }),
-    line('Interest paid', d => d.interest),
-    line('Net income', d => d.netIncome, { bold: true, signed: true }),
-    line('Adjusted EBITDA (before selling expense)', d => d.adjEbitda, { bold: true, signed: true }),
-    section('Data · FieldRoutes (today)'),
-    line('Recurring revenue (active ARR)', (d, k) => fr(k).arr),
-    line('Active accounts', (d, k) => fr(k).active, { num: true }),
-    line('ACV (ARR ÷ active accounts)', (d, k) => { const f = fr(k); return f.active ? f.arr / f.active : null; }),
-    line('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }),
-    line('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true }),
-    section('Margins'),
-    line('Product cost (M&S)', d => d.msPct, { pct: true }),
-    line('Auto & fuel', d => d.autoPct, { pct: true }),
-    line('Tech wages', d => d.techPct, { pct: true }),
-    line('Cost of goods sold', d => d.revenue > 0 ? d.cogs / d.revenue : null, { pct: true }),
-    line('Gross profit', d => d.gpPct, { pct: true, bold: true }),
-    line('OPEX', d => d.opexPct, { pct: true }),
-    line('Selling expense', d => d.sellingPct, { pct: true }),
-    line('G&A', d => d.gaPct, { pct: true }),
-    line('Marketing', d => d.marketingPct, { pct: true }),
-    line('EBITDA', d => d.ebitdaPct, { pct: true, bold: true, signed: true }),
-    line('Adjusted EBITDA', d => d.adjEbitdaPct, { pct: true, bold: true, signed: true }),
-    line('Net profit', d => d.netPct, { pct: true, signed: true }),
+    section('Income statement', 'Dollars booked in QuickBooks for the selected month (or year to date), by branch. Corporate = accounts with no branch prefix.'),
+    lineT('Total income', d => d.revenue, { bold: true }),
+    lineT('Chemicals & job supplies', d => d.ms),
+    lineT('Auto & fuel', d => d.auto),
+    lineT('Technician labor wages', d => d.techWages),
+    lineT('Merchant fees', d => d.merchant),
+    lineT('Cost of goods sold', d => d.cogs, { bold: true }),
+    lineT('Gross profit', d => d.gp, { bold: true, signed: true }),
+    lineT('Advertising & marketing', d => d.marketing),
+    lineT('Sales commissions', d => d.commissions),
+    lineT('Incentive costs', d => d.incentives),
+    lineT('Housing', d => d.housing),
+    ...PUTIS_GA_LINES.map(g => lineT(g, d => d.gaLines[g] || 0, { muted: true })),
+    lineT('Other G&A', d => Object.keys(d.gaLines).filter(g => !PUTIS_GA_LINES.includes(g)).reduce((s, g) => s + d.gaLines[g], 0), { muted: true }),
+    lineT('Total expenses', d => d.opex, { bold: true }),
+    lineT('EBITDA', d => d.ebitda, { bold: true, signed: true }),
+    lineT('Interest paid', d => d.interest),
+    lineT('Net income', d => d.netIncome, { bold: true, signed: true }),
+    lineT('Adjusted EBITDA (before selling expense)', d => d.adjEbitda, { bold: true, signed: true }),
+    section('Data · FieldRoutes (today)', 'Operational counts from the FieldRoutes snapshot as of the last sync — not month-specific.'),
+    lineT('Recurring revenue (active ARR)', (d, k) => fr(k).arr),
+    lineT('Active accounts', (d, k) => fr(k).active, { num: true }),
+    lineT('ACV (ARR ÷ active accounts)', (d, k) => { const f = fr(k); return f.active ? f.arr / f.active : null; }),
+    lineT('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }),
+    lineT('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true }),
+    section('Margins', 'Each line as a percentage of total income for the period.'),
+    lineT('Product cost (M&S)', d => d.msPct, { pct: true }),
+    lineT('Auto & fuel', d => d.autoPct, { pct: true }),
+    lineT('Tech wages', d => d.techPct, { pct: true }),
+    lineT('Cost of goods sold', d => d.revenue > 0 ? d.cogs / d.revenue : null, { pct: true }),
+    lineT('Gross profit', d => d.gpPct, { pct: true, bold: true }),
+    lineT('OPEX', d => d.opexPct, { pct: true }),
+    lineT('Selling expense', d => d.sellingPct, { pct: true }),
+    lineT('G&A', d => d.gaPct, { pct: true }),
+    lineT('Marketing', d => d.marketingPct, { pct: true }),
+    lineT('EBITDA', d => d.ebitdaPct, { pct: true, bold: true, signed: true }),
+    lineT('Adjusted EBITDA', d => d.adjEbitdaPct, { pct: true, bold: true, signed: true }),
+    lineT('Net profit', d => d.netPct, { pct: true, signed: true }),
   ];
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
       el('h3', { class: 'text-sm font-bold' }, 'P&L Indicators · ' + (isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))),
       el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'QuickBooks general ledger by branch · FieldRoutes for accounts + ARR · Corporate = un-branched accounts')),
     el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th(''), ...cols.map(c => th(c.label)))),
+      el('thead', {}, el('tr', {}, th(''), ...cols.map(c => th(c.label, c.key === 'RIDD' ? 'Every branch in the ledger added together, including Corporate (un-branched accounts).' : c.key === 'Corporate' ? 'Accounts with no branch prefix: BayToast comish, interest expense, corporate rent, executive travel, executive marketing…' : 'QuickBooks sub-accounts whose name starts with "' + c.label + '".')))),
       el('tbody', {}, ...rows))));
 }
 
