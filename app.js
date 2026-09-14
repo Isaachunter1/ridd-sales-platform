@@ -25489,6 +25489,19 @@ function manageTeamsPanel(opts) {
       else if (t === 'vet') tierCounts.vet++;
       else tierCounts.untagged++;
     });
+    // Last active (per Isaac): each rep's most recent sold date in the
+    // shared dataset — shown under the Active/Inactive badge.
+    const _lastSale = new Map();
+    try {
+      for (const sale of (state._indicatorRawSales || [])) {
+        const d = _parseIndicatorDay(sale); if (!d) continue;
+        const nm = getCanonicalRepName(sale.rep);
+        const prev = _lastSale.get(nm);
+        if (!prev || d > prev) _lastSale.set(nm, d);
+      }
+    } catch (e) { /* dataset not loaded yet */ }
+    const _lastSaleOf = (name) => _lastSale.get(name) || _lastSale.get(getCanonicalRepName(name)) || null;
+    const _fmtLast = (d) => { if (!d) return 'no sales'; const days = Math.round((Date.now() - d.getTime()) / 86400000); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + (days <= 0 ? ' · today' : days === 1 ? ' · yesterday' : days < 60 ? ' · ' + days + 'd ago' : ''); };
     // Active vs Inactive counts for the status filter chips below.
     const activeCounts = { active: 0, inactive: 0 };
     reps.forEach(r => {
@@ -26357,7 +26370,10 @@ function manageTeamsPanel(opts) {
           el('div', { class: 'flex items-center gap-2 shrink-0' },
             ...(isAlias
               ? [unmergeBtn]
-              : [activeToggle, tierSel, teamSel]),
+              : [el('div', { class: 'flex flex-col items-center gap-0.5' },
+                   activeToggle,
+                   el('span', { class: 'text-[9px] whitespace-nowrap', style: { color: 'var(--text-subtle)' }, title: 'Last active — most recent sale in the dataset' }, 'Last active · ' + _fmtLast(_lastSaleOf(repName)))),
+                 tierSel, teamSel]),
           ),
         );
         })();
