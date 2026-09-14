@@ -43375,6 +43375,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   PUTIS_GA_LINES.forEach(g => { TIPS[g] = 'G&A line: the "' + g + '" account group, by branch.'; });
   const _line = line;
   const lineT = (label, f, o = {}) => _line(label, f, { ...o, tip: o.tip || TIPS[label] || '' });
+  const part = opts.section || 'all';   // 'book' = recurring-book card only, 'pnl' = income statement only
   const rows = [
     section('Income statement', 'Dollars booked in QuickBooks for the selected month (or year to date), by branch. Corporate = accounts with no branch prefix.'),
     lineT('Total income', d => d.revenue, { bold: true }),
@@ -43395,6 +43396,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     lineT('Interest paid', d => d.interest),
     lineT('Net income', d => d.netIncome, { bold: true, signed: true }),
     lineT('Adjusted EBITDA (before selling expense)', d => d.adjEbitda, { bold: true, signed: true }),
+    'BOOK',
     section('Recurring book · FieldRoutes (at ' + endLabel + ' month end)', bookAtEnd ? 'Recurring subscriptions on the books at the end of the period: sold on or before the last day of ' + endLabel + ' and not cancelled by then.' : 'Operational counts from the FieldRoutes snapshot as of the last sync.'),
     lineT('Recurring revenue (active ARR)', (d, k) => fr(k).arr, { bold: true, tip: 'Annual recurring value of every recurring subscription on the books at the end of the period (any cancel reason removes it).' }),
     lineT('Active accounts', (d, k) => fr(k).active, { num: true, tip: 'Recurring subscriptions on the books at the end of the period.' }),
@@ -43402,15 +43404,18 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     lineT('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }, { tip: 'Booked revenue for the period ÷ accounts on the books at period end.' }),
     lineT('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true, tip: 'EBITDA for the period ÷ accounts on the books at period end.' }),
   ];
+  const cut = rows.indexOf('BOOK');
+  const shown = part === 'book' ? rows.slice(cut + 1) : part === 'pnl' ? rows.slice(0, cut) : rows.filter(r => r !== 'BOOK');
+  const periodLabel = isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
       el('div', {},
-        el('h3', { class: 'text-sm font-bold' }, (opts.title || 'P&L Indicators') + ' · ' + (isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))),
-        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'QuickBooks general ledger by branch · FieldRoutes for accounts, ARR, churn · Corporate = un-branched accounts')),
+        el('h3', { class: 'text-sm font-bold' }, (opts.title || (part === 'book' ? 'Recurring Book' : 'P&L Indicators')) + ' · ' + periodLabel),
+        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, part === 'book' ? 'FieldRoutes snapshot · subscriptions on the books at the end of the period, by branch' : 'QuickBooks general ledger by branch · Corporate = un-branched accounts')),
       opts.headerExtra || null),
     el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('', '', true), ...cols.map(c => th(c.label, c.key === 'RIDD' ? 'Every branch in the ledger added together, including Corporate (un-branched accounts).' : c.key === 'Corporate' ? 'Accounts with no branch prefix: BayToast comish, interest expense, corporate rent, executive travel, executive marketing…' : 'QuickBooks sub-accounts whose name starts with "' + c.label + '".')))),
-      el('tbody', {}, ...rows))));
+      el('tbody', {}, ...shown))));
 }
 
 // ── Unit economics from FieldRoutes (per branch, per month) ──────────────
@@ -43761,12 +43766,15 @@ function reportingPutis() {
   let scRange = state._putisScoreRange;   // 'ytd' | 'YYYY-MM'
   if (!scRange || (scRange !== 'ytd' && !scMonthsAvail.includes(scRange))) scRange = scYear === closedYr ? closedYm : (scRange === 'ytd' ? 'ytd' : lastAvail);
   const monthName = (ym, o) => new Date(ym + '-15T12:00').toLocaleDateString('en-US', o);
-  const pickers = el('div', { class: 'inline-flex items-center gap-1.5' },
+  const pickers = () => el('div', { class: 'inline-flex items-center gap-1.5' },
     sel(scYear, ledgerYears.map(y => [y, y]), (v) => { state._putisScoreYear = v; const avail = Object.keys(M).filter(k => k.startsWith(v + '-') && k < putisOpenMonth()).sort(); if (state._putisScoreRange !== 'ytd') state._putisScoreRange = v === closedYr ? closedYm : avail[avail.length - 1]; mountApp(); }),
     sel(scRange, [['ytd', scYear + ' YTD'], ...scMonthsAvail.slice().reverse().map(ym => [ym, monthName(ym, { month: 'long' })])], (v) => { state._putisScoreRange = v; mountApp(); }));
   const scKey = scRange === 'ytd' ? scYear + '-YTD' : scRange;
   const scBranches = scRange === 'ytd' ? putisBranchesWithData(M, scYear) : putisBranchesWithData(M, scYear).filter(b => M[scRange] && M[scRange][b]);
-  wrap.append(putisIndicatorsCard(M, scKey, scBranches, { headerExtra: pickers }));
+  // Recurring book is its own card at the very top of the tab (above the
+  // trend table); the income statement stays here. Both share the pickers.
+  wrap.insertBefore(putisIndicatorsCard(M, scKey, scBranches, { section: 'book', headerExtra: pickers() }), wrap.children[1] || null);
+  wrap.append(putisIndicatorsCard(M, scKey, scBranches, { section: 'pnl', headerExtra: pickers() }));
 
   return wrap;
 }
