@@ -93,12 +93,57 @@ function collectMarketing(rows, monthsByCol, out) {
   }
 }
 
+// ── Path A: QuickBooks via Windsor.ai (per Isaac — QuickBooks is connected
+// to the Windsor account the site already uses for ad platforms, so no
+// Intuit developer app / compliance review is needed). Pulls the general
+// ledger summarized by month × account and keeps the "Advertising &
+// Marketing:<Branch> Marketing" rows. Same response shape as the direct path.
+async function windsorMarketing(startYear) {
+  const key = process.env.WINDSOR_API_KEY;
+  if (!key) return null;
+  const now = new Date();
+  const from = `${startYear}-01-01`, to = now.toISOString().slice(0, 10);
+  const fields = 'year_month,generalledger__item__account_name,generalledger__item__subt_nat_amount';
+  const url = `https://connectors.windsor.ai/quickbooks?api_key=${encodeURIComponent(key)}&date_from=${from}&date_to=${to}&fields=${fields}&_renderer=json`;
+  const r = await fetchT(url, { headers: { accept: 'application/json' } });
+  if (!r.ok || !r.json) throw new Error(`Windsor quickbooks ${r.status}: ${(r.text || '').slice(0, 160)}`);
+  const rows = Array.isArray(r.json) ? r.json : (r.json.data || r.json.result || []);
+  const out = {};
+  let any = false;
+  for (const row of rows) {
+    const acct = String(row.generalledger__item__account_name || '');
+    if (!/^advertising\s*&\s*marketing:/i.test(acct)) continue;
+    const ymRaw = String(row.year_month || '');                 // "2026|7"
+    const m = ymRaw.match(/^(\d{4})\|(\d{1,2})$/); if (!m) continue;
+    const ym = m[1] + '-' + m[2].padStart(2, '0');
+    const amt = Number(row.generalledger__item__subt_nat_amount); if (!amt) continue;
+    const name = acct.split(':').pop().trim();                  // "Atlanta Marketing"
+    (out[ym] = out[ym] || {});
+    out[ym][name] = (out[ym][name] || 0) + amt;
+    any = true;
+  }
+  return any ? out : null;
+}
+
 exports.handler = async (event) => {
   // ── Auth: admins only (shared gate) — this endpoint serves company
   // financial/operational data and was previously open to the internet. ──
   const { requireRole } = require('../lib/auth-gate.js');
   const gate = await requireRole(event, ['admin', 'admin_rep']);
   if (!gate.ok) return gate.response;
+  {
+    const q0 = (event && event.queryStringParameters) || {};
+    const now0 = new Date();
+    const sy = q0.year && /^\d{4}$/.test(q0.year) ? Number(q0.year) : now0.getFullYear() - 1;
+    try {
+      const viaWindsor = await windsorMarketing(sy);
+      if (viaWindsor) {
+        let total = 0; for (const ym in viaWindsor) for (const k in viaWindsor[ym]) total += viaWindsor[ym][k];
+        return { statusCode: 200, headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=3600' },
+          body: JSON.stringify({ bySourceMonth: viaWindsor, total, pulledAt: new Date().toISOString(), source: 'windsor' }) };
+      }
+    } catch (e) { console.warn('[qbo-spend] windsor path failed, trying direct Intuit:', e && e.message); }
+  }
   const needed = ['QBO_CLIENT_ID', 'QBO_CLIENT_SECRET'];
   const missing = needed.filter(k => !process.env[k]);
   if (missing.length) return { statusCode: 500, body: JSON.stringify({ error: 'Missing env vars: ' + missing.join(', ') + ' (see qbo-spend.js setup notes)' }) };
