@@ -30342,7 +30342,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const tierCard = el('div', { class: 'card overflow-hidden', 'data-section': 'class-metrics' },
       el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
-          el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA · Serviced divides by Reps W/ Serviced.' }, '🎓 Class Metrics'),,
+          el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA · Serviced divides by Reps W/ Serviced.' }, '🎓 Class Metrics'),
           scopePicker
         ),
         untagged > 0 && el('button', {
