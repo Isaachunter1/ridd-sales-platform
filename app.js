@@ -44110,6 +44110,10 @@ function _mktgYearBar(sub) {
 // function (the session token rides in the query — a redirect can't carry
 // a header). Intuit bounces back to /?qbo=connected#marketing.
 function _mktgQboConnectBtn() {
+  // Retired (per Isaac): QuickBooks now comes through Windsor, so there's
+  // nothing to connect from the app. Kept as a no-op so callers stay simple.
+  return null;
+  // eslint-disable-next-line no-unreachable
   if (!isAdminRole(state.profile?.role)) return null;
   const connected = state._isSpendSource === 'QuickBooks';
   return el('button', {
