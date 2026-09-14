@@ -110,12 +110,13 @@ async function kickRefresh(event) {
 }
 async function windsorCached(event, force) {
   if (!process.env.WINDSOR_API_KEY) { console.warn('[qbo-spend] WINDSOR_API_KEY not set — skipping Windsor path'); return null; }
-  const store = await blobStore();
-  if (!store) { console.warn('[qbo-spend] Netlify Blobs unavailable (is @netlify/blobs installed?) — skipping Windsor path'); return null; }
+  const { kvStore } = require('../lib/kv-store.js');
+  const store = kvStore('qbo');
+  if (!store) { console.warn('[qbo-spend] cache store unavailable (SUPABASE_SERVICE_ROLE_KEY?) — skipping Windsor path'); return null; }
   let cached = null, refreshing = null, lastErr = null;
-  try { cached = await store.get('spend', { type: 'json' }); } catch (e) { console.warn('[qbo-spend] blob read failed:', e && e.message); }
-  try { refreshing = await store.get('spend_refreshing', { type: 'json' }); } catch {}
-  try { lastErr = await store.get('spend_error', { type: 'json' }); } catch {}
+  try { cached = await store.get('spend'); } catch (e) { console.warn('[qbo-spend] cache read failed:', e && e.message); }
+  try { refreshing = await store.get('spend_refreshing'); } catch {}
+  try { lastErr = await store.get('spend_error'); } catch {}
   if (lastErr) console.warn('[qbo-spend] last background refresh error:', JSON.stringify(lastErr));
   const age = cached && cached.pulledAt ? Date.now() - new Date(cached.pulledAt).getTime() : Infinity;
   const inFlight = refreshing && refreshing.at && Date.now() - new Date(refreshing.at).getTime() < 5 * 60 * 1000;

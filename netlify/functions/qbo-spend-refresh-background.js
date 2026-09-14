@@ -15,9 +15,8 @@ async function fetchT(url, opts) {
   try { const r = await fetch(url, { ...opts, signal: ac.signal }); const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch {} return { ok: r.ok, status: r.status, json, text }; }
   finally { clearTimeout(t); }
 }
-async function blobStore() {
-  try { const { getStore } = await import('@netlify/blobs'); return getStore('qbo'); } catch (e) { console.error('[qbo-refresh] blobs init failed:', e && e.message); return null; }
-}
+const { kvStore } = require('../lib/kv-store.js');
+async function blobStore() { return kvStore('qbo'); }
 
 async function pullWindsor(startYear) {
   const key = process.env.WINDSOR_API_KEY;
@@ -55,19 +54,19 @@ exports.handler = async (event) => {
     if (got !== need) return { statusCode: 401, body: 'bad secret' };
   }
   const store = await blobStore();
-  if (!store) { console.error('[qbo-refresh] Netlify Blobs unavailable'); return { statusCode: 500, body: 'no blobs' }; }
+  if (!store) { console.error('[qbo-refresh] cache store unavailable (SUPABASE_SERVICE_ROLE_KEY?)'); return { statusCode: 500, body: 'no blobs' }; }
   const startYear = new Date().getFullYear() - 1;
   const started = Date.now();
   try {
-    await store.setJSON('spend_refreshing', { at: new Date().toISOString() });
+    await store.set('spend_refreshing', { at: new Date().toISOString() });
     const data = await pullWindsor(startYear);
-    await store.setJSON('spend', data);
+    await store.set('spend', data);
     await store.delete('spend_refreshing').catch(() => {});
     console.log('[qbo-refresh] ok', data.rows, 'ledger rows,', Object.keys(data.bySourceMonth).length, 'months, total', Math.round(data.total), 'in', Date.now() - started, 'ms');
     return { statusCode: 200, body: 'ok' };
   } catch (e) {
     await store.delete('spend_refreshing').catch(() => {});
-    await store.setJSON('spend_error', { at: new Date().toISOString(), error: String(e && e.message || e) }).catch(() => {});
+    await store.set('spend_error', { at: new Date().toISOString(), error: String(e && e.message || e) }).catch(() => {});
     console.error('[qbo-refresh] failed after', Date.now() - started, 'ms:', e && e.message);
     return { statusCode: 500, body: String(e && e.message || e) };
   }
