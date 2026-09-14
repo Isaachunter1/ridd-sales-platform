@@ -4395,12 +4395,18 @@ function reportingAuditing() {
           kind !== 'rep' && el('colgroup', {}, el('col', { style: { width: '110px' } }), ...cols.slice(1).map(() => el('col', {}))),
           el('thead', {}, el('tr', {}, ...cols.map(thSort))),
           el('tbody', {},
-            ...sorted.map(([name, s2]) => {
+            // Reps: top 25 by the current sort (per Isaac); a live search or
+            // "Show all" reveals the rest. Total row still covers everyone.
+            ...(kind === 'rep' && !state._auditRepShowAll && !(state._auditRepSearch || '').trim() ? sorted.slice(0, 25) : sorted).map(([name, s2]) => {
               const tr = statRow(name, s2, { kind, org: kind === 'rep' ? { office: repOfficeOf(name), team: repTeamOf(name) } : undefined });
               if (kind === 'rep') tr.setAttribute('data-auditrep', String(name).toLowerCase());
               return tr;
             }),
-            statRow('TOTAL', tot, { total: true, kind, org: kind === 'rep' ? {} : undefined })))));
+            statRow('TOTAL', tot, { total: true, kind, org: kind === 'rep' ? {} : undefined }))),
+        kind === 'rep' && sorted.length > 25 && !(state._auditRepSearch || '').trim() ? el('div', { class: 'px-4 py-2 border-t flex items-center justify-between gap-2 text-[11px]', style: { borderColor: 'var(--border)' } },
+          el('span', { class: 'text-muted-' }, state._auditRepShowAll ? 'Showing all ' + sorted.length + ' reps' : 'Top 25 of ' + sorted.length + ' reps'),
+          el('button', { class: 'font-semibold', style: { color: 'var(--accent)' }, onclick: () => { state._auditRepShowAll = !state._auditRepShowAll; mountApp(); } },
+            state._auditRepShowAll ? 'Show top 25' : 'Show all')) : null));
   };
 
   const repEntries = Object.entries(reps).sort((a, b) => b[1].sold - a[1].sold || b[1].failed - a[1].failed);
@@ -4580,8 +4586,12 @@ function reportingAuditing() {
           class: 'rounded-lg border px-2.5 py-1 text-[11px]',
           style: { borderColor: 'var(--border-2)', minWidth: '160px' },
           oninput: (e) => {
+            const wasEmpty = !(state._auditRepSearch || '').trim();
             state._auditRepSearch = e.target.value;
             const q = e.target.value.trim().toLowerCase();
+            // Rows beyond the top 25 aren't rendered until a search starts —
+            // re-mount on the empty ⇄ non-empty transition, then filter in place.
+            if (wasEmpty !== !q) { mountApp(); setTimeout(() => { const i = document.getElementById('audit-rep-search'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); return; }
             document.querySelectorAll('[data-auditrep]').forEach(row => {
               row.style.display = (!q || (row.getAttribute('data-auditrep') || '').includes(q)) ? '' : 'none';
             });
