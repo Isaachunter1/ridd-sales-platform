@@ -94,35 +94,32 @@ function collectMarketing(rows, monthsByCol, out) {
 }
 
 // ── Path A: QuickBooks via Windsor.ai (per Isaac — QuickBooks is connected
-// to the Windsor account the site already uses for ad platforms, so no
-// Intuit developer app / compliance review is needed). Pulls the general
-// ledger summarized by month × account and keeps the "Advertising &
-// Marketing:<Branch> Marketing" rows. Same response shape as the direct path.
-async function windsorMarketing(startYear) {
-  const key = process.env.WINDSOR_API_KEY;
-  if (!key) return null;
-  const now = new Date();
-  const from = `${startYear}-01-01`, to = now.toISOString().slice(0, 10);
-  const fields = 'year_month,generalledger__item__account_name,generalledger__item__subt_nat_amount';
-  const url = `https://connectors.windsor.ai/quickbooks?api_key=${encodeURIComponent(key)}&date_from=${from}&date_to=${to}&fields=${fields}&_renderer=json`;
-  const r = await fetchT(url, { headers: { accept: 'application/json' } });
-  if (!r.ok || !r.json) throw new Error(`Windsor quickbooks ${r.status}: ${(r.text || '').slice(0, 160)}`);
-  const rows = Array.isArray(r.json) ? r.json : (r.json.data || r.json.result || []);
-  const out = {};
-  let any = false;
-  for (const row of rows) {
-    const acct = String(row.generalledger__item__account_name || '');
-    if (!/^advertising\s*&\s*marketing:/i.test(acct)) continue;
-    const ymRaw = String(row.year_month || '');                 // "2026|7"
-    const m = ymRaw.match(/^(\d{4})\|(\d{1,2})$/); if (!m) continue;
-    const ym = m[1] + '-' + m[2].padStart(2, '0');
-    const amt = Number(row.generalledger__item__subt_nat_amount); if (!amt) continue;
-    const name = acct.split(':').pop().trim();                  // "Atlanta Marketing"
-    (out[ym] = out[ym] || {});
-    out[ym][name] = (out[ym][name] || 0) + amt;
-    any = true;
-  }
-  return any ? out : null;
+// to the Windsor account the site already uses, so no Intuit developer app
+// is needed). The ledger pull is slow (15-40s), so it runs in
+// qbo-spend-refresh-background.js and lands in Netlify Blobs; this handler
+// serves the cached copy and kicks a refresh when it's older than 6h (or
+// on ?_= force). Same response shape as the direct Intuit path.
+const CACHE_MS = 6 * 3600 * 1000;
+async function kickRefresh(event) {
+  try {
+    const h = (event && event.headers) || {};
+    const base = process.env.URL || `${h['x-forwarded-proto'] || 'https'}://${h['x-forwarded-host'] || h.host}`;
+    // Background functions ack with 202 immediately — no need to await the work.
+    await fetch(`${base}/.netlify/functions/qbo-spend-refresh-background`, { method: 'POST', headers: { 'x-sync-secret': process.env.REVHAWK_SYNC_SECRET || '' } });
+  } catch (e) { console.warn('[qbo-spend] could not kick refresh:', e && e.message); }
+}
+async function windsorCached(event, force) {
+  if (!process.env.WINDSOR_API_KEY) return null;
+  const store = await blobStore();
+  if (!store) return null;
+  let cached = null, refreshing = null;
+  try { cached = await store.get('spend', { type: 'json' }); } catch {}
+  try { refreshing = await store.get('spend_refreshing', { type: 'json' }); } catch {}
+  const age = cached && cached.pulledAt ? Date.now() - new Date(cached.pulledAt).getTime() : Infinity;
+  const inFlight = refreshing && refreshing.at && Date.now() - new Date(refreshing.at).getTime() < 5 * 60 * 1000;
+  if ((force || age > CACHE_MS) && !inFlight) await kickRefresh(event);
+  if (cached && cached.bySourceMonth) return { ...cached, stale: age > CACHE_MS, refreshing: !!(inFlight || force || age > CACHE_MS) };
+  return { pending: true };
 }
 
 exports.handler = async (event) => {
@@ -133,16 +130,17 @@ exports.handler = async (event) => {
   if (!gate.ok) return gate.response;
   {
     const q0 = (event && event.queryStringParameters) || {};
-    const now0 = new Date();
-    const sy = q0.year && /^\d{4}$/.test(q0.year) ? Number(q0.year) : now0.getFullYear() - 1;
     try {
-      const viaWindsor = await windsorMarketing(sy);
-      if (viaWindsor) {
-        let total = 0; for (const ym in viaWindsor) for (const k in viaWindsor[ym]) total += viaWindsor[ym][k];
-        return { statusCode: 200, headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=3600' },
-          body: JSON.stringify({ bySourceMonth: viaWindsor, total, pulledAt: new Date().toISOString(), source: 'windsor' }) };
+      const w = await windsorCached(event, !!q0._);
+      if (w && w.bySourceMonth) {
+        return { statusCode: 200, headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=300' }, body: JSON.stringify(w) };
       }
-    } catch (e) { console.warn('[qbo-spend] windsor path failed, trying direct Intuit:', e && e.message); }
+      if (w && w.pending) {
+        // First-ever pull is running in the background — tell the client to
+        // retry shortly instead of falling through to the Intuit path.
+        return { statusCode: 202, headers: { 'content-type': 'application/json', 'retry-after': '20' }, body: JSON.stringify({ pending: true, error: 'QuickBooks spend is being pulled from Windsor — retry in ~30s' }) };
+      }
+    } catch (e) { console.warn('[qbo-spend] windsor cache path failed, trying direct Intuit:', e && e.message); }
   }
   const needed = ['QBO_CLIENT_ID', 'QBO_CLIENT_SECRET'];
   const missing = needed.filter(k => !process.env[k]);
