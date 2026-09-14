@@ -189,6 +189,13 @@
     /* Reporting → Overview: the 5 metric columns (and compare pairs) stack
        into ONE column on phones instead of a 1230px sideways scroll. */
     .rep-cols { grid-template-columns: 1fr !important; min-width: 0 !important; }
+    /* Reporting filter bar: Office + Time range share the row, ⓘ on the
+       right of that same row (the flex spacer pushed it to its own line). */
+    .rep-filter-row { flex-wrap: nowrap !important; align-items: flex-end; }
+    .rep-filter-row .rep-filter-pick { flex: 1 1 0; min-width: 0; }
+    .rep-filter-row .rep-filter-pick select { min-width: 0 !important; width: 100%; }
+    .rep-filter-row .rep-filter-pick > div:last-child { flex-wrap: nowrap; }
+    .rep-filter-row .rep-filter-spacer { display: none; }
     /* Indicators leaderboard header: title + tools on one row, search on
        its own full-width row underneath; the rep count is dropped. */
     .lb-head .lb-tools { display: contents; }
