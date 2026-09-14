@@ -186,6 +186,11 @@ SELECT
   CASE WHEN s.fieldRoutes_dateAdded IS NULL OR s.fieldRoutes_dateAdded LIKE '0000%' THEN NULL ELSE LEFT(s.fieldRoutes_dateAdded,19) END AS sold_at,
   cust.apay AS customer_auto_pay,
   flags.flags AS customer_flags,
+  -- No FieldRoutesCustomer row for this sub's customer id = the account was
+  -- deleted in the CRM (the mirror never removes rows) — or, rarely, the
+  -- customer feed is behind. The app auto-excludes these (Settings →
+  -- Configurations → Deleted CRM accounts) and lists them for review.
+  IF(cust.cid IS NULL, 1, NULL) AS customer_missing,
   SAFE_CAST(s.fieldRoutes_annualRecurringValue AS FLOAT64) AS annual_recurring_value,
   s.fieldRoutes_soldBy AS sold_by_id,
   NULLIF(CONCAT(COALESCE(emp.lname,''), ', ', COALESCE(emp.fname,'')), ', ') AS sold_by,
