@@ -43231,6 +43231,190 @@ function putisIndicatorsCard(M, ym, branches) {
       el('tbody', {}, ...rows))));
 }
 
+// ── Unit economics from FieldRoutes (per branch, per month) ──────────────
+// New recurring accounts sold, new ARR, real cancels, lost ARR — using the
+// SAME rules as the Overview / Retention tabs (reportingFilters), so CAC,
+// churn and LTV here tie to what the rest of Reporting shows.
+function putisUnitMonthly() {
+  if (state._putisUnitCache && state._putisUnitCacheFor === (state.reportingSnapshotStamp || (state.reportingSubscriptions || []).length)) return state._putisUnitCache;
+  const out = {};   // {ym: {branch: {newSubs, newArr, cancels, lostArr}}}
+  const active = {}; // {branch: {active, arr}} as of today
+  try {
+    const F = reportingFilters();
+    const seed = () => ({ newSubs: 0, newArr: 0, cancels: 0, lostArr: 0 });
+    for (const r of F.recurring) {
+      const b = putisBranchOf(String(r.office_name || '').toLowerCase());
+      const arv = Number(r.annual_recurring_value) || 0;
+      const sd = String(r.sold_date || '').slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(sd)) { const x = ((out[sd] = out[sd] || {})[b] = (out[sd] || {})[b] || seed()); x.newSubs++; x.newArr += arv; }
+      if (F.isRealCancel(r)) {
+        const cd = String(r.subscription_date_canceled || '').slice(0, 7);
+        if (/^\d{4}-\d{2}$/.test(cd)) { const x = ((out[cd] = out[cd] || {})[b] = (out[cd] || {})[b] || seed()); x.cancels++; x.lostArr += arv; }
+      }
+      if (F.isActive(r)) { const a = (active[b] = active[b] || { active: 0, arr: 0 }); a.active++; a.arr += arv; }
+    }
+  } catch (e) { /* snapshot not loaded */ }
+  state._putisUnitCache = { months: out, active };
+  state._putisUnitCacheFor = state.reportingSnapshotStamp || (state.reportingSubscriptions || []).length;
+  return state._putisUnitCache;
+}
+function putisUnitSum(U, yms, branches) {
+  const t = { newSubs: 0, newArr: 0, cancels: 0, lostArr: 0, active: 0, arr: 0 };
+  for (const ym of yms) { const B = U.months[ym] || {}; for (const b of branches) { const x = B[b]; if (!x) continue; t.newSubs += x.newSubs; t.newArr += x.newArr; t.cancels += x.cancels; t.lostArr += x.lostArr; } }
+  for (const b of branches) { const a = U.active[b]; if (a) { t.active += a.active; t.arr += a.arr; } }
+  return t;
+}
+// Everything a PE reader wants for one scope + period, in one object.
+function putisMetrics(M, U, yms, branches) {
+  const d = putisDeriveMonths(M, yms, branches);
+  const u = putisUnitSum(U, yms, branches);
+  const n = yms.length || 1;
+  const m = { ...d, ...u, months: n };
+  m.acv = u.active ? u.arr / u.active : null;
+  m.cac = u.newSubs ? d.selling / u.newSubs : null;                  // selling expense per new account
+  m.mktgPerNew = u.newSubs ? d.marketing / u.newSubs : null;
+  m.monthlyChurn = u.active ? (u.cancels / n) / u.active : null;      // avg monthly cancels ÷ active today
+  m.annualChurn = m.monthlyChurn != null ? Math.min(1, m.monthlyChurn * 12) : null;
+  m.grossAcv = m.acv != null && d.gpPct != null ? m.acv * d.gpPct : null;
+  m.ltv = m.grossAcv != null && m.annualChurn ? m.grossAcv / m.annualChurn : null;
+  m.ltvCac = m.ltv != null && m.cac ? m.ltv / m.cac : null;
+  m.paybackMo = m.cac != null && m.grossAcv ? m.cac / (m.grossAcv / 12) : null;
+  m.netNewArr = u.newArr - u.lostArr;
+  m.revPerActive = u.active ? d.revenue / n / u.active : null;        // monthly revenue per active account
+  m.ebitdaPerActive = u.active ? d.ebitda / n / u.active : null;
+  m.gaPerActive = u.active ? d.ga / n / u.active : null;
+  m.arrCoverage = u.arr ? (d.revenue / n) / (u.arr / 12) : null;      // booked monthly revenue vs 1/12 of ARR
+  return m;
+}
+
+// ── Reorganised Putis Shid (per Isaac — "put your PE hat on") ───────────
+const PUTIS_KPI_TIPS = {
+  revenue: 'Booked revenue for the period (QuickBooks Sales accounts).',
+  gpPct: 'Gross margin — revenue after chemicals, auto/fuel, tech wages and merchant fees.',
+  ebitda: 'EBITDA — gross profit minus all operating expense. The bottom line before interest and depreciation.',
+  adjEbitdaPct: 'Adjusted EBITDA margin — EBITDA + selling expense (commissions, marketing, incentives) ÷ revenue. Profitability of the service base before growth spend.',
+  sellingPct: 'Selling expense ÷ revenue — the cost of growth (commissions + marketing + incentives).',
+  netNewArr: 'Net new ARR — annual recurring value sold in the period minus ARV lost to real cancels (Retention-tab rules). Positive = the book grew.',
+  ltvCac: 'LTV ÷ CAC — lifetime gross profit of an account (ACV × gross margin ÷ annual churn) divided by selling cost per new account. 3x+ is the usual PE bar.',
+  paybackMo: 'CAC payback — months of gross profit needed to recover the selling cost of a new account. Under 12 is healthy for route-based services.',
+  cac: 'CAC — selling expense (commissions + marketing + incentives) ÷ new recurring accounts sold in the period.',
+  monthlyChurn: 'Monthly churn — average real cancels per month ÷ active accounts today (Retention-tab rules: excluded reasons and 3-day ROR stripped).',
+  acv: 'ACV — active ARR ÷ active accounts.',
+  revPerActive: 'Monthly revenue per active account — booked revenue ÷ months ÷ active accounts today.',
+  arrCoverage: 'ARR realisation — booked monthly revenue ÷ (ARR ÷ 12). Above 1.0 means billing ran ahead of the recurring base (initials, upsells); below means under-billing or seasonal timing.',
+  gaPerActive: 'Monthly G&A per active account — overhead leverage. Should fall as branches scale.',
+  concentration: 'Share of company revenue from the largest branch.',
+};
+function _putisFmt(kind, v) {
+  if (v == null || !isFinite(v)) return '—';
+  if (kind === 'usd') return _putisUsd(v);
+  if (kind === 'usd2') return (v < 0 ? '-' : '') + '$' + Math.abs(v).toFixed(0);
+  if (kind === 'pct') return _putisPct1(v);
+  if (kind === 'x') return v.toFixed(1) + 'x';
+  if (kind === 'mo') return v.toFixed(1) + ' mo';
+  if (kind === 'int') return Math.round(v).toLocaleString();
+  return String(v);
+}
+function _putisDelta(kind, cur, prev, lowGood) {
+  if (cur == null || prev == null || !isFinite(cur) || !isFinite(prev)) return null;
+  const d = cur - prev;
+  const good = lowGood ? d <= 0 : d >= 0;
+  const txt = kind === 'pct' ? (d > 0 ? '+' : '') + (d * 100).toFixed(1) + ' pts' : kind === 'x' ? (d > 0 ? '+' : '') + d.toFixed(1) + 'x' : kind === 'mo' ? (d > 0 ? '+' : '') + d.toFixed(1) + ' mo' : (d > 0 ? '+' : '') + _putisUsd(d);
+  return el('span', { class: 'text-[10px] font-semibold', style: { color: Math.abs(d) < 1e-9 ? 'var(--text-subtle)' : good ? '#16A34A' : '#DC2626' } }, txt);
+}
+
+function putisKpiStrip(M, U, closedYm, branches) {
+  const yr = closedYm.slice(0, 4);
+  const prevYm = (() => { const d = new Date(closedYm + '-15T12:00'); d.setMonth(d.getMonth() - 1); return _mktgYm(d.getFullYear(), d.getMonth()); })();
+  const lastYearYm = String(Number(yr) - 1) + closedYm.slice(4);
+  const cur = putisMetrics(M, U, [closedYm], branches);
+  const prev = putisMetrics(M, U, [prevYm], branches);
+  const ly = M[lastYearYm] ? putisMetrics(M, U, [lastYearYm], branches) : null;
+  const ytdMonths = Object.keys(M).filter(k => k.startsWith(yr + '-') && k <= closedYm).sort();
+  const ytd = putisMetrics(M, U, ytdMonths, branches);
+  const tiles = [
+    { id: 'revenue', label: 'Revenue', kind: 'usd' },
+    { id: 'gpPct', label: 'Gross margin', kind: 'pct' },
+    { id: 'ebitda', label: 'EBITDA', kind: 'usd', signed: true },
+    { id: 'adjEbitdaPct', label: 'Adj. EBITDA margin', kind: 'pct' },
+    { id: 'sellingPct', label: 'Selling expense', kind: 'pct', lowGood: true },
+    { id: 'netNewArr', label: 'Net new ARR', kind: 'usd', signed: true },
+    { id: 'cac', label: 'CAC', kind: 'usd2', lowGood: true },
+    { id: 'ltvCac', label: 'LTV / CAC', kind: 'x' },
+    { id: 'paybackMo', label: 'CAC payback', kind: 'mo', lowGood: true },
+    { id: 'monthlyChurn', label: 'Monthly churn', kind: 'pct', lowGood: true },
+  ];
+  const monthLabel = new Date(closedYm + '-15T12:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  return el('div', { class: 'card p-4' },
+    el('div', { class: 'flex items-baseline justify-between gap-3 flex-wrap mb-3' },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Executive summary · ' + monthLabel + ' (last closed month)'),
+        el('div', { class: 'text-[9px] uppercase tracking-widest mt-0.5', style: { color: 'var(--text-subtle)' } }, 'Deltas vs prior month · vs same month last year · YTD through ' + monthLabel)),
+    ),
+    el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
+      ...tiles.map(t => {
+        const v = cur[t.id];
+        const col = t.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
+        return el('div', { class: 'rounded-lg border p-3 cursor-help', style: { borderColor: 'var(--border)', background: 'var(--card-2)' }, title: PUTIS_KPI_TIPS[t.id] || '' },
+          el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t.label),
+          el('div', { class: 'text-xl font-black tabular-nums mt-0.5', style: col }, _putisFmt(t.kind, v)),
+          el('div', { class: 'flex items-center gap-2 mt-1 flex-wrap' },
+            (() => { const d = _putisDelta(t.kind, v, prev[t.id], t.lowGood); return d ? el('span', { class: 'flex items-center gap-1' }, el('span', { class: 'text-[9px] text-muted-' }, 'MoM'), d) : null; })(),
+            (() => { const d = ly ? _putisDelta(t.kind, v, ly[t.id], t.lowGood) : null; return d ? el('span', { class: 'flex items-center gap-1' }, el('span', { class: 'text-[9px] text-muted-' }, 'YoY'), d) : null; })()),
+          el('div', { class: 'text-[10px] tabular-nums mt-1', style: { color: 'var(--text-muted)' } }, 'YTD ' + _putisFmt(t.kind, ytd[t.id])));
+      })));
+}
+
+// Branch scorecard — one row per branch, the columns a PE reader scans first.
+function putisBranchScorecard(M, U, yms, branches, title) {
+  const COLS = [
+    { id: 'revenue', label: 'Revenue', kind: 'usd' },
+    { id: 'gpPct', label: 'GM %', kind: 'pct' },
+    { id: 'ebitda', label: 'EBITDA', kind: 'usd', signed: true },
+    { id: 'ebitdaPct', label: 'EBITDA %', kind: 'pct', signed: true },
+    { id: 'adjEbitdaPct', label: 'Adj. %', kind: 'pct', signed: true, tip: PUTIS_KPI_TIPS.adjEbitdaPct },
+    { id: 'sellingPct', label: 'Selling %', kind: 'pct', lowGood: true },
+    { id: 'gaPct', label: 'G&A %', kind: 'pct', lowGood: true },
+    { id: 'active', label: 'Active accts', kind: 'int', tip: 'Active recurring accounts today (FieldRoutes).' },
+    { id: 'arr', label: 'Active ARR', kind: 'usd' },
+    { id: 'newSubs', label: 'New accts', kind: 'int', tip: 'Recurring accounts sold in the period.' },
+    { id: 'netNewArr', label: 'Net new ARR', kind: 'usd', signed: true, tip: PUTIS_KPI_TIPS.netNewArr },
+    { id: 'cac', label: 'CAC', kind: 'usd2', lowGood: true, tip: PUTIS_KPI_TIPS.cac },
+    { id: 'ltvCac', label: 'LTV/CAC', kind: 'x', tip: PUTIS_KPI_TIPS.ltvCac },
+    { id: 'paybackMo', label: 'Payback', kind: 'mo', lowGood: true, tip: PUTIS_KPI_TIPS.paybackMo },
+    { id: 'monthlyChurn', label: 'Churn/mo', kind: 'pct', lowGood: true, tip: PUTIS_KPI_TIPS.monthlyChurn },
+    { id: 'revPerActive', label: 'Rev/acct/mo', kind: 'usd2', tip: PUTIS_KPI_TIPS.revPerActive },
+    { id: 'gaPerActive', label: 'G&A/acct/mo', kind: 'usd2', lowGood: true, tip: PUTIS_KPI_TIPS.gaPerActive },
+  ];
+  const rows = branches.map(b => ({ name: b, m: putisMetrics(M, U, yms, [b]) }));
+  const total = putisMetrics(M, U, yms, branches);
+  const sortKey = state._putisScoreSort || 'revenue';
+  const sortDir = state._putisScoreDir || 'desc';
+  rows.sort((a, b) => { const va = a.m[sortKey], vb = b.m[sortKey]; const x = (va == null ? -Infinity : va), y = (vb == null ? -Infinity : vb); return sortDir === 'asc' ? x - y : y - x; });
+  const topShare = total.revenue > 0 ? Math.max(...rows.map(r => r.m.revenue || 0)) / total.revenue : null;
+  const th = (c) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left cursor-pointer select-none', style: { color: sortKey === c.id ? 'var(--accent)' : 'var(--text-muted)' }, title: (c.tip || PUTIS_KPI_TIPS[c.id] || c.label) + ' · click to sort',
+    onclick: () => { if (state._putisScoreSort === c.id) state._putisScoreDir = sortDir === 'asc' ? 'desc' : 'asc'; else { state._putisScoreSort = c.id; state._putisScoreDir = c.lowGood ? 'asc' : 'desc'; } mountApp(); } }, c.label);
+  // Best / worst shading per column (excluding total) so the eye lands on outliers.
+  const best = {}, worst = {};
+  COLS.forEach(c => { const vals = rows.map(r => r.m[c.id]).filter(v => v != null && isFinite(v)); if (vals.length >= 3) { const hi = Math.max(...vals), lo = Math.min(...vals); best[c.id] = c.lowGood ? lo : hi; worst[c.id] = c.lowGood ? hi : lo; } });
+  const td = (c, m, isTotal) => {
+    const v = m[c.id];
+    const st = {};
+    if (!isTotal && v != null && isFinite(v)) { if (v === best[c.id]) st.background = 'rgba(22,163,74,.10)'; else if (v === worst[c.id]) st.background = 'rgba(220,38,38,.10)'; }
+    if (c.signed && v != null) st.color = v < 0 ? '#DC2626' : '#16A34A';
+    return el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap' + (isTotal ? ' font-bold' : ''), style: st }, _putisFmt(c.kind, v));
+  };
+  return el('div', { class: 'card overflow-hidden' },
+    el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, title),
+        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Green = best in column · red = worst · click a header to sort' + (topShare != null ? ' · top-branch concentration ' + _putisPct1(topShare) : ''))),
+    ),
+    el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
+      el('thead', {}, el('tr', {}, el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold text-left', style: { color: 'var(--text-muted)' } }, 'Branch'), ...COLS.map(th))),
+      el('tbody', {},
+        ...rows.map(r => el('tr', { class: 'border-t border-' }, el('td', { class: 'px-2 py-1.5 font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }, r.name), ...COLS.map(c => td(c, r.m, false)))),
+        el('tr', { class: 'border-t font-bold', style: { background: 'var(--card-2)' } }, el('td', { class: 'px-2 py-1.5 whitespace-nowrap', style: { position: 'sticky', left: 0, background: 'var(--card-2)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }, 'RIDD'), ...COLS.map(c => td(c, total, true)))))));
+}
+
 function reportingPutis() {
   if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
   reportingLoadLedger();
@@ -43244,22 +43428,28 @@ function reportingPutis() {
       el('button', { class: 'mt-3 rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => reportingLoadLedger(true) }, '↻ Retry')));
     return wrap;
   }
+  const U = putisUnitMonthly();
   const branches = putisBranchesWithData(M, year);
+  const opBranches = branches.filter(b => b !== 'Corporate');
   const branchSel = state._putisBranch && (branches.includes(state._putisBranch) || state._putisBranch === 'all' || state._putisBranch === 'RIDD') ? state._putisBranch : 'RIDD';
-  const retained = branches.filter(b => b !== 'Corporate');
   const monthsWithData = Object.keys(M).filter(ym => ym.startsWith(String(year)) && Object.values(M[ym]).some(x => x.revenue)).sort();
   const _isYtdPick = /^\d{4}-YTD$/.test(state._putisMonth || '');
   if (!state._putisMonth || (!_isYtdPick && !M[state._putisMonth])) {
-    // Default = last CLOSED month (per Isaac); fall back to the latest booked month before it.
     const closed = putisLastClosedMonth();
     const candidates = monthsWithData.filter(ym => ym <= closed);
     state._putisMonth = M[closed] ? closed : (candidates[candidates.length - 1] || monthsWithData[monthsWithData.length - 1] || closed);
   }
+  // The closed month the summary + scorecard key off.
+  const closedYm = (() => { const c = putisLastClosedMonth(); if (M[c]) return c; const all = Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).sort(); return all[all.length - 1] || c; })();
+  const closedYr = closedYm.slice(0, 4);
+  const ytdMonths = Object.keys(M).filter(k => k.startsWith(closedYr + '-') && k <= closedYm).sort();
   const pulled = state.reportingLedger.pulledAt ? new Date(state.reportingLedger.pulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
   const sel = (val, opts, on) => el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => on(e.target.value) },
     ...opts.map(([v, l]) => el('option', { value: v, selected: v === val }, l)));
-  // toolbar
-  const branchPicker = () => { const p = sel(branchSel, [['RIDD', 'RIDD · all branches'], ...branches.map(b => [b, b]), ['all', 'Every branch (stacked)']], (v) => { state._putisBranch = v; mountApp(); }); p.classList.add('ml-auto'); return p; };
+  const seg = (val, opts, on) => el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+    ...opts.map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold transition', style: val === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => on(v) }, l)));
+
+  // ── 0. Toolbar ──
   wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap' },
     el('div', { class: 'inline-flex items-center gap-1' },
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = year - 1; mountApp(); } }, '‹'),
@@ -43267,27 +43457,44 @@ function reportingPutis() {
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = year + 1; mountApp(); } }, '›')),
     el('label', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer' },
       el('input', { type: 'checkbox', checked: !!state._putisMoM, style: { accentColor: 'var(--accent)' }, onchange: (e) => { state._putisMoM = e.target.checked; mountApp(); } }), 'MoM change'),
-    el('span', { class: 'text-[10px] text-muted- ml-auto' }, 'QuickBooks via Windsor' + (pulled ? ' · pulled ' + pulled : '') + (state.reportingLedger.refreshing ? ' · refreshing…' : '')),
+    el('span', { class: 'text-[10px] text-muted- ml-auto' }, 'QuickBooks via Windsor' + (pulled ? ' · pulled ' + pulled : '') + (state.reportingLedger.refreshing ? ' · refreshing…' : '') + ' · FieldRoutes for accounts / ARR / churn'),
     el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Re-pull the ledger from QuickBooks now', onclick: () => { reportingLoadLedger(true); if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(true); } }, '↻')));
-  // trend tables
+
+  // ── 1. Executive summary (closed month, RIDD) ──
+  wrap.append(putisKpiStrip(M, U, closedYm, branches));
+
+  // ── 2. Branch scorecard (closed month ⇄ YTD) ──
+  const scScope = state._putisScoreScope === 'ytd' ? 'ytd' : 'month';
+  const scYms = scScope === 'ytd' ? ytdMonths : [closedYm];
+  const scTitle = 'Branch scorecard · ' + (scScope === 'ytd' ? closedYr + ' YTD (thru ' + new Date(closedYm + '-15T12:00').toLocaleDateString('en-US', { month: 'short' }) + ')' : new Date(closedYm + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
+  const scCard = putisBranchScorecard(M, U, scYms, opBranches, scTitle);
+  scCard.firstChild.append(seg(scScope, [['month', 'Closed month'], ['ytd', 'YTD']], (v) => { state._putisScoreScope = v; mountApp(); }));
+  wrap.append(scCard);
+
+  // ── 3. Trend (the original Putis Shid table) ──
   const sub = 'QuickBooks general ledger · months with nothing booked show —';
+  const branchPicker = () => { const p = sel(branchSel, [['RIDD', 'RIDD · all branches'], ...branches.map(b => [b, b]), ['all', 'Every branch (stacked)']], (v) => { state._putisBranch = v; mountApp(); }); p.classList.add('ml-auto'); return p; };
   if (branchSel === 'all') {
     let first = true;
     for (const b of branches) { wrap.append(putisTrendCard(M, year, [b], b, sub, first ? branchPicker() : null)); first = false; }
-    wrap.append(putisTrendCard(M, year, retained, 'RIDD overall (branches, excl. corporate)', sub));
+    wrap.append(putisTrendCard(M, year, opBranches, 'RIDD overall (branches, excl. corporate)', sub));
     wrap.append(putisTrendCard(M, year, branches, 'RIDD total (incl. corporate)', sub));
   } else if (branchSel === 'RIDD') {
-    wrap.append(putisTrendCard(M, year, branches, 'RIDD · all branches + corporate', sub, branchPicker()));
+    wrap.append(putisTrendCard(M, year, branches, 'Trend · RIDD (all branches + corporate)', sub, branchPicker()));
   } else {
-    wrap.append(putisTrendCard(M, year, [branchSel], branchSel, sub, branchPicker()));
+    wrap.append(putisTrendCard(M, year, [branchSel], 'Trend · ' + branchSel, sub, branchPicker()));
   }
-  // P&L indicators (one month)
+
+  // ── 4. Full P&L indicators (collapsed by default — the detail behind the scorecard) ──
+  const open = !!state._putisPnlOpen;
   const monthOpts = [[year + '-YTD', year + ' year to date (closed months)'], ...Array.from({ length: 12 }, (_, i) => _mktgYm(year, i)).filter(ym => M[ym]).map(ym => [ym, new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + (ym === putisOpenMonth() ? ' · open' : '')])];
   wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap mt-2' },
-    el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'P&L indicators · month'),
-    monthOpts.length ? sel(state._putisMonth, monthOpts, (v) => { state._putisMonth = v; mountApp(); }) : el('span', { class: 'text-[11px] text-muted-' }, 'no months booked in ' + year)));
-  if (/^\d{4}-YTD$/.test(state._putisMonth)) wrap.append(putisIndicatorsCard(M, state._putisMonth, putisBranchesWithData(M, state._putisMonth.slice(0, 4))));
-  else if (M[state._putisMonth]) wrap.append(putisIndicatorsCard(M, state._putisMonth, putisBranchesWithData(M, state._putisMonth.slice(0, 4)).filter(b => M[state._putisMonth][b])));
+    el('button', { class: 'text-[11px] font-bold', style: { color: 'var(--accent)' }, onclick: () => { state._putisPnlOpen = !open; mountApp(); } }, (open ? '▾ ' : '▸ ') + 'Full P&L indicators by branch'),
+    open && monthOpts.length ? sel(state._putisMonth, monthOpts, (v) => { state._putisMonth = v; mountApp(); }) : null));
+  if (open) {
+    if (/^\d{4}-YTD$/.test(state._putisMonth)) wrap.append(putisIndicatorsCard(M, state._putisMonth, putisBranchesWithData(M, state._putisMonth.slice(0, 4))));
+    else if (M[state._putisMonth]) wrap.append(putisIndicatorsCard(M, state._putisMonth, putisBranchesWithData(M, state._putisMonth.slice(0, 4)).filter(b => M[state._putisMonth][b])));
+  }
   return wrap;
 }
 
