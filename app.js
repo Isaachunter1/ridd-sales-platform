@@ -26519,11 +26519,29 @@ function manageTeamsPanel(opts) {
         _mtSortBtn('tier', 'Tier'),
         _mtSortBtn('team', 'Team')));
 
+    // ── Stale teams (per Isaac: "gtilbert" kept showing in team pickers).
+    // A team name lives on in the global lists as long as ANY year's
+    // roster references it — even if nobody in the selected year is on it.
+    // Surface those here with a remove-everywhere button.
+    const _thisYear = new Set(distinctTeamsForYear(teamYear));
+    const _stale = distinctTeams().filter(t => !_thisYear.has(t));
+    const stalePanel = _stale.length ? el('div', { class: 'px-5 py-3 border-b flex flex-col gap-2', style: { borderColor: 'var(--border)', background: 'rgba(245, 158, 11, 0.06)' } },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: '#B45309' } }, 'Teams only referenced in other years'),
+      el('div', { class: 'text-[11px] text-muted-' }, 'Nobody in ' + teamYear + ' is on these, but they still show in team dropdowns because an older roster references them. Remove to clear them everywhere.'),
+      el('div', { class: 'flex flex-wrap gap-1.5' }, ..._stale.map(t => {
+        const yrs = Object.keys(state._indicatorRepTeamByYear || {}).filter(y => Object.values(state._indicatorRepTeamByYear[y] || {}).includes(t));
+        return el('span', { class: 'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)' } },
+          el('span', { class: 'font-semibold' }, t),
+          el('span', { class: 'text-muted-' }, yrs.length ? yrs.join(', ') : 'registry only'),
+          el('button', { class: 'font-bold', style: { color: '#DC2626' }, title: 'Remove "' + t + '" from every year and every list',
+            onclick: () => { if (confirm('Remove team "' + t + '" everywhere (' + (yrs.join(', ') || 'registry') + ')?')) { removeTeam(t); render(); } } }, '×'));
+      }))) : null;
     card.innerHTML = '';
     card.append(
       header, filterBar,
       ...(crmLinkPanel ? [crmLinkPanel] : []),
       ...(dupesPanel ? [dupesPanel] : []),
+      ...(stalePanel ? [stalePanel] : []),
       ...(detailPanel ? [detailPanel] : []),
       searchInput, sortHeader, repList,
     );
