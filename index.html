@@ -657,8 +657,12 @@
   /* Smooth momentum scrolling on every horizontal table wrapper */
   .scroll-x, .overflow-x-auto { -webkit-overflow-scrolling: touch; }
 
+  .rpt-subtabs-select { display:none; }
   @media (max-width: 640px) {
     .desktop-only { display:none !important; }
+    /* Reporting sub-tabs: strip on desktop, one dropdown on phones */
+    .rpt-subtabs { display:none !important; }
+    .rpt-subtabs-select { display:block; }
     .fab { bottom: 72px !important; }
     /* (bottom tab bar retired — no reserved space needed) */
     .search-bar { max-width: none; margin: 0 4px; }
