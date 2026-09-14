@@ -33072,9 +33072,10 @@ function buildTeamReportNode(teamName, ctx) {
   const groupMode = ctx.groupMode || 'team';
   const isBranch  = groupMode === 'branch';
   const isRep     = groupMode === 'rep';
+  const isCompany = groupMode === 'company';   // RIDD — every sale in one group (per Isaac)
   // Rep Reports key off the canonical rep name — every rep becomes their
   // own "group", so ranks/power ranking read "#N of M reps".
-  const groupKeyOf = (s) => isRep
+  const groupKeyOf = (s) => isCompany ? 'RIDD' : isRep
     ? getCanonicalRepName(s.rep || 'Unknown')
     : isBranch
       ? (s.office || 'Unassigned')
@@ -34845,6 +34846,30 @@ function openTeamReportsModal(ctx) {
   })();
   // 📊 Roster workbook — one tab per team plus a Summary tab (moved here
   // from the Manage Teams header, per Isaac).
+  // 𝕽 RIDD — the whole company as one report (per Isaac; replaces the
+  // old "All offices · one PDF" that stitched every office together).
+  const riddRow = (() => {
+    const dl = el('button', {
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
+      style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+      onclick: async () => {
+        dl.disabled = true; dl.textContent = '…';
+        try { await downloadTeamPdf('RIDD', ctxFor('company')); }
+        catch (err) { console.error('[ridd] RIDD PDF threw', err); toast('PDF failed: ' + (err.message || 'unknown'), 'error'); }
+        finally { dl.disabled = false; dl.textContent = 'Download PDF'; }
+      },
+    }, 'Download PDF');
+    return el('div', {
+      class: 'flex items-center justify-between gap-3 px-4 py-2.5 border-b',
+      style: { borderColor: 'var(--border)', background: 'var(--card-2)' },
+    },
+      el('div', { class: 'flex items-center gap-3 min-w-0' },
+        el('span', { style: { width: '28px', height: '28px', borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-text)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', fontWeight: '900', flexShrink: '0' } }, '\u211d'),
+        el('div', { class: 'min-w-0' },
+          el('div', { class: 'font-semibold truncate' }, 'RIDD \u00b7 company total'),
+          el('div', { class: 'text-[10px] truncate', style: { color: 'var(--text-muted)' } }, 'Every office and team rolled into one report'))),
+      dl);
+  })();
   const rosterRow = (() => {
     const dl = el('button', {
       class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer transition hover:brightness-95',
@@ -34880,7 +34905,7 @@ function openTeamReportsModal(ctx) {
     items.forEach(item => list.append(mkRow(item, mode)));
     status.textContent = '';
     // No "Download all" in Reps mode (per Isaac — 40+ PDFs at once is a mess).
-    if (downloadAllBtn) { downloadAllBtn.disabled = false; downloadAllBtn.textContent = allLabel(mode); downloadAllBtn.style.display = mode === 'rep' ? 'none' : ''; }
+    // (All-offices-one-PDF retired — the RIDD row above covers the company view.)
   };
 
   const modeSelect = el('select', {
@@ -34924,11 +34949,11 @@ function openTeamReportsModal(ctx) {
     ),
     lbRow,
     rosterRow,
+    riddRow,
     searchWrap,
     list,
     el('div', { class: 'flex items-center justify-between gap-3 px-5 py-3 border-t', style: { borderColor: 'var(--border)' } },
       status,
-      downloadAllBtn,
     ),
   );
   paint();
