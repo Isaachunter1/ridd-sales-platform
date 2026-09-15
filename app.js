@@ -43353,7 +43353,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     return (key) => { const set = cols.find(c => c.key === key).set; if (key === 'RIDD') return total; let t = 0, any = false; for (const b of set) if (byBranch[b] != null) { t += byBranch[b]; any = true; } return any ? t : null; };
   })() : null;
   const th = (t, tip, corner) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)', position: 'sticky', top: 0, left: corner ? 0 : undefined, zIndex: corner ? 3 : 2, background: 'var(--card)', boxShadow: '0 1px 0 var(--border)' }, title: tip || '' }, t);
-  const td = (v, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' + (o.bold ? ' font-bold' : '') + (o.muted ? ' text-muted-' : '') + (o.title ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '' }, v);
+  const td = (v, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' + (o.bold ? ' font-bold' : '') + (o.muted ? ' text-muted-' : '') + (o.title && !o.onclick ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '', onclick: o.onclick }, v);
   // Income-statement card: every $ column gets a "% of revenue" column beside it (per Isaac).
   // Desktop: click a branch header to pop its "% of revenue" column open
   // (click again to close). Phones (one column) always show it.
@@ -43361,9 +43361,15 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   const withPct = !['book', 'margins', 'unit'].includes(opts.section || 'all');
   const pctOn = (key) => withPct && (opts.onlyCol ? true : pctSet.has(key));
   const nCols = cols.reduce((a, c) => a + (pctOn(c.key) ? 2 : 1), 0);
-  const section = (label, tip) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-subtle)' }, colspan: nCols + 1, title: tip || '' }, label));
-  const line = (label, f, o = {}) => el('tr', { class: 'border-t border-' + (o.bold ? ' font-semibold' : ''), style: o.bold ? { background: 'var(--card-2)' } : {} },
-    td(label, { bold: true, title: o.tip, style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
+  // Rows are collected as descriptors first so a clicked row label can
+  // re-order the branch columns (asc/desc by that metric; RIDD stays last).
+  const section = (label, tip) => ({ _section: label, tip });
+  const line = (label, f, o = {}) => ({ _label: label, f, o });
+  const sortSt = state._putisSort && state._putisSort.part === part ? state._putisSort : null;
+  const renderSection = (r) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold' + (r.tip ? ' cursor-help' : ''), style: { color: 'var(--text-subtle)' }, colspan: nCols + 1, title: r.tip || '' }, r._section));
+  const renderLine = (label, f, o = {}) => el('tr', { class: 'border-t border-' + (o.bold ? ' font-semibold' : ''), style: o.bold ? { background: 'var(--card-2)' } : {} },
+    td(el('span', { class: 'inline-flex items-center gap-1' }, label, sortSt && sortSt.label === label ? el('span', { style: { color: 'var(--accent)' } }, sortSt.dir === 'asc' ? '▲' : '▼') : null), { bold: true, title: (o.tip ? o.tip + ' · ' : '') + 'Click to sort branches by this row', style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)', cursor: 'pointer', userSelect: 'none' },
+      onclick: () => { const cur = state._putisSort; state._putisSort = (cur && cur.part === part && cur.label === label) ? (cur.dir === 'desc' ? { part, label, dir: 'asc' } : null) : { part, label, dir: 'desc' }; mountApp(); } }),
     ...cols.flatMap(c => { const v = f(D[c.key], c.key); const s = o.red && typeof v === 'number' && v > 0 ? { color: '#DC2626' } : o.signed && typeof v === 'number' ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
       const isUsd = !(o.pct || o.num || o.x || o.mo || o.usd2);
       const cell = td(v == null || (typeof v === 'number' && !isFinite(v)) ? '—' : o.pct ? _putisPct1(v) : o.num ? Math.round(v).toLocaleString() : o.x ? v.toFixed(2) + 'x' : o.mo ? v.toFixed(1) + ' mo' : o.usd2 ? '$' + v.toFixed(2) : _putisUsd(v), { style: { ...s, borderLeft: '1px solid var(--border)' }, muted: o.muted });
@@ -43466,7 +43472,17 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     lineT('CAC payback (months)', (d, k) => UM[k].paybackMo, { mo: true, tip: PUTIS_KPI_TIPS.paybackMo }),
   ];
   const marks = { pnl: [0, rows.indexOf('BOOK')], book: [rows.indexOf('BOOK') + 1, rows.indexOf('MARGINS')], margins: [rows.indexOf('MARGINS') + 1, rows.indexOf('UNIT')], unit: [rows.indexOf('UNIT') + 1, rows.length] };
-  const shown = marks[part] ? rows.slice(marks[part][0], marks[part][1]) : rows.filter(r => typeof r !== 'string');
+  const shownDefs = marks[part] ? rows.slice(marks[part][0], marks[part][1]) : rows.filter(r => typeof r !== 'string');
+  if (sortSt) {
+    const def = shownDefs.find(r => r && r._label === sortSt.label);
+    if (def) {
+      const valOf = (c) => { const v = def.f(D[c.key], c.key); return typeof v === 'number' && isFinite(v) ? v : null; };
+      const ridd = cols.filter(c => c.key === 'RIDD'), rest = cols.filter(c => c.key !== 'RIDD');
+      rest.sort((a, b) => { const x = valOf(a), y = valOf(b); if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; return sortSt.dir === 'asc' ? x - y : y - x; });
+      cols = [...rest, ...ridd];
+    }
+  }
+  const shown = shownDefs.map(r => r && r._section != null ? renderSection(r) : renderLine(r._label, r.f, r.o));
   const periodLabel = isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3' + (opts.compact ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)' } },
