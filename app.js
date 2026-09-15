@@ -43453,7 +43453,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
         null),
       opts.headerExtra || null),
     el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('', '', true), ...cols.flatMap(c => { const h = th(c.label, c.key === 'RIDD' ? 'Every branch in the ledger added together, including Corporate (un-branched accounts).' : c.key === 'Corporate' ? 'Accounts with no branch prefix: BayToast comish, interest expense, corporate rent, executive travel, executive marketing…' : 'QuickBooks sub-accounts whose name starts with "' + c.label + '".'); h.style.borderLeft = '1px solid var(--border)'; return withPct ? [h, th('% rev', 'Each $ line as a share of ' + c.label + ' total income for the period.')] : [h]; }))),
+      el('thead', {}, el('tr', {}, th('', '', true), ...cols.flatMap(c => { const h = th(c.label, ''); h.style.borderLeft = '1px solid var(--border)'; return withPct ? [h, th('% rev', '')] : [h]; }))),
       el('tbody', {}, ...shown))));
 }
 
@@ -43771,7 +43771,7 @@ function reportingPutis() {
       el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = year + 1; mountApp(); } }, '›')),
     el('label', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer' },
       el('input', { type: 'checkbox', checked: !!state._putisMoM, style: { accentColor: 'var(--accent)' }, onchange: (e) => { state._putisMoM = e.target.checked; mountApp(); } }), 'MoM change'),
-    el('span', { class: 'text-[10px] text-muted- ml-auto' }, 'QuickBooks via Windsor' + (pulled ? ' · pulled ' + pulled : '') + (state.reportingLedger.refreshing ? ' · refreshing…' : '') + ' · FieldRoutes for accounts / ARR / churn'),
+    el('span', { class: 'text-[10px] text-muted- ml-auto' }, pulled ? 'Last QuickBooks sync: ' + pulled + (state.reportingLedger.refreshing ? ' · refreshing…' : '') : (state.reportingLedger.refreshing ? 'Syncing QuickBooks…' : '')),
     el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Re-pull the ledger from QuickBooks now', onclick: () => { reportingLoadLedger(true); if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(true); } }, '↻')));
 
   // (Executive-summary KPI strip retired per Isaac — the branch scorecard
