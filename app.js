@@ -52554,8 +52554,8 @@ function adminConfigurations() {
   // ── tiny controls ──
   const sw = (on, onToggle) => el('button', { class: 'shrink-0', style: { width: '36px', height: '20px', borderRadius: '10px', background: on ? 'var(--accent)' : 'var(--border-2)', position: 'relative', border: 'none', cursor: 'pointer' }, onclick: onToggle },
     el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .12s' } }));
-  const row = (label, control, o = {}) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)', paddingLeft: o.indent ? '18px' : '0' } },
-    el('div', { class: (o.small ? 'text-xs' : 'text-sm') + ' font-semibold', style: o.muted ? { color: 'var(--text-muted)' } : {} }, label),
+  const row = (label, control, o = {}) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)', paddingLeft: o.indent ? '18px' : '0' }, title: o.tip || '' },
+    el('div', { class: (o.small ? 'text-xs' : 'text-sm') + ' font-semibold' + (o.tip ? ' cursor-help' : ''), style: o.muted ? { color: 'var(--text-muted)' } : {} }, label),
     el('div', { class: 'flex items-center gap-2 shrink-0' }, ...[].concat(control).filter(Boolean)));
   const sel = (value, opts, onChange, w) => el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: w || '0' }, onchange: (e) => onChange(e.target.value) },
     ...opts.map(([v, l]) => el('option', { value: v, selected: v === value }, l)));
@@ -52591,9 +52591,9 @@ function adminConfigurations() {
   const autoOrph = reportingAutoExcludeOrphans();
   const delIds = state.indicatorDeletedCustIds || [];
   const reportingRules = card('Reporting rules', null,
-    row('Recurring basis', sel(reportingRecurringMode(), [['arv', 'Data-driven (ARV > $0)'], ['lifecycle', 'Lifecycle config']], (v) => { setReportingRecurringMode(v); mountApp(); })),
-    row('Aging threshold', [el('span', { class: 'text-[11px] text-muted-' }, 'days past due ≥'), num(reportingAgingDays(), (v) => { setReportingAgingDays(v); mountApp(); })]),
-    row('Active includes one-time', sw(reportingActiveInclOneTime(), () => { setReportingActiveInclOneTime(!reportingActiveInclOneTime()); mountApp(); })),
+    row('Recurring basis', sel(reportingRecurringMode(), [['arv', 'Data-driven (ARV > $0)'], ['lifecycle', 'Lifecycle config']], (v) => { setReportingRecurringMode(v); mountApp(); }), { tip: 'How the app decides which subscriptions are recurring. Data-driven: annual recurring value > $0 (self-maintaining, recommended). Lifecycle: the Service Types list decides.' }),
+    row('Aging threshold', [el('span', { class: 'text-[11px] text-muted-' }, 'days past due ≥'), num(reportingAgingDays(), (v) => { setReportingAgingDays(v); mountApp(); })], { tip: 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number.' }),
+    row('Active includes one-time', sw(reportingActiveInclOneTime(), () => { setReportingActiveInclOneTime(!reportingActiveInclOneTime()); mountApp(); }), { tip: 'Count one-time active subs in “Subscriptions Active”. Off = recurring only.' }),
     row('Deleted CRM accounts · auto-exclude', [
       orphans.length ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions with no FieldRoutes customer record', sliceLabel: n(orphans.length) + ' subscriptions · deleted in the CRM', rows: orphans, formatValue: fmt.usd0 }) }, n(orphanCust) + ' detected →') : pill('0 detected'),
       sw(autoOrph, () => {
@@ -52620,7 +52620,18 @@ function adminConfigurations() {
   const popOf = (re) => popList.filter(x => re.test(x));
   const exclReasons = reportingExcludedCancelReasons();
   const stepNo = (i) => el('span', { class: 'inline-flex items-center justify-center text-[10px] font-black rounded-full mr-2', style: { width: '18px', height: '18px', background: 'var(--card-2)', color: 'var(--text-muted)' } }, String(i));
-  const stepRow = (i, label, control, o) => row(el('span', { class: 'inline-flex items-center' }, stepNo(i), label), control, o);
+  const STEP_TIP = {
+    1: 'One-time services are never part of a retention book. Which subs are one-time comes from the recurring basis above.',
+    2: 'A sub that never received its initial service never started, so it can neither retain nor churn.',
+    3: 'Buyer’s remorse, not attrition. Removed when the cancel reason is a 3-day ROR, or (switch on) when a door-to-door sub was cancelled within 3 days of the sale whatever the reason.',
+    4: 'Cancel reason “Combined Subscriptions” — the sub was folded into another sub on the same account, which carries on.',
+    5: 'Cancel reason Renewal - … — the old plan was replaced by a renewal sub that stays in the book and inherits the original start date.',
+    6: '$0 annual recurring value — nothing recurring to retain.',
+    7: 'Prior-year subs with a single completed visit never became a customer, so their cancel is not real attrition. Exempt services (Sentricon) keep their one-visit subs because one visit a year is the service.',
+    8: 'Frozen after one visit, any year. No cancel date ever lands, so left in they would count as retained forever.',
+    9: 'Cancels with these reasons count as RETAINED — the company ended the service, the customer did not leave. Edited in the Cancel reasons list below.',
+  };
+  const stepRow = (i, label, control, o) => row(el('span', { class: 'inline-flex items-center' }, stepNo(i), label), control, { ...(o || {}), tip: STEP_TIP[i] });
   const attrition = card('Attrition steps', pill('saved defaults · Retention tab switches are session-only'),
     stepRow(1, 'Remove one-time services', pill('from recurring basis')),
     stepRow(2, 'Remove subs that never received an initial service', pill('always')),
