@@ -3732,7 +3732,7 @@ const TAB_TITLES = {
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'commission', '#techs':'techs', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'commission', '#d2dsales':'d2d_sales', '#techs':'techs', '#techsales':'tech_sales', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -4691,9 +4691,20 @@ const INSIDE_SALES_TAB_KEYS = new Set([...INSIDE_SALES_TABS.map(([k]) => k), 'co
 // · Pay (the commission calculator / My Commission, now a sub-tab).
 const D2D_SALES_TABS = [
   ['d2d_dashboard', 'Dashboard'],
+  ['d2d_sales',     'Sales'],
   ['commission',    'Pay'],
 ];
 const D2D_SALES_TAB_KEYS = new Set(D2D_SALES_TABS.map(([k]) => k));
+// ── TECHNICIAN GROUP (per Isaac, Sep 2026) — same shape: Dashboard + the
+// auto-logged Sales queue (Upfront / Pending Backend Lock / Archived / History).
+const TECH_TABS = [
+  ['techs',      'Dashboard'],
+  ['tech_sales', 'Sales'],
+];
+const TECH_TAB_KEYS = new Set(TECH_TABS.map(([k]) => k));
+// Which Sales queue a view shows — rows carry queue_type from the sync
+// ('office' | 'd2d' | 'tech'); legacy manual rows (null) are Inside Sales.
+const SALES_QUEUE_OF_VIEW = { sales: 'office', d2d_sales: 'd2d', tech_sales: 'tech' };
 // Sales access — who gets the full Inside Sales group. Sellers (rep /
 // admin_rep, incl. loyalty reps via rep_type) and admins see everything;
 // auditors only need the Sales tab so they can audit sales. Everything
@@ -4759,10 +4770,8 @@ function insideSalesSubTabs() {
 }
 // D2D counterpart — same bar, same mobile dropdown consolidation, with the
 // admin Inside/D2D/Techs toggle riding in front.
-function d2dSalesSubTabs() {
-  // Upfront is an admin-only view — reps got a tab that dead-ended on a
-  // placeholder (rep-UX audit #10). Filter it out for non-admins.
-  const tabs = D2D_SALES_TABS;
+function d2dSalesSubTabs(mode) {
+  const tabs = mode === 'techs' ? TECH_TABS : D2D_SALES_TABS;
   const go = (k) => { state.view = k; state._navChosen = true; history.replaceState(null, '', VIEW_TO_HASH[k] || '#' + k); mountApp(); };
   const tabBar = el('div', { class: 'hidden sm:flex items-center flex-wrap gap-x-1 gap-y-0' },
     ...tabs.map(([k, label]) => {
@@ -4784,7 +4793,7 @@ function d2dSalesSubTabs() {
       onchange: (e) => go(e.target.value),
     }, ...tabs.map(([k, label]) => el('option', { value: k, selected: state.view === k }, label))));
   return el('div', { class: 'sales-subtabs flex items-center flex-wrap gap-x-1 gap-y-0 border-b mb-4', style: { borderColor: 'var(--border)' } },
-    salesModeToggle('d2d'),
+    salesModeToggle(mode === 'techs' ? 'techs' : 'd2d'),
     tabBar,
     tabSelect);
 }
@@ -5278,9 +5287,9 @@ function mountApp() {
     const _isD2dTab = D2D_SALES_TAB_KEYS.has(state.view);
     const _d2dHome = D2D_SALES_TAB_KEYS.has(state._lastD2dTab) ? state._lastD2dTab : 'd2d_dashboard';
     let _redir = null;
-    if (_grp === 'office' && (state.view === 'techs' || _isD2dTab)) _redir = 'dashboard';
+    if (_grp === 'office' && (TECH_TAB_KEYS.has(state.view) || _isD2dTab)) _redir = 'dashboard';
     else if (_grp === 'tech' && (_isTabNotComp || _isD2dTab)) _redir = 'techs';
-    else if (_grp === 'd2d' && (_isTabNotComp || state.view === 'techs')) _redir = _d2dHome;
+    else if (_grp === 'd2d' && (_isTabNotComp || TECH_TAB_KEYS.has(state.view))) _redir = _d2dHome;
     // Work Queues is an OFFICE STAFF tool (call lists carry customer identity).
     if (state.view === 'queues' && _grp !== 'office') _redir = _grp === 'tech' ? 'techs' : _d2dHome;
     if (_redir) {
@@ -5322,7 +5331,7 @@ function mountApp() {
   // defaults match the old hardcoded list exactly.
   const repCanSee = (v) => (v === 'nrla' && userCan('view_comps'))
     || (v === 'indicators' && userCan('view_indicators'))
-    || (isTechType && v === 'techs')                       // Technicians: their own tab (was unreachable — audit #1)
+    || (isTechType && TECH_TAB_KEYS.has(v))                // Technicians: Dashboard + Sales queue
     || (isSalesRepType && D2D_SALES_TAB_KEYS.has(v))       // Sales Reps: the D2D Sales group
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
   if (isRepOnly && !repCanSee(state.view)) {
@@ -5667,7 +5676,9 @@ function mountApp() {
     marketing:    viewMarketing,
     commission:   viewCommission,
     d2d_dashboard: viewD2dDashboard,
+    d2d_sales:    viewSales,
     techs:        viewTechs,
+    tech_sales:   viewSales,
     admin:        viewAdmin,
   }[state.view];
   // Registered module views render through their own render(ctx).
@@ -5705,15 +5716,15 @@ function mountApp() {
     // D2D Sales group — its own sub-tab bar (admin toggle rides in front).
     const subTabBar = d2dSalesSubTabs();
     if (subTabBar) contentWrap.append(subTabBar);
-  } else if (state.view === 'techs' && isAdmin) {
-    const t = salesModeToggle('techs');
-    if (t) contentWrap.append(el('div', { class: 'flex items-center border-b mb-4 pb-2.5', style: { borderColor: 'var(--border)' } }, t));
+  } else if (TECH_TAB_KEYS.has(state.view)) {
+    const subTabBar = d2dSalesSubTabs('techs');
+    if (subTabBar) contentWrap.append(subTabBar);
   }
   contentWrap.append(node);
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'techs', 'auditing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_sales', 'techs', 'tech_sales', 'auditing']);
   document.querySelector('.fab')?.remove();
   // + FAB is OFFICE STAFF only (per Isaac) — admins don't log sales from a
   // floating button, and the retired AI speed-dial no longer replaces it.
@@ -11388,7 +11399,10 @@ function idFromName(list, name) { return list.find(x => x.name === name)?.id; }
 // ──────────────────────────────────────────────────────────────────────────
 function viewSales() {
   const isAdmin = isAdminRole(state.profile?.role);
-  const source  = isAdmin ? state.allSales : state.mySales;
+  // One renderer, three queues: Inside Sales ('sales'), D2D ('d2d_sales'),
+  // Technicians ('tech_sales'). Rows carry queue_type from the sync.
+  const _queue = SALES_QUEUE_OF_VIEW[state.view] || 'office';
+  const source  = (isAdmin ? state.allSales : state.mySales).filter(s => (s.queue_type || 'office') === _queue);
   // The Sales tab is the active queue — anything that still needs admin/auditor
   // attention OR is in flight to payroll. A sale falls off only when payroll
   // is RUN (payroll_processed_at set) AND the backend lock is decided
@@ -52578,6 +52592,7 @@ function adminConfigurations() {
     defRow('Aging threshold', 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number (default 7).'),
     defRow('Active includes one-time', 'Count one-time active subs in “Subscriptions Active”; off = recurring only.'),
     defRow('Deleted CRM accounts', 'Customer IDs deleted inside FieldRoutes. The warehouse keeps their rows, so they are excluded from every dataset — automatically when the sync flags them, plus any IDs you list.'),
+    defRow('Auto-log from FieldRoutes', 'The hourly sync creates one sale per CRM subscription sold by a linked rep (Inside Sales, D2D, Technicians) and moves it Upfront → Pending Backend Lock → Archived / History from the account’s live state. Revenue is frozen at first sight; the Log Sale form is for upsells only. Payroll runs stay the admin’s click.'),
     defRow('Attrition steps', 'The saved population rules behind the Retention tab, in the same order as its Attrition Steps card. The tab’s own switches are session-only what-ifs; what you set here is the default every user sees. Attrition = counted cancels ÷ beginning-of-year book.'),
     defRow('Step 3 · 3-day RORs', 'Reason “3 Day ROR”, or (switch on) any door-to-door sub cancelled within 3 days of the sale regardless of reason.'),
     defRow('Steps 4–5', 'Combined Subscriptions and Renewal - … reasons: the old sub was folded into / replaced by another that carries on, so it leaves the book without counting as a loss.'),
@@ -52682,6 +52697,35 @@ function adminConfigurations() {
     stepRow(9, 'Remove cancels with these reasons (count as retained)', [pill(n(exclReasons.size) + ' reason' + (exclReasons.size === 1 ? '' : 's')), lbtn('Edit', () => { state._cfgOpen = 'cancel'; mountApp(); setTimeout(() => { const t = document.getElementById('cfg-list-cancel'); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50); })]),
   );
 
+  // ── Auto-log from FieldRoutes (app_settings.autolog) ──
+  if (state._autolog === undefined) {
+    state._autolog = null;
+    supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle().then(({ data }) => {
+      state._autolog = Object.assign({ enabled: false, start: '2026-01-01', types: ['Office Staff', 'Sales Rep', 'Technician'], auto_approve: true, lock_days: 90, lock_min_services: 2 }, (data && data.value) || {});
+      mountApp();
+    });
+  }
+  const AL = state._autolog;
+  const saveAL = async (patch) => {
+    Object.assign(AL, patch);
+    const { error } = await supabase.from('app_settings').upsert({ key: 'autolog', value: AL }, { onConflict: 'key' });
+    if (error) toast('Could not save: ' + error.message, 'error'); else { logActivity('config_change', { detail: 'Auto-log: ' + JSON.stringify(patch) }); toast('Saved — applies on the next sync', 'success'); }
+    mountApp();
+  };
+  const TYPE_LABELS = [['Office Staff', 'Inside Sales'], ['Sales Rep', 'D2D'], ['Technician', 'Technicians']];
+  const autolog = card('Auto-log from FieldRoutes', AL ? pill(AL.enabled ? 'on · every sync' : 'off') : pill('loading…'),
+    ...(!AL ? [] : [
+      row('Create sales from CRM subscriptions', sw(!!AL.enabled, () => saveAL({ enabled: !AL.enabled })), { tip: 'Every sync creates one sale per FieldRoutes subscription sold by a linked rep, with the revenue frozen at first sight. Off = reps log by hand.' }),
+      row('Rep types', el('div', { class: 'flex items-center gap-3' }, ...TYPE_LABELS.map(([k, l]) => {
+        const on = (AL.types || []).includes(k);
+        return el('label', { class: 'inline-flex items-center gap-1 text-[11px] font-semibold cursor-pointer' },
+          el('input', { type: 'checkbox', checked: on, onchange: () => saveAL({ types: on ? (AL.types || []).filter(x => x !== k) : [...(AL.types || []), k] }) }), l);
+      })), { indent: true, small: true }),
+      row('Start date', el('input', { type: 'date', value: String(AL.start || '').slice(0, 10), class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { if (e.target.value) saveAL({ start: e.target.value }); } }), { indent: true, small: true, tip: 'Subscriptions sold on or after this date are logged. Earlier ones are ignored.' }),
+      row('Auto-approve upfront audit', sw(!!AL.auto_approve, () => saveAL({ auto_approve: !AL.auto_approve })), { tip: 'Approved automatically once the CRM shows the initial service completed, a signed agreement (one-time services exempt) and nothing past due. Off = an auditor clicks Approve.' }),
+      row('Backend lock', [el('span', { class: 'text-[11px] text-muted-' }, 'days after sale ≥'), num(AL.lock_days, (v) => saveAL({ lock_days: Math.max(0, parseInt(v, 10) || 0) })), el('span', { class: 'text-[11px] text-muted-' }, 'and services completed ≥'), num(AL.lock_min_services, (v) => saveAL({ lock_min_services: Math.max(0, parseInt(v, 10) || 0) }))], { tip: 'Locks when both are true and the subscription is still active. A cancelled subscription becomes a chargeback instead. Payroll runs stay manual.' }),
+    ]));
+
   // ── 4. Indicators ──
   const indicators = card('Indicators', null,
     row('MY % exclusions', svcPicker(myExcludeTerms(), (l) => { state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); })),
@@ -52704,6 +52748,7 @@ function adminConfigurations() {
       el('h2', { class: 'text-lg font-bold' }, 'Configurations'),
       configInfoBtn('How reporting works', howItWorks())),
     reportingRules,
+    autolog,
     attrition,
     indicators,
     listCard('service', 'Service Types', svcCount, reportingServiceConfigPanel),

@@ -729,8 +729,17 @@ exports.handler = async (event) => {
         // contract, and CRM subscriptions mutate later (technician upsells)
         // which would overpay commissions. The pipeline stays wired: set
         // INSIDE_AUTOADD_START (YYYY-MM-DD) in Netlify env to re-enable.
-        const START = process.env.INSIDE_AUTOADD_START || '';
-        if (!START) throw Object.assign(new Error('auto-add disabled (no INSIDE_AUTOADD_START)'), { _skip: true });
+        // Sep 2026 (per Isaac): back ON, for EVERY rep type, driven by
+        // app_settings.autolog (Settings → Configurations → Auto-log). The
+        // revenue is frozen at first sight — later CRM mutations only touch
+        // the crm_* lifecycle stamps, never revenue_amount — which answers
+        // the Jul 2026 overpay concern.
+        const { data: alRow } = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
+        const AL = Object.assign({ enabled: false, start: '2026-01-01', types: ['Office Staff', 'Sales Rep', 'Technician'], auto_approve: true, lock_days: 90, lock_min_services: 2 }, (alRow && alRow.value) || {});
+        const START = AL.enabled ? String(AL.start || '2026-01-01').slice(0, 10) : (process.env.INSIDE_AUTOADD_START || '');
+        if (!START) throw Object.assign(new Error('auto-add disabled (app_settings.autolog.enabled = false)'), { _skip: true });
+        const AL_TYPES = new Set(Array.isArray(AL.types) && AL.types.length ? AL.types : ['Office Staff', 'Sales Rep', 'Technician']);
+        const QUEUE_OF = { 'Office Staff': 'office', 'Sales Rep': 'd2d', 'Technician': 'tech' };
         const EXCLUDED_SVCS = new Set(['ACH Chargeback', 'Early Cancellation Fee', 'German Roach Initial', 'Rodent Station Removal']);
         const masterOf = new Map();
         roster.forEach(e => String(e.employee_ids || e.employee_id || '').split(',').forEach(id => { const t = id.trim(); if (t) masterOf.set(t, String(e.employee_id)); }));
@@ -754,12 +763,12 @@ exports.handler = async (event) => {
           if (hit) ids.forEach(id => { if (!profByEmp.has(id)) profByEmp.set(id, hit); });
         });
         const pool = objects.filter(r =>
-          String(r.sold_by_type || '').trim() === 'Office Staff'
+          AL_TYPES.has(String(r.sold_by_type || '').trim())
           && r.customer_id && r.sold_date && String(r.sold_date).slice(0, 10) >= START
           && !EXCLUDED_SVCS.has(String(r.subscription || '').trim()));
         if (pool.length) {
           const [exQ, offQ, svcQ, srcQ, ctQ] = await Promise.all([
-            supabase.from('sales').select('customer_number, revenue_amount, sold_date, crm_subscription').gte('sold_date', START),
+            supabase.from('sales').select('customer_number, revenue_amount, sold_date, crm_subscription, crm_subscription_id').gte('sold_date', START),
             supabase.from('offices').select('id, name'),
             supabase.from('service_types').select('id, name'),
             supabase.from('sources').select('id, name'),
@@ -768,7 +777,9 @@ exports.handler = async (event) => {
           const norm = (x) => String(x || '').trim().toLowerCase();
           const haveKey = new Set();
           const haveRevenue = [];
+          const haveSub = new Set();
           (exQ.data || []).forEach(x => {
+            if (x.crm_subscription_id) haveSub.add(String(x.crm_subscription_id));
             haveKey.add(norm(x.customer_number) + '|' + norm(x.crm_subscription) + '|' + String(x.sold_date).slice(0, 10));
             haveRevenue.push({ cust: norm(x.customer_number), rev: Number(x.revenue_amount) || 0, t: Date.parse(String(x.sold_date)) || 0 });
           });
@@ -777,11 +788,19 @@ exports.handler = async (event) => {
           const srcByName = new Map((srcQ.data || []).map(o => [norm(o.name), o.id]));
           const ctByName = new Map((ctQ.data || []).map(o => [norm(o.name), o.id]));
           let added = 0, skippedDup = 0, skippedNoRep = 0, svcCreated = 0;
+          const batch = [];
+          const flush = async () => {
+            if (!batch.length) return;
+            const { error: insErr } = await supabase.from('sales').insert(batch.splice(0, batch.length));
+            if (insErr) console.warn('[revhawk-sync] auto-add batch failed: ' + insErr.message);
+          };
           for (const r of pool) {
-            if (added >= 300) break;                                        // sanity cap per run
+            if (added >= 4000) break;                                       // per-run cap; a backfill finishes over a few runs
             const soldIso = String(r.sold_date).slice(0, 10);
             const sub = String(r.subscription || '').trim() || 'Unknown';
             const cv = Number(r.subscription_contract_value) || 0;
+            const subId = String(r.subscription_id || '').trim();
+            if (subId && haveSub.has(subId)) { skippedDup++; continue; }
             const key = norm(r.customer_id) + '|' + norm(sub) + '|' + soldIso;
             if (haveKey.has(key)) { skippedDup++; continue; }
             const soldT = Date.parse(soldIso) || 0;
@@ -802,8 +821,10 @@ exports.handler = async (event) => {
             const months = Number(r.agreement_length) || 12;
             const initial = Number(r.initial_price) || 0;
             const monthly = Math.max(0, Math.round(((cv - initial) / 11) * 100) / 100);   // inverse of the app's revenue = initial + monthly×11
-            const { error: insErr } = await supabase.from('sales').insert({
+            batch.push({
               rep_id: prof.id,
+              queue_type: QUEUE_OF[String(r.sold_by_type || '').trim()] || 'office',
+              crm_subscription_id: subId || null,
               logged_by: null,                                              // origin marker: auto-added
               customer_name: [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ') || ('Customer ' + r.customer_id),
               customer_number: String(r.customer_id),
@@ -826,11 +847,12 @@ exports.handler = async (event) => {
               created_at: new Date().toISOString(),
               crm_status: 'verified', crm_contract_value: cv, crm_subscription: sub, crm_checked_at: new Date().toISOString(),
             });
-            if (insErr) { console.warn('[revhawk-sync] auto-add failed for cust ' + r.customer_id + ': ' + insErr.message); continue; }
-            haveKey.add(key); haveRevenue.push({ cust: norm(r.customer_id), rev: cv, t: soldT });
+            if (batch.length >= 500) await flush();
+            haveKey.add(key); if (subId) haveSub.add(subId); haveRevenue.push({ cust: norm(r.customer_id), rev: cv, t: soldT });
             added++;
           }
-          if (added || skippedNoRep || svcCreated) console.log('[revhawk-sync] inside-sales auto-add: +' + added + ' subscription(s), ' + skippedDup + ' already logged, ' + skippedNoRep + ' seller(s) with no app profile' + (svcCreated ? ', ' + svcCreated + ' service type(s) created' : ''));
+          await flush();
+          if (added || skippedNoRep || svcCreated) console.log('[revhawk-sync] auto-log: +' + added + ' subscription(s), ' + skippedDup + ' already logged, ' + skippedNoRep + ' seller(s) with no app profile' + (svcCreated ? ', ' + svcCreated + ' service type(s) created' : ''));
         }
       } catch (aaErr) {
         if (!(aaErr && aaErr._skip)) console.error('[revhawk-sync] inside-sales auto-add skipped:', String((aaErr && aaErr.message) || aaErr));
@@ -1173,10 +1195,68 @@ exports.handler = async (event) => {
       console.error('[revhawk-sync] sale CRM verify skipped:', verifyError);
     }
 
+    // ── 🤖 AUTO-STAGE (per Isaac, Sep 2026): CRM-born sales move through
+    // the queues on their own. Reads app_settings.autolog for the rules.
+    //   Upfront   → approved  when serviced + signed agreement (or no agreement
+    //                         required) + not past due            [auto_approve]
+    //             → cancelled when the CRM cancelled it before any service
+    //   Backend   → chargeback when the subscription is cancelled
+    //             → lock       when lock_days have passed since the sale and
+    //                          lock_min_services are completed
+    // Payroll runs (upfront + backend) stay the admin's click — they are what
+    // graduate rows to History. Manual (upsell) rows are never touched.
+    let stageCount = 0, stageError = null;
+    try {
+      const { data: alRow2 } = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
+      const AL2 = Object.assign({ enabled: false, auto_approve: true, lock_days: 90, lock_min_services: 2 }, (alRow2 && alRow2.value) || {});
+      if (AL2.enabled) {
+        const bySub = new Map();
+        for (const r of objects) { const id = String(r.subscription_id || '').trim(); if (id) bySub.set(id, r); }
+        const { data: crmSales, error: csErr } = await supabase.from('sales')
+          .select('id, crm_subscription_id, sold_date, audit_status, lock_status, payroll_processed_at, backend_payroll_processed_at, contract_months, notes')
+          .not('crm_subscription_id', 'is', null)
+          .or('audit_status.eq.pending,lock_status.eq.pending');
+        if (csErr) throw new Error(csErr.message);
+        const stamp = new Date().toISOString();
+        const today = Date.now();
+        const lockDays = Math.max(0, Number(AL2.lock_days) || 90);
+        const minSvc = Math.max(0, Number(AL2.lock_min_services) || 0);
+        for (const s of (crmSales || [])) {
+          const r = bySub.get(String(s.crm_subscription_id));
+          if (!r) continue;                                     // not in this snapshot — leave it alone
+          const cancelled = !!r.subscription_date_canceled || /cancel|inactive/i.test(String(r.subscription_status || ''));
+          const serviced = !!r.initial_serviced_date;
+          const completed = Number(r.subscription_completed_services) || 0;
+          const dpd = Number(r.days_past_due) || 0;
+          const signed = String(r.contract_state || 'none') === 'signed';
+          const oneTime = (Number(s.contract_months) || 0) <= 0;
+          const upd = {};
+          if (s.audit_status === 'pending' && !s.payroll_processed_at) {
+            if (cancelled && !serviced) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + ' · Auto: cancelled in CRM before service').trim(); }
+            else if (AL2.auto_approve && serviced && (signed || oneTime) && dpd <= 0) { upd.audit_status = 'approved'; upd.audited_at = stamp; }
+          }
+          const lock = s.lock_status || 'pending';
+          if (lock === 'pending' && s.payroll_processed_at && ['approved', 'serviced'].includes(upd.audit_status || s.audit_status)) {
+            const ageDays = (today - (Date.parse(String(s.sold_date || '')) || today)) / 86400000;
+            if (cancelled) { upd.lock_status = 'chargeback'; upd.audit_2_at = stamp; }
+            else if (ageDays >= lockDays && completed >= minSvc) { upd.lock_status = 'lock'; upd.audit_2_at = stamp; }
+          }
+          if (!Object.keys(upd).length) continue;
+          const { error: uErr } = await supabase.from('sales').update(upd).eq('id', s.id);
+          if (uErr) { console.warn('[revhawk-sync] auto-stage failed for sale ' + s.id + ': ' + uErr.message); continue; }
+          stageCount++;
+        }
+        if (stageCount) console.log('[revhawk-sync] auto-stage: ' + stageCount + ' sale(s) moved');
+      }
+    } catch (stErr) {
+      stageError = String((stErr && stErr.message) || stErr);
+      console.error('[revhawk-sync] auto-stage skipped:', stageError);
+    }
+
     await _hb({ stage: 'finished', ok: true, rows: objects.length, ms: Date.now() - started, indicatorsError: indicatorsError || undefined, officeError: officeError || undefined, srcError: srcError || undefined, verifyError: verifyError || undefined });
     return {
       statusCode: 200,
-      body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, sources: srcCount, srcError, officesAdded: officeCount, officeError, salesVerified: verifyCount, verifyError, storage_path: path, ms: Date.now() - started }),
+      body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, sources: srcCount, srcError, officesAdded: officeCount, officeError, salesVerified: verifyCount, verifyError, salesStaged: stageCount, stageError, storage_path: path, ms: Date.now() - started }),
     };
   } catch (e) {
     console.error('[revhawk-sync]', e);
