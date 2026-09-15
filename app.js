@@ -47577,9 +47577,15 @@ function reportingGeographic() {
   const isRetention = metricKey === 'retention';
   const activeMetric = metrics.find(m => m.key === metricKey) || metrics[0];
 
+  const _phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const metricToggle = el('div', { class: 'p-3 flex items-center gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Map metric'),
-    ...metrics.map(m => {
+    // Phones: one dropdown instead of six buttons (per Isaac).
+    ..._phone ? [el('select', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer flex-1',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { state.reportingGeoMetric = e.target.value; mountApp(); },
+    }, ...metrics.map(m => el('option', { value: m.key, selected: m.key === metricKey }, m.label)))] : metrics.map(m => {
       const active = m.key === metricKey;
       return el('button', {
         class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold transition hover:brightness-95',
