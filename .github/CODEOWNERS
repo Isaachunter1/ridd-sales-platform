@@ -1,0 +1,4 @@
+# Every change to this repo needs Isaac's review. GitHub auto-requests it on
+# each pull request; with the `main` branch ruleset (require PR + 1 approval),
+# nothing deploys without that approval.
+*   @Isaachunter1
