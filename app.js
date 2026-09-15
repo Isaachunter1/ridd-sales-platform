@@ -40077,24 +40077,27 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
   const otherCount = Math.max(0, sorted.length - top);
   const otherTotal = sorted.slice(top).reduce((s, x) => s + x.value, 0);
 
-  return el('div', { class: 'card p-4 flex flex-col gap-3' },
-    el('div', {},
+  // Uniform cards (per Isaac): fixed height, one-line title + subline,
+  // fixed donut, legend capped at `top` rows + Other, footer slot always
+  // reserved — so every chart on the Overview lines up edge to edge.
+  return el('div', { class: 'card p-4 flex flex-col gap-3', style: { height: officeLabel ? '556px' : '540px' } },
+    el('div', { class: 'shrink-0' },
       officeLabel && el('div', {
-        class: 'text-[9px] uppercase tracking-widest font-bold mb-1',
+        class: 'text-[9px] uppercase tracking-widest font-bold mb-1 truncate',
         style: { color: 'var(--accent)' },
       }, officeLabel),
-      el('div', { class: 'text-sm font-bold' }, title),
-      subline && el('div', { class: 'text-[10px] text-muted- mt-0.5' }, subline),
+      el('div', { class: 'text-sm font-bold truncate', title }, title),
+      el('div', { class: 'text-[10px] text-muted- mt-0.5 truncate', title: subline || '' }, subline || '\u00a0'),
     ),
     sorted.length === 0
-      ? el('div', { class: 'p-8 text-center text-xs text-muted-' }, 'No data')
-      : el('div', { class: 'flex flex-col gap-3' },
+      ? el('div', { class: 'p-8 text-center text-xs text-muted- flex-1 flex items-center justify-center' }, 'No data')
+      : el('div', { class: 'flex flex-col gap-3 flex-1', style: { minHeight: '0' } },
           cvsWrap,
           el('div', { class: 'flex items-baseline justify-between gap-2 pt-1 border-t', style: { borderColor: 'var(--border)' } },
             el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-2', style: { color: 'var(--text-subtle)' } }, totalLabel || 'Total'),
             el('div', { class: 'text-lg font-bold tabular-nums pt-2' }, formatter(overall)),
           ),
-          el('div', { class: 'flex flex-col gap-1.5 text-xs' },
+          el('div', { class: 'flex flex-col gap-1.5 text-xs flex-1 overflow-hidden', style: { minHeight: '0' } },
             ...topSlices.map((s, i) => {
               // Legend rows mirror the donut wedges: clicking either opens the
               // same drill table. Rows are the bigger, easier-to-hit target —
@@ -40130,11 +40133,12 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
               );
             })(),
           ),
-          footerAction && el('div', {
-            class: 'text-[11px] font-semibold cursor-pointer pt-1 mt-1 border-t hover:brightness-110 transition',
-            style: { color: 'var(--accent)', borderColor: 'var(--border)' },
+          footerAction ? el('div', {
+            class: 'text-[11px] font-semibold cursor-pointer pt-1 mt-auto border-t hover:brightness-110 transition truncate shrink-0',
+            style: { color: 'var(--accent)', borderColor: 'var(--border)', minHeight: '24px' },
+            title: footerAction.label,
             onclick: footerAction.onClick,
-          }, footerAction.label),
+          }, footerAction.label) : el('div', { class: 'mt-auto shrink-0', style: { minHeight: '24px' } }),
         ),
   );
 }
@@ -44325,15 +44329,18 @@ function reportingOverview() {
       return b;
     })() : null;
     const clickable = !!t.onClick;
+    // Same size for every headline card (per Isaac): fixed height, one-line
+    // sub text and a reserved click-hint line.
     return el('div', {
-      class: 'card p-4 sm:p-5' + (clickable ? ' cursor-pointer hover:brightness-95 transition' : ''),
+      class: 'card p-4 sm:p-5 flex flex-col' + (clickable ? ' cursor-pointer hover:brightness-95 transition' : ''),
+      style: { height: '164px' },
       title: clickable ? t.clickTitle || '' : '',
       onclick: clickable ? (e) => { if (e.target.closest('span[style*="cursor: help"]')) return; t.onClick(); } : undefined,
     },
-      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold flex items-center', style: { color: 'var(--text-muted)' } }, t.label, info),
-      el('div', { class: 'font-display text-4xl sm:text-5xl mt-1.5 tabular-nums leading-none' }, t.value),
-      t.sub && el('div', { class: 'text-[11px] text-muted- mt-2' }, t.sub),
-      clickable && el('div', { class: 'text-[10px] mt-2 font-semibold', style: { color: 'var(--text-muted)' } }, t.clickLabel || 'Click to inspect →'),
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold flex items-center truncate', style: { color: 'var(--text-muted)' } }, t.label, info),
+      el('div', { class: 'font-display text-4xl mt-1.5 tabular-nums leading-none truncate' }, t.value),
+      el('div', { class: 'text-[11px] text-muted- mt-2 truncate', title: t.sub || '' }, t.sub || '\u00a0'),
+      el('div', { class: 'text-[10px] mt-auto font-semibold truncate', style: { color: 'var(--text-muted)' } }, clickable ? (t.clickLabel || 'Click to inspect →') : '\u00a0'),
     );
   };
   // Make Customers Active drillable into its "Other active" group.
