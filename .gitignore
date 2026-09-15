@@ -34,3 +34,8 @@ BACKEND_with_warehouse_status.xlsx
 # Deploy-time build artifact (tools/build.js regenerates per deploy)
 app-*.immutable.js
 version.json
+
+# Customer data / working exports — never in the repo (per Isaac)
+*.xlsx
+*.csv
+Claude outputs/
