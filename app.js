@@ -36419,9 +36419,10 @@ function indicatorYoYTrendChart() {
                     pointStyle: 'circle', order: 0,
                   });
                 }
-                // YTD dot — point only, on the secondary 'yYTD' axis.
+                // YTD dot — point only, on the secondary 'yYTD' axis. Skipped for a
+                // rep's own single-series view (it read as a stray marker).
                 const ytdData = weeksAxis.map(() => null); ytdData.push(ytdValOf(A, y, tier));
-                ytdPts.push({ label: 'YTD ' + label, data: ytdData, yAxisID: 'yYTD', showLine: false, borderColor: color, backgroundColor: color, pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', order: 0 });
+                if (!(_totalSeries === 1 && !isAdminRole(state.profile?.role))) ytdPts.push({ label: 'YTD ' + label, data: ytdData, yAxisID: 'yYTD', showLine: false, borderColor: color, backgroundColor: color, pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', order: 0 });
               });
             });
           });
@@ -36442,7 +36443,11 @@ function indicatorYoYTrendChart() {
               const _q = (f) => _av[Math.min(_av.length - 1, Math.floor(f * (_av.length - 1)))];
               const _q1 = _q(0.25), _q3 = _q(0.75);
               const _cap = _q3 + 3 * (_q3 - _q1);
-              if (_cap > 0 && _av[_av.length - 1] > _cap * 1.25) state._yoyAxisCap = _cap;
+              // Only cap when a FEW points would be clipped (≤5%). A single rep's
+              // weekly revenue is naturally spiky — one sale is a peak — and
+              // capping was flattening half the chart (per Isaac).
+              const _over = _av.filter(v => v > _cap).length;
+              if (_cap > 0 && _av[_av.length - 1] > _cap * 1.25 && _over <= Math.max(1, Math.floor(_av.length * 0.05))) state._yoyAxisCap = _cap;
             }
           }
           return lines.concat(ytdPts);
@@ -36490,11 +36495,11 @@ function indicatorYoYTrendChart() {
           // made small dips look like cliffs.
           y: { beginAtZero: true, min: 0, max: state._yoyAxisCap || undefined, grid: { color: grid }, ticks: { color: txt, font: { size: 10 },
             callback: kind === 'usd'
-              ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : v))
+              ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : Math.abs(v) >= 10000 ? Math.round(v / 1000) + 'K' : Math.abs(v) >= 1000 ? (v / 1000).toFixed(1).replace(/\.0$/, '') + 'K' : v))
               : kind === 'pct' ? (v => (v * 100).toFixed(0) + '%') : undefined } },
           // Independent right-hand axis for the YTD dots so their cumulative
           // magnitude never rescales the weekly lines.
-          yYTD: { position: 'right', beginAtZero: true, min: 0, grid: { drawOnChartArea: false }, ticks: { color: txt, font: { size: 10 },
+          yYTD: { position: 'right', beginAtZero: true, min: 0, display: !(_totalSeries === 1 && !isAdminRole(state.profile?.role)), grid: { drawOnChartArea: false }, ticks: { color: txt, font: { size: 10 },
             callback: kind === 'usd'
               ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : v))
               : kind === 'pct' ? (v => (v * 100).toFixed(0) + '%') : undefined } },
