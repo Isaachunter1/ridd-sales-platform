@@ -43242,7 +43242,7 @@ function putisYear(M, year, branches) {
 
 function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = {}) {
   const company = !!opts.company;
-  if (opts.compact) subtitle = null;
+  subtitle = null;   // descriptions retired (per Isaac) — hover tips on the rows carry the detail
   const months = Array.from({ length: 12 }, (_, i) => putisAugment(putisDerive(M, _mktgYm(year, i), branches), M, _mktgYm(year, i), branches, company));
   const ytd = putisYear(M, year, branches), prior = putisYear(M, year - 1, branches);
   // Point-in-time rows: "YTD" = latest closed month with a value this year,
@@ -43420,7 +43420,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3' + (opts.compact ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)' } },
       el('div', { class: 'min-w-0' },
         el('h3', { class: 'text-sm font-bold' + (opts.compact ? ' truncate' : '') }, opts.compact ? (opts.title || (part === 'book' ? 'Recurring Book' : 'P&L Indicators')) : (opts.title || (part === 'book' ? 'Recurring Book' : 'P&L Indicators')) + ' · ' + periodLabel),
-        opts.compact ? null : el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, part === 'book' ? 'FieldRoutes snapshot · subscriptions on the books at the end of the period, by branch' : 'QuickBooks general ledger by branch · Corporate = un-branched accounts')),
+        null),
       opts.headerExtra || null),
     el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('', '', true), ...cols.map(c => th(c.label, c.key === 'RIDD' ? 'Every branch in the ledger added together, including Corporate (un-branched accounts).' : c.key === 'Corporate' ? 'Accounts with no branch prefix: BayToast comish, interest expense, corporate rent, executive travel, executive marketing…' : 'QuickBooks sub-accounts whose name starts with "' + c.label + '".')))),
@@ -43692,8 +43692,7 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
   });
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, title),
-        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Month vs prior month and same month last year · YTD vs prior YTD · $ lines show % of revenue' + (ym === openYm ? ' · selected month is still open' : ''))),
+      el('div', {}, el('h3', { class: 'text-sm font-bold' }, title + (ym === openYm ? ' · open month' : ''))),
       headerExtra || null),
     el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } }, el('thead', {}, head), el('tbody', {}, ...body))));
 }
