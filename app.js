@@ -43242,6 +43242,7 @@ function putisYear(M, year, branches) {
 
 function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = {}) {
   const company = !!opts.company;
+  if (opts.compact) subtitle = null;
   const months = Array.from({ length: 12 }, (_, i) => putisAugment(putisDerive(M, _mktgYm(year, i), branches), M, _mktgYm(year, i), branches, company));
   const ytd = putisYear(M, year, branches), prior = putisYear(M, year - 1, branches);
   // Point-in-time rows: "YTD" = latest closed month with a value this year,
@@ -43300,8 +43301,8 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
       td(fmtRow(row, priorVal(row)), { title: row.point ? 'Last month of the prior year with a value' : '', style: { color: 'var(--text-muted)' } }),
       td(yoy(row), { style: { color: 'var(--text-muted)' } })))));
   return el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 border-b flex items-start gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {}, el('h3', { class: 'text-sm font-bold' }, title), subtitle ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, subtitle) : null),
+    el('div', { class: 'px-5 py-3 border-b flex items-center gap-3' + (opts.compact ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'min-w-0' }, el('h3', { class: 'text-sm font-bold' }, title), subtitle ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, subtitle) : null),
       headerExtra || null),
     el('div', { class: 'scroll-x' }, table));
 }
@@ -43416,10 +43417,10 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   const shown = part === 'book' ? rows.slice(cut + 1) : part === 'pnl' ? rows.slice(0, cut) : rows.filter(r => r !== 'BOOK');
   const periodLabel = isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   return el('div', { class: 'card overflow-hidden' },
-    el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-      el('div', {},
-        el('h3', { class: 'text-sm font-bold' }, (opts.title || (part === 'book' ? 'Recurring Book' : 'P&L Indicators')) + ' · ' + periodLabel),
-        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, part === 'book' ? 'FieldRoutes snapshot · subscriptions on the books at the end of the period, by branch' : 'QuickBooks general ledger by branch · Corporate = un-branched accounts')),
+    el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3' + (opts.compact ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'min-w-0' },
+        el('h3', { class: 'text-sm font-bold' + (opts.compact ? ' truncate' : '') }, opts.compact ? (opts.title || (part === 'book' ? 'Recurring Book' : 'P&L Indicators')) : (opts.title || (part === 'book' ? 'Recurring Book' : 'P&L Indicators')) + ' · ' + periodLabel),
+        opts.compact ? null : el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, part === 'book' ? 'FieldRoutes snapshot · subscriptions on the books at the end of the period, by branch' : 'QuickBooks general ledger by branch · Corporate = un-branched accounts')),
       opts.headerExtra || null),
     el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
       el('thead', {}, el('tr', {}, th('', '', true), ...cols.map(c => th(c.label, c.key === 'RIDD' ? 'Every branch in the ledger added together, including Corporate (un-branched accounts).' : c.key === 'Corporate' ? 'Accounts with no branch prefix: BayToast comish, interest expense, corporate rent, executive travel, executive marketing…' : 'QuickBooks sub-accounts whose name starts with "' + c.label + '".')))),
@@ -43765,7 +43766,7 @@ function reportingPutis() {
   const scopeSet = branchSel === 'RIDD' ? branches : [branchSel];
   const scopeOpts = branchSel === 'RIDD' ? { company: true } : {};
   if (view === 'compare') wrap.append(putisComparativeCard(M, cmpYm, scopeSet, branchSel, trendHeader(), scopeOpts));
-  else wrap.append(putisTrendCard(M, year, scopeSet, branchSel, sub, trendHeader(), scopeOpts));
+  else wrap.append(putisTrendCard(M, year, scopeSet, branchSel, sub, trendHeader(), { ...scopeOpts, compact: phone }));
 
   // ── 2. P&L Indicators (year dropdown + range dropdown: YTD or a single month) ──
   const ledgerYears = [...new Set(Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).map(k => k.slice(0, 4)))].sort().reverse();
@@ -43787,7 +43788,7 @@ function reportingPutis() {
   const colSel = state._putisCol && (scBranches.includes(state._putisCol) || state._putisCol === 'RIDD') ? state._putisCol : 'RIDD';
   const colPicker = () => sel(colSel, [['RIDD', 'RIDD'], ...scBranches.map(b => [b, b])], (v) => { state._putisCol = v; mountApp(); });
   const cardHeader = () => phone ? el('div', { class: 'inline-flex items-center gap-1.5 flex-wrap' }, colPicker(), pickers()) : pickers();
-  const cardOpts = (section) => ({ section, headerExtra: cardHeader(), onlyCol: phone ? colSel : null });
+  const cardOpts = (section) => ({ section, headerExtra: cardHeader(), onlyCol: phone ? colSel : null, compact: phone });
   wrap.insertBefore(putisIndicatorsCard(M, scKey, scBranches, cardOpts('book')), wrap.children[1] || null);
   wrap.append(putisIndicatorsCard(M, scKey, scBranches, cardOpts('pnl')));
 
