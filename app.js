@@ -44368,7 +44368,7 @@ function reportingOverview() {
     const info = help ? (() => {
       const b = el('span', {
         class: 'inline-flex items-center justify-center rounded-full text-[9px] font-bold ml-1',
-        style: { width: '13px', height: '13px', background: 'var(--card-2)', color: 'var(--text-muted)', cursor: 'help', verticalAlign: 'middle' },
+        style: { width: '13px', height: '13px', background: 'var(--card-2)', color: 'var(--text-muted)', cursor: 'help', verticalAlign: 'middle', position: 'relative', zIndex: '2' },
       }, 'ⓘ');
       attachExplainer(b, { title: t.label, desc: help });
       return b;
@@ -44376,16 +44376,23 @@ function reportingOverview() {
     const clickable = !!t.onClick;
     // Same size for every headline card (per Isaac): fixed height, one-line
     // sub text and a reserved click-hint line.
+    // Phones: the WHOLE card is the dropdown — an invisible <select> sits over
+    // the card so a tap anywhere opens the metric picker; only the
+    // "inspect" line stays a normal drill link (it sits above the overlay).
+    const asPicker = labelNode instanceof HTMLSelectElement;
+    if (asPicker) Object.assign(labelNode.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', opacity: '0', zIndex: '1', cursor: 'pointer' });
     return el('div', {
-      class: 'card p-4 sm:p-5 flex flex-col' + (clickable ? ' cursor-pointer hover:brightness-95 transition' : ''),
-      style: { height: '164px' },
-      title: clickable ? t.clickTitle || '' : '',
-      onclick: clickable ? (e) => { if (e.target.closest('span[style*="cursor: help"]')) return; t.onClick(); } : undefined,
+      class: 'card p-4 sm:p-5 flex flex-col' + (clickable && !asPicker ? ' cursor-pointer hover:brightness-95 transition' : ''),
+      style: { height: '164px', position: asPicker ? 'relative' : undefined },
+      title: clickable && !asPicker ? t.clickTitle || '' : '',
+      onclick: clickable && !asPicker ? (e) => { if (e.target.closest('span[style*="cursor: help"]')) return; t.onClick(); } : undefined,
     },
-      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold flex items-center truncate', style: { color: 'var(--text-muted)' } }, labelNode || t.label, info),
+      asPicker ? labelNode : null,
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold flex items-center truncate', style: { color: 'var(--text-muted)' } }, asPicker ? t.label + ' \u25be' : t.label, info),
       el('div', { class: 'font-display text-4xl mt-1.5 tabular-nums leading-none truncate' }, t.value),
       el('div', { class: 'text-[11px] text-muted- mt-2 truncate', title: t.sub || '' }, t.sub || '\u00a0'),
-      el('div', { class: 'text-[10px] mt-auto font-semibold truncate', style: { color: 'var(--text-muted)' } }, clickable ? (t.clickLabel || 'Click to inspect →') : '\u00a0'),
+      el('div', { class: 'text-[10px] mt-auto font-semibold truncate', style: { color: 'var(--text-muted)', position: asPicker ? 'relative' : undefined, zIndex: asPicker ? '2' : undefined, cursor: clickable ? 'pointer' : undefined },
+        onclick: clickable && asPicker ? (e) => { e.stopPropagation(); t.onClick(); } : undefined }, clickable ? (t.clickLabel || 'Click to inspect →') : '\u00a0'),
     );
   };
   // Make Customers Active drillable into its "Other active" group.
@@ -44437,7 +44444,7 @@ function reportingOverview() {
     style: { border: '0', background: 'transparent', color: 'var(--text-muted)', padding: '0 18px 0 0', appearance: 'auto', maxWidth: '100%' },
     onclick: (e) => e.stopPropagation(),
     onchange: (e) => { state.reportingOverviewMetric = e.target.value; mountApp(); },
-  }, ...COLUMN_CARDS.map(c => el('option', { value: c.key, selected: c.key === pickKey }, c.label + ' \u25be')));
+  }, ...COLUMN_CARDS.map(c => el('option', { value: c.key, selected: c.key === pickKey }, c.label + ' · ' + c.value)));
   // Phones only (per Isaac) — desktop keeps the five columns side by side.
   const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const columnsBlock = inCompare ? null : phone
