@@ -26242,11 +26242,11 @@ function manageTeamsPanel(opts) {
           },
         },
           el('div', { class: 'flex flex-col' },
-            el('div', { class: 'text-xs font-bold' }, 'Exclude from metrics'),
+            el('div', { class: 'text-xs font-bold' }, 'Exclude from team views'),
             el('div', { class: 'text-[10px] text-muted-' },
               excluded
-                ? 'On — reps on this team are dropped from every rep-level view.'
-                : 'Off — reps on this team count in all metrics.'),
+                ? 'On — hidden when Indicators is grouped by Teams. Still counts by Office and company-wide.'
+                : 'Off — counts everywhere.'),
           ),
           el('button', {
             class: 'rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest cursor-pointer transition',
