@@ -52539,7 +52539,7 @@ function adminConfigurations() {
   const howItWorks = () => el('div', { class: 'flex flex-col gap-1.5' },
     defRow('Data source', 'A live mirror of FieldRoutes (RevHawk), re-synced hourly during the day — no manual uploads.'),
     defRow('Recurring basis', 'Data-driven: a sub is recurring if its annual recurring value > $0 (self-maintaining, recommended). Lifecycle: the manual Service Types list decides.'),
-    defRow('Aging threshold', 'Days past due before a sub counts as aging / at-risk.'),
+    defRow('Aging threshold', 'A sub counts as aging / at-risk when its days past due is greater than or equal to this number (default 7).'),
     defRow('Active includes one-time', 'Count one-time active subs in “Subscriptions Active”; off = recurring only.'),
     defRow('Deleted CRM accounts', 'Customer IDs deleted inside FieldRoutes. The warehouse keeps their rows, so they are excluded from every dataset — automatically when the sync flags them, plus any IDs you list.'),
     defRow('Attrition steps', 'The saved population rules behind the Retention tab, in the same order as its Attrition Steps card. The tab’s own switches are session-only what-ifs; what you set here is the default every user sees. Attrition = counted cancels ÷ beginning-of-year book.'),
@@ -52578,7 +52578,7 @@ function adminConfigurations() {
   const delIds = state.indicatorDeletedCustIds || [];
   const reportingRules = card('Reporting rules', null,
     row('Recurring basis', sel(reportingRecurringMode(), [['arv', 'Data-driven (ARV > $0)'], ['lifecycle', 'Lifecycle config']], (v) => { setReportingRecurringMode(v); mountApp(); })),
-    row('Aging threshold (days)', num(reportingAgingDays(), (v) => { setReportingAgingDays(v); mountApp(); })),
+    row('Aging threshold', [el('span', { class: 'text-[11px] text-muted-' }, 'days past due ≥'), num(reportingAgingDays(), (v) => { setReportingAgingDays(v); mountApp(); })]),
     row('Active includes one-time', sw(reportingActiveInclOneTime(), () => { setReportingActiveInclOneTime(!reportingActiveInclOneTime()); mountApp(); })),
     row('Deleted CRM accounts · auto-exclude', [
       orphans.length ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions with no FieldRoutes customer record', sliceLabel: n(orphans.length) + ' subscriptions · deleted in the CRM', rows: orphans, formatValue: fmt.usd0 }) }, n(orphanCust) + ' detected →') : pill('0 detected'),
