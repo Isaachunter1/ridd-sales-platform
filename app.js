@@ -44793,7 +44793,10 @@ function reportingServiceConfigPanel() {
 // attrition. An excluded reason drops out of churn EVERYWHERE: Overview
 // cancel count + rate AND the Geographic attrition map. Reasons are read live
 // from the snapshot's canceled subs; toggles persist to reporting_cancel_config.
-function reportingCancelConfigPanel() {
+// Shared by the Settings panel and the Retention tab's Attrition Steps: the
+// consolidated list of cancellation reasons (with snapshot counts), which are
+// excluded, and the persisting toggle.
+function reportingCancelReasonModel() {
   const cfg  = state.reportingCancelConfig || [];
   const subs = state.reportingSubscriptions || [];
   const cfgByReason = new Map(cfg.map(c => [c.reason, c]));
@@ -44830,7 +44833,9 @@ function reportingCancelConfigPanel() {
     const cv = [...g.variants].find(v => cfgByReason.has(v));
     if (cv) g.display = String(cv).trim();
   }
-  const excludedSet = reportingExcludedCancelReasons(); // normalized keys
+  const savedWhatIf = state._retenWhatIf; state._retenWhatIf = null;
+  const excludedSet = reportingExcludedCancelReasons(); // normalized keys (official, not what-if)
+  state._retenWhatIf = savedWhatIf;
   const list = [...groups.values()].sort((a, b) => b.count - a.count || a.display.localeCompare(b.display));
 
   const updateCancelConfig = async (reason, patch) => {
@@ -44849,6 +44854,15 @@ function reportingCancelConfigPanel() {
       mountApp();
     }
   };
+  // Flip a reason (and its spelling variants) in or out of attrition.
+  const setExcluded = (g, excluded) => {
+    updateCancelConfig(g.display, { counts_attrition: !excluded });
+    g.variants.forEach(v => { if (v !== g.display && cfgByReason.has(v)) updateCancelConfig(v, { counts_attrition: !excluded }); });
+  };
+  return { cfg, subs, cfgByReason, list, excludedSet, updateCancelConfig, setExcluded };
+}
+function reportingCancelConfigPanel() {
+  const { cfg, subs, cfgByReason, list, excludedSet, updateCancelConfig } = reportingCancelReasonModel();
 
   return el('div', { class: 'card p-3' },
     el('div', { class: 'flex items-center gap-2 mb-3' },
@@ -50043,8 +50057,29 @@ function retenMethodCard(pop, _retenEff) {
     step(7, 'Remove subs that never received a 2nd treatment', 'Prior-year subscriptions with a single completed visit — never became a customer. Sentricon (' + retenOneSvcExemptTerms().join(', ') + ') is exempt: one visit a year is the service.', step2.length - step2b.length, 'oneSvc', null, notIn(step2, step2b), step2b),
     step(8, 'Remove ' + year + ' subs frozen after one treatment', 'Accounts sold this year that took one visit and already cancelled. Active ' + year + ' one-visit accounts (' + n(oneSvcKept.length) + ') stay — they are just young.', step2b.length - step3.length, 'frozenOneSvc', null, notIn(step2b, step3), step3),
     total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
-    // ── Attrition + pacing (the cancel-side strips are tiny once the book is
-    // clean, so they live in the hover text instead of their own steps) ──
+    // ── 9 · Excluded cancel reasons — configured RIGHT HERE (per Isaac) so
+    // the card shows exactly what counts. A checked reason means a sub that
+    // cancelled for it stays in the book as RETAINED (not a lost customer).
+    (() => {
+      const model = reportingCancelReasonModel();
+      const cancelled = book.filter(r => r.subscription_date_canceled);
+      const byKey = new Map(); cancelled.forEach(r => { const k = _normCancelReason(reportingCancelReasonOf(r)); byKey.set(k, (byKey.get(k) || []).concat([r])); });
+      const neutralised = cancelled.filter(r => excl.has(_normCancelReason(reportingCancelReasonOf(r))));
+      const rowsFor = model.list.filter(g => (byKey.get(g.key) || []).length || model.excludedSet.has(g.key));
+      const listEl = el('div', { class: 'grid gap-x-4 gap-y-1 mt-2', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' } },
+        ...rowsFor.map(g => {
+          const rs = byKey.get(g.key) || [];
+          const isEx = model.excludedSet.has(g.key);
+          const cb = el('input', { type: 'checkbox', checked: isEx, style: { accentColor: 'var(--accent)' }, onclick: (e) => e.stopPropagation(), onchange: (e) => { model.setExcluded(g, e.target.checked); mountApp(); } });
+          return el('label', { class: 'flex items-center gap-2 text-[11px] cursor-pointer' + (isEx ? ' font-semibold' : ''), style: isEx ? { color: 'var(--text)' } : { color: 'var(--text-muted)' }, onclick: (e) => e.stopPropagation() },
+            cb, el('span', { class: 'flex-1 truncate', title: g.display }, g.display),
+            clickable(el('span', { class: 'tabular-nums' }, n(rs.length)), rs.length ? drill(g.display, rs, 'cancelled for this reason') : null));
+        }));
+      const node = step(9, 'Remove cancels with these reasons', 'Tick a reason and subscriptions cancelled for it are treated as RETAINED — the company ended it (errors, unserviceable, sold-not-started), the customer did not leave. Unticked reasons count as churn. Counts are cancelled subs in the book, all years; changes save for everyone.', neutralised.length, 'exclReasons', null, neutralised);
+      node.children[1].append(listEl);
+      return node;
+    })(),
+    // ── Attrition + pacing ──
     (() => {
       const today = new Date();
       const doy = Math.floor((today - new Date(today.getFullYear(), 0, 1)) / 86400000) + 1;
