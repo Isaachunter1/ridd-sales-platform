@@ -30,6 +30,13 @@
   # function skips outside 8am–11pm ET.
   schedule = "*/30 * * * *"  # plain step only — Netlify silently ignored range/list cron expressions
 
+# FieldRoutes LIVE pull (per Isaac) — every 15 min, 7am–11pm ET, new
+# subscriptions straight from the FieldRoutes API into the Sales queues.
+# Needs FIELDROUTES_SUBDOMAIN / FIELDROUTES_AUTH_KEY / FIELDROUTES_AUTH_TOKEN
+# in the Netlify env; silently skips until they exist.
+[functions."fieldroutes-live-sync-scheduled"]
+  schedule = "*/15 * * * *"
+
 [functions."teamlead-digest-scheduled"]
   schedule = "45 * * * *"     # hourly at :45 — gates itself to 7:45pm ET inside (Netlify ignores range crons)
 
