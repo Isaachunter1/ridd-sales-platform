@@ -50043,13 +50043,38 @@ function retenMethodCard(pop, _retenEff) {
     step(7, 'Remove subs that never received a 2nd treatment', 'Prior-year subscriptions with a single completed visit — never became a customer. Sentricon (' + retenOneSvcExemptTerms().join(', ') + ') is exempt: one visit a year is the service.', step2.length - step2b.length, 'oneSvc', null, notIn(step2, step2b), step2b),
     step(8, 'Remove ' + year + ' subs frozen after one treatment', 'Accounts sold this year that took one visit and already cancelled. Active ' + year + ' one-visit accounts (' + n(oneSvcKept.length) + ') stay — they are just young.', step2b.length - step3.length, 'frozenOneSvc', null, notIn(step2b, step3), step3),
     total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-4 pb-1', style: { color: 'var(--text-subtle)' } }, 'Cancels · ' + year + ' YTD'),
-    el('div', { class: 'flex items-center justify-between py-2' }, el('div', {}, el('div', { class: 'text-sm font-semibold' }, 'Beginning-of-year book'), el('div', { class: 'text-[11px] text-muted-' }, 'Subs serviced before Jan 1 ' + year + ' and still on the books that day. Sales made during the year never enter the rate.')), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.boy)), drill('Beginning-of-year book', cur.rows.boy, 'on the books Jan 1'))),
-    el('div', { class: 'flex items-center justify-between py-2 border-t border-' }, el('div', { class: 'text-sm font-semibold' }, 'Cancelled so far this year (any reason)'), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.raw)), drill('Cancelled this year (any reason)', cur.rows.raw, 'cancel date this year'))),
-    step(9, 'Remove excluded cancel reasons', 'Reasons flagged “doesn’t count as attrition” in Settings → Cancellation reasons (' + excl.size + ' reason' + (excl.size === 1 ? '' : 's') + ').', cur.exclN, 'exclReasons', null, cur.rows.excl),
-    step(10, 'Remove 3-day RORs', 'Door-to-door sales cancelled within 3 days of the sale — buyer’s remorse, not attrition.', cur.rorN, 'ror', null, cur.rows.ror),
-    total('Counted cancels', n(cur.counted), 'Attrition = counted cancels ÷ beginning-of-year book', cur.rows.counted),
-    total(year + ' YTD attrition', pct(cur.rate) + (official ? '  (official ' + pct(official.cur) + ')' : ''), (year - 1) + ' full year: ' + pct(prev.rate) + (official ? ' (official ' + pct(official.prev) + ')' : '') + ' · ' + n(prev.counted) + ' of ' + n(prev.boy))));
+    // ── Attrition + pacing (the cancel-side strips are tiny once the book is
+    // clean, so they live in the hover text instead of their own steps) ──
+    (() => {
+      const today = new Date();
+      const doy = Math.floor((today - new Date(today.getFullYear(), 0, 1)) / 86400000) + 1;
+      const yearDays = (today.getFullYear() % 4 === 0) ? 366 : 365;
+      // Seasonality from last year: what share of last year's counted cancels
+      // had happened by this same day? Scale this year's YTD by the inverse.
+      const cutoff = (year - 1) + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+      const prevByNow = prev.rows.counted.filter(r => r._effCancel <= cutoff).length;
+      const share = prev.counted ? prevByNow / prev.counted : null;
+      const paceSeason = share && share > 0.05 && cur.boy ? (cur.counted / share) / cur.boy : null;
+      const paceLinear = cur.boy ? (cur.counted * (yearDays / doy)) / cur.boy : null;
+      const rolling = (() => {   // trailing 12 months: cancels in the last 365 days ÷ book 12 months ago
+        const start = new Date(today); start.setFullYear(start.getFullYear() - 1);
+        const st = start.toISOString().slice(0, 10), en = today.toISOString().slice(0, 10);
+        const boy = book.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st));
+        const c = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en).length;
+        return { rate: boy.length ? c / boy.length : null, c, boy: boy.length };
+      })();
+      const tile = (label, val, sub, fn) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl', style: { background: 'var(--card-2)', minWidth: '150px' } },
+        el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+        clickable(el('div', { class: 'text-xl font-black tabular-nums' }, val), fn),
+        sub ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, sub) : null);
+      return el('div', { class: 'pt-4 flex flex-col gap-2' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Attrition · counted cancels ÷ beginning-of-year book'),
+        el('div', { class: 'flex gap-2 flex-wrap' },
+          tile(year + ' YTD', pct(cur.rate) + (official ? ' · official ' + pct(official.cur) : ''), n(cur.counted) + ' of ' + n(cur.boy) + ' on the books Jan 1' + (cur.exclN || cur.rorN ? ' · ' + n(cur.exclN + cur.rorN) + ' cancels not counted (excluded reasons / ROR)' : ''), drill(year + ' counted cancels', cur.rows.counted, 'counted as churn')),
+          tile('Pacing to (full ' + year + ')', paceSeason != null ? pct(paceSeason) : '—', paceSeason != null ? 'By this date ' + (year - 1) + ' had seen ' + Math.round(share * 100) + '% of its cancels · straight-line pace ' + pct(paceLinear) : 'Needs a full prior year', null),
+          tile('Rolling 12 months', pct(rolling.rate), n(rolling.c) + ' cancels ÷ ' + n(rolling.boy) + ' on the books a year ago', null),
+          tile((year - 1) + ' full year', pct(prev.rate) + (official ? ' · official ' + pct(official.prev) : ''), n(prev.counted) + ' of ' + n(prev.boy), drill((year - 1) + ' counted cancels', prev.rows.counted, 'counted as churn'))));
+    })()));
   return card;
 }
 
