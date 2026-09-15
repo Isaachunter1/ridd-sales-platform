@@ -52192,82 +52192,64 @@ function adminPermissions() {
     logActivity('config_change', { detail: 'Permissions: ' + (ROLE_LABEL[role] || role) + ' reset to defaults' });
     mountApp();
   };
-  const cell = (role, d) => {
-    const on = !!effOf(role)[d.id];
-    const overridden = overrides[role] && overrides[role][d.id] !== undefined;
-    return el('td', { class: 'px-2 py-1.5 text-center' },
-      el('button', {
-        class: 'inline-flex items-center justify-center rounded-md border transition cursor-pointer',
-        style: {
-          width: '22px', height: '22px',
-          background: on ? 'var(--accent)' : 'transparent',
-          borderColor: on ? 'var(--accent)' : 'var(--border-2)',
-          color: on ? 'var(--accent-text)' : 'var(--text-subtle)',
-          boxShadow: overridden ? '0 0 0 2px rgba(223,100,58,.25)' : 'none',
-        },
-        title: (on ? 'Visible' : 'Hidden') + ' for ' + (ROLE_LABEL[role] || role) + (overridden ? ' \u00b7 changed from default' : ''),
-        onclick: () => setPerm(role, d.id, !on),
-      }, on ? '\u2713' : ''));
-  };
+  // One user type at a time, picked from a dropdown (per Isaac) — fits a
+  // phone and keeps growing as permissions are added. Rows: label left,
+  // switch / reach dropdown right. Same storage as before.
+  const role = PERM_ROLES.includes(state._permRole) ? state._permRole : PERM_ROLES[0];
+  const eff = effOf(role);
+  const scopeOverrides = (state._compExtras && state._compExtras.permScopes) || {};
+  const changed = !!overrides[role] || !!scopeOverrides[role];
+  const sw = (on, onToggle, overridden) => el('button', { class: 'shrink-0', title: overridden ? 'Changed from default' : '', style: { width: '36px', height: '20px', borderRadius: '10px', background: on ? 'var(--accent)' : 'var(--border-2)', position: 'relative', border: 'none', cursor: 'pointer', boxShadow: overridden ? '0 0 0 2px rgba(223,100,58,.25)' : 'none' }, onclick: onToggle },
+    el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .12s' } }));
+  const row = (label, control) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)' } },
+    el('div', { class: 'text-sm font-semibold' }, label), control);
+  const groupHead = (t) => el('div', { class: 'pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t);
   const groups = [...new Set(PERM_DEFS.map(d => d.group))];
+  const picker = el('select', {
+    class: 'rounded-lg border px-2.5 py-1.5 text-sm font-semibold cursor-pointer',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+    onchange: (e) => { state._permRole = e.target.value; mountApp(); },
+  }, ...PERM_ROLES.map(r => el('option', { value: r, selected: r === role }, ROLE_LABEL[r] || r)));
   return el('div', { class: 'flex flex-col gap-4' },
-    el('div', { class: 'card p-5' },
-      el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
-        el('div', {},
-          el('h2', { class: 'text-lg font-bold' }, 'Permissions'))),
-      el('div', { class: 'overflow-x-auto mt-4' },
-        el('table', { class: 'w-full', style: { borderCollapse: 'collapse', fontSize: '12px' } },
-          // Two header rows: the user-type family (Sales Rep / Office Staff /
-          // Auditor) spanning its columns, then the exact role name under it —
-          // mirrors the "Family - Role" labels in the Users editor.
-          (() => {
-            const fam = (r) => { const L = ROLE_LABEL[r] || r; const i = L.indexOf(' - '); return i < 0 ? [L, ''] : [L.slice(0, i), L.slice(i + 3)]; };
-            const spans = []; PERM_ROLES.forEach(r => { const f = fam(r)[0]; const last = spans[spans.length - 1]; if (last && last.f === f) last.n++; else spans.push({ f, n: 1 }); });
-            return el('thead', {},
-              el('tr', {},
-                el('th', { class: 'px-3 py-2' }),
-                ...spans.map(sp => el('th', { class: 'px-2 pt-2 pb-0.5 text-center text-[10px] uppercase tracking-widest', colSpan: String(sp.n), style: { color: 'var(--text-subtle)', borderBottom: '1px solid var(--border)' } }, sp.f))),
-              el('tr', { class: 'text-left' },
-                el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Can see\u2026'),
-                ...PERM_ROLES.map(role => el('th', { class: 'px-2 py-2 text-center whitespace-nowrap' },
-                  el('div', { class: 'text-[11px] font-bold' }, fam(role)[1] || fam(role)[0])))));
-          })(),
-          el('tbody', {},
-            ...groups.flatMap(g => [
-              el('tr', {}, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colSpan: String(1 + PERM_ROLES.length), style: { color: 'var(--text-subtle)' } }, g)),
-              ...PERM_DEFS.filter(d => d.group === g).map(d => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-                el('td', { class: 'px-3 py-1.5 font-semibold whitespace-nowrap' }, d.label),
-                ...PERM_ROLES.map(role => cell(role, d)))),
-            ]),
-            // ── REACH rows — dropdowns, not checkboxes: WHO a capability
-            // extends to (e.g. partners open player cards for their OWN
-            // team, not all reps). Self always works regardless.
-            el('tr', {}, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colSpan: String(1 + PERM_ROLES.length), style: { color: 'var(--text-subtle)' } }, 'Reach')),
-            ...PERM_SCOPE_DEFS.map(d => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-              el('td', { class: 'px-3 py-1.5 font-semibold whitespace-nowrap', title: d.help || '' }, d.label),
-              ...PERM_ROLES.map(role => {
-                const scopeOverrides = (state._compExtras && state._compExtras.permScopes) || {};
-                const def = (PERM_SCOPE_DEFAULTS[role] || {})[d.id] || 'self';
-                const cur = (scopeOverrides[role] && scopeOverrides[role][d.id]) || def;
-                const overridden = cur !== def;
-                return el('td', { class: 'px-2 py-1.5 text-center' },
-                  el('select', {
-                    class: 'rounded-md border px-1.5 py-1 text-[11px] cursor-pointer',
-                    style: { borderColor: overridden ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-                    title: (d.help || '') + (overridden ? ' \u00b7 changed from default (' + PERM_SCOPE_LABELS[def] + ')' : ''),
-                    onchange: (e) => {
-                      const v = e.target.value;
-                      state._compExtras = state._compExtras || {};
-                      const ps = state._compExtras.permScopes = state._compExtras.permScopes || {};
-                      const r = ps[role] = ps[role] || {};
-                      if (v === def) delete r[d.id]; else r[d.id] = v;
-                      if (!Object.keys(r).length) delete ps[role];
-                      saveIndicatorState();
-                      logActivity('config_change', { detail: 'Permissions reach: ' + (ROLE_LABEL[role] || role) + ' \u00b7 ' + d.id + ' \u2192 ' + v });
-                      mountApp();
-                    },
-                  }, ...PERM_SCOPES.map(sv => el('option', { value: sv, selected: sv === cur }, PERM_SCOPE_LABELS[sv]))));
-              }))))))));
+    el('div', { class: 'card p-4' },
+      el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' },
+        el('div', { class: 'flex items-center gap-3 flex-wrap' },
+          el('h2', { class: 'text-lg font-bold' }, 'Permissions'), picker),
+        changed ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => {
+          if (overrides[role]) resetRole(role);
+          if (scopeOverrides[role]) { delete state._compExtras.permScopes[role]; saveIndicatorState(); mountApp(); }
+        } }, 'Reset to defaults') : el('span', { class: 'text-[11px] text-muted-' }, 'defaults')),
+      el('div', { class: 'mt-2' },
+        ...groups.flatMap(g => [
+          groupHead(g),
+          ...PERM_DEFS.filter(d => d.group === g).map(d => {
+            const on = !!eff[d.id];
+            const overridden = overrides[role] && overrides[role][d.id] !== undefined;
+            return row(d.label, sw(on, () => setPerm(role, d.id, !on), overridden));
+          }),
+        ]),
+        groupHead('Reach'),
+        ...PERM_SCOPE_DEFS.map(d => {
+          const def = (PERM_SCOPE_DEFAULTS[role] || {})[d.id] || 'self';
+          const cur = (scopeOverrides[role] && scopeOverrides[role][d.id]) || def;
+          const overridden = cur !== def;
+          return row(d.label, el('select', {
+            class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer',
+            style: { borderColor: overridden ? 'var(--accent)' : 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            title: (d.help || '') + (overridden ? ' · changed from default (' + PERM_SCOPE_LABELS[def] + ')' : ''),
+            onchange: (e) => {
+              const v = e.target.value;
+              state._compExtras = state._compExtras || {};
+              const ps = state._compExtras.permScopes = state._compExtras.permScopes || {};
+              const r = ps[role] = ps[role] || {};
+              if (v === def) delete r[d.id]; else r[d.id] = v;
+              if (!Object.keys(r).length) delete ps[role];
+              saveIndicatorState();
+              logActivity('config_change', { detail: 'Permissions reach: ' + (ROLE_LABEL[role] || role) + ' · ' + d.id + ' → ' + v });
+              mountApp();
+            },
+          }, ...PERM_SCOPES.map(sv => el('option', { value: sv, selected: sv === cur }, PERM_SCOPE_LABELS[sv]))));
+        }))));
 }
 
 // ──────────────────────────────────────────────────────────────────────────
