@@ -25272,6 +25272,18 @@ function openTeamsListModal(teamYear, onChange) {
       el('div', { class: 'flex items-center justify-between px-5 py-4 border-b', style: { borderColor: 'var(--border)' } },
         el('div', {}, el('h2', { class: 'text-base font-bold' }, 'Teams · ' + teamYear), el('div', { class: 'text-[11px] text-muted-' }, teams.length + ' team' + (teams.length === 1 ? '' : 's'))),
         el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Done')),
+      (() => {
+        const inp = el('input', { type: 'text', placeholder: 'New team name', class: 'flex-1 rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          onkeydown: (e) => { if (e.key === 'Enter') add(); } });
+        const add = () => {
+          const name = inp.value.trim(); if (!name) return;
+          if (!addTeam(name)) { toast('Team already exists', 'warn'); return; }
+          inp.value = ''; draw(); if (typeof onChange === 'function') onChange(); toast('Team added: ' + name, 'success');
+          setTimeout(() => { const i = card.querySelector('input[placeholder="New team name"]'); if (i) i.focus(); }, 0);
+        };
+        return el('div', { class: 'flex items-center gap-2 px-5 py-3 border-b', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } }, inp,
+          el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: add }, '+ Add'));
+      })(),
       el('div', { class: 'overflow-y-auto flex-1' },
         ...teams.map(t => {
           const n = countIn(t);
@@ -26477,28 +26489,14 @@ function manageTeamsPanel(opts) {
         { value: '', label: 'All · ' + reps.length },
         ...chipEntries.map(([t, n]) => ({ value: t, label: t + ' · ' + (n === 0 && t !== '(unassigned)' ? '0 (empty)' : n) })),
       ], (v) => { state._indicatorManageTeamFilter = v; render(); }),
-      // + Team — creates a team (the old "Add new team" bar is gone, per
-      // Isaac). Reps can also pick "+ New team…" straight from their row.
-      el('button', {
-        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
-        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-        title: 'Create a team — pick a team from a rep\u2019s row to assign them, or use \u201c+ New team\u2026\u201d there',
-        onclick: () => {
-          const name = prompt('New team name:');
-          if (!name || !name.trim()) return;
-          if (!addTeam(name)) { toast('Team already exists', 'warn'); return; }
-          state._indicatorManageTeamFilter = name.trim();
-          render();
-        },
-      }, '+ Team'),
       // ⚙ Teams — every team with its headcount and a Remove button; the
       // confirm names how many reps go untagged (per Isaac).
       el('button', {
         class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-        title: 'Manage the team list — rename or remove teams',
+        title: 'All teams — add or remove teams',
         onclick: () => openTeamsListModal(teamYear, render),
-      }, '⚙ Teams'),
+      }, 'Teams'),
       mkFilter('Tier', tierSelect, [
         { value: '', label: 'All · ' + (tierCounts.rookie + tierCounts.vet + tierCounts.untagged) },
         { value: 'rookie', label: 'Rookie · ' + tierCounts.rookie },
