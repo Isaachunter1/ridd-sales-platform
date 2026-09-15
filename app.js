@@ -52562,6 +52562,21 @@ function adminConfigurations() {
     ...opts.map(([v, l]) => el('option', { value: v, selected: v === value }, l)));
   const txt = (value, onSave, o = {}) => el('input', { type: 'text', value, placeholder: o.placeholder || '', class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: o.width || '260px' },
     onchange: (e) => onSave(e.target.value) });
+  // Service picker: chips for the selected terms (× removes) + a dropdown of
+  // every service in the Service Types list not yet covered. Terms match by
+  // substring, so picking a service stores its full name.
+  const svcNames = (() => { try { return [...reportingServiceRecurringMap().keys()].sort((a, b) => a.localeCompare(b)); } catch (e) { return []; } })();
+  const svcPicker = (terms, onChange) => {
+    const cur = terms.map(t => String(t).toLowerCase());
+    const covered = (name) => cur.some(t => name.toLowerCase().includes(t));
+    return el('div', { class: 'flex items-center gap-1.5 flex-wrap justify-end' },
+      ...terms.map(t => el('span', { class: 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full', style: { background: 'rgba(223,100,58,.10)', color: 'var(--text)' } }, t,
+        el('button', { class: 'text-[11px] leading-none', style: { color: 'var(--text-muted)' }, onclick: () => onChange(terms.filter(x => x !== t)) }, '×'))),
+      el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', maxWidth: '180px' },
+        onchange: (e) => { const v = e.target.value; if (v) onChange([...terms, v.toLowerCase()]); } },
+        el('option', { value: '' }, '+ add service'),
+        ...svcNames.filter(nm => !covered(nm)).map(nm => el('option', { value: nm }, nm))));
+  };
   const num = (value, onSave) => el('input', { type: 'number', min: '0', value: String(value), class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '64px', textAlign: 'right' }, onchange: (e) => onSave(e.target.value) });
   const pill = (t, color) => el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full', style: color ? { background: color + '18', color } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t);
   const lbtn = (t, onclick, primary) => el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: primary ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { border: '1px solid var(--border-2)', color: 'var(--text)' }, onclick }, t);
@@ -52616,7 +52631,7 @@ function adminConfigurations() {
     row('Reasons that remove a sub from the book (steps 3–5)', txt(popList.join(', '), (v) => { const l = splitList(v); setRetenPopExclReasons(l.length ? l : RETEN_POP_EXCL_REASONS_DEFAULT); toast('Retention book updated', 'success'); mountApp(); }, { width: '360px' }), { small: true, indent: true }),
     stepRow(6, 'Remove subs with no ARR', sw(retenExclZeroPay(), () => { setRetenExclZeroPay(!retenExclZeroPay()); mountApp(); })),
     stepRow(7, 'Remove subs that never received a 2nd treatment (prior years)', sw(retenExclOneSvc(), () => { setRetenExclOneSvc(!retenExclOneSvc()); mountApp(); })),
-    row('Exempt service terms', txt(retenOneSvcExemptTerms().join(', '), (v) => { const l = splitList(v).map(x => x.toLowerCase()); setRetenOneSvcExemptTerms(l.length ? l : ['sentricon']); toast('Exempt terms saved', 'success'); mountApp(); }, { width: '200px' }), { small: true, indent: true }),
+    row('Exempt services', svcPicker(retenOneSvcExemptTerms(), (l) => { setRetenOneSvcExemptTerms(l.length ? l : ['sentricon']); toast('Exempt services saved', 'success'); mountApp(); }), { small: true, indent: true }),
     stepRow(8, 'Remove frozen subs with ≤1 service (any year)', sw(retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); })),
     stepRow(9, 'Remove cancels with these reasons (count as retained)', [pill(n(exclReasons.size) + ' reason' + (exclReasons.size === 1 ? '' : 's')), lbtn('Edit', () => { state._cfgOpen = 'cancel'; mountApp(); setTimeout(() => { const t = document.getElementById('cfg-list-cancel'); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50); })]),
   );
@@ -52638,7 +52653,7 @@ function adminConfigurations() {
 
   // ── 4. Indicators ──
   const indicators = card('Indicators', null,
-    row('MY % exclusions (service terms)', txt(myExcludeTerms().join(', '), (v) => { const l = splitList(v).map(x => x.toLowerCase()); state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' term' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); }, { width: '220px' })),
+    row('MY % exclusions', svcPicker(myExcludeTerms(), (l) => { state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); })),
   );
 
   // ── 5. Lists — collapsed one-liners ──
