@@ -4216,7 +4216,7 @@ function reportingAuditing() {
 
   // Everything on this tab is left-justified per request.
   const th = (lab) => el('th', { class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, lab);
-  const td = (val, opts = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums text-xs whitespace-nowrap text-left' + (opts.bold ? ' font-bold' : ''), style: { background: opts.bg || 'transparent' } }, val);
+  const td = (val, opts = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums text-xs whitespace-nowrap text-left' + (opts.bold ? ' font-bold' : ''), style: opts.sticky ? { background: opts.bg || 'var(--card)', position: 'sticky', left: 0, zIndex: 1, boxShadow: '1px 0 0 var(--border)' } : { background: opts.bg || 'transparent' } }, val);
   const money = (v) => v ? '$' + Math.round(v).toLocaleString() : '—';
 
   // Player-card drill-in: click any rep / team / branch row to see its full
@@ -4333,7 +4333,7 @@ function reportingAuditing() {
       title: opts.total ? '' : 'Click for the ' + (opts.kind === 'rep' ? 'rep' : opts.kind === 'team' ? 'team' : 'branch') + ' card',
       onclick: opts.total ? undefined : () => openAuditCardModal(name, s, opts.kind, opts.org),
     },
-      td_(name, { bold: !!opts.total }),
+      td_(name, { bold: !!opts.total, sticky: true }),
 
       td_(fmt.int(s.sold)),
       td_(fmt.int(s.serviced)),
@@ -4384,6 +4384,7 @@ function reportingAuditing() {
   };
   // kind 'rep' adds Office + Team columns (pulled per rep); both kinds show
   // the Total / Active / Aging revenue columns. Click any header to sort.
+  const _phoneAud = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const statTable = (label, entries, note, kind, headerRight) => {
     const cols = [
       { id: 'name', label: kind === 'rep' ? 'Rep' : (kind === 'team' ? 'Team' : 'Branch'), tip: kind === 'rep' ? 'Sales rep (canonical name).' : (kind === 'team' ? 'Team from Manage Teams (current Team Year). "Unassigned" = no team set.' : 'Branch / office.') },
@@ -4421,10 +4422,11 @@ function reportingAuditing() {
       const c = (typeof va === 'string' || typeof vb === 'string') ? String(va).localeCompare(String(vb)) : (va - vb);
       return sortState.dir === 'asc' ? c : -c;
     });
-    const thSort = (c) => el('th', {
+    const scrolls = kind === 'rep' || _phoneAud;   // phones: every audit table scrolls sideways with the name column frozen
+    const thSort = (c, i) => el('th', {
       class: 'px-1.5 py-2 text-[9px] uppercase tracking-wide font-semibold text-left cursor-pointer select-none hover:text-default transition'
-        + (kind === 'rep' ? ' whitespace-nowrap' : ''),
-      style: { background: 'var(--card-2)', color: sortState.key === c.id ? 'var(--accent)' : 'var(--text-muted)', fontWeight: sortState.key === c.id ? '800' : undefined },
+        + (scrolls ? ' whitespace-nowrap' : ''),
+      style: { background: 'var(--card-2)', color: sortState.key === c.id ? 'var(--accent)' : 'var(--text-muted)', fontWeight: sortState.key === c.id ? '800' : undefined, ...(i === 0 ? { position: 'sticky', left: 0, zIndex: 2, boxShadow: '1px 0 0 var(--border)' } : {}) },
       title: c.tip || '',
       onclick: () => setSort(c.id),
     }, c.label);   // active column = accent color (no arrow, app-wide convention)
@@ -4432,17 +4434,18 @@ function reportingAuditing() {
       el('div', { class: 'px-4 pt-4 pb-2 flex items-center justify-between gap-3 flex-wrap' },
         el('h3', { class: 'text-base font-bold' }, label),
         headerRight || null),
-      el('div', { class: kind === 'rep' ? 'overflow-x-auto' : '' },
+      el('div', { style: scrolls ? { overflow: 'auto', maxHeight: '70vh' } : {} },
         el('table', { class: 'w-full', style: {
           borderCollapse: 'collapse',
-          // Branch/Team: FIXED layout — first column 110px, the rest split
-          // the remaining width evenly, so both tables' columns align
-          // vertically and nothing scrolls sideways. Rep keeps auto+scroll.
-          tableLayout: kind === 'rep' ? undefined : 'fixed',
-          fontSize: kind === 'rep' ? '11px' : '10px',
+          // Branch/Team on desktop: FIXED layout — first column 110px, the
+          // rest split the remaining width evenly, so both tables' columns
+          // align vertically and nothing scrolls sideways. Rep (and every
+          // table on phones) keeps auto layout + sideways scroll.
+          tableLayout: scrolls ? undefined : 'fixed',
+          fontSize: scrolls ? '11px' : '10px',
         } },
-          kind !== 'rep' && el('colgroup', {}, el('col', { style: { width: '110px' } }), ...cols.slice(1).map(() => el('col', {}))),
-          el('thead', {}, el('tr', {}, ...cols.map(thSort))),
+          !scrolls && el('colgroup', {}, el('col', { style: { width: '110px' } }), ...cols.slice(1).map(() => el('col', {}))),
+          el('thead', { style: scrolls ? { position: 'sticky', top: 0, zIndex: 3 } : {} }, el('tr', {}, ...cols.map((c, i) => thSort(c, i)))),
           el('tbody', {},
             // Reps: top 25 by the current sort (per Isaac); a live search or
             // "Show all" reveals the rest. Total row still covers everyone.
@@ -51254,9 +51257,8 @@ function reportingWaterfall() {
   const renderSide = (data, pop, label, sideMark) => el('div', { class: 'flex flex-col gap-4' },
     // Matrix wants ~560px; when it can't have it (phones) the blended table
     // wraps underneath instead of both squeezing side by side.
-    el('div', { class: 'flex gap-4 flex-wrap items-start' },
-      el('div', { style: { flex: '1 1 560px', minWidth: '0', maxWidth: '100%' } }, renderMatrix(data, sideMark)),
-      renderBlended(pop)),
+    // (Cohort matrix hidden per Isaac, Sep 2026 — renderMatrix stays for when it comes back.)
+    renderBlended(pop),
     seasonalityCard(pop, label),
     attritionTrendsCard(pop, label),
     startCohortCard(pop, label),
