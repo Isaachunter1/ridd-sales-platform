@@ -11627,11 +11627,11 @@ function viewSales() {
   const _sumRev = (list) => list.reduce((a, s) => a + (Number(s.revenue_amount) || 0), 0);
   const _yr = String(new Date().getFullYear());
   const _ytd = source.filter(s => String(s.sold_date || '').slice(0, 4) === _yr);
-  const _tile = (label, list, accent) => el('div', { class: 'flex-1 min-w-0 px-3 py-2 text-center' },
+  const _tile = (label, list, accent) => el('div', { class: 'flex-1 min-w-0 px-3 py-2 text-center', style: { borderLeft: '1px solid var(--border)' } },
     el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
     el('div', { class: 'text-base font-black tabular-nums', style: accent ? { color: 'var(--accent)' } : {} }, fmt.usd0(_sumRev(list))),
     el('div', { class: 'text-[10px] tabular-nums text-muted-' }, list.length.toLocaleString() + ' sale' + (list.length === 1 ? '' : 's')));
-  const totalsStrip = isAdmin ? el('div', { class: 'card flex items-stretch divide-x overflow-x-auto', style: { borderColor: 'var(--border)' } },
+  const totalsStrip = isAdmin ? el('div', { class: 'card flex items-stretch overflow-x-auto' },
     _tile(_yr + ' sold', _ytd, true),
     _tile('Upfront', source.filter(isUpfrontPending)),
     _tile('Backend lock', source.filter(isBackendPending)),
