@@ -43802,10 +43802,10 @@ function reportingPutis() {
   const pickers = () => el('div', { class: 'inline-flex items-center gap-1.5' },
     sel(scYear, ledgerYears.map(y => [y, y]), (v) => { state._putisScoreYear = v; const avail = Object.keys(M).filter(k => k.startsWith(v + '-') && k < putisOpenMonth()).sort(); if (state._putisScoreRange !== 'ytd') state._putisScoreRange = v === closedYr ? closedYm : avail[avail.length - 1]; mountApp(); }),
     sel(scRange, [['ytd', scYear + ' YTD'], ...scMonthsAvail.slice().reverse().map(ym => [ym, monthName(ym, { month: 'long' })])], (v) => { state._putisScoreRange = v; mountApp(); }));
+  const momToggle = () => el('label', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer whitespace-nowrap' },
+    el('input', { type: 'checkbox', checked: !!state._putisMoM, style: { accentColor: 'var(--accent)' }, onchange: (e) => { state._putisMoM = e.target.checked; mountApp(); } }), 'MoM change');
   wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap' },
     pickers(),
-    el('label', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer' },
-      el('input', { type: 'checkbox', checked: !!state._putisMoM, style: { accentColor: 'var(--accent)' }, onchange: (e) => { state._putisMoM = e.target.checked; mountApp(); } }), 'MoM change'),
     // Sync stamp + refresh travel together so they never wrap apart on phones.
     el('span', { class: 'ml-auto inline-flex items-center gap-1.5 whitespace-nowrap' },
       el('span', { class: 'text-[10px] text-muted-' }, pulled ? 'Last QB sync: ' + pulled + (state.reportingLedger.refreshing ? ' · refreshing…' : '') : (state.reportingLedger.refreshing ? 'Syncing QB…' : '')),
@@ -43834,7 +43834,7 @@ function reportingPutis() {
   let trendRange = state._putisRange;
   if (trendRange !== 'all' && !closedThisYear.includes(trendRange)) trendRange = phone ? (closedThisYear[closedThisYear.length - 1] || 'all') : 'all';
   const rangePick = () => sel(trendRange, [['all', 'All months'], ...closedThisYear.slice().reverse().map(k => [k, new Date(k + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })])], (v) => { state._putisRange = v; mountApp(); });
-  const trendHeader = () => { const h = el('div', { class: 'ml-auto inline-flex items-center gap-1.5 flex-wrap' }, phone ? null : viewSeg(), view === 'compare' ? monthPick() : rangePick(), branchPicker()); h.lastChild && h.lastChild.classList.remove('ml-auto'); return h; };
+  const trendHeader = () => { const h = el('div', { class: 'ml-auto inline-flex items-center gap-1.5 flex-wrap' }, view === 'monthly' ? momToggle() : null, phone ? null : viewSeg(), view === 'compare' ? monthPick() : rangePick(), branchPicker()); h.lastChild && h.lastChild.classList.remove('ml-auto'); return h; };
   const scopeSet = branchSel === 'RIDD' ? branches : [branchSel];
   const scopeOpts = branchSel === 'RIDD' ? { company: true } : {};
   if (view === 'compare') wrap.append(putisComparativeCard(M, cmpYm, scopeSet, 'P&L Metrics', trendHeader(), scopeOpts));
