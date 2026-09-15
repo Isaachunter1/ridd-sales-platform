@@ -43158,9 +43158,6 @@ const PUTIS_ROWS = [
   { id: 'adjEbitda',    label: 'Adjusted EBITDA',  kind: 'usd', bold: true, signed: true, tip: 'EBITDA before the cost of selling — EBITDA + selling expense (commissions + marketing + incentives). What the service business earns on its own, separate from growth spend. The sheet’s F14 + F11 × F3.' },
   { id: 'netIncome',    label: 'Net Income',       kind: 'usd', bold: true, signed: true, tip: 'EBITDA minus interest paid and depreciation/amortization.' },
   // ── FieldRoutes book (point-in-time at month end) ──
-  { head: 'Recurring book · FieldRoutes' },
-  { id: 'arrEom',       label: 'Active ARR',       kind: 'usd', point: true, bold: true, tip: 'Annual recurring revenue at month end — the annual recurring value of every recurring subscription sold on or before the last day of the month and not cancelled by then (FieldRoutes snapshot, any cancel reason). YTD column = latest closed month; prior column = last December.' },
-  { id: 'activeEom',    label: 'Active accounts',  kind: 'int', point: true, tip: 'Recurring subscriptions on the books at month end (same rule as Active ARR).' },
   // ── Balance sheet (company only — QuickBooks has no per-branch balance sheet) ──
   { head: 'Debt · QuickBooks balance sheet', company: true },
   { id: 'ltDebt',       label: 'Long-term debt',   kind: 'usd', point: true, bold: true, company: true, lowGood: true, tip: 'Long-term liabilities at month end — total liabilities minus current liabilities on the QuickBooks balance sheet (the term debt). Balance-sheet history starts Dec 2025.' },
