@@ -5374,6 +5374,8 @@ function mountApp() {
   ];
   // Registered modules (riddmarket etc.) join the nav for whoever they allow.
   for (const m of _visibleModules()) navItems.push([m.id, m.label || m.id, typeof m.icon === 'function' ? m.icon() : (m.icon || el('span', {}, '▦'))]);
+  // Why RIDD — external link (whyridd.com) in the app menu for everyone (per Isaac).
+  navItems.push(['__whyridd', 'Why RIDD ↗', (() => { const s2 = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s2.setAttribute('viewBox', '0 0 24 24'); s2.setAttribute('width', '16'); s2.setAttribute('height', '16'); s2.setAttribute('fill', 'none'); s2.setAttribute('stroke', 'currentColor'); s2.setAttribute('stroke-width', '2'); s2.innerHTML = '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/>'; return s2; })()]);
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
   const navMenu = el('div', {
@@ -5411,6 +5413,7 @@ function mountApp() {
         onmouseenter: (e) => { if (!active) e.currentTarget.style.background = 'var(--card-2)'; },
         onmouseleave: (e) => { if (!active) e.currentTarget.style.background = 'transparent'; },
         onclick: () => {
+          if (k === '__whyridd') { window.open('https://whyridd.com', '_blank', 'noopener'); return; }
           const target = k === 'inside_sales'
             ? (isAuditor ? 'sales' : (INSIDE_SALES_TAB_KEYS.has(state._lastIsTab) ? state._lastIsTab : 'dashboard'))
             : k === 'd2d_group'
@@ -44099,7 +44102,6 @@ function reportingSubTabs() {
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
     ['putis',      'Putis Shid'],
-    ['whyridd',    'Why RIDD ↗', 'https://whyridd.com'],   // external link, opens in a new tab
   ];
   const go = (k) => { const t = tabs.find(([kk]) => kk === k); if (t && t[2]) { window.open(t[2], '_blank', 'noopener'); return; } state.reportingSubTab = k; mountApp(); };
   const cur = tabs.some(([k]) => k === state.reportingSubTab && !tabs.find(([kk]) => kk === k)[2]) ? state.reportingSubTab : tabs[0][0];
