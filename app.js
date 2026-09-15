@@ -43244,19 +43244,29 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
   const company = !!opts.company;
   subtitle = null;   // descriptions retired (per Isaac) — hover tips on the rows carry the detail
   const months = Array.from({ length: 12 }, (_, i) => putisAugment(putisDerive(M, _mktgYm(year, i), branches), M, _mktgYm(year, i), branches, company));
-  const ytd = putisYear(M, year, branches), prior = putisYear(M, year - 1, branches);
-  // Point-in-time rows: "YTD" = latest closed month with a value this year,
-  // "prior" = the last month of the prior year that has one.
   const openYm = putisOpenMonth();
+  // Range: 'all' = the 12-month strip; 'YYYY-MM' = that one month beside YTD
+  // through it (and the same span of the prior year).
+  const rangeYm = opts.range && /^\d{4}-\d{2}$/.test(opts.range) ? opts.range : null;
+  const upto = rangeYm ? Number(rangeYm.slice(5, 7)) - 1 : 11;
+  const shownIdx = rangeYm ? [upto] : Array.from({ length: 12 }, (_, i) => i);
+  const rollup = (yr) => {
+    const ks = []; for (let i = 0; i <= upto; i++) { const k = _mktgYm(yr, i); if (k < openYm && M && M[k]) ks.push(k); }
+    if (!ks.length) return { months: 0 };
+    const d = putisDeriveMonths(M, ks, branches); d.months = ks.length; return d;
+  };
+  const ytd = rollup(year), prior = rollup(year - 1);
+  // Point-in-time rows: "YTD" = latest closed month with a value (through the
+  // range end), "prior" = the same point a year earlier.
   const latestPoint = (yr, id) => {
-    for (let i = 11; i >= 0; i--) { const ym = _mktgYm(yr, i); if (ym >= openYm) continue; const d = yr === year ? months[i] : putisAugment(putisDerive(M, ym, branches), M, ym, branches, company); if (d[id] != null) return d[id]; }
+    for (let i = upto; i >= 0; i--) { const ym = _mktgYm(yr, i); if (ym >= openYm) continue; const d = yr === year ? months[i] : putisAugment(putisDerive(M, ym, branches), M, ym, branches, company); if (d[id] != null) return d[id]; }
     return null;
   };
   const rowsShown = PUTIS_ROWS.filter(r => !r.company || company);
   const fmtRow = (row, v) => v == null || !isFinite(v) ? '—' : row.kind === 'pct' ? _putisPct1(v) : row.kind === 'x' ? v.toFixed(2) + 'x' : row.kind === 'mo' ? v.toFixed(1) + ' mo' : row.kind === 'int' ? Math.round(v).toLocaleString() : _putisUsd(v);
   // Period rollups for the unit-economics rows (ratios recomputed over the period, not averaged).
   const _U = putisUnitMonthly();
-  const _closedOf = (yr) => Array.from({ length: 12 }, (_, i) => _mktgYm(yr, i)).filter(k => k < openYm && M && M[k]);
+  const _closedOf = (yr) => Array.from({ length: upto + 1 }, (_, i) => _mktgYm(yr, i)).filter(k => k < openYm && M && M[k]);
   const ytdU = _closedOf(year).length ? putisMetrics(M, _U, _closedOf(year), branches) : null;
   const priorU = _closedOf(year - 1).length ? putisMetrics(M, _U, _closedOf(year - 1), branches) : null;
   const showMoM = !!state._putisMoM;
@@ -43283,12 +43293,15 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
     return signedRow(row, a - b) || '—';
   };
   const table = el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
-    el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...MKTG_MONTHS.map((m, i) => { const isOpen = _mktgYm(year, i) === putisOpenMonth(); return th(isOpen ? m + ' · open' : m, isOpen ? 'italic' : '', isOpen ? 'Current month — books not closed yet, numbers move daily. Not included in YTD.' : PUTIS_COL_TIPS.month); }), th(year + ' YTD' + (String(year) === putisOpenMonth().slice(0, 4) ? ' (thru ' + MKTG_MONTHS[Math.max(0, new Date().getMonth() - 1)] + ')' : ''), '', PUTIS_COL_TIPS.ytd + ' The open (current) month is excluded.'), th((year - 1) + ' total', '', PUTIS_COL_TIPS.prior), th('YoY', '', PUTIS_COL_TIPS.yoy))),
+    el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...shownIdx.map(i => { const m = MKTG_MONTHS[i]; const isOpen = _mktgYm(year, i) === putisOpenMonth(); return th(isOpen ? m + ' · open' : (rangeYm ? m + ' ' + year : m), isOpen ? 'italic' : '', isOpen ? 'Current month — books not closed yet, numbers move daily. Not included in YTD.' : PUTIS_COL_TIPS.month); }),
+      th(year + ' YTD' + (ytd.months ? ' (thru ' + MKTG_MONTHS[Math.min(upto, Math.max(0, (String(year) === openYm.slice(0, 4) ? new Date().getMonth() - 1 : 11)))] + ')' : ''), '', PUTIS_COL_TIPS.ytd + ' The open (current) month is excluded.'),
+      th((year - 1) + (rangeYm ? ' YTD' : ' total'), '', rangeYm ? 'The same months of ' + (year - 1) + ' (January through ' + MKTG_MONTHS[upto] + ').' : PUTIS_COL_TIPS.prior), th('YoY', '', PUTIS_COL_TIPS.yoy))),
     el('tbody', {}, ...rowsShown.map(row => row.head
       ? el('tr', { class: 'border-t border-' }, el('td', { colspan: '16', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', position: 'sticky', left: 0 } }, row.head))
       : el('tr', { class: 'border-t border-' + (row.bold ? ' font-semibold' : ''), style: row.bold ? { background: 'var(--card-2)' } : {} },
       td(row.label, { bold: true, title: row.tip, style: { position: 'sticky', left: 0, background: row.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
-      ...months.map((d, i) => {
+      ...shownIdx.map(i => {
+        const d = months[i];
         const ym = _mktgYm(year, i);
         const c = td(cellVal(row, d, i > 0 ? months[i - 1] : null), ym === putisOpenMonth() ? { style: { opacity: '.45' }, title: 'Open month — not closed yet' } : {});
         if (row.drill) {
@@ -43760,11 +43773,17 @@ function reportingPutis() {
   let cmpYm = state._putisCmpMonth; if (!cmpYm || !M[cmpYm]) cmpYm = closedYm;
   const monthPick = () => sel(cmpYm, closedAll.slice().reverse().map(k => [k, new Date(k + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })]), (v) => { state._putisCmpMonth = v; mountApp(); });
   const viewSeg = () => seg(view, [['monthly', 'Monthly'], ['compare', 'Compare']], (v) => { state._putisView = v; mountApp(); });
-  const trendHeader = () => { const h = el('div', { class: 'ml-auto inline-flex items-center gap-1.5 flex-wrap' }, phone ? null : viewSeg(), view === 'compare' ? monthPick() : null, branchPicker()); h.lastChild && h.lastChild.classList.remove('ml-auto'); return h; };
+  // Range for the Monthly table: all 12 months across, or one month beside
+  // its YTD (phones default to the last closed month).
+  const closedThisYear = closedAll.filter(k => k.startsWith(String(year) + '-'));
+  let trendRange = state._putisRange;
+  if (trendRange !== 'all' && !closedThisYear.includes(trendRange)) trendRange = phone ? (closedThisYear[closedThisYear.length - 1] || 'all') : 'all';
+  const rangePick = () => sel(trendRange, [['all', 'All months'], ...closedThisYear.slice().reverse().map(k => [k, new Date(k + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })])], (v) => { state._putisRange = v; mountApp(); });
+  const trendHeader = () => { const h = el('div', { class: 'ml-auto inline-flex items-center gap-1.5 flex-wrap' }, phone ? null : viewSeg(), view === 'compare' ? monthPick() : rangePick(), branchPicker()); h.lastChild && h.lastChild.classList.remove('ml-auto'); return h; };
   const scopeSet = branchSel === 'RIDD' ? branches : [branchSel];
   const scopeOpts = branchSel === 'RIDD' ? { company: true } : {};
-  if (view === 'compare') wrap.append(putisComparativeCard(M, cmpYm, scopeSet, branchSel, trendHeader(), scopeOpts));
-  else wrap.append(putisTrendCard(M, year, scopeSet, branchSel, sub, trendHeader(), { ...scopeOpts, compact: phone }));
+  if (view === 'compare') wrap.append(putisComparativeCard(M, cmpYm, scopeSet, 'P&L Metrics', trendHeader(), scopeOpts));
+  else wrap.append(putisTrendCard(M, year, scopeSet, 'P&L Metrics', sub, trendHeader(), { ...scopeOpts, compact: phone, range: trendRange }));
 
   // ── 2. P&L Indicators (year dropdown + range dropdown: YTD or a single month) ──
   const ledgerYears = [...new Set(Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).map(k => k.slice(0, 4)))].sort().reverse();
