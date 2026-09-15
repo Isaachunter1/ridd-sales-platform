@@ -43759,7 +43759,6 @@ function reportingPutis() {
   if (!isAdminRole(state.profile?.role)) return el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Admins only.');
   reportingLoadLedger();
   const M = putisMonthly();
-  const year = _mktgYearSel();
   const wrap = el('div', { class: 'flex flex-col gap-4' });
   if (!M) {
     const failed = state._ledgerErr === 'unavailable';
@@ -43771,6 +43770,18 @@ function reportingPutis() {
     return wrap;
   }
   const U = putisUnitMonthly();
+  // ── One set of filters for the whole tab (per Isaac): Year + Range ──
+  const closedYm = (() => { const c = putisLastClosedMonth(); if (M[c]) return c; const all = Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).sort(); return all[all.length - 1] || c; })();
+  const closedYr = closedYm.slice(0, 4);
+  const ledgerYears = [...new Set(Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).map(k => k.slice(0, 4)))].sort().reverse();
+  if (!ledgerYears.length) ledgerYears.push(closedYr);
+  const scYear = ledgerYears.includes(String(state._putisScoreYear)) ? String(state._putisScoreYear) : closedYr;
+  const year = Number(scYear);
+  const scMonthsAvail = Object.keys(M).filter(k => k.startsWith(scYear + '-') && k < putisOpenMonth()).sort();
+  const lastAvail = scMonthsAvail[scMonthsAvail.length - 1] || (scYear === closedYr ? closedYm : scYear + '-12');
+  let scRange = state._putisScoreRange;   // 'ytd' | 'YYYY-MM'
+  if (!scRange || (scRange !== 'ytd' && !scMonthsAvail.includes(scRange))) scRange = scYear === closedYr ? closedYm : (scRange === 'ytd' ? 'ytd' : lastAvail);
+  const monthName = (ym, o) => new Date(ym + '-15T12:00').toLocaleDateString('en-US', o);
   const branches = putisBranchesWithData(M, year);
   const opBranches = branches.filter(b => b !== 'Corporate');
   const branchSel = state._putisBranch && (branches.includes(state._putisBranch) || state._putisBranch === 'RIDD') ? state._putisBranch : 'RIDD';
@@ -43781,9 +43792,6 @@ function reportingPutis() {
     const candidates = monthsWithData.filter(ym => ym <= closed);
     state._putisMonth = M[closed] ? closed : (candidates[candidates.length - 1] || monthsWithData[monthsWithData.length - 1] || closed);
   }
-  // The closed month the summary + scorecard key off.
-  const closedYm = (() => { const c = putisLastClosedMonth(); if (M[c]) return c; const all = Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).sort(); return all[all.length - 1] || c; })();
-  const closedYr = closedYm.slice(0, 4);
   const ytdMonths = Object.keys(M).filter(k => k.startsWith(closedYr + '-') && k <= closedYm).sort();
   const pulled = state.reportingLedger.pulledAt ? new Date(state.reportingLedger.pulledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
   const sel = (val, opts, on) => el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => on(e.target.value) },
@@ -43792,11 +43800,11 @@ function reportingPutis() {
     ...opts.map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold transition', style: val === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => on(v) }, l)));
 
   // ── 0. Toolbar ──
+  const pickers = () => el('div', { class: 'inline-flex items-center gap-1.5' },
+    sel(scYear, ledgerYears.map(y => [y, y]), (v) => { state._putisScoreYear = v; const avail = Object.keys(M).filter(k => k.startsWith(v + '-') && k < putisOpenMonth()).sort(); if (state._putisScoreRange !== 'ytd') state._putisScoreRange = v === closedYr ? closedYm : avail[avail.length - 1]; mountApp(); }),
+    sel(scRange, [['ytd', scYear + ' YTD'], ...scMonthsAvail.slice().reverse().map(ym => [ym, monthName(ym, { month: 'long' })])], (v) => { state._putisScoreRange = v; mountApp(); }));
   wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap' },
-    el('div', { class: 'inline-flex items-center gap-1' },
-      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = year - 1; mountApp(); } }, '‹'),
-      el('span', { class: 'text-sm font-black tabular-nums px-1' }, String(year)),
-      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { state._mktYear = year + 1; mountApp(); } }, '›')),
+    pickers(),
     el('label', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer' },
       el('input', { type: 'checkbox', checked: !!state._putisMoM, style: { accentColor: 'var(--accent)' }, onchange: (e) => { state._putisMoM = e.target.checked; mountApp(); } }), 'MoM change'),
     el('span', { class: 'text-[10px] text-muted- ml-auto' }, pulled ? 'Last QuickBooks sync: ' + pulled + (state.reportingLedger.refreshing ? ' · refreshing…' : '') : (state.reportingLedger.refreshing ? 'Syncing QuickBooks…' : '')),
@@ -43832,25 +43840,13 @@ function reportingPutis() {
   else wrap.append(putisTrendCard(M, year, scopeSet, 'P&L Metrics', sub, trendHeader(), { ...scopeOpts, compact: phone, range: trendRange }));
 
   // ── 2. P&L Indicators (year dropdown + range dropdown: YTD or a single month) ──
-  const ledgerYears = [...new Set(Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).map(k => k.slice(0, 4)))].sort().reverse();
-  if (!ledgerYears.length) ledgerYears.push(closedYr);
-  const scYear = ledgerYears.includes(String(state._putisScoreYear)) ? String(state._putisScoreYear) : closedYr;
-  // Closed months of that year that have something booked.
-  const scMonthsAvail = Object.keys(M).filter(k => k.startsWith(scYear + '-') && k < putisOpenMonth()).sort();
-  const lastAvail = scMonthsAvail[scMonthsAvail.length - 1] || (scYear === closedYr ? closedYm : scYear + '-12');
-  let scRange = state._putisScoreRange;   // 'ytd' | 'YYYY-MM'
-  if (!scRange || (scRange !== 'ytd' && !scMonthsAvail.includes(scRange))) scRange = scYear === closedYr ? closedYm : (scRange === 'ytd' ? 'ytd' : lastAvail);
-  const monthName = (ym, o) => new Date(ym + '-15T12:00').toLocaleDateString('en-US', o);
-  const pickers = () => el('div', { class: 'inline-flex items-center gap-1.5' },
-    sel(scYear, ledgerYears.map(y => [y, y]), (v) => { state._putisScoreYear = v; const avail = Object.keys(M).filter(k => k.startsWith(v + '-') && k < putisOpenMonth()).sort(); if (state._putisScoreRange !== 'ytd') state._putisScoreRange = v === closedYr ? closedYm : avail[avail.length - 1]; mountApp(); }),
-    sel(scRange, [['ytd', scYear + ' YTD'], ...scMonthsAvail.slice().reverse().map(ym => [ym, monthName(ym, { month: 'long' })])], (v) => { state._putisScoreRange = v; mountApp(); }));
   const scKey = scRange === 'ytd' ? scYear + '-YTD' : scRange;
   const scBranches = scRange === 'ytd' ? putisBranchesWithData(M, scYear) : putisBranchesWithData(M, scYear).filter(b => M[scRange] && M[scRange][b]);
   // Recurring book is its own card at the very top of the tab (above the
   // trend table); the income statement stays here. Both share the pickers.
   const colSel = state._putisCol && (scBranches.includes(state._putisCol) || state._putisCol === 'RIDD') ? state._putisCol : 'RIDD';
   const colPicker = () => sel(colSel, [['RIDD', 'RIDD'], ...scBranches.map(b => [b, b])], (v) => { state._putisCol = v; mountApp(); });
-  const cardHeader = () => phone ? el('div', { class: 'inline-flex items-center gap-1.5 flex-wrap' }, colPicker(), pickers()) : pickers();
+  const cardHeader = () => phone ? colPicker() : null;   // filters live in the toolbar now
   const cardOpts = (section) => ({ section, headerExtra: cardHeader(), onlyCol: phone ? colSel : null, compact: phone });
   const anchor = wrap.children[1] || null;
   for (const part of ['book', 'margins', 'unit']) wrap.insertBefore(putisIndicatorsCard(M, scKey, scBranches, cardOpts(part)), anchor);
