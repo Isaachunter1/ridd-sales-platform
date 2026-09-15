@@ -43823,12 +43823,39 @@ function reportingPutis() {
     sel(scRange, [['ytd', scYear + ' YTD'], ...scMonthsAvail.slice().reverse().map(ym => [ym, monthName(ym, { month: 'long' })])], (v) => { state._putisScoreRange = v; mountApp(); }));
   const momToggle = () => el('label', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer whitespace-nowrap' },
     el('input', { type: 'checkbox', checked: !!state._putisMoM, style: { accentColor: 'var(--accent)' }, onchange: (e) => { state._putisMoM = e.target.checked; mountApp(); } }), 'MoM change');
-  wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap' },
+  // The toolbar pins under the app header once you scroll past it (per
+  // Isaac): a spacer holds its place in the flow, the bar itself flips to
+  // position:fixed. (main is overflow-x:hidden, which defeats sticky.)
+  const toolbar = el('div', { id: 'putisBar', class: 'flex items-center gap-2 flex-wrap' },
     pickers(),
     // Sync stamp + refresh travel together so they never wrap apart on phones.
     el('span', { class: 'ml-auto inline-flex items-center gap-1.5 whitespace-nowrap' },
       el('span', { class: 'text-[10px] text-muted-' }, pulled ? 'Last QB sync: ' + pulled + (state.reportingLedger.refreshing ? ' · refreshing…' : '') : (state.reportingLedger.refreshing ? 'Syncing QB…' : '')),
-      el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Re-pull the ledger from QuickBooks now', onclick: () => { reportingLoadLedger(true); if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(true); } }, '↻'))));
+      el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Re-pull the ledger from QuickBooks now', onclick: () => { reportingLoadLedger(true); if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(true); } }, '↻')));
+  const barSpacer = el('div', { id: 'putisBarSpacer' }, toolbar);
+  wrap.append(barSpacer);
+  const pinPutisBar = () => {
+    const sp = document.getElementById('putisBarSpacer'), bar = document.getElementById('putisBar');
+    if (!sp || !bar) return;
+    const hdr = document.querySelector('.page-header');
+    const headerH = hdr ? Math.round(hdr.getBoundingClientRect().bottom) : 60;
+    if (!sp.style.height) sp.style.height = bar.offsetHeight + 'px';
+    const pin = sp.getBoundingClientRect().top < headerH;
+    if (pin && !bar._pinned) {
+      bar._pinned = true;
+      const r = sp.getBoundingClientRect();
+      Object.assign(bar.style, { position: 'fixed', top: headerH + 'px', left: r.left + 'px', width: r.width + 'px', zIndex: '15', background: 'var(--bg)', padding: '8px 0', borderBottom: '1px solid var(--border)' });
+    } else if (!pin && bar._pinned) {
+      bar._pinned = false;
+      Object.assign(bar.style, { position: '', top: '', left: '', width: '', zIndex: '', background: '', padding: '', borderBottom: '' });
+    } else if (pin) { const r = sp.getBoundingClientRect(); bar.style.left = r.left + 'px'; bar.style.width = r.width + 'px'; }
+  };
+  setTimeout(pinPutisBar, 0);
+  if (!window._putisBarBound) {
+    window._putisBarBound = true;
+    window.addEventListener('scroll', () => { try { pinPutisBar(); } catch {} }, { passive: true });
+    window.addEventListener('resize', () => { try { const sp = document.getElementById('putisBarSpacer'); if (sp) sp.style.height = ''; pinPutisBar(); } catch {} });
+  }
 
   // (Executive-summary KPI strip retired per Isaac — the branch scorecard
   // carries the same ratios per branch + RIDD.)
