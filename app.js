@@ -36422,7 +36422,8 @@ function indicatorYoYTrendChart() {
                 // YTD dot — point only, on the secondary 'yYTD' axis. Skipped for a
                 // rep's own single-series view (it read as a stray marker).
                 const ytdData = weeksAxis.map(() => null); ytdData.push(ytdValOf(A, y, tier));
-                if (!(_totalSeries === 1 && !isAdminRole(state.profile?.role))) ytdPts.push({ label: 'YTD ' + label, data: ytdData, yAxisID: 'yYTD', showLine: false, borderColor: color, backgroundColor: color, pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', order: 0 });
+                state._yoyHideYtd = (_totalSeries === 1 && !isAdminRole(state.profile?.role));
+                if (!state._yoyHideYtd) ytdPts.push({ label: 'YTD ' + label, data: ytdData, yAxisID: 'yYTD', showLine: false, borderColor: color, backgroundColor: color, pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', order: 0 });
               });
             });
           });
@@ -36499,7 +36500,7 @@ function indicatorYoYTrendChart() {
               : kind === 'pct' ? (v => (v * 100).toFixed(0) + '%') : undefined } },
           // Independent right-hand axis for the YTD dots so their cumulative
           // magnitude never rescales the weekly lines.
-          yYTD: { position: 'right', beginAtZero: true, min: 0, display: !(_totalSeries === 1 && !isAdminRole(state.profile?.role)), grid: { drawOnChartArea: false }, ticks: { color: txt, font: { size: 10 },
+          yYTD: { position: 'right', beginAtZero: true, min: 0, display: !state._yoyHideYtd, grid: { drawOnChartArea: false }, ticks: { color: txt, font: { size: 10 },
             callback: kind === 'usd'
               ? (v => '$' + (Math.abs(v) >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'K' : v))
               : kind === 'pct' ? (v => (v * 100).toFixed(0) + '%') : undefined } },
