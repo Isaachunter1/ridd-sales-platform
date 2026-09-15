@@ -47919,12 +47919,12 @@ function reportingGeographic() {
           onclick: () => exportReportingGeoCsv(sortedItems, breakdown.labelKey, exportScopeTag + (bOffice !== 'all' ? '-' + bOffice.toLowerCase().replace(/\s+/g, '_') : '')),
         }, '⬇ Export CSV')),
     ),
-    el('div', { class: 'overflow-x-auto', style: { maxHeight: '500px' } },
+    el('div', { style: { overflow: 'auto', maxHeight: '500px' } },
       el('table', { class: 'w-full text-xs' },
-        el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider sticky top-0', style: { background: 'var(--card-2)', color: 'var(--text-muted)', zIndex: 2 } },
           el('tr', {},
-            el('th', { class: 'px-3 py-2 font-semibold text-left', style: { background: 'var(--card-2)', width: '40px' } }, '#'),
-            tableHeader(breakdown.labelCol, breakdown.labelKey),
+            el('th', { class: 'px-3 py-2 font-semibold text-left', style: { background: 'var(--card-2)', width: '40px', position: 'sticky', left: 0, zIndex: 3 } }, '#'),
+            (() => { const h = tableHeader(breakdown.labelCol, breakdown.labelKey); Object.assign(h.style, { position: 'sticky', left: '40px', zIndex: 3, boxShadow: '1px 0 0 var(--border)' }); return h; })(),
             tableHeader('State',       'state'),
             tableHeader('Office',      'office'),
             tableHeader('Customers',   'customers',  true),
@@ -47946,8 +47946,8 @@ function reportingGeographic() {
             if (!T.subs) return null;
             const td = (v, cls) => el('td', { class: 'px-3 py-2 text-left font-black ' + (cls || '') }, v);
             return el('tr', { class: 'tabular-nums', style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2)' } },
-              el('td', { class: 'px-3 py-2 text-base leading-none', style: { fontFamily: 'Georgia, "Times New Roman", serif' } }, '\ud835\udd7d'),
-              td('RIDD'), td('All'), td(bOffice !== 'all' ? _mktgTC(bOffice) : 'All'),
+              el('td', { class: 'px-3 py-2 text-base leading-none', style: { fontFamily: 'Georgia, "Times New Roman", serif', position: 'sticky', left: 0, zIndex: 1, background: 'var(--card-2)' } }, '\ud835\udd7d'),
+              el('td', { class: 'px-3 py-2 text-left font-black', style: { position: 'sticky', left: '40px', zIndex: 1, background: 'var(--card-2)', boxShadow: '1px 0 0 var(--border)' } }, 'RIDD'), td('All'), td(bOffice !== 'all' ? _mktgTC(bOffice) : 'All'),
               td(T.customers.toLocaleString()), td(T.subs.toLocaleString()),
               td('$' + Math.round(T.avgContract).toLocaleString()), td('$' + Math.round(T.arv).toLocaleString()),
               td(T.cancellations.toLocaleString()),
@@ -47978,8 +47978,8 @@ function reportingGeographic() {
               });
             },
           },
-            el('td', { class: 'px-3 py-2 text-muted-' }, String(i + 1)),
-            el('td', { class: 'px-3 py-2 font-semibold' }, breakdown.cellLabel(it)),
+            el('td', { class: 'px-3 py-2 text-muted-', style: { position: 'sticky', left: 0, zIndex: 1, background: 'var(--card)' } }, String(i + 1)),
+            el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap', style: { position: 'sticky', left: '40px', zIndex: 1, background: 'var(--card)', boxShadow: '1px 0 0 var(--border)' } }, breakdown.cellLabel(it)),
             el('td', { class: 'px-3 py-2' }, it.state || '—'),
             el('td', { class: 'px-3 py-2 whitespace-nowrap', title: 'Branch servicing most of this area\u2019s subs' }, it.office ? _mktgTC(it.office) : '—'),
             el('td', { class: 'px-3 py-2 text-left' }, it.customers.toLocaleString()),
@@ -48026,11 +48026,11 @@ function reportingGeographic() {
         el('div', { class: 'flex-1 min-w-0' },
           el('h2', { class: 'text-lg font-bold' }, summaryBy === 'state' ? 'State breakdown' : 'Office breakdown')),
         byToggle),
-      el('div', { class: 'overflow-x-auto' },
+      el('div', { style: { overflow: 'auto', maxHeight: '70vh' } },
         el('table', { class: 'w-full text-xs' },
-          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)', position: 'sticky', top: 0, zIndex: 2 } },
             el('tr', {},
-              el('th', { class: 'px-3 py-2 text-left font-semibold', title: summaryBy === 'state' ? 'Click a row to drill the map into that state' : 'Branch' }, summaryBy === 'state' ? 'State' : 'Office'),
+              el('th', { class: 'px-3 py-2 text-left font-semibold', style: { position: 'sticky', left: 0, zIndex: 3, background: 'var(--card-2)', boxShadow: '1px 0 0 var(--border)' }, title: summaryBy === 'state' ? 'Click a row to drill the map into that state' : 'Branch' }, summaryBy === 'state' ? 'State' : 'Office'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Distinct customers with a recurring subscription' }, 'Customers'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Recurring subscriptions (same set as the Overview)' }, 'Subs'),
               el('th', { class: 'px-3 py-2 text-left font-semibold', title: 'Subscriptions currently active (status Active, no cancel date)' }, 'Active'),
@@ -48048,9 +48048,9 @@ function reportingGeographic() {
             (() => {
               const T = reportingGeoTotal(rows);
               if (!T.subs) return null;
-              const td = (v) => el('td', { class: 'px-3 py-2 text-left font-black' }, v);
+              const td = (v, o = {}) => el('td', { class: 'px-3 py-2 text-left font-black', style: o.style || {} }, v);
               return el('tr', { class: 'tabular-nums', style: { background: 'var(--card-2)', boxShadow: 'inset 0 -2px 0 var(--border-2)' } },
-                td('RIDD'),
+                td('RIDD', { style: { position: 'sticky', left: 0, zIndex: 1, background: 'var(--card-2)', boxShadow: '1px 0 0 var(--border)' } }),
                 td(T.customers.toLocaleString()), td(T.subs.toLocaleString()), td(T.active.toLocaleString()),
                 td('$' + Math.round(T.avgContract).toLocaleString()), td('$' + Math.round(T.arv).toLocaleString()),
                 td(T.cancellations.toLocaleString()),
@@ -48069,7 +48069,7 @@ function reportingGeographic() {
                 title: s.code ? 'Drill into ' + s.name : '',
                 onclick: s.code ? () => onStateClick(s.code) : undefined,
               },
-                el('td', { class: 'px-3 py-2 font-semibold' }, s.name),
+                el('td', { class: 'px-3 py-2 font-semibold whitespace-nowrap', style: { position: 'sticky', left: 0, zIndex: 1, background: 'var(--card)', boxShadow: '1px 0 0 var(--border)' } }, s.name),
                 el('td', { class: 'px-3 py-2 text-left' }, s.customers.toLocaleString()),
                 el('td', { class: 'px-3 py-2 text-left' }, s.subs.toLocaleString()),
                 el('td', { class: 'px-3 py-2 text-left' }, s.active.toLocaleString()),
@@ -48088,6 +48088,33 @@ function reportingGeographic() {
                   for (const r of (s.rows || [])) { const o = summaryBy === 'state' ? r.office_name : (r.state || ''); c.set(o, (c.get(o) || 0) + 1); }
                   const ents = [...c.entries()].sort((a, b) => b[1] - a[1]);
                   if (!ents.length) return '\u2014';
+                  // Phones: just the count — tap for a table of the states (each
+                  // row opens the customer drill), so the column stays narrow.
+                  if (_phone) {
+                    return el('button', {
+                      class: 'px-1.5 py-0.5 rounded text-[10px] font-semibold',
+                      style: { background: 'var(--card-2)', border: '1px solid var(--border-2)', color: 'var(--text)' },
+                      onclick: (e) => {
+                        e.stopPropagation();
+                        const overlay = el('div', { class: 'modal-overlay' });
+                        overlay.addEventListener('click', (ev) => { if (ev.target === overlay) overlay.remove(); });
+                        const unitLabel = summaryBy === 'state' ? 'office' : 'state';
+                        overlay.append(el('div', { class: 'card p-4 flex flex-col gap-3', style: { width: 'min(520px, 94vw)', maxHeight: '85vh', overflow: 'auto' } },
+                          el('div', { class: 'flex items-start justify-between gap-3' },
+                            el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, s.name), el('div', { class: 'text-lg font-black' }, ents.length + ' ' + unitLabel + (ents.length === 1 ? '' : 's'))),
+                            el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '×')),
+                          el('table', { class: 'w-full text-xs' },
+                            el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } }, el('tr', {}, el('th', { class: 'py-1 text-left' }, unitLabel), el('th', { class: 'py-1 text-right' }, 'Subs'), el('th', { class: 'py-1 text-right' }, 'Active ARR'))),
+                            el('tbody', {}, ...ents.map(([o, n]) => {
+                              const rs = (s.rows || []).filter(r => (summaryBy === 'state' ? r.office_name : (r.state || '')) === o);
+                              const arr = rs.reduce((a, r) => a + ((typeof reportingFilters === 'function' && reportingFilters().isActive(r)) ? (Number(r.annual_recurring_value) || 0) : 0), 0);
+                              return el('tr', { class: 'border-t cursor-pointer', style: { borderColor: 'var(--border)' }, onclick: () => openReportingDrillModal({ chartTitle: s.name + ' \u2014 customers filed under ' + (o || 'no ' + unitLabel), sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) },
+                                el('td', { class: 'py-1.5 font-semibold' }, o || '??'), el('td', { class: 'py-1.5 text-right tabular-nums' }, n.toLocaleString()), el('td', { class: 'py-1.5 text-right tabular-nums' }, '$' + Math.round(arr).toLocaleString()));
+                            })))));
+                        document.body.append(overlay);
+                      },
+                    }, ents.length + ' ' + (summaryBy === 'state' ? 'office' : 'state') + (ents.length === 1 ? '' : 's'));
+                  }
                   // Office view: every state is a chip → click for the customers
                   // filed under it (per Isaac — spotting wrong states in the CRM).
                   return el('span', { class: 'flex items-center gap-1 flex-wrap' }, ...ents.map(([o, n]) => summaryBy === 'state'
