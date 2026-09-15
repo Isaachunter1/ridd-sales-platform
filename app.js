@@ -40421,6 +40421,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
   const cols = [
     { key: 'customer',     label: 'Customer',        align: 'left',  type: 'str', get: r => customerName(r).toLowerCase() },
     { key: 'office',       label: 'Office',          align: 'left',  type: 'str', get: r => (r.office_name || '').toLowerCase() },
+    { key: 'rep',          label: 'Sold by',         align: 'left',  type: 'str', get: r => String(r.sold_by || '').toLowerCase() },
     ...(hasLoc ? [
       { key: 'state',      label: 'State',           align: 'left',  type: 'str', get: r => (r.state || '').toUpperCase() },
       { key: 'zip',        label: 'ZIP',             align: 'left',  type: 'str', get: r => String(r.zip_code || '') },
@@ -40464,6 +40465,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
       r.customer_id && el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + r.customer_id),
     ),
     el('td', { class: 'px-3 py-2' }, r.office_name || '—'),
+    el('td', { class: 'px-3 py-2' }, r.sold_by ? el('div', {}, el('div', {}, r.sold_by), r.sold_by_type ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, r.sold_by_type) : null) : '—'),
     hasLoc && el('td', { class: 'px-3 py-2 font-semibold' }, r.state || '—'),
     hasLoc && el('td', { class: 'px-3 py-2 tabular-nums' }, r.zip_code || '—'),
     hasLoc && el('td', { class: 'px-3 py-2' }, r.county || '—'),
@@ -40549,13 +40551,15 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
   // render window — the workflow for hunting CRM errors needs every row.
   const exportCsv = () => {
     const data = sortedCache || computeSorted();
-    const head = ['Customer', 'Customer ID', 'Office', 'Subscription', 'Status', 'Completed Services', 'Flag', 'ARV', 'Contract', 'Initial Service', 'Days Past Due', 'Canceled Date', 'Cancel Reason'];
+    const head = ['Customer', 'Customer ID', 'Office', 'Sold By', 'Sold By Type', 'Subscription', 'Status', 'Completed Services', 'Flag', 'ARV', 'Contract', 'Initial Service', 'Days Past Due', 'Canceled Date', 'Cancel Reason'];
     const lines = [head.map(csvEsc).join(',')];
     for (const r of data) {
       lines.push([
         csvEsc(customerName(r)),
         csvEsc(r.customer_id || ''),
         csvEsc(r.office_name || ''),
+        csvEsc(r.sold_by || ''),
+        csvEsc(r.sold_by_type || ''),
         csvEsc(r.subscription || ''),
         csvEsc(r.subscription_status || ''),
         Number(r.subscription_completed_services) || 0,
