@@ -43330,7 +43330,8 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   const yms = isYtd ? Object.keys(M).filter(k => k.startsWith(year + '-') && /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).sort() : [ym];
   const endYm = yms[yms.length - 1] || ym;
   const bookAtEnd = U.eom && U.eom[endYm];   // month-end book for the period; falls back to today
-  const cols = [...branches.map(b => ({ key: b, label: b, set: [b] })), { key: 'RIDD', label: 'RIDD', set: branches }];
+  let cols = [...branches.map(b => ({ key: b, label: b, set: [b] })), { key: 'RIDD', label: 'RIDD', set: branches }];
+  if (opts.onlyCol) cols = cols.filter(c => c.key === opts.onlyCol);   // phones: one column at a time
   const D = Object.fromEntries(cols.map(c => [c.key, putisDeriveMonths(M, yms, c.set)]));
   const UM = Object.fromEntries(cols.map(c => [c.key, putisMetrics(M, U, yms, c.set)]));
   const fr = (key) => {
@@ -43752,12 +43753,15 @@ function reportingPutis() {
   // Two ways to read it: the 12-month strip (Monthly) or the banker's
   // comparative statement (Compare: month vs prior month / same month LY,
   // YTD vs prior YTD, LTM vs prior LTM).
-  const view = state._putisView === 'compare' ? 'compare' : 'monthly';
+  // Phones (per Isaac): one column at a time everywhere — a branch dropdown
+  // (RIDD default) on each card, no Compare toggle on the trend table.
+  const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
+  const view = (!phone && state._putisView === 'compare') ? 'compare' : 'monthly';
   const closedAll = Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).sort();
   let cmpYm = state._putisCmpMonth; if (!cmpYm || !M[cmpYm]) cmpYm = closedYm;
   const monthPick = () => sel(cmpYm, closedAll.slice().reverse().map(k => [k, new Date(k + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })]), (v) => { state._putisCmpMonth = v; mountApp(); });
   const viewSeg = () => seg(view, [['monthly', 'Monthly'], ['compare', 'Compare']], (v) => { state._putisView = v; mountApp(); });
-  const trendHeader = () => { const h = el('div', { class: 'ml-auto inline-flex items-center gap-1.5 flex-wrap' }, viewSeg(), view === 'compare' ? monthPick() : null, branchPicker()); h.firstChild && (h.lastChild.classList.remove('ml-auto')); return h; };
+  const trendHeader = () => { const h = el('div', { class: 'ml-auto inline-flex items-center gap-1.5 flex-wrap' }, phone ? null : viewSeg(), view === 'compare' ? monthPick() : null, branchPicker()); h.lastChild && h.lastChild.classList.remove('ml-auto'); return h; };
   const scopeSet = branchSel === 'RIDD' ? branches : [branchSel];
   const scopeOpts = branchSel === 'RIDD' ? { company: true } : {};
   if (view === 'compare') wrap.append(putisComparativeCard(M, cmpYm, scopeSet, branchSel, trendHeader(), scopeOpts));
@@ -43780,8 +43784,12 @@ function reportingPutis() {
   const scBranches = scRange === 'ytd' ? putisBranchesWithData(M, scYear) : putisBranchesWithData(M, scYear).filter(b => M[scRange] && M[scRange][b]);
   // Recurring book is its own card at the very top of the tab (above the
   // trend table); the income statement stays here. Both share the pickers.
-  wrap.insertBefore(putisIndicatorsCard(M, scKey, scBranches, { section: 'book', headerExtra: pickers() }), wrap.children[1] || null);
-  wrap.append(putisIndicatorsCard(M, scKey, scBranches, { section: 'pnl', headerExtra: pickers() }));
+  const colSel = state._putisCol && (scBranches.includes(state._putisCol) || state._putisCol === 'RIDD') ? state._putisCol : 'RIDD';
+  const colPicker = () => sel(colSel, [['RIDD', 'RIDD'], ...scBranches.map(b => [b, b])], (v) => { state._putisCol = v; mountApp(); });
+  const cardHeader = () => phone ? el('div', { class: 'inline-flex items-center gap-1.5 flex-wrap' }, colPicker(), pickers()) : pickers();
+  const cardOpts = (section) => ({ section, headerExtra: cardHeader(), onlyCol: phone ? colSel : null });
+  wrap.insertBefore(putisIndicatorsCard(M, scKey, scBranches, cardOpts('book')), wrap.children[1] || null);
+  wrap.append(putisIndicatorsCard(M, scKey, scBranches, cardOpts('pnl')));
 
   return wrap;
 }
