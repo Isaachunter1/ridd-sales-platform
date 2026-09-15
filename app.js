@@ -156,7 +156,7 @@ async function callAdminSetPassword(payload) {
 // overrides are edited in Settings → Permissions (checkbox matrix) and ride
 // the synced config row (competitions.extras.perms), so a change reaches
 // every user on every device — no deploy per role tweak.
-const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty_lead', 'auditor'];
+const PERM_ROLES = ['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'auditor'];
 const PERM_DEFS = [
   { id: 'view_comps',       label: 'Competitions tab',    group: 'Tabs' },
   { id: 'view_indicators',  label: 'Indicators tab',      group: 'Tabs' },
@@ -172,6 +172,7 @@ const PERM_DEFS = [
 const PERM_DEFAULTS = {
   rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
   rep_office:      { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
+  rep_loyalty:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
   rep_partner:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
   rep_team_lead:   { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
   rep_office_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
@@ -212,6 +213,7 @@ const PERM_SCOPE_DEFS = [
 const PERM_SCOPE_DEFAULTS = {
   rep_sales:       { drill_scope: 'self' },
   rep_office:      { drill_scope: 'self' },
+  rep_loyalty:     { drill_scope: 'self' },
   rep_partner:     { drill_scope: 'team' },
   rep_team_lead:   { drill_scope: 'team' },
   rep_office_lead: { drill_scope: 'dept' },
@@ -232,7 +234,7 @@ function userScope(scopeId, profile) {
 // the codebase. `admin_rep` is an admin who also sells (on leaderboard, has a
 // Pay tab); `admin` is admin-only (not on leaderboard, no sales).
 const ADMIN_ROLES   = ['admin', 'admin_rep'];
-const SELLER_ROLES  = ['rep', 'rep_office', 'rep_office_lead', 'rep_loyalty_lead', 'rep_sales', 'rep_partner', 'rep_team_lead', 'admin_rep'];
+const SELLER_ROLES  = ['rep', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'rep_sales', 'rep_partner', 'rep_team_lead', 'admin_rep'];
 const isAdminRole   = (r) => ADMIN_ROLES.includes(r);
 const isSellerRole  = (r) => SELLER_ROLES.includes(r);
 const isAuditorRole = (r) => r === 'auditor';
@@ -258,7 +260,8 @@ const ROLE_LABEL = {
   rep_team_lead:'Sales Rep - Team Lead',
   rep_office: 'Office Staff - Inside Sales Rep',
   rep_office_lead: 'Office Staff - Team Lead',
-  rep_loyalty_lead: 'Office Staff - Loyalty Rep',
+  rep_loyalty: 'Office Staff - Loyalty Rep',
+  rep_loyalty_lead: 'Office Staff - Loyalty Team Lead',
   admin_rep:  'Admin + Sales',
   admin:      'Admin',
   auditor:    'Auditor',
@@ -267,7 +270,7 @@ const roleLabel = (r) => ROLE_LABEL[r] || r || '';
 // Rep access flavors. The explicit roles decide directly; the legacy 'rep'
 // role falls back to the CRM rep-type lookup (state.myRepType, fetched at
 // login) so existing accounts keep working unchanged.
-const isOfficeStaffRole = (r) => r === 'rep_office' || r === 'rep_office_lead' || r === 'rep_loyalty_lead'
+const isOfficeStaffRole = (r) => r === 'rep_office' || r === 'rep_office_lead' || r === 'rep_loyalty' || r === 'rep_loyalty_lead'
   || (r === 'rep' && /office\s*staff/i.test(state.myRepType || ''));
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -6684,7 +6687,7 @@ function recentSalesTable(rows, opts = {}) {
 // family (leaderboard, individual goals, Hall of Fame) to office staff.
 function isOfficeStaffProfile(p) {
   if (!p) return false;
-  if (p.role === 'rep_office' || p.role === 'rep_office_lead' || p.role === 'rep_loyalty_lead') return true;
+  if (p.role === 'rep_office' || p.role === 'rep_office_lead' || p.role === 'rep_loyalty' || p.role === 'rep_loyalty_lead') return true;
   if (p.role === 'rep_sales' || p.role === 'rep_partner' || p.role === 'rep_team_lead') return false;
   const emp = frRosterRowForProfile(p);   // works even when the profile stores a branch id
   if (emp && emp.type_label) return /office\s*staff/i.test(emp.type_label);
@@ -34422,7 +34425,7 @@ function openTVDashboard() {
     const cg = state.companyGoal || { amount: 6000000, period: 'year' };
     const monthlyCompanyGoal = cg.period === 'year' ? cg.amount / 12 : cg.amount;
     const dailyCompanyGoal = workingDaysInMonth > 0 ? monthlyCompanyGoal / workingDaysInMonth : 0;
-    const sellerRoles = new Set(['rep', 'rep_office', 'rep_office_lead', 'rep_loyalty_lead', 'rep_sales', 'rep_partner', 'rep_team_lead', 'admin_rep']);
+    const sellerRoles = new Set(['rep', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'rep_sales', 'rep_partner', 'rep_team_lead', 'admin_rep']);
     const activeRepCount = Math.max(1,
       (state.allProfiles || []).filter(p => p.is_active !== false && sellerRoles.has(p.role)).length
     );
@@ -37006,7 +37009,7 @@ const SCORECARD_DEPTS = [
 
 function scorecardDeptOf(p) {
   if (!p) return 'inside_sales';
-  if (p.rep_type === 'loyalty_rep' || p.role === 'rep_loyalty_lead') return 'loyalty';
+  if (p.rep_type === 'loyalty_rep' || p.role === 'rep_loyalty' || p.role === 'rep_loyalty_lead') return 'loyalty';
   return 'inside_sales';
 }
 
@@ -55268,7 +55271,7 @@ function adminReps() {
           style: { position: 'absolute', top: 'calc(100% + 6px)', right: '0', minWidth: '190px', padding: '6px', display: 'none', zIndex: '50', boxShadow: 'var(--shadow-lg)' },
         },
           el('div', { class: 'px-3 pt-1.5 pb-2 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'View the app as\u2026'),
-          ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty_lead', 'auditor'].map(v => [v, ROLE_LABEL[v]]).map(([v, label]) => el('button', {
+          ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead', 'auditor'].map(v => [v, ROLE_LABEL[v]]).map(([v, label]) => el('button', {
             class: 'w-full text-left px-2.5 py-1 rounded-lg text-[11px] font-medium transition',
             style: { color: 'var(--text)' },
             onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
@@ -56163,7 +56166,7 @@ function openUserEditor(existing = null, prefill = null) {
       let seedRole = existing?.role || prefill?.role || 'rep_sales';
       if (seedRole === 'rep') seedRole = 'rep_sales';
       const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' },
-        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty_lead'].map(v => el('option', { value: v, selected: seedRole === v }, ROLE_LABEL[v])),
+        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead'].map(v => el('option', { value: v, selected: seedRole === v }, ROLE_LABEL[v])),
         el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep' },  'Admin + Sales'),
         el('option', { value: 'admin',      selected: seedRole === 'admin' },      'Admin (no sales)'),
         el('option', { value: 'auditor',    selected: seedRole === 'auditor' },    'Auditor'),
@@ -56262,7 +56265,7 @@ function openUserEditor(existing = null, prefill = null) {
       const otherPayRow   = mk('Other Pay',   moneyInp('other_pay_amount',   existing?.other_pay_amount));
       const loyaltyPayRow = mk('Loyalty Pay', moneyInp('loyalty_pay_amount', existing?.loyalty_pay_amount));
 
-      const OFFICE_ROLES = new Set(['rep_office', 'rep_office_lead', 'rep_loyalty_lead']);
+      const OFFICE_ROLES = new Set(['rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead']);
       const grid = el('div', { class: 'flex flex-col gap-3' });
       const applyRepTypeVisibility = () => {
         const isLoyalty = repTypeSelect.value === 'loyalty_rep';
