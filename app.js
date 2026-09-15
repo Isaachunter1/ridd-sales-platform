@@ -43355,6 +43355,13 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     return t;
   };
   const endLabel = new Date(endYm + '-15T12:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  // Term debt by branch (today's balances of the long-term liability accounts).
+  const debtAccts = state.reportingLedger && state.reportingLedger.debt && state.reportingLedger.debt.accounts;
+  const debtBy = debtAccts && Object.keys(debtAccts).length ? (key) => {
+    const set = cols.find(c => c.key === key).set; let t = 0, any = false;
+    for (const name in debtAccts) { const n = name.toLowerCase(); const b = PUTIS_BRANCHES.find(x => n.includes(x.toLowerCase())) || (n.includes('utah') ? 'Salt Lake' : 'Corporate'); if (set.includes(b)) { t += debtAccts[name]; any = true; } }
+    return any ? t : (key === 'RIDD' ? 0 : null);
+  } : null;
   const th = (t, tip, corner) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)', position: 'sticky', top: 0, left: corner ? 0 : undefined, zIndex: corner ? 3 : 2, background: 'var(--card)', boxShadow: '0 1px 0 var(--border)' }, title: tip || '' }, t);
   const td = (v, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' + (o.bold ? ' font-bold' : '') + (o.muted ? ' text-muted-' : '') + (o.title ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '' }, v);
   // Income-statement card: every $ column gets a "% of revenue" column beside it (per Isaac).
@@ -43431,6 +43438,10 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     lineT('ACV (ARR ÷ active accounts)', (d, k) => { const f = fr(k); return f.active ? f.arr / f.active : null; }),
     lineT('Revenue ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.revenue / f.active : null; }, { tip: 'Booked revenue for the period ÷ accounts on the books at period end.' }),
     lineT('EBITDA ÷ active account', (d, k) => { const f = fr(k); return f.active ? d.ebitda / f.active : null; }, { signed: true, tip: 'EBITDA for the period ÷ accounts on the books at period end.' }),
+    ...(debtBy ? [
+      lineT('Term debt (today)', (d, k) => debtBy(k), { bold: true, tip: 'Long-term liability accounts on the QuickBooks balance sheet, current balance, filed to the branch named in the account (e.g. "Mizzen Loan - Atlanta"); un-branched loan accounts sit under Corporate. RIDD = every loan account.' }),
+      lineT('Debt ÷ ARR', (d, k) => { const f = fr(k); const x = debtBy(k); return f.arr > 0 && x != null ? x / f.arr : null; }, { x: true, tip: 'Term debt ÷ active ARR at period end — years of recurring revenue owed.' }),
+    ] : []),
   ];
   const cut = rows.indexOf('BOOK');
   const shown = part === 'book' ? rows.slice(cut + 1) : part === 'pnl' ? rows.slice(0, cut) : rows.filter(r => r !== 'BOOK');
