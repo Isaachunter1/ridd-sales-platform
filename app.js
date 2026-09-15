@@ -25673,14 +25673,16 @@ function manageTeamsPanel(opts) {
     // NOTE: the search box is applied client-side (show/hide rows) so typing
     // never triggers a full re-render — see applyRepSearch() below.
 
-    const header = el('div', { class: 'flex items-center justify-between px-5 py-4 border-b gap-3', style: { borderColor: 'var(--border)' } },
-      el('div', { class: 'flex-1 min-w-0' },
-        el('h2', {
-          class: 'text-base font-bold',
-          title: 'Teams are tracked per year — the roster reflects the selected Year. Tiers auto-set from sales history (first season = Rookie, returning = Vet); tagging overrides — Vet is permanent, Rookie applies to the year tagged and auto-promotes when they return. Click a team to rename it, pick a color, or toggle Exclude from metrics.',
-        }, '👥 Manage Teams'),
-      ),
-      el('div', { class: 'flex items-center gap-2 shrink-0' },
+    // Title + filters + search share ONE row (per Isaac — the old stacked
+    // header / filter bar / search rows are gone); Year + tools sit right.
+    const headerFilterSlot = el('div', { class: 'flex-1 min-w-0 flex flex-wrap items-center gap-x-2.5 gap-y-2' });
+    const header = el('div', { class: 'flex items-center px-5 py-3 border-b gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+      el('h2', {
+        class: 'text-base font-bold whitespace-nowrap',
+        title: 'Teams are tracked per year — the roster reflects the selected Year. Tiers auto-set from sales history (first season = Rookie, returning = Vet); tagging overrides — Vet is permanent, Rookie applies to the year tagged and auto-promotes when they return. Click a team to rename it, pick a color, or toggle Exclude from metrics.',
+      }, 'Manage Teams'),
+      headerFilterSlot,
+      el('div', { class: 'flex items-center gap-2 shrink-0 ml-auto' },
         // Team Year — assignments are stored per calendar year, so this picks
         // which year's teams you're viewing and editing. Defaults to the
         // current year; switching it changes the roster + (unassigned) chip.
@@ -26268,12 +26270,12 @@ function manageTeamsPanel(opts) {
     }
 
     // Search box (id is stable across re-renders so we can refocus after a change)
-    const searchInput = el('div', { class: 'px-5 py-3 border-b', style: { borderColor: 'var(--border)' } },
+    const searchInput = el('div', { class: 'inline-flex' },
       el('input', {
         id: 'manage-reps-search',
         type: 'text', placeholder: 'Search rep…', value: search,
-        class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]',
-        style: { borderColor: 'var(--border-2)' },
+        class: 'rounded-lg border px-2.5 py-1 text-[11px]',
+        style: { borderColor: 'var(--border-2)', width: '170px' },
         oninput: (e) => {
           // Filter the list IN PLACE — show/hide existing rows — instead of
           // re-rendering the whole modal. No rebuild means the input keeps
@@ -26470,7 +26472,7 @@ function manageTeamsPanel(opts) {
         style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)', maxWidth: '132px' },
         onchange: (e) => onChange(e.target.value),
       }, ...opts.map(o => el('option', { value: o.value, selected: value === o.value }, o.label))));
-    const filterBar = el('div', { class: 'px-5 py-2.5 border-b flex flex-wrap items-center gap-x-2.5 gap-y-2', style: { borderColor: 'var(--border)' } },
+    const filterBar = el('div', { style: { display: 'contents' } },
       mkFilter('Team', teamSelect, [
         { value: '', label: 'All · ' + reps.length },
         ...chipEntries.map(([t, n]) => ({ value: t, label: t + ' · ' + (n === 0 && t !== '(unassigned)' ? '0 (empty)' : n) })),
@@ -26520,9 +26522,10 @@ function manageTeamsPanel(opts) {
         ...branchesPresent.map(b => ({ value: b, label: titleCase(b) + ' · ' + branchCounts[b] })),
       ], (v) => { state._indicatorManageBranchFilter = v; render(); }),
       (teamSelect || tierSelect || activeSelect || branchSelect)
-        ? el('span', { class: 'text-[10px] text-muted- italic', style: { marginLeft: 'auto' } }, 'Showing ' + filteredReps.length + ' of ' + reps.length)
+        ? el('span', { class: 'text-[10px] text-muted- italic' }, 'Showing ' + filteredReps.length + ' of ' + reps.length)
         : null,
     );
+    headerFilterSlot.append(...Array.from(filterBar.childNodes), searchInput);
 
     // ── Link names to FieldRoutes (CRM) ──────────────────────────────────
     // Some reps are spelled differently in the sales data than in the CRM, so
@@ -26675,10 +26678,10 @@ function manageTeamsPanel(opts) {
       _hyOpen ? el('div', {}, ...[crmLinkPanel, dupesPanel].filter(Boolean)) : null) : null;
     card.innerHTML = '';
     card.append(
-      header, filterBar,
+      header,
       ...(stalePanel ? [stalePanel] : []),
       ...(detailPanel ? [detailPanel] : []),
-      searchInput, sortHeader, repList,
+      sortHeader, repList,
       ...(hygienePanel ? [hygienePanel] : []),
     );
     if (overlay) { overlay.innerHTML = ''; overlay.append(card); }
