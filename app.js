@@ -4546,9 +4546,18 @@ function reportingAuditing() {
       }, '\ud83d\udc65'),
       ),
 
-    // Branch + team rollups on top, then the per-rep detail table.
-    offFilter === 'all' && offEntries.length > 1 && statTable('Branches · Audit Report', offEntries, 'High-level audit + revenue metrics rolled up by office.', 'branch'),
-    teamFilter === 'all' && teamEntries.length > 1 && statTable('Teams · Audit Report', teamEntries, 'Same metrics rolled up by team (from Manage Teams · current Team Year).', 'team'),
+    // ONE rollup table with an Office ⇄ Teams toggle (per Isaac), then the per-rep detail table.
+    (() => {
+      const canOff = offFilter === 'all' && offEntries.length > 1;
+      const canTeam = teamFilter === 'all' && teamEntries.length > 1;
+      if (!canOff && !canTeam) return null;
+      const which = (state._auditRollup === 'team' && canTeam) || !canOff ? 'team' : 'office';
+      const seg = (canOff && canTeam) ? el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+        ...[['office', 'Office'], ['team', 'Teams']].map(([v, l]) => el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold transition', style: which === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' }, onclick: () => { state._auditRollup = v; mountApp(); } }, l))) : null;
+      return which === 'team'
+        ? statTable('Audit Report', teamEntries, null, 'team', seg)
+        : statTable('Audit Report', offEntries, null, 'branch', seg);
+    })(),
 
     // ── 📉 COHORT ATTRITION (per Isaac) — the fair-comparison lens. Every
     // account is measured at the SAME AGE: of accounts whose FIRST SERVICE
