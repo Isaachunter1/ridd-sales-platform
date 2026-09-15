@@ -43176,6 +43176,99 @@ const PUTIS_ROWS = [
   { id: 'debtToArr',    label: 'Debt / ARR',       kind: 'x', point: true, company: true, lowGood: true, tip: 'Long-term debt ÷ month-end active ARR (FieldRoutes). The recurring-revenue lender view.' },
   { id: 'leverage',     label: 'Net debt / TTM adj. EBITDA', kind: 'x', point: true, company: true, lowGood: true, tip: 'Net debt ÷ trailing-twelve-month adjusted EBITDA (annualised when fewer than 12 closed months). The standard PE leverage multiple; blank when TTM adjusted EBITDA is not positive.' },
 ];
+// ── Reconcile the retention book against a hand-built FieldRoutes export ──
+// Isaac runs the same rules by hand in a spreadsheet; this diffs his final
+// population (Customer ID + Subscription) against the app's book and says,
+// row by row, WHY each side has something the other doesn't.
+function retenParseCsv(text) {
+  const rows = []; let row = [], cell = '', q = false;
+  const src = String(text || '').replace(/^﻿/, '');
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (q) { if (ch === '"') { if (src[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && src[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += ch;
+  }
+  if (cell.length || row.length) { row.push(cell); rows.push(row); }
+  if (!rows.length) return [];
+  const head = rows[0].map(h => String(h || '').trim().toLowerCase());
+  return rows.slice(1).filter(r => r.some(v => String(v || '').trim() !== '')).map(r => { const o = {}; head.forEach((h, i) => { o[h] = r[i] != null ? String(r[i]).trim() : ''; }); return o; });
+}
+function retenReconcile(fileRows, pop, book, _retenEff) {
+  const key = (cid, sub) => String(cid || '').trim() + '|' + String(sub || '').trim().toLowerCase();
+  const fk = (o) => key(o['customer id'] || o.customer_id, o['subscription'] || o.subscription);
+  const ak = (r) => key(r.customer_id, r.subscription);
+  const fileMap = new Map(); fileRows.forEach(o => fileMap.set(fk(o), o));
+  const bookMap = new Map(); book.forEach(r => bookMap.set(ak(r), r));
+  const popMap = new Map(); pop.forEach(r => { const k = ak(r); if (!popMap.has(k)) popMap.set(k, r); });
+  const recurringByName = reportingServiceRecurringMap();
+  const matched = [...bookMap.keys()].filter(k => fileMap.has(k)).length;
+  // App has it, the file doesn't — describe the row so Isaac can see why he dropped it.
+  const appOnly = book.filter(r => !fileMap.has(ak(r))).map(r => {
+    const svc = Number(r.subscription_completed_services) || 0;
+    const yr = r.initial_service ? String(r.initial_service).slice(0, 4) : '?';
+    const why = /frozen/i.test(String(r.subscription_status || '')) && svc <= 1 ? 'frozen after 1 service (' + yr + ')'
+      : svc <= 1 ? '1 service, still active (' + yr + ')'
+      : r.subscription_date_canceled ? 'cancelled · ' + (reportingCancelReasonOf(r) || 'no reason')
+      : 'active, ' + svc + ' services (' + yr + ')';
+    return { ...r, _why: why };
+  });
+  // File has it, the app doesn't — which step took it out (or is it missing from the snapshot).
+  const fileOnly = [];
+  for (const [k, o] of fileMap) {
+    if (bookMap.has(k)) continue;
+    const r = popMap.get(k);
+    let why;
+    if (!r) why = 'not in app snapshot (sold after sync, other scope, or deleted-in-CRM)';
+    else if (!recurringByName.get(r.subscription)) why = 'app: not a recurring service';
+    else if (!r.initial_service) why = 'app: no initial service';
+    else why = 'app: ' + (retenPopulationExcluded(r) || 'excluded (other)');
+    const row = r ? { ...r } : {
+      customer_id: o['customer id'], last_name: o['last name'], first_name: o['first name'], subscription: o['subscription'],
+      subscription_status: o['subscription status'], subscription_date_canceled: o['subscription date canceled'] || '',
+      subscription_cancellation_reason: o['subscription cancellation reason'] || '', annual_recurring_value: Number(String(o['annual recurring value'] || '').replace(/[$,]/g, '')) || 0,
+      office_name: o['office name'], initial_service: o['initial service'], subscription_completed_services: o['subscription completed services'],
+    };
+    row._why = why; fileOnly.push(row);
+  }
+  return { fileCount: fileMap.size, bookCount: book.length, matched, appOnly, fileOnly };
+}
+function openRetenReconcileModal(res) {
+  const n = (v) => Number(v || 0).toLocaleString();
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const groupTable = (title, rows, note) => {
+    const g = new Map(); rows.forEach(r => g.set(r._why, (g.get(r._why) || []).concat([r])));
+    const ents = [...g.entries()].sort((a, b) => b[1].length - a[1].length);
+    return el('div', { class: 'flex flex-col gap-1.5' },
+      el('div', { class: 'flex items-baseline justify-between gap-3' },
+        el('div', { class: 'text-sm font-bold' }, title, ' ', el('span', { class: 'text-[11px] font-semibold', style: { color: 'var(--text-muted)' } }, n(rows.length))),
+        rows.length ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: title, sliceLabel: n(rows.length) + ' subscriptions', rows, formatValue: fmt.usd0 }) }, 'All rows →') : null),
+      note ? el('div', { class: 'text-[11px] text-muted-' }, note) : null,
+      ents.length ? el('table', { class: 'w-full text-xs' }, el('tbody', {}, ...ents.map(([why, rs]) => el('tr', { class: 'border-t cursor-pointer hover:brightness-95', style: { borderColor: 'var(--border)' }, onclick: () => openReportingDrillModal({ chartTitle: title + ' · ' + why, sliceLabel: n(rs.length) + ' subscriptions', rows: rs, formatValue: fmt.usd0 }) },
+        el('td', { class: 'py-1.5 pr-3' }, why), el('td', { class: 'py-1.5 text-right tabular-nums font-semibold' }, n(rs.length)))))) : el('div', { class: 'text-xs text-muted-' }, 'None — the two runs agree here.'));
+  };
+  const exportBtn = el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => {
+    const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const cols = ['side', 'why', 'customer_id', 'last_name', 'first_name', 'subscription', 'subscription_status', 'subscription_date_canceled', 'subscription_cancellation_reason', 'subscription_completed_services', 'initial_service', 'annual_recurring_value', 'office_name'];
+    const lines = [cols.join(',')];
+    res.appOnly.forEach(r => lines.push(['app only', r._why, ...cols.slice(2).map(c => r[c])].map(esc).join(',')));
+    res.fileOnly.forEach(r => lines.push(['file only', r._why, ...cols.slice(2).map(c => r[c])].map(esc).join(',')));
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\n')], { type: 'text/csv' })); a.download = 'retention-reconcile-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } }, '⬇ Export differences');
+  overlay.append(el('div', { class: 'card p-5 flex flex-col gap-4', style: { width: 'min(720px, 94vw)', maxHeight: '88vh', overflow: 'auto' } },
+    el('div', { class: 'flex items-start justify-between gap-3' },
+      el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Retention book reconciliation'),
+        el('div', { class: 'text-lg font-black' }, n(res.matched) + ' match · ' + n(res.appOnly.length) + ' only in app · ' + n(res.fileOnly.length) + ' only in your file'),
+        el('div', { class: 'text-[11px] text-muted-' }, 'App book ' + n(res.bookCount) + ' · your file ' + n(res.fileCount) + ' · matched on Customer ID + Subscription')),
+      el('div', { class: 'flex items-center gap-2' }, exportBtn, el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '×'))),
+    groupTable('Only in the app', res.appOnly, 'Rows the app keeps that your file dropped — grouped by what the row looks like, so you can spot which of your steps removed them.'),
+    groupTable('Only in your file', res.fileOnly, 'Rows you kept that the app removed — grouped by the app step that removed them (or missing from the snapshot).')));
+  document.body.append(overlay);
+}
+
 // Phones can't hover — tapping a row label opens this instead of a tooltip.
 function putisExplain(label, tip) {
   const overlay = el('div', { class: 'modal-overlay' });
@@ -49888,7 +49981,19 @@ function retenMethodCard(pop, _retenEff) {
       el('div', { class: 'flex items-center gap-4 tabular-nums' },
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-lg font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-lg font-black' }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)),
-        whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null)));
+        whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
+        // Reconcile against a hand-built FieldRoutes export (CSV): matched /
+        // only-in-app / only-in-file, each explained row by row.
+        (() => {
+          const inp = el('input', { type: 'file', accept: '.csv,text/csv', style: { display: 'none' } });
+          inp.addEventListener('change', () => {
+            const f = inp.files && inp.files[0]; if (!f) return;
+            const rd = new FileReader();
+            rd.onload = () => { try { const rows = retenParseCsv(rd.result); if (!rows.length || !('customer id' in rows[0]) || !('subscription' in rows[0])) { toast('CSV needs Customer ID and Subscription columns', 'error'); return; } openRetenReconcileModal(retenReconcile(rows, pop, book, _retenEff)); } catch (e) { toast('Could not read that file: ' + ((e && e.message) || e), 'error'); } };
+            rd.readAsText(f);
+          });
+          return el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Upload your FieldRoutes population (CSV) and diff it against this book, row by row', onclick: (e) => { e.stopPropagation(); inp.click(); } }, '⇄ Reconcile', inp);
+        })())));
   if (!open) return card;
   card.append(el('div', { class: 'px-5 pb-4' },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-2 pb-1', style: { color: 'var(--text-subtle)' } }, 'A · Who is in the book (denominator)'),
