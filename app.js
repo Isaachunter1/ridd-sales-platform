@@ -43243,6 +43243,16 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
     const d = putisDeriveMonths(M, ks, branches); d.months = ks.length; return d;
   };
   const ytd = rollup(year), prior = rollup(year - 1);
+  // Trailing twelve closed months ending at the range end (the shown month,
+  // or the last closed month of the year on the 12-month strip).
+  const ttm = (() => {
+    const endIdx = rangeYm ? upto : Math.max(...Array.from({ length: 12 }, (_, i) => i).filter(i => _mktgYm(year, i) < openYm && M && M[_mktgYm(year, i)]), -1);
+    if (endIdx < 0) return { months: 0, ks: [] };
+    const ks = []; let y = year, m = endIdx;
+    for (let i = 0; i < 12; i++) { const k = _mktgYm(y, m); if (k < openYm && M && M[k]) ks.push(k); if (--m < 0) { m = 11; y--; } }
+    if (!ks.length) return { months: 0, ks: [] };
+    const d = putisDeriveMonths(M, ks, branches); d.months = ks.length; d.ks = ks; return d;
+  })();
   // Point-in-time rows: "YTD" = latest closed month with a value (through the
   // range end), "prior" = the same point a year earlier.
   const latestPoint = (yr, id) => {
@@ -43284,7 +43294,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
   const table = el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
     el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...shownIdx.map(i => { const m = MKTG_MONTHS[i]; const isOpen = _mktgYm(year, i) === putisOpenMonth(); return th(isOpen ? m + ' · open' : (rangeYm ? m + ' ' + year : m), isOpen ? 'italic' : '', isOpen ? 'Current month — books not closed yet, numbers move daily. Not included in YTD.' : PUTIS_COL_TIPS.month); }),
       th(year + ' YTD' + (ytd.months ? ' (thru ' + MKTG_MONTHS[Math.min(upto, Math.max(0, (String(year) === openYm.slice(0, 4) ? new Date().getMonth() - 1 : 11)))] + ')' : ''), '', PUTIS_COL_TIPS.ytd + ' The open (current) month is excluded.'),
-      th('YoY', '', (rangeYm ? 'Change against the same months of ' + (year - 1) + ' (January through ' + MKTG_MONTHS[upto] + ').' : PUTIS_COL_TIPS.yoy)))),
+      th('Trailing 12 mo', '', ttm.months ? 'The last twelve closed months, ' + ttm.ks[ttm.ks.length - 1] + ' through ' + ttm.ks[0] + (ttm.months < 12 ? ' (' + ttm.months + ' available in the feed)' : '') + '. Percentage rows are recomputed from the summed dollars.' : 'No closed months yet.'))),
     el('tbody', {}, ...rowsShown.map(row => row.head
       ? el('tr', { class: 'border-t border-' }, el('td', { colspan: '16', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', position: 'sticky', left: 0 } }, row.head))
       : el('tr', { class: 'border-t border-' + (row.bold ? ' font-semibold' : ''), style: row.bold ? { background: 'var(--card-2)' } : {} },
@@ -43300,7 +43310,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
         return c;
       }),
       td(fmtRow(row, ytdVal(row)), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: row.signed && ytdVal(row) != null ? { color: ytdVal(row) < 0 ? '#DC2626' : '#16A34A' } : {} }),
-      td(yoy(row), { title: 'vs ' + fmtRow(row, priorVal(row)) + ' in ' + (year - 1), style: { color: 'var(--text-muted)' } })))));
+      (() => { const v = row.point ? ytdVal(row) : (ttm.months ? ttm[row.id] : null); return td(fmtRow(row, v), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {} }); })()))));
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-center gap-3' + (opts.compact ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)' } },
       el('div', { class: 'min-w-0' }, el('h3', { class: 'text-sm font-bold' }, title), subtitle ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, subtitle) : null),
@@ -43826,7 +43836,7 @@ function reportingPutis() {
   const pickers = () => el('div', { class: 'inline-flex items-center gap-1.5' },
     sel(scYear, ledgerYears.map(y => [y, y]), (v) => { state._putisScoreYear = v; const avail = Object.keys(M).filter(k => k.startsWith(v + '-') && k < putisOpenMonth()).sort(); if (state._putisScoreRange !== 'ytd') state._putisScoreRange = v === closedYr ? closedYm : avail[avail.length - 1]; mountApp(); }),
     sel(scRange, [['ytd', scYear + ' YTD'], ...scMonthsAvail.slice().reverse().map(ym => [ym, monthName(ym, { month: 'long' })])], (v) => { state._putisScoreRange = v; mountApp(); }));
-  const momToggle = () => sel(state._putisDelta === 'mom' || state._putisDelta === 'yoy' ? state._putisDelta : 'none', [['none', 'No change'], ['mom', 'MoM change'], ['yoy', 'YoY change']], (v) => { state._putisDelta = v; mountApp(); });
+  const momToggle = () => sel(state._putisDelta === 'mom' || state._putisDelta === 'yoy' ? state._putisDelta : 'none', phone ? [['none', 'Δ off'], ['mom', 'MoM'], ['yoy', 'YoY']] : [['none', 'No change'], ['mom', 'MoM change'], ['yoy', 'YoY change']], (v) => { state._putisDelta = v; mountApp(); });
   // The toolbar pins under the app header once you scroll past it (per
   // Isaac): a spacer holds its place in the flow, the bar itself flips to
   // position:fixed. (main is overflow-x:hidden, which defeats sticky.)
@@ -43884,12 +43894,12 @@ function reportingPutis() {
   const closedThisYear = closedAll.filter(k => k.startsWith(String(year) + '-'));
   let trendRange = state._putisRange;
   if (trendRange !== 'all' && !closedThisYear.includes(trendRange)) trendRange = phone ? (closedThisYear[closedThisYear.length - 1] || 'all') : 'all';
-  const rangePick = () => sel(trendRange, [['all', 'All months'], ...closedThisYear.slice().reverse().map(k => [k, new Date(k + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })])], (v) => { state._putisRange = v; mountApp(); });
+  const rangePick = () => sel(trendRange, [['all', 'All months'], ...closedThisYear.slice().reverse().map(k => [k, new Date(k + '-15T12:00').toLocaleDateString('en-US', { month: phone ? 'short' : 'long', year: 'numeric' })])], (v) => { state._putisRange = v; mountApp(); });
   const trendHeader = () => { const h = el('div', { class: 'ml-auto inline-flex items-center gap-1.5 flex-wrap' }, momToggle(), rangePick(), branchPicker()); h.lastChild && h.lastChild.classList.remove('ml-auto'); return h; };
   const scopeSet = branchSel === 'RIDD' ? branches : [branchSel];
   const scopeOpts = branchSel === 'RIDD' ? { company: true } : {};
   if (view === 'compare') wrap.append(putisComparativeCard(M, cmpYm, scopeSet, 'P&L Metrics', trendHeader(), scopeOpts));
-  else wrap.append(putisTrendCard(M, year, scopeSet, 'P&L Metrics', sub, trendHeader(), { ...scopeOpts, compact: phone, range: trendRange }));
+  else wrap.append(putisTrendCard(M, year, scopeSet, 'Metrics', sub, trendHeader(), { ...scopeOpts, compact: phone, range: trendRange }));
 
   // ── 2. P&L Indicators (year dropdown + range dropdown: YTD or a single month) ──
   const scKey = scRange === 'ytd' ? scYear + '-YTD' : scRange;
