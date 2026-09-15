@@ -55257,9 +55257,20 @@ function adminReps() {
   const countByType = (t) => t === 'All' ? people.length : people.filter(x => x.type === t).length;
 
   // ── Header ──
+  // Rep-type tabs sit right of the title (per Isaac — saves a row).
+  const _typeTabs = el('div', { class: 'flex items-center gap-1 overflow-x-auto' },
+    ...REP_TYPE_TABS.map(t => {
+      const on = typeTab === t;
+      return el('button', {
+        class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap flex items-center gap-2 rounded-lg',
+        style: { background: on ? 'rgba(223,100,58,.10)' : 'transparent', color: on ? 'var(--text)' : 'var(--text-muted)', boxShadow: on ? 'inset 0 -2px 0 var(--accent)' : 'none' },
+        onclick: () => { state._adminUserTypeTab = t; mountApp(); },
+      }, REP_TYPE_TAB_LABEL[t],
+        el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, countByType(t).toLocaleString()));
+    }));
   host.append(el('div', { class: 'flex items-center justify-between flex-wrap gap-3' },
-    el('div', {},
-      el('h3', { class: 'text-lg font-bold' }, 'Users')),
+    el('div', { class: 'flex items-center gap-4 flex-wrap' },
+      el('h3', { class: 'text-lg font-bold' }, 'Users'), _typeTabs),
     el('div', { class: 'flex items-center gap-2' },
       // 👁 View-as — icon only; the hover tip explains it, the click opens
       // a small role menu. Renders the app exactly as that role sees it (the
@@ -55330,18 +55341,6 @@ function adminReps() {
             ? ('Couldn’t read the roster: ' + err)
             : 'The table is empty — the next scheduled sync (hourly during the day) pulls the FieldRoutes roster automatically.')));
   }
-
-  // ── Rep-type tabs ──
-  host.append(el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
-    ...REP_TYPE_TABS.map(t => {
-      const on = typeTab === t;
-      return el('button', {
-        class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap flex items-center gap-2',
-        style: { borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent', color: on ? 'var(--text)' : 'var(--text-muted)', marginBottom: '-1px' },
-        onclick: () => { state._adminUserTypeTab = t; mountApp(); },
-      }, REP_TYPE_TAB_LABEL[t],
-        el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, countByType(t).toLocaleString()));
-    })));
 
   // ── Active / Inactive / All + column filters + search — ONE row:
   // status toggle on the left; ⚲ filters sit just left of the search box. ──
