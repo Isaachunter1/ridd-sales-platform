@@ -49958,14 +49958,16 @@ function retenMethodCard(pop, _retenEff) {
   // included in that total), so the math can be followed down to accounts.
   const drill = (title, rows, what) => rows && rows.length ? () => openReportingDrillModal({ chartTitle: 'Attrition steps · ' + title, sliceLabel: n(rows.length) + ' subscription' + (rows.length === 1 ? '' : 's') + (what ? ' · ' + what : ''), rows, formatValue: fmt.usd0 }) : null;
   const clickable = (node, fn) => { if (fn) { node.classList.add('cursor-pointer', 'hover:underline'); node.title = 'Click to see the subscriptions'; node.onclick = (e) => { e.stopPropagation(); fn(); }; } return node; };
-  const step = (num, title, detail, removed, chipKey, fixedNote, rowsRemoved) => el('div', { class: 'flex items-start gap-3 py-2 border-t border-' },
+  // Each step shows what it removes AND the running book after it (both drillable).
+  const step = (num, title, detail, removed, chipKey, fixedNote, rowsRemoved, rowsLeft) => el('div', { class: 'flex items-start gap-3 py-2 border-t border-' },
     el('div', { class: 'w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0', style: { background: 'var(--card-2)', color: 'var(--text)' } }, String(num)),
     el('div', { class: 'flex-1 min-w-0' },
       el('div', { class: 'text-sm font-semibold' }, title),
       el('div', { class: 'text-[11px] text-muted-' }, detail)),
     el('div', { class: 'text-right shrink-0 tabular-nums' },
       removed != null ? clickable(el('div', { class: 'text-sm font-bold', style: { color: removed ? '#DC2626' : 'var(--text-subtle)' } }, removed ? '−' + n(removed) : '0'), drill(title, rowsRemoved, 'removed at this step')) : null,
-      fixedNote ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fixedNote) : null),
+      fixedNote ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fixedNote) : null,
+      rowsLeft ? clickable(el('div', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, n(rowsLeft.length) + ' remain'), drill(title + ' · remaining', rowsLeft, 'still in the book after this step')) : null),
     chipKey ? chip(chipKey) : el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0', style: { color: 'var(--text-subtle)', border: '1px solid var(--border)' }, title: 'Always applied' }, 'ALWAYS'));
   const total = (label, val, sub, rowsIn) => el('div', { class: 'flex items-center justify-between py-2 border-t-2 border-', style: { borderColor: 'var(--border-2)' } },
     el('div', {}, el('div', { class: 'text-sm font-black' }, label), sub ? el('div', { class: 'text-[11px] text-muted-' }, sub) : null),
@@ -50004,13 +50006,13 @@ function retenMethodCard(pop, _retenEff) {
       const oneTime = notIn(pop, s1);
       const otRev = oneTime.reduce((a, r) => a + (Number(r.subscription_contract_value) || 0), 0);
       const otCust = new Set(oneTime.map(r => r.customer_id)).size;
-      return step(1, 'Recurring subscriptions only', 'One-time services are never part of a retention book — ' + n(oneTime.length) + ' one-time subs across ' + n(otCust) + ' customers, $' + Math.round(otRev).toLocaleString() + ' of one-time service revenue, set aside here (still counted on the Overview and in the P&L).', n0 - s1.length, null, '$' + Math.round(otRev).toLocaleString() + ' one-time revenue', oneTime);
+      return step(1, 'Recurring subscriptions only', 'One-time services are never part of a retention book — ' + n(oneTime.length) + ' one-time subs across ' + n(otCust) + ' customers, $' + Math.round(otRev).toLocaleString() + ' of one-time service revenue, set aside here (still counted on the Overview and in the P&L).', n0 - s1.length, null, '$' + Math.round(otRev).toLocaleString() + ' one-time revenue', oneTime, s1);
     })(),
-    step(2, 'Received an initial service', 'A sub that never started cannot retain or churn.', s1.length - s2.length, null, null, notIn(s1, s2)),
-    step(3, 'Drop subs closed as 3-day ROR', 'Cancellation reason “3 Day ROR” — the customer used their right of rescission; they never really became a customer.', s2.length - step1a.length, 'popRor', null, notIn(s2, step1a)),
-    step(4, 'Drop subs closed by Combined / Renewal', 'Cancellation reason Combined Subscriptions or Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound. Not lost customers — Combined was folded into another sub, and a Renewal was replaced by the renewal sub (which stays, carrying the original start date).' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1a.length - step1.length, 'popRenew', null, notIn(step1a, step1)),
-    step(5, 'Drop $0 ARR subs', 'Nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2)),
-    step(6, 'Drop one-service subs', 'A single completed visit is not yet a customer. Exempt: ' + retenOneSvcExemptTerms().join(', ') + ' (annual products) and accounts sold in ' + year + ' that are still active — those ' + n(oneSvcKept.length) + ' stay in. A ' + year + ' account already frozen after one visit still drops.', step2.length - step3.length, 'oneSvc', null, notIn(step2, step3)),
+    step(2, 'Received an initial service', 'A sub that never started cannot retain or churn.', s1.length - s2.length, null, null, notIn(s1, s2), s2),
+    step(3, 'Drop subs closed as 3-day ROR', 'Cancellation reason “3 Day ROR” — the customer used their right of rescission; they never really became a customer.', s2.length - step1a.length, 'popRor', null, notIn(s2, step1a), step1a),
+    step(4, 'Drop subs closed by Combined / Renewal', 'Cancellation reason Combined Subscriptions or Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound. Not lost customers — Combined was folded into another sub, and a Renewal was replaced by the renewal sub (which stays, carrying the original start date).' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1a.length - step1.length, 'popRenew', null, notIn(step1a, step1), step1),
+    step(5, 'Drop $0 ARR subs', 'Nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2), step2),
+    step(6, 'Drop one-service subs', 'A single completed visit is not yet a customer. Exempt: ' + retenOneSvcExemptTerms().join(', ') + ' (annual products) and accounts sold in ' + year + ' that are still active — those ' + n(oneSvcKept.length) + ' stay in. A ' + year + ' account already frozen after one visit still drops.', step2.length - step3.length, 'oneSvc', null, notIn(step2, step3), step3),
     el('div', { class: 'flex items-center gap-3 py-1.5 border-t border-', style: { paddingLeft: '36px' } }, el('div', { class: 'flex-1 text-[11px] text-muted-' }, '↳ Keep the exemptions (Sentricon + current year) — switch off to drop every one-service sub.'), chip('oneSvcExempt')),
     total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-4 pb-1', style: { color: 'var(--text-subtle)' } }, 'B · Who counts as lost (numerator) — ' + year + ' YTD'),
