@@ -44311,7 +44311,7 @@ function reportingOverview() {
     ? dataA.drill.customers.source.filter(r => dataA.drill.customers.key(r) === 'Other active')
     : [];
 
-  const popTile = (t) => {
+  const popTile = (t, labelNode) => {
     const help = CARD_HELP[t.key];
     // The ⓘ badge carries the hover/tap calculation explainer; keeping it
     // separate from the card body so a card-level click (drill) and the
@@ -44333,7 +44333,7 @@ function reportingOverview() {
       title: clickable ? t.clickTitle || '' : '',
       onclick: clickable ? (e) => { if (e.target.closest('span[style*="cursor: help"]')) return; t.onClick(); } : undefined,
     },
-      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold flex items-center truncate', style: { color: 'var(--text-muted)' } }, t.label, info),
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold flex items-center truncate', style: { color: 'var(--text-muted)' } }, labelNode || t.label, info),
       el('div', { class: 'font-display text-4xl mt-1.5 tabular-nums leading-none truncate' }, t.value),
       el('div', { class: 'text-[11px] text-muted- mt-2 truncate', title: t.sub || '' }, t.sub || '\u00a0'),
       el('div', { class: 'text-[10px] mt-auto font-semibold truncate', style: { color: 'var(--text-muted)' } }, clickable ? (t.clickLabel || 'Click to inspect →') : '\u00a0'),
@@ -44381,19 +44381,19 @@ function reportingOverview() {
   // columns side by side.
   const pickKey = COLUMN_CARDS.some(c => c.key === state.reportingOverviewMetric) ? state.reportingOverviewMetric : 'subs';
   const picked = COLUMN_CARDS.find(c => c.key === pickKey);
+  // The card's own label IS the picker on phones — a select styled like the
+  // small-caps label with a caret, so the card reads as a dropdown.
   const metricPick = el('select', {
-    class: 'rounded-lg border px-3 py-2 text-sm font-semibold cursor-pointer',
-    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '220px' },
+    class: 'text-[10px] uppercase tracking-widest font-bold cursor-pointer',
+    style: { border: '0', background: 'transparent', color: 'var(--text-muted)', padding: '0 18px 0 0', appearance: 'auto', maxWidth: '100%' },
+    onclick: (e) => e.stopPropagation(),
     onchange: (e) => { state.reportingOverviewMetric = e.target.value; mountApp(); },
-  }, ...COLUMN_CARDS.map(c => el('option', { value: c.key, selected: c.key === pickKey }, c.label + ' · ' + c.value)));
+  }, ...COLUMN_CARDS.map(c => el('option', { value: c.key, selected: c.key === pickKey }, c.label + ' \u25be')));
   // Phones only (per Isaac) — desktop keeps the five columns side by side.
   const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const columnsBlock = inCompare ? null : phone
     ? el('div', { class: 'flex flex-col gap-4' },
-        el('div', { class: 'flex items-center gap-3 flex-wrap' },
-          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Metric'),
-          metricPick),
-        popTile(picked),
+        popTile(picked, metricPick),
         ...picked.chartIds.map(id => defById[id] ? makeCard(defById[id], dataA, 'a') : null))
     : el('div', { class: 'overflow-x-auto' },
         el('div', { class: 'grid gap-4 rep-cols', style: { gridTemplateColumns: 'repeat(5, minmax(235px, 1fr))', minWidth: '1230px', alignItems: 'start' } },
