@@ -43365,14 +43365,19 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   const th = (t, tip, corner) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)', position: 'sticky', top: 0, left: corner ? 0 : undefined, zIndex: corner ? 3 : 2, background: 'var(--card)', boxShadow: '0 1px 0 var(--border)' }, title: tip || '' }, t);
   const td = (v, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' + (o.bold ? ' font-bold' : '') + (o.muted ? ' text-muted-' : '') + (o.title ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '' }, v);
   // Income-statement card: every $ column gets a "% of revenue" column beside it (per Isaac).
+  // Desktop: click a branch header to pop its "% of revenue" column open
+  // (click again to close). Phones (one column) always show it.
+  const pctSet = state._putisPctCols instanceof Set ? state._putisPctCols : (state._putisPctCols = new Set());
   const withPct = (opts.section || 'all') !== 'book';
-  const section = (label, tip) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-subtle)' }, colspan: cols.length * (withPct ? 2 : 1) + 1, title: tip || '' }, label));
+  const pctOn = (key) => withPct && (opts.onlyCol ? true : pctSet.has(key));
+  const nCols = cols.reduce((a, c) => a + (pctOn(c.key) ? 2 : 1), 0);
+  const section = (label, tip) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-subtle)' }, colspan: nCols + 1, title: tip || '' }, label));
   const line = (label, f, o = {}) => el('tr', { class: 'border-t border-' + (o.bold ? ' font-semibold' : ''), style: o.bold ? { background: 'var(--card-2)' } : {} },
     td(label, { bold: true, title: o.tip, style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
     ...cols.flatMap(c => { const v = f(D[c.key], c.key); const s = o.red && typeof v === 'number' && v > 0 ? { color: '#DC2626' } : o.signed && typeof v === 'number' ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
       const isUsd = !(o.pct || o.num || o.x || o.mo || o.usd2);
       const cell = td(v == null || (typeof v === 'number' && !isFinite(v)) ? '—' : o.pct ? _putisPct1(v) : o.num ? Math.round(v).toLocaleString() : o.x ? v.toFixed(2) + 'x' : o.mo ? v.toFixed(1) + ' mo' : o.usd2 ? '$' + v.toFixed(2) : _putisUsd(v), { style: { ...s, borderLeft: '1px solid var(--border)' }, muted: o.muted });
-      if (!withPct) return [cell];
+      if (!pctOn(c.key)) return [cell];
       const rev = D[c.key].revenue;
       const pv = isUsd && typeof v === 'number' && isFinite(v) && rev > 0 ? v / rev : null;
       return [cell, td(pv == null ? '' : _putisPct1(pv), { style: { color: 'var(--text-muted)', fontSize: '11px' } })]; }));
@@ -43453,7 +43458,12 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
         null),
       opts.headerExtra || null),
     el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
-      el('thead', {}, el('tr', {}, th('', '', true), ...cols.flatMap(c => { const h = th(c.label, ''); h.style.borderLeft = '1px solid var(--border)'; return withPct ? [h, th('% rev', '')] : [h]; }))),
+      el('thead', {}, el('tr', {}, th('', '', true), ...cols.flatMap(c => {
+        const on = pctOn(c.key);
+        const h = th(c.label + (withPct && !opts.onlyCol ? (on ? ' ▾' : ' ▸') : ''), withPct && !opts.onlyCol ? (on ? 'Click to hide the % of revenue column' : 'Click to show % of revenue for ' + c.label) : '');
+        h.style.borderLeft = '1px solid var(--border)';
+        if (withPct && !opts.onlyCol) { h.classList.add('cursor-pointer', 'select-none'); h.onclick = () => { if (pctSet.has(c.key)) pctSet.delete(c.key); else pctSet.add(c.key); mountApp(); }; }
+        return on ? [h, th('% rev', '')] : [h]; }))),
       el('tbody', {}, ...shown))));
 }
 
