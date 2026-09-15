@@ -51136,9 +51136,7 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, '📆 Churn Seasonality' + (label ? ' — ' + label : '')),
-          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Monthly churn rate = real-attrition cancels ÷ book at month start. The Avg column exposes the seasonal pattern; click any table cell for that month\u2019s reasons.')),
+          el('h3', { class: 'text-sm font-bold' }, 'Monthly Churn' + (label ? ' — ' + label : ''))),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
           null,   // (year pickers retired — rolling last 5 years)
           view === 'timeline' ? seriesDrop : null,
@@ -51146,8 +51144,7 @@ function reportingWaterfall() {
           (view === 'timeline' && !yoyOn) ? trendBtn : null,
           view === 'timeline' ? yoyBtn : null,
           viewToggle,
-          configInfoBtn('Churn Seasonality',
-            'Same population and rules as the waterfall (recurring + serviced subs; excluded reasons and 3-day ROR don\u2019t count as churn). Each cell divides that month\u2019s countable cancels by the book at the month\u2019s start \u2014 subs started that same month are excluded from BOTH sides (an account acquired and lost in one month is a sales-quality event, not book churn; the month drill lists those separately as Early Losses). Avg column averages the shown years, skipping months with a book under 25 subs. Toggle any year chip to add prior history to the table. The Graph is the continuous month-by-month view — filter it to specific years (they plot back-to-back), pick series (the total churn rate and/or individual cancellation reasons, whose lines are their share of the monthly rate and sum to the total), set the visible window (12/24/36 months or all history), and click-drag to move through time. Hover a table cell for its top reasons; click for the full breakdown with YoY deltas.'))),
+          )),
       view === 'timeline' ? (yoyOn ? yoyEl() : timelineEl()) : tableEl());
   };
 
