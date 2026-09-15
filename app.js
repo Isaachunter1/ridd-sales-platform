@@ -49917,9 +49917,14 @@ function reportingWaterfall() {
   const waterfallB = inCompare ? buildReportingWaterfall(popB, mode, cohortSel) : null;
 
   const _methodologyInfo = (typeof reportingMethodologyInfoBtn === 'function') ? reportingMethodologyInfoBtn() : null;
+  const _phoneR = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const modeBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Group rows by'),
-    ...modes.map(([k, label]) => {
+    ..._phoneR ? [el('select', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { state.reportingWaterfallMode = e.target.value; mountApp(); },
+    }, ...modes.map(([k, label]) => el('option', { value: k, selected: mode === k }, label)))] : modes.map(([k, label]) => {
       const active = mode === k;
       return el('button', {
         class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold transition hover:brightness-95',
@@ -49969,7 +49974,7 @@ function reportingWaterfall() {
             toast('Exported ' + rows.length.toLocaleString() + ' subscriptions — the exact set this tab counts', 'success');
           } catch (e) { toast('Export failed: ' + ((e && e.message) || e), 'error'); }
         },
-      }, '⬇ Export population'),
+      }, _phoneR ? '⬇' : '⬇ Export population'),
       _methodologyInfo),
   );
 
@@ -50312,7 +50317,7 @@ function reportingWaterfall() {
     // First matrix year has no blended row (no prior-year book) — a ghost row
     // keeps year N horizontally aligned with the matrix's year N.
     const firstYear = (base.years || [])[0];
-    return el('div', { class: 'card overflow-hidden shrink-0', style: { minWidth: '360px' } },
+    return el('div', { class: 'card overflow-hidden', style: { flex: '1 1 360px', minWidth: '0', maxWidth: '100%' } },
       el('div', { class: 'px-3 text-[10px] uppercase tracking-widest font-bold flex items-center', style: { background: 'var(--card-2)', borderBottom: '1px solid var(--border)', height: '48px' } }, 'Blended Attrition'),
       el('table', { class: 'w-full text-xs tabular-nums' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
@@ -51247,8 +51252,10 @@ function reportingWaterfall() {
   };
 
   const renderSide = (data, pop, label, sideMark) => el('div', { class: 'flex flex-col gap-4' },
+    // Matrix wants ~560px; when it can't have it (phones) the blended table
+    // wraps underneath instead of both squeezing side by side.
     el('div', { class: 'flex gap-4 flex-wrap items-start' },
-      el('div', { class: 'flex-1 min-w-0' }, renderMatrix(data, sideMark)),
+      el('div', { style: { flex: '1 1 560px', minWidth: '0', maxWidth: '100%' } }, renderMatrix(data, sideMark)),
       renderBlended(pop)),
     seasonalityCard(pop, label),
     attritionTrendsCard(pop, label),
@@ -51879,7 +51886,7 @@ function reportingWaterfall() {
   })();
 
   // Cancel Hygiene moved to Settings > Admin > Data Integrity (per Isaac).
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, retenMethodCard(popA, _retenEff), modeBar, body, repTypeAttritionCard, trueAttritionBar, lifetimeCard, renewalRetentionCard, renewalQueueCard, sourceLedgerCard);
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, retenMethodCard(popA, _retenEff), body, repTypeAttritionCard, trueAttritionBar, lifetimeCard, renewalRetentionCard, renewalQueueCard, sourceLedgerCard);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
