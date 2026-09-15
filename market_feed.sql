@@ -15,7 +15,8 @@ create schema if not exists market_feed;
 -- Reps: who can sign in, how to display them, where they sit.
 -- (Views run as their owner, so this exposes email deliberately — the
 --  marketplace matches accounts on it. Pay rates/goals are NOT exposed.)
-create or replace view market_feed.reps as
+drop view if exists market_feed.reps;   -- Postgres can't reorder/add view columns in place
+create view market_feed.reps as
   select p.id, p.full_name, p.email, p.role::text as role, p.rep_type::text as rep_type,
          p.office_id, o.name as office, p.fieldroutes_employee_id,
          p.is_active,   -- THE gate. Flipped by the Activate button in the sales app (Users screen),
