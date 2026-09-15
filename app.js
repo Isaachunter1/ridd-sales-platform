@@ -43807,8 +43807,10 @@ function reportingPutis() {
     pickers(),
     el('label', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer' },
       el('input', { type: 'checkbox', checked: !!state._putisMoM, style: { accentColor: 'var(--accent)' }, onchange: (e) => { state._putisMoM = e.target.checked; mountApp(); } }), 'MoM change'),
-    el('span', { class: 'text-[10px] text-muted- ml-auto' }, pulled ? 'Last QuickBooks sync: ' + pulled + (state.reportingLedger.refreshing ? ' · refreshing…' : '') : (state.reportingLedger.refreshing ? 'Syncing QuickBooks…' : '')),
-    el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Re-pull the ledger from QuickBooks now', onclick: () => { reportingLoadLedger(true); if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(true); } }, '↻')));
+    // Sync stamp + refresh travel together so they never wrap apart on phones.
+    el('span', { class: 'ml-auto inline-flex items-center gap-1.5 whitespace-nowrap' },
+      el('span', { class: 'text-[10px] text-muted-' }, pulled ? 'Last QB sync: ' + pulled + (state.reportingLedger.refreshing ? ' · refreshing…' : '') : (state.reportingLedger.refreshing ? 'Syncing QB…' : '')),
+      el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Re-pull the ledger from QuickBooks now', onclick: () => { reportingLoadLedger(true); if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(true); } }, '↻'))));
 
   // (Executive-summary KPI strip retired per Isaac — the branch scorecard
   // carries the same ratios per branch + RIDD.)
