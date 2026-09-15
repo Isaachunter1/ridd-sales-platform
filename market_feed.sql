@@ -17,7 +17,11 @@ create schema if not exists market_feed;
 --  marketplace matches accounts on it. Pay rates/goals are NOT exposed.)
 create or replace view market_feed.reps as
   select p.id, p.full_name, p.email, p.role::text as role, p.rep_type::text as rep_type,
-         p.office_id, o.name as office, p.is_active, p.created_at
+         p.office_id, o.name as office, p.fieldroutes_employee_id,
+         p.is_active,   -- THE gate. Flipped by the Activate button in the sales app (Users screen),
+                        -- which provisions/deactivates from the FieldRoutes roster. Marketplace
+                        -- must refuse sign-in when this is false; Supabase auth alone won't.
+         p.created_at
   from public.profiles p
   left join public.offices o on o.id = p.office_id;
 
