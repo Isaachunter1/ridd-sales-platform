@@ -43406,7 +43406,6 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     lineT('Net income', d => d.netIncome, { bold: true, signed: true }),
     lineT('Adjusted EBITDA (before selling expense)', d => d.adjEbitda, { bold: true, signed: true }),
     'BOOK',
-    section('Recurring book · FieldRoutes (at ' + endLabel + ' month end)', bookAtEnd ? 'Recurring subscriptions on the books at the end of the period: sold on or before the last day of ' + endLabel + ' and not cancelled by then.' : 'Operational counts from the FieldRoutes snapshot as of the last sync.'),
     lineT('Recurring revenue (active ARR)', (d, k) => fr(k).arr, { bold: true, tip: 'Annual recurring value of every recurring subscription on the books at the end of the period (any cancel reason removes it).' }),
     lineT('Active accounts', (d, k) => fr(k).active, { num: true, tip: 'Recurring subscriptions on the books at the end of the period.' }),
     lineT('ACV (ARR ÷ active accounts)', (d, k) => { const f = fr(k); return f.active ? f.arr / f.active : null; }),
