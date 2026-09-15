@@ -50658,8 +50658,8 @@ function reportingWaterfall() {
     }
     const yearsAvail = [];
     for (let y = minY; y <= curY; y++) yearsAvail.push(y);
-    let yearsShown = Array.isArray(state._churnSeasonYears) ? state._churnSeasonYears.filter(y => yearsAvail.includes(y)) : [];
-    if (!yearsShown.length) yearsShown = yearsAvail.slice(-3);
+    // Always the rolling last 5 years (per Isaac) — no year picker.
+    let yearsShown = yearsAvail.slice(-5);
     yearsShown = [...yearsShown].sort((a, b) => a - b);
     const rateOf = (y, m) => {
       const ym = y + '-' + pad2(m);
@@ -50939,7 +50939,7 @@ function reportingWaterfall() {
       const selSeries = (Array.isArray(state._churnSeries) && state._churnSeries.length)
         ? state._churnSeries.filter(k => k === TOTAL_KEY || reasonTotals.some(([r]) => r === k))
         : [TOTAL_KEY];
-      const yrs = (graphYearsSel.length ? graphYearsSel : yearsAvail.slice(-3)).slice().sort((a, b) => a - b);
+      const yrs = yearsAvail.slice(-5).slice().sort((a, b) => a - b);
       const nameOf = (k) => k === TOTAL_KEY ? 'Total churn' : k;
       const valOf = (key, y, m) => {
         if (y === curY && m > curM) return null;
@@ -51140,7 +51140,7 @@ function reportingWaterfall() {
           el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
             'Monthly churn rate = real-attrition cancels ÷ book at month start. The Avg column exposes the seasonal pattern; click any table cell for that month\u2019s reasons.')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          view === 'timeline' ? graphYearsDrop : yearsDrop,
+          null,   // (year pickers retired — rolling last 5 years)
           view === 'timeline' ? seriesDrop : null,
           (view === 'timeline' && !yoyOn) ? windowSel : null,
           (view === 'timeline' && !yoyOn) ? trendBtn : null,
