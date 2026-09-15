@@ -2382,6 +2382,33 @@ const state = {
   reportingHighlightedCounty: null,// normalized county name the map should zoom to + highlight
 };
 // Debug: expose state for console inspection (remove before prod)
+// ── External modules (e.g. riddmarket) plug into the shell WITHOUT editing
+// app.js. A module file (modules/<id>.js, loaded after app.js in index.html)
+// calls registerRiddModule({ id, label, title, icon, canView, render }):
+//   id       — view key + URL hash ('#<id>'); keep it to [a-z0-9_]
+//   label    — nav menu text; title — page header (defaults to label)
+//   icon     — a Node (SVG/emoji span) or a function returning one
+//   canView  — (ctx) => bool; ctx = { profile, isAdmin, role, userCan }
+//   render   — (ctx) => Node; ctx adds { el, state, supabase, mountApp, toast, fmt, openReportingDrillModal }
+//   onEnter  — optional (ctx) => void, fired when the view opens
+// Guardrails: the module gets the SAME anon Supabase client as the app (RLS
+// is the security boundary), keeps its own state under state.modules[id],
+// and lives in its own DB schema. See CONTRIBUTING-MODULES.md.
+window.RIDD_MODULES = window.RIDD_MODULES || [];
+window.registerRiddModule = function (mod) {
+  if (!mod || !/^[a-z][a-z0-9_]*$/.test(String(mod.id || '')) || typeof mod.render !== 'function') { console.warn('[ridd] bad module registration', mod); return; }
+  const i = window.RIDD_MODULES.findIndex(m => m.id === mod.id);
+  if (i >= 0) window.RIDD_MODULES[i] = mod; else window.RIDD_MODULES.push(mod);
+  state.modules = state.modules || {}; state.modules[mod.id] = state.modules[mod.id] || {};
+  if (document.getElementById('app') && state.profile) { try { mountApp(); } catch (e) { console.warn('[ridd] module mount', e); } }
+};
+function _moduleCtx() {
+  const role = state.profile && state.profile.role;
+  return { profile: state.profile, role, isAdmin: isAdminRole(role), userCan: (k) => (typeof userCan === 'function' ? userCan(k) : false),
+    el, state, supabase, mountApp, toast, fmt, openReportingDrillModal: (typeof openReportingDrillModal === 'function' ? openReportingDrillModal : null),
+    store: (state.modules = state.modules || {}) };
+}
+function _visibleModules() { try { const ctx = _moduleCtx(); return (window.RIDD_MODULES || []).filter(m => { try { return typeof m.canView === 'function' ? !!m.canView(ctx) : true; } catch { return false; } }); } catch { return []; } }
 window.__RIDD = state;
 // Newer debug hook used by the deploy verifier — exposes the role helpers
 // alongside state so we can confirm a deploy actually shipped.
@@ -2460,7 +2487,7 @@ async function boot() {
   // #history is a legacy hash that now routes to Sales tab + History pill.
   // Apply the side-effect (queue filter) anywhere we honor a hash.
   const applyHash = () => {
-    const v = HASH_MAP[location.hash];
+    const v = HASH_MAP[location.hash] || ((window.RIDD_MODULES || []).some(m => '#' + m.id === location.hash) ? location.hash.slice(1) : null);
     if (!v) return null;
     if (location.hash === '#history') state._salesQueueFilter = 'history';
     return v;
@@ -5342,6 +5369,8 @@ function mountApp() {
     ...(isAdmin || (isAuditor && userCan('view_indicators')) ? [['indicators', 'Indicators', iconChart()]] : []),
     ...(isAdmin ? [['reporting',     'Reporting',     iconPie()]]       : []),
   ];
+  // Registered modules (riddmarket etc.) join the nav for whoever they allow.
+  for (const m of _visibleModules()) navItems.push([m.id, m.label || m.id, typeof m.icon === 'function' ? m.icon() : (m.icon || el('span', {}, '▦'))]);
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
   const navMenu = el('div', {
@@ -5444,7 +5473,7 @@ function mountApp() {
     el('div', { class: 'flex items-center gap-3 relative min-w-0' },
       gridBtn,
       navMenu,
-      el('h1', { class: 'hb-topbar-title font-bold tracking-wider' }, TAB_TITLES[state.view] || ''),
+      el('h1', { class: 'hb-topbar-title font-bold tracking-wider' }, TAB_TITLES[state.view] || (() => { const m = (window.RIDD_MODULES || []).find(x => x.id === state.view); return m ? String(m.title || m.label || m.id).toUpperCase() : ''; })()),
       // Freshness stamp — lives up here with the title on every data tab.
       (() => {
         // 'dashboard' (Sales War Room) + 'sales' joined the list now that the
@@ -5635,6 +5664,18 @@ function mountApp() {
     techs:        viewTechs,
     admin:        viewAdmin,
   }[state.view];
+  // Registered module views render through their own render(ctx).
+  const _mod = typeof view !== 'function' ? _visibleModules().find(m => m.id === state.view) : null;
+  if (_mod) {
+    const ctx = _moduleCtx();
+    if (state._lastModuleView !== _mod.id && typeof _mod.onEnter === 'function') { try { _mod.onEnter(ctx); } catch (e) { console.warn('[ridd] module onEnter', e); } }
+    state._lastModuleView = _mod.id;
+    let node; try { node = _mod.render(ctx); } catch (e) { console.error('[ridd] module render failed', _mod.id, e); node = el('div', { class: 'card p-8 text-center text-sm text-muted-' }, (_mod.label || _mod.id) + ' failed to render — check the console.'); }
+    if (!(node instanceof Node)) node = el('div', { class: 'card p-8 text-center text-sm text-muted-' }, 'Module returned nothing.');
+    node.classList.add('fade-in');
+    contentWrap.append(node);
+    return;
+  }
   // Retired tabs (Training, Marketplace) — a stale saved view or old
   // bookmark lands on Sales instead of crashing the render.
   if (typeof view !== 'function') {
@@ -39275,7 +39316,19 @@ function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !
 // (3-day ROR = never really a customer; Combined = folded into another
 // sub; Renewal-* = the old sub was replaced by the renewal, which stays).
 const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', 'Renewal - Outbound', 'Renewal - Loyalty', 'Renewal - Service Pro Upsell', 'Renewal - Inbound'];
-function retenPopExclReasons() {
+// These three getters are called PER ROW inside 77k-row filters, so they
+// memoize on (admin rules, cancel config, what-if, tab) — rebuilding a Set
+// per row was the reason Attrition Steps took seconds to open.
+const _retenMemo = { key: null, pop: null, terms: null, excl: null };
+function _retenMemoKey() { return JSON.stringify([_adminRules() || null, state._retenWhatIf || null, state.reportingSubTab, (state.reportingCancelConfig || []).length, state._reportingCancelConfigStamp || 0]); }
+function _retenMemoGet(slot, build) {
+  const k = _retenMemoKey();
+  if (_retenMemo.key !== k) { _retenMemo.key = k; _retenMemo.pop = _retenMemo.terms = _retenMemo.excl = null; }
+  if (_retenMemo[slot] == null) _retenMemo[slot] = build();
+  return _retenMemo[slot];
+}
+function retenPopExclReasons() { return _retenMemoGet('pop', _retenPopExclReasonsBuild); }
+function _retenPopExclReasonsBuild() {
   const r = _adminRules(); const v = r && Array.isArray(r.retenPopExclReasons) ? r.retenPopExclReasons : RETEN_POP_EXCL_REASONS_DEFAULT;
   let list = v.map(_normCancelReason);
   // What-if switches on the Retention tab: the 3-day ROR reason and the
@@ -39289,10 +39342,10 @@ function setRetenPopExclReasons(arr) { _setAdminRule('retenPopExclReasons', arr)
 // Step 3 exemption: one-service subs whose service name contains one of
 // these terms stay in the book (Sentricon is annual - one visit a year IS
 // the service).
-function retenOneSvcExemptTerms() {
+function retenOneSvcExemptTerms() { return _retenMemoGet('terms', () => {
   const r = _adminRules(); const v = r && Array.isArray(r.retenOneSvcExempt) ? r.retenOneSvcExempt : ['sentricon'];
   return v.map(x => String(x).toLowerCase()).filter(Boolean);
-}
+}); }
 function setRetenOneSvcExemptTerms(arr) { _setAdminRule('retenOneSvcExempt', arr); }
 function _retenOneSvcExempt(r) {
   if (!_retenWhatIf('oneSvcExempt', true)) return false;
@@ -39791,7 +39844,8 @@ const _CANCEL_REASON_DISPLAY = {
   'service pro upsell renewal': 'Renewal - Service Pro Upsell',
 };
 function _normCancelReason(s) { const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '').toLowerCase(); return _CANCEL_REASON_ALIASES[t] || t; }
-function reportingExcludedCancelReasons() {
+function reportingExcludedCancelReasons() { return _retenMemoGet('excl', _reportingExcludedCancelReasonsBuild); }
+function _reportingExcludedCancelReasonsBuild() {
   if (!_retenWhatIf('exclReasons', true)) return new Set();
   const cfg = state.reportingCancelConfig || [];
   const set = new Set(cfg.filter(c => c.counts_attrition === false).map(c => _normCancelReason(c.reason)));
@@ -44801,6 +44855,7 @@ function reportingCancelReasonModel() {
     const next = { ...existing, ...patch, updated_by: state.profile?.id || null };
     const idx = cfg.findIndex(c => c.reason === reason);
     if (idx >= 0) cfg[idx] = next; else cfg.push(next);
+    state._reportingCancelConfigStamp = (state._reportingCancelConfigStamp || 0) + 1;
     if (DEMO) { saveDemoData(); return; }
     const { error } = await supabase
       .from('reporting_cancel_config')
@@ -49929,6 +49984,15 @@ function retenMethodCard(pop, _retenEff) {
       rows: { boy, raw, excl: exclRows, ror: rorRows, counted: countedRows } };
   };
   const cur = cancelSteps(year), prev = cancelSteps(year - 1);
+  // Projected full-year attrition: this year's YTD cancels scaled by the
+  // share of last year's cancels that had happened by today's date.
+  const projected = (() => {
+    const t = new Date();
+    const cutoff = (year - 1) + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+    const byNow = prev.rows.counted.filter(r => r._effCancel <= cutoff).length;
+    const share = prev.counted ? byNow / prev.counted : null;
+    return share && share > 0.05 && cur.boy ? (cur.counted / share) / cur.boy : null;
+  })();
   // Official numbers (rules exactly as saved) for the with-vs-without read.
   let official = null;
   if (retenWhatIfActive()) { const saved = state._retenWhatIf; state._retenWhatIf = null; try { const b = _retenEff(pop); const cs = (yr) => { const st = yr + '-01-01', en = yr + '-12-31'; const boy = b.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st)); const c = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en).length; return boy.length ? c / boy.length : null; }; official = { book: b.length, cur: cs(year), prev: cs(year - 1) }; } finally { state._retenWhatIf = saved; } }
@@ -49970,8 +50034,9 @@ function retenMethodCard(pop, _retenEff) {
       el('div', { class: 'flex-1 min-w-0' },
         el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'Attrition Steps')),
       el('div', { class: 'flex items-center gap-4 tabular-nums' },
-        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-lg font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-lg font-black' }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)),
+        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-lg font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
+        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' projected attrition'), el('div', { class: 'text-lg font-black' }, pct(projected), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'seasonal pace'))),
         whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
         // Reconcile against a hand-built FieldRoutes export (CSV): matched /
         // only-in-app / only-in-file, each explained row by row.
@@ -50033,9 +50098,12 @@ function retenMethodCard(pop, _retenEff) {
             const nw = { ...(state._retenWhatIf || {}) }; const rs = { ...(nw.reasons || {}) };
             if (e.target.checked === model.excludedSet.has(g.key)) delete rs[g.key]; else rs[g.key] = e.target.checked;
             nw.reasons = rs; state._retenWhatIf = nw; mountApp(); } });
+          cb.checked = excl.has(g.key);   // property, not just attribute — some browsers ignored the attribute here
           const nowEx = excl.has(g.key);
-          return el('label', { class: 'flex items-center gap-2 text-[11px] cursor-pointer' + (nowEx ? ' font-semibold' : ''), style: nowEx ? { color: 'var(--text)' } : { color: 'var(--text-muted)' }, onclick: (e) => e.stopPropagation() },
-            cb, el('span', { class: 'flex-1 truncate', title: g.display + (nowEx !== isEx ? ' · differs from the saved setting' : '') }, g.display, nowEx !== isEx ? el('span', { style: { color: 'var(--accent)' } }, ' *') : null),
+          if (nowEx) cb.style.accentColor = '#DC2626';
+          // Red = being removed from churn (treated as retained); grey = counts as churn.
+          return el('label', { class: 'flex items-center gap-2 text-[11px] cursor-pointer rounded px-1' + (nowEx ? ' font-semibold' : ''), style: nowEx ? { color: '#DC2626', background: 'rgba(220,38,38,.06)' } : { color: 'var(--text-muted)' }, onclick: (e) => e.stopPropagation() },
+            cb, el('span', { class: 'flex-1 truncate', title: g.display + (nowEx ? ' · removed from churn' : ' · counts as churn') + (nowEx !== isEx ? ' · differs from the saved setting' : '') }, g.display, nowEx !== isEx ? el('span', { style: { color: 'var(--accent)' } }, ' *') : null),
             clickable(el('span', { class: 'tabular-nums' }, n(rs.length)), rs.length ? drill(g.display, rs, 'cancelled for this reason') : null));
         }));
       const node = step(9, 'Remove cancels with these reasons', 'Tick a reason and subscriptions cancelled for it are treated as RETAINED — the company ended it, the customer did not leave. Unticked reasons count as churn. These are slicers for this tab and session only (an * marks a reason that differs from the saved setting); the saved list lives in Reporting → Configurations → Cancellation reasons and drives the rest of the app.', neutralised.length, 'exclReasons', null, neutralised);
