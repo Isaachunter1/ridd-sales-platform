@@ -11536,7 +11536,7 @@ function viewSales() {
   // as the Inside / D2D / Technicians toggle), equal-width segments.
   const queueToggle = el('div', { class: 'queue-strip flex w-full rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
     ...[
-      { id: 'upfront', label: 'Sales',                short: 'Sales' },
+      { id: 'upfront', label: 'Upfront Sales',                short: 'Sales' },
       { id: 'backend', label: 'Pending Backend Lock', short: 'Backend' },
       { id: 'cancels', label: 'Archived',             short: 'Archived' },
       { id: 'history', label: 'History',              short: 'History' },
