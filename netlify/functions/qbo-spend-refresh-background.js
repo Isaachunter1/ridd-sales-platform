@@ -91,6 +91,25 @@ async function pullBalanceSheet(startYear) {
   return out;
 }
 
+// Long-term liability accounts with today's balance (the loans by branch —
+// "Mizzen Loan - Atlanta" etc.). Windsor reports liability balances negative.
+async function pullDebtAccounts() {
+  const key = process.env.WINDSOR_API_KEY;
+  const fields = 'accounts__fullyqualifiedname,accounts__accounttype,accounts__currentbalance,accounts__active';
+  const url = `https://connectors.windsor.ai/quickbooks?api_key=${encodeURIComponent(key)}&date_preset=last_7d&fields=${fields}&_renderer=json`;
+  const r = await fetchT(url, { headers: { accept: 'application/json' } });
+  if (!r.ok || !r.json) throw new Error(`Windsor accounts ${r.status}: ${(r.text || '').slice(0, 200)}`);
+  const rows = Array.isArray(r.json) ? r.json : (r.json.data || r.json.result || []);
+  const out = {};
+  for (const row of rows) {
+    if (String(row.accounts__accounttype || '') !== 'Long Term Liability') continue;
+    if (String(row.accounts__active || 'True') !== 'True') continue;
+    const name = String(row.accounts__fullyqualifiedname || '').trim(); if (!name) continue;
+    out[name] = Math.abs(Number(row.accounts__currentbalance) || 0);
+  }
+  return { accounts: out, pulledAt: new Date().toISOString() };
+}
+
 exports.handler = async (event) => {
   console.log('[qbo-refresh] invoked');
   const need = process.env.REVHAWK_SYNC_SECRET;
@@ -108,6 +127,8 @@ exports.handler = async (event) => {
     const ledger = data.ledger; delete data.ledger;
     try { ledger.balance = await pullBalanceSheet(startYear); console.log('[qbo-refresh] balance sheet months:', Object.keys(ledger.balance).length); }
     catch (be) { console.warn('[qbo-refresh] balance sheet pull failed (non-fatal):', be && be.message); }
+    try { ledger.debt = await pullDebtAccounts(); console.log('[qbo-refresh] long-term liability accounts:', Object.keys(ledger.debt.accounts).length); }
+    catch (de) { console.warn('[qbo-refresh] debt accounts pull failed (non-fatal):', de && de.message); }
     await store.set('ledger', ledger);
     await store.set('spend', data);
     await store.delete('spend_refreshing').catch(() => {});
