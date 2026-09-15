@@ -49829,10 +49829,11 @@ function retenMethodCard(pop, _retenEff) {
     const st = yr + '-01-01', en = yr + '-12-31';
     const boy = book.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st));
     const raw = boy.filter(r => r.subscription_date_canceled && r.subscription_date_canceled >= st && r.subscription_date_canceled <= en);
-    const exclN = raw.filter(r => excl.has(_normCancelReason(reportingCancelReasonOf(r)))).length;
-    const rorN = raw.filter(r => !excl.has(_normCancelReason(reportingCancelReasonOf(r))) && reportingExcludeRorChurn() && _reporting3dayRor(r)).length;
-    const counted = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en).length;
-    return { boy: boy.length, raw: raw.length, exclN, rorN, counted, rate: boy.length ? counted / boy.length : null };
+    const exclRows = raw.filter(r => excl.has(_normCancelReason(reportingCancelReasonOf(r))));
+    const rorRows = raw.filter(r => !excl.has(_normCancelReason(reportingCancelReasonOf(r))) && reportingExcludeRorChurn() && _reporting3dayRor(r));
+    const countedRows = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en);
+    return { boy: boy.length, raw: raw.length, exclN: exclRows.length, rorN: rorRows.length, counted: countedRows.length, rate: boy.length ? countedRows.length / boy.length : null,
+      rows: { boy, raw, excl: exclRows, ror: rorRows, counted: countedRows } };
   };
   const cur = cancelSteps(year), prev = cancelSteps(year - 1);
   // Official numbers (rules exactly as saved) for the with-vs-without read.
@@ -49849,26 +49850,30 @@ function retenMethodCard(pop, _retenEff) {
     title: isOn(k) ? 'Applied — click to switch OFF for this session and see attrition without it' : 'Switched off for this session — click to apply again',
     onclick: () => { const nw = { ...(state._retenWhatIf || {}) }; nw[k] = !isOn(k); state._retenWhatIf = nw; mountApp(); },
   }, isOn(k) ? 'ON' : 'OFF');
-  const step = (num, title, detail, removed, chipKey, fixedNote) => el('div', { class: 'flex items-start gap-3 py-2 border-t border-' },
+  // Every count is a drill: the exact subscriptions removed at that step (or
+  // included in that total), so the math can be followed down to accounts.
+  const drill = (title, rows, what) => rows && rows.length ? () => openReportingDrillModal({ chartTitle: 'Attrition steps · ' + title, sliceLabel: n(rows.length) + ' subscription' + (rows.length === 1 ? '' : 's') + (what ? ' · ' + what : ''), rows, formatValue: fmt.usd0 }) : null;
+  const clickable = (node, fn) => { if (fn) { node.classList.add('cursor-pointer', 'hover:underline'); node.title = 'Click to see the subscriptions'; node.onclick = (e) => { e.stopPropagation(); fn(); }; } return node; };
+  const step = (num, title, detail, removed, chipKey, fixedNote, rowsRemoved) => el('div', { class: 'flex items-start gap-3 py-2 border-t border-' },
     el('div', { class: 'w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0', style: { background: 'var(--card-2)', color: 'var(--text)' } }, String(num)),
     el('div', { class: 'flex-1 min-w-0' },
       el('div', { class: 'text-sm font-semibold' }, title),
       el('div', { class: 'text-[11px] text-muted-' }, detail)),
     el('div', { class: 'text-right shrink-0 tabular-nums' },
-      removed != null ? el('div', { class: 'text-sm font-bold', style: { color: removed ? '#DC2626' : 'var(--text-subtle)' } }, removed ? '−' + n(removed) : '0') : null,
+      removed != null ? clickable(el('div', { class: 'text-sm font-bold', style: { color: removed ? '#DC2626' : 'var(--text-subtle)' } }, removed ? '−' + n(removed) : '0'), drill(title, rowsRemoved, 'removed at this step')) : null,
       fixedNote ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fixedNote) : null),
     chipKey ? chip(chipKey) : el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0', style: { color: 'var(--text-subtle)', border: '1px solid var(--border)' }, title: 'Always applied' }, 'ALWAYS'));
-  const total = (label, val, sub) => el('div', { class: 'flex items-center justify-between py-2 border-t-2 border-', style: { borderColor: 'var(--border-2)' } },
+  const total = (label, val, sub, rowsIn) => el('div', { class: 'flex items-center justify-between py-2 border-t-2 border-', style: { borderColor: 'var(--border-2)' } },
     el('div', {}, el('div', { class: 'text-sm font-black' }, label), sub ? el('div', { class: 'text-[11px] text-muted-' }, sub) : null),
-    el('div', { class: 'text-lg font-black tabular-nums' }, val));
+    clickable(el('div', { class: 'text-lg font-black tabular-nums' }, val), drill(label, rowsIn, 'included')));
+  const notIn = (a, b) => { const set = new Set(b); return a.filter(r => !set.has(r)); };
   const reasonList = Object.entries(byReason1).sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' ' + n(v)).join(' · ');
   const open = state._retenMethodOpen !== false;
   const whatIf = retenWhatIfActive();
   const card = el('div', { class: 'card overflow-hidden', style: whatIf ? { outline: '2px solid var(--accent)' } : {} },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap cursor-pointer', onclick: () => { state._retenMethodOpen = !open; mountApp(); } },
       el('div', { class: 'flex-1 min-w-0' },
-        el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'How attrition is calculated'),
-        el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, 'Step by step · switch any step off to see attrition with vs without it (this session only — saved rules unchanged)')),
+        el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'Attrition Steps')),
       el('div', { class: 'flex items-center gap-4 tabular-nums' },
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-lg font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-lg font-black' }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)),
@@ -49876,20 +49881,20 @@ function retenMethodCard(pop, _retenEff) {
   if (!open) return card;
   card.append(el('div', { class: 'px-5 pb-4' },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-2 pb-1', style: { color: 'var(--text-subtle)' } }, 'A · Who is in the book (denominator)'),
-    el('div', { class: 'flex items-center justify-between py-2' }, el('div', { class: 'text-sm font-semibold' }, 'Subscriptions in scope'), el('div', { class: 'text-sm font-bold tabular-nums' }, n(n0))),
-    step(1, 'Recurring subscriptions only', 'One-time services are never part of a retention book.', n0 - s1.length, null),
-    step(2, 'Received an initial service', 'A sub that never started cannot retain or churn.', s1.length - s2.length, null),
-    step(3, 'Drop subs closed by ROR / Combined / Renewal', 'Cancellation reason in the Step 1 list (Settings): ' + [...popSet].map(x => x).join(', ') + '. These are not lost customers — a 3-day ROR never became one, Combined was folded into another sub, and a Renewal was replaced by the renewal sub (which stays, carrying the original start date).' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), s2.length - step1.length, 'popReasons'),
-    step(4, 'Drop $0 ARR subs', 'Nothing recurring to retain.', step1.length - step2.length, 'zero'),
-    step(5, 'Drop one-service subs (prior years)', 'A single completed visit is not yet a customer. Exempt: ' + retenOneSvcExemptTerms().join(', ') + ' (annual products) and anything sold in ' + year + ' — those ' + n(oneSvcKept.length) + ' stay in.', step2.length - step3.length, 'oneSvc'),
+    el('div', { class: 'flex items-center justify-between py-2' }, el('div', { class: 'text-sm font-semibold' }, 'Subscriptions in scope'), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(n0)), drill('Subscriptions in scope', pop, 'everything in scope'))),
+    step(1, 'Recurring subscriptions only', 'One-time services are never part of a retention book.', n0 - s1.length, null, null, notIn(pop, s1)),
+    step(2, 'Received an initial service', 'A sub that never started cannot retain or churn.', s1.length - s2.length, null, null, notIn(s1, s2)),
+    step(3, 'Drop subs closed by ROR / Combined / Renewal', 'Cancellation reason in the Step 1 list (Settings): ' + [...popSet].map(x => x).join(', ') + '. These are not lost customers — a 3-day ROR never became one, Combined was folded into another sub, and a Renewal was replaced by the renewal sub (which stays, carrying the original start date).' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), s2.length - step1.length, 'popReasons', null, notIn(s2, step1)),
+    step(4, 'Drop $0 ARR subs', 'Nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2)),
+    step(5, 'Drop one-service subs (prior years)', 'A single completed visit is not yet a customer. Exempt: ' + retenOneSvcExemptTerms().join(', ') + ' (annual products) and anything sold in ' + year + ' — those ' + n(oneSvcKept.length) + ' stay in.', step2.length - step3.length, 'oneSvc', null, notIn(step2, step3)),
     el('div', { class: 'flex items-center gap-3 py-1.5 border-t border-', style: { paddingLeft: '36px' } }, el('div', { class: 'flex-1 text-[11px] text-muted-' }, '↳ Keep the exemptions (Sentricon + current year) — switch off to drop every one-service sub.'), chip('oneSvcExempt')),
-    total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts'),
+    total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-4 pb-1', style: { color: 'var(--text-subtle)' } }, 'B · Who counts as lost (numerator) — ' + year + ' YTD'),
-    el('div', { class: 'flex items-center justify-between py-2' }, el('div', {}, el('div', { class: 'text-sm font-semibold' }, 'Beginning-of-year book'), el('div', { class: 'text-[11px] text-muted-' }, 'Subs serviced before Jan 1 ' + year + ' and still on the books that day. Sales made during the year never enter the rate.')), el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.boy))),
-    el('div', { class: 'flex items-center justify-between py-2 border-t border-' }, el('div', { class: 'text-sm font-semibold' }, 'Cancelled so far this year (any reason)'), el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.raw))),
-    step(6, 'Strip excluded cancel reasons', 'Reasons flagged “doesn’t count as attrition” in Settings → Cancellation reasons (' + excl.size + ' reason' + (excl.size === 1 ? '' : 's') + ').', cur.exclN, 'exclReasons'),
-    step(7, 'Strip 3-day RORs', 'Door-to-door sales cancelled within 3 days of the sale — buyer’s remorse, not attrition.', cur.rorN, 'ror'),
-    total('Counted cancels', n(cur.counted), 'Attrition = counted cancels ÷ beginning-of-year book'),
+    el('div', { class: 'flex items-center justify-between py-2' }, el('div', {}, el('div', { class: 'text-sm font-semibold' }, 'Beginning-of-year book'), el('div', { class: 'text-[11px] text-muted-' }, 'Subs serviced before Jan 1 ' + year + ' and still on the books that day. Sales made during the year never enter the rate.')), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.boy)), drill('Beginning-of-year book', cur.rows.boy, 'on the books Jan 1'))),
+    el('div', { class: 'flex items-center justify-between py-2 border-t border-' }, el('div', { class: 'text-sm font-semibold' }, 'Cancelled so far this year (any reason)'), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.raw)), drill('Cancelled this year (any reason)', cur.rows.raw, 'cancel date this year'))),
+    step(6, 'Strip excluded cancel reasons', 'Reasons flagged “doesn’t count as attrition” in Settings → Cancellation reasons (' + excl.size + ' reason' + (excl.size === 1 ? '' : 's') + ').', cur.exclN, 'exclReasons', null, cur.rows.excl),
+    step(7, 'Strip 3-day RORs', 'Door-to-door sales cancelled within 3 days of the sale — buyer’s remorse, not attrition.', cur.rorN, 'ror', null, cur.rows.ror),
+    total('Counted cancels', n(cur.counted), 'Attrition = counted cancels ÷ beginning-of-year book', cur.rows.counted),
     total(year + ' YTD attrition', pct(cur.rate) + (official ? '  (official ' + pct(official.cur) + ')' : ''), (year - 1) + ' full year: ' + pct(prev.rate) + (official ? ' (official ' + pct(official.prev) + ')' : '') + ' · ' + n(prev.counted) + ' of ' + n(prev.boy))));
   return card;
 }
