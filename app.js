@@ -43826,12 +43826,12 @@ function reportingPutis() {
   // The toolbar pins under the app header once you scroll past it (per
   // Isaac): a spacer holds its place in the flow, the bar itself flips to
   // position:fixed. (main is overflow-x:hidden, which defeats sticky.)
+  // Order (per Isaac): sync stamp + ↻ on the left, Year then Month on the right.
   const toolbar = el('div', { id: 'putisBar', class: 'flex items-center gap-2 flex-wrap' },
-    pickers(),
-    // Sync stamp + refresh travel together so they never wrap apart on phones.
-    el('span', { class: 'ml-auto inline-flex items-center gap-1.5 whitespace-nowrap' },
+    el('span', { class: 'inline-flex items-center gap-1.5 whitespace-nowrap' },
       el('span', { class: 'text-[10px] text-muted-' }, pulled ? 'Last QB sync: ' + pulled + (state.reportingLedger.refreshing ? ' · refreshing…' : '') : (state.reportingLedger.refreshing ? 'Syncing QB…' : '')),
-      el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Re-pull the ledger from QuickBooks now', onclick: () => { reportingLoadLedger(true); if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(true); } }, '↻')));
+      el('button', { class: 'rounded-lg border px-2 py-0.5 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Re-pull the ledger from QuickBooks now', onclick: () => { reportingLoadLedger(true); if (typeof reportingLoadQboSpend === 'function') reportingLoadQboSpend(true); } }, '↻')),
+    (() => { const p = pickers(); p.classList.add('ml-auto'); return p; })());
   const barSpacer = el('div', { id: 'putisBarSpacer' }, toolbar);
   wrap.append(barSpacer);
   const pinPutisBar = () => {
