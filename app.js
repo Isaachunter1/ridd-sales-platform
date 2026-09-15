@@ -50178,7 +50178,16 @@ function reportingWaterfall() {
   const _methodologyInfo = (typeof reportingMethodologyInfoBtn === 'function') ? reportingMethodologyInfoBtn() : null;
   const _phoneR = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const modeBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Metrics'),
+    // ONE office filter for the whole tab (per Isaac) — the shared Reporting
+    // scope, so every card below (Attrition Steps, waterfall, seasonality,
+    // rep type, lifetime, renewals, sources) reads the same population.
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Office'),
+    el('select', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { state.reportingOffice = e.target.value; mountApp(); },
+    }, el('option', { value: 'all', selected: office === 'all' }, 'RIDD'), ...scope.offices.map(o => el('option', { value: o, selected: office === o }, o))),
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold ml-2', style: { color: 'var(--text-subtle)' } }, 'Metrics'),
     ...true ? [el('select', {
       class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
@@ -50566,9 +50575,7 @@ function reportingWaterfall() {
   // year-end. Built from the SAME retention book as Attrition Steps, with an
   // office dropdown (RIDD = every office).
   const renderBlended = (pop) => {
-    const offices = [...new Set(pop.map(r => r.office_name).filter(Boolean))].sort();
-    const offSel = state._retenWfOffice && offices.includes(state._retenWfOffice) ? state._retenWfOffice : 'all';
-    const scoped = offSel === 'all' ? pop : pop.filter(r => r.office_name === offSel);
+    const scoped = pop;   // office scope comes from the tab's top filter
     const rows = _retenEff(scoped);
     const yearOf = (iso) => Number(String(iso || '').slice(0, 4));
     const thisYear = new Date().getFullYear();
@@ -50589,12 +50596,9 @@ function reportingWaterfall() {
     const th = (t, o = {}) => el('th', { class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (o.left ? 'text-left' : 'text-right'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0, left: o.corner ? 0 : undefined, zIndex: o.corner ? 3 : 2 } }, t);
     const td = (t, o = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums whitespace-nowrap ' + (o.left ? 'text-left font-semibold' : 'text-right') + (o.bold ? ' font-black' : ''), style: { color: o.muted ? 'var(--text-subtle)' : undefined, background: o.sticky ? (o.bg || 'var(--card)') : (o.bg || undefined), position: o.sticky ? 'sticky' : undefined, left: o.sticky ? 0 : undefined, zIndex: o.sticky ? 1 : undefined, boxShadow: o.sticky ? '1px 0 0 var(--border)' : undefined, cursor: o.onclick ? 'pointer' : undefined }, onclick: o.onclick }, t);
     const drillRows = (title, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : undefined;
-    const sel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state._retenWfOffice = e.target.value; mountApp(); } },
-      el('option', { value: 'all', selected: offSel === 'all' }, 'RIDD'), ...offices.map(o => el('option', { value: o, selected: offSel === o }, o)));
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall'), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, (isArr ? 'ARR' : 'Accounts') + ' still active at each year-end, by first-service year · ' + thisYear + ' = today · same book as Attrition Steps')),
-        sel),
+        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, (isArr ? 'ARR' : 'Accounts') + ' still active at each year-end, by first-service year · ' + thisYear + ' = today · same book as Attrition Steps'))),
       el('div', { style: { overflow: 'auto', maxHeight: '70vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th(isArr ? 'ARR' : 'Accounts'), ...years.map(y => th(String(y))))),
         el('tbody', {},
