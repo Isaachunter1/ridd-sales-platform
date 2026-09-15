@@ -44058,8 +44058,10 @@ function reportingSubTabs() {
     ['auditing',   'Auditing'],
     ['marketing',  'Marketing'],
     ['putis',      'Putis Shid'],
+    ['whyridd',    'Why RIDD ↗', 'https://whyridd.com'],   // external link, opens in a new tab
   ];
-  const cur = tabs.some(([k]) => k === state.reportingSubTab) ? state.reportingSubTab : tabs[0][0];
+  const go = (k) => { const t = tabs.find(([kk]) => kk === k); if (t && t[2]) { window.open(t[2], '_blank', 'noopener'); return; } state.reportingSubTab = k; mountApp(); };
+  const cur = tabs.some(([k]) => k === state.reportingSubTab && !tabs.find(([kk]) => kk === k)[2]) ? state.reportingSubTab : tabs[0][0];
   // Desktop: the tab strip. Phones: one dropdown (the strip had grown past
   // the screen width) — CSS in index.html swaps them at 640px.
   const strip = el('div', { class: 'rpt-subtabs flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
@@ -44074,7 +44076,7 @@ function reportingSubTabs() {
           borderRadius: '6px 6px 0 0',
           marginBottom: '-1px',
         },
-        onclick: () => { state.reportingSubTab = k; mountApp(); },
+        onclick: () => go(k),
       }, label);
     }),
   );
@@ -44082,7 +44084,7 @@ function reportingSubTabs() {
     el('select', {
       class: 'w-full rounded-lg border px-3 py-2 text-sm font-semibold cursor-pointer',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-      onchange: (e) => { state.reportingSubTab = e.target.value; mountApp(); },
+      onchange: (e) => { const k = e.target.value; go(k); if (tabs.find(([kk]) => kk === k)[2]) e.target.value = cur; },
     }, ...tabs.map(([k, label]) => el('option', { value: k, selected: cur === k }, label))));
   return el('div', {}, strip, pick);
 }
