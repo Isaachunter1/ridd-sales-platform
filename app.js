@@ -50015,7 +50015,6 @@ function retenMethodCard(pop, _retenEff) {
         })())));
   if (!open) return card;
   card.append(el('div', { class: 'px-5 pb-4' },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-2 pb-1', style: { color: 'var(--text-subtle)' } }, 'A · Who is in the book (denominator)'),
     el('div', { class: 'flex items-center justify-between py-2' }, el('div', { class: 'text-sm font-semibold' }, 'Subscriptions in scope'), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(n0)), drill('Subscriptions in scope', pop, 'everything in scope'))),
     (() => {
       // One-time services leave the book, but their revenue is still real —
@@ -50044,7 +50043,7 @@ function retenMethodCard(pop, _retenEff) {
     step(7, 'Remove subs that never received a 2nd treatment', 'Prior-year subscriptions with a single completed visit — never became a customer. Sentricon (' + retenOneSvcExemptTerms().join(', ') + ') is exempt: one visit a year is the service.', step2.length - step2b.length, 'oneSvc', null, notIn(step2, step2b), step2b),
     step(8, 'Remove ' + year + ' subs frozen after one treatment', 'Accounts sold this year that took one visit and already cancelled. Active ' + year + ' one-visit accounts (' + n(oneSvcKept.length) + ') stay — they are just young.', step2b.length - step3.length, 'frozenOneSvc', null, notIn(step2b, step3), step3),
     total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-4 pb-1', style: { color: 'var(--text-subtle)' } }, 'B · Who counts as lost (numerator) — ' + year + ' YTD'),
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-4 pb-1', style: { color: 'var(--text-subtle)' } }, 'Cancels · ' + year + ' YTD'),
     el('div', { class: 'flex items-center justify-between py-2' }, el('div', {}, el('div', { class: 'text-sm font-semibold' }, 'Beginning-of-year book'), el('div', { class: 'text-[11px] text-muted-' }, 'Subs serviced before Jan 1 ' + year + ' and still on the books that day. Sales made during the year never enter the rate.')), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.boy)), drill('Beginning-of-year book', cur.rows.boy, 'on the books Jan 1'))),
     el('div', { class: 'flex items-center justify-between py-2 border-t border-' }, el('div', { class: 'text-sm font-semibold' }, 'Cancelled so far this year (any reason)'), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.raw)), drill('Cancelled this year (any reason)', cur.rows.raw, 'cancel date this year'))),
     step(9, 'Remove excluded cancel reasons', 'Reasons flagged “doesn’t count as attrition” in Settings → Cancellation reasons (' + excl.size + ' reason' + (excl.size === 1 ? '' : 's') + ').', cur.exclN, 'exclReasons', null, cur.rows.excl),
