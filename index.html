@@ -657,6 +657,13 @@
   /* Smooth momentum scrolling on every horizontal table wrapper */
   .scroll-x, .overflow-x-auto { -webkit-overflow-scrolling: touch; }
 
+  /* Scrolling tables never rubber-band sideways past their edge (the
+     "table slides into blank space" effect on iOS) — the frozen first column
+     and the card edge stay glued. Vertical bounce stays normal. */
+  .scroll-x, .overflow-x-auto, div[style*="overflow: auto"], div[style*="overflow:auto"] {
+    overscroll-behavior-x: none;
+    -webkit-overflow-scrolling: auto;
+  }
   .rpt-subtabs-select { display:none; }
   @media (max-width: 640px) {
     .desktop-only { display:none !important; }
