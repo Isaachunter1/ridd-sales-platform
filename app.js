@@ -11991,7 +11991,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
           el('tr', {},
             headerCell('Customer',    { sortableKey: 'customer_name', extraClass: 'pl-4' }),
             headerCell('Cust #',      { sortableKey: 'customer_number' }),
-            isAdmin && headerCell('Rep', { sortableKey: 'rep' }),
+            headerCell('Sold by', { sortableKey: 'rep' }),
             // Backend-lock review doesn't need office / service / source /
             // initial / monthly — the reviewer keys off revenue + contract +
             // the report data. Hiding those keeps the table scannable.
@@ -12053,7 +12053,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             },
               el('td', { class: 'pl-4 pr-2 py-2 font-medium whitespace-nowrap max-w-[160px] truncate', title: s.customer_name }, s.customer_name),
               cell(el('span', { class: 'text-muted- tabular-nums' }, s.customer_number || '—'), 'whitespace-nowrap'),
-              isAdmin && cell(
+              cell(
                 el('div', { class: 'flex items-center gap-1.5' },
                   avatarNode(rep?.avatar_url, rep?.initials, 'w-5 h-5 text-[8px]'),
                   el('span', { class: 'text-[11px] font-medium whitespace-nowrap' }, first),
@@ -36989,6 +36989,7 @@ function viewHistory({ embedded = false } = {}) {
               el('tr', {},
                 el('th', { class: 'text-left px-3 py-2' }, 'Customer'),
                 el('th', { class: 'text-left px-3 py-2 desktop-only' }, 'Cust #'),
+                el('th', { class: 'text-left px-3 py-2' }, 'Sold by'),
                 el('th', { class: 'text-left px-3 py-2 desktop-only' }, 'Office'),
                 el('th', { class: 'text-left px-3 py-2' }, 'Service'),
                 el('th', { class: 'text-left px-3 py-2 desktop-only' }, 'Source'),
@@ -37002,11 +37003,12 @@ function viewHistory({ embedded = false } = {}) {
               ),
             ),
             el('tbody', {}, r.length === 0
-              ? el('tr', {}, el('td', { colspan: 12, class: 'text-center text-battle-2 py-8' }, 'No results.'))
+              ? el('tr', {}, el('td', { colspan: 13, class: 'text-center text-battle-2 py-8' }, 'No results.'))
               : r.map(s => {
                   return el('tr', { class: 'border-t border-eerie3' },
                     el('td', { class: 'px-3 py-2.5 font-medium' }, s.customer_name),
                     el('td', { class: 'px-3 py-2.5 text-battle-2 desktop-only' }, s.customer_number || '—'),
+                    el('td', { class: 'px-3 py-2.5 whitespace-nowrap' }, ((state.allProfiles || []).find(p => p.id === s.rep_id) || {}).full_name || '—'),
                     el('td', { class: 'px-3 py-2.5 text-battle-2 desktop-only' }, nameFromId(state.offices, s.office_id)),
                     el('td', { class: 'px-3 py-2.5 text-battle-2' }, nameFromId(state.serviceTypes, s.service_type_id)),
                     el('td', { class: 'px-3 py-2.5 text-battle-2 desktop-only' }, nameFromId(state.sources, s.source_id)),
