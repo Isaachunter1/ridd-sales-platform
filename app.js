@@ -43150,26 +43150,6 @@ const PUTIS_ROWS = [
   { id: 'ebitda',       label: 'EBITDA',           kind: 'usd', bold: true, signed: true, tip: 'Earnings before interest, taxes, depreciation & amortization — gross profit minus all operating expense (selling expense + housing + G&A). Interest and depreciation are excluded. Red = loss.' },
   { id: 'adjEbitda',    label: 'Adjusted EBITDA',  kind: 'usd', bold: true, signed: true, tip: 'EBITDA before the cost of selling — EBITDA + selling expense (commissions + marketing + incentives). What the service business earns on its own, separate from growth spend. The sheet’s F14 + F11 × F3.' },
   { id: 'netIncome',    label: 'Net Income',       kind: 'usd', bold: true, signed: true, tip: 'EBITDA minus interest paid and depreciation/amortization.' },
-  { head: 'Margins · % of revenue' },
-  { id: 'cogsPct',      label: 'COGS %',           kind: 'pct', lowGood: true, tip: 'Cost of goods sold ÷ revenue — M&S + auto/fuel + tech wages + merchant fees.' },
-  { id: 'opexPct',      label: 'OPEX %',           kind: 'pct', lowGood: true, tip: 'All operating expense (selling + housing + G&A) ÷ revenue.' },
-  { id: 'ebitdaPct',    label: 'EBITDA %',         kind: 'pct', signed: true, tip: 'EBITDA ÷ revenue.' },
-  { id: 'adjEbitdaPct', label: 'Adjusted EBITDA %', kind: 'pct', signed: true, tip: 'Adjusted EBITDA ÷ revenue — margin of the service base before growth spend.' },
-  { id: 'netPct',       label: 'Net profit %',     kind: 'pct', signed: true, tip: 'Net income ÷ revenue.' },
-  { head: 'Unit economics · FieldRoutes + ledger' },
-  { id: 'newSubs',      label: 'New recurring accounts', kind: 'int', unit: true, drill: 'newRows', tip: 'Recurring subscriptions sold in the month (Retention-tab rules).' },
-  { id: 'newArr',       label: 'New ARR sold',     kind: 'usd', unit: true, drill: 'newRows', tip: 'Annual recurring value of the accounts sold in the month.' },
-  { id: 'renewals',     label: 'Renewals',         kind: 'int', unit: true, drill: 'renRows', tip: 'Existing customers re-signed onto a new plan (a sub closed "Renewal - …" replaced by a renewal-source sub). Not new accounts — the relationship never churned.' },
-  { id: 'expArr',       label: 'Renewal ARR change', kind: 'usd', unit: true, drill: 'renRows', signed: true, tip: 'ARR gained (or given up) when customers renewed: new plan ARR minus the ARR of the plan it replaced. Expansion is green, contraction red.' },
-  { id: 'lostArr',      label: 'Churned ARR',      kind: 'usd', unit: true, drill: 'cxlRows', red: true, lowGood: true, tip: 'Annual recurring value lost to real cancels in the month (excluded reasons and 3-day ROR stripped).' },
-  { id: 'netNewArr',    label: 'Net new ARR',      kind: 'usd', unit: true, bold: true, signed: true, tip: 'New ARR sold + renewal ARR change − churned ARR. Positive = the book grew.' },
-  { id: 'monthlyChurn', label: 'Churn / month',    kind: 'pct', unit: true, lowGood: true, tip: PUTIS_KPI_TIPS.monthlyChurn },
-  { id: 'cac',          label: 'CAC',              kind: 'usd', unit: true, lowGood: true, tip: PUTIS_KPI_TIPS.cac },
-  { id: 'mktgPerNew',   label: 'Marketing ÷ new account', kind: 'usd', unit: true, lowGood: true, tip: 'Advertising & marketing dollars ÷ new recurring accounts sold.' },
-  { id: 'acv',          label: 'ACV',              kind: 'usd', unit: true, tip: PUTIS_KPI_TIPS.acv },
-  { id: 'ltv',          label: 'LTV (gross profit per account)', kind: 'usd', unit: true, tip: 'ACV × gross margin ÷ annualised churn — lifetime gross profit of one account.' },
-  { id: 'ltvCac',       label: 'LTV ÷ CAC',        kind: 'x', unit: true, bold: true, tip: PUTIS_KPI_TIPS.ltvCac },
-  { id: 'paybackMo',    label: 'CAC payback',      kind: 'mo', unit: true, lowGood: true, tip: PUTIS_KPI_TIPS.paybackMo },
   // ── FieldRoutes book (point-in-time at month end) ──
   { head: 'Recurring book · FieldRoutes' },
   { id: 'arrEom',       label: 'Active ARR',       kind: 'usd', point: true, bold: true, tip: 'Annual recurring revenue at month end — the annual recurring value of every recurring subscription sold on or before the last day of the month and not cancelled by then (FieldRoutes snapshot, any cancel reason). YTD column = latest closed month; prior column = last December.' },
@@ -43368,7 +43348,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   // Desktop: click a branch header to pop its "% of revenue" column open
   // (click again to close). Phones (one column) always show it.
   const pctSet = state._putisPctCols instanceof Set ? state._putisPctCols : (state._putisPctCols = new Set());
-  const withPct = (opts.section || 'all') !== 'book';
+  const withPct = !['book', 'margins', 'unit'].includes(opts.section || 'all');
   const pctOn = (key) => withPct && (opts.onlyCol ? true : pctSet.has(key));
   const nCols = cols.reduce((a, c) => a + (pctOn(c.key) ? 2 : 1), 0);
   const section = (label, tip) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-subtle)' }, colspan: nCols + 1, title: tip || '' }, label));
@@ -43447,14 +43427,41 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
       lineT('Term debt (today)', (d, k) => debtBy(k), { bold: true, tip: 'Long-term liability accounts on the QuickBooks balance sheet, current balance, filed to the branch named in the account (e.g. "Mizzen Loan - Atlanta"); un-branched loan accounts sit under Corporate. RIDD = every loan account.' }),
       lineT('Debt ÷ ARR', (d, k) => { const f = fr(k); const x = debtBy(k); return f.arr > 0 && x != null ? x / f.arr : null; }, { x: true, tip: 'Term debt ÷ active ARR at period end — years of recurring revenue owed.' }),
     ] : []),
+    'MARGINS',
+    lineT('Product cost (M&S)', d => d.msPct, { pct: true }),
+    lineT('Auto & fuel', d => d.autoPct, { pct: true }),
+    lineT('Tech wages', d => d.techPct, { pct: true }),
+    lineT('Merchant fees', d => d.merchantPct, { pct: true, tip: 'Merchant fees ÷ total income.' }),
+    lineT('Cost of goods sold', d => d.cogsPct, { pct: true, bold: true }),
+    lineT('Gross profit', d => d.gpPct, { pct: true, bold: true }),
+    lineT('OPEX', d => d.opexPct, { pct: true }),
+    lineT('Selling expense', d => d.sellingPct, { pct: true }),
+    lineT('G&A', d => d.gaPct, { pct: true }),
+    lineT('Marketing', d => d.marketingPct, { pct: true }),
+    lineT('EBITDA', d => d.ebitdaPct, { pct: true, bold: true, signed: true }),
+    lineT('Adjusted EBITDA', d => d.adjEbitdaPct, { pct: true, bold: true, signed: true }),
+    lineT('Net profit', d => d.netPct, { pct: true, signed: true }),
+    'UNIT',
+    lineT('New recurring accounts', (d, k) => UM[k].newSubs, { num: true, tip: 'Recurring subscriptions sold in the period (renewals of existing customers not included).' }),
+    lineT('New ARR sold', (d, k) => UM[k].newArr, { tip: 'Annual recurring value of the accounts sold in the period.' }),
+    lineT('Renewals', (d, k) => UM[k].renewals, { num: true, tip: 'Existing customers re-signed onto a new plan in the period — not new accounts.' }),
+    lineT('Renewal ARR change', (d, k) => UM[k].expArr, { signed: true, tip: 'New plan ARR minus the ARR of the plan it replaced. Green = expansion, red = contraction.' }),
+    lineT('Churned ARR', (d, k) => UM[k].lostArr, { red: true, tip: 'Annual recurring value lost to real cancels in the period (excluded reasons and 3-day ROR stripped).' }),
+    lineT('Net new ARR', (d, k) => UM[k].netNewArr, { bold: true, signed: true, tip: 'New ARR + renewal ARR change − churned ARR.' }),
+    lineT('Churn / month', (d, k) => UM[k].monthlyChurn, { pct: true, tip: PUTIS_KPI_TIPS.monthlyChurn }),
+    lineT('CAC (selling cost ÷ new account)', (d, k) => UM[k].cac, { tip: PUTIS_KPI_TIPS.cac }),
+    lineT('Marketing ÷ new account', (d, k) => UM[k].mktgPerNew, { tip: 'Advertising & marketing dollars ÷ new recurring accounts sold.' }),
+    lineT('LTV (gross profit per account)', (d, k) => UM[k].ltv, { tip: 'ACV × gross margin ÷ annualised churn — lifetime gross profit of one account.' }),
+    lineT('LTV ÷ CAC', (d, k) => UM[k].ltvCac, { x: true, bold: true, tip: PUTIS_KPI_TIPS.ltvCac }),
+    lineT('CAC payback (months)', (d, k) => UM[k].paybackMo, { mo: true, tip: PUTIS_KPI_TIPS.paybackMo }),
   ];
-  const cut = rows.indexOf('BOOK');
-  const shown = part === 'book' ? rows.slice(cut + 1) : part === 'pnl' ? rows.slice(0, cut) : rows.filter(r => r !== 'BOOK');
+  const marks = { pnl: [0, rows.indexOf('BOOK')], book: [rows.indexOf('BOOK') + 1, rows.indexOf('MARGINS')], margins: [rows.indexOf('MARGINS') + 1, rows.indexOf('UNIT')], unit: [rows.indexOf('UNIT') + 1, rows.length] };
+  const shown = marks[part] ? rows.slice(marks[part][0], marks[part][1]) : rows.filter(r => typeof r !== 'string');
   const periodLabel = isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3' + (opts.compact ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)' } },
       el('div', { class: 'min-w-0' },
-        el('h3', { class: 'text-sm font-bold' + (opts.compact ? ' truncate' : '') }, opts.compact ? (opts.title || (part === 'book' ? 'Recurring Book' : 'P&L Indicators')) : (opts.title || (part === 'book' ? 'Recurring Book' : 'P&L Indicators')) + ' · ' + periodLabel),
+        el('h3', { class: 'text-sm font-bold' + (opts.compact ? ' truncate' : '') }, (opts.title || ({ book: 'Recurring Book', margins: 'Margins', unit: 'Unit Economics' })[part] || 'P&L Indicators') + (opts.compact ? '' : ' · ' + periodLabel)),
         null),
       opts.headerExtra || null),
     el('div', { class: 'scroll-x', style: { overflow: 'auto', maxHeight: '80vh' } }, el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
@@ -43834,7 +43841,8 @@ function reportingPutis() {
   const colPicker = () => sel(colSel, [['RIDD', 'RIDD'], ...scBranches.map(b => [b, b])], (v) => { state._putisCol = v; mountApp(); });
   const cardHeader = () => phone ? el('div', { class: 'inline-flex items-center gap-1.5 flex-wrap' }, colPicker(), pickers()) : pickers();
   const cardOpts = (section) => ({ section, headerExtra: cardHeader(), onlyCol: phone ? colSel : null, compact: phone });
-  wrap.insertBefore(putisIndicatorsCard(M, scKey, scBranches, cardOpts('book')), wrap.children[1] || null);
+  const anchor = wrap.children[1] || null;
+  for (const part of ['book', 'margins', 'unit']) wrap.insertBefore(putisIndicatorsCard(M, scKey, scBranches, cardOpts(part)), anchor);
   wrap.append(putisIndicatorsCard(M, scKey, scBranches, cardOpts('pnl')));
 
   return wrap;
