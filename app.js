@@ -3113,6 +3113,16 @@ function setViewAsRole(role) {
 // (6 queries plus several fire-and-forget config loads that each schedule
 // their own remount) is what made small saves feel slow and bouncy. These
 // refresh exactly what changed: one query burst, one render.
+// Auto-logged D2D / Technician rows (queue_type) live in state.queueSales so
+// every Inside Sales screen (Pay, Dashboard tiles, leaderboard) keeps reading
+// allSales/mySales = office rows only, exactly as before.
+function _splitSalesRows(rows) {
+  const office = [], other = { d2d: [], tech: [] };
+  for (const s of rows) { const q = s.queue_type || 'office'; if (q === 'office') office.push(s); else (other[q] || (other[q] = [])).push(s); }
+  state.allSales   = office;
+  state.mySales    = office.filter(s => s.rep_id === state.profile.id);
+  state.queueSales = other;
+}
 async function refreshSalesData() {
   const [salesRes, lb, gh] = await Promise.all([
     supabase.from('sales').select('*').order('sold_date', { ascending: false }),
@@ -3120,8 +3130,7 @@ async function refreshSalesData() {
     loadUnloggedSales(),
   ]);
   if (salesRes.data) {
-    state.allSales = salesRes.data;
-    state.mySales  = salesRes.data.filter(s => s.rep_id === state.profile.id);
+    _splitSalesRows(salesRes.data);
   }
   if (lb.data) state.leaderboard = lb.data;
   if (gh) state.unloggedSales = gh;
@@ -3240,11 +3249,7 @@ async function loadData() {
     .then(() => prefetchReportingSnapshot())          // warm the snapshot in the background so Reporting / Geographic open instantly
     .catch(err => console.warn('[ridd] reporting metadata load skipped', err));
 
-  state.allSales     = salesRes.data || [];
-  // Derive mySales client-side from the company-wide set so reps only
-  // see their own rows on the Sales tab + Pay tab, while the Dashboard
-  // still has access to allSales for the company view.
-  state.mySales      = state.allSales.filter(s => s.rep_id === state.profile.id);
+  _splitSalesRows(salesRes.data || []);
   state.competitions = state.competitions || [];
   state.compRules    = state.compRules    || [];
   state.compProgress = state.compProgress || [];
@@ -3732,7 +3737,7 @@ const TAB_TITLES = {
 
 // #history is kept as a legacy alias — it lands the user on Sales tab with
 // the History queue pill pre-selected (see boot/hashchange handlers below).
-const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'commission', '#d2dsales':'d2d_sales', '#techs':'techs', '#techsales':'tech_sales', '#admin':'admin' };
+const HASH_MAP = { '#dashboard':'dashboard', '#sales':'sales', '#pay':'pay', '#calendar':'calendar', '#history':'sales', '#competitions':'competitions', '#halloffame':'hall_of_fame', '#indicators':'indicators', '#nrla':'nrla', '#scorecards':'scorecards', '#reporting':'reporting', '#marketing':'marketing', '#commission':'commission', '#d2ddash':'d2d_dashboard', '#d2dupfront':'commission', '#d2dsales':'d2d_sales', '#techs':'techs', '#techsales':'tech_sales', '#techpay':'tech_pay', '#admin':'admin' };
 const VIEW_TO_HASH = Object.fromEntries(Object.entries(HASH_MAP).map(([h,v])=>[v,h]));
 
 // Only ring the bell when a sale's audit_status flips to one of these,
@@ -4700,6 +4705,7 @@ const D2D_SALES_TAB_KEYS = new Set(D2D_SALES_TABS.map(([k]) => k));
 const TECH_TABS = [
   ['techs',      'Dashboard'],
   ['tech_sales', 'Sales'],
+  ['tech_pay',   'Pay'],
 ];
 const TECH_TAB_KEYS = new Set(TECH_TABS.map(([k]) => k));
 // Which Sales queue a view shows — rows carry queue_type from the sync
@@ -5679,6 +5685,9 @@ function mountApp() {
     d2d_sales:    viewSales,
     techs:        viewTechs,
     tech_sales:   viewSales,
+    tech_pay:     () => el('div', { class: 'card p-12 text-center' },
+      el('div', { class: 'text-sm font-bold' }, 'Technician Pay — under construction'),
+      el('div', { class: 'text-xs text-muted- mt-1' }, 'Commission rules for Technicians are being configured. Sales are already being pulled in under the Sales tab.')),
     admin:        viewAdmin,
   }[state.view];
   // Registered module views render through their own render(ctx).
@@ -5724,7 +5733,7 @@ function mountApp() {
 
   // Floating action button — hidden on admin/settings, indicators, and calendar
   // (those tabs aren't sales-input contexts)
-  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_sales', 'techs', 'tech_sales', 'auditing']);
+  const FAB_HIDDEN_VIEWS = new Set(['admin', 'indicators', 'nrla', 'calendar', 'scorecards', 'reporting', 'marketing', 'commission', 'd2d_dashboard', 'd2d_sales', 'techs', 'tech_sales', 'tech_pay', 'auditing']);
   document.querySelector('.fab')?.remove();
   // + FAB is OFFICE STAFF only (per Isaac) — admins don't log sales from a
   // floating button, and the retired AI speed-dial no longer replaces it.
@@ -11402,7 +11411,9 @@ function viewSales() {
   // One renderer, three queues: Inside Sales ('sales'), D2D ('d2d_sales'),
   // Technicians ('tech_sales'). Rows carry queue_type from the sync.
   const _queue = SALES_QUEUE_OF_VIEW[state.view] || 'office';
-  const source  = (isAdmin ? state.allSales : state.mySales).filter(s => (s.queue_type || 'office') === _queue);
+  const _pool = _queue === 'office' ? (isAdmin ? state.allSales : state.mySales)
+    : ((state.queueSales && state.queueSales[_queue]) || []).filter(s => isAdmin || s.rep_id === state.profile.id);
+  const source  = _pool;
   // The Sales tab is the active queue — anything that still needs admin/auditor
   // attention OR is in flight to payroll. A sale falls off only when payroll
   // is RUN (payroll_processed_at set) AND the backend lock is decided
