@@ -39847,7 +39847,13 @@ function _normCancelReason(s) { const t = String(s == null ? '' : s).replace(/\s
 function reportingExcludedCancelReasons() {
   if (!_retenWhatIf('exclReasons', true)) return new Set();
   const cfg = state.reportingCancelConfig || [];
-  return new Set(cfg.filter(c => c.counts_attrition === false).map(c => _normCancelReason(c.reason)));
+  const set = new Set(cfg.filter(c => c.counts_attrition === false).map(c => _normCancelReason(c.reason)));
+  // Retention-tab slicers (session only): per-reason include / exclude on
+  // top of the saved config — the Settings panel stays the source of truth
+  // for the rest of the app.
+  const w = state._retenWhatIf;
+  if (w && w.reasons && state.reportingSubTab === 'waterfall') for (const k in w.reasons) { if (w.reasons[k]) set.add(k); else set.delete(k); }
+  return set;
 }
 function reportingCancelReasonOf(r) {
   // Tidy for display/grouping too — otherwise "Unspecified." and
@@ -49924,6 +49930,7 @@ function _retenWhatIf(key, official) {
 }
 function retenWhatIfActive() {
   const w = state._retenWhatIf; if (!w) return false;
+  if (w.reasons && Object.keys(w.reasons).length) return true;
   return Object.keys(w).some(k => typeof w[k] === 'boolean' && w[k] !== _retenOfficial()[k]);
 }
 function _retenOfficial() {
@@ -50070,12 +50077,17 @@ function retenMethodCard(pop, _retenEff) {
         ...rowsFor.map(g => {
           const rs = byKey.get(g.key) || [];
           const isEx = model.excludedSet.has(g.key);
-          const cb = el('input', { type: 'checkbox', checked: isEx, style: { accentColor: 'var(--accent)' }, onclick: (e) => e.stopPropagation(), onchange: (e) => { model.setExcluded(g, e.target.checked); mountApp(); } });
-          return el('label', { class: 'flex items-center gap-2 text-[11px] cursor-pointer' + (isEx ? ' font-semibold' : ''), style: isEx ? { color: 'var(--text)' } : { color: 'var(--text-muted)' }, onclick: (e) => e.stopPropagation() },
-            cb, el('span', { class: 'flex-1 truncate', title: g.display }, g.display),
+          const cb = el('input', { type: 'checkbox', checked: excl.has(g.key), style: { accentColor: 'var(--accent)' }, onclick: (e) => e.stopPropagation(), onchange: (e) => {
+            // Slicer, not a setting: overrides live in state._retenWhatIf.reasons for this session only.
+            const nw = { ...(state._retenWhatIf || {}) }; const rs = { ...(nw.reasons || {}) };
+            if (e.target.checked === model.excludedSet.has(g.key)) delete rs[g.key]; else rs[g.key] = e.target.checked;
+            nw.reasons = rs; state._retenWhatIf = nw; mountApp(); } });
+          const nowEx = excl.has(g.key);
+          return el('label', { class: 'flex items-center gap-2 text-[11px] cursor-pointer' + (nowEx ? ' font-semibold' : ''), style: nowEx ? { color: 'var(--text)' } : { color: 'var(--text-muted)' }, onclick: (e) => e.stopPropagation() },
+            cb, el('span', { class: 'flex-1 truncate', title: g.display + (nowEx !== isEx ? ' · differs from the saved setting' : '') }, g.display, nowEx !== isEx ? el('span', { style: { color: 'var(--accent)' } }, ' *') : null),
             clickable(el('span', { class: 'tabular-nums' }, n(rs.length)), rs.length ? drill(g.display, rs, 'cancelled for this reason') : null));
         }));
-      const node = step(9, 'Remove cancels with these reasons', 'Tick a reason and subscriptions cancelled for it are treated as RETAINED — the company ended it (errors, unserviceable, sold-not-started), the customer did not leave. Unticked reasons count as churn. Counts are cancelled subs in the book, all years; changes save for everyone.', neutralised.length, 'exclReasons', null, neutralised);
+      const node = step(9, 'Remove cancels with these reasons', 'Tick a reason and subscriptions cancelled for it are treated as RETAINED — the company ended it, the customer did not leave. Unticked reasons count as churn. These are slicers for this tab and session only (an * marks a reason that differs from the saved setting); the saved list lives in Reporting → Configurations → Cancellation reasons and drives the rest of the app.', neutralised.length, 'exclReasons', null, neutralised);
       node.children[1].append(listEl);
       return node;
     })(),
