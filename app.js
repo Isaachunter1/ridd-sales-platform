@@ -43337,11 +43337,18 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   const endLabel = new Date(endYm + '-15T12:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   // Term debt by branch (today's balances of the long-term liability accounts).
   const debtAccts = state.reportingLedger && state.reportingLedger.debt && state.reportingLedger.debt.accounts;
-  const debtBy = debtAccts && Object.keys(debtAccts).length ? (key) => {
-    const set = cols.find(c => c.key === key).set; let t = 0, any = false;
-    for (const name in debtAccts) { const n = name.toLowerCase(); const b = PUTIS_BRANCHES.find(x => n.includes(x.toLowerCase())) || (n.includes('utah') ? 'Salt Lake' : 'Corporate'); if (set.includes(b)) { t += debtAccts[name]; any = true; } }
-    return any ? t : (key === 'RIDD' ? 0 : null);
-  } : null;
+  // Branch = the loan accounts named for it. Corporate = everything else on
+  // the balance sheet's long-term liabilities (un-branched loan accounts AND
+  // any long-term liability not booked to a named loan), so the columns
+  // always add up to the balance-sheet total (per Isaac).
+  const debtBy = debtAccts && Object.keys(debtAccts).length ? (() => {
+    const byBranch = {}; let named = 0;
+    for (const name in debtAccts) { const n = name.toLowerCase(); const b = PUTIS_BRANCHES.find(x => n.includes(x.toLowerCase())) || (n.includes('utah') ? 'Salt Lake' : null); if (b) { byBranch[b] = (byBranch[b] || 0) + debtAccts[name]; named += debtAccts[name]; } else { byBranch.Corporate = (byBranch.Corporate || 0) + debtAccts[name]; } }
+    const BS = state.reportingLedger.balance || {}; const bsKeys = Object.keys(BS).sort(); const latest = bsKeys.length ? BS[bsKeys[bsKeys.length - 1]] : null;
+    const total = latest && latest.ltDebt > 0 ? latest.ltDebt : Object.values(byBranch).reduce((a, v) => a + v, 0);
+    byBranch.Corporate = Math.max(0, total - named);   // whatever isn't a branch-named loan
+    return (key) => { const set = cols.find(c => c.key === key).set; if (key === 'RIDD') return total; let t = 0, any = false; for (const b of set) if (byBranch[b] != null) { t += byBranch[b]; any = true; } return any ? t : null; };
+  })() : null;
   const th = (t, tip, corner) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left' + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)', position: 'sticky', top: 0, left: corner ? 0 : undefined, zIndex: corner ? 3 : 2, background: 'var(--card)', boxShadow: '0 1px 0 var(--border)' }, title: tip || '' }, t);
   const td = (v, o = {}) => el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap' + (o.bold ? ' font-bold' : '') + (o.muted ? ' text-muted-' : '') + (o.title ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '' }, v);
   // Income-statement card: every $ column gets a "% of revenue" column beside it (per Isaac).
