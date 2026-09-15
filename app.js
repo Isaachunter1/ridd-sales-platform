@@ -43497,7 +43497,8 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   // always add up to the balance-sheet total (per Isaac).
   const debtBy = debtAccts && Object.keys(debtAccts).length ? (() => {
     const byBranch = {}; let named = 0;
-    for (const name in debtAccts) { const n = name.toLowerCase(); const b = PUTIS_BRANCHES.find(x => n.includes(x.toLowerCase())) || (n.includes('utah') ? 'Salt Lake' : null); if (b) { byBranch[b] = (byBranch[b] || 0) + debtAccts[name]; named += debtAccts[name]; } else { byBranch.Corporate = (byBranch.Corporate || 0) + debtAccts[name]; } }
+    const _ovr = (_adminRules() && _adminRules().debtAcctBranch) || {};
+    for (const name in debtAccts) { const n = name.toLowerCase(); const b = _ovr[name] ? (_ovr[name] === 'Corporate' ? null : _ovr[name]) : (PUTIS_BRANCHES.find(x => n.includes(x.toLowerCase())) || (n.includes('utah') ? 'Salt Lake' : null)); if (b) { byBranch[b] = (byBranch[b] || 0) + debtAccts[name]; named += debtAccts[name]; } else { byBranch.Corporate = (byBranch.Corporate || 0) + debtAccts[name]; } }
     const BS = state.reportingLedger.balance || {}; const bsKeys = Object.keys(BS).sort(); const latest = bsKeys.length ? BS[bsKeys[bsKeys.length - 1]] : null;
     const total = latest && latest.ltDebt > 0 ? latest.ltDebt : Object.values(byBranch).reduce((a, v) => a + v, 0);
     byBranch.Corporate = Math.max(0, total - named);   // whatever isn't a branch-named loan
@@ -52545,190 +52546,142 @@ function adminConfigurations() {
     });
   }
 
-  const recurMode = reportingRecurringMode();
-  const modeBtn = (k, label, desc) => el('button', {
-    class: 'flex-1 text-left rounded-lg px-2.5 py-1 border transition cursor-pointer text-[11px]',
-    style: recurMode === k
-      ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
-      : { background: 'var(--card)', color: 'var(--text)', borderColor: 'var(--border-2)' },
-    onclick: () => { setReportingRecurringMode(k); mountApp(); },
-  },
-    el('div', { class: 'text-sm font-bold' }, label),
-    el('div', { class: 'text-[11px] mt-0.5', style: { opacity: '.85' } }, desc));
+  // ── Rebuilt (per Isaac, Sep 2026): labels + controls only, no prose on the
+  // page. Every explanation lives behind the ⓘ. Five cards: Reporting rules,
+  // Attrition steps (same 1–9 as the Retention tab), Branch ↔ QuickBooks,
+  // Indicators, and the three lists (Service Types / Sources / Cancel
+  // reasons) collapsed behind one-line headers.
   const defRow = (term, def) => el('div', { class: 'flex gap-3 text-xs' },
-    el('div', { class: 'font-semibold shrink-0', style: { color: 'var(--text)', width: '132px' } }, term),
+    el('div', { class: 'font-semibold shrink-0', style: { color: 'var(--text)', width: '180px' } }, term),
     el('div', { class: 'text-muted- leading-relaxed' }, def));
-
-  // Plain-English breakdown of how every reporting number is built — lives
-  // behind the ⓘ next to the heading (per Isaac).
   const howItWorks = () => el('div', { class: 'flex flex-col gap-1.5' },
-        defRow('Data source', 'A live mirror of FieldRoutes (RevHawk), re-synced automatically every evening — no manual uploads.'),
-        defRow('Active', 'Subscription status is Active AND it has no cancel date. (Active status with a cancel date = a lapsed / frozen sub, not active.)'),
-        defRow('Recurring', 'Decided by the Recurring basis setting below — each sub’s annual recurring value, or the manual Service-Type list.'),
-        defRow('Active ARR', 'Sum of annual recurring value across active, recurring subs. One-time services contribute $0 by nature.'),
-        defRow('Active customers', 'Distinct customers with at least one active subscription.'),
-        defRow('Cancelled', 'A recurring sub with a real cancel. Excludes one-time services, the cancel reasons excluded below, and 3-day RORs / sold-not-started (buyer’s remorse, not attrition).'),
-        defRow('Marketing / IS', 'Counts Office-Staff-sold accounts only (rep type comes straight from the report); Renewal sources are excluded from new-business pace.'),
-        defRow('Three rules', 'Service lifecycle, excluded Sources, and excluded Cancel reasons — set in the panels below.'),
-      );
+    defRow('Data source', 'A live mirror of FieldRoutes (RevHawk), re-synced hourly during the day — no manual uploads.'),
+    defRow('Recurring basis', 'Data-driven: a sub is recurring if its annual recurring value > $0 (self-maintaining, recommended). Lifecycle: the manual Service Types list decides.'),
+    defRow('Aging threshold', 'Days past due before a sub counts as aging / at-risk.'),
+    defRow('Active includes one-time', 'Count one-time active subs in “Subscriptions Active”; off = recurring only.'),
+    defRow('Deleted CRM accounts', 'Customer IDs deleted inside FieldRoutes. The warehouse keeps their rows, so they are excluded from every dataset — automatically when the sync flags them, plus any IDs you list.'),
+    defRow('Attrition steps', 'The saved population rules behind the Retention tab, in the same order as its Attrition Steps card. The tab’s own switches are session-only what-ifs; what you set here is the default every user sees. Attrition = counted cancels ÷ beginning-of-year book.'),
+    defRow('Step 3 · 3-day RORs', 'Reason “3 Day ROR”, or (switch on) any door-to-door sub cancelled within 3 days of the sale regardless of reason.'),
+    defRow('Steps 4–5', 'Combined Subscriptions and Renewal - … reasons: the old sub was folded into / replaced by another that carries on, so it leaves the book without counting as a loss.'),
+    defRow('Step 7 exemptions', 'Service names containing these terms keep their one-visit subs (Sentricon is annual — one visit a year is the service).'),
+    defRow('Step 9', 'Cancel reasons treated as retained — the company ended it, the customer did not leave. Edited in the Cancel reasons list below.'),
+    defRow('Branch ↔ QuickBooks', 'Which long-term liability (loan) accounts on the balance sheet belong to which branch on Putis Shid. Auto-matched by the branch name in the account; override here. Anything not assigned to a branch sits under Corporate so the columns always add to the balance-sheet total.'),
+    defRow('Indicators · MY % exclusions', 'Service terms left out of the MY % (multi-year) calculation on Indicators.'),
+    defRow('Marketing / IS', 'Counts Office-Staff-sold accounts only; Renewal sources are excluded from new-business pace.'),
+  );
+
+  // ── tiny controls ──
+  const sw = (on, onToggle) => el('button', { class: 'shrink-0', style: { width: '36px', height: '20px', borderRadius: '10px', background: on ? 'var(--accent)' : 'var(--border-2)', position: 'relative', border: 'none', cursor: 'pointer' }, onclick: onToggle },
+    el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)', transition: 'left .12s' } }));
+  const row = (label, control, o = {}) => el('div', { class: 'flex items-center justify-between gap-3 py-1.5 border-t', style: { borderColor: 'var(--border)', paddingLeft: o.indent ? '18px' : '0' } },
+    el('div', { class: (o.small ? 'text-xs' : 'text-sm') + ' font-semibold', style: o.muted ? { color: 'var(--text-muted)' } : {} }, label),
+    el('div', { class: 'flex items-center gap-2 shrink-0' }, ...[].concat(control).filter(Boolean)));
+  const sel = (value, opts, onChange, w) => el('select', { class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: w || '0' }, onchange: (e) => onChange(e.target.value) },
+    ...opts.map(([v, l]) => el('option', { value: v, selected: v === value }, l)));
+  const txt = (value, onSave, o = {}) => el('input', { type: 'text', value, placeholder: o.placeholder || '', class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: o.width || '260px' },
+    onchange: (e) => onSave(e.target.value) });
+  const num = (value, onSave) => el('input', { type: 'number', min: '0', value: String(value), class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '64px', textAlign: 'right' }, onchange: (e) => onSave(e.target.value) });
+  const pill = (t, color) => el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full', style: color ? { background: color + '18', color } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t);
+  const lbtn = (t, onclick, primary) => el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: primary ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { border: '1px solid var(--border-2)', color: 'var(--text)' }, onclick }, t);
+  const card = (title, right, ...body) => el('div', { class: 'card p-4' },
+    el('div', { class: 'flex items-center justify-between gap-3 mb-1' }, el('div', { class: 'text-sm font-bold' }, title), right || null),
+    ...body);
+  const splitList = (s) => [...new Set(String(s || '').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean))];
+  const n = (v) => Number(v || 0).toLocaleString();
+
+  // ── 1. Reporting rules ──
+  const orphans = orphanSubRows();
+  const orphanCust = new Set(orphans.map(r => String(r.customer_id || ''))).size;
+  const autoOrph = reportingAutoExcludeOrphans();
+  const delIds = state.indicatorDeletedCustIds || [];
+  const reportingRules = card('Reporting rules', null,
+    row('Recurring basis', sel(reportingRecurringMode(), [['arv', 'Data-driven (ARV > $0)'], ['lifecycle', 'Lifecycle config']], (v) => { setReportingRecurringMode(v); mountApp(); })),
+    row('Aging threshold (days)', num(reportingAgingDays(), (v) => { setReportingAgingDays(v); mountApp(); })),
+    row('Active includes one-time', sw(reportingActiveInclOneTime(), () => { setReportingActiveInclOneTime(!reportingActiveInclOneTime()); mountApp(); })),
+    row('Deleted CRM accounts · auto-exclude', [
+      orphans.length ? el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions with no FieldRoutes customer record', sliceLabel: n(orphans.length) + ' subscriptions · deleted in the CRM', rows: orphans, formatValue: fmt.usd0 }) }, n(orphanCust) + ' detected →') : pill('0 detected'),
+      sw(autoOrph, () => {
+        setReportingAutoExcludeOrphans(!autoOrph);
+        if (Array.isArray(state.reportingSubscriptions)) {
+          const ids = new Set(state._orphanCustIds || []);
+          state.reportingSubscriptions = !autoOrph
+            ? state.reportingSubscriptions.filter(r => !ids.has(String(r.customer_id != null ? r.customer_id : '')))
+            : state.reportingSubscriptions.concat(orphans.filter(r => !state.reportingSubscriptions.includes(r)));
+        }
+        mountApp();
+      })]),
+    row('Deleted CRM accounts · manual IDs', [pill(n(delIds.length) + ' excluded'), txt(delIds.join(', '), (v) => {
+      const ids = [...new Set(String(v || '').split(/[\s,;]+/).map(x => x.trim()).filter(x => /^\d+$/.test(x)))];
+      state.indicatorDeletedCustIds = ids;
+      const del = deletedCustIdSet();
+      if (del.size && Array.isArray(state.reportingSubscriptions)) state.reportingSubscriptions = state.reportingSubscriptions.filter(r => !del.has(String(r.customer_id != null ? r.customer_id : '')));
+      saveIndicatorState(); toast(ids.length + ' deleted account' + (ids.length === 1 ? '' : 's') + ' excluded app-wide', 'success'); mountApp();
+    }, { placeholder: 'customer IDs, comma-separated' })], { small: true, indent: true }),
+  );
+
+  // ── 2. Attrition steps (mirror of the Retention tab, saved defaults) ──
+  const popList = (() => { const r = _adminRules(); return r && Array.isArray(r.retenPopExclReasons) ? r.retenPopExclReasons : RETEN_POP_EXCL_REASONS_DEFAULT; })();
+  const popOf = (re) => popList.filter(x => re.test(x));
+  const exclReasons = reportingExcludedCancelReasons();
+  const stepNo = (i) => el('span', { class: 'inline-flex items-center justify-center text-[10px] font-black rounded-full mr-2', style: { width: '18px', height: '18px', background: 'var(--card-2)', color: 'var(--text-muted)' } }, String(i));
+  const stepRow = (i, label, control, o) => row(el('span', { class: 'inline-flex items-center' }, stepNo(i), label), control, o);
+  const attrition = card('Attrition steps', pill('saved defaults · Retention tab switches are session-only'),
+    stepRow(1, 'Remove one-time services', pill('from recurring basis')),
+    stepRow(2, 'Remove subs that never received an initial service', pill('always')),
+    stepRow(3, 'Remove 3-day RORs', [pill(popOf(/ror/i).join(', ') || '— no reason set'), el('span', { class: 'text-[10px] text-muted-' }, '+ D2D cancelled ≤3 days'), sw(reportingExcludeRorChurn(), () => { setReportingExcludeRorChurn(!reportingExcludeRorChurn()); mountApp(); })]),
+    stepRow(4, 'Remove combined subscriptions', pill(popOf(/combined/i).join(', ') || '— no reason set')),
+    stepRow(5, 'Remove renewals', pill(popOf(/renewal/i).join(', ') || '— no reason set')),
+    row('Reasons that remove a sub from the book (steps 3–5)', txt(popList.join(', '), (v) => { const l = splitList(v); setRetenPopExclReasons(l.length ? l : RETEN_POP_EXCL_REASONS_DEFAULT); toast('Retention book updated', 'success'); mountApp(); }, { width: '360px' }), { small: true, indent: true }),
+    stepRow(6, 'Remove subs with no ARR', sw(retenExclZeroPay(), () => { setRetenExclZeroPay(!retenExclZeroPay()); mountApp(); })),
+    stepRow(7, 'Remove subs that never received a 2nd treatment (prior years)', sw(retenExclOneSvc(), () => { setRetenExclOneSvc(!retenExclOneSvc()); mountApp(); })),
+    row('Exempt service terms', txt(retenOneSvcExemptTerms().join(', '), (v) => { const l = splitList(v).map(x => x.toLowerCase()); setRetenOneSvcExemptTerms(l.length ? l : ['sentricon']); toast('Exempt terms saved', 'success'); mountApp(); }, { width: '200px' }), { small: true, indent: true }),
+    stepRow(8, 'Remove frozen subs with ≤1 service (any year)', sw(retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); })),
+    stepRow(9, 'Remove cancels with these reasons (count as retained)', [pill(n(exclReasons.size) + ' reason' + (exclReasons.size === 1 ? '' : 's')), lbtn('Edit', () => { state._cfgOpen = 'cancel'; mountApp(); setTimeout(() => { const t = document.getElementById('cfg-list-cancel'); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50); })]),
+  );
+
+  // ── 3. Branch ↔ QuickBooks (loan accounts → Putis Shid branch) ──
+  const debtAccts = (state.reportingLedger && state.reportingLedger.debt && state.reportingLedger.debt.accounts) || null;
+  const debtMap = (() => { const r = _adminRules(); return (r && r.debtAcctBranch) || {}; })();
+  const autoBranch = (name) => { const s = name.toLowerCase(); return PUTIS_BRANCHES.find(b => s.includes(b.toLowerCase())) || (s.includes('utah') ? 'Salt Lake' : 'Corporate'); };
+  const branchQbo = card('Branch ↔ QuickBooks', pill(debtAccts ? n(Object.keys(debtAccts).length) + ' loan accounts' : 'sync Putis Shid first'),
+    ...(debtAccts ? Object.entries(debtAccts).sort((a, b) => b[1] - a[1]).map(([name, bal]) => {
+      const auto = autoBranch(name); const cur = debtMap[name] || auto;
+      return row(name, [el('span', { class: 'text-[11px] tabular-nums text-muted-' }, fmt.usd0(bal)),
+        sel(cur, [...PUTIS_BRANCHES, 'Corporate'].map(b => [b, b + (b === auto ? ' · auto' : '')]), (v) => {
+          const m = { ...debtMap }; if (v === auto) delete m[name]; else m[name] = v;
+          _setAdminRule('debtAcctBranch', m); toast(name + ' → ' + v, 'success'); mountApp();
+        }, '150px')], { small: true });
+    }) : [el('div', { class: 'text-xs text-muted- py-2' }, 'Loan accounts appear here after the first QuickBooks sync (↻ on Putis Shid).')]),
+  );
+
+  // ── 4. Indicators ──
+  const indicators = card('Indicators', null,
+    row('MY % exclusions (service terms)', txt(myExcludeTerms().join(', '), (v) => { const l = splitList(v).map(x => x.toLowerCase()); state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' term' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); }, { width: '220px' })),
+  );
+
+  // ── 5. Lists — collapsed one-liners ──
+  const listCard = (key, title, count, build) => {
+    const open = state._cfgOpen === key;
+    return el('div', { class: 'card', id: 'cfg-list-' + key },
+      el('button', { class: 'w-full flex items-center justify-between gap-3 px-4 py-3 text-left', onclick: () => { state._cfgOpen = open ? null : key; mountApp(); } },
+        el('span', { class: 'text-sm font-bold' }, title),
+        el('span', { class: 'flex items-center gap-2' }, pill(count), el('span', { class: 'text-[11px] text-muted-' }, open ? '▲' : '▼'))),
+      open ? el('div', { class: 'px-4 pb-4' }, build()) : null);
+  };
+  const svcCount = (() => { try { const m = reportingServiceRecurringMap(); return n(m.size) + ' services'; } catch (e) { return ''; } })();
+  const cxlCount = n(exclReasons.size) + ' excluded';
 
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'flex items-center gap-2' },
       el('h2', { class: 'text-lg font-bold' }, 'Configurations'),
-      configInfoBtn('How reporting works', howItWorks()),
-    ),
-    // Recurring basis — the single biggest accuracy lever.
-    el('div', { class: 'card p-4' },
-      el('div', { class: 'flex items-center justify-between mb-2 flex-wrap gap-1' },
-        el('div', { class: 'text-sm font-bold' }, 'Recurring revenue basis'),
-        el('div', { class: 'text-[11px] text-muted-' }, 'Drives ARR · churn · retention')),
-      el('div', { class: 'text-xs text-muted- mb-2.5 leading-relaxed' },
-        'How the app decides which subscriptions are recurring. ',
-        el('b', {}, 'Data-driven'), ' reads each sub’s annual recurring value straight from FieldRoutes — self-maintaining and recommended for accuracy. ',
-        el('b', {}, 'Lifecycle config'), ' uses the manual Service Types list, which can drift as new plans appear.'),
-      el('div', { class: 'flex gap-2 flex-wrap' },
-        modeBtn('arv', 'Data-driven (ARV > $0)', 'Recurring if annual recurring value > $0 · recommended'),
-        modeBtn('lifecycle', 'Lifecycle config', 'Recurring if the Service Type is marked recurring')),
-    ),
-    // ── Reporting rules — fine-grained levers ──
-    (() => {
-      const sw = (on) => el('div', { style: { width: '38px', height: '22px', borderRadius: '0', background: on ? 'var(--accent)' : 'var(--border-2)', position: 'relative', flex: 'none' } },
-        el('div', { style: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)' } }));
-      const toggleRow = (label, desc, on, onToggle) => el('div', { class: 'flex items-center justify-between gap-3 cursor-pointer py-1', onclick: onToggle },
-        el('div', {}, el('div', { class: 'text-sm font-semibold' }, label), el('div', { class: 'text-[11px] text-muted-' }, desc)), sw(on));
-      const rule = () => el('div', { style: { borderTop: '1px solid var(--border)' } });
-      const branches = reportingAllBranches();
-      const excl = reportingExcludedBranches();
-      const renames = reportingBranchRenames();
-      return el('div', { class: 'card p-4 flex flex-col gap-2.5' },
-        el('div', { class: 'text-sm font-bold' }, 'Reporting rules'),
-        el('div', { class: 'flex items-center justify-between gap-3 py-1' },
-          el('div', {}, el('div', { class: 'text-sm font-semibold' }, 'Aging threshold'), el('div', { class: 'text-[11px] text-muted-' }, 'Days past due before a sub counts as aging / at-risk.')),
-          el('input', { type: 'number', min: '0', value: String(reportingAgingDays()), style: { width: '70px', textAlign: 'right' }, onchange: (e) => { setReportingAgingDays(e.target.value); mountApp(); } })),
-        rule(),
-        toggleRow('Active includes one-time', 'Count one-time active subs in “Subscriptions Active” (otherwise recurring only).', reportingActiveInclOneTime(), () => { setReportingActiveInclOneTime(!reportingActiveInclOneTime()); mountApp(); }),
-        rule(),
-        toggleRow('Exclude 3-day RORs from churn', 'Drop subs cancelled within 3 days of the sale (buyer’s remorse) from cancellation / attrition.', reportingExcludeRorChurn(), () => { setReportingExcludeRorChurn(!reportingExcludeRorChurn()); mountApp(); }),
-        rule(),
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-1', style: { color: 'var(--text-subtle)' } }, 'Retention population (workbook Steps 4–6)'),
-        (() => {
-          const cur = [...retenPopExclReasons()].join(', ');
-          const ta = el('textarea', { rows: '2', class: 'w-full rounded-lg border px-3 py-2 text-xs', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', resize: 'vertical' } }, cur);
-          return el('div', { class: 'py-1' },
-            el('div', { class: 'text-sm font-semibold' }, 'Step 1 · Drop subs closed with these reasons'),
-            el('div', { class: 'text-[11px] text-muted- mb-2' }, 'A sub cancelled with one of these reasons leaves the retention book entirely — it was never lost (3-day ROR), was folded into another sub (Combined), or was replaced by a renewal sub that stays in the book (Renewal - …). Comma-separated; blank restores the default.'),
-            ta,
-            el('div', { class: 'flex justify-end mt-1.5' }, el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-              onclick: () => { const v = String(ta.value || '').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean); setRetenPopExclReasons(v.length ? v : RETEN_POP_EXCL_REASONS_DEFAULT); toast('Retention book updated', 'success'); mountApp(); } }, 'Save list')));
-        })(),
-        rule(),
-        toggleRow('Also exclude renewal-SOURCE subs', 'Off by default: the renewal sub is the live continuation and stays in the book (the old sub it replaced leaves via Step 1 above). Turn on only to drop both sides.', retenExclRenewalSubs(), () => { setRetenExclRenewalSubs(!retenExclRenewalSubs()); mountApp(); }),
-        rule(),
-        toggleRow('Exclude $0-paying subs', 'Subs with $0 annual recurring value drop from the retention book.', retenExclZeroPay(), () => { setRetenExclZeroPay(!retenExclZeroPay()); mountApp(); }),
-        rule(),
-        toggleRow('Step 3 · Require 2+ services (prior years)', 'A sub with only one completed service drops from the retention book - a one-visit account is not yet a legitimate customer, so its cancel is not legitimate attrition. Exempt: current-year accounts (Step 4 - just young, not dead) and the service terms below.', retenExclOneSvc(), () => { setRetenExclOneSvc(!retenExclOneSvc()); mountApp(); }),
-        (() => {
-          const ta = el('input', { type: 'text', value: retenOneSvcExemptTerms().join(', '), class: 'rounded-lg border px-2.5 py-1 text-xs', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '220px' },
-            onchange: (e) => { const v = String(e.target.value || '').split(/[,;]+/).map(x => x.trim().toLowerCase()).filter(Boolean); setRetenOneSvcExemptTerms(v.length ? v : ['sentricon']); toast('Exempt terms saved', 'success'); mountApp(); } });
-          return el('div', { class: 'flex items-center justify-between gap-3 py-1 pl-4' },
-            el('div', {}, el('div', { class: 'text-xs font-semibold' }, 'One-service exemptions'), el('div', { class: 'text-[11px] text-muted-' }, 'Service names containing any of these keep their one-service subs in the book (Sentricon is annual — one visit a year is the service).')),
-            ta);
-        })(),
-        toggleRow('Exclude frozen subs with ≤1 service (any year)', 'An account frozen after a single visit never became a customer — it leaves the book even if it was sold this year (the current-year exemption only protects accounts that are still active). Sentricon stays exempt.', retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); }),
-        rule(),
-        // ── Deleted-in-CRM accounts — orphan rows the RevHawk mirror keeps ──
-        (() => {
-          const cur = (state.indicatorDeletedCustIds || []).join(', ');
-          const ta = el('textarea', {
-            rows: '2', placeholder: 'e.g. 154844, 149539, 148260…',
-            class: 'w-full rounded-lg border px-3 py-2 text-xs tabular-nums',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', resize: 'vertical' },
-          }, cur);
-          return el('div', { class: 'py-1' },
-            el('div', { class: 'text-sm font-semibold' }, 'Deleted CRM accounts'),
-            el('div', { class: 'text-[11px] text-muted- mb-2' }, 'Customer IDs deleted inside FieldRoutes. The warehouse mirror keeps their old rows, so without this list the app counts revenue the CRM no longer shows. Excluded from EVERY dataset, for every user.'),
-            (() => {
-              const o = orphanSubRows();
-              const nCust = new Set(o.map(r => String(r.customer_id || ''))).size;
-              const nActive = o.filter(r => /active/i.test(String(r.subscription_status || '')) && !r.subscription_date_canceled).length;
-              const on = reportingAutoExcludeOrphans();
-              return el('div', { class: 'rounded-lg border px-3 py-2 mb-2 flex flex-wrap items-center justify-between gap-2', style: { borderColor: 'var(--border-2)', background: 'var(--surface-2, transparent)' } },
-                el('div', { class: 'min-w-0' },
-                  el('div', { class: 'text-xs font-semibold' }, 'Auto-detected: ' + nCust.toLocaleString() + ' customer' + (nCust === 1 ? '' : 's') + ' with no CRM record'),
-                  el('div', { class: 'text-[11px] text-muted-' }, o.length.toLocaleString() + ' subscription' + (o.length === 1 ? '' : 's') + ' (' + nActive + ' still marked active). The sync flags any subscription whose customer id no longer exists in FieldRoutes — i.e. the account was deleted there. ' + (on ? 'Excluded app-wide automatically.' : 'Currently INCLUDED in every dataset.'))),
-                el('div', { class: 'flex items-center gap-2 shrink-0' },
-                  o.length ? el('button', {
-                    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
-                    style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-                    onclick: () => openReportingDrillModal({ chartTitle: 'Subscriptions with no FieldRoutes customer record', sliceLabel: o.length.toLocaleString() + ' subscription' + (o.length === 1 ? '' : 's') + ' \u00b7 deleted in the CRM', rows: o, formatValue: fmt.usd0 }),
-                  }, 'View list') : null,
-                  el('button', {
-                    class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-                    style: on ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--surface-3, #eee)', color: 'var(--text)' },
-                    onclick: () => { setReportingAutoExcludeOrphans(!on); toast(!on ? 'Deleted-in-CRM accounts now excluded automatically' : 'Auto-exclusion off — orphan rows count again', 'success'); if (Array.isArray(state.reportingSubscriptions)) {
-                      const ids = new Set(state._orphanCustIds || []);
-                      state.reportingSubscriptions = !on
-                        ? state.reportingSubscriptions.filter(r => !ids.has(String(r.customer_id != null ? r.customer_id : '')))
-                        : state.reportingSubscriptions.concat(o.filter(r => !state.reportingSubscriptions.includes(r)));
-                    }
-                    mountApp(); },
-                  }, on ? 'Auto-exclude: on' : 'Auto-exclude: off')));
-            })(),
-            ta,
-            el('div', { class: 'flex items-center justify-between mt-1.5' },
-              el('span', { class: 'text-[10px] text-muted-' }, (state.indicatorDeletedCustIds || []).length + ' excluded'),
-              el('button', {
-                class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-                style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-                onclick: () => {
-                  const ids = [...new Set(String(ta.value || '').split(/[\s,;]+/).map(x => x.trim()).filter(x => /^\d+$/.test(x)))];
-                  state.indicatorDeletedCustIds = ids;
-                  // Live-filter the in-memory snapshot so every open tab view
-                  // reflects it now, not after the next snapshot load.
-                  const del = deletedCustIdSet();
-                  if (del.size && Array.isArray(state.reportingSubscriptions)) {
-                    state.reportingSubscriptions = state.reportingSubscriptions.filter(r => !del.has(String(r.customer_id != null ? r.customer_id : '')));
-                  }
-                  saveIndicatorState();
-                  toast(ids.length + ' deleted account' + (ids.length === 1 ? '' : 's') + ' excluded app-wide', 'success');
-                  mountApp();
-                },
-              }, 'Save list')));
-        })(),
-        (() => {
-          const _cur = myExcludeTerms().join(', ');
-          const ta = el('textarea', {
-            rows: '2', placeholder: 'e.g. sentricon',
-            class: 'w-full rounded-lg border px-3 py-2 text-xs',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', resize: 'vertical' },
-          }, _cur);
-          const _n = myExcludeTerms().length;
-          return el('div', { class: 'py-1' },
-            el('div', { class: 'text-sm font-semibold' }, 'Excluded from MY %'),
-            el('div', { class: 'text-[11px] text-muted- mb-2' },
-              'Service names (or any part of one) that should not be scored on term length. Matching accounts drop out of BOTH sides of the multi-year ratio. They still count everywhere else: revenue, ACV, account counts, records and King of the Hill. Commission is NOT affected - the Multi-Year Bonus keeps its own revenue-weighted rate.'),
-            ta,
-            el('div', { class: 'flex items-center justify-between mt-1.5' },
-              el('span', { class: 'text-[10px] text-muted-' }, _n + ' term' + (_n === 1 ? '' : 's') + ', blank restores the default (sentricon)'),
-              el('button', {
-                class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-                style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-                onclick: () => {
-                  const terms = [...new Set(String(ta.value || '').split(/[,;\n]+/).map(x => x.trim().toLowerCase()).filter(Boolean))];
-                  state.indicatorMyExclServiceTerms = terms.length ? terms : null;
-                  saveIndicatorState();
-                  toast(terms.length ? (terms.length + ' term' + (terms.length === 1 ? '' : 's') + ' excluded from MY %') : 'Reset to the default (sentricon)', 'success');
-                  mountApp();
-                },
-              }, 'Save list')));
-        })(),
-        // ("Exclude branches" removed — per Isaac, there's no real case for
-        // excluding a branch from company reporting. reportingExcludedBranches
-        // plumbing kept; an empty set means nothing is excluded.)
-      );
-    })(),
-    el('div', { class: 'flex flex-col gap-4' },
-      reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()),
+      configInfoBtn('How reporting works', howItWorks())),
+    reportingRules,
+    attrition,
+    branchQbo,
+    indicators,
+    listCard('service', 'Service Types', svcCount, reportingServiceConfigPanel),
+    listCard('source', 'Sources', '', reportingSourceConfigPanel),
+    listCard('cancel', 'Cancel reasons', cxlCount, reportingCancelConfigPanel),
   );
 }
 
