@@ -51395,8 +51395,7 @@ function reportingWaterfall() {
       ['base', 'Baseline'],
     ];
     const _validSegs = new Set(METRICS.map(([k]) => k));
-    let segsSel = Array.isArray(state._retTrendSegs) ? state._retTrendSegs.filter(k => _validSegs.has(k)) : [];
-    if (!segsSel.length) segsSel = ['all'];
+    let segsSel = ['all'];
     // Monthly churn-rate lookup for an arbitrary subset — book-walk identical
     // to the seasonality card.
     const rateFnFor = (subsetFn) => {
@@ -51438,8 +51437,11 @@ function reportingWaterfall() {
     rows.forEach(r => { const y = Number(String(r.initial_service).slice(0, 4)); if (y > 2000) _minY = Math.min(_minY, y); });
     const yearsAvail = [];
     for (let y = _minY; y <= curY; y++) yearsAvail.push(y);
-    let yearsSel = Array.isArray(state._retTrendYears) ? state._retTrendYears.filter(y => yearsAvail.includes(y)) : [];
-    if (!yearsSel.length) yearsSel = yearsAvail.slice(-3);
+    // Span dropdown (per Isaac): this year vs last year by default, or the
+    // last 3 / 5 years. All accounts only — the Last Resort / Standard /
+    // Baseline series are retired for now.
+    const span = [2, 3, 5].includes(Number(state._retTrendSpan)) ? Number(state._retTrendSpan) : 2;
+    let yearsSel = yearsAvail.slice(-span);
     yearsSel = [...yearsSel].sort((a, b) => a - b);
     let datasets = [];
     const isDark = state.theme === 'dark';
@@ -51488,37 +51490,12 @@ function reportingWaterfall() {
     return el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
         el('div', {},
-          el('h3', { class: 'text-sm font-bold' }, '📉 Attrition Trends' + (label ? ' — ' + label : '')),
-          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
-            'Monthly churn ÷ book at month start — same rules as the seasonality grid. Last Resort = <$99 initial sold since the program began (Jun 5 2026); months with a book under 10 subs are blanked.')),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          // Year multi-select pills — drive the YoY lines AND the compare
-          // view's baseline (prior selected years averaged).
-          el('div', { class: 'flex items-center gap-1 flex-wrap' },
-            ...yearsAvail.map(y => el('button', {
-              class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition',
-              style: yearsSel.includes(y) ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
-              onclick: () => {
-                const cur = new Set(yearsSel);
-                if (cur.has(y)) { if (cur.size > 1) cur.delete(y); } else cur.add(y);
-                state._retTrendYears = [...cur].sort((a, b) => a - b);
-                mountApp();
-              },
-            }, String(y)))),
-          el('div', { class: 'flex items-center gap-1 flex-wrap' },
-            ...METRICS.map(([k, lbl]) => el('button', {
-              class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition',
-              style: segsSel.includes(k)
-                ? { background: k === 'lr' ? '#DC2626' : k === 'std' ? '#DF643A' : 'var(--text)', color: k === 'std' ? '#1D1D1D' : 'var(--bg)' }
-                : { background: 'var(--card-2)', color: 'var(--text-muted)' },
-              title: k === 'base' ? 'Average monthly attrition across the selected prior years (all accounts)' : k === 'lr' ? '<$99 initial, sold since Jun 5 2026' : '',
-              onclick: () => {
-                const cur = new Set(segsSel);
-                if (cur.has(k)) { if (cur.size > 1) cur.delete(k); } else cur.add(k);
-                state._retTrendSegs = [...cur];
-                mountApp();
-              },
-            }, (segsSel.includes(k) ? '\u2713 ' : '') + lbl))))),
+          el('h3', { class: 'text-sm font-bold' }, 'Attrition Trends' + (label ? ' — ' + label : ''))),
+        el('select', {
+          class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+          style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          onchange: (e) => { state._retTrendSpan = Number(e.target.value); mountApp(); },
+        }, ...[[2, curY + ' vs ' + (curY - 1)], [3, 'Last 3 years'], [5, 'Last 5 years']].map(([v, l]) => el('option', { value: String(v), selected: span === v }, l)))),
       cvsWrap);
   };
 
