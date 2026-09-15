@@ -49972,7 +49972,7 @@ function retenMethodCard(pop, _retenEff) {
     clickable(el('div', { class: 'text-lg font-black tabular-nums' }, val), drill(label, rowsIn, 'included')));
   const notIn = (a, b) => { const set = new Set(b); return a.filter(r => !set.has(r)); };
   const reasonList = Object.entries(byReason1).sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' ' + n(v)).join(' · ');
-  const open = state._retenMethodOpen !== false;
+  const open = state._retenMethodOpen === true;   // collapsed by default (per Isaac)
   const whatIf = retenWhatIfActive();
   const card = el('div', { class: 'card overflow-hidden', style: whatIf ? { outline: '2px solid var(--accent)' } : {} },
     el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap cursor-pointer', onclick: () => { state._retenMethodOpen = !open; mountApp(); } },
@@ -50069,8 +50069,8 @@ function reportingWaterfall() {
   const _methodologyInfo = (typeof reportingMethodologyInfoBtn === 'function') ? reportingMethodologyInfoBtn() : null;
   const _phoneR = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const modeBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Group rows by'),
-    ..._phoneR ? [el('select', {
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Metrics'),
+    ...true ? [el('select', {
       class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
       style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
       onchange: (e) => { state.reportingWaterfallMode = e.target.value; mountApp(); },
@@ -50124,7 +50124,7 @@ function reportingWaterfall() {
             toast('Exported ' + rows.length.toLocaleString() + ' subscriptions — the exact set this tab counts', 'success');
           } catch (e) { toast('Export failed: ' + ((e && e.message) || e), 'error'); }
         },
-      }, _phoneR ? '⬇' : '⬇ Export population'),
+      }, '⬇'),
       _methodologyInfo),
   );
 
