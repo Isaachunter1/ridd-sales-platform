@@ -50023,21 +50023,32 @@ function retenMethodCard(pop, _retenEff) {
       const oneTime = notIn(pop, s1);
       const otRev = oneTime.reduce((a, r) => a + (Number(r.subscription_contract_value) || 0), 0);
       const otCust = new Set(oneTime.map(r => r.customer_id)).size;
-      return step(1, 'Recurring subscriptions only', 'One-time services are never part of a retention book — ' + n(oneTime.length) + ' one-time subs across ' + n(otCust) + ' customers, $' + Math.round(otRev).toLocaleString() + ' of one-time service revenue, set aside here (still counted on the Overview and in the P&L).', n0 - s1.length, null, '$' + Math.round(otRev).toLocaleString() + ' one-time revenue', oneTime, s1);
+      return step(1, 'Remove one-time services', 'One-time services are never part of a retention book — ' + n(oneTime.length) + ' one-time subs across ' + n(otCust) + ' customers, $' + Math.round(otRev).toLocaleString() + ' of one-time service revenue, set aside here (still counted on the Overview and in the P&L).', n0 - s1.length, null, '$' + Math.round(otRev).toLocaleString() + ' one-time revenue', oneTime, s1);
     })(),
-    step(2, 'Received an initial service', 'A sub that never started cannot retain or churn.', s1.length - s2.length, null, null, notIn(s1, s2), s2),
-    step(3, '3-day ROR', 'Any subscription that was a 3-day right-of-rescission: cancellation reason “3 Day ROR”, or a door-to-door sub cancelled within 3 days of the sale whatever reason was typed. Never really a customer.', s2.length - step1a.length, 'popRor', null, notIn(s2, step1a), step1a),
-    step(4, 'Combined subscriptions', 'Cancellation reason “Combined Subscriptions” — folded into another sub on the same account, which carries on.', step1a.length - step1b.length, 'popCombined', null, notIn(step1a, step1b), step1b),
-    step(5, 'Renewals', 'Cancellation reason Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound — the old plan was replaced by the renewal sub, which stays in the book carrying the original start date.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1),
-    step(6, 'No ARR', '$0 annual recurring value — nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2), step2),
-    step(7, 'Never received a 2nd treatment', 'Prior-year subscriptions with a single completed visit — never became a customer. Sentricon (' + retenOneSvcExemptTerms().join(', ') + ') is exempt: one visit a year is the service.', step2.length - step2b.length, 'oneSvc', null, notIn(step2, step2b), step2b),
-    step(8, 'Sold in ' + year + ', frozen after one treatment', 'Accounts sold this year that took one visit and already cancelled. Active ' + year + ' one-visit accounts (' + n(oneSvcKept.length) + ') stay — they are just young.', step2b.length - step3.length, 'frozenOneSvc', null, notIn(step2b, step3), step3),
+    step(2, 'Remove subs that never received an initial service', 'A sub that never started cannot retain or churn.', s1.length - s2.length, null, null, notIn(s1, s2), s2),
+    (() => {
+      const removed = notIn(s2, step1a);
+      // RORs caught by TIMING whose reason isn't coded "3 Day ROR" — fix these in FieldRoutes.
+      const miscoded = removed.filter(r => !/ror/.test(_normCancelReason(reportingCancelReasonOf(r))));
+      const node = step(3, 'Remove 3-day RORs', 'Any subscription that was a 3-day right-of-rescission: cancellation reason “3 Day ROR”, or a door-to-door sub cancelled within 3 days of the sale whatever reason was typed. Never really a customer.', s2.length - step1a.length, 'popRor', null, removed, step1a);
+      if (miscoded.length) node.children[1].append(el('button', {
+        class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
+        title: 'Cancelled within 3 days of the sale but the reason in FieldRoutes is not “3 Day ROR” — open the list and correct them in the CRM',
+        onclick: (e) => { e.stopPropagation(); openReportingDrillModal({ chartTitle: 'Attrition steps · RORs miscoded in the CRM', sliceLabel: n(miscoded.length) + ' subscription' + (miscoded.length === 1 ? '' : 's') + ' · cancelled within 3 days but reason ≠ “3 Day ROR”', rows: miscoded, formatValue: fmt.usd0 }); },
+      }, '⚑ ' + n(miscoded.length) + ' miscoded — fix the reason in the CRM'));
+      return node;
+    })(),
+    step(4, 'Remove combined subscriptions', 'Cancellation reason “Combined Subscriptions” — folded into another sub on the same account, which carries on.', step1a.length - step1b.length, 'popCombined', null, notIn(step1a, step1b), step1b),
+    step(5, 'Remove renewals', 'Cancellation reason Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound — the old plan was replaced by the renewal sub, which stays in the book carrying the original start date.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1),
+    step(6, 'Remove subs with no ARR', '$0 annual recurring value — nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2), step2),
+    step(7, 'Remove subs that never received a 2nd treatment', 'Prior-year subscriptions with a single completed visit — never became a customer. Sentricon (' + retenOneSvcExemptTerms().join(', ') + ') is exempt: one visit a year is the service.', step2.length - step2b.length, 'oneSvc', null, notIn(step2, step2b), step2b),
+    step(8, 'Remove ' + year + ' subs frozen after one treatment', 'Accounts sold this year that took one visit and already cancelled. Active ' + year + ' one-visit accounts (' + n(oneSvcKept.length) + ') stay — they are just young.', step2b.length - step3.length, 'frozenOneSvc', null, notIn(step2b, step3), step3),
     total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-4 pb-1', style: { color: 'var(--text-subtle)' } }, 'B · Who counts as lost (numerator) — ' + year + ' YTD'),
     el('div', { class: 'flex items-center justify-between py-2' }, el('div', {}, el('div', { class: 'text-sm font-semibold' }, 'Beginning-of-year book'), el('div', { class: 'text-[11px] text-muted-' }, 'Subs serviced before Jan 1 ' + year + ' and still on the books that day. Sales made during the year never enter the rate.')), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.boy)), drill('Beginning-of-year book', cur.rows.boy, 'on the books Jan 1'))),
     el('div', { class: 'flex items-center justify-between py-2 border-t border-' }, el('div', { class: 'text-sm font-semibold' }, 'Cancelled so far this year (any reason)'), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.raw)), drill('Cancelled this year (any reason)', cur.rows.raw, 'cancel date this year'))),
-    step(9, 'Strip excluded cancel reasons', 'Reasons flagged “doesn’t count as attrition” in Settings → Cancellation reasons (' + excl.size + ' reason' + (excl.size === 1 ? '' : 's') + ').', cur.exclN, 'exclReasons', null, cur.rows.excl),
-    step(10, 'Strip 3-day RORs', 'Door-to-door sales cancelled within 3 days of the sale — buyer’s remorse, not attrition.', cur.rorN, 'ror', null, cur.rows.ror),
+    step(9, 'Remove excluded cancel reasons', 'Reasons flagged “doesn’t count as attrition” in Settings → Cancellation reasons (' + excl.size + ' reason' + (excl.size === 1 ? '' : 's') + ').', cur.exclN, 'exclReasons', null, cur.rows.excl),
+    step(10, 'Remove 3-day RORs', 'Door-to-door sales cancelled within 3 days of the sale — buyer’s remorse, not attrition.', cur.rorN, 'ror', null, cur.rows.ror),
     total('Counted cancels', n(cur.counted), 'Attrition = counted cancels ÷ beginning-of-year book', cur.rows.counted),
     total(year + ' YTD attrition', pct(cur.rate) + (official ? '  (official ' + pct(official.cur) + ')' : ''), (year - 1) + ' full year: ' + pct(prev.rate) + (official ? ' (official ' + pct(official.prev) + ')' : '') + ' · ' + n(prev.counted) + ' of ' + n(prev.boy))));
   return card;
