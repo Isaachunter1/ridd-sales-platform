@@ -26434,10 +26434,8 @@ function manageTeamsPanel(opts) {
           el('div', { class: 'flex items-center gap-2 shrink-0' },
             ...(isAlias
               ? [unmergeBtn]
-              : [el('div', { class: 'flex flex-col items-center gap-0.5' },
-                   activeToggle,
-                   el('span', { class: 'text-[9px] whitespace-nowrap', style: { color: 'var(--text-subtle)' }, title: 'Last active — most recent sale in the dataset' }, 'Last active · ' + _fmtLast(_lastSaleOf(repName)))),
-                 tierSel, teamSel]),
+              : [el('span', { class: 'text-[9px] whitespace-nowrap', style: { color: 'var(--text-subtle)' }, title: 'Last active — most recent sale in the dataset' }, 'Last active · ' + _fmtLast(_lastSaleOf(repName))),
+                 activeToggle, tierSel, teamSel]),
           ),
         );
         })();
