@@ -52547,7 +52547,6 @@ function adminConfigurations() {
     defRow('Steps 4–5', 'Combined Subscriptions and Renewal - … reasons: the old sub was folded into / replaced by another that carries on, so it leaves the book without counting as a loss.'),
     defRow('Step 7 exemptions', 'Service names containing these terms keep their one-visit subs (Sentricon is annual — one visit a year is the service).'),
     defRow('Step 9', 'Cancel reasons treated as retained — the company ended it, the customer did not leave. Edited in the Cancel reasons list below.'),
-    defRow('Branch ↔ QuickBooks', 'Which long-term liability (loan) accounts on the balance sheet belong to which branch on Putis Shid. Auto-matched by the branch name in the account; override here. Anything not assigned to a branch sits under Corporate so the columns always add to the balance-sheet total.'),
     defRow('Indicators · MY % exclusions', 'Service terms left out of the MY % (multi-year) calculation on Indicators.'),
     defRow('Marketing / IS', 'Counts Office-Staff-sold accounts only; Renewal sources are excluded from new-business pace.'),
   );
@@ -52636,21 +52635,6 @@ function adminConfigurations() {
     stepRow(9, 'Remove cancels with these reasons (count as retained)', [pill(n(exclReasons.size) + ' reason' + (exclReasons.size === 1 ? '' : 's')), lbtn('Edit', () => { state._cfgOpen = 'cancel'; mountApp(); setTimeout(() => { const t = document.getElementById('cfg-list-cancel'); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50); })]),
   );
 
-  // ── 3. Branch ↔ QuickBooks (loan accounts → Putis Shid branch) ──
-  const debtAccts = (state.reportingLedger && state.reportingLedger.debt && state.reportingLedger.debt.accounts) || null;
-  const debtMap = (() => { const r = _adminRules(); return (r && r.debtAcctBranch) || {}; })();
-  const autoBranch = (name) => { const s = name.toLowerCase(); return PUTIS_BRANCHES.find(b => s.includes(b.toLowerCase())) || (s.includes('utah') ? 'Salt Lake' : 'Corporate'); };
-  const branchQbo = card('Branch ↔ QuickBooks', pill(debtAccts ? n(Object.keys(debtAccts).length) + ' loan accounts' : 'sync Putis Shid first'),
-    ...(debtAccts ? Object.entries(debtAccts).sort((a, b) => b[1] - a[1]).map(([name, bal]) => {
-      const auto = autoBranch(name); const cur = debtMap[name] || auto;
-      return row(name, [el('span', { class: 'text-[11px] tabular-nums text-muted-' }, fmt.usd0(bal)),
-        sel(cur, [...PUTIS_BRANCHES, 'Corporate'].map(b => [b, b + (b === auto ? ' · auto' : '')]), (v) => {
-          const m = { ...debtMap }; if (v === auto) delete m[name]; else m[name] = v;
-          _setAdminRule('debtAcctBranch', m); toast(name + ' → ' + v, 'success'); mountApp();
-        }, '150px')], { small: true });
-    }) : [el('div', { class: 'text-xs text-muted- py-2' }, 'Loan accounts appear here after the first QuickBooks sync (↻ on Putis Shid).')]),
-  );
-
   // ── 4. Indicators ──
   const indicators = card('Indicators', null,
     row('MY % exclusions', svcPicker(myExcludeTerms(), (l) => { state.indicatorMyExclServiceTerms = l.length ? l : null; saveIndicatorState(); toast(l.length ? l.length + ' service' + (l.length === 1 ? '' : 's') + ' excluded from MY %' : 'Reset to the default (sentricon)', 'success'); mountApp(); })),
@@ -52674,7 +52658,6 @@ function adminConfigurations() {
       configInfoBtn('How reporting works', howItWorks())),
     reportingRules,
     attrition,
-    branchQbo,
     indicators,
     listCard('service', 'Service Types', svcCount, reportingServiceConfigPanel),
     listCard('source', 'Sources', '', reportingSourceConfigPanel),
