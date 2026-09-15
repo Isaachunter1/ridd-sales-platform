@@ -43168,6 +43168,17 @@ const PUTIS_ROWS = [
   { id: 'debtToArr',    label: 'Debt / ARR',       kind: 'x', point: true, company: true, lowGood: true, tip: 'Long-term debt ÷ month-end active ARR (FieldRoutes). The recurring-revenue lender view.' },
   { id: 'leverage',     label: 'Net debt / TTM adj. EBITDA', kind: 'x', point: true, company: true, lowGood: true, tip: 'Net debt ÷ trailing-twelve-month adjusted EBITDA (annualised when fewer than 12 closed months). The standard PE leverage multiple; blank when TTM adjusted EBITDA is not positive.' },
 ];
+// Phones can't hover — tapping a row label opens this instead of a tooltip.
+function putisExplain(label, tip) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.append(el('div', { class: 'card p-5 flex flex-col gap-2', style: { width: 'min(440px, 92vw)' } },
+    el('div', { class: 'flex items-start justify-between gap-3' },
+      el('div', { class: 'text-base font-bold' }, label),
+      el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '×')),
+    el('div', { class: 'text-sm', style: { color: 'var(--text-muted)', lineHeight: '1.5' } }, tip || 'Straight from the QuickBooks general ledger for the selected period.')));
+  document.body.append(overlay);
+}
 // Attach FieldRoutes month-end book + (company scope) balance-sheet / leverage
 // values to a derived month so the trend table can show them beside the P&L.
 function putisAugment(d, M, ym, branches, company) {
@@ -43267,7 +43278,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
   const showMoM = deltaMode !== 'none';
   const lyMonths = deltaMode === 'yoy' ? Array.from({ length: 12 }, (_, i) => { const k = _mktgYm(year - 1, i); return M && M[k] ? putisAugment(putisDerive(M, k, branches), M, k, branches, company) : null; }) : null;
   const th = (t, extra, tip) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left ' + (extra || '') + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)' }, title: tip || '' }, t);
-  const td = (content, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap align-top' + (o.bold ? ' font-bold' : '') + (o.title ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '' }, content);
+  const td = (content, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap align-top' + (o.bold ? ' font-bold' : '') + (o.title && !o.onclick ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '', onclick: o.onclick }, content);
   const cellVal = (row, d, prev) => {
     const v = (row.point || row.unit) ? d[row.id] : (d.any ? d[row.id] : null);
     const label = fmtRow(row, v);
@@ -43295,7 +43306,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
     el('tbody', {}, ...rowsShown.map(row => row.head
       ? el('tr', { class: 'border-t border-' }, el('td', { colspan: '16', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', position: 'sticky', left: 0 } }, row.head))
       : el('tr', { class: 'border-t border-' + (row.bold ? ' font-semibold' : ''), style: row.bold ? { background: 'var(--card-2)' } : {} },
-      td(row.label, { bold: true, title: row.tip, style: { position: 'sticky', left: 0, background: row.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)' } }),
+      td(row.label, { bold: true, title: row.tip, style: { position: 'sticky', left: 0, background: row.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)', cursor: opts.compact ? 'pointer' : undefined }, onclick: opts.compact ? () => putisExplain(row.label, row.tip) : undefined }),
       ...shownIdx.map(i => {
         const d = months[i];
         const ym = _mktgYm(year, i);
@@ -43380,9 +43391,12 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   const line = (label, f, o = {}) => ({ _label: label, f, o });
   const sortSt = state._putisSort && state._putisSort.part === part ? state._putisSort : null;
   const renderSection = (r) => el('tr', {}, el('td', { class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold' + (r.tip ? ' cursor-help' : ''), style: { color: 'var(--text-subtle)' }, colspan: nCols + 1, title: r.tip || '' }, r._section));
+  // One column (phones): a tap on the label explains the metric instead of
+  // sorting — there's nothing to sort.
+  const single = !!opts.onlyCol;
   const renderLine = (label, f, o = {}) => el('tr', { class: 'border-t border-' + (o.bold ? ' font-semibold' : ''), style: o.bold ? { background: 'var(--card-2)' } : {} },
-    td(el('span', { class: 'inline-flex items-center gap-1' }, label, sortSt && sortSt.label === label ? el('span', { style: { color: 'var(--accent)' } }, sortSt.dir === 'asc' ? '▲' : '▼') : null), { bold: true, title: (o.tip ? o.tip + ' · ' : '') + 'Click to sort branches by this row', style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)', cursor: 'pointer', userSelect: 'none' },
-      onclick: () => { const cur = state._putisSort; state._putisSort = (cur && cur.part === part && cur.label === label) ? (cur.dir === 'desc' ? { part, label, dir: 'asc' } : null) : { part, label, dir: 'desc' }; mountApp(); } }),
+    td(el('span', { class: 'inline-flex items-center gap-1' }, label, !single && sortSt && sortSt.label === label ? el('span', { style: { color: 'var(--accent)' } }, sortSt.dir === 'asc' ? '▲' : '▼') : null), { bold: true, title: single ? (o.tip || '') : (o.tip ? o.tip + ' · ' : '') + 'Click to sort branches by this row', style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)', cursor: 'pointer', userSelect: 'none' },
+      onclick: single ? () => putisExplain(label, o.tip) : () => { const cur = state._putisSort; state._putisSort = (cur && cur.part === part && cur.label === label) ? (cur.dir === 'desc' ? { part, label, dir: 'asc' } : null) : { part, label, dir: 'desc' }; mountApp(); } }),
     ...cols.flatMap(c => { const v = f(D[c.key], c.key); const s = o.red && typeof v === 'number' && v > 0 ? { color: '#DC2626' } : o.signed && typeof v === 'number' ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
       const isUsd = !(o.pct || o.num || o.x || o.mo || o.usd2);
       const cell = td(v == null || (typeof v === 'number' && !isFinite(v)) ? '—' : o.pct ? _putisPct1(v) : o.num ? Math.round(v).toLocaleString() : o.x ? v.toFixed(2) + 'x' : o.mo ? v.toFixed(1) + ' mo' : o.usd2 ? '$' + v.toFixed(2) : _putisUsd(v), { style: { ...s, borderLeft: '1px solid var(--border)' }, muted: o.muted });
