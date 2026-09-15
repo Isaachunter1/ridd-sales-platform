@@ -44311,15 +44311,23 @@ function reportingOverview() {
   }
   const defById = Object.fromEntries(chartDefs.map(d => [d.id, d]));
   const usedChartIds = new Set(COLUMN_CARDS.flatMap(c => c.chartIds));
-  // Phones: the five columns stack into one (rep-cols CSS) — no sideways
-  // scroll to find a chart (per Isaac).
-  const columnsBlock = inCompare ? null : el('div', { class: 'overflow-x-auto' },
-    el('div', { class: 'grid gap-4 rep-cols', style: { gridTemplateColumns: 'repeat(5, minmax(235px, 1fr))', minWidth: '1230px', alignItems: 'start' } },
-      ...COLUMN_CARDS.map(c => el('div', { class: 'flex flex-col gap-4' },
-        popTile(c),
-        ...c.chartIds.map(id => defById[id] ? makeCard(defById[id], dataA, 'a') : null),
-      )),
-    ));
+  // One metric at a time (per Isaac): a dropdown picks the headline card,
+  // that card pops, and only ITS charts render beneath it — instead of five
+  // columns side by side.
+  const pickKey = COLUMN_CARDS.some(c => c.key === state.reportingOverviewMetric) ? state.reportingOverviewMetric : 'subs';
+  const picked = COLUMN_CARDS.find(c => c.key === pickKey);
+  const metricPick = el('select', {
+    class: 'rounded-lg border px-3 py-2 text-sm font-semibold cursor-pointer',
+    style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '220px' },
+    onchange: (e) => { state.reportingOverviewMetric = e.target.value; mountApp(); },
+  }, ...COLUMN_CARDS.map(c => el('option', { value: c.key, selected: c.key === pickKey }, c.label + ' · ' + c.value)));
+  const columnsBlock = inCompare ? null : el('div', { class: 'flex flex-col gap-4' },
+    el('div', { class: 'flex items-center gap-3 flex-wrap' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Metric'),
+      metricPick),
+    popTile(picked),
+    el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' } },
+      ...picked.chartIds.map(id => defById[id] ? makeCard(defById[id], dataA, 'a') : null)));
 
   const chartGrid = inCompare
     ? el('div', { class: 'grid gap-4 rep-cols', style: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } },
