@@ -52213,14 +52213,24 @@ function adminPermissions() {
     el('div', { class: 'card p-5' },
       el('div', { class: 'flex items-start justify-between gap-3 flex-wrap' },
         el('div', {},
-          el('h2', { class: 'text-lg font-bold' }, '\ud83d\udd10 Permissions'))),
+          el('h2', { class: 'text-lg font-bold' }, 'Permissions'))),
       el('div', { class: 'overflow-x-auto mt-4' },
         el('table', { class: 'w-full', style: { borderCollapse: 'collapse', fontSize: '12px' } },
-          el('thead', {},
-            el('tr', { class: 'text-left' },
-              el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Can see\u2026'),
-              ...PERM_ROLES.map(role => el('th', { class: 'px-2 py-2 text-center whitespace-nowrap' },
-                el('div', { class: 'text-[11px] font-bold' }, (ROLE_LABEL[role] || role).replace(/^Sales Rep - /, 'Sales ').replace(/^Office Staff - /, 'Office ')))))),
+          // Two header rows: the user-type family (Sales Rep / Office Staff /
+          // Auditor) spanning its columns, then the exact role name under it —
+          // mirrors the "Family - Role" labels in the Users editor.
+          (() => {
+            const fam = (r) => { const L = ROLE_LABEL[r] || r; const i = L.indexOf(' - '); return i < 0 ? [L, ''] : [L.slice(0, i), L.slice(i + 3)]; };
+            const spans = []; PERM_ROLES.forEach(r => { const f = fam(r)[0]; const last = spans[spans.length - 1]; if (last && last.f === f) last.n++; else spans.push({ f, n: 1 }); });
+            return el('thead', {},
+              el('tr', {},
+                el('th', { class: 'px-3 py-2' }),
+                ...spans.map(sp => el('th', { class: 'px-2 pt-2 pb-0.5 text-center text-[10px] uppercase tracking-widest', colSpan: String(sp.n), style: { color: 'var(--text-subtle)', borderBottom: '1px solid var(--border)' } }, sp.f))),
+              el('tr', { class: 'text-left' },
+                el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Can see\u2026'),
+                ...PERM_ROLES.map(role => el('th', { class: 'px-2 py-2 text-center whitespace-nowrap' },
+                  el('div', { class: 'text-[11px] font-bold' }, fam(role)[1] || fam(role)[0])))));
+          })(),
           el('tbody', {},
             ...groups.flatMap(g => [
               el('tr', {}, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colSpan: String(1 + PERM_ROLES.length), style: { color: 'var(--text-subtle)' } }, g)),
