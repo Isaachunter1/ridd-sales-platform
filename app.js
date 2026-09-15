@@ -43482,6 +43482,9 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
       cols = [...rest, ...ridd];
     }
   }
+  // A section label that opens the table is redundant (the card title says
+  // it) and leaves a gap under the header — drop it.
+  while (shownDefs.length && shownDefs[0] && shownDefs[0]._section != null) shownDefs.shift();
   const shown = shownDefs.map(r => r && r._section != null ? renderSection(r) : renderLine(r._label, r.f, r.o));
   const periodLabel = isYtd ? year + ' YTD (' + yms.length + ' month' + (yms.length === 1 ? '' : 's') + ' booked)' : new Date(ym + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   return el('div', { class: 'card overflow-hidden' },
