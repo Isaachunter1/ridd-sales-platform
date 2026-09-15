@@ -46873,6 +46873,7 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
       if (metricKey === 'acv')        return z.avgContract;
       if (metricKey === 'revenue')    return z.arv;
       if (metricKey === 'customers')  return z.customers;
+      if (metricKey === 'subs')       return z.subs;
       if (metricKey === 'attrition')  return z.attritionEligible ? z.cancelRate : null;
       if (metricKey === 'retention')  return z.attritionEligible ? (1 - z.cancelRate) : null;
       return 0;
@@ -47038,6 +47039,7 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
       if (metricKey === 'acv')        return c.avgContract;
       if (metricKey === 'revenue')    return c.arv;
       if (metricKey === 'customers')  return c.customers;
+      if (metricKey === 'subs')       return c.subs;
       if (metricKey === 'attrition')  return c.attritionEligible ? c.cancelRate : null;
       if (metricKey === 'retention')  return c.attritionEligible ? (1 - c.cancelRate) : null;
       return 0;
@@ -47436,6 +47438,7 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
       if (metricKey === 'acv')        return s.avgContract;
       if (metricKey === 'revenue')    return s.arv;
       if (metricKey === 'customers')  return s.customers;
+      if (metricKey === 'subs')       return s.subs;
       if (metricKey === 'attrition')  return s.subs >= 10 ? s.cancelRate : null;
       if (metricKey === 'retention')  return s.subs >= 10 ? (1 - s.cancelRate) : null;
       return 0;
@@ -47592,6 +47595,7 @@ function reportingGeographic() {
   const metricKey = state.reportingGeoMetric || 'customers';
   const metrics = [
     { key: 'customers',       label: 'Customers',      fmt: (v) => Math.round(v).toLocaleString() },
+    { key: 'subs',            label: 'Subscriptions',  fmt: (v) => Math.round(v).toLocaleString() },
     { key: 'revenue',         label: 'Revenue',        fmt: (v) => '$' + Math.round(v).toLocaleString() },
     { key: 'acv',             label: 'ACV',            fmt: (v) => '$' + Math.round(v).toLocaleString() },
     { key: 'attrition',       label: 'Attrition Rate', fmt: (v) => (v * 100).toFixed(1) + '%' },
