@@ -39319,7 +39319,7 @@ function retenExclOneSvc()  {
   try { return localStorage.getItem('ridd_reten_excl_onesvc') !== '0'; } catch { return true; } }
 function setRetenExclOneSvc(b)  { _setAdminRule('retenExclOneSvc', !!b); try { localStorage.setItem('ridd_reten_excl_onesvc', b ? '1' : '0'); } catch {} }
 function retenExclFrozenOneSvc()  {
-  if (state._retenWhatIf && typeof state._retenWhatIf.oneSvc === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.oneSvc;
+  if (state._retenWhatIf && typeof state._retenWhatIf.frozenOneSvc === 'boolean' && state.reportingSubTab === 'waterfall') return state._retenWhatIf.frozenOneSvc;
   const r = _adminRules(); if (r && typeof r.retenExclFrozenOneSvc === 'boolean') return r.retenExclFrozenOneSvc;
   try { return localStorage.getItem('ridd_reten_excl_frozen1') !== '0'; } catch { return true; } }
 function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !!b); try { localStorage.setItem('ridd_reten_excl_frozen1', b ? '1' : '0'); } catch {} }
@@ -39334,7 +39334,8 @@ function retenPopExclReasons() {
   // What-if switches on the Retention tab: the 3-day ROR reason and the
   // combined / renewal reasons can be turned off separately.
   if (!_retenWhatIf('popRor', true)) list = list.filter(x => !/ror/.test(x));
-  if (!_retenWhatIf('popRenew', true)) list = list.filter(x => /ror/.test(x));
+  if (!_retenWhatIf('popCombined', true)) list = list.filter(x => !/combined/.test(x));
+  if (!_retenWhatIf('popRenew', true)) list = list.filter(x => /ror|combined/.test(x));
   return new Set(list);
 }
 function setRetenPopExclReasons(arr) { _setAdminRule('retenPopExclReasons', arr); }
@@ -39359,8 +39360,17 @@ function _retenOneSvcExempt(r) {
 // Order = Isaac's hand method: (1) drop subs closed by ROR / combine /
 // renewal, (2) drop $0 ARR, (3) drop one-service subs unless Sentricon or
 // (4) current-year.
+function retenIsRorSub(r) {
+  // 3-day ROR at the SUBSCRIPTION level (per Isaac): the reason says so, OR
+  // the door-to-door sub was cancelled within 3 days of the sale whatever
+  // reason got typed.
+  if (!r.subscription_date_canceled) return false;
+  return /ror/.test(_normCancelReason(reportingCancelReasonOf(r))) || _reporting3dayRor(r);
+}
 function retenPopulationExcluded(r) {
-  if (r.subscription_date_canceled && retenPopExclReasons().has(_normCancelReason(reportingCancelReasonOf(r)))) return 'closed by ' + String(reportingCancelReasonOf(r) || '').trim();
+  const popSet = retenPopExclReasons();
+  if ([...popSet].some(x => /ror/.test(x)) && retenIsRorSub(r)) return 'closed by 3 Day ROR';
+  if (r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r)))) return 'closed by ' + String(reportingCancelReasonOf(r) || '').trim();
   if (retenExclRenewalSubs() && reportingSourceClass(r.subscription_source) === 'renewal') return 'renewal sub';
   if (retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0) return '$0 paying';
   const svc = Number(r.subscription_completed_services) || 0;
@@ -49904,7 +49914,7 @@ function retenWhatIfActive() {
 }
 function _retenOfficial() {
   const saved = state._retenWhatIf; state._retenWhatIf = null;
-  const o = { popRor: [...retenPopExclReasons()].some(x => /ror/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !/ror/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
+  const o = { popRor: [...retenPopExclReasons()].some(x => /ror/.test(x)), popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !/ror|combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
   state._retenWhatIf = saved;
   return o;
 }
@@ -49917,15 +49927,22 @@ function retenMethodCard(pop, _retenEff) {
   const s2 = s1.filter(r => !!r.initial_service && r.initial_service >= '2000-01-01');
   // Population steps, applied in order so each count is "removed at this step".
   const popSet = retenPopExclReasons();
-  const closedBy = (r) => r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r)));
-  const isRorReason = (r) => /ror/.test(_normCancelReason(reportingCancelReasonOf(r)));
-  const step1a = s2.filter(r => !(closedBy(r) && isRorReason(r)));          // minus 3-day ROR closes
-  const step1 = step1a.filter(r => !closedBy(r));                             // minus combined / renewal closes
-  const byReason1 = {}; step1a.forEach(r => { if (closedBy(r)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
+  const rorOn = [...popSet].some(x => /ror/.test(x));
+  const closedBy = (r, re) => r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && re.test(_normCancelReason(reportingCancelReasonOf(r)));
+  const step1a = s2.filter(r => !(rorOn && retenIsRorSub(r)));                 // minus 3-day RORs (reason OR timing)
+  const step1b = step1a.filter(r => !closedBy(r, /combined/));                  // minus combined
+  const step1 = step1b.filter(r => !closedBy(r, /renewal/));                    // minus renewals
+  const byReason1 = {}; step1b.forEach(r => { if (closedBy(r, /renewal/)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
   const step2 = step1.filter(r => !(retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0));
-  const oneSvcAll = step2.filter(r => (Number(r.subscription_completed_services) || 0) <= 1);
+  const svcOf = (r) => Number(r.subscription_completed_services) || 0;
+  const sentricon = (r) => retenOneSvcExemptTerms().some(t => String(r.subscription || '').toLowerCase().includes(t));
+  const soldThisYear = (r) => { const d = r.sold_date ? new Date(r.sold_date) : (r.initial_service ? new Date(r.initial_service) : null); return d && !isNaN(d) && d.getFullYear() >= year; };
+  const oneSvcAll = step2.filter(r => svcOf(r) <= 1);
   const oneSvcKept = oneSvcAll.filter(r => _retenOneSvcExempt(r));
-  const step3 = step2.filter(r => !retenPopulationExcluded(r));
+  // 7: never got a 2nd treatment — prior-year one-service subs (Sentricon exempt)
+  const step2b = step2.filter(r => !(retenExclOneSvc() && svcOf(r) <= 1 && !sentricon(r) && !soldThisYear(r)));
+  // 8: sold this year but already frozen after one treatment
+  const step3 = step2b.filter(r => !retenPopulationExcluded(r));
   const book = _retenEff(pop);   // the real thing — should equal step3 in size
   // Cancel steps for the current year (YTD) and last year.
   const excl = reportingExcludedCancelReasons();
@@ -50009,17 +50026,18 @@ function retenMethodCard(pop, _retenEff) {
       return step(1, 'Recurring subscriptions only', 'One-time services are never part of a retention book — ' + n(oneTime.length) + ' one-time subs across ' + n(otCust) + ' customers, $' + Math.round(otRev).toLocaleString() + ' of one-time service revenue, set aside here (still counted on the Overview and in the P&L).', n0 - s1.length, null, '$' + Math.round(otRev).toLocaleString() + ' one-time revenue', oneTime, s1);
     })(),
     step(2, 'Received an initial service', 'A sub that never started cannot retain or churn.', s1.length - s2.length, null, null, notIn(s1, s2), s2),
-    step(3, 'Drop subs closed as 3-day ROR', 'Cancellation reason “3 Day ROR” — the customer used their right of rescission; they never really became a customer.', s2.length - step1a.length, 'popRor', null, notIn(s2, step1a), step1a),
-    step(4, 'Drop subs closed by Combined / Renewal', 'Cancellation reason Combined Subscriptions or Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound. Not lost customers — Combined was folded into another sub, and a Renewal was replaced by the renewal sub (which stays, carrying the original start date).' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1a.length - step1.length, 'popRenew', null, notIn(step1a, step1), step1),
-    step(5, 'Drop $0 ARR subs', 'Nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2), step2),
-    step(6, 'Drop one-service subs', 'A single completed visit is not yet a customer. Exempt: ' + retenOneSvcExemptTerms().join(', ') + ' (annual products) and accounts sold in ' + year + ' that are still active — those ' + n(oneSvcKept.length) + ' stay in. A ' + year + ' account already frozen after one visit still drops.', step2.length - step3.length, 'oneSvc', null, notIn(step2, step3), step3),
-    el('div', { class: 'flex items-center gap-3 py-1.5 border-t border-', style: { paddingLeft: '36px' } }, el('div', { class: 'flex-1 text-[11px] text-muted-' }, '↳ Keep the exemptions (Sentricon + current year) — switch off to drop every one-service sub.'), chip('oneSvcExempt')),
+    step(3, '3-day ROR', 'Any subscription that was a 3-day right-of-rescission: cancellation reason “3 Day ROR”, or a door-to-door sub cancelled within 3 days of the sale whatever reason was typed. Never really a customer.', s2.length - step1a.length, 'popRor', null, notIn(s2, step1a), step1a),
+    step(4, 'Combined subscriptions', 'Cancellation reason “Combined Subscriptions” — folded into another sub on the same account, which carries on.', step1a.length - step1b.length, 'popCombined', null, notIn(step1a, step1b), step1b),
+    step(5, 'Renewals', 'Cancellation reason Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound — the old plan was replaced by the renewal sub, which stays in the book carrying the original start date.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1),
+    step(6, 'No ARR', '$0 annual recurring value — nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2), step2),
+    step(7, 'Never received a 2nd treatment', 'Prior-year subscriptions with a single completed visit — never became a customer. Sentricon (' + retenOneSvcExemptTerms().join(', ') + ') is exempt: one visit a year is the service.', step2.length - step2b.length, 'oneSvc', null, notIn(step2, step2b), step2b),
+    step(8, 'Sold in ' + year + ', frozen after one treatment', 'Accounts sold this year that took one visit and already cancelled. Active ' + year + ' one-visit accounts (' + n(oneSvcKept.length) + ') stay — they are just young.', step2b.length - step3.length, 'frozenOneSvc', null, notIn(step2b, step3), step3),
     total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-4 pb-1', style: { color: 'var(--text-subtle)' } }, 'B · Who counts as lost (numerator) — ' + year + ' YTD'),
     el('div', { class: 'flex items-center justify-between py-2' }, el('div', {}, el('div', { class: 'text-sm font-semibold' }, 'Beginning-of-year book'), el('div', { class: 'text-[11px] text-muted-' }, 'Subs serviced before Jan 1 ' + year + ' and still on the books that day. Sales made during the year never enter the rate.')), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.boy)), drill('Beginning-of-year book', cur.rows.boy, 'on the books Jan 1'))),
     el('div', { class: 'flex items-center justify-between py-2 border-t border-' }, el('div', { class: 'text-sm font-semibold' }, 'Cancelled so far this year (any reason)'), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.raw)), drill('Cancelled this year (any reason)', cur.rows.raw, 'cancel date this year'))),
-    step(7, 'Strip excluded cancel reasons', 'Reasons flagged “doesn’t count as attrition” in Settings → Cancellation reasons (' + excl.size + ' reason' + (excl.size === 1 ? '' : 's') + ').', cur.exclN, 'exclReasons', null, cur.rows.excl),
-    step(8, 'Strip 3-day RORs', 'Door-to-door sales cancelled within 3 days of the sale — buyer’s remorse, not attrition.', cur.rorN, 'ror', null, cur.rows.ror),
+    step(9, 'Strip excluded cancel reasons', 'Reasons flagged “doesn’t count as attrition” in Settings → Cancellation reasons (' + excl.size + ' reason' + (excl.size === 1 ? '' : 's') + ').', cur.exclN, 'exclReasons', null, cur.rows.excl),
+    step(10, 'Strip 3-day RORs', 'Door-to-door sales cancelled within 3 days of the sale — buyer’s remorse, not attrition.', cur.rorN, 'ror', null, cur.rows.ror),
     total('Counted cancels', n(cur.counted), 'Attrition = counted cancels ÷ beginning-of-year book', cur.rows.counted),
     total(year + ' YTD attrition', pct(cur.rate) + (official ? '  (official ' + pct(official.cur) + ')' : ''), (year - 1) + ' full year: ' + pct(prev.rate) + (official ? ' (official ' + pct(official.prev) + ')' : '') + ' · ' + n(prev.counted) + ' of ' + n(prev.boy))));
   return card;
