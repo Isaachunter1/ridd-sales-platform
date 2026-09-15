@@ -49998,7 +49998,14 @@ function retenMethodCard(pop, _retenEff) {
   card.append(el('div', { class: 'px-5 pb-4' },
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-2 pb-1', style: { color: 'var(--text-subtle)' } }, 'A · Who is in the book (denominator)'),
     el('div', { class: 'flex items-center justify-between py-2' }, el('div', { class: 'text-sm font-semibold' }, 'Subscriptions in scope'), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(n0)), drill('Subscriptions in scope', pop, 'everything in scope'))),
-    step(1, 'Recurring subscriptions only', 'One-time services are never part of a retention book.', n0 - s1.length, null, null, notIn(pop, s1)),
+    (() => {
+      // One-time services leave the book, but their revenue is still real —
+      // show what is being pulled out (per Isaac), with the drill to the subs.
+      const oneTime = notIn(pop, s1);
+      const otRev = oneTime.reduce((a, r) => a + (Number(r.subscription_contract_value) || 0), 0);
+      const otCust = new Set(oneTime.map(r => r.customer_id)).size;
+      return step(1, 'Recurring subscriptions only', 'One-time services are never part of a retention book — ' + n(oneTime.length) + ' one-time subs across ' + n(otCust) + ' customers, $' + Math.round(otRev).toLocaleString() + ' of one-time service revenue, set aside here (still counted on the Overview and in the P&L).', n0 - s1.length, null, '$' + Math.round(otRev).toLocaleString() + ' one-time revenue', oneTime);
+    })(),
     step(2, 'Received an initial service', 'A sub that never started cannot retain or churn.', s1.length - s2.length, null, null, notIn(s1, s2)),
     step(3, 'Drop subs closed as 3-day ROR', 'Cancellation reason “3 Day ROR” — the customer used their right of rescission; they never really became a customer.', s2.length - step1a.length, 'popRor', null, notIn(s2, step1a)),
     step(4, 'Drop subs closed by Combined / Renewal', 'Cancellation reason Combined Subscriptions or Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound. Not lost customers — Combined was folded into another sub, and a Renewal was replaced by the renewal sub (which stays, carrying the original start date).' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1a.length - step1.length, 'popRenew', null, notIn(step1a, step1)),

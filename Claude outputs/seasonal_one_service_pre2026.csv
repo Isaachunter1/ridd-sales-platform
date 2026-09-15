@@ -1,0 +1,48 @@
+Customer ID,Last Name,First Name,Office Name,Subscription,Subscription Status,Initial Service,Subscription Completed Services,Annual Recurring Value,Subscription Cancellation Reason,Subscription Date Canceled
+128077,Prince,Kerry,Raleigh,RIDD Package 4 Seasonal,Active,7/16/25,1,1101.24,,Active
+40607,Barr,Gloria,Charleston,Mosquito Bi-Monthly Seasonal,Frozen,8/15/22,1,514.35,Delinquent Account (Collections),9/21/22
+40767,Ferrell,Beatrice,Charleston,Mosquito Bi-Monthly Seasonal,Frozen,10/12/22,1,514.35,Sales Rep Error,10/25/22
+35301,Kemp,Sueanne,Charleston,Mosquito 8 Seasonal,Frozen,7/6/22,1,711.0,Unspecified,7/14/22
+33874,Banh,Shea,Charleston,Mosquito 8 Seasonal,Frozen,6/25/22,1,750.96,Finances,6/27/22
+28795,Walters,Michael,Charleston,Mosquito 8 Seasonal,Frozen,6/1/22,1,754.83,Delinquent Account (Collections),8/31/22
+24126,Ahmed,Bothina,Charleston,Mosquito 8 Seasonal,Frozen,9/11/21,1,790.0,Sales Rep Error,10/8/21
+31504,Tucker,Karen,Charleston,Mosquito 8 Seasonal,Frozen,6/10/22,1,790.0,Sales Rep Error,7/12/22
+34813,Wade,Charity,Charleston,Mosquito 8 Seasonal,Frozen,7/8/22,1,790.0,Delinquent Account (Collections),9/6/22
+33219,Chiaromonte,Michael,Charleston,Mosquito 8 Seasonal,Frozen,6/30/22,1,798.66,Delinquent Account (Collections),9/1/22
+30914,Cohan,Shannon,Charleston,Mosquito 8 Seasonal,Frozen,6/9/22,1,825.93,Unspecified,7/22/25
+23748,Carvey,Cody,Charleston,Mosquito 8 Seasonal,Frozen,8/27/21,1,831.33,Sales Rep Error,12/28/21
+30454,Futrell,Terri,Charleston,Mosquito 8 Seasonal,Frozen,6/6/22,1,838.7,Finances,7/8/22
+30722,Davidson,Roger,Charleston,Mosquito 8 Seasonal,Frozen,6/8/22,1,838.7,Sales Rep Error,7/8/22
+31547,Blake,Lorraine,Charleston,Mosquito 8 Seasonal,Frozen,6/22/22,1,838.7,Delinquent Account (Collections),9/1/22
+32220,Muroff,Brandon,Charleston,Mosquito 8 Seasonal,Frozen,6/20/22,1,838.7,Unspecified,8/1/22
+24036,Dobbinson,Laverne,Charleston,Mosquito 8 Seasonal,Frozen,9/9/21,1,923.7,Unspecified,11/29/21
+40791,Mcauliffe,Petra,Charleston,Mosquito 8 Seasonal,Frozen,8/17/22,1,934.83,Scheduling Error,11/30/22
+32565,Simpson,Donna,Charleston,Mosquito 8 Seasonal,Frozen,6/18/22,1,938.7,Delinquent Account (Collections),10/17/22
+33730,Phelps,Rachel,Charleston,Mosquito 8 Seasonal,Frozen,6/24/22,1,938.7,Finances,8/15/22
+40088,Odom,Christy,Charleston,Mosquito 8 Seasonal,Frozen,8/10/22,1,988.83,Sales Rep Error,10/13/22
+31804,Vazquez,Angel,Charleston,Mosquito 8 Seasonal,Frozen,6/14/22,1,1006.44,Finances,7/13/22
+30709,Addow,Jermaine,Charleston,Mosquito 8 Seasonal,Frozen,6/7/22,1,1027.7,Unspecified,7/22/25
+34496,Simmons,Ben,Myrtle Beach,Mosquito Bi-Monthly Seasonal,Frozen,8/18/22,1,490.0,Sales Rep Error,10/19/22
+29964,Keyser,Jesse,Myrtle Beach,Mosquito 8 Seasonal,Frozen,6/2/22,1,503.22,Delinquent Account (Collections),12/5/22
+40958,Zavala,Cinthia,Myrtle Beach,Mosquito Bi-Monthly Seasonal,Frozen,8/19/22,1,514.35,Sales Rep Error,12/5/22
+40914,Macellaro,Joanne,Myrtle Beach,Mosquito Bi-Monthly Seasonal,Frozen,8/22/22,1,519.35,Delinquent Account (Collections),11/21/22
+41997,Litton,Tasha,Myrtle Beach,Mosquito Bi-Monthly Seasonal,Frozen,9/7/22,1,617.22,Customer Refuses Service,10/5/22
+42147,Steele,Rebecca,Myrtle Beach,Mosquito Bi-Monthly Seasonal,Frozen,9/7/22,1,623.22,Delinquent Account (Collections),1/3/23
+35713,Bastiani,Elizabeth,Myrtle Beach,Mosquito 8 Seasonal,Frozen,8/1/22,1,632.0,Delinquent Account (Collections),10/3/22
+33509,Furey,Lynn,Myrtle Beach,Mosquito 8 Seasonal,Frozen,6/23/22,1,670.96,Delinquent Account (Collections),9/1/22
+40404,Sullivan,Dana,Myrtle Beach,Mosquito Bi-Monthly Seasonal,Frozen,8/12/22,1,684.35,Customer Refuses Service,1/13/25
+36864,Delong,Ebony,Myrtle Beach,Mosquito Bi-Monthly Seasonal,Frozen,7/19/22,1,690.0,Delinquent Account (Collections),9/21/22
+41373,Arriaga,Frank,Myrtle Beach,Mosquito Bi-Monthly Seasonal,Frozen,8/24/22,1,714.35,Customer Refuses Service,2/28/23
+33608,Soriano,Franklin,Myrtle Beach,Mosquito 8 Seasonal,Frozen,6/24/22,1,754.83,Delinquent Account (Collections),11/28/22
+34721,Randell,Darrick,Myrtle Beach,Mosquito 8 Seasonal,Frozen,6/30/22,1,792.0,Delinquent Account (Collections),9/1/22
+28560,York,Kim,Myrtle Beach,Mosquito 8 Seasonal,Frozen,5/24/22,1,823.7,Sales Rep Error,6/7/22
+29002,Wolfe,Curtis,Myrtle Beach,Mosquito 8 Seasonal,Frozen,6/20/22,1,848.7,Delinquent Account (Collections),9/1/22
+31713,Sligh,Corey,Myrtle Beach,Mosquito 8 Seasonal,Frozen,6/13/22,1,848.7,Sales Rep Error,9/7/22
+32015,Eason,Matti,Myrtle Beach,Mosquito 8 Seasonal,Frozen,6/15/22,1,938.7,Delinquent Account (Collections),9/21/22
+133719,Hux,Travis,Raleigh,Pest Carpenter Bee Mosquito 4 Seasonal,Frozen,8/1/25,1,1307.88,Moved,8/19/25
+21223,Call,Jon,Salt Lake,Mosquito 8 Seasonal,Frozen,7/27/21,1,670.96,Product Not Working,8/5/21
+11733,Keith,Jaden,Salt Lake,Mosquito 8 Seasonal,Frozen,4/22/21,1,738.96,Product Not Working,7/21/21
+15245,Camarillo,Lizzie,Salt Lake,Mosquito 8 Seasonal,Frozen,5/27/21,1,738.96,Finances,6/8/21
+16481,Russett,Hailee,Salt Lake,Mosquito 8 Seasonal,Frozen,6/5/21,1,754.83,Sales Rep Error,6/23/21
+19561,Faerber,Rayanna,Salt Lake,Mosquito 8 Seasonal,Frozen,7/10/21,1,754.83,Switched Companies,7/27/21
+19577,Mudrow,Zak,Salt Lake,Mosquito 8 Seasonal,Frozen,7/6/21,1,754.83,Sales Rep Error,8/4/21
