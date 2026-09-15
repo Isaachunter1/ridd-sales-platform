@@ -39329,9 +39329,13 @@ function setRetenExclFrozenOneSvc(b)  { _setAdminRule('retenExclFrozenOneSvc', !
 // sub; Renewal-* = the old sub was replaced by the renewal, which stays).
 const RETEN_POP_EXCL_REASONS_DEFAULT = ['3 Day ROR', 'Combined Subscriptions', 'Renewal - Outbound', 'Renewal - Loyalty', 'Renewal - Service Pro Upsell', 'Renewal - Inbound'];
 function retenPopExclReasons() {
-  if (!_retenWhatIf('popReasons', true)) return new Set();
   const r = _adminRules(); const v = r && Array.isArray(r.retenPopExclReasons) ? r.retenPopExclReasons : RETEN_POP_EXCL_REASONS_DEFAULT;
-  return new Set(v.map(_normCancelReason));
+  let list = v.map(_normCancelReason);
+  // What-if switches on the Retention tab: the 3-day ROR reason and the
+  // combined / renewal reasons can be turned off separately.
+  if (!_retenWhatIf('popRor', true)) list = list.filter(x => !/ror/.test(x));
+  if (!_retenWhatIf('popRenew', true)) list = list.filter(x => /ror/.test(x));
+  return new Set(list);
 }
 function setRetenPopExclReasons(arr) { _setAdminRule('retenPopExclReasons', arr); }
 // Step 3 exemption: one-service subs whose service name contains one of
@@ -49803,7 +49807,7 @@ function retenWhatIfActive() {
 }
 function _retenOfficial() {
   const saved = state._retenWhatIf; state._retenWhatIf = null;
-  const o = { popReasons: retenPopExclReasons().size > 0, zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
+  const o = { popRor: [...retenPopExclReasons()].some(x => /ror/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !/ror/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
   state._retenWhatIf = saved;
   return o;
 }
@@ -49816,8 +49820,11 @@ function retenMethodCard(pop, _retenEff) {
   const s2 = s1.filter(r => !!r.initial_service && r.initial_service >= '2000-01-01');
   // Population steps, applied in order so each count is "removed at this step".
   const popSet = retenPopExclReasons();
-  const step1 = s2.filter(r => !(r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r)))));
-  const byReason1 = {}; s2.forEach(r => { if (r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r)))) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
+  const closedBy = (r) => r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r)));
+  const isRorReason = (r) => /ror/.test(_normCancelReason(reportingCancelReasonOf(r)));
+  const step1a = s2.filter(r => !(closedBy(r) && isRorReason(r)));          // minus 3-day ROR closes
+  const step1 = step1a.filter(r => !closedBy(r));                             // minus combined / renewal closes
+  const byReason1 = {}; step1a.forEach(r => { if (closedBy(r)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
   const step2 = step1.filter(r => !(retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0));
   const oneSvcAll = step2.filter(r => (Number(r.subscription_completed_services) || 0) <= 1);
   const oneSvcKept = oneSvcAll.filter(r => _retenOneSvcExempt(r));
@@ -49884,16 +49891,17 @@ function retenMethodCard(pop, _retenEff) {
     el('div', { class: 'flex items-center justify-between py-2' }, el('div', { class: 'text-sm font-semibold' }, 'Subscriptions in scope'), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(n0)), drill('Subscriptions in scope', pop, 'everything in scope'))),
     step(1, 'Recurring subscriptions only', 'One-time services are never part of a retention book.', n0 - s1.length, null, null, notIn(pop, s1)),
     step(2, 'Received an initial service', 'A sub that never started cannot retain or churn.', s1.length - s2.length, null, null, notIn(s1, s2)),
-    step(3, 'Drop subs closed by ROR / Combined / Renewal', 'Cancellation reason in the Step 1 list (Settings): ' + [...popSet].map(x => x).join(', ') + '. These are not lost customers — a 3-day ROR never became one, Combined was folded into another sub, and a Renewal was replaced by the renewal sub (which stays, carrying the original start date).' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), s2.length - step1.length, 'popReasons', null, notIn(s2, step1)),
-    step(4, 'Drop $0 ARR subs', 'Nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2)),
-    step(5, 'Drop one-service subs (prior years)', 'A single completed visit is not yet a customer. Exempt: ' + retenOneSvcExemptTerms().join(', ') + ' (annual products) and anything sold in ' + year + ' — those ' + n(oneSvcKept.length) + ' stay in.', step2.length - step3.length, 'oneSvc', null, notIn(step2, step3)),
+    step(3, 'Drop subs closed as 3-day ROR', 'Cancellation reason “3 Day ROR” — the customer used their right of rescission; they never really became a customer.', s2.length - step1a.length, 'popRor', null, notIn(s2, step1a)),
+    step(4, 'Drop subs closed by Combined / Renewal', 'Cancellation reason Combined Subscriptions or Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound. Not lost customers — Combined was folded into another sub, and a Renewal was replaced by the renewal sub (which stays, carrying the original start date).' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1a.length - step1.length, 'popRenew', null, notIn(step1a, step1)),
+    step(5, 'Drop $0 ARR subs', 'Nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2)),
+    step(6, 'Drop one-service subs (prior years)', 'A single completed visit is not yet a customer. Exempt: ' + retenOneSvcExemptTerms().join(', ') + ' (annual products) and anything sold in ' + year + ' — those ' + n(oneSvcKept.length) + ' stay in.', step2.length - step3.length, 'oneSvc', null, notIn(step2, step3)),
     el('div', { class: 'flex items-center gap-3 py-1.5 border-t border-', style: { paddingLeft: '36px' } }, el('div', { class: 'flex-1 text-[11px] text-muted-' }, '↳ Keep the exemptions (Sentricon + current year) — switch off to drop every one-service sub.'), chip('oneSvcExempt')),
     total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-4 pb-1', style: { color: 'var(--text-subtle)' } }, 'B · Who counts as lost (numerator) — ' + year + ' YTD'),
     el('div', { class: 'flex items-center justify-between py-2' }, el('div', {}, el('div', { class: 'text-sm font-semibold' }, 'Beginning-of-year book'), el('div', { class: 'text-[11px] text-muted-' }, 'Subs serviced before Jan 1 ' + year + ' and still on the books that day. Sales made during the year never enter the rate.')), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.boy)), drill('Beginning-of-year book', cur.rows.boy, 'on the books Jan 1'))),
     el('div', { class: 'flex items-center justify-between py-2 border-t border-' }, el('div', { class: 'text-sm font-semibold' }, 'Cancelled so far this year (any reason)'), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(cur.raw)), drill('Cancelled this year (any reason)', cur.rows.raw, 'cancel date this year'))),
-    step(6, 'Strip excluded cancel reasons', 'Reasons flagged “doesn’t count as attrition” in Settings → Cancellation reasons (' + excl.size + ' reason' + (excl.size === 1 ? '' : 's') + ').', cur.exclN, 'exclReasons', null, cur.rows.excl),
-    step(7, 'Strip 3-day RORs', 'Door-to-door sales cancelled within 3 days of the sale — buyer’s remorse, not attrition.', cur.rorN, 'ror', null, cur.rows.ror),
+    step(7, 'Strip excluded cancel reasons', 'Reasons flagged “doesn’t count as attrition” in Settings → Cancellation reasons (' + excl.size + ' reason' + (excl.size === 1 ? '' : 's') + ').', cur.exclN, 'exclReasons', null, cur.rows.excl),
+    step(8, 'Strip 3-day RORs', 'Door-to-door sales cancelled within 3 days of the sale — buyer’s remorse, not attrition.', cur.rorN, 'ror', null, cur.rows.ror),
     total('Counted cancels', n(cur.counted), 'Attrition = counted cancels ÷ beginning-of-year book', cur.rows.counted),
     total(year + ' YTD attrition', pct(cur.rate) + (official ? '  (official ' + pct(official.cur) + ')' : ''), (year - 1) + ' full year: ' + pct(prev.rate) + (official ? ' (official ' + pct(official.prev) + ')' : '') + ' · ' + n(prev.counted) + ' of ' + n(prev.boy))));
   return card;
