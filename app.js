@@ -39365,7 +39365,11 @@ function retenPopulationExcluded(r) {
   if (retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0) return '$0 paying';
   const svc = Number(r.subscription_completed_services) || 0;
   if (retenExclOneSvc() && svc <= 1 && !_retenOneSvcExempt(r)) return 'under 2 services';
-  if (retenExclFrozenOneSvc() && /frozen/i.test(String(r.subscription_status || '')) && svc <= 1 && !_retenOneSvcExempt(r)) return 'frozen, 1 service';
+  // Frozen after a single visit is a dead-on-arrival account in ANY year
+  // (per Isaac's hand method, Sep 2026): the current-year exemption above
+  // only protects accounts that are still alive and just young. Sentricon
+  // (annual) stays exempt.
+  if (retenExclFrozenOneSvc() && /frozen/i.test(String(r.subscription_status || '')) && svc <= 1 && !retenOneSvcExemptTerms().some(t => String(r.subscription || '').toLowerCase().includes(t))) return 'frozen, 1 service';
   return null;
 }
 function reportingActiveInclOneTime() {
@@ -49894,7 +49898,7 @@ function retenMethodCard(pop, _retenEff) {
     step(3, 'Drop subs closed as 3-day ROR', 'Cancellation reason “3 Day ROR” — the customer used their right of rescission; they never really became a customer.', s2.length - step1a.length, 'popRor', null, notIn(s2, step1a)),
     step(4, 'Drop subs closed by Combined / Renewal', 'Cancellation reason Combined Subscriptions or Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound. Not lost customers — Combined was folded into another sub, and a Renewal was replaced by the renewal sub (which stays, carrying the original start date).' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1a.length - step1.length, 'popRenew', null, notIn(step1a, step1)),
     step(5, 'Drop $0 ARR subs', 'Nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2)),
-    step(6, 'Drop one-service subs (prior years)', 'A single completed visit is not yet a customer. Exempt: ' + retenOneSvcExemptTerms().join(', ') + ' (annual products) and anything sold in ' + year + ' — those ' + n(oneSvcKept.length) + ' stay in.', step2.length - step3.length, 'oneSvc', null, notIn(step2, step3)),
+    step(6, 'Drop one-service subs', 'A single completed visit is not yet a customer. Exempt: ' + retenOneSvcExemptTerms().join(', ') + ' (annual products) and accounts sold in ' + year + ' that are still active — those ' + n(oneSvcKept.length) + ' stay in. A ' + year + ' account already frozen after one visit still drops.', step2.length - step3.length, 'oneSvc', null, notIn(step2, step3)),
     el('div', { class: 'flex items-center gap-3 py-1.5 border-t border-', style: { paddingLeft: '36px' } }, el('div', { class: 'flex-1 text-[11px] text-muted-' }, '↳ Keep the exemptions (Sentricon + current year) — switch off to drop every one-service sub.'), chip('oneSvcExempt')),
     total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
     el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold pt-4 pb-1', style: { color: 'var(--text-subtle)' } }, 'B · Who counts as lost (numerator) — ' + year + ' YTD'),
@@ -52390,7 +52394,7 @@ function adminConfigurations() {
             el('div', {}, el('div', { class: 'text-xs font-semibold' }, 'One-service exemptions'), el('div', { class: 'text-[11px] text-muted-' }, 'Service names containing any of these keep their one-service subs in the book (Sentricon is annual — one visit a year is the service).')),
             ta);
         })(),
-        toggleRow('Exclude frozen subs with ≤1 service', 'Quiet deaths — frozen right after the initial, no cancel date ever lands, so they would count as retained forever. Same exemptions as Step 3. (Redundant while Step 3 is on.)', retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); }),
+        toggleRow('Exclude frozen subs with ≤1 service (any year)', 'An account frozen after a single visit never became a customer — it leaves the book even if it was sold this year (the current-year exemption only protects accounts that are still active). Sentricon stays exempt.', retenExclFrozenOneSvc(), () => { setRetenExclFrozenOneSvc(!retenExclFrozenOneSvc()); mountApp(); }),
         rule(),
         // ── Deleted-in-CRM accounts — orphan rows the RevHawk mirror keeps ──
         (() => {
