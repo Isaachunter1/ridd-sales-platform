@@ -43253,7 +43253,9 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
   const _closedOf = (yr) => Array.from({ length: upto + 1 }, (_, i) => _mktgYm(yr, i)).filter(k => k < openYm && M && M[k]);
   const ytdU = _closedOf(year).length ? putisMetrics(M, _U, _closedOf(year), branches) : null;
   const priorU = _closedOf(year - 1).length ? putisMetrics(M, _U, _closedOf(year - 1), branches) : null;
-  const showMoM = !!state._putisMoM;
+  const deltaMode = state._putisDelta === 'mom' || state._putisDelta === 'yoy' ? state._putisDelta : 'none';
+  const showMoM = deltaMode !== 'none';
+  const lyMonths = deltaMode === 'yoy' ? Array.from({ length: 12 }, (_, i) => { const k = _mktgYm(year - 1, i); return M && M[k] ? putisAugment(putisDerive(M, k, branches), M, k, branches, company) : null; }) : null;
   const th = (t, extra, tip) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-wider font-semibold whitespace-nowrap text-left ' + (extra || '') + (tip ? ' cursor-help' : ''), style: { color: 'var(--text-muted)' }, title: tip || '' }, t);
   const td = (content, o = {}) => el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap align-top' + (o.bold ? ' font-bold' : '') + (o.title ? ' cursor-help' : ''), style: o.style || {}, title: o.title || '' }, content);
   const cellVal = (row, d, prev) => {
@@ -43287,7 +43289,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
       ...shownIdx.map(i => {
         const d = months[i];
         const ym = _mktgYm(year, i);
-        const c = td(cellVal(row, d, i > 0 ? months[i - 1] : null), ym === putisOpenMonth() ? { style: { opacity: '.45' }, title: 'Open month — not closed yet' } : {});
+        const c = td(cellVal(row, d, deltaMode === 'yoy' ? lyMonths[i] : (i > 0 ? months[i - 1] : null)), ym === putisOpenMonth() ? { style: { opacity: '.45' }, title: 'Open month — not closed yet' } : {});
         if (row.drill) {
           const B = _U.months[ym] || {}; const list = []; for (const b of branches) { const x = B[b]; if (x && x[row.drill]) list.push(...x[row.drill]); }
           if (list.length) { c.classList.add('cursor-pointer', 'hover:underline'); c.title = 'Click to see the ' + list.length.toLocaleString() + ' subscription' + (list.length === 1 ? '' : 's'); c.onclick = () => openReportingDrillModal({ chartTitle: title + ' · ' + row.label, sliceLabel: MKTG_MONTHS[i] + ' ' + year + ' · ' + list.length.toLocaleString() + ' subscription' + (list.length === 1 ? '' : 's'), rows: list, formatValue: fmt.usd0 }); }
@@ -43821,8 +43823,7 @@ function reportingPutis() {
   const pickers = () => el('div', { class: 'inline-flex items-center gap-1.5' },
     sel(scYear, ledgerYears.map(y => [y, y]), (v) => { state._putisScoreYear = v; const avail = Object.keys(M).filter(k => k.startsWith(v + '-') && k < putisOpenMonth()).sort(); if (state._putisScoreRange !== 'ytd') state._putisScoreRange = v === closedYr ? closedYm : avail[avail.length - 1]; mountApp(); }),
     sel(scRange, [['ytd', scYear + ' YTD'], ...scMonthsAvail.slice().reverse().map(ym => [ym, monthName(ym, { month: 'long' })])], (v) => { state._putisScoreRange = v; mountApp(); }));
-  const momToggle = () => el('label', { class: 'inline-flex items-center gap-1.5 text-[11px] cursor-pointer whitespace-nowrap' },
-    el('input', { type: 'checkbox', checked: !!state._putisMoM, style: { accentColor: 'var(--accent)' }, onchange: (e) => { state._putisMoM = e.target.checked; mountApp(); } }), 'MoM change');
+  const momToggle = () => sel(state._putisDelta === 'mom' || state._putisDelta === 'yoy' ? state._putisDelta : 'none', [['none', 'No change'], ['mom', 'MoM change'], ['yoy', 'YoY change']], (v) => { state._putisDelta = v; mountApp(); });
   // The toolbar pins under the app header once you scroll past it (per
   // Isaac): a spacer holds its place in the flow, the bar itself flips to
   // position:fixed. (main is overflow-x:hidden, which defeats sticky.)
@@ -43870,7 +43871,7 @@ function reportingPutis() {
   // Phones (per Isaac): one column at a time everywhere — a branch dropdown
   // (RIDD default) on each card, no Compare toggle on the trend table.
   const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
-  const view = (!phone && state._putisView === 'compare') ? 'compare' : 'monthly';
+  const view = 'monthly';   // (Compare view retired per Isaac — MoM / YoY change lives in the Monthly table)
   const closedAll = Object.keys(M).filter(k => /^\d{4}-\d{2}$/.test(k) && k < putisOpenMonth()).sort();
   let cmpYm = state._putisCmpMonth; if (!cmpYm || !M[cmpYm]) cmpYm = closedYm;
   const monthPick = () => sel(cmpYm, closedAll.slice().reverse().map(k => [k, new Date(k + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })]), (v) => { state._putisCmpMonth = v; mountApp(); });
@@ -43881,7 +43882,7 @@ function reportingPutis() {
   let trendRange = state._putisRange;
   if (trendRange !== 'all' && !closedThisYear.includes(trendRange)) trendRange = phone ? (closedThisYear[closedThisYear.length - 1] || 'all') : 'all';
   const rangePick = () => sel(trendRange, [['all', 'All months'], ...closedThisYear.slice().reverse().map(k => [k, new Date(k + '-15T12:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })])], (v) => { state._putisRange = v; mountApp(); });
-  const trendHeader = () => { const h = el('div', { class: 'ml-auto inline-flex items-center gap-1.5 flex-wrap' }, view === 'monthly' ? momToggle() : null, phone ? null : viewSeg(), view === 'compare' ? monthPick() : rangePick(), branchPicker()); h.lastChild && h.lastChild.classList.remove('ml-auto'); return h; };
+  const trendHeader = () => { const h = el('div', { class: 'ml-auto inline-flex items-center gap-1.5 flex-wrap' }, momToggle(), rangePick(), branchPicker()); h.lastChild && h.lastChild.classList.remove('ml-auto'); return h; };
   const scopeSet = branchSel === 'RIDD' ? branches : [branchSel];
   const scopeOpts = branchSel === 'RIDD' ? { company: true } : {};
   if (view === 'compare') wrap.append(putisComparativeCard(M, cmpYm, scopeSet, 'P&L Metrics', trendHeader(), scopeOpts));
