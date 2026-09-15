@@ -50561,42 +50561,53 @@ function reportingWaterfall() {
     overlay.append(card);
     document.body.append(overlay);
   };
+  // ── Cohort waterfall (Isaac's sheet): rows = first-service year, columns
+  // = year-end, cells = accounts from that cohort still active at that
+  // year-end. Built from the SAME retention book as Attrition Steps, with an
+  // office dropdown (RIDD = every office).
   const renderBlended = (pop) => {
-    const base = buildReportingWaterfall(pop, mode === 'arv' ? 'arv' : 'subscription', 'all');
-    const rows2 = [];
-    (base.years || []).forEach((y, i) => {
-      if (i === 0) return;
-      let boy = 0, eoy = 0;
-      base.rowDefs.forEach(r => { if (Number(r.id) <= y - 1) { boy += r.byYear[y - 1] || 0; eoy += r.byYear[y] || 0; } });
-      if (!boy) return;
-      rows2.push({ y, boy, eoy, ret: eoy / boy });
-    });
-    if (!rows2.length) return null;
-    const num = mode === 'arv' ? money0 : (v) => v.toLocaleString();
-    // First matrix year has no blended row (no prior-year book) — a ghost row
-    // keeps year N horizontally aligned with the matrix's year N.
-    const firstYear = (base.years || [])[0];
-    return el('div', { class: 'card overflow-hidden', style: { flex: '1 1 360px', minWidth: '0', maxWidth: '100%' } },
-      el('div', { class: 'px-3 text-[10px] uppercase tracking-widest font-bold flex items-center', style: { background: 'var(--card-2)', borderBottom: '1px solid var(--border)', height: '48px' } }, 'Blended Attrition'),
-      el('table', { class: 'w-full text-xs tabular-nums' },
-        el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { color: 'var(--text-muted)' } },
-          el('tr', {},
-            ...['Year', 'B.O.Y.', 'E.O.Y.', 'Retention', 'Attrition'].map(h => el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, h)))),
+    const offices = [...new Set(pop.map(r => r.office_name).filter(Boolean))].sort();
+    const offSel = state._retenWfOffice && offices.includes(state._retenWfOffice) ? state._retenWfOffice : 'all';
+    const scoped = offSel === 'all' ? pop : pop.filter(r => r.office_name === offSel);
+    const rows = _retenEff(scoped);
+    const yearOf = (iso) => Number(String(iso || '').slice(0, 4));
+    const thisYear = new Date().getFullYear();
+    const cohorts = [...new Set(rows.map(r => yearOf(r.initial_service)).filter(y => y >= 2000))].sort();
+    if (!cohorts.length) return null;
+    const years = []; for (let y = cohorts[0]; y <= thisYear; y++) years.push(y);
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const endOf = (y) => y >= thisYear ? todayIso : y + '-12-31';
+    const isArr = mode === 'arv';
+    const val = (rs) => isArr ? rs.reduce((a, r) => a + (Number(r.annual_recurring_value) || 0), 0) : rs.length;
+    const num = isArr ? money0 : (v) => Math.round(v).toLocaleString();
+    const byCohort = new Map(); rows.forEach(r => { const y = yearOf(r.initial_service); if (!byCohort.has(y)) byCohort.set(y, []); byCohort.get(y).push(r); });
+    const cell = (c, y) => { const rs = byCohort.get(c) || []; const en = endOf(y); return rs.filter(r => r.initial_service <= en && (!r._effCancel || r._effCancel > en)); };
+    const colTotal = (y) => cohorts.filter(c => c <= y).reduce((a, c) => a + val(cell(c, y)), 0);
+    // Blended attrition per year-end column: cohorts that existed at the prior
+    // year-end, followed to this year-end.
+    const blended = (y) => { const prior = cohorts.filter(c => c < y); const boy = prior.reduce((a, c) => a + val(cell(c, y - 1)), 0); const eoy = prior.reduce((a, c) => a + val(cell(c, y)), 0); return boy ? 1 - eoy / boy : null; };
+    const th = (t, o = {}) => el('th', { class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (o.left ? 'text-left' : 'text-right'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0, left: o.corner ? 0 : undefined, zIndex: o.corner ? 3 : 2 } }, t);
+    const td = (t, o = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums whitespace-nowrap ' + (o.left ? 'text-left font-semibold' : 'text-right') + (o.bold ? ' font-black' : ''), style: { color: o.muted ? 'var(--text-subtle)' : undefined, background: o.sticky ? (o.bg || 'var(--card)') : (o.bg || undefined), position: o.sticky ? 'sticky' : undefined, left: o.sticky ? 0 : undefined, zIndex: o.sticky ? 1 : undefined, boxShadow: o.sticky ? '1px 0 0 var(--border)' : undefined, cursor: o.onclick ? 'pointer' : undefined }, onclick: o.onclick }, t);
+    const drillRows = (title, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : undefined;
+    const sel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' }, onchange: (e) => { state._retenWfOffice = e.target.value; mountApp(); } },
+      el('option', { value: 'all', selected: offSel === 'all' }, 'RIDD'), ...offices.map(o => el('option', { value: o, selected: offSel === o }, o)));
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall'), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, (isArr ? 'ARR' : 'Accounts') + ' still active at each year-end, by first-service year · ' + thisYear + ' = today · same book as Attrition Steps')),
+        sel),
+      el('div', { style: { overflow: 'auto', maxHeight: '70vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th(isArr ? 'ARR' : 'Accounts'), ...years.map(y => th(String(y))))),
         el('tbody', {},
-          firstYear != null && el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-            el('td', { class: 'px-2.5 py-2 font-semibold', style: { color: 'var(--text-subtle)' } }, firstYear),
-            el('td', { class: 'px-2.5 py-2', style: { color: 'var(--text-subtle)' }, colspan: 4, title: 'First cohort year — no beginning-of-year book to churn against yet' }, 'cohort start')),
-          ...rows2.map(r => el('tr', {
-            class: 'border-t cursor-pointer transition hover:brightness-95',
-            style: { borderColor: 'var(--border)' },
-            title: 'Click for ' + r.y + '\u2019s breakdown — reasons, services, offices, lifetimes',
-            onclick: () => openAttritionDrill(pop, r.y),
-          },
-            el('td', { class: 'px-2.5 py-2 font-semibold' }, r.y),
-            el('td', { class: 'px-2.5 py-2' }, num(r.boy)),
-            el('td', { class: 'px-2.5 py-2' }, num(r.eoy)),
-            el('td', { class: 'px-2.5 py-2' }, (r.ret * 100).toFixed(2) + '%'),
-            el('td', { class: 'px-2.5 py-2 font-bold', style: { color: (1 - r.ret) > 0.3 ? '#DC2626' : 'var(--text)' } }, ((1 - r.ret) * 100).toFixed(2) + '%'))))));
+          ...cohorts.map(c => { const all = byCohort.get(c) || []; return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            td(String(c), { left: true, sticky: true }),
+            td(num(val(all)), { bold: true, onclick: drillRows(c + ' cohort', all) }),
+            ...years.map(y => { if (y < c) return td('', {}); const rs = cell(c, y); return td(num(val(rs)), { onclick: drillRows(c + ' cohort active at ' + (y >= thisYear ? 'today' : y + ' year-end'), rs), bg: rs.length && all.length ? 'hsl(' + Math.max(0, Math.min(120, (val(rs) / val(all)) * 120)) + ', 70%, 92%)' : undefined }); })); }),
+          el('tr', { class: 'border-t-2 font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+            td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true }),
+            ...years.map(y => td(num(colTotal(y)), { bold: true }))),
+          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            td('Attrition', { left: true, sticky: true, muted: true }), td('', {}),
+            ...years.map(y => { const a = blended(y); return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: a == null ? undefined : () => openAttritionDrill(scoped, y) }); }))))));
   };
   // ── SEASONALITY — monthly churn rate, months × years. Finds the "do we
   // bleed customers at certain points of the year" pattern. Cell = churn ÷
@@ -51517,8 +51528,7 @@ function reportingWaterfall() {
     renderBlended(pop),
     seasonalityCard(pop, label),
     attritionTrendsCard(pop, label),
-    startCohortCard(pop, label),
-    ltvCard(pop, label));
+    startCohortCard(pop, label));   // (LTV card retired per Isaac, Sep 2026)
 
   const body = inCompare
     ? el('div', { class: 'flex flex-col gap-4' },
@@ -52144,7 +52154,8 @@ function reportingWaterfall() {
   })();
 
   // Cancel Hygiene moved to Settings > Admin > Data Integrity (per Isaac).
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, retenMethodCard(popA, _retenEff), body, repTypeAttritionCard, trueAttritionBar, lifetimeCard, renewalRetentionCard, renewalQueueCard, sourceLedgerCard);
+  // (Renewal Outreach queue retired per Isaac, Sep 2026 — renewalQueueCard stays defined.)
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, retenMethodCard(popA, _retenEff), body, repTypeAttritionCard, trueAttritionBar, lifetimeCard, renewalRetentionCard, sourceLedgerCard);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
