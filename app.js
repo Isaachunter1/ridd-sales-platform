@@ -43279,7 +43279,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
   const table = el('table', { class: 'w-full text-[12px]', style: { borderCollapse: 'collapse' } },
     el('thead', {}, el('tr', {}, th('', 'sticky left-0'), ...shownIdx.map(i => { const m = MKTG_MONTHS[i]; const isOpen = _mktgYm(year, i) === putisOpenMonth(); return th(isOpen ? m + ' · open' : (rangeYm ? m + ' ' + year : m), isOpen ? 'italic' : '', isOpen ? 'Current month — books not closed yet, numbers move daily. Not included in YTD.' : PUTIS_COL_TIPS.month); }),
       th(year + ' YTD' + (ytd.months ? ' (thru ' + MKTG_MONTHS[Math.min(upto, Math.max(0, (String(year) === openYm.slice(0, 4) ? new Date().getMonth() - 1 : 11)))] + ')' : ''), '', PUTIS_COL_TIPS.ytd + ' The open (current) month is excluded.'),
-      th((year - 1) + (rangeYm ? ' YTD' : ' total'), '', rangeYm ? 'The same months of ' + (year - 1) + ' (January through ' + MKTG_MONTHS[upto] + ').' : PUTIS_COL_TIPS.prior), th('YoY', '', PUTIS_COL_TIPS.yoy))),
+      th('YoY', '', (rangeYm ? 'Change against the same months of ' + (year - 1) + ' (January through ' + MKTG_MONTHS[upto] + ').' : PUTIS_COL_TIPS.yoy)))),
     el('tbody', {}, ...rowsShown.map(row => row.head
       ? el('tr', { class: 'border-t border-' }, el('td', { colspan: '16', class: 'px-2 pt-3 pb-1 text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', position: 'sticky', left: 0 } }, row.head))
       : el('tr', { class: 'border-t border-' + (row.bold ? ' font-semibold' : ''), style: row.bold ? { background: 'var(--card-2)' } : {} },
@@ -43295,8 +43295,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
         return c;
       }),
       td(fmtRow(row, ytdVal(row)), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: row.signed && ytdVal(row) != null ? { color: ytdVal(row) < 0 ? '#DC2626' : '#16A34A' } : {} }),
-      td(fmtRow(row, priorVal(row)), { title: row.point ? 'Last month of the prior year with a value' : '', style: { color: 'var(--text-muted)' } }),
-      td(yoy(row), { style: { color: 'var(--text-muted)' } })))));
+      td(yoy(row), { title: 'vs ' + fmtRow(row, priorVal(row)) + ' in ' + (year - 1), style: { color: 'var(--text-muted)' } })))));
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-center gap-3' + (opts.compact ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)' } },
       el('div', { class: 'min-w-0' }, el('h3', { class: 'text-sm font-bold' }, title), subtitle ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, subtitle) : null),
