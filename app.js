@@ -11622,7 +11622,22 @@ function viewSales() {
   // Top row: queue toggle on the left, status/rep filters right-aligned on
   // every active queue (per Isaac). No + New Sale here — sales are logged
   // from the Dashboard so the metrics stay front and center.
-  const queueRow = el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, queueToggle);
+  // Admin totals strip (per Isaac): cumulative count + revenue per queue and
+  // for the year, so the tab reads as a P&L of the pipeline, not just a list.
+  const _sumRev = (list) => list.reduce((a, s) => a + (Number(s.revenue_amount) || 0), 0);
+  const _yr = String(new Date().getFullYear());
+  const _ytd = source.filter(s => String(s.sold_date || '').slice(0, 4) === _yr);
+  const _tile = (label, list, accent) => el('div', { class: 'flex-1 min-w-0 px-3 py-2 text-center' },
+    el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+    el('div', { class: 'text-base font-black tabular-nums', style: accent ? { color: 'var(--accent)' } : {} }, fmt.usd0(_sumRev(list))),
+    el('div', { class: 'text-[10px] tabular-nums text-muted-' }, list.length.toLocaleString() + ' sale' + (list.length === 1 ? '' : 's')));
+  const totalsStrip = isAdmin ? el('div', { class: 'card flex items-stretch divide-x overflow-x-auto', style: { borderColor: 'var(--border)' } },
+    _tile(_yr + ' sold', _ytd, true),
+    _tile('Upfront', source.filter(isUpfrontPending)),
+    _tile('Backend lock', source.filter(isBackendPending)),
+    _tile('Archived', source.filter(isCancelled)),
+    _tile('History', source.filter(isHistory))) : null;
+  const queueRow = el('div', { class: 'flex flex-col gap-3' }, totalsStrip, el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, queueToggle));
   const filterBar = queueFilter !== 'history'
     ? el('div', { class: 'flex flex-wrap gap-2 items-center' }, ...filterControls())
     : null;
