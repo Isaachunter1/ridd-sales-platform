@@ -43357,6 +43357,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   // Income-statement card: every $ column gets a "% of revenue" column beside it (per Isaac).
   // Desktop: click a branch header to pop its "% of revenue" column open
   // (click again to close). Phones (one column) always show it.
+  const part = opts.section || 'all';   // 'book' | 'margins' | 'unit' | 'pnl' | 'all'
   const pctSet = state._putisPctCols instanceof Set ? state._putisPctCols : (state._putisPctCols = new Set());
   const withPct = !['book', 'margins', 'unit'].includes(opts.section || 'all');
   const pctOn = (key) => withPct && (opts.onlyCol ? true : pctSet.has(key));
@@ -43412,7 +43413,6 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   PUTIS_GA_LINES.forEach(g => { TIPS[g] = 'G&A line: the "' + g + '" account group, by branch.'; });
   const _line = line;
   const lineT = (label, f, o = {}) => _line(label, f, { ...o, tip: o.tip || TIPS[label] || '' });
-  const part = opts.section || 'all';   // 'book' = recurring-book card only, 'pnl' = income statement only
   const rows = [
     section('Income statement', 'Dollars booked in QuickBooks for the selected month (or year to date), by branch. Corporate = accounts with no branch prefix.'),
     lineT('Total income', d => d.revenue, { bold: true }),
