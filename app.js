@@ -44358,13 +44358,20 @@ function reportingOverview() {
     style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '220px' },
     onchange: (e) => { state.reportingOverviewMetric = e.target.value; mountApp(); },
   }, ...COLUMN_CARDS.map(c => el('option', { value: c.key, selected: c.key === pickKey }, c.label + ' · ' + c.value)));
-  const columnsBlock = inCompare ? null : el('div', { class: 'flex flex-col gap-4' },
-    el('div', { class: 'flex items-center gap-3 flex-wrap' },
-      el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Metric'),
-      metricPick),
-    popTile(picked),
-    el('div', { class: 'grid gap-4', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' } },
-      ...picked.chartIds.map(id => defById[id] ? makeCard(defById[id], dataA, 'a') : null)));
+  // Phones only (per Isaac) — desktop keeps the five columns side by side.
+  const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
+  const columnsBlock = inCompare ? null : phone
+    ? el('div', { class: 'flex flex-col gap-4' },
+        el('div', { class: 'flex items-center gap-3 flex-wrap' },
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Metric'),
+          metricPick),
+        popTile(picked),
+        ...picked.chartIds.map(id => defById[id] ? makeCard(defById[id], dataA, 'a') : null))
+    : el('div', { class: 'overflow-x-auto' },
+        el('div', { class: 'grid gap-4 rep-cols', style: { gridTemplateColumns: 'repeat(5, minmax(235px, 1fr))', minWidth: '1230px', alignItems: 'start' } },
+          ...COLUMN_CARDS.map(c => el('div', { class: 'flex flex-col gap-4' },
+            popTile(c),
+            ...c.chartIds.map(id => defById[id] ? makeCard(defById[id], dataA, 'a') : null)))));
 
   const chartGrid = inCompare
     ? el('div', { class: 'grid gap-4 rep-cols', style: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } },
