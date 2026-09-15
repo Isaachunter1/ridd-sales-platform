@@ -253,12 +253,12 @@ const isOfficeLeadRole = (r) => r === 'rep_office_lead' || r === 'rep_loyalty_le
 // profile menu in sync without scattering string-cases.
 const ROLE_LABEL = {
   rep:        'Rep (legacy)',   // pre-migration accounts; behaves like its CRM type
-  rep_sales:  'Rep - Sales Rep',
-  rep_partner:'Rep - Partner',
-  rep_team_lead:'Rep - Team Lead',
-  rep_office: 'Rep - Office Staff',
-  rep_office_lead: 'Rep - Inside Sales Team Lead',
-  rep_loyalty_lead: 'Rep - Loyalty Team Lead',
+  rep_sales:  'Sales Rep - Rep',
+  rep_partner:'Sales Rep - Partner',
+  rep_team_lead:'Sales Rep - Team Lead',
+  rep_office: 'Office Staff - Inside Sales Rep',
+  rep_office_lead: 'Office Staff - Team Lead',
+  rep_loyalty_lead: 'Office Staff - Loyalty Rep',
   admin_rep:  'Admin + Sales',
   admin:      'Admin',
   auditor:    'Auditor',
@@ -52214,7 +52214,7 @@ function adminPermissions() {
             el('tr', { class: 'text-left' },
               el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Can see\u2026'),
               ...PERM_ROLES.map(role => el('th', { class: 'px-2 py-2 text-center whitespace-nowrap' },
-                el('div', { class: 'text-[11px] font-bold' }, (ROLE_LABEL[role] || role).replace(/^Rep - /, '').replace(/^Office Staff - /, 'Office ')))))),
+                el('div', { class: 'text-[11px] font-bold' }, (ROLE_LABEL[role] || role).replace(/^Sales Rep - /, 'Sales ').replace(/^Office Staff - /, 'Office ')))))),
           el('tbody', {},
             ...groups.flatMap(g => [
               el('tr', {}, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colSpan: String(1 + PERM_ROLES.length), style: { color: 'var(--text-subtle)' } }, g)),
@@ -55268,7 +55268,7 @@ function adminReps() {
           style: { position: 'absolute', top: 'calc(100% + 6px)', right: '0', minWidth: '190px', padding: '6px', display: 'none', zIndex: '50', boxShadow: 'var(--shadow-lg)' },
         },
           el('div', { class: 'px-3 pt-1.5 pb-2 text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'View the app as\u2026'),
-          ...[['rep_sales', 'Rep - Sales Rep'], ['rep_partner', 'Rep - Partner'], ['rep_team_lead', 'Rep - Team Lead'], ['rep_office', 'Rep - Office Staff'], ['rep_office_lead', 'Rep - Inside Sales Team Lead'], ['rep_loyalty_lead', 'Rep - Loyalty Team Lead'], ['auditor', 'Auditor']].map(([v, label]) => el('button', {
+          ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty_lead', 'auditor'].map(v => [v, ROLE_LABEL[v]]).map(([v, label]) => el('button', {
             class: 'w-full text-left px-2.5 py-1 rounded-lg text-[11px] font-medium transition',
             style: { color: 'var(--text)' },
             onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; },
@@ -56163,12 +56163,7 @@ function openUserEditor(existing = null, prefill = null) {
       let seedRole = existing?.role || prefill?.role || 'rep_sales';
       if (seedRole === 'rep') seedRole = 'rep_sales';
       const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' },
-        el('option', { value: 'rep_sales',  selected: seedRole === 'rep_sales' },  'Rep - Sales Rep'),
-        el('option', { value: 'rep_partner', selected: seedRole === 'rep_partner' }, 'Rep - Partner'),
-        el('option', { value: 'rep_team_lead', selected: seedRole === 'rep_team_lead' }, 'Rep - Team Lead'),
-        el('option', { value: 'rep_office', selected: seedRole === 'rep_office' }, 'Rep - Office Staff'),
-        el('option', { value: 'rep_office_lead', selected: seedRole === 'rep_office_lead' }, 'Rep - Inside Sales Team Lead'),
-        el('option', { value: 'rep_loyalty_lead', selected: seedRole === 'rep_loyalty_lead' }, 'Rep - Loyalty Team Lead'),
+        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty_lead'].map(v => el('option', { value: v, selected: seedRole === v }, ROLE_LABEL[v])),
         el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep' },  'Admin + Sales'),
         el('option', { value: 'admin',      selected: seedRole === 'admin' },      'Admin (no sales)'),
         el('option', { value: 'auditor',    selected: seedRole === 'auditor' },    'Auditor'),
