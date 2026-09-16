@@ -774,8 +774,9 @@ exports.handler = async (event) => {
         const pool = objects.filter(r =>
           AL_TYPES.has(String(r.sold_by_type || '').trim())
           && r.customer_id && r.sold_date && String(r.sold_date).slice(0, 10) >= START
-          && !EXCLUDED_SVCS.has(String(r.subscription || '').trim())
-          && _eligible(r));
+          && !EXCLUDED_SVCS.has(String(r.subscription || '').trim()));
+        // (Every subscription lands — per Isaac; eligibility is SHOWN on the
+        // row and gates auto-approval, it no longer gates logging.)
         if (pool.length) {
           const [exQ, offQ, svcQ, srcQ, ctQ] = await Promise.all([
             supabase.from('sales').select('customer_number, revenue_amount, sold_date, crm_subscription, crm_subscription_id').gte('sold_date', START),
@@ -801,7 +802,13 @@ exports.handler = async (event) => {
           const batch = [];
           const flush = async () => {
             if (!batch.length) return;
-            const { error: insErr } = await supabase.from('sales').insert(batch.splice(0, batch.length));
+            const rows = batch.splice(0, batch.length);
+            let { error: insErr } = await supabase.from('sales').insert(rows);
+            if (insErr && /crm_initial_status|crm_autopay|crm_contract_state|crm_contract_signed_at/i.test(insErr.message || '')) {
+              console.warn('[revhawk-sync] eligibility/agreement columns missing — run migrations/20260916_sales_eligibility.sql (+ sales_crm_agreement.sql); inserting without them');
+              rows.forEach(x => { delete x.crm_initial_status; delete x.crm_autopay; delete x.crm_contract_state; delete x.crm_contract_signed_at; });
+              ({ error: insErr } = await supabase.from('sales').insert(rows));
+            }
             if (insErr) console.warn('[revhawk-sync] auto-add batch failed: ' + insErr.message);
           };
           for (const r of pool) {
@@ -856,6 +863,10 @@ exports.handler = async (event) => {
               audit_status: 'pending',
               created_at: new Date().toISOString(),
               crm_status: 'verified', crm_contract_value: cv, crm_subscription: sub, crm_checked_at: new Date().toISOString(),
+              crm_initial_status: String(r.initial_status || '').trim() || 'None',
+              crm_autopay: _hasBilling(r),
+              crm_contract_state: String(r.contract_state || 'none'),
+              crm_contract_signed_at: r.contract_signed_at ? String(r.contract_signed_at).slice(0, 10) : null,
             });
             if (batch.length >= 500) await flush();
             haveKey.add(key); if (subId) haveSub.add(subId); haveRevenue.push({ cust: norm(r.customer_id), rev: cv, t: soldT });
@@ -1095,9 +1106,16 @@ exports.handler = async (event) => {
       const since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
       let _lifecycleCols = true;   // flips off if sales_crm_lifecycle.sql hasn't been run
       let { data: appSales, error: asErr } = await supabase.from('sales')
-        .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state')
+        .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state, crm_initial_status, crm_autopay')
         .gte('sold_date', since);
       let _agreementCols = true;   // flips off if sales_crm_agreement.sql hasn't been run
+      let _eligCols = true;        // flips off if 20260916_sales_eligibility.sql hasn't been run
+      if (asErr && /crm_initial_status|crm_autopay/i.test(asErr.message || '')) {
+        _eligCols = false;
+        ({ data: appSales, error: asErr } = await supabase.from('sales')
+          .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state')
+          .gte('sold_date', since));
+      }
       if (asErr && /crm_contract_signed_at|crm_contract_state/i.test(asErr.message || '')) {
         _agreementCols = false;
         console.warn('[revhawk-sync] agreement columns missing - run sales_crm_agreement.sql to enable signed-agreement stamps');
@@ -1156,6 +1174,7 @@ exports.handler = async (event) => {
             lc.balance = (best.responsible_balance === null || best.responsible_balance === undefined || best.responsible_balance === '') ? null : (Math.round((Number(best.responsible_balance) || 0) * 100) / 100);
             // Signed agreement (per Isaac) — from FieldRoutesContract via the
             // snapshot query: 'signed' (+ date) / 'sent' (e-sign out, unsigned) / 'none'.
+            lc.best = best;
             lc.signed_at = best.contract_signed_at ? String(best.contract_signed_at).slice(0, 10) : null;
             lc.contract_state = best.contract_state ? String(best.contract_state) : 'none';
             // PAID-IN-FULL auto-detect: initial invoice covers >=90% of the
@@ -1177,12 +1196,22 @@ exports.handler = async (event) => {
           const sigChanged = _agreementCols && (
             String(s.crm_contract_signed_at || '') !== String(lc.signed_at || '') ||
             String(s.crm_contract_state || '') !== String(lc.contract_state || ''));
-          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged && !sigChanged) continue;
+          const eligChanged = _eligCols && lc.best && (
+            String(s.crm_initial_status || '') !== (String(lc.best.initial_status || '').trim() || 'None')
+            || (s.crm_autopay == null || !!s.crm_autopay) !== (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })());
+          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged && !sigChanged && !eligChanged) continue;
           const upd = { crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp };
           if (_lifecycleCols) { upd.crm_serviced_at = lc.serviced_at; upd.crm_completed_services = lc.completed; upd.crm_days_past_due = lc.dpd; upd.crm_balance = lc.balance; }
+          if (_eligCols && lc.best) { upd.crm_initial_status = String(lc.best.initial_status || '').trim() || 'None'; upd.crm_autopay = (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })(); }
           if (_agreementCols) { upd.crm_contract_signed_at = lc.signed_at; upd.crm_contract_state = lc.contract_state; }
           if (pifChanged) upd.paid_in_full = true;
           let { error } = await supabase.from('sales').update(upd).eq('id', s.id);
+          if (error && _eligCols && /crm_initial_status|crm_autopay/i.test(error.message || '')) {
+            _eligCols = false;
+            console.warn('[revhawk-sync] eligibility columns missing — run migrations/20260916_sales_eligibility.sql');
+            delete upd.crm_initial_status; delete upd.crm_autopay;
+            ({ error } = await supabase.from('sales').update(upd).eq('id', s.id));
+          }
           if (error && _agreementCols && /crm_contract_signed_at|crm_contract_state/i.test(error.message || '')) {
             // sales_crm_agreement.sql not run yet — drop the agreement stamps and retry.
             _agreementCols = false;
@@ -1240,10 +1269,13 @@ exports.handler = async (event) => {
           const dpd = Number(r.days_past_due) || 0;
           const signed = String(r.contract_state || 'none') === 'signed';
           const oneTime = (Number(s.contract_months) || 0) <= 0;
+          const hasAppt = ['pending', 'completed'].includes(String(r.initial_status || '').trim().toLowerCase());
+          const hasBilling = (() => { const a = String(r.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })();
+          const eligible = (AL2.require_appt === false || hasAppt) && (AL2.require_billing === false || hasBilling) && (AL2.require_signed === false || signed || oneTime);
           const upd = {};
           if (s.audit_status === 'pending' && !s.payroll_processed_at) {
             if (cancelled && !serviced) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + ' · Auto: cancelled in CRM before service').trim(); }
-            else if (AL2.auto_approve && serviced && (signed || oneTime) && dpd <= 0) { upd.audit_status = 'approved'; upd.audited_at = stamp; }
+            else if (AL2.auto_approve && eligible && serviced && dpd <= 0) { upd.audit_status = 'approved'; upd.audited_at = stamp; }
           }
           const lock = s.lock_status || 'pending';
           if (lock === 'pending' && s.payroll_processed_at && ['approved', 'serviced'].includes(upd.audit_status || s.audit_status)) {
