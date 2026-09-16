@@ -225,13 +225,25 @@ function techUpsellRows() {
   _techBridgeCache = { src: raw, out };
   return out;
 }
+// Technicians custom range. Deliberately NOT getDateRange('custom') — that
+// reads state.dashCustomStart/End, which belong to the Dashboard toolbar, so
+// sharing them would make one page's custom range silently move the other's.
+function techCustomRange() {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const s = state._techCustomStart ? new Date(state._techCustomStart + 'T00:00') : today;
+  const e = state._techCustomEnd   ? new Date(state._techCustomEnd   + 'T00:00') : today;
+  const end = new Date(e); end.setHours(23, 59, 59, 999);
+  return { start: s, end };
+}
 function viewTechs() {
   const isAdmin = isAdminRole(state.profile?.role);
   if (!isAdmin && !isTechProfile(state.profile)) {
     return el('div', { class: 'card p-10 text-center text-sm text-muted-' },
       'The Technicians tab is for Service Pros and admins. If you should have access, ask an admin to link your account to your CRM technician profile (Settings → Users).');
   }
-  const range = getDateRange(state._techRange || 'today');
+  const techRange = state._techRange || 'today';
+  const range = techRange === 'custom' ? techCustomRange() : getDateRange(techRange);
   const all = techUpsellRows();
   const inRange = all.filter(s => {
     const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
@@ -252,9 +264,59 @@ function viewTechs() {
   const board = [...byTech.entries()].map(([nm, t]) => ({ nm, ...t })).sort((a, b) => b.rev - a.rev);
   const rangeSel = el('select', {
     class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
-    onchange: (e) => { state._techRange = e.target.value; mountApp(); },
-  }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This Week'], ['month', 'This Month'], ['year', 'This Year'], ['all', 'All Time']]
-    .map(([v, l]) => { const o = el('option', { value: v }, l); if ((state._techRange || 'today') === v) o.selected = true; return o; }));
+    onchange: (e) => {
+      state._techRange = e.target.value;
+      if (state._techRange === 'custom') {   // seed both ends to today so the board isn't blank on switch
+        const iso = new Date().toISOString().slice(0, 10);
+        if (!state._techCustomStart) state._techCustomStart = iso;
+        if (!state._techCustomEnd)   state._techCustomEnd   = iso;
+      }
+      mountApp();
+    },
+  }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This Week'], ['month', 'This Month'], ['year', 'This Year'], ['all', 'All Time'], ['custom', 'Custom…']]
+    .map(([v, l]) => { const o = el('option', { value: v }, l); if (techRange === v) o.selected = true; return o; }));
+  const customRangeInputs = techRange === 'custom' && el('div', { class: 'flex items-center gap-2' },
+    el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state._techCustomStart || '', onchange: e => { state._techCustomStart = e.target.value; mountApp(); } }),
+    el('span', { class: 'text-muted- text-xs' }, '→'),
+    el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state._techCustomEnd || '', onchange: e => { state._techCustomEnd = e.target.value; mountApp(); } }),
+  );
+  // Export the rows behind the CURRENT range selection — one line per upsell,
+  // so the leaderboard totals stay derivable in a pivot without shipping a
+  // second aggregate export.
+  function exportTechCsv() {
+    if (inRange.length === 0) return toast('Nothing to export', 'warn');
+    const headers = ['date_sold', 'technician', 'customer', 'customer_id', 'subscription', 'office', 'source', 'contract_months', 'initial', 'contract_value', 'recurring', 'auto_pay', 'status'];
+    const lines = [headers.join(',')];
+    inRange.forEach(s => lines.push([
+      csvEsc(s.dateSold || ''),
+      csvEsc(flipLastFirst(getCanonicalRepName(s.rep || ''))),
+      csvEsc(s.customer || ''),
+      csvEsc(s.customerId || ''),
+      csvEsc(s.subscription || ''),
+      csvEsc(s.office || ''),
+      csvEsc(s.source || ''),
+      s.contract || '',
+      Number(s.initialPrice || 0).toFixed(2),
+      Number(s.contractValue || 0).toFixed(2),
+      Number(s.recurring || 0).toFixed(2),
+      csvEsc(s.autoPay || ''),
+      csvEsc(s.status || ''),
+    ].join(',')));
+    const tag = techRange === 'custom'
+      ? (state._techCustomStart || '') + '_to_' + (state._techCustomEnd || '')
+      : techRange;
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = el('a', { href: url, download: `ridd-service-pro-upsells-${tag}-${new Date().toISOString().slice(0, 10)}.csv` });
+    document.body.append(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast('Exported ' + inRange.length + ' upsell' + (inRange.length === 1 ? '' : 's'), 'success');
+  }
+  const exportBtn = el('button', {
+    class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+    style: { background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border-2)' },
+    onclick: exportTechCsv,
+  }, 'Export CSV');
   const myUpsells = (state.mySales || []).filter(s => {
     const src2 = state.sources.find(o => o.id === s.source_id);
     return src2 && TECH_UPSELL_SRC_RE.test(String(src2.name || ''));
@@ -267,6 +329,8 @@ function viewTechs() {
         onclick: () => { state._saleFormPreset = 'tech'; openNewSaleModal(); state._saleFormPreset = null; },   // modal builds synchronously — consume then clear
       }, '+ Log Upsell'),
       rangeSel,
+      customRangeInputs,
+      exportBtn,
       configInfoBtn('Technicians data',
         'Live from FieldRoutes: every subscription with source "Upsell - Service Pro" (the technicians\u2019 dedicated upsell source), refreshed by the hourly sync. Technicians ALSO log their upsells manually with the + button — the manual log is the commission record of the original deal, exactly like Inside Sales. Techs without app accounts still rank here under their CRM name.')),
     el('div', { class: 'grid grid-cols-2 gap-4' },
