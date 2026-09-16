@@ -336,6 +336,35 @@ FROM \`${PROJECT}.${DATASET}.FieldRoutesCustomerSource\`
 WHERE fieldRoutes_source IS NOT NULL AND TRIM(fieldRoutes_source) != ''
 GROUP BY LOWER(TRIM(fieldRoutes_source))`;
 
+// Add-ons (per Isaac, Sep 2026) = TICKET ITEMS added to a subscription's
+// Initial / Recurring invoice from FieldRoutes' "Available Items" list, at
+// fixed prices, optionally assigned to a rep. They arrive in the warehouse as
+// the ticket's `items` JSON. Which item names count as add-ons is configured
+// in the app (app_settings.autolog.upsell_services); the SQL pulls every
+// ticket with items since the start date and JS matches item by item.
+const TICKET_SQL = (start) => `
+SELECT
+  t.fieldRoutes_ticketID       AS ticket_id,
+  t.fieldRoutes_customerID     AS customer_id,
+  t.fieldRoutes_subscriptionID AS subscription_id,
+  LEFT(t.fieldRoutes_dateCreated, 10) AS created,
+  t.fieldRoutes_createdBy      AS created_by,
+  t.fieldRoutes_officeID       AS office_id,
+  SAFE_CAST(t.fieldRoutes_total AS FLOAT64) AS total,
+  t.fieldRoutes_items          AS items,
+  st.fieldRoutes_description   AS service,
+  cust.fieldRoutes_fname       AS first_name,
+  cust.fieldRoutes_lname       AS last_name,
+  emp.fieldRoutes_type         AS created_by_type
+FROM \`${PROJECT}.${DATASET}.FieldRoutesTicket\` t
+LEFT JOIN \`${PROJECT}.${DATASET}.FieldRoutesServiceType\` st ON st.fieldRoutes_typeID = t.fieldRoutes_serviceID
+LEFT JOIN \`${PROJECT}.${DATASET}.FieldRoutesCustomer\` cust ON cust.fieldRoutes_customerID = t.fieldRoutes_customerID
+LEFT JOIN \`${PROJECT}.${DATASET}.FieldRoutesEmployee\` emp ON emp.fieldRoutes_employeeID = t.fieldRoutes_createdBy
+WHERE (t.fieldRoutes_active = '1' OR LOWER(t.fieldRoutes_active) = 'true')
+  AND LEFT(t.fieldRoutes_dateCreated, 10) >= '${start}'
+  AND t.fieldRoutes_items IS NOT NULL AND t.fieldRoutes_items NOT IN ('', '[]', 'null')
+  AND t.fieldRoutes_subscriptionID IS NOT NULL AND t.fieldRoutes_subscriptionID NOT IN ('', '0')`;
+
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 // Service-account creds: prefer the whole JSON file in GCP_SA_JSON (JSON.parse
@@ -877,6 +906,94 @@ exports.handler = async (event) => {
         }
       } catch (aaErr) {
         if (!(aaErr && aaErr._skip)) console.error('[revhawk-sync] inside-sales auto-add skipped:', String((aaErr && aaErr.message) || aaErr));
+      }
+
+      // ── 🧩 UPSELL AUTO-LOG (per Isaac, Sep 2026) ───────────────────────
+      // Only when app_settings.autolog.upsells === 'auto'. One sale per
+      // add-on ticket (sale_kind 'upsell'), revenue = ticket total, seller =
+      // the employee who created the ticket, queue by that person's type.
+      // Deduped on crm_ticket_id, so reruns are idempotent.
+      try {
+        const { data: alRow3 } = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
+        const AL3 = Object.assign({ enabled: false, start: '2026-01-01', upsells: 'manual', upsell_services: [] }, (alRow3 && alRow3.value) || {});
+        if (AL3.enabled && AL3.upsells === 'auto') {
+          const START3 = String(AL3.start || '2026-01-01').slice(0, 10);
+          const terms = (Array.isArray(AL3.upsell_services) ? AL3.upsell_services : []).map(x => String(x).toLowerCase()).filter(Boolean);
+          const isAddOn = (name) => { const n = String(name || '').toLowerCase(); return terms.length ? terms.some(t => n.includes(t)) : /add[- ]?on|upsell/.test(n); };
+          const tq = await runQuery(token, TICKET_SQL(START3));
+          // One candidate per matching LINE ITEM. The items JSON shape isn't
+          // in the warehouse yet (no add-ons sold), so read the usual keys
+          // defensively: name/description, price/charge/amount, quantity, and
+          // an item-level employee (assigned rep) when FieldRoutes sends one.
+          const tickets = [];
+          for (const t of toObjects(tq.schema, tq.rows)) {
+            let items = [];
+            try { const j = JSON.parse(String(t.items || '[]')); items = Array.isArray(j) ? j : Object.values(j || {}); } catch (e) { continue; }
+            items.forEach((it, idx) => {
+              if (!it || typeof it !== 'object') return;
+              const name = String(it.description || it.name || it.item || it.itemName || '').trim();
+              if (!name || !isAddOn(name)) return;
+              const qty = Number(it.quantity || it.qty || 1) || 1;
+              const price = Number(it.total ?? it.amount ?? it.price ?? it.charge ?? 0) || 0;
+              const amount = Math.round(price * (it.total != null ? 1 : qty) * 100) / 100;
+              if (amount <= 0) return;
+              const by = String(it.employeeID || it.soldBy || it.salesRep || it.assignedTo || t.created_by || '').trim();
+              tickets.push({ ...t, ticket_id: String(t.ticket_id) + ':' + idx, service: name, total: amount, created_by: by });
+            });
+          }
+          if (tickets.length) {
+            const QUEUE_OF3 = { '0': 'office', '2': 'd2d', '1': 'tech' };
+            const masterOf3 = new Map();
+            roster.forEach(e => String(e.employee_ids || e.employee_id || '').split(',').forEach(id => { const t = id.trim(); if (t) masterOf3.set(t, String(e.employee_id)); }));
+            const { data: profs4 } = await supabase.from('profiles').select('id, fieldroutes_employee_id, office_id').not('fieldroutes_employee_id', 'is', null);
+            const profByEmp3 = new Map();
+            (profs4 || []).forEach(p => { const pid = String(p.fieldroutes_employee_id || '').trim(); if (pid) { profByEmp3.set(pid, p); const m = masterOf3.get(pid) || pid; if (!profByEmp3.has(m)) profByEmp3.set(m, p); } });
+            roster.forEach(e => { const ids = String(e.employee_ids || e.employee_id || '').split(',').map(x => x.trim()).filter(Boolean); const hit = ids.map(id => profByEmp3.get(id)).find(Boolean); if (hit) ids.forEach(id => { if (!profByEmp3.has(id)) profByEmp3.set(id, hit); }); });
+            const [haveQ, svcQ3, offQ3] = await Promise.all([
+              supabase.from('sales').select('crm_ticket_id').not('crm_ticket_id', 'is', null),
+              supabase.from('service_types').select('id, name'),
+              supabase.from('offices').select('id, name'),
+            ]);
+            const haveT = new Set((haveQ.data || []).map(r => String(r.crm_ticket_id)));
+            const norm3 = (x) => String(x || '').trim().toLowerCase();
+            const svcByName3 = new Map((svcQ3.data || []).map(o => [norm3(o.name), o.id]));
+            const officeByName3 = new Map((offQ3.data || []).map(o => [norm3(o.name), o.id]));
+            let added3 = 0, skipNoRep3 = 0; const batch3 = [];
+            for (const t of tickets) {
+              const tid = String(t.ticket_id || '').trim(); if (!tid || haveT.has(tid)) continue;
+              const by = String(t.created_by || '').trim();
+              const prof = profByEmp3.get(by) || profByEmp3.get(masterOf3.get(by) || '') || null;
+              if (!prof) { skipNoRep3++; continue; }
+              const svcName = String(t.service || '').trim() || 'Add-on';
+              let svcId = svcByName3.get(norm3(svcName));
+              if (!svcId) { const ins = await supabase.from('service_types').insert({ name: svcName }).select('id').maybeSingle(); if (ins.data && ins.data.id) { svcId = ins.data.id; svcByName3.set(norm3(svcName), svcId); } }
+              const total = Math.round((Number(t.total) || 0) * 100) / 100;
+              batch3.push({
+                rep_id: prof.id, logged_by: null,
+                sale_kind: 'upsell', crm_ticket_id: tid, parent_subscription_id: String(t.subscription_id || '') || null,
+                queue_type: QUEUE_OF3[String(t.created_by_type || '')] || 'office',
+                customer_name: [String(t.first_name || '').trim(), String(t.last_name || '').trim()].filter(Boolean).join(' ') || ('Customer ' + t.customer_id),
+                customer_number: String(t.customer_id || ''),
+                office_id: officeByName3.get(norm3(OFFICE_NAMES[String(t.office_id)] || '')) ?? prof.office_id ?? null,
+                service_type_id: svcId || null,
+                contract_months: 0, initial_amount: total, monthly_amount: 0, num_services: null, pay_per_service: false,
+                paid_in_full: true, is_commercial: false, revenue_amount: total,
+                sold_date: String(t.created || '').slice(0, 10), commission_date: null,
+                notes: 'Auto-added upsell (add-on item) from FieldRoutes ticket #' + tid.split(':')[0],
+                audit_status: 'pending', created_at: new Date().toISOString(),
+                crm_status: 'verified', crm_contract_value: total, crm_subscription: svcName, crm_checked_at: new Date().toISOString(),
+              });
+              haveT.add(tid); added3++;
+            }
+            for (let i = 0; i < batch3.length; i += 500) {
+              const { error } = await supabase.from('sales').insert(batch3.slice(i, i + 500));
+              if (error) { console.warn('[revhawk-sync] upsell auto-log batch failed: ' + error.message); break; }
+            }
+            console.log('[revhawk-sync] upsell auto-log: ' + tickets.length + ' add-on ticket(s) since ' + START3 + ' · +' + added3 + ' logged · ' + skipNoRep3 + ' creator(s) with no app account');
+          }
+        }
+      } catch (upErr) {
+        console.error('[revhawk-sync] upsell auto-log skipped:', String((upErr && upErr.message) || upErr));
       }
 
       // ── 👻 UNLOGGED SALES ("ghost" rows, per Isaac) ─────────────────────

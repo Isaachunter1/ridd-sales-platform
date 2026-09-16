@@ -345,11 +345,11 @@ function viewDashboard() {
     el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar' },
       // + New Sale stretches to fill the row on every screen (per Isaac);
       // Today / info keep their natural size on the right (dash-toolbar CSS).
-      el('button', {
+      manualUpsellsOn() ? el('button', {
         class: 'dash-newsale rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
         onclick: () => openNewSaleModal(),
-      }, '+ New Sale'),
+      }, '+ New Sale') : el('div', { class: 'dash-newsale rounded-xl px-2.5 py-1 text-[11px] font-semibold text-center', style: { background: 'var(--card-2)', color: 'var(--text-muted)' }, title: 'Upsells are logged automatically from FieldRoutes add-on tickets' }, 'Sales and upsells sync from FieldRoutes'),
 
       // Date filter
       el('select', {

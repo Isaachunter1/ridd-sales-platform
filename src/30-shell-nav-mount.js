@@ -1065,7 +1065,7 @@ function mountApp() {
   // + FAB is OFFICE STAFF only (per Isaac) — admins don't log sales from a
   // floating button, and the retired AI speed-dial no longer replaces it.
   const _showFab = state.profile && !isAdminRole(state.profile?.role) && (typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile));
-  if (!FAB_HIDDEN_VIEWS.has(state.view) && _showFab) {
+  if (!FAB_HIDDEN_VIEWS.has(state.view) && _showFab && manualUpsellsOn()) {
     // Icon-only FAB — a lone + reads instantly and stops covering table
     // rows / the pinned leaderboard footer on phones.
     const fab = el('button', {

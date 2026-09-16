@@ -193,6 +193,12 @@ function _permRoleOf(profile) {
   }
   return 'rep_sales';
 }
+// Manual upsell logging stays until Configurations → Auto-log → Upsells is
+// flipped to Automatic (add-on tickets in FieldRoutes). One switch, no lag.
+function manualUpsellsOn() {
+  const al = state._autolog || state._autologCache;
+  return !(al && al.upsells === 'auto');
+}
 function userCan(permId, profile) {
   const p = profile || state.profile;
   if (!p) return false;
@@ -1488,6 +1494,12 @@ async function saveCompanyGoal() {
 // persist here so the Office Staff rules (and the Pay tab math) survive a
 // reload. Loaded for any signed-in user so reps see correct pay; saved by
 // admins only.
+async function loadAutologSwitch() {
+  try {
+    const { data } = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
+    state._autologCache = (data && data.value) || null;
+  } catch (e) { /* stays manual */ }
+}
 async function loadAppSettings() {
   if (DEMO || !supabase || !state.profile) return;
   try {
@@ -3261,6 +3273,7 @@ async function loadData() {
   // right after first paint instead of holding the splash hostage.
   const [salesRes, profiles] = await Promise.all([salesQuery, profilesQuery]);
   loadUnloggedSales().then(gh => { if (gh) { state.unloggedSales = gh; if (state.view === 'sales') mountApp(); } });
+  loadAutologSwitch().then(() => { if (state._autologCache && state._autologCache.upsells === 'auto') mountApp(); });
   setTimeout(() => {
     Promise.all([
       supabase.from('competitions').select('*').order('start_date', { ascending: false }),

@@ -681,6 +681,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 // current? Rendered alongside the value-exactness chip so an
                 // signed-agreement chip rides along too (FieldRoutesContract).
                 const lcChips = [];
+                if (s.sale_kind === 'upsell') lcChips.push(chip('＋ Upsell', 'rgba(168,85,247,.14)', '#7C3AED', 'Add-on' + (s.crm_ticket_id ? ' · FieldRoutes ticket #' + s.crm_ticket_id : '') + (s.parent_subscription_id ? ' on subscription ' + s.parent_subscription_id : '')));
                 // Eligibility (per Isaac): appointment + billing stamped by the
                 // sync (20260916_sales_eligibility.sql). Every subscription is
                 // logged; these show which can earn a payout.
