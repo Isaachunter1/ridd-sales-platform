@@ -2230,6 +2230,6 @@ function reportingWaterfall() {
 
   // Cancel Hygiene moved to Settings > Admin > Data Integrity (per Isaac).
   // (Renewal Outreach queue retired per Isaac, Sep 2026 — renewalQueueCard stays defined.)
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, retenMethodCard(popA, _retenEff), body, repTypeAttritionCard, trueAttritionBar, lifetimeCard, renewalRetentionCard, sourceLedgerCard);
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, retenMethodCard(popA, _retenEff), body, repTypeAttritionCard, trueAttritionBar, (typeof intelLeaversCard === 'function' ? intelLeaversCard() : null), lifetimeCard, renewalRetentionCard, sourceLedgerCard);
 }
 
