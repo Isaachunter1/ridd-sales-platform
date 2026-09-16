@@ -158,8 +158,9 @@ exports.handler = async (event) => {
       }
       if (!svcId) continue;
       const cust = custById.get(String(s.customerID)) || {};
-      // Eligibility gates (see revhawk-sync): appointment · billing · signed.
-      if ((AL.require_appt && !hasAppt(s)) || (AL.require_billing && !hasBilling(cust)) || (AL.require_signed && !signedCust.has(String(s.customerID)))) { skippedNotYet++; continue; }
+      // Every subscription lands (per Isaac); eligibility is stamped on the row.
+      const _appt = hasAppt(s), _bill = hasBilling(cust), _signed = signedCust.has(String(s.customerID));
+      if (!(_appt && _bill && _signed)) skippedNotYet++;
       const cv = Number(s.contractValue) || 0;
       const initial = Number(s.initialServiceTotal) || 0;
       const months = Number(s.agreementLength) || 12;
@@ -189,11 +190,18 @@ exports.handler = async (event) => {
         audit_status: 'pending',
         created_at: stamp,
         crm_status: 'verified', crm_contract_value: cv, crm_subscription: sub, crm_checked_at: stamp,
+        crm_initial_status: _appt ? (String(s.initialStatusText || s.initialStatus || 'Pending')) : 'None',
+        crm_autopay: _bill,
+        crm_contract_state: _signed ? 'signed' : 'none',
       });
       added++;
     }
     for (const part of chunk(batch, 500)) {
-      const { error } = await supabase.from('sales').insert(part);
+      let { error } = await supabase.from('sales').insert(part);
+      if (error && /crm_initial_status|crm_autopay|crm_contract_state/i.test(error.message || '')) {
+        part.forEach(x => { delete x.crm_initial_status; delete x.crm_autopay; delete x.crm_contract_state; });
+        ({ error } = await supabase.from('sales').insert(part));
+      }
       if (error) {
         // A row the nightly pass logged between our check and insert trips the
         // unique index — retry one by one so the rest of the batch still lands.
@@ -201,7 +209,7 @@ exports.handler = async (event) => {
         else throw new Error(error.message);
       }
     }
-    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' · +' + added + ' logged · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
+    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' · +' + added + ' logged · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' logged but not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
     console.log(msg);
     return { statusCode: 200, body: msg };
   } catch (e) {

@@ -681,6 +681,19 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 // current? Rendered alongside the value-exactness chip so an
                 // signed-agreement chip rides along too (FieldRoutesContract).
                 const lcChips = [];
+                // Eligibility (per Isaac): appointment + billing stamped by the
+                // sync (20260916_sales_eligibility.sql). Every subscription is
+                // logged; these show which can earn a payout.
+                if (s.crm_initial_status != null) {
+                  const st = String(s.crm_initial_status || '').toLowerCase();
+                  const ok = st === 'pending' || st === 'completed';
+                  lcChips.push(ok ? chip('✓ Appt', 'rgba(223,100,58,.15)', '#DF643A', 'Initial appointment ' + st)
+                                  : chip('✗ No appt', 'rgba(220,38,38,.12)', '#B91C1C', 'No initial appointment on the books (' + (s.crm_initial_status || 'none') + ')'));
+                }
+                if (s.crm_autopay != null) {
+                  lcChips.push(s.crm_autopay ? chip('✓ Billing', 'rgba(223,100,58,.15)', '#DF643A', 'Autopay on file in FieldRoutes')
+                                             : chip('✗ No billing', 'rgba(220,38,38,.12)', '#B91C1C', 'No autopay on file — not commission-eligible until billing is added'));
+                }
                 if (s.crm_serviced_at) lcChips.push(chip('✓ Svc', 'rgba(223,100,58,.15)', '#DF643A',
                   'Initial service completed ' + s.crm_serviced_at + (s.crm_completed_services ? ' · ' + s.crm_completed_services + ' service(s) run' : '')));
                 else if (s.crm_checked_at && s.crm_serviced_at === null && s.crm_completed_services === 0) lcChips.push(chip('⏳ Svc', 'var(--card-2)', 'var(--text-muted)', 'No initial service completed yet'));
