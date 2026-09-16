@@ -1028,6 +1028,8 @@ function reportingPutis() {
   const anchor = wrap.children[1] || null;
   for (const part of ['book', 'margins', 'unit']) wrap.insertBefore(putisIndicatorsCard(M, scKey, scBranches, cardOpts(part)), anchor);
   wrap.append(putisIndicatorsCard(M, scKey, scBranches, cardOpts('pnl')));
+  // Data-advantage cards (per Isaac): source unit economics + add-on performance.
+  try { const a = intelSourceEconomicsCard(); if (a) wrap.append(a); const b = intelAddonCard(); if (b) wrap.append(b); } catch (e) { console.warn('[putis] intel cards skipped', e); }
 
   return wrap;
 }

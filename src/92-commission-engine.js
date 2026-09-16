@@ -277,7 +277,7 @@ function viewD2dDashboard() {
     rows.forEach(s => {
       const nm = getCanonicalRepName(s.rep);
       if (!nm) return;
-      const o = byRep.get(nm) || { name: nm, n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0, office: '' };
+      const o = byRep.get(nm) || { name: nm, n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0, office: '', keptCv: 0 };
       if (!o.office && s.office) o.office = String(s.office).split(',')[0].trim();
       o.n++; o.cv += Number(s.contractValue) || 0;
       if (s.autoPay && s.autoPay !== 'No') o.apay++;
@@ -287,6 +287,9 @@ function viewD2dDashboard() {
       const _myb = myBucketOf(s);
       if (_myb === 'multi') o.multi++; else if (_myb === 'twelve') o.twelve++;
       if ((Number(s.initialPrice) || 0) < 99) o.lastResort++;   // Last Resort — same <$99 rule as Indicators/LMS
+      // Retained $ (per Isaac): contract value still on the books — real
+      // cancels only (RORs / sold-not-started / combined / renewals don't count against the rep).
+      if (!(_subCancelledNow(s) && !_isExcludableCancel(s))) o.keptCv += Number(s.contractValue) || 0;
       byRep.set(nm, o);
     });
     // Sortable headers (per Isaac) — default revenue desc.
@@ -296,7 +299,7 @@ function viewD2dDashboard() {
       : k === 'n' ? o.n : k === 'cv' ? o.cv : k === 'acv' ? (o.n ? o.cv / o.n : 0)
       : k === 'my' ? ((o.multi + o.twelve) ? o.multi / (o.multi + o.twelve) : 0)
       : k === 'apay' ? (o.n ? o.apay / o.n : 0) : k === 'init' ? (o.n ? o.init / o.n : 0)
-      : k === 'pest' ? (o.pestN ? o.pestInit / o.pestN : 0) : k === 'lr' ? (o.n ? o.lastResort / o.n : 0) : 0;
+      : k === 'pest' ? (o.pestN ? o.pestInit / o.pestN : 0) : k === 'lr' ? (o.n ? o.lastResort / o.n : 0) : k === 'ret' ? (o.cv ? o.keptCv / o.cv : 0) : 0;
     const reps = [...byRep.values()].sort((a, b) => {
       const va = _metric(a, _sortKey), vb = _metric(b, _sortKey);
       const c = typeof va === 'string' ? va.localeCompare(vb) : (va - vb);
@@ -361,10 +364,10 @@ function viewD2dDashboard() {
         rangeHost),
       reps.length ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
-          ...[['#', null], ['Rep', 'name'], ['Team', 'team'], ['Accts', 'n'], ['Revenue', 'cv'], ['ACV', 'acv'], ['MY %', 'my'], ['APay %', 'apay'], ['Avg Initial', 'init'], ['Avg Pest Init', 'pest'], ['Last Resort %', 'lr']].map(([h, k], i) => el('th', {
+          ...[['#', null], ['Rep', 'name'], ['Team', 'team'], ['Accts', 'n'], ['Revenue', 'cv'], ['ACV', 'acv'], ['MY %', 'my'], ['APay %', 'apay'], ['Avg Initial', 'init'], ['Avg Pest Init', 'pest'], ['Last Resort %', 'lr'], ['Retained %', 'ret']].map(([h, k], i) => el('th', {
             class: 'px-4 py-2 whitespace-nowrap' + (k ? ' cursor-pointer select-none' : ''),
             style: Object.assign({}, i === 0 ? Object.assign(_stickyL('0'), { zIndex: 2, minWidth: '40px', width: '40px' }) : i === 1 ? Object.assign(_stickyL('40px'), { zIndex: 2 }) : {}, k && _sortKey === k ? { color: 'var(--accent)', fontWeight: '800' } : {}),
-            title: h === 'MY %' ? 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)' : h === 'Last Resort %' ? 'Accounts under $99 initial \u00f7 all accounts' : (k ? 'Sort by ' + h : ''),
+            title: h === 'MY %' ? 'Multi-year mix \u2014 18mo+ \u00f7 (12mo + 18mo+)' : h === 'Last Resort %' ? 'Accounts under $99 initial \u00f7 all accounts' : h === 'Retained %' ? 'Revenue still on the books \u00f7 revenue sold \u2014 real cancels only (RORs, sold-not-started, combined and renewals do not count against the rep)' : (k ? 'Sort by ' + h : ''),
             onclick: k ? () => _setSort(k) : undefined,
           }, h)))),
         el('tbody', {},
@@ -372,8 +375,8 @@ function viewD2dDashboard() {
           // sales-weighted rates across every rep shown; click expands the
           // range's accounts.
           ...(() => {
-            const T = reps.reduce((t, o) => ({ n: t.n + o.n, cv: t.cv + o.cv, apay: t.apay + o.apay, init: t.init + o.init, pestInit: t.pestInit + o.pestInit, pestN: t.pestN + o.pestN, multi: t.multi + o.multi, twelve: t.twelve + o.twelve, lastResort: t.lastResort + o.lastResort }),
-              { n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0 });
+            const T = reps.reduce((t, o) => ({ n: t.n + o.n, cv: t.cv + o.cv, apay: t.apay + o.apay, init: t.init + o.init, pestInit: t.pestInit + o.pestInit, pestN: t.pestN + o.pestN, multi: t.multi + o.multi, twelve: t.twelve + o.twelve, lastResort: t.lastResort + o.lastResort, keptCv: t.keptCv + o.keptCv }),
+              { n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0, keptCv: 0 });
             // Click = expand every account sold in this range (per Isaac),
             // not the combined player card.
             const canTot = rows.length > 0;
@@ -396,7 +399,8 @@ function viewD2dDashboard() {
               tdT(((T.multi + T.twelve) ? Math.round(T.multi / (T.multi + T.twelve) * 100) : 0) + '%'),
               tdT((T.n ? Math.round(T.apay / T.n * 100) : 0) + '%'),
               tdT(fmt.usd0(T.n ? T.init / T.n : 0)), tdT(fmt.usd0(T.pestN ? T.pestInit / T.pestN : 0)),
-              tdT((T.n ? (T.lastResort / T.n * 100).toFixed(1) : '0.0') + '%')), totDetail];
+              tdT((T.n ? (T.lastResort / T.n * 100).toFixed(1) : '0.0') + '%'),
+              tdT((T.cv ? (T.keptCv / T.cv * 100).toFixed(1) : '0.0') + '%')), totDetail];
           })().filter(Boolean),
           ...reps.slice(0, 100).flatMap((o, i) => {
           const team = getRepTeam(o.name) || '';
@@ -425,7 +429,8 @@ function viewD2dDashboard() {
             el('td', { class: 'px-4 py-2 tabular-nums' }, (o.n ? Math.round(o.apay / o.n * 100) : 0) + '%'),
             el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(o.n ? o.init / o.n : 0)),
             el('td', { class: 'px-4 py-2 tabular-nums' }, fmt.usd0(o.pestN ? o.pestInit / o.pestN : 0)),
-            el('td', { class: 'px-4 py-2 tabular-nums', style: (o.n && o.lastResort / o.n >= 0.2) ? { color: '#DC2626', fontWeight: '600' } : {} }, (o.n ? (o.lastResort / o.n * 100).toFixed(1) : '0.0') + '%')), detailRow].filter(Boolean);
+            el('td', { class: 'px-4 py-2 tabular-nums', style: (o.n && o.lastResort / o.n >= 0.2) ? { color: '#DC2626', fontWeight: '600' } : {} }, (o.n ? (o.lastResort / o.n * 100).toFixed(1) : '0.0') + '%'),
+            el('td', { class: 'px-4 py-2 tabular-nums font-semibold', style: o.cv && o.keptCv / o.cv < 0.8 ? { color: '#DC2626' } : {} }, (o.cv ? (o.keptCv / o.cv * 100).toFixed(1) : '0.0') + '%')), detailRow].filter(Boolean);
         }))))
         : el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No sales in this range yet.'));
     // ── Day records: earliest · latest · biggest sale in the range ──

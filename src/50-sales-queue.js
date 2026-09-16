@@ -681,6 +681,9 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 // current? Rendered alongside the value-exactness chip so an
                 // signed-agreement chip rides along too (FieldRoutesContract).
                 const lcChips = [];
+                // Seller risk (per Isaac): this rep's 90-day cancel rate is ≥ 2× their
+                // office's — flag the sale for a second-touch call before it churns.
+                (() => { try { if (!isAdmin || typeof intelSellerRisk !== 'function') return; const m = intelSellerRisk(); const rk = m && m.get(String(rep?.full_name || '').toLowerCase()); if (rk) lcChips.push(chip('⚠ 2× cancels', 'rgba(220,38,38,.12)', '#B91C1C', 'Sold by a rep whose 90-day cancel rate (' + Math.round(rk.cxl * 100) + '%) is ≥ 2× their office (' + Math.round(rk.base * 100) + '%) over the last 12 months · ' + rk.n + ' accounts judged · worth a second-touch call')); } catch (e) {} })();
                 if (s.sale_kind === 'upsell') lcChips.push(chip('＋ Upsell', 'rgba(168,85,247,.14)', '#7C3AED', 'Add-on' + (s.crm_ticket_id ? ' · FieldRoutes ticket #' + s.crm_ticket_id : '') + (s.parent_subscription_id ? ' on subscription ' + s.parent_subscription_id : '')));
                 // Eligibility (per Isaac): appointment + billing stamped by the
                 // sync (20260916_sales_eligibility.sql). Every subscription is
