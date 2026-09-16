@@ -3,9 +3,12 @@
 `main` is production — every merge deploys to every rep. So:
 
 1. Branch from `main`: `git checkout -b <yourname>/<feature>`.
-2. Build. Run `node tools/ci-check.js` before every push (syntax, Tailwind
-   utilities, derive parity). Use classes that exist in `tailwind.css`, otherwise
-   inline `style`.
+2. Build. The app code lives in `src/*.js` — one file per area (core, shell,
+   sales queue, indicators, reporting, admin, …), stitched into `app.js` by
+   `npm run bundle`. **Edit `src/`, never `app.js`** (it is generated and
+   git-ignored). Run `npm run check` before every push (bundles, then CI:
+   syntax, Tailwind utilities, derive parity). Use classes that exist in
+   `tailwind.css`, otherwise inline `style`.
 3. Push the branch and open a pull request. Netlify posts a deploy-preview URL
    on the PR — test there.
 4. Isaac reviews and merges. Nobody pushes to `main` directly (the branch rule

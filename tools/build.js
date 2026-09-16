@@ -9,8 +9,8 @@
 // (browsers only bytecode-cache EXTERNAL scripts — the old inline block
 // re-parsed 2MB on every single open).
 //
-// Runs on Netlify after tools/ci-check.js. The repo keeps plain app.js +
-// a plain src="app.js" reference, so local dev needs no build at all.
+// Runs on Netlify after tools/bundle.js (src/*.js → app.js) and
+// tools/ci-check.js. Locally: `npm run bundle` regenerates app.js.
 // ────────────────────────────────────────────────────────────────────────
 const fs = require('fs');
 const path = require('path');

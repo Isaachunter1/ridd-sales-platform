@@ -1,9 +1,11 @@
 {
   "name": "ridd-sales-platform",
   "private": true,
-  "description": "RIDD Sales Platform — static site + Netlify Functions for admin-only privileged calls (Slack DM relay, admin password set).",
+  "description": "RIDD Sales Platform \u2014 static site + Netlify Functions for admin-only privileged calls (Slack DM relay, admin password set).",
   "scripts": {
-    "//build": "Netlify just serves index.html — no build step needed."
+    "bundle": "node tools/bundle.js",
+    "check": "node tools/bundle.js && node tools/ci-check.js",
+    "build": "node tools/bundle.js && node tools/ci-check.js && node tools/build.js"
   },
   "dependencies": {
     "@netlify/blobs": "^8.1.0",
