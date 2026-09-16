@@ -2941,6 +2941,30 @@ async function loadAndRender() {
 // ──────────────────────────────────────────────────────────────────────────
 // Data loaders
 // ──────────────────────────────────────────────────────────────────────────
+// ── Access re-check (per Isaac, Sep 2026): a signed-in session survives a
+// refresh by design (Supabase refresh token), so deactivating a user must
+// also bite mid-session. Every time the tab regains focus, and every 10
+// minutes, re-read the user's own profile: inactive or disabled → sign out
+// on the spot. The server-side twin is the custom access-token hook in
+// auth_access_hook.sql, which refuses to mint a new token for them at all.
+async function _recheckAccess() {
+  try {
+    if (typeof DEMO !== 'undefined' && DEMO) return;
+    if (!state.session || !state._realProfile) return;
+    const { data } = await supabase.from('profiles').select('is_active, role').eq('id', state._realProfile.id).maybeSingle();
+    if (!data) return;
+    if (data.is_active === false || data.role === 'disabled') {
+      await supabase.auth.signOut();
+      state.session = null; state.profile = null;
+      location.reload();
+    }
+  } catch (e) { /* offline or transient — the next check will run */ }
+}
+if (!window._riddAccessWired) {
+  window._riddAccessWired = true;
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _recheckAccess(); });
+  setInterval(_recheckAccess, 10 * 60 * 1000);
+}
 async function loadProfile() {
   // Defensive: some entry paths (password recovery, stale tabs) can get here
   // before the auth listener has populated state.session — self-heal from
@@ -42106,10 +42130,33 @@ function viewReporting() {
   // reporting snapshot top bar — only the sub-tab nav above it.
   const isMarketing = state.reportingSubTab === 'marketing';
 
+  // A sub-tab that throws must not blank the whole Reporting view (Carson hit
+  // this on Retention). Render it in a guard: the other tabs stay usable, the
+  // error is shown with a one-click reset of that tab's saved state, and it
+  // still posts to the admin error feed.
+  const _guarded = (build) => {
+    try { return build(); }
+    catch (e) {
+      console.error('[reporting] sub-tab render failed', state.reportingSubTab, e);
+      try { _reportClientError('reporting/' + state.reportingSubTab + ': ' + (e && e.message), e && e.stack); } catch (_) {}
+      return el('div', { class: 'card p-8 flex flex-col items-center gap-3 text-center' },
+        el('div', { class: 'text-sm font-bold' }, 'This tab hit an error'),
+        el('div', { class: 'text-xs text-muted-' }, String((e && e.message) || e).slice(0, 200)),
+        el('div', { class: 'flex items-center gap-2' },
+          el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => {
+            // Clear this tab's remembered filters / what-ifs and re-render.
+            try { ['_retenWhatIf', '_retenMemo', '_putisSort', '_putisPctCols', '_yoyAxisCap', '_yoyHideYtd'].forEach(k => { delete state[k]; }); } catch (_) {}
+            state._salesFilters = state._salesFilters || {};
+            mountApp();
+          } }, 'Reset this tab'),
+          el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => location.reload() }, 'Reload app')));
+    }
+  };
   return el('div', { class: 'flex flex-col gap-4' },
     // (Active Snapshot bar retired — per Isaac; the header stamp already says when the data synced.)
     reportingSubTabs(),
     reportingMethodologyBar(),
+    _guarded(() =>
     isMarketing                            ? reportingMarketingPnl() :
     state.reportingSubTab === 'is'         ? reportingMarketingPnl() :
     state.reportingSubTab === 'config'     ? el('div', { class: 'flex flex-col gap-4' }, reportingAuditExportCard(), el('div', { class: 'grid grid-cols-1 lg:grid-cols-3 gap-4 items-start' }, reportingServiceConfigPanel(), reportingSourceConfigPanel(), reportingCancelConfigPanel()), reportingMarketingGoalsPanel()) :
@@ -42121,7 +42168,7 @@ function viewReporting() {
     // Retention — legacy persisted values land there too.
     (state.reportingSubTab === 'health' || state.reportingSubTab === 'nextbest' || state.reportingSubTab === 'services') ? reportingWaterfall() :
     state.reportingSubTab === 'auditing'   ? reportingAuditing() :
-                                              reportingOverview(),
+                                              reportingOverview()),
   );
 }
 
