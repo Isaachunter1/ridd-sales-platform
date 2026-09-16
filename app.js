@@ -2960,8 +2960,31 @@ async function _recheckAccess() {
     }
   } catch (e) { /* offline or transient — the next check will run */ }
 }
+// Inactivity timeout (per Isaac): 6 hours without a click / keypress / tap
+// and the session ends — next visit is the login screen. Tracked in
+// localStorage so it survives refreshes; the Supabase-side twin is
+// Authentication → Sessions → inactivity timeout, when the plan allows it.
+const IDLE_LIMIT_MS = 6 * 60 * 60 * 1000;
+function _touchActivity() { try { localStorage.setItem('ridd_last_active', String(Date.now())); } catch (e) {} }
+async function _checkIdle() {
+  try {
+    if (typeof DEMO !== 'undefined' && DEMO) return;
+    if (!state.session) return;
+    const last = Number(localStorage.getItem('ridd_last_active') || 0);
+    if (last && Date.now() - last > IDLE_LIMIT_MS) {
+      await supabase.auth.signOut();
+      state.session = null; state.profile = null;
+      try { localStorage.removeItem('ridd_last_active'); } catch (e) {}
+      location.reload();
+    }
+  } catch (e) { /* best effort */ }
+}
 if (!window._riddAccessWired) {
   window._riddAccessWired = true;
+  ['pointerdown', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, _touchActivity, { passive: true }));
+  _touchActivity();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _checkIdle(); });
+  setInterval(_checkIdle, 60 * 1000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _recheckAccess(); });
   setInterval(_recheckAccess, 10 * 60 * 1000);
 }
