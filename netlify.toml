@@ -4,7 +4,8 @@
   # script syntax, server/client derive parity, responsive-CSS coverage).
   # A failure FAILS THE DEPLOY and the previous version stays live, so a
   # broken commit can never reach the reps. Run locally: node tools/ci-check.js
-  command = "node tools/ci-check.js && node tools/build.js"
+  # app.js is GENERATED from src/*.js (tools/bundle.js) — edit src/, never app.js.
+  command = "node tools/bundle.js && node tools/ci-check.js && node tools/build.js"
 
 [build.environment]
   # Netlify's deploy-artifact secret scanner matches env var VALUES

@@ -1,0 +1,2235 @@
+// ┌─ src/96-retention.js ─────────────────────────────────────────────────────
+// │ Reporting → Retention: attrition steps, what-ifs, reconcile tool, cohort waterfall, monthly churn, trends.
+// │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
+// └────────────────────────────────────────────────────────────────────────
+// ── "How attrition is calculated" — step-by-step walkthrough with what-if
+// slicers (per Isaac). Every step shows how many subscriptions it removes
+// from the book (or how many cancels it strips), and any removable step can
+// be switched off for THIS session to see attrition with vs without it.
+// The official rules (Settings → Configurations) are untouched.
+function _retenWhatIf(key, official) {
+  const w = state._retenWhatIf;
+  if (!w || state.reportingSubTab !== 'waterfall' || typeof w[key] !== 'boolean') return official;
+  return w[key];
+}
+function retenWhatIfActive() {
+  const w = state._retenWhatIf; if (!w) return false;
+  if (w.reasons && Object.keys(w.reasons).length) return true;
+  return Object.keys(w).some(k => typeof w[k] === 'boolean' && w[k] !== _retenOfficial()[k]);
+}
+function _retenOfficial() {
+  const saved = state._retenWhatIf; state._retenWhatIf = null;
+  const o = { popRor: [...retenPopExclReasons()].some(x => /ror/.test(x)), popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !/ror|combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
+  state._retenWhatIf = saved;
+  return o;
+}
+function retenMethodCard(pop, _retenEff) {
+  const year = new Date().getFullYear();
+  const yStart = year + '-01-01', pStart = (year - 1) + '-01-01';
+  const recurringByName = reportingServiceRecurringMap();
+  const n0 = pop.length;
+  const s1 = pop.filter(r => !!recurringByName.get(r.subscription));
+  const s2 = s1.filter(r => !!r.initial_service && r.initial_service >= '2000-01-01');
+  // Population steps, applied in order so each count is "removed at this step".
+  const popSet = retenPopExclReasons();
+  const rorOn = [...popSet].some(x => /ror/.test(x));
+  const closedBy = (r, re) => r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && re.test(_normCancelReason(reportingCancelReasonOf(r)));
+  const step1a = s2.filter(r => !(rorOn && retenIsRorSub(r)));                 // minus 3-day RORs (reason OR timing)
+  const step1b = step1a.filter(r => !closedBy(r, /combined/));                  // minus combined
+  const step1 = step1b.filter(r => !closedBy(r, /renewal/));                    // minus renewals
+  const byReason1 = {}; step1b.forEach(r => { if (closedBy(r, /renewal/)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
+  const step2 = step1.filter(r => !(retenExclZeroPay() && (Number(r.annual_recurring_value) || 0) <= 0));
+  const svcOf = (r) => Number(r.subscription_completed_services) || 0;
+  const sentricon = (r) => retenOneSvcExemptTerms().some(t => String(r.subscription || '').toLowerCase().includes(t));
+  const soldThisYear = (r) => { const d = r.sold_date ? new Date(r.sold_date) : (r.initial_service ? new Date(r.initial_service) : null); return d && !isNaN(d) && d.getFullYear() >= year; };
+  const oneSvcAll = step2.filter(r => svcOf(r) <= 1);
+  const oneSvcKept = oneSvcAll.filter(r => _retenOneSvcExempt(r));
+  // 7: never got a 2nd treatment — prior-year one-service subs (Sentricon exempt)
+  const step2b = step2.filter(r => !(retenExclOneSvc() && svcOf(r) <= 1 && !sentricon(r) && !soldThisYear(r)));
+  // 8: sold this year but already frozen after one treatment
+  const step3 = step2b.filter(r => !retenPopulationExcluded(r));
+  const book = _retenEff(pop);   // the real thing — should equal step3 in size
+  // Cancel steps for the current year (YTD) and last year.
+  const excl = reportingExcludedCancelReasons();
+  const cancelSteps = (yr) => {
+    const st = yr + '-01-01', en = yr + '-12-31';
+    const boy = book.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st));
+    const raw = boy.filter(r => r.subscription_date_canceled && r.subscription_date_canceled >= st && r.subscription_date_canceled <= en);
+    const exclRows = raw.filter(r => excl.has(_normCancelReason(reportingCancelReasonOf(r))));
+    const rorRows = raw.filter(r => !excl.has(_normCancelReason(reportingCancelReasonOf(r))) && reportingExcludeRorChurn() && _reporting3dayRor(r));
+    const countedRows = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en);
+    return { boy: boy.length, raw: raw.length, exclN: exclRows.length, rorN: rorRows.length, counted: countedRows.length, rate: boy.length ? countedRows.length / boy.length : null,
+      rows: { boy, raw, excl: exclRows, ror: rorRows, counted: countedRows } };
+  };
+  const cur = cancelSteps(year), prev = cancelSteps(year - 1);
+  // Projected full-year attrition: this year's YTD cancels scaled by the
+  // share of last year's cancels that had happened by today's date.
+  const projected = (() => {
+    const t = new Date();
+    const cutoff = (year - 1) + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+    const byNow = prev.rows.counted.filter(r => r._effCancel <= cutoff).length;
+    const share = prev.counted ? byNow / prev.counted : null;
+    return share && share > 0.05 && cur.boy ? (cur.counted / share) / cur.boy : null;
+  })();
+  // Official numbers (rules exactly as saved) for the with-vs-without read.
+  let official = null;
+  if (retenWhatIfActive()) { const saved = state._retenWhatIf; state._retenWhatIf = null; try { const b = _retenEff(pop); const cs = (yr) => { const st = yr + '-01-01', en = yr + '-12-31'; const boy = b.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st)); const c = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en).length; return boy.length ? c / boy.length : null; }; official = { book: b.length, cur: cs(year), prev: cs(year - 1) }; } finally { state._retenWhatIf = saved; } }
+  const pct = (v) => v == null ? '—' : (v * 100).toFixed(1) + '%';
+  const n = (v) => Number(v || 0).toLocaleString();
+  const w = state._retenWhatIf || {};
+  const off = _retenOfficial();
+  const isOn = (k) => typeof w[k] === 'boolean' ? w[k] : off[k];
+  const chip = (k) => el('button', {
+    class: 'rounded-full px-2 py-0.5 text-[10px] font-bold transition hover:brightness-95 shrink-0',
+    style: isOn(k) ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
+    title: isOn(k) ? 'Applied — click to switch OFF for this session and see attrition without it' : 'Switched off for this session — click to apply again',
+    onclick: () => { const nw = { ...(state._retenWhatIf || {}) }; nw[k] = !isOn(k); state._retenWhatIf = nw; mountApp(); },
+  }, isOn(k) ? 'ON' : 'OFF');
+  // Every count is a drill: the exact subscriptions removed at that step (or
+  // included in that total), so the math can be followed down to accounts.
+  const drill = (title, rows, what) => rows && rows.length ? () => openReportingDrillModal({ chartTitle: 'Attrition steps · ' + title, sliceLabel: n(rows.length) + ' subscription' + (rows.length === 1 ? '' : 's') + (what ? ' · ' + what : ''), rows, formatValue: fmt.usd0 }) : null;
+  const clickable = (node, fn) => { if (fn) { node.classList.add('cursor-pointer', 'hover:underline'); node.title = 'Click to see the subscriptions'; node.onclick = (e) => { e.stopPropagation(); fn(); }; } return node; };
+  // Each step shows what it removes AND the running book after it (both drillable).
+  const step = (num, title, detail, removed, chipKey, fixedNote, rowsRemoved, rowsLeft) => el('div', { class: 'flex items-start gap-3 py-2 border-t border-' },
+    el('div', { class: 'w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0', style: { background: 'var(--card-2)', color: 'var(--text)' } }, String(num)),
+    el('div', { class: 'flex-1 min-w-0' },
+      el('div', { class: 'text-sm font-semibold' }, title),
+      el('div', { class: 'text-[11px] text-muted-' }, detail)),
+    el('div', { class: 'text-right shrink-0 tabular-nums' },
+      removed != null ? clickable(el('div', { class: 'text-sm font-bold', style: { color: removed ? '#DC2626' : 'var(--text-subtle)' } }, removed ? '−' + n(removed) : '0'), drill(title, rowsRemoved, 'removed at this step')) : null,
+      fixedNote ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fixedNote) : null,
+      rowsLeft ? clickable(el('div', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, n(rowsLeft.length) + ' remain'), drill(title + ' · remaining', rowsLeft, 'still in the book after this step')) : null),
+    chipKey ? chip(chipKey) : el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0', style: { color: 'var(--text-subtle)', border: '1px solid var(--border)' }, title: 'Always applied' }, 'ALWAYS'));
+  const total = (label, val, sub, rowsIn) => el('div', { class: 'flex items-center justify-between py-2 border-t-2 border-', style: { borderColor: 'var(--border-2)' } },
+    el('div', {}, el('div', { class: 'text-sm font-black' }, label), sub ? el('div', { class: 'text-[11px] text-muted-' }, sub) : null),
+    clickable(el('div', { class: 'text-lg font-black tabular-nums' }, val), drill(label, rowsIn, 'included')));
+  const notIn = (a, b) => { const set = new Set(b); return a.filter(r => !set.has(r)); };
+  const reasonList = Object.entries(byReason1).sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' ' + n(v)).join(' · ');
+  const open = state._retenMethodOpen === true;   // collapsed by default (per Isaac)
+  const whatIf = retenWhatIfActive();
+  const card = el('div', { class: 'card overflow-hidden', style: whatIf ? { outline: '2px solid var(--accent)' } : {} },
+    el('div', { class: 'px-5 py-3 flex items-center gap-3 flex-wrap cursor-pointer', onclick: () => { state._retenMethodOpen = !open; mountApp(); } },
+      el('div', { class: 'flex-1 min-w-0' },
+        el('h3', { class: 'text-sm font-bold' }, (open ? '▾ ' : '▸ ') + 'Attrition Steps')),
+      el('div', { class: 'flex items-center gap-4 tabular-nums' },
+        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-lg font-black' }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)),
+        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-lg font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
+        el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' projected attrition'), el('div', { class: 'text-lg font-black' }, pct(projected), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'seasonal pace'))),
+        whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
+        // Reconcile against a hand-built FieldRoutes export (CSV): matched /
+        // only-in-app / only-in-file, each explained row by row.
+        (() => {
+          const inp = el('input', { type: 'file', accept: '.csv,text/csv', style: { display: 'none' } });
+          inp.addEventListener('change', () => {
+            const f = inp.files && inp.files[0]; if (!f) return;
+            const rd = new FileReader();
+            rd.onload = () => { try { const rows = retenParseCsv(rd.result); if (!rows.length || !('customer id' in rows[0]) || !('subscription' in rows[0])) { toast('CSV needs Customer ID and Subscription columns', 'error'); return; } openRetenReconcileModal(retenReconcile(rows, pop, book, _retenEff)); } catch (e) { toast('Could not read that file: ' + ((e && e.message) || e), 'error'); } };
+            rd.readAsText(f);
+          });
+          return el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Upload your FieldRoutes population (CSV) and diff it against this book, row by row', onclick: (e) => { e.stopPropagation(); inp.click(); } }, '⇄ Reconcile', inp);
+        })())));
+  if (!open) return card;
+  card.append(el('div', { class: 'px-5 pb-4' },
+    el('div', { class: 'flex items-center justify-between py-2' }, el('div', { class: 'text-sm font-semibold' }, 'Subscriptions in scope'), clickable(el('div', { class: 'text-sm font-bold tabular-nums' }, n(n0)), drill('Subscriptions in scope', pop, 'everything in scope'))),
+    (() => {
+      // One-time services leave the book, but their revenue is still real —
+      // show what is being pulled out (per Isaac), with the drill to the subs.
+      const oneTime = notIn(pop, s1);
+      const otRev = oneTime.reduce((a, r) => a + (Number(r.subscription_contract_value) || 0), 0);
+      const otCust = new Set(oneTime.map(r => r.customer_id)).size;
+      return step(1, 'Remove one-time services', 'One-time services are never part of a retention book — ' + n(oneTime.length) + ' one-time subs across ' + n(otCust) + ' customers, $' + Math.round(otRev).toLocaleString() + ' of one-time service revenue, set aside here (still counted on the Overview and in the P&L).', n0 - s1.length, null, '$' + Math.round(otRev).toLocaleString() + ' one-time revenue', oneTime, s1);
+    })(),
+    step(2, 'Remove subs that never received an initial service', 'A sub that never started cannot retain or churn.', s1.length - s2.length, null, null, notIn(s1, s2), s2),
+    (() => {
+      const removed = notIn(s2, step1a);
+      // RORs caught by TIMING whose reason isn't coded "3 Day ROR" — fix these in FieldRoutes.
+      const miscoded = removed.filter(r => !/ror/.test(_normCancelReason(reportingCancelReasonOf(r))));
+      const node = step(3, 'Remove 3-day RORs', 'Any subscription that was a 3-day right-of-rescission: cancellation reason “3 Day ROR”, or a door-to-door sub cancelled within 3 days of the sale whatever reason was typed. Never really a customer.', s2.length - step1a.length, 'popRor', null, removed, step1a);
+      if (miscoded.length) node.children[1].append(el('button', {
+        class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
+        title: 'Cancelled within 3 days of the sale but the reason in FieldRoutes is not “3 Day ROR” — open the list and correct them in the CRM',
+        onclick: (e) => { e.stopPropagation(); openReportingDrillModal({ chartTitle: 'Attrition steps · RORs miscoded in the CRM', sliceLabel: n(miscoded.length) + ' subscription' + (miscoded.length === 1 ? '' : 's') + ' · cancelled within 3 days but reason ≠ “3 Day ROR”', rows: miscoded, formatValue: fmt.usd0 }); },
+      }, '⚑ ' + n(miscoded.length) + ' miscoded — fix the reason in the CRM'));
+      return node;
+    })(),
+    step(4, 'Remove combined subscriptions', 'Cancellation reason “Combined Subscriptions” — folded into another sub on the same account, which carries on.', step1a.length - step1b.length, 'popCombined', null, notIn(step1a, step1b), step1b),
+    step(5, 'Remove renewals', 'Cancellation reason Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound — the old plan was replaced by the renewal sub, which stays in the book carrying the original start date.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1),
+    step(6, 'Remove subs with no ARR', '$0 annual recurring value — nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2), step2),
+    step(7, 'Remove subs that never received a 2nd treatment', 'Prior-year subscriptions with a single completed visit — never became a customer. Sentricon (' + retenOneSvcExemptTerms().join(', ') + ') is exempt: one visit a year is the service.', step2.length - step2b.length, 'oneSvc', null, notIn(step2, step2b), step2b),
+    step(8, 'Remove ' + year + ' subs frozen after one treatment', 'Accounts sold this year that took one visit and already cancelled. Active ' + year + ' one-visit accounts (' + n(oneSvcKept.length) + ') stay — they are just young.', step2b.length - step3.length, 'frozenOneSvc', null, notIn(step2b, step3), step3),
+    total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
+    // ── 9 · Excluded cancel reasons — configured RIGHT HERE (per Isaac) so
+    // the card shows exactly what counts. A checked reason means a sub that
+    // cancelled for it stays in the book as RETAINED (not a lost customer).
+    (() => {
+      const model = reportingCancelReasonModel();
+      const cancelled = book.filter(r => r.subscription_date_canceled);
+      const byKey = new Map(); cancelled.forEach(r => { const k = _normCancelReason(reportingCancelReasonOf(r)); byKey.set(k, (byKey.get(k) || []).concat([r])); });
+      const neutralised = cancelled.filter(r => excl.has(_normCancelReason(reportingCancelReasonOf(r))));
+      const rowsFor = model.list.filter(g => (byKey.get(g.key) || []).length || model.excludedSet.has(g.key));
+      const listEl = el('div', { class: 'grid gap-x-4 gap-y-1 mt-2', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' } },
+        ...rowsFor.map(g => {
+          const rs = byKey.get(g.key) || [];
+          const isEx = model.excludedSet.has(g.key);
+          const cb = el('input', { type: 'checkbox', checked: excl.has(g.key), style: { accentColor: 'var(--accent)' }, onclick: (e) => e.stopPropagation(), onchange: (e) => {
+            // Slicer, not a setting: overrides live in state._retenWhatIf.reasons for this session only.
+            const nw = { ...(state._retenWhatIf || {}) }; const rs = { ...(nw.reasons || {}) };
+            if (e.target.checked === model.excludedSet.has(g.key)) delete rs[g.key]; else rs[g.key] = e.target.checked;
+            nw.reasons = rs; state._retenWhatIf = nw; mountApp(); } });
+          cb.checked = excl.has(g.key);   // property, not just attribute — some browsers ignored the attribute here
+          const nowEx = excl.has(g.key);
+          if (nowEx) cb.style.accentColor = '#DC2626';
+          // Red = being removed from churn (treated as retained); grey = counts as churn.
+          return el('label', { class: 'flex items-center gap-2 text-[11px] cursor-pointer rounded px-1' + (nowEx ? ' font-semibold' : ''), style: nowEx ? { color: '#DC2626', background: 'rgba(220,38,38,.06)' } : { color: 'var(--text-muted)' }, onclick: (e) => e.stopPropagation() },
+            cb, el('span', { class: 'flex-1 truncate', title: g.display + (nowEx ? ' · removed from churn' : ' · counts as churn') + (nowEx !== isEx ? ' · differs from the saved setting' : '') }, g.display, nowEx !== isEx ? el('span', { style: { color: 'var(--accent)' } }, ' *') : null),
+            clickable(el('span', { class: 'tabular-nums' }, n(rs.length)), rs.length ? drill(g.display, rs, 'cancelled for this reason') : null));
+        }));
+      const node = step(9, 'Remove cancels with these reasons', 'Tick a reason and subscriptions cancelled for it are treated as RETAINED — the company ended it, the customer did not leave. Unticked reasons count as churn. These are slicers for this tab and session only (an * marks a reason that differs from the saved setting); the saved list lives in Reporting → Configurations → Cancellation reasons and drives the rest of the app.', neutralised.length, 'exclReasons', null, neutralised);
+      node.children[1].append(listEl);
+      return node;
+    })(),
+    // ── Attrition + pacing ──
+    (() => {
+      const today = new Date();
+      const doy = Math.floor((today - new Date(today.getFullYear(), 0, 1)) / 86400000) + 1;
+      const yearDays = (today.getFullYear() % 4 === 0) ? 366 : 365;
+      // Seasonality from last year: what share of last year's counted cancels
+      // had happened by this same day? Scale this year's YTD by the inverse.
+      const cutoff = (year - 1) + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+      const prevByNow = prev.rows.counted.filter(r => r._effCancel <= cutoff).length;
+      const share = prev.counted ? prevByNow / prev.counted : null;
+      const paceSeason = share && share > 0.05 && cur.boy ? (cur.counted / share) / cur.boy : null;
+      const paceLinear = cur.boy ? (cur.counted * (yearDays / doy)) / cur.boy : null;
+      const rolling = (() => {   // trailing 12 months: cancels in the last 365 days ÷ book 12 months ago
+        const start = new Date(today); start.setFullYear(start.getFullYear() - 1);
+        const st = start.toISOString().slice(0, 10), en = today.toISOString().slice(0, 10);
+        const boy = book.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st));
+        const c = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en).length;
+        return { rate: boy.length ? c / boy.length : null, c, boy: boy.length };
+      })();
+      const tile = (label, val, sub, fn) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl', style: { background: 'var(--card-2)', minWidth: '150px' } },
+        el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+        clickable(el('div', { class: 'text-xl font-black tabular-nums' }, val), fn),
+        sub ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, sub) : null);
+      return el('div', { class: 'pt-4 flex flex-col gap-2' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Attrition · counted cancels ÷ beginning-of-year book'),
+        el('div', { class: 'flex gap-2 flex-wrap' },
+          tile(year + ' YTD', pct(cur.rate) + (official ? ' · official ' + pct(official.cur) : ''), n(cur.counted) + ' of ' + n(cur.boy) + ' on the books Jan 1' + (cur.exclN || cur.rorN ? ' · ' + n(cur.exclN + cur.rorN) + ' cancels not counted (excluded reasons / ROR)' : ''), drill(year + ' counted cancels', cur.rows.counted, 'counted as churn')),
+          tile('Pacing to (full ' + year + ')', paceSeason != null ? pct(paceSeason) : '—', paceSeason != null ? 'By this date ' + (year - 1) + ' had seen ' + Math.round(share * 100) + '% of its cancels · straight-line pace ' + pct(paceLinear) : 'Needs a full prior year', null),
+          tile('Rolling 12 months', pct(rolling.rate), n(rolling.c) + ' cancels ÷ ' + n(rolling.boy) + ' on the books a year ago', null),
+          tile((year - 1) + ' full year', pct(prev.rate) + (official ? ' · official ' + pct(official.prev) : ''), n(prev.counted) + ' of ' + n(prev.boy), drill((year - 1) + ' counted cancels', prev.rows.counted, 'counted as churn'))));
+    })()));
+  return card;
+}
+
+function reportingWaterfall() {
+  const gate = reportingDataGate();
+  if (gate) return gate;
+  // Retention hosts three sections now (per Isaac): the retention analytics
+  // suite, Customer Health (churn defense), and Next Best Service (attach).
+  const _sec = state._retenSection || 'retention';
+  const _secBar = el('div', { class: 'flex items-center gap-1.5 flex-wrap' },
+    ...[['retention', '📊 Retention'], ['health', '❤️‍🩹 Customer Health'], ['nextbest', '🎯 Next Best Service'], ['renewals', '🔁 Renewals'], ['contract', '📄 Contract Length']].map(([k, l]) => el('button', {
+      class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
+      style: _sec === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' },
+      onclick: () => { state._retenSection = k; mountApp(); },
+    }, l)));
+  if (_sec === 'health')   return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingCustomerHealth());
+  if (_sec === 'nextbest') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingNextBest());
+  if (_sec === 'renewals') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingRenewals());
+  if (_sec === 'contract') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingContractLength());
+  const scope = reportingScope();
+  const { scopeA, scopeB, inCompare, office, compareOffice, officeLabel } = scope;
+
+  if (!state.reportingWaterfallMode) state.reportingWaterfallMode = 'subscription';
+  const mode = state.reportingWaterfallMode;
+  // Time range only matters for Contract Length / Rep (it scopes which subs
+  // qualify); the cohort modes are inherently all-time. Compare offices is
+  // a Waterfall-only tool — side-by-side retention matrices.
+  // (Standalone filter bar retired — Office + Compare live on the matrix
+  // card itself now, the methodology ⓘ rides the Group-rows-by bar, and
+  // Contract/Rep keep a compact time-range select there too.)
+  // Cohort modes are all-time BY DEFINITION — and their time-range picker is
+  // hidden, so a range set on another tab must not silently shrink them.
+  // Contract/Rep modes keep the visible, user-controlled range.
+  // ALL modes are all-time (per Isaac: "cohorts are by year — that's how we
+  // look at them"). The shared Time-range picker no longer applies here; it
+  // was collapsing Contract Length to one column when another tab sat on YTD.
+  const popA = reportingFilterByOffice(scope.visible, office);
+  const popB = inCompare ? reportingFilterByOffice(scope.visible, compareOffice) : null;
+  if (!state.reportingWaterfallCohort) state.reportingWaterfallCohort = 'all';
+  const cohortSel = (mode === 'contract' || mode === 'rep') ? state.reportingWaterfallCohort : 'all';
+  // The #/Attrition-% toggle is retired — cells show the count AND the
+  // %-of-cohort together, with the step attrition rate on hover.
+
+  const modes = [
+    ['subscription',    'Subscription'],
+    ['arv',             'ARR'],
+    ['contract',        'Contract Length'],
+    ['rep',             'Rep'],
+  ];
+
+  const waterfallA = buildReportingWaterfall(popA, mode, cohortSel);
+  const waterfallB = inCompare ? buildReportingWaterfall(popB, mode, cohortSel) : null;
+
+  const _methodologyInfo = (typeof reportingMethodologyInfoBtn === 'function') ? reportingMethodologyInfoBtn() : null;
+  const _phoneR = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
+  const modeBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
+    // ONE office filter for the whole tab (per Isaac) — the shared Reporting
+    // scope, so every card below (Attrition Steps, waterfall, seasonality,
+    // rep type, lifetime, renewals, sources) reads the same population.
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Office'),
+    el('select', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { state.reportingOffice = e.target.value; mountApp(); },
+    }, el('option', { value: 'all', selected: office === 'all' }, 'RIDD'), ...scope.offices.map(o => el('option', { value: o, selected: office === o }, o))),
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold ml-2', style: { color: 'var(--text-subtle)' } }, 'Metrics'),
+    ...true ? [el('select', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { state.reportingWaterfallMode = e.target.value; mountApp(); },
+    }, ...modes.map(([k, label]) => el('option', { value: k, selected: mode === k }, label)))] : modes.map(([k, label]) => {
+      const active = mode === k;
+      return el('button', {
+        class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold transition hover:brightness-95',
+        style: active
+          ? { background: 'var(--accent)', color: 'var(--accent-text)' }
+          : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
+        onclick: () => { state.reportingWaterfallMode = k; mountApp(); },
+      }, label);
+    }),
+    // Cohort-year picker — Contract Length / Rep only. "All years" = book
+    // size at each year-end; a specific year = that year's cohort followed
+    // through time (true retention).
+    (mode === 'contract' || mode === 'rep') && el('div', { class: 'flex items-center gap-1.5' },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Cohort'),
+      el('select', {
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+        onchange: (e) => { state.reportingWaterfallCohort = e.target.value; mountApp(); },
+      },
+        el('option', { value: 'all', selected: cohortSel === 'all' }, 'All years (book size)'),
+        ...(waterfallA.allYears || []).map(y => el('option', { value: String(y), selected: String(cohortSel) === String(y) }, y + ' cohort')),
+      )),
+    el('div', { class: ' flex items-center gap-2' },
+      // Row-level export of EXACTLY what this tab counts — for reconciling
+      // against the hand-built workbook (diff by Customer ID + Subscription).
+      el('button', {
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
+        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Download the exact population this tab counts (after all filters), one row per subscription',
+        onclick: () => {
+          try {
+            const rows = _retenEff(popA);
+            const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+            const cols = ['customer_id', 'last_name', 'first_name', 'subscription', 'initial_service', 'subscription_status', 'subscription_date_canceled', 'subscription_cancellation_reason', 'counted_cancel', 'annual_recurring_value', 'agreement_length', 'subscription_source', 'office_name'];
+            const lines = [cols.join(',')];
+            rows.forEach(r => lines.push([
+              r.customer_id, r.last_name, r.first_name, r.subscription, r.initial_service,
+              r.subscription_status, r.subscription_date_canceled || '', reportingCancelReasonOf(r),
+              r._effCancel || '', r.annual_recurring_value || 0, r.agreement_length || '',
+              r.subscription_source || '', r.office_name || '',
+            ].map(esc).join(',')));
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv' }));
+            a.download = 'ridd-retention-population-' + new Date().toISOString().slice(0, 10) + '.csv';
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+            toast('Exported ' + rows.length.toLocaleString() + ' subscriptions — the exact set this tab counts', 'success');
+          } catch (e) { toast('Export failed: ' + ((e && e.message) || e), 'error'); }
+        },
+      }, '⬇'),
+      _methodologyInfo),
+  );
+
+  // Cell color = retention % vs cohort total. Green → red gradient.
+  // For Subscription/ARV (cohort) we compare each cell to that row's
+  // total; for Contract Length / Rep modes the row total isn't a true
+  // starting cohort, so we compare to the row's max cell instead.
+  const cellColor = (rowDef, value) => {
+    if (!value) return 'transparent';   // blank cell (e.g. before the cohort existed) → white, not red
+    const baseline = (mode === 'subscription' || mode === 'arv' || cohortSel !== 'all')
+      ? rowDef.total
+      : Math.max(...Object.values(rowDef.byYear));
+    if (!baseline) return 'transparent';
+    const pct = value / baseline;
+    const hue = Math.max(0, Math.min(120, pct * 120));
+    return `hsl(${hue}, 70%, 88%)`;
+  };
+
+  const fmtCell = (v, isTotal) => {
+    if (mode === 'arv') return v > 0 ? '$' + Math.round(v).toLocaleString() : (isTotal ? '$0' : '');
+    return v > 0 ? v.toLocaleString() : (isTotal ? '0' : '');
+  };
+
+  const renderMatrix = (data, sideLabel) => {
+    // (empty-data handling moved below the header so the Office/Compare
+    // controls never vanish — an empty office must still offer the exit)
+    const rowLabel = (id) => {
+      if (mode === 'subscription' || mode === 'arv') return String(id);
+      if (mode === 'contract') return id === 'other' ? 'Other' : id + ' mo';
+      return id; // rep name
+    };
+    const _isB = sideLabel === '__B__';
+    const _officeSel = el('select', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', minWidth: '150px' },
+      onchange: (e) => { state[_isB ? 'reportingCompareOffice' : 'reportingOffice'] = e.target.value; mountApp(); },
+    },
+      el('option', { value: 'all', selected: (_isB ? compareOffice : office) === 'all' }, 'All Offices'),
+      ...scope.offices.map(o => el('option', { value: o, selected: (_isB ? compareOffice : office) === o }, o)));
+    const _cmpBtn = el('button', {
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition hover:brightness-95',
+      style: inCompare
+        ? { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border)' }
+        : { background: 'var(--accent)', color: 'var(--accent-text)' },
+      onclick: () => {
+        state.reportingCompareMode = !inCompare;
+        if (!inCompare && state.reportingCompareOffice === office) {
+          state.reportingCompareOffice = scope.offices.find(o => o !== office) || 'all';
+        }
+        mountApp();
+      },
+    }, inCompare ? '✕ Exit compare' : 'Compare');
+    return el('div', { class: 'card overflow-hidden flex flex-col' },
+      el('div', { class: 'px-3 py-2 flex items-center gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
+        _isB && el('span', { class: 'text-[10px] uppercase tracking-widest font-black', style: { color: 'var(--accent)' } }, 'vs'),
+        _officeSel,
+        !_isB && _cmpBtn),
+      data.rowDefs.length === 0
+        ? el('div', { class: 'p-8 text-center text-sm text-muted-' }, 'No data for this mode.')
+        : el('div', { class: 'overflow-auto' },
+        el('table', { class: 'w-full text-xs tabular-nums' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+            el('tr', {},
+              el('th', { class: 'text-left px-3 py-2 font-semibold sticky left-0', style: { background: 'var(--card-2)' } },
+                mode === 'subscription' || mode === 'arv' ? 'Cohort Year' :
+                mode === 'contract' ? 'Contract Length' : 'Rep'),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, mode === 'arv' ? 'Total ARR' : 'Total'),
+              ...data.years.map(y => el('th', { class: 'text-left px-2 py-2 font-semibold' }, String(y))),
+            ),
+          ),
+          el('tbody', {},
+            ...data.rowDefs.map(row => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+              el('td', { class: 'text-left px-3 py-2 font-semibold sticky left-0', style: { background: 'var(--card)' } }, rowLabel(row.id)),
+              el('td', { class: 'text-left px-2 py-2 font-bold' }, fmtCell(row.total, true)),
+              ...data.years.map(y => {
+                const v = row.byYear[y] || 0;
+                // Count AND % together (the old toggle is gone): the small %
+                // is the cell ÷ the row's all-time total — on cohort views
+                // that's "share of the cohort still active"; on Contract/Rep
+                // book views it's "share of everything this row ever had
+                // still active at that year-end". Hover = step attrition.
+                const cohortBase = row.total;
+                // The inline % is the STEP ATTRITION vs the prior year-end
+                // (per Isaac — "attrition on the BOY cohort"); the share of
+                // the cohort still active moved into the hover.
+                let stepTitle = '';
+                let stepPct = null;
+                if (cohortBase && (mode === 'subscription' || mode === 'arv' || cohortSel !== 'all')) {
+                  const firstYear = (mode === 'subscription' || mode === 'arv') ? Number(row.id) : Number(cohortSel);
+                  if (y >= firstYear) {
+                    const prev = y === firstYear ? row.total : (row.byYear[y - 1] || 0);
+                    if (prev) {
+                      stepPct = (1 - v / prev) * 100;
+                      stepTitle = stepPct.toFixed(1) + '% attrition vs prior year — ' + fmtCell(v) + ' of ' + fmtCell(prev) + ' retained'
+                        + (v > 0 ? ' · ' + Math.round(v / cohortBase * 100) + '% of the original cohort still active' : '');
+                    }
+                  }
+                }
+                const _bg = cellColor(row, v);
+                return el('td', {
+                  class: 'text-left px-2 py-2 tabular-nums',
+                  style: _bg === 'transparent' ? {} : { background: _bg, color: '#111827', fontWeight: '600' },
+                  title: stepTitle,
+                }, fmtCell(v),
+                  stepPct != null && v > 0
+                    ? el('span', { style: { fontSize: '9px', marginLeft: '4px', fontWeight: '700', color: stepPct > 0 ? '#B91C1C' : '#DF643A', opacity: '.85' } },
+                        (stepPct >= 0 ? '−' : '+') + Math.abs(stepPct).toFixed(1) + '%')
+                    : (cohortBase > 0 && v > 0) ? el('span', { style: { fontSize: '9px', opacity: '.65', marginLeft: '4px' } }, Math.round(v / cohortBase * 100) + '%') : null);
+              }),
+            )),
+            // ── TOTAL row ──
+            // Counts view: column sums (whole-book survivors per year-end).
+            // Rate view: WEIGHTED attrition per year — 1 − Σ survivors ÷
+            // Σ prior-year survivors across every cohort active that year,
+            // so big cohorts pull the blend exactly by their size.
+            (() => {
+              const cells = data.years.map(y => {
+                const sum = data.rowDefs.reduce((a, row) => a + (row.byYear[y] || 0), 0);
+                return el('td', { class: 'text-left px-2 py-2 font-bold' }, fmtCell(sum, true));
+              });
+              const grandTotal = data.rowDefs.reduce((a, row) => a + (row.total || 0), 0);
+              const lastY = data.years[data.years.length - 1];
+              const surviving = data.rowDefs.reduce((a, row) => a + (row.byYear[lastY] || 0), 0);
+              const totalCell = el('td', {
+                class: 'text-left px-2 py-2 font-bold',
+                title: grandTotal > 0 ? 'Lifetime: ' + fmtCell(surviving) + ' of ' + fmtCell(grandTotal) + ' still active (' + Math.round(surviving / grandTotal * 100) + '%)' : '',
+              }, fmtCell(grandTotal, true));
+              return el('tr', { class: 'border-t-2', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+                el('td', { class: 'text-left px-3 py-2 font-black sticky left-0', style: { background: 'var(--card-2)' } }, 'TOTAL'),
+                totalCell,
+                ...cells);
+            })(),
+          ),
+        ),
+      ),
+    );
+  };
+
+  // Blended Attrition (workbook: B.O.Y. survivors of existing cohorts vs
+  // the same subs at E.O.Y. — new sales during the year never enter).
+  const money0 = (v) => '$' + Math.round(v || 0).toLocaleString();
+  // ── Attrition drill — click a year: WHO left and WHY. Same population,
+  // same effective-cancel rules as the table itself, so counts reconcile. ──
+  // Shared prep — recurring + serviced subs with the EFFECTIVE cancel date
+  // (excluded reasons / 3-day ROR don't count), identical to the waterfall.
+  const _retenEffCache = new Map();
+  const _retenEff = (pop) => {
+    // Memoized per population array + rules — four cards + drills share one
+    // pass instead of each re-cloning the 65k-row book.
+    const _rulesKey = (retenExclRenewalSubs() ? 'R' : '') + (retenExclZeroPay() ? 'Z' : '') + (retenExclFrozenOneSvc() ? 'F' : '') + (retenExclOneSvc() ? 'O' : '') + (reportingExcludeRorChurn() ? 'r' : '') + '|' + [...retenPopExclReasons()].join(',') + '|' + retenOneSvcExemptTerms().join(',') + '|' + reportingExcludedCancelReasons().size + '|' + JSON.stringify(state._retenWhatIf || null);
+    const hit = _retenEffCache.get(pop);
+    if (hit && hit._rulesKey === _rulesKey) return hit;
+    const recurringByName = reportingServiceRecurringMap();
+    const excludedReasons = reportingExcludedCancelReasons();
+    const out = pop
+      .filter(r => !!recurringByName.get(r.subscription))
+      .filter(r => !!r.initial_service && r.initial_service >= '2000-01-01')   // garbage dates can't blow up the year walks
+      .filter(r => !retenPopulationExcluded(r))   // workbook Steps 4–6 (Configurations → Reporting rules)
+      .map(r => {
+        const realCancel = r.subscription_date_canceled
+          && !excludedReasons.has(_normCancelReason(reportingCancelReasonOf(r)))
+          && !(reportingExcludeRorChurn() && _reporting3dayRor(r))
+          ? r.subscription_date_canceled : null;
+        return { ...r, initial_service: r.origin_initial_service || r.initial_service, _effCancel: realCancel };
+      });
+    out._rulesKey = _rulesKey;
+    _retenEffCache.set(pop, out);
+    return out;
+  };
+  const MONTHS_S = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  // Period-aware drill: a YEAR (blended table rows) or a single MONTH
+  // (seasonality cells). Same book/churn construction either way.
+  const openAttritionDrill = (pop, year, month) => {
+    const rows = _retenEff(pop);
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const periodStart = month ? year + '-' + pad2(month) + '-01' : year + '-01-01';
+    const inPeriod = (iso) => month ? String(iso).slice(0, 7) === year + '-' + pad2(month) : String(iso).slice(0, 4) === String(year);
+    const periodLabel = month ? MONTHS_S[month - 1] + ' ' + year : String(year);
+    const prevLabel = month ? MONTHS_S[month - 1] + ' ' + (year - 1) : String(year - 1);
+    const boyRows = rows.filter(r => r.initial_service < periodStart && (!r._effCancel || r._effCancel >= periodStart));
+    const attr = boyRows.filter(r => r._effCancel && inPeriod(r._effCancel));
+    const excluded = boyRows.filter(r => !r._effCancel && r.subscription_date_canceled && inPeriod(r.subscription_date_canceled));
+    const arrOf = (rs) => rs.reduce((a, r) => a + (Number(r.annual_recurring_value) || 0), 0);
+    const lifeMonths = (r) => {
+      const a = new Date(r.initial_service + 'T00:00'), b = new Date(String(r._effCancel || r.subscription_date_canceled) + 'T00:00');
+      return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
+    };
+    const groupBy2 = (rs, keyFn) => {
+      const m = new Map();
+      rs.forEach(r => { const k = keyFn(r) || '—'; let g = m.get(k); if (!g) { g = []; m.set(k, g); } g.push(r); });
+      return [...m.entries()].map(([k, g]) => ({ key: k, n: g.length, arr: arrOf(g), lives: g.map(lifeMonths).filter(v => v != null) }))
+        .sort((a, b) => b.n - a.n);
+    };
+    const byReason  = groupBy2(attr, r => reportingCancelReasonOf(r));
+    // Prior-period comparison — same construction one year back (same month
+    // for month drills), so each reason shows whether its BITE of the book
+    // is improving or worsening.
+    const prevStart = month ? (year - 1) + '-' + pad2(month) + '-01' : (year - 1) + '-01-01';
+    const inPrev = (iso) => month ? String(iso).slice(0, 7) === (year - 1) + '-' + pad2(month) : String(iso).slice(0, 4) === String(year - 1);
+    const boyPrev = rows.filter(r => r.initial_service < prevStart && (!r._effCancel || r._effCancel >= prevStart));
+    const attrPrev = boyPrev.filter(r => r._effCancel && inPrev(r._effCancel));
+    const prevPtsByReason = new Map(groupBy2(attrPrev, r => reportingCancelReasonOf(r))
+      .map(g => [g.key, boyPrev.length ? g.n / boyPrev.length * 100 : 0]));
+    const byService = groupBy2(attr, r => r.subscription).slice(0, 6);
+    const byOffice  = groupBy2(attr, r => r.office_name).slice(0, 6);
+    const lives = attr.map(lifeMonths).filter(v => v != null).sort((a, b) => a - b);
+    const median = lives.length ? lives[Math.floor(lives.length / 2)] : 0;
+    const under12 = lives.length ? lives.filter(v => v < 12).length / lives.length : 0;
+    const rate = boyRows.length ? attr.length / boyRows.length : 0;
+    // Early losses — acquired AND lost inside this period. A PE analyst
+    // wants this visible next to (never inside) the churn rate: it's the
+    // sales-quality bridge between our BoY churn and a BI tool's raw
+    // "total ARR lost" number.
+    const earlyLosses = rows.filter(r => inPeriod(r.initial_service) && r._effCancel && inPeriod(r._effCancel));
+
+    const overlay = el('div', { class: 'modal-overlay' });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    const stat = (label, val, sub) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl', style: { background: 'var(--card-2)', minWidth: '110px' } },
+      el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+      el('div', { class: 'text-lg font-black tabular-nums' }, val),
+      sub && el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, sub));
+    const maxN = byReason.length ? byReason[0].n : 1;
+    const reasonRow = (g) => {
+      const avgLife = g.lives.length ? g.lives.reduce((a, b) => a + b, 0) / g.lives.length : null;
+      return el('div', { class: 'py-2 border-t border-' },
+        el('div', { class: 'flex items-center justify-between gap-2 text-xs' },
+          el('span', { class: 'font-semibold truncate' }, g.key),
+          el('span', { class: 'tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } },
+            fmt.int(g.n) + ' · ' + (attr.length ? (g.n / attr.length * 100).toFixed(1) : '0') + '% of churn · '
+            + (boyRows.length ? (g.n / boyRows.length * 100).toFixed(2) : '0') + ' pts of rate')),
+        el('div', { class: 'mt-1 rounded-full overflow-hidden', style: { height: '5px', background: 'var(--card-2)' } },
+          el('div', { style: { width: Math.max(2, g.n / maxN * 100) + '%', height: '100%', background: '#DC2626', opacity: '.75' } })),
+        el('div', { class: 'mt-0.5 text-[10px] tabular-nums flex items-center gap-2 flex-wrap', style: { color: 'var(--text-subtle)' } },
+          el('span', {}, money0(g.arr) + ' ARR lost' + (avgLife != null ? ' · avg lifetime ' + avgLife.toFixed(1) + ' mo' : '')),
+          // YoY: this reason's contribution to the attrition RATE (pts of
+          // BOY book) vs last year — normalized, so book growth can't hide
+          // a worsening reason. Red = biting harder, green = improving.
+          (() => {
+            if (!boyPrev.length) return null;
+            const nowPts = boyRows.length ? g.n / boyRows.length * 100 : 0;
+            const prevPts = prevPtsByReason.get(g.key);
+            if (prevPts == null) return el('span', { class: 'font-bold', style: { color: '#B45309' } }, 'new vs ' + prevLabel);
+            const d = nowPts - prevPts;
+            if (Math.abs(d) < 0.005) return el('span', { class: 'font-bold' }, 'flat vs ' + prevLabel);
+            return el('span', { class: 'font-bold', style: { color: d > 0 ? '#DC2626' : '#DF643A' } },
+              (d > 0 ? '▲ +' : '▼ −') + Math.abs(d).toFixed(2) + ' pts vs ' + prevLabel);
+          })()));
+    };
+    const miniTable = (title, groups) => el('div', { class: 'flex-1 min-w-[220px]' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, title),
+      ...groups.map(g => el('div', { class: 'flex items-center justify-between text-[11px] py-1 border-t border-' },
+        el('span', { class: 'truncate' }, g.key),
+        el('span', { class: 'tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } },
+          fmt.int(g.n) + ' · ' + (attr.length ? (g.n / attr.length * 100).toFixed(0) : '0') + '%'))));
+    // ⬇ Reconciliation export — EVERY sub with a cancel date in this period,
+    // flagged counted / not-counted-and-why. Built to line up row-by-row
+    // against an external BI's churn widget (RevHawk) via Customer ID.
+    const exportPeriodCsv = () => {
+      const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+      const countedIds = new Set(attr);
+      const L = [['Customer ID', 'Subscription', 'Office', 'State', 'Cancellation Reason', 'Initial Service', 'Date Canceled', 'Effective Cancel', 'ARV', 'Counted As Churn', 'Why Not'].map(esc).join(',')];
+      let n = 0;
+      rows.forEach(r => {
+        const rawCxl = r.subscription_date_canceled;
+        const eff = r._effCancel;
+        const inP = (eff && inPeriod(eff)) || (rawCxl && inPeriod(rawCxl));
+        if (!inP) return;
+        let counted = countedIds.has(r), why = '';
+        if (!counted) {
+          if (!eff) why = 'reason excluded from attrition (or ROR)';
+          else if (r.initial_service >= periodStart) why = 'started inside the period (not in the BoY book)';
+          else if (eff && !inPeriod(eff) && rawCxl && inPeriod(rawCxl)) why = 'effective cancel falls in a different period';
+          else why = 'outside this drill\u2019s population';
+        }
+        n++;
+        L.push([r.customer_id, r.subscription, r.office_name, r.state, reportingCancelReasonOf(r), r.initial_service, rawCxl || '', eff || '', Math.round(Number(r.annual_recurring_value) || 0), counted ? 'YES' : 'no', why].map(esc).join(','));
+      });
+      if (!n) return toast('No cancels found in ' + periodLabel, 'warn');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['\ufeff' + L.join('\n')], { type: 'text/csv' }));
+      a.download = ('churn-reconciliation-' + periodLabel).replace(/\s+/g, '-').toLowerCase() + '.csv';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    };
+    const card = el('div', { class: 'card w-full max-w-2xl my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
+      el('div', { class: 'flex items-start justify-between gap-3 p-4 pb-2' },
+        el('div', {},
+          el('h2', { class: 'text-base font-bold' }, periodLabel + ' Attrition — who left and why'),
+          el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } },
+            'Same population and rules as the Blended table: book at period start only, excluded reasons and ROR don\u2019t count as churn.')),
+        el('div', { class: 'flex items-center gap-2' },
+          el('button', {
+            class: 'rounded-lg border px-2.5 py-1.5 text-[10px] font-bold cursor-pointer transition hover:brightness-95 whitespace-nowrap',
+            style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
+            title: 'CSV of EVERY cancel dated in this period — counted or not, with the reason it was excluded. XLOOKUP it against RevHawk / the CRM by Customer ID.',
+            onclick: exportPeriodCsv,
+          }, '⬇ Reconcile CSV'),
+          el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×'))),
+      el('div', { class: 'px-4 pb-4 overflow-y-auto' },
+        el('div', { class: 'flex gap-2 flex-wrap mb-3' },
+          stat('B.O.Y. book', fmt.int(boyRows.length)),
+          stat('Churned', fmt.int(attr.length), (rate * 100).toFixed(2) + '% attrition'),
+          stat('ARR lost', money0(arrOf(attr))),
+          stat('Median lifetime', median.toFixed(1) + ' mo', Math.round(under12 * 100) + '% left within 12 mo'),
+          earlyLosses.length > 0 && stat('Early losses', fmt.int(earlyLosses.length), money0(arrOf(earlyLosses)) + ' ARR — sold & lost inside ' + periodLabel + ' · sales quality, NOT in the churn rate')),
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, 'By cancellation reason'),
+        ...byReason.map(reasonRow),
+        // Reasons that churned people LAST year but nobody this year — the
+        // wins deserve visibility too.
+        (() => {
+          const gone = [...prevPtsByReason.entries()]
+            .filter(([k]) => !byReason.some(g => g.key === k))
+            .sort((a, b) => b[1] - a[1]).slice(0, 4);
+          if (!gone.length) return null;
+          return el('div', { class: 'mt-2 text-[10px]', style: { color: '#DF643A' } },
+            '✓ Zero churn this period from: ' + gone.map(([k, pts]) => k + ' (was ' + pts.toFixed(2) + ' pts in ' + prevLabel + ')').join(' · '));
+        })(),
+        el('div', { class: 'flex gap-5 flex-wrap mt-4' },
+          miniTable('Top services', byService),
+          miniTable('Top offices', byOffice)),
+        excluded.length > 0 && el('div', { class: 'mt-4 text-[11px] px-3 py-2 rounded-lg', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } },
+          '+ ' + fmt.int(excluded.length) + ' cancel(s) in ' + periodLabel + ' did NOT count as churn (config-excluded reasons or 3-day ROR): '
+          + groupBy2(excluded, r => reportingCancelReasonOf(r)).slice(0, 5).map(g => g.key + ' ×' + g.n).join(' · ')),
+      ));
+    overlay.append(card);
+    document.body.append(overlay);
+  };
+  // ── Cohort waterfall (Isaac's sheet): rows = first-service year, columns
+  // = year-end, cells = accounts from that cohort still active at that
+  // year-end. Built from the SAME retention book as Attrition Steps, with an
+  // office dropdown (RIDD = every office).
+  const renderBlended = (pop) => {
+    const scoped = pop;   // office scope comes from the tab's top filter
+    const rows = _retenEff(scoped);
+    const yearOf = (iso) => Number(String(iso || '').slice(0, 4));
+    const thisYear = new Date().getFullYear();
+    const cohorts = [...new Set(rows.map(r => yearOf(r.initial_service)).filter(y => y >= 2000))].sort();
+    if (!cohorts.length) return null;
+    const years = []; for (let y = cohorts[0]; y <= thisYear; y++) years.push(y);
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const endOf = (y) => y >= thisYear ? todayIso : y + '-12-31';
+    const isArr = mode === 'arv';
+    const val = (rs) => isArr ? rs.reduce((a, r) => a + (Number(r.annual_recurring_value) || 0), 0) : rs.length;
+    const num = isArr ? money0 : (v) => Math.round(v).toLocaleString();
+    const byCohort = new Map(); rows.forEach(r => { const y = yearOf(r.initial_service); if (!byCohort.has(y)) byCohort.set(y, []); byCohort.get(y).push(r); });
+    const cell = (c, y) => { const rs = byCohort.get(c) || []; const en = endOf(y); return rs.filter(r => r.initial_service <= en && (!r._effCancel || r._effCancel > en)); };
+    const colTotal = (y) => cohorts.filter(c => c <= y).reduce((a, c) => a + val(cell(c, y)), 0);
+    // Blended attrition per year-end column: cohorts that existed at the prior
+    // year-end, followed to this year-end.
+    const blended = (y) => { const prior = cohorts.filter(c => c < y); const boy = prior.reduce((a, c) => a + val(cell(c, y - 1)), 0); const eoy = prior.reduce((a, c) => a + val(cell(c, y)), 0); return boy ? 1 - eoy / boy : null; };
+    const th = (t, o = {}) => el('th', { class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (o.left ? 'text-left' : 'text-right'), style: { color: 'var(--text-muted)', background: 'var(--card-2)', position: 'sticky', top: 0, left: o.corner ? 0 : undefined, zIndex: o.corner ? 3 : 2 } }, t);
+    const td = (t, o = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums whitespace-nowrap ' + (o.left ? 'text-left font-semibold' : 'text-right') + (o.bold ? ' font-black' : ''), style: { color: o.muted ? 'var(--text-subtle)' : undefined, background: o.sticky ? (o.bg || 'var(--card)') : (o.bg || undefined), position: o.sticky ? 'sticky' : undefined, left: o.sticky ? 0 : undefined, zIndex: o.sticky ? 1 : undefined, boxShadow: o.sticky ? '1px 0 0 var(--border)' : undefined, cursor: o.onclick ? 'pointer' : undefined }, onclick: o.onclick }, t);
+    const drillRows = (title, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : undefined;
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, (isArr ? 'ARR' : 'Accounts') + ' still active at each year-end, by first-service year · ' + thisYear + ' = today · same book as Attrition Steps'))),
+      el('div', { style: { overflow: 'auto', maxHeight: '70vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+        el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th(isArr ? 'ARR' : 'Accounts'), ...years.map(y => th(String(y))))),
+        el('tbody', {},
+          ...cohorts.map(c => { const all = byCohort.get(c) || []; return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            td(String(c), { left: true, sticky: true }),
+            td(num(val(all)), { bold: true, onclick: drillRows(c + ' cohort', all) }),
+            ...years.map(y => { if (y < c) return td('', {}); const rs = cell(c, y); return td(num(val(rs)), { onclick: drillRows(c + ' cohort active at ' + (y >= thisYear ? 'today' : y + ' year-end'), rs), bg: rs.length && all.length ? 'hsl(' + Math.max(0, Math.min(120, (val(rs) / val(all)) * 120)) + ', 70%, 92%)' : undefined }); })); }),
+          el('tr', { class: 'border-t-2 font-black', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+            td('Total', { left: true, sticky: true, bg: 'var(--card-2)' }), td(num(val(rows)), { bold: true }),
+            ...years.map(y => td(num(colTotal(y)), { bold: true }))),
+          el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+            td('Attrition', { left: true, sticky: true, muted: true }), td('', {}),
+            ...years.map(y => { const a = blended(y); return td(a == null ? '—' : (a * 100).toFixed(1) + '%', { bold: true, muted: a == null, onclick: a == null ? undefined : () => openAttritionDrill(scoped, y) }); }))))));
+  };
+  // ── SEASONALITY — monthly churn rate, months × years. Finds the "do we
+  // bleed customers at certain points of the year" pattern. Cell = churn ÷
+  // book at month start; click any cell for that month's reason breakdown. ──
+  const seasonalityCard = (pop, label) => {
+    const rows = _retenEff(pop);
+    if (!rows.length) return null;
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const startsByYm = {}, cancelsByYm = {}, reasonsByYm = {};
+    let minY = 9999;
+    rows.forEach(r => {
+      const sYm = String(r.initial_service).slice(0, 7);
+      startsByYm[sYm] = (startsByYm[sYm] || 0) + 1;
+      minY = Math.min(minY, Number(sYm.slice(0, 4)) || 9999);
+      if (r._effCancel) {
+        const cYm = String(r._effCancel).slice(0, 7);
+        // PE-standard churn: only subs that EXISTED at the month's start
+        // count — an account acquired and lost inside the same month is a
+        // sales-quality event, not book erosion. (The denominator already
+        // excluded same-month starts; the numerator now matches, so these
+        // cells agree exactly with the click-through drill.)
+        if (sYm < cYm) {
+          cancelsByYm[cYm] = (cancelsByYm[cYm] || 0) + 1;
+          const rs = reasonsByYm[cYm] || (reasonsByYm[cYm] = {});
+          const reason = reportingCancelReasonOf(r);
+          rs[reason] = (rs[reason] || 0) + 1;
+        }
+      }
+    });
+    const now = new Date();
+    const curY = now.getFullYear(), curM = now.getMonth() + 1;
+    // Walk the whole book month by month so each cell's denominator is the
+    // TRUE book at that month's start (same-month starts excluded). The walk
+    // subtracts ALL cancels (including same-month acquire-lose, which the
+    // churn numerator excludes) so the running book stays honest.
+    const allCancelsByYm = {};
+    rows.forEach(r => { if (r._effCancel) { const k = String(r._effCancel).slice(0, 7); allCancelsByYm[k] = (allCancelsByYm[k] || 0) + 1; } });
+    const bookAt = {};
+    let book = 0;
+    for (let y = minY; y <= curY; y++) for (let m = 1; m <= 12; m++) {
+      const ym = y + '-' + pad2(m);
+      bookAt[ym] = book;
+      book += (startsByYm[ym] || 0) - (allCancelsByYm[ym] || 0);
+    }
+    const yearsAvail = [];
+    for (let y = minY; y <= curY; y++) yearsAvail.push(y);
+    // Always the rolling last 5 years (per Isaac) — no year picker.
+    let yearsShown = yearsAvail.slice(-5);
+    yearsShown = [...yearsShown].sort((a, b) => a - b);
+    const rateOf = (y, m) => {
+      const ym = y + '-' + pad2(m);
+      const den = bookAt[ym] || 0;
+      if (!den) return null;
+      return { rate: (cancelsByYm[ym] || 0) / den, n: cancelsByYm[ym] || 0, den };
+    };
+    const heat = (rate) => {
+      const t = Math.max(0, Math.min(1, rate / 0.05));   // 5%/mo = full red
+      return `hsl(${120 * (1 - t)}, 70%, 88%)`;
+    };
+    const topReasons = (y, m) => {
+      const rs = reasonsByYm[y + '-' + pad2(m)] || {};
+      return Object.entries(rs).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => k + ' ×' + n).join(' · ');
+    };
+    const monthRow = (m) => {
+      const cells = yearsShown.map(y => {
+        if (y === curY && m > curM) return el('td', { class: 'px-2 py-1.5' }, '');
+        const v = rateOf(y, m);
+        if (!v) return el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-subtle)' } }, '—');
+        // Current month is PARTIAL — project the full-month pace so it reads
+        // against complete months: cancels ÷ days elapsed × days in month.
+        let pace = null;
+        if (y === curY && m === curM) {
+          const nowNY = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          const dayNum = nowNY.getDate();
+          const daysInM = new Date(y, m, 0).getDate();
+          if (dayNum >= 3 && dayNum < daysInM) pace = (v.n / dayNum * daysInM) / v.den;   // too noisy the first couple days
+        }
+        return el('td', {
+          class: 'px-2 py-1.5 tabular-nums cursor-pointer transition hover:brightness-95',
+          style: { background: heat(pace != null ? pace : v.rate), color: '#111827', fontWeight: '600' },
+          title: MONTHS_S[m - 1] + ' ' + y + ': ' + v.n + ' of ' + fmt.int(v.den) + ' churned'
+            + (pace != null ? ' so far — trending to ' + (pace * 100).toFixed(2) + '% at the current pace (~' + Math.round(pace * v.den) + ' cancels by month-end)' : '')
+            + (topReasons(y, m) ? ' — ' + topReasons(y, m) : '') + '. Click for the full breakdown.',
+          onclick: () => openAttritionDrill(pop, y, m),
+        }, (v.rate * 100).toFixed(2) + '%', el('span', { class: 'text-[9px] ml-1', style: { opacity: '.65' } }, '(' + v.n + ')'),
+          pace != null && el('div', { class: 'text-[9px] font-bold', style: { opacity: '.75', marginTop: '1px' } },
+            '→ ' + (pace * 100).toFixed(2) + '% pace'));
+      });
+      // Seasonality signal: the month's average churn across the shown years.
+      const vals = yearsShown.map(y => (y === curY && m > curM) ? null : rateOf(y, m)).filter(v => v && v.den >= 25);
+      const avg = vals.length ? vals.reduce((a, v) => a + v.rate, 0) / vals.length : null;
+      cells.push(el('td', { class: 'px-2 py-1.5 tabular-nums font-bold', style: avg == null ? {} : { background: heat(avg), color: '#111827' } },
+        avg == null ? '—' : (avg * 100).toFixed(2) + '%'));
+      return el('tr', { class: 'border-t border-' },
+        el('td', { class: 'px-2.5 py-1.5 font-semibold' }, MONTHS_S[m - 1]), ...cells);
+    };
+    // Header controls: every history year as a toggle chip + Table/Graph view.
+    // Overlay + Timeline merged into one Graph view — any legacy stored
+    // value ('graph' was Overlay, 'reasons' pre-merge) lands on it.
+    const view = ['graph', 'timeline', 'reasons'].includes(state._churnSeasonView) ? 'timeline' : 'table';
+    const yearsDrop = (() => {
+      const wrap = el('div', { class: 'relative' });
+      const panel = el('div', {
+        class: 'card absolute p-1.5',
+        style: { top: 'calc(100% + 6px)', right: '0', minWidth: '130px', maxHeight: '260px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._churnYearsOpen ? 'block' : 'none' },
+      },
+        ...yearsAvail.slice().sort((a, b) => b - a).map(y => {
+          const on = yearsShown.includes(y);
+          return el('button', {
+            class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
+            style: { color: 'var(--text)', background: on ? 'var(--card-2)' : 'transparent' },
+            onclick: (e) => {
+              e.stopPropagation();
+              const next = on ? yearsShown.filter(x => x !== y) : [...yearsShown, y];
+              state._churnSeasonYears = next.length ? next : [y];
+              state._churnYearsOpen = true;   // keep the panel open while picking
+              mountApp();
+            },
+          }, el('span', { style: { fontSize: '13px' } }, on ? '☑' : '☐'), el('span', {}, String(y)));
+        }));
+      const btn = el('button', {
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
+        style: yearsShown.length > 1
+          ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+          : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Pick which years show as columns / overlay lines',
+        onclick: (e) => {
+          e.stopPropagation();
+          const open = panel.style.display === 'block';
+          panel.style.display = open ? 'none' : 'block';
+          state._churnYearsOpen = !open;
+          if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+            if (wrap.contains(ev.target)) return;
+            panel.style.display = 'none'; state._churnYearsOpen = false;
+            document.removeEventListener('mousedown', closer);
+          }), 0); }
+        },
+      }, 'Years · ' + yearsShown.length);
+      if (state._churnYearsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+        if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+        if (wrap.contains(ev.target)) return;
+        panel.style.display = 'none'; state._churnYearsOpen = false;
+        document.removeEventListener('mousedown', closer);
+      }), 0); }
+      wrap.append(btn, panel);
+      return wrap;
+    })();
+    const viewToggle = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+      ...[['table', 'Table'], ['timeline', 'Graph']].map(([v, l]) => el('button', {
+        class: 'px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition',
+        style: view === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
+        onclick: () => { state._churnSeasonView = v; mountApp(); },
+      }, l)));
+    const tableEl = () => el('div', { class: 'scroll-x' },
+      el('table', { class: 'w-full text-xs' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
+          el('tr', {},
+            el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, 'Month'),
+            ...yearsShown.map(y => el('th', { class: 'text-left px-2 py-2 font-semibold' }, String(y))),
+            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Avg'))),
+        el('tbody', {}, ...Array.from({ length: 12 }, (_, i) => monthRow(i + 1)))));
+    // ── TIMELINE — one continuous monthly churn line across all history,
+    // draggable: grab the chart and pull forwards/backwards through time. ──
+    // ── REASONS — MoM churn-rate contribution per cancellation reason:
+    // each line = that reason's cancels ÷ book at month start, so lines are
+    // comparable as the book grows and they SUM to the total monthly rate. ──
+    const reasonTotals = (() => {
+      const t = new Map();
+      Object.values(reasonsByYm).forEach(rs => Object.entries(rs).forEach(([k, n]) => t.set(k, (t.get(k) || 0) + n)));
+      return [...t.entries()].sort((a, b) => b[1] - a[1]);
+    })();
+    const selReasons = (() => {
+      const all = reasonTotals.map(([k]) => k);
+      const sel = Array.isArray(state._churnReasonSel) ? state._churnReasonSel.filter(r => all.includes(r)) : [];
+      return sel.length ? sel : all.slice(0, 5);   // default: top 5 by volume
+    })();
+    const seriesDrop = (() => {
+      const TOTAL_KEY = '__total__';
+      const wrap = el('div', { class: 'relative' });
+      const selNow = (Array.isArray(state._churnSeries) && state._churnSeries.length)
+        ? state._churnSeries.filter(k => k === TOTAL_KEY || reasonTotals.some(([r]) => r === k))
+        : [TOTAL_KEY];
+      const rowFor = (key, labelTxt, count) => {
+        const on = selNow.includes(key);
+        return el('button', {
+          class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
+          style: { color: 'var(--text)', background: on ? 'var(--card-2)' : 'transparent' },
+          onclick: (e) => {
+            e.stopPropagation();
+            const next = on ? selNow.filter(x => x !== key) : [...selNow, key];
+            state._churnSeries = next.length ? next : [TOTAL_KEY];
+            state._churnSeriesOpen = true;
+            mountApp();
+          },
+        }, el('span', { style: { fontSize: '13px' } }, on ? '☑' : '☐'),
+           el('span', { class: 'flex-1 truncate' }, labelTxt),
+           count != null && el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, fmt.int(count)));
+      };
+      const panel = el('div', {
+        class: 'card absolute p-1.5',
+        style: { top: 'calc(100% + 6px)', right: '0', minWidth: '250px', maxHeight: '320px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._churnSeriesOpen ? 'block' : 'none' },
+      },
+        rowFor(TOTAL_KEY, 'Total churn rate', null),
+        el('div', { class: 'px-2.5 pt-2 pb-0.5 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'By cancellation reason'),
+        ...reasonTotals.map(([r, n]) => rowFor(r, r, n)));
+      const btn = el('button', {
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
+        style: selNow.length > 1 || selNow[0] !== TOTAL_KEY
+          ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+          : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Pick what plots: the total churn rate and/or individual cancellation reasons (reason lines sum to the total)',
+        onclick: (e) => {
+          e.stopPropagation();
+          const open = panel.style.display === 'block';
+          panel.style.display = open ? 'none' : 'block';
+          state._churnSeriesOpen = !open;
+          if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+            if (wrap.contains(ev.target)) return;
+            panel.style.display = 'none'; state._churnSeriesOpen = false;
+            document.removeEventListener('mousedown', closer);
+          }), 0); }
+        },
+      }, 'Series · ' + selNow.length);
+      if (state._churnSeriesOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+        if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+        if (wrap.contains(ev.target)) return;
+        panel.style.display = 'none'; state._churnSeriesOpen = false;
+        document.removeEventListener('mousedown', closer);
+      }), 0); }
+      wrap.append(btn, panel);
+      return wrap;
+    })();
+    // Window (zoom) — widen to 36mo/All and the seasonal humps stack up for
+    // YoY reading; drag still pans within the window.
+    const windowSel = el('select', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      title: 'How many months are visible at once',
+      onchange: (e) => { state._churnWindow = e.target.value; state._churnPanStart = null; mountApp(); },
+    }, ...[['12', '12 mo'], ['24', '24 mo'], ['36', '36 mo'], ['all', 'All']]
+      .map(([v, l]) => { const o = el('option', { value: v }, l); if (String(state._churnWindow || 'all') === v) o.selected = true; return o; }));
+    const trendBtn = el('button', {
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
+      style: state._churnTrend
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+        : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+      title: 'Overlay a least-squares trendline per series, fit to the visible window',
+      onclick: () => { state._churnTrend = !state._churnTrend; mountApp(); },
+    }, '📈 Trend');
+    // Years filter for the Graph view — restrict the timeline to specific
+    // years (empty = all history). Selected years plot back-to-back.
+    const graphYearsSel = (Array.isArray(state._churnGraphYears) ? state._churnGraphYears.filter(y => yearsAvail.includes(y)) : []);
+    const graphYearsDrop = (() => {
+      const wrap = el('div', { class: 'relative' });
+      const isAll = graphYearsSel.length === 0;
+      const rowFor = (y) => {
+        const on = isAll || graphYearsSel.includes(y);
+        return el('button', {
+          class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
+          style: { color: 'var(--text)', background: (!isAll && on) ? 'var(--card-2)' : 'transparent' },
+          onclick: (e) => {
+            e.stopPropagation();
+            // From "All": clicking a year narrows to just that year.
+            // Otherwise toggle; emptying the list goes back to All.
+            const next = isAll ? [y] : (on ? graphYearsSel.filter(x => x !== y) : [...graphYearsSel, y]);
+            state._churnGraphYears = next;
+            state._churnGraphYearsOpen = true;
+            state._churnPanStart = null;
+            mountApp();
+          },
+        }, el('span', { style: { fontSize: '13px' } }, on ? '☑' : '☐'), el('span', {}, String(y)));
+      };
+      const panel = el('div', {
+        class: 'card absolute p-1.5',
+        style: { top: 'calc(100% + 6px)', right: '0', minWidth: '140px', maxHeight: '280px', overflowY: 'auto', zIndex: '40', boxShadow: 'var(--shadow-lg)', display: state._churnGraphYearsOpen ? 'block' : 'none' },
+      },
+        el('button', {
+          class: 'w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer text-left transition hover:brightness-95',
+          style: { color: 'var(--text)', background: isAll ? 'var(--card-2)' : 'transparent' },
+          onclick: (e) => { e.stopPropagation(); state._churnGraphYears = []; state._churnGraphYearsOpen = true; state._churnPanStart = null; mountApp(); },
+        }, el('span', { style: { fontSize: '13px' } }, isAll ? '☑' : '☐'), el('span', {}, 'All years')),
+        el('div', { class: 'px-2.5 pt-2 pb-0.5 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Specific years'),
+        ...yearsAvail.slice().sort((a, b) => b - a).map(rowFor));
+      const btn = el('button', {
+        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border flex items-center gap-1.5 transition hover:brightness-95',
+        style: !isAll
+          ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+          : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+        title: 'Restrict the graph to specific years (they plot back-to-back); All = the full history',
+        onclick: (e) => {
+          e.stopPropagation();
+          const open = panel.style.display === 'block';
+          panel.style.display = open ? 'none' : 'block';
+          state._churnGraphYearsOpen = !open;
+          if (!open) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+            if (wrap.contains(ev.target)) return;
+            panel.style.display = 'none'; state._churnGraphYearsOpen = false;
+            document.removeEventListener('mousedown', closer);
+          }), 0); }
+        },
+      }, 'Years · ' + (isAll ? 'All' : graphYearsSel.length));
+      if (state._churnGraphYearsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+        if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+        if (wrap.contains(ev.target)) return;
+        panel.style.display = 'none'; state._churnGraphYearsOpen = false;
+        document.removeEventListener('mousedown', closer);
+      }), 0); }
+      wrap.append(btn, panel);
+      return wrap;
+    })();
+    // YoY — stack the selected years Jan–Dec on ONE axis so the same months
+    // line up (this is the old Overlay, reborn inside the Graph view). Color
+    // = year; when multiple series are picked, dash pattern = series.
+    const yoyOn = !!state._churnYoY;
+    const yoyBtn = el('button', {
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
+      style: yoyOn
+        ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
+        : { borderColor: 'var(--border-2)', color: 'var(--text)' },
+      title: 'Overlay the selected years Jan–Dec on the same axis — same months stack for year-over-year reading',
+      onclick: () => { state._churnYoY = !state._churnYoY; mountApp(); },
+    }, 'YoY');
+    const yoyEl = () => (() => {
+      const TOTAL_KEY = '__total__';
+      const selSeries = (Array.isArray(state._churnSeries) && state._churnSeries.length)
+        ? state._churnSeries.filter(k => k === TOTAL_KEY || reasonTotals.some(([r]) => r === k))
+        : [TOTAL_KEY];
+      const yrs = yearsAvail.slice(-5).slice().sort((a, b) => a - b);
+      const nameOf = (k) => k === TOTAL_KEY ? 'Total churn' : k;
+      const valOf = (key, y, m) => {
+        if (y === curY && m > curM) return null;
+        const ym = y + '-' + pad2(m);
+        const den = bookAt[ym] || 0;
+        if (den < 10) return null;
+        return (key === TOTAL_KEY ? (cancelsByYm[ym] || 0) : ((reasonsByYm[ym] || {})[key] || 0)) / den;
+      };
+      const cid = 'chart-churn-yoy-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
+      const palette2 = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899', '#6366f1', '#FACC15'];
+      const DASHES = [[], [6, 4], [2, 3], [10, 4, 2, 4]];
+      const hint = el('div', { class: 'px-4 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } },
+        'Jan–Dec, one line per year — same months stack for YoY' + (selSeries.length > 1 ? ' · dash pattern = series' : ' · ' + nameOf(selSeries[0])));
+      const wrapEl = el('div', { class: 'px-4 pb-4 pt-1', style: { position: 'relative', height: '280px' } }, el('canvas', { id: cid }));
+      setTimeout(() => {
+        if (typeof Chart === 'undefined') return;
+        const cvs = document.getElementById(cid);
+        if (!cvs) return;
+        if (_chartInstances[cid]) { _chartInstances[cid].destroy(); delete _chartInstances[cid]; }
+        const isDark = state.theme === 'dark';
+        const txt = isDark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)';
+        const grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+        const dsets = [];
+        yrs.forEach((y, yi) => selSeries.forEach((key, si) => dsets.push({
+          label: String(y) + (selSeries.length > 1 ? ' · ' + nameOf(key) : ''),
+          data: Array.from({ length: 12 }, (_, mi) => valOf(key, y, mi + 1)),
+          borderColor: y === curY ? '#DF643A' : palette2[yi % palette2.length],
+          backgroundColor: 'transparent',
+          borderWidth: y === curY ? 3 : 2,
+          borderDash: DASHES[si % DASHES.length],
+          spanGaps: true, tension: 0.3, pointRadius: 2.5, pointHoverRadius: 5, pointHitRadius: 10,
+          _year: y, _key: key,
+        })));
+        _chartInstances[cid] = new Chart(cvs.getContext('2d'), {
+          type: 'line',
+          data: { labels: MONTHS_S, datasets: dsets },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: true },
+            plugins: {
+              legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 }, usePointStyle: true } },
+              tooltip: { callbacks: { label: (ctx) => {
+                const y = ctx.dataset._year, key = ctx.dataset._key, m = ctx.dataIndex + 1;
+                const ym = y + '-' + pad2(m);
+                const den = bookAt[ym] || 0;
+                const n = key === TOTAL_KEY ? (cancelsByYm[ym] || 0) : ((reasonsByYm[ym] || {})[key] || 0);
+                return ctx.dataset.label + ': ' + (ctx.parsed.y * 100).toFixed(2) + '% (' + n + ' of ' + fmt.int(den) + ')';
+              } } },
+            },
+            scales: {
+              y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => (v * 100).toFixed(1) + '%' } },
+              x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 } } },
+            },
+          },
+        });
+      }, 50);
+      return el('div', {}, hint, wrapEl);
+    })();
+    const timelineEl = () => (() => {
+      const TOTAL_KEY = '__total__';
+      const selSeries = (Array.isArray(state._churnSeries) && state._churnSeries.length)
+        ? state._churnSeries.filter(k => k === TOTAL_KEY || reasonTotals.some(([r]) => r === k))
+        : [TOTAL_KEY];
+      const pad2b = (n) => String(n).padStart(2, '0');
+      const seq = [];
+      const _yrsFilter = graphYearsSel.length ? graphYearsSel : null;
+      for (let y = minY; y <= curY; y++) for (let m = 1; m <= 12; m++) {
+        if (y === curY && m > curM) break;
+        if (_yrsFilter && !_yrsFilter.includes(y)) continue;
+        const ym = y + '-' + pad2b(m);
+        const den = bookAt[ym] || 0;
+        seq.push({ ym, label: MONTHS_S[m - 1] + ' ' + String(y).slice(2), den, n: cancelsByYm[ym] || 0 });
+      }
+      let _first = 0;
+      while (_first < seq.length && (seq[_first].den || 0) < 10) _first++;
+      if (_first > 0) seq.splice(0, _first);
+      const winPref = state._churnWindow || 'all';
+      const VISIBLE = winPref === 'all' ? Math.max(6, seq.length) : Math.min(Number(winPref) || 24, Math.max(6, seq.length));
+      const maxStart = Math.max(0, seq.length - VISIBLE);
+      if (state._churnPanStart == null || state._churnPanStart > maxStart) state._churnPanStart = maxStart;
+      const cid = 'chart-churn-timeline-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
+      const palette = ['#0EA5E9', '#F59E0B', '#A855F7', '#14B8A6', '#EC4899', '#DF643A', '#F97316', '#6366F1', '#FACC15', '#EF4444'];
+      const hint = el('div', { class: 'px-4 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } },
+        '↔ Drag to move through time · showing ' + VISIBLE + ' of ' + seq.length + ' months · reason lines are their share of the monthly rate and sum to the total');
+      const wrapEl = el('div', { class: 'px-4 pb-4 pt-1', style: { position: 'relative', height: '280px' } },
+        el('canvas', { id: cid, style: { cursor: 'grab', touchAction: 'pan-y' } }));
+      setTimeout(() => {
+        if (typeof Chart === 'undefined') return;
+        const cvs = document.getElementById(cid);
+        if (!cvs) return;
+        if (_chartInstances[cid]) { _chartInstances[cid].destroy(); delete _chartInstances[cid]; }
+        const isDark = state.theme === 'dark';
+        const txt = isDark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)';
+        const grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+        const windowOf = (start) => seq.slice(start, start + VISIBLE);
+        // Least-squares fit over the visible window's non-null points →
+        // a straight dashed line showing the direction of travel.
+        const trendOf = (vals) => {
+          const pts = vals.map((v, x) => [x, v]).filter(([, v]) => v != null);
+          if (pts.length < 3) return null;
+          const n = pts.length;
+          const sx = pts.reduce((a, [x]) => a + x, 0), sy = pts.reduce((a, [, v]) => a + v, 0);
+          const sxx = pts.reduce((a, [x]) => a + x * x, 0), sxy = pts.reduce((a, [x, v]) => a + x * v, 0);
+          const den = n * sxx - sx * sx;
+          if (!den) return null;
+          const m = (n * sxy - sx * sy) / den, b = (sy - m * sx) / n;
+          return { line: vals.map((_, x) => m * x + b), slope: m };
+        };
+        const dsBase = (start) => selSeries.map((key, i) => key === TOTAL_KEY
+          ? {
+              label: 'Total churn',
+              data: windowOf(start).map(p => p.den >= 10 ? p.n / p.den : null),
+              borderColor: '#DC2626', backgroundColor: 'rgba(220,38,38,.10)', fill: selSeries.length === 1,
+              spanGaps: true, tension: 0.3, borderWidth: 2.5, pointRadius: 2, pointHoverRadius: 5, pointHitRadius: 10, order: 0,
+            }
+          : {
+              label: key,
+              data: windowOf(start).map(p => p.den >= 10 ? ((reasonsByYm[p.ym] || {})[key] || 0) / p.den : null),
+              borderColor: palette[i % palette.length], backgroundColor: 'transparent',
+              spanGaps: true, tension: 0.3, borderWidth: 2, pointRadius: 1.5, pointHoverRadius: 5, pointHitRadius: 10, order: 1,
+            });
+        const dsFor = (start) => {
+          const base = dsBase(start);
+          if (!state._churnTrend) return base;
+          const trends = [];
+          base.forEach(d => {
+            const t = trendOf(d.data);
+            if (!t) return;
+            trends.push({
+              label: d.label + ' trend',
+              data: t.line,
+              borderColor: d.borderColor, backgroundColor: 'transparent',
+              borderDash: [5, 5], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 0,
+              fill: false, tension: 0, order: 2, _slope: t.slope,
+            });
+          });
+          return base.concat(trends);
+        };
+        const ch = new Chart(cvs.getContext('2d'), {
+          type: 'line',
+          data: { labels: windowOf(state._churnPanStart).map(p => p.label), datasets: dsFor(state._churnPanStart) },
+          options: {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            // Tooltip only when the cursor (or a tap) is ON a dot — not
+            // anywhere in the plot. mode stays 'index' so hitting one dot
+            // still shows every series for that month.
+            interaction: { mode: 'index', intersect: true },
+            plugins: {
+              legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 }, usePointStyle: true, filter: (item) => !/ trend$/.test(item.text) } },
+              tooltip: { callbacks: { label: (ctx) => {
+                if (/ trend$/.test(ctx.dataset.label)) {
+                  const sl = (ctx.dataset._slope || 0) * 100;
+                  return ctx.dataset.label + ': ' + (sl >= 0 ? '▲ +' : '▼ −') + Math.abs(sl).toFixed(3) + ' pts/mo';
+                }
+                const p = windowOf(state._churnPanStart)[ctx.dataIndex];
+                if (!p) return ctx.dataset.label + ': ' + (ctx.parsed.y * 100).toFixed(2) + '%';
+                const n = ctx.dataset.label === 'Total churn' ? p.n : ((reasonsByYm[p.ym] || {})[ctx.dataset.label] || 0);
+                return ctx.dataset.label + ': ' + (ctx.parsed.y * 100).toFixed(2) + '% (' + n + ' of ' + fmt.int(p.den) + ')';
+              } } },
+            },
+            scales: {
+              y: { beginAtZero: true, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => (v * 100).toFixed(1) + '%' } },
+              x: { grid: { display: false }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: VISIBLE > 30 ? 24 : 12 } },
+            },
+          },
+        });
+        _chartInstances[cid] = ch;
+        let dragging = false, startX = 0, startPan = 0;
+        const repaint = () => {
+          const w = windowOf(state._churnPanStart);
+          ch.data.labels = w.map(p => p.label);
+          ch.data.datasets = dsFor(state._churnPanStart);
+          ch.update('none');
+        };
+        cvs.addEventListener('pointerdown', (e) => {
+          dragging = true; startX = e.clientX; startPan = state._churnPanStart;
+          cvs.style.cursor = 'grabbing';
+          try { cvs.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
+        });
+        cvs.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          const pxPerMonth = (ch.chartArea ? (ch.chartArea.right - ch.chartArea.left) : cvs.clientWidth) / VISIBLE;
+          const delta = Math.round((startX - e.clientX) / Math.max(4, pxPerMonth));
+          const next = Math.max(0, Math.min(maxStart, startPan + delta));
+          if (next !== state._churnPanStart) { state._churnPanStart = next; repaint(); }
+        });
+        const endDrag = () => { dragging = false; cvs.style.cursor = 'grab'; };
+        cvs.addEventListener('pointerup', endDrag);
+        cvs.addEventListener('pointercancel', endDrag);
+        cvs.addEventListener('pointerleave', endDrag);
+      }, 50);
+      return el('div', {}, hint, wrapEl);
+    })();
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
+        el('div', {},
+          el('h3', { class: 'text-sm font-bold' }, 'Monthly Churn' + (label ? ' — ' + label : ''))),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          null,   // (year pickers retired — rolling last 5 years)
+          view === 'timeline' ? seriesDrop : null,
+          (view === 'timeline' && !yoyOn) ? windowSel : null,
+          (view === 'timeline' && !yoyOn) ? trendBtn : null,
+          view === 'timeline' ? yoyBtn : null,
+          viewToggle,
+          )),
+      view === 'timeline' ? (yoyOn ? yoyEl() : timelineEl()) : tableEl());
+  };
+
+  // ── START-MONTH COHORTS — the retention side: do customers signed in
+  // April stick better than October signups? Rows = the month a customer
+  // STARTED (all years pooled); columns = survival at 3/12/24 months. ──
+  const startCohortCard = (pop, label) => {
+    const rows = _retenEff(pop);
+    if (!rows.length) return null;
+    const today = new Date();
+    const addM = (iso, n) => { const d = new Date(iso + 'T00:00'); d.setMonth(d.getMonth() + n); return d; };
+    const HORIZONS = [3, 12, 24];
+    const byMonth = Array.from({ length: 12 }, () => []);
+    rows.forEach(r => {
+      const d = new Date(r.initial_service + 'T00:00');
+      if (!isNaN(d)) byMonth[d.getMonth()].push(r);
+    });
+    const greenHeat = (pct) => `hsl(${Math.max(0, Math.min(120, pct * 120))}, 70%, 88%)`;
+    const monthRow = (m) => {
+      const cohort = byMonth[m];
+      const cells = HORIZONS.map(h => {
+        const eligible = cohort.filter(r => addM(r.initial_service, h) <= today);
+        if (eligible.length < 25) return el('td', { class: 'px-2 py-1.5', style: { color: 'var(--text-subtle)' }, title: 'Fewer than 25 subs old enough for this horizon' }, '—');
+        const kept = eligible.filter(r => !r._effCancel || new Date(r._effCancel + 'T00:00') >= addM(r.initial_service, h));
+        const pct = kept.length / eligible.length;
+        return el('td', {
+          class: 'px-2 py-1.5 tabular-nums',
+          style: { background: greenHeat(pct), color: '#111827', fontWeight: '600' },
+          title: fmt.int(kept.length) + ' of ' + fmt.int(eligible.length) + ' subs starting in ' + MONTHS_S[m] + ' (any year) still active ' + h + ' months in',
+        }, (pct * 100).toFixed(1) + '%');
+      });
+      const churned = cohort.filter(r => r._effCancel);
+      const lives = churned.map(r => {
+        const a = new Date(r.initial_service + 'T00:00'), b = new Date(r._effCancel + 'T00:00');
+        return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
+      }).filter(v => v != null).sort((a, b) => a - b);
+      const medLife = lives.length ? lives[Math.floor(lives.length / 2)] : null;
+      return el('tr', { class: 'border-t border-' },
+        el('td', { class: 'px-2.5 py-1.5 font-semibold' }, MONTHS_S[m]),
+        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, fmt.int(cohort.length)),
+        ...cells,
+        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, medLife == null ? '—' : medLife.toFixed(1) + ' mo'));
+    };
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
+        el('div', {},
+          el('h3', { class: 'text-sm font-bold' }, '🌱 Retention by Start Month' + (label ? ' — ' + label : '')),
+          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
+            'Do customers signed in April stick better than October signups? All years pooled by the month the customer STARTED.')),
+        configInfoBtn('Retention by Start Month',
+          'Each row pools every sub whose first service landed in that calendar month, across all years. The 3/12/24-month columns show the share still active that long after starting — only subs old enough for the horizon count, and months with fewer than 25 eligible subs show a dash. Median lifetime is measured on churned subs only (survivors would push it higher). Same attrition rules as everywhere: excluded reasons and 3-day ROR count as retained.')),
+      el('div', { class: 'scroll-x' },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
+            el('tr', {},
+              el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, 'Start Month'),
+              el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Subs'),
+              ...HORIZONS.map(h => el('th', { class: 'text-left px-2 py-2 font-semibold' }, h + ' Mo')),
+              el('th', { class: 'text-left px-2 py-2 font-semibold', title: 'Median lifetime of the subs that churned' }, 'Med Life'))),
+          el('tbody', {},
+            ...Array.from({ length: 12 }, (_, i) => monthRow(i)),
+            // ── ALL row — the whole book pooled, so each horizon column is
+            // the true WEIGHTED average (kept ÷ eligible across every month,
+            // not an average of the monthly averages). ──
+            (() => {
+              const cells = HORIZONS.map(h => {
+                const eligible = rows.filter(r => addM(r.initial_service, h) <= today);
+                if (eligible.length < 25) return el('td', { class: 'px-2 py-2', style: { color: 'var(--text-subtle)' } }, '—');
+                const kept = eligible.filter(r => !r._effCancel || new Date(r._effCancel + 'T00:00') >= addM(r.initial_service, h));
+                const pct = kept.length / eligible.length;
+                return el('td', {
+                  class: 'px-2 py-2 tabular-nums font-black',
+                  style: { background: greenHeat(pct), color: '#111827' },
+                  title: fmt.int(kept.length) + ' of ' + fmt.int(eligible.length) + ' subs (all start months pooled) still active ' + h + ' months in',
+                }, (pct * 100).toFixed(1) + '%');
+              });
+              const churned = rows.filter(r => r._effCancel);
+              const lives = churned.map(r => {
+                const a = new Date(r.initial_service + 'T00:00'), b = new Date(r._effCancel + 'T00:00');
+                return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
+              }).filter(v => v != null).sort((a, b) => a - b);
+              const medLife = lives.length ? lives[Math.floor(lives.length / 2)] : null;
+              return el('tr', { class: 'border-t-2', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+                el('td', { class: 'px-2.5 py-2 font-black' }, 'ALL'),
+                el('td', { class: 'px-2 py-2 tabular-nums font-bold' }, fmt.int(rows.length)),
+                ...cells,
+                el('td', { class: 'px-2 py-2 tabular-nums', style: { color: 'var(--text-muted)' } }, medLife == null ? '—' : medLife.toFixed(1) + ' mo'));
+            })()))));
+  };
+
+  // ── LTV — lifetime value by segment. LTV = monthly ARPU ÷ monthly churn
+  // (trailing 24 months), i.e. avg monthly recurring $ × implied lifetime.
+  // Segments: overall, contract lengths, top services, offices. ──
+  const ltvCard = (pop, label) => {
+    const rows = _retenEff(pop);
+    if (!rows.length) return null;
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const now = new Date();
+    const curYL = now.getFullYear();
+    const trailing = [];
+    for (let i = 24; i >= 1; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); trailing.push(d.getFullYear() + '-' + pad2(d.getMonth() + 1)); }
+    const segStats = (subset) => {
+      if (!subset.length) return null;
+      const startsByYm = {}, cancelsByYm = {};
+      let minY = 9999;
+      subset.forEach(r => {
+        const s = String(r.initial_service).slice(0, 7);
+        startsByYm[s] = (startsByYm[s] || 0) + 1;
+        minY = Math.min(minY, Number(s.slice(0, 4)) || 9999);
+        if (r._effCancel) { const c = String(r._effCancel).slice(0, 7); cancelsByYm[c] = (cancelsByYm[c] || 0) + 1; }
+      });
+      const bookAt = {};
+      let book = 0;
+      for (let y = minY; y <= curYL; y++) for (let m = 1; m <= 12; m++) {
+        const ym = y + '-' + pad2(m);
+        bookAt[ym] = book;
+        book += (startsByYm[ym] || 0) - (cancelsByYm[ym] || 0);
+      }
+      let bm = 0, cc = 0;
+      trailing.forEach(ym => { bm += bookAt[ym] || 0; cc += cancelsByYm[ym] || 0; });
+      const arvSubs = subset.filter(r => Number(r.annual_recurring_value) > 0);
+      const avgArv = arvSubs.length ? arvSubs.reduce((a, r) => a + Number(r.annual_recurring_value), 0) / arvSubs.length : 0;
+      const churned = subset.filter(r => r._effCancel);
+      const lives = churned.map(r => {
+        const a = new Date(r.initial_service + 'T00:00'), b = new Date(r._effCancel + 'T00:00');
+        return (isNaN(a) || isNaN(b)) ? null : Math.max(0, (b - a) / 2629800000);
+      }).filter(v => v != null).sort((a, b) => a - b);
+      const medLife = lives.length ? lives[Math.floor(lives.length / 2)] : null;
+      const churn = bm > 0 ? cc / bm : null;
+      // Implied lifetime capped at 10 years — a near-zero churn segment
+      // otherwise prints a comedy LTV.
+      const lifeMo = churn > 0 ? Math.min(120, 1 / churn) : (churn === 0 ? 120 : null);
+      return {
+        n: subset.length, avgArv, churn, bookMonths: bm, medLife,
+        lifeMo, ltv: (lifeMo != null && avgArv > 0) ? (avgArv / 12) * lifeMo : null,
+      };
+    };
+    const segs = [];
+    segs.push({ section: 'Overall' });
+    segs.push({ name: 'All recurring subs', s: segStats(rows) });
+    segs.push({ section: 'By contract length' });
+    [12, 18, 24].forEach(L => segs.push({ name: L + ' Months', s: segStats(rows.filter(r => (Number(r.agreement_length) || 0) === L)) }));
+    segs.push({ section: 'By service (top 8 by subs)' });
+    const svcCounts = new Map();
+    rows.forEach(r => svcCounts.set(r.subscription, (svcCounts.get(r.subscription) || 0) + 1));
+    [...svcCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+      .forEach(([svc]) => segs.push({ name: svc, s: segStats(rows.filter(r => r.subscription === svc)) }));
+    segs.push({ section: 'By office' });
+    const offCounts = new Map();
+    rows.forEach(r => { const o = r.office_name || '—'; offCounts.set(o, (offCounts.get(o) || 0) + 1); });
+    [...offCounts.entries()].sort((a, b) => b[1] - a[1])
+      .forEach(([o]) => segs.push({ name: o, s: segStats(rows.filter(r => (r.office_name || '—') === o)) }));
+    const money2 = (v) => '$' + Math.round(v).toLocaleString();
+    // Column sort (click a header) — rows re-order WITHIN their section so
+    // Overall / contract / service / office groups stay intact.
+    const _sort = state._ltvSort || null;
+    let segsSorted = segs;
+    if (_sort && _sort.key) {
+      const valFor = (g) => {
+        if (!g.s) return _sort.key === 'name' ? g.name : -Infinity;
+        switch (_sort.key) {
+          case 'name':  return g.name;
+          case 'n':     return g.s.n;
+          case 'arv':   return g.s.avgArv || 0;
+          case 'churn': return g.s.churn == null ? -Infinity : g.s.churn;
+          case 'life':  return g.s.lifeMo == null ? -Infinity : g.s.lifeMo;
+          case 'med':   return g.s.medLife == null ? -Infinity : g.s.medLife;
+          case 'ltv':   return g.s.ltv == null ? -Infinity : g.s.ltv;
+          default: return 0;
+        }
+      };
+      const out = [];
+      let buf = [];
+      const flush = () => {
+        if (!buf.length) return;
+        buf.sort((a, b) => {
+          const va = valFor(a), vb = valFor(b);
+          const c = (typeof va === 'string' || typeof vb === 'string') ? String(va).localeCompare(String(vb)) : (va - vb);
+          return _sort.dir === 'asc' ? c : -c;
+        });
+        out.push(...buf); buf = [];
+      };
+      segs.forEach(g => { if (g.section) { flush(); out.push(g); } else buf.push(g); });
+      flush();
+      segsSorted = out;
+    }
+    const bodyRows = segsSorted.map(g => {
+      if (g.section) return el('tr', {}, el('td', { colspan: 7, class: 'px-2.5 pt-3 pb-1 text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, g.section));
+      const s = g.s;
+      const small = !s || s.n < 50 || s.bookMonths < 300;
+      return el('tr', { class: 'border-t border-' + (small ? '' : ''), style: { borderColor: 'var(--border)' } },
+        el('td', { class: 'px-2.5 py-1.5 font-semibold truncate', style: { maxWidth: '220px' } }, g.name),
+        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, s ? fmt.int(s.n) : '—'),
+        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, s && s.avgArv ? money2(s.avgArv) : '—'),
+        el('td', { class: 'px-2 py-1.5 tabular-nums' }, (s && s.churn != null && !small) ? (s.churn * 100).toFixed(2) + '%' : '—'),
+        el('td', { class: 'px-2 py-1.5 tabular-nums' }, (s && s.lifeMo != null && !small) ? s.lifeMo.toFixed(0) + ' mo' + (s.lifeMo >= 120 ? '+' : '') : '—'),
+        el('td', { class: 'px-2 py-1.5 tabular-nums', style: { color: 'var(--text-muted)' } }, (s && s.medLife != null) ? s.medLife.toFixed(1) + ' mo' : '—'),
+        el('td', { class: 'px-2 py-1.5 tabular-nums font-black', style: (s && s.ltv != null && !small) ? { color: 'var(--accent)' } : { color: 'var(--text-subtle)' } },
+          (s && s.ltv != null && !small) ? money2(s.ltv) : (small && s && s.n ? 'small sample' : '—')));
+    });
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between gap-2 flex-wrap' },
+        el('div', {},
+          el('h3', { class: 'text-sm font-bold' }, '💎 LTV' + (label ? ' — ' + label : '')),
+          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
+            'LTV = (avg ARV ÷ 12) × implied lifetime, where implied lifetime = 1 ÷ trailing-24-month monthly churn.')),
+        configInfoBtn('Lifetime Value',
+          'Same population and churn rules as everything on this tab (recurring + serviced subs; excluded reasons and 3-day ROR count as retained). Monthly churn = countable cancels ÷ book-months over the TRAILING 24 MONTHS, per segment — so LTV reflects how the segment retains TODAY, not its whole history. Implied lifetime = 1 ÷ monthly churn, capped at 120 months. Avg ARV averages subs with a recurring value; LTV = monthly ARPU × implied lifetime. Median lifetime (churned subs only) is shown as the observed sanity check. Segments under 50 subs or 300 book-months show "small sample" — don\u2019t price a deal off those.')),
+      el('div', { class: 'scroll-x' },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
+            el('tr', {},
+              ...[['name', 'Segment'], ['n', 'Subs'], ['arv', 'Avg ARV'], ['churn', 'Mo Churn'], ['life', 'Implied Life'], ['med', 'Med Life (churned)'], ['ltv', 'LTV']].map(([k, h], i) => el('th', {
+                class: 'text-left py-2 font-semibold cursor-pointer select-none hover:text-default ' + (i === 0 ? 'px-2.5' : 'px-2'),
+                style: (_sort && _sort.key === k) ? { color: 'var(--accent)', fontWeight: '800' } : {},
+                title: 'Sort by ' + h + ' (within each section)',
+                onclick: () => {
+                  const cur = state._ltvSort || {};
+                  state._ltvSort = { key: k, dir: cur.key === k ? (cur.dir === 'desc' ? 'asc' : 'desc') : (k === 'name' ? 'asc' : 'desc') };
+                  mountApp();
+                },
+              }, h)))),
+          el('tbody', {}, ...bodyRows))));
+  };
+
+  // ── LAST RESORT RETENTION — do <$99-initial accounts stick worse? Same
+  // population + effective-cancel rules as everything else on this tab.
+  // Cohort-year rows keep the comparison honest (Last Resort sales skew
+  // recent, so a single blended % would flatter them).
+  // ── ATTRITION TRENDS — Performance-Trends-style chart for churn (per
+  // Isaac): monthly attrition rate, year-over-year lines, with a metric
+  // picker where Last Resort is one of the views. Same math as the
+  // seasonality grid (cancels ÷ true book at month start, same-month
+  // acquire-lose excluded), just drawn as lines.
+  const LAST_RESORT_START = '2026-06-05';
+  const attritionTrendsCard = (pop, label) => {
+    const rows = _retenEff(pop);
+    if (!rows.length) return null;
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const _isLR = (r) => Number(r.initial_price) < 99 && String(r.sold_date || r.initial_service || '') >= LAST_RESORT_START;
+    // Metric pills — MULTI-SELECT (per Isaac): overlay any mix of series.
+    // Color = metric, dash = year. Baseline = avg monthly attrition across
+    // the selected PRIOR years, all accounts.
+    const METRICS = [
+      ['all',  'All',         (r) => true],
+      ['lr',   'Last Resort', _isLR],
+      ['std',  'Standard',    (r) => !_isLR(r)],
+      ['base', 'Baseline'],
+    ];
+    const _validSegs = new Set(METRICS.map(([k]) => k));
+    let segsSel = ['all'];
+    // Monthly churn-rate lookup for an arbitrary subset — book-walk identical
+    // to the seasonality card.
+    const rateFnFor = (subsetFn) => {
+      const rs = rows.filter(subsetFn);
+      if (!rs.length) return () => null;
+      const startsByYm = {}, cancelsByYm = {}, allCancelsByYm = {};
+      let minY = 9999;
+      rs.forEach(r => {
+        const sYm = String(r.initial_service).slice(0, 7);
+        startsByYm[sYm] = (startsByYm[sYm] || 0) + 1;
+        minY = Math.min(minY, Number(sYm.slice(0, 4)) || 9999);
+        if (r._effCancel) {
+          const cYm = String(r._effCancel).slice(0, 7);
+          allCancelsByYm[cYm] = (allCancelsByYm[cYm] || 0) + 1;
+          if (sYm < cYm) cancelsByYm[cYm] = (cancelsByYm[cYm] || 0) + 1;
+        }
+      });
+      if (minY === 9999) return () => null;
+      const bookAt = {};
+      let book = 0;
+      const curY0 = new Date().getFullYear();
+      for (let y = minY; y <= curY0; y++) for (let m = 1; m <= 12; m++) {
+        const ym = y + '-' + pad2(m);
+        bookAt[ym] = book;
+        book += (startsByYm[ym] || 0) - (allCancelsByYm[ym] || 0);
+      }
+      return (y, m) => {
+        const ym = y + '-' + pad2(m);
+        const den = bookAt[ym] || 0;
+        if (den < 10) return null;                       // tiny book = noise
+        return (cancelsByYm[ym] || 0) / den * 100;
+      };
+    };
+    const now = new Date(), curY = now.getFullYear(), curM = now.getMonth() + 1;
+    const clip = (y, m, v) => (y === curY && m >= curM) ? null : v;   // current month partial → drop
+    const MONTH_LBL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    // Year picker — every year the population has first-service data for.
+    let _minY = 9999;
+    rows.forEach(r => { const y = Number(String(r.initial_service).slice(0, 4)); if (y > 2000) _minY = Math.min(_minY, y); });
+    const yearsAvail = [];
+    for (let y = _minY; y <= curY; y++) yearsAvail.push(y);
+    // Span dropdown (per Isaac): this year vs last year by default, or the
+    // last 3 / 5 years. All accounts only — the Last Resort / Standard /
+    // Baseline series are retired for now.
+    const span = [2, 3, 5].includes(Number(state._retTrendSpan)) ? Number(state._retTrendSpan) : 2;
+    let yearsSel = yearsAvail.slice(-span);
+    yearsSel = [...yearsSel].sort((a, b) => a - b);
+    let datasets = [];
+    const isDark = state.theme === 'dark';
+    const gray = isDark ? '#6b6b63' : '#B8B8AE';
+    const SEG_COLORS = { all: isDark ? '#E6E6DC' : '#1D1D1D', lr: '#DC2626', std: '#DF643A' };
+    const _dashFor = (y) => y === curY ? [] : (curY - y === 1 ? [6, 4] : [3, 3]);
+    // Baseline: one dashed gray line — the selected PRIOR years averaged
+    // (all accounts). Needs at least one pre-current year selected.
+    if (segsSel.includes('base')) {
+      const fAll = rateFnFor(() => true);
+      const baseYears = yearsSel.filter(y => y < curY);
+      if (baseYears.length) {
+        const baseline = MONTH_LBL.map((_, i) => {
+          const vals = baseYears.map(y => fAll(y, i + 1)).filter(v => v != null);
+          return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+        });
+        datasets.push({ label: 'Baseline avg ' + baseYears[0] + (baseYears.length > 1 ? '–' + baseYears[baseYears.length - 1] : ''), data: baseline, borderColor: gray, backgroundColor: gray, borderDash: [6, 4], borderWidth: 3 });
+      }
+    }
+    METRICS.forEach(([k, lbl, fn]) => {
+      if (k === 'base' || !segsSel.includes(k)) return;
+      const f = rateFnFor(fn);
+      yearsSel.forEach(y => {
+        const data = MONTH_LBL.map((_, i) => clip(y, i + 1, f(y, i + 1)));
+        if (!data.some(v => v != null)) return;
+        datasets.push({ label: lbl + ' ' + y, data, borderColor: SEG_COLORS[k], backgroundColor: SEG_COLORS[k], borderDash: _dashFor(y) });
+      });
+    });
+    const id = 'retAttrTrends' + (label ? '_' + String(label).replace(/\W/g, '') : '');
+    const cvsWrap = el('div', { style: { position: 'relative', height: '240px', width: '100%' } });
+    cvsWrap.append(el('canvas', { id }));
+    setTimeout(() => {
+      if (typeof Chart === 'undefined') return;
+      const cvsEl = document.getElementById(id); if (!cvsEl) return;
+      if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
+      const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+      _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
+        type: 'line',
+        data: { labels: MONTH_LBL, datasets: datasets.map(d => ({ ...d, borderWidth: 2, tension: 0.3, fill: false, pointRadius: 2, spanGaps: false })) },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } } },
+          scales: { x: { ticks: { color: txt }, grid: { color: grid } },
+                    y: { beginAtZero: true, ticks: { color: txt, callback: v => v + '%' }, grid: { color: grid } } } },
+      });
+    }, 50);
+    return el('div', { class: 'card p-4' },
+      el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
+        el('div', {},
+          el('h3', { class: 'text-sm font-bold' }, 'Attrition Trends' + (label ? ' — ' + label : ''))),
+        el('select', {
+          class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+          style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          onchange: (e) => { state._retTrendSpan = Number(e.target.value); mountApp(); },
+        }, ...[[2, curY + ' vs ' + (curY - 1)], [3, 'Last 3 years'], [5, 'Last 5 years']].map(([v, l]) => el('option', { value: String(v), selected: span === v }, l)))),
+      cvsWrap);
+  };
+
+  const renderSide = (data, pop, label, sideMark) => el('div', { class: 'flex flex-col gap-4' },
+    // Matrix wants ~560px; when it can't have it (phones) the blended table
+    // wraps underneath instead of both squeezing side by side.
+    // (Cohort matrix hidden per Isaac, Sep 2026 — renderMatrix stays for when it comes back.)
+    renderBlended(pop),
+    seasonalityCard(pop, label),
+    attritionTrendsCard(pop, label),
+    startCohortCard(pop, label));   // (LTV card retired per Isaac, Sep 2026)
+
+  const body = inCompare
+    ? el('div', { class: 'flex flex-col gap-4' },
+        renderSide(waterfallA, popA, officeLabel(office), '__A__'),
+        renderSide(waterfallB, popB, officeLabel(compareOffice), '__B__'))
+    : renderSide(waterfallA, popA, null, '__A__');
+
+
+  // ── ATTRITION BY REP TYPE (per Isaac) — who sold it: Door to Door,
+  // Office Staff, Technician. Same population as the tab (office scope,
+  // hidden-service/source filters, Steps 4-6 exclusions, serviced-only),
+  // same cancel semantics: save-backs count Active, reason-excluded cancels
+  // and (per the Overview toggle) 3-day RORs count as retained.
+  const repTypeAttritionCard = (() => {
+    // Sold-year cohort filter (per Isaac - the card had no time dimension
+    // and read as "some year"). 'all' = the whole book in the snapshot;
+    // a year = accounts SOLD that year, cancels any time since.
+    const _yearOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
+    const _rtYears = [...new Set(popA.map(_yearOf).filter(Boolean))].sort((a, b) => b - a);
+    if (state._rtAttrYear !== 'all' && !_rtYears.includes(state._rtAttrYear)) state._rtAttrYear = 'all';
+    const _rtYear = state._rtAttrYear || 'all';
+    const _svcT = (r) => (Number(r.subscription_completed_services) || 0) > 0;
+    const _aliveT = (r) => /active/i.test(String(r.subscription_status || ''));
+    // Card-level class filters (per Isaac): 3-day RORs, renewals, and
+    // one-time services each include/exclude ON THIS CARD, so their drag on
+    // attrition is visible by flipping the chip. Exclude = the sub leaves
+    // BOTH sides of the rate (the workbook's "take out"), not just the
+    // numerator. Defaults all-excluded, matching the workbook's Steps 1 & 4.
+    // svc2 defaults OFF on THIS card even though the global Step-6 toggle
+    // defaults ON: the workbook only applies 2+ services alongside "filter
+    // out current year", and on a current-year cohort it deletes ~73% of the
+    // book (14,710 of 20,087 D2D 2026 accounts are simply too young for a
+    // second visit). Isaac expects ~21.5k here, not 5.6k.
+    if (!state._rtAttrExcl) state._rtAttrExcl = { ror: true, renewal: true, onetime: true, svc2: false };
+    const _fx = state._rtAttrExcl;
+    const _isRorT = (r) => _reporting3dayRor(r);
+    const _isRenewalT = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
+      || /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
+    const _isOneTimeT = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
+      || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
+    const _exclReasons = reportingExcludedCancelReasons();
+    const _cxlT = (r) => {
+      if (!r.subscription_date_canceled) return false;
+      if (_aliveT(r)) return false;                                    // save-back: status trumps the date
+      const _rea = _normCancelReason(r.subscription_cancellation_reason);
+      // Reason-excluded cancels stay retained - EXCEPT renewal reasons when
+      // the card is deliberately including renewals, and ROR reasons when it
+      // is deliberately including RORs; otherwise the chips would not move
+      // the number. The global Overview ROR toggle is superseded here by the
+      // card's own chip.
+      if (_exclReasons.has(_rea) && !(!_fx.renewal && /^renewal/.test(_rea)) && !(!_fx.ror && /ror|rescission/.test(_rea))) return false;
+      return true;
+    };
+    const TYPE_LABEL = (r) => {
+      const t = String(r.sold_by_type || '').trim().toLowerCase();
+      if (t === 'sales rep') return 'Door to Door';
+      if (t === 'technician') return 'Technician';
+      if (t === 'office staff') return 'Office Staff';
+      return t ? (t.charAt(0).toUpperCase() + t.slice(1)) : 'Unknown';
+    };
+    const mk = () => ({ subs: 0, active: 0, cancelled: 0, arv: 0, arvCxl: 0 });
+    const byType = {}; const total = mk();
+    const _excl = { ror: 0, renewal: 0, onetime: 0, svc2: 0, other: 0 };
+    for (const r of popA) {
+      if (_rtYear !== 'all' && _yearOf(r) !== _rtYear) continue;
+      if (!_svcT(r)) continue;
+      if (_fx.ror && _isRorT(r)) { _excl.ror++; continue; }
+      if (_fx.renewal && _isRenewalT(r)) { _excl.renewal++; continue; }
+      if (_fx.onetime && _isOneTimeT(r)) { _excl.onetime++; continue; }
+      if (_fx.svc2 && (Number(r.subscription_completed_services) || 0) <= 1) { _excl.svc2++; continue; }
+      // Tab-level population rules still apply, EXCEPT the classes governed
+      // by this card's own chips (renewals, and the 2-services rules) -
+      // otherwise a chip here would do nothing while the global rule is on.
+      const _pex = retenPopulationExcluded(r);
+      if (_pex === 'renewal sub' ? _fx.renewal
+        : (_pex === 'under 2 services' || _pex === 'frozen, 1 service') ? _fx.svc2
+        : !!_pex) { if (_pex) _excl.other++; continue; }
+      const g = byType[TYPE_LABEL(r)] = byType[TYPE_LABEL(r)] || mk();
+      const arv = Number(r.annual_recurring_value) || 0;
+      for (const t of [g, total]) {
+        t.subs++; t.arv += arv;
+        if (_cxlT(r)) { t.cancelled++; t.arvCxl += arv; }
+        else t.active++;
+      }
+    }
+    if (!total.subs && _rtYear === 'all') return null;
+    const ORDER = ['Door to Door', 'Office Staff', 'Technician'];
+    const keys = [...ORDER.filter(k => byType[k]), ...Object.keys(byType).filter(k => !ORDER.includes(k)).sort()];
+    const pct = (a, b) => b > 0 ? (a / b * 100).toFixed(1) + '%' : '\u2014';
+    const th = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
+    const row = (label, t, bold) => {
+      const attr = t.subs > 0 ? t.cancelled / t.subs : null;
+      return el('tr', { class: 'border-t' + (bold ? ' font-bold' : ''), style: { borderColor: 'var(--border)', background: bold ? 'var(--card-2)' : '' } },
+        el('td', { class: 'px-3 py-2 whitespace-nowrap' + (bold ? '' : ' font-semibold') }, label),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.subs)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.active)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.cancelled)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold', style: attr != null && attr >= 0.15 ? { color: '#DC2626' } : attr != null && attr < 0.08 ? { color: '#DF643A' } : {} }, pct(t.cancelled, t.subs)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct(t.active, t.subs)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, pct(t.arvCxl, t.arv)));
+    };
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'Attrition by Rep Type'),
+          el('div', { class: 'text-[11px] text-muted-' }, 'Who SOLD the account \u00b7 ' + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          ...[['ror', '3-Day ROR'], ['renewal', 'Renewals'], ['onetime', 'One-Time'], ['svc2', '<2 Services']].map(([k, lab]) => el('button', {
+            class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+            style: _fx[k]
+              ? { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'transparent' }
+              : { borderColor: 'var(--accent)', color: 'var(--accent-text)', background: 'var(--accent)' },
+            title: _fx[k] ? lab + ' excluded from both sides - click to include (their cancels then count)' : lab + ' included - click to exclude from both sides',
+            onclick: () => { _fx[k] = !_fx[k]; mountApp(); },
+          }, (_fx[k] ? 'Excl. ' : 'Incl. ') + lab)),
+          el('select', {
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+            onchange: (e) => { state._rtAttrYear = e.target.value === 'all' ? 'all' : Number(e.target.value); mountApp(); },
+          },
+            el('option', { value: 'all', selected: _rtYear === 'all' }, 'All years'),
+            ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))),
+          el('span', { class: 'text-[10px] text-muted-' }, fmt.int(total.subs) + ' serviced subs'))),
+      !total.subs ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No accounts in this cohort under the current rules.') :
+      el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-xs' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
+          th('Rep Type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1))),
+        el('tbody', {},
+          ...keys.map(k => row(k, byType[k])),
+          row('RIDD \u00b7 Total', total, true)))),
+      (() => {
+        const bits = [];
+        if (_excl.svc2) bits.push(fmt.int(_excl.svc2) + ' under 2 services');
+        if (_excl.renewal) bits.push(fmt.int(_excl.renewal) + ' renewals');
+        if (_excl.onetime) bits.push(fmt.int(_excl.onetime) + ' one-time');
+        if (_excl.ror) bits.push(fmt.int(_excl.ror) + ' 3-day ROR');
+        if (_excl.other) bits.push(fmt.int(_excl.other) + ' other tab rules');
+        return bits.length ? el('div', { class: 'px-4 py-2 text-[10px] text-muted- border-t', style: { borderColor: 'var(--border)' } },
+          'Excluded by the chips above: ' + bits.join(' \u00b7 ') + '. Flip a chip to pull them back in.') : null;
+      })());
+  })();
+
+  // \u2500\u2500 "True Attrition" bar (per Isaac) \u2500\u2500
+  // One fixed number pinned across the bottom of the tab: cancels EXCLUDING
+  // 3-day RORs, one-time services, and renewals (the noise classes), PLUS
+  // aging actives (days past due >= the Aging threshold \u2014 money that is
+  // already walking out the door even without a cancel date). Probably the
+  // closest thing to true attrition. Follows the year picker on the
+  // Attrition by Rep Type card, but NOT its chips \u2014 this definition is
+  // deliberately fixed so the number means the same thing every time.
+  const trueAttritionBar = (() => {
+    const _yr = state._rtAttrYear || 'all';
+    const _yOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
+    const _alive = (r) => /active/i.test(String(r.subscription_status || ''));
+    const _isRenew = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
+      || /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
+    const _isOne = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
+      || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
+    const _exclR = reportingExcludedCancelReasons();
+    const _agDays = (typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7;
+    let subs = 0, cxl = 0, aging = 0, arv = 0, arvCxl = 0, arvAging = 0;
+    for (const r of popA) {
+      if (_yr !== 'all' && _yOf(r) !== _yr) continue;
+      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
+      if (_reporting3dayRor(r)) continue;
+      if (_isRenew(r)) continue;
+      if (_isOne(r)) continue;
+      if (retenPopulationExcluded(r)) continue;
+      const v = Number(r.annual_recurring_value) || 0;
+      subs++; arv += v;
+      const _isCxl = r.subscription_date_canceled && !_alive(r)
+        && !_exclR.has(_normCancelReason(r.subscription_cancellation_reason));
+      if (_isCxl) { cxl++; arvCxl += v; }
+      else if (_alive(r) && (Number(r.days_past_due) || 0) >= _agDays) { aging++; arvAging += v; }
+    }
+    if (!subs) return null;
+    const kept = subs - cxl - aging;
+    const rate = (cxl + aging) / subs;
+    const pW = (n) => Math.max(0, Math.min(100, n / subs * 100));
+    const seg = (n, color, label) => n > 0 ? el('div', {
+      style: { width: pW(n).toFixed(2) + '%', background: color, height: '100%' },
+      title: label + ' \u2014 ' + fmt.int(n) + ' (' + (n / subs * 100).toFixed(1) + '%)',
+    }) : null;
+    const stat = (lab, n, v, color) => el('div', { class: 'text-left' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, lab),
+      el('div', { class: 'text-sm font-bold tabular-nums', style: color ? { color } : {} },
+        fmt.int(n), el('span', { class: 'text-[10px] font-normal text-muted-' }, ' \u00b7 ' + fmt.usd0(v))));
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-3' },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'True Attrition'),
+          el('div', { class: 'text-[11px] text-muted-' },
+            'Cancels excluding 3-day ROR, one-time & renewals \u2014 plus aging actives (' + _agDays + '+ days past due). '
+            + (_yr === 'all' ? 'All years in the book' : 'Sold ' + _yr + ', cancels to date')
+            + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
+        el('div', { class: 'flex items-center gap-4 flex-wrap' },
+          stat('Cancelled', cxl, arvCxl, '#DC2626'),
+          stat('Aging', aging, arvAging, '#D97706'),
+          stat('Retained', kept, arv - arvCxl - arvAging, '#DF643A'),
+          el('div', { class: 'text-left pl-2', style: { borderLeft: '1px solid var(--border)' } },
+            el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'True attrition'),
+            el('div', { class: 'text-2xl font-black tabular-nums', style: { color: rate >= 0.15 ? '#DC2626' : rate < 0.08 ? '#DF643A' : 'var(--text)' } },
+              (rate * 100).toFixed(1) + '%')))),
+      el('div', { class: 'px-4 pb-4' },
+        el('div', { class: 'w-full rounded-full overflow-hidden flex', style: { height: '14px', background: 'var(--card-2)' } },
+          seg(kept, '#DF643A', 'Retained'),
+          seg(aging, '#D97706', 'Aging (' + _agDays + '+ days past due)'),
+          seg(cxl, '#DC2626', 'Cancelled')),
+        el('div', { class: 'flex items-center justify-between pt-1.5 text-[10px] text-muted-' },
+          el('span', {}, fmt.int(subs) + ' serviced subs in this population \u00b7 ' + fmt.usd0(arv) + ' ARR'),
+          el('span', {}, fmt.int(cxl + aging) + ' lost or at risk \u00b7 ' + fmt.usd0(arvCxl + arvAging)))));
+  })();
+
+
+  // -- Customer Lifetime (per Isaac) -- how long cancelled customers lasted,
+  // sold date -> cancel date, as a month-of-life histogram (the "when do we
+  // lose them" curve) and a by-reason lifetime table. Same population rules
+  // as this tab; the noise classes (3-day ROR, one-time, renewals) exclude
+  // by default via the chips, and the card follows the Attrition year picker.
+  // Red bars = the collections cliff (months 2-5); amber = the 12-month
+  // contract-end window (months 11-13).
+  const lifetimeCard = (() => {
+    if (!state._rtLifeExcl) state._rtLifeExcl = { ror: true, renewal: true, onetime: true };
+    const _lx = state._rtLifeExcl;
+    const _yrL = state._rtAttrYear || 'all';
+    const _yOfL = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
+    const _isRenewL = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
+      || /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
+    const _isOneL = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
+      || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
+    const rowsL = [];
+    for (const r of popA) {
+      if (_yrL !== 'all' && _yOfL(r) !== _yrL) continue;
+      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
+      if (!r.sold_date || !r.subscription_date_canceled) continue;
+      if (/active/i.test(String(r.subscription_status || ''))) continue;   // save-back stays retained
+      if (_lx.ror && _reporting3dayRor(r)) continue;
+      if (_lx.renewal && _isRenewL(r)) continue;
+      if (_lx.onetime && _isOneL(r)) continue;
+      const t = Math.round((new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000);
+      if (!(t >= 0 && t <= 4000)) continue;
+      rowsL.push({ r, t });
+    }
+    if (!rowsL.length) return null;
+    const _med = (arr) => { const s2 = [...arr].sort((a, b) => a - b); return s2[Math.floor((s2.length - 1) / 2)]; };
+    const allT = rowsL.map(x => x.t);
+    const medAll = _med(allT);
+    const avgAll = allT.reduce((a, b) => a + b, 0) / allT.length;
+    const moTxt = (d) => (d / 30.44).toFixed(1) + ' mo';
+    // month-of-life histogram: 0..23, then 24+
+    const buckets = Array.from({ length: 25 }, () => []);
+    for (const x of rowsL) buckets[Math.min(24, Math.floor(x.t / 30))].push(x.r);
+    const maxB = Math.max(...buckets.map(b => b.length), 1);
+    const barL = (b, i) => el('button', {
+      class: 'flex-1 flex flex-col  cursor-pointer transition hover:brightness-110',
+      style: { minWidth: 0, background: 'transparent', border: 'none', padding: '0 1px', height: '100%' },
+      title: (i === 24 ? 'Month 24+' : 'Month ' + i) + ' of life — ' + fmt.int(b.length) + ' cancel' + (b.length === 1 ? '' : 's'),
+      onclick: () => b.length && openReportingDrillModal({
+        chartTitle: 'Cancelled in ' + (i === 24 ? 'month 24+' : 'month ' + i) + ' of customer life',
+        sliceLabel: fmt.int(b.length) + ' account' + (b.length === 1 ? '' : 's'),
+        rows: b, formatValue: (v) => fmt.usd0(v) }),
+    }, el('div', {
+      style: {
+        height: (b.length ? Math.max(2, b.length / maxB * 84) : 0) + 'px',
+        background: (i >= 2 && i <= 5) ? '#DC2626' : (i >= 11 && i <= 13) ? '#D97706' : 'var(--accent)',
+      } }));
+    // by-reason lifetime table (merges trailing-period label variants)
+    const byReason = {};
+    for (const x of rowsL) {
+      const k = String(x.r.subscription_cancellation_reason || '').trim() ? reportingCancelReasonOf(x.r) : '(no reason logged)';
+      (byReason[k] = byReason[k] || []).push(x);
+    }
+    const rks = Object.keys(byReason).filter(k => byReason[k].length >= 10)
+      .sort((a, b) => byReason[b].length - byReason[a].length);
+    const thL = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
+    const reasonRow = (k) => {
+      const xs = byReason[k];
+      const ts = xs.map(x => x.t);
+      const med = _med(ts);
+      const avg = ts.reduce((a, b) => a + b, 0) / ts.length;
+      const in90 = ts.filter(t => t <= 90).length / ts.length;
+      const in365 = ts.filter(t => t <= 365).length / ts.length;
+      const arvs = xs.map(x => Number(x.r.annual_recurring_value) || 0);
+      const avgArv = arvs.reduce((a, b) => a + b, 0) / (arvs.length || 1);
+      return el('tr', {
+        class: 'border-t cursor-pointer transition hover:brightness-95',
+        style: { borderColor: 'var(--border)' },
+        onclick: () => openReportingDrillModal({
+          chartTitle: 'Customer lifetime — ' + k,
+          sliceLabel: fmt.int(xs.length) + ' cancels · median ' + fmt.int(med) + ' days',
+          rows: xs.map(x => x.r), formatValue: (v) => fmt.usd0(v) }),
+      },
+        el('td', { class: 'px-3 py-2 whitespace-nowrap font-semibold' }, k),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(xs.length)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums font-bold' }, fmt.int(med) + 'd',
+          el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + moTxt(med))),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(Math.round(avg)) + 'd'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums', style: in90 >= 0.5 ? { color: '#DC2626', fontWeight: '700' } : {} }, (in90 * 100).toFixed(0) + '%'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (in365 * 100).toFixed(0) + '%'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(avgArv)));
+    };
+    const statL = (lab, val, sub) => el('div', { class: 'text-left' },
+      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, lab),
+      el('div', { class: 'text-sm font-bold tabular-nums' }, val,
+        sub ? el('span', { class: 'text-[10px] font-normal text-muted-' }, ' · ' + sub) : null));
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-3' },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'Customer Lifetime'),
+          el('div', { class: 'text-[11px] text-muted-' },
+            'Sold date → cancel date for cancelled accounts · '
+            + (_yrL === 'all' ? 'all years in the book' : 'sold ' + _yrL)
+            + (office !== 'all' ? ' · ' + officeLabel(office) : '')
+            + ' · click a bar or a reason to see the accounts.')),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          ...[['ror', '3-Day ROR'], ['renewal', 'Renewals'], ['onetime', 'One-Time']].map(([k, lab]) => el('button', {
+            class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+            style: _lx[k]
+              ? { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'transparent' }
+              : { borderColor: 'var(--accent)', color: 'var(--accent-text)', background: 'var(--accent)' },
+            title: _lx[k] ? lab + ' excluded — click to include' : lab + ' included — click to exclude',
+            onclick: () => { _lx[k] = !_lx[k]; mountApp(); },
+          }, (_lx[k] ? 'Excl. ' : 'Incl. ') + lab)),
+          statL('Median life', fmt.int(medAll) + 'd', moTxt(medAll)),
+          statL('Average', fmt.int(Math.round(avgAll)) + 'd', moTxt(avgAll)),
+          statL('Cancels', fmt.int(rowsL.length), null))),
+      el('div', { class: 'px-4 pb-2' },
+        el('div', { class: 'flex items-end', style: { height: '92px' } }, ...buckets.map(barL)),
+        el('div', { class: 'flex pt-1' }, ...buckets.map((b, i) => el('div', {
+          class: 'flex-1 text-center text-[9px] text-muted- tabular-nums',
+          style: { minWidth: 0 } }, (i % 3 === 0 || i === 24) ? (i === 24 ? '24+' : String(i)) : ''))),
+        el('div', { class: 'flex items-center justify-between pt-1 text-[10px] text-muted-' },
+          el('span', {}, 'Month of customer life at cancel'),
+          el('span', { class: 'flex items-center gap-3' },
+            el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#DC2626', display: 'inline-block' } }), 'collections cliff (mo 2–5)'),
+            el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#D97706', display: 'inline-block' } }), 'contract end (mo 11–13)')))),
+      el('div', { class: 'overflow-x-auto border-t', style: { borderColor: 'var(--border)' } },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
+            thL('Cancellation Reason'), thL('Cancels', 1), thL('Median Life', 1), thL('Avg', 1), thL('Gone ≤90d', 1), thL('Gone ≤1yr', 1), thL('Avg ARV', 1))),
+          el('tbody', {}, ...rks.map(reasonRow)))));
+  })();
+
+
+  // -- Renewal Retention (per Isaac) -- do renewed accounts stick better
+  // than accounts left month-to-month? NOT renewals vs new sales (renewals
+  // only happen within 2 months of term end, so new accounts are not a fair
+  // baseline). Fair frame: of accounts that REACHED contract end, compare
+  // the ones that renewed against the ones riding month-to-month.
+  const renewalRetentionCard = (() => {
+    const MS_D = 86400000;
+    const now = new Date();
+    const _aliveR = (r) => /active/i.test(String(r.subscription_status || ''));
+    const _sentR = (r) => /sentricon/i.test(String(r.subscription || ''));
+    const _endOf = (r) => {
+      const m = Number(r.agreement_length) || 0;
+      const d = r.sold_date ? new Date(r.sold_date) : null;
+      if (!d || isNaN(d) || m < 12) return null;
+      const e = new Date(d); e.setMonth(e.getMonth() + m); return e;
+    };
+    const _renReasonR = (r) => /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
+    const ren = { subs: 0, active: 0, cxl: 0, arvKept: 0, lives: [], rows: [] };
+    const m2m = { reached: 0, renewedAway: 0, active: 0, cxl: 0, arvKept: 0, lives: [], rows: [] };
+    for (const r of popA) {
+      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
+      if (_sentR(r)) continue;
+      const arv = Number(r.annual_recurring_value) || 0;
+      const cd = r.subscription_date_canceled ? new Date(r.subscription_date_canceled) : null;
+      const alive = _aliveR(r);
+      if (reportingSourceClass(r.subscription_source) === 'renewal') {
+        ren.subs++; ren.rows.push(r);
+        if (cd && !alive) {
+          ren.cxl++;
+          const sd = r.sold_date ? new Date(r.sold_date) : null;
+          if (sd && !isNaN(sd) && cd >= sd) ren.lives.push((cd - sd) / MS_D);
+        } else { ren.active++; ren.arvKept += arv; }
+        continue;
+      }
+      const end = _endOf(r);
+      if (!end || end > now) continue;                 // still in term / no real term
+      if (cd && !alive && cd <= end) continue;         // died in term - never reached the choice
+      m2m.reached++;
+      if (cd && !alive && _renReasonR(r)) { m2m.renewedAway++; continue; }  // became a renewal sub
+      m2m.rows.push(r);
+      if (cd && !alive) { m2m.cxl++; m2m.lives.push(Math.max(0, (cd - end) / MS_D)); }
+      else { m2m.active++; m2m.arvKept += arv; }
+    }
+    if (!ren.subs && !m2m.reached) return null;
+    const _medD = (a) => { if (!a.length) return null; const t = [...a].sort((x, y) => x - y); return t[Math.floor((t.length - 1) / 2)]; };
+    const renAttr = ren.subs ? ren.cxl / ren.subs : null;
+    const m2mDen = m2m.active + m2m.cxl;
+    const m2mAttr = m2mDen ? m2m.cxl / m2mDen : null;
+    const moTxtR = (d) => d == null ? '—' : (d / 30.44).toFixed(1) + ' mo';
+    const colR = (title, sub, o, attr, medLife, medLabel, rows2, brd) => el('div', { class: 'flex-1 px-4 py-3', style: { minWidth: '240px', borderLeft: brd ? '1px solid var(--border)' : 'none' } },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold text-muted-' }, title),
+      el('div', { class: 'text-[10px] text-muted- mb-2' }, sub),
+      el('div', { class: 'text-3xl font-black tabular-nums', style: { color: attr != null && attr >= 0.3 ? '#DC2626' : 'var(--accent)' } },
+        attr == null ? '—' : (attr * 100).toFixed(1) + '%',
+        el('span', { class: 'text-xs font-normal text-muted-' }, ' attrition')),
+      el('div', { class: 'text-[11px] text-muted- mt-1.5' },
+        fmt.int(o.active) + ' active · ' + fmt.int(o.cxl) + ' cancelled · ' + fmt.usd0(o.arvKept) + ' ARR retained'),
+      el('div', { class: 'text-[11px] text-muted-' }, medLabel + ': ' + moTxtR(medLife)),
+      rows2.length ? el('button', {
+        class: 'text-[10px] font-semibold mt-1.5', style: { color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 },
+        onclick: () => openReportingDrillModal({ chartTitle: title, sliceLabel: fmt.int(rows2.length) + ' accounts', rows: rows2, formatValue: (v) => fmt.usd0(v) }),
+      }, 'Click to inspect ' + fmt.int(rows2.length) + ' rows →') : null);
+    const delta = (renAttr != null && m2mAttr != null) ? m2mAttr - renAttr : null;
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'Renewal Retention'),
+          el('div', { class: 'text-[11px] text-muted-' },
+            'Accounts that reached contract end: renewed vs. left month-to-month. Not comparable to new sales — renewals only happen at term end, so this is the fair frame. Sentricon excluded.')),
+        delta != null ? el('div', { class: 'text-left' },
+          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Renewal advantage'),
+          el('div', { class: 'text-2xl font-black tabular-nums', style: { color: delta > 0 ? '#DF643A' : '#DC2626' } },
+            (delta > 0 ? '−' : '+') + Math.abs(delta * 100).toFixed(1) + ' pts',
+            el('span', { class: 'text-xs font-normal text-muted-' }, ' attrition'))) : null),
+      el('div', { class: 'flex flex-wrap' },
+        colR('Renewed accounts', 'Source = Renewal · whole life is post-renewal', ren, renAttr, _medD(ren.lives), 'Median life on renewal term (cancels)', ren.rows, false),
+        colR('Month-to-month', fmt.int(m2m.reached) + ' reached term end · ' + fmt.int(m2m.renewedAway) + ' renewed away · rest ride M2M', m2m, m2mAttr, _medD(m2m.lives), 'Median M2M survival after term (cancels)', m2m.rows, true)));
+  })();
+
+  // -- Renewal Outreach queue (per Isaac) -- who to call. Eligible = active,
+  // never renewed (source is not Renewal), not Sentricon, real 12/18/24-mo
+  // term, and within 2 months of contract end OR already month-to-month.
+  // 61-120 days out shows as a planning bucket. Sorted most-overdue first.
+  const renewalQueueCard = (() => {
+    const MS_D = 86400000;
+    const now = new Date();
+    const rowsQ = [];
+    for (const r of popA) {
+      if (!/active/i.test(String(r.subscription_status || ''))) continue;
+      if (r.subscription_date_canceled) continue;
+      if (/sentricon/i.test(String(r.subscription || ''))) continue;          // never renew Sentricon
+      if (reportingSourceClass(r.subscription_source) === 'renewal') continue; // never renew twice
+      const m = Number(r.agreement_length) || 0;
+      if (m < 12) continue;
+      const sd = r.sold_date ? new Date(r.sold_date) : null;
+      if (!sd || isNaN(sd)) continue;
+      const end = new Date(sd); end.setMonth(end.getMonth() + m);
+      const days = Math.round((end - now) / MS_D);   // + = days until term end, - = days past
+      if (days > 120) continue;
+      rowsQ.push({ r, end, days, bucket: days < 0 ? 'm2m' : days <= 60 ? 'open' : 'soon' });
+    }
+    if (!rowsQ.length) return null;
+    rowsQ.sort((a, b) => a.days - b.days);
+    if (!state._rtRenewQ) state._rtRenewQ = { m2m: true, open: true, soon: false };
+    const _qf = state._rtRenewQ;
+    const shown = rowsQ.filter(x => _qf[x.bucket]);
+    const sumArv = (xs) => xs.reduce((t, x) => t + (Number(x.r.annual_recurring_value) || 0), 0);
+    const BUCKETS = [
+      ['m2m',  'Month-to-month', 'past contract end — renew now', '#DC2626'],
+      ['open', 'Window open',    '≤60 days to contract end — eligible', '#DF643A'],
+      ['soon', 'Approaching',    '61–120 days out — planning only', 'var(--text-muted)'],
+    ];
+    const _fmtDt = (d) => (d.getMonth() + 1) + '/' + d.getDate() + '/' + String(d.getFullYear()).slice(2);
+    const daysLbl = (x) => x.days < 0
+      ? el('span', { class: 'font-bold', style: { color: '#DC2626' } }, 'M2M ' + fmt.int(-x.days) + 'd')
+      : el('span', { class: 'font-bold', style: { color: x.days <= 60 ? '#DF643A' : 'var(--text-muted)' } }, 'in ' + fmt.int(x.days) + 'd');
+    const thQ = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'Renewal Outreach'),
+          el('div', { class: 'text-[11px] text-muted-' },
+            'Active accounts at or near contract end · never renewed · no Sentricon · eligible within 60 days of expiry or month-to-month'
+            + (office !== 'all' ? ' · ' + officeLabel(office) : '') + '.')),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          ...BUCKETS.map(([k, lab, desc, color]) => {
+            const xs = rowsQ.filter(x => x.bucket === k);
+            return el('button', {
+              class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+              style: _qf[k]
+                ? { borderColor: 'var(--accent)', color: 'var(--accent-text)', background: 'var(--accent)' }
+                : { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'transparent' },
+              title: desc + ' · ' + fmt.usd0(sumArv(xs)) + ' ARR',
+              onclick: () => { _qf[k] = !_qf[k]; mountApp(); },
+            }, lab + ' · ' + fmt.int(xs.length));
+          }),
+          el('button', {
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer whitespace-nowrap',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+            onclick: () => openReportingDrillModal({
+              chartTitle: 'Renewal Outreach queue',
+              sliceLabel: fmt.int(shown.length) + ' accounts · ' + fmt.usd0(sumArv(shown)) + ' ARR at stake',
+              rows: shown.map(x => x.r), formatValue: (v) => fmt.usd0(v) }),
+          }, 'Inspect / export →'))),
+      el('div', { class: 'px-4 py-2 text-[11px] text-muted- border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
+        el('span', {}, fmt.int(shown.length) + ' in the queue · ' + fmt.usd0(sumArv(shown)) + ' ARR at stake'),
+        el('span', {}, 'sorted most overdue first')),
+      !shown.length ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'Nothing in the selected buckets.') :
+      el('div', { class: 'overflow-x-auto', style: { maxHeight: '440px', overflowY: 'auto' } },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: 0, zIndex: 1 } }, el('tr', { style: { background: 'var(--card-2)' } },
+            thQ('Renewal'), thQ('Customer'), thQ('Phone'), thQ('Office'), thQ('Subscription'), thQ('Source'), thQ('Sold', 1), thQ('Term', 1), thQ('Contract End', 1), thQ('ARV', 1))),
+          el('tbody', {}, ...shown.map(x => el('tr', {
+            class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border)' },
+            onclick: () => openReportingDrillModal({ chartTitle: _custDisplayName(x.r), sliceLabel: 'Renewal ' + (x.days < 0 ? fmt.int(-x.days) + ' days month-to-month' : 'window in ' + fmt.int(x.days) + ' days'), rows: [x.r], formatValue: (v) => fmt.usd0(v) }),
+          },
+            el('td', { class: 'px-3 py-2 whitespace-nowrap tabular-nums' }, daysLbl(x)),
+            el('td', { class: 'px-3 py-2 whitespace-nowrap font-semibold' }, _custDisplayName(x.r),
+              el('span', { class: 'text-[10px] font-normal text-muted-' }, x.r.customer_id ? ' #' + x.r.customer_id : '')),
+            el('td', { class: 'px-3 py-2 whitespace-nowrap tabular-nums' }, x.r.phone || '—'),
+            el('td', { class: 'px-3 py-2 whitespace-nowrap' }, x.r.office_name || '—'),
+            el('td', { class: 'px-3 py-2 whitespace-nowrap' }, x.r.subscription || '—'),
+            el('td', { class: 'px-3 py-2 whitespace-nowrap' }, x.r.subscription_source || '—'),
+            el('td', { class: 'px-3 py-2 text-left whitespace-nowrap tabular-nums' }, x.r.sold_date ? _fmtDt(new Date(x.r.sold_date)) : '—'),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums' }, (Number(x.r.agreement_length) || 0) + ' mo'),
+            el('td', { class: 'px-3 py-2 text-left whitespace-nowrap tabular-nums font-semibold' }, _fmtDt(x.end)),
+            el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(Number(x.r.annual_recurring_value) || 0))))))));
+  })();
+
+
+  // -- Source Quality Ledger (per Isaac) -- rank lead sources by dollars
+  // that actually STICK, not by sales counts. A source whose accounts die
+  // delinquent at month 3 and a source that runs 3 years both look like "a
+  // sale" everywhere else; this card scores them on retained ARR per sub,
+  // early-death rates, and lifetime. Renewals are excluded by default (they
+  // are not acquisition); flip the chips to widen the lens.
+  const sourceLedgerCard = (() => {
+    if (!state._rtSrcLedger) state._rtSrcLedger = { renewal: true, onetime: true };
+    const _sx = state._rtSrcLedger;
+    const MS_D = 86400000;
+    const _aliveS = (r) => /active/i.test(String(r.subscription_status || ''));
+    const _isOneS = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
+      || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
+    const _isDelinq = (r) => /delinquen/i.test(_normCancelReason(r.subscription_cancellation_reason));
+    const bySrc = new Map();
+    let totalSubs = 0;
+    for (const r of popA) {
+      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
+      if (_sx.renewal && reportingSourceClass(r.subscription_source) === 'renewal') continue;
+      if (_sx.onetime && _isOneS(r)) continue;
+      const k = String(r.subscription_source || '').trim() || 'Unspecified';
+      let g = bySrc.get(k);
+      if (!g) { g = { subs: 0, active: 0, cxl: 0, ror: 0, delinq: 0, arrKept: 0, arvSold: 0, lives: [], rows: [] }; bySrc.set(k, g); }
+      g.subs++; totalSubs++; g.rows.push(r);
+      const arv = Number(r.annual_recurring_value) || 0;
+      g.arvSold += arv;
+      const cxl = r.subscription_date_canceled && !_aliveS(r);
+      if (_reporting3dayRor(r) && cxl) g.ror++;
+      if (cxl) {
+        g.cxl++;
+        if (_isDelinq(r)) g.delinq++;
+        const sd = r.sold_date ? new Date(r.sold_date) : null;
+        const cd = new Date(r.subscription_date_canceled);
+        if (sd && !isNaN(sd) && !isNaN(cd) && cd >= sd) g.lives.push((cd - sd) / MS_D);
+      } else { g.active++; g.arrKept += arv; }
+    }
+    if (!totalSubs) return null;
+    // Small sources fold into "Other" so the table reads.
+    const MIN = 20;
+    const other = { subs: 0, active: 0, cxl: 0, ror: 0, delinq: 0, arrKept: 0, arvSold: 0, lives: [], rows: [] };
+    const named = [];
+    for (const [k, g] of bySrc) {
+      if (g.subs >= MIN) named.push([k, g]);
+      else {
+        other.subs += g.subs; other.active += g.active; other.cxl += g.cxl; other.ror += g.ror;
+        other.delinq += g.delinq; other.arrKept += g.arrKept; other.arvSold += g.arvSold;
+        other.lives.push(...g.lives); other.rows.push(...g.rows);
+      }
+    }
+    named.sort((a, b) => (b[1].arrKept / b[1].subs) - (a[1].arrKept / a[1].subs));
+    if (other.subs) named.push(['Other (small sources)', other]);
+    const _medS = (a) => { if (!a.length) return null; const t = [...a].sort((x, y) => x - y); return t[Math.floor((t.length - 1) / 2)]; };
+    const thS = (lab, right, tip) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap', title: tip || '' }, lab);
+    const pctCell = (n, d, redAt) => el('td', {
+      class: 'px-3 py-2 text-left tabular-nums',
+      style: d > 0 && n / d >= redAt ? { color: '#DC2626', fontWeight: '700' } : {},
+    }, d > 0 ? (n / d * 100).toFixed(1) + '%' : '—');
+    const srcRow = ([k, g]) => {
+      const med = _medS(g.lives);
+      const perSub = g.subs ? g.arrKept / g.subs : 0;
+      return el('tr', {
+        class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border)' },
+        onclick: () => openReportingDrillModal({
+          chartTitle: 'Source — ' + k,
+          sliceLabel: fmt.int(g.subs) + ' serviced subs · ' + fmt.usd0(g.arrKept) + ' ARR retained',
+          rows: g.rows, formatValue: (v) => fmt.usd0(v) }),
+      },
+        el('td', { class: 'px-3 py-2 whitespace-nowrap font-semibold' }, k),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(g.subs)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums font-black', style: { color: 'var(--accent)' } }, fmt.usd0(perSub)),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(g.arrKept)),
+        pctCell(g.active, g.subs, 2),   // never red — retention is good
+        pctCell(g.cxl, g.subs, 0.5),
+        pctCell(g.ror, g.subs, 0.08),
+        pctCell(g.delinq, g.subs, 0.15),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, med == null ? '—' : (med / 30.44).toFixed(1) + ' mo'),
+        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, g.subs ? fmt.usd0(g.arvSold / g.subs) : '—'));
+    };
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'Source Quality Ledger'),
+          el('div', { class: 'text-[11px] text-muted-' },
+            'Which lead sources produce revenue that STICKS. Ranked by retained ARR per sub sold · serviced subs only'
+            + (office !== 'all' ? ' · ' + officeLabel(office) : '') + ' · click a source for its accounts.')),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          ...[['renewal', 'Renewals'], ['onetime', 'One-Time']].map(([k, lab]) => el('button', {
+            class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+            style: _sx[k]
+              ? { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'transparent' }
+              : { borderColor: 'var(--accent)', color: 'var(--accent-text)', background: 'var(--accent)' },
+            title: _sx[k] ? lab + ' excluded — click to include' : lab + ' included — click to exclude',
+            onclick: () => { _sx[k] = !_sx[k]; mountApp(); },
+          }, (_sx[k] ? 'Excl. ' : 'Incl. ') + lab)),
+          el('span', { class: 'text-[10px] text-muted-' }, fmt.int(totalSubs) + ' serviced subs'))),
+      el('div', { class: 'overflow-x-auto' },
+        el('table', { class: 'w-full text-xs' },
+          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
+            thS('Source'), thS('Subs', 1),
+            thS('$ Kept / Sub', 1, 'Retained ARR ÷ every sub the source ever produced — the quality headline'),
+            thS('ARR Retained', 1), thS('Active %', 1), thS('Attrition %', 1),
+            thS('ROR %', 1, '3-day right-of-rescission cancels — buyer’s-remorse rate'),
+            thS('Delinq %', 1, 'Died delinquent / collections — accounts that never really paid'),
+            thS('Med. Life', 1, 'Median lifetime of this source’s cancelled accounts'),
+            thS('Avg ARV', 1))),
+          el('tbody', {}, ...named.map(srcRow)))),
+      el('div', { class: 'px-4 py-2 text-[10px] text-muted- border-t', style: { borderColor: 'var(--border)' } },
+        'Sources under ' + MIN + ' subs fold into "Other". $ Kept / Sub is the number to buy against: pair it with what each source costs you per sale and the ledger becomes LTV vs. CAC.'));
+  })();
+
+  // Cancel Hygiene moved to Settings > Admin > Data Integrity (per Isaac).
+  // (Renewal Outreach queue retired per Isaac, Sep 2026 — renewalQueueCard stays defined.)
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, retenMethodCard(popA, _retenEff), body, repTypeAttritionCard, trueAttritionBar, lifetimeCard, renewalRetentionCard, sourceLedgerCard);
+}
+
