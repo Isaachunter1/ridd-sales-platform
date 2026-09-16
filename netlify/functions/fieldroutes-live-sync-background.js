@@ -50,7 +50,7 @@ exports.handler = async (event) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   try {
     const { data: alRow } = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
-    const AL = Object.assign({ enabled: false, start: '2026-01-01', types: ['Office Staff', 'Sales Rep', 'Technician'] }, (alRow && alRow.value) || {});
+    const AL = Object.assign({ enabled: false, start: '2026-01-01', types: ['Office Staff', 'Sales Rep', 'Technician'], require_appt: true, require_billing: true, require_signed: true }, (alRow && alRow.value) || {});
     if (!AL.enabled) return { statusCode: 200, body: 'autolog disabled — skipped' };
     const TYPES = new Set(Array.isArray(AL.types) && AL.types.length ? AL.types : Object.keys(QUEUE_OF));
     const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
@@ -81,6 +81,25 @@ exports.handler = async (event) => {
       const got = await fr('customer/get', { customerIDs: part.map(Number) });
       const list = Array.isArray(got.customers) ? got.customers : Object.values(got.customers || {});
       list.forEach(c => custById.set(String(c.customerID), c));
+    }
+    // Signed agreements (customer-level e-sign docs in COMPLETED state). Best
+    // effort: if the endpoint is unavailable nothing is treated as signed here —
+    // the nightly RevHawk pass (which reads FieldRoutesContract) logs it then.
+    const signedCust = new Set();
+    if (AL.require_signed) {
+      try {
+        for (const part of chunk(custIds, 500)) {
+          const got = await fr('contract/search', { customerIDs: part.map(Number), documentState: 'COMPLETED' });
+          const cids = got.contractIDs || got.documentIDs || [];
+          if (cids.length) {
+            for (const cpart of chunk(cids.map(String), 1000)) {
+              const det = await fr('contract/get', { contractIDs: cpart.map(Number) });
+              const list = Array.isArray(det.contracts) ? det.contracts : Object.values(det.contracts || det.documents || {});
+              list.forEach(c => { if (String(c.documentState || c.state || 'COMPLETED').toUpperCase() === 'COMPLETED') signedCust.add(String(c.customerID)); });
+            }
+          }
+        }
+      } catch (e) { console.warn('[fr-live] contract lookup unavailable — signed check deferred to nightly pass:', e.message); }
     }
     const [rosterQ, profQ, offQ, svcQ, srcQ, ctQ] = await Promise.all([
       supabase.from('fieldroutes_employees').select('employee_id, employee_ids, type_label'),
@@ -116,8 +135,10 @@ exports.handler = async (event) => {
     const ctByName = new Map((ctQ.data || []).map(o => [norm(o.name), o.id]));
 
     // 4. Build rows — same shape as the nightly auto-log.
-    let added = 0, skippedNoRep = 0, skippedType = 0, svcCreated = 0;
+    let added = 0, skippedNoRep = 0, skippedType = 0, skippedNotYet = 0, svcCreated = 0;
     const batch = [];
+    const hasAppt = (s) => { const id = String(s.initialAppointmentID || '').trim(); return !!id && id !== '0'; };
+    const hasBilling = (c) => { const a = String((c && (c.aPay || c.autoPay)) || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); };
     const stamp = new Date().toISOString();
     for (const s of subs) {
       const subId = String(s.subscriptionID || '');
@@ -137,6 +158,8 @@ exports.handler = async (event) => {
       }
       if (!svcId) continue;
       const cust = custById.get(String(s.customerID)) || {};
+      // Eligibility gates (see revhawk-sync): appointment · billing · signed.
+      if ((AL.require_appt && !hasAppt(s)) || (AL.require_billing && !hasBilling(cust)) || (AL.require_signed && !signedCust.has(String(s.customerID)))) { skippedNotYet++; continue; }
       const cv = Number(s.contractValue) || 0;
       const initial = Number(s.initialServiceTotal) || 0;
       const months = Number(s.agreementLength) || 12;
@@ -178,7 +201,7 @@ exports.handler = async (event) => {
         else throw new Error(error.message);
       }
     }
-    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' · +' + added + ' logged · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
+    const msg = '[fr-live] ' + ids.length + ' subs since ' + from + ' · +' + added + ' logged · ' + skippedNoRep + ' seller(s) with no app account · ' + skippedType + ' skipped by type · ' + skippedNotYet + ' not yet eligible (appt/billing/signed) · ' + svcCreated + ' service type(s) created · ' + (Date.now() - started) + 'ms';
     console.log(msg);
     return { statusCode: 200, body: msg };
   } catch (e) {
