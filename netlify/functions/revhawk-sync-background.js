@@ -735,7 +735,16 @@ exports.handler = async (event) => {
         // the crm_* lifecycle stamps, never revenue_amount — which answers
         // the Jul 2026 overpay concern.
         const { data: alRow } = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
-        const AL = Object.assign({ enabled: false, start: '2026-01-01', types: ['Office Staff', 'Sales Rep', 'Technician'], auto_approve: true, lock_days: 90, lock_min_services: 2 }, (alRow && alRow.value) || {});
+        const AL = Object.assign({ enabled: false, start: '2026-01-01', types: ['Office Staff', 'Sales Rep', 'Technician'], auto_approve: true, lock_days: 90, lock_min_services: 2, require_appt: true, require_billing: true, require_signed: true }, (alRow && alRow.value) || {});
+        // ELIGIBILITY (per Isaac, Sep 2026): a sale only lands in the Sales
+        // tabs once it could ever earn a payout — initial appointment on the
+        // books (scheduled or done), billing on file (autopay), and a signed
+        // agreement. Anything short of that is not logged yet; the next sync
+        // picks it up the moment it qualifies (dedupe is by subscription id).
+        const _hasAppt = (r) => ['pending', 'completed'].includes(String(r.initial_status || '').trim().toLowerCase());
+        const _hasBilling = (r) => { const a = String(r.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); };
+        const _isSigned = (r) => String(r.contract_state || '') === 'signed';
+        const _eligible = (r) => (!AL.require_appt || _hasAppt(r)) && (!AL.require_billing || _hasBilling(r)) && (!AL.require_signed || _isSigned(r));
         const START = AL.enabled ? String(AL.start || '2026-01-01').slice(0, 10) : (process.env.INSIDE_AUTOADD_START || '');
         if (!START) throw Object.assign(new Error('auto-add disabled (app_settings.autolog.enabled = false)'), { _skip: true });
         const AL_TYPES = new Set(Array.isArray(AL.types) && AL.types.length ? AL.types : ['Office Staff', 'Sales Rep', 'Technician']);
@@ -765,7 +774,8 @@ exports.handler = async (event) => {
         const pool = objects.filter(r =>
           AL_TYPES.has(String(r.sold_by_type || '').trim())
           && r.customer_id && r.sold_date && String(r.sold_date).slice(0, 10) >= START
-          && !EXCLUDED_SVCS.has(String(r.subscription || '').trim()));
+          && !EXCLUDED_SVCS.has(String(r.subscription || '').trim())
+          && _eligible(r));
         if (pool.length) {
           const [exQ, offQ, svcQ, srcQ, ctQ] = await Promise.all([
             supabase.from('sales').select('customer_number, revenue_amount, sold_date, crm_subscription, crm_subscription_id').gte('sold_date', START),
