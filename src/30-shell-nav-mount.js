@@ -873,34 +873,47 @@ function mountApp() {
           class: 'card',
           style: { position: 'absolute', top: 'calc(100% + 8px)', right: '0', minWidth: '210px', padding: '6px', display: 'none', zIndex: 60, boxShadow: 'var(--shadow-lg)' },
         });
-        const item = (icon, label, onclick) => el('button', {
-          class: 'w-full text-left px-2.5 py-1 rounded-lg text-[11px] font-medium cursor-pointer transition flex items-center gap-2',
-          style: { background: 'transparent', border: 'none', color: 'var(--text)' },
-          onmouseenter: (e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; },
-          onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
-          onclick: () => { dd.style.display = 'none'; onclick(); },
-        }, el('span', {}, icon), el('span', {}, label));
+        // One icon set, one size (16px SVG in an 18px slot) so the rows line up.
+        const ICO = {
+          resync:   '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>',
+          moon:     '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
+          sun:      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>',
+          settings: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+          power:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>',
+        };
+        const item = (icon, label, onclick) => {
+          const ic = el('span', { class: 'inline-flex items-center justify-center shrink-0', style: { width: '18px', height: '18px', color: 'var(--text-muted)' } });
+          ic.innerHTML = ICO[icon] || '';
+          return el('button', {
+            class: 'w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-medium cursor-pointer transition flex items-center gap-2',
+            style: { background: 'transparent', border: 'none', color: 'var(--text)' },
+            onmouseenter: (e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; },
+            onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; },
+            onclick: () => { dd.style.display = 'none'; onclick(); },
+          }, ic, el('span', {}, label));
+        };
+        // Order (per Isaac): Resync · Dark mode · Settings · Sign out.
         [
-          item('\u2699\ufe0f', isAdmin ? 'Settings' : 'My Settings', () => {
-            if (isAdmin) { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); }
-            else openMySettingsModal();
-          }),
           isAdmin
-            ? item('\u21bb', state._revhawkSyncing ? 'Syncing\u2026' : 'Resync', () => {
+            ? item('resync', state._revhawkSyncing ? 'Syncing…' : 'Resync', () => {
                 if (state._revhawkSyncing) return;
                 syncFromRevHawk(gearBtn);
               })
-            : item('\u21bb', 'Refresh data', () => {
+            : item('resync', 'Refresh data', () => {
                 gearBtn.classList.add('icon-spin');
-                toast('Refreshing your data\u2026', 'success');
+                toast('Refreshing your data…', 'success');
                 try { refreshIndicatorsFromCloud(true); } catch (err) { /* poll retries */ }
                 try { if (typeof refreshSalesData === 'function') refreshSalesData(); } catch (err) { /* ignore */ }
                 setTimeout(() => { try { gearBtn.classList.remove('icon-spin'); } catch (err) { /* gone */ } }, 4000);
               }),
-          item(state.theme === 'light' ? '\ud83c\udf19' : '\u2600\ufe0f', state.theme === 'light' ? 'Dark mode' : 'Light mode', () => toggleTheme()),
+          item(state.theme === 'light' ? 'moon' : 'sun', state.theme === 'light' ? 'Dark mode' : 'Light mode', () => toggleTheme()),
+          item('settings', isAdmin ? 'Settings' : 'My Settings', () => {
+            if (isAdmin) { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); }
+            else openMySettingsModal();
+          }),
           // (TV Display retired from the menu — per Isaac. openTVDashboard() stays.)
           el('div', { style: { borderTop: '1px solid var(--border)', margin: '4px 2px' } }),
-          item('\u23fb', 'Sign out', async () => {
+          item('power', 'Sign out', async () => {
             if (typeof DEMO !== 'undefined' && DEMO) { location.href = location.pathname; return; }
             try { localStorage.removeItem('ridd_last_auth_v1'); } catch { /* private mode */ }
             // signOut with a cap — the SDK's cross-tab lock can stall it; the
