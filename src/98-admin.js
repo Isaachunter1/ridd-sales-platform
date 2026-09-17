@@ -1243,7 +1243,7 @@ function adminCommissions() {
       class: 'w-full rounded-lg border px-2.5 py-1 text-[11px] text-left tabular-nums', style: { borderColor: 'var(--border-2)' },
       onchange: (e) => onCommit(e.target.value) }));
 
-  const tabs = el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
+  const tabs = el('div', { class: 'flex items-center gap-1 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
     ...COMMISSION_REP_TYPES.map(t => {
       const on = type === t;
       return el('button', { class: 'px-2.5 py-1 text-[11px] font-semibold transition whitespace-nowrap',

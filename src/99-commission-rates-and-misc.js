@@ -1641,7 +1641,7 @@ function adminReps() {
 
   // ── Header ──
   // Rep-type tabs sit right of the title (per Isaac — saves a row).
-  const _typeTabs = el('div', { class: 'flex items-center gap-1 overflow-x-auto' },
+  const _typeTabs = el('div', { class: 'flex items-center gap-1 flex-wrap' },
     ...REP_TYPE_TABS.map(t => {
       const on = typeTab === t;
       return el('button', {
