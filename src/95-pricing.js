@@ -268,9 +268,15 @@ function viewPricing() {
       secH('Add-Ons', null),
       el('div', { style: hasPlan ? {} : { opacity: '.45' } },
         table(['Add-On Service', 'Initial', 'Monthly'],
-          T.addons.filter(([id]) => id !== st.base).map(([id, init, mo], i) => {
-            const on = !!st.addons[id];
-            return trow([el('span', { class: 'inline-flex items-center' }, box(on), PRICING_SERVICES[id].label), money(init), '+' + money(mo)], on, hasPlan ? () => { if (on) delete st.addons[id]; else st.addons[id] = true; rerender(); } : null, i);
+          // Every add-on row always renders (the base plan's own row just
+          // dims) so the card never changes height and nothing below it
+          // shifts when a plan is picked (per Isaac).
+          T.addons.map(([id, init, mo], i) => {
+            const isBase = id === st.base;
+            const on = !isBase && !!st.addons[id];
+            const row = trow([el('span', { class: 'inline-flex items-center' }, box(on), PRICING_SERVICES[id].label + (isBase ? ' · your base plan' : '')), money(init), '+' + money(mo)], on, (hasPlan && !isBase) ? () => { if (on) delete st.addons[id]; else st.addons[id] = true; rerender(); } : null, i);
+            if (isBase) row.style.opacity = '.4';
+            return row;
           }))));
 
     // ── one-time (Standard / Loyalty) ──
