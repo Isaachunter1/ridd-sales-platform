@@ -1074,6 +1074,39 @@ exports.handler = async (event) => {
       // reruns are idempotent; a ghost the rep later logs by hand flips to
       // 'logged' automatically. Requires unlogged_sales.sql (best-effort).
       try {
+        // Per Isaac (Sep 17 2026): reps should never have to Claim — sales
+        // match up by FieldRoutes sales-rep id through the auto-log pass
+        // above. So when auto-log is ON, this pass only RESOLVES: every open
+        // ghost that now has a sale (same customer + subscription, any date,
+        // or the ±7-day / ±$1 revenue match) flips to 'logged', and no new
+        // ghosts are created. The strip stays as a safety net only when
+        // auto-log is switched off.
+        const _alGh = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
+        const AUTOLOG_ON = !!(((_alGh.data && _alGh.data.value) || {}).enabled);
+        if (AUTOLOG_ON) {
+          const { data: openGh } = await supabase.from('unlogged_sales').select('id, customer_number, crm_subscription, revenue_amount, sold_date').eq('status', 'open');
+          if (openGh && openGh.length) {
+            const custs = [...new Set(openGh.map(g => String(g.customer_number || '').trim()).filter(Boolean))];
+            const found = [];
+            for (let i = 0; i < custs.length; i += 300) {
+              const { data } = await supabase.from('sales').select('id, customer_number, crm_subscription, revenue_amount, sold_date').in('customer_number', custs.slice(i, i + 300));
+              if (data) found.push(...data);
+            }
+            const normG = (x) => String(x || '').trim().toLowerCase();
+            const stampG = new Date().toISOString();
+            let resolved = 0;
+            for (const g of openGh) {
+              const cands = found.filter(x => normG(x.customer_number) === normG(g.customer_number));
+              const hit = cands.find(x => normG(x.crm_subscription) === normG(g.crm_subscription))
+                || cands.find(x => Math.abs((Number(x.revenue_amount) || 0) - (Number(g.revenue_amount) || 0)) <= 1 && Math.abs((Date.parse(String(x.sold_date)) || 0) - (Date.parse(String(g.sold_date)) || 0)) <= 7 * 86400000);
+              if (!hit) continue;
+              await supabase.from('unlogged_sales').update({ status: 'logged', sale_id: hit.id, resolved_at: stampG, last_seen_at: stampG }).eq('id', g.id);
+              resolved++;
+            }
+            console.log('[revhawk-sync] unlogged sales: auto-log is ON — ' + resolved + ' of ' + openGh.length + ' open ghost(s) resolved as logged; no new ghosts created');
+          }
+          throw Object.assign(new Error('ghost creation skipped — auto-log is on'), { _skip: true });
+        }
         const lookback = Number(process.env.INSIDE_GHOST_LOOKBACK_DAYS) || 45;
         const START = (process.env.INSIDE_GHOST_START || '').trim()
           || new Date(Date.now() - lookback * 86400000).toISOString().slice(0, 10);
@@ -1176,7 +1209,7 @@ exports.handler = async (event) => {
           if (created || autoLogged) console.log('[revhawk-sync] unlogged sales: +' + created + ' ghost(s), ' + refreshed + ' refreshed, ' + autoLogged + ' resolved as logged, ' + skippedNoRep + ' seller(s) without a rep account');
         }
       } catch (ghErr) {
-        console.warn('[revhawk-sync] unlogged-sales pass skipped (run unlogged_sales.sql?):', String((ghErr && ghErr.message) || ghErr).slice(0, 200));
+        if (!(ghErr && ghErr._skip)) console.warn('[revhawk-sync] unlogged-sales pass skipped (run unlogged_sales.sql?):', String((ghErr && ghErr.message) || ghErr).slice(0, 200));
       }
     } catch (re) {
       rosterError = String((re && re.message) || re);
