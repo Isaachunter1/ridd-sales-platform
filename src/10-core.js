@@ -174,7 +174,7 @@ const PERM_DEFS = [
   { id: 'ind_class',        label: 'Class Metrics', group: 'Indicators sections' },
 ];
 const PERM_DEFAULTS = {
-  rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },   // table + power ranking opened to sales reps (per Isaac)
+  rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },   // no Indicators table / Power Ranking for sales reps (per Isaac, Sep 2026)
   rep_office:      { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
   rep_loyalty:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
   rep_partner:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
@@ -3178,10 +3178,33 @@ function _calendarCloudAutoSync() {
 // real JWT). The preview role overlays state.profile?.role; the true row stays
 // in state._realProfile and the overlay is re-applied on every profile load.
 const VIEW_AS_KEY = 'ridd_view_as_role';
+const VIEW_AS_PROFILE_KEY = 'ridd_view_as_profile';   // a specific person (their id) — per Isaac, to test exactly what THEY see
 function viewAsRole() { try { return sessionStorage.getItem(VIEW_AS_KEY) || ''; } catch { return ''; } }
+function viewAsProfileId() { try { return sessionStorage.getItem(VIEW_AS_PROFILE_KEY) || ''; } catch { return ''; } }
 function _applyViewAsOverlay() {
   const r = viewAsRole();
-  if (state._realProfile) state.profile = r ? Object.assign({}, state._realProfile, { role: r }) : state._realProfile;
+  if (!state._realProfile) return;
+  const pid = viewAsProfileId();
+  const target = pid ? (state.allProfiles || []).find(p => p.id === pid) : null;
+  if (target) {
+    // Whole identity: name, id, office, FieldRoutes link, role — so My Stats,
+    // the player card, mySales and every "is this me" check answer as them.
+    state.profile = Object.assign({}, target, { _viewAs: true });
+  } else {
+    state.profile = r ? Object.assign({}, state._realProfile, { role: r }) : state._realProfile;
+  }
+  // mySales is derived from profile.id at load — re-derive under the overlay.
+  if (Array.isArray(state.allSales)) state.mySales = state.allSales.filter(s => s.rep_id === state.profile.id);
+}
+function setViewAsProfile(profile) {
+  const real = state._realProfile || state.profile;
+  if (!real || !isAdminRole(real.role) || !profile || !profile.id) return;
+  try {
+    sessionStorage.setItem(VIEW_AS_PROFILE_KEY, profile.id);
+    sessionStorage.setItem(VIEW_AS_KEY, profile.role || 'rep_sales');
+    sessionStorage.setItem('ridd_view_as_return', state.view || 'admin');
+  } catch { /* private mode */ }
+  location.reload();
 }
 function setViewAsRole(role) {
   const real = state._realProfile || state.profile;
@@ -3195,6 +3218,7 @@ function setViewAsRole(role) {
   // JWT stays admin, so server-side RLS is the one thing this can't mimic.)
   let back = 'admin';
   try {
+    sessionStorage.removeItem(VIEW_AS_PROFILE_KEY);   // role-only preview (a person preview goes through setViewAsProfile)
     if (role) { sessionStorage.setItem(VIEW_AS_KEY, role); sessionStorage.setItem('ridd_view_as_return', state.view || 'admin'); }
     else { sessionStorage.removeItem(VIEW_AS_KEY); back = sessionStorage.getItem('ridd_view_as_return') || 'admin'; sessionStorage.removeItem('ridd_view_as_return'); }
   } catch { /* private mode etc. — preview just won't survive a reload */ }

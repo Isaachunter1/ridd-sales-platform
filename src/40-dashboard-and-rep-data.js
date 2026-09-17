@@ -3813,6 +3813,9 @@ function openIndicatorRepCard(rep, allReps = []) {
   // view; the Retention toggle (audits, attrition, account drill) needs
   // full access — admin, own card, or a lead inside their department.
   const fullAccess = Array.isArray(rep._members) ? canViewAggregate(rep._members) : canViewRepDetails(rep.name, rep.team);
+  // Per Isaac (Sep 2026): outside the viewer's reach the card doesn't open
+  // at all — a sales rep sees the leaderboard numbers, not other reps' cards.
+  if (!fullAccess) { try { toast('You can open your own player card here — other reps\u2019 cards are for leads and admins.', 'info'); } catch (e) { /* pre-boot */ } return; }
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
