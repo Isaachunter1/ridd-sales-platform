@@ -3819,6 +3819,12 @@ function mountAuth(opts = {}) {
       row.textContent = (r.ok ? '✓ ' : '○ ') + r.label;
       row.style.color = r.ok ? '#DF643A' : 'var(--text-subtle)';
     });
+    // Confirm box: neutral until something is typed in it, then red until it
+    // matches the first box, then green (per Isaac).
+    const ci = confirmField.querySelector('input');
+    if (!c) { ci.style.borderColor = ''; ci.style.boxShadow = ''; ci.style.background = ''; }
+    else if (p === c) { ci.style.borderColor = '#16A34A'; ci.style.boxShadow = '0 0 0 2px rgba(22,163,74,.18)'; ci.style.background = 'rgba(22,163,74,.05)'; }
+    else { ci.style.borderColor = '#DC2626'; ci.style.boxShadow = '0 0 0 2px rgba(220,38,38,.15)'; ci.style.background = 'rgba(220,38,38,.04)'; }
   };
   passField.querySelector('input').addEventListener('input', refreshPolicy);
   confirmField.querySelector('input').addEventListener('input', refreshPolicy);
@@ -3880,6 +3886,7 @@ function mountAuth(opts = {}) {
       confirmField.querySelector('input').required = true;
       confirmField.querySelector('input').minLength = 8;
       submitBtn.textContent = 'Set password';
+      refreshPolicy();
       forgotBtn.style.display = 'none';
       inviteHint.style.display = 'none';
       policyList.style.display = 'flex';
