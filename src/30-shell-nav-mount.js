@@ -899,6 +899,17 @@ function mountApp() {
               }),
           item(state.theme === 'light' ? '\ud83c\udf19' : '\u2600\ufe0f', state.theme === 'light' ? 'Dark mode' : 'Light mode', () => toggleTheme()),
           // (TV Display retired from the menu — per Isaac. openTVDashboard() stays.)
+          el('div', { style: { borderTop: '1px solid var(--border)', margin: '4px 2px' } }),
+          item('\u23fb', 'Sign out', async () => {
+            if (typeof DEMO !== 'undefined' && DEMO) { location.href = location.pathname; return; }
+            try { localStorage.removeItem('ridd_last_auth_v1'); } catch { /* private mode */ }
+            // signOut with a cap — the SDK's cross-tab lock can stall it; the
+            // reload lands on the sign-in screen either way once storage is clear.
+            try { await Promise.race([supabase.auth.signOut(), new Promise(r => setTimeout(r, 3000))]); } catch { /* best effort */ }
+            try { const k = typeof authStorageKey === 'function' && authStorageKey(); if (k) localStorage.removeItem(k); } catch { /* ignore */ }
+            history.replaceState(null, '', location.pathname);
+            location.reload();
+          }),
         ].forEach(n => { if (n) dd.append(n); });
         gearBtn.onclick = () => {
           const willOpen = dd.style.display !== 'block';
