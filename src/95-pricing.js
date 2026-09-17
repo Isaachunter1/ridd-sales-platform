@@ -228,10 +228,15 @@ function viewPricing() {
         extra || null),
       sub ? el('div', { style: { font: '400 9px/1.2 Archivo, Arial, sans-serif', color: C.ink2, textAlign: 'right' } }, sub) : null);
     const pill = (txt, on, onclick) => el('button', { onclick, style: { background: on ? C.orange : 'transparent', color: on ? C.cream : C.char, border: '1.5px solid ' + (on ? C.orange : C.ink3), font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.08em', textTransform: 'uppercase', padding: '6px 10px', borderRadius: '999px', cursor: 'pointer' } }, txt);
-    const tile = (label, sub, val, on, onclick, o = {}) => el('button', { onclick, style: { background: o.dark ? C.char : (on ? C.cream : C.cream2), color: o.dark ? C.cream : C.char, borderRadius: '10px', padding: '9px 10px 8px', textAlign: 'center', border: '2px solid ' + (on ? C.orange : 'transparent'), cursor: onclick ? 'pointer' : 'default', minWidth: 0 } },
-      el('div', { style: { font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.14em', textTransform: 'uppercase', color: o.dark ? 'rgba(251,244,218,.7)' : C.ink2 } }, label),
-      el('div', { style: { fontSize: '9.5px', color: o.dark ? 'rgba(251,244,218,.7)' : C.ink3, marginTop: '3px' } }, sub),
-      el('div', { style: { marginTop: '6px', font: '700 26px/1 Archivo, Arial, sans-serif', letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: o.dark ? (isMin ? C.orange : C.cream) : price.color } }, money(val), o.mo ? el('span', { style: { font: '500 10px/1 Archivo, Arial, sans-serif', color: o.dark ? 'rgba(251,244,218,.7)' : C.ink2, marginLeft: '2px' } }, '/mo') : null));
+    // Selected tile = solid orange with cream type (per Isaac), not just an outline.
+    const tile = (label, sub, val, on, onclick, o = {}) => {
+      const inv = o.dark || on;                                   // inverted (light-on-dark) type
+      const dim = o.dark ? 'rgba(251,244,218,.7)' : 'rgba(251,244,218,.85)';
+      return el('button', { onclick, 'aria-pressed': on ? 'true' : 'false', style: { background: o.dark ? C.char : (on ? C.orange : C.cream2), color: inv ? C.cream : C.char, borderRadius: '10px', padding: '9px 10px 8px', textAlign: 'center', border: '2px solid ' + (on ? C.orange : 'transparent'), cursor: onclick ? 'pointer' : 'default', minWidth: 0, boxShadow: on ? '0 6px 16px -8px rgba(223,100,58,.7)' : 'none' } },
+        el('div', { style: { font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.14em', textTransform: 'uppercase', color: inv ? dim : C.ink2 } }, label),
+        el('div', { style: { fontSize: '9.5px', color: inv ? dim : C.ink3, marginTop: '3px' } }, sub),
+        el('div', { style: { marginTop: '6px', font: '700 26px/1 Archivo, Arial, sans-serif', letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: o.dark ? (isMin ? C.orange : C.cream) : (on ? C.cream : price.color) } }, money(val), o.mo ? el('span', { style: { font: '500 10px/1 Archivo, Arial, sans-serif', color: inv ? dim : C.ink2, marginLeft: '2px' } }, '/mo') : null));
+    };
 
     // ── program blocks (Home · Yard · Termite) ──
     const program = (p) => {
