@@ -103,7 +103,22 @@ function pricingStore() {
   if (!st.addons) st.addons = {};
   if (!st.onetime) st.onetime = {};
   if (!st.customer) st.customer = 'new';
+  // Custom (rep-entered) prices, keyed by receipt line — D2D only, and never
+  // below the D2D minimums (per Isaac). Dropped when the line leaves the quote.
+  if (!st.custom) st.custom = {};
+  if (st.custom.base && st.custom.base.for !== st.base + ':' + st.freq) delete st.custom.base;
+  for (const k of Object.keys(st.custom)) { if (k.startsWith('addon:') && !st.addons[k.slice(6)]) delete st.custom[k]; }
+  if (!st.termite) delete st.custom.termite;
   return st;
+}
+// The D2D floor for a receipt line — the number a rep can never quote under.
+function pricingFloor(st, key) {
+  const M = PRICING_TIERS.find(t => t.id === 'd2d_min');
+  const fi = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
+  if (key === 'base') { const svc = PRICING_SERVICES[st.base]; return svc ? { init: M.init, mo: M[svc.program][fi] } : null; }
+  if (key === 'termite') return { init: M.termite[0], mo: M.termite[1] };
+  if (key.startsWith('addon:')) { const a = M.addons.find(x => x[0] === key.slice(6)); return a ? { init: a[1], mo: a[2] } : null; }
+  return null;
 }
 
 // The tier whose NUMBERS apply: D2D with the Ⓜ toggle on = D2D minimums.
@@ -117,13 +132,20 @@ function pricingQuote(st) {
   const fi = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
   const lines = [];
   if (svc) {
-    lines.push({ kind: 'base', label: (PRICING_PROGRAMS.find(p => p.id === svc.program) || {}).label + ' · ' + svc.label, sub: PRICING_FREQ[fi][1] + ' · base plan', init: T.init, mo: T[svc.program][fi] });
+    lines.push({ key: 'base', kind: 'base', label: (PRICING_PROGRAMS.find(p => p.id === svc.program) || {}).label + ' · ' + svc.label, sub: PRICING_FREQ[fi][1] + ' · base plan', init: T.init, mo: T[svc.program][fi] });
     for (const [id, init, mo] of T.addons) {
       if (id === st.base || !st.addons[id]) continue;
-      lines.push({ kind: 'addon', label: PRICING_SERVICES[id].label, sub: 'add-on', init, mo });
+      lines.push({ key: 'addon:' + id, kind: 'addon', label: PRICING_SERVICES[id].label, sub: 'add-on', init, mo });
     }
   }
-  if (st.termite) lines.push({ kind: 'termite', label: 'Termite Defense', sub: 'annual · separate subscription', init: T.termite[0], mo: T.termite[1] });
+  if (st.termite) lines.push({ key: 'termite', kind: 'termite', label: 'Termite Defense', sub: 'annual · separate subscription', init: T.termite[0], mo: T.termite[1] });
+  // Rep-entered custom prices (D2D only) replace the list price on a line —
+  // but pricingFloor() is the hard floor, so anything under it is ignored.
+  if (st.tier === 'd2d') for (const l of lines) {
+    const c = st.custom[l.key], f = pricingFloor(st, l.key);
+    if (!c || !f || c.init < f.init || c.mo < f.mo) continue;
+    l.list = { init: l.init, mo: l.mo }; l.init = c.init; l.mo = c.mo; l.custom = true;
+  }
   if (T.onetime) for (const [id, label, nw, cur] of PRICING_ONETIME) {
     if (!st.onetime[id]) continue;
     lines.push({ kind: 'onetime', label, sub: 'one-time · ' + (st.customer === 'current' ? 'current customer' : 'new customer'), init: st.customer === 'current' ? cur : nw, mo: 0 });
@@ -153,6 +175,7 @@ function pricingSavings(T, svc, fi) {
 function viewPricing() {
   const root = el('div', { class: 'w-full mx-auto', style: { maxWidth: '760px' } });
   const money = (v) => '$' + Math.round(v).toLocaleString();
+  let editKey = null;   // receipt line whose price is being typed in
   const C = { sage: '#5F6C5B', cream: '#FBF4DA', cream2: '#F3EBCD', char: '#323230', orange: '#DF643A', ink2: '#5A5A56', ink3: '#8C8A80' };
   const render = () => {
     const st = pricingStore();
@@ -285,13 +308,50 @@ function viewPricing() {
           chip('🐾', 'Kid & Pet Safe'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re-services'), chip('✓', 'Licensed & Insured'))));
 
     // ── quote, laid out like a receipt (per Isaac) ──
-    const rline = (l) => el('div', { class: 'flex items-start justify-between gap-3 py-1', style: { borderBottom: '1px dashed var(--border-2)' } },
-      el('div', { class: 'min-w-0' },
-        el('div', { class: 'text-[12px] font-semibold truncate' }, l.label),
-        el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, l.sub)),
-      el('div', { class: 'text-right shrink-0 tabular-nums' },
-        el('div', { class: 'text-[12px] font-semibold' }, money(l.init), el('span', { class: 'text-[10px] font-normal', style: { color: 'var(--text-subtle)' } }, ' initial')),
-        l.mo ? el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, '+' + money(l.mo) + '/mo') : el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no monthly')));
+    // On D2D a rep can tap a line's price and type a custom one — the D2D
+    // minimum is a hard floor: anything under it is refused with the floor
+    // shown, so nobody sets an expectation the office can't honor (per Isaac).
+    const canCustom = st.tier === 'd2d';
+    const priceCol = (l) => el('div', { class: 'text-right shrink-0 tabular-nums' },
+      el('div', { class: 'text-[12px] font-semibold' }, money(l.init), el('span', { class: 'text-[10px] font-normal', style: { color: 'var(--text-subtle)' } }, ' initial')),
+      l.mo ? el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, '+' + money(l.mo) + '/mo') : el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no monthly'),
+      l.custom ? el('div', { class: 'text-[9px] uppercase tracking-wider font-semibold', style: { color: 'var(--accent)' } }, 'custom · list ' + money(l.list.init) + ' / ' + money(l.list.mo)) : null);
+    const editor = (l) => {
+      const f = pricingFloor(st, l.key) || { init: 0, mo: 0 };
+      const cur = st.custom[l.key] || { init: l.init, mo: l.mo };
+      const inp = (v, ph) => el('input', { type: 'number', inputmode: 'numeric', min: 0, step: 1, value: v, placeholder: ph, class: 'rounded-lg border px-2 py-1 text-[12px] font-semibold tabular-nums text-right', style: { width: '78px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+      const iIn = inp(cur.init, 'initial'), mIn = inp(cur.mo, 'monthly');
+      const err = el('div', { class: 'text-[10px] font-semibold', style: { color: '#C0392B', minHeight: '13px' } }, '');
+      const check = () => {
+        const i = Number(iIn.value), m = Number(mIn.value);
+        const badI = !(i >= f.init), badM = !(m >= f.mo);
+        iIn.style.borderColor = badI ? '#C0392B' : 'var(--border-2)'; mIn.style.borderColor = badM ? '#C0392B' : 'var(--border-2)';
+        err.textContent = (badI || badM) ? 'Below D2D minimum — floor is ' + money(f.init) + ' initial / ' + money(f.mo) + '/mo' : '';
+        return !(badI || badM);
+      };
+      const save = () => { if (!check()) { (Number(iIn.value) >= f.init ? mIn : iIn).focus(); return; } st.custom[l.key] = { init: Math.round(Number(iIn.value)), mo: Math.round(Number(mIn.value)), for: st.base + ':' + st.freq }; editKey = null; rerender(); };
+      const onKey = (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } else if (e.key === 'Escape') { editKey = null; rerender(); } };
+      iIn.oninput = check; mIn.oninput = check; iIn.onkeydown = onKey; mIn.onkeydown = onKey;
+      const btn = (t, fn, primary) => el('button', { onclick: fn, class: 'rounded-lg px-2 py-1 text-[10px] font-semibold', style: primary ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { border: '1px solid var(--border-2)', color: 'var(--text-muted)' } }, t);
+      const wrap = el('div', { class: 'shrink-0 flex flex-col items-end gap-1' },
+        el('div', { class: 'flex items-center gap-1' }, iIn, el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'init'), mIn, el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '/mo')),
+        el('div', { class: 'text-[9px]', style: { color: 'var(--text-subtle)' } }, 'D2D minimum ' + money(f.init) + ' / ' + money(f.mo) + '/mo'),
+        err,
+        el('div', { class: 'flex gap-1' }, btn('Save', save, true), st.custom[l.key] ? btn('List price', () => { delete st.custom[l.key]; editKey = null; rerender(); }) : null, btn('Cancel', () => { editKey = null; rerender(); })));
+      setTimeout(() => iIn.focus(), 0);
+      return wrap;
+    };
+    const rline = (l) => {
+      const editable = canCustom && l.key;
+      const editing = editable && editKey === l.key;
+      return el('div', { class: 'flex items-start justify-between gap-3 py-1', style: { borderBottom: '1px dashed var(--border-2)' } },
+        el('div', { class: 'min-w-0' },
+          el('div', { class: 'text-[12px] font-semibold truncate' }, l.label),
+          el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, l.sub + (editable && !editing ? ' · tap price to customize' : ''))),
+        editing ? editor(l) : (editable
+          ? el('button', { class: 'text-right shrink-0 rounded-lg px-1.5 -mr-1.5 hover:bg-black/5', title: 'Enter a custom price (not below D2D minimums)', onclick: () => { editKey = l.key; rerender(); } }, priceCol(l))
+          : priceCol(l)));
+    };
     const notice = q.ok ? null : el('div', { class: 'rounded-lg px-3 py-2 text-[11px] font-semibold', style: { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } },
       q.empty
         ? 'Start with a base: pick a Home or Yard Essentials plan, or Termite Defense.' + (T.onetime ? ' One-time services can also be quoted on their own.' : '')
@@ -302,7 +362,7 @@ function viewPricing() {
     const quote = el('div', { class: 'card p-3 mb-3', style: { borderColor: 'var(--accent)', boxShadow: 'var(--shadow-lg)' } },
       el('div', { class: 'flex items-center justify-between gap-3 mb-2' },
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Quote · ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label)),
-        el('button', { class: 'rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wider', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; rerender(); } }, 'Reset')),
+        el('button', { class: 'rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wider', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; st.custom = {}; editKey = null; rerender(); } }, 'Reset')),
       el('div', { class: 'grid gap-3 items-start', style: { gridTemplateColumns: 'minmax(0, 1fr) auto' } },
         el('div', { class: 'min-w-0' }, ...(q.empty ? [] : q.lines.map(rline)), notice ? el('div', { class: q.empty ? '' : 'mt-2' }, notice) : null),
         el('div', { class: 'rounded-xl px-4 py-3 flex flex-col gap-1.5 shrink-0', style: { background: 'var(--card-2)', minWidth: '150px', opacity: q.ok ? 1 : .55 } },
