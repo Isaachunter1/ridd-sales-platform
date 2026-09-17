@@ -67,7 +67,7 @@ function viewPay() {
   // accounts where payment was collected upfront sets a multiplier on the
   // WHOLE upfront commission (100 / 95 / 90 / 85%).
   const upfrontPct  = upfrontCollectedPct([...servicedStaged, ...belowStaged]);
-  const upfrontMult = upfrontTierPayPct(upfrontPct);
+  const upfrontMult = upfrontTierPayPct(upfrontPct, repId);
   const salesPay   = sumCommission(servicedStaged) * upfrontMult;  // full commission × upfront tier
   const belowPay   = sumCommission(belowStaged) * upfrontMult;     // half commission × upfront tier
 
@@ -77,7 +77,7 @@ function viewPay() {
   // renewals). Close rate itself is manually maintained per rep.
   const closeRate = Number(viewedProfile.close_rate_target ?? 0.50);
   const periodSubscriptionRev = subscriptionRevenueOf(servicedStaged);
-  const closeRateBonus = closeRateBonusFor(closeRate, periodSubscriptionRev);
+  const closeRateBonus = closeRateBonusFor(closeRate, periodSubscriptionRev, repId);
   const meetsCloseRate = closeRateBonus > 0;
 
   // Backend bonus per sale (sheet O16/O18): 18mo ×2%, 24mo ×3%, renewal
@@ -137,7 +137,7 @@ function viewPay() {
   const quarterEligible = quarterSales.filter(s => s.audit_status === 'serviced' || s.audit_status === 'below_minimums');
   const quarterServiced = quarterSales.filter(s => s.audit_status === 'serviced');
   const multiYearBonusQuarter = quarterServiced.filter(s => isMultiYear(s) && !isRenewalSource(s)).reduce((a, s) => a + getBackendAmount(s), 0);
-  const closeRateBonusQuarter = closeRateBonusFor(closeRate, subscriptionRevenueOf(quarterServiced));
+  const closeRateBonusQuarter = closeRateBonusFor(closeRate, subscriptionRevenueOf(quarterServiced), repId);
   const renewalPayQuarter     = quarterServiced.filter(s => isRenewalSource(s)).reduce((a, s) => a + getBackendAmount(s), 0);
   const quarterlyBackendPay   = multiYearBonusQuarter + closeRateBonusQuarter + renewalPayQuarter;
 
@@ -201,8 +201,8 @@ function viewPay() {
   // ── Layout (per Isaac's pay-tab sheet, Sep 2026): three stacked blocks —
   // PAY STUB (this period's upfront), BACKEND PAY (the quarter's backend),
   // METRICS (the rates that drove the math). Same rows, app styling.
-  const s = ensurePaySettings();
-  const BASE_PCT = Number(viewedProfile.upfront_commission_rate || 0.07) * 100;
+  const s = effectivePaySettings(viewedProfile.id);
+  const BASE_PCT = (() => { const c = (s.contract_commissions || []).find(cc => /month/i.test(cc.name) && !/upsell|one\s*time/i.test(cc.name)); const std = c ? Number(c.rate) : 7; return Math.max(std, Number(viewedProfile.upfront_commission_rate || 0) * 100); })();
   const ctRate = (re) => { const cc = (s.contract_commissions || []).find(c => re.test(String(c.name || ''))); return cc ? Number(cc.rate) : null; };
   const upsellRate = ctRate(/^upsell/i), otsRate = ctRate(/one time/i);
   const commercialRate = BASE_PCT * (Number(s.commercial_multiplier ?? 50) / 100);
@@ -702,7 +702,7 @@ function notifyPayrollRun(sales, period, kind) {
     } else {
       const serviced = repSales.filter(s => s.audit_status === 'serviced');
       const below    = repSales.filter(s => s.audit_status === 'below_minimums');
-      const _upM = upfrontTierPayPct(upfrontCollectedPct([...serviced, ...below]));
+      const _upM = upfrontTierPayPct(upfrontCollectedPct([...serviced, ...below]), repId);
       const salesPay = serviced.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upM;
       const belowPay = below.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upM;
       summary = {

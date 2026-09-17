@@ -1331,58 +1331,143 @@ function adminPricingSimple() {
   if (s.close_rate_tiers.length < 2) s.close_rate_tiers.push({ min_close_rate: 50, rate: 2.0 });
   const persist = () => { saveDemoData(); saveAppSettings(); };
   const isStd = (cc) => /month/i.test(cc.name) && !/upsell|one\s*time/i.test(cc.name);
-  const stdRate = () => { const c = s.contract_commissions.find(isStd); return c ? Number(c.rate) : 7; };
-  const ccRate = (re) => { const c = s.contract_commissions.find(cc => re.test(cc.name)); return c ? Number(c.rate) : null; };
-  const setCc = (re, v) => { for (const cc of s.contract_commissions) if (re.test(cc.name)) cc.rate = v; };
   const num = (v) => { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, '')); return Number.isFinite(n) ? n : 0; };
   const r2 = (n) => Math.round(n * 100) / 100;
-  // [label, get, set, unit, hint]  — unit '%' | '$' | 'pts'
+
+  // ── Per-rep overrides (per Isaac): pick a rep, edit THEIR column; blank
+  // = inherits the default live. Stored on profiles.pay_overrides, read by
+  // effectivePaySettings() everywhere pay is computed.
+  const reps = (state.allProfiles || []).filter(p => p && p.is_active !== false && (typeof isOfficeStaffProfile === 'function' ? isOfficeStaffProfile(p) : /office|loyalty/.test(String(p.role || ''))))
+    .sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
+  const withOverrides = (state.allProfiles || []).filter(p => p && p.pay_overrides && typeof p.pay_overrides === 'object' && Object.keys(p.pay_overrides).length);
+  const repId = state._payOverrideRep || '';
+  const rep = repId ? (state.allProfiles || []).find(p => p.id === repId) : null;
+  const ov = rep ? ((rep.pay_overrides && typeof rep.pay_overrides === 'object') ? rep.pay_overrides : {}) : null;
+  const saveOverrides = async (next) => {
+    if (!rep) return;
+    const clean = {};
+    for (const [k, v] of Object.entries(next || {})) { if (v == null) continue; if (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length) continue; clean[k] = v; }
+    rep.pay_overrides = Object.keys(clean).length ? clean : null;
+    // Upfront % override also lands on the legacy per-profile rate so the
+    // commercial path (half of the rep's OWN upfront) follows it.
+    if (clean.upfront_pct != null) rep.upfront_commission_rate = Number(clean.upfront_pct) / 100;
+    if (typeof DEMO !== 'undefined' && DEMO) { saveDemoData(); return; }
+    const patch = { pay_overrides: rep.pay_overrides };
+    if (clean.upfront_pct != null) patch.upfront_commission_rate = rep.upfront_commission_rate;
+    const { error } = await supabase.from('profiles').update(patch).eq('id', rep.id);
+    if (error) toast(/pay_overrides/i.test(error.message || '') ? 'Run migrations/20260917_pay_overrides.sql first' : 'Could not save: ' + error.message, 'error');
+    else { try { logActivity('pay_override', { detail: rep.full_name + ': ' + JSON.stringify(clean) }); } catch (e) { /* optional */ } }
+  };
+  // Effective (default + rep) view, so the rep column shows what they actually get.
+  const eff = () => (rep && typeof effectivePaySettings === 'function') ? effectivePaySettings(rep.id) : s;
+  const stdOf = (S) => { const c = (S.contract_commissions || []).find(isStd); return c ? Number(c.rate) : 7; };
+  const ccOf = (S, re) => { const c = (S.contract_commissions || []).find(cc => re.test(cc.name)); return c ? Number(c.rate) : null; };
+
+  // Row spec: label · unit · hint · default get/set (writes appSettings) ·
+  // override key + get/set on the override object (relative values are
+  // converted to the absolute rate the engine stores).
   const rows = [
     ['section', 'Metrics'],
-    ['Upfront %', () => stdRate(), (v) => { for (const cc of s.contract_commissions) if (isStd(cc)) cc.rate = v; }, '%', 'Base upfront commission on 12 / 18 / 24-month contracts.'],
-    ['Close Rate %', () => s.close_rate_tiers[0].min_close_rate, (v) => { s.close_rate_tiers[0].min_close_rate = v; }, '%', 'Close rate needed for the full close-rate bonus.'],
-    ['Charge Upfront %', () => (s.upfront_tiers && s.upfront_tiers[0] ? s.upfront_tiers[0].pay : 100), (v) => { if (s.upfront_tiers && s.upfront_tiers[0]) s.upfront_tiers[0].pay = v; }, '%', 'Share of the upfront commission paid at the top charge-upfront tier.'],
-    ['Upfront Tier', () => (s.upfront_tiers && s.upfront_tiers[0] ? s.upfront_tiers[0].min : 70), (v) => { if (s.upfront_tiers && s.upfront_tiers[0]) s.upfront_tiers[0].min = v; }, '%+', '% of commissionable accounts charged upfront to reach the top tier.'],
-    ...((s.upfront_tiers || []).slice(1).map((t, i) => ['Upfront Tier ' + (i + 2) + ' (\u2265 ' + t.min + '%)', () => t.pay, (v) => { t.pay = v; }, '%', 'Pays this % of the upfront commission at \u2265 ' + t.min + '% charged upfront.'])),
+    { label: 'Upfront %', unit: '%', hint: 'Base upfront commission on 12 / 18 / 24-month contracts.',
+      get: () => stdOf(s), set: (v) => { for (const cc of s.contract_commissions) if (isStd(cc)) cc.rate = v; },
+      oget: () => ov.upfront_pct, oset: (v) => { ov.upfront_pct = v; }, oeff: () => stdOf(eff()) },
+    { label: 'Close Rate %', unit: '%', hint: 'Close rate needed for the full close-rate bonus.',
+      get: () => s.close_rate_tiers[0].min_close_rate, set: (v) => { s.close_rate_tiers[0].min_close_rate = v; },
+      oget: () => ov.close_min, oset: (v) => { ov.close_min = v; }, oeff: () => eff().close_rate_tiers[0].min_close_rate },
+    { label: 'Charge Upfront %', unit: '%', hint: 'Share of the upfront commission paid at the top charge-upfront tier.',
+      get: () => (s.upfront_tiers[0] || {}).pay, set: (v) => { if (s.upfront_tiers[0]) s.upfront_tiers[0].pay = v; },
+      oget: () => (ov.upfront_tiers || [])[0] && ov.upfront_tiers[0].pay, oset: (v) => { ov.upfront_tiers = (ov.upfront_tiers || s.upfront_tiers.map(t => ({ ...t }))); ov.upfront_tiers[0].pay = v; }, oeff: () => (eff().upfront_tiers[0] || {}).pay },
+    { label: 'Upfront Tier', unit: '%+', hint: '% of commissionable accounts charged upfront to reach the top tier.',
+      get: () => (s.upfront_tiers[0] || {}).min, set: (v) => { if (s.upfront_tiers[0]) s.upfront_tiers[0].min = v; },
+      oget: () => (ov.upfront_tiers || [])[0] && ov.upfront_tiers[0].min, oset: (v) => { ov.upfront_tiers = (ov.upfront_tiers || s.upfront_tiers.map(t => ({ ...t }))); ov.upfront_tiers[0].min = v; }, oeff: () => (eff().upfront_tiers[0] || {}).min },
+    ...((s.upfront_tiers || []).slice(1).map((t, i) => ({ label: 'Upfront Tier ' + (i + 2) + ' (≥ ' + t.min + '%)', unit: '%', hint: 'Pays this % of the upfront commission at ≥ ' + t.min + '% charged upfront.',
+      get: () => t.pay, set: (v) => { t.pay = v; },
+      oget: () => (ov.upfront_tiers || [])[i + 1] && ov.upfront_tiers[i + 1].pay, oset: (v) => { ov.upfront_tiers = (ov.upfront_tiers || s.upfront_tiers.map(x => ({ ...x }))); if (ov.upfront_tiers[i + 1]) ov.upfront_tiers[i + 1].pay = v; }, oeff: () => ((eff().upfront_tiers || [])[i + 1] || {}).pay }))),
     ['section', 'Modifiers'],
-    ['PIF Modifier', () => s.pif_modifier ?? 5, (v) => { s.pif_modifier = v; }, 'pts', 'Added to the base rate when the customer pays in full (7 + 5 = 12%).'],
-    ['Commercial Modifier', () => r2(stdRate() * ((s.commercial_multiplier ?? 50) / 100) - stdRate()), (v) => { const b = stdRate() || 7; s.commercial_multiplier = r2(((b + v) / b) * 100); }, 'pts', 'Relative to Upfront %. \u22123.5 means commercial pays 3.5% on a 7% base (half).'],
-    ['OTS Modifier', () => r2((ccRate(/one\s*time/i) ?? 5) - stdRate()), (v) => setCc(/one\s*time/i, r2(stdRate() + v)), 'pts', 'Relative to Upfront %. One-time services: \u22122 = 5%.'],
-    ['Upsell Modifier', () => r2((ccRate(/upsell/i) ?? 10) - stdRate()), (v) => setCc(/upsell/i, r2(stdRate() + v)), 'pts', 'Relative to Upfront %. Upsells: +3 = 10%.'],
-    ['Below Min Pay Modifier', () => s.below_min_multiplier, (v) => { s.below_min_multiplier = v; }, '%', 'Below-minimum accounts pay this % of the normal commission.'],
-    ['Close Rate Bonus %', () => s.close_rate_tiers[0].rate, (v) => { s.close_rate_tiers[0].rate = v; }, '%', 'Bonus on subscription revenue at the full close rate.'],
-    ['Close Rate Tier 2 (\u2265 ' + s.close_rate_tiers[1].min_close_rate + '%)', () => s.close_rate_tiers[1].rate, (v) => { s.close_rate_tiers[1].rate = v; }, '%', 'Bonus at the second close-rate tier.'],
-    ['18 Mo Backend Bonus %', () => s.multi_year_rate_18, (v) => { s.multi_year_rate_18 = v; }, '%', 'Quarter-end backend on 18-month revenue.'],
-    ['24 Mo Backend Bonus %', () => s.multi_year_rate_24, (v) => { s.multi_year_rate_24 = v; }, '%', 'Quarter-end backend on 24-month revenue.'],
-    ['Renewal Backend Bonus', () => s.renewal_backend_rate, (v) => { s.renewal_backend_rate = v; }, '%', 'Quarter-end backend on renewal revenue.'],
-    ['Upfront 12-Mo Pay', () => s.renewal_flat.m12, (v) => { s.renewal_flat.m12 = v; }, '$', 'Flat pay per serviced renewal-source account, 12-month.'],
-    ['Upfront 18-Mo Pay', () => s.renewal_flat.m18, (v) => { s.renewal_flat.m18 = v; }, '$', 'Flat pay per serviced renewal-source account, 18-month.'],
-    ['Upfront 24-Mo Pay', () => s.renewal_flat.m24, (v) => { s.renewal_flat.m24 = v; }, '$', 'Flat pay per serviced renewal-source account, 24-month.'],
-    ['Upfront PIF Pay', () => s.renewal_flat.pif, (v) => { s.renewal_flat.pif = v; }, '$', 'Flat pay per serviced renewal-source account, paid in full.'],
+    { label: 'PIF Modifier', unit: 'pts', hint: 'Added to the base rate when the customer pays in full (7 + 5 = 12%).',
+      get: () => s.pif_modifier ?? 5, set: (v) => { s.pif_modifier = v; }, oget: () => ov.pif_modifier, oset: (v) => { ov.pif_modifier = v; }, oeff: () => eff().pif_modifier ?? 5 },
+    { label: 'Commercial Modifier', unit: 'pts', hint: 'Relative to Upfront %. −3.5 means commercial pays 3.5% on a 7% base (half).',
+      get: () => r2(stdOf(s) * ((s.commercial_multiplier ?? 50) / 100) - stdOf(s)), set: (v) => { const b = stdOf(s) || 7; s.commercial_multiplier = r2(((b + v) / b) * 100); },
+      oget: () => ov.commercial_multiplier == null ? undefined : r2(stdOf(eff()) * (ov.commercial_multiplier / 100) - stdOf(eff())), oset: (v) => { const b = stdOf(eff()) || 7; ov.commercial_multiplier = r2(((b + v) / b) * 100); }, oeff: () => r2(stdOf(eff()) * ((eff().commercial_multiplier ?? 50) / 100) - stdOf(eff())) },
+    { label: 'OTS Modifier', unit: 'pts', hint: 'Relative to Upfront %. One-time services: −2 = 5%.',
+      get: () => r2((ccOf(s, /one\s*time/i) ?? 5) - stdOf(s)), set: (v) => { for (const cc of s.contract_commissions) if (/one\s*time/i.test(cc.name)) cc.rate = r2(stdOf(s) + v); },
+      oget: () => ov.ots_rate == null ? undefined : r2(ov.ots_rate - stdOf(eff())), oset: (v) => { ov.ots_rate = r2(stdOf(eff()) + v); }, oeff: () => r2((ccOf(eff(), /one\s*time/i) ?? 5) - stdOf(eff())) },
+    { label: 'Upsell Modifier', unit: 'pts', hint: 'Relative to Upfront %. Upsells: +3 = 10%.',
+      get: () => r2((ccOf(s, /upsell/i) ?? 10) - stdOf(s)), set: (v) => { for (const cc of s.contract_commissions) if (/upsell/i.test(cc.name)) cc.rate = r2(stdOf(s) + v); },
+      oget: () => ov.upsell_rate == null ? undefined : r2(ov.upsell_rate - stdOf(eff())), oset: (v) => { ov.upsell_rate = r2(stdOf(eff()) + v); }, oeff: () => r2((ccOf(eff(), /upsell/i) ?? 10) - stdOf(eff())) },
+    { label: 'Below Min Pay Modifier', unit: '%', hint: 'Below-minimum accounts pay this % of the normal commission.',
+      get: () => s.below_min_multiplier, set: (v) => { s.below_min_multiplier = v; }, oget: () => ov.below_min_multiplier, oset: (v) => { ov.below_min_multiplier = v; }, oeff: () => eff().below_min_multiplier },
+    { label: 'Close Rate Bonus %', unit: '%', hint: 'Bonus on subscription revenue at the full close rate.',
+      get: () => s.close_rate_tiers[0].rate, set: (v) => { s.close_rate_tiers[0].rate = v; }, oget: () => ov.close_rate, oset: (v) => { ov.close_rate = v; }, oeff: () => eff().close_rate_tiers[0].rate },
+    { label: 'Close Rate Tier 2 (≥ ' + s.close_rate_tiers[1].min_close_rate + '%)', unit: '%', hint: 'Bonus at the second close-rate tier.',
+      get: () => s.close_rate_tiers[1].rate, set: (v) => { s.close_rate_tiers[1].rate = v; }, oget: () => ov.close2_rate, oset: (v) => { ov.close2_rate = v; }, oeff: () => (eff().close_rate_tiers[1] || {}).rate },
+    { label: '18 Mo Backend Bonus %', unit: '%', hint: 'Quarter-end backend on 18-month revenue.',
+      get: () => s.multi_year_rate_18, set: (v) => { s.multi_year_rate_18 = v; }, oget: () => ov.multi_year_rate_18, oset: (v) => { ov.multi_year_rate_18 = v; }, oeff: () => eff().multi_year_rate_18 },
+    { label: '24 Mo Backend Bonus %', unit: '%', hint: 'Quarter-end backend on 24-month revenue.',
+      get: () => s.multi_year_rate_24, set: (v) => { s.multi_year_rate_24 = v; }, oget: () => ov.multi_year_rate_24, oset: (v) => { ov.multi_year_rate_24 = v; }, oeff: () => eff().multi_year_rate_24 },
+    { label: 'Renewal Backend Bonus', unit: '%', hint: 'Quarter-end backend on renewal revenue.',
+      get: () => s.renewal_backend_rate, set: (v) => { s.renewal_backend_rate = v; }, oget: () => ov.renewal_backend_rate, oset: (v) => { ov.renewal_backend_rate = v; }, oeff: () => eff().renewal_backend_rate },
+    ...([['m12', 'Upfront 12-Mo Pay', '12-month'], ['m18', 'Upfront 18-Mo Pay', '18-month'], ['m24', 'Upfront 24-Mo Pay', '24-month'], ['pif', 'Upfront PIF Pay', 'paid in full']].map(([k, label, what]) => ({ label, unit: '$', hint: 'Flat pay per serviced renewal-source account, ' + what + '.',
+      get: () => s.renewal_flat[k], set: (v) => { s.renewal_flat[k] = v; },
+      oget: () => (ov.renewal_flat || {})[k], oset: (v) => { ov.renewal_flat = ov.renewal_flat || {}; ov.renewal_flat[k] = v; }, oeff: () => (eff().renewal_flat || {})[k] }))),
   ];
-  const fmt = (v, unit) => unit === '$' ? '$' + Number(v).toFixed(2) : (unit === 'pts' ? (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%' : Number(v).toFixed(2) + (unit === '%+' ? '% +' : '%'));
+  const fmt = (v, unit) => v == null || v === '' ? '' : unit === '$' ? '$' + Number(v).toFixed(2) : (unit === 'pts' ? (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%' : Number(v).toFixed(2) + (unit === '%+' ? '% +' : '%'));
+  const cellInput = (get, set, unit, hint, placeholder) => el('input', { type: 'text', inputmode: 'decimal', value: fmt(get(), unit), placeholder: placeholder || '', title: hint,
+    class: 'text-right tabular-nums font-semibold rounded-lg border px-2 py-1 text-[12px] w-full',
+    style: { borderColor: 'transparent', background: 'transparent', color: 'var(--text)', maxWidth: '120px' },
+    onfocus: (e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.background = 'var(--card)'; const v = get(); e.target.value = v == null ? '' : String(v); e.target.select(); },
+    onblur: (e) => { set(e.target.value.trim() === '' ? null : num(e.target.value)); e.target.style.borderColor = 'transparent'; e.target.style.background = 'transparent'; },
+    onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = fmt(get(), unit); e.target.blur(); } },
+  });
   const body = el('tbody');
   const draw = () => {
     body.replaceChildren(...rows.map(r => {
-      if (r[0] === 'section') return el('tr', {}, el('td', { colspan: '2', class: 'px-3 py-1.5 text-[10px] uppercase tracking-widest font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', borderTop: '1px solid var(--border)' } }, r[1]));
-      const [label, get, set, unit, hint] = r;
-      const inp = el('input', { type: 'text', inputmode: 'decimal', value: fmt(get(), unit), title: hint,
-        class: 'text-right tabular-nums font-semibold rounded-lg border px-2 py-1 text-[12px] w-full',
-        style: { borderColor: 'transparent', background: 'transparent', color: 'var(--text)', maxWidth: '120px' },
-        onfocus: (e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.background = 'var(--card)'; e.target.value = String(get()); e.target.select(); },
-        onblur: (e) => { const v = num(e.target.value); set(v); persist(); e.target.style.borderColor = 'transparent'; e.target.style.background = 'transparent'; draw(); },
-        onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = fmt(get(), unit); e.target.blur(); } },
-      });
-      return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
-        el('td', { class: 'px-3 py-1.5 text-[12px] font-semibold uppercase whitespace-nowrap', title: hint }, label),
-        el('td', { class: 'px-3 py-1 text-right', style: { width: '140px' } }, inp));
+      if (Array.isArray(r)) return el('tr', {}, el('td', { colspan: rep ? '3' : '2', class: 'px-3 py-1.5 text-[10px] uppercase tracking-widest font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', borderTop: '1px solid var(--border)' } }, r[1]));
+      const defIn = cellInput(r.get, (v) => { if (v != null) { r.set(v); persist(); } draw(); }, r.unit, r.hint);
+      const cells = [
+        el('td', { class: 'px-3 py-1.5 text-[12px] font-semibold uppercase whitespace-nowrap', title: r.hint }, r.label),
+        el('td', { class: 'px-3 py-1 text-right', style: { width: '140px' } }, defIn),
+      ];
+      if (rep) {
+        const has = r.oget() != null;
+        const ovIn = cellInput(r.oget, (v) => {
+          if (v == null) { r.oset(undefined); for (const k of Object.keys(ov)) if (ov[k] === undefined) delete ov[k]; }
+          else r.oset(v);
+          saveOverrides(ov).then(draw);
+        }, r.unit, r.hint, fmt(r.oeff(), r.unit));
+        if (has) { ovIn.style.color = 'var(--accent)'; ovIn.style.background = 'rgba(223,100,58,.08)'; }
+        cells.push(el('td', { class: 'px-3 py-1 text-right', style: { width: '150px' } },
+          el('div', { class: 'flex items-center justify-end gap-1' },
+            ovIn,
+            has ? el('button', { class: 'text-[10px] px-1.5 rounded', style: { color: 'var(--text-muted)' }, title: 'Back to default', onclick: () => { r.oset(undefined); for (const k of Object.keys(ov)) if (ov[k] === undefined) delete ov[k]; if (ov.renewal_flat && !Object.keys(ov.renewal_flat).length) delete ov.renewal_flat; saveOverrides(ov).then(draw); } }, '×') : null)));
+      }
+      return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, ...cells);
     }));
   };
   draw();
-  return el('div', { class: 'flex flex-col gap-3 max-w-2xl w-full commission-config' },
-    el('div', { class: 'card overflow-hidden' },
-      el('table', { class: 'w-full' }, body)),
-    el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, 'Click a value to edit; it saves when you tab or click away. Modifiers are points relative to Upfront %. Hover a row for what it drives.'));
+  const head = el('thead', {}, el('tr', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } },
+    el('th', { class: 'px-3 py-2 text-left' }, 'Metric'),
+    el('th', { class: 'px-3 py-2 text-right' }, 'Default'),
+    rep ? el('th', { class: 'px-3 py-2 text-right', style: { color: 'var(--accent)' } }, rep.full_name) : null));
+  const picker = el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' },
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Individual overrides'),
+    el('select', {
+      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '220px' },
+      onchange: (e) => { state._payOverrideRep = e.target.value; mountApp(); },
+    },
+      el('option', { value: '', selected: !repId }, 'Defaults only — pick a rep to customize…'),
+      ...reps.map(p => el('option', { value: p.id, selected: p.id === repId }, p.full_name + (p.pay_overrides && Object.keys(p.pay_overrides || {}).length ? ' · custom' : '')))),
+    withOverrides.length ? el('div', { class: 'flex items-center gap-1.5 flex-wrap ml-auto' },
+      el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, withOverrides.length + ' with custom pay:'),
+      ...withOverrides.map(p => el('button', { class: 'rounded-full px-2 py-0.5 text-[10px] font-semibold border', style: { borderColor: p.id === repId ? 'var(--accent)' : 'var(--border-2)', color: p.id === repId ? 'var(--accent)' : 'var(--text)' }, onclick: () => { state._payOverrideRep = p.id; mountApp(); } }, p.full_name)))
+      : el('span', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } }, 'No rep has custom pay — everyone is on the defaults.'));
+  return el('div', { class: 'flex flex-col gap-3 max-w-3xl w-full commission-config' },
+    picker,
+    el('div', { class: 'card overflow-hidden' }, el('table', { class: 'w-full' }, head, body)),
+    el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
+      rep ? 'Type in ' + rep.full_name + '’s column to override a metric (orange = custom). Clear it or hit × to fall back to the default. Blank cells show the default they inherit.'
+          : 'Click a default to edit; saves when you tab or click away. Modifiers are points relative to Upfront %. Pick a rep above to give them different numbers.'));
 }
 
 function adminPricing(opts = {}) {
