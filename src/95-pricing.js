@@ -380,7 +380,7 @@ function viewPricing() {
           priceCol(l),
           editable ? el('button', { title: 'Custom price for this line', 'aria-label': 'Edit price', onclick: () => { editKey = l.key; rerender(); }, style: { width: '26px', height: '26px', borderRadius: '50%', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 } }, pencil()) : null));
     };
-    const total = (lbl, val, o = {}) => el('div', { style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' } },
+    const total = (lbl, val, o = {}) => el(o.onclick ? 'button' : 'div', { onclick: o.onclick, title: o.title, style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px', width: '100%', textAlign: 'left', cursor: o.onclick ? 'pointer' : 'default', background: 'transparent', border: 0, padding: 0, color: 'inherit' } },
       el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.14em', textTransform: 'uppercase', color: o.accent ? C.orange : 'rgba(251,244,218,.7)' } }, lbl),
       el('span', { style: { font: '700 ' + (o.big ? '24px' : '14px') + '/1.1 ' + F, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: o.accent ? C.orange : C.cream } }, val));
     const quote = el('div', { class: 'mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '12px 14px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
@@ -391,9 +391,14 @@ function viewPricing() {
         el('div', { style: { minWidth: 0 } }, ...(q.empty ? [el('div', { style: { font: '500 11px/1.4 ' + F, color: C.ink3, padding: '8px 0' } }, 'Nothing selected yet.')] : q.lines.map(rline))),
         el('div', { style: { background: C.char, color: C.cream, borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '7px', flexShrink: 0, minWidth: '150px', opacity: q.ok ? 1 : .55 } },
           total('Initial', money(q.init), { big: true }),
-          total('Monthly', money(q.mo) + '/mo', { accent: true }),
-          el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }),
-          total('First year', money(q.acv)))));
+          // D2D: first-year cost is tucked away — tap Monthly to flip it into
+          // view, tap again to hide (per Isaac). Standard / Loyalty show it.
+          ...(st.tier === 'd2d'
+            ? [total('Monthly', money(q.mo) + '/mo', { accent: true, title: st.showAcv ? 'Tap to hide first-year cost' : 'Tap to show first-year cost', onclick: () => { st.showAcv = !st.showAcv; rerender(); } }),
+               ...(st.showAcv ? [el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }), total('First year', money(q.acv))] : [])]
+            : [total('Monthly', money(q.mo) + '/mo', { accent: true }),
+               el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }),
+               total('First year', money(q.acv))]))));
 
     // Picker + quote ride together as one sticky block pinned right under
     // the fixed page header (measured live — it's ~60px, not 76 — so the
