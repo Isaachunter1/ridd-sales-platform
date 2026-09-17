@@ -257,9 +257,10 @@ function viewPricing() {
       el('div', { style: { minWidth: 0 } },
         el('div', { style: { font: 'italic 700 16px/1.15 Archivo, Arial, sans-serif', color: C.char } }, txt),
         sub ? el('div', { style: { font: '400 11px/1.25 Archivo, Arial, sans-serif', marginTop: '3px', color: C.ink2 } }, sub) : null));
-    const reviews = el('div', { style: { background: C.cream, borderRadius: '12px', padding: '14px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', justifyContent: 'center' } },
-      el('span', { style: { width: '30px', height: '30px', borderRadius: '50%', background: C.char, color: C.cream, font: '700 17px/30px Archivo, Arial, sans-serif', display: 'inline-block' } }, 'G'),
-      el('span', { style: { color: C.orange, fontSize: '18px', letterSpacing: '.08em', lineHeight: 1 } }, '★★★★★'),
+    // Stretches to fill whatever height the add-ons column leaves (per Isaac).
+    const reviews = el('div', { style: { background: C.cream, borderRadius: '12px', padding: '18px 14px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', justifyContent: 'center', flex: '1 1 auto', minHeight: '150px' } },
+      el('span', { style: { width: '40px', height: '40px', borderRadius: '50%', background: C.char, color: C.cream, font: '700 22px/40px Archivo, Arial, sans-serif', display: 'inline-block' } }, 'G'),
+      el('span', { style: { color: C.orange, fontSize: '22px', letterSpacing: '.08em', lineHeight: 1 } }, '★★★★★'),
       el('b', { style: { font: '700 14px/1.2 Archivo, Arial, sans-serif', color: C.char } }, 'Over 15,000+ Google Reviews'),
       el('small', { style: { font: '500 9px/1 Archivo, Arial, sans-serif', color: C.ink2, letterSpacing: '.12em', textTransform: 'uppercase' } }, '5-star rated'));
 
