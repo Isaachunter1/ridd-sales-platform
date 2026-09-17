@@ -3439,14 +3439,13 @@ function _armSplashWatchdog() {
   }, 12000);
 }
 
-// ── STALE-SESSION WATCHER ────────────────────────────────────────────────
+// ── NEW-VERSION BANNER ───────────────────────────────────────────────────
 // Installed PWAs never reload on their own — reps resume the same page for
-// DAYS, running whatever bundle was live when they last opened it (why the
-// app felt "glitchy for everyone but the admin who hard-refreshes all day").
-// Poll version.json every 5 min + whenever the app comes back to the
-// foreground; when a new deploy is live, reload onto it — deferred while a
-// modal is open or the user is typing, and guarded so one new version can
-// only trigger one reload.
+// DAYS, running whatever bundle was live when they last opened it. Poll
+// version.json (on boot, every 2 min, and whenever the app comes back to
+// the foreground); when a newer deploy is live, pin a banner across the
+// top — "New version is available, refresh here" — with a Refresh button.
+// Nothing reloads by itself (per Isaac): the user picks the moment.
 (() => {
   const _myBundle = (() => {
     try {
@@ -3455,26 +3454,45 @@ function _armSplashWatchdog() {
     } catch { return null; }
   })();
   if (!_myBundle) return;   // sandbox / plain app.js — no version to watch
-  let _reloadArmed = false;
+  let _shownFor = '';
+  const showBanner = (hash) => {
+    if (_shownFor === hash || document.getElementById('newVersionBanner')) return;
+    _shownFor = hash;
+    const bar = el('div', {
+      id: 'newVersionBanner',
+      role: 'status',
+      style: { position: 'fixed', top: '0', left: '0', right: '0', zIndex: '10000',
+               background: 'var(--accent)', color: 'var(--accent-text, #fff)',
+               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', flexWrap: 'wrap',
+               padding: 'calc(8px + env(safe-area-inset-top, 0px)) 16px 8px', font: '600 13px/1.3 Archivo, Arial, sans-serif',
+               boxShadow: '0 6px 20px -8px rgba(0,0,0,.35)' },
+    },
+      el('span', {}, 'New version is available, refresh here'),
+      el('button', {
+        style: { background: '#fff', color: 'var(--accent)', border: 0, borderRadius: '999px', padding: '5px 14px', font: '700 12px/1.2 Archivo, Arial, sans-serif', letterSpacing: '.04em', textTransform: 'uppercase', cursor: 'pointer' },
+        onclick: () => { try { sessionStorage.setItem('ridd_reloaded_for', hash); } catch { /* private */ } location.reload(); },
+      }, 'Refresh'),
+    );
+    document.body.append(bar);
+    // Push the fixed page header down so the banner never covers the title.
+    // (CSS in index.html reads --nv-banner: body.has-nv-banner shifts the
+    // fixed header, the Indicators bar and main down by that much, and it
+    // survives every re-render because it's a class, not inline styles.)
+    const fix = () => { document.documentElement.style.setProperty('--nv-banner', bar.getBoundingClientRect().height + 'px'); };
+    document.body.classList.add('has-nv-banner');
+    fix(); window.addEventListener('resize', fix);
+  };
   const check = async () => {
     try {
-      if (_reloadArmed) return;
       const r = await fetch('/version.json', { cache: 'no-store' });
       if (!r.ok) return;
       const v = await r.json();
       if (!v || !v.hash || v.hash === _myBundle) return;
-      let done = '';
-      try { done = sessionStorage.getItem('ridd_reloaded_for') || ''; } catch { /* private */ }
-      if (done === v.hash) return;                       // already reloaded for this build once
-      const busyTyping = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-      if (busyTyping || document.querySelector('.modal-overlay')) return;   // try again next cycle
-      _reloadArmed = true;
-      try { sessionStorage.setItem('ridd_reloaded_for', v.hash); } catch { /* private */ }
-      try { toast('App updated — refreshing…', 'info'); } catch { /* pre-boot */ }
-      setTimeout(() => location.reload(), 1200);
+      showBanner(v.hash);
     } catch { /* offline — next cycle */ }
   };
-  setInterval(check, 5 * 60 * 1000);
+  setTimeout(check, 4000);
+  setInterval(check, 2 * 60 * 1000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(check, 800); });
 })();
 
