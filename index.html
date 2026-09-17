@@ -243,6 +243,12 @@
   h1, h2, h3 { font-family: var(--font-display); font-weight: 400 !important; letter-spacing: .02em; }
   h1 { font-size: clamp(2.5rem, 6vw, 6rem); line-height: .92; text-transform: uppercase; }
   h2 { letter-spacing: .01em; }
+  /* Toolbar pills (Presets · Filters · trophy · Pick reps …): one height and
+     one horizontal padding everywhere, icon-only ones included, so a row of
+     them lines up (per Isaac). */
+  button.rounded-xl.px-2\.5.py-1.text-\[11px\] {
+    min-height: 30px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; line-height: 1.1;
+  }
   /* Keep the fixed top-bar tab title compact (it lives in a ~60px header). */
   .hb-topbar-title { font-size: clamp(1.45rem, 2.6vw, 2.1rem) !important; line-height: 1 !important; text-transform: uppercase; }
 

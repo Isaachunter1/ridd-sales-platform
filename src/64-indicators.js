@@ -834,12 +834,8 @@ function viewIndicators() {
         })(),
         // ✏️ Customize (rep accounts) — reorder / show-hide the page
         // sections + personal default date range, saved on this device.
-        _repLite && el('button', {
-          class: 'rounded-xl px-2.5 py-1 text-[11px] font-semibold border transition hover:brightness-95 shrink-0',
-          style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-          title: 'Customize my page — section order, visibility, default date range',
-          onclick: () => openRepCustomizeModal(),
-        }, '✏️'),
+        // (✏️ Customize-my-page retired for rep accounts — keep it simple, per Isaac.)
+        null,
         // Custom date pickers still render in their own row below this bar
         // when the Date preset is Custom (see the dedicated row after the
         // toolbar div).
