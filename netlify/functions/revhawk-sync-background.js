@@ -681,11 +681,19 @@ exports.handler = async (event) => {
         last_login: e.last_login || null,
         synced_at: runStamp,
       }));
-      for (let i = 0; i < roster.length; i += 500) {
-        const { error } = await supabase.from('fieldroutes_employees')
-          .upsert(roster.slice(i, i + 500), { onConflict: 'employee_id' });
-        if (error) throw new Error(error.message);
-      }
+      // One row per employee_id — a duplicate inside a single upsert batch
+      // makes Postgres refuse the whole statement ("ON CONFLICT DO UPDATE
+      // command cannot affect row a second time"), which silently skipped
+      // the roster AND everything after it (auto-log) on Sep 16.
+      const _seenEmp = new Set();
+      for (let i = roster.length - 1; i >= 0; i--) { const id = roster[i].employee_id; if (_seenEmp.has(id)) roster.splice(i, 1); else _seenEmp.add(id); }
+      try {
+        for (let i = 0; i < roster.length; i += 500) {
+          const { error } = await supabase.from('fieldroutes_employees')
+            .upsert(roster.slice(i, i + 500), { onConflict: 'employee_id' });
+          if (error) throw new Error(error.message);
+        }
+      } catch (ue) { rosterError = String((ue && ue.message) || ue); console.error('[revhawk-sync] roster upsert failed (continuing with auto-log):', rosterError); }
       // Purge stale rows from a previous grouping scheme (e.g. old max-ID keys):
       // anything not touched by THIS run is no longer a current person.
       if (roster.length) {
