@@ -182,10 +182,10 @@ function retenMethodCard(pop, _retenEff, ground) {
           inp.addEventListener('change', () => {
             const f = inp.files && inp.files[0]; if (!f) return;
             const rd = new FileReader();
-            rd.onload = () => { try { const rows = retenParseCsv(rd.result); if (!rows.length || !('customer id' in rows[0]) || !('subscription' in rows[0])) { toast('CSV needs Customer ID and Subscription columns', 'error'); return; } openRetenReconcileModal(retenReconcile(rows, pop, book, _retenEff)); } catch (e) { toast('Could not read that file: ' + ((e && e.message) || e), 'error'); } };
+            rd.onload = () => { try { const rows = retenParseCsv(rd.result); if (!rows.length || !('customer id' in rows[0]) || !('subscription' in rows[0])) { toast('CSV needs Customer ID and Subscription columns', 'error'); return; } openRetenReconcileModal(retenReconcile(rows, pop, book, _retenEff, g0)); } catch (e) { toast('Could not read that file: ' + ((e && e.message) || e), 'error'); } };
             rd.readAsText(f);
           });
-          return el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Upload your FieldRoutes population (CSV) and diff it against this book, row by row', onclick: (e) => { e.stopPropagation(); inp.click(); } }, '⇄ Reconcile', inp);
+          return el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Upload a FieldRoutes Customer Report (CSV) and diff it against the app — top of the funnel (completed initial, before any step) and the final book, row by row', onclick: (e) => { e.stopPropagation(); inp.click(); } }, '⇄ Reconcile', inp);
         })())));
   if (!open) return card;
   const loadDrops = state._snapshotLoadDrops || null;
