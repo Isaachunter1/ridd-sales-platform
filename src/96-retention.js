@@ -1862,7 +1862,118 @@ function reportingWaterfall() {
       el('div', { class: 'px-4 py-2 text-[10px] text-muted- border-t', style: { borderColor: 'var(--border)' } }, 'Same book as Attrition Steps — switch a step or a reason up there and this table follows.'));
   };
   const repTypeAttritionCard = _attritionByCard('type');
-  const sourceAttritionCard = _attritionByCard('source');
+  // -- Attrition by Source (per Isaac, Sep 2026: the old Attrition-by-Source
+  // table and the Source Quality Ledger folded into one). Population = the
+  // retention book, so the steps card decides what is in; cancels are the
+  // book's counted cancels. Two columns are deliberately measured on the
+  // FULL serviced pool for the source, because they describe the source
+  // even though those subs leave the book: ROR % (buyer's remorse) and
+  // Delinquent % (never really paid). Sortable; small sources fold into
+  // "Other" so the table reads.
+  const sourceAttritionCard = (() => {
+    const MS_D = 86400000;
+    const _yearOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
+    const _rtYear = state._rtAttrYear || 'all';
+    const _srcOf = (r) => String(r.subscription_source || '').trim() || 'Unspecified';
+    const _aliveS = (r) => /active/i.test(String(r.subscription_status || ''));
+    const _isDelinq = (r) => /delinquen/i.test(_normCancelReason(r.subscription_cancellation_reason));
+    const mk = () => ({ subs: 0, active: 0, cxl: 0, arvSold: 0, arrKept: 0, lives: [], rows: [], cxlRows: [], pool: 0, poolCxl: 0, ror: 0, delinq: 0 });
+    const bySrc = new Map();
+    const get = (k) => { let g = bySrc.get(k); if (!g) { g = mk(); bySrc.set(k, g); } return g; };
+    // 1. the book
+    for (const r of _retenEff(popA)) {
+      if (_rtYear !== 'all' && _yearOf(r) !== _rtYear) continue;
+      const g = get(_srcOf(r));
+      const arv = Number(r.annual_recurring_value) || 0;
+      g.subs++; g.arvSold += arv; g.rows.push(r);
+      if (r._effCancel) {
+        g.cxl++; g.cxlRows.push(r);
+        const sd = r.sold_date ? new Date(r.sold_date) : null, cd = new Date(r._effCancel);
+        if (sd && !isNaN(sd) && !isNaN(cd) && cd >= sd) g.lives.push((cd - sd) / MS_D);
+      } else { g.active++; g.arrKept += arv; }
+    }
+    // 2. the full serviced pool — ROR and delinquent rates per source
+    for (const r of popA) {
+      if (_rtYear !== 'all' && _yearOf(r) !== _rtYear) continue;
+      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
+      const g = get(_srcOf(r));
+      g.pool++;
+      const cxl = r.subscription_date_canceled && !_aliveS(r);
+      if (!cxl) continue;
+      g.poolCxl++;
+      if (_reporting3dayRor(r) || /ror|rescission/.test(_normCancelReason(r.subscription_cancellation_reason))) g.ror++;
+      if (_isDelinq(r)) g.delinq++;
+    }
+    const total = mk();
+    for (const g of bySrc.values()) { for (const k of ['subs', 'active', 'cxl', 'arvSold', 'arrKept', 'pool', 'poolCxl', 'ror', 'delinq']) total[k] += g[k]; total.lives.push(...g.lives); total.rows.push(...g.rows); total.cxlRows.push(...g.cxlRows); }
+    if (!total.subs && _rtYear === 'all') return null;
+    const MIN = 20;
+    const other = mk(); const named = [];
+    for (const [k, g] of bySrc) {
+      if (g.subs >= MIN) named.push([k, g]);
+      else { for (const f of ['subs', 'active', 'cxl', 'arvSold', 'arrKept', 'pool', 'poolCxl', 'ror', 'delinq']) other[f] += g[f]; other.lives.push(...g.lives); other.rows.push(...g.rows); other.cxlRows.push(...g.cxlRows); }
+    }
+    const _med = (a) => { if (!a.length) return null; const t = [...a].sort((x, y) => x - y); return t[Math.floor((t.length - 1) / 2)]; };
+    const COLS = [
+      { key: 'source',  label: 'Source',       left: true, get: ([k]) => k.toLowerCase(), str: true },
+      { key: 'subs',    label: 'Subs',         get: ([, g]) => g.subs, tip: 'Subscriptions from this source in the retention book' },
+      { key: 'active',  label: 'Active',       get: ([, g]) => g.active },
+      { key: 'cxl',     label: 'Cancelled',    get: ([, g]) => g.cxl, tip: 'Counted cancels (the book’s rules)' },
+      { key: 'attr',    label: 'Attrition %',  get: ([, g]) => g.subs ? g.cxl / g.subs : -1, tip: 'Cancelled ÷ subs' },
+      { key: 'kept',    label: 'ARR retained', get: ([, g]) => g.arrKept, tip: 'Annual recurring value of the active subs' },
+      { key: 'perSub',  label: '$ Kept / Sub', get: ([, g]) => g.subs ? g.arrKept / g.subs : 0, tip: 'Retained ARR ÷ every sub the source produced — the quality headline' },
+      { key: 'ror',     label: 'ROR %',        get: ([, g]) => g.pool ? g.ror / g.pool : -1, tip: '3-day right-of-rescission cancels ÷ every serviced sub from the source (full pool, not just the book)' },
+      { key: 'delinq',  label: 'Delinq %',     get: ([, g]) => g.pool ? g.delinq / g.pool : -1, tip: 'Died delinquent / collections ÷ every serviced sub from the source (full pool)' },
+      { key: 'life',    label: 'Med. life',    get: ([, g]) => _med(g.lives) ?? -1, tip: 'Median sold → cancel for the counted cancels' },
+      { key: 'arv',     label: 'Avg ARV',      get: ([, g]) => g.subs ? g.arvSold / g.subs : 0 },
+    ];
+    if (!state._rtSrcSort) state._rtSrcSort = { key: 'subs', dir: 'desc' };
+    const sort = state._rtSrcSort;
+    const col = COLS.find(c => c.key === sort.key) || COLS[1];
+    named.sort((a, b) => { const av = col.get(a), bv = col.get(b); const d = col.str ? String(av).localeCompare(String(bv)) : av - bv; return sort.dir === 'asc' ? d : -d; });
+    if (other.subs) named.push(['Other (small sources)', other]);
+    const pct = (n, d) => d > 0 ? (n / d * 100).toFixed(1) + '%' : '—';
+    const th = (c) => el('th', {
+      class: 'px-3 py-2 whitespace-nowrap text-left cursor-pointer select-none' + (sort.key === c.key ? ' font-black' : ''),
+      style: sort.key === c.key ? { color: 'var(--accent)' } : {}, title: (c.tip ? c.tip + ' · ' : '') + 'click to sort',
+      onclick: () => { state._rtSrcSort = sort.key === c.key ? { key: c.key, dir: sort.dir === 'asc' ? 'desc' : 'asc' } : { key: c.key, dir: c.str ? 'asc' : 'desc' }; mountApp(); },
+    }, c.label + (sort.key === c.key ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''));
+    const td = (t, o = {}) => el('td', { class: 'px-3 py-2 whitespace-nowrap text-left tabular-nums' + (o.bold ? ' font-bold' : ''), style: o.style || {} }, t);
+    const row = ([k, g], bold) => {
+      const attr = g.subs ? g.cxl / g.subs : null;
+      const med = _med(g.lives);
+      return el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95' + (bold ? ' font-bold' : ''), style: { borderColor: 'var(--border)', background: bold ? 'var(--card-2)' : '' }, title: 'Click for the counted cancels',
+        onclick: () => g.cxlRows.length && openReportingDrillModal({ chartTitle: 'Attrition by Source · ' + k, sliceLabel: fmt.int(g.cxlRows.length) + ' counted cancels of ' + fmt.int(g.subs), rows: g.cxlRows, formatValue: (v) => fmt.usd0(v) }) },
+        el('td', { class: 'px-3 py-2 whitespace-nowrap' + (bold ? '' : ' font-semibold') }, k),
+        td(fmt.int(g.subs)), td(fmt.int(g.active)), td(fmt.int(g.cxl)),
+        td(pct(g.cxl, g.subs), { bold: true, style: attr != null && attr >= 0.15 ? { color: '#DC2626' } : attr != null && attr < 0.08 ? { color: '#DF643A' } : {} }),
+        td(fmt.usd0(g.arrKept)), td(g.subs ? fmt.usd0(g.arrKept / g.subs) : '—', { bold: true }),
+        td(pct(g.ror, g.pool), { style: g.pool && g.ror / g.pool >= 0.05 ? { color: '#DC2626', fontWeight: '700' } : {} }),
+        td(pct(g.delinq, g.pool), { style: g.pool && g.delinq / g.pool >= 0.10 ? { color: '#DC2626', fontWeight: '700' } : {} }),
+        td(med == null ? '—' : (med / 30.44).toFixed(1) + ' mo'),
+        td(g.subs ? fmt.usd0(g.arvSold / g.subs) : '—'));
+    };
+    const _rtYears = [...new Set(popA.map(_yearOf).filter(Boolean))].sort((a, b) => b - a);
+    return el('div', { class: 'card overflow-hidden' },
+      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
+        el('div', {},
+          el('div', { class: 'font-display text-lg' }, 'Attrition by Source'),
+          el('div', { class: 'text-[11px] text-muted-' }, 'Where the account CAME FROM · ' + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear) + (office !== 'all' ? ' · ' + officeLabel(office) : '') + ' · ROR % and Delinq % are measured on every serviced sub from the source, the rest on the retention book. Click a column to sort, a row for the cancels.')),
+        el('div', { class: 'flex items-center gap-2 flex-wrap' },
+          el('select', {
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
+            onchange: (e) => { state._rtAttrYear = e.target.value === 'all' ? 'all' : Number(e.target.value); mountApp(); },
+          },
+            el('option', { value: 'all', selected: _rtYear === 'all' }, 'All years'),
+            ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))),
+          el('span', { class: 'text-[10px] text-muted-' }, fmt.int(total.subs) + ' in the retention book'))),
+      !total.subs ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No accounts in this cohort under the current rules.') :
+      el('div', { style: { overflow: 'auto', maxHeight: '520px' } }, el('table', { class: 'w-full text-xs' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: 0, zIndex: 1 } }, el('tr', { style: { background: 'var(--card-2)' } }, ...COLS.map(th))),
+        el('tbody', {}, ...named.map(x => row(x, false)), row(['RIDD · Total', total], true)))),
+      el('div', { class: 'px-4 py-2 text-[10px] text-muted- border-t', style: { borderColor: 'var(--border)' } }, 'Same book as Attrition Steps — switch a step or a reason up there and this table follows. Sources under ' + MIN + ' subs fold into Other.'));
+  })();
 
   // ("True Attrition" bar retired per Isaac, Sep 2026.)
 
@@ -2182,121 +2293,13 @@ function reportingWaterfall() {
   })();
 
 
-  // -- Source Quality Ledger (per Isaac) -- rank lead sources by dollars
-  // that actually STICK, not by sales counts. A source whose accounts die
-  // delinquent at month 3 and a source that runs 3 years both look like "a
-  // sale" everywhere else; this card scores them on retained ARR per sub,
-  // early-death rates, and lifetime. Renewals are excluded by default (they
-  // are not acquisition); flip the chips to widen the lens.
-  const sourceLedgerCard = (() => {
-    if (!state._rtSrcLedger) state._rtSrcLedger = { renewal: true, onetime: true };
-    const _sx = state._rtSrcLedger;
-    const MS_D = 86400000;
-    const _aliveS = (r) => /active/i.test(String(r.subscription_status || ''));
-    const _isOneS = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
-      || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
-    const _isDelinq = (r) => /delinquen/i.test(_normCancelReason(r.subscription_cancellation_reason));
-    const bySrc = new Map();
-    let totalSubs = 0;
-    for (const r of popA) {
-      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
-      if (_sx.renewal && reportingSourceClass(r.subscription_source) === 'renewal') continue;
-      if (_sx.onetime && _isOneS(r)) continue;
-      const k = String(r.subscription_source || '').trim() || 'Unspecified';
-      let g = bySrc.get(k);
-      if (!g) { g = { subs: 0, active: 0, cxl: 0, ror: 0, delinq: 0, arrKept: 0, arvSold: 0, lives: [], rows: [] }; bySrc.set(k, g); }
-      g.subs++; totalSubs++; g.rows.push(r);
-      const arv = Number(r.annual_recurring_value) || 0;
-      g.arvSold += arv;
-      const cxl = r.subscription_date_canceled && !_aliveS(r);
-      if (_reporting3dayRor(r) && cxl) g.ror++;
-      if (cxl) {
-        g.cxl++;
-        if (_isDelinq(r)) g.delinq++;
-        const sd = r.sold_date ? new Date(r.sold_date) : null;
-        const cd = new Date(r.subscription_date_canceled);
-        if (sd && !isNaN(sd) && !isNaN(cd) && cd >= sd) g.lives.push((cd - sd) / MS_D);
-      } else { g.active++; g.arrKept += arv; }
-    }
-    if (!totalSubs) return null;
-    // Small sources fold into "Other" so the table reads.
-    const MIN = 20;
-    const other = { subs: 0, active: 0, cxl: 0, ror: 0, delinq: 0, arrKept: 0, arvSold: 0, lives: [], rows: [] };
-    const named = [];
-    for (const [k, g] of bySrc) {
-      if (g.subs >= MIN) named.push([k, g]);
-      else {
-        other.subs += g.subs; other.active += g.active; other.cxl += g.cxl; other.ror += g.ror;
-        other.delinq += g.delinq; other.arrKept += g.arrKept; other.arvSold += g.arvSold;
-        other.lives.push(...g.lives); other.rows.push(...g.rows);
-      }
-    }
-    named.sort((a, b) => (b[1].arrKept / b[1].subs) - (a[1].arrKept / a[1].subs));
-    if (other.subs) named.push(['Other (small sources)', other]);
-    const _medS = (a) => { if (!a.length) return null; const t = [...a].sort((x, y) => x - y); return t[Math.floor((t.length - 1) / 2)]; };
-    const thS = (lab, right, tip) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap', title: tip || '' }, lab);
-    const pctCell = (n, d, redAt) => el('td', {
-      class: 'px-3 py-2 text-left tabular-nums',
-      style: d > 0 && n / d >= redAt ? { color: '#DC2626', fontWeight: '700' } : {},
-    }, d > 0 ? (n / d * 100).toFixed(1) + '%' : '—');
-    const srcRow = ([k, g]) => {
-      const med = _medS(g.lives);
-      const perSub = g.subs ? g.arrKept / g.subs : 0;
-      return el('tr', {
-        class: 'border-t cursor-pointer transition hover:brightness-95', style: { borderColor: 'var(--border)' },
-        onclick: () => openReportingDrillModal({
-          chartTitle: 'Source — ' + k,
-          sliceLabel: fmt.int(g.subs) + ' serviced subs · ' + fmt.usd0(g.arrKept) + ' ARR retained',
-          rows: g.rows, formatValue: (v) => fmt.usd0(v) }),
-      },
-        el('td', { class: 'px-3 py-2 whitespace-nowrap font-semibold' }, k),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(g.subs)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums font-black', style: { color: 'var(--accent)' } }, fmt.usd0(perSub)),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.usd0(g.arrKept)),
-        pctCell(g.active, g.subs, 2),   // never red — retention is good
-        pctCell(g.cxl, g.subs, 0.5),
-        pctCell(g.ror, g.subs, 0.08),
-        pctCell(g.delinq, g.subs, 0.15),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, med == null ? '—' : (med / 30.44).toFixed(1) + ' mo'),
-        el('td', { class: 'px-3 py-2 text-left tabular-nums' }, g.subs ? fmt.usd0(g.arvSold / g.subs) : '—'));
-    };
-    return el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
-        el('div', {},
-          el('div', { class: 'font-display text-lg' }, 'Source Quality Ledger'),
-          el('div', { class: 'text-[11px] text-muted-' },
-            'Which lead sources produce revenue that STICKS. Ranked by retained ARR per sub sold · serviced subs only'
-            + (office !== 'all' ? ' · ' + officeLabel(office) : '') + ' · click a source for its accounts.')),
-        el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          ...[['renewal', 'Renewals'], ['onetime', 'One-Time']].map(([k, lab]) => el('button', {
-            class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
-            style: _sx[k]
-              ? { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'transparent' }
-              : { borderColor: 'var(--accent)', color: 'var(--accent-text)', background: 'var(--accent)' },
-            title: _sx[k] ? lab + ' excluded — click to include' : lab + ' included — click to exclude',
-            onclick: () => { _sx[k] = !_sx[k]; mountApp(); },
-          }, (_sx[k] ? 'Excl. ' : 'Incl. ') + lab)),
-          el('span', { class: 'text-[10px] text-muted-' }, fmt.int(totalSubs) + ' serviced subs'))),
-      el('div', { class: 'overflow-x-auto' },
-        el('table', { class: 'w-full text-xs' },
-          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
-            thS('Source'), thS('Subs', 1),
-            thS('$ Kept / Sub', 1, 'Retained ARR ÷ every sub the source ever produced — the quality headline'),
-            thS('ARR Retained', 1), thS('Active %', 1), thS('Attrition %', 1),
-            thS('ROR %', 1, '3-day right-of-rescission cancels — buyer’s-remorse rate'),
-            thS('Delinq %', 1, 'Died delinquent / collections — accounts that never really paid'),
-            thS('Med. Life', 1, 'Median lifetime of this source’s cancelled accounts'),
-            thS('Avg ARV', 1))),
-          el('tbody', {}, ...named.map(srcRow)))),
-      el('div', { class: 'px-4 py-2 text-[10px] text-muted- border-t', style: { borderColor: 'var(--border)' } },
-        'Sources under ' + MIN + ' subs fold into "Other". $ Kept / Sub is the number to buy against: pair it with what each source costs you per sale and the ledger becomes LTV vs. CAC.'));
-  })();
+  // (Source Quality Ledger folded into Attrition by Source — per Isaac, Sep 2026.)
 
   // Cancel Hygiene moved to Settings > Admin > Data Integrity (per Isaac).
   // (Renewal Outreach queue retired per Isaac, Sep 2026 — renewalQueueCard stays defined.)
   // The section tabs AND the Office / Metrics bar freeze together under the
   // page header (per Isaac) so both travel down the tab.
   const frozen = el('div', { class: 'flex flex-col gap-3', style: { position: 'sticky', top: 'calc(' + _hdrH + 'px + var(--nv-banner, 0px))', zIndex: 25, background: 'var(--bg)', paddingTop: '6px', paddingBottom: '8px', marginTop: '-14px' } }, _secBar, modeBar);   // no negative bottom margin: the painted padding would cover the next card
-  return el('div', { class: 'flex flex-col gap-4' }, frozen, retenMethodCard(popA, _retenEff, groundA), body, repTypeAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard, sourceLedgerCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  return el('div', { class: 'flex flex-col gap-4' }, frozen, retenMethodCard(popA, _retenEff, groundA), body, repTypeAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
