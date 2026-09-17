@@ -326,6 +326,10 @@ function viewSales() {
 // inserted, marks the ghost claimed (linked to the new sale). Not mine
 // dismisses it (admins can still see dismissed rows in the DB).
 function unloggedSalesBlock(isAdmin) {
+  // Per Isaac: with auto-log on, sales match by FieldRoutes rep id — nobody
+  // claims anything. The strip only shows when auto-log is switched off.
+  const _al = state._autolog || state._autologCache;
+  if (!_al || _al.enabled) return null;   // unknown yet or ON → no strip
   const all = state.unloggedSales || [];
   const mine = all.filter(g => g.status === 'open' && (isAdmin || g.rep_id === state.profile?.id));
   if (!mine.length) return null;
