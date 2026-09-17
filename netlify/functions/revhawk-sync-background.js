@@ -117,7 +117,11 @@ cust AS (
     fieldRoutes_responsibleBalanceAge AS dpd,
     fieldRoutes_responsibleBalance AS resp_balance,
     fieldRoutes_customerSource AS csource,
-    fieldRoutes_officeID AS office_id
+    fieldRoutes_officeID AS office_id,
+    -- Customer-card buttons (per Isaac): the "Paid In Full" button the reps
+    -- press, and the Commercial Account toggle. Both '0'/'1'.
+    fieldRoutes_paidInFull AS pif,
+    fieldRoutes_commercialAccount AS commercial
   FROM (
     SELECT *, ROW_NUMBER() OVER (PARTITION BY fieldRoutes_customerID ORDER BY updatedAt DESC, createdAt DESC) AS rn
     FROM \`${PROJECT}.${DATASET}.FieldRoutesCustomer\`
@@ -195,6 +199,8 @@ SELECT
   NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00') AS sold_date,
   CASE WHEN s.fieldRoutes_dateAdded IS NULL OR s.fieldRoutes_dateAdded LIKE '0000%' THEN NULL ELSE LEFT(s.fieldRoutes_dateAdded,19) END AS sold_at,
   cust.apay AS customer_auto_pay,
+  cust.pif AS customer_paid_in_full,
+  cust.commercial AS customer_commercial,
   flags.flags AS customer_flags,
   -- No FieldRoutesCustomer row for this sub's customer id = the account was
   -- deleted in the CRM (the mirror never removes rows) — or, rarely, the
@@ -948,8 +954,8 @@ exports.handler = async (event) => {
               monthly_amount: monthly,
               num_services: null,
               pay_per_service: false,
-              paid_in_full: cv > 0 && initial >= 0.9 * cv,   // initial invoice covers the year -> PIF
-              is_commercial: false,
+              paid_in_full: String(r.customer_paid_in_full || '') === '1',   // the Paid In Full button on the customer card (per Isaac)
+              is_commercial: String(r.customer_commercial || '') === '1',      // Commercial Account toggle on the customer card
               revenue_amount: cv,
               sold_date: soldIso,
               commission_date: null,
@@ -1329,7 +1335,7 @@ exports.handler = async (event) => {
       const _failV = String(((_alV.data && _alV.data.value) || {}).audit_fail_flag ?? 'Failed Audit').trim().toLowerCase();
       const _auditV = (r) => { if (!r) return null; const fl = String(r.customer_flags || '').split(',').map(f => f.trim().toLowerCase()); return fl.includes(_flagV) ? 'passed' : (_failV && fl.includes(_failV)) ? 'failed' : null; };
       let { data: appSales, error: asErr } = await supabase.from('sales')
-        .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state, crm_initial_status, crm_autopay, crm_subscription_id, upfront_collected, crm_audit, crm_first_paid_at')
+        .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state, crm_initial_status, crm_autopay, crm_subscription_id, upfront_collected, crm_audit, crm_first_paid_at')
         .gte('sold_date', since);
       let _agreementCols = true;   // flips off if sales_crm_agreement.sql hasn't been run
       let _eligCols = true;        // flips off if 20260916_sales_eligibility.sql hasn't been run
@@ -1337,27 +1343,27 @@ exports.handler = async (event) => {
         _paidCol = false;
         console.warn('[revhawk-sync] crm_first_paid_at missing — run migrations/20260917_sales_first_paid.sql to enable the commissionable-date rule');
         ({ data: appSales, error: asErr } = await supabase.from('sales')
-          .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state, crm_initial_status, crm_autopay, crm_subscription_id, upfront_collected, crm_audit')
+          .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state, crm_initial_status, crm_autopay, crm_subscription_id, upfront_collected, crm_audit')
           .gte('sold_date', since));
       }
       if (asErr && /crm_initial_status|crm_autopay/i.test(asErr.message || '')) {
         _eligCols = false;
         ({ data: appSales, error: asErr } = await supabase.from('sales')
-          .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state')
+          .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state')
           .gte('sold_date', since));
       }
       if (asErr && /crm_contract_signed_at|crm_contract_state/i.test(asErr.message || '')) {
         _agreementCols = false;
         console.warn('[revhawk-sync] agreement columns missing - run sales_crm_agreement.sql to enable signed-agreement stamps');
         ({ data: appSales, error: asErr } = await supabase.from('sales')
-          .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance')
+          .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance')
           .gte('sold_date', since));
       }
       if (asErr && /column|schema cache/i.test(asErr.message || '')) {
         _lifecycleCols = false;
         console.warn('[revhawk-sync] lifecycle columns missing - run sales_crm_lifecycle.sql to enable serviced/paid stamps');
         ({ data: appSales, error: asErr } = await supabase.from('sales')
-          .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value')
+          .select('id, customer_number, revenue_amount, sold_date, paid_in_full, is_commercial, crm_status, crm_contract_value')
           .gte('sold_date', since));
       }
       if (asErr) throw new Error(asErr.message);
@@ -1408,13 +1414,12 @@ exports.handler = async (event) => {
             lc.best = best;
             lc.signed_at = best.contract_signed_at ? String(best.contract_signed_at).slice(0, 10) : null;
             lc.contract_state = best.contract_state ? String(best.contract_state) : 'none';
-            // PAID-IN-FULL auto-detect: initial invoice covers >=90% of the
-            // contract value AND no balance owing — the customer paid the
-            // year upfront. One-way stamp (never un-sets) so a later balance
-            // blip can't flap commissions.
-            lc.pif = cv > 0
-              && (Number(best.initial_price) || 0) >= 0.9 * cv
-              && (lc.balance == null || lc.balance <= 0.01);
+            // PAID-IN-FULL = the "Paid In Full" button on the FieldRoutes
+            // customer card (per Isaac) — the card is the source of truth,
+            // so this follows it both ways. Same for Commercial Account.
+            lc.pif = String(best.customer_paid_in_full || '') === '1';
+            lc.commercial = String(best.customer_commercial || '') === '1';
+            lc.cardKnown = true;
           }
           // Only write rows whose verdict OR lifecycle actually changed —
           // keeps the pass near-free once things settle.
@@ -1424,7 +1429,8 @@ exports.handler = async (event) => {
             (Number(s.crm_completed_services) || 0) !== (lc.completed || 0) ||
             (s.crm_days_past_due == null ? null : Number(s.crm_days_past_due)) !== lc.dpd ||
             (s.crm_balance == null ? null : Number(s.crm_balance)) !== lc.balance);
-          const pifChanged = lc.pif && !s.paid_in_full;
+          const pifChanged = !!lc.cardKnown && (!!s.paid_in_full) !== lc.pif;
+          const commChanged = !!lc.cardKnown && (!!s.is_commercial) !== !!lc.commercial;
           const flagNow = _hasFlagV(lc.best);
           const flagChanged = !!s.crm_subscription_id && (!!s.upfront_collected) !== flagNow;
           const auditNow = _auditV(lc.best);
@@ -1435,13 +1441,14 @@ exports.handler = async (event) => {
           const eligChanged = _eligCols && lc.best && (
             String(s.crm_initial_status || '') !== (String(lc.best.initial_status || '').trim() || 'None')
             || (s.crm_autopay == null || !!s.crm_autopay) !== (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })());
-          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged && !sigChanged && !eligChanged && !flagChanged && !auditChanged) continue;
+          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged && !commChanged && !sigChanged && !eligChanged && !flagChanged && !auditChanged) continue;
           const upd = { crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp };
           if (_lifecycleCols) { upd.crm_serviced_at = lc.serviced_at; upd.crm_completed_services = lc.completed; upd.crm_days_past_due = lc.dpd; upd.crm_balance = lc.balance; }
           if (_lifecycleCols && _paidCol) upd.crm_first_paid_at = lc.first_paid_at;
           if (_eligCols && lc.best) { upd.crm_initial_status = String(lc.best.initial_status || '').trim() || 'None'; upd.crm_autopay = (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })(); }
           if (_agreementCols) { upd.crm_contract_signed_at = lc.signed_at; upd.crm_contract_state = lc.contract_state; }
-          if (pifChanged) upd.paid_in_full = true;
+          if (pifChanged) upd.paid_in_full = lc.pif;
+          if (commChanged) upd.is_commercial = !!lc.commercial;
           if (flagChanged) upd.upfront_collected = flagNow;
           if (auditChanged) upd.crm_audit = auditNow;
           let { error } = await supabase.from('sales').update(upd).eq('id', s.id);
