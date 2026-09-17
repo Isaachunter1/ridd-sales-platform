@@ -119,7 +119,7 @@ function viewSales() {
       case 'monthly_amount':  return Number(s.monthly_amount || 0);
       case 'revenue_amount':  return Number(s.revenue_amount || 0);
       case 'sold_date':       return s.sold_date || '';
-      case 'commission_date': return s.bill_date || s.commission_date || '';
+      case 'commission_date': return (commissionableDate(s) || {}).date || '';
       case 'audit_status':    return s.audit_status || '';
       case 'audited_by':      return (state.allProfiles.find(p => p.id === s.audited_by)?.full_name || '').toLowerCase();
       case 'created_at':      return new Date(s.created_at || s.sold_date).getTime();
@@ -581,12 +581,13 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
     const arrow = '';   // arrows retired app-wide — active header is highlighted
     const hlStyle = isActive ? { color: 'var(--accent)', fontWeight: '800' } : {};
     const baseClass = (align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left') + ' px-2 py-2 font-semibold whitespace-nowrap ' + extraClass;
+    const title = typeof opts === 'string' ? '' : (opts.title || '');
     if (!sortableKey || !onSort) {
-      return el('th', { class: baseClass }, label + arrow);
+      return el('th', { class: baseClass, title }, label + arrow);
     }
     return el('th', {
       class: baseClass + ' cursor-pointer select-none hover:text-default transition',
-      style: hlStyle,
+      style: hlStyle, title,
       onclick: () => onSort(sortableKey),
     }, label + arrow);
   };
@@ -610,7 +611,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             !showBackend && headerCell('Monthly',     { sortableKey: 'monthly_amount', align: 'right' }),
             headerCell('Revenue',     { sortableKey: 'revenue_amount', align: 'right' }),
             headerCell('Sold Date',   { sortableKey: 'sold_date' }),
-            headerCell('Bill Date',   { sortableKey: 'commission_date' }),
+            headerCell('Bill Date',   { sortableKey: 'commission_date', title: 'Commissionable date — charged upfront: the sale date (unless pre-service cancel); otherwise the later of initial service completed and first payment received' }),
             // Three flags, sheet-style (per Isaac): PIF · COMM. (commission
             // paid out) · Upfront (payment collected at signing). Admins
             // toggle PIF / Upfront right here; COMM. is read-only — it is
@@ -681,7 +682,10 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap text-muted-' }, fmt.usd(s.monthly_amount)),
               el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap' }, fmt.usd(s.revenue_amount)),
               cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, fmt.dateShortYear(s.sold_date))),
-              cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, (s.bill_date || s.commission_date) ? fmt.dateShortYear(s.bill_date || s.commission_date) : '—')),
+              cell((() => {
+                const c = commissionableDate(s);
+                return el('span', { class: 'tabular-nums whitespace-nowrap ' + (c.date ? 'font-medium' : 'text-muted-'), title: c.why, style: c.date ? {} : { color: 'var(--text-subtle)' } }, c.date ? fmt.dateShortYear(c.date) : c.short);
+              })()),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'paid_in_full', isAdmin, 'Paid in Full — no backend hold, full commission paid upfront')),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, '_comm_paid', false, s.payroll_processed_at ? 'Commission paid ' + fmt.dateShortYear(String(s.payroll_processed_at).slice(0, 10)) : (s.staged_for_payroll ? 'Staged for the next payroll' : 'Commission not paid yet'))),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'upfront_collected', isAdmin, 'Charged Upfront — payment collected at signing (feeds the Charge Upfront % tier)')),
@@ -869,6 +873,28 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
 // editable select; everyone else sees the read-only chip. No more audit-note
 // popover \u2014 picking a status writes immediately and stamps audited_by to the
 // current user.
+// Commissionable ("Bill") date — the rule per Isaac (Sep 17 2026):
+//   · Charged upfront → the sale date, unless the account cancelled before
+//     its initial service (pre-service cancel → not commissionable)
+//   · Not charged upfront → the LATER of the initial completed service and
+//     the first payment received (both stamped from FieldRoutes by the sync)
+//   · A hand-entered commission_date on the sale wins over the derived one
+//     (override for edge cases).
+function commissionableDate(s) {
+  if (s.commission_date) return { date: String(s.commission_date).slice(0, 10), short: '', why: 'Commission date entered on the sale (override)' };
+  const cancelled = ['cancelled', 'nsf', 'not_payable', 'rejected'].includes(s.audit_status) || /cancel/i.test(String(s.crm_initial_status || ''));
+  const serviced = s.crm_serviced_at ? String(s.crm_serviced_at).slice(0, 10) : null;
+  const paid = s.crm_first_paid_at ? String(s.crm_first_paid_at).slice(0, 10) : null;
+  if (s.upfront_collected) {
+    if (cancelled && !serviced) return { date: null, short: 'pre-svc cancel', why: 'Charged upfront but cancelled before the initial service — not commissionable' };
+    return { date: String(s.sold_date || '').slice(0, 10) || null, short: '—', why: 'Charged upfront — commissionable on the sale date' };
+  }
+  if (serviced && paid) { const d = serviced > paid ? serviced : paid; return { date: d, short: '', why: 'Initial service completed ' + serviced + ' · first payment ' + paid + ' — commissionable on the later of the two' }; }
+  if (serviced && !paid) return { date: null, short: 'awaiting payment', why: 'Initial service completed ' + serviced + ' but no payment received yet' };
+  if (!serviced && paid) return { date: null, short: 'awaiting service', why: 'Payment received ' + paid + ' but the initial service hasn’t been completed yet' };
+  if (cancelled) return { date: null, short: 'cancelled', why: 'Cancelled before service and payment — not commissionable' };
+  return { date: null, short: 'not yet', why: 'Not charged upfront — becomes commissionable once the initial service is completed AND a payment is received' };
+}
 // Sheet-style flag box (per Isaac): PIF / Comm. / Upfront. Admin-editable
 // boolean columns save straight to the sale; read-only ones just display.
 function saleFlagBox(sale, field, editable, tip) {
