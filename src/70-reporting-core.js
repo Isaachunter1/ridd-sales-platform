@@ -687,6 +687,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
       { key: 'county',     label: 'County',          align: 'left',  type: 'str', get: r => (r.county || '').toLowerCase() },
     ] : []),
     { key: 'subscription', label: 'Subscription',    align: 'left',  type: 'str', get: r => (r.subscription || '').toLowerCase() },
+    { key: 'source',       label: 'Source',          align: 'left',  type: 'str', get: r => (r.subscription_source || '').toLowerCase() },
     { key: 'status',       label: 'Status',          align: 'left',  type: 'str', get: r => (r.subscription_status || '').toLowerCase() },
     ...(hasFlags ? [{ key: 'svcs', label: 'Svcs', align: 'right', type: 'num', get: r => Number(r.subscription_completed_services) || 0 }] : []),
     ...(hasFlags ? [{ key: 'flag', label: 'Flag', align: 'left',  type: 'str', get: r => (r._flagReason || '').toLowerCase() }] : []),
@@ -729,6 +730,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
     hasLoc && el('td', { class: 'px-3 py-2 tabular-nums' }, r.zip_code || '—'),
     hasLoc && el('td', { class: 'px-3 py-2' }, r.county || '—'),
     el('td', { class: 'px-3 py-2' }, r.subscription || '—'),
+    el('td', { class: 'px-3 py-2' }, r.subscription_source || '—'),
     el('td', { class: 'px-3 py-2' }, r.subscription_status || '—'),
     hasFlags && el('td', { class: 'px-3 py-2 text-right tabular-nums' }, String(Number(r.subscription_completed_services) || 0)),
     hasFlags && el('td', { class: 'px-3 py-2' },
@@ -810,7 +812,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
   // render window — the workflow for hunting CRM errors needs every row.
   const exportCsv = () => {
     const data = sortedCache || computeSorted();
-    const head = ['Customer', 'Customer ID', 'Office', 'Sold By', 'Sold By Type', 'Subscription', 'Status', 'Completed Services', 'Flag', 'ARV', 'Contract', 'Initial Service', 'Days Past Due', 'Canceled Date', 'Cancel Reason'];
+    const head = ['Customer', 'Customer ID', 'Office', 'Sold By', 'Sold By Type', 'Subscription', 'Source', 'Status', 'Completed Services', 'Flag', 'ARV', 'Contract', 'Initial Service', 'Days Past Due', 'Canceled Date', 'Cancel Reason'];
     const lines = [head.map(csvEsc).join(',')];
     for (const r of data) {
       lines.push([
@@ -820,6 +822,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
         csvEsc(r.sold_by || ''),
         csvEsc(r.sold_by_type || ''),
         csvEsc(r.subscription || ''),
+        csvEsc(r.subscription_source || ''),
         csvEsc(r.subscription_status || ''),
         Number(r.subscription_completed_services) || 0,
         csvEsc(r._flagReason || ''),
