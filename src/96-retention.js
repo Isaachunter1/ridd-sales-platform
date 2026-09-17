@@ -274,7 +274,12 @@ function reportingWaterfall() {
 
   const _methodologyInfo = (typeof reportingMethodologyInfoBtn === 'function') ? reportingMethodologyInfoBtn() : null;
   const _phoneR = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
-  const modeBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
+  // The Office picker drives EVERY table on this tab (per Isaac), so the bar
+  // stays pinned under the page header while scrolling — switch RIDD → a
+  // branch from anywhere on the page.
+  const _hdrEl = document.querySelector('header.page-header');
+  const _hdrH = _hdrEl ? Math.round(_hdrEl.getBoundingClientRect().height) : 60;
+  const modeBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap', style: { position: 'sticky', top: 'calc(' + _hdrH + 'px + var(--nv-banner, 0px) + 8px)', zIndex: 25, boxShadow: '0 6px 16px -10px rgba(50,50,48,.35)' } },
     // ONE office filter for the whole tab (per Isaac) — the shared Reporting
     // scope, so every card below (Attrition Steps, waterfall, seasonality,
     // rep type, lifetime, renewals, sources) reads the same population.
@@ -869,7 +874,25 @@ function reportingWaterfall() {
             el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, 'Month'),
             ...yearsShown.map(y => el('th', { class: 'text-left px-2 py-2 font-semibold' }, String(y))),
             el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Avg'))),
-        el('tbody', {}, ...Array.from({ length: 12 }, (_, i) => monthRow(i + 1)))));
+        el('tbody', {}, ...Array.from({ length: 12 }, (_, i) => monthRow(i + 1)),
+          // ── TOTAL row (per Isaac): the year's monthly rates added up (≈ the
+          // annual attrition the months compound to) with the cancels behind it.
+          (() => {
+            const tot = yearsShown.map(y => {
+              let n = 0, rate = 0, months = 0;
+              for (let m = 1; m <= 12; m++) { if (y === curY && m > curM) break; const v = rateOf(y, m); if (!v) continue; n += v.n; rate += v.rate; months++; }
+              return months ? { n, rate, months, partial: y === curY } : null;
+            });
+            const full = tot.filter(t => t && !t.partial && t.months === 12);
+            const avg = full.length ? full.reduce((a, t) => a + t.rate, 0) / full.length : null;
+            return el('tr', { class: 'border-t-2', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
+              el('td', { class: 'px-2.5 py-2 font-black' }, 'Total'),
+              ...tot.map((t, i) => t ? el('td', { class: 'px-2 py-2 tabular-nums font-black', title: MONTHS_S[0] + '–' + MONTHS_S[t.months - 1] + ' ' + yearsShown[i] + ': ' + fmt.int(t.n) + ' cancels · monthly rates added up' + (t.partial ? ' (year to date)' : '') },
+                (t.rate * 100).toFixed(1) + '%', el('span', { class: 'text-[9px] ml-1', style: { opacity: '.65' } }, '(' + fmt.int(t.n) + ')'),
+                t.partial ? el('div', { class: 'text-[9px] font-bold', style: { opacity: '.6', marginTop: '1px' } }, 'YTD') : null)
+                : el('td', { class: 'px-2 py-2', style: { color: 'var(--text-subtle)' } }, '—')),
+              el('td', { class: 'px-2 py-2 tabular-nums font-black', title: 'Average of the full years shown' }, avg == null ? '—' : (avg * 100).toFixed(1) + '%'));
+          })())));
     // ── TIMELINE — one continuous monthly churn line across all history,
     // draggable: grab the chart and pull forwards/backwards through time. ──
     // ── REASONS — MoM churn-rate contribution per cancellation reason:
@@ -1544,7 +1567,11 @@ function reportingWaterfall() {
     const isDark = state.theme === 'dark';
     const gray = isDark ? '#6b6b63' : '#B8B8AE';
     const SEG_COLORS = { all: isDark ? '#E6E6DC' : '#323230', lr: '#DC2626', std: '#DF643A' };
-    const _dashFor = (y) => y === curY ? [] : (curY - y === 1 ? [6, 4] : [3, 3]);
+    // One colour per year (per Isaac — five dotted black lines were unreadable):
+    // this year = charcoal, then orange, sage, blue, purple, teal going back.
+    const YEAR_PALETTE = [isDark ? '#E6E6DC' : '#323230', '#DF643A', '#5F6C5B', '#2563EB', '#7C3AED', '#0D9488', '#CA8A04'];
+    const _colorFor = (y) => YEAR_PALETTE[Math.min(YEAR_PALETTE.length - 1, Math.max(0, curY - y))];
+    const _dashFor = (y) => y === curY ? [] : [];
     // Baseline: one dashed gray line — the selected PRIOR years averaged
     // (all accounts). Needs at least one pre-current year selected.
     if (segsSel.includes('base')) {
@@ -1564,7 +1591,8 @@ function reportingWaterfall() {
       yearsSel.forEach(y => {
         const data = MONTH_LBL.map((_, i) => clip(y, i + 1, f(y, i + 1)));
         if (!data.some(v => v != null)) return;
-        datasets.push({ label: lbl + ' ' + y, data, borderColor: SEG_COLORS[k], backgroundColor: SEG_COLORS[k], borderDash: _dashFor(y) });
+        const col = k === 'all' ? _colorFor(y) : SEG_COLORS[k];
+        datasets.push({ label: lbl + ' ' + y, data, borderColor: col, backgroundColor: col, borderDash: _dashFor(y), borderWidth: y === curY ? 3 : 2 });
       });
     });
     const id = 'retAttrTrends' + (label ? '_' + String(label).replace(/\W/g, '') : '');
@@ -1577,7 +1605,7 @@ function reportingWaterfall() {
       const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
       _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
         type: 'line',
-        data: { labels: MONTH_LBL, datasets: datasets.map(d => ({ ...d, borderWidth: 2, tension: 0.3, fill: false, pointRadius: 2, spanGaps: false })) },
+        data: { labels: MONTH_LBL, datasets: datasets.map(d => ({ ...d, borderWidth: d.borderWidth || 2, tension: 0.3, fill: false, pointRadius: 2, spanGaps: false })) },
         options: { responsive: true, maintainAspectRatio: false,
           plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } } },
           scales: { x: { ticks: { color: txt }, grid: { color: grid } },
