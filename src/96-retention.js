@@ -1617,7 +1617,10 @@ function reportingWaterfall() {
   // hidden-service/source filters, Steps 4-6 exclusions, serviced-only),
   // same cancel semantics: save-backs count Active, reason-excluded cancels
   // and (per the Overview toggle) 3-day RORs count as retained.
-  const repTypeAttritionCard = (() => {
+  // One card builder, two groupings (per Isaac, Sep 2026): by rep TYPE and by
+  // SOURCE. Same population, same chips, same year picker — only the grouping
+  // and the title change.
+  const _attritionByCard = (dim) => {
     // Sold-year cohort filter (per Isaac - the card had no time dimension
     // and read as "some year"). 'all' = the whole book in the snapshot;
     // a year = accounts SOLD that year, cancels any time since.
@@ -1658,6 +1661,7 @@ function reportingWaterfall() {
       return true;
     };
     const TYPE_LABEL = (r) => {
+      if (dim === 'source') return String(r.subscription_source || '').trim() || 'Unspecified';
       const t = String(r.sold_by_type || '').trim().toLowerCase();
       if (t === 'sales rep') return 'Door to Door';
       if (t === 'technician') return 'Technician';
@@ -1691,7 +1695,9 @@ function reportingWaterfall() {
     }
     if (!total.subs && _rtYear === 'all') return null;
     const ORDER = ['Door to Door', 'Office Staff', 'Technician'];
-    const keys = [...ORDER.filter(k => byType[k]), ...Object.keys(byType).filter(k => !ORDER.includes(k)).sort()];
+    const keys = dim === 'source'
+      ? Object.keys(byType).sort((a, b) => byType[b].subs - byType[a].subs || a.localeCompare(b))   // biggest sources first
+      : [...ORDER.filter(k => byType[k]), ...Object.keys(byType).filter(k => !ORDER.includes(k)).sort()];
     const pct = (a, b) => b > 0 ? (a / b * 100).toFixed(1) + '%' : '\u2014';
     const th = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
     const row = (label, t, bold) => {
@@ -1708,8 +1714,8 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('div', { class: 'font-display text-lg' }, 'Attrition by Rep Type'),
-          el('div', { class: 'text-[11px] text-muted-' }, 'Who SOLD the account \u00b7 ' + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
+          el('div', { class: 'font-display text-lg' }, dim === 'source' ? 'Attrition by Source' : 'Attrition by Rep Type'),
+          el('div', { class: 'text-[11px] text-muted-' }, (dim === 'source' ? 'Where the account CAME FROM \u00b7 ' : 'Who SOLD the account \u00b7 ') + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
           ...[['ror', '3-Day ROR'], ['renewal', 'Renewals'], ['onetime', 'One-Time'], ['svc2', '<2 Services']].map(([k, lab]) => el('button', {
             class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
@@ -1728,9 +1734,9 @@ function reportingWaterfall() {
             ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))),
           el('span', { class: 'text-[10px] text-muted-' }, fmt.int(total.subs) + ' serviced subs'))),
       !total.subs ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No accounts in this cohort under the current rules.') :
-      el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-xs' },
-        el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
-          th('Rep Type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1))),
+      el('div', { style: { overflow: 'auto', maxHeight: dim === 'source' ? '460px' : 'none' } }, el('table', { class: 'w-full text-xs' },
+        el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: 0, zIndex: 1 } }, el('tr', { style: { background: 'var(--card-2)' } },
+          th(dim === 'source' ? 'Source' : 'Rep Type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1))),
         el('tbody', {},
           ...keys.map(k => row(k, byType[k])),
           row('RIDD \u00b7 Total', total, true)))),
@@ -1744,7 +1750,9 @@ function reportingWaterfall() {
         return bits.length ? el('div', { class: 'px-4 py-2 text-[10px] text-muted- border-t', style: { borderColor: 'var(--border)' } },
           'Excluded by the chips above: ' + bits.join(' \u00b7 ') + '. Flip a chip to pull them back in.') : null;
       })());
-  })();
+  };
+  const repTypeAttritionCard = _attritionByCard('type');
+  const sourceAttritionCard = _attritionByCard('source');
 
   // \u2500\u2500 "True Attrition" bar (per Isaac) \u2500\u2500
   // One fixed number pinned across the bottom of the tab: cancels EXCLUDING
@@ -2230,6 +2238,6 @@ function reportingWaterfall() {
 
   // Cancel Hygiene moved to Settings > Admin > Data Integrity (per Isaac).
   // (Renewal Outreach queue retired per Isaac, Sep 2026 — renewalQueueCard stays defined.)
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, retenMethodCard(popA, _retenEff), body, repTypeAttritionCard, trueAttritionBar, (typeof intelLeaversCard === 'function' ? intelLeaversCard() : null), lifetimeCard, renewalRetentionCard, sourceLedgerCard);
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, retenMethodCard(popA, _retenEff), body, repTypeAttritionCard, sourceAttritionCard, trueAttritionBar, (typeof intelLeaversCard === 'function' ? intelLeaversCard() : null), lifetimeCard, renewalRetentionCard, sourceLedgerCard);
 }
 
