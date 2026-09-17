@@ -629,7 +629,8 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
     monthly:  'Recurring monthly price after the initial.',
     revenue:  'Contract revenue the sale is credited for (initial + recurring for the term). Commission, goals and the leaderboard all run on this number.',
     sold:     'The date the sale was logged / signed.',
-    pif:      'Paid in Full — the customer paid the whole contract up front, so there is no backend hold and full commission pays out.',
+    pif:      'Paid in Full — the "Paid In Full" button on the customer card in FieldRoutes. Synced automatically; no backend hold and full commission pays out.',
+    commercial: 'Commercial account — the Commercial Account toggle on the customer card in FieldRoutes. Synced automatically; pays the commercial rate.',
     comm:     'Commission paid — stamped by payroll when this sale goes out on a pay run.',
     upfront:  'Charged Upfront — payment was collected at signing. Makes the sale commissionable on the sale date and feeds the Charge Upfront % tier.',
     status:   'Audit status. New sales sit in Pending until audited, then Approved, Cancelled, NSF, Rejected, and so on.',
@@ -664,6 +665,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             headerCell('PIF',     { extraClass: 'text-center', align: 'center', help: H.pif }),
             headerCell('Comm.',   { extraClass: 'text-center', align: 'center', help: H.comm }),
             headerCell('Upfront', { extraClass: 'text-center', align: 'center', help: H.upfront }),
+            headerCell('Comm\u2019l', { extraClass: 'text-center', align: 'center', help: H.commercial }),
             headerCell('Status',      { sortableKey: 'audit_status', help: H.status }),
             headerCell('Audit',       { sortableKey: 'crm_audit', extraClass: 'text-center', align: 'center', help: H.audit }),
             // CRM revenue check + lifecycle chips — auto-verified against the
@@ -731,9 +733,10 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 const c = commissionableDate(s);
                 return el('span', { class: 'tabular-nums whitespace-nowrap ' + (c.date ? 'font-medium' : 'text-muted-'), title: c.why, style: c.date ? {} : { color: 'var(--text-subtle)' } }, c.date ? fmt.dateShortYear(c.date) : c.short);
               })()),
-              el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'paid_in_full', isAdmin, 'Paid in Full — no backend hold, full commission paid upfront')),
+              el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'paid_in_full', isAdmin, 'Paid in Full — the "Paid In Full" button on the FieldRoutes customer card')),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, '_comm_paid', false, s.payroll_processed_at ? 'Commission paid ' + fmt.dateShortYear(String(s.payroll_processed_at).slice(0, 10)) : (s.staged_for_payroll ? 'Staged for the next payroll' : 'Commission not paid yet'))),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'upfront_collected', isAdmin, 'Charged Upfront — payment collected at signing (feeds the Charge Upfront % tier)')),
+              el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'is_commercial', false, 'Commercial Account toggle on the FieldRoutes customer card — pays the commercial rate')),
               cell(statusSelect(s.id)),
               // Audit = the office's Passed / Failed Audit flag on the
               // FieldRoutes customer card (synced hourly) — not an assigned
