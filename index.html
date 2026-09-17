@@ -699,6 +699,7 @@
 
     /* Header: tighter so the icon cluster fits */
     .page-header { padding-left: 8px !important; padding-right: 8px !important; gap: 6px; }
+    main { padding-left: 8px !important; padding-right: 8px !important; }   /* keep content flush with the header on phones too */
     .icon-btn { width: 34px; height: 34px; }
 
     /* Spring Cleaning standings poster: keep the print layout intact and
@@ -870,6 +871,7 @@
      (w-2.5/h-2.5), missing row separators (divide-y), missing totals rule
      (border-b-2), dead spacing. Verified against the exact in-use list. ── */
   .-mt-1 { margin-top: -0.25rem; } .-mt-2 { margin-top: -0.5rem; }
+  @media (min-width:640px){ .sm\:py-6 { padding-top: 1.5rem; padding-bottom: 1.5rem; } }
   .-mx-2 { margin-left: -0.5rem; margin-right: -0.5rem; }
   .align-middle { vertical-align: middle; }
   .border-b-2 { border-bottom-width: 2px; border-bottom-style: solid; }

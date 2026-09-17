@@ -2,9 +2,9 @@
 // │ App shell: Inside Sales / D2D / Technician tab groups, nav menu, mountApp() view dispatch, My Settings, telemetry.
 // │ Part of the app.js bundle (tools/bundle.js concatenates src/*.js in name order).
 // └────────────────────────────────────────────────────────────────────────
-// RIDD spider mark — the brand guide's bug vector (same path as favicon.svg), brand orange.
+// RIDD spider mark — the brand guide's bug vector (same path as favicon.svg). Cream in the header (currentColor = header text), cream in the favicon (per Isaac: off-white, not orange).
 const RIDD_SPIDER_PATH = 'M87.36 117.39 L87.36 100.86 C87.35 100.74 87.34 100.59 87.34 100.44 L87.34 94.85 C87.34 94.5 87.08 94.21 86.73 94.17 L81.17 94.17 C80.79 94.2 80.51 94.51 80.51 94.91 L80.51 100.55 C80.51 104.86 77 108.36 72.68 108.36 L37.24 108.36 C32.93 108.36 29.42 104.86 29.42 100.55 L29.42 94.91 C29.42 94.51 29.13 94.2 28.74 94.17 L23.16 94.17 C22.84 94.21 22.59 94.51 22.59 94.85 L22.56 117.39 L0.78 117.39 L0.78 86.91 L4.29 86.81 L14.54 86.81 C14.92 86.81 15.22 86.51 15.22 86.13 L15.22 67.03 L0 67.03 L0 45.64 L28.77 45.64 C29.14 45.64 29.45 45.33 29.45 44.96 L29.45 37.81 L19.38 32.52 C16.97 31.25 15.47 28.77 15.47 26.05 L15.44 0 L37.23 0 L37.23 16.09 L46.07 20.86 C49.01 22.45 50.83 25.5 50.83 28.81 L50.83 45.25 C50.83 49.53 47.34 53.02 43.05 53.02 L37.49 53.02 C37.1 53.02 36.79 53.33 36.79 53.72 L36.78 86.07 C36.78 86.48 37.11 86.81 37.52 86.81 L72.41 86.81 C72.82 86.81 73.15 86.48 73.15 86.07 L73.15 60.41 C73.08 59.96 73.07 59.53 73.07 59.28 L73.07 53.7 C73.07 53.32 72.76 53.02 72.39 53.02 L66.8 53.02 C62.52 53.02 59.03 49.53 59.03 45.25 L59.03 28.81 C59.03 25.5 60.85 22.46 63.77 20.87 L73.01 15.88 L73.01 0 L94.8 0 L94.79 25.83 C94.79 28.56 93.29 31.04 90.88 32.31 L80.41 37.81 L80.41 44.96 C80.41 45.33 80.71 45.64 81.09 45.64 L109.16 45.64 L109.16 67.03 L94.7 67.03 L94.7 86.13 C94.7 86.51 95.01 86.81 95.38 86.81 L109.15 86.81 L109.15 117.39 L87.36 117.39 Z';
-function riddSpiderMark(px) { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 109.2 117.4'); s.setAttribute('width', px); s.setAttribute('height', px); s.setAttribute('aria-hidden', 'true'); const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', RIDD_SPIDER_PATH); p.setAttribute('fill', '#DF643A'); s.append(p); s.style.display = 'block'; return s; }
+function riddSpiderMark(px) { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 109.2 117.4'); s.setAttribute('width', px); s.setAttribute('height', px); s.setAttribute('aria-hidden', 'true'); const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', RIDD_SPIDER_PATH); p.setAttribute('fill', 'currentColor'); s.append(p); s.style.display = 'block'; return s; }
 // ── Inside Sales consolidated tab ─────────────────────────────────────────
 // The seven rep-facing views live under ONE "Inside Sales" nav entry; the
 // individual views render with a Reporting-style sub-tab bar above them.
@@ -952,7 +952,10 @@ function mountApp() {
   // (a wider document would shove their right-aligned content off-screen). Wide
   // content (tables, toolbars) instead scrolls inside contentWrap, so nothing
   // is hidden.
-  const main = el('main', { class: 'flex-1 overflow-x-hidden pt-[76px]' });
+  // Side gutter lives on <main> (not the content wrapper) so it matches the
+  // header exactly: both are gutter → max-w-[1600px] centred box (per Isaac —
+  // the spider and gear sat 24px outside the content edge on wide screens).
+  const main = el('main', { class: 'flex-1 overflow-x-hidden pt-[76px] px-4 sm:px-6' });
   // Apple-feel: crossfade + rise ONLY when the view actually changes —
   // in-place re-renders (filters, toggles) stay instant and steady.
   const _viewChanged = state._lastAnimView !== state.view;
@@ -961,7 +964,7 @@ function mountApp() {
   if (_viewChanged && state.view === 'nrla') state._compsLanding = true;
   // Pay always opens on the CURRENT pay period (per Isaac).
   if (_viewChanged && state.view === 'pay') { state.payYear = null; state.payPeriodId = null; }
-  const contentWrap = el('div', { class: 'p-4 sm:p-6 w-full max-w-[1600px] mx-auto overflow-x-auto' + (_viewChanged ? ' view-enter' : '') });
+  const contentWrap = el('div', { class: 'py-4 sm:py-6 w-full max-w-[1600px] mx-auto overflow-x-auto' + (_viewChanged ? ' view-enter' : '') });
   // (Mobile freshness line retired — the header stamp shows on phones now, per Isaac.)
   usagePing('view', state.view);
   main.append(pageHeader, contentWrap);
