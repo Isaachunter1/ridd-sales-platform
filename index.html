@@ -247,7 +247,7 @@
      one horizontal padding everywhere, icon-only ones included, so a row of
      them lines up (per Isaac). */
   button.rounded-xl.px-2\.5.py-1.text-\[11px\] {
-    min-height: 30px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; line-height: 1.1;
+    padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   }
   /* Keep the fixed top-bar tab title compact (it lives in a ~60px header). */
   .hb-topbar-title { font-size: clamp(1.45rem, 2.6vw, 2.1rem) !important; line-height: 1 !important; text-transform: uppercase; }
@@ -323,9 +323,13 @@
      as a plain text button beside them. Selects drop the UA chrome and get
      a small chevron instead. */
   select.text-\[11px\], input.text-\[11px\], button.text-\[11px\] {
-    line-height: 16.5px !important; min-height: 0 !important; height: auto !important;
+    line-height: 16.5px !important; height: 28px !important; min-height: 28px !important;
     box-sizing: border-box;
   }
+  /* Icon-only pills (trophy, pencil …) are flex boxes, so the line box above
+     doesn't size them — the fixed height does, and this keeps the glyph
+     centred in it. */
+  button.text-\[11px\].flex, button.text-\[11px\].inline-flex { align-items: center; justify-content: center; }
   select.text-\[11px\] {
     -webkit-appearance: none !important; appearance: none !important;
     padding-right: 22px !important;
