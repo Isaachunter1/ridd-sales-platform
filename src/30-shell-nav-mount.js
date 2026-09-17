@@ -467,43 +467,104 @@ function usagePing(event, detail) {
   } catch (e) { /* telemetry must never break the app */ }
 }
 
-// 📣 Feedback — one tap from any page, lands in Slack + the usage trail.
+// 📣 Feedback — from the gear menu on any page (per Isaac): a note plus
+// screenshots / screen recordings. Files go to the private "feedback"
+// bucket under the sender's folder, the note + attachment list hit
+// /api/feedback (Slack + usage_events.meta), and admins see it all under
+// Settings → Users → Adoption → Feedback.
 function openFeedbackModal() {
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const MAX_FILES = 6, MAX_MB = 50;
+  const files = [];   // File objects picked so far
   const ta = el('textarea', {
     class: 'w-full rounded-lg border px-3 py-2 text-sm',
     style: { borderColor: 'var(--border-2)', background: 'var(--input-bg)', minHeight: '110px', resize: 'vertical' },
-    placeholder: 'Bug, idea, confusing screen, wrong number \u2014 anything. Screenshots can go to your manager; this sends the words straight to the app team.',
+    placeholder: 'Bug, idea, confusing screen, wrong number — anything. Add a screenshot or a screen recording below if it helps.',
+  });
+  const list = el('div', { class: 'flex flex-col gap-1.5' });
+  const drawList = () => {
+    list.replaceChildren(...files.map((f, i) => {
+      const isImg = /^image\//.test(f.type);
+      const thumb = isImg ? el('img', { src: URL.createObjectURL(f), style: { width: '36px', height: '36px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 } })
+        : el('span', { class: 'inline-flex items-center justify-center', style: { fontSize: '14px', width: '36px', height: '36px', borderRadius: '6px', background: 'var(--card-2)', flexShrink: 0 } }, /^video\//.test(f.type) ? '🎥' : '📄');
+      return el('div', { class: 'flex items-center gap-2 rounded-lg border px-2 py-1.5', style: { borderColor: 'var(--border)' } },
+        thumb,
+        el('div', { class: 'min-w-0 flex-1' },
+          el('div', { class: 'text-[11px] font-semibold truncate' }, f.name),
+          el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, (f.size / 1048576).toFixed(1) + ' MB · ' + (f.type || 'file'))),
+        el('button', { class: 'text-[11px] px-2 py-0.5 rounded-lg border', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => { files.splice(i, 1); drawList(); } }, 'Remove'));
+    }));
+  };
+  const addFiles = (fl) => {
+    for (const f of Array.from(fl || [])) {
+      if (files.length >= MAX_FILES) { toast('Up to ' + MAX_FILES + ' files per message', 'warn'); break; }
+      if (f.size > MAX_MB * 1048576) { toast(f.name + ' is over ' + MAX_MB + ' MB — trim the recording or send a shorter clip', 'warn'); continue; }
+      if (!/^(image|video)\//.test(f.type) && f.type !== 'text/plain') { toast(f.name + ': images, videos or .txt only', 'warn'); continue; }
+      files.push(f);
+    }
+    drawList();
+  };
+  const picker = el('input', { type: 'file', multiple: true, accept: 'image/*,video/*,.txt', style: { display: 'none' }, onchange: (e) => { addFiles(e.target.files); e.target.value = ''; } });
+  const drop = el('div', {
+    class: 'rounded-lg border-dashed border text-center px-3 py-3 text-[11px] cursor-pointer transition',
+    style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)', borderWidth: '1.5px' },
+    onclick: () => picker.click(),
+    ondragover: (e) => { e.preventDefault(); drop.style.borderColor = 'var(--accent)'; },
+    ondragleave: () => { drop.style.borderColor = 'var(--border-2)'; },
+    ondrop: (e) => { e.preventDefault(); drop.style.borderColor = 'var(--border-2)'; addFiles(e.dataTransfer.files); },
+  }, el('span', { class: 'font-semibold', style: { color: 'var(--text)' } }, '📎 Add screenshots or a screen recording'), el('br'), 'tap to pick · drag & drop · paste an image into the note · up to ' + MAX_FILES + ' files, ' + MAX_MB + ' MB each');
+  // Paste a screenshot straight into the note box (Cmd/Ctrl+V).
+  ta.addEventListener('paste', (e) => {
+    const its = Array.from((e.clipboardData && e.clipboardData.items) || []).filter(it => it.kind === 'file');
+    if (!its.length) return;
+    addFiles(its.map(it => it.getAsFile()).filter(Boolean));
   });
   const send = el('button', {
     class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold cursor-pointer',
     style: { background: 'var(--accent)', color: 'var(--accent-text)' },
     onclick: async () => {
       const text = ta.value.trim();
-      if (!text) { toast('Write something first', 'warn'); return; }
-      send.disabled = true; send.textContent = 'Sending\u2026';
+      if (!text && !files.length) { toast('Write a note or attach something first', 'warn'); return; }
+      send.disabled = true;
       try {
+        // 1. Upload attachments to the private bucket under <uid>/<stamp>-<n>-<name>.
+        const uid = (state.profile && state.profile.id) || (state.session && state.session.user && state.session.user.id) || '';
+        const attachments = [];
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          send.textContent = 'Uploading ' + (i + 1) + ' of ' + files.length + '…';
+          const safe = String(f.name || 'file').replace(/[^\w.\-]+/g, '_').slice(-80);
+          const path = uid + '/' + Date.now() + '-' + i + '-' + safe;
+          const { error } = await supabase.storage.from('feedback').upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false });
+          if (error) throw new Error(/bucket/i.test(error.message || '') ? 'Attachments aren’t set up yet (run migrations/20260917_feedback_attachments.sql)' : 'Upload failed: ' + error.message);
+          attachments.push({ path, name: f.name, type: f.type, size: f.size });
+        }
+        // 2. Send the note + attachment list.
+        send.textContent = 'Sending…';
         const res = await fetch('/api/feedback', {
           method: 'POST',
           headers: await _apiAuthHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ text, view: state.view || '' }),
+          body: JSON.stringify({ text, view: state.view || '', attachments }),
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         overlay.remove();
-        toast('\ud83d\udce3 Sent \u2014 thank you!', 'success');
+        toast('📣 Sent — thank you!', 'success');
+        state._usageStats = null;   // Adoption card re-pulls next time it renders
       } catch (err) {
         send.disabled = false; send.textContent = 'Send';
-        toast('Could not send \u2014 try again in a moment', 'error');
+        toast(err.message || 'Could not send — try again in a moment', 'error');
       }
     },
   }, 'Send');
   overlay.append(el('div', { class: 'card w-full max-w-md p-5 flex flex-col gap-3' },
     el('div', { class: 'flex items-center justify-between' },
-      el('h2', { class: 'text-lg font-bold' }, '\ud83d\udce3 Feedback'),
-      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '\u00d7')),
-    ta,
-    el('div', { class: 'flex justify-end' }, send)));
+      el('h2', { class: 'text-lg font-bold' }, '📣 Feedback'),
+      el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×')),
+    ta, drop, picker, list,
+    el('div', { class: 'flex items-center justify-between gap-2' },
+      el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Goes to the app team (Slack) and the Adoption log.'),
+      send)));
   document.body.append(overlay);
   setTimeout(() => ta.focus(), 50);
 }
@@ -886,6 +947,7 @@ function mountApp() {
           sun:      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>',
           settings: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
           power:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>',
+          feedback: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
         };
         const item = (icon, label, onclick) => {
           const ic = el('span', { class: 'inline-flex items-center justify-center shrink-0', style: { width: '18px', height: '18px', color: 'var(--text-muted)' } });
@@ -917,6 +979,7 @@ function mountApp() {
             if (isAdmin) { state.view = 'admin'; history.replaceState(null, '', VIEW_TO_HASH['admin'] || '#admin'); mountApp(); }
             else openMySettingsModal();
           }),
+          item('feedback', 'Feedback', () => openFeedbackModal()),
           // (TV Display retired from the menu — per Isaac. openTVDashboard() stays.)
           el('div', { style: { borderTop: '1px solid var(--border)', margin: '4px 2px' } }),
           item('power', 'Sign out', async () => {
