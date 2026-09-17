@@ -2314,7 +2314,7 @@ function reportingWaterfall() {
   // the next card). Same answer as the Indicators toolbar: pin with
   // position: fixed once the block's natural spot scrolls under the page
   // header, and leave a spacer of its height behind so nothing jumps.
-  const frozen = el('div', { id: 'retenFrozen', class: 'flex flex-col gap-3', style: { marginTop: '-14px', background: 'var(--bg)', paddingTop: '6px', paddingBottom: '8px' } }, _secBar, joined);
+  const frozen = el('div', { id: 'retenFrozen', class: 'flex flex-col gap-3', style: { marginTop: '-4px', background: 'var(--bg)', paddingTop: '6px', paddingBottom: '8px' } }, _secBar, joined);
   const spacer = el('div', { id: 'retenFrozenSpacer', style: { display: 'none' } });
   const _pinTop = () => { try { const h = document.querySelector('header.page-header'); return h ? Math.round(h.getBoundingClientRect().bottom) : 60; } catch (e) { return 60; } };
   const syncPin = () => {
@@ -2331,7 +2331,7 @@ function reportingWaterfall() {
       f.style.position = 'fixed'; f.style.top = top + 'px'; f.style.left = r.left + 'px'; f.style.width = r.width + 'px'; f.style.zIndex = 25;
       f.style.paddingTop = '14px';   // breathing room under the header rule (the tabs were clipping)
       // spacer keeps the block's flow height (marginTop -14 included)
-      sp.style.marginTop = '-14px'; sp.style.height = f.offsetHeight + 'px';
+      sp.style.marginTop = '-4px'; sp.style.height = f.offsetHeight + 'px';
     } else if (pinned) {
       f.style.position = ''; f.style.top = ''; f.style.left = ''; f.style.width = ''; f.style.zIndex = ''; f.style.paddingTop = '6px'; sp.style.display = 'none'; sp.style.marginTop = '';
     }
