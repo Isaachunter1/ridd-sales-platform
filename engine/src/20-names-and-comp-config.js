@@ -101,7 +101,7 @@ function _repKeyedLookup(map, repName) {
 const DEFAULT_COMPETITIONS = [
   { id: 'top_gun',          name: 'Top Gun', scoring: 'top_gun' },
   { id: 'spring_cleaning',  name: 'Spring Cleaning',  scoring: 'spring_cleaning' },
-  { id: 'last_man_standing',name: 'Last Man Standing', scoring: 'last_man_standing' },
+  { id: 'last_man_standing',name: 'The Arena', scoring: 'last_man_standing' },   // "The Arena" on the 2026 schedule (per Isaac)
   { id: 'nrla',             name: 'NRLA', scoring: 'nrla' },
   { id: 'avg_pest_initial', name: 'Avg Pest & Raffle', scoring: 'avg_pest_initial' },
 ];
@@ -123,6 +123,7 @@ function getIndicatorCompetitions() {
   // built-in that's stale.
   const byId = new Map(state._indicatorCompetitions.map(c => [c.id, c]));
   { const ap = byId.get('avg_pest_initial'); if (ap) ap.name = 'Avg Pest & Raffle'; }
+  { const lms = byId.get('last_man_standing'); if (lms && /last man standing/i.test(lms.name || '')) lms.name = 'The Arena'; }
   const _removedDefaults = new Set(state._indicatorRemovedDefaults || []);
   DEFAULT_COMPETITIONS.forEach(d => {
     const existing = byId.get(d.id);

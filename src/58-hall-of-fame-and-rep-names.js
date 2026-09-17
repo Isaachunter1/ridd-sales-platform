@@ -1631,7 +1631,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
 
     // headline block
     el('div', { style: { position: 'relative', zIndex: '2' } },
-      el('div', { style: { fontFamily: DISP, fontSize: 'clamp(2.6rem,8vw,6rem)', color: RED, lineHeight: '.82', textTransform: 'uppercase', letterSpacing: '.005em' } }, 'Last Man Standing'),
+      el('div', { style: { fontFamily: DISP, fontSize: 'clamp(2.6rem,8vw,6rem)', color: RED, lineHeight: '.82', textTransform: 'uppercase', letterSpacing: '.005em' } }, 'The Arena'),
       el('div', { style: { fontFamily: DISP, fontSize: 'clamp(1rem,2.4vw,1.7rem)', color: WHITE, textTransform: 'lowercase', letterSpacing: '.02em', marginTop: '2px' } },
         el('span', {}, 'ridd'), el('span', {}, 'made competition series'))),
 

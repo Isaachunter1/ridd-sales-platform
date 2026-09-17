@@ -1,3 +1,14 @@
+// ── 2026 competition season (per Isaac, from the whyridd.com schedule) ──
+// Sanctioned comps in calendar order. Mystery Boxes and Avg Pest & Raffle
+// are one-offs and live in their own dropdown on the landing page.
+const COMP_2026_ORDER = ['genesis', 'koth', 'top_gun', 'spring_cleaning', 'last_man_standing', 'pr_week', 'nrla', 'unknwn', 'team_week', 'kobe_week'];
+const COMP_2026_NEW = [['genesis', 'Genesis'], ['pr_week', 'PR Week'], ['unknwn', 'UNKNWN'], ['team_week', 'Team Week']];
+const COMP_2026_WINDOWS = {
+  genesis: ['2026-05-04', '2026-05-23'], koth: ['2026-05-25', '2026-05-25'], top_gun: ['2026-05-25', '2026-06-06'],
+  spring_cleaning: ['2026-06-08', '2026-06-20'], last_man_standing: ['2026-06-20', '2026-06-20'], pr_week: ['2026-06-22', '2026-06-27'],
+  nrla: ['2026-07-06', '2026-07-18'], unknwn: ['2026-07-20', '2026-07-25'], team_week: ['2026-07-27', '2026-08-01'], kobe_week: ['2026-08-03', '2026-08-08'],
+};
+const COMP_ONE_OFFS = new Set(['mystery_box', 'avg_pest_initial']);
 
 // Rules popup for NRLA (the header ⓘ).
 function openNrlaHelpModal() {
@@ -3635,18 +3646,29 @@ function viewNrlaPublic() {
   // comp added here (now or in the future) gets them for free.
   const _cXtra = (state._compExtras && typeof state._compExtras === 'object') ? state._compExtras : (state._compExtras = {});
   const _hydrateVirtual = (c) => Object.assign(c, _cXtra[c.id] || {});
-  // \ud83d\udc51 King of the Hill — its own pill too (virtual, no scoring config).
-  comps = [...comps, _hydrateVirtual({ id: 'koth', name: 'KOTH' })];
+  // \ud83d\udc51 King of the Hill — biggest single day. On the 2026 schedule
+  // this is "The Greatest Day in D2D" (per Isaac's schedule; May 25).
+  comps = [...comps, _hydrateVirtual({ id: 'koth', name: 'The Greatest Day in D2D' })];
   // \ud83d\udc0d Kobe Week — beat-your-best-week personal record comp.
   comps = [...comps, _hydrateVirtual({ id: 'kobe_week', name: 'Kobe Week' })];
-  // Admin drag-sorted pill order (synced to everyone); unknown ids sink to
-  // the end so new comps still show up.
+  // New 2026 competitions (per Isaac) — no scoring engine yet: each renders
+  // its window + a plain revenue board for that window until rules land.
+  for (const [id, name] of COMP_2026_NEW) comps = [...comps, _hydrateVirtual({ id, name })];
+  // 2026 SCHEDULE ORDER (per Isaac) — the sanctioned season, in calendar
+  // order. Anything not on the schedule (one-offs) sinks after it.
   {
-    const _ord = Array.isArray(state._compPillOrder) ? state._compPillOrder : [];
-    if (_ord.length) comps = comps.slice().sort((a, b) => {
+    const _ord = COMP_2026_ORDER;
+    comps = comps.slice().sort((a, b) => {
       const ia = _ord.indexOf(a.id), ib = _ord.indexOf(b.id);
       return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
     });
+  }
+  // Seed the 2026 windows into the comp schedule the first time (admin
+  // only — it lands in shared config). Existing entries are never touched.
+  if (isAdmin && typeof compScheduleStore === 'function') {
+    const sc = compScheduleStore(); let seeded = 0;
+    for (const [id, win] of Object.entries(COMP_2026_WINDOWS)) { if (!sc[id] || !sc[id].start) { sc[id] = Object.assign({}, sc[id] || {}, { start: win[0], end: win[1], repeat: 'none' }); seeded++; } }
+    if (seeded && typeof compScheduleSave === 'function') compScheduleSave();
   }
   const raw = state._indicatorRawSales || [];
   // Self-heal a stale dataset: if what we're holding is >3h old, force one
@@ -3700,9 +3722,11 @@ function viewNrlaPublic() {
   // headline, one button per competition for the selected rep type. Picking
   // a competition opens its page; "← Competitions" comes back here.
   if (state._compsLanding !== false || repTypeTab === 'Technicians') {
-    const landingComps = repTypeTab === 'Sales Reps' ? comps
+    const landingAll = repTypeTab === 'Sales Reps' ? comps
       : repTypeTab === 'Office Staff' ? [{ id: 'isl', name: 'Inside Sales League' }]
       : [];
+    const landingComps = landingAll.filter(c => !COMP_ONE_OFFS.has(c.id));
+    const oneOffs = landingAll.filter(c => COMP_ONE_OFFS.has(c.id));
     const open = (id) => {
       state._compsLanding = false;
       if (repTypeTab === 'Sales Reps') state._compsTabSel = id;
@@ -3778,6 +3802,17 @@ function viewNrlaPublic() {
               onclick: () => setCompDefault(comps, picked, !isFav(picked)),
             }, isFav(picked) ? '\u2605' : '\u2606') : null,
           ));
+          // One-offs (per Isaac): Mystery Boxes / Avg Pest & Raffle aren't
+          // sanctioned season comps — their own dropdown, off to the side.
+          if (oneOffs.length) {
+            const sel1 = el('select', {
+              class: 'px-4 text-[13px] font-bold cursor-pointer',
+              style: { ...mono, borderRadius: '0', background: 'transparent', color: '#111', border: '2px solid #111', minWidth: '220px', height: '40px' },
+            }, ...oneOffs.map(c => el('option', { value: c.id }, c.name)));
+            box.append(eyebrow((running.length ? '04 / ' : '03 / ') + 'One-off competitions'), el('div', { class: 'flex flex-wrap items-stretch gap-2 mt-3' },
+              sel1,
+              el('button', { class: 'px-4 text-[12px] font-bold transition hover:brightness-110', style: { ...mono, background: 'transparent', color: '#111', border: '2px solid #111', height: '40px', textTransform: 'uppercase', letterSpacing: '.08em' }, onclick: () => open(sel1.value) }, 'Open \u2192')));
+          }
           return box;
         })())));
     // Size the poster to the viewport EXACTLY (per Isaac: no scrolling on the
@@ -3840,6 +3875,26 @@ function viewNrlaPublic() {
       el('div', { class: 'text-3xl mb-2' }, '🎁'),
       el('div', { class: 'text-sm font-bold' }, 'No Mystery Box for you… yet.'),
       el('div', { class: 'text-xs mt-1', style: { color: 'var(--text-muted)' } }, 'Keep selling — boxes get armed for big performances, and when one\u2019s yours it shows up right here.')));
+    return wrap;
+  }
+  // ── New 2026 comps (Genesis / PR Week / UNKNWN / Team Week): rules and
+  // scoring aren't built yet — show the window and a plain revenue board
+  // for it so the data is verifiable (per Isaac; looks live in Cam's app).
+  if (COMP_2026_NEW.some(([id]) => id === sel.id)) {
+    const win = (typeof compScheduleStore === 'function' ? compScheduleStore()[sel.id] : null) || {};
+    const from = win.start || (COMP_2026_WINDOWS[sel.id] || [])[0] || '', to = win.end || (COMP_2026_WINDOWS[sel.id] || [])[1] || '';
+    const inWin = (raw || []).filter(s => { const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : ''; return iso && iso >= from && iso <= to && frPendingServiced(s) && _indicatorDeptOf(s) === 'd2d'; });
+    const byRep = new Map();
+    for (const s of inWin) { const n = getCanonicalRepName(s.rep); const r = byRep.get(n) || { name: n, office: s.office || '', n: 0, rev: 0 }; r.n++; r.rev += Number(s.contractValue) || 0; byRep.set(n, r); }
+    const rows = [...byRep.values()].sort((a, b) => b.rev - a.rev);
+    wrap.append(el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Comp Window'),
+      el('span', { class: 'text-[11px] font-bold tabular-nums' }, (from || '\u2014') + ' \u2192 ' + (to || '\u2014')),
+      el('span', { class: 'text-[11px] ml-auto', style: { color: 'var(--text-muted)' } }, 'Rules + scoring for ' + sel.name + ' aren\u2019t built yet \u2014 this is the raw Pending/Serviced revenue board for the window.' + (isAdmin ? ' Edit the window in Settings \u2192 Competitions.' : ''))));
+    wrap.append(el('div', { class: 'card overflow-hidden' }, el('table', { class: 'w-full text-sm' },
+      el('thead', {}, el('tr', {}, el('th', { class: 'px-3 py-2 text-left' }, '#'), el('th', { class: 'px-3 py-2 text-left' }, 'Rep'), el('th', { class: 'px-3 py-2 text-left' }, 'Office'), el('th', { class: 'px-3 py-2 text-right' }, 'Accounts'), el('th', { class: 'px-3 py-2 text-right' }, 'Revenue'))),
+      el('tbody', {}, ...(rows.length ? rows.map((r, i) => el('tr', {}, el('td', { class: 'px-3 py-2' }, String(i + 1)), el('td', { class: 'px-3 py-2 font-semibold' }, r.name), el('td', { class: 'px-3 py-2' }, r.office), el('td', { class: 'px-3 py-2 text-right tabular-nums' }, String(r.n)), el('td', { class: 'px-3 py-2 text-right tabular-nums font-bold' }, fmt.usd0(r.rev))))
+        : [el('tr', {}, el('td', { colspan: '5', class: 'px-3 py-6 text-center', style: { color: 'var(--text-muted)' } }, 'No sales in this window yet.'))])))));
     return wrap;
   }
   // ── \ud83d\udc51 King of the Hill: biggest single day of the season ──
@@ -5009,7 +5064,7 @@ function openLastManStandingHelpModal(winLabel) {
     el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: '#000' } },
       el('div', {},
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: RED } }, 'RIDDMADE Competition Series'),
-        el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#fff', textTransform: 'uppercase' } }, 'Last Man Standing'),
+        el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#fff', textTransform: 'uppercase' } }, 'The Arena'),
       ),
       el('button', { class: 'text-2xl leading-none', style: { color: '#fff' }, onclick: close }, '×'),
     ),
