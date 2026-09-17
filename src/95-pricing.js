@@ -352,10 +352,6 @@ function viewPricing() {
           ? el('button', { class: 'text-right shrink-0 rounded-lg px-1.5 transition', style: { marginRight: '-6px' }, title: 'Enter a custom price (not below D2D minimums)', onclick: () => { editKey = l.key; rerender(); } }, priceCol(l))
           : priceCol(l)));
     };
-    const notice = q.ok ? null : el('div', { class: 'rounded-lg px-3 py-2 text-[11px] font-semibold', style: { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } },
-      q.empty
-        ? 'Start with a base: pick a Home or Yard Essentials plan, or Termite Defense.' + (T.onetime ? ' One-time services can also be quoted on their own.' : '')
-        : 'A base plan is required — add a Home or Yard Essentials plan or Termite Defense to this quote.');
     const total = (lbl, val, o = {}) => el('div', { class: 'flex items-baseline justify-between gap-3' },
       el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: o.accent ? 'var(--accent)' : 'var(--text-subtle)' } }, lbl),
       el('span', { class: (o.big ? 'text-2xl' : 'text-sm') + ' font-black tabular-nums', style: o.accent ? { color: 'var(--accent)' } : {} }, val));
@@ -364,7 +360,7 @@ function viewPricing() {
         el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Quote · ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label)),
         el('button', { class: 'rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wider', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; st.custom = {}; editKey = null; rerender(); } }, 'Reset')),
       el('div', { class: 'grid gap-3 items-start', style: { gridTemplateColumns: 'minmax(0, 1fr) auto' } },
-        el('div', { class: 'min-w-0' }, ...(q.empty ? [] : q.lines.map(rline)), notice ? el('div', { class: q.empty ? '' : 'mt-2' }, notice) : null),
+        el('div', { class: 'min-w-0' }, ...(q.empty ? [el('div', { class: 'text-[11px] py-2', style: { color: 'var(--text-subtle)' } }, 'Nothing selected yet.')] : q.lines.map(rline))),
         el('div', { class: 'rounded-xl px-4 py-3 flex flex-col gap-1.5 shrink-0', style: { background: 'var(--card-2)', minWidth: '150px', opacity: q.ok ? 1 : .55 } },
           total('Due today', money(q.init), { big: true }),
           total('Monthly', money(q.mo) + '/mo', { accent: true }),
