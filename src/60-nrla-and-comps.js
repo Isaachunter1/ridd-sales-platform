@@ -1,14 +1,16 @@
 // ── 2026 competition season (per Isaac, from the whyridd.com schedule) ──
 // Sanctioned comps in calendar order. Mystery Boxes and Avg Pest & Raffle
 // are one-offs and live in their own dropdown on the landing page.
-const COMP_2026_ORDER = ['genesis', 'koth', 'top_gun', 'spring_cleaning', 'last_man_standing', 'pr_week', 'nrla', 'unknwn', 'team_week', 'kobe_week'];
-const COMP_2026_NEW = [['genesis', 'Genesis'], ['pr_week', 'PR Week'], ['unknwn', 'UNKNWN'], ['team_week', 'Team Week']];
+const COMP_2026_ORDER = ['genesis', 'greatest_day', 'top_gun', 'spring_cleaning', 'last_man_standing', 'pr_week', 'nrla', 'unknwn', 'team_week', 'kobe_week'];
+// The Greatest Day in D2D = the Labor Day comp, every year (per Isaac); the
+// 2026 schedule shows it May 25 (Memorial Day) — same idea, one big day.
+const COMP_2026_NEW = [['genesis', 'Genesis'], ['greatest_day', 'The Greatest Day in D2D'], ['pr_week', 'PR Week'], ['unknwn', 'UNKNWN'], ['team_week', 'Team Week']];
 const COMP_2026_WINDOWS = {
-  genesis: ['2026-05-04', '2026-05-23'], koth: ['2026-05-25', '2026-05-25'], top_gun: ['2026-05-25', '2026-06-06'],
+  genesis: ['2026-05-04', '2026-05-23'], greatest_day: ['2026-05-25', '2026-05-25'], top_gun: ['2026-05-25', '2026-06-06'],
   spring_cleaning: ['2026-06-08', '2026-06-20'], last_man_standing: ['2026-06-20', '2026-06-20'], pr_week: ['2026-06-22', '2026-06-27'],
   nrla: ['2026-07-06', '2026-07-18'], unknwn: ['2026-07-20', '2026-07-25'], team_week: ['2026-07-27', '2026-08-01'], kobe_week: ['2026-08-03', '2026-08-08'],
 };
-const COMP_ONE_OFFS = new Set(['mystery_box', 'avg_pest_initial']);
+const COMP_ONE_OFFS = new Set(['mystery_box', 'avg_pest_initial', 'koth']);   // KOTH (biggest days of the summer) is a one-off too (per Isaac)
 
 // Rules popup for NRLA (the header ⓘ).
 function openNrlaHelpModal() {
@@ -3646,9 +3648,9 @@ function viewNrlaPublic() {
   // comp added here (now or in the future) gets them for free.
   const _cXtra = (state._compExtras && typeof state._compExtras === 'object') ? state._compExtras : (state._compExtras = {});
   const _hydrateVirtual = (c) => Object.assign(c, _cXtra[c.id] || {});
-  // \ud83d\udc51 King of the Hill — biggest single day. On the 2026 schedule
-  // this is "The Greatest Day in D2D" (per Isaac's schedule; May 25).
-  comps = [...comps, _hydrateVirtual({ id: 'koth', name: 'The Greatest Day in D2D' })];
+  // \ud83d\udc51 King of the Hill — whoever holds the biggest days of the
+  // summer. Not on the sanctioned schedule; lives in the one-offs dropdown.
+  comps = [...comps, _hydrateVirtual({ id: 'koth', name: 'KOTH' })];
   // \ud83d\udc0d Kobe Week — beat-your-best-week personal record comp.
   comps = [...comps, _hydrateVirtual({ id: 'kobe_week', name: 'Kobe Week' })];
   // New 2026 competitions (per Isaac) — no scoring engine yet: each renders
