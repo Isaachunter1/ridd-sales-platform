@@ -2329,10 +2329,11 @@ function reportingWaterfall() {
       if (!pinned) { sp.style.height = f.offsetHeight + 'px'; sp.style.display = 'block'; }
       const r = sp.getBoundingClientRect();
       f.style.position = 'fixed'; f.style.top = top + 'px'; f.style.left = r.left + 'px'; f.style.width = r.width + 'px'; f.style.zIndex = 25;
+      f.style.paddingTop = '14px';   // breathing room under the header rule (the tabs were clipping)
       // spacer keeps the block's flow height (marginTop -14 included)
       sp.style.marginTop = '-14px'; sp.style.height = f.offsetHeight + 'px';
     } else if (pinned) {
-      f.style.position = ''; f.style.top = ''; f.style.left = ''; f.style.width = ''; f.style.zIndex = ''; sp.style.display = 'none'; sp.style.marginTop = '';
+      f.style.position = ''; f.style.top = ''; f.style.left = ''; f.style.width = ''; f.style.zIndex = ''; f.style.paddingTop = '6px'; sp.style.display = 'none'; sp.style.marginTop = '';
     }
   };
   if (!window._retenPinBound) {
