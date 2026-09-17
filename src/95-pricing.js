@@ -227,10 +227,11 @@ function viewPricing() {
         PRICING_FREQ.map(([k, lbl], i) => trow([lbl, money(pricingSavings(T, 'tfm', i)), money(pricingSavings(T, 'mole', i)), money(pricingSavings(T, 'rodent', i))], false, null, i))));
 
     // ── chips + reviews (D2D cards) ──
-    const chip = (big, txt, sub) => el('div', { style: { background: C.cream, borderRadius: '12px', padding: '12px 14px' } },
-      el('div', { style: { font: '700 20px/1 Archivo, Arial, sans-serif', color: C.orange } }, big),
-      el('div', { style: { font: 'italic 600 11px/1.2 Archivo, Arial, sans-serif', marginTop: '3px', color: C.char } }, txt),
-      sub ? el('div', { style: { font: '400 9px/1.25 Archivo, Arial, sans-serif', marginTop: '3px', color: C.ink2 } }, sub) : null);
+    const chip = (big, txt, sub) => el('div', { style: { background: C.cream, borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '14px', minHeight: '76px' } },
+      el('div', { style: { font: '700 ' + (big.length > 2 ? '30px' : '40px') + '/1 Archivo, Arial, sans-serif', color: C.orange, flexShrink: 0, letterSpacing: '-.02em' } }, big),
+      el('div', { style: { minWidth: 0 } },
+        el('div', { style: { font: 'italic 700 16px/1.15 Archivo, Arial, sans-serif', color: C.char } }, txt),
+        sub ? el('div', { style: { font: '400 11px/1.25 Archivo, Arial, sans-serif', marginTop: '3px', color: C.ink2 } }, sub) : null));
     const reviews = el('div', { style: { background: C.cream, borderRadius: '12px', padding: '14px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', justifyContent: 'center' } },
       el('span', { style: { width: '30px', height: '30px', borderRadius: '50%', background: C.char, color: C.cream, font: '700 17px/30px Archivo, Arial, sans-serif', display: 'inline-block' } }, 'G'),
       el('span', { style: { color: C.orange, fontSize: '18px', letterSpacing: '.08em', lineHeight: 1 } }, '★★★★★'),
