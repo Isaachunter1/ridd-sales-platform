@@ -256,15 +256,17 @@ function manageTeamsPanel(opts) {
     // NOTE: the search box is applied client-side (show/hide rows) so typing
     // never triggers a full re-render — see applyRepSearch() below.
 
-    // Title + filters + search share ONE row (per Isaac — the old stacked
-    // header / filter bar / search rows are gone); Year + tools sit right.
-    const headerFilterSlot = el('div', { class: 'flex-1 min-w-0 flex flex-wrap items-center gap-x-2.5 gap-y-2' });
-    const header = el('div', { class: 'flex items-center px-5 py-3 border-b gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
+    // Header = three tidy rows (per Isaac): title + Year / tools / Done on
+    // top, the filter pills on one row beneath, and the rep search spanning
+    // the full width under that.
+    const headerFilterSlot = el('div', { class: 'w-full flex flex-wrap items-center gap-x-2.5 gap-y-2' });
+    const headerSearchSlot = el('div', { class: 'w-full' });
+    const header = el('div', { class: 'flex flex-col px-5 py-3 border-b gap-2.5', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'flex items-center gap-3 w-full' },
       el('h2', {
         class: 'text-base font-bold whitespace-nowrap',
         title: 'Teams are tracked per year — the roster reflects the selected Year. Tiers auto-set from sales history (first season = Rookie, returning = Vet); tagging overrides — Vet is permanent, Rookie applies to the year tagged and auto-promotes when they return. Click a team to rename it, pick a color, or toggle Exclude from metrics.',
       }, 'Manage Teams'),
-      headerFilterSlot,
       el('div', { class: 'flex items-center gap-2 shrink-0 ml-auto' },
         // Team Year — assignments are stored per calendar year, so this picks
         // which year's teams you're viewing and editing. Defaults to the
@@ -300,7 +302,9 @@ function manageTeamsPanel(opts) {
           style: { borderColor: 'var(--border-2)' },
           onclick: close,
         }, 'Done'),
-      ),
+      )),
+      headerFilterSlot,
+      headerSearchSlot,
     );
 
     // ── Add team bar ──
@@ -853,12 +857,12 @@ function manageTeamsPanel(opts) {
     }
 
     // Search box (id is stable across re-renders so we can refocus after a change)
-    const searchInput = el('div', { class: 'inline-flex' },
+    const searchInput = el('div', { class: 'flex w-full' },
       el('input', {
         id: 'manage-reps-search',
         type: 'text', placeholder: 'Search rep…', value: search,
-        class: 'rounded-lg border px-2.5 py-1 text-[11px]',
-        style: { borderColor: 'var(--border-2)', width: '170px' },
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] w-full',
+        style: { borderColor: 'var(--border-2)' },
         oninput: (e) => {
           // Filter the list IN PLACE — show/hide existing rows — instead of
           // re-rendering the whole modal. No rebuild means the input keeps
@@ -1088,11 +1092,12 @@ function manageTeamsPanel(opts) {
     // selected Team Year (the Year dropdown above), so switching years
     // re-scopes the whole panel. Team stays as chips since clicking a team
     // also opens its detail/edit panel.
-    const mkFilter = (label, value, opts, onChange) => el('label', { class: 'inline-flex items-center gap-1' },
+    // Each filter stretches so the pills share the row edge-to-edge (per Isaac).
+    const mkFilter = (label, value, opts, onChange) => el('label', { class: 'inline-flex items-center gap-1.5 flex-1', style: { minWidth: '150px' } },
       el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
       el('select', {
-        class: 'rounded-lg border px-1.5 py-1 text-xs cursor-pointer',
-        style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)', maxWidth: '132px' },
+        class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer w-full',
+        style: { borderColor: 'var(--border-2)', background: 'var(--card-2)', color: 'var(--text)', minWidth: '0' },
         onchange: (e) => onChange(e.target.value),
       }, ...opts.map(o => el('option', { value: o.value, selected: value === o.value }, o.label))));
     const filterBar = el('div', { style: { display: 'contents' } },
@@ -1130,7 +1135,8 @@ function manageTeamsPanel(opts) {
         ? el('span', { class: 'text-[10px] text-muted- italic' }, 'Showing ' + filteredReps.length + ' of ' + reps.length)
         : null,
     );
-    headerFilterSlot.append(...Array.from(filterBar.childNodes), searchInput);
+    headerFilterSlot.append(...Array.from(filterBar.childNodes));
+    headerSearchSlot.append(searchInput);
 
     // ── Link names to FieldRoutes (CRM) ──────────────────────────────────
     // Some reps are spelled differently in the sales data than in the CRM, so
