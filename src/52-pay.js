@@ -230,8 +230,8 @@ function viewPay() {
     class: 'grid px-3 py-2 text-[10px] font-black uppercase tracking-widest gap-3',
     style: { gridTemplateColumns: '1fr 1fr', background: 'var(--text)', color: 'var(--card)' },
   }, el('span', {}, label), right ? el('span', { class: 'text-left' }, right) : null);
-  const tone = (t) => t === 'sand' ? { background: '#8E6F47', color: '#fff' }
-    : t === 'green' ? { background: '#3D7A66', color: '#fff' }
+  const tone = (t) => t === 'sand' ? { background: '#9C3F1E', color: '#fff' }
+    : t === 'green' ? { background: '#5F6C5B', color: '#fff' }
     : t === 'total' ? { background: 'var(--accent)', color: 'var(--accent-text)' }
     : {};
   const row = (label, value, opts = {}) => el('div', {
@@ -284,7 +284,7 @@ function viewPay() {
         }, 'Run Pay Period →'),
         el('button', {
           class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95',
-          style: { background: '#3D7A66', color: '#fff' },
+          style: { background: '#5F6C5B', color: '#fff' },
           onclick: () => processBackendPayroll(period, repId),
         }, 'Run Backend →'),
         el('button', {
@@ -468,7 +468,7 @@ function paySourceBreakdown(repId, salesByStatus) {
 
   const th = (txt, right) => el('th', {
     class: 'px-2 py-2 text-[10px] uppercase tracking-widest font-bold whitespace-nowrap' + (right ? ' text-left' : ' text-left'),
-    style: { background: '#000', color: '#fff' },
+    style: { background: 'var(--brand-charcoal, #323230)', color: 'var(--brand-cream, #FBF4DA)' },
   }, txt);
   const td = (content, opts = {}) => el('td', {
     class: 'px-2 py-1.5 text-xs tabular-nums whitespace-nowrap' + (opts.right ? ' text-left' : ' text-left'),

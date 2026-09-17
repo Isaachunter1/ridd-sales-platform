@@ -410,7 +410,7 @@ function manageTeamsPanel(opts) {
           : { background: 'var(--card-2)', color: 'var(--text)', border: '1px solid var(--border-2)' },
         onclick: () => { state._indicatorManageTierFilter = ''; render(); },
       }, 'All · ' + reps.length),
-      tierChip('rookie',   'Rookie',   '#0EA5E9', tierCounts.rookie),
+      tierChip('rookie',   'Rookie',   '#5F6C5B', tierCounts.rookie),
       tierChip('vet',      'Vet',      '#DF643A', tierCounts.vet),
       tierChip('untagged', 'Untagged', '#9B6B2C', tierCounts.untagged),
     );
@@ -449,10 +449,10 @@ function manageTeamsPanel(opts) {
     // ── Rep Type chips — cross-referenced from the Customer Report ──
     // "Sold By Type" (Sales Rep / Office Staff / Technician) matched to each
     // rep by name. "Unknown" = no match in the uploaded report.
-    const TYPE_COLOR = { 'Sales Rep': '#0EA5E9', 'Office Staff': '#7C3AED', 'Technician': '#B45309', 'Unknown': '#6B7280' };
+    const TYPE_COLOR = { 'Sales Rep': '#5F6C5B', 'Office Staff': '#9C3F1E', 'Technician': '#A9441F', 'Unknown': '#7C857A' };
     const typeChip = (id) => {
       const isOn = typeSelect === id;
-      const color = TYPE_COLOR[id] || '#6B7280';
+      const color = TYPE_COLOR[id] || '#7C857A';
       return el('button', {
         class: 'rounded-full text-[11px] font-semibold cursor-pointer transition hover:brightness-95 inline-flex items-center gap-1.5 px-2.5 py-0.5',
         style: isOn
@@ -479,7 +479,7 @@ function manageTeamsPanel(opts) {
     // ── Branch chips — filter the roster by the rep's primary office ──
     const branchChip = (b) => {
       const isOn = branchSelect === b;
-      const color = BRANCH_COLORS[String(b).toUpperCase()] || '#6B7280';
+      const color = BRANCH_COLORS[String(b).toUpperCase()] || '#7C857A';
       return el('button', {
         class: 'rounded-full text-[11px] font-semibold cursor-pointer transition hover:brightness-95 inline-flex items-center gap-1.5 px-2.5 py-0.5',
         style: isOn
@@ -573,7 +573,7 @@ function manageTeamsPanel(opts) {
       // Collapsed by default — the roster below is the point of this panel.
       el('button', { class: 'w-full flex items-center justify-between gap-2 px-2.5 py-1 cursor-pointer text-[11px]', style: { background: 'transparent' },
         onclick: () => { state._indicatorDupesOpen = !_dupesOpen; render(); } },
-        el('span', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: '#C28A1F' } },
+        el('span', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: '#A9441F' } },
           '⚠️ ' + dupePairs.length + ' possible duplicate' + (dupePairs.length === 1 ? '' : 's')),
         el('span', { class: 'text-[11px] text-muted-' }, _dupesOpen ? 'Hide' : 'Show')),
       !_dupesOpen ? null : el('div', { class: 'px-5 pb-3' },
@@ -592,7 +592,7 @@ function manageTeamsPanel(opts) {
           if (flips.length < 2) return null;
           return el('button', {
             class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold shrink-0 transition hover:brightness-95',
-            style: { background: '#C28A1F', color: '#fff' },
+            style: { background: '#A9441F', color: '#fff' },
             title: 'Same name, different word order. Keeps the "Last, First" spelling the sales data uses.',
             onclick: () => {
               if (!confirm('Merge ' + flips.length + ' name pairs that differ only in word order?\n\nExample: ' + flips[0].bad + '  ->  ' + flips[0].good + '\n\nReversible per rep from the alias list.')) return;
@@ -877,7 +877,7 @@ function manageTeamsPanel(opts) {
           ? el('div', { class: 'px-5 py-1 text-[10px] uppercase tracking-widest font-bold border-t border-b', style: { color: 'var(--text-subtle)', borderColor: 'var(--border)', background: 'var(--card-2)' } }, 'Everyone else')
           : null;
         const _untaggedHead = (_ri === 0 && state._mtUntaggedFirstCount > 0)
-          ? el('div', { class: 'px-5 py-1 text-[10px] uppercase tracking-widest font-bold border-b', style: { color: '#C28A1F', borderColor: 'var(--border)', background: 'rgba(255,193,7,.06)' } }, state._mtUntaggedFirstCount + ' need a team or tier')
+          ? el('div', { class: 'px-5 py-1 text-[10px] uppercase tracking-widest font-bold border-b', style: { color: '#A9441F', borderColor: 'var(--border)', background: 'rgba(255,193,7,.06)' } }, state._mtUntaggedFirstCount + ' need a team or tier')
           : null;
         const _row = (() => {
         const currentTeam = getRepTeam(repName);
@@ -983,7 +983,7 @@ function manageTeamsPanel(opts) {
             // a dupe rolled into the canonical, not a real second rep.
             isAlias && el('span', {
               class: 'text-[10px] font-bold uppercase tracking-widest shrink-0 px-2 py-0.5 rounded-full',
-              style: { background: 'rgba(255,193,7,.15)', color: '#C28A1F', border: '1px solid rgba(194,138,31,.35)' },
+              style: { background: 'rgba(255,193,7,.15)', color: '#A9441F', border: '1px solid rgba(194,138,31,.35)' },
               title: 'This rep is merged into ' + aliasTarget + ' — sales count under that name.',
             }, '→ ' + aliasTarget),
             office && !isAlias && el('span', {
@@ -1029,7 +1029,7 @@ function manageTeamsPanel(opts) {
       const openSet = state._mtOpenTeams instanceof Set ? state._mtOpenTeams : (state._mtOpenTeams = new Set());
       const out = [];
       if (needs.length) {
-        out.push(el('div', { class: 'px-5 py-1.5 text-[10px] uppercase tracking-widest font-bold border-b', style: { color: '#C28A1F', borderColor: 'var(--border)', background: 'rgba(255,193,7,.06)' } }, needs.length + ' need a team or tier'));
+        out.push(el('div', { class: 'px-5 py-1.5 text-[10px] uppercase tracking-widest font-bold border-b', style: { color: '#A9441F', borderColor: 'var(--border)', background: 'rgba(255,193,7,.06)' } }, needs.length + ' need a team or tier'));
         needs.forEach(r => out.push(buildRow(r)));
       }
       teamOrder.forEach(t => {
@@ -1219,7 +1219,7 @@ function manageTeamsPanel(opts) {
       crmLinkPanel = el('div', { class: 'border-b', style: { borderColor: 'var(--border)', background: open ? 'rgba(13,148,136,.05)' : 'transparent' } },
         el('button', { class: 'w-full flex items-center justify-between gap-2 px-2.5 py-1 cursor-pointer text-[11px]', style: { background: 'transparent' },
           onclick: () => { state._indicatorCrmLinkOpen = !open; render(); } },
-          el('span', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: '#0D9488' } },
+          el('span', { class: 'text-xs font-bold uppercase tracking-widest', style: { color: '#5F6C5B' } },
             '🔗 Link names to CRM · ' + withCand.length + ' need a look' + (noCand.length ? ' · ' + noCand.length + ' no match' : '')),
           el('span', { class: 'text-[11px] text-muted-' }, open ? 'Hide ▲' : 'Show ▼')),
         open ? el('div', { class: 'flex flex-col' },
@@ -1257,8 +1257,8 @@ function manageTeamsPanel(opts) {
     // Surface those here with a remove-everywhere button.
     const _thisYear = new Set(distinctTeamsForYear(teamYear));
     const _stale = distinctTeams().filter(t => !_thisYear.has(t));
-    const stalePanel = _stale.length ? el('div', { class: 'px-5 py-3 border-b flex flex-col gap-2', style: { borderColor: 'var(--border)', background: 'rgba(245, 158, 11, 0.06)' } },
-      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: '#B45309' } }, 'Teams only referenced in other years'),
+    const stalePanel = _stale.length ? el('div', { class: 'px-5 py-3 border-b flex flex-col gap-2', style: { borderColor: 'var(--border)', background: 'rgba(223,100,58, 0.06)' } },
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: '#A9441F' } }, 'Teams only referenced in other years'),
       el('div', { class: 'text-[11px] text-muted-' }, 'Nobody in ' + teamYear + ' is on these, but they still show in team dropdowns because an older roster references them. Remove to clear them everywhere.'),
       el('div', { class: 'flex flex-wrap gap-1.5' }, ..._stale.map(t => {
         const yrs = Object.keys(state._indicatorRepTeamByYear || {}).filter(y => Object.values(state._indicatorRepTeamByYear[y] || {}).includes(t));

@@ -425,7 +425,7 @@ function applyUserLayout(root) {
       return;
     }
     if (!e.n.style.position) e.n.style.position = 'relative';
-    e.n.style.outline = '2px dashed ' + (isHid ? '#D97706' : 'var(--accent)');
+    e.n.style.outline = '2px dashed ' + (isHid ? '#A9441F' : 'var(--accent)');
     e.n.style.outlineOffset = '2px';
     e.n.style.opacity = isHid ? '.35' : '';
     const mk = (glyph, title, onclick, disabled) => el('button', {
@@ -833,7 +833,7 @@ function mountApp() {
         // time out must never read a green stamp over stale numbers.
         const pullErr = state._indPullError && (Date.now() - state._indPullError.at) < 3 * 3600000;
         const lvl = pullErr ? 'red' : (typeof indicatorsSyncStaleness === 'function') ? indicatorsSyncStaleness() : null;
-        const c = lvl === 'red' ? '#DC2626' : lvl === 'amber' ? '#D97706' : null;
+        const c = lvl === 'red' ? '#DC2626' : lvl === 'amber' ? '#A9441F' : null;
         return txt ? el('span', {
           class: 'block text-[11px] whitespace-nowrap cursor-pointer truncate min-w-0',
           onclick: pullErr ? (() => { try { refreshIndicatorsFromCloud(true); toast('Retrying\u2026', 'success'); } catch (e) { /* poll retries */ } }) : undefined,
@@ -1002,12 +1002,12 @@ function mountApp() {
       class: 'card',
       style: { position: 'fixed', bottom: _stacked ? '64px' : '18px', left: '50%', transform: 'translateX(-50%)', zIndex: '9998',
                padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '10px',
-               boxShadow: 'var(--shadow-lg)', border: '1px solid #F59E0B', background: 'rgba(245,158,11,.10)' },
+               boxShadow: 'var(--shadow-lg)', border: '1px solid #DF643A', background: 'rgba(223,100,58,.10)' },
     },
       el('span', { class: 'text-xs font-semibold' }, '\ud83e\uddea Sandbox \u2014 changes are NOT being saved'),
       el('button', {
         class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-        style: { background: '#F59E0B', color: '#fff' },
+        style: { background: '#DF643A', color: '#fff' },
         onclick: () => sandboxExit(),
       }, 'Exit & discard'),
     ));

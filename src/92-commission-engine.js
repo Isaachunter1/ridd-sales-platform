@@ -107,7 +107,7 @@ function commissionRenderCards(B, repName) {
   const ROW = (label, valNode, kind) => el('div', {
     class: 'flex items-center justify-between gap-3 px-3 py-2 text-sm',
     style: { borderTop: '1px solid var(--border)',
-      background: kind === 'rev' ? 'rgba(59,130,246,.08)' : kind === 'comm' ? 'rgba(223,100,58,.10)' : kind === 'total' ? 'rgba(223,100,58,.18)' : 'transparent' } },
+      background: kind === 'rev' ? 'rgba(95,108,91,.08)' : kind === 'comm' ? 'rgba(223,100,58,.10)' : kind === 'total' ? 'rgba(223,100,58,.18)' : 'transparent' } },
     el('span', { class: kind === 'total' ? 'font-bold' : '' }, label),
     el('span', { class: 'tabular-nums ' + (kind === 'total' ? 'font-bold' : '') }, valNode));
   const breakdown = el('div', { class: 'card overflow-hidden' },
@@ -128,7 +128,7 @@ function commissionRenderCards(B, repName) {
     ROW('Audit Deduction', money(-B.audit)),
     ROW('Net Due', money(B.netDue), 'total'),
     ROW('Bi-Weekly Pay (÷ ' + B.payPeriods + ')', money(B.biWeekly), 'total'),
-    el('div', { class: 'px-3 py-2 text-sm flex items-center justify-between', style: { background: 'rgba(59,130,246,.08)', borderTop: '1px solid var(--border)' } },
+    el('div', { class: 'px-3 py-2 text-sm flex items-center justify-between', style: { background: 'rgba(95,108,91,.08)', borderTop: '1px solid var(--border)' } },
       el('span', { class: 'font-semibold' }, 'Total Payable Rev'), el('span', { class: 'tabular-nums font-semibold' }, money(B.payableRev))));
   const statRow = (label, val, tone) => el('div', { class: 'flex items-center justify-between px-3 py-1.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
     el('span', {}, label), el('span', { class: 'tabular-nums font-semibold', style: tone ? { color: tone } : {} }, val));
@@ -139,7 +139,7 @@ function commissionRenderCards(B, repName) {
     statRow('Accounts with Balance', B.withBalance + '  (' + pct(B.sold ? B.withBalance / B.sold * 100 : 0) + ')'),
     statRow('Multi-Year %', pct(B.myPct)),
     B.apayN != null ? statRow('AutoPay %', pct(B.sold ? B.apayN / B.sold * 100 : 0)) : null,
-    B.lastResort != null ? statRow('Last Resort (<$99 initial)', B.lastResort + '  (' + pct(B.sold ? B.lastResort / B.sold * 100 : 0) + ')', B.lastResort ? '#D97706' : null) : null,
+    B.lastResort != null ? statRow('Last Resort (<$99 initial)', B.lastResort + '  (' + pct(B.sold ? B.lastResort / B.sold * 100 : 0) + ')', B.lastResort ? '#A9441F' : null) : null,
     B.reasonExcl != null && B.reasonExcl > 0 ? statRow('Cancels w/ excluded reason (not counted)', B.reasonExcl) : null,
     statRow('Total 3-Day Right of Rescission', B.ror),
     statRow('Accounts Canceled After Lock Date', B.afterLock),
@@ -618,9 +618,9 @@ function viewD2dUpfront() {
       el('span', {}, 'Deductions'), el('span', { class: 'tabular-nums' }, money(-upDeduct))),
     el('div', { class: 'flex items-center gap-4 px-3 py-2.5', style: { borderTop: '2px solid var(--text)', background: 'rgba(223,100,58,.18)' } },
       el('span', { class: 'font-display text-lg' }, 'NET DUE'), el('span', { class: 'font-display text-lg tabular-nums' }, money(netDue))),
-    el('div', { class: 'flex items-center gap-4 px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)', background: 'rgba(59,130,246,.08)' } },
+    el('div', { class: 'flex items-center gap-4 px-3 py-2 text-sm', style: { borderTop: '1px solid var(--border)', background: 'rgba(95,108,91,.08)' } },
       el('span', { class: 'font-semibold' }, 'Weekly Pay (÷ ' + payPeriods + ')'), el('span', { class: 'tabular-nums font-semibold' }, money(weeklyPay))),
-    R.unclRev > 0 ? el('div', { class: 'px-3 py-2 text-[11px]', style: { borderTop: '1px solid var(--border)', color: '#D97706' } },
+    R.unclRev > 0 ? el('div', { class: 'px-3 py-2 text-[11px]', style: { borderTop: '1px solid var(--border)', color: '#A9441F' } },
       '⚠ ' + money(R.unclRev) + ' in unmapped service types earns $0 here — map them in Settings → Commissions.') : null);
 
   const ratesPanel = el('div', { class: 'card p-4' },
@@ -682,7 +682,7 @@ function viewD2dUpfront() {
           el('div', { class: 'flex items-center gap-1.5' },
             el('span', {
               class: 'text-xs font-bold px-2.5 py-2 rounded-xl whitespace-nowrap',
-              style: _lock ? { background: 'rgba(223,100,58,.18)', color: '#DF643A' } : { background: 'rgba(240,172,30,.16)', color: '#B45309' },
+              style: _lock ? { background: 'rgba(223,100,58,.18)', color: '#DF643A' } : { background: 'rgba(240,172,30,.16)', color: '#A9441F' },
               title: _lock ? ('Locked by ' + (_lock.name || 'admin') + ' · ' + String(_lock.at || '').slice(0, 10)) : 'Draft — numbers may still move; lock before running commissions',
             }, _lock ? '🔒 Locked' : '📝 Draft'),
             el('button', {
@@ -786,7 +786,7 @@ function viewD2dUpfront() {
       const statusCell = (r) => r.subscription_date_canceled
         ? el('span', { class: 'text-xs font-bold', style: { color: '#DC2626' }, title: String(r.subscription_cancellation_reason || 'Cancelled') + ' · ' + r.subscription_date_canceled }, 'Canceled')
         : /frozen/i.test(String(r.subscription_status || ''))
-          ? el('span', { class: 'text-xs font-bold', style: { color: '#D97706' } }, 'Frozen')
+          ? el('span', { class: 'text-xs font-bold', style: { color: '#A9441F' } }, 'Frozen')
           : el('span', { class: 'text-xs font-bold', style: { color: '#DF643A' } }, 'Active');
       const payTotal = rowsSorted.reduce((a, r) => a + (Number(r.subscription_contract_value) || 0) * rateOf(catOf(r)), 0);
       return el('div', { class: 'card overflow-hidden' },
@@ -808,7 +808,7 @@ function viewD2dUpfront() {
               el('td', { class: 'px-4 py-2 whitespace-nowrap' }, String(r.subscription || '—')),
               el('td', { class: 'px-4 py-2 whitespace-nowrap' },
                 el('span', { class: 'text-xs font-bold px-2 py-0.5 rounded-full', style: c === 'unclassified'
-                  ? { background: 'rgba(245,158,11,.14)', color: '#B45309' }
+                  ? { background: 'rgba(223,100,58,.14)', color: '#A9441F' }
                   : c === 'exclude' ? { background: 'var(--card-2)', color: 'var(--text-subtle)' }
                   : { background: 'rgba(223,100,58,.12)', color: '#DF643A' } }, CAT_LBL[c] || c)),
               el('td', { class: 'px-4 py-2 tabular-nums' }, money(cv2)),

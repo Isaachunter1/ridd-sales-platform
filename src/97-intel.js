@@ -186,7 +186,7 @@ function intelSourceEconomicsCard() {
         td(e.life == null ? '—' : e.life.toFixed(1) + ' yrs', { right: true }), td(e.ltv == null ? '—' : fmt.usd0(e.ltv), { right: true, bold: true }),
         el('td', { class: 'px-3 py-1 text-right' }, el('input', { type: 'number', min: '0', step: '100', value: e.monthly || '', placeholder: '$', class: 'rounded-lg border px-2 py-0.5 text-[11px] tabular-nums text-right', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '84px' }, onchange: (ev) => saveSpend(e.src, Number(ev.target.value) || 0) })),
         td(e.cac == null ? '—' : fmt.usd0(e.cac), { right: true }),
-        td(e.ratio == null ? '—' : e.ratio.toFixed(1) + '×', { right: true, bold: true, style: e.ratio == null ? {} : { color: e.ratio >= 3 ? '#16A34A' : e.ratio >= 1.5 ? '#D97706' : '#DC2626' } })))))));
+        td(e.ratio == null ? '—' : e.ratio.toFixed(1) + '×', { right: true, bold: true, style: e.ratio == null ? {} : { color: e.ratio >= 3 ? '#5F6C5B' : e.ratio >= 1.5 ? '#A9441F' : '#DC2626' } })))))));
 }
 
 // ── 4. Add-on performance (pricing intelligence) ────────────────────────

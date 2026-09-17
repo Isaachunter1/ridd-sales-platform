@@ -302,7 +302,7 @@ function reportingAuditing() {
           // excl-ROR number, black = incl-ROR, yellow = the aging what-if.
           tile('Attrition · excl. ROR + OTS', pctS(attrExclRor), 'cancelled ÷ serviced (3-day RORs + one-time services removed from both sides)', good),
           tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), 'cancelled ÷ serviced (incl. ROR + one-time)', 'var(--text)'),
-          tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#D97706'),
+          tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#A9441F'),
           tile('Active retention', pctS(activeRetention), 'active ÷ serviced', activeRetention == null ? null : (activeRetention >= 0.85 ? good : activeRetention < 0.65 ? bad : null)),
         ]),
         // ── "True Attrition" bar (per Isaac) — same definition as the rep
@@ -329,8 +329,8 @@ function reportingAuditing() {
               el('div', {},
                 el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'True attrition · excl. ROR + OTS + renewals · aging counts as churn'),
                 el('div', { class: 'text-[10px] text-muted- mt-0.5' }, '(cancelled ' + money(tCxl) + ' + aging ' + money(tAging) + ') ÷ ' + money(tSvc) + ' serviced')),
-              el('div', { class: 'text-xl font-black tabular-nums', style: { color: rate >= 0.15 ? bad : rate < 0.08 ? good : '#D97706' } }, pctS(rate))),
-            el('div', { class: 'flex overflow-hidden rounded-full mt-2', style: { height: '10px', background: 'var(--border)' } }, seg(tCxl, bad, 'Cancelled'), seg(tAging, '#D97706', 'Aging'), seg(kept, good, 'Kept')),
+              el('div', { class: 'text-xl font-black tabular-nums', style: { color: rate >= 0.15 ? bad : rate < 0.08 ? good : '#A9441F' } }, pctS(rate))),
+            el('div', { class: 'flex overflow-hidden rounded-full mt-2', style: { height: '10px', background: 'var(--border)' } }, seg(tCxl, bad, 'Cancelled'), seg(tAging, '#A9441F', 'Aging'), seg(kept, good, 'Kept')),
             el('div', { class: 'flex items-center gap-3 mt-1.5 flex-wrap' }, cnt('Serviced', nSvc, () => true), cnt('Cancelled', nCxl, _cxlT), cnt('Aging', nAging, _agingT)));
         })()));
     overlay.append(card);

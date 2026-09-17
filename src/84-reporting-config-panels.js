@@ -621,8 +621,8 @@ function reportingIsPacer() {
   const ytdPace = anyGoal && ytdGoal > 0 ? ytdAct / ytdGoal : null;
   const annPct = annual ? ytdAct / annual : null;
   const expCum = IS_PACER_CUM[curM];
-  const paceColor = (p) => p == null ? 'var(--text-muted)' : p >= 1 ? '#DF643A' : p >= 0.85 ? '#b45309' : '#DC2626';
-  const paceBg = (p) => p == null ? 'transparent' : p >= 1 ? 'rgba(223,100,58,.15)' : p >= 0.85 ? 'rgba(245,158,11,.12)' : 'rgba(220,38,38,.10)';
+  const paceColor = (p) => p == null ? 'var(--text-muted)' : p >= 1 ? '#DF643A' : p >= 0.85 ? '#A9441F' : '#DC2626';
+  const paceBg = (p) => p == null ? 'transparent' : p >= 1 ? 'rgba(223,100,58,.15)' : p >= 0.85 ? 'rgba(223,100,58,.12)' : 'rgba(220,38,38,.10)';
   const pctS = (p) => p == null ? '—' : Math.round(p * 100) + '%';
 
   const kpi = (label, val, sub, color) => el('div', { class: 'flex-1', style: { minWidth: '130px' } },
@@ -950,7 +950,7 @@ function _mktgPnl() {
   const opts = { groupRows: groups, label: (rk) => groups.has(rk) ? rk : _mktgTC(rk), firstCol: 'Branch' };
   const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
   const T = m.settings.targets;
-  const goalStyle = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#16A34A' : '#DC2626', fontWeight: '600' };
+  const goalStyle = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#5F6C5B' : '#DC2626', fontWeight: '600' };
   return el('div', { class: 'flex flex-col gap-4' },
     _mktgMatrixCard('New revenue', 'FieldRoutes · office staff · new + upsell · pending/serviced · by sold month', rows, rev, _mktgUsd0, opts),
     // Spend (per Isaac): Ad spend · Wages · Incentives · Total spend in ONE
@@ -1062,7 +1062,7 @@ function _mktgProviders() {
   const leads = (ch, i) => ch === 'RIDD' ? channels.reduce((t, c) => t + leads(c, i), 0) : (Number((m.leads[_mktgYm(y, i)] || {})[ch]) || 0);
   const opts = { groupRows: groups, firstCol: 'Source' };
   const ratioTotal = (num, den) => (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += num(rk, i); d += den(rk, i); } return _mktgDiv(n, d); };
-  const gs = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#16A34A' : '#DC2626', fontWeight: '600' };
+  const gs = (goal, better) => (v) => v == null ? {} : { color: better(v, goal) ? '#5F6C5B' : '#DC2626', fontWeight: '600' };
   return el('div', { class: 'flex flex-col gap-4' },
     _mktgMatrixCard('Revenue', 'FieldRoutes · new + upsell revenue by subscription source', rows, rev, _mktgUsd0, opts),
     _mktgMatrixCard('Ad spend', 'hand-entered allocation (Spend entry), summed across branches', rows, sp, _mktgUsd0, opts),
@@ -1181,7 +1181,7 @@ function _mktgProjections() {
           el('td', { class: 'px-1 py-1 text-left' }, num(g, (v) => { s.branchGoals[b] = v; })),
           _mktgTd(fmt.usd0(g * s.adSpendPct)), _mktgTd(fmt.usd0(g * s.wagesPct)), _mktgTd(fmt.usd0(g * s.incentivesPct)), _mktgTd(fmt.usd0(g * (s.adSpendPct + s.wagesPct + s.incentivesPct)), { bold: true }),
           el('td', { class: 'px-1 py-1 text-left' }, num(s.branchAttrition[b] != null ? Math.round(s.branchAttrition[b] * 100) : '', (v) => { s.branchAttrition[b] = v / 100; }, { w: '70px' })),
-          _mktgTd(fmt.usd0(ytd)), _mktgTd(g > 0 ? (ytd / g * 100).toFixed(0) + '%' : '—', { style: { color: g > 0 && ytd / g >= 1 ? '#16A34A' : 'inherit' } })); }),
+          _mktgTd(fmt.usd0(ytd)), _mktgTd(g > 0 ? (ytd / g * 100).toFixed(0) + '%' : '—', { style: { color: g > 0 && ytd / g >= 1 ? '#5F6C5B' : 'inherit' } })); }),
         el('tr', { class: 'border-t font-bold', style: { background: 'var(--card-2)' } },
           _mktgTd('RIDD', { left: true, bold: true }),
           _mktgTd(fmt.usd0(B.all.reduce((t, b) => t + goal(b), 0)), { bold: true }),
@@ -1208,7 +1208,7 @@ function _mktgProjections() {
   return el('div', { class: 'flex flex-col gap-4' },
     goalsCard,
     _mktgMatrixCard('Projected revenue', 'branch goal × seasonal allocation (Configurations)', rows, pRev, _mktgUsd0, opts),
-    _mktgMatrixCard('Actual vs projected', 'FieldRoutes actual ÷ projected', rows, (rk, i) => { const p = pRev(rk, i); return p > 0 ? aRev(rk, i) / p : null; }, _mktgPct, { ...opts, cellStyle: (v) => v == null ? {} : { color: v >= 1 ? '#16A34A' : v >= 0.8 ? '#D97706' : '#DC2626', fontWeight: '600' }, total: (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += aRev(rk, i); d += pRev(rk, i); } return _mktgDiv(n, d); } }),
+    _mktgMatrixCard('Actual vs projected', 'FieldRoutes actual ÷ projected', rows, (rk, i) => { const p = pRev(rk, i); return p > 0 ? aRev(rk, i) / p : null; }, _mktgPct, { ...opts, cellStyle: (v) => v == null ? {} : { color: v >= 1 ? '#5F6C5B' : v >= 0.8 ? '#A9441F' : '#DC2626', fontWeight: '600' }, total: (rk) => { let n = 0, d = 0; for (let i = 0; i < 12; i++) { n += aRev(rk, i); d += pRev(rk, i); } return _mktgDiv(n, d); } }),
     _mktgMatrixCard('Projected ad spend', 'projected revenue × ' + Math.round(s.adSpendPct * 100) + '%', rows, pAd, _mktgUsd0, opts),
     _mktgMatrixCard('Projected wages', 'projected revenue × ' + Math.round(s.wagesPct * 100) + '%', rows, pWg, _mktgUsd0, opts),
     _mktgMatrixCard('Projected incentives', 'projected revenue × ' + Math.round(s.incentivesPct * 100) + '%', rows, pInc, _mktgUsd0, opts),
@@ -1307,7 +1307,7 @@ function reportingMktgSpendRevChart() {
     if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
     const isDark = state.theme === 'dark';
     const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
-    const barCur = isDark ? '#E6E6DC' : '#1D1D1D', barPrev = isDark ? '#6b6b63' : '#B8B8AE';
+    const barCur = isDark ? '#E6E6DC' : '#323230', barPrev = isDark ? '#6b6b63' : '#B8B8AE';
     const datasets = [
       { type: 'bar', label: 'Spend ' + curY, data: spendCur, backgroundColor: barCur, order: 3 },
       ...(hasPrev ? [{ type: 'bar', label: 'Spend ' + prevY, data: spendPrev, backgroundColor: barPrev, order: 3 }] : []),
@@ -1344,7 +1344,7 @@ function reportingMktgSpendRevChart() {
     el('div', { class: 'flex items-center justify-between gap-2 flex-wrap mb-1' },
       el('h3', { class: 'text-base font-bold' }, 'Marketing Spend vs Inside Sales Revenue'),
       el('div', { class: 'flex items-center gap-2 flex-wrap' },
-        el('span', { class: 'text-[10px]', style: { color: state._isSpendSource === 'none' ? '#D97706' : 'var(--text-subtle)' } }, _spendStamp),
+        el('span', { class: 'text-[10px]', style: { color: state._isSpendSource === 'none' ? '#A9441F' : 'var(--text-subtle)' } }, _spendStamp),
         _mktgQboConnectBtn(),
         _spendRefresh)),
     el('div', { class: 'text-[11px] text-muted- mb-3' }, 'Year-over-year by month · bars = marketing spend (months with verified QuickBooks data only) · lines = new contract revenue, office-staff sold, Pending/Serviced — same series as the pacer · ' + curY + ' solid vs ' + prevY + ' dashed'),
@@ -1658,7 +1658,7 @@ function reportingLeadAttribution() {
       onclick: () => { state.reportingLeadLimit = (state.reportingLeadLimit || 200) + 400; mountApp(); } }, 'Show ' + Math.min(400, shown0.length - shown.length) + ' more (' + shown.length.toLocaleString() + ' of ' + shown0.length.toLocaleString() + ')')) : null;
 
   return el('div', { class: 'card p-4' }, head,
-    !hasContact ? el('div', { class: 'card p-3 mb-3 text-[11px]', style: { background: 'rgba(245,158,11,.12)' } },
+    !hasContact ? el('div', { class: 'card p-3 mb-3 text-[11px]', style: { background: 'rgba(223,100,58,.12)' } },
       '⚠ The loaded Customer Report snapshot has no phone or email columns, so nothing can match. Re-export it with Phone Number and Email columns and re-upload the snapshot.') : null,
     el('div', { class: 'grid gap-2 mb-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))' } },
       ...[['Leads', results.length.toLocaleString()], ['Matched', nMatched.toLocaleString() + ' · ' + rate + '%'], ['Source mismatches', nMis.toLocaleString()]].map(([l, v]) =>

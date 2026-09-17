@@ -2486,7 +2486,7 @@ function applyTheme(theme) {
   state.theme = theme;
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('ridd-theme', theme);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0F0F0F' : '#FFFFFF');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#1C1C1B' : '#FBF4DA');
 }
 applyTheme(state.theme);
 
@@ -3846,7 +3846,7 @@ function mountAuth(opts = {}) {
     // matches the first box, then green (per Isaac).
     const ci = confirmField.querySelector('input');
     if (!c) { ci.style.borderColor = ''; ci.style.boxShadow = ''; ci.style.background = ''; }
-    else if (p === c) { ci.style.borderColor = '#16A34A'; ci.style.boxShadow = '0 0 0 2px rgba(22,163,74,.18)'; ci.style.background = 'rgba(22,163,74,.05)'; }
+    else if (p === c) { ci.style.borderColor = '#5F6C5B'; ci.style.boxShadow = '0 0 0 2px rgba(95,108,91,.18)'; ci.style.background = 'rgba(95,108,91,.05)'; }
     else { ci.style.borderColor = '#DC2626'; ci.style.boxShadow = '0 0 0 2px rgba(220,38,38,.15)'; ci.style.background = 'rgba(220,38,38,.04)'; }
   };
   // Password managers / iOS autofill can drop a value in without an
@@ -3949,7 +3949,7 @@ function mountAuth(opts = {}) {
         // brightness(0) renders the logo solid BLACK regardless of its source
         // color — the uploaded mark is cream/white, invisible on this card.
         ? el('img', { src: logo, alt: CFG.COMPANY_NAME, style: { height: '56px', display: 'block', marginBottom: '2px', filter: 'brightness(0)' } })
-        : el('div', { class: 'text-4xl font-display tracking-tight', style: { color: '#1D1D1D' } }, CFG.COMPANY_NAME);
+        : el('div', { class: 'text-4xl font-display tracking-tight', style: { color: '#323230' } }, CFG.COMPANY_NAME);
     })(),
     el('div', { class: 'text-[10px] text-battleship tracking-[.22em] mb-2' }, CFG.COMPANY_TAGLINE),
     backBtn, heading, subheading, emailField, passField, confirmField, policyList, submitBtn, errLine, forgotBtn, inviteHint,

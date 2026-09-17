@@ -269,7 +269,7 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
           data: sorted.map(s => s.value),
           backgroundColor: sorted.map((s, i) => colorFor(s.label, i)),
           borderWidth: 1,
-          borderColor: isDark ? '#1d1d1d' : '#fff',
+          borderColor: isDark ? '#323230' : '#fff',
         }],
       },
       options: {
@@ -279,7 +279,7 @@ function reportingPieCard({ key, title, slices, formatValue, totalLabel, subline
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: '#1D1D1D', bodyFont: { size: 11 }, padding: 8, cornerRadius: 6,
+            backgroundColor: '#323230', bodyFont: { size: 11 }, padding: 8, cornerRadius: 6,
             callbacks: {
               // For non-additive metrics (like ACV averages) the percent
               // share is misleading, so hidePercent suppresses it. For
@@ -521,7 +521,7 @@ function openReportingAreaStatsModal({ area, peers, kind }) {
     const pct = eligible.length > 1 ? (eligible.length - rank) / (eligible.length - 1) : 1;
     pcts.push(pct);
     const median = sorted[Math.floor(sorted.length / 2)];
-    const tone = pct >= 0.67 ? '#DF643A' : pct <= 0.33 ? '#DC2626' : '#B45309';
+    const tone = pct >= 0.67 ? '#DF643A' : pct <= 0.33 ? '#DC2626' : '#A9441F';
     rowsEls.push(el('div', { class: 'py-2 border-t border-' },
       el('div', { class: 'flex items-center justify-between gap-3 text-xs' },
         el('span', { class: 'font-semibold' }, m.label),
@@ -538,8 +538,8 @@ function openReportingAreaStatsModal({ area, peers, kind }) {
   const standing = avgPct == null ? null
     : avgPct >= 0.8 ? ['One of your best ' + peerNoun, '#DF643A']
     : avgPct >= 0.55 ? ['Above the pack', '#DF643A']
-    : avgPct >= 0.45 ? ['Middle of the pack', '#B45309']
-    : avgPct >= 0.2 ? ['Below the pack', '#B45309']
+    : avgPct >= 0.45 ? ['Middle of the pack', '#A9441F']
+    : avgPct >= 0.2 ? ['Below the pack', '#A9441F']
     : ['One of your weakest ' + peerNoun, '#DC2626'];
   const overlay = el('div', { class: 'modal-overlay' });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });

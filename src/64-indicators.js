@@ -1348,7 +1348,7 @@ function viewIndicators() {
                   const _all = _rangeGroups ? Object.values(_rangeGroups).flat() : [];
                   return el('th', {
                     class: 'text-center px-3 py-2 text-[10px] uppercase tracking-wider font-bold' + (_all.length ? ' cursor-pointer select-none' : ''),
-                    style: { background: '#1D1D1D', color: RIDD_COLOR, minWidth: '100px' },
+                    style: { background: '#323230', color: RIDD_COLOR, minWidth: '100px' },
                     title: _all.length ? 'Open the company-wide RIDD player card' : '',
                     onclick: _all.length ? () => openIndicatorRepCard(_scopeRep({ name: 'RIDD', sales: _all }, () => true), [{ name: 'RIDD', sales: _all }]) : undefined,
                   }, 'RIDD');
@@ -1709,7 +1709,7 @@ function maybeShowWeeklyRecap() {
         statBox('Revenue', money(lastRev)),
         statBox('Accounts', String(lastWk.length)),
         statBox('Best Day', bestDayEntry ? money(bestDayEntry[1]) : '—')),
-      prevRev > 0 || lastRev > 0 ? el('div', { class: 'text-xs text-center font-semibold', style: { color: delta >= 0 ? '#DF643A' : '#B45309' } },
+      prevRev > 0 || lastRev > 0 ? el('div', { class: 'text-xs text-center font-semibold', style: { color: delta >= 0 ? '#DF643A' : '#A9441F' } },
         (prevRev > 0 ? (delta >= 0 ? '▲ ' : '▼ ') + money(Math.abs(delta)) + ' vs the week before · ' : '') + cheer) : null,
       el('button', {
         class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
@@ -1815,7 +1815,7 @@ function myStatsCard() {
         el('div', { title: 'Where today sits in the year', style: { position: 'absolute', top: '0', bottom: '0', left: Math.min(99.5, yearFrac * 100) + '%', width: '2px', background: 'var(--text)' } }))) : null,
     el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
       stat('This Week', money(weekRev), null),
-      stat('Streak', streak + (streak === 1 ? ' day' : ' days'), 'consecutive selling days · Sundays don\'t break it', streak >= 3 ? '#D97706' : null),
+      stat('Streak', streak + (streak === 1 ? ' day' : ' days'), 'consecutive selling days · Sundays don\'t break it', streak >= 3 ? '#A9441F' : null),
       stat('Best Day', bestDay > 0 ? money(bestDay) : '—', null),
       stat('Best Week', bestWeek > 0 ? money(bestWeek) : '—', null),
       stat('Selling Days', String(sellDays), 'days with ≥1 sale · YTD'),
@@ -2083,7 +2083,7 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
         el('span', { class: 'text-base font-black tabular-nums', style: { color: '#DF643A' } }, fmt.int(raffleTotalTickets)),
       ),
       el('div', { class: 'flex items-center gap-3' },
-        el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: '#DF643A', color: '#1D1D1D' }, title: 'Spin a wheel to pick a winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
+        el('button', { class: 'px-2.5 py-1 rounded-lg text-[11px] font-bold transition hover:brightness-95', style: { background: '#DF643A', color: '#323230' }, title: 'Spin a wheel to pick a winner (weighted by tickets)', onclick: () => openRaffleSpinModal(raffleSorted, raffleTotalTickets, compWindowLabel) }, '🎰 Spin'),
         el('button', { class: 'px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, title: 'Export raffle tickets', onclick: () => exportRaffleCsv() }, '↓ Export'),
       ),
     ),
@@ -2226,10 +2226,10 @@ function buildAvgPestCompCard({ cf, allRawSales, rawSales, windowLabel, applyExc
           el('div', { class: 'flex items-center gap-3' },
             el('div', { style: { fontSize: '26px', lineHeight: '1' } }, '🏆'),
             el('div', {},
-              el('div', { style: { fontWeight: '900', fontSize: '20px', letterSpacing: '-0.01em', color: '#1D1D1D', textTransform: 'uppercase', lineHeight: '1' } }, 'Avg Pest Initial Competitions'),
-              el('div', { style: { fontWeight: '800', fontSize: '10px', letterSpacing: '0.08em', color: '#1D1D1D', opacity: '0.8', marginTop: '3px', textTransform: 'uppercase' } }, 'Door-to-Door · by RIDDMADE™'),
-              indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '0', background: '#1D1D1D', color: '#DF643A', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, '📅 ' + indicatorCompWindowStr()),
-              indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#1D1D1D', opacity: '0.7', marginTop: '3px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
+              el('div', { style: { fontWeight: '900', fontSize: '20px', letterSpacing: '-0.01em', color: '#323230', textTransform: 'uppercase', lineHeight: '1' } }, 'Avg Pest Initial Competitions'),
+              el('div', { style: { fontWeight: '800', fontSize: '10px', letterSpacing: '0.08em', color: '#323230', opacity: '0.8', marginTop: '3px', textTransform: 'uppercase' } }, 'Door-to-Door · by RIDDMADE™'),
+              indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '0', background: '#323230', color: '#DF643A', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, '📅 ' + indicatorCompWindowStr()),
+              indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#323230', opacity: '0.7', marginTop: '3px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
             ),
           ),
           // (ⓘ rules button rides the shared Comp Window bar now — per Isaac)
@@ -2798,7 +2798,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       }, highCount + ' high'),
       medCount > 0 && el('span', {
         class: 'text-[10px] font-bold px-1.5 py-0.5 rounded',
-        style: { background: 'rgba(245,158,11,.15)', color: '#92400E' },
+        style: { background: 'rgba(223,100,58,.15)', color: '#A9441F' },
       }, medCount + ' med'),
     );
 
@@ -2816,7 +2816,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         class: 'text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 whitespace-nowrap',
         style: isHigh
           ? { background: 'rgba(220,38,38,.12)', color: '#B91C1C' }
-          : { background: 'rgba(245,158,11,.15)', color: '#92400E' },
+          : { background: 'rgba(223,100,58,.15)', color: '#A9441F' },
       }, issue.label);
     }
 
@@ -2864,7 +2864,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   class: 'rounded-full px-2 py-0.5 font-semibold cursor-pointer hover:brightness-95 transition',
                   style: worstSeverity === 'high'
                     ? { background: 'rgba(220,38,38,.12)', color: '#B91C1C' }
-                    : { background: 'rgba(245,158,11,.15)', color: '#92400E' },
+                    : { background: 'rgba(223,100,58,.15)', color: '#A9441F' },
                   onclick: () => openIndicatorRepCard(rep, allReps),
                 }, rep.name)),
                 flagged.length > 8 && el('span', { class: 'text-muted- italic px-1' }, '+' + (flagged.length - 8) + ' more'),
@@ -3533,9 +3533,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       ]],
     ];
 
-    const ROOKIE_COLOR = '#0EA5E9';
+    const ROOKIE_COLOR = '#5F6C5B';
     const VET_COLOR    = '#DF643A';
-    const ALL_COLOR    = '#94A3B8';
+    const ALL_COLOR    = '#7C857A';
 
     const sideCell = (val, color, leader, subtitle) => el('div', {
       class: 'flex-1 px-2 py-2 text-center min-w-0',
@@ -4627,7 +4627,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
                 el('div', { class: 'w-16 text-right tabular-nums shrink-0 font-bold' }, _n > 0 ? fmt.usd0(_init / _n) : '\u2014'),
                 el('div', { class: 'w-12 text-right tabular-nums shrink-0 font-bold' }, _my == null ? '\u2014' : (_my * 100).toFixed(0) + '%'),
                 el('div', { class: 'w-14 text-right tabular-nums shrink-0 font-bold' }, _n > 0 ? (_ap / _n * 100).toFixed(0) + '%' : '\u2014'),
-                el('div', { class: 'w-14 text-right tabular-nums font-black shrink-0', style: { color: _attr >= 0.10 ? '#DC2626' : _attr >= 0.05 ? '#D97706' : '#DF643A' } }, (_attr * 100).toFixed(1) + '%'));
+                el('div', { class: 'w-14 text-right tabular-nums font-black shrink-0', style: { color: _attr >= 0.10 ? '#DC2626' : _attr >= 0.05 ? '#A9441F' : '#DF643A' } }, (_attr * 100).toFixed(1) + '%'));
             })(),
             ...(() => {
               // Bars scale to the BIGGEST subscription (relative), so the #1
@@ -4657,7 +4657,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
                 el('div', { class: 'w-16 text-right tabular-nums text-muted- shrink-0' }, s.avgInit > 0 ? fmt.usd0(s.avgInit) : '—'),
                 el('div', { class: 'w-12 text-right tabular-nums text-muted- shrink-0' }, s.myPct == null ? '—' : (s.myPct * 100).toFixed(0) + '%'),
                 el('div', { class: 'w-14 text-right tabular-nums text-muted- shrink-0' }, s.count > 0 ? (s.apOn / s.count * 100).toFixed(0) + '%' : '—'),
-                el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0', style: { color: s.attr >= 0.10 ? '#DC2626' : s.attr >= 0.05 ? '#D97706' : '#DF643A' } }, (s.attr * 100).toFixed(1) + '%'),
+                el('div', { class: 'w-14 text-right tabular-nums font-semibold shrink-0', style: { color: s.attr >= 0.10 ? '#DC2626' : s.attr >= 0.05 ? '#A9441F' : '#DF643A' } }, (s.attr * 100).toFixed(1) + '%'),
               );
               })());
             })(),
@@ -5422,10 +5422,7 @@ const _chartInstances = {};
 //   • branch — one line per branch
 //   • custom — admin picks each rep from the chip row
 // Metric: revenue | count | acv | avg_pest | my_pct (per-week values).
-const REP_TREND_PALETTE = [
-  '#DF643A', '#0EA5E9', '#9333EA', '#EA580C', '#DC2626',
-  '#F59E0B', '#059669', '#A78256', '#EC4899', '#6366F1',
-];
+const REP_TREND_PALETTE = ['#DF643A', '#5F6C5B', '#323230', '#A78256', '#9C3F1E', '#8E9C8A', '#FFB899', '#C9B98A', '#3F4A3C', '#E8A06B', '#7C857A', '#6B2A12'];
 function repTrendColor(idx) { return REP_TREND_PALETTE[idx % REP_TREND_PALETTE.length]; }
 
 function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBuckets, cfg }) {
@@ -5760,7 +5757,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
           plugins: {
             legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, padding: 10, font: { size: 11 }, usePointStyle: true } },
             tooltip: {
-              backgroundColor: '#1D1D1D', titleFont: { size: 12 }, bodyFont: { size: 11 }, padding: 10, cornerRadius: 8,
+              backgroundColor: '#323230', titleFont: { size: 12 }, bodyFont: { size: 11 }, padding: 10, cornerRadius: 8,
               // Sort items so the leader is on top of the tooltip stack
               itemSort: (a, b) => b.parsed.y - a.parsed.y,
               callbacks: {
@@ -6410,7 +6407,7 @@ function buildTeamReportNode(teamName, ctx) {
     style: {
       width: '816px', minHeight: '1056px',
       padding: '40px',
-      background: '#fff', color: '#1D1D1D',
+      background: '#fff', color: '#323230',
       fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif',
       boxSizing: 'border-box',
     },
@@ -6451,7 +6448,7 @@ function buildTeamReportNode(teamName, ctx) {
   const totalRanked = ytd.totalRanked;
   const powerBanner = el('div', {
     style: {
-      padding: '14px 18px', background: '#1D1D1D', color: '#fff',
+      padding: '14px 18px', background: '#323230', color: '#fff',
       borderRadius: '0', marginBottom: '18px',
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     },
@@ -6474,7 +6471,7 @@ function buildTeamReportNode(teamName, ctx) {
     },
   },
     el('div', { style: { fontSize: '10px', fontWeight: '800', color: '#888', letterSpacing: '0.08em', textTransform: 'uppercase' } }, label),
-    el('div', { style: { fontSize: '22px', fontWeight: '900', marginTop: '4px', color: '#1D1D1D' } }, value),
+    el('div', { style: { fontSize: '22px', fontWeight: '900', marginTop: '4px', color: '#323230' } }, value),
     rank != null && el('div', { style: { fontSize: '10px', fontWeight: '700', color: rank === 1 ? '#DF643A' : rank <= 3 ? '#DF643A' : '#888', marginTop: '4px' } },
       'Rank #' + rank + ' of ' + totalRanked),
   );
@@ -6496,7 +6493,7 @@ function buildTeamReportNode(teamName, ctx) {
   // this team sits among all teams (full bar = best rank, near-empty =
   // worst). Color codes the bar so winners + focus areas read at a
   // glance: green = top 3, amber = middle, red = bottom 3.
-  const scorecardHeader = el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#1D1D1D', margin: '8px 0 10px 0', textTransform: 'uppercase' } }, 'Performance Scorecard');
+  const scorecardHeader = el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#323230', margin: '8px 0 10px 0', textTransform: 'uppercase' } }, 'Performance Scorecard');
 
   const buildScorecardRow = (key, label, fmtter) => {
     const rank = rankOf(key);
@@ -6506,13 +6503,13 @@ function buildTeamReportNode(teamName, ctx) {
     // Color buckets: top 3 green, bottom 3 red, middle amber
     const isStrong = rank && rank <= Math.min(3, Math.floor(totalRanked / 2));
     const isWeak   = rank && rank >  Math.max(totalRanked - 3, Math.ceil(totalRanked / 2));
-    const barColor = isStrong ? '#DF643A' : isWeak ? '#DC2626' : '#C28A1F';
+    const barColor = isStrong ? '#DF643A' : isWeak ? '#DC2626' : '#A9441F';
     return el('div', { style: { marginBottom: '10px' } },
       // Top row: label + value on left, rank badge on right.
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' } },
         el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '8px', minWidth: '0' } },
-          el('span', { style: { fontSize: '11px', fontWeight: '800', letterSpacing: '0.06em', textTransform: 'uppercase', color: '#1D1D1D' } }, label),
-          el('span', { style: { fontSize: '11px', fontWeight: '700', color: '#1D1D1D' } }, fmtter(teamVal)),
+          el('span', { style: { fontSize: '11px', fontWeight: '800', letterSpacing: '0.06em', textTransform: 'uppercase', color: '#323230' } }, label),
+          el('span', { style: { fontSize: '11px', fontWeight: '700', color: '#323230' } }, fmtter(teamVal)),
         ),
         el('span', { style: { fontSize: '12px', fontWeight: '900', color: barColor, whiteSpace: 'nowrap' } },
           rank ? '#' + rank + ' of ' + totalRanked : '—'),
@@ -6560,12 +6557,12 @@ function buildTeamReportNode(teamName, ctx) {
   const showCohort  = !isRep && (rookieStats.reps + vetStats.reps) > 0;   // one rep isn't a cohort
 
   const cohortHeader = showCohort
-    ? el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#1D1D1D', margin: '8px 0 8px 0', textTransform: 'uppercase' } }, 'Rookie vs Vet · This ' + (isBranch ? 'Branch' : 'Team'))
+    ? el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#323230', margin: '8px 0 8px 0', textTransform: 'uppercase' } }, 'Rookie vs Vet · This ' + (isBranch ? 'Branch' : 'Team'))
     : null;
   const cohortColumn = (label, color, s) => {
     const line = (lbl, val) => el('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px' } },
       el('span', { style: { color: '#666', fontWeight: '600' } }, lbl),
-      el('span', { style: { color: '#1D1D1D', fontWeight: '700', fontVariantNumeric: 'tabular-nums' } }, val),
+      el('span', { style: { color: '#323230', fontWeight: '700', fontVariantNumeric: 'tabular-nums' } }, val),
     );
     return el('div', { style: { flex: '1', padding: '10px 14px', background: '#F7F8F6', border: '1px solid #E5E5E0', borderRadius: '0' } },
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', paddingBottom: '6px', borderBottom: '1px solid #E5E5E0' } },
@@ -6581,7 +6578,7 @@ function buildTeamReportNode(teamName, ctx) {
   };
   const cohort = showCohort
     ? el('div', { style: { display: 'flex', gap: '10px', marginBottom: '18px' } },
-        cohortColumn('Rookie', '#0EA5E9', rookieStats),
+        cohortColumn('Rookie', '#5F6C5B', rookieStats),
         cohortColumn('Vet',    '#DF643A', vetStats),
       )
     : null;
@@ -6595,7 +6592,7 @@ function buildTeamReportNode(teamName, ctx) {
   const repsHeader = el('div', {
     style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '14px 0 6px 0' },
   },
-    el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#1D1D1D', textTransform: 'uppercase' } }, isRep ? 'Rep Breakdown' : isBranch ? 'Branch Ranks' : 'Team Ranks'),
+    el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.06em', color: '#323230', textTransform: 'uppercase' } }, isRep ? 'Rep Breakdown' : isBranch ? 'Branch Ranks' : 'Team Ranks'),
     el('div', { style: { fontSize: '10px', color: '#888', fontWeight: '600' } },
       teamRepsFull.length + ' rep' + (teamRepsFull.length === 1 ? '' : 's') + ' · sorted by sales'),
   );
@@ -6636,7 +6633,7 @@ function buildTeamReportNode(teamName, ctx) {
       el('col', { style: { width: '56px' } }),   // Sold Not Started
     ),
     el('thead', {},
-      el('tr', { style: { background: '#1D1D1D', color: '#fff' } },
+      el('tr', { style: { background: '#323230', color: '#fff' } },
         th('#'),
         th('Rep'),
         th('Tier'),
@@ -6656,11 +6653,11 @@ function buildTeamReportNode(teamName, ctx) {
         ? el('tr', {}, el('td', { colspan: 12, style: { padding: '14px', textAlign: 'center', color: '#888', fontStyle: 'italic', fontSize: '11px' } }, 'No reps on this team'))
         : teamRepsFull.map((r, i) => {
             const tierLabel = r.tier === 'rookie' ? 'Rookie' : r.tier === 'vet' ? 'Vet' : '—';
-            const tierColor = r.tier === 'rookie' ? '#0EA5E9' : r.tier === 'vet' ? '#DF643A' : '#999';
+            const tierColor = r.tier === 'rookie' ? '#5F6C5B' : r.tier === 'vet' ? '#DF643A' : '#999';
             const noSales   = r.sold === 0;
             const rowBg     = i % 2 === 0 ? '#FFFFFF' : '#FAFAF7';
             return el('tr', { style: { borderBottom: '1px solid #EAEAE4', background: rowBg, opacity: noSales ? '0.5' : '1' } },
-              td((i + 1).toString(), 'left', { style: { fontWeight: '800', color: i === 0 ? '#DF643A' : '#1D1D1D' } }),
+              td((i + 1).toString(), 'left', { style: { fontWeight: '800', color: i === 0 ? '#DF643A' : '#323230' } }),
               td(r.name, 'left', { style: { fontWeight: '600', whiteSpace: 'normal', wordBreak: 'break-word' } }),
               td(tierLabel, 'left', { style: { fontWeight: '700', color: tierColor } }),
               td(fmt.int(r.sold),                       'right'),
@@ -6670,11 +6667,11 @@ function buildTeamReportNode(teamName, ctx) {
               td(r.sold    > 0 ? (r.myPct      * 100).toFixed(0) + '%' : '—', 'right'),
               td(r.sold    > 0 ? (r.autoPayPct * 100).toFixed(0) + '%' : '—', 'right'),
               td(r.cancels > 0 ? fmt.int(r.cancels) : '—', 'right',
-                { style: { color: r.cancels > 0 ? '#DC2626' : '#1D1D1D', fontWeight: r.cancels > 0 ? '700' : '400' } }),
+                { style: { color: r.cancels > 0 ? '#DC2626' : '#323230', fontWeight: r.cancels > 0 ? '700' : '400' } }),
               td(r.rors > 0 ? fmt.int(r.rors) : '—', 'right',
-                { style: { color: r.rors > 0 ? '#D97706' : '#1D1D1D', fontWeight: r.rors > 0 ? '700' : '400' } }),
+                { style: { color: r.rors > 0 ? '#A9441F' : '#323230', fontWeight: r.rors > 0 ? '700' : '400' } }),
               td(r.sns > 0 ? fmt.int(r.sns) : '—', 'right',
-                { style: { color: r.sns > 0 ? '#D97706' : '#1D1D1D', fontWeight: r.sns > 0 ? '700' : '400' } }),
+                { style: { color: r.sns > 0 ? '#A9441F' : '#323230', fontWeight: r.sns > 0 ? '700' : '400' } }),
             );
           }),
     ),
@@ -6836,7 +6833,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     style: {
       width: '1220px',
       padding: '6px 8px 8px',
-      background: '#fff', color: '#1D1D1D',
+      background: '#fff', color: '#323230',
       fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif',
       boxSizing: 'border-box',
     },
@@ -6915,9 +6912,9 @@ function buildRookieVetReportNode(allReps, opts = {}) {
         el('div', { style: { width: '20px', fontSize: '9px', fontWeight: '800', color: '#999' } }, rank || ''),
         el('div', { style: { width: '120px', fontSize: '11px', fontWeight: dark ? '900' : '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
         el('div', { style: { flex: '1', height: '20px', borderRadius: '0', background: '#f1f1ec', position: 'relative' } },
-          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '0', background: dark ? '#1D1D1D' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
+          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '0', background: dark ? '#323230' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
             inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmtV(val)) : null),
-          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#1D1D1D', whiteSpace: 'nowrap' } }, fmtV(val))));
+          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#323230', whiteSpace: 'nowrap' } }, fmtV(val))));
     };
     return el('div', {},
       el('div', { style: { fontSize: '12px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A9441F', margin: '0 0 4px' } }, title),
@@ -6969,9 +6966,9 @@ function buildRookieVetReportNode(allReps, opts = {}) {
         el('div', { style: { width: '54px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, q + ' >$20K'),
         el('div', { style: { width: '66px', fontSize: '9px', fontWeight: '700', color: '#666', whiteSpace: 'nowrap' } }, subs + ' subs/rep'),
         el('div', { style: { flex: '1', height: '20px', borderRadius: '0', background: '#f1f1ec', position: 'relative' } },
-          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '0', background: dark ? '#1D1D1D' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
+          el('div', { style: { width: pct + '%', height: '100%', borderRadius: '0', background: dark ? '#323230' : '#DF643A', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', boxSizing: 'border-box' } },
             inBar ? el('span', { style: { fontSize: '10px', fontWeight: '900', color: dark ? '#DF643A' : '#fff', whiteSpace: 'nowrap' } }, fmt.usd0(val)) : null),
-          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#1D1D1D', whiteSpace: 'nowrap' } }, fmt.usd0(val))));
+          inBar ? null : el('span', { style: { position: 'absolute', left: 'calc(' + pct + '% + 6px)', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', fontWeight: '900', color: '#323230', whiteSpace: 'nowrap' } }, fmt.usd0(val))));
     };
     return el('div', {},
       el('div', { style: { fontSize: '12px', fontWeight: '900', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#A9441F', margin: '0 0 4px' } }, 'YTD PRA'),
@@ -6984,7 +6981,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
     style: {
       width: '1220px',
       padding: '6px 8px 8px',
-      background: '#fff', color: '#1D1D1D',
+      background: '#fff', color: '#323230',
       fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif',
       boxSizing: 'border-box',
     },
@@ -7097,7 +7094,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
         borderBottom: '1px solid #f0f0f0',
         whiteSpace: 'nowrap',
         fontWeight: opts2.bold || opts2.leader ? '800' : '400',
-        color: opts2.leader ? '#A9441F' : (opts2.color || '#1D1D1D'),
+        color: opts2.leader ? '#A9441F' : (opts2.color || '#323230'),
         fontVariantNumeric: 'tabular-nums',
       };
       if (opts2.leader) {
@@ -7161,7 +7158,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
             // even on the leader so the absolute number reads honestly.
             td(r.cancelPct > 0 ? (r.cancelPct * 100).toFixed(1) + '%' : '—', 'right', {
               leader: leaders.cancelPct === r.name,
-              color: r.cancelPct > 0.1 ? '#B91C1C' : '#1D1D1D',
+              color: r.cancelPct > 0.1 ? '#B91C1C' : '#323230',
             }),
             // Personal records — dollar amount with the date it happened
             // tucked underneath in small gray type.
@@ -7187,9 +7184,9 @@ function buildRookieVetReportNode(allReps, opts = {}) {
   // gets the larger share of the page.
   // Full-width tables — the rollup panels moved to page 2 (per Isaac).
   page.append(
-    tableSection('Top ' + limitOverall + ' Overall', '#1D1D1D', overall),
+    tableSection('Top ' + limitOverall + ' Overall', '#323230', overall),
     el('div', { style: { height: '4px' } }),
-    tableSection('Top ' + limitRookie + ' Rookies', '#0EA5E9', rookies),
+    tableSection('Top ' + limitRookie + ' Rookies', '#5F6C5B', rookies),
   );
 
   // Two print pages: leaderboard + team rollups. The downloader renders
@@ -7675,7 +7672,7 @@ function openTVDashboard() {
             value: state._tvDashboardCustomStart || '',
             style: {
               padding: '5px 8px', fontSize: '12px',
-              background: '#1A1A1A', color: '#fff',
+              background: '#323230', color: '#fff',
               border: '1px solid #333', borderRadius: '0',
               colorScheme: 'dark',
             },
@@ -7687,7 +7684,7 @@ function openTVDashboard() {
             value: state._tvDashboardCustomEnd || '',
             style: {
               padding: '5px 8px', fontSize: '12px',
-              background: '#1A1A1A', color: '#fff',
+              background: '#323230', color: '#fff',
               border: '1px solid #333', borderRadius: '0',
               colorScheme: 'dark',
             },
@@ -7739,21 +7736,21 @@ function openTVDashboard() {
         // TOTAL tile matches the range buttons' accent lime exactly, so
         // the top strip reads as one brand color. Dark text for contrast
         // (same pairing as the TODAY button). Other tiles stay dark.
-        background: opts.isTotal ? '#DF643A' : '#1A1A1A',
+        background: opts.isTotal ? '#DF643A' : '#323230',
         textAlign: 'center',
         borderRight: '1px solid #0A0A0A',
         position: 'relative',
       },
     },
-      el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.15em', color: opts.isTotal ? '#1D1D1D' : '#888', textTransform: 'uppercase', marginBottom: '6px' } }, label),
-      el('div', { style: { fontSize: '32px', fontWeight: '900', color: opts.isTotal ? '#1D1D1D' : '#fff', letterSpacing: '-0.02em' } }, fmtMoney(value)),
+      el('div', { style: { fontSize: '13px', fontWeight: '800', letterSpacing: '0.15em', color: opts.isTotal ? '#323230' : '#888', textTransform: 'uppercase', marginBottom: '6px' } }, label),
+      el('div', { style: { fontSize: '32px', fontWeight: '900', color: opts.isTotal ? '#323230' : '#fff', letterSpacing: '-0.02em' } }, fmtMoney(value)),
       opts.isTotal && opts.periodGoal > 0 && el('div', {
         style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(0,0,0,0.22)' },
       },
         // Goal label + value (e.g. "TODAY'S GOAL · $X").
         el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '4px' } },
           el('span', { style: { fontSize: '10px', fontWeight: '800', letterSpacing: '0.14em', color: 'rgba(29,29,29,0.75)', textTransform: 'uppercase' } }, opts.periodGoalLabel),
-          el('span', { style: { fontSize: '14px', fontWeight: '800', color: '#1D1D1D', fontVariantNumeric: 'tabular-nums' } }, fmtMoney(opts.periodGoal)),
+          el('span', { style: { fontSize: '14px', fontWeight: '800', color: '#323230', fontVariantNumeric: 'tabular-nums' } }, fmtMoney(opts.periodGoal)),
         ),
         // Progress bar — dark track on the lime tile, white fill.
         el('div', { style: { height: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '0', overflow: 'hidden' } },
@@ -7761,7 +7758,7 @@ function openTVDashboard() {
             style: {
               width: opts.goalProgressPct.toFixed(1) + '%',
               height: '100%',
-              background: opts.goalProgressPct >= 100 ? '#1D1D1D' : '#FFFFFF',
+              background: opts.goalProgressPct >= 100 ? '#323230' : '#FFFFFF',
               transition: 'width .3s',
             },
           }),
@@ -7800,7 +7797,7 @@ function openTVDashboard() {
       const recMix = sales2.length > 0 ? (subs2.length / sales2.length) * 100 : 0;
       const acv = sales2.length > 0 ? rep.revenue / sales2.length : 0;
       const tdS = { padding: '12px 10px', fontSize: '16px', fontWeight: '700', color: '#ddd', fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: 'nowrap' };
-      return el('tr', { style: { borderTop: '1px solid #2A2A2A', background: rank === 1 ? 'linear-gradient(90deg, #DF643A18 0%, transparent 70%)' : 'transparent' } },
+      return el('tr', { style: { borderTop: '1px solid #323230', background: rank === 1 ? 'linear-gradient(90deg, #DF643A18 0%, transparent 70%)' : 'transparent' } },
         el('td', { style: { padding: '12px 0 12px 14px', width: '46px' } }, (() => {
           const a = avatarNode(rep.profile.avatar_url, rep.profile.initials || (rep.profile.full_name || '?').slice(0, 2), 'w-9 h-9 text-[11px]');
           a.style.flexShrink = '0';
@@ -7822,9 +7819,9 @@ function openTVDashboard() {
     },
       el('div', { style: { fontSize: '14px', fontWeight: '800', letterSpacing: '0.2em', color: '#888', marginBottom: '6px' } }, 'REPS · ' + range.label.toUpperCase()),
       ranked.length === 0
-        ? el('div', { style: { padding: '30px', textAlign: 'center', color: '#666', fontStyle: 'italic', background: '#1A1A1A', borderRadius: '0' } },
+        ? el('div', { style: { padding: '30px', textAlign: 'center', color: '#666', fontStyle: 'italic', background: '#323230', borderRadius: '0' } },
             'No sales yet for ' + range.label.toLowerCase())
-        : el('div', { style: { background: '#1A1A1A', borderRadius: '0', border: '1px solid #2A2A2A', overflow: 'auto' } },
+        : el('div', { style: { background: '#323230', borderRadius: '0', border: '1px solid #323230', overflow: 'auto' } },
             el('table', { style: { width: '100%', borderCollapse: 'collapse' } },
               el('thead', {}, el('tr', {},
                 el('th', { style: { ...thS, textAlign: 'left', paddingLeft: '14px' } }, ''),
@@ -7842,7 +7839,7 @@ function openTVDashboard() {
       style: {
         display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
         padding: '12px 0',
-        borderTop: '1px solid #2A2A2A',
+        borderTop: '1px solid #323230',
         fontSize: big ? '24px' : '16px',
       },
     },
@@ -8460,7 +8457,7 @@ function buildTrendMiniGrid(sales, chartBuckets, idPrefix, accentColor, overlay,
           plugins: {
             legend: { display: false },
             tooltip: {
-              backgroundColor: '#1D1D1D', bodyFont: { size: 10 }, padding: 6, cornerRadius: 6,
+              backgroundColor: '#323230', bodyFont: { size: 10 }, padding: 6, cornerRadius: 6,
               displayColors: !!overlay,
               callbacks: { label: (ctx) => (overlay ? ctx.dataset.label + ': ' : '') + metric.format(ctx.parsed.y) },
             },
@@ -8822,7 +8819,7 @@ function scopeDrillPanel(scope, allScopedSales, chartBuckets, compareRep, panelO
       compareResolved
         ? {
             sales: compareResolved.sales,
-            color: compareResolved.color || '#0EA5E9',
+            color: compareResolved.color || '#5F6C5B',
             label: compareResolved.label,
           }
         : (compareRep ? {
@@ -9408,13 +9405,13 @@ function indicatorYoYTrendChart() {
           // The YTD value rides a SEPARATE right-hand axis (and its own point-
           // only dataset) so its cumulative size never skews the weekly scale.
           const muted = isDark ? 'rgba(255,255,255,.45)' : 'rgba(0,0,0,.35)';
-          const palette = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899'];
+          const palette = ['#DF643A', '#5F6C5B', '#323230', '#A78256', '#9C3F1E', '#8E9C8A', '#FFB899', '#C9B98A', '#3F4A3C', '#E8A06B', '#7C857A', '#6B2A12'];
           const lines = [], ytdPts = [];
           const multiScope = _yoySelScopes.length > 1 || _yoySelScopes[0].t !== 'co';
           if (gran === 'year') {
             // One point per year, ALL history on a single line per series —
             // the Years checkboxes don't apply in this view.
-            const scopePalette0 = ['#DF643A', '#0EA5E9', '#F59E0B', '#A855F7', '#EF4444', '#14B8A6', '#EC4899', '#F97316'];
+            const scopePalette0 = ['#DF643A', '#5F6C5B', '#323230', '#A78256', '#9C3F1E', '#8E9C8A', '#FFB899', '#C9B98A', '#3F4A3C', '#E8A06B', '#7C857A', '#6B2A12'];
             _yoySelScopes.forEach((sc, si) => {
               const A = scopeAccs[si];
               const scopeLab = multiScope ? _scopeLabelOf(sc) : '';
@@ -9422,7 +9419,7 @@ function indicatorYoYTrendChart() {
                 const tierLab = tier === 'all' ? '' : tier === 'rookie' ? 'Rookies' : 'Vets';
                 const label = [scopeLab, tierLab].filter(Boolean).join(' · ') || 'Company';
                 const color = multiScope ? scopePalette0[si % scopePalette0.length]
-                  : tier === 'rookie' ? '#F59E0B' : tier === 'vet' ? '#818CF8' : '#DF643A';
+                  : tier === 'rookie' ? '#DF643A' : tier === 'vet' ? '#818CF8' : '#DF643A';
                 const data = yearsPresent.map(y => { const _b = _bucketsOfIn(A, y, tier) || {}; return valOf(_b[1], y === prevY); });
                 lines.push({ label, data, borderColor: color, backgroundColor: 'rgba(223,100,58,.10)', fill: lines.length === 0 && kind !== 'pct' && _yoySelScopes.length * _yoySelTiers.length === 1, spanGaps: true, borderWidth: 3, tension: 0.25, pointRadius: 3.5, pointHoverRadius: 6 });
               });
@@ -9431,7 +9428,7 @@ function indicatorYoYTrendChart() {
           }
           const _totalSeries = _yoySelYears.length * _yoySelTiers.length * _yoySelScopes.length;
           const MAX_SERIES = 14;   // beyond this the chart is spaghetti — trim scopes/years/tiers
-          const scopePalette = ['#DF643A', '#0EA5E9', '#F59E0B', '#A855F7', '#EF4444', '#14B8A6', '#EC4899', '#F97316'];
+          const scopePalette = ['#DF643A', '#5F6C5B', '#323230', '#A78256', '#9C3F1E', '#8E9C8A', '#FFB899', '#C9B98A', '#3F4A3C', '#E8A06B', '#7C857A', '#6B2A12'];
           _yoySelScopes.forEach((sc, si) => {
             const A = scopeAccs[si];
             const scopeLab = multiScope ? ' · ' + _scopeLabelOf(sc) : '';
@@ -9448,7 +9445,7 @@ function indicatorYoYTrendChart() {
                 // the classic year palette.
                 const color = multiScope
                   ? scopePalette[si % scopePalette.length]
-                  : tier === 'all' ? yColor : (tier === 'rookie' ? (isCur ? '#F59E0B' : '#B45309') : (isCur ? '#818CF8' : '#4F46E5'));
+                  : tier === 'all' ? yColor : (tier === 'rookie' ? (isCur ? '#DF643A' : '#A9441F') : (isCur ? '#818CF8' : '#5F6C5B'));
                 const tierLab = tier === 'all' ? '' : tier === 'rookie' ? ' · Rookies' : ' · Vets';
                 const label = String(y) + tierLab + scopeLab;
                 const _b = _bucketsOfIn(A, y, tier) || {};
@@ -9545,7 +9542,7 @@ function indicatorYoYTrendChart() {
         plugins: {
           legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 11 }, usePointStyle: true, filter: (item) => !/^YTD /.test(item.text) && !/ · live$/.test(item.text) && !/ · trend$/.test(item.text) } },
           tooltip: {
-            backgroundColor: '#1D1D1D', padding: 10, cornerRadius: 8,
+            backgroundColor: '#323230', padding: 10, cornerRadius: 8,
             callbacks: {
               // Each line carries the actual Sun–Sat date range being
               // compared, e.g. "2026 (6/7–6/13): $812,440".
@@ -9872,7 +9869,7 @@ function indicatorChart(title, data, branches, metricKey, weeks, invertForRankin
             position: 'bottom',
             labels: { boxWidth: 10, boxHeight: 10, padding: 12, font: { size: 11 }, usePointStyle: true },
           },
-          tooltip: { backgroundColor: '#1D1D1D', titleFont: { size: 12 }, bodyFont: { size: 11 }, padding: 10, cornerRadius: 8,
+          tooltip: { backgroundColor: '#323230', titleFont: { size: 12 }, bodyFont: { size: 11 }, padding: 10, cornerRadius: 8,
             // Sort items so leader is on top; for the Power Ranking chart
             // lower y = better, otherwise higher y = better.
             itemSort: (a, b) => isRanking ? a.parsed.y - b.parsed.y : b.parsed.y - a.parsed.y,
@@ -10311,7 +10308,7 @@ function computeAttendanceScore(att, tplAtt, periodKey) {
 function scorecardBand(score) {
   if (score == null || !Number.isFinite(score)) return { color: 'var(--text-muted)', bg: 'var(--card-2)', label: '—' };
   if (score >= 90) return { color: '#DF643A', bg: 'rgba(223,100,58,.16)', label: 'Strong' };
-  if (score >= 75) return { color: '#92400E', bg: 'rgba(245,158,11,.18)', label: 'Watch' };
+  if (score >= 75) return { color: '#A9441F', bg: 'rgba(223,100,58,.18)', label: 'Watch' };
   return { color: '#B91C1C', bg: 'rgba(220,38,38,.14)', label: 'Intervene' };
 }
 

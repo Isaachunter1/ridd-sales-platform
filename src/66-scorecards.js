@@ -149,7 +149,7 @@ function viewScorecards() {
     scorecardSummaryCard('Strong (≥90)',     strongCount.toString(),    'on or above target', '#DF643A'),
     scorecardSummaryCard('Needs Coaching',   (interveneCount + watchCount).toString(),
       interveneCount + ' intervene · ' + watchCount + ' watch',
-      interveneCount > 0 ? '#B91C1C' : (watchCount > 0 ? '#92400E' : null)),
+      interveneCount > 0 ? '#B91C1C' : (watchCount > 0 ? '#A9441F' : null)),
   );
   // 1:1 cadence rollup (per Isaac): who's overdue for a meeting, who's
   // missing this month's review, how many action items are open.
@@ -159,7 +159,7 @@ function viewScorecards() {
     const openItems = cads.reduce((t, c) => t + c.openItems, 0);
     summaryStrip.append(scorecardSummaryCard('1:1 Cadence', noCoaching ? noCoaching + ' still to meet' : 'Everyone met',
       (roster.length - noCoaching) + ' of ' + roster.length + ' coached this month \u00b7 ' + openItems + ' open action item' + (openItems === 1 ? '' : 's'),
-      noCoaching ? '#B91C1C' : '#3D7A66'));
+      noCoaching ? '#B91C1C' : '#5F6C5B'));
     summaryStrip.className = 'grid grid-cols-2 sm:grid-cols-5 gap-3';
   }
   container.append(summaryStrip);
@@ -351,7 +351,7 @@ function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen, onMeetin
   }, '\ud83d\udd12 Final'));
   if (card && card.reviewed) stampChips.push(el('span', {
     class: 'rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider',
-    style: { background: 'rgba(217,119,6,.12)', color: '#B45309' },
+    style: { background: 'rgba(169,68,31,.12)', color: '#A9441F' },
     title: 'Reviewed with the agent' + (card.reviewed.by ? ' by ' + card.reviewed.by : ''),
   }, '\u2713 Reviewed' + (card.reviewed.on ? ' ' + fmt.dateShort(card.reviewed.on) : '')));
 
@@ -370,7 +370,7 @@ function scorecardAgentCard({ profile, card, score, tpl, trend, onOpen, onMeetin
     // (audits / notes) and the 1:1 log all live behind this one button.
     el('button', {
       class: 'rounded-lg px-2 py-1 text-[10px] font-bold border transition hover:brightness-95 whitespace-nowrap shrink-0',
-      style: { borderColor: cad && cad.coachingThisMonth ? '#3D7A66' : '#DC2626', color: cad && cad.coachingThisMonth ? '#3D7A66' : '#DC2626' },
+      style: { borderColor: cad && cad.coachingThisMonth ? '#5F6C5B' : '#DC2626', color: cad && cad.coachingThisMonth ? '#5F6C5B' : '#DC2626' },
       title: (cad && cad.coachingThisMonth ? 'Coaching 1:1 logged this month' : 'No coaching 1:1 logged this month') + ' \u2014 log a performance review (score) or coaching session',
       onclick: (e) => { e.stopPropagation(); if (onMeetings) onMeetings(); else if (onOpen) onOpen(); },
     }, '+ Log Meeting'),
@@ -833,8 +833,8 @@ function meetingCadence(profileId) {
   let status, color, label;
   if (!last) { status = 'never'; color = '#DC2626'; label = 'No 1:1 logged'; }
   else if (days > MEETING_CADENCE_DAYS) { status = 'overdue'; color = '#DC2626'; label = days + 'd since last 1:1 — overdue'; }
-  else if (!reviewThisMonth && dayOfMonth > 10) { status = 'review_due'; color = '#B45309'; label = 'Monthly review not logged'; }
-  else { status = 'ok'; color = '#3D7A66'; label = 'Last 1:1 ' + days + 'd ago'; }
+  else if (!reviewThisMonth && dayOfMonth > 10) { status = 'review_due'; color = '#A9441F'; label = 'Monthly review not logged'; }
+  else { status = 'ok'; color = '#5F6C5B'; label = 'Last 1:1 ' + days + 'd ago'; }
   const openItems = ms.length ? (ms[0].action_items || []).filter(a => a && !a.done).length : 0;
   return { last, days, status, color, label, reviewThisMonth, coachingThisMonth, openItems, count: ms.length, nextKind: reviewThisMonth ? 'coaching' : 'review' };
 }
@@ -910,7 +910,7 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
       (m.action_items || []).forEach((a, i) => itemsBox.append(el('div', { class: 'flex items-center gap-2' },
         el('input', { type: 'checkbox', checked: !!a.done, style: { accentColor: 'var(--accent)' }, onchange: (e) => { a.done = e.target.checked; } }),
         el('input', { type: 'text', value: a.text || '', class: 'flex-1 rounded-lg border px-2.5 py-1 text-[12px]', style: { borderColor: 'var(--border-2)' }, oninput: (e) => { a.text = e.target.value; } }),
-        a.carried_from ? el('span', { class: 'text-[9px] uppercase tracking-wider font-bold whitespace-nowrap', style: { color: '#B45309' }, title: 'Open item carried from the ' + _mtgFmt(a.carried_from) + ' meeting' }, 'carried' + (a.carried_count >= 2 ? ' ×' + a.carried_count : '')) : null,
+        a.carried_from ? el('span', { class: 'text-[9px] uppercase tracking-wider font-bold whitespace-nowrap', style: { color: '#A9441F' }, title: 'Open item carried from the ' + _mtgFmt(a.carried_from) + ' meeting' }, 'carried' + (a.carried_count >= 2 ? ' ×' + a.carried_count : '')) : null,
         el('button', { class: 'text-[12px] text-muted-', onclick: () => { m.action_items.splice(i, 1); drawItems(); } }, '×'))));
       itemsBox.append(el('button', { class: 'self-start text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { (m.action_items = m.action_items || []).push({ text: '', done: false }); drawItems(); setTimeout(() => { const t = itemsBox.querySelectorAll('input[type=text]'); if (t.length) t[t.length - 1].focus(); }, 0); } }, '+ Action item'));
     };
@@ -1021,13 +1021,13 @@ function openMeetingLogModal(profile, dept, tpl, canEdit) {
             el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { editing = JSON.parse(JSON.stringify(m)); render(); } }, 'Edit'),
             el('button', { class: 'text-[11px] font-semibold', style: { color: '#DC2626' }, onclick: async () => { if (!confirm('Delete this meeting?')) return; await deleteScorecardMeeting(m.id); render(); if (state.view === 'scorecards') mountApp(); } }, 'Delete')) : null),
         m.notes ? el('div', { class: 'text-[12px] leading-relaxed whitespace-pre-wrap mb-2' }, m.notes) : null,
-        m.wins ? el('div', { class: 'text-[12px] mb-2' }, el('span', { class: 'font-bold', style: { color: '#3D7A66' } }, 'Wins: '), m.wins) : null,
+        m.wins ? el('div', { class: 'text-[12px] mb-2' }, el('span', { class: 'font-bold', style: { color: '#5F6C5B' } }, 'Wins: '), m.wins) : null,
         (m.focus || []).length ? el('div', { class: 'flex items-center gap-1.5 flex-wrap mb-2' }, el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Focus'), ...m.focus.map(f => el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-semibold', style: { background: 'rgba(223,100,58,.12)', color: '#DF643A' } }, f))) : null,
         items.length ? el('div', { class: 'flex flex-col gap-1' }, el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Action items'),
           ...items.map(a => el('label', { class: 'flex items-center gap-2 text-[12px]' + (canEdit ? ' cursor-pointer' : '') },
             el('input', { type: 'checkbox', checked: !!a.done, disabled: !canEdit, style: { accentColor: 'var(--accent)' }, onchange: async (e) => { a.done = e.target.checked; await saveScorecardMeeting(m); render(); } }),
             el('span', { style: a.done ? { textDecoration: 'line-through', color: 'var(--text-muted)' } : {} }, a.text),
-            a.carried_from ? el('span', { class: 'text-[9px] uppercase tracking-wider font-bold', style: { color: '#B45309' } }, 'carried from ' + _mtgFmt(a.carried_from)) : null))) : null);
+            a.carried_from ? el('span', { class: 'text-[9px] uppercase tracking-wider font-bold', style: { color: '#A9441F' } }, 'carried from ' + _mtgFmt(a.carried_from)) : null))) : null);
     }));
   };
 
@@ -1646,16 +1646,16 @@ async function uploadReportingCsv(file) {
 const REPORTING_PALETTE = [
   '#DF643A', // RIDD lime
   '#1D4D4F', // dark teal
-  '#F0AC1E', // gold
-  '#3B82F6', // blue
+  '#A9441F', // gold
+  '#5F6C5B', // blue
   '#DC2626', // red
-  '#9333EA', // purple
-  '#14B8A6', // teal
-  '#F97316', // orange
-  '#FACC15', // green
-  '#EC4899', // pink
+  '#9C3F1E', // purple
+  '#5F6C5B', // teal
+  '#FFB899', // orange
+  '#C9B98A', // green
+  '#A78256', // pink
   '#06B6D4', // cyan
-  '#6B7280', // gray
+  '#7C857A', // gray
 ];
 
 // SERVICE-LEVEL recurring resolver — the single source of truth for whether

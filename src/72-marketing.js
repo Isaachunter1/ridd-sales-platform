@@ -124,7 +124,7 @@ function viewMarketing() {
     el('div', { class: 'text-2xl font-bold tabular-nums mt-1', style: color ? { color } : {} }, val),
     sub ? el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } }, sub) : null);
   const feedNote = (slot, name, hint) => slot.err
-    ? el('div', { class: 'text-[10px] mt-1', style: { color: '#B45309' } }, '⚠ ' + name + ' feed: ' + slot.err + (hint ? ' — ' + hint : ''))
+    ? el('div', { class: 'text-[10px] mt-1', style: { color: '#A9441F' } }, '⚠ ' + name + ' feed: ' + slot.err + (hint ? ' — ' + hint : ''))
     : (!slot.data && slot.inflight !== false ? el('div', { class: 'text-[10px] mt-1', style: { color: 'var(--text-subtle)' } }, name + ' loading…') : null);
 
   // ── Header: title + period picker ──
@@ -164,7 +164,7 @@ function viewMarketing() {
     kpi('Ad Spend', spendDaily ? money0(adSpend) : '—', spendDaily ? 'Meta ' + money0(metaSpend) + ' · Google ' + money0(googleSpend) : 'Windsor feed'),
     kpi('Marketed Revenue', money0(mkRevenue), mkAccounts + ' accounts · non-D2D sources'),
     kpi('Blended CPA', cpa ? money0(cpa) : '—', 'ad spend ÷ marketed accounts'),
-    kpi('ROAS', roas ? roas.toFixed(1) + '×' : '—', 'marketed revenue ÷ ad spend', roas >= 3 ? '#DF643A' : roas > 0 ? '#B45309' : null),
+    kpi('ROAS', roas ? roas.toFixed(1) + '×' : '—', 'marketed revenue ÷ ad spend', roas >= 3 ? '#DF643A' : roas > 0 ? '#A9441F' : null),
     kpi('Leads', bySrcMonth ? mkLeads.toLocaleString() : '—', 'GoHighLevel'),
     kpi('Lead → Sale', conv ? (conv * 100).toFixed(1) + '%' : '—', 'accounts ÷ leads')));
   const feedNotes = el('div', {}, feedNote(spendSlot, 'Windsor', 'set WINDSOR_API_KEY in Netlify'), feedNote(leadsSlot, 'GoHighLevel', 'set GHL_PRIVATE_TOKEN + GHL_LOCATION_ID'), feedNote(qboSlot, 'QuickBooks', 'finish the QBO OAuth setup in qbo-spend.js'));
@@ -194,14 +194,14 @@ function viewMarketing() {
             const rRoas = r.spend ? (r.revenue / r.spend) : null;
             return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
               el('td', { class: 'px-4 py-2.5 font-semibold whitespace-nowrap' }, r.label,
-                r.paid ? el('span', { class: 'ml-2 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded', style: { background: 'rgba(59,130,246,.12)', color: '#2563EB' } }, 'paid') : null),
+                r.paid ? el('span', { class: 'ml-2 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded', style: { background: 'rgba(95,108,91,.12)', color: '#5F6C5B' } }, 'paid') : null),
               el('td', { class: 'px-2 py-2.5 text-right tabular-nums' }, r.spend != null ? money0(r.spend) : el('span', { title: 'No platform spend tracked for this channel — vendor invoices live in QuickBooks', style: { color: 'var(--text-subtle)' } }, '—')),
               el('td', { class: 'px-2 py-2.5 text-right tabular-nums' }, r.leads ? r.leads.toLocaleString() : '—'),
               el('td', { class: 'px-2 py-2.5 text-right tabular-nums' }, r.accounts.toLocaleString()),
               el('td', { class: 'px-2 py-2.5 text-right tabular-nums font-semibold' }, money0(r.revenue)),
               el('td', { class: 'px-2 py-2.5 text-right tabular-nums' }, rCpl ? money0(rCpl) : '—'),
               el('td', { class: 'px-2 py-2.5 text-right tabular-nums' }, rCpa ? money0(rCpa) : '—'),
-              el('td', { class: 'px-4 py-2.5 text-right tabular-nums font-bold', style: rRoas != null ? { color: rRoas >= 3 ? '#DF643A' : rRoas >= 1.5 ? '#B45309' : '#DC2626' } : {} }, rRoas != null ? rRoas.toFixed(1) + '×' : '—'));
+              el('td', { class: 'px-4 py-2.5 text-right tabular-nums font-bold', style: rRoas != null ? { color: rRoas >= 3 ? '#DF643A' : rRoas >= 1.5 ? '#A9441F' : '#DC2626' } : {} }, rRoas != null ? rRoas.toFixed(1) + '×' : '—'));
           }))))));
 
   // ── 12-week trend: spend vs marketed revenue ──
@@ -233,12 +233,12 @@ function viewMarketing() {
       el('div', { class: 'flex items-center justify-between mb-3' },
         el('h3', { class: 'text-sm font-bold' }, 'Spend vs Marketed Revenue · Last 12 Weeks'),
         el('div', { class: 'flex items-center gap-3 text-[10px]', style: { color: 'var(--text-muted)' } },
-          el('span', {}, el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '0', background: '#94A3B8', marginRight: '4px' } }), 'Spend'),
+          el('span', {}, el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '0', background: '#7C857A', marginRight: '4px' } }), 'Spend'),
           el('span', {}, el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '0', background: 'var(--accent)', marginRight: '4px' } }), 'Revenue'))),
       el('div', { class: 'flex items-end gap-2', style: { height: '110px' } },
         ...weeks.map(w => {
           const cell = el('div', { class: 'flex-1 flex items-end justify-center gap-0.5 cursor-help', style: { height: '100%' } },
-            el('div', { style: { width: '38%', height: Math.max(2, Math.round(w.spend / maxV * 105)) + 'px', background: '#94A3B8', borderRadius: '0' } }),
+            el('div', { style: { width: '38%', height: Math.max(2, Math.round(w.spend / maxV * 105)) + 'px', background: '#7C857A', borderRadius: '0' } }),
             el('div', { style: { width: '38%', height: Math.max(2, Math.round(w.revenue / maxV * 105)) + 'px', background: 'var(--accent)', borderRadius: '0' } }));
           attachTooltip(cell, {
             title: 'Week of ' + w.w0.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -254,7 +254,7 @@ function viewMarketing() {
     if (spendDaily) {
       const day7 = (off) => { let t = 0; for (let i = 0; i < 7; i++) { const d = new Date(now); d.setDate(d.getDate() - i - off); const pair = spendDaily[ymdOf(d)]; if (pair) t += (Number(pair[0]) || 0) + (Number(pair[1]) || 0); } return t; };
       const s7 = day7(0), sPrev = day7(7);
-      if (sPrev > 0 && Math.abs(s7 / sPrev - 1) >= 0.2) sigs.push({ c: s7 > sPrev ? '#B45309' : '#2563EB', t: 'Ad spend ' + (s7 > sPrev ? 'up' : 'down') + ' ' + Math.round(Math.abs(s7 / sPrev - 1) * 100) + '% week-over-week (' + money0(s7) + ' vs ' + money0(sPrev) + ')' });
+      if (sPrev > 0 && Math.abs(s7 / sPrev - 1) >= 0.2) sigs.push({ c: s7 > sPrev ? '#A9441F' : '#5F6C5B', t: 'Ad spend ' + (s7 > sPrev ? 'up' : 'down') + ' ' + Math.round(Math.abs(s7 / sPrev - 1) * 100) + '% week-over-week (' + money0(s7) + ' vs ' + money0(sPrev) + ')' });
     }
     channelRows.filter(r => r.paid && r.spend > 500).forEach(r => {
       const rr = r.revenue / r.spend;
@@ -262,8 +262,8 @@ function viewMarketing() {
       else if (rr >= 4) sigs.push({ c: '#DF643A', t: r.label + ' returning ' + rr.toFixed(1) + '× (' + money0(r.spend) + ' → ' + money0(r.revenue) + ') — room to scale budget' });
     });
     const vendorRev = channelRows.filter(r => !r.paid).reduce((a, r) => a + r.revenue, 0);
-    if (vendorRev > 0 && qboSpend === 0 && !qboSlot.data) sigs.push({ c: '#B45309', t: money0(vendorRev) + ' of revenue comes from vendor channels (Angi, Yelp, eLocal…) with no spend tracked — finish the QuickBooks hookup to see their true CPA' });
-    if (qboSpend > 0 && adSpend > 0 && qboSpend > adSpend * 1.15) sigs.push({ c: '#B45309', t: 'Books show ' + money0(qboSpend) + ' marketing expense vs ' + money0(adSpend) + ' platform ad spend — ' + money0(qboSpend - adSpend) + ' in agency/vendor costs beyond the platforms' });
+    if (vendorRev > 0 && qboSpend === 0 && !qboSlot.data) sigs.push({ c: '#A9441F', t: money0(vendorRev) + ' of revenue comes from vendor channels (Angi, Yelp, eLocal…) with no spend tracked — finish the QuickBooks hookup to see their true CPA' });
+    if (qboSpend > 0 && adSpend > 0 && qboSpend > adSpend * 1.15) sigs.push({ c: '#A9441F', t: 'Books show ' + money0(qboSpend) + ' marketing expense vs ' + money0(adSpend) + ' platform ad spend — ' + money0(qboSpend - adSpend) + ' in agency/vendor costs beyond the platforms' });
     if (!sigs.length) sigs.push({ c: 'var(--text-muted)', t: 'No anomalies this period — spend and returns are steady.' });
     wrap.append(el('div', { class: 'card p-4' },
       el('h3', { class: 'text-sm font-bold mb-2' }, '🚨 Signals'),
@@ -283,7 +283,7 @@ function viewMarketing() {
           el('div', { class: 'grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3' },
             kpi('Books (QBO)', money0(qboSpend), 'this period'),
             kpi('Platforms (Windsor)', money0(adSpend), 'Meta + Google'),
-            kpi('Gap', money0(qboSpend - adSpend), 'agency fees, vendors, LSA & everything else', Math.abs(qboSpend - adSpend) > adSpend * 0.15 ? '#B45309' : null)),
+            kpi('Gap', money0(qboSpend - adSpend), 'agency fees, vendors, LSA & everything else', Math.abs(qboSpend - adSpend) > adSpend * 0.15 ? '#A9441F' : null)),
           // Per-account breakdown — where the money actually sits in the
           // books (branch allocations vs Executive Marketing show up HERE).
           (() => {

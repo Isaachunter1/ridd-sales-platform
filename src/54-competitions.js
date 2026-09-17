@@ -303,7 +303,7 @@ function calendarDeptAgents() {
 }
 // Stable per-agent color (Google-Calendar style). Hash on the profile id so
 // an agent keeps their color across sessions and devices.
-const CAL_AGENT_COLORS = ['#2563EB', '#D97706', '#0D9488', '#9333EA', '#DC2626', '#DF643A', '#DB2777', '#4F46E5', '#B45309', '#0891B2', '#7C3AED', '#FACC15'];
+const CAL_AGENT_COLORS = ['#DF643A', '#5F6C5B', '#323230', '#A78256', '#9C3F1E', '#8E9C8A', '#FFB899', '#C9B98A', '#3F4A3C', '#E8A06B', '#7C857A', '#6B2A12'];
 function calendarAgentColor(repId) {
   let h = 0; const s = String(repId || '');
   for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;

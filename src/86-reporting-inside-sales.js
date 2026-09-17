@@ -135,10 +135,10 @@ function reportingInsideSales() {
   const prevMonth = (p) => { if (p.length !== 7) return null; const i = allMonths.indexOf(p); return i > 0 ? allMonths[i - 1] : null; };
 
   const header = el('thead', { class: 'sticky top-0', style: { zIndex: 2 } }, el('tr', {},
-    el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-widest sticky left-0', style: { background: '#1D1D1D', color: '#fff', zIndex: 3, border: '1px solid #333', borderRight: '2px solid #555' } }, 'Inside Sales (MO)'),
+    el('th', { class: 'px-3 py-2 text-left text-[10px] uppercase tracking-widest sticky left-0', style: { background: '#323230', color: '#fff', zIndex: 3, border: '1px solid #333', borderRight: '2px solid #555' } }, 'Inside Sales (MO)'),
     ...periods.map(p => el('th', {
       class: 'px-2.5 py-2 text-right text-[10px] uppercase tracking-wider whitespace-nowrap' + (p.length === 4 ? ' font-black' : ' font-semibold'),
-      style: { background: '#1D1D1D', color: p.length === 4 ? 'var(--accent)' : '#fff', border: '1px solid #333' },
+      style: { background: '#323230', color: p.length === 4 ? 'var(--accent)' : '#fff', border: '1px solid #333' },
     }, colLabel(p)))));
 
   // Projections come from the PROJECTIONS tab of RIDD Reporting.xlsx (baked into
@@ -662,17 +662,17 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
   container._zipSelectMode = !!state._geoZipSelMode;
   const SEL_STYLE = { fillColor: '#FFD84D', fillOpacity: 0.9, color: '#C8552E', weight: 1.6 };
   const _selBtn = document.createElement('button');
-  _selBtn.style.cssText = 'position:absolute;right:10px;top:10px;z-index:801;font:700 11px Archivo,sans-serif;padding:6px 10px;border:1px solid #1d1d1d;cursor:pointer;';
+  _selBtn.style.cssText = 'position:absolute;right:10px;top:10px;z-index:801;font:700 11px Archivo,sans-serif;padding:6px 10px;border:1px solid #323230;cursor:pointer;';
   const _paintSelBtn = () => {
     _selBtn.textContent = container._zipSelectMode ? '\u2713 Selecting ZIPs \u2014 click zips' : 'Select ZIPs';
     _selBtn.style.background = container._zipSelectMode ? '#DF643A' : '#fff';
-    _selBtn.style.color = container._zipSelectMode ? '#000' : '#1d1d1d';
+    _selBtn.style.color = container._zipSelectMode ? '#000' : '#323230';
   };
   _paintSelBtn();
   _selBtn.onclick = () => { container._zipSelectMode = state._geoZipSelMode = !container._zipSelectMode; _paintSelBtn(); _paintSummary(); };
   container.appendChild(_selBtn);
   const _sumEl = document.createElement('div');
-  _sumEl.style.cssText = 'position:absolute;left:10px;bottom:10px;z-index:801;background:#fff;border:1px solid #1d1d1d;font:600 11px Archivo,sans-serif;color:#1d1d1d;padding:6px 10px;display:none;align-items:center;gap:10px;';
+  _sumEl.style.cssText = 'position:absolute;left:10px;bottom:10px;z-index:801;background:#fff;border:1px solid #323230;font:600 11px Archivo,sans-serif;color:#323230;padding:6px 10px;display:none;align-items:center;gap:10px;';
   container.appendChild(_sumEl);
   const _paintSummary = () => {
     if (!_selSet.size) { _sumEl.style.display = 'none'; return; }
@@ -752,7 +752,7 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
           // Fade ZIPs with no qualifying value (e.g. ≤10 service types, or
           // below the attrition sub-floor) so the colored ones stand out.
           fillOpacity: isHighlight ? 0.95 : (v == null ? 0.1 : (z ? 0.85 : 0.15)),
-          color: isHighlight ? '#DC2626' : '#6B7280',
+          color: isHighlight ? '#DC2626' : '#7C857A',
           weight: isHighlight ? 3 : 0.4,
         };
         return _selSet.has(zip) ? SEL_STYLE : base;
@@ -784,10 +784,10 @@ function initReportingZipMap(containerId, stateCode, zipsInState, metricKey, met
         // reset for the highlighted polygon so the red ring stays
         // visible even after the user mouses over it.
         layerObj.on('mouseover', (e) => {
-          if (!isHighlight && !_selSet.has(zip)) e.target.setStyle({ weight: 2, color: '#1d1d1d' });
+          if (!isHighlight && !_selSet.has(zip)) e.target.setStyle({ weight: 2, color: '#323230' });
         });
         layerObj.on('mouseout',  (e) => {
-          if (!isHighlight && !_selSet.has(zip)) e.target.setStyle({ weight: 0.4, color: '#6B7280' });
+          if (!isHighlight && !_selSet.has(zip)) e.target.setStyle({ weight: 0.4, color: '#7C857A' });
         });
       },
     }).addTo(map);
@@ -911,7 +911,7 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
         return {
           fillColor: colorFor(v),
           fillOpacity: isHighlight ? 0.95 : (c ? 0.85 : 0.15),
-          color: isHighlight ? '#DC2626' : '#6B7280',
+          color: isHighlight ? '#DC2626' : '#7C857A',
           weight: isHighlight ? 3 : 0.4,
         };
       },
@@ -933,10 +933,10 @@ function initReportingCountyMap(containerId, stateCode, countiesInState, metricK
         layerObj.bindTooltip(tooltipHtml, { sticky: true });
         layerObj.on('click', () => onCountyClick(c));
         layerObj.on('mouseover', (e) => {
-          if (!isHighlight) e.target.setStyle({ weight: 2, color: '#1d1d1d' });
+          if (!isHighlight) e.target.setStyle({ weight: 2, color: '#323230' });
         });
         layerObj.on('mouseout',  (e) => {
-          if (!isHighlight) e.target.setStyle({ weight: 0.4, color: '#6B7280' });
+          if (!isHighlight) e.target.setStyle({ weight: 0.4, color: '#7C857A' });
         });
       },
     }).addTo(map);
@@ -1309,7 +1309,7 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
         return {
           fillColor: colorFor(v),
           fillOpacity: 0.85,
-          color: '#6B7280',
+          color: '#7C857A',
           weight: 0.8,
         };
       },
@@ -1324,8 +1324,8 @@ function initReportingGeoMap(containerId, states, metricKey, metricLabel, fmtMet
         layer.on('click', () => {
           if (s && onStateClick) onStateClick(code, name);
         });
-        layer.on('mouseover', (e) => e.target.setStyle({ weight: 2, color: '#1d1d1d' }));
-        layer.on('mouseout',  (e) => e.target.setStyle({ weight: 0.8, color: '#6B7280' }));
+        layer.on('mouseover', (e) => e.target.setStyle({ weight: 2, color: '#323230' }));
+        layer.on('mouseout',  (e) => e.target.setStyle({ weight: 0.8, color: '#7C857A' }));
       },
     }).addTo(map);
   });
