@@ -594,7 +594,9 @@ function compScheduleList() {
   const seen = new Set();
   const push = (id, name, group) => { if (!seen.has(id)) { seen.add(id); out.push({ id, name, group }); } };
   try { (getIndicatorCompetitions() || []).forEach(c => push(c.id, c.name, 'Sales Reps')); } catch (e) { /* no config yet */ }
-  push('mystery_box', 'Mystery Boxes', 'Sales Reps'); push('koth', 'KOTH', 'Sales Reps'); push('kobe_week', 'Kobe Week', 'Sales Reps');
+  push('koth', 'The Greatest Day in D2D', 'Sales Reps'); push('kobe_week', 'Kobe Week', 'Sales Reps');
+  (typeof COMP_2026_NEW !== 'undefined' ? COMP_2026_NEW : []).forEach(([id, name]) => push(id, name, 'Sales Reps'));
+  push('mystery_box', 'Mystery Boxes', 'Sales Reps');
   push('isl', 'Inside Sales League', 'Office Staff');
   const sc = compScheduleStore();
   Object.keys(sc).forEach(id => { if (sc[id] && sc[id].custom) push(id, sc[id].name || 'Custom', sc[id].group || 'Sales Reps'); });
