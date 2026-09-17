@@ -709,6 +709,11 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                   'Agreement sent for e-signature but not signed yet'));
                 else if (s.crm_contract_state === 'none' && s.crm_checked_at) lcChips.push(chip('✗ No agreement', 'rgba(220,38,38,.12)', '#B91C1C',
                   'No e-sign document on this subscription or customer in FieldRoutes'));
+                // Office audit (FieldRoutes customer flag, per Isaac Sep 17 2026):
+                // Passed feeds the Charge Upfront % tier; Failed holds
+                // auto-approval for manual review until the office re-flags.
+                if (s.crm_audit === 'passed') lcChips.push(chip('✓ Audit', 'rgba(223,100,58,.15)', '#DF643A', 'Passed Audit flag in FieldRoutes — counts toward the Charge Upfront % tier'));
+                else if (s.crm_audit === 'failed') lcChips.push(chip('✗ Audit', 'rgba(220,38,38,.12)', '#B91C1C', 'Failed Audit flag in FieldRoutes — auto-approval is on hold. Review it here, or fix it in the CRM and the next sync resumes the flow.'));
                 if (s.crm_days_past_due != null) {
                   lcChips.push(Number(s.crm_days_past_due) > 0
                     ? chip('⚠ ' + s.crm_days_past_due + 'd', 'rgba(220,38,38,.12)', '#B91C1C', 'Customer is ' + s.crm_days_past_due + ' day(s) past due' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : ''))
