@@ -5198,12 +5198,29 @@ function avatarNode(url, initials, sizeClass = 'w-10 h-10 text-xs') {
 // Columns: TIME · REP · CUSTOMER · SALE TYPE · REVENUE
 // ──────────────────────────────────────────────────────────────────────────
 function todaysSalesPanel(windowSales, range) {
-  // Sort by logged time desc (most recent first)
-  const rows = [...windowSales].sort((a, b) => {
-    const ta = a.created_at ? new Date(a.created_at).getTime() : new Date(a.sold_date).getTime();
-    const tb = b.created_at ? new Date(b.created_at).getTime() : new Date(b.sold_date).getTime();
-    return tb - ta;
-  });
+  // Most recent first — ALWAYS (per Isaac). CRM rows carry a floating
+  // office-local wall clock while app-logged rows carry real UTC, so a naive
+  // Date() compare interleaved them wrong. Put both on the display zone's
+  // wall clock (the same clock the Time column shows) before comparing.
+  const _dispTz0 = warRoomTz();
+  const _wallMs = (s) => {
+    if (s._crm && s.created_at) {
+      const m = String(s.created_at).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+      if (m) {
+        const shift = (_TZ_RAW_OFFSET[_dispTz0] ?? 1) - _saleHourOffset(s._crmOffice);
+        return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] + shift, +m[5]);
+      }
+    }
+    if (s.created_at) {
+      try {
+        const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: _dispTz0, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(s.created_at)).map(x => [x.type, x.value]));
+        return Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour % 24, +parts.minute, +parts.second);
+      } catch (e) { return new Date(s.created_at).getTime(); }
+    }
+    const d = String(s.sold_date || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return d ? Date.UTC(+d[1], +d[2] - 1, +d[3]) : 0;
+  };
+  const rows = [...windowSales].sort((a, b) => _wallMs(b) - _wallMs(a));
 
   const titleByRange = {
     today:      "Today's Sales",
@@ -5313,11 +5330,9 @@ function todaysSalesPanel(windowSales, range) {
               timeStr = timeStr.replace(/\s*AM$/i, 'a').replace(/\s*PM$/i, 'p');
             }
             const svcName = nameFromId(state.serviceTypes, s.service_type_id);
-            const pendingChip = s._pendingSync ? el('span', {
-              class: 'inline-block ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold align-middle',
-              style: { background: 'rgba(245,158,11,.14)', color: '#B45309' },
-              title: 'Logged just now — counted immediately; the CRM copy replaces this row on the next hourly sync.',
-            }, '⏳ syncing') : null;
+            // (The "⏳ syncing" chip is retired here — per Isaac. The row is
+            // counted immediately either way; the CRM copy replaces it on sync.)
+            const pendingChip = null;
             const ctName  = contractTypeName(s);
             const _ell = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
             return el('tr', { class: 'border-t border-' },
