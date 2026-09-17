@@ -246,7 +246,7 @@
   /* Toolbar pills (Presets · Filters · trophy · Pick reps …): one height and
      one horizontal padding everywhere, icon-only ones included, so a row of
      them lines up (per Isaac). */
-  button.rounded-xl.px-2\.5.py-1.text-\[11px\] {
+  button.rounded-xl.px-2\.5.py-1.text-\[11px\]:not(.w-full) {
     padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   }
   /* Pricing tab: phone = quote pinned on top, slick below (DOM order);
@@ -339,7 +339,7 @@
   /* Icon-only pills (trophy, pencil …) are flex boxes, so the line box above
      doesn't size them — the fixed height does, and this keeps the glyph
      centred in it. */
-  button.text-\[11px\].flex, button.text-\[11px\].inline-flex { align-items: center; justify-content: center; }
+  button.text-\[11px\].flex, button.text-\[11px\].inline-flex { align-items: center; }
   select.text-\[11px\] {
     -webkit-appearance: none !important; appearance: none !important;
     padding-right: 22px !important;
