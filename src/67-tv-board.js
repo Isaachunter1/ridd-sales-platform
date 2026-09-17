@@ -169,9 +169,9 @@ function openTvBoard() {
           el('div', { style: { height: '6px', background: T.surface2, position: 'relative' } },
             el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: ((goalPct || 0) * 100) + '%', background: goalPct >= 1 ? T.ember : T.ink, transition: 'width .6s ease' } })))]),
       el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gridAutoRows: '1fr', gap: '12px', minWidth: '0' } },
-        tile('Avg contract', money(d.avgContract), 'per sale'),
         tile('Avg initial', money(d.avgInitial), 'subscriptions'),
         tile('Avg recurring', money(d.avgMonthly), 'per month'),
+        tile('Avg ACV', money(d.avgContract), 'contract value per sale'),
         tile('Multi-year', pct(d.multiPct), '18 mo and up'),
         tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales'),
         tile('Rec mix', pct(d.recMix), 'recurring subs of all sales')));
