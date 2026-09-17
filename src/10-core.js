@@ -3698,8 +3698,19 @@ function authStoreSession(sess) {
 }
 function mountAuth(opts = {}) {
   const initialMode = opts.mode || 'login'; // 'login' | 'forgot' | 'recover'
+  // THE DOOR (Cam's design kit, Q-0275): every RIDDMADE login is the same
+  // white room — wordmark top left, the app's name in mono top right, a
+  // mono LOGIN eyebrow, mono labels over hairline inputs, one black plate.
+  // Measured on white: black 21:1, black/70 8.59:1, white on the plate 21:1.
+  const DOOR = {
+    label: 'block text-[11px] uppercase',
+    labelStyle: { fontFamily: "'IBM Plex Mono', ui-monospace, monospace", letterSpacing: '.22em', color: 'rgba(0,0,0,.7)' },
+    field: 'w-full mt-2 pb-2 text-base',
+    fieldStyle: { border: 0, borderBottom: '1px solid rgba(0,0,0,.3)', background: 'transparent', color: '#000', outline: 'none', borderRadius: 0, fontFamily: 'Archivo, ui-sans-serif, system-ui, sans-serif' },
+  };
   const form = el('form', {
-    class: 'card p-6 w-full max-w-sm flex flex-col gap-3',
+    class: 'w-full flex flex-col gap-6',
+    style: { maxWidth: '320px', color: '#000' },
     novalidate: true,   // our own checks below give real messages; native validation on a hidden field blocks submit with no feedback
     onsubmit: async (e) => {
       e.preventDefault();
@@ -3876,18 +3887,18 @@ function mountAuth(opts = {}) {
     },
   });
   const errLine = el('div', {
-    class: 'text-xs font-semibold rounded-lg px-3 py-2',
-    style: { display: 'none', color: '#B91C1C', background: 'rgba(220,38,38,.08)', border: '1px solid rgba(220,38,38,.25)', lineHeight: '1.45' },
+    class: 'font-semibold py-1 pl-3',
+    style: { display: 'none', fontSize: '14px', color: '#000', borderLeft: '2px solid #DF643A', lineHeight: '1.5' },
   });
 
   form.dataset.mode = initialMode;
 
-  const heading    = el('h1', { class: 'text-xl font-semibold' });
-  const subheading = el('p', { class: 'text-battle-2 text-sm mb-2' });
+  const heading    = el('p', { class: 'text-[11px] uppercase', style: { fontFamily: "'IBM Plex Mono', ui-monospace, monospace", letterSpacing: '.24em', color: '#000' } });
+  const subheading = el('p', { class: 'text-[10px] uppercase', style: { fontFamily: "'IBM Plex Mono', ui-monospace, monospace", letterSpacing: '.08em', lineHeight: '1.6', color: 'rgba(0,0,0,.7)', marginTop: '-12px' } });
   // Reset screen only: ← back to sign in. Drops the one-time recovery
   // session too, so a later refresh lands on the login page instead of
   // quietly signing them into the app with no password set.
-  const backBtn = el('button', { type: 'button', class: 'inline-flex items-center gap-1 text-xs text-battle-2 hover:text-lime transition self-start', style: { display: 'none' }, title: 'Back to sign in',
+  const backBtn = el('button', { type: 'button', class: 'inline-flex items-center gap-1 text-[10px] uppercase self-start', style: { display: 'none', fontFamily: "'IBM Plex Mono', ui-monospace, monospace", letterSpacing: '.18em', color: 'rgba(0,0,0,.7)', background: 'transparent', border: 0, padding: 0, cursor: 'pointer' }, title: 'Back to sign in',
     onclick: () => {
       try { sessionStorage.removeItem('ridd_recovery_pending'); } catch { /* private mode */ }
       history.replaceState(null, '', window.location.pathname);
@@ -3899,21 +3910,21 @@ function mountAuth(opts = {}) {
         .finally(() => { try { const k = authStorageKey(); if (k) localStorage.removeItem(k); } catch { /* ignore */ } state.session = null; });
     } },
     el('span', { 'aria-hidden': 'true' }, '←'), 'Back to sign in');
-  const emailField = el('label', { class: 'block text-sm' },
-    el('span', { class: 'text-battle-2 block mb-1' }, 'Email'),
-    el('input', { name: 'email', type: 'email', required: true, class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', placeholder: 'you@ridd.com' }));
+  const emailField = el('label', { class: 'block' },
+    el('span', { class: DOOR.label, style: DOOR.labelStyle }, 'Email'),
+    el('input', { name: 'email', type: 'email', required: true, class: DOOR.field, style: DOOR.fieldStyle, placeholder: 'you@ridd.com', onfocus: (e) => { e.target.style.borderBottomColor = '#000'; }, onblur: (e) => { e.target.style.borderBottomColor = 'rgba(0,0,0,.3)'; } }));
   // Password input with a show/hide eye inside the box (per Isaac). One
   // eye per field; the confirm field gets its own so each can be peeked.
   const EYE_OPEN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
   const EYE_OFF  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-6.5 0-10-7-10-7a19.8 19.8 0 0 1 5.06-5.94"/><path d="M9.9 4.24A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a19.8 19.8 0 0 1-3.22 4.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
   const passwordBox = (name, label, placeholder) => {
-    const input = el('input', { name, type: 'password', required: true, minlength: 6, autocomplete: name === 'password' ? 'current-password' : 'new-password', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', style: { paddingRight: '32px' }, placeholder });
+    const input = el('input', { name, type: 'password', required: true, minlength: 6, autocomplete: name === 'password' ? 'current-password' : 'new-password', class: DOOR.field, style: { ...DOOR.fieldStyle, paddingRight: '32px' }, placeholder, onfocus: (e) => { e.target.style.borderBottomColor = '#000'; }, onblur: (e) => { e.target.style.borderBottomColor = 'rgba(0,0,0,.3)'; } });
     const eye = el('button', { type: 'button', tabindex: -1, title: 'Show password', 'aria-label': 'Show password',
-      class: 'absolute right-0 flex items-center px-2.5 text-battle-2 transition', style: { top: 0, bottom: 0, background: 'transparent', border: 0, cursor: 'pointer' },
+      class: 'absolute right-0 flex items-center px-1 transition', style: { top: 0, bottom: 0, background: 'transparent', border: 0, cursor: 'pointer', color: 'rgba(0,0,0,.7)' },
       onclick: () => { const show = input.type === 'password'; input.type = show ? 'text' : 'password'; eye.innerHTML = show ? EYE_OFF : EYE_OPEN; eye.title = eye.ariaLabel = show ? 'Hide password' : 'Show password'; input.focus(); } });
     eye.innerHTML = EYE_OPEN;
-    return el('label', { class: 'block text-sm' },
-      el('span', { class: 'text-battle-2 block mb-1' }, label),
+    return el('label', { class: 'block' },
+      el('span', { class: DOOR.label, style: DOOR.labelStyle }, label),
       el('div', { class: 'relative' }, input, eye));
   };
   const passField    = passwordBox('password', 'Password', '••••••••');
@@ -3958,8 +3969,9 @@ function mountAuth(opts = {}) {
       if (sig !== _policyLast) { _policyLast = sig; refreshPolicy(); }
     }, 200);
   };
-  const submitBtn  = el('button', { type: 'submit', class: 'w-full rounded-lg bg-lime hover:bg-lime-600 text-eerie font-semibold py-2.5 transition' });
-  const forgotBtn  = el('button', { type: 'button', class: 'text-xs text-battle-2 hover:text-lime transition',
+  // The plate: black, Archivo, uppercase — the market plate Cam signed.
+  const submitBtn  = el('button', { type: 'submit', class: 'w-full uppercase cursor-pointer', style: { background: '#000', color: '#fff', fontFamily: 'Archivo, ui-sans-serif, system-ui, sans-serif', fontWeight: 600, fontSize: '1.375rem', lineHeight: 1, letterSpacing: '.03em', padding: '16px 24px', border: 0, borderRadius: 0, marginTop: '8px' } });
+  const forgotBtn  = el('button', { type: 'button', class: 'text-[10px] uppercase self-start', style: { fontFamily: "'IBM Plex Mono', ui-monospace, monospace", letterSpacing: '.18em', color: 'rgba(0,0,0,.7)', background: 'transparent', border: 0, padding: 0, cursor: 'pointer' },
     onclick: () => { form.dataset.mode = form.dataset.mode === 'login' ? 'forgot' : 'login'; renderMode(); } });
   // Onboarding hint for invited reps. Accounts are admin-created; the invite
   // email contains a one-time magic link that signs the rep in but does NOT
@@ -3968,8 +3980,8 @@ function mountAuth(opts = {}) {
   // rep types whatever password into the login form and gets back a bare
   // "Invalid credentials" from Supabase.
   const inviteHint = el('p', {
-    class: 'text-[10px] text-battle-2 text-center mt-1',
-    style: { lineHeight: '1.5' },
+    class: 'text-[10px] uppercase',
+    style: { lineHeight: '1.6', fontFamily: "'IBM Plex Mono', ui-monospace, monospace", letterSpacing: '.08em', color: 'rgba(0,0,0,.7)' },
   }, 'First time here? An admin must invite you. Click the link in your invite email to get in — then use ',
     el('strong', {}, 'Forgot password?'),
     ' above to set a password for next time.');
@@ -3979,7 +3991,7 @@ function mountAuth(opts = {}) {
     backBtn.style.display = 'none';
     policyWatch(mode === 'recover');
     if (mode === 'login') {
-      heading.textContent    = 'Sign in';
+      heading.textContent    = 'Login';
       subheading.textContent = '';           // (dropped the 'RIDD Sales App' line per Isaac)
       subheading.style.display = 'none';
       emailField.style.display = 'block';
@@ -3989,7 +4001,7 @@ function mountAuth(opts = {}) {
       passField.querySelector('input').autocomplete = 'current-password';
       confirmField.style.display = 'none';
       confirmField.querySelector('input').required = false;
-      submitBtn.textContent = 'Sign in';
+      submitBtn.textContent = 'Login';
       forgotBtn.textContent = 'Forgot password?';
       forgotBtn.style.display = '';
       inviteHint.style.display = 'block';
@@ -4031,24 +4043,17 @@ function mountAuth(opts = {}) {
     policyList.style.display = 'none';
   }
 
-  form.append(
-    // Real company logo when this browser has it cached (same cache the boot
-    // splash uses); the text wordmark only on a first-ever visit.
-    (() => {
-      let logo = '';
-      try { logo = localStorage.getItem(RIDD_LOGO_STORAGE_KEY) || ''; } catch { /* ignore */ }
-      return /^data:image\//.test(logo)
-        // brightness(0) renders the logo solid BLACK regardless of its source
-        // color — the uploaded mark is cream/white, invisible on this card.
-        ? el('img', { src: logo, alt: CFG.COMPANY_NAME, style: { height: '56px', display: 'block', marginBottom: '2px', filter: 'brightness(0)' } })
-        : el('div', { class: 'text-4xl font-display tracking-tight', style: { color: '#323230' } }, CFG.COMPANY_NAME);
-    })(),
-    el('div', { class: 'text-[10px] text-battleship tracking-[.22em] mb-2' }, CFG.COMPANY_TAGLINE),
-    backBtn, heading, subheading, emailField, passField, confirmField, policyList, submitBtn, errLine, forgotBtn, inviteHint,
-  );
+  form.append(backBtn, heading, subheading, emailField, passField, confirmField, policyList, submitBtn, errLine, forgotBtn, inviteHint);
   renderMode();
 
-  mount(el('div', { class: 'min-h-screen flex items-center justify-center p-6' }, form));
+  // The room (design kit door.tsx): white, edge to edge, wordmark top left,
+  // the app's name in mono top right, the form centred in a 320px column.
+  const room = el('main', { class: 'flex flex-col w-full', style: { minHeight: '100svh', background: '#fff', color: '#000', padding: '20px 20px' } },
+    el('header', { class: 'flex items-center justify-between' },
+      (typeof riddmadeWordmark === 'function') ? riddmadeWordmark(150) : el('div', { class: 'font-display text-2xl' }, 'RIDDMADE'),
+      el('span', { class: 'text-[11px] uppercase', style: { fontFamily: "'IBM Plex Mono', ui-monospace, monospace", letterSpacing: '.2em' } }, 'Sales')),
+    el('div', { class: 'flex flex-1 flex-col items-center justify-center', style: { padding: '64px 0' } }, form));
+  mount(room);
 }
 
 // ──────────────────────────────────────────────────────────────────────────

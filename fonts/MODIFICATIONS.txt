@@ -1,0 +1,61 @@
+MODIFICATIONS TO THE BUNDLED FONT FILES
+=======================================
+
+Both families are SIL Open Font License 1.1. Neither declares a Reserved Font
+Name, so modification without renaming is permitted. See Archivo-OFL.txt and
+Newsreader-OFL.txt for the full license.
+
+Provenance
+----------
+The .woff2 files here were built from the upstream variable TTFs in the
+google/fonts repository (not from the subset files fonts.gstatic.com serves):
+
+  Archivo-Variable.woff2            <- ofl/archivo/Archivo[wdth,wght].ttf
+  Newsreader-Variable.woff2         <- ofl/newsreader/Newsreader[opsz,wght].ttf
+  Newsreader-Italic-Variable.woff2  <- ofl/newsreader/Newsreader-Italic[opsz,wght].ttf
+
+Conversion was TTF -> woff2 only. No glyph outlines, metrics, variation axes,
+or OpenType features were altered.
+
+The one change: U+02BB
+----------------------
+U+02BB MODIFIER LETTER TURNED COMMA -- the okina in Tongan, Samoan and
+Hawaiian names (Tu'uholoaki, Ha'apai) -- is absent from both families upstream.
+
+It is a Spacing Modifier Letter, NOT punctuation, so a name containing it will
+not fall back to the apostrophe; without a mapping the browser swaps in a
+system font for that character alone, breaking the word mid-render.
+
+The okina is by definition a raised turned comma, which is the same mark
+U+2018 LEFT SINGLE QUOTATION MARK already draws in both families. So a cmap
+entry was added pointing U+02BB at the existing 'quoteleft' glyph. No new
+outline was drawn; only the character-to-glyph mapping changed.
+
+Rebuilding
+----------
+Requires fonttools + brotli (Python). Not a project dependency -- use a
+throwaway virtualenv:
+
+    python3 -m venv /tmp/fontenv
+    /tmp/fontenv/bin/pip install fonttools brotli
+    /tmp/fontenv/bin/python - <<'PY'
+    from fontTools.ttLib import TTFont
+    f = TTFont("Archivo[wdth,wght].ttf")
+    for t in f["cmap"].tables:
+        if t.isUnicode() and 0x02BB not in t.cmap:
+            t.cmap[0x02BB] = t.cmap[0x2018]
+    f.flavor = "woff2"
+    f.save("Archivo-Variable.woff2")
+    PY
+
+If you ever replace these files, re-check coverage against the string in the
+"Type coverage" note in CLAUDE.md before shipping.
+
+Anton-Regular.woff2 (added 2026-08-28)
+--------------------------------------
+Complete upstream build from google/fonts ofl/anton (Anton-Regular.ttf,
+170,812 bytes), converted to woff2 with fontTools — NO subsetting, no
+glyph edits. Verified before shipping: the roster string renders with
+zero missing glyphs and U+02BB (ʻokina) is drawn natively by the
+upstream font, so unlike Archivo and Newsreader no hand-mapping was
+required. License: OFL (see google/fonts ofl/anton/OFL.txt).
