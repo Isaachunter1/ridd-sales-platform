@@ -1424,6 +1424,87 @@ async function setProfileActive(p, active) {
 const REP_TYPE_TABS = ['All', 'Office Staff', 'Technician', 'Sales Rep'];
 const REP_TYPE_TAB_LABEL = { 'All': 'All', 'Office Staff': 'Office Staff', 'Technician': 'Technicians', 'Sales Rep': 'Sales Reps' };
 
+// ── Adoption drill-down (per Isaac): the numbers on the Adoption cards,
+// opened up — per-user activity, per-tab views, and the raw feedback. All
+// from usage_events already in memory (state._usageStats); no extra query.
+function openAdoptionDrill(kind, allRows, o = {}) {
+  const rows = (allRows || []).filter(r => new Date(r.at).getTime() >= (o.since || 0));
+  const profOf = (id) => (state.allProfiles || []).find(p => p.id === id) || null;
+  const nameOf = (id) => (profOf(id) || {}).full_name || 'Unknown (' + String(id || '').slice(0, 8) + ')';
+  const roleOf = (id) => { const p = profOf(id); return p ? ((typeof ROLE_LABEL !== 'undefined' && ROLE_LABEL[p.role]) || p.role || '') : ''; };
+  const tabName = (d) => (typeof TAB_TITLES !== 'undefined' && TAB_TITLES[d]) ? String(TAB_TITLES[d]).replace(/^\w/, c => c.toUpperCase()) : (d || '\u2014');
+  const overlay = el('div', { class: 'modal-overlay' });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const modal = el('div', { class: 'card w-full max-w-4xl p-5 my-8 overflow-y-auto', style: { maxHeight: 'calc(100vh - 64px)' } });
+  overlay.append(modal);
+  const th = (t, right) => el('th', { class: 'px-2 py-1.5 text-[9px] uppercase tracking-widest font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)' } }, t);
+  const td = (t, right, cls = '') => el('td', { class: 'px-2 py-1.5 text-[12px] ' + (right ? 'text-right tabular-nums ' : '') + cls }, t);
+  const table = (heads, body) => el('div', { class: 'overflow-x-auto mt-3' }, el('table', { class: 'w-full' }, el('thead', { style: { background: 'var(--card-2)' } }, el('tr', {}, ...heads)), el('tbody', {}, ...body)));
+  const head = (title, sub, extra) => el('div', { class: 'flex items-start justify-between gap-3' },
+    el('div', {}, el('h3', { class: 'text-base font-bold' }, title), el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, sub)),
+    el('div', { class: 'flex items-center gap-2' }, extra || null, el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => overlay.remove() }, 'Close')));
+  const dayKey = (iso) => String(iso || '').slice(0, 10);
+  const perUser = () => {
+    const m = new Map();
+    for (const r of rows) {
+      const u = m.get(r.profile_id) || (m.set(r.profile_id, { id: r.profile_id, events: 0, views: 0, days: new Set(), tabs: {}, last: 0, first: Infinity, feedback: 0 }), m.get(r.profile_id));
+      const t = new Date(r.at).getTime();
+      u.events++; if (r.event === 'view') { u.views++; if (r.detail) u.tabs[r.detail] = (u.tabs[r.detail] || 0) + 1; }
+      if (r.event === 'feedback') u.feedback++;
+      u.days.add(dayKey(r.at)); if (t > u.last) u.last = t; if (t < u.first) u.first = t;
+    }
+    return [...m.values()].sort((a, b) => b.last - a.last);
+  };
+  if (kind === 'users') {
+    const users = perUser();
+    let q = '';
+    const body = el('tbody');
+    const draw = () => {
+      body.replaceChildren(...users.filter(u => !q || nameOf(u.id).toLowerCase().includes(q) || roleOf(u.id).toLowerCase().includes(q)).map(u => {
+        const top = Object.entries(u.tabs).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => tabName(k) + ' \u00d7' + n).join(' \u00b7 ');
+        return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          td(el('span', { class: 'font-semibold' }, nameOf(u.id))),
+          td(el('span', { style: { color: 'var(--text-muted)' } }, roleOf(u.id))),
+          td(String(u.days.size), true), td(String(u.views), true), td(String(u.events), true),
+          td(el('span', { title: new Date(u.last).toLocaleString() }, timeAgo(new Date(u.last).toISOString())), false, 'whitespace-nowrap'),
+          td(el('span', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, top || '\u2014')));
+      }));
+      if (!body.children.length) body.append(el('tr', {}, el('td', { class: 'px-2 py-4 text-center text-[11px]', colspan: '7', style: { color: 'var(--text-muted)' } }, 'No activity in this window.')));
+    };
+    draw();
+    const search = el('input', { type: 'text', placeholder: 'Search name or role\u2026', class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '180px' }, oninput: (e) => { q = e.target.value.trim().toLowerCase(); draw(); } });
+    modal.append(head(o.title + ' \u00b7 ' + users.length + (users.length === 1 ? ' user' : ' users'), o.sub, search),
+      el('div', { class: 'overflow-x-auto mt-3' }, el('table', { class: 'w-full' },
+        el('thead', { style: { background: 'var(--card-2)' } }, el('tr', {}, th('User'), th('Access profile'), th('Days active', true), th('Tab views', true), th('Events', true), th('Last active'), th('Top tabs'))),
+        body)));
+  } else if (kind === 'tabs') {
+    const views = rows.filter(r => r.event === 'view' && r.detail);
+    const byTab = new Map();
+    for (const r of views) { const t = byTab.get(r.detail) || (byTab.set(r.detail, { key: r.detail, n: 0, users: new Map() }), byTab.get(r.detail)); t.n++; t.users.set(r.profile_id, (t.users.get(r.profile_id) || 0) + 1); }
+    const tabs = [...byTab.values()].sort((a, b) => b.n - a.n);
+    const detail = el('div', { class: 'mt-3' });
+    const showTab = (t) => {
+      detail.replaceChildren(el('div', { class: 'rounded-lg border p-3', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'text-[11px] font-bold mb-1' }, tabName(t.key) + ' \u00b7 who opened it'),
+        el('div', { class: 'flex flex-wrap gap-1.5' }, ...[...t.users.entries()].sort((a, b) => b[1] - a[1]).map(([id, n]) => el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] border', style: { borderColor: 'var(--border-2)' } }, nameOf(id) + ' \u00d7' + n)))));
+    };
+    modal.append(head(o.title + ' \u00b7 ' + views.length + ' views', o.sub),
+      table([th('Tab'), th('Views', true), th('Unique users', true), th('Views / user', true), th('')],
+        tabs.map(t => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          td(el('span', { class: 'font-semibold' }, tabName(t.key))), td(String(t.n), true), td(String(t.users.size), true), td((t.n / Math.max(1, t.users.size)).toFixed(1), true),
+          td(el('button', { class: 'rounded-lg border px-2 py-0.5 text-[10px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => showTab(t) }, 'who \u2192'), true)))),
+      detail);
+  } else {
+    const fb = rows.filter(r => r.event === 'feedback');
+    modal.append(head(o.title + ' \u00b7 ' + fb.length, o.sub),
+      fb.length ? el('div', { class: 'flex flex-col gap-2 mt-3' }, ...fb.map(r => el('div', { class: 'rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)' } },
+        el('div', { class: 'flex items-center justify-between gap-2 text-[10px]', style: { color: 'var(--text-muted)' } }, el('span', { class: 'font-bold', style: { color: 'var(--text)' } }, nameOf(r.profile_id) + ' \u00b7 ' + roleOf(r.profile_id)), el('span', { title: new Date(r.at).toLocaleString() }, timeAgo(r.at))),
+        el('div', { class: 'text-[12px] mt-1 whitespace-pre-wrap' }, r.detail || ''))))
+      : el('div', { class: 'mt-3 text-[11px] text-center py-6', style: { color: 'var(--text-muted)' } }, 'No feedback in the last 30 days.'));
+  }
+  document.body.append(overlay);
+}
+
 function adminReps() {
   const host = el('div', { class: 'flex flex-col gap-4' });
   // ── 📊 Adoption — who's actually using the app (usage_events). Card
@@ -1456,18 +1537,20 @@ function adminReps() {
       rows7.forEach(r => { if (r.event === 'view' && r.detail) tabCounts[r.detail] = (tabCounts[r.detail] || 0) + 1; });
       const topTabs = Object.entries(tabCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
       const fb = us.rows.filter(r => r.event === 'feedback').slice(0, 3);
-      const stat = (label, val) => el('div', { class: 'rounded-lg border px-3 py-2 text-center', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+      // Every card drills down (per Isaac): who exactly, how often, which tabs.
+      const stat = (label, val, drill) => el('button', { class: 'rounded-lg border px-3 py-2 text-center transition hover:brightness-95 w-full', style: { borderColor: 'var(--border)', background: 'var(--card-2)', cursor: 'pointer' }, title: 'Click for the breakdown', onclick: drill },
         el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
-        el('div', { class: 'text-lg font-bold tabular-nums' }, val));
+        el('div', { class: 'text-lg font-bold tabular-nums' }, val),
+        el('div', { class: 'text-[9px]', style: { color: 'var(--text-subtle)' } }, 'details \u2192'));
       host.append(el('div', { class: 'card p-4' },
         el('div', { class: 'flex items-center justify-between flex-wrap gap-2' },
           el('h3', { class: 'text-base font-bold' }, '\ud83d\udcca Adoption'),
           el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'last 30 days')),
         el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3' },
-          stat('Active today', String(active1.size)),
-          stat('Active \u00b7 7d', String(active7.size)),
-          stat('Tab views \u00b7 7d', String(rows7.filter(r => r.event === 'view').length)),
-          stat('Feedback \u00b7 30d', String(us.rows.filter(r => r.event === 'feedback').length))),
+          stat('Active today', String(active1.size), () => openAdoptionDrill('users', us.rows, { since: day, title: 'Active today', sub: 'everyone with any activity in the last 24 hours' })),
+          stat('Active \u00b7 7d', String(active7.size), () => openAdoptionDrill('users', us.rows, { since: wk, title: 'Active \u00b7 last 7 days', sub: 'everyone with any activity in the last 7 days' })),
+          stat('Tab views \u00b7 7d', String(rows7.filter(r => r.event === 'view').length), () => openAdoptionDrill('tabs', us.rows, { since: wk, title: 'Tab views \u00b7 last 7 days', sub: 'which screens are getting opened, and by whom' })),
+          stat('Feedback \u00b7 30d', String(us.rows.filter(r => r.event === 'feedback').length), () => openAdoptionDrill('feedback', us.rows, { since: 0, title: 'Feedback \u00b7 last 30 days', sub: 'everything sent through the feedback button' }))),
         ...fb.map(r => el('div', { class: 'mt-2 text-[11px] rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)' } },
           el('span', { class: 'font-bold' }, '\ud83d\udce3 ' + nameOf(r.profile_id) + ': '), r.detail || ''))));
     }
