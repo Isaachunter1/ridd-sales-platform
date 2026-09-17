@@ -1,0 +1,10 @@
+{
+  "name": "@ridd/indicators-engine",
+  "version": "0.1.0",
+  "description": "RIDD Indicators engine — competition scorers + shared helpers, extracted verbatim from the RIDD Sales Platform. One source, two builds: the app bundle and this standalone module.",
+  "main": "dist/ridd-engine.js",
+  "files": ["dist", "README.md"],
+  "scripts": { "build": "node ../tools/build-engine.js", "test": "node test/smoke.js" },
+  "license": "UNLICENSED",
+  "private": true
+}
