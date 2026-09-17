@@ -50,7 +50,7 @@ create or replace view market_feed.audit_accounts as
 
 -- FieldRoutes roster (drop email, phone, username, last_login)
 create or replace view market_feed.fieldroutes_employees as
-  select employee_id, fname, lname, nickname, office_id, office_name, office_ids, type, type_label, active, synced_at
+  select employee_id, employee_ids, fname, lname, nickname, office_id, office_name, office_ids, type, type_label, active, synced_at
   from public.fieldroutes_employees;
 
 -- Indicator rosters (drop updated_by)
