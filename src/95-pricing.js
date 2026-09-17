@@ -90,138 +90,151 @@ function pricingQuote(st) {
   return { tier: T, lines, init, mo, acv: init + mo * 11 };
 }
 
-function viewPricing() {
-  const st = pricingStore();
-  const T = PRICING_TIERS.find(t => t.id === st.tier) || PRICING_TIERS[0];
-  const isMin = T.id !== 'd2d';
-  const money = (v) => '$' + Math.round(v).toLocaleString();
-  const wrap = el('div', { class: 'flex flex-col gap-4 w-full' });
+// Bundle & Save (per Isaac's savings table): standalone plan ACV (11 × monthly
+// + initial) minus add-on ACV (12 × add-on monthly + add-on initial), per tier.
+function pricingSavings(T, svc, fi) {
+  const prog = PRICING_SERVICES[svc].program;
+  const standalone = T[prog][fi] * 11 + T.init;
+  const a = T.addons.find(x => x[0] === svc);
+  return standalone - (a[2] * 12 + a[1]);
+}
 
-  // ── Tier strip (same look as the queue strip) ──
-  wrap.append(el('div', { class: 'flex items-center gap-2 flex-wrap' },
-    el('div', { class: 'queue-strip flex w-full rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
+// ── The slick, live. Same card the reps carry (brand palette, program blocks
+// on top, add-ons / one-time / bundle & save below) — but every tile and row
+// is a control. Re-renders ITSELF on every click (no mountApp), so the page
+// never flashes and scroll stays put (per Isaac).
+function viewPricing() {
+  const root = el('div', { class: 'w-full' });
+  const money = (v) => '$' + Math.round(v).toLocaleString();
+  const C = { sage: '#5F6C5B', cream: '#FBF4DA', cream2: '#F3EBCD', char: '#323230', orange: '#DF643A', ink2: '#5A5A56', ink3: '#8C8A80' };
+  const render = () => {
+    const st = pricingStore();
+    const T = PRICING_TIERS.find(t => t.id === st.tier) || PRICING_TIERS[0];
+    const isMin = T.id !== 'd2d';
+    const price = isMin ? { color: C.orange } : { color: C.char };
+    const baseSvc = PRICING_SERVICES[st.base];
+    const fi = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
+    const q = pricingQuote(st);
+    const rerender = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
+
+    // ── tier strip (app chrome, above the card) ──
+    const strip = el('div', { class: 'queue-strip flex w-full rounded-lg border overflow-hidden mb-4', style: { borderColor: 'var(--border-2)' } },
       ...PRICING_TIERS.map((t, i) => el('button', {
         class: 'px-2.5 py-1.5 text-[11px] font-bold transition flex-1 whitespace-nowrap' + (i ? ' border-l' : ''),
         style: st.tier === t.id ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--border-2)' } : { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
-        onclick: () => { st.tier = t.id; if (!t.onetime) st.onetime = {}; mountApp(); },
-      }, t.label)))));
+        onclick: () => { st.tier = t.id; if (!t.onetime) st.onetime = {}; rerender(); },
+      }, t.label)));
 
-  const secTitle = (t, sub) => el('div', { class: 'flex items-baseline justify-between gap-3 mb-2' },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t),
-    sub ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, sub) : null);
-  const priceColor = isMin ? { color: 'var(--accent)' } : {};
+    // ── card primitives (brand look, fixed colours — the slick doesn't theme) ──
+    const card = (...kids) => el('div', { style: { background: C.cream, borderRadius: '12px', overflow: 'hidden', color: C.char } }, ...kids);
+    const secH = (title, sub, extra) => el('div', { class: 'flex items-baseline justify-between gap-3 flex-wrap', style: { padding: '12px 16px 4px' } },
+      el('div', { class: 'flex items-baseline gap-3 flex-wrap' },
+        el('div', { style: { font: '700 14px/1 Archivo, "Helvetica Neue", Arial, sans-serif', textTransform: 'uppercase', color: C.char } }, title),
+        extra || null),
+      sub ? el('div', { style: { font: '400 9px/1.2 Archivo, Arial, sans-serif', color: C.ink2, textAlign: 'right' } }, sub) : null);
+    const pill = (txt, on, onclick) => el('button', { onclick, style: { background: on ? C.orange : 'transparent', color: on ? C.cream : C.char, border: '1.5px solid ' + (on ? C.orange : C.ink3), font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.08em', textTransform: 'uppercase', padding: '6px 10px', borderRadius: '999px', cursor: 'pointer' } }, txt);
+    const tile = (label, sub, val, on, onclick, o = {}) => el('button', { onclick, style: { background: o.dark ? C.char : (on ? C.cream : C.cream2), color: o.dark ? C.cream : C.char, borderRadius: '10px', padding: '9px 10px 8px', textAlign: 'center', border: '2px solid ' + (on ? C.orange : 'transparent'), cursor: onclick ? 'pointer' : 'default', minWidth: 0 } },
+      el('div', { style: { font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.14em', textTransform: 'uppercase', color: o.dark ? 'rgba(251,244,218,.7)' : C.ink2 } }, label),
+      el('div', { style: { fontSize: '9.5px', color: o.dark ? 'rgba(251,244,218,.7)' : C.ink3, marginTop: '3px' } }, sub),
+      el('div', { style: { marginTop: '6px', font: '700 26px/1 Archivo, Arial, sans-serif', letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: o.dark ? (isMin ? C.orange : C.cream) : price.color } }, money(val), o.mo ? el('span', { style: { font: '500 10px/1 Archivo, Arial, sans-serif', color: o.dark ? 'rgba(251,244,218,.7)' : C.ink2, marginLeft: '2px' } }, '/mo') : null));
 
-  // ── 1. Base plan: program → service → frequency ──
-  const baseSvc = PRICING_SERVICES[st.base];
-  const baseCard = el('div', { class: 'card p-5' },
-    secTitle('1 · Base plan', 'Pick the program the customer starts on'),
-    el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' } },
-      ...PRICING_PROGRAMS.map(p => {
-        const on = baseSvc.program === p.id;
-        const prices = p.id === 'termite' ? null : T[p.id];
-        return el('div', { class: 'rounded-xl border p-4 transition', style: { borderColor: on ? 'var(--accent)' : 'var(--border)', background: on ? 'rgba(223,100,58,.06)' : 'var(--card-2)' } },
-          el('div', { class: 'flex items-center justify-between gap-2 mb-2' },
-            el('div', { class: 'text-sm font-bold' }, p.label),
-            el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, 'initial ' + money(p.id === 'termite' ? T.termite[0] : T.init))),
-          el('div', { class: 'flex gap-1.5 flex-wrap mb-3' },
-            ...p.services.map(sid => el('button', {
-              class: 'px-2.5 py-1 rounded-full text-[11px] font-bold border transition',
-              style: st.base === sid ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-              onclick: () => { st.base = sid; delete st.addons[sid]; mountApp(); },
-            }, PRICING_SERVICES[sid].label))),
-          p.id === 'termite'
-            ? el('div', { class: 'rounded-lg p-2.5 text-center', style: { background: 'var(--card)' } },
-                el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Annual · 1 visit'),
-                el('div', { class: 'text-xl font-black tabular-nums', style: priceColor }, money(T.termite[1]), el('span', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, '/mo')))
-            : el('div', { class: 'grid grid-cols-3 gap-1.5' },
-                ...PRICING_FREQ.map(([k, lbl, visits], i) => {
-                  const sel = on && st.freq === k;
-                  return el('button', {
-                    class: 'rounded-lg p-2 text-center border transition',
-                    style: sel ? { borderColor: 'var(--accent)', background: 'var(--card)' } : { borderColor: 'transparent', background: 'var(--card)' },
-                    onclick: () => { if (!on) st.base = p.services[0]; st.freq = k; mountApp(); },
-                  },
-                    el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, lbl),
-                    el('div', { class: 'text-[9px]', style: { color: 'var(--text-subtle)' } }, visits + ' visits'),
-                    el('div', { class: 'text-lg font-black tabular-nums mt-0.5', style: priceColor }, money(prices[i]), el('span', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, '/mo')));
-                })));
-      })));
-  wrap.append(baseCard);
+    // ── program blocks (Home · Yard · Termite) ──
+    const program = (p) => {
+      const onProg = baseSvc.program === p.id;
+      const isT = p.id === 'termite';
+      const initV = isT ? T.termite[0] : T.init;
+      return card(
+        el('div', { class: 'flex items-center justify-between gap-3 flex-wrap', style: { padding: '14px 18px 6px' } },
+          el('div', { style: { font: '700 20px/1 Archivo, Arial, sans-serif', letterSpacing: '-.01em', textTransform: 'uppercase' } }, p.label),
+          el('div', { class: 'flex gap-1.5 flex-wrap' }, ...p.services.map(sid => pill(PRICING_SERVICES[sid].label, st.base === sid, () => { st.base = sid; delete st.addons[sid]; rerender(); })))),
+        el('div', { class: 'grid gap-2', style: { gridTemplateColumns: isT ? '1fr 1fr' : '1.05fr 1fr 1fr 1fr', padding: '6px 14px 12px' } },
+          tile('Initial', 'first visit', initV, false, null, { dark: true }),
+          ...(isT
+            ? [tile('Annual', 'serviced once a year', T.termite[1], onProg, () => { st.base = 'termite'; delete st.addons.termite; rerender(); }, { mo: true })]
+            : PRICING_FREQ.map(([k, lbl, visits], i) => tile(lbl, visits + ' visits', T[p.id][i], onProg && st.freq === k, () => { if (!onProg) st.base = p.services[0]; st.freq = k; rerender(); }, { mo: true })))));
+    };
 
-  // ── 2. Add-ons (the base service is excluded — it's already the plan) ──
-  const addonCard = el('div', { class: 'card p-5' },
-    secTitle('2 · Add-ons', 'Any of these on top of the base plan · per month'),
-    el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' } },
-      ...T.addons.filter(([id]) => id !== st.base).map(([id, init, mo]) => {
-        const on = !!st.addons[id];
-        return el('button', {
-          class: 'flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-left transition',
-          style: on ? { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.08)' } : { borderColor: 'var(--border)', background: 'var(--card-2)' },
-          onclick: () => { if (on) delete st.addons[id]; else st.addons[id] = true; mountApp(); },
-        },
-          el('div', { class: 'flex items-center gap-2 min-w-0' },
-            el('span', { class: 'inline-flex items-center justify-center rounded border text-[10px] font-black shrink-0', style: { width: '16px', height: '16px', borderColor: on ? 'var(--accent)' : 'var(--border-2)', background: on ? 'var(--accent)' : 'transparent', color: 'var(--accent-text)' } }, on ? '✓' : ''),
-            el('span', { class: 'text-xs font-semibold truncate' }, PRICING_SERVICES[id].label)),
-          el('div', { class: 'text-right tabular-nums shrink-0' },
-            el('div', { class: 'text-xs font-black', style: priceColor }, '+' + money(mo) + '/mo'),
-            el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, 'initial ' + money(init))));
-      })));
-  wrap.append(addonCard);
+    // ── add-ons table (rows are toggles) ──
+    const box = (on) => el('span', { style: { display: 'inline-flex', width: '14px', height: '14px', borderRadius: '3px', border: '1.5px solid ' + (on ? C.orange : C.ink3), background: on ? C.orange : 'transparent', color: C.cream, font: '900 10px/14px Archivo, Arial, sans-serif', justifyContent: 'center', alignItems: 'center', marginRight: '8px', flexShrink: 0 } }, on ? '✓' : '');
+    const trow = (cells, on, onclick, i) => el('tr', { onclick, style: { cursor: onclick ? 'pointer' : 'default', background: on ? 'rgba(223,100,58,.14)' : (i % 2 === 0 ? C.cream2 : C.cream) } },
+      ...cells.map((c, j) => el('td', { style: { padding: '5px 8px', fontSize: '11px', textAlign: j === 0 ? 'left' : 'center', fontWeight: j === 0 ? 500 : 700, fontVariantNumeric: 'tabular-nums', color: j === 0 ? C.char : price.color, borderRadius: j === 0 ? '6px 0 0 6px' : (j === cells.length - 1 ? '0 6px 6px 0' : '0'), whiteSpace: 'nowrap' } }, c)));
+    const thead = (cols) => el('thead', {}, el('tr', {}, ...cols.map((c, j) => el('th', { style: { padding: '4px 8px 2px', fontSize: '10px', letterSpacing: '.04em', textTransform: 'uppercase', color: C.ink2, fontWeight: 500, textAlign: j === 0 ? 'left' : 'center' } }, c))));
+    const table = (cols, rows) => el('table', { style: { width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', padding: '4px 8px 8px' } }, thead(cols), el('tbody', {}, ...rows));
+    const addonsCard = card(
+      secH('Add-Ons', 'tap to add · any of these on top of the base plan'),
+      table(['Add-On Service', 'Initial', 'Monthly'],
+        T.addons.filter(([id]) => id !== st.base).map(([id, init, mo], i) => {
+          const on = !!st.addons[id];
+          return trow([el('span', { class: 'inline-flex items-center' }, box(on), PRICING_SERVICES[id].label), money(init), '+' + money(mo)], on, () => { if (on) delete st.addons[id]; else st.addons[id] = true; rerender(); }, i);
+        })));
 
-  // ── 3. One-time services (Standard / Loyalty only) ──
-  if (T.onetime) {
-    wrap.append(el('div', { class: 'card p-5' },
-      el('div', { class: 'flex items-baseline justify-between gap-3 mb-2 flex-wrap' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, '3 · One-time services'),
-        el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
-          ...[['new', 'New customer'], ['current', 'Current customer']].map(([v, l]) => el('button', {
-            class: 'px-2.5 py-1 text-[11px] font-semibold transition',
-            style: st.customer === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { color: 'var(--text-muted)' },
-            onclick: () => { st.customer = v; mountApp(); },
-          }, l)))),
-      el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' } },
-        ...PRICING_ONETIME.map(([id, label, nw, cur]) => {
+    // ── one-time (Standard / Loyalty) ──
+    const oneTimeCard = T.onetime ? card(
+      secH('One-Time Services', null, el('div', { class: 'inline-flex rounded-full overflow-hidden', style: { border: '1.5px solid ' + C.ink3 } },
+        ...[['new', 'New'], ['current', 'Current']].map(([v, l]) => el('button', { onclick: () => { st.customer = v; rerender(); }, style: { padding: '3px 10px', font: '700 9px/1.4 Archivo, Arial, sans-serif', letterSpacing: '.08em', textTransform: 'uppercase', background: st.customer === v ? C.orange : 'transparent', color: st.customer === v ? C.cream : C.char, border: 0, cursor: 'pointer' } }, l)))),
+      table(['Service', 'New', 'Current'],
+        PRICING_ONETIME.map(([id, label, nw, cur], i) => {
           const on = !!st.onetime[id];
-          const price = st.customer === 'current' ? cur : nw;
-          return el('button', {
-            class: 'flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-left transition',
-            style: on ? { borderColor: 'var(--accent)', background: 'rgba(223,100,58,.08)' } : { borderColor: 'var(--border)', background: 'var(--card-2)' },
-            onclick: () => { if (on) delete st.onetime[id]; else st.onetime[id] = true; mountApp(); },
-          },
-            el('div', { class: 'flex items-center gap-2 min-w-0' },
-              el('span', { class: 'inline-flex items-center justify-center rounded border text-[10px] font-black shrink-0', style: { width: '16px', height: '16px', borderColor: on ? 'var(--accent)' : 'var(--border-2)', background: on ? 'var(--accent)' : 'transparent', color: 'var(--accent-text)' } }, on ? '✓' : ''),
-              el('span', { class: 'text-xs font-semibold truncate' }, label)),
-            el('div', { class: 'text-xs font-black tabular-nums shrink-0', style: priceColor }, money(price)));
-        }))));
-  }
+          return trow([el('span', { class: 'inline-flex items-center' }, box(on), label), money(nw), money(cur)], on, () => { if (on) delete st.onetime[id]; else st.onetime[id] = true; rerender(); }, i);
+        }))) : null;
 
-  // ── Quote (pinned at the bottom) ──
-  const q = pricingQuote(st);
-  const quote = el('div', { class: 'card p-5', style: { position: 'sticky', bottom: '12px', borderColor: 'var(--accent)', boxShadow: 'var(--shadow-lg)' } },
-    el('div', { class: 'flex items-start justify-between gap-4 flex-wrap' },
-      el('div', { class: 'min-w-0 flex-1' },
-        el('div', { class: 'flex items-center gap-2 mb-1' },
-          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Quote · ' + T.label),
-          T.badge ? el('span', { class: 'px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, T.badge) : null),
-        el('div', { class: 'flex flex-col gap-0.5' },
-          ...q.lines.map(l => el('div', { class: 'flex items-center justify-between gap-3 text-[11px]' },
-            el('span', { class: l.kind === 'base' ? 'font-semibold' : '', style: l.kind === 'base' ? {} : { color: 'var(--text-muted)' } }, l.label),
-            el('span', { class: 'tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } }, money(l.init) + ' initial' + (l.mo ? ' · ' + money(l.mo) + '/mo' : '')))))),
-      el('div', { class: 'flex gap-3 shrink-0' },
-        el('div', { class: 'rounded-xl px-4 py-3 text-center', style: { background: 'var(--card-2)' } },
-          el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Total initial'),
-          el('div', { class: 'text-2xl font-black tabular-nums', style: priceColor }, money(q.init))),
-        el('div', { class: 'rounded-xl px-4 py-3 text-center', style: { background: 'var(--accent)', color: 'var(--accent-text)' } },
-          el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { opacity: '.85' } }, 'Total monthly'),
-          el('div', { class: 'text-2xl font-black tabular-nums' }, money(q.mo), el('span', { class: 'text-xs font-semibold' }, '/mo'))),
-        el('div', { class: 'rounded-xl px-4 py-3 text-center hidden sm:block', style: { background: 'var(--card-2)' }, title: 'Initial + 11 monthly payments (one-time services included in the initial)' },
-          el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'First-year value'),
-          el('div', { class: 'text-2xl font-black tabular-nums' }, money(q.acv))))),
-    el('div', { class: 'flex items-center justify-between gap-3 mt-3 flex-wrap' },
-      el('div', { class: 'text-[10px]', style: { color: 'var(--text-muted)' } }, 'Add-ons and one-time services are charged with the initial · monthly is the recurring total'),
-      el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => { st.addons = {}; st.onetime = {}; mountApp(); } }, 'Clear add-ons')));
-  wrap.append(quote);
-  return wrap;
+    // ── bundle & save (informational, computed from this tier's numbers) ──
+    const saveCard = card(
+      secH('Bundle & Save', 'saved per year vs. buying it as its own plan'),
+      table(['Plan', '+ TFM', '+ Mole', '+ Rodent'],
+        PRICING_FREQ.map(([k, lbl], i) => trow([lbl, money(pricingSavings(T, 'tfm', i)), money(pricingSavings(T, 'mole', i)), money(pricingSavings(T, 'rodent', i))], false, null, i))));
+
+    // ── chips + reviews (D2D cards) ──
+    const chip = (big, txt, sub) => el('div', { style: { background: C.cream, borderRadius: '12px', padding: '12px 14px' } },
+      el('div', { style: { font: '700 20px/1 Archivo, Arial, sans-serif', color: C.orange } }, big),
+      el('div', { style: { font: 'italic 600 11px/1.2 Archivo, Arial, sans-serif', marginTop: '3px', color: C.char } }, txt),
+      sub ? el('div', { style: { font: '400 9px/1.25 Archivo, Arial, sans-serif', marginTop: '3px', color: C.ink2 } }, sub) : null);
+    const reviews = el('div', { style: { background: C.cream, borderRadius: '12px', padding: '14px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', justifyContent: 'center' } },
+      el('span', { style: { width: '30px', height: '30px', borderRadius: '50%', background: C.char, color: C.cream, font: '700 17px/30px Archivo, Arial, sans-serif', display: 'inline-block' } }, 'G'),
+      el('span', { style: { color: C.orange, fontSize: '18px', letterSpacing: '.08em', lineHeight: 1 } }, '★★★★★'),
+      el('b', { style: { font: '700 14px/1.2 Archivo, Arial, sans-serif', color: C.char } }, 'Over 15,000+ Google Reviews'),
+      el('small', { style: { font: '500 9px/1 Archivo, Arial, sans-serif', color: C.ink2, letterSpacing: '.12em', textTransform: 'uppercase' } }, '5-star rated'));
+
+    // ── the board ──
+    const ribbon = el('div', { class: 'flex items-center justify-between gap-3', style: { padding: '14px 24px', borderBottom: '1px solid rgba(251,244,218,.18)' } },
+      typeof riddSpiderMark === 'function' ? riddSpiderMark(28) : el('span', {}, ''),
+      el('div', { style: { font: '700 16px/1 Archivo, Arial, sans-serif', letterSpacing: '.3em', textTransform: 'uppercase', color: C.cream } }, 'Pricing'),
+      el('span', { style: { background: C.orange, color: C.cream, font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.16em', textTransform: 'uppercase', padding: '7px 12px', borderRadius: '999px' } }, T.badge || 'Display'));
+    const board = el('div', { style: { background: C.sage, borderRadius: '14px', overflow: 'hidden' } },
+      ribbon,
+      el('div', { class: 'flex flex-col gap-3', style: { padding: '18px 24px 24px' } },
+        ...PRICING_PROGRAMS.map(program),
+        el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' } },
+          addonsCard,
+          el('div', { class: 'flex flex-col gap-3' }, oneTimeCard, saveCard, T.onetime ? null : reviews)),
+        el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' } },
+          chip('🐾', 'Kid & Pet Safe'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re-services'), chip('✓', 'Licensed & Insured'))));
+
+    // ── sticky quote bar ──
+    const quote = el('div', { class: 'card p-4 mt-4', style: { position: 'sticky', bottom: '12px', borderColor: 'var(--accent)', boxShadow: 'var(--shadow-lg)' } },
+      el('div', { class: 'flex items-center justify-between gap-4 flex-wrap' },
+        el('div', { class: 'min-w-0 flex-1' },
+          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-subtle)' } }, 'Quote · ' + T.label),
+          el('div', { class: 'flex flex-col gap-0.5' },
+            ...q.lines.map(l => el('div', { class: 'flex items-center justify-between gap-3 text-[11px]' },
+              el('span', { class: l.kind === 'base' ? 'font-semibold' : '', style: l.kind === 'base' ? {} : { color: 'var(--text-muted)' } }, l.label),
+              el('span', { class: 'tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } }, money(l.init) + ' initial' + (l.mo ? ' · ' + money(l.mo) + '/mo' : '')))))),
+        el('div', { class: 'flex gap-2 shrink-0 items-stretch' },
+          el('div', { class: 'rounded-xl px-4 py-2.5 text-center', style: { background: 'var(--card-2)' } },
+            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Total initial'),
+            el('div', { class: 'text-2xl font-black tabular-nums' }, money(q.init))),
+          el('div', { class: 'rounded-xl px-4 py-2.5 text-center', style: { background: 'var(--accent)', color: 'var(--accent-text)' } },
+            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { opacity: '.85' } }, 'Total monthly'),
+            el('div', { class: 'text-2xl font-black tabular-nums' }, money(q.mo), el('span', { class: 'text-xs font-semibold' }, '/mo'))),
+          el('div', { class: 'rounded-xl px-4 py-2.5 text-center hidden sm:block', style: { background: 'var(--card-2)' }, title: 'Initial + 11 monthly payments' },
+            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'First-year value'),
+            el('div', { class: 'text-2xl font-black tabular-nums' }, money(q.acv))),
+          el('button', { class: 'rounded-xl border px-3 text-[11px] font-semibold self-center', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)', height: '36px' }, onclick: () => { st.addons = {}; st.onetime = {}; rerender(); } }, 'Clear'))));
+
+    root.replaceChildren(strip, board, quote);
+  };
+  render();
+  return root;
 }
 
 registerRiddModule({
