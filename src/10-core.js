@@ -3638,6 +3638,7 @@ function mountAuth(opts = {}) {
   const initialMode = opts.mode || 'login'; // 'login' | 'forgot' | 'recover'
   const form = el('form', {
     class: 'card p-6 w-full max-w-sm flex flex-col gap-3',
+    novalidate: true,   // our own checks below give real messages; native validation on a hidden field blocks submit with no feedback
     onsubmit: async (e) => {
       e.preventDefault();
       const email    = form.email?.value?.trim();
@@ -3645,6 +3646,12 @@ function mountAuth(opts = {}) {
       const mode     = form.dataset.mode;
 
       let done = false;   // recover: success card is showing — don't reset the form in `finally`
+      // Native validation is off (novalidate) — do the obvious checks here so
+      // the rep always gets a message instead of a dead button.
+      const _need = (cond, msg, field) => { if (!cond) { errLine.textContent = msg; errLine.style.display = 'block'; try { field && field.querySelector('input').focus(); } catch {} return false; } return true; };
+      if (mode !== 'recover' && !_need(email && /\S+@\S+\.\S+/.test(email), 'Enter your email address.', emailField)) return;
+      if (mode !== 'forgot' && !_need(password, mode === 'recover' ? 'Type a new password.' : 'Enter your password.', passField)) return;
+      if (mode === 'recover' && !_need(form.confirm?.value, 'Type the new password again to confirm it.', confirmField)) return;
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<span class="spinner"></span>';
       errLine.style.display = 'none';
@@ -3884,6 +3891,7 @@ function mountAuth(opts = {}) {
       subheading.textContent = '';           // (dropped the 'RIDD Sales App' line per Isaac)
       subheading.style.display = 'none';
       emailField.style.display = 'block';
+      emailField.querySelector('input').required = true;
       passField.style.display  = 'block';
       passField.querySelector('input').required = true;
       passField.querySelector('input').autocomplete = 'current-password';
@@ -3898,6 +3906,7 @@ function mountAuth(opts = {}) {
       subheading.textContent = 'Enter your email and we’ll send you a reset link.';
       subheading.style.display = '';
       emailField.style.display = 'block';
+      emailField.querySelector('input').required = true;
       passField.style.display  = 'none';
       passField.querySelector('input').required = false;
       confirmField.style.display = 'none';
@@ -3912,6 +3921,7 @@ function mountAuth(opts = {}) {
       subheading.textContent = 'Pick the password you’ll use from now on.';
       subheading.style.display = '';
       emailField.style.display = 'none';
+      emailField.querySelector('input').required = false;   // hidden + required = the browser blocks submit silently (the 'Set password does nothing' bug)
       passField.style.display  = 'block';
       passField.querySelector('input').required = true;
       passField.querySelector('input').minLength = 8;
