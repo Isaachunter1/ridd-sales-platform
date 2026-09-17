@@ -174,7 +174,7 @@ const PERM_DEFS = [
   { id: 'ind_class',        label: '\ud83c\udf93 Class Metrics', group: 'Indicators sections' },
 ];
 const PERM_DEFAULTS = {
-  rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
+  rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },   // table + power ranking opened to sales reps (per Isaac)
   rep_office:      { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
   rep_loyalty:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
   rep_partner:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
