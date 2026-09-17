@@ -39,24 +39,27 @@ function retenScopeSteps(rows) {
   const on = (k) => _retenWhatIf(k, off[k]);
   const steps = [];
   let cur = rows;
-  const run = (key, title, detail, test) => {
-    const active = on(key);
+  const run = (key, title, detail, test, locked) => {
+    const active = locked ? true : on(key);
     const removed = active ? cur.filter(test) : [];
     const left = active ? cur.filter(r => !test(r)) : cur;
-    steps.push({ key, title, detail, removed, left, active });
+    steps.push({ key, title, detail, removed, left, active, locked: !!locked });
     cur = left;
   };
+  // Step 1 is LOCKED (per Isaac): a subscription that never received its
+  // initial service cannot retain or churn, so the funnel starts from the
+  // subs with a completed initial — the same pull he takes from FieldRoutes.
+  run('initial', 'Keep only subs that received an initial service', '[Sheet step 2] Initial service marked Completed in FieldRoutes. Everything else — pending, never started, cancelled before the first visit — is not a customer yet. Always applied; this is the true top of the funnel.', r => !r.initial_service, true);
   run('orphans', 'Remove accounts deleted in FieldRoutes', 'Subscriptions whose customer record no longer exists in FieldRoutes — the account was deleted in the CRM but the mirror never forgets a row. Detected automatically by the sync.', r => !!r.customer_missing);
   run('deletedList', 'Remove the manual deleted list', 'Customer IDs an admin listed by hand in Configurations → Deleted CRM accounts (' + n(manual.size) + ' on the list).', r => manual.has(String(r.customer_id != null ? r.customer_id : '')));
   run('branches', 'Remove excluded branches', 'Offices switched off in Configurations' + (exclBr.size ? ': ' + [...exclBr].join(', ') : ' (none today)') + '.', r => exclBr.has((r.office_name || '').trim()));
   run('hidden', 'Remove hidden service types', 'Service types marked Hidden in Configurations → Service types (late fees, inspections, admin items…).', r => !!(cfgByName.get(r.subscription) || {}).is_hidden);
   run('sources', 'Remove excluded lead sources', 'Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)));
-  run('neverStarted', 'Remove subs that never started', 'No initial service ever completed AND the sub is frozen in the CRM or was closed as Sold-Not-Started / No Initial. A card that never became a customer.', r => reportingNeverStarted(r));
   return { steps, out: cur };
 }
 function _retenOfficial() {
   const saved = state._retenWhatIf; state._retenWhatIf = null;
-  const o = { orphans: reportingAutoExcludeOrphans(), deletedList: (state.indicatorDeletedCustIds || []).length > 0, branches: reportingExcludedBranches().size > 0, hidden: true, sources: reportingExcludedSources().size > 0, neverStarted: true, popRor: [...retenPopExclReasons()].some(x => /ror/.test(x)), popRorTiming: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !/ror|combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
+  const o = { initial: true, orphans: reportingAutoExcludeOrphans(), deletedList: (state.indicatorDeletedCustIds || []).length > 0, branches: reportingExcludedBranches().size > 0, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(x => /ror/.test(x)), popRorTiming: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !/ror|combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
   state._retenWhatIf = saved;
   return o;
 }
@@ -202,8 +205,8 @@ function retenMethodCard(pop, _retenEff, ground) {
         el('div', { class: 'text-[11px] text-muted-' }, 'Every subscription in the synced snapshot, any status, any service type — the top of the funnel.'
           + (loadDrops && (loadDrops.phantom || loadDrops.dupes) ? ' The loader itself set aside ' + n(loadDrops.phantom) + ' phantom-office row' + (loadDrops.phantom === 1 ? '' : 's') + ' and ' + n(loadDrops.dupes) + ' duplicate' + (loadDrops.dupes === 1 ? '' : 's') + ' of the same subscription id (' + n(loadDrops.raw) + ' raw rows).' : ''))),
       clickable(el('div', { class: 'text-lg font-black tabular-nums' }, n(g0.length)), drill('Everything in FieldRoutes', g0, 'the whole snapshot'))),
-    ...scopeSteps.map(st => step(next(), st.title, APP + st.detail, st.removed.length, st.key, null, st.removed, st.left)),
-    total('Subscriptions in scope', n(n0), 'What every other Reporting tab starts from', pop),
+    ...scopeSteps.map(st => step(next(), st.title, (st.locked ? '' : APP) + st.detail, st.removed.length, st.locked ? null : st.key, null, st.removed, st.left)),
+    total('Subscriptions in scope', n(n0), 'Received an initial service, minus the app-rule exclusions above', pop),
     (() => {
       // One-time services leave the book, but their revenue is still real —
       // show what is being pulled out (per Isaac), with the drill to the subs.
@@ -213,7 +216,6 @@ function retenMethodCard(pop, _retenEff, ground) {
       return step(next(), 'Remove one-time service types', SHEET(1) + 'Service types whose lifecycle is One-time (the “One Time …”, Initial, Reservice, Inspection-style items) — ' + n(oneTime.length) + ' subs across ' + n(otCust) + ' customers, $' + Math.round(otRev).toLocaleString() + ' of one-time revenue, set aside here (still counted on the Overview and in the P&L). Lifecycle is set per type in Configurations → Service types.', n0 - s1o.length, null, '$' + Math.round(otRev).toLocaleString() + ' one-time revenue', oneTime, s1o);
     })(),
     step(next(), 'Remove retired service types', SHEET(1) + 'Types marked Retired in Configurations — no longer sold and not part of the recurring book.', s1o.length - s1.length, null, null, notIn(s1o, s1), s1),
-    step(next(), 'Remove subs with no completed initial', SHEET(2) + 'Only customers with a Completed Initial service stay — a sub that never started cannot retain or churn.', s1.length - s2.length, null, null, notIn(s1, s2), s2),
     step(next(), 'Keep every account status', SHEET(3) + 'Active, Frozen and cancelled subscriptions all stay in — nothing is removed for status. Cancels are counted by their date, later.', 0, null, n(s2.length) + ' kept', null, null),
     step(next(), 'Remove 3-day RORs coded in the CRM', SHEET(4) + 'Cancellation reason “3 Day ROR” — a right-of-rescission, never really a customer.', s2.length - s2r.length, 'popRor', null, notIn(s2, s2r), s2r),
     (() => {
