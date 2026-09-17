@@ -549,6 +549,11 @@ function viewIndicators() {
   // table or Power Ranking chart gets it. Defaults: partners + office
   // team leads. (Office dept still hides branch charts, same as admin.)
   const _isPartner = _repLite && (userCan('ind_table') || userCan('ind_power_chart'));
+  // Sales-rep page order (per Isaac): player card → Your Performance Trends
+  // → Indicators table → Power Ranking → Leaderboard. Partners / office leads
+  // keep their own order (PARTNER_LAYOUT_SECTIONS), so this is D2D-only.
+  const _repSalesLayout = _isPartner
+    && !((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)));
   // Admin default filters (per Isaac, Jul 2026): every fresh session opens
   // Indicators on Pending/Serviced revenue · Type = Sales Rep · This Year ·
   // Branch/Office grouping. Seeds the first render only — filter changes
@@ -1241,6 +1246,9 @@ function viewIndicators() {
     // Customize hide toggle; the stack below skips 'card' so it can't
     // render twice.
     _isPartner && !_focusedComp && userCan('ind_card') && !(_repLayoutPrefs().hidden || []).includes('card') && repLandingPlayerCard(),
+    // Sales reps: Your Performance Trends sits right under the player card,
+    // ahead of the Indicators table + Power Ranking (per Isaac).
+    _repSalesLayout && !_focusedComp && userCan('ind_yoy') && !(_repLayoutPrefs().hidden || []).includes('yoy') && indicatorYoYTrendChart(),
 
     // ── Main metrics table (click metric name to sort branches) ──
     // Rep accounts get the focused view (Performance Trends + Rep
@@ -1624,7 +1632,7 @@ function viewIndicators() {
           const builders = {
             // Every section is gated by the Settings → Permissions matrix.
             card:  () => (!_isPartner && userCan('ind_card')) ? [repLandingPlayerCard()] : [],   // analyst layout pins it at page top instead
-            yoy:   () => userCan('ind_yoy') ? [indicatorYoYTrendChart()] : [],
+            yoy:   () => (!_repSalesLayout && userCan('ind_yoy')) ? [indicatorYoYTrendChart()] : [],   // sales reps: pinned under the player card instead
             trend: () => userCan('ind_trend') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-indsection') === 'repTrend') : [],
             board: () => userCan('ind_board') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard') : [],
             records: () => userCan('ind_records') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'agg-records') : [],

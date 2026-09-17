@@ -3503,8 +3503,8 @@ const _repLayoutKeyForMe = () => REP_LAYOUT_KEY + '::' + ((state.profile && stat
 const REP_LAYOUT_SECTIONS = [
   ['card',  'My Player Card'],
   ['yoy',   'Your Performance Trends'],
-  ['trend', 'Your Metric Trends'],
   ['board', 'Leaderboard'],
+  ['trend', 'Your Metric Trends'],
 ];
 // Rep - Partner / Office Team Lead page order (per Isaac): player card
 // pinned at top, then Indicators table + Power Ranking chart (fixed
