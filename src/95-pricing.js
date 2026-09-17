@@ -234,7 +234,6 @@ function viewPricing() {
           el('div', { class: 'flex items-center gap-2', style: { font: '700 20px/1 Archivo, Arial, sans-serif', letterSpacing: '-.01em', textTransform: 'uppercase' } }, pricingIcon(p.id, 22, C.orange), p.label),
           isT
             ? el('div', { class: 'flex items-center gap-2' },
-                el('span', { style: { font: '500 10px/1 Archivo, Arial, sans-serif', color: C.ink2 } }, 'separate subscription · stacks with any plan'),
                 pill(st.termite ? 'Added ✓' : 'Add', !!st.termite, toggleT))
             : el('div', { class: 'flex gap-1.5 flex-wrap' }, ...p.services.map(sid => pill(PRICING_SERVICES[sid].label, st.base === sid, () => { if (st.base === sid) { st.base = null; st.addons = {}; } else { st.base = sid; delete st.addons[sid]; } rerender(); })))),
         el('div', { class: 'grid gap-2', style: { gridTemplateColumns: isT ? '1fr 1fr' : '1.05fr 1fr 1fr 1fr', padding: '6px 14px 12px' } },
@@ -251,7 +250,7 @@ function viewPricing() {
     const thead = (cols) => el('thead', {}, el('tr', {}, ...cols.map((c, j) => el('th', { style: { padding: '4px 8px 2px', fontSize: '10px', letterSpacing: '.04em', textTransform: 'uppercase', color: C.ink2, fontWeight: 500, textAlign: j === 0 ? 'left' : 'center' } }, c))));
     const table = (cols, rows) => el('table', { style: { width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', padding: '4px 8px 8px' } }, thead(cols), el('tbody', {}, ...rows));
     const addonsCard = card(
-      secH('Add-Ons', hasPlan ? 'tap to add · any of these on top of the base plan' : 'pick a Home or Yard plan first · add-ons can\'t be sold on their own'),
+      secH('Add-Ons', null),
       el('div', { style: hasPlan ? {} : { opacity: '.45' } },
         table(['Add-On Service', 'Initial', 'Monthly'],
           T.addons.filter(([id]) => id !== st.base).map(([id, init, mo], i) => {
