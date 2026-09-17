@@ -1868,77 +1868,7 @@ function reportingWaterfall() {
   const repTypeAttritionCard = _attritionByCard('type');
   const sourceAttritionCard = _attritionByCard('source');
 
-  // \u2500\u2500 "True Attrition" bar (per Isaac) \u2500\u2500
-  // One fixed number pinned across the bottom of the tab: cancels EXCLUDING
-  // 3-day RORs, one-time services, and renewals (the noise classes), PLUS
-  // aging actives (days past due >= the Aging threshold \u2014 money that is
-  // already walking out the door even without a cancel date). Probably the
-  // closest thing to true attrition. Follows the year picker on the
-  // Attrition by Rep Type card, but NOT its chips \u2014 this definition is
-  // deliberately fixed so the number means the same thing every time.
-  const trueAttritionBar = (() => {
-    const _yr = state._rtAttrYear || 'all';
-    const _yOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
-    const _alive = (r) => /active/i.test(String(r.subscription_status || ''));
-    const _isRenew = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
-      || /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
-    const _isOne = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
-      || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
-    const _exclR = reportingExcludedCancelReasons();
-    const _agDays = (typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7;
-    let subs = 0, cxl = 0, aging = 0, arv = 0, arvCxl = 0, arvAging = 0;
-    for (const r of popA) {
-      if (_yr !== 'all' && _yOf(r) !== _yr) continue;
-      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
-      if (_reporting3dayRor(r)) continue;
-      if (_isRenew(r)) continue;
-      if (_isOne(r)) continue;
-      if (retenPopulationExcluded(r)) continue;
-      const v = Number(r.annual_recurring_value) || 0;
-      subs++; arv += v;
-      const _isCxl = r.subscription_date_canceled && !_alive(r)
-        && !_exclR.has(_normCancelReason(r.subscription_cancellation_reason));
-      if (_isCxl) { cxl++; arvCxl += v; }
-      else if (_alive(r) && (Number(r.days_past_due) || 0) >= _agDays) { aging++; arvAging += v; }
-    }
-    if (!subs) return null;
-    const kept = subs - cxl - aging;
-    const rate = (cxl + aging) / subs;
-    const pW = (n) => Math.max(0, Math.min(100, n / subs * 100));
-    const seg = (n, color, label) => n > 0 ? el('div', {
-      style: { width: pW(n).toFixed(2) + '%', background: color, height: '100%' },
-      title: label + ' \u2014 ' + fmt.int(n) + ' (' + (n / subs * 100).toFixed(1) + '%)',
-    }) : null;
-    const stat = (lab, n, v, color) => el('div', { class: 'text-left' },
-      el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, lab),
-      el('div', { class: 'text-sm font-bold tabular-nums', style: color ? { color } : {} },
-        fmt.int(n), el('span', { class: 'text-[10px] font-normal text-muted-' }, ' \u00b7 ' + fmt.usd0(v))));
-    return el('div', { class: 'card overflow-hidden' },
-      el('div', { class: 'px-4 py-3 flex items-center justify-between flex-wrap gap-3' },
-        el('div', {},
-          el('div', { class: 'font-display text-lg' }, 'True Attrition'),
-          el('div', { class: 'text-[11px] text-muted-' },
-            'Cancels excluding 3-day ROR, one-time & renewals \u2014 plus aging actives (' + _agDays + '+ days past due). '
-            + (_yr === 'all' ? 'All years in the book' : 'Sold ' + _yr + ', cancels to date')
-            + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
-        el('div', { class: 'flex items-center gap-4 flex-wrap' },
-          stat('Cancelled', cxl, arvCxl, '#DC2626'),
-          stat('Aging', aging, arvAging, '#A9441F'),
-          stat('Retained', kept, arv - arvCxl - arvAging, '#DF643A'),
-          el('div', { class: 'text-left pl-2', style: { borderLeft: '1px solid var(--border)' } },
-            el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'True attrition'),
-            el('div', { class: 'text-2xl font-black tabular-nums', style: { color: rate >= 0.15 ? '#DC2626' : rate < 0.08 ? '#DF643A' : 'var(--text)' } },
-              (rate * 100).toFixed(1) + '%')))),
-      el('div', { class: 'px-4 pb-4' },
-        el('div', { class: 'w-full rounded-full overflow-hidden flex', style: { height: '14px', background: 'var(--card-2)' } },
-          seg(kept, '#DF643A', 'Retained'),
-          seg(aging, '#A9441F', 'Aging (' + _agDays + '+ days past due)'),
-          seg(cxl, '#DC2626', 'Cancelled')),
-        el('div', { class: 'flex items-center justify-between pt-1.5 text-[10px] text-muted-' },
-          el('span', {}, fmt.int(subs) + ' serviced subs in this population \u00b7 ' + fmt.usd0(arv) + ' ARR'),
-          el('span', {}, fmt.int(cxl + aging) + ' lost or at risk \u00b7 ' + fmt.usd0(arvCxl + arvAging)))));
-  })();
-
+  // ("True Attrition" bar retired per Isaac, Sep 2026.)
 
   // -- Customer Lifetime (per Isaac) -- how long cancelled customers lasted,
   // sold date -> cancel date, as a month-of-life histogram (the "when do we
@@ -2075,9 +2005,15 @@ function reportingWaterfall() {
   // only happen within 2 months of term end, so new accounts are not a fair
   // baseline). Fair frame: of accounts that REACHED contract end, compare
   // the ones that renewed against the ones riding month-to-month.
+  // -- Renewal Retention (per Isaac, rebuilt Sep 2026 as one plain table) --
+  // Rows = each renewal type, all renewals, and the accounts that reached
+  // contract end and rode month-to-month instead. Columns = the counts the
+  // rate is built from, so every number can be checked. Group by type or by
+  // the year the renewal was sold. Sentricon excluded (never renews).
   const renewalRetentionCard = (() => {
     const MS_D = 86400000;
     const now = new Date();
+    const grp = state._rtRenewGroup === 'year' ? 'year' : 'type';
     const _aliveR = (r) => /active/i.test(String(r.subscription_status || ''));
     const _sentR = (r) => /sentricon/i.test(String(r.subscription || ''));
     const _endOf = (r) => {
@@ -2087,8 +2023,12 @@ function reportingWaterfall() {
       const e = new Date(d); e.setMonth(e.getMonth() + m); return e;
     };
     const _renReasonR = (r) => /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
-    const ren = { subs: 0, active: 0, cxl: 0, arvKept: 0, lives: [], rows: [] };
-    const m2m = { reached: 0, renewedAway: 0, active: 0, cxl: 0, arvKept: 0, lives: [], rows: [] };
+    const _yearOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? String(d.getFullYear()) : '—'; };
+    const _typeOf = (r) => { const src = String(r.subscription_source || '').trim(); const m = src.match(/renewal\s*[-–]\s*(.+)$/i) || src.match(/^(.+?)\s+renewal$/i); return m ? m[1].trim() : (src || 'Renewal'); };
+    const mk = () => ({ subs: 0, active: 0, cxl: 0, arvKept: 0, arvLost: 0, lives: [], rows: [] });
+    const groups = new Map();
+    const all = mk();
+    const m2m = mk(); let m2mReached = 0, m2mRenewedAway = 0;
     for (const r of popA) {
       if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
       if (_sentR(r)) continue;
@@ -2096,57 +2036,76 @@ function reportingWaterfall() {
       const cd = r.subscription_date_canceled ? new Date(r.subscription_date_canceled) : null;
       const alive = _aliveR(r);
       if (reportingSourceClass(r.subscription_source) === 'renewal') {
-        ren.subs++; ren.rows.push(r);
-        if (cd && !alive) {
-          ren.cxl++;
-          const sd = r.sold_date ? new Date(r.sold_date) : null;
-          if (sd && !isNaN(sd) && cd >= sd) ren.lives.push((cd - sd) / MS_D);
-        } else { ren.active++; ren.arvKept += arv; }
+        const k = grp === 'year' ? _yearOf(r) : _typeOf(r);
+        if (!groups.has(k)) groups.set(k, mk());
+        for (const o of [groups.get(k), all]) {
+          o.subs++; o.rows.push(r);
+          if (cd && !alive) { o.cxl++; o.arvLost += arv; const sd = r.sold_date ? new Date(r.sold_date) : null; if (sd && !isNaN(sd) && cd >= sd) o.lives.push((cd - sd) / MS_D); }
+          else { o.active++; o.arvKept += arv; }
+        }
         continue;
       }
       const end = _endOf(r);
       if (!end || end > now) continue;                 // still in term / no real term
       if (cd && !alive && cd <= end) continue;         // died in term - never reached the choice
-      m2m.reached++;
-      if (cd && !alive && _renReasonR(r)) { m2m.renewedAway++; continue; }  // became a renewal sub
-      m2m.rows.push(r);
-      if (cd && !alive) { m2m.cxl++; m2m.lives.push(Math.max(0, (cd - end) / MS_D)); }
+      m2mReached++;
+      if (cd && !alive && _renReasonR(r)) { m2mRenewedAway++; continue; }  // became a renewal sub
+      m2m.subs++; m2m.rows.push(r);
+      if (cd && !alive) { m2m.cxl++; m2m.arvLost += arv; m2m.lives.push(Math.max(0, (cd - end) / MS_D)); }
       else { m2m.active++; m2m.arvKept += arv; }
     }
-    if (!ren.subs && !m2m.reached) return null;
+    if (!all.subs && !m2mReached) return null;
     const _medD = (a) => { if (!a.length) return null; const t = [...a].sort((x, y) => x - y); return t[Math.floor((t.length - 1) / 2)]; };
-    const renAttr = ren.subs ? ren.cxl / ren.subs : null;
-    const m2mDen = m2m.active + m2m.cxl;
-    const m2mAttr = m2mDen ? m2m.cxl / m2mDen : null;
     const moTxtR = (d) => d == null ? '—' : (d / 30.44).toFixed(1) + ' mo';
-    const colR = (title, sub, o, attr, medLife, medLabel, rows2, brd) => el('div', { class: 'flex-1 px-4 py-3', style: { minWidth: '240px', borderLeft: brd ? '1px solid var(--border)' : 'none' } },
-      el('div', { class: 'text-[10px] uppercase tracking-widest font-bold text-muted-' }, title),
-      el('div', { class: 'text-[10px] text-muted- mb-2' }, sub),
-      el('div', { class: 'text-3xl font-black tabular-nums', style: { color: attr != null && attr >= 0.3 ? '#DC2626' : 'var(--accent)' } },
-        attr == null ? '—' : (attr * 100).toFixed(1) + '%',
-        el('span', { class: 'text-xs font-normal text-muted-' }, ' attrition')),
-      el('div', { class: 'text-[11px] text-muted- mt-1.5' },
-        fmt.int(o.active) + ' active · ' + fmt.int(o.cxl) + ' cancelled · ' + fmt.usd0(o.arvKept) + ' ARR retained'),
-      el('div', { class: 'text-[11px] text-muted-' }, medLabel + ': ' + moTxtR(medLife)),
-      rows2.length ? el('button', {
-        class: 'text-[10px] font-semibold mt-1.5', style: { color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 },
-        onclick: () => openReportingDrillModal({ chartTitle: title, sliceLabel: fmt.int(rows2.length) + ' accounts', rows: rows2, formatValue: (v) => fmt.usd0(v) }),
-      }, 'Click to inspect ' + fmt.int(rows2.length) + ' rows →') : null);
-    const delta = (renAttr != null && m2mAttr != null) ? m2mAttr - renAttr : null;
+    const rate = (o) => o.subs ? o.cxl / o.subs : null;
+    const heat = (a) => a == null ? undefined : 'hsl(' + Math.max(0, Math.min(120, (1 - a / 0.5) * 120)) + ', 70%, 88%)';   // 50% = full red
+    const th = (t, o = {}) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (o.left ? 'text-left' : 'text-right'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' }, title: o.help || '' }, t);
+    const td = (t, o = {}) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap ' + (o.left ? 'text-left font-semibold' : 'text-right') + (o.bold ? ' font-black' : ''), style: { color: o.muted ? 'var(--text-subtle)' : undefined, background: o.bg } }, t);
+    const row = (label, o, opts = {}) => el('tr', {
+      class: 'border-t' + (o.rows.length ? ' cursor-pointer transition hover:brightness-95' : ''), style: { borderColor: opts.strong ? 'var(--border-2)' : 'var(--border)', background: opts.bg, borderTopWidth: opts.strong ? '2px' : undefined },
+      title: o.rows.length ? 'Click to inspect the accounts' : '',
+      onclick: o.rows.length ? () => openReportingDrillModal({ chartTitle: 'Renewal Retention · ' + label, sliceLabel: fmt.int(o.rows.length) + ' accounts', rows: o.rows, formatValue: (v) => fmt.usd0(v) }) : undefined,
+    },
+      td(label, { left: true, bold: opts.strong }),
+      td(fmt.int(o.subs), { bold: opts.strong }),
+      td(fmt.int(o.active)),
+      td(fmt.int(o.cxl)),
+      td(rate(o) == null ? '—' : (rate(o) * 100).toFixed(1) + '%', { bold: true, bg: heat(rate(o)) }),
+      td(fmt.usd0(o.arvKept)),
+      td(fmt.usd0(o.arvLost), { muted: true }),
+      td(moTxtR(_medD(o.lives)), { muted: true }));
+    const keys = [...groups.keys()].sort((x, y) => grp === 'year' ? String(y).localeCompare(String(x)) : groups.get(y).subs - groups.get(x).subs);
+    const delta = (rate(all) != null && rate(m2m) != null) ? rate(m2m) - rate(all) : null;
+    const grpBtn = (k, l) => el('button', {
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+      style: grp === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
+      onclick: () => { state._rtRenewGroup = k; mountApp(); },
+    }, l);
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('div', { class: 'font-display text-lg' }, 'Renewal Retention'),
-          el('div', { class: 'text-[11px] text-muted-' },
-            'Accounts that reached contract end: renewed vs. left month-to-month. Not comparable to new sales — renewals only happen at term end, so this is the fair frame. Sentricon excluded.')),
-        delta != null ? el('div', { class: 'text-left' },
-          el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'Renewal advantage'),
-          el('div', { class: 'text-2xl font-black tabular-nums', style: { color: delta > 0 ? '#DF643A' : '#DC2626' } },
-            (delta > 0 ? '−' : '+') + Math.abs(delta * 100).toFixed(1) + ' pts',
-            el('span', { class: 'text-xs font-normal text-muted-' }, ' attrition'))) : null),
-      el('div', { class: 'flex flex-wrap' },
-        colR('Renewed accounts', 'Source = Renewal · whole life is post-renewal', ren, renAttr, _medD(ren.lives), 'Median life on renewal term (cancels)', ren.rows, false),
-        colR('Month-to-month', fmt.int(m2m.reached) + ' reached term end · ' + fmt.int(m2m.renewedAway) + ' renewed away · rest ride M2M', m2m, m2mAttr, _medD(m2m.lives), 'Median M2M survival after term (cancels)', m2m.rows, true)));
+          el('h3', { class: 'text-sm font-bold' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel(office) : '')),
+          el('div', { class: 'text-[11px] text-muted-' }, 'Renewed accounts (source = Renewal) by ' + (grp === 'year' ? 'the year the renewal was sold' : 'renewal type') + ', against accounts that reached contract end and rode month-to-month instead. Sentricon excluded. Attrition = cancelled ÷ subs; click a row for the accounts.')),
+        el('div', { class: 'flex items-center gap-3 flex-wrap' },
+          delta != null ? el('div', { class: 'text-right', title: 'Month-to-month attrition minus renewed attrition' },
+            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Renewal advantage'),
+            el('div', { class: 'text-lg font-black tabular-nums', style: { color: delta > 0 ? '#DF643A' : '#DC2626' } }, (delta > 0 ? '−' : '+') + Math.abs(delta * 100).toFixed(1) + ' pts')) : null,
+          el('div', { class: 'flex items-center gap-1' }, grpBtn('type', 'By type'), grpBtn('year', 'By year')))),
+      el('div', { class: 'scroll-x' },
+        el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+          el('thead', {}, el('tr', {},
+            th(grp === 'year' ? 'Renewal year' : 'Renewal type', { left: true }),
+            th('Subs', { help: 'Renewal subscriptions with at least one completed service' }),
+            th('Active'), th('Cancelled'),
+            th('Attrition', { help: 'Cancelled ÷ subs' }),
+            th('ARR retained', { help: 'Annual recurring value of the active subs' }),
+            th('ARR lost', { help: 'Annual recurring value of the cancelled subs' }),
+            th('Median life', { help: 'Median time from renewal sale to cancel, cancelled subs only' }))),
+          el('tbody', {},
+            ...keys.map(k => row(grp === 'year' ? k : 'Renewal - ' + k, groups.get(k))),
+            row('All renewals', all, { strong: true, bg: 'var(--card-2)' }),
+            el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: '8', style: { color: 'var(--text-subtle)' } }, 'Did not renew · ' + fmt.int(m2mReached) + ' reached contract end · ' + fmt.int(m2mRenewedAway) + ' renewed into a new sub · the rest rode month-to-month')),
+            row('Month-to-month', m2m, { strong: true })))));
   })();
 
   // -- Renewal Outreach queue (per Isaac) -- who to call. Eligible = active,
@@ -2352,6 +2311,6 @@ function reportingWaterfall() {
 
   // Cancel Hygiene moved to Settings > Admin > Data Integrity (per Isaac).
   // (Renewal Outreach queue retired per Isaac, Sep 2026 — renewalQueueCard stays defined.)
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, retenMethodCard(popA, _retenEff, groundA), body, repTypeAttritionCard, sourceAttritionCard, trueAttritionBar, (typeof intelLeaversCard === 'function' ? intelLeaversCard() : null), lifetimeCard, renewalRetentionCard, sourceLedgerCard);
+  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, retenMethodCard(popA, _retenEff, groundA), body, repTypeAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard, sourceLedgerCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
