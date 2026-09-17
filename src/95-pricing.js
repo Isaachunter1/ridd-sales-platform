@@ -274,8 +274,15 @@ function viewPricing() {
             el('div', { class: 'text-2xl font-black tabular-nums' }, money(q.acv))),
           el('button', { class: 'rounded-xl border px-3 text-[11px] font-semibold self-center', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)', height: '36px' }, onclick: () => { st.addons = {}; st.onetime = {}; rerender(); } }, 'Clear'))));
 
-    quote.style.position = 'sticky'; quote.style.top = 'calc(76px + env(safe-area-inset-top, 0px) + 8px)'; quote.style.bottom = ''; quote.style.zIndex = '5';
-    root.replaceChildren(strip, quote, board);
+    // Picker + quote ride together as one sticky block pinned right under
+    // the fixed page header (measured live — it's ~60px, not 76 — so the
+    // block no longer floats mid-page and overlaps the slick). The block
+    // paints the page background so nothing shows through the gaps.
+    const hdr = document.querySelector('header.page-header');
+    const hdrH = hdr ? hdr.getBoundingClientRect().height : 60;
+    const top = el('div', { style: { position: 'sticky', top: hdrH + 'px', zIndex: 5, background: 'var(--bg)', paddingTop: '2px', marginTop: '-2px' } }, strip, quote);
+    quote.style.position = ''; quote.style.top = ''; quote.style.zIndex = '';
+    root.replaceChildren(top, board);
   };
   render();
   return root;
