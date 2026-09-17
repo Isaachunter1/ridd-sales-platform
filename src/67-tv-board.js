@@ -106,15 +106,44 @@ function openTvBoard() {
       avgInitial: subs.length ? subs.reduce((a, s) => a + (Number(s.initial_amount) || 0), 0) / subs.length : 0,
       avgMonthly: subs.length ? subs.reduce((a, s) => a + (Number(s.monthly_amount) || 0), 0) / subs.length : 0,
       avgContract: rows.length ? rev(rows) / rows.length : 0,
-      multiPct: my.length ? multi / my.length * 100 : 0, autoPay: ap, recMix: rows.length ? subs.length / rows.length * 100 : 0, reps, offices, latest, goal };
+      multiPct: my.length ? multi / my.length * 100 : 0, autoPay: ap, recMix: rows.length ? subs.length / rows.length * 100 : 0, reps, offices, latest, goal,
+      splits: {
+        multi: { yes: subs.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'multi'), no: subs.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'twelve') },
+        autopay: { yes: rows.filter(s => s._crm && s._crmAutoPay), no: rows.filter(s => s._crm && !s._crmAutoPay) },
+        recmix: { yes: subs, no: rows.filter(s => isOts(s)) },
+      } };
   };
 
   // ── pieces ──
   const eyebrow = (t, extra = {}) => el('div', { style: { fontFamily: MONO, fontSize: '11px', letterSpacing: '.24em', textTransform: 'uppercase', color: T.dim, ...extra } }, t);
   const figure = (v, size, color) => el('div', { style: { fontFamily: MONO, fontSize: size, lineHeight: '1', color: color || T.ink, fontVariantNumeric: 'tabular-nums' } }, v);
   const panel = (children, extra = {}) => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '22px 24px', display: 'flex', flexDirection: 'column', minHeight: '0', ...extra } }, ...children);
-  const tile = (label, value, sub) => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '0' } },
-    eyebrow(label), figure(value, 'clamp(26px, 2.6vw, 40px)'), sub ? el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em' } }, sub) : null);
+  const tile = (label, value, sub, drill) => el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '0', cursor: drill ? 'pointer' : 'default' }, title: drill ? 'Tap to see what is behind this number' : '', onclick: drill || null },
+    eyebrow(label), figure(value, 'clamp(26px, 2.6vw, 40px)'), sub ? el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.06em' } }, sub + (drill ? '  ·  tap' : '')) : null);
+  // Drill panel (per Isaac): what is pulling a % up or down — the sales
+  // that count on one side, the ones that don't on the other, as they were sold.
+  const openDrill = (title, yesLabel, yes, noLabel, no, repName) => {
+    const back = el('div', { style: { position: 'fixed', inset: '0', background: 'rgba(10,11,13,.82)', zIndex: '10000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' } });
+    back.addEventListener('click', (e) => { if (e.target === back) back.remove(); });
+    const esc = (e) => { if (e.key === 'Escape') { back.remove(); document.removeEventListener('keydown', esc, true); e.stopPropagation(); } };
+    document.addEventListener('keydown', esc, true);
+    const list = (label, xs, hot) => el('div', { style: { minWidth: '0', display: 'flex', flexDirection: 'column' } },
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' } }, eyebrow(label, { color: hot ? T.ember : T.ink }), eyebrow(xs.length + ' sale' + (xs.length === 1 ? '' : 's') + '  ·  ' + money(xs.reduce((a, x) => a + (Number(x.revenue_amount) || 0), 0)))),
+      el('div', { style: { overflow: 'auto', maxHeight: '60vh' } },
+        ...(xs.length ? xs.map((x, i) => el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '12px', alignItems: 'baseline', padding: '9px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
+          el('div', { style: { minWidth: '0' } },
+            el('div', { style: { fontFamily: HEAD, fontSize: '18px', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, repName(x)),
+            el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+              el('span', { style: { color: T.ink } }, (Number(x.contract_months) > 1 ? Number(x.contract_months) + ' MO' : 'ONE-TIME')), '  ·  ' + (x._crmService || x.service_name || '—') + (x.created_at ? '  ·  ' + ago(x.created_at) : ''))),
+          figure(money(x.revenue_amount), '16px')))
+        : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'None.')])));
+    back.append(el('div', { style: { background: T.surface, border: '1px solid ' + T.hair, color: T.ink, width: 'min(1200px, 94vw)', padding: '26px 30px', display: 'flex', flexDirection: 'column', gap: '18px' } },
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+        el('div', { style: { fontFamily: HEAD, fontSize: '32px', letterSpacing: '.02em', textTransform: 'uppercase' } }, title),
+        el('button', { style: { width: '36px', height: '36px', background: 'transparent', border: '1px solid ' + T.hair, color: T.dim, cursor: 'pointer', fontSize: '18px' }, onclick: () => back.remove() }, '\u00d7')),
+      el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px' } }, list(yesLabel, yes, true), list(noLabel, no, false))));
+    overlay.append(back);
+  };
   const avatar = (r, px) => r.avatar
     ? el('img', { src: r.avatar, alt: '', style: { width: px + 'px', height: px + 'px', objectFit: 'cover', flexShrink: '0', filter: 'grayscale(1) contrast(1.1)' } })
     : el('div', { style: { width: px + 'px', height: px + 'px', flexShrink: '0', background: T.surface2, color: T.ink, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: HEAD, fontSize: Math.round(px * .42) + 'px', letterSpacing: '.04em' } }, r.initials);
@@ -127,6 +156,7 @@ function openTvBoard() {
     lastKeys = keys;
     const inFs = !!document.fullscreenElement;
     const leader = d.reps[0];
+    const repNameOf = (s) => { const r = d.reps.find(x => x.key === (s.rep_id || ('crm:' + s._crmRep))); return r ? r.name : (s._crmRep || 'Rep'); };
     const maxRev = leader ? leader.revenue : 0;
     const goalPct = d.goal > 0 ? Math.min(1, d.revenue / d.goal) : null;
 
@@ -172,9 +202,9 @@ function openTvBoard() {
         tile('Avg initial', money(d.avgInitial), 'subscriptions'),
         tile('Avg recurring', money(d.avgMonthly), 'per month'),
         tile('Avg ACV', money(d.avgContract), 'contract value per sale'),
-        tile('Multi-year', pct(d.multiPct), '18 mo and up'),
-        tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales'),
-        tile('Rec mix', pct(d.recMix), 'recurring subs of all sales')));
+        tile('Multi-year', pct(d.multiPct), '18 mo and up', () => openDrill('Multi-year · ' + pct(d.multiPct), 'Multi-year (18 mo+)', d.splits.multi.yes, '12-month', d.splits.multi.no, repNameOf)),
+        tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales', () => openDrill('Auto pay · ' + (d.autoPay == null ? '—' : pct(d.autoPay * 100)), 'On auto pay', d.splits.autopay.yes, 'Not on auto pay', d.splits.autopay.no, repNameOf)),
+        tile('Rec mix', pct(d.recMix), 'recurring subs of all sales', () => openDrill('Rec mix · ' + pct(d.recMix), 'Recurring subscriptions', d.splits.recmix.yes, 'One-time services', d.splits.recmix.no, repNameOf))));
 
     // Body: leaderboard | offices + latest
     const board = panel([
