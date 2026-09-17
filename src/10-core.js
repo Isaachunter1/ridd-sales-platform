@@ -1751,11 +1751,21 @@ function linkRenewalChains(rows) {
   return rows;
 }
 async function loadReportingSubscriptions(uploadId) {
-  const rows = linkRenewalChains(dedupeSnapshotSubs(stripPhantomOffices(await _loadReportingSubscriptionsRaw(uploadId))));
+  const raw = await _loadReportingSubscriptionsRaw(uploadId);
+  const noPhantom = stripPhantomOffices(raw);
+  const deduped = dedupeSnapshotSubs(noPhantom);
+  // Ground-zero bookkeeping (per Isaac): the Retention tab walks down from
+  // EVERYTHING in FieldRoutes, so remember what the loader itself dropped.
+  state._snapshotLoadDrops = { raw: Array.isArray(raw) ? raw.length : 0, phantom: (Array.isArray(raw) ? raw.length : 0) - (Array.isArray(noPhantom) ? noPhantom.length : 0), dupes: (Array.isArray(noPhantom) ? noPhantom.length : 0) - (Array.isArray(deduped) ? deduped.length : 0) };
+  const rows = linkRenewalChains(deduped);
   const orphans = rows.filter(r => r.customer_missing);
   state._orphanSubs = orphans;
   state._orphanCustIds = [...new Set(orphans.map(r => String(r.customer_id != null ? r.customer_id : '')).filter(Boolean))];
   const del = deletedCustIdSet();
+  // Rows set aside as deleted-in-CRM (orphans + the manual list) are kept in
+  // state so the Retention tab can start from the whole snapshot and show
+  // this exclusion as a step of its own.
+  state._deletedSubs = del.size ? rows.filter(r => del.has(String(r.customer_id != null ? r.customer_id : ''))) : [];
   return del.size ? rows.filter(r => !del.has(String(r.customer_id != null ? r.customer_id : ''))) : rows;
 }
 // Streamed snapshot download with live progress, stall detection and retries.
