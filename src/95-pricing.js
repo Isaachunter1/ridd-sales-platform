@@ -315,11 +315,11 @@ function viewPricing() {
               onclick: () => { if (st.tier === t.id) return; st.tier = t.id; if (!t.onetime) st.onetime = {}; editKey = null; rerender(); },
               'aria-pressed': st.tier === t.id ? 'true' : 'false',
               style: { background: st.tier === t.id ? C.orange : 'transparent', color: C.cream, border: '1.5px solid ' + (st.tier === t.id ? C.orange : 'rgba(251,244,218,.5)'), font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.16em', textTransform: 'uppercase', padding: '6px 11px', borderRadius: '999px', cursor: 'pointer' },
-            }, t.id === 'd2d' && st.tier === 'd2d' && st.min ? 'D2D · Min' : t.label)))
+            }, t.label)))
         : el('div', { class: 'flex items-center gap-2' },
             mBtn,
             el('span', { class: 'relative inline-flex items-center gap-1', style: { background: C.orange, color: C.cream, font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.16em', textTransform: 'uppercase', padding: '7px 12px', borderRadius: '999px', cursor: locked ? 'default' : 'pointer' } },
-              st.tier === 'd2d' ? (st.min ? 'D2D · Minimums' : 'D2D') : T.badge,
+              st.tier === 'd2d' ? 'D2D' : T.badge,
               locked ? null : el('span', { style: { opacity: '.8', letterSpacing: 0 } }, '▾'),
               sel)));
     const board = el('div', { style: { background: C.sage, borderRadius: '14px', overflow: 'hidden' } },
