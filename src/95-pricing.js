@@ -11,9 +11,9 @@
 //
 // Numbers mirror the printed slicks exactly. Edit here and the PDFs together.
 const PRICING_TIERS = [
-  { id: 'd2d',      label: 'D2D Display',  badge: null,       init: 399, home: [79, 99, 149],  yard: [99, 119, 169],  termite: [999, 49],
+  { id: 'd2d',      label: 'D2D',          badge: null,       init: 399, home: [79, 99, 149],  yard: [99, 119, 169],  termite: [999, 49],
     addons: [['tfm', 100, 50], ['mole', 100, 50], ['seasonal', 100, 45], ['pest', 100, 30], ['rodent', 100, 30], ['snake', 100, 30], ['cbee', 100, 30], ['roach', 200, 30], ['flea', 200, 30]], onetime: false },
-  { id: 'd2d_min',  label: 'D2D Minimums', badge: 'Minimums', init: 99,  home: [49, 69, 119],  yard: [69, 89, 139],   termite: [399, 29],
+  { id: 'd2d_min',  label: 'D2D',          badge: 'Minimums', init: 99,  home: [49, 69, 119],  yard: [69, 89, 139],   termite: [399, 29],
     addons: [['tfm', 0, 40], ['mole', 0, 40], ['seasonal', 0, 30], ['pest', 0, 20], ['rodent', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['roach', 200, 20], ['flea', 200, 20]], onetime: false },
   { id: 'standard', label: 'Standard',     badge: 'Standard', init: 99,  home: [49, 69, 119],  yard: [69, 89, 139],   termite: [399, 29],
     addons: [['tfm', 0, 40], ['mole', 0, 40], ['seasonal', 0, 30], ['pest', 0, 20], ['rodent', 0, 20], ['snake', 0, 20], ['cbee', 0, 20], ['roach', 200, 20], ['flea', 200, 20]], onetime: true },
@@ -37,6 +37,21 @@ const PRICING_PROGRAMS = [
   { id: 'yard',    label: 'Yard Essentials', services: ['tfm', 'mole'] },
   { id: 'termite', label: 'Termite Defense', services: ['termite'] },
 ];
+// Program glyphs — flat orange silhouettes in the same cut as the RIDD spider mark.
+const PRICING_ICONS = {
+  home:    'M12 2.5 L22.5 11.5 L19.5 11.5 L19.5 21.5 L4.5 21.5 L4.5 11.5 L1.5 11.5 Z M10 21.5 L14 21.5 L14 14 L10 14 Z',
+  yard:    'M1 22 L23 22 L23 19.6 L1 19.6 Z M3 18.4 C3 13.5 1.6 10.8 0.6 8.6 C4.2 10.4 6.3 14 6.3 18.4 Z M7 18.4 C7 11.5 8.6 6.8 12 2 C12.6 8.5 11.4 13.6 10.2 18.4 Z M11.4 18.4 C12.6 13.2 15.4 9.4 18.6 7.2 C17.6 12.3 16.2 15.5 14.6 18.4 Z M16.6 18.4 C17.2 14.6 19.6 12.2 23.4 11 C22.2 14.3 20.6 16.8 19.4 18.4 Z',
+  termite: 'M8.3 5.2 A3.7 3.4 0 1 1 15.7 5.2 A3.7 3.4 0 1 1 8.3 5.2 Z M9.6 2.4 L7.4 0 L6.3 1 L8.4 3.3 Z M14.4 2.4 L16.6 0 L17.7 1 L15.6 3.3 Z M9.2 9 L14.8 9 L14.8 13 L9.2 13 Z M8.8 13.6 L15.2 13.6 L15.2 20.6 L12 23.6 L8.8 20.6 Z M8.9 9.6 L2.6 7.4 L2 8.9 L8.6 11.2 Z M15.1 9.6 L21.4 7.4 L22 8.9 L15.4 11.2 Z M8.9 11.8 L2.2 12.6 L2.3 14.2 L8.9 13.4 Z M15.1 11.8 L21.8 12.6 L21.7 14.2 L15.1 13.4 Z M8.9 14.4 L3 18.2 L3.8 19.6 L9.2 16.1 Z M15.1 14.4 L21 18.2 L20.2 19.6 L14.8 16.1 Z',
+};
+function pricingIcon(id, px, color) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const s = document.createElementNS(ns, 'svg');
+  s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('width', px); s.setAttribute('height', px); s.setAttribute('aria-hidden', 'true');
+  const p = document.createElementNS(ns, 'path');
+  p.setAttribute('d', PRICING_ICONS[id] || ''); p.setAttribute('fill', color); p.setAttribute('fill-rule', 'evenodd');
+  s.append(p); s.style.cssText = 'display:block;flex-shrink:0';
+  return s;
+}
 const PRICING_FREQ = [['q', 'Quarterly', 4], ['b', 'Bi-Monthly', 6], ['m', 'Monthly', 12]];
 // One-time services (Standard + Loyalty only) — New customer / Current customer.
 const PRICING_ONETIME = [
@@ -63,6 +78,8 @@ function pricingStore() {
   state.modules = state.modules || {};
   const st = (state.modules.pricing = state.modules.pricing || {});
   if (!st.tier) st.tier = pricingDefaultTier(state.profile);
+  if (st.tier === 'd2d_min') { st.tier = 'd2d'; st.min = true; }   // legacy value from an earlier build
+  if (st.min == null) st.min = false;
   if (!st.base) st.base = 'pest';
   if (!st.freq) st.freq = 'q';
   if (!st.addons) st.addons = {};
@@ -71,8 +88,13 @@ function pricingStore() {
   return st;
 }
 
+// The tier whose NUMBERS apply: D2D with the Ⓜ toggle on = D2D minimums.
+function pricingTierOf(st) {
+  const id = st.tier === 'd2d' && st.min ? 'd2d_min' : st.tier;
+  return PRICING_TIERS.find(t => t.id === id) || PRICING_TIERS[0];
+}
 function pricingQuote(st) {
-  const T = PRICING_TIERS.find(t => t.id === st.tier) || PRICING_TIERS[0];
+  const T = pricingTierOf(st);
   const svc = PRICING_SERVICES[st.base] || PRICING_SERVICES.pest;
   const fi = svc.program === 'termite' ? null : Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
   const baseInit = svc.program === 'termite' ? T.termite[0] : T.init;
@@ -104,26 +126,46 @@ function pricingSavings(T, svc, fi) {
 // is a control. Re-renders ITSELF on every click (no mountApp), so the page
 // never flashes and scroll stays put (per Isaac).
 function viewPricing() {
-  const root = el('div', { class: 'w-full' });
+  const root = el('div', { class: 'w-full mx-auto', style: { maxWidth: '760px' } });
   const money = (v) => '$' + Math.round(v).toLocaleString();
   const C = { sage: '#5F6C5B', cream: '#FBF4DA', cream2: '#F3EBCD', char: '#323230', orange: '#DF643A', ink2: '#5A5A56', ink3: '#8C8A80' };
   const render = () => {
     const st = pricingStore();
-    const T = PRICING_TIERS.find(t => t.id === st.tier) || PRICING_TIERS[0];
+    const T = pricingTierOf(st);
     const isMin = T.id !== 'd2d';
+    const PICK = PRICING_TIERS.filter(t => t.id !== 'd2d_min');   // three choices; minimums is the Ⓜ toggle on D2D
     const price = isMin ? { color: C.orange } : { color: C.char };
     const baseSvc = PRICING_SERVICES[st.base];
     const fi = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
     const q = pricingQuote(st);
     const rerender = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
 
-    // ── tier strip (app chrome, above the card) ──
-    const strip = el('div', { class: 'queue-strip flex w-full rounded-lg border overflow-hidden mb-4', style: { borderColor: 'var(--border-2)' } },
-      ...PRICING_TIERS.map((t, i) => el('button', {
-        class: 'px-2.5 py-1.5 text-[11px] font-bold transition flex-1 whitespace-nowrap' + (i ? ' border-l' : ''),
-        style: st.tier === t.id ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--border-2)' } : { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
-        onclick: () => { st.tier = t.id; if (!t.onetime) st.onetime = {}; rerender(); },
-      }, t.label)));
+    // ── tier picker (per Isaac): one bar, not four — a real <select> under
+    // the hood so it works on phones, styled as a solid bar with the tier
+    // name and a small caret so it doesn't read as a form control.
+    const sel = el('select', {
+      style: { position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none' },
+      'aria-label': 'Pricing tier',
+      onchange: (e) => { const t = PICK.find(x => x.id === e.target.value); if (!t) return; st.tier = t.id; if (!t.onetime) st.onetime = {}; rerender(); },
+    }, ...PICK.map(t => el('option', { value: t.id, selected: t.id === st.tier }, t.label)));
+    // Ⓜ — D2D only: flips the card to minimum pricing (per Isaac).
+    const mBtn = st.tier === 'd2d' ? el('button', {
+      title: st.min ? 'Showing minimums — tap for display pricing' : 'Tap for minimum pricing',
+      'aria-pressed': st.min ? 'true' : 'false',
+      class: 'inline-flex items-center justify-center font-black transition',
+      style: { width: '28px', height: '28px', borderRadius: '50%', border: '2px solid ' + (st.min ? 'var(--accent-text)' : 'rgba(255,255,255,.55)'), background: st.min ? 'var(--accent-text)' : 'transparent', color: st.min ? 'var(--accent)' : 'var(--accent-text)', fontSize: '13px', lineHeight: 1, position: 'relative', zIndex: 2 },
+      onclick: (e) => { e.stopPropagation(); st.min = !st.min; rerender(); },
+    }, 'M') : null;
+    const strip = el('div', { class: 'relative w-full rounded-lg mb-3 select-none', style: { background: 'var(--accent)', color: 'var(--accent-text)' } },
+      el('div', { class: 'flex items-center justify-between gap-3 px-4 py-2' },
+        el('div', { class: 'flex items-baseline gap-2' },
+          el('span', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { opacity: '.8' } }, 'Pricing'),
+          el('span', { class: 'text-sm font-black' }, PICK.find(t => t.id === st.tier)?.label || T.label),
+          st.tier === 'd2d' && st.min ? el('span', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { opacity: '.85' } }, '· minimums') : null),
+        el('div', { class: 'flex items-center gap-3' },
+          el('span', { class: 'text-[10px] font-semibold', style: { opacity: '.85' } }, 'change ▾'),
+          mBtn)),
+      sel);
 
     // ── card primitives (brand look, fixed colours — the slick doesn't theme) ──
     const card = (...kids) => el('div', { style: { background: C.cream, borderRadius: '12px', overflow: 'hidden', color: C.char } }, ...kids);
@@ -145,7 +187,7 @@ function viewPricing() {
       const initV = isT ? T.termite[0] : T.init;
       return card(
         el('div', { class: 'flex items-center justify-between gap-3 flex-wrap', style: { padding: '14px 18px 6px' } },
-          el('div', { style: { font: '700 20px/1 Archivo, Arial, sans-serif', letterSpacing: '-.01em', textTransform: 'uppercase' } }, p.label),
+          el('div', { class: 'flex items-center gap-2', style: { font: '700 20px/1 Archivo, Arial, sans-serif', letterSpacing: '-.01em', textTransform: 'uppercase' } }, pricingIcon(p.id, 22, C.orange), p.label),
           el('div', { class: 'flex gap-1.5 flex-wrap' }, ...p.services.map(sid => pill(PRICING_SERVICES[sid].label, st.base === sid, () => { st.base = sid; delete st.addons[sid]; rerender(); })))),
         el('div', { class: 'grid gap-2', style: { gridTemplateColumns: isT ? '1fr 1fr' : '1.05fr 1fr 1fr 1fr', padding: '6px 14px 12px' } },
           tile('Initial', 'first visit', initV, false, null, { dark: true }),
@@ -199,7 +241,7 @@ function viewPricing() {
     const ribbon = el('div', { class: 'flex items-center justify-between gap-3', style: { padding: '14px 24px', borderBottom: '1px solid rgba(251,244,218,.18)' } },
       typeof riddSpiderMark === 'function' ? riddSpiderMark(28) : el('span', {}, ''),
       el('div', { style: { font: '700 16px/1 Archivo, Arial, sans-serif', letterSpacing: '.3em', textTransform: 'uppercase', color: C.cream } }, 'Pricing'),
-      el('span', { style: { background: C.orange, color: C.cream, font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.16em', textTransform: 'uppercase', padding: '7px 12px', borderRadius: '999px' } }, T.badge || 'Display'));
+      el('span', { style: { background: C.orange, color: C.cream, font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.16em', textTransform: 'uppercase', padding: '7px 12px', borderRadius: '999px' } }, T.badge || 'D2D'));
     const board = el('div', { style: { background: C.sage, borderRadius: '14px', overflow: 'hidden' } },
       ribbon,
       el('div', { class: 'flex flex-col gap-3', style: { padding: '18px 24px 24px' } },
@@ -211,7 +253,7 @@ function viewPricing() {
           chip('🐾', 'Kid & Pet Safe'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re-services'), chip('✓', 'Licensed & Insured'))));
 
     // ── sticky quote bar ──
-    const quote = el('div', { class: 'card p-4 mt-4', style: { position: 'sticky', bottom: '12px', borderColor: 'var(--accent)', boxShadow: 'var(--shadow-lg)' } },
+    const quote = el('div', { class: 'card p-3 mb-3', style: { borderColor: 'var(--accent)', boxShadow: 'var(--shadow-lg)' } },
       el('div', { class: 'flex items-center justify-between gap-4 flex-wrap' },
         el('div', { class: 'min-w-0 flex-1' },
           el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-subtle)' } }, 'Quote · ' + T.label),
@@ -231,7 +273,8 @@ function viewPricing() {
             el('div', { class: 'text-2xl font-black tabular-nums' }, money(q.acv))),
           el('button', { class: 'rounded-xl border px-3 text-[11px] font-semibold self-center', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)', height: '36px' }, onclick: () => { st.addons = {}; st.onetime = {}; rerender(); } }, 'Clear'))));
 
-    root.replaceChildren(strip, board, quote);
+    quote.style.position = 'sticky'; quote.style.top = 'calc(76px + env(safe-area-inset-top, 0px) + 8px)'; quote.style.bottom = ''; quote.style.zIndex = '5';
+    root.replaceChildren(strip, quote, board);
   };
   render();
   return root;
