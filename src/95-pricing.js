@@ -222,7 +222,7 @@ function viewPricing() {
 
     // ── bundle & save (informational, computed from this tier's numbers) ──
     const saveCard = card(
-      secH('Bundle & Save', 'saved per year vs. buying it as its own plan'),
+      secH('Bundle & Save', 'Annual savings vs buying separately'),
       table(['Plan', '+ TFM', '+ Mole', '+ Rodent'],
         PRICING_FREQ.map(([k, lbl], i) => trow([lbl, money(pricingSavings(T, 'tfm', i)), money(pricingSavings(T, 'mole', i)), money(pricingSavings(T, 'rodent', i))], false, null, i))));
 
