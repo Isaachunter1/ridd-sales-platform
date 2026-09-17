@@ -1034,7 +1034,38 @@ function reportingPutis() {
 
   // ── 1. Trend (month-by-month, one scope at a time; RIDD by default) ──
   const sub = 'QuickBooks general ledger · months with nothing booked show —';
-  const branchPicker = () => { const p = sel(branchSel, [['RIDD', 'RIDD'], ...branches.map(b => [b, b])], (v) => { state._putisBranch = v; mountApp(); }); p.classList.add('ml-auto'); return p; };
+  // Branch picker = a CHECKLIST dropdown (per Isaac): every branch on by
+  // default (= RIDD); untick any to drop it from the Metrics roll-up.
+  const allBranches = branches.slice();
+  let picked = Array.isArray(state._putisBranches) ? state._putisBranches.filter(b => allBranches.includes(b)) : null;
+  if (!picked || !picked.length) picked = allBranches.slice();
+  const pickedSet = new Set(picked);
+  const allOn = picked.length === allBranches.length;
+  const branchPicker = () => {
+    const label = allOn ? 'RIDD' : picked.length === 1 ? picked[0] : picked.length <= 2 ? picked.join(' + ') : picked[0] + ' + ' + (picked.length - 1) + ' more';
+    const wrapB = el('div', { class: 'relative inline-flex' });
+    const btn = el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1.5', style: { borderColor: allOn ? 'var(--border-2)' : 'var(--accent)', background: 'var(--card)', color: 'var(--text)' }, title: 'Branches in this roll-up' },
+      label, el('span', { style: { fontSize: '9px', opacity: .7 } }, '\u25bc'));
+    const panel = el('div', { class: 'card', style: { position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 60, minWidth: '200px', padding: '6px', display: 'none', boxShadow: 'var(--shadow-lg)' } });
+    const commit = (next) => { state._putisBranches = next.length === allBranches.length ? null : next; mountApp(); };
+    const row = (name, on, onclick) => el('label', { class: 'flex items-center gap-2 px-2 py-1 rounded-lg text-[11px] font-medium cursor-pointer', style: { color: 'var(--text)' }, onmouseenter: (e) => { e.currentTarget.style.background = 'var(--card-2)'; }, onmouseleave: (e) => { e.currentTarget.style.background = 'transparent'; } },
+      el('input', { type: 'checkbox', checked: on, class: 'accent-lime', onchange: onclick }), name);
+    panel.append(
+      el('div', { class: 'flex items-center justify-between px-2 pb-1 mb-1 border-b', style: { borderColor: 'var(--border)' } },
+        el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Branches'),
+        el('div', { class: 'flex gap-2' },
+          el('button', { class: 'text-[10px] font-semibold', style: { color: 'var(--accent)' }, onclick: (e) => { e.stopPropagation(); commit(allBranches.slice()); } }, 'All'),
+          el('button', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' }, onclick: (e) => { e.stopPropagation(); commit([allBranches[0]]); } }, 'None'))),
+      ...allBranches.map(b => row(b, pickedSet.has(b), () => { const next = pickedSet.has(b) ? picked.filter(x => x !== b) : [...picked, b]; if (!next.length) return; commit(allBranches.filter(x => next.includes(x))); })));
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const open = panel.style.display === 'block';
+      panel.style.display = open ? 'none' : 'block';
+      if (!open) setTimeout(() => document.addEventListener('mousedown', function closer(ev) { if (wrapB.contains(ev.target)) return; panel.style.display = 'none'; document.removeEventListener('mousedown', closer); }), 0);
+    };
+    wrapB.append(btn, panel);
+    return wrapB;
+  };
   // Two ways to read it: the 12-month strip (Monthly) or the banker's
   // comparative statement (Compare: month vs prior month / same month LY,
   // YTD vs prior YTD, LTM vs prior LTM).
@@ -1053,8 +1084,8 @@ function reportingPutis() {
   if (trendRange !== 'all' && !closedThisYear.includes(trendRange)) trendRange = phone ? (closedThisYear[closedThisYear.length - 1] || 'all') : 'all';
   const rangePick = () => sel(trendRange, [['all', 'All months'], ...closedThisYear.slice().reverse().map(k => [k, new Date(k + '-15T12:00').toLocaleDateString('en-US', { month: phone ? 'short' : 'long', year: 'numeric' })])], (v) => { state._putisRange = v; mountApp(); });
   const trendHeader = () => { const h = el('div', { class: 'ml-auto inline-flex items-center gap-1.5 flex-wrap' }, momToggle(), rangePick(), branchPicker()); h.lastChild && h.lastChild.classList.remove('ml-auto'); return h; };
-  const scopeSet = branchSel === 'RIDD' ? branches : [branchSel];
-  const scopeOpts = branchSel === 'RIDD' ? { company: true } : {};
+  const scopeSet = picked;
+  const scopeOpts = allOn ? { company: true } : {};
   if (view === 'compare') wrap.append(putisComparativeCard(M, cmpYm, scopeSet, 'P&L Metrics', trendHeader(), scopeOpts));
   else wrap.append(putisTrendCard(M, year, scopeSet, 'Metrics', sub, trendHeader(), { ...scopeOpts, compact: phone, range: trendRange }));
 
