@@ -21,7 +21,7 @@ function openTvBoard() {
   const cleanup = () => {
     timers.forEach(clearInterval); timers = [];
     document.removeEventListener('keydown', onKey);
-    document.removeEventListener('fullscreenchange', render);
+    document.removeEventListener('fullscreenchange', onFs);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     overlay.remove();
   };
@@ -31,8 +31,9 @@ function openTvBoard() {
     if (e.key === 'f' || e.key === 'F') toggleFs();
   };
   const toggleFs = () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else overlay.requestFullscreen?.().catch(() => {}); };
-  document.addEventListener('keydown', onKey);
-  document.addEventListener('fullscreenchange', render);
+  // (listeners are attached after render() exists — a const can't be
+  // referenced before its line, which is what made the first cut a no-op.)
+  const onFs = () => { try { render(); } catch (e) { /* keep the board up */ } };
 
   const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   const localDay = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : iso(d); };
@@ -99,7 +100,7 @@ function openTvBoard() {
     const offAgg = new Map();
     rows.forEach(s => { const o = (state.offices || []).find(x => x.id === s.office_id); const n = o ? o.name : (s._crmOffice || 'Unassigned'); offAgg.set(n, (offAgg.get(n) || 0) + (Number(s.revenue_amount) || 0)); });
     const offices = [...offAgg.entries()].map(([name, revenue]) => ({ name, revenue })).sort((a, b) => b.revenue - a.revenue);
-    const latest = [...rows].sort((a, b) => String(b.created_at || b.sold_date).localeCompare(String(a.created_at || a.sold_date))).slice(0, 8);
+    const latest = [...rows].sort((a, b) => String(b.created_at || b.sold_date).localeCompare(String(a.created_at || a.sold_date))).slice(0, 5);
     const goal = goalFor(range);
     return { range, rows, revenue: rev(rows), count: rows.length,
       avgInitial: subs.length ? subs.reduce((a, s) => a + (Number(s.initial_amount) || 0), 0) / subs.length : 0,
@@ -190,15 +191,15 @@ function openTvBoard() {
           el('div', { style: { height: '4px', background: T.surface2 } }, el('div', { style: { height: '100%', width: (offMax ? o.revenue / offMax * 100 : 0) + '%', background: i === 0 ? T.ember : T.dim } }))))
         : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, '—')]))]);
     const latestEl = panel([
-      eyebrow('Latest'),
+      eyebrow('Last 5 sales'),
       el('div', { style: { display: 'flex', flexDirection: 'column', marginTop: '10px', overflow: 'hidden', flex: '1' } },
         ...(d.latest.length ? d.latest.map((s, i) => {
           const r = d.reps.find(x => x.key === (s.rep_id || ('crm:' + s._crmRep)));
-          return el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '12px', alignItems: 'baseline', padding: '9px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
+          return el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '12px', alignItems: 'baseline', padding: '12px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
             el('div', { style: { minWidth: '0' } },
-              el('div', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (r ? r.name : (s._crmRep || 'Rep')) + (s.customer_name ? '  ·  ' + s.customer_name : '')),
+              el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(18px, 1.5vw, 24px)', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (r ? r.name : (s._crmRep || 'Rep')), s.customer_name ? el('span', { style: { fontFamily: VOICE, fontWeight: 500, fontSize: '13px', textTransform: 'none', color: T.dim, letterSpacing: 0 } }, '   ' + s.customer_name) : null),
               el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (s._crmService || '') + (s.created_at ? '  ·  ' + ago(s.created_at) : ''))),
-            figure(money(s.revenue_amount), '16px', i === 0 && fresh ? T.ember : T.ink));
+            figure(money(s.revenue_amount), 'clamp(18px, 1.6vw, 26px)', i === 0 && fresh ? T.ember : T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
     const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: '18px', padding: '18px 36px 28px', flex: '1', minHeight: '0' } },
       board,
@@ -211,13 +212,15 @@ function openTvBoard() {
     overlay.replaceChildren(el('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: '0' } }, header, hero, body, foot));
     timers.forEach(clearInterval); timers = [];
     timers.push(setInterval(tick, 15000));
-    timers.push(setInterval(() => { try { render(); } catch (e) { /* keep the board up */ } }, 60000));
+    timers.push(setInterval(() => { try { render(); } catch (e) { /* keep the board up */ } }, 30000));
   };
   if (!document.getElementById('tv-board-css')) {
     const st = document.createElement('style'); st.id = 'tv-board-css';
     st.textContent = '@keyframes tvPulse{0%{opacity:.35;transform:translateY(6px)}100%{opacity:1;transform:none}} .tv-pulse{animation:tvPulse .7s cubic-bezier(.16,1,.3,1) both} @media (prefers-reduced-motion: reduce){.tv-pulse{animation:none}}';
     document.head.append(st);
   }
+  document.addEventListener('keydown', onKey);
+  document.addEventListener('fullscreenchange', onFs);
   document.body.append(overlay);
   render();
   // Refresh the CRM pool in the background so the board keeps up with the sync.
