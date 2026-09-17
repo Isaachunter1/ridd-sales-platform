@@ -9098,8 +9098,8 @@ function indicatorYoYTrendChart() {
       style: nonDefault
         ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' }
         : { borderColor: 'var(--border-2)', color: 'var(--text)' },
-    }, 'Metric');
-    return el('div', { class: 'relative inline-flex', title: 'Metric: ' + curLab }, face, selEl);
+    }, curLab);   // the button IS the current value (per Isaac): "Revenue", "ACV", …
+    return el('div', { class: 'relative inline-flex', title: 'Metric: ' + curLab + ' — tap to change' }, face, selEl);
   })();
 
   // Years picker — defaults to the CURRENT year only; check other years to
@@ -9195,9 +9195,9 @@ function indicatorYoYTrendChart() {
           document.removeEventListener('mousedown', closer);
         }), 0); }
       },
-    }, 'Range');
-    // Label inside the button (per Isaac); the current value rides the tooltip.
-    btn.title = 'Range: ' + (gran === 'year' ? 'Years · all' : (gran === 'month' ? 'Months' : 'Weeks') + ' · ' + _yoySelYears.length + 'y');
+    }, (gran === 'year' ? 'Years' : (gran === 'month' ? 'Months' : 'Weeks') + (_yoySelYears.length === 1 ? ' · ' + _yoySelYears[0] : ' · ' + _yoySelYears.length + ' years')));
+    // The button reads the current value (per Isaac); the category rides the tooltip.
+    btn.title = 'Range: ' + (gran === 'year' ? 'Years · all' : (gran === 'month' ? 'Months' : 'Weeks') + ' · ' + _yoySelYears.join(', ')) + ' — tap to change';
     if (gran !== 'week' || _yoySelYears.length !== 1) { btn.style.background = 'var(--accent)'; btn.style.color = 'var(--accent-text)'; btn.style.borderColor = 'var(--accent)'; }
     // (value text kept as-is — the fixed "View" label is added at render)
     if (state._yoyYearsOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
@@ -9273,7 +9273,7 @@ function indicatorYoYTrendChart() {
           document.removeEventListener('mousedown', closer);
         }), 0); }
       },
-    }, 'Type');
+    }, label === 'All' ? 'All types' : label);
     btn.title = 'Type: ' + label + ' — ' + btn.title;
     if (state._yoyTiersOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
@@ -9382,7 +9382,7 @@ function indicatorYoYTrendChart() {
           document.removeEventListener('mousedown', closer);
         }), 0); }
       },
-    }, 'Scope');
+    }, label);
     btn.title = 'Scope: ' + label + ' — ' + btn.title;
     if (state._yoyScopesOpen) { clampDropdownPanel(panel); setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
       if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
