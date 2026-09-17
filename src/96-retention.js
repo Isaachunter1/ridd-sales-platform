@@ -244,7 +244,6 @@ function retenMethodCard(pop, _retenEff, ground) {
       }
       return node;
     }),
-    total('Subscriptions in scope', n(n0), 'Received an initial service, minus the app-rule exclusions above', pop),
     (() => {
       // One-time services leave the book, but their revenue is still real —
       // show what is being pulled out (per Isaac), with the drill to the subs.
