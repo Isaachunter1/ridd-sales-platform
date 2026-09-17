@@ -74,12 +74,22 @@ function pricingDefaultTier(profile) {
   return 'standard';
 }
 
+// Sales-rep user types only ever see the D2D slick (per Isaac); everyone
+// else can switch tiers from the badge bubble on the board.
+function pricingLockedToD2D(profile) {
+  const role = String(profile?.role || '');
+  if (role === 'rep_sales' || role === 'rep_partner' || role === 'rep_team_lead') return true;
+  if (typeof isOfficeStaffProfile === 'function' && !isAdminRole(role) && !isOfficeStaffProfile(profile)) return true;
+  return false;
+}
+
 function pricingStore() {
   state.modules = state.modules || {};
   const st = (state.modules.pricing = state.modules.pricing || {});
   if (!st.tier) st.tier = pricingDefaultTier(state.profile);
   if (st.tier === 'd2d_min') { st.tier = 'd2d'; st.min = true; }   // legacy value from an earlier build
   if (st.min == null) st.min = false;
+  if (pricingLockedToD2D(state.profile)) st.tier = 'd2d';
   // Termite Defense is its own subscription in the CRM (per Isaac): it sits
   // ALONGSIDE whichever Home/Yard base plan is picked, never instead of it.
   if (st.termite == null) st.termite = false;
@@ -143,32 +153,25 @@ function viewPricing() {
     const q = pricingQuote(st);
     const rerender = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
 
-    // ── tier picker (per Isaac): one bar, not four — a real <select> under
-    // the hood so it works on phones, styled as a solid bar with the tier
-    // name and a small caret so it doesn't read as a form control.
-    const sel = el('select', {
+    // ── tier switch lives IN the badge bubble on the board (no separate
+    // "change" bar — most users never switch). Sales reps are locked to D2D,
+    // so for them the bubble is just a label.
+    const locked = pricingLockedToD2D(state.profile);
+    const sel = locked ? null : el('select', {
       style: { position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none' },
       'aria-label': 'Pricing tier',
+      title: 'Switch pricing tier',
       onchange: (e) => { const t = PICK.find(x => x.id === e.target.value); if (!t) return; st.tier = t.id; if (!t.onetime) st.onetime = {}; rerender(); },
     }, ...PICK.map(t => el('option', { value: t.id, selected: t.id === st.tier }, t.label)));
-    // Ⓜ — D2D only: flips the card to minimum pricing (per Isaac).
+    // Ⓜ — D2D only: flips the card to minimum pricing (per Isaac). Sits just
+    // left of the D2D bubble in the ribbon.
     const mBtn = st.tier === 'd2d' ? el('button', {
       title: st.min ? 'Showing minimums — tap for display pricing' : 'Tap for minimum pricing',
       'aria-pressed': st.min ? 'true' : 'false',
       class: 'inline-flex items-center justify-center font-black transition',
-      style: { width: '28px', height: '28px', borderRadius: '50%', border: '2px solid ' + (st.min ? 'var(--accent-text)' : 'rgba(255,255,255,.55)'), background: st.min ? 'var(--accent-text)' : 'transparent', color: st.min ? 'var(--accent)' : 'var(--accent-text)', fontSize: '13px', lineHeight: 1, position: 'relative', zIndex: 2 },
+      style: { width: '28px', height: '28px', borderRadius: '50%', border: '2px solid ' + (st.min ? C.orange : 'rgba(251,244,218,.6)'), background: st.min ? C.orange : 'transparent', color: C.cream, fontSize: '13px', lineHeight: 1, flexShrink: 0 },
       onclick: (e) => { e.stopPropagation(); st.min = !st.min; rerender(); },
     }, 'M') : null;
-    const strip = el('div', { class: 'relative w-full rounded-lg mb-3 select-none', style: { background: 'var(--accent)', color: 'var(--accent-text)' } },
-      el('div', { class: 'flex items-center justify-between gap-3 px-4 py-2' },
-        el('div', { class: 'flex items-baseline gap-2' },
-          el('span', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { opacity: '.8' } }, 'Pricing'),
-          el('span', { class: 'text-sm font-black' }, PICK.find(t => t.id === st.tier)?.label || T.label),
-          st.tier === 'd2d' && st.min ? el('span', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { opacity: '.85' } }, '· minimums') : null),
-        el('div', { class: 'flex items-center gap-3' },
-          el('span', { class: 'text-[10px] font-semibold', style: { opacity: '.85' } }, 'change ▾'),
-          mBtn)),
-      sel);
 
     // ── card primitives (brand look, fixed colours — the slick doesn't theme) ──
     const card = (...kids) => el('div', { style: { background: C.cream, borderRadius: '12px', overflow: 'hidden', color: C.char } }, ...kids);
@@ -250,7 +253,12 @@ function viewPricing() {
     const ribbon = el('div', { class: 'flex items-center justify-between gap-3', style: { padding: '14px 24px', borderBottom: '1px solid rgba(251,244,218,.18)' } },
       typeof riddSpiderMark === 'function' ? riddSpiderMark(28) : el('span', {}, ''),
       el('div', { style: { font: '700 16px/1 Archivo, Arial, sans-serif', letterSpacing: '.3em', textTransform: 'uppercase', color: C.cream } }, 'Pricing'),
-      el('span', { style: { background: C.orange, color: C.cream, font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.16em', textTransform: 'uppercase', padding: '7px 12px', borderRadius: '999px' } }, T.badge || 'D2D'));
+      el('div', { class: 'flex items-center gap-2' },
+        mBtn,
+        el('span', { class: 'relative inline-flex items-center gap-1', style: { background: C.orange, color: C.cream, font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.16em', textTransform: 'uppercase', padding: '7px 12px', borderRadius: '999px', cursor: locked ? 'default' : 'pointer' } },
+          st.tier === 'd2d' ? (st.min ? 'D2D · Minimums' : 'D2D') : T.badge,
+          locked ? null : el('span', { style: { opacity: '.8', letterSpacing: 0 } }, '▾'),
+          sel)));
     const board = el('div', { style: { background: C.sage, borderRadius: '14px', overflow: 'hidden' } },
       ribbon,
       el('div', { class: 'flex flex-col gap-3', style: { padding: '18px 24px 24px' } },
@@ -280,7 +288,7 @@ function viewPricing() {
           el('div', { class: 'rounded-xl px-4 py-2.5 text-center hidden sm:block', style: { background: 'var(--card-2)' }, title: 'Initial + 11 monthly payments' },
             el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'First-year value'),
             el('div', { class: 'text-2xl font-black tabular-nums' }, money(q.acv))),
-          el('button', { class: 'rounded-xl border px-3 text-[11px] font-semibold self-center', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)', height: '36px' }, onclick: () => { st.addons = {}; st.onetime = {}; rerender(); } }, 'Clear'))));
+          el('button', { class: 'rounded-xl border px-3 text-[11px] font-semibold self-center', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)', height: '36px' }, onclick: () => { st.addons = {}; st.onetime = {}; st.termite = false; rerender(); } }, 'Clear'))));
 
     // Picker + quote ride together as one sticky block pinned right under
     // the fixed page header (measured live — it's ~60px, not 76 — so the
@@ -288,7 +296,7 @@ function viewPricing() {
     // paints the page background so nothing shows through the gaps.
     const hdr = document.querySelector('header.page-header');
     const hdrH = hdr ? hdr.getBoundingClientRect().height : 60;
-    const top = el('div', { style: { position: 'sticky', top: hdrH + 'px', zIndex: 5, background: 'var(--bg)', paddingTop: '2px', marginTop: '-2px' } }, strip, quote);
+    const top = el('div', { style: { position: 'sticky', top: hdrH + 'px', zIndex: 5, background: 'var(--bg)', paddingTop: '2px', marginTop: '-2px' } }, quote);
     quote.style.position = ''; quote.style.top = ''; quote.style.zIndex = '';
     root.replaceChildren(top, board);
   };
