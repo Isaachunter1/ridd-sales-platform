@@ -3677,15 +3677,45 @@ function mountAuth(opts = {}) {
       errLine.style.display = 'none';
       try {
         if (mode === 'login') {
-          let { error } = await supabase.auth.signInWithPassword({ email, password });
+          // Sign in straight against the auth REST API — the SDK's
+          // signInWithPassword sits behind a cross-tab auth lock that can
+          // stall forever when the app is open in another tab (the "hit
+          // Sign in and nothing happens" report, per Isaac). Same approach
+          // the reset flow uses; hard timeouts so the button always answers.
+          const withTimeout = (pr, ms, msg) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+          const tryPw = (pw) => withTimeout(fetch(CFG.SUPABASE_URL + '/auth/v1/token?grant_type=password', {
+            method: 'POST',
+            headers: { apikey: CFG.SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password: pw }),
+          }), 12000, 'Sign-in is taking too long — check your connection and try again.');
+          let t = await tryPw(password);
           // Phone keyboards love sneaking a trailing space into typed or
           // pasted passwords — if the exact string failed and trimming
           // would change it, quietly retry once with the trimmed password.
-          if (error && /invalid login credentials/i.test(error.message || '') && password && password.trim() !== password) {
-            ({ error } = await supabase.auth.signInWithPassword({ email, password: password.trim() }));
+          if (!t.ok && password && password.trim() !== password) t = await tryPw(password.trim());
+          if (!t.ok) {
+            let m = '';
+            try { const j = await t.json(); m = j.error_description || j.msg || j.message || j.error || ''; } catch { /* no body */ }
+            console.warn('[login] sign-in failed', t.status, m);
+            if (/invalid login credentials|invalid_grant|invalid_credentials/i.test(m) || t.status === 400) m = 'Wrong email or password. If you just reset it, use the new password — or tap Forgot password? to set another.';
+            else if (/email not confirmed/i.test(m)) m = 'This email hasn’t been confirmed yet — open the invite link in your email first.';
+            else if (/rate limit|too many/i.test(m)) m = 'Too many attempts — wait a minute and try again.';
+            throw new Error(m || 'Could not sign in (' + t.status + '). Try again.');
           }
-          if (error) throw error;
+          const fresh = await t.json();
+          if (!fresh || !fresh.access_token) throw new Error('Sign-in did not return a session — try again.');
+          // Hand the session to the SDK (bounded — the lock again), else
+          // store it exactly where the SDK reads it on boot.
+          try { await withTimeout(supabase.auth.setSession({ access_token: fresh.access_token, refresh_token: fresh.refresh_token }), 4000, 'lock'); }
+          catch (e) { console.warn('[login] setSession stalled — storing the session directly', e && e.message); authStoreSession(fresh); }
           try { localStorage.setItem('ridd_last_auth_v1', String(Date.now())); } catch { /* private */ }
+          console.log('[login] signed in');
+          done = true;
+          submitBtn.innerHTML = '\u2713 Signed in';
+          // Boot from a clean load so the app comes up on the new session
+          // every time (no dependence on the SDK's auth-change event firing).
+          setTimeout(() => location.replace(window.location.pathname + (window.location.hash || '')), 250);
+          return;
         } else if (mode === 'forgot') {
           const { error } = await supabase.auth.resetPasswordForEmail(email, {
             redirectTo: authEmailRedirectUrl(),
