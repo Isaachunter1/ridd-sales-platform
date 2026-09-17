@@ -3749,23 +3749,9 @@ function viewNrlaPublic() {
     // itself goes accent while the landing is up, so scrolling / iOS
     // overscroll never shows the off-white behind it.
     try { document.body.classList.add('comp-landing'); } catch (e) { /* noop */ }
-    wrap.append(el('div', { class: 'card overflow-hidden comp-landing-poster', style: { background: 'var(--accent)', color: ink, border: 'none' } },
-      el('div', { class: 'comp-landing-pad comp-landing-top', style: { paddingBottom: '24px' } },
-        eyebrow('01 / Competitions \u00b7 ' + repTypeTab),
-        el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3 items-start' },
-          el('div', { style: { fontFamily: 'var(--font-display)', fontSize: 'clamp(56px, 9vw, 128px)', lineHeight: '.9', letterSpacing: '.01em', textTransform: 'uppercase', color: ink } },
-            'Built to', el('br'), 'break', el('br'), 'records.'),
-          el('div', { class: 'leading-relaxed comp-landing-copy', style: { ...mono, color: 'rgba(0,0,0,.85)', maxWidth: '520px' } },
-            el('p', { class: 'mb-4' }, 'Every board on these pages is pulled live from the company database. If a number changes in FieldRoutes, it changes here.'),
-            el('p', {}, 'Published rules, published standings. Nobody\u2019s scoring is a secret and nobody\u2019s is special.')))),
-      el('div', { class: 'comp-landing-rule' }),
-      el('div', { class: 'comp-landing-pad comp-landing-bottom' },
-        // Per Isaac: ONE dropdown instead of a button per comp. Anything
-        // inside its scheduled window (Settings → Competitions) is featured
-        // as "Running now" — all of them if several overlap — and the
-        // dropdown preselects the running comp, else the ★ default, else
-        // the first. Admins star the default right here.
-        (() => {
+    // The competition pickers sit under the copy in the right column (per
+    // Isaac, Sep 2026) — no rule, no bottom band.
+    const pickers = (() => {
           if (!landingComps.length) return el('div', {},
             eyebrow('02 / No competitions yet'),
             el('div', { class: 'mt-4 comp-landing-copy', style: { ...mono, color: 'rgba(0,0,0,.7)' } }, 'Nothing is running for ' + repTypeTab.toLowerCase() + ' right now \u2014 check back when the next season opens.'));
@@ -3816,7 +3802,18 @@ function viewNrlaPublic() {
               el('button', { class: 'px-5 text-[13px] font-bold transition hover:brightness-110', style: { ...mono, background: 'var(--accent)', color: '#111', border: '2px solid #111', height: '46px', textTransform: 'uppercase', letterSpacing: '.08em' }, onclick: () => open(sel1.value) }, 'Open \u2192')));
           }
           return box;
-        })())));
+        })();
+    wrap.append(el('div', { class: 'card overflow-hidden comp-landing-poster', style: { background: 'var(--accent)', color: ink, border: 'none' } },
+      el('div', { class: 'comp-landing-pad comp-landing-top', style: { paddingBottom: '24px' } },
+        eyebrow('01 / Competitions \u00b7 ' + repTypeTab),
+        el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-6 mt-3 items-start' },
+          el('div', { style: { fontFamily: 'var(--font-display)', fontSize: 'clamp(56px, 9vw, 128px)', lineHeight: '.9', letterSpacing: '.01em', textTransform: 'uppercase', color: ink } },
+            'Built to', el('br'), 'break', el('br'), 'records.'),
+          el('div', {},
+            el('div', { class: 'leading-relaxed comp-landing-copy', style: { ...mono, color: 'rgba(0,0,0,.85)', maxWidth: '520px' } },
+              el('p', { class: 'mb-4' }, 'Every board on these pages is pulled live from the company database. If a number changes in FieldRoutes, it changes here.'),
+              el('p', {}, 'Published rules, published standings. Nobody\u2019s scoring is a secret and nobody\u2019s is special.')),
+            el('div', { style: { marginTop: '32px' } }, pickers))))));
     // Size the poster to the viewport EXACTLY (per Isaac: no scrolling on the
     // landing). Measured live after mount — header, tabs and gutters all
     // vary — and re-measured on resize. The negative bottom margin already
