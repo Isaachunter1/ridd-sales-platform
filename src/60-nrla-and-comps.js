@@ -3809,11 +3809,11 @@ function viewNrlaPublic() {
           if (oneOffs.length) {
             const sel1 = el('select', {
               class: 'px-4 text-[13px] font-bold cursor-pointer',
-              style: { ...mono, borderRadius: '0', background: 'transparent', color: '#111', border: '2px solid #111', minWidth: '220px', height: '40px' },
+              style: { ...mono, borderRadius: '0', background: '#111', color: 'var(--accent)', border: '2px solid #111', minWidth: '240px', height: '46px' },
             }, ...oneOffs.map(c => el('option', { value: c.id }, c.name)));
-            box.append(eyebrow((running.length ? '04 / ' : '03 / ') + 'One-off competitions'), el('div', { class: 'flex flex-wrap items-stretch gap-2 mt-3' },
+            box.append(el('div', { class: 'mt-6' }, eyebrow((running.length ? '04 / ' : '03 / ') + 'One-off competitions')), el('div', { class: 'flex flex-wrap items-stretch gap-2 mt-4' },
               sel1,
-              el('button', { class: 'px-4 text-[12px] font-bold transition hover:brightness-110', style: { ...mono, background: 'transparent', color: '#111', border: '2px solid #111', height: '40px', textTransform: 'uppercase', letterSpacing: '.08em' }, onclick: () => open(sel1.value) }, 'Open \u2192')));
+              el('button', { class: 'px-5 text-[13px] font-bold transition hover:brightness-110', style: { ...mono, background: 'var(--accent)', color: '#111', border: '2px solid #111', height: '46px', textTransform: 'uppercase', letterSpacing: '.08em' }, onclick: () => open(sel1.value) }, 'Open \u2192')));
           }
           return box;
         })())));
