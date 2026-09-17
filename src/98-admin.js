@@ -1295,7 +1295,7 @@ function adminCommissions() {
   const isOfficeStaff = (type === 'Office Staff');
   const isTechnician  = (type === 'Technician');
   const body = isOfficeStaff
-    ? adminPricing({ embedded: true })
+    ? adminPricingSimple()
     : isTechnician
       ? el('div', { class: 'card p-10 text-center' },
           el('div', { class: 'text-sm font-semibold mb-1' }, 'No Technician commission rules yet'),
@@ -1312,6 +1312,77 @@ function adminCommissions() {
         : 'Commission rules by rep type. The Commission Calculator uses these; a specific rep can still be overridden there.')),
     tabs,
     body);
+}
+
+// ── Office Staff commissions — ONE plain metrics table (per Isaac): every
+// rule the pay engine reads, as a label + value, edited in place. Modifiers
+// are shown RELATIVE to the base Upfront % (commercial −3.5, OTS −2, upsell
+// +3) exactly like the comp sheet, and written back to the absolute rates
+// the engine stores. The old sectioned editor (adminPricing) is kept for
+// reference but no longer rendered.
+function adminPricingSimple() {
+  const s = ensurePaySettings();
+  const validCtIds = new Set(state.contractTypes.map(ct => ct.id));
+  if (!s.contract_commissions) s.contract_commissions = state.contractTypes.map(ct => ({ contract_type_id: ct.id, name: ct.name, rate: 7.0 }));
+  else s.contract_commissions = s.contract_commissions.filter(cc => validCtIds.has(cc.contract_type_id));
+  s.below_min_multiplier = s.below_min_multiplier ?? 50;
+  s.commercial_multiplier = s.commercial_multiplier ?? 50;
+  if (!Array.isArray(s.close_rate_tiers) || !s.close_rate_tiers.length) s.close_rate_tiers = [{ min_close_rate: 60, rate: 3.0 }, { min_close_rate: 50, rate: 2.0 }];
+  if (s.close_rate_tiers.length < 2) s.close_rate_tiers.push({ min_close_rate: 50, rate: 2.0 });
+  const persist = () => { saveDemoData(); saveAppSettings(); };
+  const isStd = (cc) => /month/i.test(cc.name) && !/upsell|one\s*time/i.test(cc.name);
+  const stdRate = () => { const c = s.contract_commissions.find(isStd); return c ? Number(c.rate) : 7; };
+  const ccRate = (re) => { const c = s.contract_commissions.find(cc => re.test(cc.name)); return c ? Number(c.rate) : null; };
+  const setCc = (re, v) => { for (const cc of s.contract_commissions) if (re.test(cc.name)) cc.rate = v; };
+  const num = (v) => { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, '')); return Number.isFinite(n) ? n : 0; };
+  const r2 = (n) => Math.round(n * 100) / 100;
+  // [label, get, set, unit, hint]  — unit '%' | '$' | 'pts'
+  const rows = [
+    ['section', 'Metrics'],
+    ['Upfront %', () => stdRate(), (v) => { for (const cc of s.contract_commissions) if (isStd(cc)) cc.rate = v; }, '%', 'Base upfront commission on 12 / 18 / 24-month contracts.'],
+    ['Close Rate %', () => s.close_rate_tiers[0].min_close_rate, (v) => { s.close_rate_tiers[0].min_close_rate = v; }, '%', 'Close rate needed for the full close-rate bonus.'],
+    ['Charge Upfront %', () => (s.upfront_tiers && s.upfront_tiers[0] ? s.upfront_tiers[0].pay : 100), (v) => { if (s.upfront_tiers && s.upfront_tiers[0]) s.upfront_tiers[0].pay = v; }, '%', 'Share of the upfront commission paid at the top charge-upfront tier.'],
+    ['Upfront Tier', () => (s.upfront_tiers && s.upfront_tiers[0] ? s.upfront_tiers[0].min : 70), (v) => { if (s.upfront_tiers && s.upfront_tiers[0]) s.upfront_tiers[0].min = v; }, '%+', '% of commissionable accounts charged upfront to reach the top tier.'],
+    ...((s.upfront_tiers || []).slice(1).map((t, i) => ['Upfront Tier ' + (i + 2) + ' (\u2265 ' + t.min + '%)', () => t.pay, (v) => { t.pay = v; }, '%', 'Pays this % of the upfront commission at \u2265 ' + t.min + '% charged upfront.'])),
+    ['section', 'Modifiers'],
+    ['PIF Modifier', () => s.pif_modifier ?? 5, (v) => { s.pif_modifier = v; }, 'pts', 'Added to the base rate when the customer pays in full (7 + 5 = 12%).'],
+    ['Commercial Modifier', () => r2(stdRate() * ((s.commercial_multiplier ?? 50) / 100) - stdRate()), (v) => { const b = stdRate() || 7; s.commercial_multiplier = r2(((b + v) / b) * 100); }, 'pts', 'Relative to Upfront %. \u22123.5 means commercial pays 3.5% on a 7% base (half).'],
+    ['OTS Modifier', () => r2((ccRate(/one\s*time/i) ?? 5) - stdRate()), (v) => setCc(/one\s*time/i, r2(stdRate() + v)), 'pts', 'Relative to Upfront %. One-time services: \u22122 = 5%.'],
+    ['Upsell Modifier', () => r2((ccRate(/upsell/i) ?? 10) - stdRate()), (v) => setCc(/upsell/i, r2(stdRate() + v)), 'pts', 'Relative to Upfront %. Upsells: +3 = 10%.'],
+    ['Below Min Pay Modifier', () => s.below_min_multiplier, (v) => { s.below_min_multiplier = v; }, '%', 'Below-minimum accounts pay this % of the normal commission.'],
+    ['Close Rate Bonus %', () => s.close_rate_tiers[0].rate, (v) => { s.close_rate_tiers[0].rate = v; }, '%', 'Bonus on subscription revenue at the full close rate.'],
+    ['Close Rate Tier 2 (\u2265 ' + s.close_rate_tiers[1].min_close_rate + '%)', () => s.close_rate_tiers[1].rate, (v) => { s.close_rate_tiers[1].rate = v; }, '%', 'Bonus at the second close-rate tier.'],
+    ['18 Mo Backend Bonus %', () => s.multi_year_rate_18, (v) => { s.multi_year_rate_18 = v; }, '%', 'Quarter-end backend on 18-month revenue.'],
+    ['24 Mo Backend Bonus %', () => s.multi_year_rate_24, (v) => { s.multi_year_rate_24 = v; }, '%', 'Quarter-end backend on 24-month revenue.'],
+    ['Renewal Backend Bonus', () => s.renewal_backend_rate, (v) => { s.renewal_backend_rate = v; }, '%', 'Quarter-end backend on renewal revenue.'],
+    ['Upfront 12-Mo Pay', () => s.renewal_flat.m12, (v) => { s.renewal_flat.m12 = v; }, '$', 'Flat pay per serviced renewal-source account, 12-month.'],
+    ['Upfront 18-Mo Pay', () => s.renewal_flat.m18, (v) => { s.renewal_flat.m18 = v; }, '$', 'Flat pay per serviced renewal-source account, 18-month.'],
+    ['Upfront 24-Mo Pay', () => s.renewal_flat.m24, (v) => { s.renewal_flat.m24 = v; }, '$', 'Flat pay per serviced renewal-source account, 24-month.'],
+    ['Upfront PIF Pay', () => s.renewal_flat.pif, (v) => { s.renewal_flat.pif = v; }, '$', 'Flat pay per serviced renewal-source account, paid in full.'],
+  ];
+  const fmt = (v, unit) => unit === '$' ? '$' + Number(v).toFixed(2) : (unit === 'pts' ? (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%' : Number(v).toFixed(2) + (unit === '%+' ? '% +' : '%'));
+  const body = el('tbody');
+  const draw = () => {
+    body.replaceChildren(...rows.map(r => {
+      if (r[0] === 'section') return el('tr', {}, el('td', { colspan: '2', class: 'px-3 py-1.5 text-[10px] uppercase tracking-widest font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', borderTop: '1px solid var(--border)' } }, r[1]));
+      const [label, get, set, unit, hint] = r;
+      const inp = el('input', { type: 'text', inputmode: 'decimal', value: fmt(get(), unit), title: hint,
+        class: 'text-right tabular-nums font-semibold rounded-lg border px-2 py-1 text-[12px] w-full',
+        style: { borderColor: 'transparent', background: 'transparent', color: 'var(--text)', maxWidth: '120px' },
+        onfocus: (e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.background = 'var(--card)'; e.target.value = String(get()); e.target.select(); },
+        onblur: (e) => { const v = num(e.target.value); set(v); persist(); e.target.style.borderColor = 'transparent'; e.target.style.background = 'transparent'; draw(); },
+        onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = fmt(get(), unit); e.target.blur(); } },
+      });
+      return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+        el('td', { class: 'px-3 py-1.5 text-[12px] font-semibold uppercase whitespace-nowrap', title: hint }, label),
+        el('td', { class: 'px-3 py-1 text-right', style: { width: '140px' } }, inp));
+    }));
+  };
+  draw();
+  return el('div', { class: 'flex flex-col gap-3 max-w-2xl w-full commission-config' },
+    el('div', { class: 'card overflow-hidden' },
+      el('table', { class: 'w-full' }, body)),
+    el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } }, 'Click a value to edit; it saves when you tab or click away. Modifiers are points relative to Upfront %. Hover a row for what it drives.'));
 }
 
 function adminPricing(opts = {}) {
