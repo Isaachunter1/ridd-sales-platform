@@ -1078,7 +1078,7 @@ function indicatorMetricHelp(key) {
     audit_pct:      'Subscriptions NOT flagged Failed Audit \u00f7 Subscriptions — passed, pending, and unaudited all count as good.',
     last_resort_pct:'Subscriptions with an initial under $99 \u00f7 Subscriptions. Context only — not scored for Power Rank.',
     reps:           'Unique reps with at least one sale in the window. Context only — not scored for Power Rank.',
-    reps20k:        'Reps counted here for PRA: over $20,000 sold company-wide in the window, with this as their top-revenue column. Each qualified rep counts in exactly one column — no double counting.',
+    reps20k:        'How many reps cleared $20,000 in total sales for the selected date range. A rep\u2019s sales are added up across every branch first, then the rep is placed in ONE column only \u2014 the branch where they sold the most \u2014 so a rep is never counted twice. This is also the denominator for PRA (Revenue \u00f7 Reps > $20K).',
     _points:        'Each column is ranked 1\u2013N on the seven scored rows (Subscriptions, Revenue, Avg Initial, ACV, PRA, Multi-Year %, Auto-Pay %); Power Rank is the sum of those ranks — lowest total wins.',
   };
   return F[key] || '';
