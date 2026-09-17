@@ -318,6 +318,11 @@ function viewSales() {
             }),
           ),
         ),
+
+    // Service Pro upsell detail - Technicians queue only. Reads the
+    // FieldRoutes upsell feed rather than this queue's pool, so it carries
+    // its own range + technician controls.
+    state.view === 'tech_sales' ? techUpsellDetailCard() : null,
   );
 }
 
