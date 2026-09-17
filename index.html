@@ -249,6 +249,16 @@
   button.rounded-xl.px-2\.5.py-1.text-\[11px\] {
     padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   }
+  /* Pricing tab: phone = quote pinned on top, slick below (DOM order);
+     desktop = slick column left, quote column right, quote sticky (per Isaac). */
+  .pricing-layout { display: flex; flex-direction: column; max-width: 760px; }
+  @media (min-width: 1024px) {
+    .pricing-layout { display: grid; grid-template-columns: minmax(0, 760px) minmax(340px, 420px); gap: 16px; align-items: start; justify-content: center; max-width: 1200px; }
+    .pricing-layout > .pricing-board { order: 1; }
+    .pricing-layout > .pricing-quote { order: 2; }
+    .pricing-quote .grid[style*="minmax(0, 1fr) auto"] { grid-template-columns: minmax(0, 1fr) !important; }   /* totals block drops under the lines in the narrow column */
+    .pricing-quote .grid[style*="minmax(0, 1fr) auto"] > div:last-child { min-width: 0 !important; }
+  }
   /* Keep the fixed top-bar tab title compact (it lives in a ~60px header). */
   .hb-topbar-title { font-size: clamp(1.45rem, 2.6vw, 2.1rem) !important; line-height: 1 !important; text-transform: uppercase; }
 

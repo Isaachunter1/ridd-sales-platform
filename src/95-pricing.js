@@ -179,7 +179,11 @@ function pricingSavings(T, svc, fi) {
 // is a control. Re-renders ITSELF on every click (no mountApp), so the page
 // never flashes and scroll stays put (per Isaac).
 function viewPricing() {
-  const root = el('div', { class: 'w-full mx-auto', style: { maxWidth: '760px' } });
+  // Phone: quote pinned on top, slick below. Desktop (≥1024px): the slick
+  // keeps its 760px column and the quote rides alongside on the right
+  // (sticky), so far more of the card fits on screen (per Isaac). Layout
+  // rules live in index.html (.pricing-layout / .pricing-quote).
+  const root = el('div', { class: 'w-full mx-auto pricing-layout' });
   const money = (v) => '$' + Math.round(v).toLocaleString();
   let editKey = null;   // receipt line whose price is being typed in
   const C = { sage: '#5F6C5B', cream: '#FBF4DA', cream2: '#F3EBCD', char: '#323230', orange: '#DF643A', ink2: '#5A5A56', ink3: '#8C8A80' };
@@ -391,7 +395,8 @@ function viewPricing() {
     // paints the page background so nothing shows through the gaps.
     const hdr = document.querySelector('header.page-header');
     const hdrH = hdr ? hdr.getBoundingClientRect().height : 60;
-    const top = el('div', { style: { position: 'sticky', top: hdrH + 'px', zIndex: 5, background: 'var(--bg)', paddingTop: '2px', marginTop: '-2px' } }, quote);
+    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: hdrH + 'px', zIndex: 5, background: 'var(--bg)', paddingTop: '2px', marginTop: '-2px' } }, quote);
+    board.classList.add('pricing-board');
     quote.style.position = ''; quote.style.top = ''; quote.style.zIndex = '';
     root.replaceChildren(top, board);
   };
