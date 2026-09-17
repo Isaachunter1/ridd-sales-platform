@@ -2486,7 +2486,7 @@ function applyTheme(theme) {
   state.theme = theme;
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('ridd-theme', theme);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#1C1C1B' : '#FBF4DA');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#1C1C1B' : '#FFFFFF');
 }
 applyTheme(state.theme);
 

@@ -46,28 +46,29 @@
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" /></noscript>
 <style>
   /* ═══════════════ THEME TOKENS ═══════════════ */
-  /* RIDD brand (RPS Brand Guide, Sep 2026): sage #5F6C5B · cream #FBF4DA ·
-     charcoal #323230 · orange #DF643A. Light = cream canvas + charcoal type;
-     dark = charcoal canvas + cream type; orange is the accent in both. */
+  /* RIDD brand (RPS Brand Guide, Sep 2026): sage #5F6C5B · charcoal #323230 ·
+     orange #DF643A. Surfaces are white / neutral (per Isaac: the brand cream
+     was hard to read on screen — cream stays on the printed slicks); orange
+     is the accent in both themes. */
   :root[data-theme="light"] {
-    --bg:          #F4EDD4;
-    --bg-subtle:   #EFE7CB;
-    --card:        #FBF4DA;
-    --card-2:      #F5EDCF;
+    --bg:          #F3F3F1;
+    --bg-subtle:   #ECECE9;
+    --card:        #FFFFFF;
+    --card-2:      #F6F6F4;
     --border:      rgba(50,50,48,.10);
     --border-2:    rgba(50,50,48,.22);
     --text:        #323230;
     --text-muted:  #6B6F66;
     --text-subtle: #9A9C93;
-    --input-bg:    #FFFCF0;
+    --input-bg:    #FFFFFF;
     --input-border:rgba(50,50,48,.22);
     --header-bg:   #323230;
-    --header-text: #FBF4DA;
-    --sidebar-bg:  #FBF4DA;
+    --header-text: #FFFFFF;
+    --sidebar-bg:  #FFFFFF;
     --sidebar-border:rgba(50,50,48,.10);
     --accent:      #DF643A;
     --accent-hover:#C8552E;
-    --accent-text: #323230;
+    --accent-text: #FFFFFF;
     --brand-sage:  #5F6C5B;
     --brand-cream: #FBF4DA;
     --brand-charcoal:#323230;
@@ -82,20 +83,20 @@
     --bg-subtle:   #232322;
     --card:        #323230;
     --card-2:      #3A3A38;
-    --border:      rgba(251,244,218,.08);
-    --border-2:    rgba(251,244,218,.18);
-    --text:        #FBF4DA;
-    --text-muted:  #B3B4A8;
-    --text-subtle: #7F8078;
+    --border:      rgba(255,255,255,.08);
+    --border-2:    rgba(255,255,255,.18);
+    --text:        #F3F3F1;
+    --text-muted:  #B0B1AC;
+    --text-subtle: #7E7F7A;
     --input-bg:    #2A2A29;
-    --input-border:rgba(251,244,218,.18);
+    --input-border:rgba(255,255,255,.18);
     --header-bg:   #1C1C1B;
-    --header-text: #FBF4DA;
+    --header-text: #F3F3F1;
     --sidebar-bg:  #1C1C1B;
     --sidebar-border:rgba(251,244,218,.08);
     --accent:      #DF643A;
     --accent-hover:#E97A52;
-    --accent-text: #FBF4DA;
+    --accent-text: #FFFFFF;
     --brand-sage:  #5F6C5B;
     --brand-cream: #FBF4DA;
     --brand-charcoal:#323230;
@@ -498,7 +499,7 @@
   .ridd-tooltip {
     position: fixed;
     background: var(--eerie, #323230);
-    color: #FBF4DA;
+    color: #F3F3F1;
     padding: 8px 12px;
     border-radius: 0;
     font-size: 11px;
@@ -936,8 +937,8 @@
     backdrop-filter: blur(14px) saturate(1.5);
   }
   :root[data-theme="light"] .page-header {
-    background: #FBF4DA;
-    background: color-mix(in srgb, #FBF4DA 78%, transparent);
+    background: #FFFFFF;
+    background: color-mix(in srgb, #FFFFFF 78%, transparent);
     color: var(--text);
     border-bottom: 1px solid rgba(50,50,48,.10);
     box-shadow: 0 1px 12px rgba(50,50,48,.05);
