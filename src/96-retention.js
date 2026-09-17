@@ -111,7 +111,7 @@ function retenTrailing12(book) {
   const counted = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en);
   return { rate: boy.length ? counted.length / boy.length : null, c: counted.length, boy: boy.length, st, en, rows: { boy, counted } };
 }
-function retenMethodCard(pop, _retenEff, ground) {
+function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const year = new Date().getFullYear();
   const yStart = year + '-01-01', pStart = (year - 1) + '-01-01';
   const recurringByName = reportingServiceRecurringMap();
@@ -227,7 +227,8 @@ function retenMethodCard(pop, _retenEff, ground) {
             rd.readAsText(f);
           });
           return el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, title: 'Upload a FieldRoutes Customer Report (CSV) and diff it against the app — top of the funnel (completed initial, before any step) and the final book, row by row', onclick: (e) => { e.stopPropagation(); inp.click(); } }, '⇄ Reconcile', inp);
-        })())));
+        })(),
+        infoBtn ? el('span', { onclick: (e) => e.stopPropagation() }, infoBtn) : null)));
   if (!open) return card;
   const loadDrops = state._snapshotLoadDrops || null;
   // Which of Isaac's workbook Steps (RIDD Reporting.xlsx → Steps tab) a
@@ -382,10 +383,12 @@ function reportingWaterfall() {
   if (_sec === 'renewals') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingRenewals());
   if (_sec === 'contract') return el('div', { class: 'flex flex-col gap-4' }, _secBar, reportingContractLength());
   const scope = reportingScope();
-  const { scopeA, scopeB, inCompare, office, compareOffice, officeLabel } = scope;
-
-  if (!state.reportingWaterfallMode) state.reportingWaterfallMode = 'subscription';
-  const mode = state.reportingWaterfallMode;
+  // Office + Metrics filters retired (per Isaac, Sep 2026): the branch pick
+  // on Attrition Steps is the office scope now, Contract Length and Rep are
+  // their own tables below, and Accounts / ARR is a toggle on the waterfall.
+  const office = 'all', compareOffice = 'all', inCompare = false;
+  const officeLabel = scope.officeLabel;
+  const mode = state._rtWaterfallArr ? 'arv' : 'subscription';
   // Time range only matters for Contract Length / Rep (it scopes which subs
   // qualify); the cohort modes are inherently all-time. Compare offices is
   // a Waterfall-only tool — side-by-side retention matrices.
@@ -421,54 +424,7 @@ function reportingWaterfall() {
   const waterfallB = inCompare ? buildReportingWaterfall(popB, mode, cohortSel) : null;
 
   const _methodologyInfo = (typeof reportingMethodologyInfoBtn === 'function') ? reportingMethodologyInfoBtn() : null;
-  const _phoneR = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
-  // The Office picker drives EVERY table on this tab (per Isaac), so the bar
-  // stays pinned under the page header while scrolling — switch RIDD → a
-  // branch from anywhere on the page.
-  const _hdrEl = document.querySelector('header.page-header');
-  const _hdrH = _hdrEl ? Math.round(_hdrEl.getBoundingClientRect().height) : 60;
-  const modeBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
-    // ONE office filter for the whole tab (per Isaac) — the shared Reporting
-    // scope, so every card below (Attrition Steps, waterfall, seasonality,
-    // rep type, lifetime, renewals, sources) reads the same population.
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Office'),
-    el('select', {
-      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-      onchange: (e) => { state.reportingOffice = e.target.value; mountApp(); },
-    }, el('option', { value: 'all', selected: office === 'all' }, 'RIDD'), ...scope.offices.map(o => el('option', { value: o, selected: office === o }, o))),
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold ml-2', style: { color: 'var(--text-subtle)' } }, 'Metrics'),
-    ...true ? [el('select', {
-      class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
-      style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-      onchange: (e) => { state.reportingWaterfallMode = e.target.value; mountApp(); },
-    }, ...modes.map(([k, label]) => el('option', { value: k, selected: mode === k }, label)))] : modes.map(([k, label]) => {
-      const active = mode === k;
-      return el('button', {
-        class: 'px-2.5 py-1 rounded-lg text-[11px] font-semibold transition hover:brightness-95',
-        style: active
-          ? { background: 'var(--accent)', color: 'var(--accent-text)' }
-          : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
-        onclick: () => { state.reportingWaterfallMode = k; mountApp(); },
-      }, label);
-    }),
-    // Cohort-year picker — Contract Length / Rep only. "All years" = book
-    // size at each year-end; a specific year = that year's cohort followed
-    // through time (true retention).
-    (mode === 'contract' || mode === 'rep') && el('div', { class: 'flex items-center gap-1.5' },
-      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Cohort'),
-      el('select', {
-        class: 'rounded-lg border px-2.5 py-1 text-[11px] cursor-pointer',
-        style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
-        onchange: (e) => { state.reportingWaterfallCohort = e.target.value; mountApp(); },
-      },
-        el('option', { value: 'all', selected: cohortSel === 'all' }, 'All years (book size)'),
-        ...(waterfallA.allYears || []).map(y => el('option', { value: String(y), selected: String(cohortSel) === String(y) }, y + ' cohort')),
-      )),
-    // (Population download retired per Isaac — Reconcile on Attrition Steps does the job.)
-    el('div', { class: 'flex items-center gap-2 ml-auto' },
-      _methodologyInfo),
-  );
+  // (Office / Metrics bar retired — see above.)
 
   // Cell color = retention % vs cohort total. Green → red gradient.
   // For Subscription/ARV (cohort) we compare each cell to that row's
@@ -823,6 +779,12 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, (isArr ? 'ARR' : 'Accounts') + ' still active at each year-end, by first-service year · ' + thisYear + ' = today · same book as Attrition Steps')),
+        el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
+          ...[[false, 'Accounts'], [true, 'ARR']].map(([v, l]) => el('button', {
+            class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+            style: !!state._rtWaterfallArr === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text-muted)' },
+            onclick: () => { state._rtWaterfallArr = v; mountApp(); },
+          }, l))),
         (() => {
           const t = retenTrailing12(rows);
           const drillT = t.rows.counted.length ? () => openReportingDrillModal({ chartTitle: 'Trailing 12 months · counted cancels', sliceLabel: t.rows.counted.length.toLocaleString() + ' subscriptions · ' + t.st + ' → ' + t.en, rows: t.rows.counted, formatValue: fmt.usd0 }) : null;
@@ -1801,6 +1763,8 @@ function reportingWaterfall() {
     // card-level chips any more; cancels are the book's counted cancels.
     const TYPE_LABEL = (r) => {
       if (dim === 'source') return String(r.subscription_source || '').trim() || 'Unspecified';
+      if (dim === 'contract') { const m = Number(r.agreement_length) || 0; return m === 12 ? '12 mo' : m === 18 ? '18 mo' : m === 24 ? '24 mo' : m > 24 ? '24+ mo' : m > 0 ? 'Under 12 mo' : 'No term'; }
+      if (dim === 'rep') return (typeof flipLastFirst === 'function' ? flipLastFirst(String(r.sold_by || '').trim()) : String(r.sold_by || '').trim()) || 'Unknown';
       const t = String(r.sold_by_type || '').trim().toLowerCase();
       if (t === 'sales rep') return 'Door to Door';
       if (t === 'technician') return 'Technician';
@@ -1820,9 +1784,11 @@ function reportingWaterfall() {
       }
     }
     if (!total.subs && _rtYear === 'all') return null;
-    const ORDER = ['Door to Door', 'Office Staff', 'Technician'];
-    const keys = dim === 'source'
-      ? Object.keys(byType).sort((a, b) => byType[b].subs - byType[a].subs || a.localeCompare(b))   // biggest sources first
+    const ORDER = dim === 'contract' ? ['12 mo', '18 mo', '24 mo', '24+ mo', 'Under 12 mo', 'No term'] : ['Door to Door', 'Office Staff', 'Technician'];
+    // Rep: fold reps under 20 subs into "Other reps" so the table reads; biggest first.
+    if (dim === 'rep') { const MINR = 20; const other = mk(); for (const k of Object.keys(byType)) { if (byType[k].subs < MINR) { const g = byType[k]; for (const f of ['subs', 'active', 'cancelled', 'arv', 'arvCxl']) other[f] += g[f]; other.rows.push(...g.rows); other.cxlRows.push(...g.cxlRows); delete byType[k]; } } if (other.subs) byType['Other reps (under ' + MINR + ' subs)'] = other; }
+    const keys = (dim === 'source' || dim === 'rep')
+      ? Object.keys(byType).sort((a, b) => (a.startsWith('Other reps') ? 1 : b.startsWith('Other reps') ? -1 : 0) || byType[b].subs - byType[a].subs || a.localeCompare(b))   // biggest first
       : [...ORDER.filter(k => byType[k]), ...Object.keys(byType).filter(k => !ORDER.includes(k)).sort()];
     const pct = (a, b) => b > 0 ? (a / b * 100).toFixed(1) + '%' : '\u2014';
     const th = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
@@ -1841,8 +1807,8 @@ function reportingWaterfall() {
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
-          el('div', { class: 'font-display text-lg' }, dim === 'source' ? 'Attrition by Source' : 'Attrition by Rep Type'),
-          el('div', { class: 'text-[11px] text-muted-' }, (dim === 'source' ? 'Where the account CAME FROM \u00b7 ' : 'Who SOLD the account \u00b7 ') + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
+          el('div', { class: 'font-display text-lg' }, dim === 'source' ? 'Attrition by Source' : dim === 'contract' ? 'Attrition by Contract Length' : dim === 'rep' ? 'Attrition by Rep' : 'Attrition by Rep Type'),
+          el('div', { class: 'text-[11px] text-muted-' }, (dim === 'source' ? 'Where the account CAME FROM \u00b7 ' : dim === 'contract' ? 'Agreement length on the subscription \u00b7 ' : dim === 'rep' ? 'The rep who sold it \u00b7 ' : 'Who SOLD the account \u00b7 ') + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
           el('select', {
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
@@ -1853,15 +1819,17 @@ function reportingWaterfall() {
             ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))),
           el('span', { class: 'text-[10px] text-muted-' }, fmt.int(total.subs) + ' in the retention book'))),
       !total.subs ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No accounts in this cohort under the current rules.') :
-      el('div', { style: { overflow: 'auto', maxHeight: dim === 'source' ? '460px' : 'none' } }, el('table', { class: 'w-full text-xs' },
+      el('div', { style: { overflow: 'auto', maxHeight: (dim === 'source' || dim === 'rep') ? '460px' : 'none' } }, el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: 0, zIndex: 1 } }, el('tr', { style: { background: 'var(--card-2)' } },
-          th(dim === 'source' ? 'Source' : 'Rep Type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1))),
+          th(dim === 'source' ? 'Source' : dim === 'contract' ? 'Contract Length' : dim === 'rep' ? 'Rep' : 'Rep Type'), th('Subs', 1), th('Active', 1), th('Cancelled', 1), th('Attrition %', 1), th('Retention %', 1), th('ARR Attrition %', 1))),
         el('tbody', {},
           ...keys.map(k => row(k, byType[k])),
           row('RIDD \u00b7 Total', total, true)))),
       el('div', { class: 'px-4 py-2 text-[10px] text-muted- border-t', style: { borderColor: 'var(--border)' } }, 'Same book as Attrition Steps — switch a step or a reason up there and this table follows.'));
   };
   const repTypeAttritionCard = _attritionByCard('type');
+  const contractAttritionCard = _attritionByCard('contract');
+  const repAttritionCard = _attritionByCard('rep');
   // -- Attrition by Source (per Isaac, Sep 2026: the old Attrition-by-Source
   // table and the Source Quality Ledger folded into one). Population = the
   // retention book, so the steps card decides what is in; cancels are the
@@ -2303,10 +2271,8 @@ function reportingWaterfall() {
   // joined block — tabs, bar, steps header — frozen under the page header.
   // When the steps card is expanded the block stops being sticky (it would
   // be a screen tall), and comes back the moment it is collapsed.
-  const stepsCard = retenMethodCard(popA, _retenEff, groundA);
-  modeBar.style.borderBottom = '0';
-  if (stepsCard && stepsCard.style) stepsCard.style.borderTop = '1px solid var(--border)';
-  const joined = el('div', { class: 'flex flex-col' }, modeBar, stepsCard);
+  const stepsCard = retenMethodCard(popA, _retenEff, groundA, _methodologyInfo);
+  const joined = stepsCard;
   const stepsOpen = state._retenMethodOpen === true;
   // position: sticky cannot work here — <main> is overflow-x:hidden and the
   // content wrapper is overflow-x:auto, so the nearest "scroll container" is
@@ -2342,6 +2308,6 @@ function reportingWaterfall() {
     window.addEventListener('resize', () => { try { syncPin(); } catch (e) { /* torn down */ } });
   }
   requestAnimationFrame(() => { syncPin(); setTimeout(syncPin, 200); });
-  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, repTypeAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, repTypeAttritionCard, contractAttritionCard, repAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
