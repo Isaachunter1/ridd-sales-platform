@@ -100,7 +100,7 @@ function openTvBoard() {
     const offAgg = new Map();
     rows.forEach(s => { const o = (state.offices || []).find(x => x.id === s.office_id); const n = o ? o.name : (s._crmOffice || 'Unassigned'); offAgg.set(n, (offAgg.get(n) || 0) + (Number(s.revenue_amount) || 0)); });
     const offices = [...offAgg.entries()].map(([name, revenue]) => ({ name, revenue })).sort((a, b) => b.revenue - a.revenue);
-    const latest = [...rows].sort((a, b) => String(b.created_at || b.sold_date).localeCompare(String(a.created_at || a.sold_date))).slice(0, 8);
+    const latest = [...rows].sort((a, b) => String(b.created_at || b.sold_date).localeCompare(String(a.created_at || a.sold_date)));
     const goal = goalFor(range);
     return { range, rows, revenue: rev(rows), count: rows.length,
       avgInitial: subs.length ? subs.reduce((a, s) => a + (Number(s.initial_amount) || 0), 0) / subs.length : 0,
@@ -209,8 +209,8 @@ function openTvBoard() {
     // Body: leaderboard | offices + latest
     const board = panel([
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '14px' } }, eyebrow('Leaderboard'), eyebrow('revenue · sales')),
-      d.reps.length ? el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', overflow: 'hidden', flex: '1' } },
-        ...d.reps.slice(0, 10).map((r, i) => el('div', { style: { display: 'grid', gridTemplateColumns: '44px 56px minmax(0, 1fr) auto', alignItems: 'center', gap: '16px', padding: '8px 10px', background: i === 0 ? T.surface2 : 'transparent', borderLeft: i === 0 ? '3px solid ' + T.ember : '3px solid transparent' } },
+      d.reps.length ? el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', gap: '6px', overflowY: 'auto', flex: '1', minHeight: '0', paddingRight: '4px' } },
+        ...d.reps.map((r, i) => el('div', { style: { display: 'grid', gridTemplateColumns: '44px 56px minmax(0, 1fr) auto', alignItems: 'center', gap: '16px', padding: '8px 10px', background: i === 0 ? T.surface2 : 'transparent', borderLeft: i === 0 ? '3px solid ' + T.ember : '3px solid transparent' } },
           el('div', { style: { fontFamily: MONO, fontSize: '14px', color: i === 0 ? T.ember : T.dim, letterSpacing: '.08em' } }, String(i + 1).padStart(2, '0')),
           avatar(r, 56),
           el('div', { style: { minWidth: '0' } },
@@ -231,8 +231,8 @@ function openTvBoard() {
           el('div', { style: { height: '4px', background: T.surface2 } }, el('div', { style: { height: '100%', width: (offMax ? o.revenue / offMax * 100 : 0) + '%', background: i === 0 ? T.ember : T.dim } }))))
         : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, '—')]))]);
     const latestEl = panel([
-      eyebrow('Latest sales'),
-      el('div', { style: { display: 'flex', flexDirection: 'column', marginTop: '10px', overflow: 'hidden', flex: '1' } },
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } }, eyebrow('Latest sales'), eyebrow(d.latest.length + ' today' .replace('today', d.range.label.toLowerCase()))),
+      el('div', { class: 'tv-scroll', style: { display: 'flex', flexDirection: 'column', marginTop: '10px', overflowY: 'auto', flex: '1', minHeight: '0', paddingRight: '4px' } },
         ...(d.latest.length ? d.latest.map((s, i) => {
           const r = d.reps.find(x => x.key === (s.rep_id || ('crm:' + s._crmRep)));
           return el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '12px', alignItems: 'baseline', padding: '12px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
@@ -242,7 +242,7 @@ function openTvBoard() {
                 el('span', { style: { color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')), '  ·  ' + (s._crmService || s.service_name || '—') + (s.created_at ? '  ·  ' + ago(s.created_at) : ''))),
             figure(money(s.revenue_amount), 'clamp(18px, 1.6vw, 26px)', i === 0 && fresh ? T.ember : T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
-    const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: '18px', padding: '18px 36px 28px', flex: '1', minHeight: '0' } },
+    const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '18px 36px 28px', flex: '1', minHeight: '0' } },
       board,
       latestEl);   // (By branch retired per Isaac — the column is the latest sales.)
 
@@ -257,7 +257,7 @@ function openTvBoard() {
   };
   if (!document.getElementById('tv-board-css')) {
     const st = document.createElement('style'); st.id = 'tv-board-css';
-    st.textContent = '@keyframes tvPulse{0%{opacity:.35;transform:translateY(6px)}100%{opacity:1;transform:none}} .tv-pulse{animation:tvPulse .7s cubic-bezier(.16,1,.3,1) both} @media (prefers-reduced-motion: reduce){.tv-pulse{animation:none}}';
+    st.textContent = '@keyframes tvPulse{0%{opacity:.35;transform:translateY(6px)}100%{opacity:1;transform:none}} .tv-pulse{animation:tvPulse .7s cubic-bezier(.16,1,.3,1) both} @media (prefers-reduced-motion: reduce){.tv-pulse{animation:none}} .tv-scroll{scrollbar-width:thin;scrollbar-color:#2B2F38 transparent} .tv-scroll::-webkit-scrollbar{width:6px} .tv-scroll::-webkit-scrollbar-thumb{background:#2B2F38} .tv-scroll::-webkit-scrollbar-track{background:transparent}';
     document.head.append(st);
   }
   document.addEventListener('keydown', onKey);
