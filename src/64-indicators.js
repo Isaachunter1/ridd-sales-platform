@@ -661,7 +661,7 @@ function viewIndicators() {
             paddingTop: '20px', paddingBottom: '8px',
           },
         },
-          el('div', { class: 'w-full max-w-[1600px] mx-auto px-4 sm:px-6' },
+          el('div', { class: 'w-full mx-auto px-4 sm:px-6', style: { maxWidth: '1648px' } },   // = main's gutter + 1600px content box, so Presets/Filters sit flush with the cards (per Isaac)
             el('div', { class: 'flex flex-col gap-2' },
               el('div', { class: 'flex items-center justify-between gap-2 flex-wrap' },
               // Presets button — left-justified on the Filters row (per Isaac).
