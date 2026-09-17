@@ -7121,7 +7121,7 @@ function buildRookieVetReportNode(allReps, opts = {}) {
             th('Revenue',    'right'),
             th('Audit %',    'right'),
             th('ACV',        'right'),
-            th('Sell Days',  'right'),
+            th('Days w/ a Sale', 'right'),
             th('$ / Day',    'right'),
             th('Accts/Day',  'right'),
             th('Avg Pest',   'right'),
@@ -8602,7 +8602,7 @@ function repLandingPlayerCard() {
         tile('Avg Pest', avgPest > 0 ? fmt.usd(avgPest) : '—'),
         tile('MY %', (myPct * 100).toFixed(1) + '%'),
         tile('Auto Pay', (apay * 100).toFixed(1) + '%'),
-        tile('Sell Days', String(sellDays)),
+        tile('Days w/ a Sale', String(sellDays)),
         tile('Cancels', String(cancels)),
       ),
     );
