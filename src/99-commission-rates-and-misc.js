@@ -262,22 +262,22 @@ function adminBackup() {
   // touch the table each time.
   const ACTION_META = {
     sale_logged:               { label: 'Logged',        bg: 'rgba(223,100,58,.12)', fg: '#DF643A' },
-    sale_edited:               { label: 'Edited',        bg: 'rgba(245,158,11,.15)', fg: '#92400E' },
-    audit:                     { label: 'Audited',       bg: 'rgba(234,88,12,.10)',  fg: '#B45309' },
-    staged:                    { label: 'Staged',        bg: 'rgba(14,165,233,.10)', fg: '#0284C7' },
+    sale_edited:               { label: 'Edited',        bg: 'rgba(223,100,58,.15)', fg: '#A9441F' },
+    audit:                     { label: 'Audited',       bg: 'rgba(156,63,30,.10)',  fg: '#A9441F' },
+    staged:                    { label: 'Staged',        bg: 'rgba(95,108,91,.10)', fg: '#5F6C5B' },
     payroll_processed:         { label: 'Processed',     bg: 'rgba(223,100,58,.18)', fg: '#DF643A' },
-    backend_payroll_processed: { label: 'Backend Paid',  bg: 'rgba(61,122,102,.18)', fg: '#3D7A66' },
+    backend_payroll_processed: { label: 'Backend Paid',  bg: 'rgba(61,122,102,.18)', fg: '#5F6C5B' },
     lock_status_changed:       { label: 'Lock',          bg: 'rgba(200,85,46,.18)',  fg: '#C8552E' },
     audit2_assigned:           { label: 'Auditor 2',     bg: 'rgba(147,51,234,.12)', fg: '#7E22CE' },
     slack_dm_sent:             { label: 'Slack DM',      bg: 'rgba(74,21,75,.14)',   fg: '#7E22CE' },
-    slack_post:                { label: 'Slack Post',    bg: 'rgba(14,165,233,.14)', fg: '#0284C7' },
-    indicators_upload:         { label: 'Indicators CSV',bg: 'rgba(124,58,237,.12)', fg: '#7C3AED' },
-    report_upload:             { label: 'Report Upload', bg: 'rgba(61,122,102,.14)', fg: '#3D7A66' },
-    user_edited:               { label: 'User',          bg: 'rgba(245,158,11,.15)', fg: '#92400E' },
-    team_change:               { label: 'Teams',         bg: 'rgba(14,165,233,.12)', fg: '#0284C7' },
+    slack_post:                { label: 'Slack Post',    bg: 'rgba(95,108,91,.14)', fg: '#5F6C5B' },
+    indicators_upload:         { label: 'Indicators CSV',bg: 'rgba(156,63,30,.12)', fg: '#9C3F1E' },
+    report_upload:             { label: 'Report Upload', bg: 'rgba(61,122,102,.14)', fg: '#5F6C5B' },
+    user_edited:               { label: 'User',          bg: 'rgba(223,100,58,.15)', fg: '#A9441F' },
+    team_change:               { label: 'Teams',         bg: 'rgba(95,108,91,.12)', fg: '#5F6C5B' },
     comp_change:               { label: 'Comp',          bg: 'rgba(156,63,30,.12)',   fg: '#9C3F1E' },
-    config_change:             { label: 'Config',        bg: 'rgba(117,118,103,.18)',fg: '#757667' },
-    snapshot_change:           { label: 'Snapshot',      bg: 'rgba(234,88,12,.12)',  fg: '#B45309' },
+    config_change:             { label: 'Config',        bg: 'rgba(95,108,91,.18)',fg: '#5F6C5B' },
+    snapshot_change:           { label: 'Snapshot',      bg: 'rgba(156,63,30,.12)',  fg: '#A9441F' },
   };
 
   if (state._activityLogSearch == null) state._activityLogSearch = '';
@@ -289,9 +289,9 @@ function adminBackup() {
   // the predicates in viewSales so this stays in sync with the actual nav.
   const TAB_META = {
     'Sales':     { bg: 'rgba(223,100,58,.15)', fg: '#DF643A' },
-    'Pending':   { bg: 'rgba(234,88,12,.12)',  fg: '#B45309' },
+    'Pending':   { bg: 'rgba(156,63,30,.12)',  fg: '#A9441F' },
     'Cancelled': { bg: 'rgba(220,38,38,.12)',  fg: '#B91C1C' },
-    'History':   { bg: 'rgba(117,118,103,.18)', fg: 'var(--text-muted)' },
+    'History':   { bg: 'rgba(95,108,91,.18)', fg: 'var(--text-muted)' },
   };
   const tabFromSale = (sale) => {
     if (!sale) return null;
@@ -377,7 +377,7 @@ function adminBackup() {
           el('td', { class: 'px-2 py-2 text-muted- tabular-nums whitespace-nowrap' }, fmtWhen(u.last)),
           el('td', { class: 'pl-2 pr-5 py-2 whitespace-nowrap' },
             ...[...u.actions.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => {
-              const meta = ACTION_META[k] || { label: k, bg: 'rgba(117,118,103,.18)', fg: 'var(--text-muted)' };
+              const meta = ACTION_META[k] || { label: k, bg: 'rgba(95,108,91,.18)', fg: 'var(--text-muted)' };
               return el('span', { class: 'chip mr-1', style: { background: meta.bg, color: meta.fg } }, meta.label + ' \u00d7' + n);
             })))))));
 
@@ -464,7 +464,7 @@ function adminBackup() {
                 ),
                 el('tbody', {},
                   visible.map(entry => {
-                    const meta = ACTION_META[entry.action] || { label: entry.action, bg: 'rgba(117,118,103,.18)', fg: 'var(--text-muted)' };
+                    const meta = ACTION_META[entry.action] || { label: entry.action, bg: 'rgba(95,108,91,.18)', fg: 'var(--text-muted)' };
                     const t = new Date(entry.timestamp);
                     const timeStr = t.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) + ' ' +
                       t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -595,7 +595,7 @@ function adminCompetitionSchedule() {
   const sc = compScheduleStore();
   const comps = compScheduleList();
   const today = new Date(); today.setHours(12, 0, 0, 0);
-  const COLORS = ['#DF643A', '#3D7A66', '#1F6F84', '#8E6F47', '#C8A565', '#9B2C2C', '#757667', '#5B5BD6', '#B45309', '#0EA5E9'];
+  const COLORS = ['#DF643A', '#5F6C5B', '#323230', '#A78256', '#9C3F1E', '#8E9C8A', '#FFB899', '#C9B98A', '#3F4A3C', '#E8A06B', '#7C857A', '#6B2A12'];
   const colorOf = (i) => COLORS[i % COLORS.length];
   const fmtD = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const inp = (id, key, type, extra = {}) => el('input', Object.assign({
@@ -623,7 +623,7 @@ function adminCompetitionSchedule() {
         cfg.custom
           ? el('input', { type: 'text', value: cfg.name || '', class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)', width: '150px' }, onchange: (e) => { cfg.name = e.target.value; compScheduleSave(); mountApp(); } })
           : el('span', { class: 'font-semibold' }, c.name),
-        live ? el('span', { class: 'ml-2 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(61,122,102,.16)', color: '#3D7A66' } }, 'Live') : null),
+        live ? el('span', { class: 'ml-2 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: 'rgba(61,122,102,.16)', color: '#5F6C5B' } }, 'Live') : null),
       el('td', { class: 'px-2 py-2' }, inp(c.id, 'start', 'date')),
       el('td', { class: 'px-2 py-2' }, inp(c.id, 'end', 'date')),
       el('td', { class: 'px-2 py-2' }, sel(c.id, 'recur', COMP_RECUR)),
@@ -731,8 +731,8 @@ function adminSlack() {
   const statusPill = (kind) => {
     const m = {
       live:   { label: 'Live · webhook',                                         bg: 'rgba(223,100,58,.18)', fg: '#DF643A' },
-      server: { label: DEMO ? 'Demo stub · needs server' : 'Live · server',      bg: 'rgba(14,165,233,.14)', fg: '#0284C7' },
-      cron:   { label: 'Needs cron host',                                        bg: 'rgba(245,158,11,.16)', fg: '#92400E' },
+      server: { label: DEMO ? 'Demo stub · needs server' : 'Live · server',      bg: 'rgba(95,108,91,.14)', fg: '#5F6C5B' },
+      cron:   { label: 'Needs cron host',                                        bg: 'rgba(223,100,58,.16)', fg: '#A9441F' },
     };
     const meta = m[kind] || m.live;
     return el('span', {
@@ -1820,7 +1820,7 @@ function adminReps() {
     },
       avatarNode(p.avatar_url, p.initials, 'w-9 h-9 text-[10px]'),
       el('div', { 'data-cam': '1', class: 'absolute rounded-full flex items-center justify-center',
-        style: { bottom: '-2px', right: '-2px', width: '16px', height: '16px', background: '#1D1D1D', border: '2px solid var(--card)', opacity: '0', transition: 'opacity .12s' } },
+        style: { bottom: '-2px', right: '-2px', width: '16px', height: '16px', background: '#323230', border: '2px solid var(--card)', opacity: '0', transition: 'opacity .12s' } },
         el('span', { style: { color: '#F3F3F3', fontSize: '8px' } }, '📷')));
     return wrap;
   };
@@ -2346,7 +2346,7 @@ function openUserEditor(existing = null, prefill = null) {
         style: {
           bottom: '0', right: '0',
           width: '26px', height: '26px',
-          background: '#1D1D1D', border: '2px solid var(--card)',
+          background: '#323230', border: '2px solid var(--card)',
         },
       }, el('span', { style: { color: '#F3F3F3', fontSize: '12px' } }, '📷')),
       hiddenFile,
@@ -2654,7 +2654,7 @@ function openUserEditor(existing = null, prefill = null) {
   // create-with-password.)
 
   const footer = el('div', { class: 'px-6 py-4 border-t flex items-center gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
-    el('button', { type: 'submit', class: 'px-2.5 py-1 rounded-lg font-semibold text-[11px]', style: { background: '#1D1D1D', color: '#F3F3F3' } }, 'Save'),
+    el('button', { type: 'submit', class: 'px-2.5 py-1 rounded-lg font-semibold text-[11px]', style: { background: '#323230', color: '#F3F3F3' } }, 'Save'),
     el('button', { type: 'button', class: 'px-2.5 py-1 rounded-lg font-semibold text-[11px] border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: () => overlay.remove() }, 'Cancel'),
     resetBtn,
   );

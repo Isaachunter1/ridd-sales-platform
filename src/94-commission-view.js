@@ -86,7 +86,7 @@ function commissionRenderOfficeStaff(B, repName) {
   const ROW = (label, valNode, kind) => el('div', {
     class: 'flex items-center gap-4 gap-3 px-3 py-2 text-sm',
     style: { borderTop: '1px solid var(--border)',
-      background: kind === 'rev' ? 'rgba(59,130,246,.08)' : kind === 'comm' ? 'rgba(223,100,58,.10)' : kind === 'total' ? 'rgba(223,100,58,.18)' : 'transparent' } },
+      background: kind === 'rev' ? 'rgba(95,108,91,.08)' : kind === 'comm' ? 'rgba(223,100,58,.10)' : kind === 'total' ? 'rgba(223,100,58,.18)' : 'transparent' } },
     el('span', { class: kind === 'total' ? 'font-bold' : '' }, label),
     el('span', { class: 'tabular-nums ' + (kind === 'total' ? 'font-bold' : '') }, valNode));
   const breakdown = el('div', { class: 'card overflow-hidden' },
@@ -102,7 +102,7 @@ function commissionRenderOfficeStaff(B, repName) {
     ROW('Close-Rate Bonus (' + pct(B.closeRate * 100) + ')', money(B.closeRateBonus), 'comm'),
     ROW('Backend Pay', money(B.backendPay), 'total'),
     ROW('Total Pay', money(B.totalPay), 'total'),
-    el('div', { class: 'px-3 py-2 text-sm flex items-center gap-4', style: { background: 'rgba(59,130,246,.08)', borderTop: '1px solid var(--border)' } },
+    el('div', { class: 'px-3 py-2 text-sm flex items-center gap-4', style: { background: 'rgba(95,108,91,.08)', borderTop: '1px solid var(--border)' } },
       el('span', { class: 'font-semibold' }, 'Pending Pay (est.)'), el('span', { class: 'tabular-nums font-semibold' }, money(B.pendingPay))));
   const statRow = (label, val, tone) => el('div', { class: 'flex items-center gap-4 px-3 py-1.5 text-sm', style: { borderTop: '1px solid var(--border)' } },
     el('span', {}, label), el('span', { class: 'tabular-nums font-semibold', style: tone ? { color: tone } : {} }, val));
@@ -268,7 +268,7 @@ function commissionCalculator() {
             g.sns.n ? [g.sns.n + ' sold-not-started (initial never ran)', g.sns.rev] : null,
           ].filter(Boolean);
           if (!parts.length) return null;
-          return el('div', { class: 'card p-3 text-xs', style: { borderLeft: '3px solid #D97706' } },
+          return el('div', { class: 'card p-3 text-xs', style: { borderLeft: '3px solid #A9441F' } },
             el('b', { style: { color: 'var(--text)' } }, 'Excluded from pay (' + (R.rawMatched - R.sold) + ' of ' + R.rawMatched + ' CRM rows): '),
             el('span', { class: 'text-muted-' }, parts.map(([t, v]) => t + ' · ' + money(v)).join(' — ') +
               '. Same rules as Indicators/Reporting (Settings → Configurations).'));

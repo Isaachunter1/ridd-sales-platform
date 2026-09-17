@@ -88,7 +88,7 @@ function viewCalendar() {
     ),
 
     // ── Incoming swaps ──
-    approvals.length > 0 && el('div', { class: 'card p-4 border-l-4', style: { borderLeftColor: '#B45309' } },
+    approvals.length > 0 && el('div', { class: 'card p-4 border-l-4', style: { borderLeftColor: '#A9441F' } },
       el('h3', { class: 'text-sm font-bold mb-1' }, `Shift swaps awaiting your approval (${approvals.length})`),
       el('p', { class: 'text-xs text-muted- mb-3' }, 'Both reps agreed. Approve to move the shift, or reject to leave it where it is.'),
       el('div', { class: 'flex flex-col gap-2' },
@@ -497,7 +497,7 @@ function swapRequestCard(req, repById, direction) {
     ),
     direction === 'outgoing' && el('div', { class: 'flex gap-1.5' },
       el('span', { class: 'text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded whitespace-nowrap',
-        style: { background: req.status === 'awaiting_lead' ? 'rgba(245, 158, 11, 0.15)' : 'var(--card)', color: req.status === 'awaiting_lead' ? '#B45309' : 'var(--text-muted)' } },
+        style: { background: req.status === 'awaiting_lead' ? 'rgba(223,100,58, 0.15)' : 'var(--card)', color: req.status === 'awaiting_lead' ? '#A9441F' : 'var(--text-muted)' } },
         req.status === 'awaiting_lead' ? 'Lead approval' : 'Pending'),
       el('button', {
         class: 'rounded-lg px-2.5 py-1 text-[11px] font-semibold border',
@@ -1017,7 +1017,7 @@ function assignmentRow(a, slot, reps, repById, meId, isAdmin, redraw) {
       ),
       pendingReq && el('span', {
         class: 'text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded whitespace-nowrap',
-        style: { background: 'rgba(245, 158, 11, 0.15)', color: '#B45309' },
+        style: { background: 'rgba(223,100,58, 0.15)', color: '#A9441F' },
       }, awaitingLead ? 'Lead approval' : pendingReq.from_rep_id === meId ? 'Waiting' : 'Incoming'),
     ),
   );

@@ -684,40 +684,40 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 // Seller risk (per Isaac): this rep's 90-day cancel rate is ≥ 2× their
                 // office's — flag the sale for a second-touch call before it churns.
                 (() => { try { if (!isAdmin || typeof intelSellerRisk !== 'function') return; const m = intelSellerRisk(); const rk = m && m.get(String(rep?.full_name || '').toLowerCase()); if (rk) lcChips.push(chip('⚠ 2× cancels', 'rgba(220,38,38,.12)', '#B91C1C', 'Sold by a rep whose 90-day cancel rate (' + Math.round(rk.cxl * 100) + '%) is ≥ 2× their office (' + Math.round(rk.base * 100) + '%) over the last 12 months · ' + rk.n + ' accounts judged · worth a second-touch call')); } catch (e) {} })();
-                if (s.sale_kind === 'upsell') lcChips.push(chip('＋ Upsell', 'rgba(168,85,247,.14)', '#7C3AED', 'Add-on' + (s.crm_ticket_id ? ' · FieldRoutes ticket #' + s.crm_ticket_id : '') + (s.parent_subscription_id ? ' on subscription ' + s.parent_subscription_id : '')));
+                if (s.sale_kind === 'upsell') lcChips.push(chip('＋ Upsell', 'rgba(156,63,30,.14)', '#9C3F1E', 'Add-on' + (s.crm_ticket_id ? ' · FieldRoutes ticket #' + s.crm_ticket_id : '') + (s.parent_subscription_id ? ' on subscription ' + s.parent_subscription_id : '')));
                 // Eligibility (per Isaac): appointment + billing stamped by the
                 // sync (20260916_sales_eligibility.sql). Every subscription is
                 // logged; these show which can earn a payout.
                 if (s.crm_initial_status != null) {
                   const st = String(s.crm_initial_status || '').toLowerCase();
                   const ok = st === 'pending' || st === 'completed';
-                  lcChips.push(ok ? chip('✓ Appt', 'rgba(223,100,58,.15)', '#DF643A', 'Initial appointment ' + st)
+                  lcChips.push(ok ? chip('✓ Appt', 'rgba(95,108,91,.16)', '#5F6C5B', 'Initial appointment ' + st)
                                   : chip('✗ No appt', 'rgba(220,38,38,.12)', '#B91C1C', 'No initial appointment on the books (' + (s.crm_initial_status || 'none') + ')'));
                 }
                 if (s.crm_autopay != null) {
-                  lcChips.push(s.crm_autopay ? chip('✓ Billing', 'rgba(223,100,58,.15)', '#DF643A', 'Autopay on file in FieldRoutes')
+                  lcChips.push(s.crm_autopay ? chip('✓ Billing', 'rgba(95,108,91,.16)', '#5F6C5B', 'Autopay on file in FieldRoutes')
                                              : chip('✗ No billing', 'rgba(220,38,38,.12)', '#B91C1C', 'No autopay on file — not commission-eligible until billing is added'));
                 }
-                if (s.crm_serviced_at) lcChips.push(chip('✓ Svc', 'rgba(223,100,58,.15)', '#DF643A',
+                if (s.crm_serviced_at) lcChips.push(chip('✓ Svc', 'rgba(95,108,91,.16)', '#5F6C5B',
                   'Initial service completed ' + s.crm_serviced_at + (s.crm_completed_services ? ' · ' + s.crm_completed_services + ' service(s) run' : '')));
                 else if (s.crm_checked_at && s.crm_serviced_at === null && s.crm_completed_services === 0) lcChips.push(chip('⏳ Svc', 'var(--card-2)', 'var(--text-muted)', 'No initial service completed yet'));
                 // Signed agreement (per Isaac) — stamped by the sync from the
                 // FieldRoutes e-sign documents (sales_crm_agreement.sql).
-                if (s.crm_contract_state === 'signed') lcChips.push(chip('✓ Signed', 'rgba(223,100,58,.15)', '#DF643A',
+                if (s.crm_contract_state === 'signed') lcChips.push(chip('✓ Signed', 'rgba(95,108,91,.16)', '#5F6C5B',
                   'Agreement e-signed' + (s.crm_contract_signed_at ? ' ' + s.crm_contract_signed_at : '')));
-                else if (s.crm_contract_state === 'sent') lcChips.push(chip('✉ Sent', 'rgba(245,158,11,.14)', '#B45309',
+                else if (s.crm_contract_state === 'sent') lcChips.push(chip('✉ Sent', 'rgba(223,100,58,.14)', '#A9441F',
                   'Agreement sent for e-signature but not signed yet'));
                 else if (s.crm_contract_state === 'none' && s.crm_checked_at) lcChips.push(chip('✗ No agreement', 'rgba(220,38,38,.12)', '#B91C1C',
                   'No e-sign document on this subscription or customer in FieldRoutes'));
                 // Office audit (FieldRoutes customer flag, per Isaac Sep 17 2026):
                 // Passed feeds the Charge Upfront % tier; Failed holds
                 // auto-approval for manual review until the office re-flags.
-                if (s.crm_audit === 'passed') lcChips.push(chip('✓ Audit', 'rgba(223,100,58,.15)', '#DF643A', 'Passed Audit flag in FieldRoutes — counts toward the Charge Upfront % tier'));
+                if (s.crm_audit === 'passed') lcChips.push(chip('✓ Audit', 'rgba(95,108,91,.16)', '#5F6C5B', 'Passed Audit flag in FieldRoutes — counts toward the Charge Upfront % tier'));
                 else if (s.crm_audit === 'failed') lcChips.push(chip('✗ Audit', 'rgba(220,38,38,.12)', '#B91C1C', 'Failed Audit flag in FieldRoutes — auto-approval is on hold. Review it here, or fix it in the CRM and the next sync resumes the flow.'));
                 if (s.crm_days_past_due != null) {
                   lcChips.push(Number(s.crm_days_past_due) > 0
                     ? chip('⚠ ' + s.crm_days_past_due + 'd', 'rgba(220,38,38,.12)', '#B91C1C', 'Customer is ' + s.crm_days_past_due + ' day(s) past due' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : ''))
-                    : chip('✓ Paid', 'rgba(223,100,58,.15)', '#DF643A', 'Account is current' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : '')));
+                    : chip('✓ Paid', 'rgba(95,108,91,.16)', '#5F6C5B', 'Account is current' + (s.crm_balance != null ? ' · balance ' + fmt.usd(s.crm_balance) : '')));
                 }
                 // $2k+ annualized value → auditor must confirm whether the
                 // property is commercial (commercial pays the half rate —
@@ -725,7 +725,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 (() => {
                   const _m = Number(s.contract_months) || 12;
                   const _annual = _m > 12 ? (Number(s.revenue_amount) || 0) * 12 / _m : (Number(s.revenue_amount) || 0);
-                  if (_annual > 2000 && !s.is_commercial) lcChips.push(chip('⚑ Comm?', 'rgba(168,85,247,.14)', '#7C3AED',
+                  if (_annual > 2000 && !s.is_commercial) lcChips.push(chip('⚑ Comm?', 'rgba(156,63,30,.14)', '#9C3F1E',
                     'Annualized value ' + fmt.usd(_annual) + ' is over $2,000 — confirm whether this is a commercial property. Commercial pays the commercial (half) rate; mark it via Edit → Commercial.'));
                 })();
                 // Sentricon is ALWAYS a 12-month program — any other length
@@ -734,7 +734,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 (() => {
                   const _svc = String(s.crm_subscription || nameFromId(state.serviceTypes, s.service_type_id) || '');
                   if (/sentricon/i.test(_svc) && Number(s.contract_months) !== 12) {
-                    lcChips.push(chip('⚑ Sentricon ≠ 12mo', 'rgba(245,158,11,.14)', '#B45309',
+                    lcChips.push(chip('⚑ Sentricon ≠ 12mo', 'rgba(223,100,58,.14)', '#A9441F',
                       'Sentricon accounts are always 12-month programs, but this one reads ' + (Number(s.contract_months) || 0) + ' month(s). Fix the agreement length in FieldRoutes (and Edit → contract here).'));
                   }
                 })();
@@ -748,18 +748,18 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                 // ⏱ Queue aging — how long this row has waited for an audit.
                 if (s.audit_status === 'pending') {
                   const _ageD = Math.floor((Date.now() - (Date.parse(s.created_at || s.sold_date) || Date.now())) / 86400000);
-                  if (_ageD >= 3) lcChips.push(chip('⏱ ' + _ageD + 'd', _ageD >= 10 ? 'rgba(220,38,38,.12)' : 'rgba(245,158,11,.14)', _ageD >= 10 ? '#B91C1C' : '#B45309',
+                  if (_ageD >= 3) lcChips.push(chip('⏱ ' + _ageD + 'd', _ageD >= 10 ? 'rgba(220,38,38,.12)' : 'rgba(223,100,58,.14)', _ageD >= 10 ? '#B91C1C' : '#A9441F',
                     'Waiting on audit for ' + _ageD + ' days'));
                 }
                 const withLc = (node) => lcChips.length ? el('span', { class: 'inline-flex items-center gap-1 flex-wrap' }, node, ...lcChips) : node;
                 if (v.status === 'verified') {
-                  return withLc(chip('✓ ' + fmt.usd(v.cv), 'rgba(223,100,58,.15)', '#DF643A',
+                  return withLc(chip('✓ ' + fmt.usd(v.cv), 'rgba(95,108,91,.16)', '#5F6C5B',
                     'EXACT CRM match — the warehouse shows this precise contract value on customer #' + (s.customer_number || '?')
                     + (v.sub ? ' (' + v.sub + ')' : '') + (v.live ? ' · live check' : '')));
                 }
                 if (v.status === 'near_match') {
                   const d = Math.abs((Number(s.revenue_amount) || 0) - (Number(v.cv) || 0));
-                  return withLc(chip('≈ ' + fmt.usd(v.cv), 'rgba(240,172,30,.16)', '#B45309',
+                  return withLc(chip('≈ ' + fmt.usd(v.cv), 'rgba(240,172,30,.16)', '#A9441F',
                     'Off by ' + fmt.usd(d) + ' — logged ' + fmt.usd(s.revenue_amount) + ' vs ' + fmt.usd(v.cv) + ' in the CRM. Values must be exact so commissions never over/under-pay.'));
                 }
                 if (v.status === 'revenue_mismatch') {
@@ -982,7 +982,7 @@ function assignAuditor2(saleId, auditorId) {
 // Chargeback = customer cancelled within window so the rep owes it back.
 // Editable by admin AND auditor; reps see a read-only chip.
 const LOCK_STATUSES = [
-  { id: 'pending',    label: 'Pending',    bg: 'rgba(117,118,103,.18)', fg: 'var(--text-muted)' },
+  { id: 'pending',    label: 'Pending',    bg: 'rgba(95,108,91,.18)', fg: 'var(--text-muted)' },
   { id: 'lock',       label: 'Lock',       bg: 'rgba(223,100,58,.20)',  fg: '#4F8E1C' },
   { id: 'chargeback', label: 'Chargeback', bg: 'rgba(220,38,38,.15)',   fg: '#B91C1C' },
 ];

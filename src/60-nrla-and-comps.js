@@ -528,7 +528,7 @@ function openNrlaRosterModal(rawSales) {
     const dirty = typeof _indCfgDirty === 'function' && _indCfgDirty();
     if (busy) {
       saveBtn.textContent = 'Saving…';
-      Object.assign(saveBtn.style, { background: '#D97706', color: '#fff', border: 'none' });
+      Object.assign(saveBtn.style, { background: '#A9441F', color: '#fff', border: 'none' });
       saveBtn.title = 'Syncing to the server…';
     } else if (dirty) {
       saveBtn.textContent = 'Save';
@@ -876,7 +876,7 @@ function openNrlaTeamRepsModal(team, R, nameOf) {
             td(String(r.n), true),
             td(money(r.total), true, { fontWeight: '800' }),
             td(money(r.passed), true, { color: '#DF643A' }),
-            td('(' + money(r.pending) + ')', true, { color: '#D97706' }),
+            td('(' + money(r.pending) + ')', true, { color: '#A9441F' }),
             td(money(r.failed), true, { color: '#E8271B' }),
             td(teamTotal > 0 ? ((r.total / teamTotal) * 100).toFixed(1) + '%' : '—', true, { color: BLUE, fontWeight: '700' }))))
         )),
@@ -916,7 +916,7 @@ function openNrlaAccountsModal(R, nameOf, opts) {
   const money2 = (v) => '$' + Math.round(v || 0).toLocaleString();
   const BUCKET_CHIP = {
     passed:  { t: 'Passed',  bg: 'rgba(223,100,58,.12)', c: '#DF643A' },
-    pending: { t: 'Pending', bg: 'rgba(217,119,6,.12)', c: '#D97706' },
+    pending: { t: 'Pending', bg: 'rgba(169,68,31,.12)', c: '#A9441F' },
     failed:  { t: 'Failed',  bg: 'rgba(220,38,38,.10)', c: '#DC2626' },
   };
   const overlay = el('div', { class: 'modal-overlay' });
@@ -1252,7 +1252,7 @@ function nrlaBoard(rawSales, opts) {
       const _th = (t, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-widest text-muted- font-semibold' + (right ? ' text-right' : ' text-left') }, t);
       const _td = (t, right, bold) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap' + (right ? ' text-right' : '') + (bold ? ' font-bold' : '') }, t);
       const placeStrip = (A.placements || []).length ? el('div', { class: 'px-4 py-3 flex items-center gap-2 flex-wrap border-b', style: { borderColor: 'var(--border)' } },
-        ...(A.placements || []).map(p2 => el('span', { class: 'rounded-full px-3 py-1 text-[11px] font-black', style: { background: p2.place === 1 ? '#F0AC1E' : 'var(--card-2)', color: p2.place === 1 ? '#1D1D1D' : 'var(--text)' } },
+        ...(A.placements || []).map(p2 => el('span', { class: 'rounded-full px-3 py-1 text-[11px] font-black', style: { background: p2.place === 1 ? '#A9441F' : 'var(--card-2)', color: p2.place === 1 ? '#323230' : 'var(--text)' } },
           '#' + p2.place + ' ' + p2.team + (p2.prize ? ' \u00b7 ' + p2.prize : '')))) : null;
       const standingsTbl = el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', {}, _th('Seed'), _th('Team'), _th('W', true), _th('L', true), _th('T', true), _th('Passed $', true), _th('Pending $', true), _th('Failed $', true), _th('Accts', true))),
@@ -1518,7 +1518,7 @@ function nrlaBoard(rawSales, opts) {
                 _drillTd(s.team, 'passed',  money(st.passed), 'font-bold', '#DF643A'),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#DF643A' } },
                   st.total > 0 ? (st.passed / st.total * 100).toFixed(0) + '%' : '—'),
-                _drillTd(s.team, 'pending', '(' + money(st.pending) + ')', '', '#D97706'),
+                _drillTd(s.team, 'pending', '(' + money(st.pending) + ')', '', '#A9441F'),
                 _drillTd(s.team, 'failed',  money(st.failed), 'font-bold', REDD),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, st.n > 0 ? money(st.total / st.n) : '—'),
                 el('td', { class: 'px-2 py-2 tabular-nums' }, st.n),
@@ -1546,7 +1546,7 @@ function nrlaBoard(rawSales, opts) {
                 _drillTd(null, 'passed',  money(tot.passed), 'font-black', '#DF643A'),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: '#DF643A' } },
                   tot.total > 0 ? (tot.passed / tot.total * 100).toFixed(0) + '%' : '—'),
-                _drillTd(null, 'pending', '(' + money(tot.pending) + ')', 'font-black', '#D97706'),
+                _drillTd(null, 'pending', '(' + money(tot.pending) + ')', 'font-black', '#A9441F'),
                 _drillTd(null, 'failed',  money(tot.failed), 'font-black', REDD),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, tot.n > 0 ? money(tot.total / tot.n) : '—'),
                 el('td', { class: 'px-2 py-2 tabular-nums font-black' }, tot.n),
@@ -1640,7 +1640,7 @@ function nrlaBoard(rawSales, opts) {
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, money(qual(r) / roundsStarted)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(r.total)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: '#DF643A' } }, money(r.passed)),
-              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap', style: { color: '#D97706' } }, '(' + money(r.pending) + ')'),
+              el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap', style: { color: '#A9441F' } }, '(' + money(r.pending) + ')'),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold', style: { color: REDD } }, money(r.failed)),
               el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-bold' }, r.n > 0 ? money(r.total / r.n) : '—'),
               el('td', { class: 'px-2 py-2 tabular-nums' }, r.n),
@@ -1656,7 +1656,7 @@ function nrlaBoard(rawSales, opts) {
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: BLUE } }, money(t.q / roundsStarted)),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, money(t.total)),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: '#DF643A' } }, money(t.passed)),
-                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: '#D97706' } }, '(' + money(t.pending) + ')'),
+                el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: '#A9441F' } }, '(' + money(t.pending) + ')'),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black', style: { color: REDD } }, money(t.failed)),
                 el('td', { class: 'px-2 py-2 tabular-nums whitespace-nowrap font-black' }, t.n > 0 ? money(t.total / t.n) : '—'),
                 el('td', { class: 'px-2 py-2 tabular-nums font-black' }, t.n));
@@ -1827,7 +1827,7 @@ function nrlaBoard(rawSales, opts) {
           el('span', {
             class: 'text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded inline-flex items-center gap-1',
             style: rd.live ? { background: '#04310A', color: GREEN }
-              : (rd.done && !rd.locked) ? { background: '#D97706', color: '#fff' }
+              : (rd.done && !rd.locked) ? { background: '#A9441F', color: '#fff' }
               : { background: 'rgba(255,255,255,.18)', color: '#fff' },
             title: (rd.done && !rd.locked) ? rd.pendingAudits + ' account' + (rd.pendingAudits === 1 ? '' : 's') + ' still pending audit — pending counts as passing, so this result can move until every account is audited and the round locks' : '',
           },
@@ -1941,7 +1941,7 @@ function nrlaBoard(rawSales, opts) {
                         : _st === 'failed' ? ['Failed', '#B91C1C', 'rgba(220,38,38,.10)']
                         : _st === 'noaudit' ? ['No Audit', 'var(--text-muted)', 'var(--card-2)']
                         : _st === 'lastresort' ? ['Last Resort', 'var(--text-muted)', 'var(--card-2)']
-                        : ['Pending', '#B45309', 'rgba(234,88,12,.10)'];
+                        : ['Pending', '#A9441F', 'rgba(156,63,30,.10)'];
                       return el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
                         el('td', { class: 'pl-3 pr-2 py-1.5 whitespace-nowrap' }, getCanonicalRepName(x.rep || '—'),
                           el('span', { class: 'ml-1 text-[9px]', style: { color: 'var(--text-subtle)' } }, _officeOf(x))),
@@ -2142,7 +2142,7 @@ function openMbRepModal(rep, day) {
   rows.sort((x, y) => (ord[x.bucket] - ord[y.bucket]) || (y.cv - x.cv));
   const sum = (b) => rows.filter(r => r.bucket === b).reduce((a2, r) => a2 + r.cv, 0);
   const B = { passed: { c: '#DF643A', bg: 'rgba(223,100,58,.14)', lab: 'Passed' },
-              pending: { c: '#B45309', bg: 'rgba(240,172,30,.16)', lab: 'Pending' },
+              pending: { c: '#A9441F', bg: 'rgba(240,172,30,.16)', lab: 'Pending' },
               failed: { c: '#B91C1C', bg: 'rgba(220,38,38,.10)', lab: 'Failed' } };
   const overlay = el('div', { class: 'fixed inset-0 bg-black/70 z-40 flex items-start justify-center p-4 overflow-y-auto' });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
@@ -2719,7 +2719,7 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
   const td = (t, right, opts = {}) => el('td', { style: { padding: '3px 6px', fontSize: '9.5px', textAlign: right ? 'right' : 'left', borderBottom: '1px solid #232323', whiteSpace: 'nowrap', fontWeight: opts.bold ? '800' : '400', color: opts.color || '#f2f2f2', fontVariantNumeric: 'tabular-nums' } }, t);
   const mkTeam = (tm) => {
     // Band wears the team's own color (Manage Teams), text auto-contrasts.
-    const bg = (typeof getTeamColor === 'function' && getTeamColor(tm.t)) || '#1D1D1D';
+    const bg = (typeof getTeamColor === 'function' && getTeamColor(tm.t)) || '#323230';
     const fg = (typeof groupHeaderTextColor === 'function') ? groupHeaderTextColor(bg) : '#fff';
     return el('div', {},
     el('div', { style: { padding: '6px 8px', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.06em', background: bg, color: fg, whiteSpace: 'nowrap', borderRadius: '0' } },
@@ -2731,7 +2731,7 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
         td('#' + (i + 1), false, { color: '#999' }),
         td(r.name, false, { bold: true }),
         td('wk of ' + wkLbl(r.bestWk)),
-        td(fmt.usd0(r.bestRev), true, { bold: true, color: '#F5A623' }),
+        td(fmt.usd0(r.bestRev), true, { bold: true, color: '#A9441F' }),
         td(r.cur > 0 ? fmt.usd0(r.cur) : '\u2014', true),
         td(r.earned ? '\ud83d\udc0d' : '', false))))));
   };
@@ -2746,13 +2746,13 @@ async function downloadKobeBestWeeksPdf(reps, from, to) {
       el('div', { style: { borderBottom: '4px solid #E0402A', paddingBottom: '8px', marginBottom: '14px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' } },
         el('div', {},
           el('div', { style: { fontSize: '34px', fontWeight: '900', letterSpacing: '-0.02em', lineHeight: '.95', textTransform: 'uppercase', color: '#fff' } }, 'KOBE WEEK'),
-          el('div', { style: { fontSize: '11px', fontWeight: '800', letterSpacing: '.18em', textTransform: 'uppercase', color: '#F5A623', marginTop: '4px' } }, 'BEST WEEKS \u00b7 ' + from.slice(5).replace('-', '/') + ' \u2013 ' + to.slice(5).replace('-', '/'))),
+          el('div', { style: { fontSize: '11px', fontWeight: '800', letterSpacing: '.18em', textTransform: 'uppercase', color: '#A9441F', marginTop: '4px' } }, 'BEST WEEKS \u00b7 ' + from.slice(5).replace('-', '/') + ' \u2013 ' + to.slice(5).replace('-', '/'))),
         el('div', { style: { textAlign: 'right' } },
           el('div', { style: { fontSize: '20px' } }, '\ud83d\udc0d'),
           el('div', { style: { fontSize: '8.5px', color: '#8a8a8a', fontWeight: '700', marginTop: '2px' } },
             new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + (pages.length ? ' \u00b7 p.' + (pages.length + 1) : ' \u00b7 RIDDMADE')))),
       i === 0 ? el('div', { style: { border: '2px solid #E0402A', borderRadius: '0', padding: '9px 14px', margin: '0 0 14px', background: 'rgba(10,10,10,.85)' } },
-        el('div', { style: { fontSize: '10px', fontWeight: '900', color: '#F5A623', textTransform: 'uppercase', letterSpacing: '.03em' } },
+        el('div', { style: { fontSize: '10px', fontWeight: '900', color: '#A9441F', textTransform: 'uppercase', letterSpacing: '.03em' } },
           'Target = your best Sun\u2013Sat week of the season \u00b7 MINIMUM: Rookies $7,000 \u00b7 Vets $10,000 \u00b7 Pending/Serviced only \u00b7 failed audits + last resorts don\u2019t count')) : null,
       el('div', { style: { display: 'flex', gap: '22px', alignItems: 'flex-start' } },
         el('div', { style: { flex: '1', minWidth: '0' } }, mkTeam(pair[0])),
@@ -3066,9 +3066,9 @@ function openKothDayModal(name, day, raw) {
   // label made four rows look like the one the tile was counting.
   const CHIP = {
     passed:   ['#DF643A', 'COUNTS'],
-    pending:  ['#B45309', 'PENDING'],
+    pending:  ['#A9441F', 'PENDING'],
     failed:   ['#DC2626', 'DOES NOT COUNT'],
-    excluded: ['#6B7280', 'NOT REVENUE'],
+    excluded: ['#7C857A', 'NOT REVENUE'],
   };
   const fmtFull = (iso) => { const d = new Date(iso + 'T00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); };
   const stat = (label, v, color) => el('div', { class: 'card p-3 min-w-0' },
@@ -3107,13 +3107,13 @@ function openKothDayModal(name, day, raw) {
     el('div', { class: 'grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4' },
       stat('Total Sold', passedV + pendingV + failedV),
       stat('Counts', passedV, '#DF643A'),
-      stat('Pending Audit', pendingV, '#B45309'),
+      stat('Pending Audit', pendingV, '#A9441F'),
       stat('Does Not Count', failedV, '#DC2626')),
     tableOf(inBase),
     el('div', { class: 'text-[11px] text-muted- mt-3' },
       'The ' + inBase.length + ' account' + (inBase.length === 1 ? '' : 's') + ' above are Total Sold. King of the Hill counts the PASSED-AUDIT ones only; pending accounts join this day automatically once their audit clears.'),
     outRows.length ? el('div', { class: 'mt-6' },
-      el('div', { class: 'text-[10px] uppercase tracking-widest font-black', style: { color: '#6B7280' } }, 'Not revenue - not in any total above'),
+      el('div', { class: 'text-[10px] uppercase tracking-widest font-black', style: { color: '#7C857A' } }, 'Not revenue - not in any total above'),
       el('div', { class: 'text-[11px] text-muted- mt-1' },
         outRows.length + ' account' + (outRows.length === 1 ? '' : 's') + ' worth ' + fmt.usd0(exclV)
         + ' never made it past a customer card and a subscription - no initial appointment was ever completed. The CRM drops these from Pending/Serviced, so they are not revenue anywhere in the app.'),
@@ -3254,7 +3254,7 @@ function mysteryBoxSection(isAdmin) {
           el('div', { class: 'text-xs text-muted-' }, isOpened ? 'Opened ' + new Date(opened[b.id]).toLocaleDateString() + ' — see your admin to claim.' : 'Tap to open it. No takebacks.'))),
       !isOpened ? el('button', {
         class: 'rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-        style: { background: '#DF643A', color: '#1D1D1D' },
+        style: { background: '#DF643A', color: '#323230' },
         onclick: () => openMysteryBoxOverlay(b),
       }, 'Open the box') : null));
   });
@@ -3329,7 +3329,7 @@ function mysteryBoxSection(isAdmin) {
                   class: 'text-xs', style: { color: '#DC2626' }, title: 'Remove this incentive',
                   onclick: () => { const o = { ...(state._mbOdds || {}) }; delete o[p]; _mbSaveCfg({ pool: poolNow.filter((_, j) => j !== i), odds: o }); mountApp(); },
                 }, '\u2715')))),
-            el('div', { class: 'flex items-center justify-end gap-1 pt-1.5 text-[11px] tabular-nums font-bold', style: { color: total === 100 ? '#DF643A' : '#D97706' } },
+            el('div', { class: 'flex items-center justify-end gap-1 pt-1.5 text-[11px] tabular-nums font-bold', style: { color: total === 100 ? '#DF643A' : '#A9441F' } },
               'Total ' + total + '%' + (total === 100 ? ' \u2713' : ' \u2014 should sum to 100')));
         })() : el('div', { class: 'text-xs text-muted- mb-2' }, 'No incentives yet \u2014 add the ones boxes can reveal.'),
         el('div', { class: 'flex items-center gap-2' },
@@ -3456,21 +3456,21 @@ function mysteryBoxSection(isAdmin) {
         el('td', { class: 'px-3 py-2 tabular-nums hidden sm:table-cell' }, String(r.n)),
         el('td', { class: 'px-3 py-2 tabular-nums text-muted- hidden sm:table-cell' }, fmt.usd0(r.total)),
         el('td', { class: 'px-3 py-2 tabular-nums font-bold' }, fmt.usd0(r.rev)),
-        el('td', { class: 'px-3 py-2 tabular-nums hidden sm:table-cell', style: { color: r.pending ? '#D97706' : 'var(--text-subtle)' } }, r.pending ? fmt.usd0(r.pending) : '\u2014'),
+        el('td', { class: 'px-3 py-2 tabular-nums hidden sm:table-cell', style: { color: r.pending ? '#A9441F' : 'var(--text-subtle)' } }, r.pending ? fmt.usd0(r.pending) : '\u2014'),
         el('td', { class: 'px-3 py-2 tabular-nums hidden sm:table-cell', style: { color: r.failed ? '#DC2626' : 'var(--text-subtle)' } }, r.failed ? fmt.usd0(r.failed) : '\u2014'),
         isQ
           ? el('td', { class: 'px-3 py-2' })
           : el('td', { class: 'px-3 py-2 whitespace-nowrap', style: { minWidth: '160px' } },
               el('div', { class: 'flex items-center gap-1.5' },
                 el('div', { style: { flex: '1', minWidth: '34px', height: '5px', borderRadius: '0', background: 'var(--card-2)', overflow: 'hidden' } },
-                  el('div', { style: { width: pctTo.toFixed(0) + '%', height: '100%', borderRadius: '0', background: pctTo >= 75 ? '#DF643A' : pctTo >= 40 ? '#D97706' : 'var(--border-2)' } })),
+                  el('div', { style: { width: pctTo.toFixed(0) + '%', height: '100%', borderRadius: '0', background: pctTo >= 75 ? '#DF643A' : pctTo >= 40 ? '#A9441F' : 'var(--border-2)' } })),
                 el('span', { class: 'text-[11px] tabular-nums font-bold whitespace-nowrap', style: { color: pctTo >= 75 ? '#DF643A' : 'var(--text-muted)' } },
                   fmt.usd0(Math.max(0, r.goal - r.rev)) + ' to go'))));
     };
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-2.5 flex items-center justify-between', style: { background: 'var(--text)', color: 'var(--bg)' } },
         el('div', { class: 'font-black uppercase tracking-widest text-sm' }, (isRk ? 'Rookies' : 'Veterans') + ' \u00b7 ' + fmt.usd0(goal)),
-        el('div', { class: 'text-xs font-bold tabular-nums px-2 py-0.5 rounded', style: { background: qual2.length ? '#DF643A' : 'rgba(255,255,255,.15)', color: qual2.length ? '#1D1D1D' : 'var(--bg)' } }, qual2.length + ' earned')),
+        el('div', { class: 'text-xs font-bold tabular-nums px-2 py-0.5 rounded', style: { background: qual2.length ? '#DF643A' : 'rgba(255,255,255,.15)', color: qual2.length ? '#323230' : 'var(--bg)' } }, qual2.length + ' earned')),
       (qual2.length || chase.length) ? el('div', { class: 'overflow-x-auto' }, el('table', { class: 'w-full text-sm' },
         el('thead', {}, el('tr', { class: 'text-left text-[10px] uppercase tracking-widest text-muted-' },
           ...[['name', 'Rep'], ['n', 'Passed Accts', 'Accounts counting toward the box (passed audit / no audit)'], ['total', 'Total', 'Pending/Serviced revenue (the FieldRoutes gate) \u2014 Passed + Pending + Failed'], ['rev', 'Passed', 'Passed audit or no audit, $99+ initial \u2014 the only revenue that counts toward the box'], ['pending', 'Pending', 'No audit flag yet (not Last Resort) \u2014 moves to Passed or Failed as audits land'], ['failed', 'Failed', 'Failed audit + Last Resort (<$99) \u2014 does not count'], ['progress', 'To Go', 'Sort by % of goal']].map(([k, h, tip]) => {
@@ -3527,7 +3527,7 @@ function openIslHelpModal() {
   const close = () => overlay.remove();
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   const block = (t, b) => el('div', { class: 'mb-4' },
-    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: '#1D1D1D' } }, t),
+    el('div', { class: 'text-[11px] uppercase tracking-widest font-bold mb-1', style: { color: '#323230' } }, t),
     el('div', { class: 'text-[13px] leading-relaxed', style: { color: 'var(--text-muted)' } }, b));
   overlay.append(el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
     el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: '#1F3B8B' } },
@@ -4156,7 +4156,7 @@ function viewNrlaPublic() {
       ? 'text-xs font-bold rounded-lg px-2.5 py-2 border border-dashed cursor-pointer transition hover:brightness-95 shrink-0'
       : 'text-xs font-bold rounded-full px-3 py-1 border border-dashed cursor-pointer transition hover:brightness-95 ml-auto',
     style: sel.favorite
-      ? { color: '#D97706', borderColor: '#D97706' }
+      ? { color: '#A9441F', borderColor: '#A9441F' }
       : { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
     title: sel.favorite
       ? '“' + sel.name + '” is the default — everyone lands on it when opening this tab. Click to unset.'
@@ -5110,7 +5110,7 @@ function springStandingsCard() {
   if (!Array.isArray(comp.rounds) || comp.rounds.length === 0) {
     comp.rounds = SPRING_DEFAULT_ROUNDS.map(r => ({ ...r }));
   }
-  const card = el('div', { id: 'spring-standings-poster', class: 'rounded-2xl overflow-hidden', style: { background: '#dddcd4', color: '#141414' } });
+  const card = el('div', { id: 'spring-standings-poster', class: 'rounded-2xl overflow-hidden', style: { background: '#dddcd4', color: '#323230' } });
 
   const ABBREV = { CHARLESTON: 'CHS', DETROIT: 'DET', RALEIGH: 'RAL', DESTIN: 'DES', ATLANTA: 'ATL' };
   const abbrev = (b) => {
@@ -5219,18 +5219,18 @@ function springStandingsCard() {
     // pull the bug tracker and round tables up the page.
     const infoRow = el('div', { style: { display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '8px', padding: '2px 30px 8px' } },
       el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', overflow: 'hidden' } },
-        el('div', { style: { background: '#F7941D', color: '#141414', padding: '8px 12px' } },
+        el('div', { style: { background: '#F7941D', color: '#323230', padding: '8px 12px' } },
           el('div', { style: { fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.06em', borderBottom: '2px solid rgba(20,20,20,.35)', paddingBottom: '2px', marginBottom: '3px' } }, '7 Categories'),
           ...CATS_LIST.map((c, i) => el('div', { style: { fontSize: '9.5px', fontWeight: '800', lineHeight: '1.5', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (i + 1) + '. ' + c))),
         el('div', { style: { background: '#ED1C24', color: '#fff', padding: '8px 12px' } },
           el('div', { style: { fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '.06em', borderBottom: '2px solid rgba(255,255,255,.5)', paddingBottom: '2px', marginBottom: '3px' } }, 'Per Round'),
           ...PAYOUT.map(([p, n]) => el('div', { style: { fontSize: '9.5px', fontWeight: '800', lineHeight: '1.5', whiteSpace: 'nowrap' } }, p + '\u2026 ' + n + ' Bug' + (n === 1 ? '' : 's'))))),
       el('div', { style: { display: 'flex', flexDirection: 'column', gap: '3px' } },
-        ...TIERS.map(([n, coin, color]) => el('div', { style: { background: color, color: n >= 20 ? '#fff' : '#141414', fontSize: '9.5px', fontWeight: '900', padding: '4px 10px', whiteSpace: 'nowrap', flex: '1', display: 'flex', alignItems: 'center' } },
+        ...TIERS.map(([n, coin, color]) => el('div', { style: { background: color, color: n >= 20 ? '#fff' : '#323230', fontSize: '9.5px', fontWeight: '900', padding: '4px 10px', whiteSpace: 'nowrap', flex: '1', display: 'flex', alignItems: 'center' } },
           n + ' Bugs Exterminated = ' + coin + ' per rep'))));
 
     // ── BUG COUNT tracker — every slot has a spider ──
-    const MILESTONES = { 12: ['12', '@50K', '#FFB899', '#141414'], 16: ['16', '@100K', '#FF8A5C', '#141414'], 20: ['20', '@200K', '#DF643A', '#fff'], 24: ['24', '@300K', '#9C3F1E', '#fff'] };
+    const MILESTONES = { 12: ['12', '@50K', '#FFB899', '#323230'], 16: ['16', '@100K', '#FF8A5C', '#323230'], 20: ['20', '@200K', '#DF643A', '#fff'], 24: ['24', '@300K', '#9C3F1E', '#fff'] };
     const SLOTS = 24;
     // SVG spiders (not emoji) — emoji rasterize as broken glyphs in the
     // PDF export; SVG paints identically on screen and in html2canvas.
@@ -5244,8 +5244,8 @@ function springStandingsCard() {
     const bugCell = (kind, slot) => {
       const ms = MILESTONES[slot];
       const dead = kind === 'dead';
-      const fill = dead ? '#ED1C24' : '#141414';
-      const legC = dead ? '#ED1C24' : '#141414';
+      const fill = dead ? '#ED1C24' : '#323230';
+      const legC = dead ? '#ED1C24' : '#323230';
       const outline = kind === 'live' ? ' stroke="#ED1C24" stroke-width="1.4"' : '';
       const cell = el('div', { style: {
         width: '100%', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -5261,7 +5261,7 @@ function springStandingsCard() {
     };
     const tracker = el('div', { style: { margin: '6px 30px 14px', background: '#9d9d97', padding: '14px 16px 16px' } },
       el('div', { style: { display: 'grid', gridTemplateColumns: '120px repeat(' + SLOTS + ', 1fr)', gap: '2px', alignItems: 'center' } },
-        el('div', { style: { fontSize: '18px', fontWeight: '900', textTransform: 'uppercase', color: '#141414' } }, 'Bug Count'),
+        el('div', { style: { fontSize: '18px', fontWeight: '900', textTransform: 'uppercase', color: '#323230' } }, 'Bug Count'),
         ...Array.from({ length: SLOTS }, (_, i) => {
           const ms = MILESTONES[i + 1];
           return el('div', { style: { textAlign: 'center', fontSize: '8px', fontWeight: '900', color: ms ? ms[3] : 'transparent', background: ms ? ms[2] : 'transparent', padding: '2px 0' } },
@@ -5271,15 +5271,15 @@ function springStandingsCard() {
           const d = Math.min(deadBugs[b] || 0, SLOTS);
           const l = Math.min(liveBugs[b] || 0, SLOTS - d);
           return [
-            el('div', { style: { fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', color: '#141414', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '4px' } }, b),
+            el('div', { style: { fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', color: '#323230', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '4px' } }, b),
             ...Array.from({ length: SLOTS }, (_, i) =>
               bugCell(i < d ? 'dead' : i < d + l ? 'live' : 'black', i + 1)),
           ];
         })),
-      el('div', { style: { display: 'flex', gap: '14px', marginTop: '8px', fontSize: '9px', fontWeight: '800', color: '#141414' } },
+      el('div', { style: { display: 'flex', gap: '14px', marginTop: '8px', fontSize: '9px', fontWeight: '800', color: '#323230' } },
         el('span', { style: { color: '#ED1C24' } }, '● flipped red — past rounds (exterminated)'),
-        el('span', { style: { color: '#141414' } }, '◉ black + red outline — live round'),
-        el('span', { style: { color: '#141414' } }, '● black — not earned yet')));
+        el('span', { style: { color: '#323230' } }, '◉ black + red outline — live round'),
+        el('span', { style: { color: '#323230' } }, '● black — not earned yet')));
 
     // ── Round tables ──
     const CAT_COLS = [['avgPestInitial', 'Avg Pest Init'], ['pra', 'PRA'], ['acv', 'ACV'], ['pct24', '24M %'], ['autopayPct', 'Apay %'], ['auditPct', 'Audit %'], ['revenue', 'Passed Rev']];
@@ -5337,7 +5337,7 @@ function springStandingsCard() {
               onclick: r.pendingN ? () => openSpringPendingModal(idx + 1, roundLabel(r), r.sc ? r.sc.pending : []) : null },
               r.pendingN + ' audit' + (r.pendingN === 1 ? '' : 's') + ' pending')
           : r.hasData
-            ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#141414', background: '#FFB899', padding: '2px 8px', borderRadius: '0', textTransform: 'uppercase' } }, 'Live')
+            ? el('span', { style: { fontSize: '9px', fontWeight: '900', color: '#323230', background: '#FFB899', padding: '2px 8px', borderRadius: '0', textTransform: 'uppercase' } }, 'Live')
             : null;
       return el('div', { style: { padding: '6px 30px 14px' } },
         el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
@@ -5349,17 +5349,17 @@ function springStandingsCard() {
           el('table', { style: { borderCollapse: 'collapse', flex: '1' } },
             el('thead', {}, el('tr', {},
               el('th', { style: { width: '120px', minWidth: '120px', maxWidth: '120px', boxSizing: 'border-box', position: 'sticky', left: '0', zIndex: 2, background: '#dddcd4' } }, ''),
-              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, 'Reps'),
-              ...CAT_COLS.map(([, lab]) => el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414' } }, lab)),
-              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#666' } }, 'Total Rev'),
-              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#b03030' } }, 'Failed Rev'),
-              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #141414', color: '#9a7d0a' } }, 'Pending Rev'))),
+              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #323230' } }, 'Reps'),
+              ...CAT_COLS.map(([, lab]) => el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #323230' } }, lab)),
+              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #323230', color: '#666' } }, 'Total Rev'),
+              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #323230', color: '#b03030' } }, 'Failed Rev'),
+              el('th', { style: { padding: '3px 10px 3px 6px', fontSize: '10.5px', fontWeight: '800', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '2px solid #323230', color: '#9a7d0a' } }, 'Pending Rev'))),
             el('tbody', {}, ...order.map(rowFor))),
           el('div', { style: { background: '#9d9d97', padding: '8px 12px', minWidth: '150px', marginTop: '21px' } },
-            el('div', { style: { fontSize: '10.5px', fontWeight: '900', color: '#141414', marginBottom: '4px', whiteSpace: 'nowrap' } }, 'Rd ' + (idx + 1) + ' Power Rank'),
+            el('div', { style: { fontSize: '10.5px', fontWeight: '900', color: '#323230', marginBottom: '4px', whiteSpace: 'nowrap' } }, 'Rd ' + (idx + 1) + ' Power Rank'),
             ...order.map(rankRow)),
           el('div', { style: { background: '#b9b9b3', padding: '8px 12px', minWidth: '86px', marginTop: '21px' } },
-            el('div', { style: { fontSize: '10.5px', fontWeight: '900', color: '#141414', marginBottom: '4px', whiteSpace: 'nowrap' } }, 'Bug Count'),
+            el('div', { style: { fontSize: '10.5px', fontWeight: '900', color: '#323230', marginBottom: '4px', whiteSpace: 'nowrap' } }, 'Bug Count'),
             ...order.map(bugRow))));
     };
 
@@ -5375,9 +5375,9 @@ function springStandingsCard() {
         class: 'cursor-pointer transition hover:brightness-95',
         style: {
           fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', padding: '4px 12px', borderRadius: '0',
-          background: i === state._scRoundSel ? '#141414' : 'transparent',
-          color: i === state._scRoundSel ? '#fff' : '#141414',
-          border: '1px solid #141414', whiteSpace: 'nowrap',
+          background: i === state._scRoundSel ? '#323230' : 'transparent',
+          color: i === state._scRoundSel ? '#fff' : '#323230',
+          border: '1px solid #323230', whiteSpace: 'nowrap',
         },
         title: (r.start && r.end) ? roundLabel(r) : 'No dates set yet',
         onclick: () => { state._scRoundSel = i; render(); },
@@ -5656,10 +5656,10 @@ function openAvgPestRaffleHelpModal() {
   const card = el('div', { class: 'card w-full max-w-lg my-8 overflow-hidden flex flex-col', style: { maxHeight: 'calc(100vh - 64px)' } },
     el('div', { class: 'flex items-start justify-between px-5 py-3', style: { background: '#DF643A' } },
       el('div', {},
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: '#1D1D1D', opacity: '0.8' } }, 'By RIDDMADE™'),
-        el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#1D1D1D', textTransform: 'uppercase' } }, 'Avg Pest Initial Competitions'),
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: '#323230', opacity: '0.8' } }, 'By RIDDMADE™'),
+        el('h2', { class: 'text-lg font-black mt-0.5', style: { color: '#323230', textTransform: 'uppercase' } }, 'Avg Pest Initial Competitions'),
       ),
-      el('button', { class: 'text-2xl leading-none', style: { color: '#1D1D1D' }, onclick: close }, '×'),
+      el('button', { class: 'text-2xl leading-none', style: { color: '#323230' }, onclick: close }, '×'),
     ),
     el('div', { class: 'overflow-auto px-5 py-4' },
       block('🏆 Avg Pest Initial', 'Every rep with 6+ qualifying accounts, ranked by Avg Initial. Sentricon / German Roach / Interior Flea services don\'t count toward the average. Post-service cancels still count once the initial ran.'),
@@ -5820,8 +5820,8 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
     el('div', { style: { background: '#E7E7DF', padding: '14px 16px', borderBottom: '3px solid #9C3F1E' } },
       el('div', { class: 'flex items-center justify-between gap-3' },
         el('div', { class: 'shrink-0' },
-          el('div', { style: { fontWeight: '900', fontSize: '30px', letterSpacing: '-0.02em', color: '#141414', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
-          el('div', { style: { fontWeight: '800', fontSize: '10.5px', letterSpacing: '0.06em', color: '#141414', marginTop: '3px', textTransform: 'uppercase' } },
+          el('div', { style: { fontWeight: '900', fontSize: '30px', letterSpacing: '-0.02em', color: '#323230', lineHeight: '0.95', textTransform: 'uppercase' } }, 'Spring Cleaning'),
+          el('div', { style: { fontWeight: '800', fontSize: '10.5px', letterSpacing: '0.06em', color: '#323230', marginTop: '3px', textTransform: 'uppercase' } },
             'Team Quality Based Competition by RIDDMADE™'),
           indicatorCompWindowStr() !== 'All dates' && el('div', { style: { display: 'inline-block', marginTop: '6px', padding: '3px 10px', borderRadius: '0', background: '#9C3F1E', color: '#fff', fontWeight: '900', fontSize: '11px', letterSpacing: '0.03em' } }, indicatorCompWindowStr()),
           indicatorLastUpdatedStr() && el('div', { style: { fontSize: '10px', color: '#A9441F', marginTop: '4px', fontWeight: '700' } }, indicatorLastUpdatedStr()),
@@ -5919,7 +5919,7 @@ function indicatorSpringCleaningBoard(sales, branchList, winLabel) {
       el('div', { class: 'text-[11px] text-right flex flex-col gap-0.5' },
         el('div', { style: { color: '#DC2626' } },
           '⚠ ' + excludedSummary.count.toLocaleString() + ' not counting · ' + usd(excludedSummary.revenue) + ' excluded'),
-        el('div', { style: { color: '#D97706' } },
+        el('div', { style: { color: '#A9441F' } },
           '⏳ ' + pendingSummary.count.toLocaleString() + ' pending audit · ' + usd(pendingSummary.revenue) + ' included (assumed passing)'),
       ),
     ),
@@ -6243,7 +6243,7 @@ function isRepExcluded(repName) {
 
 // Independent of team: each rep can be tagged 'rookie' | 'vet' (or unset).
 const REP_TIERS = [
-  { id: 'rookie', label: 'Rookie', color: '#0EA5E9' },
+  { id: 'rookie', label: 'Rookie', color: '#5F6C5B' },
   { id: 'vet',    label: 'Vet',    color: '#DF643A' },
 ];
 // ── Tier resolution — YEAR-AWARE so tags never need redoing in January ──

@@ -305,8 +305,8 @@ function reportingCustomerHealth() {
   scored.sort((a, b) => b.score - a.score || b.arr - a.arr);
 
   const BUCKETS = [
-    ['critical', 'Critical', '#DC2626'], ['atrisk', 'At Risk', '#D97706'],
-    ['watch', 'Watch', '#B45309'], ['healthy', 'Healthy', '#DF643A'],
+    ['critical', 'Critical', '#DC2626'], ['atrisk', 'At Risk', '#A9441F'],
+    ['watch', 'Watch', '#A9441F'], ['healthy', 'Healthy', '#DF643A'],
   ];
   const bucketAgg = {};
   BUCKETS.forEach(([k]) => bucketAgg[k] = { n: 0, arr: 0 });
@@ -397,7 +397,7 @@ function reportingCustomerHealth() {
               el('th', { class: 'text-left px-3 py-2 font-semibold' }, 'Why'))),
           el('tbody', {},
             ...list.slice(0, 300).map(c => {
-              const color = c.bucket === 'critical' ? '#DC2626' : c.bucket === 'atrisk' ? '#D97706' : c.bucket === 'watch' ? '#B45309' : '#DF643A';
+              const color = c.bucket === 'critical' ? '#DC2626' : c.bucket === 'atrisk' ? '#A9441F' : c.bucket === 'watch' ? '#A9441F' : '#DF643A';
               return el('tr', { class: 'border-t tabular-nums', style: { borderColor: 'var(--border)' } },
                 el('td', { class: 'px-3 py-2 font-black', style: { color } }, c.score),
                 el('td', { class: 'px-2 py-2' },
@@ -586,7 +586,7 @@ function reportingRenewals() {
   const LOG = state._renewalLog || {};
   const logOf = (x) => LOG[String(x.id)] || {};
   const RESULTS = ['Resigned', 'Not Interested', 'No Answer', 'Follow Up'];
-  const RESULT_COLOR = { 'Resigned': '#DF643A', 'Not Interested': '#DC2626', 'No Answer': '#D97706', 'Follow Up': '#0EA5E9' };
+  const RESULT_COLOR = { 'Resigned': '#DF643A', 'Not Interested': '#DC2626', 'No Answer': '#A9441F', 'Follow Up': '#5F6C5B' };
   const disp = state._renewalDisp || 'towork';
   const matchDisp = (x) => {
     const r = logOf(x).result || '';
@@ -721,7 +721,7 @@ function reportingRenewals() {
       'Call these FIRST — sorted by how soon the contract ends, then ARV.',
       expiring,
       { btn: (L) => exportBtn(L, 'renewals-expiring.csv', 'Months To Term End', (x) => x.toGo.toFixed(1)),
-        lastHdr: 'Ends in', lastVal: (x) => x.toGo.toFixed(1) + ' mo', lastColor: (x) => x.toGo < 1 ? '#DC2626' : '#D97706' },
+        lastHdr: 'Ends in', lastVal: (x) => x.toGo.toFixed(1) + ' mo', lastColor: (x) => x.toGo < 1 ? '#DC2626' : '#A9441F' },
       'Nothing here under this disposition filter.'),
     listCard('Past term — rolled over, never re-signed',
       'Contract completed and still active month-to-month. Zero commitment protecting this ARR — biggest tickets first.',
@@ -798,7 +798,7 @@ function reportingContractLength() {
   });
   const med = (arr) => { if (!arr.length) return null; const s = arr.slice().sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
   const pctUnder = (arr, m) => arr.length ? arr.filter(v => v < m).length / arr.length : 0;
-  const TERM_COLOR = { 12: '#0EA5E9', 18: '#D97706', 24: '#DF643A' };
+  const TERM_COLOR = { 12: '#5F6C5B', 18: '#A9441F', 24: '#DF643A' };
 
   // Reason mix table — top reasons across all three terms.
   const allReasons = new Map();
@@ -903,7 +903,7 @@ function reportingContractLength() {
               el('td', { class: 'px-2 py-1.5 font-semibold' }, _titleCaseWords(o.k)),
               ...TERMS.map(t => {
                 const share = o.n ? o.t[t] / o.n : 0;
-                return el('td', { class: 'px-2 py-1.5 text-right' + (t === 18 && share > 0.35 ? ' font-bold' : '') , style: t === 18 && share > 0.35 ? { color: '#D97706' } : {} }, pct(share));
+                return el('td', { class: 'px-2 py-1.5 text-right' + (t === 18 && share > 0.35 ? ' font-bold' : '') , style: t === 18 && share > 0.35 ? { color: '#A9441F' } : {} }, pct(share));
               }),
               el('td', { class: 'px-2 py-1.5 text-right font-bold', style: { color: o.cxl && o.delinq / o.cxl > 0.45 ? '#DC2626' : 'var(--text)' } }, o.cxl ? pct(o.delinq / o.cxl) : '—'))))))]),
     // Year × term survival

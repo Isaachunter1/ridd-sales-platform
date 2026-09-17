@@ -445,7 +445,7 @@ function viewDashboard() {
       // Progress bars for New and Renewal
       const progressBars = [
         { label: 'New Revenue',     actual: ytdDept.new,     target: newTarget,     color: '#DF643A' },
-        { label: 'Renewal Revenue', actual: ytdDept.renewal, target: renewalTarget, color: '#757667' },
+        { label: 'Renewal Revenue', actual: ytdDept.renewal, target: renewalTarget, color: '#5F6C5B' },
       ];
 
       // Total Revenue distribution bar (stacked: New | Renewal)
@@ -585,7 +585,7 @@ function viewDashboard() {
                 title: 'New: ' + fmt.usd0(ytdDept.new) + ' (' + newPctOfTotal.toFixed(1) + '%)',
               }),
               el('div', {
-                style: { background: '#757667', height: '100%', width: renewalPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '0' },
+                style: { background: '#5F6C5B', height: '100%', width: renewalPctOfTotal.toFixed(1) + '%', transition: 'width .3s', borderRadius: '0' },
                 title: 'Renewal: ' + fmt.usd0(ytdDept.renewal) + ' (' + renewalPctOfTotal.toFixed(1) + '%)',
               }),
             ),
@@ -598,7 +598,7 @@ function viewDashboard() {
                 el('span', { class: 'text-[10px] text-muted-' }, '(' + newPctOfTotal.toFixed(0) + '%)'),
               ),
               el('div', { class: 'flex items-center gap-1.5' },
-                el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: '#757667' } }),
+                el('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: '#5F6C5B' } }),
                 el('span', { class: 'text-[11px]' }, 'Renewal'),
                 el('span', { class: 'text-[11px] font-semibold tabular-nums' }, fmt.usd0(ytdDept.renewal)),
                 el('span', { class: 'text-[10px] text-muted-' }, '(' + renewalPctOfTotal.toFixed(0) + '%)'),
@@ -645,9 +645,9 @@ function viewDashboard() {
               needYear != null ? el('span', { title: fmt.usd0(Math.max(0, bar.target - bar.actual)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days left this year' },
                 needYear > 0 ? el('span', {}, 'Need ', el('b', { style: { color: bar.color } }, fmt.usd0(needYear) + '/day'), ' rest of year') : el('span', {}, '✓ annual goal hit')) : null,
               projMonth != null && monTarget > 0 ? el('span', { title: 'This month’s run-rate (' + fmt.usd0(mtdActual) + ' over ' + daysDoneM + ' of ' + daysTotM + ' selling days) carried to month end' },
-                'Projected ' + monName + ' ', el('b', { style: { color: _hit(projMonth, monTarget) ? '#16A34A' : '#DC2626' } }, fmt.usd0(projMonth)), ' of ' + fmt.usd0(monTarget)) : null,
+                'Projected ' + monName + ' ', el('b', { style: { color: _hit(projMonth, monTarget) ? '#5F6C5B' : '#DC2626' } }, fmt.usd0(projMonth)), ' of ' + fmt.usd0(monTarget)) : null,
               projYear != null && bar.target > 0 ? el('span', { title: 'YTD ÷ the seasonal share of the year that should be sold by today (' + (seasonalPctBar * 100).toFixed(1) + '%)' },
-                'Projected year ', el('b', { style: { color: _hit(projYear, bar.target) ? '#16A34A' : '#DC2626' } }, fmt.usd0(projYear)), ' of ' + fmt.usd0(bar.target)) : null,
+                'Projected year ', el('b', { style: { color: _hit(projYear, bar.target) ? '#5F6C5B' : '#DC2626' } }, fmt.usd0(projYear)), ' of ' + fmt.usd0(bar.target)) : null,
             );
             let needLine = null, needLineMob = null;
             if (Array.isArray(_monthly) && _monthly.length === 12 && bar.target > 0) {
@@ -756,7 +756,7 @@ function viewDashboard() {
             const winEnd = open ? natEnd : re;
             const rowsP = [
               { label: 'New', color: '#DF643A', actual: newRevenue, monthly: g.monthly_new, annual: newTarget },
-              { label: 'Renewal', color: '#757667', actual: renewalRevenue, monthly: g.monthly_renewal, annual: renewalTarget },
+              { label: 'Renewal', color: '#5F6C5B', actual: renewalRevenue, monthly: g.monthly_renewal, annual: renewalTarget },
             ].map(r => {
               const goalWin = _goalBetween(r.monthly, r.annual, rs, winEnd);            // whole window (through its natural end)
               const goalSoFar = open ? _goalBetween(r.monthly, r.annual, rs, today0) : goalWin;   // what should be in by today
@@ -771,12 +771,12 @@ function viewDashboard() {
               const soFarPct = r.goalWin > 0 ? Math.min(100, r.goalSoFar / r.goalWin * 100) : 0;
               const diff = r.actual - r.goalWin;
               const verdict = !open
-                ? el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap', style: diff >= 0 ? { background: 'rgba(22,163,74,.10)', color: '#16A34A' } : { background: 'rgba(220,38,38,.08)', color: '#DC2626' } }, diff >= 0 ? '✓ hit · +' + fmt.usd0(diff) : 'missed by ' + fmt.usd0(-diff))
+                ? el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap', style: diff >= 0 ? { background: 'rgba(95,108,91,.10)', color: '#5F6C5B' } : { background: 'rgba(220,38,38,.08)', color: '#DC2626' } }, diff >= 0 ? '✓ hit · +' + fmt.usd0(diff) : 'missed by ' + fmt.usd0(-diff))
                 : kind === 'today'
-                  ? el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.actual >= r.goalWin ? '#16A34A' : 'var(--text-muted)' } }, r.actual >= r.goalWin ? '✓ day goal hit' : fmt.usd0(Math.max(0, r.goalWin - r.actual)) + ' to go today')
+                  ? el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.actual >= r.goalWin ? '#5F6C5B' : 'var(--text-muted)' } }, r.actual >= r.goalWin ? '✓ day goal hit' : fmt.usd0(Math.max(0, r.goalWin - r.actual)) + ' to go today')
                   : r.need != null
-                    ? el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.need > 0 ? 'var(--text-muted)' : '#16A34A' }, title: fmt.usd0(Math.max(0, r.goalWin - r.actual)) + ' left ÷ ' + r.left + ' selling days left in the window' }, r.need > 0 ? 'need ' + fmt.usd0(r.need) + '/day · ' + r.left + ' days left' : '✓ window goal hit')
-                    : el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.actual >= r.goalWin ? '#16A34A' : '#DC2626' } }, r.actual >= r.goalWin ? '✓ hit' : fmt.usd0(r.goalWin - r.actual) + ' short, no selling days left');
+                    ? el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.need > 0 ? 'var(--text-muted)' : '#5F6C5B' }, title: fmt.usd0(Math.max(0, r.goalWin - r.actual)) + ' left ÷ ' + r.left + ' selling days left in the window' }, r.need > 0 ? 'need ' + fmt.usd0(r.need) + '/day · ' + r.left + ' days left' : '✓ window goal hit')
+                    : el('span', { class: 'text-[10px] font-semibold whitespace-nowrap', style: { color: r.actual >= r.goalWin ? '#5F6C5B' : '#DC2626' } }, r.actual >= r.goalWin ? '✓ hit' : fmt.usd0(r.goalWin - r.actual) + ' short, no selling days left');
               return el('div', { class: 'min-w-0' },
                 el('div', { class: 'flex items-center justify-between gap-2 mb-1 min-w-0' },
                   el('div', { class: 'flex items-center gap-1.5 min-w-0' },
@@ -2335,7 +2335,7 @@ function openCoachModeModal() {
       class: 'text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 whitespace-nowrap',
       style: isHigh
         ? { background: 'rgba(220,38,38,.12)', color: '#B91C1C' }
-        : { background: 'rgba(245,158,11,.15)', color: '#92400E' },
+        : { background: 'rgba(223,100,58,.15)', color: '#A9441F' },
     }, issue.label);
   }
 
@@ -2370,7 +2370,7 @@ function openCoachModeModal() {
             ? el('span', { class: 'text-xs text-muted-' }, flagged.length + ' rep' + (flagged.length === 1 ? '' : 's') + ' need attention')
             : el('span', { class: 'text-xs text-muted-' }, 'no reps flagged'),
           highCount > 0 && el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(220,38,38,.12)', color: '#B91C1C' } }, highCount + ' high'),
-          medCount > 0 && el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(245,158,11,.15)', color: '#92400E' } }, medCount + ' med'),
+          medCount > 0 && el('span', { class: 'text-[10px] font-bold px-1.5 py-0.5 rounded', style: { background: 'rgba(223,100,58,.15)', color: '#A9441F' } }, medCount + ' med'),
         ),
         el('button', { class: 'text-2xl text-muted-', onclick: () => overlay.remove() }, '×'),
       ),
@@ -4059,7 +4059,7 @@ function openIndicatorRepCard(rep, allReps = []) {
               const _audit = SC_FAIL_RE.test(_fl) ? ['Failed', '#DC2626', 'rgba(220,38,38,.12)']
                 : SC_PASS_RE.test(_fl) ? ['Passed', '#DF643A', 'rgba(223,100,58,.18)']
                 : SC_NOAUDIT_RE.test(_fl) ? ['No Audit', '#DF643A', 'rgba(223,100,58,.14)']
-                : ['Pending', '#B45309', 'rgba(245,158,11,.14)'];
+                : ['Pending', '#A9441F', 'rgba(223,100,58,.14)'];
               const _ct = Number(x.contract) || 0;
               const _init = Number(x.initialPrice) || 0;
               return el('div', { class: 'flex items-center justify-between gap-2 text-[11px] py-1.5 border-b', style: { borderColor: 'var(--border)' } },
@@ -4890,7 +4890,7 @@ function openIndicatorRepCard(rep, allReps = []) {
       group('Attrition · of serviced', [
         tile('Attrition · excl. ROR + OTS', pctS(attrExclRor), 'cancelled ÷ serviced (3-day RORs + one-time services removed from both sides)', good),
         tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), 'cancelled ÷ serviced (incl. ROR + one-time)', 'var(--text)'),
-        tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#D97706'),
+        tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#A9441F'),
           // ('Active retention' tile removed per Isaac - it duplicated 1 - attrition and left the grid uneven.)
       ]),
       // \u2500\u2500 "True Attrition" bar (per Isaac) \u2014 same fixed definition as
@@ -4922,10 +4922,10 @@ function openIndicatorRepCard(rep, allReps = []) {
                 'True attrition \u00b7 excl. ROR + OTS + renewals \u00b7 aging counts as churn'),
               el('div', { class: 'text-[10px] text-muted- mt-0.5' },
                 '(cancelled ' + money(tCxl) + ' + aging ' + money(tAging) + ') \u00f7 ' + money(tSvc) + ' serviced')),
-            el('div', { class: 'text-xl font-black tabular-nums', style: { color: rate >= 0.15 ? bad : rate < 0.08 ? good : '#D97706' } }, pctS(rate))),
+            el('div', { class: 'text-xl font-black tabular-nums', style: { color: rate >= 0.15 ? bad : rate < 0.08 ? good : '#A9441F' } }, pctS(rate))),
           el('div', { class: 'w-full rounded-full overflow-hidden flex mt-2', style: { height: '10px', background: 'var(--card)' } },
             seg(kept, good, 'Retained'),
-            seg(tAging, '#D97706', 'Aging'),
+            seg(tAging, '#A9441F', 'Aging'),
             seg(tCxl, bad, 'Cancelled')),
           el('div', { class: 'flex items-center justify-between mt-1 text-[10px] text-muted-' },
             el('span', {},

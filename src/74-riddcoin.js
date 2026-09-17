@@ -499,7 +499,7 @@ function viewMarketplace() {
             class: 'px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer border', style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
             onclick: () => { d.pool.push({ name: '', odds: 0, rarity: 'bronze', value: 0 }); mountApp(); },
           }, '+ Add prize'),
-          el('div', { class: 'text-[11px] font-bold tabular-nums', style: { color: totalOdds === 100 ? '#DF643A' : '#D97706' } },
+          el('div', { class: 'text-[11px] font-bold tabular-nums', style: { color: totalOdds === 100 ? '#DF643A' : '#A9441F' } },
             'Total ' + totalOdds + '%' + (totalOdds === 100 ? ' ✓' : ' — should be 100')),
           el('button', {
             class: 'px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer', style: { background: 'var(--accent)', color: 'var(--accent-text)' },

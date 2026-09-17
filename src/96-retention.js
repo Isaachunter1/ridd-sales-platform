@@ -441,7 +441,7 @@ function reportingWaterfall() {
                 const _bg = cellColor(row, v);
                 return el('td', {
                   class: 'text-left px-2 py-2 tabular-nums',
-                  style: _bg === 'transparent' ? {} : { background: _bg, color: '#111827', fontWeight: '600' },
+                  style: _bg === 'transparent' ? {} : { background: _bg, color: '#323230', fontWeight: '600' },
                   title: stepTitle,
                 }, fmtCell(v),
                   stepPct != null && v > 0
@@ -581,7 +581,7 @@ function reportingWaterfall() {
             if (!boyPrev.length) return null;
             const nowPts = boyRows.length ? g.n / boyRows.length * 100 : 0;
             const prevPts = prevPtsByReason.get(g.key);
-            if (prevPts == null) return el('span', { class: 'font-bold', style: { color: '#B45309' } }, 'new vs ' + prevLabel);
+            if (prevPts == null) return el('span', { class: 'font-bold', style: { color: '#A9441F' } }, 'new vs ' + prevLabel);
             const d = nowPts - prevPts;
             if (Math.abs(d) < 0.005) return el('span', { class: 'font-bold' }, 'flat vs ' + prevLabel);
             return el('span', { class: 'font-bold', style: { color: d > 0 ? '#DC2626' : '#DF643A' } },
@@ -788,7 +788,7 @@ function reportingWaterfall() {
         }
         return el('td', {
           class: 'px-2 py-1.5 tabular-nums cursor-pointer transition hover:brightness-95',
-          style: { background: heat(pace != null ? pace : v.rate), color: '#111827', fontWeight: '600' },
+          style: { background: heat(pace != null ? pace : v.rate), color: '#323230', fontWeight: '600' },
           title: MONTHS_S[m - 1] + ' ' + y + ': ' + v.n + ' of ' + fmt.int(v.den) + ' churned'
             + (pace != null ? ' so far — trending to ' + (pace * 100).toFixed(2) + '% at the current pace (~' + Math.round(pace * v.den) + ' cancels by month-end)' : '')
             + (topReasons(y, m) ? ' — ' + topReasons(y, m) : '') + '. Click for the full breakdown.',
@@ -800,7 +800,7 @@ function reportingWaterfall() {
       // Seasonality signal: the month's average churn across the shown years.
       const vals = yearsShown.map(y => (y === curY && m > curM) ? null : rateOf(y, m)).filter(v => v && v.den >= 25);
       const avg = vals.length ? vals.reduce((a, v) => a + v.rate, 0) / vals.length : null;
-      cells.push(el('td', { class: 'px-2 py-1.5 tabular-nums font-bold', style: avg == null ? {} : { background: heat(avg), color: '#111827' } },
+      cells.push(el('td', { class: 'px-2 py-1.5 tabular-nums font-bold', style: avg == null ? {} : { background: heat(avg), color: '#323230' } },
         avg == null ? '—' : (avg * 100).toFixed(2) + '%'));
       return el('tr', { class: 'border-t border-' },
         el('td', { class: 'px-2.5 py-1.5 font-semibold' }, MONTHS_S[m - 1]), ...cells);
@@ -1046,7 +1046,7 @@ function reportingWaterfall() {
         return (key === TOTAL_KEY ? (cancelsByYm[ym] || 0) : ((reasonsByYm[ym] || {})[key] || 0)) / den;
       };
       const cid = 'chart-churn-yoy-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
-      const palette2 = ['#2b8cbe', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#ec4899', '#6366f1', '#FACC15'];
+      const palette2 = ['#DF643A', '#5F6C5B', '#323230', '#A78256', '#9C3F1E', '#8E9C8A', '#FFB899', '#C9B98A', '#3F4A3C', '#E8A06B', '#7C857A', '#6B2A12'];
       const DASHES = [[], [6, 4], [2, 3], [10, 4, 2, 4]];
       const hint = el('div', { class: 'px-4 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } },
         'Jan–Dec, one line per year — same months stack for YoY' + (selSeries.length > 1 ? ' · dash pattern = series' : ' · ' + nameOf(selSeries[0])));
@@ -1118,7 +1118,7 @@ function reportingWaterfall() {
       const maxStart = Math.max(0, seq.length - VISIBLE);
       if (state._churnPanStart == null || state._churnPanStart > maxStart) state._churnPanStart = maxStart;
       const cid = 'chart-churn-timeline-' + String(label || 'main').replace(/[^a-z0-9]/gi, '-') + (inCompare ? '-cmp' : '');
-      const palette = ['#0EA5E9', '#F59E0B', '#A855F7', '#14B8A6', '#EC4899', '#DF643A', '#F97316', '#6366F1', '#FACC15', '#EF4444'];
+      const palette = ['#DF643A', '#5F6C5B', '#323230', '#A78256', '#9C3F1E', '#8E9C8A', '#FFB899', '#C9B98A', '#3F4A3C', '#E8A06B', '#7C857A', '#6B2A12'];
       const hint = el('div', { class: 'px-4 pt-2 text-[10px]', style: { color: 'var(--text-subtle)' } },
         '↔ Drag to move through time · showing ' + VISIBLE + ' of ' + seq.length + ' months · reason lines are their share of the monthly rate and sum to the total');
       const wrapEl = el('div', { class: 'px-4 pb-4 pt-1', style: { position: 'relative', height: '280px' } },
@@ -1269,7 +1269,7 @@ function reportingWaterfall() {
         const pct = kept.length / eligible.length;
         return el('td', {
           class: 'px-2 py-1.5 tabular-nums',
-          style: { background: greenHeat(pct), color: '#111827', fontWeight: '600' },
+          style: { background: greenHeat(pct), color: '#323230', fontWeight: '600' },
           title: fmt.int(kept.length) + ' of ' + fmt.int(eligible.length) + ' subs starting in ' + MONTHS_S[m] + ' (any year) still active ' + h + ' months in',
         }, (pct * 100).toFixed(1) + '%');
       });
@@ -1314,7 +1314,7 @@ function reportingWaterfall() {
                 const pct = kept.length / eligible.length;
                 return el('td', {
                   class: 'px-2 py-2 tabular-nums font-black',
-                  style: { background: greenHeat(pct), color: '#111827' },
+                  style: { background: greenHeat(pct), color: '#323230' },
                   title: fmt.int(kept.length) + ' of ' + fmt.int(eligible.length) + ' subs (all start months pooled) still active ' + h + ' months in',
                 }, (pct * 100).toFixed(1) + '%');
               });
@@ -1543,7 +1543,7 @@ function reportingWaterfall() {
     let datasets = [];
     const isDark = state.theme === 'dark';
     const gray = isDark ? '#6b6b63' : '#B8B8AE';
-    const SEG_COLORS = { all: isDark ? '#E6E6DC' : '#1D1D1D', lr: '#DC2626', std: '#DF643A' };
+    const SEG_COLORS = { all: isDark ? '#E6E6DC' : '#323230', lr: '#DC2626', std: '#DF643A' };
     const _dashFor = (y) => y === curY ? [] : (curY - y === 1 ? [6, 4] : [3, 3]);
     // Baseline: one dashed gray line — the selected PRIOR years averaged
     // (all accounts). Needs at least one pre-current year selected.
@@ -1809,7 +1809,7 @@ function reportingWaterfall() {
             + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
         el('div', { class: 'flex items-center gap-4 flex-wrap' },
           stat('Cancelled', cxl, arvCxl, '#DC2626'),
-          stat('Aging', aging, arvAging, '#D97706'),
+          stat('Aging', aging, arvAging, '#A9441F'),
           stat('Retained', kept, arv - arvCxl - arvAging, '#DF643A'),
           el('div', { class: 'text-left pl-2', style: { borderLeft: '1px solid var(--border)' } },
             el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-bold' }, 'True attrition'),
@@ -1818,7 +1818,7 @@ function reportingWaterfall() {
       el('div', { class: 'px-4 pb-4' },
         el('div', { class: 'w-full rounded-full overflow-hidden flex', style: { height: '14px', background: 'var(--card-2)' } },
           seg(kept, '#DF643A', 'Retained'),
-          seg(aging, '#D97706', 'Aging (' + _agDays + '+ days past due)'),
+          seg(aging, '#A9441F', 'Aging (' + _agDays + '+ days past due)'),
           seg(cxl, '#DC2626', 'Cancelled')),
         el('div', { class: 'flex items-center justify-between pt-1.5 text-[10px] text-muted-' },
           el('span', {}, fmt.int(subs) + ' serviced subs in this population \u00b7 ' + fmt.usd0(arv) + ' ARR'),
@@ -1876,7 +1876,7 @@ function reportingWaterfall() {
     }, el('div', {
       style: {
         height: (b.length ? Math.max(2, b.length / maxB * 84) : 0) + 'px',
-        background: (i >= 2 && i <= 5) ? '#DC2626' : (i >= 11 && i <= 13) ? '#D97706' : 'var(--accent)',
+        background: (i >= 2 && i <= 5) ? '#DC2626' : (i >= 11 && i <= 13) ? '#A9441F' : 'var(--accent)',
       } }));
     // by-reason lifetime table (merges trailing-period label variants)
     const byReason = {};
@@ -1947,7 +1947,7 @@ function reportingWaterfall() {
           el('span', {}, 'Month of customer life at cancel'),
           el('span', { class: 'flex items-center gap-3' },
             el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#DC2626', display: 'inline-block' } }), 'collections cliff (mo 2–5)'),
-            el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#D97706', display: 'inline-block' } }), 'contract end (mo 11–13)')))),
+            el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#A9441F', display: 'inline-block' } }), 'contract end (mo 11–13)')))),
       el('div', { class: 'overflow-x-auto border-t', style: { borderColor: 'var(--border)' } },
         el('table', { class: 'w-full text-xs' },
           el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },

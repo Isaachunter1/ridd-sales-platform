@@ -221,7 +221,7 @@ function groupHeaderTextColor(bg) {
   // (#65EB4D ≈ 177) read fine with white text, and Isaac wants every
   // branch header white for consistency. Only a truly pale fill (near-
   // white) still flips to dark text.
-  return lum > 200 ? '#1D1D1D' : '#fff';
+  return lum > 200 ? '#323230' : '#fff';
 }
 const RIDD_COLOR = '#DF643A';
 // Default palette for teams. Avoids red so excluded teams keep their distinct
@@ -233,18 +233,20 @@ const RIDD_COLOR = '#DF643A';
 // rainbow. Lime sibling first so it ties back to the brand; reds avoided
 // since red is reserved for excluded teams.
 const TEAM_COLOR_PALETTE = [
-  '#C8552E', // deep lime — anchors to the brand accent
-  '#3D7A66', // pine
-  '#2D6E8C', // teal-blue
-  '#476BA8', // royal blue
-  '#6B4F8F', // muted purple
-  '#8E3A6E', // berry
-  '#B8763A', // burnt orange
-  '#A88B3F', // ochre
-  '#7F6D45', // walnut
-  '#4A5C3A', // dark olive
-  '#6B7A8E', // slate
-  '#8E5A3A', // chestnut
+  // Brand-derived (RPS Brand Guide): the four brand colours plus shades and
+  // tints of them, so a dozen teams stay tellable apart without leaving the palette.
+  '#DF643A', // brand orange
+  '#5F6C5B', // brand sage
+  '#323230', // brand charcoal
+  '#9C3F1E', // dark orange
+  '#3F4A3C', // deep sage
+  '#A78256', // tan
+  '#C8552E', // burnt orange
+  '#8E9C8A', // light sage
+  '#6B2A12', // rust
+  '#7C857A', // sage-gray
+  '#E8A06B', // apricot
+  '#5A5A57', // warm gray
 ];
 function _hashStr(s) {
   let h = 0; const str = String(s || '');
@@ -464,7 +466,7 @@ function openRaffleSpinModal(raffleSorted, totalTickets, windowLabel) {
   // Cycle through a small palette so adjacent wedges visually separate.
   // Reps' actual team color isn't used because nearby wedges would blur
   // together if they share a team.
-  const COLORS = ['#DF643A', '#0EA5E9', '#A78256', '#9333EA', '#F59E0B', '#EC4899', '#10B981', '#DC2626', '#6366F1', '#14B8A6'];
+  const COLORS = ['#DF643A', '#5F6C5B', '#323230', '#A78256', '#9C3F1E', '#8E9C8A', '#FFB899', '#C9B98A', '#3F4A3C', '#E8A06B', '#7C857A', '#6B2A12'];
 
   // Precompute each wedge's angular boundaries + midpoint. Angles are in
   // radians on the canvas's coordinate system (0 = 3 o'clock, +y = down).
@@ -560,7 +562,7 @@ function openRaffleSpinModal(raffleSorted, totalTickets, windowLabel) {
       transform: 'translate(-50%, -50%)',
       width: HUB_W + 'px', height: HUB_H + 'px',
       borderRadius: '0',
-      background: '#1D1D1D',
+      background: '#323230',
       border: '3px solid #fff',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       color: '#DF643A',
@@ -610,7 +612,7 @@ function openRaffleSpinModal(raffleSorted, totalTickets, windowLabel) {
     style: {
       position: 'absolute', display: 'none',
       pointerEvents: 'none',
-      background: '#1D1D1D', color: '#fff',
+      background: '#323230', color: '#fff',
       padding: '8px 12px', borderRadius: '0',
       fontSize: '11px', fontWeight: '500',
       zIndex: '4',
@@ -790,7 +792,7 @@ function getGroupColor(name) {
   if (!name) return '#666';
   if (state.indicatorsGroupBy === 'teams') return getTeamColor(name);
   if (state.indicatorsGroupBy === 'dept') {
-    return ({ 'SALES REP': '#DF643A', 'OFFICE STAFF': '#2b8cbe', 'TECHNICIAN': '#B45309' })[String(name).toUpperCase()] || '#666';
+    return ({ 'SALES REP': '#DF643A', 'OFFICE STAFF': '#5F6C5B', 'TECHNICIAN': '#A9441F' })[String(name).toUpperCase()] || '#666';
   }
   if (state.indicatorsGroupBy === 'company') return COMPANY_COLORS[String(name).toUpperCase()] || '#666';
   const up = String(name).toUpperCase();
@@ -1825,7 +1827,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
           }
           x.closePath(); x.fill(); x.restore();
         };
-        star(230, 210, 150, '#F0AC1E', -0.12);
+        star(230, 210, 150, '#A9441F', -0.12);
         x.textAlign = 'left';
         x.fillStyle = '#FF1F0E'; x.font = "900 66px 'Anton', 'Arial Black', sans-serif";
         x.fillText('LAST MAN STANDING', 88, 224);
@@ -2120,12 +2122,12 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
             }, ...R.rounds.map((r2, i2) => { const o = el('option', { value: String(i2) }, 'Week ' + r2.week + ' · ' + _mmdd(r2.iso)); if (i2 === mIdx) o.selected = true; return o; }))),
           el('button', { class: 'text-xl leading-none text-muted-', style: { lineHeight: '1' }, onclick: () => overlay.remove() }, '×')),
         el('div', { class: 'px-5 py-2 text-[11px] font-bold tabular-nums border-b flex items-center gap-4 flex-wrap', style: { borderColor: 'var(--border)' } },
-          el('span', { style: { color: '#B45309' } }, '⏳ ' + money(sum(groups.intime) + sum(groups.open)) + ' counting as pending'),
+          el('span', { style: { color: '#A9441F' } }, '⏳ ' + money(sum(groups.intime) + sum(groups.open)) + ' counting as pending'),
           el('span', { style: { color: '#DC2626' } }, '🚫 ' + money(sum(groups.late)) + ' out of window'),
           deadline ? el('span', { style: { color: 'var(--text-muted)' } }, 'service cutoff: ' + _dOf(deadline)) : null),
         el('div', { class: 'p-4 overflow-auto' },
           section('📅 Scheduled in time', groups.intime, '#DF643A', 'Service booked (or done) on/before the cutoff — stays pending until the audit lands.'),
-          section('⏳ Unscheduled — at risk', groups.open, '#B45309', 'No service date yet. Counting for now, but flips to failed if the cutoff passes unserviced.'),
+          section('⏳ Unscheduled — at risk', groups.open, '#A9441F', 'No service date yet. Counting for now, but flips to failed if the cutoff passes unserviced.'),
           section('🚫 Scheduled past the cutoff — not counting', groups.late, '#DC2626', 'Booked after the deadline, so already excluded. Pull the appointment up before the cutoff and it counts again on the next sync.')));
     };
     render();
@@ -2233,7 +2235,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
       el('div', { style: { fontFamily: DISP, fontSize: '1.25rem', lineHeight: '1.1', color, whiteSpace: 'nowrap' } }, val));
     return el('div', { style: {
       position: 'relative', borderRadius: '0', padding: '14px 16px 12px', cursor: 'pointer',
-      background: champ ? 'linear-gradient(135deg, rgba(240,172,30,.16), #101010 65%)' : '#101010',
+      background: champ ? 'linear-gradient(135deg, rgba(240,172,30,.16), #323230 65%)' : '#323230',
       border: '1px solid ' + (champ ? ORANGE : (rank <= 3 ? 'rgba(240,172,30,.45)' : 'rgba(255,255,255,.12)')),
       boxShadow: 'inset 0 -3px 0 ' + ((_lmsLiveNow ? liveQual : lastQual) ? GREEN : 'rgba(255,255,255,.08)'),
     },
@@ -2293,7 +2295,7 @@ function lastManStandingBoard(windowed, winLabel, compOverride, ctlHost) {
       el('input', {
         type: 'text', placeholder: 'Search rep…',
         class: 'rounded-lg px-2.5 py-1 text-[11px] w-full',
-        style: { maxWidth: '300px', background: '#101010', border: '1px solid rgba(255,255,255,.22)', color: '#fff' },
+        style: { maxWidth: '300px', background: '#323230', border: '1px solid rgba(255,255,255,.22)', color: '#fff' },
         oninput: (e) => {
           const q = e.target.value.trim().toLowerCase();
           cleanView.querySelectorAll('[data-lms]').forEach(n => {

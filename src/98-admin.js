@@ -299,14 +299,14 @@ function adminDataHygiene() {
     sev: 'low',
   });
 
-  const SEV = { high: '#DC2626', med: '#D97706', low: '#6B7280' };
+  const SEV = { high: '#DC2626', med: '#A9441F', low: '#7C857A' };
   const total = checks.reduce((a, c) => a + (c.custom ? c.custom.length : c.rows.length), 0);
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', { class: 'card p-4' },
       el('h2', { class: 'text-lg font-bold' }, '🧹 Data Hygiene'),
       el('p', { class: 'text-xs mt-0.5', style: { color: 'var(--text-muted)' } },
         'The anomaly hunts, made permanent — every check runs on the live snapshot each time you open this page. Each card names the fix in FieldRoutes; exports go to whoever cleans it up. Goal: every count reads 0.'),
-      el('div', { class: 'text-sm font-black tabular-nums mt-1.5', style: { color: total > 0 ? '#D97706' : '#DF643A' } },
+      el('div', { class: 'text-sm font-black tabular-nums mt-1.5', style: { color: total > 0 ? '#A9441F' : '#DF643A' } },
         total > 0 ? total.toLocaleString() + ' rows need attention across ' + checks.filter(c => (c.custom ? c.custom.length : c.rows.length) > 0).length + ' checks' : '✓ All clean')),
     ...checks.map(c => {
       const n = c.custom ? c.custom.length : c.rows.length;
@@ -674,7 +674,7 @@ function dataIntegrityPanel() {
   const SALE_COLS = ['Rep', 'Cust ID', 'Customer', 'Office', 'Source', 'Contract', 'Sold'];
   const check = (key, title, count, tone, note, detail) => {
     const open = !!state._integrityOpen[key];
-    const color = tone === 'bad' ? '#DC2626' : tone === 'warn' ? '#D97706' : '#DF643A';
+    const color = tone === 'bad' ? '#DC2626' : tone === 'warn' ? '#A9441F' : '#DF643A';
     return el('div', { class: 'card p-4' },
       el('div', { class: 'flex items-center gap-2.5 flex-wrap' + (detail ? ' cursor-pointer' : ''),
         onclick: detail ? (() => { state._integrityOpen[key] = !open; mountApp(); }) : undefined },
@@ -1139,7 +1139,7 @@ function adminSources() {
   const frChip = (s) => s.fr_source_id
     ? el('span', {
         class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ml-2 align-middle whitespace-nowrap',
-        style: { background: 'rgba(59,130,246,.12)', color: '#2563EB', border: '1px solid rgba(59,130,246,.25)' },
+        style: { background: 'rgba(95,108,91,.12)', color: '#5F6C5B', border: '1px solid rgba(95,108,91,.25)' },
         title: 'Mirrored from FieldRoutes (source ID ' + s.fr_source_id + '). Add or hide it in FieldRoutes and the change lands here within ~30 min.',
       }, 'FieldRoutes')
     : el('span', {
@@ -1207,7 +1207,7 @@ function adminSources() {
                       class: 'inline-block rounded-lg px-3 py-1.5 text-[11px] font-bold transition hover:brightness-95',
                       style: off
                         ? { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }
-                        : { background: 'rgba(61,122,102,.16)', color: '#3D7A66', border: '1px solid rgba(61,122,102,.3)' },
+                        : { background: 'rgba(61,122,102,.16)', color: '#5F6C5B', border: '1px solid rgba(61,122,102,.3)' },
                       title: off ? 'Hidden from the Pay tab\u2019s By Source grid \u2014 sales on it still pay and show flagged. Click to show.' : 'Shown on the Pay tab\u2019s By Source grid. Click to hide.',
                       onclick: () => togglePayHiddenSource(s.id),
                     }, off ? 'Hidden on Pay' : 'On Pay');

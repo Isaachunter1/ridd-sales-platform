@@ -5,7 +5,7 @@
 <!-- Pinch-zoom stays ENABLED (accessibility + dense tables on phones).
      Double-tap zoom is already suppressed by touch-action: manipulation. -->
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover" />
-<meta name="theme-color" content="#000000" />
+<meta name="theme-color" content="#323230" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
 <link rel="apple-touch-icon" href="favicon.svg" />
@@ -46,49 +46,60 @@
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" /></noscript>
 <style>
   /* ═══════════════ THEME TOKENS ═══════════════ */
+  /* RIDD brand (RPS Brand Guide, Sep 2026): sage #5F6C5B · cream #FBF4DA ·
+     charcoal #323230 · orange #DF643A. Light = cream canvas + charcoal type;
+     dark = charcoal canvas + cream type; orange is the accent in both. */
   :root[data-theme="light"] {
-    --bg:          #FFFFFF;
-    --bg-subtle:   #F7F7F5;
-    --card:        #FFFFFF;
-    --card-2:      #F6F6F4;
-    --border:      #ECECEC;
-    --border-2:    #DCDCDC;
-    --text:        #0A0A0A;
-    --text-muted:  #767676;
-    --text-subtle: #A6A6A6;
-    --input-bg:    #FFFFFF;
-    --input-border:#DCDCDC;
-    --header-bg:   #0A0A0A;
-    --header-text: #FAFAFA;
-    --sidebar-bg:  #FFFFFF;
-    --sidebar-border:#ECECEC;
+    --bg:          #F4EDD4;
+    --bg-subtle:   #EFE7CB;
+    --card:        #FBF4DA;
+    --card-2:      #F5EDCF;
+    --border:      rgba(50,50,48,.10);
+    --border-2:    rgba(50,50,48,.22);
+    --text:        #323230;
+    --text-muted:  #6B6F66;
+    --text-subtle: #9A9C93;
+    --input-bg:    #FFFCF0;
+    --input-border:rgba(50,50,48,.22);
+    --header-bg:   #323230;
+    --header-text: #FBF4DA;
+    --sidebar-bg:  #FBF4DA;
+    --sidebar-border:rgba(50,50,48,.10);
     --accent:      #DF643A;
     --accent-hover:#C8552E;
-    --accent-text: #0A0A0A;
+    --accent-text: #323230;
+    --brand-sage:  #5F6C5B;
+    --brand-cream: #FBF4DA;
+    --brand-charcoal:#323230;
+    --brand-orange:#DF643A;
     --shadow-sm:   0 1px 2px rgba(0,0,0,.03);
     --shadow:      0 1px 2px rgba(0,0,0,.05);
     --shadow-lg:   0 16px 40px -12px rgba(0,0,0,.12);
     --font-display: 'Anton', 'Inter', ui-sans-serif, system-ui, sans-serif;
   }
   :root[data-theme="dark"] {
-    --bg:          #000000;
-    --bg-subtle:   #0A0B0D;
-    --card:        #0E0E0F;
-    --card-2:      #161616;
-    --border:      #232322;
-    --border-2:    #323230;
-    --text:        #F4F4F4;
-    --text-muted:  #8A8A8A;
-    --text-subtle: #5E5E5E;
-    --input-bg:    #121212;
-    --input-border:#313131;
-    --header-bg:   #000000;
-    --header-text: #F4F4F4;
-    --sidebar-bg:  #000000;
-    --sidebar-border:#242424;
-    --accent:      #FF6B3D;
-    --accent-hover:#FF855C;
-    --accent-text: #0A0A0A;
+    --bg:          #1C1C1B;
+    --bg-subtle:   #232322;
+    --card:        #323230;
+    --card-2:      #3A3A38;
+    --border:      rgba(251,244,218,.08);
+    --border-2:    rgba(251,244,218,.18);
+    --text:        #FBF4DA;
+    --text-muted:  #B3B4A8;
+    --text-subtle: #7F8078;
+    --input-bg:    #2A2A29;
+    --input-border:rgba(251,244,218,.18);
+    --header-bg:   #1C1C1B;
+    --header-text: #FBF4DA;
+    --sidebar-bg:  #1C1C1B;
+    --sidebar-border:rgba(251,244,218,.08);
+    --accent:      #DF643A;
+    --accent-hover:#E97A52;
+    --accent-text: #FBF4DA;
+    --brand-sage:  #5F6C5B;
+    --brand-cream: #FBF4DA;
+    --brand-charcoal:#323230;
+    --brand-orange:#DF643A;
     --shadow-sm:   0 1px 2px rgba(0,0,0,.4);
     --shadow:      0 1px 3px rgba(0,0,0,.5);
     --shadow-lg:   0 16px 40px -12px rgba(0,0,0,.6);
@@ -248,14 +259,14 @@
   .chip-pending   { background:rgba(223,100,58,.12); color:#C8552E; border:1px solid rgba(223,100,58,.35); }
   .chip-approved  { background:rgba(223,100,58,.18); color:#A9441F; border:1px solid rgba(223,100,58,.45); }
   .chip-serviced  { background:rgba(223,100,58,.14); color:#C8552E; border:1px solid rgba(223,100,58,.40); }
-  .chip-below     { background:rgba(234,88,12,.10);  color:#B45309; border:1px solid rgba(234,88,12,.30); }
+  .chip-below     { background:rgba(156,63,30,.10);  color:#9C3F1E; border:1px solid rgba(156,63,30,.30); }
   .chip-nsf       { background:rgba(220,38,38,.10);  color:#B91C1C; border:1px solid rgba(220,38,38,.30); }
   .chip-rejected  { background:rgba(220,38,38,.15);  color:#991B1B; border:1px solid rgba(220,38,38,.45); }
 
   :root[data-theme="dark"] .chip-pending   { color:#FF7A50; }
   :root[data-theme="dark"] .chip-approved  { color:#FFA98C; }
   :root[data-theme="dark"] .chip-serviced  { color:#FF7A50; }
-  :root[data-theme="dark"] .chip-below     { color:#ffcc7a; }
+  :root[data-theme="dark"] .chip-below     { color:#FFB899; }
   :root[data-theme="dark"] .chip-nsf       { color:#fca5a5; }
   :root[data-theme="dark"] .chip-rejected  { color:#f87171; }
 
@@ -344,13 +355,13 @@
   /* Spinner */
   /* ZIP number labels on the Geographic map (printed-zip-map style). */
   .zip-label { background: transparent !important; border: none !important; box-shadow: none !important;
-    font: 700 10px 'IBM Plex Mono', ui-monospace, monospace; color: #1d1d1d;
+    font: 700 10px 'IBM Plex Mono', ui-monospace, monospace; color: #323230;
     text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 4px #fff; pointer-events: none; }
   .zip-label::before { display: none; }
   .spinner { display:inline-block; width:16px; height:16px; border:2px solid rgba(223,100,58,.25); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
   /* Styled hover tooltip — replaces the browser's plain title bubble app-wide */
   .app-tip { position:fixed; z-index:10000; max-width:280px; padding:6px 10px; border-radius: 0;
-    background:#1D1D1D; color:#F3F3F3; font-size:11px; font-weight:600; line-height:1.4;
+    background:#323230; color:#F3F3F3; font-size:11px; font-weight:600; line-height:1.4;
     box-shadow:0 8px 24px rgba(0,0,0,.35); pointer-events:none; opacity:0; transition:opacity .12s; display:none; }
   @keyframes spin { to { transform:rotate(360deg); } }
   /* RevHawk sync icon spinning while a refresh is in flight */
@@ -486,8 +497,8 @@
   /* Floating tooltip (rendered to body so it escapes card overflow:hidden) */
   .ridd-tooltip {
     position: fixed;
-    background: var(--eerie, #1D1D1D);
-    color: #F3F3F3;
+    background: var(--eerie, #323230);
+    color: #FBF4DA;
     padding: 8px 12px;
     border-radius: 0;
     font-size: 11px;
@@ -512,12 +523,12 @@
     left: 50%;
     transform: translateX(-50%) rotate(45deg);
     width: 8px; height: 8px;
-    background: var(--eerie, #1D1D1D);
+    background: var(--eerie, #323230);
   }
   /* Flipped-below variant: arrow moves to the top edge */
   .ridd-tooltip.below::after { bottom: auto; top: -5px; }
-  :root[data-theme="light"] .ridd-tooltip { background: #1D1D1D; }
-  :root[data-theme="light"] .ridd-tooltip::after { background: #1D1D1D; }
+  :root[data-theme="light"] .ridd-tooltip { background: #323230; }
+  :root[data-theme="light"] .ridd-tooltip::after { background: #323230; }
   .tooltip-trigger { cursor: help; }
 
   /* Header bar */
@@ -824,24 +835,8 @@
      shadow with hairline borders, and the top bar is a frosted, translucent,
      theme-adaptive glass bar (iOS style). Peel-back: delete this block. */
   :root[data-theme="light"] {
-    --bg:           #F3F3F1;
-    --bg-subtle:    #ECECE9;
-    --card-2:       #F7F7F4;
-    --border:       rgba(17,17,17,.07);
-    --border-2:     rgba(17,17,17,.16);
-    --input-border: rgba(17,17,17,.16);
-    --shadow-sm:    0 1px 2px rgba(17,17,17,.03);
-    --shadow-lg:    0 24px 48px -16px rgba(17,17,17,.18);
-  }
-  :root[data-theme="dark"] {
-    --bg:           #0A0A0C;
-    --bg-subtle:    #101013;
-    --card:         #17171A;
-    --card-2:       #1D1D21;
-    --border:       rgba(255,255,255,.08);
-    --border-2:     rgba(255,255,255,.17);
-    --input-bg:     #141417;
-    --input-border: rgba(255,255,255,.17);
+    --shadow-sm:    0 1px 2px rgba(50,50,48,.04);
+    --shadow-lg:    0 24px 48px -16px rgba(50,50,48,.20);
   }
   /* Cards float on the canvas instead of blending into it. */
   .card { box-shadow: 0 1px 2px rgba(17,17,17,.04), 0 16px 40px -28px rgba(17,17,17,.25); }
@@ -939,14 +934,14 @@
     backdrop-filter: blur(14px) saturate(1.5);
   }
   :root[data-theme="light"] .page-header {
-    background: #FBFBFA;
-    background: color-mix(in srgb, #FFFFFF 72%, transparent);
+    background: #FBF4DA;
+    background: color-mix(in srgb, #FBF4DA 78%, transparent);
     color: var(--text);
-    border-bottom: 1px solid rgba(0,0,0,.08);
-    box-shadow: 0 1px 12px rgba(0,0,0,.04);
+    border-bottom: 1px solid rgba(50,50,48,.10);
+    box-shadow: 0 1px 12px rgba(50,50,48,.05);
   }
-  :root[data-theme="light"] .page-header .icon-btn { background: rgba(0,0,0,.05); color: var(--text); }
-  :root[data-theme="light"] .page-header .icon-btn:hover { background: rgba(0,0,0,.10); }
+  :root[data-theme="light"] .page-header .icon-btn { background: rgba(50,50,48,.06); color: var(--text); }
+  :root[data-theme="light"] .page-header .icon-btn:hover { background: rgba(50,50,48,.12); }
 
   /* Subtle overlay scrollbars (macOS/iOS style). */
   ::-webkit-scrollbar { width: 8px; height: 8px; }

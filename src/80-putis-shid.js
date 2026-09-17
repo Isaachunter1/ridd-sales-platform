@@ -416,12 +416,12 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
   const cellVal = (row, d, prev) => {
     const v = (row.point || row.unit) ? d[row.id] : (d.any ? d[row.id] : null);
     const label = fmtRow(row, v);
-    const col = row.red && v > 0 ? { color: '#DC2626' } : row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
+    const col = row.red && v > 0 ? { color: '#DC2626' } : row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#5F6C5B' } : {};
     const node = el('div', { style: col }, label);
     if (showMoM && prev && v != null && prev[row.id] != null && isFinite(v) && isFinite(prev[row.id])) {
       const delta = v - prev[row.id];
       const good = row.lowGood ? delta <= 0 : delta >= 0;
-      node.append(el('div', { class: 'text-[9px]', style: { color: Math.abs(delta) < 1e-9 ? 'var(--text-subtle)' : good ? '#16A34A' : '#DC2626' } }, signedRow(row, delta)));
+      node.append(el('div', { class: 'text-[9px]', style: { color: Math.abs(delta) < 1e-9 ? 'var(--text-subtle)' : good ? '#5F6C5B' : '#DC2626' } }, signedRow(row, delta)));
     }
     return node;
   };
@@ -451,8 +451,8 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
         }
         return c;
       }),
-      td(fmtRow(row, ytdVal(row)), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: row.signed && ytdVal(row) != null ? { color: ytdVal(row) < 0 ? '#DC2626' : '#16A34A' } : {} }),
-      (() => { const v = row.point ? ytdVal(row) : (ttm.months ? ttm[row.id] : null); return td(fmtRow(row, v), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {} }); })()))));
+      td(fmtRow(row, ytdVal(row)), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: row.signed && ytdVal(row) != null ? { color: ytdVal(row) < 0 ? '#DC2626' : '#5F6C5B' } : {} }),
+      (() => { const v = row.point ? ytdVal(row) : (ttm.months ? ttm[row.id] : null); return td(fmtRow(row, v), { bold: true, title: row.point ? 'Latest closed month with a value' : '', style: row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#5F6C5B' } : {} }); })()))));
   return el('div', { class: 'card overflow-hidden' },
     el('div', { class: 'px-5 py-3 border-b flex items-center gap-3' + (opts.compact ? '' : ' flex-wrap'), style: { borderColor: 'var(--border)' } },
       el('div', { class: 'min-w-0' }, el('h3', { class: 'text-sm font-bold' }, title), subtitle ? el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, subtitle) : null),
@@ -532,7 +532,7 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
   const renderLine = (label, f, o = {}) => el('tr', { class: 'border-t border-' + (o.bold ? ' font-semibold' : ''), style: o.bold ? { background: 'var(--card-2)' } : {} },
     td(el('span', { class: 'inline-flex items-center gap-1' }, label, !single && sortSt && sortSt.label === label ? el('span', { style: { color: 'var(--accent)' } }, sortSt.dir === 'asc' ? '▲' : '▼') : null), { bold: true, title: single ? (o.tip || '') : (o.tip ? o.tip + ' · ' : '') + 'Click to sort branches by this row', style: { position: 'sticky', left: 0, background: o.bold ? 'var(--card-2)' : 'var(--card)', zIndex: 1, boxShadow: '1px 0 0 var(--border)', cursor: 'pointer', userSelect: 'none' },
       onclick: single ? () => putisExplain(label, o.tip) : () => { const cur = state._putisSort; state._putisSort = (cur && cur.part === part && cur.label === label) ? (cur.dir === 'desc' ? { part, label, dir: 'asc' } : null) : { part, label, dir: 'desc' }; mountApp(); } }),
-    ...cols.flatMap(c => { const v = f(D[c.key], c.key); const s = o.red && typeof v === 'number' && v > 0 ? { color: '#DC2626' } : o.signed && typeof v === 'number' ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
+    ...cols.flatMap(c => { const v = f(D[c.key], c.key); const s = o.red && typeof v === 'number' && v > 0 ? { color: '#DC2626' } : o.signed && typeof v === 'number' ? { color: v < 0 ? '#DC2626' : '#5F6C5B' } : {};
       const isUsd = !(o.pct || o.num || o.x || o.mo || o.usd2);
       const cell = td(v == null || (typeof v === 'number' && !isFinite(v)) ? '—' : o.pct ? _putisPct1(v) : o.num ? Math.round(v).toLocaleString() : o.x ? v.toFixed(2) + 'x' : o.mo ? v.toFixed(1) + ' mo' : o.usd2 ? '$' + v.toFixed(2) : _putisUsd(v), { style: { ...s, borderLeft: '1px solid var(--border)' }, muted: o.muted });
       if (!pctOn(c.key)) return [cell];
@@ -775,7 +775,7 @@ function _putisDelta(kind, cur, prev, lowGood) {
   const d = cur - prev;
   const good = lowGood ? d <= 0 : d >= 0;
   const txt = kind === 'pct' ? (d > 0 ? '+' : '') + (d * 100).toFixed(1) + ' pts' : kind === 'x' ? (d > 0 ? '+' : '') + d.toFixed(1) + 'x' : kind === 'mo' ? (d > 0 ? '+' : '') + d.toFixed(1) + ' mo' : (d > 0 ? '+' : '') + _putisUsd(d);
-  return el('span', { class: 'text-[10px] font-semibold', style: { color: Math.abs(d) < 1e-9 ? 'var(--text-subtle)' : good ? '#16A34A' : '#DC2626' } }, txt);
+  return el('span', { class: 'text-[10px] font-semibold', style: { color: Math.abs(d) < 1e-9 ? 'var(--text-subtle)' : good ? '#5F6C5B' : '#DC2626' } }, txt);
 }
 
 function putisKpiStrip(M, U, closedYm, branches) {
@@ -808,7 +808,7 @@ function putisKpiStrip(M, U, closedYm, branches) {
     el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' } },
       ...tiles.map(t => {
         const v = cur[t.id];
-        const col = t.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {};
+        const col = t.signed && v != null ? { color: v < 0 ? '#DC2626' : '#5F6C5B' } : {};
         return el('div', { class: 'rounded-lg border p-3 cursor-help', style: { borderColor: 'var(--border)', background: 'var(--card-2)' }, title: PUTIS_KPI_TIPS[t.id] || '' },
           el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, t.label),
           el('div', { class: 'text-xl font-black tabular-nums mt-0.5', style: col }, _putisFmt(t.kind, v)),
@@ -854,8 +854,8 @@ function putisBranchScorecard(M, U, yms, branches, title) {
   const td = (c, m, isTotal) => {
     const v = m[c.id];
     const st = {};
-    if (!isTotal && v != null && isFinite(v)) { if (v === best[c.id]) st.background = 'rgba(22,163,74,.10)'; else if (v === worst[c.id]) st.background = 'rgba(220,38,38,.10)'; }
-    if (c.signed && v != null) st.color = v < 0 ? '#DC2626' : '#16A34A';
+    if (!isTotal && v != null && isFinite(v)) { if (v === best[c.id]) st.background = 'rgba(95,108,91,.10)'; else if (v === worst[c.id]) st.background = 'rgba(220,38,38,.10)'; }
+    if (c.signed && v != null) st.color = v < 0 ? '#DC2626' : '#5F6C5B';
     return el('td', { class: 'px-2 py-1.5 tabular-nums whitespace-nowrap' + (isTotal ? ' font-bold' : ''), style: st }, _putisFmt(c.kind, v));
   };
   return el('div', { class: 'card overflow-hidden' },
@@ -894,7 +894,7 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
   // A value cell: $ (or %) with the % of revenue underneath for $ rows.
   const cell = (row, d, o = {}) => {
     const v = val(row, d);
-    const node = el('div', { style: row.red && v > 0 ? { color: '#DC2626' } : row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#16A34A' } : {} }, fmt(row, v));
+    const node = el('div', { style: row.red && v > 0 ? { color: '#DC2626' } : row.signed && v != null ? { color: v < 0 ? '#DC2626' : '#5F6C5B' } : {} }, fmt(row, v));
     if (row.kind === 'usd' && !row.point && !row.unit && v != null && d && d.revenue > 0 && row.id !== 'revenue') node.append(el('div', { class: 'text-[9px] font-normal', style: { color: 'var(--text-subtle)' } }, _putisPct1(v / d.revenue) + ' of rev'));
     return el('td', { class: 'px-2 py-1 tabular-nums whitespace-nowrap text-right align-top' + (o.bold ? ' font-bold' : ''), style: { borderLeft: o.group ? '1px solid var(--border)' : undefined, opacity: o.dim ? '.55' : undefined } }, node);
   };
@@ -904,7 +904,7 @@ function putisComparativeCard(M, ym, branches, title, headerExtra, opts = {}) {
     if (va == null || vb == null || !isFinite(va) || !isFinite(vb)) return el('td', { class: 'px-2 py-1 text-right text-[11px]', style: { color: 'var(--text-subtle)' } }, '—');
     const d = va - vb;
     const good = row.lowGood ? d <= 0 : d >= 0;
-    const color = Math.abs(d) < 1e-9 ? 'var(--text-subtle)' : good ? '#16A34A' : '#DC2626';
+    const color = Math.abs(d) < 1e-9 ? 'var(--text-subtle)' : good ? '#5F6C5B' : '#DC2626';
     const main = row.kind === 'pct' ? (d > 0 ? '+' : '') + (d * 100).toFixed(1) + ' pts' : row.kind === 'x' ? (d > 0 ? '+' : '') + d.toFixed(2) + 'x' : row.kind === 'int' ? (d > 0 ? '+' : '') + Math.round(d).toLocaleString() : (d > 0 ? '+' : '') + _putisUsd(d);
     const node = el('div', { class: 'text-[11px] font-semibold', style: { color } }, main);
     if (row.kind !== 'pct' && row.kind !== 'x' && Math.abs(vb) > 1e-9) node.append(el('div', { class: 'text-[9px] font-normal', style: { color } }, (d / Math.abs(vb) * 100).toFixed(1) + '%'));
