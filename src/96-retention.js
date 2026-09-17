@@ -258,12 +258,14 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
         const listEl = el('div', { class: 'grid gap-x-4 gap-y-1 mt-2', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' } },
           ...names.map(o => {
             const isOff = off.has(o);
-            const cb = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onclick: (e) => e.stopPropagation(), onchange: (e) => {
+            // Attribute AND property (the reasons list needed the same): a
+            // re-serialised node keeps only the attribute, a fresh one only the property.
+            const cb = el('input', { type: 'checkbox', checked: !isOff, style: { accentColor: 'var(--accent)' }, onclick: (e) => e.stopPropagation(), onchange: (e) => {
               const nw = { ...(state._retenWhatIf || {}) }; const br = { ...(nw.branches || {}) };
               const wantIn = e.target.checked;
               if (wantIn) delete br[o]; else br[o] = false;
               nw.branches = br; state._retenWhatIf = nw; later(mountApp); } });
-            cb.checked = !isOff;
+            cb.checked = !isOff; cb.defaultChecked = !isOff;
             return el('label', { class: 'flex items-center gap-2 text-[11px] cursor-pointer rounded px-1' + (isOff ? '' : ' font-semibold'), style: isOff ? { color: 'var(--text-subtle)' } : { color: 'var(--text)' }, onclick: (e) => e.stopPropagation() },
               cb, el('span', { class: 'flex-1 truncate' }, o, isOff ? el('span', { style: { color: 'var(--accent)' } }, ' *') : null),
               el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, n(counts.get(o))));
