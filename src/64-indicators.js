@@ -570,10 +570,12 @@ function viewIndicators() {
     // Stats default to the viewer's OWN rep type — office staff land on
     // Office Staff stats, sales reps on Sales Rep stats. Seeds the first
     // render only; flipping the dropdown afterward sticks for the session.
-    if (!state._indDeptDefaulted) {
-      state._indDeptDefaulted = true;
-      state.indicatorDept = isOfficeStaffRole(state.profile?.role) ? 'office' : 'd2d';
-    }
+    // Non-admins are PINNED to their own type (per Isaac): a sales rep only
+    // ever sees Sales Rep stats, office staff only Office Staff — the Type
+    // filter doesn't render for them at all.
+    state._indDeptDefaulted = true;
+    state.indicatorDept = (typeof repTypeGroup === 'function' && repTypeGroup(state.profile) === 'tech') ? 'techs'
+      : isOfficeStaffRole(state.profile?.role) ? 'office' : 'd2d';
     // Performance Trends defaults to the SIGNED-IN rep (they can re-scope to
     // company/branch/team with the pickers). Waits for the dataset so the
     // name match can actually land; runs once per session.
@@ -763,7 +765,7 @@ function viewIndicators() {
                 const hl = (node, on) => { if (node && on) { node.style.borderColor = 'var(--accent)'; node.style.boxShadow = '0 0 0 2px rgba(223,100,58,.25)'; } return node; };
                 return [
                   _fRow('Metric', hl(metricSel, !_repLite && (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced')),
-                  _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== 'all')),
+                  _repLite ? null : _fRow('Type',   hl(typeSel,   (state.indicatorDept || 'all') !== 'all')),
                   _fRow('Date',   hl(dateSel,   isRange && state.indicatorsRangePreset !== 'this_year')),
                   _fRow('Group',  hl(groupSel,  groupBy !== 'branch')),
                 ];
@@ -795,7 +797,7 @@ function viewIndicators() {
           );
           const nonDefault = [
             !_repLite && (state.indicatorAcctStatus || 'pending_serviced') !== 'pending_serviced',
-            (state.indicatorDept || 'all') !== 'all',
+            !_repLite && (state.indicatorDept || 'all') !== 'all',
             isRange && state.indicatorsRangePreset !== 'this_year',
             groupBy !== 'branch',
           ].filter(Boolean).length;
