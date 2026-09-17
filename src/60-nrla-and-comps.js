@@ -3686,7 +3686,7 @@ function viewNrlaPublic() {
   }
   const repTypeTab = COMP_REPTYPE_TABS.includes(state._compsRepTypeTab) ? state._compsRepTypeTab : 'Sales Reps';
   {
-    wrap.append(el('div', { class: 'flex items-center gap-1 border-b overflow-x-auto', style: { borderColor: 'var(--border)' } },
+    wrap.append(el('div', { class: 'flex items-center gap-1 border-b flex-wrap', style: { borderColor: 'var(--border)' } },
       ...COMP_REPTYPE_TABS.map(t => {
         const on = repTypeTab === t;
         return el('button', {
