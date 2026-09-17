@@ -427,7 +427,7 @@ function reportingWaterfall() {
   // branch from anywhere on the page.
   const _hdrEl = document.querySelector('header.page-header');
   const _hdrH = _hdrEl ? Math.round(_hdrEl.getBoundingClientRect().height) : 60;
-  const modeBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap', style: { position: 'sticky', top: 'calc(' + _hdrH + 'px + var(--nv-banner, 0px) + 8px)', zIndex: 25, boxShadow: '0 6px 16px -10px rgba(50,50,48,.35)' } },
+  const modeBar = el('div', { class: 'card p-3 flex items-center gap-2 flex-wrap' },
     // ONE office filter for the whole tab (per Isaac) — the shared Reporting
     // scope, so every card below (Attrition Steps, waterfall, seasonality,
     // rep type, lifetime, renewals, sources) reads the same population.
@@ -465,34 +465,8 @@ function reportingWaterfall() {
         el('option', { value: 'all', selected: cohortSel === 'all' }, 'All years (book size)'),
         ...(waterfallA.allYears || []).map(y => el('option', { value: String(y), selected: String(cohortSel) === String(y) }, y + ' cohort')),
       )),
-    el('div', { class: ' flex items-center gap-2' },
-      // Row-level export of EXACTLY what this tab counts — for reconciling
-      // against the hand-built workbook (diff by Customer ID + Subscription).
-      el('button', {
-        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer border transition hover:brightness-95',
-        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-        title: 'Download the exact population this tab counts (after all filters), one row per subscription',
-        onclick: () => {
-          try {
-            const rows = _retenEff(popA);
-            const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-            const cols = ['customer_id', 'last_name', 'first_name', 'subscription', 'initial_service', 'subscription_status', 'subscription_date_canceled', 'subscription_cancellation_reason', 'counted_cancel', 'annual_recurring_value', 'agreement_length', 'subscription_source', 'office_name'];
-            const lines = [cols.join(',')];
-            rows.forEach(r => lines.push([
-              r.customer_id, r.last_name, r.first_name, r.subscription, r.initial_service,
-              r.subscription_status, r.subscription_date_canceled || '', reportingCancelReasonOf(r),
-              r._effCancel || '', r.annual_recurring_value || 0, r.agreement_length || '',
-              r.subscription_source || '', r.office_name || '',
-            ].map(esc).join(',')));
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv' }));
-            a.download = 'ridd-retention-population-' + new Date().toISOString().slice(0, 10) + '.csv';
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-            toast('Exported ' + rows.length.toLocaleString() + ' subscriptions — the exact set this tab counts', 'success');
-          } catch (e) { toast('Export failed: ' + ((e && e.message) || e), 'error'); }
-        },
-      }, '⬇'),
+    // (Population download retired per Isaac — Reconcile on Attrition Steps does the job.)
+    el('div', { class: 'flex items-center gap-2 ml-auto' },
       _methodologyInfo),
   );
 
@@ -2380,6 +2354,9 @@ function reportingWaterfall() {
 
   // Cancel Hygiene moved to Settings > Admin > Data Integrity (per Isaac).
   // (Renewal Outreach queue retired per Isaac, Sep 2026 — renewalQueueCard stays defined.)
-  return el('div', { class: 'flex flex-col gap-4' }, _secBar, modeBar, retenMethodCard(popA, _retenEff, groundA), body, repTypeAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard, sourceLedgerCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  // The section tabs AND the Office / Metrics bar freeze together under the
+  // page header (per Isaac) so both travel down the tab.
+  const frozen = el('div', { class: 'flex flex-col gap-4', style: { position: 'sticky', top: 'calc(' + _hdrH + 'px + var(--nv-banner, 0px))', zIndex: 25, background: 'var(--bg)', paddingTop: '8px', paddingBottom: '4px', marginTop: '-8px' } }, _secBar, modeBar);
+  return el('div', { class: 'flex flex-col gap-4' }, frozen, retenMethodCard(popA, _retenEff, groundA), body, repTypeAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard, sourceLedgerCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
