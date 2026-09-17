@@ -3842,8 +3842,23 @@ function mountAuth(opts = {}) {
     else if (p === c) { ci.style.borderColor = '#16A34A'; ci.style.boxShadow = '0 0 0 2px rgba(22,163,74,.18)'; ci.style.background = 'rgba(22,163,74,.05)'; }
     else { ci.style.borderColor = '#DC2626'; ci.style.boxShadow = '0 0 0 2px rgba(220,38,38,.15)'; ci.style.background = 'rgba(220,38,38,.04)'; }
   };
-  passField.querySelector('input').addEventListener('input', refreshPolicy);
-  confirmField.querySelector('input').addEventListener('input', refreshPolicy);
+  // Password managers / iOS autofill can drop a value in without an
+  // `input` event, which left the confirm box un-coloured until a click.
+  // Listen to everything AND poll while the reset screen is up so the box
+  // turns green the moment the two values agree, however they got there.
+  for (const inp of [passField.querySelector('input'), confirmField.querySelector('input')]) {
+    for (const ev of ['input', 'change', 'keyup', 'paste', 'blur', 'animationstart']) inp.addEventListener(ev, refreshPolicy);
+  }
+  let _policyTimer = null, _policyLast = '';
+  const policyWatch = (on) => {
+    if (_policyTimer) { clearInterval(_policyTimer); _policyTimer = null; }
+    if (!on) return;
+    _policyTimer = setInterval(() => {
+      if (!form.isConnected) { clearInterval(_policyTimer); _policyTimer = null; return; }
+      const sig = passField.querySelector('input').value + '\u0000' + confirmField.querySelector('input').value;
+      if (sig !== _policyLast) { _policyLast = sig; refreshPolicy(); }
+    }, 200);
+  };
   const submitBtn  = el('button', { type: 'submit', class: 'w-full rounded-lg bg-lime hover:bg-lime-600 text-eerie font-semibold py-2.5 transition' });
   const forgotBtn  = el('button', { type: 'button', class: 'text-xs text-battle-2 hover:text-lime transition',
     onclick: () => { form.dataset.mode = form.dataset.mode === 'login' ? 'forgot' : 'login'; renderMode(); } });
@@ -3863,6 +3878,7 @@ function mountAuth(opts = {}) {
   function renderMode() {
     const mode = form.dataset.mode;
     backBtn.style.display = 'none';
+    policyWatch(mode === 'recover');
     if (mode === 'login') {
       heading.textContent    = 'Sign in';
       subheading.textContent = '';           // (dropped the 'RIDD Sales App' line per Isaac)
