@@ -3747,6 +3747,7 @@ function mountAuth(opts = {}) {
           heading.textContent = 'Password updated';
           subheading.textContent = 'You’re signed in — taking you to your dashboard…';
           subheading.style.display = '';
+          backBtn.style.display = 'none';
           passField.style.display = 'none';
           confirmField.style.display = 'none';
           policyList.style.display = 'none';
@@ -3784,6 +3785,21 @@ function mountAuth(opts = {}) {
 
   const heading    = el('h1', { class: 'text-xl font-semibold' });
   const subheading = el('p', { class: 'text-battle-2 text-sm mb-2' });
+  // Reset screen only: ← back to sign in. Drops the one-time recovery
+  // session too, so a later refresh lands on the login page instead of
+  // quietly signing them into the app with no password set.
+  const backBtn = el('button', { type: 'button', class: 'inline-flex items-center gap-1 text-xs text-battle-2 hover:text-lime transition self-start', style: { display: 'none' }, title: 'Back to sign in',
+    onclick: () => {
+      try { sessionStorage.removeItem('ridd_recovery_pending'); } catch { /* private mode */ }
+      history.replaceState(null, '', window.location.pathname);
+      form.dataset.mode = 'login';
+      form.password.value = ''; form.confirm.value = '';
+      renderMode();
+      Promise.race([supabase.auth.signOut(), new Promise(r => setTimeout(r, 3000))])
+        .catch(() => {})
+        .finally(() => { try { const k = authStorageKey(); if (k) localStorage.removeItem(k); } catch { /* ignore */ } state.session = null; });
+    } },
+    el('span', { 'aria-hidden': 'true' }, '←'), 'Back to sign in');
   const emailField = el('label', { class: 'block text-sm' },
     el('span', { class: 'text-battle-2 block mb-1' }, 'Email'),
     el('input', { name: 'email', type: 'email', required: true, class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', placeholder: 'you@ridd.com' }));
@@ -3846,6 +3862,7 @@ function mountAuth(opts = {}) {
 
   function renderMode() {
     const mode = form.dataset.mode;
+    backBtn.style.display = 'none';
     if (mode === 'login') {
       heading.textContent    = 'Sign in';
       subheading.textContent = '';           // (dropped the 'RIDD Sales App' line per Isaac)
@@ -3874,6 +3891,7 @@ function mountAuth(opts = {}) {
       forgotBtn.style.display = '';
       inviteHint.style.display = 'none';
     } else if (mode === 'recover') {
+      backBtn.style.display = 'inline-flex';
       heading.textContent    = 'Set a new password';
       subheading.textContent = 'Pick the password you’ll use from now on.';
       subheading.style.display = '';
@@ -3908,7 +3926,7 @@ function mountAuth(opts = {}) {
         : el('div', { class: 'text-4xl font-display tracking-tight', style: { color: '#1D1D1D' } }, CFG.COMPANY_NAME);
     })(),
     el('div', { class: 'text-[10px] text-battleship tracking-[.22em] mb-2' }, CFG.COMPANY_TAGLINE),
-    heading, subheading, emailField, passField, confirmField, policyList, submitBtn, errLine, forgotBtn, inviteHint,
+    backBtn, heading, subheading, emailField, passField, confirmField, policyList, submitBtn, errLine, forgotBtn, inviteHint,
   );
   renderMode();
 
