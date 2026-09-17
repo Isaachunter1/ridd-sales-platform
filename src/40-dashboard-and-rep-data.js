@@ -373,6 +373,113 @@ function viewTechs() {
     ));
 }
 
+// Service Pro upsell detail - lives on Technicians > Sales.
+//
+// That view (viewSales) is built around the audit/payroll queue, a different
+// pool entirely, so this card owns its data: the same FieldRoutes upsell feed
+// the Technicians Dashboard reads. Range and technician picks share the
+// Dashboard's state keys (_techRange / _techFilter), so both tabs always
+// describe the same window rather than drifting apart.
+function techUpsellDetailCard() {
+  const kind = state._techRange || 'today';
+  const range = kind === 'custom' ? techCustomRange() : getDateRange(kind);
+  const nameOf = (s) => flipLastFirst(getCanonicalRepName(s.rep || '—'));
+  const rangeRows = techUpsellRows().filter(s => {
+    const iso = (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || '';
+    if (!iso) return false;
+    const d = new Date(iso + 'T00:00');
+    return !isNaN(d) && d >= range.start && d <= range.end;
+  });
+  // Names come off the unfiltered set so the picker never collapses to the
+  // current choice; a name that falls out of range resets to all.
+  const techNames = [...new Set(rangeRows.map(nameOf).filter(nm => !FR_SYSTEM_NAME_RE.test(nm)))].sort((a, b) => a.localeCompare(b));
+  const techFilter = (state._techFilter && techNames.includes(state._techFilter)) ? state._techFilter : 'all';
+  const rows = techFilter === 'all' ? rangeRows : rangeRows.filter(s => nameOf(s) === techFilter);
+
+  const SORTERS = {
+    tech:      (x) => nameOf(x).toLowerCase(),
+    acct:      (x) => String(x.customerId || '').toLowerCase(),
+    service:   (x) => (x.subscription || '').toLowerCase(),
+    added:     (x) => (typeof dateSoldToIso === 'function' && dateSoldToIso(x.dateSold)) || '',
+    price:     (x) => Number(x.contractValue) || 0,
+    cancelled: (x) => (x.cancelDate && typeof dateSoldToIso === 'function' && dateSoldToIso(x.cancelDate)) || x.cancelDate || '',
+  };
+  const sort = state._techDetailSort || { key: 'added', dir: 'desc' };
+  const keyFn = SORTERS[sort.key] || SORTERS.added;
+  const mul = sort.dir === 'asc' ? 1 : -1;
+  const sorted = [...rows].sort((a, b) => {
+    const va = keyFn(a), vb = keyFn(b);
+    return (va < vb ? -1 : va > vb ? 1 : 0) * mul;
+  });
+  const CAP = 200;   // deep ranges run to thousands of rows
+
+  const RANGES = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This Week'], ['month', 'This Month'], ['year', 'This Year'], ['all', 'All Time'], ['custom', 'Custom\u2026']];
+  const rangeSel = el('select', {
+    class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
+    onchange: (e) => {
+      state._techRange = e.target.value;
+      if (state._techRange === 'custom') {
+        const iso = new Date().toISOString().slice(0, 10);
+        if (!state._techCustomStart) state._techCustomStart = iso;
+        if (!state._techCustomEnd)   state._techCustomEnd   = iso;
+      }
+      mountApp();
+    },
+  }, ...RANGES.map(([v, l]) => { const o = el('option', { value: v }, l); if (kind === v) o.selected = true; return o; }));
+
+  const customInputs = kind === 'custom' && el('div', { class: 'flex items-center gap-2' },
+    el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state._techCustomStart || '', onchange: e => { state._techCustomStart = e.target.value; mountApp(); } }),
+    el('span', { class: 'text-muted- text-xs' }, '→'),
+    el('input', { type: 'date', class: 'rounded-xl px-2.5 py-1 text-[11px]', value: state._techCustomEnd || '', onchange: e => { state._techCustomEnd = e.target.value; mountApp(); } }));
+
+  const filterSel = el('select', {
+    class: 'rounded-xl px-2.5 py-1 text-[11px] font-medium cursor-pointer',
+    onchange: (e) => { state._techFilter = e.target.value; mountApp(); },
+  }, ...[['all', 'All technicians'], ...techNames.map(n => [n, n])]
+    .map(([v, l]) => { const o = el('option', { value: v }, l); if (techFilter === v) o.selected = true; return o; }));
+
+  const th = (key, label, cls) => el('th', {
+    class: cls + ' cursor-pointer select-none hover:underline',
+    style: sort.key === key ? { color: 'var(--accent)', fontWeight: '800' } : {},
+    title: 'Sort by ' + label,
+    onclick: () => { state._techDetailSort = { key, dir: sort.key === key && sort.dir === 'desc' ? 'asc' : 'desc' }; mountApp(); },
+  }, label);
+
+  const head = el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
+    el('tr', {},
+      th('tech', 'Technician', 'text-left pl-4 pr-2 py-2'),
+      th('acct', 'Account ID', 'text-left px-2 py-2'),
+      th('service', 'Service Sold', 'text-left px-2 py-2'),
+      th('added', 'Date Sold', 'text-left px-2 py-2'),
+      th('price', 'Price', 'text-right px-2 py-2'),
+      th('cancelled', 'Date Canceled', 'text-left pl-2 pr-4 py-2')));
+
+  const body = el('tbody', {}, ...sorted.slice(0, CAP).map(s => el('tr', { class: 'border-t border-' },
+    el('td', { class: 'pl-4 pr-2 py-2 font-semibold whitespace-nowrap' }, nameOf(s)),
+    el('td', { class: 'px-2 py-2 tabular-nums text-muted-' }, String(s.customerId || '—')),
+    el('td', { class: 'px-2 py-2' }, s.subscription || '—'),
+    el('td', { class: 'px-2 py-2 tabular-nums text-muted- whitespace-nowrap' }, s.dateSold || '—'),
+    el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold' }, fmt.usd0(Number(s.contractValue) || 0)),
+    el('td', { class: 'pl-2 pr-4 py-2 tabular-nums whitespace-nowrap', style: s.cancelDate ? { color: '#f87171' } : {} }, s.cancelDate || '—'))));
+
+  const header = el('div', { class: 'px-4 py-3 border-b border- flex items-center justify-between' },
+    el('h2', { class: 'text-base font-bold' }, 'Service Pro Upsells'),
+    el('span', { class: 'text-xs text-muted-' }, sorted.length > CAP
+      ? 'showing ' + CAP + ' of ' + fmt.int(sorted.length)
+      : fmt.int(sorted.length) + ' upsell' + (sorted.length === 1 ? '' : 's')));
+
+  const toolbar = el('div', { class: 'px-4 py-3 border-b border- flex items-center gap-2 flex-wrap' },
+    rangeSel, customInputs, filterSel);
+
+  const table = el('div', { class: 'scroll-x' },
+    el('table', { class: 'w-full text-[12px]', style: { minWidth: '720px' } }, head, body));
+
+  const empty = el('div', { class: 'p-10 text-center text-sm text-muted-' },
+    'No Service Pro upsells in this window' + (techFilter === 'all' ? '.' : ' for ' + techFilter + '.'));
+
+  return el('div', { class: 'card overflow-hidden' }, header, toolbar, sorted.length === 0 ? empty : table);
+}
+
 function viewDashboard() {
   const isAdmin = isAdminRole(state.profile?.role);
   const range = getDateRange(state.dashDateRange);
