@@ -142,6 +142,55 @@ exports.handler = async (event) => {
       console.error('[revhawk-sync] monthly archive skipped:', String((snapE && snapE.message) || snapE));
     }
 
+    // ── Publish the DERIVED dataset as tables (best-effort) ──────────────
+    // payload.rawSales is the exact per-sale row set every Indicators page
+    // (leaderboard, comps, records, class metrics, sales mix, scorecards)
+    // computes from in the browser, and payload.indicatorsData the weekly
+    // branch rows. riddmarket reads them via market_feed.indicator_sales /
+    // indicator_weekly so it starts from the same rows the app does. Customer
+    // identity is stripped (same as the rep blob). Replace-all per run,
+    // stamped computed_at = this run.
+    try {
+      const _cAt = new Date().toISOString();
+      let n = 0, chunk = [];
+      const flush = async (table) => {
+        if (!chunk.length) return;
+        const { error } = await supabase.from(table).insert(chunk);
+        if (error) throw new Error(table + ': ' + error.message);
+        n += chunk.length; chunk = [];
+      };
+      for (const r of payload.rawSales) {
+        chunk.push({ computed_at: _cAt, office: r.office || null, subscription: r.subscription || null, active: r.active || null,
+          cancel_reason: r.cancelReason || null, cancel_date: r.cancelDate || null, rep: r.rep || null, rep_id: r.repId || null,
+          rep_type: r.repType || null, week: r.week == null ? null : Number(r.week) || null, date_sold: r.dateSold || null,
+          status: r.status || null, auto_pay: r.autoPay == null ? null : String(r.autoPay), customer_flags: r.customerFlags || null,
+          serviced_date: r.servicedDate || null, initial_status: r.initialStatus || null, age: Number(r.age) || 0,
+          source: r.source || null, contract: r.contract == null ? null : String(r.contract),
+          initial_price: Number(r.initialPrice) || 0, contract_value: Number(r.contractValue) || 0,
+          recurring: Number(r.recurring) || 0, services: Number(r.services) || 0 });
+        if (chunk.length >= 1000) await flush('indicator_sales');
+      }
+      await flush('indicator_sales');
+      const nSales = n; n = 0;
+      for (const w of payload.indicatorsData) {
+        chunk.push({ computed_at: _cAt, week: Number(w.week) || null, date_label: w.date || null, iso_start: w.iso_start || null,
+          branch: w.branch || null, sold_accounts: Number(w.sold_accounts) || 0, revenue: Number(w.revenue) || 0,
+          avg_initial: Number(w.avg_initial) || 0, avg_initial_count: Number(w.avg_initial_count) || 0,
+          auto_pay_pct: Number(w.auto_pay_pct) || 0, audit_fail: Number(w.audit_fail) || 0, last_resort: Number(w.last_resort) || 0,
+          multi_years: Number(w.multi_years) || 0, twelve_month: Number(w.twelve_month) || 0, reps: Number(w.reps) || 0 });
+        if (chunk.length >= 1000) await flush('indicator_weekly');
+      }
+      await flush('indicator_weekly');
+      for (const t of ['indicator_sales', 'indicator_weekly']) {
+        const { error } = await supabase.from(t).delete().lt('computed_at', _cAt);
+        if (error) throw new Error(t + ' stale delete: ' + error.message);
+      }
+      await _hb({ stage: 'derived-tables', sales: nSales, weekly: n });
+      console.log('[derive-worker] derived tables: ' + nSales + ' sales, ' + n + ' weekly rows');
+    } catch (de) {
+      console.error('[derive-worker] derived tables failed (continuing):', String((de && de.message) || de));
+    }
+
     // ── Mirror the snapshot into public.crm_subscriptions (best-effort) ──
     // Same rows the app reads, queryable in SQL (riddmarket reads them via
     // market_feed.crm_subscriptions, which strips names/contact/balance).
