@@ -664,10 +664,10 @@ function viewIndicators() {
         el('div', {
           id: 'indFixedBar',
           style: {
-            position: 'fixed', top: '60px', left: '0', right: '0', zIndex: 15,
+            position: 'fixed', top: (() => { try { const h = document.querySelector('header.page-header'); return h ? Math.round(h.getBoundingClientRect().height) + 'px' : '60px'; } catch (e) { return '60px'; } })(), left: '0', right: '0', zIndex: 15,
             background: 'var(--bg)',
             borderBottom: '1px solid var(--border)',
-            paddingTop: '12px', paddingBottom: '12px',
+            paddingTop: '18px', paddingBottom: '14px',   // (bumped down a touch per Isaac — the row sat on the header rule)
           },
         },
           el('div', { class: 'w-full mx-auto px-4 sm:px-6', style: { maxWidth: '1648px' } },   // = main's gutter + 1600px content box, so Presets/Filters sit flush with the cards (per Isaac)
@@ -4328,15 +4328,20 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                   const mySig = _meSig(state.profile && state.profile.full_name);
                   let myIdx = displayReps.findIndex(r => isMyRepName(r.name));
                   if (myIdx < 0) myIdx = mySig ? displayReps.findIndex(r => _meSig(r.name) === mySig) : -1;
-                  const pinned = myIdx >= 0 ? [el('tr', {
+                  // Frozen under the sticky header + Total row (per Isaac): the
+                  // rep scrolls the board and still sees themselves AND the
+                  // company. `top` = the thead's live height, measured on mount.
+                  const _pinTr = myIdx >= 0 ? el('tr', {
                     class: 'border-t cursor-pointer transition hover:brightness-95',
-                    style: { background: 'rgba(223,100,58,.10)', boxShadow: 'inset 3px 0 0 var(--accent)' },
+                    style: { background: 'color-mix(in srgb, var(--accent) 10%, var(--card))', boxShadow: 'inset 3px 0 0 var(--accent), inset 0 -1px 0 var(--border-2)', position: 'sticky', top: '0px', zIndex: 2 },
                     title: 'You — your live spot on the board (rank #' + (myIdx + 1) + ')',
                     onclick: () => openIndicatorRepCard(displayReps[myIdx], allReps),
                   },
                     el('td', { class: 'pl-5 pr-2 py-2 font-black tabular-nums', style: { color: 'var(--accent)' } }, '#' + (myIdx + 1)),
                     ...repCols.map(c => { const td2 = c.cell(displayReps[myIdx]); td2.style.fontWeight = '700'; return td2; }),
-                  )] : [];
+                  ) : null;
+                  if (_pinTr) requestAnimationFrame(() => { try { const th = _pinTr.closest('table').querySelector('thead'); if (th) _pinTr.style.top = th.getBoundingClientRect().height + 'px'; } catch (e) { /* not mounted */ } });
+                  const pinned = _pinTr ? [_pinTr] : [];
                   return [...pinned, ...displayReps.map((r, i) => {
                     return el('tr', {
                       'data-replb': (r.name || '').toLowerCase(),
