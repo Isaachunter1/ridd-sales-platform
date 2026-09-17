@@ -4140,6 +4140,11 @@ function viewNrlaPublic() {
     onclick: () => { state._compsLanding = true; mountApp(); },
   }, '\u2190 Competitions');
   wrap.append(backBtn);
+  // PLAIN MODE (per Isaac, Sep 2026): competition LOOKS are moving to Cam's
+  // app — this tab is now a data-verification surface. The .comp-plain
+  // rules in index.html strip posters, colours, display type and artwork
+  // so every board reads as a basic table; the numbers and controls stay.
+  wrap.classList.add('comp-plain');
   if (repTypeTab === 'Office Staff') {
     // 🏆 RIDD Inside Sales League — the first Office Staff competition
     // (per Isaac). Config rides the synced _compExtras map under 'isl'.
@@ -4163,60 +4168,9 @@ function viewNrlaPublic() {
   if (!comps.some(c => c.id === selId)) selId = comps[0].id;
   const sel = comps.find(c => c.id === selId);
   if (sel.id !== 'mystery_box' && getActiveCompId() !== sel.id) state._indicatorActiveCompId = sel.id;
-  // ── Comp switcher pills + admin ★ default control + FieldRoutes sync stamp ──
-  const _defaultBtnFor = (compact) => isAdmin ? el('button', {
-    class: compact
-      ? 'text-xs font-bold rounded-lg px-2.5 py-2 border border-dashed cursor-pointer transition hover:brightness-95 shrink-0'
-      : 'text-xs font-bold rounded-full px-3 py-1 border border-dashed cursor-pointer transition hover:brightness-95 ml-auto',
-    style: sel.favorite
-      ? { color: '#A9441F', borderColor: '#A9441F' }
-      : { color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
-    title: sel.favorite
-      ? '“' + sel.name + '” is the default — everyone lands on it when opening this tab. Click to unset.'
-      : 'Make “' + sel.name + '” the default competition everyone lands on when opening this tab',
-    onclick: () => setCompDefault(comps, sel, !sel.favorite),
-  }, sel.favorite ? '★' : '☆') : null;
-  // (Last sync stamp dropped from this bar — per Isaac.)
-  wrap.append(el('div', { class: 'card p-3 flex flex-col gap-2', style: { borderLeft: '3px solid var(--text)' } },
-    // Desktop: pill row
-    el('div', { class: 'hidden sm:flex items-center gap-2 flex-wrap' },
-      el('span', { class: 'text-[11px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Competition'),
-      ...comps.map(c => el('button', {
-        class: 'text-[11px] font-bold rounded-full px-2.5 py-1 border transition cursor-pointer whitespace-nowrap',
-        style: c.id === sel.id
-          ? { background: 'var(--text)', color: 'var(--bg)', borderColor: 'var(--text)' }
-          : { background: 'transparent', color: 'var(--text-muted)', borderColor: 'var(--border-2)' },
-        title: (c.favorite ? c.name + ' — the default competition everyone lands on' : c.name) + (isAdmin ? ' · drag to reorder' : ''),
-        onclick: () => { state._compsTabSel = c.id; mountApp(); },
-        // Admin: drag a pill onto another to reorder — saved to the shared
-        // config, so every user sees the same order.
-        draggable: isAdmin ? 'true' : undefined,
-        ondragstart: isAdmin ? ((e) => { e.dataTransfer.setData('text/plain', c.id); e.dataTransfer.effectAllowed = 'move'; }) : undefined,
-        ondragover: isAdmin ? ((e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; e.currentTarget.style.outline = '2px dashed var(--accent)'; }) : undefined,
-        ondragleave: isAdmin ? ((e) => { e.currentTarget.style.outline = ''; }) : undefined,
-        ondrop: isAdmin ? ((e) => {
-          e.preventDefault();
-          e.currentTarget.style.outline = '';
-          const from = e.dataTransfer.getData('text/plain');
-          if (!from || from === c.id) return;
-          const ids = comps.map(x => x.id);
-          const fi = ids.indexOf(from), ti = ids.indexOf(c.id);
-          if (fi === -1 || ti === -1) return;
-          ids.splice(ti, 0, ids.splice(fi, 1)[0]);
-          state._compPillOrder = ids;
-          saveIndicatorState();   // persists + syncs the order to every user
-          mountApp();
-        }) : undefined,
-      }, (c.favorite ? '★ ' : '') + c.name)),
-      _defaultBtnFor(false)),
-    // Mobile: one compact dropdown row (pills wrapped to 3 lines on phones)
-    el('div', { class: 'sm:hidden flex items-center gap-2' },
-      el('select', {
-        class: 'flex-1 min-w-0 rounded-lg border px-2.5 py-1 text-[11px] font-bold',
-        style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-        onchange: (e) => { state._compsTabSel = e.target.value; mountApp(); },
-      }, ...comps.map(c => el('option', { value: c.id, selected: c.id === sel.id }, (c.favorite ? '★ ' : '') + c.name))),
-      _defaultBtnFor(true))));
+  // (Comp switcher pill bar retired — per Isaac; the landing page's
+  // dropdown is the one place to pick a competition. Admins star the
+  // default there too.)
   // ── Mystery Boxes: its own tab — rep boxes + admin arming panel ──
   if (sel.id === 'mystery_box') {
     const _mb = mysteryBoxSection(isAdmin);

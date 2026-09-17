@@ -265,6 +265,23 @@
   body.has-nv-banner header.page-header { top: var(--nv-banner, 0px) !important; }
   body.has-nv-banner main { margin-top: var(--nv-banner, 0px); }
   body.has-nv-banner #indFixedBar { top: calc(60px + var(--nv-banner, 0px) + env(safe-area-inset-top, 0px)) !important; }
+  /* Competitions PLAIN MODE (per Isaac): looks live in Cam's app now; this
+     tab only has to be readable + verifiable. Strip every decorative
+     treatment inside the comp page — inline colours, posters, artwork,
+     display type — down to plain cards and tables. Controls keep their
+     borders so they still read as controls. */
+  .comp-plain *:not(button):not(input):not(select):not(option):not(canvas)[style*="background"] { background: var(--card) !important; background-image: none !important; }
+  .comp-plain *:not(button):not(input):not(select):not(option)[style*="color"] { color: var(--text) !important; }
+  .comp-plain [style*="font-size"] { font-size: 13px !important; line-height: 1.35 !important; }
+  .comp-plain [style*="font-family"], .comp-plain .font-display, .comp-plain h1, .comp-plain h2, .comp-plain h3 { font-family: inherit !important; font-weight: 700 !important; letter-spacing: 0 !important; text-transform: none !important; font-size: 14px !important; }
+  .comp-plain img, .comp-plain video { display: none !important; }
+  .comp-plain [style*="box-shadow"], .comp-plain [style*="text-shadow"], .comp-plain [style*="filter"] { box-shadow: none !important; text-shadow: none !important; filter: none !important; }
+  .comp-plain [style*="min-height"] { min-height: 0 !important; }
+  .comp-plain .card { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+  .comp-plain table { border-collapse: collapse !important; border-spacing: 0 !important; width: 100%; }
+  .comp-plain th, .comp-plain td { border: 1px solid var(--border) !important; padding: 6px 8px !important; font-size: 12px !important; background: var(--card) !important; color: var(--text) !important; border-radius: 0 !important; }
+  .comp-plain th { background: var(--card-2) !important; font-weight: 700 !important; text-transform: uppercase; font-size: 10px !important; letter-spacing: .04em; }
+  .comp-plain button { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border-2) !important; }
   /* Keep the fixed top-bar tab title compact (it lives in a ~60px header). */
   .hb-topbar-title { font-size: clamp(1.45rem, 2.6vw, 2.1rem) !important; line-height: 1 !important; text-transform: uppercase; }
 
