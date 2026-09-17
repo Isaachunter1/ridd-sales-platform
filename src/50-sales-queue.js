@@ -359,40 +359,57 @@ function unloggedSalesBlock(isAdmin) {
     };
     openNewSaleModal(g.rep_id, null, { prefill, onLogged: (saleId) => resolve(g, 'claimed', saleId) });
   };
-  const row = (g) => el('div', {
-    class: 'flex items-center justify-between gap-3 px-4 py-2 border-t flex-wrap',
-    style: { borderColor: 'var(--border)', opacity: '.62' },
+  // Same columns as the sales table below (per Isaac) so the eye doesn't
+  // re-learn a layout: Customer Name · Customer # · Office Rep · Office ·
+  // Service Type · Contract Type · Source · Initial · Monthly · Revenue ·
+  // Sold Date · Signed · actions. Shown 25 at a time; a search box narrows.
+  const st = (state._unlogged = state._unlogged || { limit: 25, q: '' });
+  const q = norm(st.q);
+  const shown = q ? mine.filter(g => norm(g.customer_name + ' ' + g.customer_number + ' ' + repName(g.rep_id) + ' ' + g.crm_subscription + ' ' + g.subscription_source + ' ' + g.office_name).includes(q)) : mine;
+  const th = (t, right) => el('th', { class: (right ? 'text-right' : 'text-left') + ' px-2 py-2 font-semibold whitespace-nowrap' }, t);
+  const td = (c, cls = '') => el('td', { class: 'px-2 py-2 ' + cls }, c);
+  const row = (g) => el('tr', {
+    class: 'border-t border- transition',
+    style: { opacity: '.72' },
     title: 'In FieldRoutes this subscription is sold by ' + (repName(g.rep_id) || 'this rep') + ' with a signed agreement, but it was never logged here.',
   },
-    el('div', { class: 'flex items-center gap-3 min-w-0 flex-wrap' },
-      el('span', { class: 'text-[11px]' }, '\ud83d\udc7b'),
-      el('span', { class: 'font-semibold text-sm truncate' }, g.customer_name || ('Customer ' + g.customer_number)),
-      el('span', { class: 'text-[11px] text-muted- tabular-nums' }, '#' + g.customer_number),
-      isAdmin ? el('span', { class: 'text-[11px] font-semibold' }, repName(g.rep_id)) : null,
-      el('span', { class: 'text-[11px] text-muted-' }, g.crm_subscription + ' \u00b7 ' + (g.contract_months || 12) + ' mo' + (g.subscription_source ? ' \u00b7 ' + g.subscription_source : '')),
-      el('span', { class: 'text-[11px] text-muted- tabular-nums' }, 'sold ' + g.sold_date + (g.contract_signed_at ? ' \u00b7 signed ' + g.contract_signed_at : '')),
-      el('span', { class: 'text-sm font-bold tabular-nums' }, fmt.usd(g.revenue_amount || 0)),
-    ),
-    el('div', { class: 'flex items-center gap-2 shrink-0' },
-      el('button', {
-        class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-        style: { background: 'var(--accent)', color: 'var(--accent-text)' },
-        onclick: () => claim(g),
-      }, 'Claim'),
-      el('button', {
-        class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
-        style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-        onclick: () => { if (confirm('Mark this subscription as not yours? It will leave your board.')) resolve(g, 'dismissed'); },
-      }, 'Not mine'),
-    ),
+    el('td', { class: 'pl-4 pr-2 py-2 font-medium whitespace-nowrap max-w-[160px] truncate', title: g.customer_name }, g.customer_name || ('Customer ' + g.customer_number)),
+    td(el('span', { class: 'text-muted- tabular-nums' }, g.customer_number || '—'), 'whitespace-nowrap'),
+    td(el('span', { class: 'text-[11px] font-medium whitespace-nowrap' }, (repName(g.rep_id) || '—').split(' ')[0])),
+    td(el('span', { class: 'text-muted- whitespace-nowrap' }, g.office_name || '—')),
+    td(el('span', { class: 'text-muted- max-w-[140px] truncate inline-block align-bottom', title: g.crm_subscription }, g.crm_subscription || '—')),
+    td(el('span', { class: 'text-muted- whitespace-nowrap' }, (Number(g.contract_months) || 12) + ' Mo')),
+    td(el('span', { class: 'text-muted- whitespace-nowrap max-w-[110px] truncate inline-block align-bottom', title: g.subscription_source }, g.subscription_source || '—')),
+    el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap' }, fmt.usd(g.initial_amount || 0)),
+    el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap text-muted-' }, fmt.usd(g.monthly_amount || 0)),
+    el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap' }, fmt.usd(g.revenue_amount || 0)),
+    td(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, fmt.dateShortYear(g.sold_date))),
+    td(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, g.contract_signed_at ? fmt.dateShortYear(g.contract_signed_at) : '—')),
+    el('td', { class: 'px-2 py-2 whitespace-nowrap' },
+      el('div', { class: 'flex items-center gap-1.5 justify-end' },
+        el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: () => claim(g) }, 'Claim'),
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+          onclick: () => { if (confirm('Mark this subscription as not yours? It will leave your board.')) resolve(g, 'dismissed'); } }, 'Not mine'))),
   );
+  const search = el('input', { type: 'search', placeholder: 'Search unlogged…', value: st.q, class: 'rounded-lg border px-2.5 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '180px' },
+    oninput: (e) => { st.q = e.target.value; st.limit = 25; clearTimeout(st._t); st._t = setTimeout(() => mountApp(), 250); } });
   return el('div', { class: 'card overflow-hidden mb-4' },
-    el('div', { class: 'flex items-center justify-between gap-3 px-4 py-2.5' },
+    el('div', { class: 'flex items-center justify-between gap-3 px-4 py-2.5 flex-wrap' },
       el('div', { class: 'flex items-center gap-2' },
         el('span', { class: 'font-bold text-sm' }, 'Unlogged sales'),
-        el('span', { class: 'text-[11px] text-muted-' }, mine.length + ' in FieldRoutes under ' + (isAdmin ? 'reps\u2019 names' : 'your name') + ', signed, not logged here')),
-      el('span', { class: 'text-[10px] text-muted-' }, 'Claim to log it and start the audit \u00b7 Not mine to dismiss')),
-    ...mine.map(row));
+        el('span', { class: 'text-[11px] text-muted-' }, mine.length + ' in FieldRoutes under ' + (isAdmin ? 'reps’ names' : 'your name') + ', signed, not logged here')),
+      el('div', { class: 'flex items-center gap-2 flex-wrap' },
+        search,
+        el('span', { class: 'text-[10px] text-muted-' }, 'Claim to log it and start the audit · Not mine to dismiss'))),
+    el('div', { class: 'scroll-x' },
+      el('table', { class: 'w-full text-[12px]' },
+        el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted- bg-card2-' },
+          el('tr', {}, el('th', { class: 'text-left pl-4 pr-2 py-2 font-semibold whitespace-nowrap' }, 'Customer Name'), th('Customer #'), th('Office Rep'), th('Office'), th('Service Type'), th('Contract Type'), th('Source'), th('Initial', true), th('Monthly', true), th('Revenue', true), th('Sold Date'), th('Signed'), th(''))),
+        el('tbody', {}, ...shown.slice(0, st.limit).map(row)))),
+    shown.length > st.limit
+      ? el('div', { class: 'px-4 py-2 border-t text-center', style: { borderColor: 'var(--border)' } },
+          el('button', { class: 'text-[11px] font-semibold', style: { color: 'var(--accent)' }, onclick: () => { st.limit += 50; mountApp(); } }, 'Show more (' + (shown.length - st.limit) + ' left)'))
+      : null);
 }
 
 // Mobile-only card list. Mirrors salesTable for phones: each sale is a tap-
