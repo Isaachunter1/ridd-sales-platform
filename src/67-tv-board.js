@@ -100,7 +100,7 @@ function openTvBoard() {
     const offAgg = new Map();
     rows.forEach(s => { const o = (state.offices || []).find(x => x.id === s.office_id); const n = o ? o.name : (s._crmOffice || 'Unassigned'); offAgg.set(n, (offAgg.get(n) || 0) + (Number(s.revenue_amount) || 0)); });
     const offices = [...offAgg.entries()].map(([name, revenue]) => ({ name, revenue })).sort((a, b) => b.revenue - a.revenue);
-    const latest = [...rows].sort((a, b) => String(b.created_at || b.sold_date).localeCompare(String(a.created_at || a.sold_date))).slice(0, 5);
+    const latest = [...rows].sort((a, b) => String(b.created_at || b.sold_date).localeCompare(String(a.created_at || a.sold_date))).slice(0, 8);
     const goal = goalFor(range);
     return { range, rows, revenue: rev(rows), count: rows.length,
       avgInitial: subs.length ? subs.reduce((a, s) => a + (Number(s.initial_amount) || 0), 0) / subs.length : 0,
@@ -140,7 +140,7 @@ function openTvBoard() {
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '22px' } },
         (typeof riddmadeWordmark === 'function') ? riddmadeWordmark(190) : el('div', { style: { fontFamily: HEAD, fontSize: '28px' } }, 'RIDDMADE'),
         el('div', { style: { width: '1px', height: '22px', background: T.hair } }),
-        eyebrow('Inside sales', { color: T.ink })),
+        eyebrow('Inside Sales League', { color: T.ink })),
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '18px' } },
         el('div', { style: { display: 'flex', gap: '6px' } }, ...RANGES.map(([id, l]) => pill(id, l))),
         clock,
@@ -191,7 +191,7 @@ function openTvBoard() {
           el('div', { style: { height: '4px', background: T.surface2 } }, el('div', { style: { height: '100%', width: (offMax ? o.revenue / offMax * 100 : 0) + '%', background: i === 0 ? T.ember : T.dim } }))))
         : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, '—')]))]);
     const latestEl = panel([
-      eyebrow('Last 5 sales'),
+      eyebrow('Latest sales'),
       el('div', { style: { display: 'flex', flexDirection: 'column', marginTop: '10px', overflow: 'hidden', flex: '1' } },
         ...(d.latest.length ? d.latest.map((s, i) => {
           const r = d.reps.find(x => x.key === (s.rep_id || ('crm:' + s._crmRep)));
@@ -203,7 +203,7 @@ function openTvBoard() {
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
     const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: '18px', padding: '18px 36px 28px', flex: '1', minHeight: '0' } },
       board,
-      el('div', { style: { display: 'flex', flexDirection: 'column', gap: '18px', minHeight: '0' } }, officesEl, latestEl));
+      latestEl);   // (By branch retired per Isaac — the column is the latest sales.)
 
     const foot = el('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '0 36px 16px', fontFamily: MONO, fontSize: '10px', letterSpacing: '.18em', textTransform: 'uppercase', color: T.dim } },
       el('span', {}, 'Live from FieldRoutes · ' + ((typeof appSyncStampStr === 'function') ? appSyncStampStr() : '')),
