@@ -60,6 +60,16 @@ function _retenOfficial() {
   state._retenWhatIf = saved;
   return o;
 }
+// Trailing 12 months: cancels in the last 365 days ÷ the book exactly a year
+// ago. The always-comparable operating number (YTD isn't, until December).
+function retenTrailing12(book) {
+  const today = new Date();
+  const start = new Date(today); start.setFullYear(start.getFullYear() - 1);
+  const st = start.toISOString().slice(0, 10), en = today.toISOString().slice(0, 10);
+  const boy = book.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st));
+  const counted = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en);
+  return { rate: boy.length ? counted.length / boy.length : null, c: counted.length, boy: boy.length, st, en, rows: { boy, counted } };
+}
 function retenMethodCard(pop, _retenEff, ground) {
   const year = new Date().getFullYear();
   const yStart = year + '-01-01', pStart = (year - 1) + '-01-01';
@@ -163,6 +173,7 @@ function retenMethodCard(pop, _retenEff, ground) {
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, (year - 1) + ' attrition'), el('div', { class: 'text-lg font-black' }, pct(prev.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.prev)) : null)),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-lg font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' projected attrition'), el('div', { class: 'text-lg font-black' }, pct(projected), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'seasonal pace'))),
+        (() => { const t = retenTrailing12(book); return el('div', { class: 'text-right', title: n(t.c) + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + n(t.boy) + ' on the books a year ago' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'), clickable(el('div', { class: 'text-lg font-black' }, pct(t.rate)), drill('Trailing 12 months · counted cancels', t.rows.counted, 'counted as churn'))); })(),
         whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
         // Reconcile against a hand-built FieldRoutes export (CSV): matched /
         // only-in-app / only-in-file, each explained row by row.
@@ -269,13 +280,7 @@ function retenMethodCard(pop, _retenEff, ground) {
       const share = prev.counted ? prevByNow / prev.counted : null;
       const paceSeason = share && share > 0.05 && cur.boy ? (cur.counted / share) / cur.boy : null;
       const paceLinear = cur.boy ? (cur.counted * (yearDays / doy)) / cur.boy : null;
-      const rolling = (() => {   // trailing 12 months: cancels in the last 365 days ÷ book 12 months ago
-        const start = new Date(today); start.setFullYear(start.getFullYear() - 1);
-        const st = start.toISOString().slice(0, 10), en = today.toISOString().slice(0, 10);
-        const boy = book.filter(r => r.initial_service < st && (!r._effCancel || r._effCancel >= st));
-        const c = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en).length;
-        return { rate: boy.length ? c / boy.length : null, c, boy: boy.length };
-      })();
+      const rolling = retenTrailing12(book);
       const tile = (label, val, sub, fn) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl', style: { background: 'var(--card-2)', minWidth: '150px' } },
         el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
         clickable(el('div', { class: 'text-xl font-black tabular-nums' }, val), fn),
@@ -285,7 +290,7 @@ function retenMethodCard(pop, _retenEff, ground) {
         el('div', { class: 'flex gap-2 flex-wrap' },
           tile(year + ' YTD', pct(cur.rate) + (official ? ' · official ' + pct(official.cur) : ''), n(cur.counted) + ' of ' + n(cur.boy) + ' on the books Jan 1' + (cur.exclN || cur.rorN ? ' · ' + n(cur.exclN + cur.rorN) + ' cancels not counted (excluded reasons / ROR)' : ''), drill(year + ' counted cancels', cur.rows.counted, 'counted as churn')),
           tile('Pacing to (full ' + year + ')', paceSeason != null ? pct(paceSeason) : '—', paceSeason != null ? 'By this date ' + (year - 1) + ' had seen ' + Math.round(share * 100) + '% of its cancels · straight-line pace ' + pct(paceLinear) : 'Needs a full prior year', null),
-          tile('Rolling 12 months', pct(rolling.rate), n(rolling.c) + ' cancels ÷ ' + n(rolling.boy) + ' on the books a year ago', null),
+          tile('Trailing 12 months', pct(rolling.rate), n(rolling.c) + ' cancels ÷ ' + n(rolling.boy) + ' on the books a year ago', drill('Trailing 12 months · counted cancels', rolling.rows.counted, 'counted as churn')),
           tile((year - 1) + ' full year', pct(prev.rate) + (official ? ' · official ' + pct(official.prev) : ''), n(prev.counted) + ' of ' + n(prev.boy), drill((year - 1) + ' counted cancels', prev.rows.counted, 'counted as churn'))));
     })()));
   return card;
@@ -774,7 +779,14 @@ function reportingWaterfall() {
     const drillRows = (title, rs) => rs.length ? () => openReportingDrillModal({ chartTitle: 'Cohort waterfall · ' + title, sliceLabel: rs.length.toLocaleString() + ' subscription' + (rs.length === 1 ? '' : 's'), rows: rs, formatValue: fmt.usd0 }) : undefined;
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
-        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, (isArr ? 'ARR' : 'Accounts') + ' still active at each year-end, by first-service year · ' + thisYear + ' = today · same book as Attrition Steps'))),
+        el('div', {}, el('h3', { class: 'text-sm font-bold' }, 'Cohort Waterfall' + (office !== 'all' ? ' · ' + office : '')), el('div', { class: 'text-[9px] uppercase tracking-widest mt-1', style: { color: 'var(--text-subtle)' } }, (isArr ? 'ARR' : 'Accounts') + ' still active at each year-end, by first-service year · ' + thisYear + ' = today · same book as Attrition Steps')),
+        (() => {
+          const t = retenTrailing12(rows);
+          const drillT = t.rows.counted.length ? () => openReportingDrillModal({ chartTitle: 'Trailing 12 months · counted cancels', sliceLabel: t.rows.counted.length.toLocaleString() + ' subscriptions · ' + t.st + ' → ' + t.en, rows: t.rows.counted, formatValue: fmt.usd0 }) : null;
+          return el('div', { class: 'text-right' + (drillT ? ' cursor-pointer hover:underline' : ''), title: t.rows.counted.length.toLocaleString() + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + t.boy.toLocaleString() + ' on the books a year ago', onclick: drillT },
+            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'),
+            el('div', { class: 'text-lg font-black tabular-nums' }, t.rate == null ? '—' : (t.rate * 100).toFixed(1) + '%'));
+        })()),
       el('div', { style: { overflow: 'auto', maxHeight: '70vh' } }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
         el('thead', {}, el('tr', {}, th('Year', { left: true, corner: true }), th(isArr ? 'ARR' : 'Accounts'), ...years.map(y => th(String(y))))),
         el('tbody', {},
