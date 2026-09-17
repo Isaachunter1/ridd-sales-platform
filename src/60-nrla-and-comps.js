@@ -4119,6 +4119,19 @@ function viewNrlaPublic() {
           ));
           return box;
         })())));
+    // Size the poster to the viewport EXACTLY (per Isaac: no scrolling on the
+    // landing). Measured live after mount — header, tabs and gutters all
+    // vary — and re-measured on resize. The negative bottom margin already
+    // eats the content wrapper's bottom padding, so top-of-poster → viewport
+    // bottom is the whole height.
+    const _fitPoster = () => {
+      const p = wrap.querySelector('.comp-landing-poster'); if (!p || !p.isConnected) return false;
+      const top = p.getBoundingClientRect().top + (window.scrollY || 0);
+      p.style.minHeight = Math.max(420, window.innerHeight - top) + 'px';
+      return true;
+    };
+    requestAnimationFrame(() => { _fitPoster(); setTimeout(_fitPoster, 250); });
+    if (!window._compPosterFitBound) { window._compPosterFitBound = true; window.addEventListener('resize', () => { try { _fitPoster(); } catch (e) { /* gone */ } }); }
     return wrap;
   }
   const backBtn = el('button', {
