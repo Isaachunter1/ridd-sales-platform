@@ -2356,7 +2356,7 @@ function reportingWaterfall() {
   // (Renewal Outreach queue retired per Isaac, Sep 2026 — renewalQueueCard stays defined.)
   // The section tabs AND the Office / Metrics bar freeze together under the
   // page header (per Isaac) so both travel down the tab.
-  const frozen = el('div', { class: 'flex flex-col gap-4', style: { position: 'sticky', top: 'calc(' + _hdrH + 'px + var(--nv-banner, 0px))', zIndex: 25, background: 'var(--bg)', paddingTop: '8px', paddingBottom: '4px', marginTop: '-8px' } }, _secBar, modeBar);
+  const frozen = el('div', { class: 'flex flex-col gap-3', style: { position: 'sticky', top: 'calc(' + _hdrH + 'px + var(--nv-banner, 0px))', zIndex: 25, background: 'var(--bg)', paddingTop: '6px', paddingBottom: '16px', marginTop: '-14px', marginBottom: '-16px' } }, _secBar, modeBar);
   return el('div', { class: 'flex flex-col gap-4' }, frozen, retenMethodCard(popA, _retenEff, groundA), body, repTypeAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard, sourceLedgerCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 

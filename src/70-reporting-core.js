@@ -678,6 +678,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
   // they can never drift out of order. `get` returns a comparable value used
   // for sorting; `type` decides the default sort direction on first click.
   const cols = [
+    { key: 'num',          label: '#',               align: 'right', type: 'num', get: () => 0, noSort: true },   // row number (per Isaac) — follows the current sort
     { key: 'customer',     label: 'Customer',        align: 'left',  type: 'str', get: r => customerName(r).toLowerCase() },
     { key: 'office',       label: 'Office',          align: 'left',  type: 'str', get: r => (r.office_name || '').toLowerCase() },
     { key: 'rep',          label: 'Sold by',         align: 'left',  type: 'str', get: r => String(r.sold_by || '').toLowerCase() },
@@ -719,7 +720,8 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
     });
   };
 
-  const rowFor = (r) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+  const rowFor = (r, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+    el('td', { class: 'px-3 py-2 text-right tabular-nums', style: { color: 'var(--text-subtle)' } }, String((i || 0) + 1)),
     el('td', { class: 'px-3 py-2' },
       el('div', { class: 'font-medium' }, customerName(r)),
       r.customer_id && el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '#' + r.customer_id),
@@ -794,6 +796,7 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
     headRow.replaceChildren(...cols.map(c => {
       const active = c.key === sortKey;
       const arrow = '';
+      if (c.noSort) return el('th', { class: 'text-right px-3 py-2 font-semibold whitespace-nowrap' }, c.label);
       return el('th', {
         class: (c.align === 'right' ? 'text-right' : 'text-left') + ' px-3 py-2 font-semibold cursor-pointer select-none whitespace-nowrap hover:text-default transition',
         style: active ? { color: 'var(--accent)', fontWeight: '800' } : undefined,

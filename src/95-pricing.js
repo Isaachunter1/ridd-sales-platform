@@ -411,8 +411,11 @@ function viewPricing() {
     // block no longer floats mid-page and overlaps the slick). The block
     // paints the page background so nothing shows through the gaps.
     const hdr = document.querySelector('header.page-header');
-    const hdrH = hdr ? hdr.getBoundingClientRect().height : 60;
-    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: hdrH + 'px', zIndex: 5, background: 'var(--bg)', paddingTop: '2px', marginTop: '-2px' } }, quote);
+    // Sticky offset = the header's BOTTOM edge (not its height — a banner or
+    // safe-area inset shifts it), minus the 2px of breathing room the block
+    // carries, so the quote's top edge lines up with the slick's (per Isaac).
+    const hdrH = hdr ? Math.round(hdr.getBoundingClientRect().bottom) : 60;
+    const top = el('div', { class: 'pricing-quote', style: { position: 'sticky', top: Math.max(0, hdrH - 2) + 'px', zIndex: 5, background: 'var(--bg)', paddingTop: '2px', marginTop: '-2px' } }, quote);
     board.classList.add('pricing-board');
     quote.style.position = ''; quote.style.top = ''; quote.style.zIndex = '';
     root.replaceChildren(top, board);
