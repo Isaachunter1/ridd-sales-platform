@@ -3516,8 +3516,8 @@ const PARTNER_LAYOUT_SECTIONS = [
   ['board',   'Leaderboard'],
   ['yoy',     'Your Performance Trends'],
   ['trend',   'Your Metric Trends'],
-  ['records', '🏅 Records'],
-  ['class',   '🎓 Class Metrics'],
+  ['records', 'Records'],
+  ['class',   'Class Metrics'],
 ];
 // (the 'class' key is quoted so the CI class-token scanner skips it)
 const _REP_SECTION_PERM = { 'card': 'ind_card', 'yoy': 'ind_yoy', 'trend': 'ind_trend', 'board': 'ind_board', 'records': 'ind_records', 'class': 'ind_class' };
@@ -3525,7 +3525,7 @@ const _repLayoutSections = () => {
   const partnerish = (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role))
     || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role));
   const ordered = partnerish ? PARTNER_LAYOUT_SECTIONS
-    : [...REP_LAYOUT_SECTIONS, ['records', '\ud83c\udfc5 Records'], ['class', '\ud83c\udf93 Class Metrics']];
+    : [...REP_LAYOUT_SECTIONS, ['records', 'Records'], ['class', 'Class Metrics']];
   return ordered.filter(([id]) => (typeof userCan !== 'function') || userCan(_REP_SECTION_PERM[id] || ''));
 };
 function _repLayoutPrefs() {

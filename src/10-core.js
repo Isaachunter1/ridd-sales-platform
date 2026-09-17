@@ -170,8 +170,8 @@ const PERM_DEFS = [
   { id: 'ind_board',        label: 'Leaderboard',         group: 'Indicators sections' },
   { id: 'ind_yoy',          label: 'Performance Trends',  group: 'Indicators sections' },
   { id: 'ind_trend',        label: 'Metric Trends',       group: 'Indicators sections' },
-  { id: 'ind_records',      label: '\ud83c\udfc5 Records',       group: 'Indicators sections' },
-  { id: 'ind_class',        label: '\ud83c\udf93 Class Metrics', group: 'Indicators sections' },
+  { id: 'ind_records',      label: 'Records',       group: 'Indicators sections' },
+  { id: 'ind_class',        label: 'Class Metrics', group: 'Indicators sections' },
 ];
 const PERM_DEFAULTS = {
   rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },   // table + power ranking opened to sales reps (per Isaac)
