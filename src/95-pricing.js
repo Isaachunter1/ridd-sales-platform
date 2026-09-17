@@ -80,7 +80,11 @@ function pricingStore() {
   if (!st.tier) st.tier = pricingDefaultTier(state.profile);
   if (st.tier === 'd2d_min') { st.tier = 'd2d'; st.min = true; }   // legacy value from an earlier build
   if (st.min == null) st.min = false;
-  if (!st.base) st.base = 'pest';
+  // Termite Defense is its own subscription in the CRM (per Isaac): it sits
+  // ALONGSIDE whichever Home/Yard base plan is picked, never instead of it.
+  if (st.termite == null) st.termite = false;
+  if (st.base === 'termite') { st.base = 'pest'; st.termite = true; }   // legacy value from an earlier build
+  if (!st.base || !PRICING_SERVICES[st.base] || PRICING_SERVICES[st.base].program === 'termite') st.base = 'pest';
   if (!st.freq) st.freq = 'q';
   if (!st.addons) st.addons = {};
   if (!st.onetime) st.onetime = {};
@@ -96,14 +100,13 @@ function pricingTierOf(st) {
 function pricingQuote(st) {
   const T = pricingTierOf(st);
   const svc = PRICING_SERVICES[st.base] || PRICING_SERVICES.pest;
-  const fi = svc.program === 'termite' ? null : Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
-  const baseInit = svc.program === 'termite' ? T.termite[0] : T.init;
-  const baseMo = svc.program === 'termite' ? T.termite[1] : T[svc.program][fi];
-  const lines = [{ kind: 'base', label: (PRICING_PROGRAMS.find(p => p.id === svc.program) || {}).label + ' · ' + svc.label + (svc.program === 'termite' ? ' · Annual' : ' · ' + PRICING_FREQ[fi][1]), init: baseInit, mo: baseMo }];
+  const fi = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
+  const lines = [{ kind: 'base', label: (PRICING_PROGRAMS.find(p => p.id === svc.program) || {}).label + ' · ' + svc.label + ' · ' + PRICING_FREQ[fi][1], init: T.init, mo: T[svc.program][fi] }];
   for (const [id, init, mo] of T.addons) {
     if (id === st.base || !st.addons[id]) continue;
     lines.push({ kind: 'addon', label: PRICING_SERVICES[id].label + ' add-on', init, mo });
   }
+  if (st.termite) lines.push({ kind: 'termite', label: 'Termite Defense · Annual (separate subscription)', init: T.termite[0], mo: T.termite[1] });
   if (T.onetime) for (const [id, label, nw, cur] of PRICING_ONETIME) {
     if (!st.onetime[id]) continue;
     lines.push({ kind: 'onetime', label: label + ' (one-time)', init: st.customer === 'current' ? cur : nw, mo: 0 });
@@ -182,17 +185,22 @@ function viewPricing() {
 
     // ── program blocks (Home · Yard · Termite) ──
     const program = (p) => {
-      const onProg = baseSvc.program === p.id;
       const isT = p.id === 'termite';
+      const onProg = isT ? !!st.termite : baseSvc.program === p.id;
+      const toggleT = () => { st.termite = !st.termite; rerender(); };
       const initV = isT ? T.termite[0] : T.init;
       return card(
         el('div', { class: 'flex items-center justify-between gap-3 flex-wrap', style: { padding: '14px 18px 6px' } },
           el('div', { class: 'flex items-center gap-2', style: { font: '700 20px/1 Archivo, Arial, sans-serif', letterSpacing: '-.01em', textTransform: 'uppercase' } }, pricingIcon(p.id, 22, C.orange), p.label),
-          el('div', { class: 'flex gap-1.5 flex-wrap' }, ...p.services.map(sid => pill(PRICING_SERVICES[sid].label, st.base === sid, () => { st.base = sid; delete st.addons[sid]; rerender(); })))),
+          isT
+            ? el('div', { class: 'flex items-center gap-2' },
+                el('span', { style: { font: '500 10px/1 Archivo, Arial, sans-serif', color: C.ink2 } }, 'separate subscription · stacks with any plan'),
+                pill(st.termite ? 'Added ✓' : 'Add', !!st.termite, toggleT))
+            : el('div', { class: 'flex gap-1.5 flex-wrap' }, ...p.services.map(sid => pill(PRICING_SERVICES[sid].label, st.base === sid, () => { st.base = sid; delete st.addons[sid]; rerender(); })))),
         el('div', { class: 'grid gap-2', style: { gridTemplateColumns: isT ? '1fr 1fr' : '1.05fr 1fr 1fr 1fr', padding: '6px 14px 12px' } },
           tile('Initial', 'first visit', initV, false, null, { dark: true }),
           ...(isT
-            ? [tile('Annual', 'serviced once a year', T.termite[1], onProg, () => { st.base = 'termite'; delete st.addons.termite; rerender(); }, { mo: true })]
+            ? [tile('Annual', 'serviced once a year · tap to add', T.termite[1], onProg, toggleT, { mo: true })]
             : PRICING_FREQ.map(([k, lbl, visits], i) => tile(lbl, visits + ' visits', T[p.id][i], onProg && st.freq === k, () => { if (!onProg) st.base = p.services[0]; st.freq = k; rerender(); }, { mo: true })))));
     };
 
