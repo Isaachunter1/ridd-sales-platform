@@ -852,7 +852,8 @@ function mountApp() {
           pullErr ? ' · CAN\u2019T REACH SERVER' : lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '') : null;
       })(),
     ),
-    state.view === 'sales' ? buildSearchBar() : el('div', { class: 'flex-1' }),
+    // (Top-bar customer search retired — the Sales tab has its own search row, per Isaac.)
+    el('div', { class: 'flex-1' }),
     el('div', { class: 'flex items-center gap-2' },
       // (📣 Feedback · ✏️ Edit layout · 📺 TV · theme now live under the
       // ⚙ gear menu — the icon row was getting messy, per Isaac.)
