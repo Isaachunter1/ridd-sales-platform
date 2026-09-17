@@ -346,7 +346,7 @@ function viewPricing() {
     const editor = (l) => {
       const f = pricingFloor(st, l.key) || { init: 0, mo: 0 };
       const cur = st.custom[l.key] || { init: l.init, mo: l.mo };
-      const inp = (v, ph) => el('input', { type: 'number', inputmode: 'numeric', min: 0, step: 1, value: v, placeholder: ph, style: { width: '76px', padding: '5px 8px', borderRadius: '8px', border: '1.5px solid ' + C.ink3, background: '#fff', color: C.char, font: '700 12px/1.2 ' + F, textAlign: 'right', fontVariantNumeric: 'tabular-nums' } });
+      const inp = (v, ph) => el('input', { type: 'number', inputmode: 'numeric', min: 0, step: 1, value: v, placeholder: ph, style: { width: '68px', padding: '5px 8px', borderRadius: '8px', border: '1.5px solid ' + C.ink3, background: '#fff', color: C.char, font: '700 12px/1.2 ' + F, textAlign: 'right', fontVariantNumeric: 'tabular-nums' } });
       const iIn = inp(cur.init, 'initial'), mIn = inp(cur.mo, 'monthly');
       const err = el('div', { style: { font: '700 10px/1.3 ' + F, color: '#C0392B', minHeight: '13px', textAlign: 'right' } }, '');
       const check = () => {
@@ -360,7 +360,7 @@ function viewPricing() {
       const onKey = (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } else if (e.key === 'Escape') { editKey = null; rerender(); } };
       iIn.oninput = check; mIn.oninput = check; iIn.onkeydown = onKey; mIn.onkeydown = onKey;
       const btn = (t, fn, primary) => el('button', { onclick: fn, style: { padding: '5px 10px', borderRadius: '999px', font: '700 9px/1.2 ' + F, letterSpacing: '.08em', textTransform: 'uppercase', cursor: 'pointer', border: '1.5px solid ' + (primary ? C.orange : C.ink3), background: primary ? C.orange : 'transparent', color: primary ? C.cream : C.char } }, t);
-      const wrap = el('div', { style: { flex: '1 1 100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' } },
+      const wrap = el('div', { style: { flex: '0 0 auto', marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' } },
         el('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } }, iIn, el('span', { style: { font: '500 10px/1 ' + F, color: C.ink2 } }, 'init'), mIn, el('span', { style: { font: '500 10px/1 ' + F, color: C.ink2 } }, '/mo')),
         err,
         el('div', { style: { display: 'flex', gap: '4px' } }, btn('Save', save, true), st.custom[l.key] ? btn('List price', () => { delete st.custom[l.key]; editKey = null; rerender(); }) : null, btn('Cancel', () => { editKey = null; rerender(); })));
@@ -372,8 +372,8 @@ function viewPricing() {
       const editing = editable && editKey === l.key;
       // While editing, the fields drop onto their own full-width row so the
       // service name never gets squeezed (per Isaac).
-      return el('div', { style: { display: 'flex', flexWrap: editing ? 'wrap' : 'nowrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: editing ? '6px 10px' : '10px', padding: '7px 0', borderBottom: '1px dashed rgba(50,50,48,.28)' } },
-        el('div', { style: { minWidth: 0, flex: editing ? '1 1 100%' : '1 1 auto' } },
+      return el('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: '6px 10px', padding: '7px 0', borderBottom: '1px dashed rgba(50,50,48,.28)' } },
+        el('div', { style: { minWidth: 0, flex: '1 1 160px' } },
           el('div', { style: { font: '700 13px/1.2 ' + F, color: C.char, textTransform: 'uppercase', letterSpacing: '.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: editing ? 'normal' : 'nowrap' } }, l.label),
           el('div', { style: { font: '500 10px/1.3 ' + F, color: C.ink2, marginTop: '1px' } }, l.sub)),
         editing ? editor(l) : el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 } },
