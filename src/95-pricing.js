@@ -112,13 +112,19 @@ function pricingStore() {
   return st;
 }
 // The D2D floor for a receipt line — the number a rep can never quote under.
+// It is the D2D minimum, or this tier's own list price when that is lower
+// (Loyalty sits under the D2D minimums by design).
 function pricingFloor(st, key) {
-  const M = PRICING_TIERS.find(t => t.id === 'd2d_min');
   const fi = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
-  if (key === 'base') { const svc = PRICING_SERVICES[st.base]; return svc ? { init: M.init, mo: M[svc.program][fi] } : null; }
-  if (key === 'termite') return { init: M.termite[0], mo: M.termite[1] };
-  if (key.startsWith('addon:')) { const a = M.addons.find(x => x[0] === key.slice(6)); return a ? { init: a[1], mo: a[2] } : null; }
-  return null;
+  const one = (T) => {
+    if (key === 'base') { const svc = PRICING_SERVICES[st.base]; return svc ? { init: T.init, mo: T[svc.program][fi] } : null; }
+    if (key === 'termite') return { init: T.termite[0], mo: T.termite[1] };
+    if (key.startsWith('addon:')) { const a = T.addons.find(x => x[0] === key.slice(6)); return a ? { init: a[1], mo: a[2] } : null; }
+    return null;
+  };
+  const m = one(PRICING_TIERS.find(t => t.id === 'd2d_min')), l = one(pricingTierOf(st));
+  if (!m || !l) return m || l;
+  return { init: Math.min(m.init, l.init), mo: Math.min(m.mo, l.mo) };
 }
 
 // The tier whose NUMBERS apply: D2D with the Ⓜ toggle on = D2D minimums.
@@ -139,9 +145,9 @@ function pricingQuote(st) {
     }
   }
   if (st.termite) lines.push({ key: 'termite', kind: 'termite', label: 'Termite Defense', sub: 'annual · separate subscription', init: T.termite[0], mo: T.termite[1] });
-  // Rep-entered custom prices (D2D only) replace the list price on a line —
+  // Rep-entered custom prices replace the list price on a line —
   // but pricingFloor() is the hard floor, so anything under it is ignored.
-  if (st.tier === 'd2d') for (const l of lines) {
+  for (const l of lines) {
     const c = st.custom[l.key], f = pricingFloor(st, l.key);
     if (!c || !f || c.init < f.init || c.mo < f.mo) continue;
     l.list = { init: l.init, mo: l.mo }; l.init = c.init; l.mo = c.mo; l.custom = true;
@@ -317,64 +323,66 @@ function viewPricing() {
         el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' } },
           chip('🐾', 'Kid & Pet Safe'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re-services'), chip('✓', 'Licensed & Insured'))));
 
-    // ── quote, laid out like a receipt (per Isaac) ──
-    // On D2D a rep can tap a line's price and type a custom one — the D2D
-    // minimum is a hard floor: anything under it is refused with the floor
-    // shown, so nobody sets an expectation the office can't honor (per Isaac).
-    const canCustom = st.tier === 'd2d';
-    const priceCol = (l) => el('div', { class: 'text-right shrink-0 tabular-nums' },
-      el('div', { class: 'text-[12px] font-semibold' }, money(l.init), el('span', { class: 'text-[10px] font-normal', style: { color: 'var(--text-subtle)' } }, ' initial')),
-      l.mo ? el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, '+' + money(l.mo) + '/mo') : el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no monthly'),
-      l.custom ? el('div', { class: 'text-[9px] uppercase tracking-wider font-semibold', style: { color: 'var(--accent)' } }, 'custom · list ' + money(l.list.init) + ' / ' + money(l.list.mo)) : null);
+    // ── quote, laid out like a receipt in the slick's cream (per Isaac) ──
+    // Every line has a pencil: tap it to type a custom initial / monthly.
+    // The floor (D2D minimum, or the tier's list price if lower) is hard —
+    // anything under it is refused with the floor shown, so nobody sets an
+    // expectation the office can't honor (per Isaac).
+    const F = 'Archivo, Arial, sans-serif';
+    const pencil = () => { const ns = 'http://www.w3.org/2000/svg'; const sv = document.createElementNS(ns, 'svg'); sv.setAttribute('viewBox', '0 0 24 24'); sv.setAttribute('width', 13); sv.setAttribute('height', 13); sv.setAttribute('fill', 'none'); sv.setAttribute('stroke', 'currentColor'); sv.setAttribute('stroke-width', '2.2'); sv.setAttribute('stroke-linecap', 'round'); sv.setAttribute('stroke-linejoin', 'round'); sv.innerHTML = '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>'; return sv; };
+    const priceCol = (l) => el('div', { style: { textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums' } },
+      el('div', { style: { font: '700 13px/1.2 ' + F, color: C.char } }, money(l.init), el('span', { style: { font: '500 10px/1 ' + F, color: C.ink2 } }, ' initial')),
+      l.mo ? el('div', { style: { font: '700 12px/1.2 ' + F, color: C.orange } }, '+' + money(l.mo) + '/mo') : el('div', { style: { font: '500 10px/1.2 ' + F, color: C.ink3 } }, 'no monthly'),
+      l.custom ? el('div', { style: { font: '700 8px/1.4 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', color: C.orange } }, 'custom · list ' + money(l.list.init) + ' / ' + money(l.list.mo)) : null);
     const editor = (l) => {
       const f = pricingFloor(st, l.key) || { init: 0, mo: 0 };
       const cur = st.custom[l.key] || { init: l.init, mo: l.mo };
-      const inp = (v, ph) => el('input', { type: 'number', inputmode: 'numeric', min: 0, step: 1, value: v, placeholder: ph, class: 'rounded-lg border px-2 py-1 text-[12px] font-semibold tabular-nums text-right', style: { width: '78px', borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' } });
+      const inp = (v, ph) => el('input', { type: 'number', inputmode: 'numeric', min: 0, step: 1, value: v, placeholder: ph, style: { width: '76px', padding: '5px 8px', borderRadius: '8px', border: '1.5px solid ' + C.ink3, background: '#fff', color: C.char, font: '700 12px/1.2 ' + F, textAlign: 'right', fontVariantNumeric: 'tabular-nums' } });
       const iIn = inp(cur.init, 'initial'), mIn = inp(cur.mo, 'monthly');
-      const err = el('div', { class: 'text-[10px] font-semibold', style: { color: '#C0392B', minHeight: '13px' } }, '');
+      const err = el('div', { style: { font: '700 10px/1.3 ' + F, color: '#C0392B', minHeight: '13px', textAlign: 'right' } }, '');
       const check = () => {
         const i = Number(iIn.value), m = Number(mIn.value);
         const badI = !(i >= f.init), badM = !(m >= f.mo);
-        iIn.style.borderColor = badI ? '#C0392B' : 'var(--border-2)'; mIn.style.borderColor = badM ? '#C0392B' : 'var(--border-2)';
-        err.textContent = (badI || badM) ? 'Below D2D minimum — floor is ' + money(f.init) + ' initial / ' + money(f.mo) + '/mo' : '';
+        iIn.style.borderColor = badI ? '#C0392B' : C.ink3; mIn.style.borderColor = badM ? '#C0392B' : C.ink3;
+        err.textContent = (badI || badM) ? 'Below minimum — floor is ' + money(f.init) + ' initial / ' + money(f.mo) + '/mo' : '';
         return !(badI || badM);
       };
       const save = () => { if (!check()) { (Number(iIn.value) >= f.init ? mIn : iIn).focus(); return; } st.custom[l.key] = { init: Math.round(Number(iIn.value)), mo: Math.round(Number(mIn.value)), for: st.base + ':' + st.freq }; editKey = null; rerender(); };
       const onKey = (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } else if (e.key === 'Escape') { editKey = null; rerender(); } };
       iIn.oninput = check; mIn.oninput = check; iIn.onkeydown = onKey; mIn.onkeydown = onKey;
-      const btn = (t, fn, primary) => el('button', { onclick: fn, class: 'rounded-lg px-2 py-1 text-[10px] font-semibold', style: primary ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { border: '1px solid var(--border-2)', color: 'var(--text-muted)' } }, t);
-      const wrap = el('div', { class: 'shrink-0 flex flex-col items-end gap-1' },
-        el('div', { class: 'flex items-center gap-1' }, iIn, el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'init'), mIn, el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, '/mo')),
-        el('div', { class: 'text-[9px]', style: { color: 'var(--text-subtle)' } }, 'D2D minimum ' + money(f.init) + ' / ' + money(f.mo) + '/mo'),
+      const btn = (t, fn, primary) => el('button', { onclick: fn, style: { padding: '5px 10px', borderRadius: '999px', font: '700 9px/1.2 ' + F, letterSpacing: '.08em', textTransform: 'uppercase', cursor: 'pointer', border: '1.5px solid ' + (primary ? C.orange : C.ink3), background: primary ? C.orange : 'transparent', color: primary ? C.cream : C.char } }, t);
+      const wrap = el('div', { style: { flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' } },
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } }, iIn, el('span', { style: { font: '500 10px/1 ' + F, color: C.ink2 } }, 'init'), mIn, el('span', { style: { font: '500 10px/1 ' + F, color: C.ink2 } }, '/mo')),
+        el('div', { style: { font: '500 9px/1.3 ' + F, color: C.ink2 } }, 'minimum ' + money(f.init) + ' initial / ' + money(f.mo) + '/mo'),
         err,
-        el('div', { class: 'flex gap-1' }, btn('Save', save, true), st.custom[l.key] ? btn('List price', () => { delete st.custom[l.key]; editKey = null; rerender(); }) : null, btn('Cancel', () => { editKey = null; rerender(); })));
+        el('div', { style: { display: 'flex', gap: '4px' } }, btn('Save', save, true), st.custom[l.key] ? btn('List price', () => { delete st.custom[l.key]; editKey = null; rerender(); }) : null, btn('Cancel', () => { editKey = null; rerender(); })));
       setTimeout(() => iIn.focus(), 0);
       return wrap;
     };
     const rline = (l) => {
-      const editable = canCustom && l.key;
+      const editable = !!l.key;
       const editing = editable && editKey === l.key;
-      return el('div', { class: 'flex items-start justify-between gap-3 py-1', style: { borderBottom: '1px dashed var(--border-2)' } },
-        el('div', { class: 'min-w-0' },
-          el('div', { class: 'text-[12px] font-semibold truncate' }, l.label),
-          el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, l.sub + (editable && !editing ? ' · tap price to customize' : ''))),
-        editing ? editor(l) : (editable
-          ? el('button', { class: 'text-right shrink-0 rounded-lg px-1.5 transition', style: { marginRight: '-6px' }, title: 'Enter a custom price (not below D2D minimums)', onclick: () => { editKey = l.key; rerender(); } }, priceCol(l))
-          : priceCol(l)));
+      return el('div', { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px', padding: '7px 0', borderBottom: '1px dashed rgba(50,50,48,.28)' } },
+        el('div', { style: { minWidth: 0, flex: '1 1 auto' } },
+          el('div', { style: { font: '700 13px/1.2 ' + F, color: C.char, textTransform: 'uppercase', letterSpacing: '.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, l.label),
+          el('div', { style: { font: '500 10px/1.3 ' + F, color: C.ink2, marginTop: '1px' } }, l.sub)),
+        editing ? editor(l) : el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 } },
+          priceCol(l),
+          editable ? el('button', { title: 'Custom price for this line', 'aria-label': 'Edit price', onclick: () => { editKey = l.key; rerender(); }, style: { width: '26px', height: '26px', borderRadius: '50%', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 } }, pencil()) : null));
     };
-    const total = (lbl, val, o = {}) => el('div', { class: 'flex items-baseline justify-between gap-3' },
-      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: o.accent ? 'var(--accent)' : 'var(--text-subtle)' } }, lbl),
-      el('span', { class: (o.big ? 'text-2xl' : 'text-sm') + ' font-black tabular-nums', style: o.accent ? { color: 'var(--accent)' } : {} }, val));
-    const quote = el('div', { class: 'card p-3 mb-3', style: { borderColor: 'var(--accent)', boxShadow: 'var(--shadow-lg)' } },
-      el('div', { class: 'flex items-center justify-between gap-3 mb-2' },
-        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Quote · ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label)),
-        el('button', { class: 'rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wider', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; st.custom = {}; editKey = null; rerender(); } }, 'Reset')),
+    const total = (lbl, val, o = {}) => el('div', { style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' } },
+      el('span', { style: { font: '700 9px/1 ' + F, letterSpacing: '.14em', textTransform: 'uppercase', color: o.accent ? C.orange : 'rgba(251,244,218,.7)' } }, lbl),
+      el('span', { style: { font: '700 ' + (o.big ? '24px' : '14px') + '/1.1 ' + F, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', color: o.accent ? C.orange : C.cream } }, val));
+    const quote = el('div', { class: 'mb-3', style: { background: C.cream, color: C.char, borderRadius: '12px', padding: '12px 14px', boxShadow: 'var(--shadow-lg)', border: '1.5px solid ' + C.orange } },
+      el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '6px' } },
+        el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, 'Quote · ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label)),
+        el('button', { style: { padding: '5px 12px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; st.custom = {}; editKey = null; rerender(); } }, 'Reset')),
       el('div', { class: 'grid gap-3 items-start', style: { gridTemplateColumns: 'minmax(0, 1fr) auto' } },
-        el('div', { class: 'min-w-0' }, ...(q.empty ? [el('div', { class: 'text-[11px] py-2', style: { color: 'var(--text-subtle)' } }, 'Nothing selected yet.')] : q.lines.map(rline))),
-        el('div', { class: 'rounded-xl px-4 py-3 flex flex-col gap-1.5 shrink-0', style: { background: 'var(--card-2)', minWidth: '150px', opacity: q.ok ? 1 : .55 } },
+        el('div', { style: { minWidth: 0 } }, ...(q.empty ? [el('div', { style: { font: '500 11px/1.4 ' + F, color: C.ink3, padding: '8px 0' } }, 'Nothing selected yet.')] : q.lines.map(rline))),
+        el('div', { style: { background: C.char, color: C.cream, borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '7px', flexShrink: 0, minWidth: '150px', opacity: q.ok ? 1 : .55 } },
           total('Due today', money(q.init), { big: true }),
           total('Monthly', money(q.mo) + '/mo', { accent: true }),
-          el('div', { style: { borderTop: '1px solid var(--border-2)', margin: '2px 0' } }),
+          el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }),
           total('First year', money(q.acv)))));
 
     // Picker + quote ride together as one sticky block pinned right under
