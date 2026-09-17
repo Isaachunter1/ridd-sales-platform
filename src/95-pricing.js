@@ -360,9 +360,8 @@ function viewPricing() {
       const onKey = (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } else if (e.key === 'Escape') { editKey = null; rerender(); } };
       iIn.oninput = check; mIn.oninput = check; iIn.onkeydown = onKey; mIn.onkeydown = onKey;
       const btn = (t, fn, primary) => el('button', { onclick: fn, style: { padding: '5px 10px', borderRadius: '999px', font: '700 9px/1.2 ' + F, letterSpacing: '.08em', textTransform: 'uppercase', cursor: 'pointer', border: '1.5px solid ' + (primary ? C.orange : C.ink3), background: primary ? C.orange : 'transparent', color: primary ? C.cream : C.char } }, t);
-      const wrap = el('div', { style: { flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' } },
+      const wrap = el('div', { style: { flex: '1 1 100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' } },
         el('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } }, iIn, el('span', { style: { font: '500 10px/1 ' + F, color: C.ink2 } }, 'init'), mIn, el('span', { style: { font: '500 10px/1 ' + F, color: C.ink2 } }, '/mo')),
-        el('div', { style: { font: '500 9px/1.3 ' + F, color: C.ink2 } }, 'minimum ' + money(f.init) + ' initial / ' + money(f.mo) + '/mo'),
         err,
         el('div', { style: { display: 'flex', gap: '4px' } }, btn('Save', save, true), st.custom[l.key] ? btn('List price', () => { delete st.custom[l.key]; editKey = null; rerender(); }) : null, btn('Cancel', () => { editKey = null; rerender(); })));
       setTimeout(() => iIn.focus(), 0);
@@ -371,9 +370,11 @@ function viewPricing() {
     const rline = (l) => {
       const editable = !!l.key;
       const editing = editable && editKey === l.key;
-      return el('div', { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px', padding: '7px 0', borderBottom: '1px dashed rgba(50,50,48,.28)' } },
-        el('div', { style: { minWidth: 0, flex: '1 1 auto' } },
-          el('div', { style: { font: '700 13px/1.2 ' + F, color: C.char, textTransform: 'uppercase', letterSpacing: '.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, l.label),
+      // While editing, the fields drop onto their own full-width row so the
+      // service name never gets squeezed (per Isaac).
+      return el('div', { style: { display: 'flex', flexWrap: editing ? 'wrap' : 'nowrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: editing ? '6px 10px' : '10px', padding: '7px 0', borderBottom: '1px dashed rgba(50,50,48,.28)' } },
+        el('div', { style: { minWidth: 0, flex: editing ? '1 1 100%' : '1 1 auto' } },
+          el('div', { style: { font: '700 13px/1.2 ' + F, color: C.char, textTransform: 'uppercase', letterSpacing: '.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: editing ? 'normal' : 'nowrap' } }, l.label),
           el('div', { style: { font: '500 10px/1.3 ' + F, color: C.ink2, marginTop: '1px' } }, l.sub)),
         editing ? editor(l) : el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 } },
           priceCol(l),
@@ -386,10 +387,10 @@ function viewPricing() {
       el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '6px' } },
         el('div', { style: { font: '700 10px/1 ' + F, letterSpacing: '.16em', textTransform: 'uppercase', color: C.ink2 } }, 'Quote · ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label)),
         el('button', { style: { padding: '5px 12px', borderRadius: '999px', border: '1.5px solid ' + C.ink3, background: 'transparent', color: C.char, font: '700 9px/1.2 ' + F, letterSpacing: '.1em', textTransform: 'uppercase', cursor: 'pointer' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; st.custom = {}; editKey = null; rerender(); } }, 'Reset')),
-      el('div', { class: 'grid gap-3 items-start', style: { gridTemplateColumns: 'minmax(0, 1fr) auto' } },
+      el('div', { class: 'grid gap-3 items-start pricing-qgrid', style: { gridTemplateColumns: 'minmax(0, 1fr) auto' } },
         el('div', { style: { minWidth: 0 } }, ...(q.empty ? [el('div', { style: { font: '500 11px/1.4 ' + F, color: C.ink3, padding: '8px 0' } }, 'Nothing selected yet.')] : q.lines.map(rline))),
         el('div', { style: { background: C.char, color: C.cream, borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '7px', flexShrink: 0, minWidth: '150px', opacity: q.ok ? 1 : .55 } },
-          total('Due today', money(q.init), { big: true }),
+          total('Initial', money(q.init), { big: true }),
           total('Monthly', money(q.mo) + '/mo', { accent: true }),
           el('div', { style: { borderTop: '1px dashed rgba(251,244,218,.35)', margin: '1px 0' } }),
           total('First year', money(q.acv)))));
