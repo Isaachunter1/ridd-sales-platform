@@ -119,7 +119,7 @@ function viewSales() {
       case 'monthly_amount':  return Number(s.monthly_amount || 0);
       case 'revenue_amount':  return Number(s.revenue_amount || 0);
       case 'sold_date':       return s.sold_date || '';
-      case 'commission_date': return s.commission_date || '';
+      case 'commission_date': return s.bill_date || s.commission_date || '';
       case 'audit_status':    return s.audit_status || '';
       case 'audited_by':      return (state.allProfiles.find(p => p.id === s.audited_by)?.full_name || '').toLowerCase();
       case 'created_at':      return new Date(s.created_at || s.sold_date).getTime();
@@ -292,7 +292,10 @@ function viewSales() {
               // Pending queue (admins): live CRM account columns — status,
               // current sub, balance, aging, services done — so the backend
               // picture is visible while the sale is still upfront-pending.
-              showCrmAccount: isAdmin && queueFilter === 'upfront',
+              // (Live CRM account columns retired from the Upfront queue — per
+              // Isaac, the Archived layout is the model; the CRM ✓ chips already
+              // carry billing / past-due / serviced.)
+              showCrmAccount: false,
               showReportCols: queueFilter === 'backend' && filtered.some(s => s.backend_report_uploaded_at),
               // Tint already-decided rows so they recede behind the rows still
               // needing a decision. Only applies on Pending Backend Lock.
@@ -577,7 +580,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
     const isActive = sortableKey && sortKey === sortableKey;
     const arrow = '';   // arrows retired app-wide — active header is highlighted
     const hlStyle = isActive ? { color: 'var(--accent)', fontWeight: '800' } : {};
-    const baseClass = (align === 'right' ? 'text-right' : 'text-left') + ' px-2 py-2 font-semibold whitespace-nowrap ' + extraClass;
+    const baseClass = (align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left') + ' px-2 py-2 font-semibold whitespace-nowrap ' + extraClass;
     if (!sortableKey || !onSort) {
       return el('th', { class: baseClass }, label + arrow);
     }
@@ -593,27 +596,34 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
       el('table', { class: 'w-full text-[12px]' },
         el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted- bg-card2-' },
           el('tr', {},
-            headerCell('Customer',    { sortableKey: 'customer_name', extraClass: 'pl-4' }),
-            headerCell('Cust #',      { sortableKey: 'customer_number' }),
-            headerCell('Sold by', { sortableKey: 'rep' }),
+            headerCell('Customer Name', { sortableKey: 'customer_name', extraClass: 'pl-4' }),
+            headerCell('Customer #',    { sortableKey: 'customer_number' }),
+            headerCell('Office Rep',    { sortableKey: 'rep' }),
             // Backend-lock review doesn't need office / service / source /
             // initial / monthly — the reviewer keys off revenue + contract +
             // the report data. Hiding those keeps the table scannable.
             !showBackend && headerCell('Office',      { sortableKey: 'office' }),
             !showBackend && headerCell('Service Type',{ sortableKey: 'service_type' }),
-            headerCell('Contract',    { sortableKey: 'contract' }),
+            headerCell('Contract Type', { sortableKey: 'contract' }),
             !showBackend && headerCell('Source',      { sortableKey: 'source' }),
             !showBackend && headerCell('Initial',     { sortableKey: 'initial_amount', align: 'right' }),
             !showBackend && headerCell('Monthly',     { sortableKey: 'monthly_amount', align: 'right' }),
             headerCell('Revenue',     { sortableKey: 'revenue_amount', align: 'right' }),
-            // CRM revenue check — auto-verified against the FieldRoutes
-            // warehouse every 30 min (matched by customer #). Reps see it on
-            // their own sales: "did my sale really go through?" answered.
-            headerCell('CRM ✓'),
-            headerCell('Sold',        { sortableKey: 'sold_date' }),
-            headerCell('Commissionable', { sortableKey: 'commission_date' }),
+            headerCell('Sold Date',   { sortableKey: 'sold_date' }),
+            headerCell('Bill Date',   { sortableKey: 'commission_date' }),
+            // Three flags, sheet-style (per Isaac): PIF · COMM. (commission
+            // paid out) · Upfront (payment collected at signing). Admins
+            // toggle PIF / Upfront right here; COMM. is read-only — it is
+            // stamped by payroll.
+            headerCell('PIF',     { extraClass: 'text-center', align: 'center' }),
+            headerCell('Comm.',   { extraClass: 'text-center', align: 'center' }),
+            headerCell('Upfront', { extraClass: 'text-center', align: 'center' }),
             headerCell('Status',      { sortableKey: 'audit_status' }),
             headerCell('Audit',       { sortableKey: 'audited_by' }),
+            // CRM revenue check + lifecycle chips — auto-verified against the
+            // FieldRoutes warehouse (matched by customer #). Last so the
+            // sheet-shaped columns read first.
+            headerCell('CRM ✓'),
             // Pending Backend Lock pill: surface the second-pass review pair.
             showBackend && headerCell('Audit 2'),
             showBackend && headerCell('Lock'),
@@ -670,6 +680,13 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap' }, fmt.usd(s.initial_amount)),
               !showBackend && el('td', { class: 'px-2 py-2 text-right tabular-nums whitespace-nowrap text-muted-' }, fmt.usd(s.monthly_amount)),
               el('td', { class: 'px-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap' }, fmt.usd(s.revenue_amount)),
+              cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, fmt.dateShortYear(s.sold_date))),
+              cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, (s.bill_date || s.commission_date) ? fmt.dateShortYear(s.bill_date || s.commission_date) : '—')),
+              el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'paid_in_full', isAdmin, 'Paid in Full — no backend hold, full commission paid upfront')),
+              el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, '_comm_paid', false, s.payroll_processed_at ? 'Commission paid ' + fmt.dateShortYear(String(s.payroll_processed_at).slice(0, 10)) : (s.staged_for_payroll ? 'Staged for the next payroll' : 'Commission not paid yet'))),
+              el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'upfront_collected', isAdmin, 'Charged Upfront — payment collected at signing (feeds the Charge Upfront % tier)')),
+              cell(statusSelect(s.id)),
+              el('td', { class: 'px-2 py-2 whitespace-nowrap' }, auditorSelect(s.id)),
               el('td', { class: 'px-2 py-2 whitespace-nowrap' }, (() => {
                 const v = saleCrmVerdict(s, rptIndex);
                 const chip = (txt, bg, colr, tip) => el('span', {
@@ -776,10 +793,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
                   title: 'Customer #' + (s.customer_number || '?') + ' isn\'t in the warehouse yet — new accounts appear within ~30 min of the CRM sync.' },
                   'not in CRM yet');
               })()),
-              cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, fmt.dateShortYear(s.sold_date))),
-              cell(el('span', { class: 'text-muted- tabular-nums whitespace-nowrap' }, s.commission_date ? fmt.dateShortYear(s.commission_date) : '—')),
-              cell(statusSelect(s.id)),
-              el('td', { class: 'px-2 py-2 whitespace-nowrap' }, auditorSelect(s.id)),
+
               // Pending Backend Lock pill: Audit 2 + Lock dropdowns inline so
               // the reviewer can decide right here without leaving the row.
               showBackend && el('td', { class: 'px-2 py-2 whitespace-nowrap' }, auditor2Select(s.id)),
@@ -855,6 +869,20 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
 // editable select; everyone else sees the read-only chip. No more audit-note
 // popover \u2014 picking a status writes immediately and stamps audited_by to the
 // current user.
+// Sheet-style flag box (per Isaac): PIF / Comm. / Upfront. Admin-editable
+// boolean columns save straight to the sale; read-only ones just display.
+function saleFlagBox(sale, field, editable, tip) {
+  const on = field === '_comm_paid' ? !!sale.payroll_processed_at : !!sale[field];
+  const box = el('input', { type: 'checkbox', checked: on, disabled: !editable, title: tip || '', class: 'accent-lime', style: { width: '15px', height: '15px', cursor: editable ? 'pointer' : 'default' } });
+  if (editable) box.onchange = async (e) => {
+    const v = !!e.target.checked;
+    for (const list of [state.mySales, state.allSales]) { const x = list.find(r => r.id === sale.id); if (x) x[field] = v; }
+    if (typeof DEMO !== 'undefined' && DEMO) { saveDemoData(); return; }
+    const { error } = await supabase.from('sales').update({ [field]: v }).eq('id', sale.id);
+    if (error) { toast('Could not save: ' + error.message, 'error'); e.target.checked = !v; for (const list of [state.mySales, state.allSales]) { const x = list.find(r => r.id === sale.id); if (x) x[field] = !v; } }
+  };
+  return box;
+}
 function statusSelect(saleId) {
   const sale = state.allSales.find(x => x.id === saleId) || state.mySales.find(x => x.id === saleId);
   const role = state.profile?.role;
