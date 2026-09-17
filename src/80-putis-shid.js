@@ -229,11 +229,36 @@ function retenParseCsv(text) {
   const head = rows[0].map(h => String(h || '').trim().toLowerCase());
   return rows.slice(1).filter(r => r.some(v => String(v || '').trim() !== '')).map(r => { const o = {}; head.forEach((h, i) => { o[h] = r[i] != null ? String(r[i]).trim() : ''; }); return o; });
 }
-function retenReconcile(fileRows, pop, book, _retenEff) {
+function retenReconcile(fileRows, pop, book, _retenEff, ground) {
   const key = (cid, sub) => String(cid || '').trim() + '|' + String(sub || '').trim().toLowerCase();
   const fk = (o) => key(o['customer id'] || o.customer_id, o['subscription'] || o.subscription);
   const ak = (r) => key(r.customer_id, r.subscription);
   const fileMap = new Map(); fileRows.forEach(o => fileMap.set(fk(o), o));
+  // ── Top of the funnel (per Isaac): the raw FieldRoutes pull with ONLY
+  // "received an initial service" applied, against everything the app has
+  // with a completed initial — before any removal step. Same key.
+  let top = null;
+  if (Array.isArray(ground)) {
+    const g = ground.filter(r => !!r.initial_service);
+    const gMap = new Map(); g.forEach(r => { const k = ak(r); if (!gMap.has(k)) gMap.set(k, r); });
+    const allMap = new Map(); ground.forEach(r => { const k = ak(r); if (!allMap.has(k)) allMap.set(k, r); });
+    const matchedTop = [...gMap.keys()].filter(k => fileMap.has(k)).length;
+    const appOnlyTop = g.filter(r => !fileMap.has(ak(r))).map(r => ({ ...r, _why:
+      r.customer_missing ? 'customer deleted in FieldRoutes (orphan)'
+      : r.subscription_date_canceled ? 'cancelled · ' + (reportingCancelReasonOf(r) || 'no reason') + ' (' + String(r.initial_service).slice(0, 4) + ')'
+      : 'active, ' + (Number(r.subscription_completed_services) || 0) + ' services (' + String(r.initial_service).slice(0, 4) + ')' }));
+    const fileOnlyTop = [];
+    for (const [k, o] of fileMap) {
+      if (gMap.has(k)) continue;
+      const r = allMap.get(k);
+      const why = !r ? 'not in the app snapshot at all (sold after the sync, or a different service-type spelling)'
+        : !r.initial_service ? 'app: initial not marked Completed (' + (r.initial_status || 'no status') + ')'
+        : 'app: other';
+      const row = r ? { ...r } : { customer_id: o['customer id'], last_name: o['last name'], first_name: o['first name'], subscription: o['subscription'], subscription_status: o['subscription status'], subscription_date_canceled: o['subscription date canceled'] || '', subscription_cancellation_reason: o['subscription cancellation reason'] || '', annual_recurring_value: Number(String(o['annual recurring value'] || '').replace(/[$,]/g, '')) || 0, office_name: o['office name'], initial_service: o['initial service'], subscription_completed_services: o['subscription completed services'] };
+      row._why = why; fileOnlyTop.push(row);
+    }
+    top = { fileCount: fileMap.size, appCount: g.length, groundCount: ground.length, matched: matchedTop, appOnly: appOnlyTop, fileOnly: fileOnlyTop };
+  }
   const bookMap = new Map(); book.forEach(r => bookMap.set(ak(r), r));
   const popMap = new Map(); pop.forEach(r => { const k = ak(r); if (!popMap.has(k)) popMap.set(k, r); });
   const recurringByName = reportingServiceRecurringMap();
@@ -266,7 +291,7 @@ function retenReconcile(fileRows, pop, book, _retenEff) {
     };
     row._why = why; fileOnly.push(row);
   }
-  return { fileCount: fileMap.size, bookCount: book.length, matched, appOnly, fileOnly };
+  return { fileCount: fileMap.size, bookCount: book.length, matched, appOnly, fileOnly, top };
 }
 function openRetenReconcileModal(res) {
   const n = (v) => Number(v || 0).toLocaleString();
@@ -287,8 +312,9 @@ function openRetenReconcileModal(res) {
     const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const cols = ['side', 'why', 'customer_id', 'last_name', 'first_name', 'subscription', 'subscription_status', 'subscription_date_canceled', 'subscription_cancellation_reason', 'subscription_completed_services', 'initial_service', 'annual_recurring_value', 'office_name'];
     const lines = [cols.join(',')];
-    res.appOnly.forEach(r => lines.push(['app only', r._why, ...cols.slice(2).map(c => r[c])].map(esc).join(',')));
-    res.fileOnly.forEach(r => lines.push(['file only', r._why, ...cols.slice(2).map(c => r[c])].map(esc).join(',')));
+    res.appOnly.forEach(r => lines.push(['book · app only', r._why, ...cols.slice(2).map(c => r[c])].map(esc).join(',')));
+    res.fileOnly.forEach(r => lines.push(['book · file only', r._why, ...cols.slice(2).map(c => r[c])].map(esc).join(',')));
+    if (res.top) { res.top.appOnly.forEach(r => lines.push(['top · app only', r._why, ...cols.slice(2).map(c => r[c])].map(esc).join(','))); res.top.fileOnly.forEach(r => lines.push(['top · file only', r._why, ...cols.slice(2).map(c => r[c])].map(esc).join(','))); }
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\n')], { type: 'text/csv' })); a.download = 'retention-reconcile-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   } }, '⬇ Export differences');
   overlay.append(el('div', { class: 'card p-5 flex flex-col gap-4', style: { width: 'min(720px, 94vw)', maxHeight: '88vh', overflow: 'auto' } },
@@ -297,6 +323,14 @@ function openRetenReconcileModal(res) {
         el('div', { class: 'text-lg font-black' }, n(res.matched) + ' match · ' + n(res.appOnly.length) + ' only in app · ' + n(res.fileOnly.length) + ' only in your file'),
         el('div', { class: 'text-[11px] text-muted-' }, 'App book ' + n(res.bookCount) + ' · your file ' + n(res.fileCount) + ' · matched on Customer ID + Subscription')),
       el('div', { class: 'flex items-center gap-2' }, exportBtn, el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '×'))),
+    res.top ? el('div', { class: 'flex flex-col gap-3 p-3 rounded-xl', style: { background: 'var(--card-2)' } },
+      el('div', {},
+        el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Top of the funnel · subs with a completed initial, before any step'),
+        el('div', { class: 'text-base font-black' }, n(res.top.matched) + ' match · ' + n(res.top.appOnly.length) + ' only in app · ' + n(res.top.fileOnly.length) + ' only in your file'),
+        el('div', { class: 'text-[11px] text-muted-' }, 'App: ' + n(res.top.appCount) + ' with a completed initial (of ' + n(res.top.groundCount) + ' in the whole snapshot) · your file ' + n(res.top.fileCount))),
+      groupTable('Only in the app (top)', res.top.appOnly, 'In the app with a completed initial but not in your pull.'),
+      groupTable('Only in your file (top)', res.top.fileOnly, 'In your pull but the app has no completed initial for it — or does not have the row at all.')) : null,
+    el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Retention book · after every step'),
     groupTable('Only in the app', res.appOnly, 'Rows the app keeps that your file dropped — grouped by what the row looks like, so you can spot which of your steps removed them.'),
     groupTable('Only in your file', res.fileOnly, 'Rows you kept that the app removed — grouped by the app step that removed them (or missing from the snapshot).')));
   document.body.append(overlay);
