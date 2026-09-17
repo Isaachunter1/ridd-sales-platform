@@ -1681,7 +1681,6 @@ const REPORTING_PALETTE = [
 // for localStorage), but this tiny map does, so Manage Teams can show each
 // rep's type (Sales Rep / Office Staff / Technician) even when the rows aren't
 // loaded. Called whenever reporting subscription rows become available.
-function _repTypeNameSig(n) { return String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' '); }
 function _refreshRepTypeMap() {
   const rows = state.reportingSubscriptions || [];
   if (!rows.length) return;

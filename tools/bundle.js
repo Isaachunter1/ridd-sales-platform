@@ -12,8 +12,14 @@ const fs = require('fs');
 const path = require('path');
 const root = path.join(__dirname, '..');
 const srcDir = path.join(root, 'src');
+// engine/src/*.js = the Indicators ENGINE (competition scorers + the
+// helpers they share). It is bundled FIRST into app.js and also built on
+// its own into engine/dist/ridd-engine.js (tools/build-engine.js) for
+// Cam's server — one source, two builds, identical numbers by construction.
+const engDir = path.join(root, 'engine', 'src');
+const engFiles = fs.existsSync(engDir) ? fs.readdirSync(engDir).filter(f => f.endsWith('.js')).sort().map(f => path.join(engDir, f)) : [];
 const files = fs.readdirSync(srcDir).filter(f => f.endsWith('.js')).sort();
 if (!files.length) { console.error('[bundle] no src/*.js files'); process.exit(1); }
-const out = files.map(f => fs.readFileSync(path.join(srcDir, f), 'utf8')).join('');
+const out = [...engFiles.map(p => fs.readFileSync(p, 'utf8') + '\n'), ...files.map(f => fs.readFileSync(path.join(srcDir, f), 'utf8'))].join('');
 fs.writeFileSync(path.join(root, 'app.js'), out);
-console.log('[bundle] ' + files.length + ' files → app.js (' + (out.length / 1024 / 1024).toFixed(2) + 'MB)');
+console.log('[bundle] ' + engFiles.length + ' engine + ' + files.length + ' src files → app.js (' + (out.length / 1024 / 1024).toFixed(2) + 'MB)');
