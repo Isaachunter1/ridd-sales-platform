@@ -171,10 +171,16 @@ function dashboardSales() {
 // linked CRM roster row → own CRM type → shared-dataset name-signature map.
 // Which half of the Sales world does this person belong to? Drives the
 // default landing view AND which sales tab they're allowed to see.
+// The ACCESS PROFILE in the sales app decides (per Isaac, Sep 2026): an
+// explicit role wins outright — a rep whose CRM type says Technician or
+// Office Staff but who was given "Sales Rep - Partner" here IS a partner.
+// The CRM type is only consulted for legacy 'rep' / role-less accounts.
+const _EXPLICIT_ROLES = new Set(['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead']);
 function repTypeGroup(p) {
   if (!p) return null;
   if (isAdminRole(p.role)) return 'admin';
   if (isAuditorRole(p.role)) return 'auditor';
+  if (_EXPLICIT_ROLES.has(p.role)) return isOfficeStaffProfile(p) ? 'office' : 'd2d';
   if (isTechProfile(p)) return 'tech';
   if (isOfficeStaffProfile(p)) return 'office';
   return 'd2d';
@@ -189,6 +195,7 @@ function defaultViewFor(p) {
 }
 function isTechProfile(p) {
   if (!p) return false;
+  if (_EXPLICIT_ROLES.has(p.role) || isAdminRole(p.role) || isAuditorRole(p.role)) return false;   // access profile wins over CRM type
   const emp = frRosterRowForProfile(p);
   if (emp && emp.type_label) return /technician/i.test(emp.type_label);
   if (state.profile && p.id === state.profile.id && state.myRepType) return /technician/i.test(state.myRepType);
