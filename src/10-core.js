@@ -1508,6 +1508,34 @@ async function loadAppSettings() {
     if (data && data.value) state.appSettings = Object.assign({}, state.appSettings, data.value);
   } catch (e) { console.warn('[ridd] pay_settings load threw', e); }
 }
+// Per-pay-period "Other Pay" lines (per Isaac: bonuses, competition earnings
+// and the like, entered by hand each pay period). RLS: reps read their own,
+// admins read/write all. Loaded for everyone so the stub shows them.
+async function loadPayAdjustments() {
+  if (DEMO || !supabase || !state.profile) return;
+  try {
+    const { data, error } = await supabase.from('pay_adjustments').select('*').order('created_at');
+    if (error) { if (!/pay_adjustments/i.test(error.message || '')) console.warn('[ridd] pay_adjustments load failed', error); return; }
+    state.payAdjustments = data || [];
+  } catch (e) { console.warn('[ridd] pay_adjustments load threw', e); }
+}
+async function addPayAdjustment(repId, year, periodId, amount, label) {
+  const row = { rep_id: repId, period_year: year, period_id: periodId, amount, label: label || '', created_by: state.profile.id };
+  if (DEMO || !supabase) { state.payAdjustments.push({ id: 'demo-' + Date.now(), ...row, created_at: new Date().toISOString() }); return true; }
+  const { data, error } = await supabase.from('pay_adjustments').insert(row).select('*').single();
+  if (error) { toast('Could not save: ' + error.message, 'error'); return false; }
+  state.payAdjustments.push(data);
+  logActivity('config_change', { detail: 'Other Pay +' + amount + ' (' + (label || 'no label') + ') for ' + repId + ' · ' + year + '/' + periodId });
+  return true;
+}
+async function removePayAdjustment(id) {
+  if (!DEMO && supabase) {
+    const { error } = await supabase.from('pay_adjustments').delete().eq('id', id);
+    if (error) { toast('Could not remove: ' + error.message, 'error'); return false; }
+  }
+  state.payAdjustments = state.payAdjustments.filter(a => a.id !== id);
+  return true;
+}
 async function saveAppSettings() {
   if (DEMO || !supabase || !state.profile || !isAdminRole(state.profile?.role)) return;
   try {
@@ -2347,6 +2375,7 @@ const state = {
   // cached collections
   mySales: [],
   allSales: [],            // admin only
+  payAdjustments: [],      // per-pay-period Other Pay lines (bonuses, comps…) — pay_adjustments
   allProfiles: [],         // admin only — list of all reps with their profile info
   competitions: [],
   compRules: [],           // all rules for all competitions
@@ -3304,6 +3333,7 @@ async function loadData() {
   loadCommissionConfig().catch(err => console.warn('[ridd] commission config load skipped', err));
   loadCompanyGoal().then(() => scheduleBackgroundRemount()).catch(err => console.warn('[ridd] company goal load skipped', err));
   loadAppSettings().then(() => scheduleBackgroundRemount()).catch(err => console.warn('[ridd] pay settings load skipped', err));
+  loadPayAdjustments().then(() => scheduleBackgroundRemount()).catch(err => console.warn('[ridd] pay adjustments load skipped', err));
   // Reporting tab metadata — admin-only, fire-and-forget. The Reporting
   // tab lazy-loads the heavy subscription rows on demand once the user
   // actually visits the tab, so this just primes the uploads list +

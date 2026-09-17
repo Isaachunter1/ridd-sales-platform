@@ -782,6 +782,17 @@ exports.handler = async (event) => {
         const _hasAppt = (r) => ['pending', 'completed'].includes(String(r.initial_status || '').trim().toLowerCase());
         const _hasBilling = (r) => { const a = String(r.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); };
         const _isSigned = (r) => String(r.contract_state || '') === 'signed';
+        // Charge-upfront tier (per Isaac, Sep 17 2026): the numerator is the
+        // FieldRoutes customer flag named in Configurations → Auto-log
+        // (default "Passed Audit"), not a hand-ticked checkbox — it covers
+        // charged-upfront AND the other things the office audits for.
+        const UPFRONT_FLAG = String(AL.upfront_flag == null ? 'Passed Audit' : AL.upfront_flag).trim().toLowerCase();
+        const _hasFlag = (r) => !!UPFRONT_FLAG && String(r.customer_flags || '').split(',').some(f => f.trim().toLowerCase() === UPFRONT_FLAG);
+        // Office audit state from the CRM flags: 'passed' / 'failed' / null.
+        // A FAILED audit holds auto-approval for manual review; when the
+        // office fixes it and re-flags Passed, the next sync resumes the flow.
+        const FAIL_FLAG = String(AL.audit_fail_flag == null ? 'Failed Audit' : AL.audit_fail_flag).trim().toLowerCase();
+        const _auditOf = (r) => { const fl = String(r.customer_flags || '').split(',').map(f => f.trim().toLowerCase()); return fl.includes(UPFRONT_FLAG) ? 'passed' : (FAIL_FLAG && fl.includes(FAIL_FLAG)) ? 'failed' : null; };
         const _eligible = (r) => (!AL.require_appt || _hasAppt(r)) && (!AL.require_billing || _hasBilling(r)) && (!AL.require_signed || _isSigned(r));
         const START = AL.enabled ? String(AL.start || '2026-01-01').slice(0, 10) : (process.env.INSIDE_AUTOADD_START || '');
         if (!START) throw Object.assign(new Error('auto-add disabled (app_settings.autolog.enabled = false)'), { _skip: true });
@@ -903,6 +914,8 @@ exports.handler = async (event) => {
               crm_status: 'verified', crm_contract_value: cv, crm_subscription: sub, crm_checked_at: new Date().toISOString(),
               crm_initial_status: String(r.initial_status || '').trim() || 'None',
               crm_autopay: _hasBilling(r),
+              upfront_collected: _hasFlag(r),
+              crm_audit: _auditOf(r),
               crm_contract_state: String(r.contract_state || 'none'),
               crm_contract_signed_at: r.contract_signed_at ? String(r.contract_signed_at).slice(0, 10) : null,
             });
@@ -1231,8 +1244,13 @@ exports.handler = async (event) => {
     try {
       const since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
       let _lifecycleCols = true;   // flips off if sales_crm_lifecycle.sql hasn't been run
+      const _alV = await supabase.from('app_settings').select('value').eq('key', 'autolog').maybeSingle();
+      const _flagV = String(((_alV.data && _alV.data.value) || {}).upfront_flag ?? 'Passed Audit').trim().toLowerCase();
+      const _hasFlagV = (r) => !!_flagV && !!r && String(r.customer_flags || '').split(',').some(f => f.trim().toLowerCase() === _flagV);
+      const _failV = String(((_alV.data && _alV.data.value) || {}).audit_fail_flag ?? 'Failed Audit').trim().toLowerCase();
+      const _auditV = (r) => { if (!r) return null; const fl = String(r.customer_flags || '').split(',').map(f => f.trim().toLowerCase()); return fl.includes(_flagV) ? 'passed' : (_failV && fl.includes(_failV)) ? 'failed' : null; };
       let { data: appSales, error: asErr } = await supabase.from('sales')
-        .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state, crm_initial_status, crm_autopay')
+        .select('id, customer_number, revenue_amount, sold_date, paid_in_full, crm_status, crm_contract_value, crm_serviced_at, crm_completed_services, crm_days_past_due, crm_balance, crm_contract_signed_at, crm_contract_state, crm_initial_status, crm_autopay, crm_subscription_id, upfront_collected, crm_audit')
         .gte('sold_date', since);
       let _agreementCols = true;   // flips off if sales_crm_agreement.sql hasn't been run
       let _eligCols = true;        // flips off if 20260916_sales_eligibility.sql hasn't been run
@@ -1319,18 +1337,24 @@ exports.handler = async (event) => {
             (s.crm_days_past_due == null ? null : Number(s.crm_days_past_due)) !== lc.dpd ||
             (s.crm_balance == null ? null : Number(s.crm_balance)) !== lc.balance);
           const pifChanged = lc.pif && !s.paid_in_full;
+          const flagNow = _hasFlagV(lc.best);
+          const flagChanged = !!s.crm_subscription_id && (!!s.upfront_collected) !== flagNow;
+          const auditNow = _auditV(lc.best);
+          const auditChanged = !!s.crm_subscription_id && (s.crm_audit || null) !== auditNow;
           const sigChanged = _agreementCols && (
             String(s.crm_contract_signed_at || '') !== String(lc.signed_at || '') ||
             String(s.crm_contract_state || '') !== String(lc.contract_state || ''));
           const eligChanged = _eligCols && lc.best && (
             String(s.crm_initial_status || '') !== (String(lc.best.initial_status || '').trim() || 'None')
             || (s.crm_autopay == null || !!s.crm_autopay) !== (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })());
-          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged && !sigChanged && !eligChanged) continue;
+          if (s.crm_status === status && (Number(s.crm_contract_value) || 0) === (cv || 0) && !lcChanged && !pifChanged && !sigChanged && !eligChanged && !flagChanged && !auditChanged) continue;
           const upd = { crm_status: status, crm_contract_value: cv, crm_subscription: subName, crm_checked_at: stamp };
           if (_lifecycleCols) { upd.crm_serviced_at = lc.serviced_at; upd.crm_completed_services = lc.completed; upd.crm_days_past_due = lc.dpd; upd.crm_balance = lc.balance; }
           if (_eligCols && lc.best) { upd.crm_initial_status = String(lc.best.initial_status || '').trim() || 'None'; upd.crm_autopay = (() => { const a = String(lc.best.customer_auto_pay || '').trim().toLowerCase(); return !!a && !['no', '0', 'false', 'none', 'null'].includes(a); })(); }
           if (_agreementCols) { upd.crm_contract_signed_at = lc.signed_at; upd.crm_contract_state = lc.contract_state; }
           if (pifChanged) upd.paid_in_full = true;
+          if (flagChanged) upd.upfront_collected = flagNow;
+          if (auditChanged) upd.crm_audit = auditNow;
           let { error } = await supabase.from('sales').update(upd).eq('id', s.id);
           if (error && _eligCols && /crm_initial_status|crm_autopay/i.test(error.message || '')) {
             _eligCols = false;
@@ -1378,7 +1402,7 @@ exports.handler = async (event) => {
         const bySub = new Map();
         for (const r of objects) { const id = String(r.subscription_id || '').trim(); if (id) bySub.set(id, r); }
         const { data: crmSales, error: csErr } = await supabase.from('sales')
-          .select('id, crm_subscription_id, sold_date, audit_status, lock_status, payroll_processed_at, backend_payroll_processed_at, contract_months, notes')
+          .select('id, crm_subscription_id, sold_date, audit_status, lock_status, payroll_processed_at, backend_payroll_processed_at, contract_months, notes, crm_audit')
           .not('crm_subscription_id', 'is', null)
           .or('audit_status.eq.pending,lock_status.eq.pending');
         if (csErr) throw new Error(csErr.message);
@@ -1401,7 +1425,7 @@ exports.handler = async (event) => {
           const upd = {};
           if (s.audit_status === 'pending' && !s.payroll_processed_at) {
             if (cancelled && !serviced) { upd.audit_status = 'cancelled'; upd.audited_at = stamp; upd.notes = ((s.notes || '') + ' · Auto: cancelled in CRM before service').trim(); }
-            else if (AL2.auto_approve && eligible && serviced && dpd <= 0) { upd.audit_status = 'approved'; upd.audited_at = stamp; }
+            else if (AL2.auto_approve && eligible && serviced && dpd <= 0 && s.crm_audit !== 'failed') { upd.audit_status = 'approved'; upd.audited_at = stamp; }
           }
           const lock = s.lock_status || 'pending';
           if (lock === 'pending' && s.payroll_processed_at && ['approved', 'serviced'].includes(upd.audit_status || s.audit_status)) {

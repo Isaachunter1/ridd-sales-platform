@@ -153,7 +153,11 @@ function viewPay() {
   const goldenPhoneAmt     = Number(viewedProfile.golden_phone_amount    || 0);
   const loyaltyRoyaltyAmt  = Number(viewedProfile.loyalty_royalty_amount || 0);
   const loyaltyPayAmt      = Number(viewedProfile.loyalty_pay_amount     || 0);
-  const otherPayAmt        = Number(viewedProfile.other_pay_amount       || 0);
+  // Other Pay = this period's hand-entered lines (bonuses, comps…) — see
+  // addPayAdjustment. The old static profile amount is folded in only if
+  // someone still has one set, so nothing silently disappears.
+  const periodAdjustments  = (state.payAdjustments || []).filter(a => a.rep_id === repId && Number(a.period_year) === Number(state.payYear) && Number(a.period_id) === Number(period.id));
+  const otherPayAmt        = periodAdjustments.reduce((a, x) => a + Number(x.amount || 0), 0) + Number(viewedProfile.other_pay_amount || 0);
   const upfrontSalesPay    = salesPay + belowPay;
   const upfrontTotal       = upfrontSalesPay
     + (isLoyaltyRep ? loyaltyPayAmt : 0)
@@ -310,6 +314,19 @@ function viewPay() {
         row('Below Minimums', $(belowPay), { tone: 'sand' }),
         row('Sales Pay', $(salesPay), { tone: 'green' }),
         row('Other Pay', $(otherPayTotal), { tone: 'green' }),
+        ...periodAdjustments.map(a => row('   · ' + (a.label || 'Other'), isAdmin
+          ? el('span', { class: 'inline-flex items-center gap-2 tabular-nums' }, $(Number(a.amount || 0)),
+              el('button', { class: 'text-[10px] font-bold', style: { color: '#B91C1C', background: 'none', border: 'none', cursor: 'pointer' }, title: 'Remove this line', onclick: async () => { if (await removePayAdjustment(a.id)) mountApp(); } }, '✕'))
+          : $(Number(a.amount || 0)))),
+        isAdmin ? (() => {
+          const lab = el('input', { type: 'text', placeholder: 'Bonus, comp winnings…', class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '150px' } });
+          const amt = el('input', { type: 'number', step: '0.01', placeholder: '$', class: 'rounded-lg border px-2 py-1 text-[11px] tabular-nums', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '80px', textAlign: 'right' } });
+          const add = async () => { const v = parseFloat(amt.value); if (!isFinite(v) || v === 0) return toast('Enter an amount', 'warn'); if (await addPayAdjustment(repId, state.payYear, period.id, Math.round(v * 100) / 100, lab.value.trim())) { toast('Added to this pay period', 'success'); mountApp(); } };
+          amt.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+          return el('div', { class: 'flex items-center gap-2 px-3 py-1.5 border-t', style: { borderColor: 'var(--border)' } },
+            el('span', { class: 'text-[10px] uppercase tracking-wide font-semibold text-muted-' }, '+ Other pay'), lab, amt,
+            el('button', { class: 'px-2 py-1 rounded-lg text-[10px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', cursor: 'pointer' }, onclick: add }, 'Add'));
+        })() : null,
         row('Total Pay', $(upfrontTotal), { tone: 'total' }),
         pending.length ? el('div', { class: 'px-3 py-1.5 border-t text-[10px]', style: { borderColor: 'var(--border)', color: 'var(--text-muted)' } },
           pending.length + ' sale' + (pending.length === 1 ? '' : 's') + ' still pending audit (' + fmt.usd0(pendingRev) + ' · est. ' + fmt.usd0(pendingPay) + ' pay)') : null,
