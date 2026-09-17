@@ -1795,38 +1795,10 @@ function reportingWaterfall() {
     const _rtYears = [...new Set(popA.map(_yearOf).filter(Boolean))].sort((a, b) => b - a);
     if (state._rtAttrYear !== 'all' && !_rtYears.includes(state._rtAttrYear)) state._rtAttrYear = 'all';
     const _rtYear = state._rtAttrYear || 'all';
-    const _svcT = (r) => (Number(r.subscription_completed_services) || 0) > 0;
-    const _aliveT = (r) => /active/i.test(String(r.subscription_status || ''));
-    // Card-level class filters (per Isaac): 3-day RORs, renewals, and
-    // one-time services each include/exclude ON THIS CARD, so their drag on
-    // attrition is visible by flipping the chip. Exclude = the sub leaves
-    // BOTH sides of the rate (the workbook's "take out"), not just the
-    // numerator. Defaults all-excluded, matching the workbook's Steps 1 & 4.
-    // svc2 defaults OFF on THIS card even though the global Step-6 toggle
-    // defaults ON: the workbook only applies 2+ services alongside "filter
-    // out current year", and on a current-year cohort it deletes ~73% of the
-    // book (14,710 of 20,087 D2D 2026 accounts are simply too young for a
-    // second visit). Isaac expects ~21.5k here, not 5.6k.
-    if (!state._rtAttrExcl) state._rtAttrExcl = { ror: true, renewal: true, onetime: true, svc2: false };
-    const _fx = state._rtAttrExcl;
-    const _isRorT = (r) => _reporting3dayRor(r);
-    const _isRenewalT = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
-      || /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
-    const _isOneTimeT = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
-      || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
-    const _exclReasons = reportingExcludedCancelReasons();
-    const _cxlT = (r) => {
-      if (!r.subscription_date_canceled) return false;
-      if (_aliveT(r)) return false;                                    // save-back: status trumps the date
-      const _rea = _normCancelReason(r.subscription_cancellation_reason);
-      // Reason-excluded cancels stay retained - EXCEPT renewal reasons when
-      // the card is deliberately including renewals, and ROR reasons when it
-      // is deliberately including RORs; otherwise the chips would not move
-      // the number. The global Overview ROR toggle is superseded here by the
-      // card's own chip.
-      if (_exclReasons.has(_rea) && !(!_fx.renewal && /^renewal/.test(_rea)) && !(!_fx.ror && /ror|rescission/.test(_rea))) return false;
-      return true;
-    };
+    // The population IS the retention book (per Isaac, Sep 2026): every
+    // step and toggle on the Attrition Steps card decides what is in here —
+    // renewals, RORs, one-time, under-2-services, excluded reasons. No
+    // card-level chips any more; cancels are the book's counted cancels.
     const TYPE_LABEL = (r) => {
       if (dim === 'source') return String(r.subscription_source || '').trim() || 'Unspecified';
       const t = String(r.sold_by_type || '').trim().toLowerCase();
@@ -1835,28 +1807,15 @@ function reportingWaterfall() {
       if (t === 'office staff') return 'Office Staff';
       return t ? (t.charAt(0).toUpperCase() + t.slice(1)) : 'Unknown';
     };
-    const mk = () => ({ subs: 0, active: 0, cancelled: 0, arv: 0, arvCxl: 0 });
+    const mk = () => ({ subs: 0, active: 0, cancelled: 0, arv: 0, arvCxl: 0, rows: [], cxlRows: [] });
     const byType = {}; const total = mk();
-    const _excl = { ror: 0, renewal: 0, onetime: 0, svc2: 0, other: 0 };
-    for (const r of popA) {
+    for (const r of _retenEff(popA)) {
       if (_rtYear !== 'all' && _yearOf(r) !== _rtYear) continue;
-      if (!_svcT(r)) continue;
-      if (_fx.ror && _isRorT(r)) { _excl.ror++; continue; }
-      if (_fx.renewal && _isRenewalT(r)) { _excl.renewal++; continue; }
-      if (_fx.onetime && _isOneTimeT(r)) { _excl.onetime++; continue; }
-      if (_fx.svc2 && (Number(r.subscription_completed_services) || 0) <= 1) { _excl.svc2++; continue; }
-      // Tab-level population rules still apply, EXCEPT the classes governed
-      // by this card's own chips (renewals, and the 2-services rules) -
-      // otherwise a chip here would do nothing while the global rule is on.
-      const _pex = retenPopulationExcluded(r);
-      if (_pex === 'renewal sub' ? _fx.renewal
-        : (_pex === 'under 2 services' || _pex === 'frozen, 1 service') ? _fx.svc2
-        : !!_pex) { if (_pex) _excl.other++; continue; }
       const g = byType[TYPE_LABEL(r)] = byType[TYPE_LABEL(r)] || mk();
       const arv = Number(r.annual_recurring_value) || 0;
       for (const t of [g, total]) {
-        t.subs++; t.arv += arv;
-        if (_cxlT(r)) { t.cancelled++; t.arvCxl += arv; }
+        t.subs++; t.arv += arv; t.rows.push(r);
+        if (r._effCancel) { t.cancelled++; t.arvCxl += arv; t.cxlRows.push(r); }
         else t.active++;
       }
     }
@@ -1869,7 +1828,8 @@ function reportingWaterfall() {
     const th = (lab, right) => el('th', { class: (right ? 'text-left' : 'text-left') + ' px-3 py-2 whitespace-nowrap' }, lab);
     const row = (label, t, bold) => {
       const attr = t.subs > 0 ? t.cancelled / t.subs : null;
-      return el('tr', { class: 'border-t' + (bold ? ' font-bold' : ''), style: { borderColor: 'var(--border)', background: bold ? 'var(--card-2)' : '' } },
+      return el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95' + (bold ? ' font-bold' : ''), style: { borderColor: 'var(--border)', background: bold ? 'var(--card-2)' : '' }, title: 'Click for the counted cancels',
+        onclick: () => t.cxlRows.length && openReportingDrillModal({ chartTitle: (dim === 'source' ? 'Attrition by Source · ' : 'Attrition by Rep Type · ') + label, sliceLabel: fmt.int(t.cxlRows.length) + ' counted cancels of ' + fmt.int(t.subs), rows: t.cxlRows, formatValue: (v) => fmt.usd0(v) }) },
         el('td', { class: 'px-3 py-2 whitespace-nowrap' + (bold ? '' : ' font-semibold') }, label),
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.subs)),
         el('td', { class: 'px-3 py-2 text-left tabular-nums' }, fmt.int(t.active)),
@@ -1884,14 +1844,6 @@ function reportingWaterfall() {
           el('div', { class: 'font-display text-lg' }, dim === 'source' ? 'Attrition by Source' : 'Attrition by Rep Type'),
           el('div', { class: 'text-[11px] text-muted-' }, (dim === 'source' ? 'Where the account CAME FROM \u00b7 ' : 'Who SOLD the account \u00b7 ') + (_rtYear === 'all' ? 'all years in the book' : 'sold in ' + _rtYear + ', cancels to date') + ' \u00b7 same population and cancel rules as this tab' + (office !== 'all' ? ' \u00b7 ' + officeLabel : '') + '.')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          ...[['ror', '3-Day ROR'], ['renewal', 'Renewals'], ['onetime', 'One-Time'], ['svc2', '<2 Services']].map(([k, lab]) => el('button', {
-            class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
-            style: _fx[k]
-              ? { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'transparent' }
-              : { borderColor: 'var(--accent)', color: 'var(--accent-text)', background: 'var(--accent)' },
-            title: _fx[k] ? lab + ' excluded from both sides - click to include (their cancels then count)' : lab + ' included - click to exclude from both sides',
-            onclick: () => { _fx[k] = !_fx[k]; mountApp(); },
-          }, (_fx[k] ? 'Excl. ' : 'Incl. ') + lab)),
           el('select', {
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)' },
@@ -1899,7 +1851,7 @@ function reportingWaterfall() {
           },
             el('option', { value: 'all', selected: _rtYear === 'all' }, 'All years'),
             ..._rtYears.map(y => el('option', { value: String(y), selected: _rtYear === y }, 'Sold ' + y))),
-          el('span', { class: 'text-[10px] text-muted-' }, fmt.int(total.subs) + ' serviced subs'))),
+          el('span', { class: 'text-[10px] text-muted-' }, fmt.int(total.subs) + ' in the retention book'))),
       !total.subs ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'No accounts in this cohort under the current rules.') :
       el('div', { style: { overflow: 'auto', maxHeight: dim === 'source' ? '460px' : 'none' } }, el('table', { class: 'w-full text-xs' },
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: 0, zIndex: 1 } }, el('tr', { style: { background: 'var(--card-2)' } },
@@ -1907,16 +1859,7 @@ function reportingWaterfall() {
         el('tbody', {},
           ...keys.map(k => row(k, byType[k])),
           row('RIDD \u00b7 Total', total, true)))),
-      (() => {
-        const bits = [];
-        if (_excl.svc2) bits.push(fmt.int(_excl.svc2) + ' under 2 services');
-        if (_excl.renewal) bits.push(fmt.int(_excl.renewal) + ' renewals');
-        if (_excl.onetime) bits.push(fmt.int(_excl.onetime) + ' one-time');
-        if (_excl.ror) bits.push(fmt.int(_excl.ror) + ' 3-day ROR');
-        if (_excl.other) bits.push(fmt.int(_excl.other) + ' other tab rules');
-        return bits.length ? el('div', { class: 'px-4 py-2 text-[10px] text-muted- border-t', style: { borderColor: 'var(--border)' } },
-          'Excluded by the chips above: ' + bits.join(' \u00b7 ') + '. Flip a chip to pull them back in.') : null;
-      })());
+      el('div', { class: 'px-4 py-2 text-[10px] text-muted- border-t', style: { borderColor: 'var(--border)' } }, 'Same book as Attrition Steps — switch a step or a reason up there and this table follows.'));
   };
   const repTypeAttritionCard = _attritionByCard('type');
   const sourceAttritionCard = _attritionByCard('source');
@@ -1931,8 +1874,8 @@ function reportingWaterfall() {
   // Red bars = the collections cliff (months 2-5); amber = the 12-month
   // contract-end window (months 11-13).
   const lifetimeCard = (() => {
-    if (!state._rtLifeExcl) state._rtLifeExcl = { ror: true, renewal: true, onetime: true };
-    const _lx = state._rtLifeExcl;
+    // Reads the retention book and its COUNTED cancels (per Isaac) — the
+    // steps card decides what is in; no card-level chips.
     const _yrL = state._rtAttrYear || 'all';
     const _yOfL = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? d.getFullYear() : null; };
     const _isRenewL = (r) => reportingSourceClass(r.subscription_source) === 'renewal'
@@ -1940,15 +1883,10 @@ function reportingWaterfall() {
     const _isOneL = (r) => /^\s*one[\s-]?time/i.test(String(r.subscription || ''))
       || ((Number(r.agreement_length) || 0) <= 1 && !/sentricon/i.test(String(r.subscription || '')));
     const rowsL = [];
-    for (const r of popA) {
+    for (const r of _retenEff(popA)) {
       if (_yrL !== 'all' && _yOfL(r) !== _yrL) continue;
-      if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
-      if (!r.sold_date || !r.subscription_date_canceled) continue;
-      if (/active/i.test(String(r.subscription_status || ''))) continue;   // save-back stays retained
-      if (_lx.ror && _reporting3dayRor(r)) continue;
-      if (_lx.renewal && _isRenewL(r)) continue;
-      if (_lx.onetime && _isOneL(r)) continue;
-      const t = Math.round((new Date(r.subscription_date_canceled) - new Date(r.sold_date)) / 86400000);
+      if (!r.sold_date || !r._effCancel) continue;
+      const t = Math.round((new Date(r._effCancel) - new Date(r.sold_date)) / 86400000);
       if (!(t >= 0 && t <= 4000)) continue;
       rowsL.push({ r, t });
     }
@@ -2024,14 +1962,6 @@ function reportingWaterfall() {
             + (office !== 'all' ? ' · ' + officeLabel(office) : '')
             + ' · click a bar or a reason to see the accounts.')),
         el('div', { class: 'flex items-center gap-2 flex-wrap' },
-          ...[['ror', '3-Day ROR'], ['renewal', 'Renewals'], ['onetime', 'One-Time']].map(([k, lab]) => el('button', {
-            class: 'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
-            style: _lx[k]
-              ? { borderColor: 'var(--border-2)', color: 'var(--text-muted)', background: 'transparent' }
-              : { borderColor: 'var(--accent)', color: 'var(--accent-text)', background: 'var(--accent)' },
-            title: _lx[k] ? lab + ' excluded — click to include' : lab + ' included — click to exclude',
-            onclick: () => { _lx[k] = !_lx[k]; mountApp(); },
-          }, (_lx[k] ? 'Excl. ' : 'Incl. ') + lab)),
           statL('Median life', fmt.int(medAll) + 'd', moTxt(medAll)),
           statL('Average', fmt.int(Math.round(avgAll)) + 'd', moTxt(avgAll)),
           statL('Cancels', fmt.int(rowsL.length), null))),
