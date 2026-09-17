@@ -61,4 +61,4 @@ grant select on all tables in schema market_feed to market_ro;
 -- Future views in market_feed only (public keeps per-table grants)
 alter default privileges for role postgres in schema market_feed grant select on tables to market_ro;
 
-insert into public.schema_migrations (name) values ('20260917_market_feed_v2') on conflict do nothing;
+insert into public.schema_migrations (name) values ('20260917_market_feed_v2.sql') on conflict do nothing;
