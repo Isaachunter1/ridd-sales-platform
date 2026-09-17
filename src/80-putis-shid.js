@@ -15,6 +15,8 @@
 //   G&A            = every other operating expense except Housing + Interest
 //   EBITDA         = Gross Profit − (Selling + Housing + G&A)   (interest excluded)
 //   Adjusted EBITDA= EBITDA + Selling Expense  (the sheet's F14 + F11×F3)
+//   Cost per job   = each COGS line ÷ completed FieldRoutes appointments in the
+//                    month (RevHawk, cached beside the ledger as `jobs`)
 // ═══════════════════════════════════════════════════════════════════════════
 const PUTIS_BRANCHES = ['Atlanta', 'Charleston', 'Destin', 'Detroit', 'Joplin', 'Little Rock', 'Myrtle Beach', 'Raleigh', 'Salt Lake', 'Virginia Beach', 'Tampa'];
 const PUTIS_GROUP = {
@@ -58,7 +60,7 @@ function putisMonthly() {
   if (!L) return null;
   if (state._putisCacheFor === state.reportingLedger.pulledAt && state._putisCache) return state._putisCache;
   const out = {};
-  const seed = () => ({ revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, gaLines: {} });
+  const seed = () => ({ revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, jobs: 0, gaLines: {} });
   for (const ym in L) {
     for (const acct in L[ym]) {
       const c = putisClassify(acct); if (!c) continue;
@@ -69,17 +71,29 @@ function putisMonthly() {
       if (c.cat === 'ga') x.gaLines[c.top] = (x.gaLines[c.top] || 0) + amt;
     }
   }
+  // Completed jobs (FieldRoutes appointments with a completion date), by the
+  // office they belong to → same branch buckets as the ledger.
+  const J = state.reportingLedger.jobs && state.reportingLedger.jobs.months;
+  if (J) for (const ym in J) {
+    for (const office in J[ym]) {
+      const n = Number(J[ym][office]) || 0; if (!n) continue;
+      const B = (out[ym] = out[ym] || {});
+      const x = (B[putisBranchOf(office)] = B[putisBranchOf(office)] || seed());
+      x.jobs += n;
+    }
+  }
   state._putisCache = out; state._putisCacheFor = state.reportingLedger.pulledAt;
   return out;
 }
 // Roll a set of branches up for one month → derived lines.
 function putisDerive(M, ym, branches) {
   const B = (M && M[ym]) || {};
-  const t = { revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, gaLines: {}, any: false };
+  const t = { revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, jobs: 0, gaLines: {}, any: false };
   for (const b of branches) {
     const x = B[b]; if (!x) continue;
-    t.any = true;
-    for (const k of ['revenue', 'ms', 'auto', 'techWages', 'merchant', 'marketing', 'incentives', 'commissions', 'housing', 'ga', 'interest', 'da']) t[k] += x[k];
+    // Jobs alone (a month the ledger hasn't booked yet) don't make the month 'booked'.
+    if (['revenue', 'ms', 'auto', 'techWages', 'merchant', 'marketing', 'incentives', 'commissions', 'housing', 'ga', 'interest', 'da'].some(k => x[k])) t.any = true;
+    for (const k of ['revenue', 'ms', 'auto', 'techWages', 'merchant', 'marketing', 'incentives', 'commissions', 'housing', 'ga', 'interest', 'da', 'jobs']) t[k] += x[k] || 0;
     for (const g in x.gaLines) t.gaLines[g] = (t.gaLines[g] || 0) + x.gaLines[g];
   }
   const rev = t.revenue;
@@ -95,6 +109,10 @@ function putisDerive(M, ym, branches) {
   t.gpPct = pct(t.gp); t.gaPct = pct(t.ga); t.sellingPct = pct(t.selling); t.marketingPct = pct(t.marketing);
   t.housingPct = pct(t.housing); t.incentivesPct = pct(t.incentives); t.commissionsPct = pct(t.commissions);
   t.opexPct = pct(t.opex); t.ebitdaPct = pct(t.ebitda); t.adjEbitdaPct = pct(t.adjEbitda); t.netPct = pct(t.netIncome);
+  // Per completed job (FieldRoutes appointments completed in the period).
+  const perJob = (v) => t.jobs > 0 ? v / t.jobs : null;
+  t.cogsPerJob = perJob(t.cogs); t.techPerJob = perJob(t.techWages); t.autoPerJob = perJob(t.auto); t.msPerJob = perJob(t.ms); t.merchantPerJob = perJob(t.merchant);
+  t.revPerJob = perJob(rev); t.gpPerJob = perJob(t.gp);
   return t;
 }
 function putisBranchesWithData(M, year) {
@@ -149,6 +167,8 @@ const PUTIS_KPI_TIPS = {
   arrCoverage: 'ARR realisation — booked monthly revenue ÷ (ARR ÷ 12). Above 1.0 means billing ran ahead of the recurring base (initials, upsells); below means under-billing or seasonal timing.',
   gaPerActive: 'Monthly G&A per active account — overhead leverage. Should fall as branches scale.',
   concentration: 'Share of company revenue from the largest branch.',
+  jobs: 'Completed jobs — FieldRoutes appointments with a completion date in the period, by the office they belong to (RevHawk).',
+  cogsPerJob: 'COGS per completed job — (chemicals & job supplies + auto & fuel + tech wages + merchant fees) ÷ completed appointments. The all-in cost of rolling a truck to one stop.',
 };
 // Putis Shid rows (sheet order).
 const PUTIS_ROWS = [
@@ -160,6 +180,17 @@ const PUTIS_ROWS = [
   { id: 'cogs',         label: 'COGS',             kind: 'usd', lowGood: true, tip: 'Cost of goods sold in dollars — M&S + auto/fuel + tech wages + merchant fees.' },
   { id: 'gp',           label: 'Gross Profit',     kind: 'usd', bold: true,  tip: 'Gross profit — revenue minus the four cost-of-service lines above (M&S + auto/fuel + tech wages + merchant fees). What is left to cover selling and overhead.' },
   { id: 'gpPct',        label: 'Gross Profit %',   kind: 'pct',              tip: 'Gross margin — gross profit ÷ revenue. Higher is better.' },
+  // ── Cost per completed job (COGS lines ÷ FieldRoutes completed appointments) ──
+  { head: 'Cost per completed job · FieldRoutes appointments' },
+  { id: 'jobs',         label: 'Completed jobs',   kind: 'int',              tip: PUTIS_KPI_TIPS.jobs },
+  { id: 'cogsPerJob',   label: 'COGS ÷ job',       kind: 'usd2', bold: true, lowGood: true, tip: PUTIS_KPI_TIPS.cogsPerJob },
+  { id: 'techPerJob',   label: 'Tech wages ÷ job', kind: 'usd2', lowGood: true, tip: 'Technician labor wages ÷ completed jobs.' },
+  { id: 'autoPerJob',   label: 'Auto/Fuel ÷ job',  kind: 'usd2', lowGood: true, tip: 'Auto expenses + fuel ÷ completed jobs.' },
+  { id: 'msPerJob',     label: 'M&S ÷ job',        kind: 'usd2', lowGood: true, tip: 'Chemicals & job supplies ÷ completed jobs.' },
+  { id: 'merchantPerJob', label: 'Merchant fees ÷ job', kind: 'usd2', lowGood: true, tip: 'Card-processing fees ÷ completed jobs.' },
+  { id: 'revPerJob',    label: 'Revenue ÷ job',    kind: 'usd2',             tip: 'Booked revenue ÷ completed jobs — what an average stop bills.' },
+  { id: 'gpPerJob',     label: 'Gross profit ÷ job', kind: 'usd2', bold: true, signed: true, tip: 'Revenue ÷ job minus COGS ÷ job — what one stop leaves after the truck, tech, chemicals and card fees.' },
+  { head: 'Operating expense' },
   { id: 'gaPct',        label: 'G&A',              kind: 'pct', lowGood: true, tip: 'General & administrative as a % of revenue — every other operating expense group (insurance, legal, office expenses, office wages, postage, recruiting, rent & lease, travel, utilities, telephone, software, bank fees…) ÷ revenue. Excludes housing, selling expense and interest.' },
   { id: 'sellingPct',   label: 'Selling Expense',  kind: 'pct', lowGood: true, tip: 'Cost of selling as a % of revenue — (sales commissions + advertising & marketing + incentive costs) ÷ revenue. Lower is better.' },
   { id: 'marketing',    label: 'Marketing',        kind: 'usd',              tip: 'Advertising & marketing dollars — the "<Branch> Marketing" sub-accounts under Advertising & Marketing. Same feed as the Marketing tab’s ad spend.' },
@@ -322,7 +353,7 @@ function putisLastClosedMonth() { const n = new Date(); const p = new Date(n.get
 // Year rollup for a row: $ rows sum; % rows recompute from summed dollars.
 // Skips the open month.
 function putisYear(M, year, branches) {
-  const t = { revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, merchantX: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, months: 0 };
+  const t = { revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, merchantX: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, jobs: 0, months: 0 };
   const openYm = putisOpenMonth();
   for (let i = 0; i < 12; i++) {
     const ym = _mktgYm(year, i);
@@ -330,7 +361,7 @@ function putisYear(M, year, branches) {
     const d = putisDerive(M, ym, branches);
     if (!d.any) continue;
     t.months++;
-    for (const k of ['revenue', 'ms', 'auto', 'techWages', 'merchant', 'marketing', 'incentives', 'commissions', 'housing', 'ga', 'interest', 'da']) t[k] += d[k];
+    for (const k of ['revenue', 'ms', 'auto', 'techWages', 'merchant', 'marketing', 'incentives', 'commissions', 'housing', 'ga', 'interest', 'da', 'jobs']) t[k] += d[k] || 0;
   }
   const fake = { [year + '-00']: { X: { ...t, gaLines: {} } } };
   const d = putisDerive(fake, year + '-00', ['X']);
@@ -371,7 +402,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
     return null;
   };
   const rowsShown = PUTIS_ROWS.filter(r => !r.company || company);
-  const fmtRow = (row, v) => v == null || !isFinite(v) ? '—' : row.kind === 'pct' ? _putisPct1(v) : row.kind === 'x' ? v.toFixed(2) + 'x' : row.kind === 'mo' ? v.toFixed(1) + ' mo' : row.kind === 'int' ? Math.round(v).toLocaleString() : _putisUsd(v);
+  const fmtRow = (row, v) => v == null || !isFinite(v) ? '—' : row.kind === 'pct' ? _putisPct1(v) : row.kind === 'x' ? v.toFixed(2) + 'x' : row.kind === 'mo' ? v.toFixed(1) + ' mo' : row.kind === 'int' ? Math.round(v).toLocaleString() : row.kind === 'usd2' ? (v < 0 ? '-' : '') + '$' + Math.abs(v).toFixed(2) : _putisUsd(v);
   // Period rollups for the unit-economics rows (ratios recomputed over the period, not averaged).
   const _U = putisUnitMonthly();
   const _closedOf = (yr) => Array.from({ length: upto + 1 }, (_, i) => _mktgYm(yr, i)).filter(k => k < openYm && M && M[k]);
@@ -394,7 +425,7 @@ function putisTrendCard(M, year, branches, title, subtitle, headerExtra, opts = 
     }
     return node;
   };
-  const signedRow = (row, v) => v == null || !isFinite(v) ? '' : row.kind === 'pct' ? _putisSigned(v, true) : row.kind === 'x' ? (v > 0 ? '+' : '') + v.toFixed(2) + 'x' : row.kind === 'mo' ? (v > 0 ? '+' : '') + v.toFixed(1) + ' mo' : row.kind === 'int' ? (v > 0 ? '+' : '') + Math.round(v).toLocaleString() : _putisSigned(v, false);
+  const signedRow = (row, v) => v == null || !isFinite(v) ? '' : row.kind === 'pct' ? _putisSigned(v, true) : row.kind === 'x' ? (v > 0 ? '+' : '') + v.toFixed(2) + 'x' : row.kind === 'mo' ? (v > 0 ? '+' : '') + v.toFixed(1) + ' mo' : row.kind === 'int' ? (v > 0 ? '+' : '') + Math.round(v).toLocaleString() : row.kind === 'usd2' ? (v > 0 ? '+' : v < 0 ? '-' : '') + '$' + Math.abs(v).toFixed(2) : _putisSigned(v, false);
   const ytdVal = (row) => row.unit ? (ytdU ? ytdU[row.id] : null) : row.point ? latestPoint(year, row.id) : (ytd.months ? ytd[row.id] : null);
   const priorVal = (row) => row.unit ? (priorU ? priorU[row.id] : null) : row.point ? latestPoint(year - 1, row.id) : (prior.months ? prior[row.id] : null);
   const yoy = (row) => {
@@ -437,8 +468,8 @@ function putisDeriveMonths(M, yms, branches) {
     const B = (M && M[ym]) || {};
     for (const b of branches) {
       const x = B[b]; if (!x) continue;
-      const t = (merged[b] = merged[b] || { revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, gaLines: {} });
-      for (const k of ['revenue', 'ms', 'auto', 'techWages', 'merchant', 'marketing', 'incentives', 'commissions', 'housing', 'ga', 'interest', 'da']) t[k] += x[k];
+      const t = (merged[b] = merged[b] || { revenue: 0, ms: 0, auto: 0, techWages: 0, merchant: 0, marketing: 0, incentives: 0, commissions: 0, housing: 0, ga: 0, interest: 0, da: 0, jobs: 0, gaLines: {} });
+      for (const k of ['revenue', 'ms', 'auto', 'techWages', 'merchant', 'marketing', 'incentives', 'commissions', 'housing', 'ga', 'interest', 'da', 'jobs']) t[k] += x[k] || 0;
       for (const g in x.gaLines) t.gaLines[g] = (t.gaLines[g] || 0) + x.gaLines[g];
     }
   }
@@ -587,6 +618,15 @@ function putisIndicatorsCard(M, ym, branches, opts = {}) {
     lineT('EBITDA', d => d.ebitdaPct, { pct: true, bold: true, signed: true }),
     lineT('Adjusted EBITDA', d => d.adjEbitdaPct, { pct: true, bold: true, signed: true }),
     lineT('Net profit', d => d.netPct, { pct: true, signed: true }),
+    section('Cost per completed job', 'Each cost-of-service line ÷ FieldRoutes appointments completed in the period (by the office they belong to). RIDD = company total ÷ company jobs.'),
+    lineT('Completed jobs', d => d.jobs, { num: true, tip: PUTIS_KPI_TIPS.jobs }),
+    lineT('COGS ÷ job', d => d.cogsPerJob, { usd2: true, bold: true, tip: PUTIS_KPI_TIPS.cogsPerJob }),
+    lineT('Tech wages ÷ job', d => d.techPerJob, { usd2: true, tip: 'Technician labor wages ÷ completed jobs.' }),
+    lineT('Auto & fuel ÷ job', d => d.autoPerJob, { usd2: true, tip: 'Auto expenses + fuel ÷ completed jobs.' }),
+    lineT('M&S ÷ job', d => d.msPerJob, { usd2: true, tip: 'Chemicals & job supplies ÷ completed jobs.' }),
+    lineT('Merchant fees ÷ job', d => d.merchantPerJob, { usd2: true, tip: 'Card-processing fees ÷ completed jobs.' }),
+    lineT('Revenue ÷ job', d => d.revPerJob, { usd2: true, tip: 'Booked revenue ÷ completed jobs.' }),
+    lineT('Gross profit ÷ job', d => d.gpPerJob, { usd2: true, bold: true, signed: true, tip: 'Revenue ÷ job − COGS ÷ job.' }),
     'UNIT',
     lineT('New recurring accounts', (d, k) => UM[k].newSubs, { num: true, tip: 'Recurring subscriptions sold in the period (renewals of existing customers not included).' }),
     lineT('New ARR sold', (d, k) => UM[k].newArr, { tip: 'Annual recurring value of the accounts sold in the period.' }),
@@ -788,6 +828,8 @@ function putisBranchScorecard(M, U, yms, branches, title) {
     { id: 'ebitdaPct', label: 'EBITDA %', kind: 'pct', signed: true },
     { id: 'adjEbitdaPct', label: 'Adj. %', kind: 'pct', signed: true, tip: PUTIS_KPI_TIPS.adjEbitdaPct },
     { id: 'gaPct', label: 'G&A %', kind: 'pct', lowGood: true },
+    { id: 'jobs', label: 'Jobs', kind: 'int', tip: PUTIS_KPI_TIPS.jobs },
+    { id: 'cogsPerJob', label: 'COGS/job', kind: 'usd2', lowGood: true, tip: PUTIS_KPI_TIPS.cogsPerJob },
     { id: 'active', label: 'Active accts', kind: 'int', tip: 'Active recurring accounts today (FieldRoutes).' },
     { id: 'arr', label: 'Active ARR', kind: 'usd' },
     { id: 'newSubs', label: 'New accts', kind: 'int', tip: 'Recurring accounts sold in the period.' },

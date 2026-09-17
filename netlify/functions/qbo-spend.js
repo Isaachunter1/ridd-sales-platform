@@ -144,7 +144,13 @@ exports.handler = async (event) => {
       const w = await windsorCached(event, !!q0._);
       if (q0.full) {
         const L = await ledgerCached();
-        if (L && L.months) return { statusCode: 200, headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=300' }, body: JSON.stringify({ ...L, refreshing: !!(w && w.refreshing) }) };
+        if (L && L.months) {
+          // Completed jobs per branch per month (FieldRoutes via the RevHawk
+          // sync, cached as qbo:jobs) ride along so Putis Shid can price a job.
+          let jobs = null;
+          try { const { kvStore } = require('../lib/kv-store.js'); const js = kvStore('qbo'); if (js) jobs = await js.get('jobs'); } catch (e) { console.warn('[qbo-spend] jobs read failed:', e && e.message); }
+          return { statusCode: 200, headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=300' }, body: JSON.stringify({ ...L, jobs: jobs || null, refreshing: !!(w && w.refreshing) }) };
+        }
         return { statusCode: 202, headers: { 'content-type': 'application/json', 'retry-after': '20' }, body: JSON.stringify({ pending: true, error: 'QuickBooks ledger is being pulled from Windsor — retry in ~30s' }) };
       }
       if (w && w.bySourceMonth) {

@@ -612,6 +612,39 @@ exports.handler = async (event) => {
 
     await _stage('snapshot-uploaded');
 
+    // ── Completed jobs per branch per month → Putis Shid cost-per-job ─────
+    // Every FieldRoutes appointment with a real completion date, counted by
+    // the month it was completed and the office it belongs to. Stored in the
+    // same server cache the QuickBooks ledger lives in (qbo:jobs) so
+    // /api/qbo-spend?full=1 ships it beside the P&L and the tab can divide
+    // COGS / tech wages / auto & fuel by jobs. Non-fatal: a failure here
+    // leaves the last good copy in place.
+    try {
+      const { kvStore } = require('../lib/kv-store.js');
+      const jobsStore = kvStore('qbo');
+      if (jobsStore) {
+        const since = String(new Date().getFullYear() - 2) + '-01';
+        const jq = `SELECT LEFT(fieldRoutes_dateCompleted,7) AS ym, fieldRoutes_officeID AS office_id, COUNT(DISTINCT fieldRoutes_appointmentID) AS n
+          FROM \`${PROJECT}.${DATASET}.FieldRoutesAppointment\`
+          WHERE fieldRoutes_dateCompleted IS NOT NULL AND fieldRoutes_dateCompleted != '' AND fieldRoutes_dateCompleted NOT LIKE '0000%'
+            AND fieldRoutes_dateCompleted >= '${since}' AND fieldRoutes_statusText = 'Completed'
+          GROUP BY 1, 2`;
+        const jr = await runQuery(token, jq);
+        const months = {};
+        let total = 0;
+        for (const o of toObjects(jr.schema, jr.rows)) {
+          const ym = String(o.ym || ''); if (!/^\d{4}-\d{2}$/.test(ym)) continue;
+          const id = String(o.office_id || '').trim();
+          const name = OFFICE_NAMES[id] || (id ? 'Office ' + id : '?');
+          const n = Number(o.n) || 0; if (!n) continue;
+          (months[ym] = months[ym] || {})[name] = (months[ym][name] || 0) + n;
+          total += n;
+        }
+        await jobsStore.set('jobs', { months, total, pulledAt: new Date().toISOString(), source: 'revhawk' });
+        console.log('[revhawk-sync] completed jobs cached:', Object.keys(months).length, 'months,', total, 'jobs');
+      }
+    } catch (jErr) { console.warn('[revhawk-sync] completed-jobs pull failed (non-fatal):', jErr && jErr.message); }
+
     // ── Server-side Indicators derive → DERIVE WORKER ───────────────────
     // Moved to its own background invocation with a FRESH ~1GB: stacking the
     // derive's JSON/gzip spike on this run's 90k-row memory OOM-killed the
