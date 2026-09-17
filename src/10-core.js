@@ -1408,6 +1408,7 @@ function commissionConfig() {
     published:         c.published || {},         // { [empId]: { ...breakdown, period, at } } — what reps see
     upfrontTypeRules:  c.upfrontTypeRules || {},  // { [repType]: { pest, bundle, anc } } — UPFRONT rate defaults (fractions)
     upfrontRepRates:   c.upfrontRepRates || {},   // { [empId]: { pest, bundle, anc } } — per-rep upfront override
+    d2dPayscales:      c.d2dPayscales || null,     // Sales Rep payscale ladders (Rookie / Veteran / Elite / Pro) — see D2D_PAYSCALE_DEFAULTS
   };
 }
 // Upfront pay model — category rates paid on contract value off the top
