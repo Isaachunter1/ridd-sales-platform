@@ -1403,6 +1403,9 @@ function reportingWaterfall() {
   const startCohortCard = (pop, label) => {
     const rows = _retenEff(pop);
     if (!rows.length) return null;
+    // % still active (default) or the subscriptions LEFT at each horizon (per Isaac).
+    const smMode = state._rtStartMonthMode === 'count' ? 'count' : 'pct';
+    const smCell = (kept, eligible) => smMode === 'count' ? fmt.int(kept) : ((kept / eligible) * 100).toFixed(1) + '%';
     const today = new Date();
     const addM = (iso, n) => { const d = new Date(iso + 'T00:00'); d.setMonth(d.getMonth() + n); return d; };
     const HORIZONS = [3, 12, 24];
@@ -1423,7 +1426,7 @@ function reportingWaterfall() {
           class: 'px-2 py-1.5 tabular-nums',
           style: { background: greenHeat(pct), color: '#323230', fontWeight: '600' },
           title: fmt.int(kept.length) + ' of ' + fmt.int(eligible.length) + ' subs starting in ' + MONTHS_S[m] + ' (any year) still active ' + h + ' months in',
-        }, (pct * 100).toFixed(1) + '%');
+        }, smCell(kept.length, eligible.length), smMode === 'count' ? el('span', { class: 'text-[9px] ml-1', style: { opacity: '.6' } }, '/ ' + fmt.int(eligible.length)) : null);
       });
       const churned = cohort.filter(r => r._effCancel);
       const lives = churned.map(r => {
@@ -1443,8 +1446,15 @@ function reportingWaterfall() {
           el('h3', { class: 'text-sm font-bold' }, '🌱 Retention by Start Month' + (label ? ' — ' + label : '')),
           el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } },
             'Do customers signed in April stick better than October signups? All years pooled by the month the customer STARTED.')),
-        configInfoBtn('Retention by Start Month',
-          'Each row pools every sub whose first service landed in that calendar month, across all years. The 3/12/24-month columns show the share still active that long after starting — only subs old enough for the horizon count, and months with fewer than 25 eligible subs show a dash. Median lifetime is measured on churned subs only (survivors would push it higher). Same attrition rules as everywhere: excluded reasons and 3-day ROR count as retained.')),
+        el('div', { class: 'flex items-center gap-2' },
+          el('div', { class: 'inline-flex', style: { border: '1px solid var(--border-2)' } },
+            ...[['pct', '% kept'], ['count', 'Subs left']].map(([k, l]) => el('button', {
+              class: 'px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
+              style: smMode === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text-muted)' },
+              onclick: () => { state._rtStartMonthMode = k; mountApp(); },
+            }, l))),
+          configInfoBtn('Retention by Start Month',
+          'Each row pools every sub whose first service landed in that calendar month, across all years. The 3/12/24-month columns show the share still active that long after starting (or, with “Subs left”, how many of the eligible subs are still active) — only subs old enough for the horizon count, and months with fewer than 25 eligible subs show a dash. Median lifetime is measured on churned subs only (survivors would push it higher). Same attrition rules as everywhere: excluded reasons and 3-day ROR count as retained.'))),
       el('div', { class: 'scroll-x' },
         el('table', { class: 'w-full text-xs' },
           el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
@@ -1468,7 +1478,7 @@ function reportingWaterfall() {
                   class: 'px-2 py-2 tabular-nums font-black',
                   style: { background: greenHeat(pct), color: '#323230' },
                   title: fmt.int(kept.length) + ' of ' + fmt.int(eligible.length) + ' subs (all start months pooled) still active ' + h + ' months in',
-                }, (pct * 100).toFixed(1) + '%');
+                }, smCell(kept.length, eligible.length), smMode === 'count' ? el('span', { class: 'text-[9px] ml-1 font-normal', style: { opacity: '.6' } }, '/ ' + fmt.int(eligible.length)) : null);
               });
               const churned = rows.filter(r => r._effCancel);
               const lives = churned.map(r => {
