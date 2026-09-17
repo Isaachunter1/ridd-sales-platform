@@ -260,6 +260,12 @@
     .pricing-quote .pricing-qgrid { grid-template-columns: minmax(0, 1fr) !important; }   /* totals block drops under the lines in the narrow column */
     .pricing-quote .pricing-qgrid > div:last-child { min-width: 0 !important; }
   }
+  /* Phones: program tiles 2×2 instead of four across; quote totals stack. */
+  @media (max-width: 639px) {
+    .pricing-board [style*="1.05fr 1fr 1fr 1fr"] { grid-template-columns: 1fr 1fr !important; }
+    .pricing-quote .pricing-qgrid { grid-template-columns: minmax(0, 1fr) !important; }
+    .pricing-quote .pricing-qgrid > div:last-child { min-width: 0 !important; }
+  }
   /* "New version available" banner (src/10-core.js): everything pinned to
      the top of the viewport moves down by the banner's height. */
   body.has-nv-banner header.page-header { top: var(--nv-banner, 0px) !important; }

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RIDD Pricing — demo</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ridd-pricing.css">
+<style>
+  body { margin: 0; background: #F3F3F1; color: #323230; font-family: Archivo, Arial, sans-serif; }
+  .demo-bar { display: flex; gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid rgba(50,50,48,.12); background: #fff; font-size: 12px; }
+  .demo-bar select { padding: 4px 8px; }
+  main { padding: 16px; }
+</style>
+</head>
+<body>
+  <div class="demo-bar">
+    <strong>RIDD Pricing — D2D</strong> <span style="color:#6B6F66">tap the M for minimums</span>
+  </div>
+  <main><div id="pricing"></div></main>
+  <script src="ridd-pricing.js"></script>
+  <script>
+    RiddPricing.mount(document.getElementById('pricing'), { persist: false, headerOffsetPx: 0 });
+  </script>
+</body>
+</html>

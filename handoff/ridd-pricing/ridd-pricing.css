@@ -1,0 +1,57 @@
+/* RIDD Pricing — standalone styles.
+   The slick itself is fully inline-styled (brand palette, fixed colours) so it
+   looks identical anywhere. This sheet only provides:
+   1. the handful of utility classes the module uses (Tailwind names, so it
+      drops into a Tailwind project without changes — harmless duplicates),
+   2. the two-column desktop layout + sticky quote,
+   3. the theme variables the quote card reads for its page-background gap. */
+
+:root { --bg: #F3F3F1; --shadow-lg: 0 24px 48px -16px rgba(50,50,48,.20); }
+
+/* 1. utilities (only what the module uses) */
+.pricing-layout .flex { display: flex; }
+.pricing-layout .inline-flex { display: inline-flex; }
+.pricing-layout .grid { display: grid; }
+.pricing-layout .flex-col { flex-direction: column; }
+.pricing-layout .flex-wrap { flex-wrap: wrap; }
+.pricing-layout .items-center { align-items: center; }
+.pricing-layout .items-start { align-items: flex-start; }
+.pricing-layout .items-baseline { align-items: baseline; }
+.pricing-layout .justify-between { justify-content: space-between; }
+.pricing-layout .justify-center { justify-content: center; }
+.pricing-layout .justify-end { justify-content: flex-end; }
+.pricing-layout .gap-1 { gap: 4px; }
+.pricing-layout .gap-1\.5 { gap: 6px; }
+.pricing-layout .gap-2 { gap: 8px; }
+.pricing-layout .gap-3 { gap: 12px; }
+.pricing-layout .mb-3 { margin-bottom: 12px; }
+.pricing-layout .w-full { width: 100%; }
+.pricing-layout .mx-auto { margin-left: auto; margin-right: auto; }
+.pricing-layout .relative { position: relative; }
+.pricing-layout .overflow-hidden { overflow: hidden; }
+.pricing-layout .rounded-full { border-radius: 9999px; }
+.pricing-layout .font-black { font-weight: 900; }
+.pricing-layout .transition { transition: all .15s ease; }
+.pricing-layout button { font: inherit; cursor: pointer; }
+.pricing-layout select { font: inherit; }
+.pricing-layout table { border-collapse: separate; }
+.pricing-layout input[type=number]::-webkit-inner-spin-button { opacity: .5; }
+
+/* 2. layout: phone = quote pinned on top, slick below; desktop (≥1024px) =
+   slick left (760px column), quote right, sticky. */
+.pricing-layout { display: flex; flex-direction: column; max-width: 760px; margin: 0 auto; font-family: Archivo, "Helvetica Neue", Arial, sans-serif; }
+@media (min-width: 1024px) {
+  .pricing-layout { display: grid; grid-template-columns: minmax(0, 760px) minmax(420px, 500px); gap: 16px; align-items: start; justify-content: center; max-width: 1280px; }
+  .pricing-layout > .pricing-board { order: 1; }
+  .pricing-layout > .pricing-quote { order: 2; }
+  .pricing-quote .pricing-qgrid { grid-template-columns: minmax(0, 1fr) !important; }
+  .pricing-quote .pricing-qgrid > div:last-child { min-width: 0 !important; }
+}
+
+/* 3. phones (<640px): program tiles go 2×2 instead of four across and the
+   quote totals stack under the line items. */
+@media (max-width: 639px) {
+  .pricing-board [style*="1.05fr 1fr 1fr 1fr"] { grid-template-columns: 1fr 1fr !important; }
+  .pricing-quote .pricing-qgrid { grid-template-columns: minmax(0, 1fr) !important; }
+  .pricing-quote .pricing-qgrid > div:last-child { min-width: 0 !important; }
+}
