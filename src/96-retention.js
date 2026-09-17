@@ -2308,7 +2308,39 @@ function reportingWaterfall() {
   if (stepsCard && stepsCard.style) stepsCard.style.borderTop = '1px solid var(--border)';
   const joined = el('div', { class: 'flex flex-col' }, modeBar, stepsCard);
   const stepsOpen = state._retenMethodOpen === true;
-  const frozen = el('div', { class: 'flex flex-col gap-3', style: stepsOpen ? { marginTop: '-14px' } : { position: 'sticky', top: 'calc(' + _hdrH + 'px + var(--nv-banner, 0px))', zIndex: 25, background: 'var(--bg)', paddingTop: '6px', paddingBottom: '8px', marginTop: '-14px' } }, _secBar, joined);
-  return el('div', { class: 'flex flex-col gap-4' }, frozen, body, repTypeAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  // position: sticky cannot work here — <main> is overflow-x:hidden and the
+  // content wrapper is overflow-x:auto, so the nearest "scroll container" is
+  // a box that never scrolls and the block just sat displaced (overlapping
+  // the next card). Same answer as the Indicators toolbar: pin with
+  // position: fixed once the block's natural spot scrolls under the page
+  // header, and leave a spacer of its height behind so nothing jumps.
+  const frozen = el('div', { id: 'retenFrozen', class: 'flex flex-col gap-3', style: { marginTop: '-14px', background: 'var(--bg)', paddingTop: '6px', paddingBottom: '8px' } }, _secBar, joined);
+  const spacer = el('div', { id: 'retenFrozenSpacer', style: { display: 'none' } });
+  const _pinTop = () => { try { const h = document.querySelector('header.page-header'); return h ? Math.round(h.getBoundingClientRect().bottom) : 60; } catch (e) { return 60; } };
+  const syncPin = () => {
+    const f = document.getElementById('retenFrozen'), sp = document.getElementById('retenFrozenSpacer');
+    if (!f || !sp || !f.isConnected) return;
+    if (state._retenMethodOpen === true) { f.style.position = ''; f.style.top = ''; f.style.left = ''; f.style.width = ''; f.style.zIndex = ''; sp.style.display = 'none'; return; }
+    const pinned = f.style.position === 'fixed';
+    const anchor = pinned ? sp : f;
+    const natTop = anchor.getBoundingClientRect().top;
+    const top = _pinTop();
+    if (natTop <= top) {
+      if (!pinned) { sp.style.height = f.offsetHeight + 'px'; sp.style.display = 'block'; }
+      const r = sp.getBoundingClientRect();
+      f.style.position = 'fixed'; f.style.top = top + 'px'; f.style.left = r.left + 'px'; f.style.width = r.width + 'px'; f.style.zIndex = 25;
+      // spacer keeps the block's flow height (marginTop -14 included)
+      sp.style.marginTop = '-14px'; sp.style.height = f.offsetHeight + 'px';
+    } else if (pinned) {
+      f.style.position = ''; f.style.top = ''; f.style.left = ''; f.style.width = ''; f.style.zIndex = ''; sp.style.display = 'none'; sp.style.marginTop = '';
+    }
+  };
+  if (!window._retenPinBound) {
+    window._retenPinBound = true;
+    window.addEventListener('scroll', () => { try { syncPin(); } catch (e) { /* torn down */ } }, { passive: true });
+    window.addEventListener('resize', () => { try { syncPin(); } catch (e) { /* torn down */ } });
+  }
+  requestAnimationFrame(() => { syncPin(); setTimeout(syncPin, 200); });
+  return el('div', { class: 'flex flex-col gap-4' }, spacer, frozen, body, repTypeAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
