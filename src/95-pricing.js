@@ -349,7 +349,7 @@ function viewPricing() {
           el('div', { class: 'text-[12px] font-semibold truncate' }, l.label),
           el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, l.sub + (editable && !editing ? ' · tap price to customize' : ''))),
         editing ? editor(l) : (editable
-          ? el('button', { class: 'text-right shrink-0 rounded-lg px-1.5 -mr-1.5 hover:bg-black/5', title: 'Enter a custom price (not below D2D minimums)', onclick: () => { editKey = l.key; rerender(); } }, priceCol(l))
+          ? el('button', { class: 'text-right shrink-0 rounded-lg px-1.5 transition', style: { marginRight: '-6px' }, title: 'Enter a custom price (not below D2D minimums)', onclick: () => { editKey = l.key; rerender(); } }, priceCol(l))
           : priceCol(l)));
     };
     const notice = q.ok ? null : el('div', { class: 'rounded-lg px-3 py-2 text-[11px] font-semibold', style: { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } },
