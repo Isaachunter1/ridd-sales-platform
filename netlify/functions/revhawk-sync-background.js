@@ -206,7 +206,11 @@ SELECT
   -- deleted in the CRM (the mirror never removes rows) — or, rarely, the
   -- customer feed is behind. The app auto-excludes these (Settings →
   -- Configurations → Deleted CRM accounts) and lists them for review.
-  IF(cust.cid IS NULL, 1, NULL) AS customer_missing,
+  -- A sub added in the last 7 days with no customer row yet is the customer
+  -- feed running behind the subscription feed (seen on same-day sales), not
+  -- a deleted account — leave it unflagged until it has had time to land.
+  IF(cust.cid IS NULL
+     AND SAFE.PARSE_DATE('%Y-%m-%d', NULLIF(LEFT(s.fieldRoutes_dateAdded,10),'0000-00-00')) < DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY), 1, NULL) AS customer_missing,
   SAFE_CAST(s.fieldRoutes_annualRecurringValue AS FLOAT64) AS annual_recurring_value,
   s.fieldRoutes_soldBy AS sold_by_id,
   NULLIF(CONCAT(COALESCE(emp.lname,''), ', ', COALESCE(emp.fname,'')), ', ') AS sold_by,

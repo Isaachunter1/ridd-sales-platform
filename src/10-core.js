@@ -1758,6 +1758,13 @@ async function loadReportingSubscriptions(uploadId) {
   // EVERYTHING in FieldRoutes, so remember what the loader itself dropped.
   state._snapshotLoadDrops = { raw: Array.isArray(raw) ? raw.length : 0, phantom: (Array.isArray(raw) ? raw.length : 0) - (Array.isArray(noPhantom) ? noPhantom.length : 0), dupes: (Array.isArray(noPhantom) ? noPhantom.length : 0) - (Array.isArray(deduped) ? deduped.length : 0) };
   const rows = linkRenewalChains(deduped);
+  // Same guard as the sync: a sub sold in the last 7 days whose customer row
+  // hasn't landed yet is a feed lag, not a deleted account (Julia Phillips,
+  // #180833 — sold and serviced the day of the sync). Clear the flag so it
+  // never shows as an orphan, in the steps or anywhere else.
+  const _cut = new Date(); _cut.setDate(_cut.getDate() - 7);
+  const _cutIso = _cut.toISOString().slice(0, 10);
+  for (const r of rows) if (r.customer_missing && r.sold_date && String(r.sold_date).slice(0, 10) >= _cutIso) r.customer_missing = null;
   const orphans = rows.filter(r => r.customer_missing);
   state._orphanSubs = orphans;
   state._orphanCustIds = [...new Set(orphans.map(r => String(r.customer_id != null ? r.customer_id : '')).filter(Boolean))];
