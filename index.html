@@ -295,16 +295,19 @@
   input::placeholder, textarea::placeholder { color: var(--text-subtle) !important; }
   /* Competitions landing (poster card) */
   html:has(body.comp-landing), body.comp-landing { background: var(--accent); }
-  .comp-landing-poster { display: flex; flex-direction: column; margin: 0 -16px -16px; min-height: calc(100vh - 76px - 16px - 46px); border-radius: 0 !important; }
+  /* The frosted top bar would tint peach over the orange landing — keep it
+     solid white/dark there so it matches every other tab (per Isaac). */
+  body.comp-landing .page-header { background: var(--bg) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  .comp-landing-poster { display: flex; flex-direction: column; margin: 0 -16px -16px; min-height: calc(100vh - 60px - 16px - 46px); border-radius: 0 !important; }
   .comp-landing-top { flex: 1 1 auto; }
-  @media (min-width: 640px) { .comp-landing-poster { margin: 0 -24px -24px; min-height: calc(100vh - 76px - 24px - 46px); } }
+  @media (min-width: 640px) { .comp-landing-poster { margin: 0 -24px -24px; min-height: calc(100vh - 60px - 24px - 46px); } }
   .comp-landing-pad { padding: 32px 24px 0; }
   .comp-landing-bottom { padding-top: 24px; padding-bottom: 32px; }
   .comp-landing-rule { margin: 0 24px; border-top: 1px solid rgba(0,0,0,.25); }
   .comp-landing-copy { font-size: 14px; }
   @media (min-width: 640px) {
-    .comp-landing-pad { padding: 40px 48px 0; }
-    .comp-landing-bottom { padding-top: 24px; padding-bottom: 40px; }
+    .comp-landing-pad { padding: 32px 48px 0; }
+    .comp-landing-bottom { padding-top: 18px; padding-bottom: 28px; }
     .comp-landing-rule { margin: 0 48px; }
     .comp-landing-copy { font-size: 15px; padding-top: 12px; }
   }
