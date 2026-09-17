@@ -193,6 +193,7 @@ function viewPricing() {
     // "change" bar — most users never switch). Sales reps are locked to D2D,
     // so for them the bubble is just a label.
     const locked = pricingLockedToD2D(state.profile);
+    const isAdmin = typeof isAdminRole === 'function' && isAdminRole(String(state.profile?.role || ''));
     const sel = locked ? null : el('select', {
       style: { position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none' },
       'aria-label': 'Pricing tier',
@@ -291,12 +292,22 @@ function viewPricing() {
     const ribbon = el('div', { class: 'flex items-center justify-between gap-3', style: { padding: '14px 24px', borderBottom: '1px solid rgba(251,244,218,.18)' } },
       typeof riddSpiderMark === 'function' ? riddSpiderMark(28) : el('span', {}, ''),
       el('div', { style: { font: '700 16px/1 Archivo, Arial, sans-serif', letterSpacing: '.3em', textTransform: 'uppercase', color: C.cream } }, 'Pricing'),
-      el('div', { class: 'flex items-center gap-2' },
-        mBtn,
-        el('span', { class: 'relative inline-flex items-center gap-1', style: { background: C.orange, color: C.cream, font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.16em', textTransform: 'uppercase', padding: '7px 12px', borderRadius: '999px', cursor: locked ? 'default' : 'pointer' } },
-          st.tier === 'd2d' ? (st.min ? 'D2D · Minimums' : 'D2D') : T.badge,
-          locked ? null : el('span', { style: { opacity: '.8', letterSpacing: 0 } }, '▾'),
-          sel)));
+      // Admins get every slick as its own bubble (per Isaac); office/loyalty
+      // users get one bubble with a dropdown; sales reps get a plain D2D label.
+      isAdmin
+        ? el('div', { class: 'flex items-center gap-1.5 flex-wrap justify-end' },
+            mBtn,
+            ...PICK.map(t => el('button', {
+              onclick: () => { if (st.tier === t.id) return; st.tier = t.id; if (!t.onetime) st.onetime = {}; editKey = null; rerender(); },
+              'aria-pressed': st.tier === t.id ? 'true' : 'false',
+              style: { background: st.tier === t.id ? C.orange : 'transparent', color: C.cream, border: '1.5px solid ' + (st.tier === t.id ? C.orange : 'rgba(251,244,218,.5)'), font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.16em', textTransform: 'uppercase', padding: '6px 11px', borderRadius: '999px', cursor: 'pointer' },
+            }, t.id === 'd2d' && st.tier === 'd2d' && st.min ? 'D2D · Min' : t.label)))
+        : el('div', { class: 'flex items-center gap-2' },
+            mBtn,
+            el('span', { class: 'relative inline-flex items-center gap-1', style: { background: C.orange, color: C.cream, font: '700 10px/1 Archivo, Arial, sans-serif', letterSpacing: '.16em', textTransform: 'uppercase', padding: '7px 12px', borderRadius: '999px', cursor: locked ? 'default' : 'pointer' } },
+              st.tier === 'd2d' ? (st.min ? 'D2D · Minimums' : 'D2D') : T.badge,
+              locked ? null : el('span', { style: { opacity: '.8', letterSpacing: 0 } }, '▾'),
+              sel)));
     const board = el('div', { style: { background: C.sage, borderRadius: '14px', overflow: 'hidden' } },
       ribbon,
       el('div', { class: 'flex flex-col gap-3', style: { padding: '18px 24px 24px' } },
