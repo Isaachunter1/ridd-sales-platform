@@ -719,8 +719,8 @@ function mountApp() {
   ];
   // Registered modules (riddmarket etc.) join the nav for whoever they allow.
   for (const m of _visibleModules()) navItems.push([m.id, m.label || m.id, typeof m.icon === 'function' ? m.icon() : (m.icon || el('span', {}, '▦'))]);
-  // Why RIDD — external link (whyridd.com) in the app menu for everyone (per Isaac).
-  navItems.push(['__whyridd', 'Why RIDD', svg('<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>')]);
+  // RIDDMADE (Why RIDD) — external link (whyridd.com) in the app menu for everyone (per Isaac).
+  navItems.push(['__whyridd', 'RIDDMADE', svg('<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>')]);
 
   // ── Nav dropdown menu (anchored to the grid icon) ──
   const navMenu = el('div', {
