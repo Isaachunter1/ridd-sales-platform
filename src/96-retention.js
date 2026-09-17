@@ -21,24 +21,43 @@ function retenWhatIfActive() {
 // ── GROUND ZERO (per Isaac): every subscription FieldRoutes has, before any
 // app rule touches it. Branch renames still apply (cosmetic); nothing is
 // excluded. The scope steps below take it down to the reporting population.
+const _retenGroundMemo = { subs: null, del: null, ren: '', out: null };
 function retenGroundZero() {
-  const base = (state.reportingSubscriptions || []).concat(state._deletedSubs || []);
-  const ren = reportingBranchRenames();
-  if (!Object.keys(ren).length) return base;
-  return base.map(r => { const o = (r.office_name || '').trim(); return ren[o] ? { ...r, office_name: ren[o] } : r; });
+  const subs = state.reportingSubscriptions || [], del = state._deletedSubs || [];
+  const ren = reportingBranchRenames(); const renKey = JSON.stringify(ren);
+  const m = _retenGroundMemo;
+  if (m.out && m.subs === subs && m.del === del && m.ren === renKey) return m.out;
+  let base = del.length ? subs.concat(del) : subs;
+  if (Object.keys(ren).length) base = base.map(r => { const o = (r.office_name || '').trim(); return ren[o] ? { ...r, office_name: ren[o] } : r; });
+  m.subs = subs; m.del = del; m.ren = renKey; m.out = base;
+  return base;
 }
 // Scope steps 1–5: what stands between "everything in FieldRoutes" and the
 // population the rest of Reporting reads. Each is toggleable on the
 // Retention tab (session what-ifs); official = the saved Configurations.
 // Branches currently OUT of the retention funnel: the saved Configurations
 // exclusions plus/minus the session picks made on the step's checklist.
+// (Per Isaac: every branch is IN by default on this tab — the Configurations
+// branch exclusions apply to the other Reporting tabs, not here.)
 function retenBranchesOff() {
-  const off = new Set(reportingExcludedBranches());
+  const off = new Set();
   const w = state._retenWhatIf && state._retenWhatIf.branches;
-  if (w && typeof w === 'object' && state.reportingSubTab === 'waterfall') for (const k in w) { if (w[k] === false) off.add(k); else if (w[k] === true) off.delete(k); }
+  if (w && typeof w === 'object' && state.reportingSubTab === 'waterfall') for (const k in w) { if (w[k] === false) off.add(k); }
   return off;
 }
+// Memoized per (ground array, rules) — the waterfall builds the population
+// and the steps card walks the same chain, so one pass serves both, and a
+// re-render with nothing changed costs nothing.
+const _retenScopeMemo = new WeakMap();
 function retenScopeSteps(rows) {
+  const key = JSON.stringify([_adminRules() || null, state._retenWhatIf || null, state.reportingSubTab, (state.reportingServiceConfig || []).length, (state.reportingSourceConfig || []).length, (state.indicatorDeletedCustIds || []).length]);
+  const hit = _retenScopeMemo.get(rows);
+  if (hit && hit.key === key) return hit.res;
+  const res = _retenScopeStepsBuild(rows);
+  _retenScopeMemo.set(rows, { key, res });
+  return res;
+}
+function _retenScopeStepsBuild(rows) {
   const n = (v) => Number(v || 0).toLocaleString();
   const manual = new Set((state.indicatorDeletedCustIds || []).map(x => String(x).trim()).filter(Boolean));   // (folded into the orphan step — the manual list is empty today)
   const cfgByName = new Map((state.reportingServiceConfig || []).map(c => [c.service_name, c]));
@@ -67,6 +86,14 @@ function retenScopeSteps(rows) {
   run('hidden', 'Remove hidden service types', 'Service types marked Hidden in Configurations → Service types (late fees, inspections, admin items…).', r => !!(cfgByName.get(r.subscription) || {}).is_hidden);
   run('sources', 'Remove excluded lead sources', 'Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)));
   return { steps, out: cur };
+}
+const _retenOfficeMemo = { g: null, by: new Map() };
+function _retenOfficeSlice(office) {
+  const g = retenGroundZero();
+  if (_retenOfficeMemo.g !== g) { _retenOfficeMemo.g = g; _retenOfficeMemo.by = new Map(); }
+  const k = office || 'all';
+  if (!_retenOfficeMemo.by.has(k)) _retenOfficeMemo.by.set(k, reportingFilterByOffice(g, k));
+  return _retenOfficeMemo.by.get(k);
 }
 function _retenOfficial() {
   const saved = state._retenWhatIf; state._retenWhatIf = null;
@@ -222,24 +249,27 @@ function retenMethodCard(pop, _retenEff, ground) {
         // Checklist of every branch in the snapshot; ticked = counts.
         const counts = new Map(); g0.forEach(r => { const o = (r.office_name || '').trim() || 'Unknown'; counts.set(o, (counts.get(o) || 0) + 1); });
         const off = retenBranchesOff();
-        const saved = reportingExcludedBranches();
+        const saved = new Set();   // every branch is in by default here
         const names = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+        // Flip the box now, rebuild on the next frame — the click feels instant
+        // even though the whole tab recomputes on the new population.
+        const later = (fn) => requestAnimationFrame(() => setTimeout(fn, 0));
         const listEl = el('div', { class: 'grid gap-x-4 gap-y-1 mt-2', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' } },
           ...names.map(o => {
             const isOff = off.has(o);
             const cb = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onclick: (e) => e.stopPropagation(), onchange: (e) => {
               const nw = { ...(state._retenWhatIf || {}) }; const br = { ...(nw.branches || {}) };
               const wantIn = e.target.checked;
-              if (wantIn === !saved.has(o)) delete br[o]; else br[o] = wantIn;
-              nw.branches = br; state._retenWhatIf = nw; mountApp(); } });
+              if (wantIn) delete br[o]; else br[o] = false;
+              nw.branches = br; state._retenWhatIf = nw; later(mountApp); } });
             cb.checked = !isOff;
             return el('label', { class: 'flex items-center gap-2 text-[11px] cursor-pointer rounded px-1' + (isOff ? '' : ' font-semibold'), style: isOff ? { color: 'var(--text-subtle)' } : { color: 'var(--text)' }, onclick: (e) => e.stopPropagation() },
-              cb, el('span', { class: 'flex-1 truncate' }, o, isOff !== saved.has(o) ? el('span', { style: { color: 'var(--accent)' } }, ' *') : null),
+              cb, el('span', { class: 'flex-1 truncate' }, o, isOff ? el('span', { style: { color: 'var(--accent)' } }, ' *') : null),
               el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, n(counts.get(o))));
           }));
         const quick = el('div', { class: 'flex items-center gap-2 mt-2' },
-          ...[['All in', () => { const nw = { ...(state._retenWhatIf || {}) }; const br = {}; saved.forEach(o => { br[o] = true; }); nw.branches = br; state._retenWhatIf = nw; mountApp(); }],
-              ['None', () => { const nw = { ...(state._retenWhatIf || {}) }; const br = {}; names.forEach(o => { if (!saved.has(o)) br[o] = false; }); nw.branches = br; state._retenWhatIf = nw; mountApp(); }]].map(([l, fn]) => el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: (e) => { e.stopPropagation(); fn(); } }, l)));
+          ...[['All in', () => { const nw = { ...(state._retenWhatIf || {}) }; delete nw.branches; state._retenWhatIf = nw; later(mountApp); }],
+              ['None', () => { const nw = { ...(state._retenWhatIf || {}) }; const br = {}; names.forEach(o => { br[o] = false; }); nw.branches = br; state._retenWhatIf = nw; later(mountApp); }]].map(([l, fn]) => el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: (e) => { e.stopPropagation(); fn(); } }, l)));
         node.children[1].append(listEl, quick);
       }
       return node;
@@ -371,8 +401,8 @@ function reportingWaterfall() {
   // Populations walk down from EVERYTHING in FieldRoutes (per Isaac) through
   // the scope steps — so a step switched off on the Attrition Steps card
   // changes every card on this tab, not just the walkthrough.
-  const groundA = reportingFilterByOffice(retenGroundZero(), office);
-  const groundB = inCompare ? reportingFilterByOffice(retenGroundZero(), compareOffice) : null;
+  const groundA = _retenOfficeSlice(office);
+  const groundB = inCompare ? _retenOfficeSlice(compareOffice) : null;
   const popA = retenScopeSteps(groundA).out;
   const popB = inCompare ? retenScopeSteps(groundB).out : null;
   if (!state.reportingWaterfallCohort) state.reportingWaterfallCohort = 'all';
