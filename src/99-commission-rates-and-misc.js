@@ -1496,10 +1496,32 @@ function openAdoptionDrill(kind, allRows, o = {}) {
       detail);
   } else {
     const fb = rows.filter(r => r.event === 'feedback');
+    // Attachments live in the private "feedback" bucket — admins get short
+    // signed URLs; images inline as thumbnails, videos play in place.
+    const attachBox = (r) => {
+      const atts = (r.meta && Array.isArray(r.meta.attachments)) ? r.meta.attachments : [];
+      if (!atts.length) return null;
+      const box = el('div', { class: 'flex flex-wrap gap-2 mt-2' });
+      atts.forEach(async (a) => {
+        const slot = el('div', { class: 'rounded-lg border overflow-hidden', style: { borderColor: 'var(--border)', maxWidth: '260px' } },
+          el('div', { class: 'text-[10px] px-2 py-1 truncate', style: { color: 'var(--text-muted)' } }, a.name || a.path));
+        box.append(slot);
+        try {
+          const { data, error } = await supabase.storage.from('feedback').createSignedUrl(a.path, 3600);
+          if (error || !data || !data.signedUrl) { slot.append(el('div', { class: 'text-[10px] px-2 pb-1', style: { color: '#B91C1C' } }, 'file unavailable')); return; }
+          const url = data.signedUrl;
+          if (/^image\//.test(a.type || '')) slot.prepend(el('a', { href: url, target: '_blank', rel: 'noopener' }, el('img', { src: url, style: { display: 'block', maxWidth: '260px', maxHeight: '180px', objectFit: 'cover' } })));
+          else if (/^video\//.test(a.type || '')) slot.prepend(el('video', { src: url, controls: true, preload: 'metadata', style: { display: 'block', maxWidth: '260px', maxHeight: '180px', background: '#000' } }));
+          else slot.append(el('a', { href: url, target: '_blank', rel: 'noopener', class: 'text-[11px] font-semibold px-2 pb-1 block', style: { color: 'var(--accent)' } }, 'Open \u2192'));
+        } catch (e) { slot.append(el('div', { class: 'text-[10px] px-2 pb-1', style: { color: '#B91C1C' } }, 'file unavailable')); }
+      });
+      return box;
+    };
     modal.append(head(o.title + ' \u00b7 ' + fb.length, o.sub),
       fb.length ? el('div', { class: 'flex flex-col gap-2 mt-3' }, ...fb.map(r => el('div', { class: 'rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center justify-between gap-2 text-[10px]', style: { color: 'var(--text-muted)' } }, el('span', { class: 'font-bold', style: { color: 'var(--text)' } }, nameOf(r.profile_id) + ' \u00b7 ' + roleOf(r.profile_id)), el('span', { title: new Date(r.at).toLocaleString() }, timeAgo(r.at))),
-        el('div', { class: 'text-[12px] mt-1 whitespace-pre-wrap' }, r.detail || ''))))
+        el('div', { class: 'text-[12px] mt-1 whitespace-pre-wrap' }, r.detail || ''),
+        attachBox(r))))
       : el('div', { class: 'mt-3 text-[11px] text-center py-6', style: { color: 'var(--text-muted)' } }, 'No feedback in the last 30 days.'));
   }
   document.body.append(overlay);
@@ -1517,9 +1539,11 @@ function adminReps() {
       (async () => {
         try {
           const since = new Date(Date.now() - 30 * 86400000).toISOString();
-          const { data, error } = await supabase.from('usage_events')
-            .select('profile_id, event, detail, at').gte('at', since)
+          let { data, error } = await supabase.from('usage_events')
+            .select('profile_id, event, detail, at, meta').gte('at', since)
             .order('at', { ascending: false }).limit(5000);
+          if (error && /meta/i.test(error.message || '')) ({ data, error } = await supabase.from('usage_events')   // migration not run yet
+            .select('profile_id, event, detail, at').gte('at', since).order('at', { ascending: false }).limit(5000));
           state._usageStats = { at: Date.now(), rows: error ? null : (data || []) };
         } catch (e) { state._usageStats = { at: Date.now(), rows: null }; }
         state._usageStatsLoading = false;
@@ -1552,7 +1576,8 @@ function adminReps() {
           stat('Tab views \u00b7 7d', String(rows7.filter(r => r.event === 'view').length), () => openAdoptionDrill('tabs', us.rows, { since: wk, title: 'Tab views \u00b7 last 7 days', sub: 'which screens are getting opened, and by whom' })),
           stat('Feedback \u00b7 30d', String(us.rows.filter(r => r.event === 'feedback').length), () => openAdoptionDrill('feedback', us.rows, { since: 0, title: 'Feedback \u00b7 last 30 days', sub: 'everything sent through the feedback button' }))),
         ...fb.map(r => el('div', { class: 'mt-2 text-[11px] rounded-lg border px-3 py-2', style: { borderColor: 'var(--border)' } },
-          el('span', { class: 'font-bold' }, '\ud83d\udce3 ' + nameOf(r.profile_id) + ': '), r.detail || ''))));
+          el('span', { class: 'font-bold' }, '\ud83d\udce3 ' + nameOf(r.profile_id) + ': '), r.detail || '',
+          (r.meta && Array.isArray(r.meta.attachments) && r.meta.attachments.length) ? el('span', { class: 'ml-2 text-[10px]', style: { color: 'var(--text-subtle)' } }, '\ud83d\udcce ' + r.meta.attachments.length) : null))));
     }
   }
   // Pull the CRM roster the first time an admin opens this screen.

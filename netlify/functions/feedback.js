@@ -21,7 +21,12 @@ exports.handler = async (event) => {
   try { body = JSON.parse(event.body || '{}'); } catch (e) { return json(400, { error: 'bad JSON' }); }
   const text = String(body.text || '').trim().slice(0, 2000);
   const view = String(body.view || '').slice(0, 60);
-  if (!text) return json(400, { error: 'text required' });
+  // Attachments (per Isaac): the client already uploaded them to the private
+  // "feedback" bucket under the sender's own folder — we just record the list.
+  const attachments = (Array.isArray(body.attachments) ? body.attachments : []).slice(0, 8)
+    .map(a => ({ path: String(a.path || '').slice(0, 300), name: String(a.name || '').slice(0, 120), type: String(a.type || '').slice(0, 60), size: Number(a.size) || 0 }))
+    .filter(a => a.path && a.path.startsWith(userRes.user.id + '/'));
+  if (!text && !attachments.length) return json(400, { error: 'text or attachment required' });
 
   const admin = createClient(SUPABASE_URL, KEY, { auth: { persistSession: false } });
   const { data: prof } = await admin.from('profiles')
@@ -30,17 +35,17 @@ exports.handler = async (event) => {
   const role = (prof && prof.role) || '?';
 
   // Log the event regardless of Slack config (adoption trail).
+  const row = { profile_id: userRes.user.id, event: 'feedback', detail: (view ? '[' + view + '] ' : '') + (text || '(attachment only)').slice(0, 1500) };
   try {
-    await admin.from('usage_events').insert({
-      profile_id: userRes.user.id, event: 'feedback', detail: (view ? '[' + view + '] ' : '') + text.slice(0, 500),
-    });
+    let { error } = await admin.from('usage_events').insert({ ...row, meta: attachments.length ? { attachments } : null });
+    if (error && /meta/i.test(error.message || '')) ({ error } = await admin.from('usage_events').insert(row));   // migration not run yet
   } catch (e) { /* table may not exist yet */ }
 
   if (!HOOK) return json(200, { ok: true, slack: false });
   const res = await fetch(HOOK, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: '📣 *App feedback* from *' + who + '* (' + role + (view ? ' · ' + view + ' tab' : '') + '):\n> ' + text }),
+    body: JSON.stringify({ text: '📣 *App feedback* from *' + who + '* (' + role + (view ? ' · ' + view + ' tab' : '') + '):\n> ' + (text || '(no note)') + (attachments.length ? '\n📎 ' + attachments.length + ' attachment' + (attachments.length === 1 ? '' : 's') + ' — open Settings → Users → Adoption → Feedback in the app' : '') }),
   });
   if (!res.ok) return json(502, { error: 'Slack webhook HTTP ' + res.status });
   return json(200, { ok: true, slack: true });
