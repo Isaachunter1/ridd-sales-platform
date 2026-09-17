@@ -612,48 +612,6 @@ exports.handler = async (event) => {
 
     await _stage('snapshot-uploaded');
 
-    // ── Mirror the snapshot into public.crm_subscriptions (best-effort) ──
-    // The gzipped blob above is what the app reads; this table is the same
-    // rows queryable in SQL (riddmarket reads it through market_feed.
-    // crm_subscriptions, which strips names/contact/balance). One row per
-    // subscription_id, replaced every run; rows missing from this run are
-    // deleted afterwards so cancelled/removed subs don't linger.
-    let crmMirrorError = null;
-    try {
-      const _runAt = new Date().toISOString();
-      const F = ['subscription_id','customer_id','sold_date','sold_at','sold_by_id','sold_by','sold_by_type','subscription',
-        'subscription_status','initial_status','initial_service','initial_serviced_date','subscription_completed_services',
-        'subscription_cancellation_reason','subscription_date_canceled','subscription_source','lead_source','recurring_frequency',
-        'agreement_length','annual_recurring_value','subscription_contract_value','initial_price','customer_auto_pay','customer_flags',
-        'customer_missing','contract_state','contract_signed_at','county','state','zip_code','office_name','days_past_due',
-        'responsible_balance','first_name','last_name','phone','email'];
-      const _seenSub = new Set();
-      const _rows = [];
-      for (const o of objects) {
-        const sid = o.subscription_id == null ? '' : String(o.subscription_id);
-        if (!sid || _seenSub.has(sid)) continue;
-        _seenSub.add(sid);
-        const r = {};
-        for (const k of F) { const v = o[k]; r[k] = (v === undefined || v === '') ? null : v; }
-        r.subscription_id = sid;
-        if (r.customer_id != null) r.customer_id = String(r.customer_id);
-        if (r.sold_by_id != null) r.sold_by_id = String(r.sold_by_id);
-        r.customer_missing = r.customer_missing ? true : false;
-        r.synced_at = _runAt;
-        _rows.push(r);
-      }
-      for (let i = 0; i < _rows.length; i += 1000) {
-        const { error } = await supabase.from('crm_subscriptions').upsert(_rows.slice(i, i + 1000), { onConflict: 'subscription_id' });
-        if (error) throw new Error(error.message);
-      }
-      const { error: delErr } = await supabase.from('crm_subscriptions').delete().lt('synced_at', _runAt);
-      if (delErr) throw new Error('stale delete: ' + delErr.message);
-      console.log('[revhawk-sync] crm_subscriptions mirrored: ' + _rows.length + ' rows');
-      await _stage('crm-mirrored');
-    } catch (me) {
-      crmMirrorError = String((me && me.message) || me);
-      console.error('[revhawk-sync] crm_subscriptions mirror failed (continuing):', crmMirrorError);
-    }
     // ── Server-side Indicators derive → DERIVE WORKER ───────────────────
     // Moved to its own background invocation with a FRESH ~1GB: stacking the
     // derive's JSON/gzip spike on this run's 90k-row memory OOM-killed the
@@ -1466,7 +1424,7 @@ exports.handler = async (event) => {
     await _hb({ stage: 'finished', ok: true, rows: objects.length, ms: Date.now() - started, indicatorsError: indicatorsError || undefined, officeError: officeError || undefined, srcError: srcError || undefined, verifyError: verifyError || undefined });
     return {
       statusCode: 200,
-      body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, sources: srcCount, srcError, officesAdded: officeCount, officeError, salesVerified: verifyCount, verifyError, salesStaged: stageCount, stageError, crmMirrorError, storage_path: path, ms: Date.now() - started }),
+      body: JSON.stringify({ ok: true, rows: objects.length, employees: rosterCount, rosterError, sources: srcCount, srcError, officesAdded: officeCount, officeError, salesVerified: verifyCount, verifyError, salesStaged: stageCount, stageError, storage_path: path, ms: Date.now() - started }),
     };
   } catch (e) {
     console.error('[revhawk-sync]', e);
