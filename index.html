@@ -259,6 +259,11 @@
     .pricing-quote .pricing-qgrid { grid-template-columns: minmax(0, 1fr) !important; }   /* totals block drops under the lines in the narrow column */
     .pricing-quote .pricing-qgrid > div:last-child { min-width: 0 !important; }
   }
+  /* "New version available" banner (src/10-core.js): everything pinned to
+     the top of the viewport moves down by the banner's height. */
+  body.has-nv-banner header.page-header { top: var(--nv-banner, 0px) !important; }
+  body.has-nv-banner main { margin-top: var(--nv-banner, 0px); }
+  body.has-nv-banner #indFixedBar { top: calc(60px + var(--nv-banner, 0px) + env(safe-area-inset-top, 0px)) !important; }
   /* Keep the fixed top-bar tab title compact (it lives in a ~60px header). */
   .hb-topbar-title { font-size: clamp(1.45rem, 2.6vw, 2.1rem) !important; line-height: 1 !important; text-transform: uppercase; }
 
