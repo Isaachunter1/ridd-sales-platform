@@ -15,6 +15,7 @@ function _retenWhatIf(key, official) {
 function retenWhatIfActive() {
   const w = state._retenWhatIf; if (!w) return false;
   if (w.reasons && Object.keys(w.reasons).length) return true;
+  if (w.branches && Object.keys(w.branches).length) return true;
   return Object.keys(w).some(k => typeof w[k] === 'boolean' && w[k] !== _retenOfficial()[k]);
 }
 // ── GROUND ZERO (per Isaac): every subscription FieldRoutes has, before any
@@ -29,10 +30,17 @@ function retenGroundZero() {
 // Scope steps 1–5: what stands between "everything in FieldRoutes" and the
 // population the rest of Reporting reads. Each is toggleable on the
 // Retention tab (session what-ifs); official = the saved Configurations.
+// Branches currently OUT of the retention funnel: the saved Configurations
+// exclusions plus/minus the session picks made on the step's checklist.
+function retenBranchesOff() {
+  const off = new Set(reportingExcludedBranches());
+  const w = state._retenWhatIf && state._retenWhatIf.branches;
+  if (w && typeof w === 'object' && state.reportingSubTab === 'waterfall') for (const k in w) { if (w[k] === false) off.add(k); else if (w[k] === true) off.delete(k); }
+  return off;
+}
 function retenScopeSteps(rows) {
   const n = (v) => Number(v || 0).toLocaleString();
-  const manual = new Set((state.indicatorDeletedCustIds || []).map(x => String(x).trim()).filter(Boolean));
-  const exclBr = reportingExcludedBranches();
+  const manual = new Set((state.indicatorDeletedCustIds || []).map(x => String(x).trim()).filter(Boolean));   // (folded into the orphan step — the manual list is empty today)
   const cfgByName = new Map((state.reportingServiceConfig || []).map(c => [c.service_name, c]));
   const exclSrc = reportingExcludedSources();
   const off = _retenOfficial();
@@ -50,16 +58,19 @@ function retenScopeSteps(rows) {
   // initial service cannot retain or churn, so the funnel starts from the
   // subs with a completed initial — the same pull he takes from FieldRoutes.
   run('initial', 'Keep only subs that received an initial service', '[Sheet step 2] Initial service marked Completed in FieldRoutes. Everything else — pending, never started, cancelled before the first visit — is not a customer yet. Always applied; this is the true top of the funnel.', r => !r.initial_service, true);
-  run('orphans', 'Remove accounts deleted in FieldRoutes', 'Subscriptions whose customer record no longer exists in FieldRoutes — the account was deleted in the CRM but the mirror never forgets a row. Detected automatically by the sync.', r => !!r.customer_missing);
-  run('deletedList', 'Remove the manual deleted list', 'Customer IDs an admin listed by hand in Configurations → Deleted CRM accounts (' + n(manual.size) + ' on the list).', r => manual.has(String(r.customer_id != null ? r.customer_id : '')));
-  run('branches', 'Remove excluded branches', 'Offices switched off in Configurations' + (exclBr.size ? ': ' + [...exclBr].join(', ') : ' (none today)') + '.', r => exclBr.has((r.office_name || '').trim()));
+  run('orphans', 'Remove accounts deleted in FieldRoutes', 'Subscriptions whose customer record no longer exists in FieldRoutes — the account was deleted in the CRM but the mirror never forgets a row. Detected automatically by the sync.', r => !!r.customer_missing || manual.has(String(r.customer_id != null ? r.customer_id : '')));
+  // Branch pick (per Isaac): untick a branch and it leaves the funnel here —
+  // "what if a PE group bought only these branches". Session slicer on top
+  // of the Configurations exclusions; the list lives on the step itself.
+  const brOff = retenBranchesOff();
+  run('branches', 'Pick the branches that count', 'Every branch is in by default. Untick one and its subscriptions leave here — attrition for a subset of the company (say, the branches a buyer would take).' + (brOff.size ? ' Out: ' + [...brOff].join(', ') + '.' : ''), r => brOff.has((r.office_name || '').trim()), true);
   run('hidden', 'Remove hidden service types', 'Service types marked Hidden in Configurations → Service types (late fees, inspections, admin items…).', r => !!(cfgByName.get(r.subscription) || {}).is_hidden);
   run('sources', 'Remove excluded lead sources', 'Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)));
   return { steps, out: cur };
 }
 function _retenOfficial() {
   const saved = state._retenWhatIf; state._retenWhatIf = null;
-  const o = { initial: true, orphans: reportingAutoExcludeOrphans(), deletedList: (state.indicatorDeletedCustIds || []).length > 0, branches: reportingExcludedBranches().size > 0, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(x => /ror/.test(x)), popRorTiming: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !/ror|combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
+  const o = { initial: true, orphans: reportingAutoExcludeOrphans(), branches: true, hidden: true, sources: reportingExcludedSources().size > 0, popRor: [...retenPopExclReasons()].some(x => /ror/.test(x)), popRorTiming: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !/ror|combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
   state._retenWhatIf = saved;
   return o;
 }
@@ -205,7 +216,34 @@ function retenMethodCard(pop, _retenEff, ground) {
         el('div', { class: 'text-[11px] text-muted-' }, 'Every subscription in the synced snapshot, any status, any service type — the top of the funnel.'
           + (loadDrops && (loadDrops.phantom || loadDrops.dupes) ? ' The loader itself set aside ' + n(loadDrops.phantom) + ' phantom-office row' + (loadDrops.phantom === 1 ? '' : 's') + ' and ' + n(loadDrops.dupes) + ' duplicate' + (loadDrops.dupes === 1 ? '' : 's') + ' of the same subscription id (' + n(loadDrops.raw) + ' raw rows).' : ''))),
       clickable(el('div', { class: 'text-lg font-black tabular-nums' }, n(g0.length)), drill('Everything in FieldRoutes', g0, 'the whole snapshot'))),
-    ...scopeSteps.map(st => step(next(), st.title, (st.locked ? '' : APP) + st.detail, st.removed.length, st.locked ? null : st.key, null, st.removed, st.left)),
+    ...scopeSteps.map(st => {
+      const node = step(next(), st.title, (st.locked ? '' : APP) + st.detail, st.removed.length, st.locked ? null : st.key, null, st.removed, st.left);
+      if (st.key === 'branches') {
+        // Checklist of every branch in the snapshot; ticked = counts.
+        const counts = new Map(); g0.forEach(r => { const o = (r.office_name || '').trim() || 'Unknown'; counts.set(o, (counts.get(o) || 0) + 1); });
+        const off = retenBranchesOff();
+        const saved = reportingExcludedBranches();
+        const names = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+        const listEl = el('div', { class: 'grid gap-x-4 gap-y-1 mt-2', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' } },
+          ...names.map(o => {
+            const isOff = off.has(o);
+            const cb = el('input', { type: 'checkbox', style: { accentColor: 'var(--accent)' }, onclick: (e) => e.stopPropagation(), onchange: (e) => {
+              const nw = { ...(state._retenWhatIf || {}) }; const br = { ...(nw.branches || {}) };
+              const wantIn = e.target.checked;
+              if (wantIn === !saved.has(o)) delete br[o]; else br[o] = wantIn;
+              nw.branches = br; state._retenWhatIf = nw; mountApp(); } });
+            cb.checked = !isOff;
+            return el('label', { class: 'flex items-center gap-2 text-[11px] cursor-pointer rounded px-1' + (isOff ? '' : ' font-semibold'), style: isOff ? { color: 'var(--text-subtle)' } : { color: 'var(--text)' }, onclick: (e) => e.stopPropagation() },
+              cb, el('span', { class: 'flex-1 truncate' }, o, isOff !== saved.has(o) ? el('span', { style: { color: 'var(--accent)' } }, ' *') : null),
+              el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, n(counts.get(o))));
+          }));
+        const quick = el('div', { class: 'flex items-center gap-2 mt-2' },
+          ...[['All in', () => { const nw = { ...(state._retenWhatIf || {}) }; const br = {}; saved.forEach(o => { br[o] = true; }); nw.branches = br; state._retenWhatIf = nw; mountApp(); }],
+              ['None', () => { const nw = { ...(state._retenWhatIf || {}) }; const br = {}; names.forEach(o => { if (!saved.has(o)) br[o] = false; }); nw.branches = br; state._retenWhatIf = nw; mountApp(); }]].map(([l, fn]) => el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: (e) => { e.stopPropagation(); fn(); } }, l)));
+        node.children[1].append(listEl, quick);
+      }
+      return node;
+    }),
     total('Subscriptions in scope', n(n0), 'Received an initial service, minus the app-rule exclusions above', pop),
     (() => {
       // One-time services leave the book, but their revenue is still real —
