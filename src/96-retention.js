@@ -30,7 +30,8 @@ function retenGroundZero() {
 // population the rest of Reporting reads. Each is toggleable on the
 // Retention tab (session what-ifs); official = the saved Configurations.
 function retenScopeSteps(rows) {
-  const del = deletedCustIdSet();
+  const n = (v) => Number(v || 0).toLocaleString();
+  const manual = new Set((state.indicatorDeletedCustIds || []).map(x => String(x).trim()).filter(Boolean));
   const exclBr = reportingExcludedBranches();
   const cfgByName = new Map((state.reportingServiceConfig || []).map(c => [c.service_name, c]));
   const exclSrc = reportingExcludedSources();
@@ -45,7 +46,8 @@ function retenScopeSteps(rows) {
     steps.push({ key, title, detail, removed, left, active });
     cur = left;
   };
-  run('orphans', 'Remove deleted CRM accounts', 'Subscriptions whose customer no longer exists in FieldRoutes (deleted in the CRM) plus the manual list in Configurations → Deleted CRM accounts. The mirror never forgets a row; the CRM did.', r => !!r.customer_missing || del.has(String(r.customer_id != null ? r.customer_id : '')));
+  run('orphans', 'Remove accounts deleted in FieldRoutes', 'Subscriptions whose customer record no longer exists in FieldRoutes — the account was deleted in the CRM but the mirror never forgets a row. Detected automatically by the sync.', r => !!r.customer_missing);
+  run('deletedList', 'Remove the manual deleted list', 'Customer IDs an admin listed by hand in Configurations → Deleted CRM accounts (' + n(manual.size) + ' on the list).', r => manual.has(String(r.customer_id != null ? r.customer_id : '')));
   run('branches', 'Remove excluded branches', 'Offices switched off in Configurations' + (exclBr.size ? ': ' + [...exclBr].join(', ') : ' (none today)') + '.', r => exclBr.has((r.office_name || '').trim()));
   run('hidden', 'Remove hidden service types', 'Service types marked Hidden in Configurations → Service types (late fees, inspections, admin items…).', r => !!(cfgByName.get(r.subscription) || {}).is_hidden);
   run('sources', 'Remove excluded lead sources', 'Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)));
@@ -54,7 +56,7 @@ function retenScopeSteps(rows) {
 }
 function _retenOfficial() {
   const saved = state._retenWhatIf; state._retenWhatIf = null;
-  const o = { orphans: reportingAutoExcludeOrphans() || (state.indicatorDeletedCustIds || []).length > 0, branches: reportingExcludedBranches().size > 0, hidden: true, sources: reportingExcludedSources().size > 0, neverStarted: true, popRor: [...retenPopExclReasons()].some(x => /ror/.test(x)), popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !/ror|combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
+  const o = { orphans: reportingAutoExcludeOrphans(), deletedList: (state.indicatorDeletedCustIds || []).length > 0, branches: reportingExcludedBranches().size > 0, hidden: true, sources: reportingExcludedSources().size > 0, neverStarted: true, popRor: [...retenPopExclReasons()].some(x => /ror/.test(x)), popRorTiming: true, popCombined: [...retenPopExclReasons()].some(x => /combined/.test(x)), popRenew: [...retenPopExclReasons()].some(x => !/ror|combined/.test(x)), zero: retenExclZeroPay(), oneSvc: retenExclOneSvc(), oneSvcExempt: true, frozenOneSvc: retenExclFrozenOneSvc(), exclReasons: reportingExcludedCancelReasons().size > 0, ror: reportingExcludeRorChurn() };
   state._retenWhatIf = saved;
   return o;
 }
@@ -67,13 +69,20 @@ function retenMethodCard(pop, _retenEff, ground) {
   const g0 = Array.isArray(ground) ? ground : pop;
   const scopeSteps = Array.isArray(ground) ? retenScopeSteps(ground).steps : [];
   const n0 = pop.length;
-  const s1 = pop.filter(r => !!recurringByName.get(r.subscription));
+  const lifecycleByName = reportingServiceLifecycleMap();
+  // Sheet Step 1 "take out all one-time services" is two things in the app:
+  // service types whose lifecycle is one-time (or unknown), then retired types.
+  const s1o = pop.filter(r => lifecycleByName.get(r.subscription) === 'recurring' || lifecycleByName.get(r.subscription) === 'retired');
+  const s1 = s1o.filter(r => !!recurringByName.get(r.subscription));
   const s2 = s1.filter(r => !!r.initial_service && r.initial_service >= '2000-01-01');
   // Population steps, applied in order so each count is "removed at this step".
   const popSet = retenPopExclReasons();
   const rorOn = [...popSet].some(x => /ror/.test(x));
+  const rorTimingOn = _retenWhatIf('popRorTiming', true);
   const closedBy = (r, re) => r.subscription_date_canceled && popSet.has(_normCancelReason(reportingCancelReasonOf(r))) && re.test(_normCancelReason(reportingCancelReasonOf(r)));
-  const step1a = s2.filter(r => !(rorOn && retenIsRorSub(r)));                 // minus 3-day RORs (reason OR timing)
+  const rorByReason = (r) => !!r.subscription_date_canceled && /ror/.test(_normCancelReason(reportingCancelReasonOf(r)));
+  const s2r = s2.filter(r => !(rorOn && rorByReason(r)));                       // minus RORs coded as such (the sheet's rule)
+  const step1a = s2r.filter(r => !(rorOn && rorTimingOn && _reporting3dayRor(r)));   // minus RORs caught by timing (app extra)
   const step1b = step1a.filter(r => !closedBy(r, /combined/));                  // minus combined
   const step1 = step1b.filter(r => !closedBy(r, /renewal/));                    // minus renewals
   const byReason1 = {}; step1b.forEach(r => { if (closedBy(r, /renewal/)) { const k = String(reportingCancelReasonOf(r) || '').trim(); byReason1[k] = (byReason1[k] || 0) + 1; } });
@@ -129,14 +138,14 @@ function retenMethodCard(pop, _retenEff, ground) {
   const drill = (title, rows, what) => rows && rows.length ? () => openReportingDrillModal({ chartTitle: 'Attrition steps · ' + title, sliceLabel: n(rows.length) + ' subscription' + (rows.length === 1 ? '' : 's') + (what ? ' · ' + what : ''), rows, formatValue: fmt.usd0 }) : null;
   const clickable = (node, fn) => { if (fn) { node.classList.add('cursor-pointer', 'hover:underline'); node.title = 'Click to see the subscriptions'; node.onclick = (e) => { e.stopPropagation(); fn(); }; } return node; };
   // Each step shows what it removes AND the running book after it (both drillable).
-  const step = (num, title, detail, removed, chipKey, fixedNote, rowsRemoved, rowsLeft) => el('div', { class: 'flex items-start gap-3 py-2 border-t border-' },
+  const step = (num, title, detail, removed, chipKey, fixedNote, rowsRemoved, rowsLeft, noteRows) => el('div', { class: 'flex items-start gap-3 py-2 border-t border-' },
     el('div', { class: 'w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0', style: { background: 'var(--card-2)', color: 'var(--text)' } }, String(num)),
     el('div', { class: 'flex-1 min-w-0' },
       el('div', { class: 'text-sm font-semibold' }, title),
       el('div', { class: 'text-[11px] text-muted-' }, detail)),
     el('div', { class: 'text-right shrink-0 tabular-nums' },
       removed != null ? clickable(el('div', { class: 'text-sm font-bold', style: { color: removed ? '#DC2626' : 'var(--text-subtle)' } }, removed ? '−' + n(removed) : '0'), drill(title, rowsRemoved, 'removed at this step')) : null,
-      fixedNote ? el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fixedNote) : null,
+      fixedNote ? clickable(el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, fixedNote), drill(title, noteRows, 'kept by this step')) : null,
       rowsLeft ? clickable(el('div', { class: 'text-[10px] font-semibold', style: { color: 'var(--text-muted)' } }, n(rowsLeft.length) + ' remain'), drill(title + ' · remaining', rowsLeft, 'still in the book after this step')) : null),
     chipKey ? chip(chipKey) : el('span', { class: 'text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0', style: { color: 'var(--text-subtle)', border: '1px solid var(--border)' }, title: 'Always applied' }, 'ALWAYS'));
   const total = (label, val, sub, rowsIn) => el('div', { class: 'flex items-center justify-between py-2 border-t-2 border-', style: { borderColor: 'var(--border-2)' } },
@@ -169,6 +178,10 @@ function retenMethodCard(pop, _retenEff, ground) {
         })())));
   if (!open) return card;
   const loadDrops = state._snapshotLoadDrops || null;
+  // Which of Isaac's workbook Steps (RIDD Reporting.xlsx → Steps tab) a
+  // step mirrors, or "app rule" for the ones the sheet doesn't do.
+  const SHEET = (k) => '[Sheet step ' + k + '] ';
+  const APP = '[App rule] ';
   let stepNo = 0;
   const next = () => ++stepNo;
   card.append(el('div', { class: 'px-5 pb-4' },
@@ -178,22 +191,25 @@ function retenMethodCard(pop, _retenEff, ground) {
         el('div', { class: 'text-[11px] text-muted-' }, 'Every subscription in the synced snapshot, any status, any service type — the top of the funnel.'
           + (loadDrops && (loadDrops.phantom || loadDrops.dupes) ? ' The loader itself set aside ' + n(loadDrops.phantom) + ' phantom-office row' + (loadDrops.phantom === 1 ? '' : 's') + ' and ' + n(loadDrops.dupes) + ' duplicate' + (loadDrops.dupes === 1 ? '' : 's') + ' of the same subscription id (' + n(loadDrops.raw) + ' raw rows).' : ''))),
       clickable(el('div', { class: 'text-lg font-black tabular-nums' }, n(g0.length)), drill('Everything in FieldRoutes', g0, 'the whole snapshot'))),
-    ...scopeSteps.map(st => step(next(), st.title, st.detail, st.removed.length, st.key, null, st.removed, st.left)),
+    ...scopeSteps.map(st => step(next(), st.title, APP + st.detail, st.removed.length, st.key, null, st.removed, st.left)),
     total('Subscriptions in scope', n(n0), 'What every other Reporting tab starts from', pop),
     (() => {
       // One-time services leave the book, but their revenue is still real —
       // show what is being pulled out (per Isaac), with the drill to the subs.
-      const oneTime = notIn(pop, s1);
+      const oneTime = notIn(pop, s1o);
       const otRev = oneTime.reduce((a, r) => a + (Number(r.subscription_contract_value) || 0), 0);
       const otCust = new Set(oneTime.map(r => r.customer_id)).size;
-      return step(next(), 'Remove one-time services', 'One-time services are never part of a retention book — ' + n(oneTime.length) + ' one-time subs across ' + n(otCust) + ' customers, $' + Math.round(otRev).toLocaleString() + ' of one-time service revenue, set aside here (still counted on the Overview and in the P&L).', n0 - s1.length, null, '$' + Math.round(otRev).toLocaleString() + ' one-time revenue', oneTime, s1);
+      return step(next(), 'Remove one-time service types', SHEET(1) + 'Service types whose lifecycle is One-time (the “One Time …”, Initial, Reservice, Inspection-style items) — ' + n(oneTime.length) + ' subs across ' + n(otCust) + ' customers, $' + Math.round(otRev).toLocaleString() + ' of one-time revenue, set aside here (still counted on the Overview and in the P&L). Lifecycle is set per type in Configurations → Service types.', n0 - s1o.length, null, '$' + Math.round(otRev).toLocaleString() + ' one-time revenue', oneTime, s1o);
     })(),
-    step(next(), 'Remove subs that never received an initial service', 'A sub that never started cannot retain or churn.', s1.length - s2.length, null, null, notIn(s1, s2), s2),
+    step(next(), 'Remove retired service types', SHEET(1) + 'Types marked Retired in Configurations — no longer sold and not part of the recurring book.', s1o.length - s1.length, null, null, notIn(s1o, s1), s1),
+    step(next(), 'Remove subs with no completed initial', SHEET(2) + 'Only customers with a Completed Initial service stay — a sub that never started cannot retain or churn.', s1.length - s2.length, null, null, notIn(s1, s2), s2),
+    step(next(), 'Keep every account status', SHEET(3) + 'Active, Frozen and cancelled subscriptions all stay in — nothing is removed for status. Cancels are counted by their date, later.', 0, null, n(s2.length) + ' kept', null, null),
+    step(next(), 'Remove 3-day RORs coded in the CRM', SHEET(4) + 'Cancellation reason “3 Day ROR” — a right-of-rescission, never really a customer.', s2.length - s2r.length, 'popRor', null, notIn(s2, s2r), s2r),
     (() => {
-      const removed = notIn(s2, step1a);
+      const removed = notIn(s2r, step1a);
       // RORs caught by TIMING whose reason isn't coded "3 Day ROR" — fix these in FieldRoutes.
-      const miscoded = removed.filter(r => !/ror/.test(_normCancelReason(reportingCancelReasonOf(r))));
-      const node = step(next(), 'Remove 3-day RORs', 'Any subscription that was a 3-day right-of-rescission: cancellation reason “3 Day ROR”, or a door-to-door sub cancelled within 3 days of the sale whatever reason was typed. Never really a customer.', s2.length - step1a.length, 'popRor', null, removed, step1a);
+      const miscoded = removed;
+      const node = step(next(), 'Remove 3-day RORs caught by timing', APP + 'Door-to-door subs cancelled within 3 days of the sale whatever reason was typed — an ROR the rep or office miscoded. Not in the sheet; switch it off to match the sheet exactly.', s2r.length - step1a.length, rorOn ? 'popRorTiming' : null, rorOn ? null : 'needs the ROR step on', removed, step1a);
       if (miscoded.length) node.children[1].append(el('button', {
         class: 'mt-1.5 rounded-lg px-2 py-0.5 text-[11px] font-bold', style: { background: 'rgba(220,38,38,.10)', color: '#DC2626', border: '1px solid rgba(220,38,38,.3)' },
         title: 'Cancelled within 3 days of the sale but the reason in FieldRoutes is not “3 Day ROR” — open the list and correct them in the CRM',
@@ -201,11 +217,15 @@ function retenMethodCard(pop, _retenEff, ground) {
       }, '⚑ ' + n(miscoded.length) + ' miscoded — fix the reason in the CRM'));
       return node;
     })(),
-    step(next(), 'Remove combined subscriptions', 'Cancellation reason “Combined Subscriptions” — folded into another sub on the same account, which carries on.', step1a.length - step1b.length, 'popCombined', null, notIn(step1a, step1b), step1b),
-    step(next(), 'Remove renewals', 'Cancellation reason Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound — the old plan was replaced by the renewal sub, which stays in the book carrying the original start date.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1),
-    step(next(), 'Remove subs with no ARR', '$0 annual recurring value — nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2), step2),
-    step(next(), 'Remove subs that never received a 2nd treatment', 'Prior-year subscriptions with a single completed visit — never became a customer. Sentricon (' + retenOneSvcExemptTerms().join(', ') + ') is exempt: one visit a year is the service.', step2.length - step2b.length, 'oneSvc', null, notIn(step2, step2b), step2b),
-    step(next(), 'Remove ' + year + ' subs frozen after one treatment', 'Accounts sold this year that took one visit and already cancelled. Active ' + year + ' one-visit accounts (' + n(oneSvcKept.length) + ') stay — they are just young.', step2b.length - step3.length, 'frozenOneSvc', null, notIn(step2b, step3), step3),
+    step(next(), 'Remove combined subscriptions', SHEET(4) + 'Cancellation reason “Combined Subscriptions” — folded into another sub on the same account, which carries on.', step1a.length - step1b.length, 'popCombined', null, notIn(step1a, step1b), step1b),
+    step(next(), 'Remove renewals', SHEET(4) + 'Cancellation reason Renewal - Outbound / Loyalty / Service Pro Upsell / Inbound — the old plan was replaced by the renewal sub, which stays in the book carrying the original start date.' + (reasonList ? ' Removed: ' + reasonList + '.' : ''), step1b.length - step1.length, 'popRenew', null, notIn(step1b, step1), step1),
+    step(next(), 'Remove subs with no ARR', SHEET(5) + '$0 annual recurring value — nothing recurring to retain.', step1.length - step2.length, 'zero', null, notIn(step1, step2), step2),
+    step(next(), 'Remove prior-year subs that never received a 2nd treatment', SHEET(6) + 'Filter out the current year, then take out every subscription that only ever received one service — it never became a customer. ' + year + ' one-visit accounts (' + n(oneSvcAll.filter(r => soldThisYear(r)).length) + ') stay: they are just young.', step2.length - step2b.length, 'oneSvc', null, notIn(step2, step2b), step2b),
+    (() => {
+      const kept = step2b.filter(r => svcOf(r) <= 1 && sentricon(r) && !soldThisYear(r));
+      return step(next(), 'Keep Sentricon one-visit subs', SHEET(6) + 'Exemption to the step above: ' + retenOneSvcExemptTerms().join(', ') + ' is annual — one visit a year IS the service — so those subs stay in the book. Switch off to remove them too.', 0, 'oneSvcExempt', n(kept.length) + ' kept', null, null, kept);
+    })(),
+    step(next(), 'Remove ' + year + ' subs frozen after one treatment', APP + 'Accounts sold this year that took one visit and already cancelled. Active ' + year + ' one-visit accounts (' + n(oneSvcKept.length) + ') stay — they are just young.', step2b.length - step3.length, 'frozenOneSvc', null, notIn(step2b, step3), step3),
     total('Retention book', n(book.length), 'Subscriptions the rest of this tab counts', book),
     // ── 9 · Excluded cancel reasons — configured RIGHT HERE (per Isaac) so
     // the card shows exactly what counts. A checked reason means a sub that
@@ -233,7 +253,7 @@ function retenMethodCard(pop, _retenEff, ground) {
             cb, el('span', { class: 'flex-1 truncate', title: g.display + (nowEx ? ' · removed from churn' : ' · counts as churn') + (nowEx !== isEx ? ' · differs from the saved setting' : '') }, g.display, nowEx !== isEx ? el('span', { style: { color: 'var(--accent)' } }, ' *') : null),
             clickable(el('span', { class: 'tabular-nums' }, n(rs.length)), rs.length ? drill(g.display, rs, 'cancelled for this reason') : null));
         }));
-      const node = step(next(), 'Remove cancels with these reasons', 'Tick a reason and subscriptions cancelled for it are treated as RETAINED — the company ended it, the customer did not leave. Unticked reasons count as churn. These are slicers for this tab and session only (an * marks a reason that differs from the saved setting); the saved list lives in Reporting → Configurations → Cancellation reasons and drives the rest of the app.', neutralised.length, 'exclReasons', null, neutralised);
+      const node = step(next(), 'Remove cancels with these reasons', APP + 'The sheet counts every dated cancel as churn (its reason list is empty). Tick a reason and subscriptions cancelled for it are treated as RETAINED — the company ended it, the customer did not leave. Unticked reasons count as churn. These are slicers for this tab and session only (an * marks a reason that differs from the saved setting); the saved list lives in Reporting → Configurations → Cancellation reasons and drives the rest of the app.', neutralised.length, 'exclReasons', null, neutralised);
       node.children[1].append(listEl);
       return node;
     })(),

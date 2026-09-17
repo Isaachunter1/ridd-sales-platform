@@ -1855,9 +1855,10 @@ function retenOneSvcExemptTerms() { return _retenMemoGet('terms', () => {
 }); }
 function setRetenOneSvcExemptTerms(arr) { _setAdminRule('retenOneSvcExempt', arr); }
 function _retenOneSvcExempt(r) {
-  if (!_retenWhatIf('oneSvcExempt', true)) return false;
+  // The Sentricon exemption is its own toggle on the Retention tab; the
+  // current-year exemption below is the sheet's Step 6 and always applies.
   const name = String(r.subscription || '').toLowerCase();
-  if (retenOneSvcExemptTerms().some(t => name.includes(t))) return true;
+  if (_retenWhatIf('oneSvcExempt', true) && retenOneSvcExemptTerms().some(t => name.includes(t))) return true;
   // Step 4: current-year accounts are exempt - they are just young, not dead.
   const _sd = r.sold_date ? new Date(r.sold_date) : (r.initial_service ? new Date(r.initial_service) : null);
   const _yr = _sd && !isNaN(_sd) ? _sd.getFullYear() : null;
@@ -1872,7 +1873,9 @@ function retenIsRorSub(r) {
   // the door-to-door sub was cancelled within 3 days of the sale whatever
   // reason got typed.
   if (!r.subscription_date_canceled) return false;
-  return /ror/.test(_normCancelReason(reportingCancelReasonOf(r))) || _reporting3dayRor(r);
+  // Timing-based catch (cancelled within 3 days, reason miscoded) is a
+  // separate toggle on the Retention tab — the hand sheet only uses the reason.
+  return /ror/.test(_normCancelReason(reportingCancelReasonOf(r))) || (_retenWhatIf('popRorTiming', true) && _reporting3dayRor(r));
 }
 function retenPopulationExcluded(r) {
   const popSet = retenPopExclReasons();
