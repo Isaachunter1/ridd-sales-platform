@@ -3313,7 +3313,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     return el('div', { class: 'card overflow-hidden', 'data-section': 'agg-records' },
       el('div', { class: 'px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
-          el('h3', { class: 'text-base font-bold' }, '🏅 Records'),
+          el('h3', { class: 'text-base font-bold' }, 'Records'),
           el('span', { class: 'text-[11px] text-muted-' }, 'Click any row to see the top 10 per category'),
         ),
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
@@ -3622,7 +3622,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const tierCard = el('div', { class: 'card overflow-hidden', 'data-section': 'class-metrics' },
       el('div', { class: 'px-5 py-3 border-b flex items-start justify-between gap-2 flex-wrap', style: { borderColor: 'var(--border)' } },
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
-          el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA · Serviced divides by Reps W/ Serviced.' }, '🎓 Class Metrics'),
+          el('h3', { class: 'text-base font-bold', title: 'Tiers auto-set from sales history — first season selling = Rookie, returning reps = Vet. Manage Teams tags override. PRA divides by the Reps > $20K row; PRA · Serviced divides by Reps W/ Serviced.' }, 'Class Metrics'),
           scopePicker
         ),
         untagged > 0 && el('button', {
@@ -4538,7 +4538,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   sections.push(indicatorSubscriptionMixCard(subSales, {
     keyOf: drill ? null : mixGroup === 'office' ? officeKeyOf : mixGroup === 'team' ? teamKeyOf : null,
     firstCol: drill ? 'Subscription' : groupNoun,
-    title: drill ? '\ud83d\udce6 Sales Mix \u00b7 ' + drill.key : undefined,
+    title: drill ? 'Sales Mix \u00b7 ' + drill.key : undefined,
     onRowClick: (!drill && mixGroup !== 'subscription')
       ? (name) => { state._indicatorMixDrill = { group: mixGroup, key: name }; mountApp(); }
       : null,
@@ -4590,7 +4590,7 @@ function indicatorSubscriptionMixCard(subSales, opts = {}) {
   return el('div', { class: 'card p-5' },
       el('div', { class: 'flex items-center justify-between mb-4 flex-wrap gap-3' },
         el('div', {},
-          el('h3', { class: 'text-base font-bold' }, opts.title || '📦 Sales Mix'),
+          el('h3', { class: 'text-base font-bold' }, opts.title || 'Sales Mix'),
           // (Subtitle "% weight = share of N accounts" retired — per Isaac.)
         ),
         opts.headerExtra || null,
