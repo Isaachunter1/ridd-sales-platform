@@ -8,7 +8,7 @@
 //   3. Per-rep bump (from Users settings)
 //   4. Status multiplier: serviced = 100%, below_minimums = configurable (default 50%)
 function getCommissionRate(repId, sale) {
-  const s = state.appSettings || {};
+  const s = effectivePaySettings(repId);
   const BASE = 0.07;
   const profile = state.allProfiles.find(p => p.id === repId) || state.profile;
 
@@ -57,8 +57,11 @@ function getCommissionRate(repId, sale) {
     }
   }
 
-  // 3. Per-rep bump
-  const bump = Math.max(0, Number(profile?.upfront_commission_rate || BASE) - BASE);
+  // 3. Per-rep bump — measured against the rep's EFFECTIVE standard rate
+  //    (their Upfront % override when they have one), so an override never
+  //    double-counts with the legacy per-profile upfront rate.
+  const _std = (() => { const c = (s.contract_commissions || []).find(cc => /month/i.test(cc.name) && !/upsell|one\s*time/i.test(cc.name)); return c ? Number(c.rate) / 100 : BASE; })();
+  const bump = Math.max(0, Number(profile?.upfront_commission_rate || _std) - _std);
   let rate = baseRate + bump;
 
   // 4. Status multiplier
@@ -148,11 +151,47 @@ function isRenewalSource(sale) {
   return !!src?.is_renewal;
 }
 
+// ── Per-rep overrides (per Isaac): Settings → Commissions holds the
+// DEFAULTS; a rep's profile.pay_overrides holds only the metrics that differ.
+// effectivePaySettings(repId) = defaults with that rep's overrides applied —
+// the ONLY thing the pay engine should read when a rep is known.
+function payOverridesFor(repId) {
+  const p = repId ? (state.allProfiles || []).find(x => x.id === repId) : null;
+  const o = p && p.pay_overrides;
+  return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+}
+function hasPayOverrides(repId) { return Object.keys(payOverridesFor(repId)).length > 0; }
+function effectivePaySettings(repId) {
+  const base = ensurePaySettings();
+  const o = payOverridesFor(repId);
+  if (!Object.keys(o).length) return base;
+  const e = Object.assign({}, base);
+  const isStd = (cc) => /month/i.test(cc.name) && !/upsell|one\s*time/i.test(cc.name);
+  if (o.upfront_pct != null || o.ots_rate != null || o.upsell_rate != null) {
+    e.contract_commissions = (base.contract_commissions || []).map(cc => {
+      const c = Object.assign({}, cc);
+      if (isStd(cc) && o.upfront_pct != null) c.rate = Number(o.upfront_pct);
+      else if (/one\s*time/i.test(cc.name) && o.ots_rate != null) c.rate = Number(o.ots_rate);
+      else if (/upsell/i.test(cc.name) && o.upsell_rate != null) c.rate = Number(o.upsell_rate);
+      return c;
+    });
+  }
+  if (o.close_min != null || o.close_rate != null || o.close2_min != null || o.close2_rate != null) {
+    e.close_rate_tiers = (base.close_rate_tiers || []).map(t => Object.assign({}, t));
+    if (e.close_rate_tiers[0]) { if (o.close_min != null) e.close_rate_tiers[0].min_close_rate = Number(o.close_min); if (o.close_rate != null) e.close_rate_tiers[0].rate = Number(o.close_rate); }
+    if (e.close_rate_tiers[1]) { if (o.close2_min != null) e.close_rate_tiers[1].min_close_rate = Number(o.close2_min); if (o.close2_rate != null) e.close_rate_tiers[1].rate = Number(o.close2_rate); }
+  }
+  if (Array.isArray(o.upfront_tiers) && o.upfront_tiers.length) e.upfront_tiers = o.upfront_tiers.map(t => Object.assign({}, t));
+  if (o.renewal_flat && typeof o.renewal_flat === 'object') e.renewal_flat = Object.assign({}, base.renewal_flat || {}, o.renewal_flat);
+  for (const k of ['pif_modifier', 'commercial_multiplier', 'below_min_multiplier', 'multi_year_rate_18', 'multi_year_rate_24', 'renewal_backend_rate']) if (o[k] != null) e[k] = Number(o[k]);
+  return e;
+}
+
 // Flat renewal pay for a sale by contract term (sheet: $25/12mo, $30/18mo,
 // $35/24mo, $35/PIF). Terms outside those buckets pay $0 — same as the
 // sheet, which has no renewal column for upsell/commercial/OTS.
 function renewalFlatFor(sale, s) {
-  const flat = (s || ensurePaySettings()).renewal_flat;
+  const flat = (s || effectivePaySettings(sale && sale.rep_id)).renewal_flat;
   // Sheet pays renewals BY TERM ($25/$30/$35) — a PIF renewal earns its
   // term's flat, not a special rate. flat.pif only covers term-less PIFs.
   const m = Number(sale?.contract_months);
@@ -169,7 +208,7 @@ function renewalFlatFor(sale, s) {
 // (via the configurable multiplier). New sources added in Settings →
 // Sources flow through automatically: standard % unless tagged Renewal.
 function getCommissionAmount(repId, sale) {
-  const s = ensurePaySettings();
+  const s = effectivePaySettings(repId);
   if (isRenewalSource(sale)) {
     let amt = renewalFlatFor(sale, s);
     if (sale?.audit_status === 'below_minimums') amt *= (s.below_min_multiplier ?? 50) / 100;
@@ -183,7 +222,7 @@ function getCommissionAmount(repId, sale) {
 // revenue earns the renewal backend rate. PIF rows are included (they sit
 // in the same sheet columns the multi-year formula sums).
 function getBackendAmount(sale) {
-  const s = ensurePaySettings();
+  const s = effectivePaySettings(sale && sale.rep_id);
   const rev = Number(sale?.revenue_amount || 0);
   // (PIF used to skip backend — the sheet's multi-year sums include PIF
   // rows, so PIF earns 18/24-month backend like everything else now.)
@@ -197,8 +236,8 @@ function getBackendAmount(sale) {
 // Close-rate bonus: highest tier whose threshold the rep's close rate
 // meets, applied to subscription revenue (serviced 12/18/24/PIF revenue
 // from standard sources — no commercial, OTS, upsells, or renewals).
-function closeRateBonusFor(closeRate, subscriptionRevenue) {
-  return subscriptionRevenue * (closeRateTierPct(closeRate) / 100);
+function closeRateBonusFor(closeRate, subscriptionRevenue, repId) {
+  return subscriptionRevenue * (closeRateTierPct(closeRate, repId ? effectivePaySettings(repId) : null) / 100);
 }
 
 // The close-rate bonus PERCENTAGE for a given close rate — the highest tier
@@ -235,9 +274,9 @@ function upfrontCollectedPct(sales) {
   if (!eligible.length) return null;   // nothing eligible — no tier penalty
   return eligible.filter(x => !!x.upfront_collected).length / eligible.length;
 }
-function upfrontTierPayPct(pct) {
+function upfrontTierPayPct(pct, repId) {
   if (pct == null) return 1;
-  const s = ensurePaySettings();
+  const s = repId ? effectivePaySettings(repId) : ensurePaySettings();
   const tiers = (s.upfront_tiers || []).slice().sort((a, b) => Number(b.min) - Number(a.min));
   for (const t of tiers) if (pct * 100 >= Number(t.min)) return Number(t.pay) / 100;
   return 1;

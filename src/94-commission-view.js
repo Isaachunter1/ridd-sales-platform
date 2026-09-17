@@ -56,7 +56,7 @@ function commissionComputeOfficeStaff(emp, startMs, endMs) {
   const cancelled = sales.filter(s => s.audit_status === 'cancelled');
   const isMultiYear = (s) => [18, 24].includes(Number(s.contract_months));
 
-  const _upMult = upfrontTierPayPct(upfrontCollectedPct([...serviced, ...below]));
+  const _upMult = upfrontTierPayPct(upfrontCollectedPct([...serviced, ...below]), repId);
   const salesPay   = serviced.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upMult;
   const belowPay   = below.reduce((a, s) => a + getCommissionAmount(repId, s), 0) * _upMult;
   const pendingPay = pending.reduce((a, s) => a + getCommissionAmount(repId, { ...s, audit_status: 'serviced' }), 0);
@@ -65,7 +65,7 @@ function commissionComputeOfficeStaff(emp, startMs, endMs) {
   const renewalPay     = serviced.filter(s => isRenewalSource(s)).reduce((a, s) => a + getBackendAmount(s), 0);
   const closeRate      = Number(profile.close_rate_target ?? 0.50);
   const subscriptionRev = subscriptionRevenueOf(serviced);
-  const closeRateBonus = closeRateBonusFor(closeRate, subscriptionRev);
+  const closeRateBonus = closeRateBonusFor(closeRate, subscriptionRev, repId);
   const backendPay     = multiYearBonus + closeRateBonus + renewalPay;
 
   const upfrontPay = salesPay + belowPay;
