@@ -663,7 +663,7 @@ function viewIndicators() {
             position: 'fixed', top: '60px', left: '0', right: '0', zIndex: 15,
             background: 'var(--bg)',
             borderBottom: '1px solid var(--border)',
-            paddingTop: '20px', paddingBottom: '8px',
+            paddingTop: '12px', paddingBottom: '12px',
           },
         },
           el('div', { class: 'w-full mx-auto px-4 sm:px-6', style: { maxWidth: '1648px' } },   // = main's gutter + 1600px content box, so Presets/Filters sit flush with the cards (per Isaac)
