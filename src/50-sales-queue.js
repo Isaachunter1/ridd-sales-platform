@@ -122,6 +122,7 @@ function viewSales() {
       case 'commission_date': return (commissionableDate(s) || {}).date || '';
       case 'audit_status':    return s.audit_status || '';
       case 'audited_by':      return (state.allProfiles.find(p => p.id === s.audited_by)?.full_name || '').toLowerCase();
+      case 'crm_audit':       return s.crm_audit === 'passed' ? 2 : s.crm_audit === 'failed' ? 1 : 0;
       case 'created_at':      return new Date(s.created_at || s.sold_date).getTime();
       default:                return '';
     }
@@ -628,11 +629,11 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
     monthly:  'Recurring monthly price after the initial.',
     revenue:  'Contract revenue the sale is credited for (initial + recurring for the term). Commission, goals and the leaderboard all run on this number.',
     sold:     'The date the sale was logged / signed.',
-    pif:      'Paid in Full — the customer paid the whole contract up front, so there is no backend hold and full commission pays out. Admins can toggle this.',
-    comm:     'Commission paid — stamped by payroll when this sale goes out on a pay run. Read-only; it cannot be ticked by hand.',
-    upfront:  'Charged Upfront — payment was collected at signing. Makes the sale commissionable on the sale date and feeds the Charge Upfront % tier. Admins can toggle this.',
+    pif:      'Paid in Full — the customer paid the whole contract up front, so there is no backend hold and full commission pays out.',
+    comm:     'Commission paid — stamped by payroll when this sale goes out on a pay run.',
+    upfront:  'Charged Upfront — payment was collected at signing. Makes the sale commissionable on the sale date and feeds the Charge Upfront % tier.',
     status:   'Audit status. New sales sit in Pending until audited, then Approved, Cancelled, NSF, Rejected, and so on.',
-    audit:    'Who audited the sale.',
+    audit:    'The office audit flag on the customer card in FieldRoutes: Passed Audit, Failed Audit, or not audited yet. Synced automatically — set it in the CRM, not here.',
     crm:      'Automatic checks against FieldRoutes: revenue matches, initial appointment scheduled, billing on file, agreement signed. Green = confirmed in the CRM.',
   };
 
@@ -664,7 +665,7 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
             headerCell('Comm.',   { extraClass: 'text-center', align: 'center', help: H.comm }),
             headerCell('Upfront', { extraClass: 'text-center', align: 'center', help: H.upfront }),
             headerCell('Status',      { sortableKey: 'audit_status', help: H.status }),
-            headerCell('Audit',       { sortableKey: 'audited_by', help: H.audit }),
+            headerCell('Audit',       { sortableKey: 'crm_audit', extraClass: 'text-center', align: 'center', help: H.audit }),
             // CRM revenue check + lifecycle chips — auto-verified against the
             // FieldRoutes warehouse (matched by customer #). Last so the
             // sheet-shaped columns read first.
@@ -734,7 +735,10 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, '_comm_paid', false, s.payroll_processed_at ? 'Commission paid ' + fmt.dateShortYear(String(s.payroll_processed_at).slice(0, 10)) : (s.staged_for_payroll ? 'Staged for the next payroll' : 'Commission not paid yet'))),
               el('td', { class: 'px-2 py-2 text-center' }, saleFlagBox(s, 'upfront_collected', isAdmin, 'Charged Upfront — payment collected at signing (feeds the Charge Upfront % tier)')),
               cell(statusSelect(s.id)),
-              el('td', { class: 'px-2 py-2 whitespace-nowrap' }, auditorSelect(s.id)),
+              // Audit = the office's Passed / Failed Audit flag on the
+              // FieldRoutes customer card (synced hourly) — not an assigned
+              // auditor (per Isaac).
+              el('td', { class: 'px-2 py-2 whitespace-nowrap text-center' }, saleAuditChip(s)),
               el('td', { class: 'px-2 py-2 whitespace-nowrap' }, (() => {
                 const v = saleCrmVerdict(s, rptIndex);
                 const chip = (txt, bg, colr, tip) => el('span', {
@@ -941,19 +945,26 @@ function commissionableDate(s) {
 }
 // Sheet-style flag box (per Isaac): PIF / Comm. / Upfront. Admin-editable
 // boolean columns save straight to the sale; read-only ones just display.
+// PIF · Comm. · Upfront are read-only marks (per Isaac — no checkboxes):
+// a sage ✓ when the flag is set, a faint dash when it isn't. They are
+// stamped by the CRM sync / payroll, never ticked by hand here.
 function saleFlagBox(sale, field, editable, tip) {
   const on = field === '_comm_paid' ? !!sale.payroll_processed_at : !!sale[field];
-  // Editable boxes (PIF / Upfront for admins) get an orange outline so they
-  // read as clickable; read-only ones (Comm., or non-admins) sit dimmed.
-  const box = el('input', { type: 'checkbox', checked: on, disabled: !editable, title: tip || '', class: 'accent-lime', style: { width: '16px', height: '16px', cursor: editable ? 'pointer' : 'not-allowed', borderColor: editable ? 'var(--accent)' : 'var(--border-2)', borderWidth: editable ? '2px' : '1px', opacity: editable ? '1' : '.55' } });
-  if (editable) box.onchange = async (e) => {
-    const v = !!e.target.checked;
-    for (const list of [state.mySales, state.allSales]) { const x = list.find(r => r.id === sale.id); if (x) x[field] = v; }
-    if (typeof DEMO !== 'undefined' && DEMO) { saveDemoData(); return; }
-    const { error } = await supabase.from('sales').update({ [field]: v }).eq('id', sale.id);
-    if (error) { toast('Could not save: ' + error.message, 'error'); e.target.checked = !v; for (const list of [state.mySales, state.allSales]) { const x = list.find(r => r.id === sale.id); if (x) x[field] = !v; } }
-  };
-  return box;
+  return el('span', {
+    title: tip || '',
+    class: 'inline-flex items-center justify-center rounded-full font-bold',
+    style: on
+      ? { width: '18px', height: '18px', fontSize: '11px', background: 'rgba(95,108,91,.16)', color: '#5F6C5B' }
+      : { width: '18px', height: '18px', fontSize: '11px', color: 'var(--text-subtle)', opacity: '.6' },
+  }, on ? '\u2713' : '\u2014');
+}
+// Audit column: the office's audit flag on the FieldRoutes customer card.
+function saleAuditChip(sale) {
+  const v = sale.crm_audit;
+  const mk = (txt, bg, colr, tip) => el('span', { title: tip, class: 'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap', style: { background: bg, color: colr } }, txt);
+  if (v === 'passed') return mk('\u2713 Passed', 'rgba(95,108,91,.16)', '#5F6C5B', 'Passed Audit flag on the customer card in FieldRoutes');
+  if (v === 'failed') return mk('\u2717 Failed', 'rgba(220,38,38,.12)', '#B91C1C', 'Failed Audit flag on the customer card in FieldRoutes — fix it in the CRM and the next sync clears it');
+  return el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' }, title: 'No audit flag on the customer card yet' }, 'not yet');
 }
 function statusSelect(saleId) {
   const sale = state.allSales.find(x => x.id === saleId) || state.mySales.find(x => x.id === saleId);
