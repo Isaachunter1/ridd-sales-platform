@@ -3608,6 +3608,32 @@ const passwordPolicyErrors = (p) => PASSWORD_POLICY.filter(r => !r.test(p)).map(
 // a rep (Admin → Users → Add). The invite email contains a magic link that
 // creates the auth row on first click; the rep can later set a password via
 // "Forgot password?" → email reset link.
+// The SDK persists the session under sb-<project-ref>-auth-token. Reading /
+// writing it directly is the lock-free fallback for the password-reset
+// flow (the SDK's cross-tab lock has stalled getSession/setSession there).
+function authStorageKey() {
+  try { return 'sb-' + new URL(CFG.SUPABASE_URL).hostname.split('.')[0] + '-auth-token'; } catch { return null; }
+}
+function authStoredSession() {
+  try {
+    const k = authStorageKey(); if (!k) return null;
+    const raw = localStorage.getItem(k); if (!raw) return null;
+    const j = JSON.parse(raw);
+    const sess = j && j.access_token ? j : (j && j.currentSession) || null;   // v2 stores the session itself; older builds wrapped it
+    if (!sess || !sess.access_token) return null;
+    if (sess.expires_at && sess.expires_at * 1000 < Date.now() - 60000) return null;
+    return sess;
+  } catch { return null; }
+}
+function authStoreSession(sess) {
+  try {
+    const k = authStorageKey(); if (!k || !sess || !sess.access_token) return false;
+    const copy = { ...sess };
+    if (!copy.expires_at && copy.expires_in) copy.expires_at = Math.floor(Date.now() / 1000) + Number(copy.expires_in);
+    localStorage.setItem(k, JSON.stringify(copy));
+    return true;
+  } catch { return false; }
+}
 function mountAuth(opts = {}) {
   const initialMode = opts.mode || 'login'; // 'login' | 'forgot' | 'recover'
   const form = el('form', {
@@ -3618,6 +3644,7 @@ function mountAuth(opts = {}) {
       const password = form.password?.value;
       const mode     = form.dataset.mode;
 
+      let done = false;   // recover: success card is showing — don't reset the form in `finally`
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<span class="spinner"></span>';
       errLine.style.display = 'none';
@@ -3650,34 +3677,76 @@ function mountAuth(opts = {}) {
           if (missing.length) {
             throw new Error('Password needs: ' + missing.join(' · ').toLowerCase() + '.');
           }
-          // The reset link must have established a recovery session. If it
-          // expired / was already used / opened in a different browser,
-          // there's no session and updateUser would fail — surface a clear
-          // message instead of the button silently doing nothing.
-          const { data: { session: recSession } } = await supabase.auth.getSession();
-          if (!recSession) {
+          // Every step is visible on the button and logged as [recover] so a
+          // stuck save is never "nothing happens" (per Isaac).
+          const step = (t) => { submitBtn.innerHTML = '<span class="spinner"></span> ' + t; console.log('[recover]', t); };
+          const withTimeout = (pr, ms, msg) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+          // 1. The reset link must have established a recovery session. The
+          //    SDK's cross-tab auth lock can stall getSession() when the app
+          //    is open in another tab, so give it 4s then read the session
+          //    the SDK persisted in storage instead.
+          step('Checking your reset link…');
+          let rec = null;
+          try { rec = (await withTimeout(supabase.auth.getSession(), 4000, 'lock')).data.session; }
+          catch (e) { console.warn('[recover] getSession stalled — reading the stored session instead', e && e.message); }
+          if (!rec || !rec.access_token) rec = authStoredSession();
+          if (!rec || !rec.access_token) {
             throw new Error('This reset link has expired or was already used. Request a new one, or ask an admin to set your password directly.');
           }
-          // Race a timeout against updateUser: the SDK's cross-tab auth lock
-          // can occasionally stall the call (e.g. the app open in another
-          // tab), which used to leave the button spinning forever with no
-          // feedback. Now it surfaces a clear retry message instead.
-          const { error } = await Promise.race([
-            supabase.auth.updateUser({ password }),
-            new Promise((_, rej) => setTimeout(
-              () => rej(new Error('Saving is taking too long — close any other tabs with the app open and try again.')), 12000)),
-          ]);
-          if (error) throw error;
-          // Deterministic handoff: a full reload with the persisted session
-          // is exactly what a manual refresh does — and that always works.
-          // The old in-page handoff (loadAndRender) could hang or die
-          // silently, making the button look broken.
+          // 2. Save the password straight to the auth REST API (same call the
+          //    SDK's updateUser makes) — no SDK lock in the way, hard timeout.
+          step('Saving password…');
+          const r = await withTimeout(fetch(CFG.SUPABASE_URL + '/auth/v1/user', {
+            method: 'PUT',
+            headers: { apikey: CFG.SUPABASE_PUBLISHABLE_KEY, Authorization: 'Bearer ' + rec.access_token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password }),
+          }), 15000, 'Saving is taking too long — check your connection and try again.');
+          if (!r.ok) {
+            let m = '';
+            try { const j = await r.json(); m = j.msg || j.message || j.error_description || j.error || ''; } catch { /* no body */ }
+            console.warn('[recover] password save failed', r.status, m);
+            if (r.status === 401 || r.status === 403) m = 'This reset link has expired or was already used. Request a new one.';
+            else if (/same password|different from the old/i.test(m)) m = 'That is already your password — pick a new one, or just sign in with it.';
+            else if (/weak|easy to guess|pwned|leaked|compromised/i.test(m)) m = 'That password is too common — pick something less guessable.';
+            throw new Error(m || 'Could not save the password (' + r.status + '). Try again.');
+          }
+          console.log('[recover] password saved');
+          // 3. Sign in with the new password so the app runs on a normal
+          //    session, not the one-time recovery session.
+          step('Signing you in…');
+          const recEmail = (rec.user && rec.user.email) || email || '';
+          let fresh = null;
+          if (recEmail) {
+            try {
+              const t = await withTimeout(fetch(CFG.SUPABASE_URL + '/auth/v1/token?grant_type=password', {
+                method: 'POST',
+                headers: { apikey: CFG.SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: recEmail, password }),
+              }), 10000, 'sign-in timeout');
+              if (t.ok) fresh = await t.json(); else console.warn('[recover] sign-in with the new password returned', t.status);
+            } catch (e) { console.warn('[recover] sign-in skipped', e && e.message); }
+          }
+          if (fresh && fresh.access_token) {
+            try { await withTimeout(supabase.auth.setSession({ access_token: fresh.access_token, refresh_token: fresh.refresh_token }), 4000, 'lock'); }
+            catch (e) { console.warn('[recover] setSession stalled — storing the session directly', e && e.message); authStoreSession(fresh); }
+            console.log('[recover] signed in with the new password');
+          }
+          // (No fresh session → the recovery session the SDK already persisted
+          // still signs them in on reload; the password is saved either way.)
+          // 4. Success screen, then the default dashboard.
           try {
             sessionStorage.removeItem('ridd_recovery_pending');
             sessionStorage.setItem('ridd_pw_saved', '1');
             localStorage.setItem('ridd_last_auth_v1', String(Date.now()));
           } catch { /* private mode — reload still works */ }
-          submitBtn.innerHTML = '✓ Saved';
+          done = true;
+          heading.textContent = 'Password updated';
+          subheading.textContent = 'You’re signed in — taking you to your dashboard…';
+          subheading.style.display = '';
+          passField.style.display = 'none';
+          policyList.style.display = 'none';
+          errLine.style.display = 'none';
+          submitBtn.innerHTML = '✓ Password updated';
           // CLEAN url before the reload — keeping window.location.search
           // here preserved the PKCE reset link's `?code=` param, so the
           // reload re-ran the already-used code exchange and could bounce
@@ -3686,7 +3755,7 @@ function mountAuth(opts = {}) {
           // their role's DEFAULT screen (D2D → Sales group, office staff →
           // Sales tab, admins → Dashboard) instead of forcing Indicators.
           history.replaceState(null, '', window.location.pathname);
-          setTimeout(() => location.reload(), 350);   // let "✓ Saved" paint
+          setTimeout(() => location.replace(window.location.pathname), 900);   // let the success card paint
           return;
         }
       } catch (err) {
@@ -3697,8 +3766,7 @@ function mountAuth(opts = {}) {
         errLine.style.display = 'block';
         toast(err.message || 'Auth failed', 'error');
       } finally {
-        submitBtn.disabled = false;
-        renderMode();
+        if (!done) { submitBtn.disabled = false; renderMode(); }
       }
     },
   });
