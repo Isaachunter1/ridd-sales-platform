@@ -106,7 +106,7 @@ function openTvBoard() {
       avgInitial: subs.length ? subs.reduce((a, s) => a + (Number(s.initial_amount) || 0), 0) / subs.length : 0,
       avgMonthly: subs.length ? subs.reduce((a, s) => a + (Number(s.monthly_amount) || 0), 0) / subs.length : 0,
       avgContract: rows.length ? rev(rows) / rows.length : 0,
-      multiPct: my.length ? multi / my.length * 100 : 0, autoPay: ap, reps, offices, latest, goal };
+      multiPct: my.length ? multi / my.length * 100 : 0, autoPay: ap, recMix: rows.length ? subs.length / rows.length * 100 : 0, reps, offices, latest, goal };
   };
 
   // ── pieces ──
@@ -147,6 +147,13 @@ function openTvBoard() {
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '18px' } },
         el('div', { style: { display: 'flex', gap: '6px' } }, ...RANGES.map(([id, l]) => pill(id, l))),
         clock,
+        (() => {
+          // Resync: kicks the server-side FieldRoutes → snapshot job (1–2 min),
+          // the board pulls the fresh dataset in on its own when it lands.
+          const b = el('button', { title: 'Pull fresh numbers from FieldRoutes now', style: { fontFamily: MONO, fontSize: '11px', letterSpacing: '.18em', textTransform: 'uppercase', padding: '8px 12px', background: 'transparent', color: state._revhawkSyncing ? T.ember : T.dim, border: '1px solid ' + (state._revhawkSyncing ? T.ember : T.hair), cursor: 'pointer' } }, state._revhawkSyncing ? 'Syncing…' : 'Resync');
+          b.onclick = async () => { try { if (typeof syncFromRevHawk === 'function') { b.textContent = 'Syncing…'; b.style.color = T.ember; b.style.borderColor = T.ember; await syncFromRevHawk(null); } } catch (e) { /* toast already shown */ } finally { setTimeout(render, 1500); } };
+          return b;
+        })(),
         iconBtn(inFs ? 'Exit fullscreen (F)' : 'Fullscreen (F)', inFs ? '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>' : '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>', toggleFs),
         iconBtn('Close (Esc)', '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>', cleanup)));
 
@@ -167,7 +174,7 @@ function openTvBoard() {
         tile('Avg recurring', money(d.avgMonthly), 'per month'),
         tile('Multi-year', pct(d.multiPct), '18 mo and up'),
         tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales'),
-        tile('Selling', leader ? leader.name.split(' ')[0] : '—', leader ? 'leads with ' + money(leader.revenue) : 'no sales yet')));
+        tile('Rec mix', pct(d.recMix), 'recurring subs of all sales')));
 
     // Body: leaderboard | offices + latest
     const board = panel([
@@ -200,8 +207,9 @@ function openTvBoard() {
           const r = d.reps.find(x => x.key === (s.rep_id || ('crm:' + s._crmRep)));
           return el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '12px', alignItems: 'baseline', padding: '12px 0', borderTop: i ? '1px solid ' + T.hair : 'none' } },
             el('div', { style: { minWidth: '0' } },
-              el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(18px, 1.5vw, 24px)', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (r ? r.name : (s._crmRep || 'Rep')), s.customer_name ? el('span', { style: { fontFamily: VOICE, fontWeight: 500, fontSize: '13px', textTransform: 'none', color: T.dim, letterSpacing: 0 } }, '   ' + s.customer_name) : null),
-              el('div', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (s._crmService || '') + (s.created_at ? '  ·  ' + ago(s.created_at) : ''))),
+              el('div', { style: { fontFamily: HEAD, fontSize: 'clamp(18px, 1.5vw, 24px)', letterSpacing: '.02em', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (r ? r.name : (s._crmRep || 'Rep'))),
+              el('div', { style: { fontFamily: MONO, fontSize: '12px', color: T.dim, letterSpacing: '.04em', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+                el('span', { style: { color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')), '  ·  ' + (s._crmService || s.service_name || '—') + (s.created_at ? '  ·  ' + ago(s.created_at) : ''))),
             figure(money(s.revenue_amount), 'clamp(18px, 1.6vw, 26px)', i === 0 && fresh ? T.ember : T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
     const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: '18px', padding: '18px 36px 28px', flex: '1', minHeight: '0' } },
