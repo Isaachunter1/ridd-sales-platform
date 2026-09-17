@@ -2299,7 +2299,16 @@ function reportingWaterfall() {
   // (Renewal Outreach queue retired per Isaac, Sep 2026 — renewalQueueCard stays defined.)
   // The section tabs AND the Office / Metrics bar freeze together under the
   // page header (per Isaac) so both travel down the tab.
-  const frozen = el('div', { class: 'flex flex-col gap-3', style: { position: 'sticky', top: 'calc(' + _hdrH + 'px + var(--nv-banner, 0px))', zIndex: 25, background: 'var(--bg)', paddingTop: '6px', paddingBottom: '8px', marginTop: '-14px' } }, _secBar, modeBar);   // no negative bottom margin: the painted padding would cover the next card
-  return el('div', { class: 'flex flex-col gap-4' }, frozen, retenMethodCard(popA, _retenEff, groundA), body, repTypeAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
+  // Attrition Steps is ATTACHED to the Office / Metrics bar (per Isaac): one
+  // joined block — tabs, bar, steps header — frozen under the page header.
+  // When the steps card is expanded the block stops being sticky (it would
+  // be a screen tall), and comes back the moment it is collapsed.
+  const stepsCard = retenMethodCard(popA, _retenEff, groundA);
+  modeBar.style.borderBottom = '0';
+  if (stepsCard && stepsCard.style) stepsCard.style.borderTop = '1px solid var(--border)';
+  const joined = el('div', { class: 'flex flex-col' }, modeBar, stepsCard);
+  const stepsOpen = state._retenMethodOpen === true;
+  const frozen = el('div', { class: 'flex flex-col gap-3', style: stepsOpen ? { marginTop: '-14px' } : { position: 'sticky', top: 'calc(' + _hdrH + 'px + var(--nv-banner, 0px))', zIndex: 25, background: 'var(--bg)', paddingTop: '6px', paddingBottom: '8px', marginTop: '-14px' } }, _secBar, joined);
+  return el('div', { class: 'flex flex-col gap-4' }, frozen, body, repTypeAttritionCard, sourceAttritionCard, lifetimeCard, renewalRetentionCard);   // (True Attrition bar + "Who produces the customers that leave" retired per Isaac, Sep 2026)
 }
 
