@@ -94,7 +94,11 @@ function pricingStore() {
   // ALONGSIDE whichever Home/Yard base plan is picked, never instead of it.
   if (st.termite == null) st.termite = false;
   if (st.base === 'termite') { st.base = 'pest'; st.termite = true; }   // legacy value from an earlier build
-  if (!st.base || !PRICING_SERVICES[st.base] || PRICING_SERVICES[st.base].program === 'termite') st.base = 'pest';
+  // st.base may be null: nothing picked yet. Add-ons need a Home/Yard base
+  // plan; Termite Defense can stand alone; one-time services (Standard /
+  // Loyalty) can stand alone too.
+  if (st.base && (!PRICING_SERVICES[st.base] || PRICING_SERVICES[st.base].program === 'termite')) st.base = null;
+  if (!st.base) st.addons = {};
   if (!st.freq) st.freq = 'q';
   if (!st.addons) st.addons = {};
   if (!st.onetime) st.onetime = {};
@@ -109,20 +113,28 @@ function pricingTierOf(st) {
 }
 function pricingQuote(st) {
   const T = pricingTierOf(st);
-  const svc = PRICING_SERVICES[st.base] || PRICING_SERVICES.pest;
+  const svc = st.base ? PRICING_SERVICES[st.base] : null;
   const fi = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
-  const lines = [{ kind: 'base', label: (PRICING_PROGRAMS.find(p => p.id === svc.program) || {}).label + ' · ' + svc.label + ' · ' + PRICING_FREQ[fi][1], init: T.init, mo: T[svc.program][fi] }];
-  for (const [id, init, mo] of T.addons) {
-    if (id === st.base || !st.addons[id]) continue;
-    lines.push({ kind: 'addon', label: PRICING_SERVICES[id].label + ' add-on', init, mo });
+  const lines = [];
+  if (svc) {
+    lines.push({ kind: 'base', label: (PRICING_PROGRAMS.find(p => p.id === svc.program) || {}).label + ' · ' + svc.label, sub: PRICING_FREQ[fi][1] + ' · base plan', init: T.init, mo: T[svc.program][fi] });
+    for (const [id, init, mo] of T.addons) {
+      if (id === st.base || !st.addons[id]) continue;
+      lines.push({ kind: 'addon', label: PRICING_SERVICES[id].label, sub: 'add-on', init, mo });
+    }
   }
-  if (st.termite) lines.push({ kind: 'termite', label: 'Termite Defense · Annual (separate subscription)', init: T.termite[0], mo: T.termite[1] });
+  if (st.termite) lines.push({ kind: 'termite', label: 'Termite Defense', sub: 'annual · separate subscription', init: T.termite[0], mo: T.termite[1] });
   if (T.onetime) for (const [id, label, nw, cur] of PRICING_ONETIME) {
     if (!st.onetime[id]) continue;
-    lines.push({ kind: 'onetime', label: label + ' (one-time)', init: st.customer === 'current' ? cur : nw, mo: 0 });
+    lines.push({ kind: 'onetime', label, sub: 'one-time · ' + (st.customer === 'current' ? 'current customer' : 'new customer'), init: st.customer === 'current' ? cur : nw, mo: 0 });
   }
   const init = lines.reduce((a, l) => a + l.init, 0), mo = lines.reduce((a, l) => a + l.mo, 0);
-  return { tier: T, lines, init, mo, acv: init + mo * 11 };
+  // Sellable = at least one base (Home/Yard plan or Termite Defense), or —
+  // Standard/Loyalty only — a one-time service on its own.
+  const hasBase = !!svc || !!st.termite;
+  const hasOneTime = lines.some(l => l.kind === 'onetime');
+  const ok = hasBase || (T.onetime && hasOneTime);
+  return { tier: T, lines, init, mo, acv: init + mo * 11, ok, hasBase, empty: lines.length === 0 };
 }
 
 // Bundle & Save (per Isaac's savings table): standalone plan ACV (11 × monthly
@@ -148,7 +160,8 @@ function viewPricing() {
     const isMin = T.id !== 'd2d';
     const PICK = PRICING_TIERS.filter(t => t.id !== 'd2d_min');   // three choices; minimums is the Ⓜ toggle on D2D
     const price = isMin ? { color: C.orange } : { color: C.char };
-    const baseSvc = PRICING_SERVICES[st.base];
+    const baseSvc = st.base ? PRICING_SERVICES[st.base] : null;
+    const hasPlan = !!baseSvc;
     const fi = Math.max(0, PRICING_FREQ.findIndex(([k]) => k === st.freq));
     const q = pricingQuote(st);
     const rerender = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
@@ -189,7 +202,7 @@ function viewPricing() {
     // ── program blocks (Home · Yard · Termite) ──
     const program = (p) => {
       const isT = p.id === 'termite';
-      const onProg = isT ? !!st.termite : baseSvc.program === p.id;
+      const onProg = isT ? !!st.termite : (!!baseSvc && baseSvc.program === p.id);
       const toggleT = () => { st.termite = !st.termite; rerender(); };
       const initV = isT ? T.termite[0] : T.init;
       return card(
@@ -199,12 +212,12 @@ function viewPricing() {
             ? el('div', { class: 'flex items-center gap-2' },
                 el('span', { style: { font: '500 10px/1 Archivo, Arial, sans-serif', color: C.ink2 } }, 'separate subscription · stacks with any plan'),
                 pill(st.termite ? 'Added ✓' : 'Add', !!st.termite, toggleT))
-            : el('div', { class: 'flex gap-1.5 flex-wrap' }, ...p.services.map(sid => pill(PRICING_SERVICES[sid].label, st.base === sid, () => { st.base = sid; delete st.addons[sid]; rerender(); })))),
+            : el('div', { class: 'flex gap-1.5 flex-wrap' }, ...p.services.map(sid => pill(PRICING_SERVICES[sid].label, st.base === sid, () => { if (st.base === sid) { st.base = null; st.addons = {}; } else { st.base = sid; delete st.addons[sid]; } rerender(); })))),
         el('div', { class: 'grid gap-2', style: { gridTemplateColumns: isT ? '1fr 1fr' : '1.05fr 1fr 1fr 1fr', padding: '6px 14px 12px' } },
           tile('Initial', 'first visit', initV, false, null, { dark: true }),
           ...(isT
             ? [tile('Annual', 'serviced once a year · tap to add', T.termite[1], onProg, toggleT, { mo: true })]
-            : PRICING_FREQ.map(([k, lbl, visits], i) => tile(lbl, visits + ' visits', T[p.id][i], onProg && st.freq === k, () => { if (!onProg) st.base = p.services[0]; st.freq = k; rerender(); }, { mo: true })))));
+            : PRICING_FREQ.map(([k, lbl, visits], i) => tile(lbl, visits + ' visits', T[p.id][i], onProg && st.freq === k, () => { if (onProg && st.freq === k) { st.base = null; st.addons = {}; } else { if (!onProg) { st.base = p.services[0]; delete st.addons[st.base]; } st.freq = k; } rerender(); }, { mo: true })))));
     };
 
     // ── add-ons table (rows are toggles) ──
@@ -214,12 +227,13 @@ function viewPricing() {
     const thead = (cols) => el('thead', {}, el('tr', {}, ...cols.map((c, j) => el('th', { style: { padding: '4px 8px 2px', fontSize: '10px', letterSpacing: '.04em', textTransform: 'uppercase', color: C.ink2, fontWeight: 500, textAlign: j === 0 ? 'left' : 'center' } }, c))));
     const table = (cols, rows) => el('table', { style: { width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', padding: '4px 8px 8px' } }, thead(cols), el('tbody', {}, ...rows));
     const addonsCard = card(
-      secH('Add-Ons', 'tap to add · any of these on top of the base plan'),
-      table(['Add-On Service', 'Initial', 'Monthly'],
-        T.addons.filter(([id]) => id !== st.base).map(([id, init, mo], i) => {
-          const on = !!st.addons[id];
-          return trow([el('span', { class: 'inline-flex items-center' }, box(on), PRICING_SERVICES[id].label), money(init), '+' + money(mo)], on, () => { if (on) delete st.addons[id]; else st.addons[id] = true; rerender(); }, i);
-        })));
+      secH('Add-Ons', hasPlan ? 'tap to add · any of these on top of the base plan' : 'pick a Home or Yard plan first · add-ons can\'t be sold on their own'),
+      el('div', { style: hasPlan ? {} : { opacity: '.45' } },
+        table(['Add-On Service', 'Initial', 'Monthly'],
+          T.addons.filter(([id]) => id !== st.base).map(([id, init, mo], i) => {
+            const on = !!st.addons[id];
+            return trow([el('span', { class: 'inline-flex items-center' }, box(on), PRICING_SERVICES[id].label), money(init), '+' + money(mo)], on, hasPlan ? () => { if (on) delete st.addons[id]; else st.addons[id] = true; rerender(); } : null, i);
+          }))));
 
     // ── one-time (Standard / Loyalty) ──
     const oneTimeCard = T.onetime ? card(
@@ -269,26 +283,32 @@ function viewPricing() {
         el('div', { class: 'grid gap-3', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' } },
           chip('🐾', 'Kid & Pet Safe'), chip('100%', 'Satisfaction Guarantee', 'Backed by unlimited free re-services'), chip('✓', 'Licensed & Insured'))));
 
-    // ── sticky quote bar ──
+    // ── quote, laid out like a receipt (per Isaac) ──
+    const rline = (l) => el('div', { class: 'flex items-start justify-between gap-3 py-1', style: { borderBottom: '1px dashed var(--border-2)' } },
+      el('div', { class: 'min-w-0' },
+        el('div', { class: 'text-[12px] font-semibold truncate' }, l.label),
+        el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, l.sub)),
+      el('div', { class: 'text-right shrink-0 tabular-nums' },
+        el('div', { class: 'text-[12px] font-semibold' }, money(l.init), el('span', { class: 'text-[10px] font-normal', style: { color: 'var(--text-subtle)' } }, ' initial')),
+        l.mo ? el('div', { class: 'text-[11px]', style: { color: 'var(--text-muted)' } }, '+' + money(l.mo) + '/mo') : el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'no monthly')));
+    const notice = q.ok ? null : el('div', { class: 'rounded-lg px-3 py-2 text-[11px] font-semibold', style: { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } },
+      q.empty
+        ? 'Start with a base: pick a Home or Yard Essentials plan, or Termite Defense.' + (T.onetime ? ' One-time services can also be quoted on their own.' : '')
+        : 'A base plan is required — add a Home or Yard Essentials plan or Termite Defense to this quote.');
+    const total = (lbl, val, o = {}) => el('div', { class: 'flex items-baseline justify-between gap-3' },
+      el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: o.accent ? 'var(--accent)' : 'var(--text-subtle)' } }, lbl),
+      el('span', { class: (o.big ? 'text-2xl' : 'text-sm') + ' font-black tabular-nums', style: o.accent ? { color: 'var(--accent)' } : {} }, val));
     const quote = el('div', { class: 'card p-3 mb-3', style: { borderColor: 'var(--accent)', boxShadow: 'var(--shadow-lg)' } },
-      el('div', { class: 'flex items-center justify-between gap-4 flex-wrap' },
-        el('div', { class: 'min-w-0 flex-1' },
-          el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold mb-1', style: { color: 'var(--text-subtle)' } }, 'Quote · ' + T.label),
-          el('div', { class: 'flex flex-col gap-0.5' },
-            ...q.lines.map(l => el('div', { class: 'flex items-center justify-between gap-3 text-[11px]' },
-              el('span', { class: l.kind === 'base' ? 'font-semibold' : '', style: l.kind === 'base' ? {} : { color: 'var(--text-muted)' } }, l.label),
-              el('span', { class: 'tabular-nums whitespace-nowrap', style: { color: 'var(--text-muted)' } }, money(l.init) + ' initial' + (l.mo ? ' · ' + money(l.mo) + '/mo' : '')))))),
-        el('div', { class: 'flex gap-2 shrink-0 items-stretch' },
-          el('div', { class: 'rounded-xl px-4 py-2.5 text-center', style: { background: 'var(--card-2)' } },
-            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Total initial'),
-            el('div', { class: 'text-2xl font-black tabular-nums' }, money(q.init))),
-          el('div', { class: 'rounded-xl px-4 py-2.5 text-center', style: { background: 'var(--accent)', color: 'var(--accent-text)' } },
-            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { opacity: '.85' } }, 'Total monthly'),
-            el('div', { class: 'text-2xl font-black tabular-nums' }, money(q.mo), el('span', { class: 'text-xs font-semibold' }, '/mo'))),
-          el('div', { class: 'rounded-xl px-4 py-2.5 text-center hidden sm:block', style: { background: 'var(--card-2)' }, title: 'Initial + 11 monthly payments' },
-            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'First-year value'),
-            el('div', { class: 'text-2xl font-black tabular-nums' }, money(q.acv))),
-          el('button', { class: 'rounded-xl border px-3 text-[11px] font-semibold self-center', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)', height: '36px' }, onclick: () => { st.addons = {}; st.onetime = {}; st.termite = false; rerender(); } }, 'Clear'))));
+      el('div', { class: 'flex items-center justify-between gap-3 mb-2' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Quote · ' + (st.tier === 'd2d' ? (st.min ? 'D2D minimums' : 'D2D') : T.label)),
+        el('button', { class: 'rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wider', style: { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => { st.base = null; st.addons = {}; st.onetime = {}; st.termite = false; rerender(); } }, 'Reset')),
+      el('div', { class: 'grid gap-3 items-start', style: { gridTemplateColumns: 'minmax(0, 1fr) auto' } },
+        el('div', { class: 'min-w-0' }, ...(q.empty ? [] : q.lines.map(rline)), notice ? el('div', { class: q.empty ? '' : 'mt-2' }, notice) : null),
+        el('div', { class: 'rounded-xl px-4 py-3 flex flex-col gap-1.5 shrink-0', style: { background: 'var(--card-2)', minWidth: '150px', opacity: q.ok ? 1 : .55 } },
+          total('Due today', money(q.init), { big: true }),
+          total('Monthly', money(q.mo) + '/mo', { accent: true }),
+          el('div', { style: { borderTop: '1px solid var(--border-2)', margin: '2px 0' } }),
+          total('First year', money(q.acv)))));
 
     // Picker + quote ride together as one sticky block pinned right under
     // the fixed page header (measured live — it's ~60px, not 76 — so the
