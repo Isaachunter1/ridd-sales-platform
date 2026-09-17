@@ -3677,6 +3677,10 @@ function mountAuth(opts = {}) {
           if (missing.length) {
             throw new Error('Password needs: ' + missing.join(' · ').toLowerCase() + '.');
           }
+          if ((form.confirm?.value || '') !== password) {
+            confirmField.querySelector('input').focus();
+            throw new Error('The two passwords don’t match — type the same password in both boxes.');
+          }
           // Every step is visible on the button and logged as [recover] so a
           // stuck save is never "nothing happens" (per Isaac).
           const step = (t) => { submitBtn.innerHTML = '<span class="spinner"></span> ' + t; console.log('[recover]', t); };
@@ -3744,6 +3748,7 @@ function mountAuth(opts = {}) {
           subheading.textContent = 'You’re signed in — taking you to your dashboard…';
           subheading.style.display = '';
           passField.style.display = 'none';
+          confirmField.style.display = 'none';
           policyList.style.display = 'none';
           errLine.style.display = 'none';
           submitBtn.innerHTML = '✓ Password updated';
@@ -3782,23 +3787,41 @@ function mountAuth(opts = {}) {
   const emailField = el('label', { class: 'block text-sm' },
     el('span', { class: 'text-battle-2 block mb-1' }, 'Email'),
     el('input', { name: 'email', type: 'email', required: true, class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', placeholder: 'you@ridd.com' }));
-  const passField  = el('label', { class: 'block text-sm' },
-    el('span', { class: 'text-battle-2 block mb-1' }, 'Password'),
-    el('input', { name: 'password', type: 'password', required: true, minlength: 6, class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', placeholder: '••••••••' }));
+  // Password input with a show/hide eye inside the box (per Isaac). One
+  // eye per field; the confirm field gets its own so each can be peeked.
+  const EYE_OPEN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const EYE_OFF  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-6.5 0-10-7-10-7a19.8 19.8 0 0 1 5.06-5.94"/><path d="M9.9 4.24A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a19.8 19.8 0 0 1-3.22 4.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+  const passwordBox = (name, label, placeholder) => {
+    const input = el('input', { name, type: 'password', required: true, minlength: 6, autocomplete: name === 'password' ? 'current-password' : 'new-password', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]', style: { paddingRight: '32px' }, placeholder });
+    const eye = el('button', { type: 'button', tabindex: -1, title: 'Show password', 'aria-label': 'Show password',
+      class: 'absolute right-0 flex items-center px-2.5 text-battle-2 transition', style: { top: 0, bottom: 0, background: 'transparent', border: 0, cursor: 'pointer' },
+      onclick: () => { const show = input.type === 'password'; input.type = show ? 'text' : 'password'; eye.innerHTML = show ? EYE_OFF : EYE_OPEN; eye.title = eye.ariaLabel = show ? 'Hide password' : 'Show password'; input.focus(); } });
+    eye.innerHTML = EYE_OPEN;
+    return el('label', { class: 'block text-sm' },
+      el('span', { class: 'text-battle-2 block mb-1' }, label),
+      el('div', { class: 'relative' }, input, eye));
+  };
+  const passField    = passwordBox('password', 'Password', '••••••••');
+  const confirmField = passwordBox('confirm', 'Confirm password', '••••••••');   // recover only — typed twice so a typo can't lock them out
+  confirmField.style.display = 'none';
+  confirmField.querySelector('input').required = false;
   // Live policy checklist — shown only on the "Set a new password" screen.
+  const MATCH_LABEL = 'Both passwords match';
   const policyList = el('div', { class: 'text-[11px] flex flex-col gap-1', style: { display: 'none', lineHeight: '1.4' } },
-    ...PASSWORD_POLICY.map(r => el('div', { 'data-req': r.label, style: { color: 'var(--text-subtle)', transition: 'color .15s' } }, '○ ' + r.label)));
-  passField.querySelector('input').addEventListener('input', (e) => {
+    ...[...PASSWORD_POLICY, { label: MATCH_LABEL }].map(r => el('div', { 'data-req': r.label, style: { color: 'var(--text-subtle)', transition: 'color .15s' } }, '○ ' + r.label)));
+  const refreshPolicy = () => {
     if (form.dataset.mode !== 'recover') return;
-    const p = e.target.value;
-    PASSWORD_POLICY.forEach(r => {
+    const p = passField.querySelector('input').value, c = confirmField.querySelector('input').value;
+    const checks = [...PASSWORD_POLICY.map(r => ({ label: r.label, ok: r.test(p) })), { label: MATCH_LABEL, ok: !!p && p === c }];
+    checks.forEach(r => {
       const row = policyList.querySelector('[data-req="' + r.label + '"]');
       if (!row) return;
-      const ok = r.test(p);
-      row.textContent = (ok ? '✓ ' : '○ ') + r.label;
-      row.style.color = ok ? '#DF643A' : 'var(--text-subtle)';
+      row.textContent = (r.ok ? '✓ ' : '○ ') + r.label;
+      row.style.color = r.ok ? '#DF643A' : 'var(--text-subtle)';
     });
-  });
+  };
+  passField.querySelector('input').addEventListener('input', refreshPolicy);
+  confirmField.querySelector('input').addEventListener('input', refreshPolicy);
   const submitBtn  = el('button', { type: 'submit', class: 'w-full rounded-lg bg-lime hover:bg-lime-600 text-eerie font-semibold py-2.5 transition' });
   const forgotBtn  = el('button', { type: 'button', class: 'text-xs text-battle-2 hover:text-lime transition',
     onclick: () => { form.dataset.mode = form.dataset.mode === 'login' ? 'forgot' : 'login'; renderMode(); } });
@@ -3824,6 +3847,9 @@ function mountAuth(opts = {}) {
       emailField.style.display = 'block';
       passField.style.display  = 'block';
       passField.querySelector('input').required = true;
+      passField.querySelector('input').autocomplete = 'current-password';
+      confirmField.style.display = 'none';
+      confirmField.querySelector('input').required = false;
       submitBtn.textContent = 'Sign in';
       forgotBtn.textContent = 'Forgot password?';
       forgotBtn.style.display = '';
@@ -3835,6 +3861,8 @@ function mountAuth(opts = {}) {
       emailField.style.display = 'block';
       passField.style.display  = 'none';
       passField.querySelector('input').required = false;
+      confirmField.style.display = 'none';
+      confirmField.querySelector('input').required = false;
       submitBtn.textContent = 'Send reset link';
       forgotBtn.textContent = 'Back to sign in';
       forgotBtn.style.display = '';
@@ -3847,6 +3875,10 @@ function mountAuth(opts = {}) {
       passField.style.display  = 'block';
       passField.querySelector('input').required = true;
       passField.querySelector('input').minLength = 8;
+      passField.querySelector('input').autocomplete = 'new-password';
+      confirmField.style.display = 'block';
+      confirmField.querySelector('input').required = true;
+      confirmField.querySelector('input').minLength = 8;
       submitBtn.textContent = 'Set password';
       forgotBtn.style.display = 'none';
       inviteHint.style.display = 'none';
@@ -3869,7 +3901,7 @@ function mountAuth(opts = {}) {
         : el('div', { class: 'text-4xl font-display tracking-tight', style: { color: '#1D1D1D' } }, CFG.COMPANY_NAME);
     })(),
     el('div', { class: 'text-[10px] text-battleship tracking-[.22em] mb-2' }, CFG.COMPANY_TAGLINE),
-    heading, subheading, emailField, passField, policyList, submitBtn, errLine, forgotBtn, inviteHint,
+    heading, subheading, emailField, passField, confirmField, policyList, submitBtn, errLine, forgotBtn, inviteHint,
   );
   renderMode();
 
