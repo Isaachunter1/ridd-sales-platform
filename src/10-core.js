@@ -3187,17 +3187,19 @@ function setViewAsRole(role) {
   const real = state._realProfile || state.profile;
   if (!real || !isAdminRole(real.role)) return;   // only true admins may preview
   if (!state._realProfile) state._realProfile = real;
+  // Full reload on every switch (per Isaac): a re-mount alone kept every
+  // dataset the ADMIN had already pulled (full Indicators blob with customer
+  // names, all profiles, …) sitting in memory under the previewed role.
+  // Reloading makes every fetch, route guard and permission check run as
+  // that role from the first byte — the same page a real rep gets. (The
+  // JWT stays admin, so server-side RLS is the one thing this can't mimic.)
+  let back = 'admin';
   try {
     if (role) { sessionStorage.setItem(VIEW_AS_KEY, role); sessionStorage.setItem('ridd_view_as_return', state.view || 'admin'); }
-    else sessionStorage.removeItem(VIEW_AS_KEY);
+    else { sessionStorage.removeItem(VIEW_AS_KEY); back = sessionStorage.getItem('ridd_view_as_return') || 'admin'; sessionStorage.removeItem('ridd_view_as_return'); }
   } catch { /* private mode etc. — preview just won't survive a reload */ }
-  _applyViewAsOverlay();
-  if (!role) {
-    let back = 'admin';
-    try { back = sessionStorage.getItem('ridd_view_as_return') || 'admin'; sessionStorage.removeItem('ridd_view_as_return'); } catch { /* ignore */ }
-    state.view = back;
-  }
-  mountApp();   // route guards coerce state.view to whatever the role may see
+  if (!role) { try { history.replaceState(null, '', (typeof VIEW_TO_HASH !== 'undefined' && VIEW_TO_HASH[back]) || '#' + back); } catch { /* ignore */ } }
+  location.reload();
 }
 
 // ── Targeted refreshers ──────────────────────────────────────────────────
@@ -3247,7 +3249,7 @@ async function loadUnloggedSales() {
 async function fetchProfilesForMe() {
   const full = await supabase.from('profiles').select('*').order('full_name');
   let rows = full.data || null;
-  const admin = isAdminRole((state._realProfile || state.profile || {}).role);
+  const admin = isAdminRole((state.profile || {}).role);   // overlaid role on purpose — View-as loads what that role loads
   if (!admin || (rows && rows.length <= 1)) {
     try {
       const ro = await supabase.from('profiles_roster').select('*').order('full_name');
