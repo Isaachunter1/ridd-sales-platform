@@ -1220,6 +1220,123 @@ function adminSources() {
   );
 }
 
+// ── Sales Rep payscales (per Isaac, Sep 2026) ────────────────────────────
+// Four ladders — Rookie / Veteran / Elite / Pro — each a list of tiers
+// (rate % · retained revenue threshold · what it unlocks). Defaults below
+// mirror the whyridd.com payscale pages; admins edit them in place and the
+// result syncs through commission_config.d2dPayscales. A rep is put on a
+// ladder (or given their own tiers) via profiles.pay_overrides.d2d.
+const D2D_PAYSCALE_DEFAULTS = {
+  deadline: 'Jan. 31, 2028',
+  order: ['rookie', 'veteran', 'elite', 'pro'],
+  scales: {
+    rookie:  { label: 'Rookie',  requirement: 'Year 1',   tiers: [[22, 30000, ''], [24, 50000, ''], [26, 75000, ''], [28, 110000, 'Half company trip'], [30, 130000, 'Rent covered (single housing) · Company trip'], [32, 150000, 'LDRSHP Retreat'], [34, 200000, 'Ridd Raider Club'], [38, 260000, 'Rent covered (married housing)'], [40, 350000, ''], [45, 450000, ''], [50, 650000, '']] },
+    veteran: { label: 'Veteran', requirement: 'Year 2',   tiers: [[30, 50000, ''], [32, 75000, ''], [34, 110000, 'Half company trip'], [36, 130000, 'Rent covered (single housing) · Company trip'], [38, 200000, 'LDRSHP Retreat'], [40, 260000, 'Rent covered (married housing)'], [42, 300000, ''], [46, 350000, 'Ridd Raider Club'], [50, 400000, ''], [55, 500000, ''], [60, 650000, '']] },
+    elite:   { label: 'Elite',   requirement: '$150,000', tiers: [[40, 50000, ''], [42, 110000, 'Half company trip'], [44, 130000, 'Rent covered (single housing) · Company trip'], [46, 200000, 'LDRSHP Retreat'], [48, 260000, 'Rent covered (married housing)'], [50, 300000, ''], [54, 400000, 'Ridd Raider Club'], [58, 500000, ''], [60, 650000, ''], [62, 800000, ''], [65, 1000000, '']] },
+    pro:     { label: 'Pro',     requirement: '$300,000', tiers: [[45, 50000, ''], [47, 110000, 'Half company trip'], [49, 130000, 'Rent covered (single housing) · Company trip'], [51, 200000, 'LDRSHP Retreat'], [53, 260000, 'Rent covered (married housing)'], [55, 300000, ''], [57, 400000, 'Ridd Raider Club'], [59, 500000, ''], [62, 650000, ''], [64, 800000, ''], [68, 1000000, '']] },
+  },
+};
+function d2dPayscales() {
+  const c = commissionConfig();
+  if (c.d2dPayscales && c.d2dPayscales.scales) return c.d2dPayscales;
+  return JSON.parse(JSON.stringify(D2D_PAYSCALE_DEFAULTS));
+}
+function saveD2dPayscales(ps) { const c = commissionConfig(); c.d2dPayscales = ps; saveCommissionConfig(c); }
+// The ladder a rep is actually on: their own tiers if they have them, else
+// the scale they're assigned to, else nothing (admin hasn't placed them).
+function d2dLadderFor(profile) {
+  const ps = d2dPayscales();
+  const o = (profile && profile.pay_overrides && profile.pay_overrides.d2d) || null;
+  const scaleId = (o && o.scale) || null;
+  const base = scaleId && ps.scales[scaleId] ? ps.scales[scaleId] : null;
+  if (!base) return null;
+  return { scale: scaleId, label: base.label, requirement: base.requirement, custom: !!(o && Array.isArray(o.tiers) && o.tiers.length), tiers: (o && Array.isArray(o.tiers) && o.tiers.length) ? o.tiers : base.tiers };
+}
+function adminD2dPayscales() {
+  const ps = d2dPayscales();
+  const money = (n) => '$' + Math.round(Number(n) || 0).toLocaleString();
+  const num = (v) => { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, '')); return Number.isFinite(n) ? n : 0; };
+  const reps = (state.allProfiles || []).filter(p => p && p.is_active !== false && ['rep_sales', 'rep_partner', 'rep_team_lead'].includes(String(p.role || '')))
+    .sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
+  const repId = state._d2dPayRep || '';
+  const rep = repId ? (state.allProfiles || []).find(p => p.id === repId) : null;
+  const placed = (state.allProfiles || []).filter(p => p && p.pay_overrides && p.pay_overrides.d2d && p.pay_overrides.d2d.scale);
+  if (!ps.order.includes(state._d2dScaleTab)) state._d2dScaleTab = ps.order[0];
+  const saveRep = async (d2d) => {
+    if (!rep) return;
+    const po = Object.assign({}, rep.pay_overrides || {});
+    if (d2d && (d2d.scale || (d2d.tiers && d2d.tiers.length))) po.d2d = d2d; else delete po.d2d;
+    rep.pay_overrides = Object.keys(po).length ? po : null;
+    if (typeof DEMO !== 'undefined' && DEMO) { saveDemoData(); return; }
+    const { error } = await supabase.from('profiles').update({ pay_overrides: rep.pay_overrides }).eq('id', rep.id);
+    if (error) toast(/pay_overrides/i.test(error.message || '') ? 'Run migrations/20260917_pay_overrides.sql first' : 'Could not save: ' + error.message, 'error');
+    else { try { logActivity('pay_override', { detail: rep.full_name + ' payscale: ' + JSON.stringify(d2d || null) }); } catch (e) { /* optional */ } }
+  };
+  // ── ladder table (shared by the defaults view and the rep view) ──
+  const cell = (val, onCommit, o = {}) => el('input', { type: 'text', inputmode: o.text ? 'text' : 'decimal', value: val == null ? '' : String(val), placeholder: o.placeholder || '',
+    class: 'rounded-lg border px-2 py-1 text-[12px] w-full ' + (o.text ? '' : 'text-right tabular-nums font-semibold'),
+    style: { borderColor: 'transparent', background: 'transparent', color: o.muted ? 'var(--text-muted)' : 'var(--text)' },
+    onfocus: (e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.background = 'var(--card)'; },
+    onblur: (e) => { e.target.style.borderColor = 'transparent'; e.target.style.background = 'transparent'; onCommit(e.target.value); },
+    onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); } });
+  const ladderTable = (tiers, onChange, opts = {}) => {
+    const body = el('tbody');
+    const draw = () => body.replaceChildren(...tiers.map((t, i) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+      el('td', { class: 'px-3 py-1', style: { width: '90px' } }, cell(t[0], (v) => { t[0] = num(v); onChange(); draw(); })),
+      el('td', { class: 'px-3 py-1', style: { width: '150px' } }, cell(money(t[1]), (v) => { t[1] = num(v); onChange(); draw(); })),
+      el('td', { class: 'px-3 py-1' }, cell(t[2] || '', (v) => { t[2] = v.trim(); onChange(); }, { text: true, placeholder: '—', muted: true })),
+      el('td', { class: 'px-3 py-1 text-right tabular-nums font-bold text-[13px]', style: { width: '140px' } }, money(t[0] / 100 * t[1])),
+      el('td', { class: 'px-1 py-1 text-right', style: { width: '32px' } }, opts.readonly ? null : el('button', { class: 'text-[12px] px-1.5', style: { color: 'var(--text-subtle)' }, title: 'Remove tier', onclick: () => { tiers.splice(i, 1); onChange(); draw(); } }, '×')))));
+    draw();
+    return el('div', { class: 'card overflow-hidden' },
+      el('table', { class: 'w-full' },
+        el('thead', {}, el('tr', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)', background: 'var(--card-2)' } },
+          el('th', { class: 'px-3 py-2 text-right' }, 'Rate %'), el('th', { class: 'px-3 py-2 text-right' }, 'Retained revenue'), el('th', { class: 'px-3 py-2 text-left' }, 'Unlocks'), el('th', { class: 'px-3 py-2 text-right' }, 'Est. earnings'), el('th', {}))),
+        body),
+      opts.readonly ? null : el('div', { class: 'px-3 py-2 border-t flex items-center gap-2', style: { borderColor: 'var(--border)' } },
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { const last = tiers[tiers.length - 1] || [20, 25000, '']; tiers.push([last[0] + 2, Math.round(last[1] * 1.25 / 1000) * 1000, '']); onChange(); draw(); } }, '+ Add tier'),
+        el('span', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, 'Rate applies to retained revenue at or above the threshold. Est. earnings = rate × threshold.')));
+  };
+  // ── rep picker ──
+  const picker = el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' },
+    el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Individual reps'),
+    el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', minWidth: '240px' },
+      onchange: (e) => { state._d2dPayRep = e.target.value; mountApp(); } },
+      el('option', { value: '', selected: !repId }, 'Default ladders — pick a rep to place them…'),
+      ...reps.map(p => { const L = d2dLadderFor(p); return el('option', { value: p.id, selected: p.id === repId }, p.full_name + (L ? ' · ' + L.label + (L.custom ? ' (custom)' : '') : ' · not placed')); })),
+    el('span', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } }, placed.length + ' of ' + reps.length + ' sales reps placed on a ladder'));
+  if (rep) {
+    const L = d2dLadderFor(rep);
+    const o = Object.assign({}, (rep.pay_overrides && rep.pay_overrides.d2d) || {});
+    const scaleSel = el('select', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+      onchange: (e) => { const v = e.target.value; saveRep(v ? { scale: v } : null).then(mountApp); } },
+      el('option', { value: '', selected: !L }, '— not placed —'),
+      ...ps.order.map(id => el('option', { value: id, selected: L && L.scale === id }, ps.scales[id].label + ' · ' + ps.scales[id].requirement)));
+    const head = el('div', { class: 'card p-3 flex items-center gap-3 flex-wrap' },
+      el('div', {}, el('div', { class: 'text-sm font-bold' }, rep.full_name), el('div', { class: 'text-[10px]', style: { color: 'var(--text-subtle)' } }, (typeof ROLE_LABEL !== 'undefined' && ROLE_LABEL[rep.role]) || rep.role)),
+      el('label', { class: 'flex items-center gap-2 text-[11px] font-semibold' }, 'Payscale', scaleSel),
+      L && L.custom ? el('span', { class: 'rounded-full px-2 py-0.5 text-[10px] font-bold', style: { background: 'rgba(223,100,58,.12)', color: 'var(--accent)' } }, 'custom ladder') : null,
+      L && L.custom ? el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold', style: { borderColor: 'var(--border-2)' }, onclick: () => { if (confirm('Drop ' + rep.full_name + '’s custom tiers and put them back on the standard ' + L.label + ' ladder?')) saveRep({ scale: L.scale }).then(mountApp); } }, 'Reset to ' + L.label) : null,
+      L && !L.custom ? el('span', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } }, 'On the standard ' + L.label + ' ladder — edit any cell below to give them their own.') : null);
+    if (!L) return el('div', { class: 'flex flex-col gap-3' }, picker, head, el('div', { class: 'card p-6 text-center text-[12px]', style: { color: 'var(--text-muted)' } }, 'Pick a payscale above to place ' + rep.full_name + '.'));
+    // Editing a cell forks the standard ladder into the rep's own tiers.
+    const mine = L.custom ? o.tiers : JSON.parse(JSON.stringify(L.tiers));
+    const table = ladderTable(mine, () => { saveRep({ scale: L.scale, tiers: mine }); });
+    return el('div', { class: 'flex flex-col gap-3' }, picker, head, table);
+  }
+  // ── defaults: one tab per scale ──
+  const cur = ps.scales[state._d2dScaleTab];
+  const tabs = el('div', { class: 'flex items-center gap-1 flex-wrap' },
+    ...ps.order.map(id => el('button', { class: 'rounded-full px-3 py-1 text-[11px] font-bold border transition', style: id === state._d2dScaleTab ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' }, onclick: () => { state._d2dScaleTab = id; mountApp(); } }, ps.scales[id].label)));
+  const meta = el('div', { class: 'card p-3 flex items-center gap-4 flex-wrap' },
+    tabs,
+    el('label', { class: 'flex items-center gap-2 text-[11px] font-semibold' }, 'Requirement', el('input', { type: 'text', value: cur.requirement, class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '110px' }, onchange: (e) => { cur.requirement = e.target.value.trim(); saveD2dPayscales(ps); } })),
+    el('label', { class: 'flex items-center gap-2 text-[11px] font-semibold' }, 'Retained by', el('input', { type: 'text', value: ps.deadline, class: 'rounded-lg border px-2 py-1 text-[11px]', style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', width: '120px' }, onchange: (e) => { ps.deadline = e.target.value.trim(); saveD2dPayscales(ps); } })),
+    el('span', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } }, placed.filter(p => p.pay_overrides.d2d.scale === state._d2dScaleTab).length + ' reps on ' + cur.label));
+  const table = ladderTable(cur.tiers, () => saveD2dPayscales(ps));
+  return el('div', { class: 'flex flex-col gap-3 max-w-4xl w-full' }, picker, meta, table);
+}
+
 // Admin → Commissions: the rule set behind the Commission Calculator, set per
 // REP TYPE (Office Staff / Sales Reps / Technicians). A specific rep's rates can
 // still be overridden on the calculator; this is the default for everyone of a
@@ -1300,16 +1417,16 @@ function adminCommissions() {
       ? el('div', { class: 'card p-10 text-center' },
           el('div', { class: 'text-sm font-semibold mb-1' }, 'No Technician commission rules yet'),
           el('div', { class: 'text-xs text-muted-' }, 'Rules for Technicians haven’t been set up. They’ll be added here later.'))
-      : el('div', { class: 'flex flex-col gap-4' },
-          el('div', { class: 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start' }, ratesPanel, myPanel),
-          svcPanel);
+      : adminD2dPayscales();   // Sales Reps: the four payscale ladders + per-rep assignment (per Isaac)
 
   return el('div', { class: 'flex flex-col gap-4' },
     el('div', {},
       el('h2', { class: 'text-lg font-bold' }, 'Commissions'),
       el('p', { class: 'text-xs text-muted-' }, isOfficeStaff
         ? 'Inside Sales pay rules for Office Staff — these drive the Pay tab and the Commission Calculator. Sales Reps and Technicians use the CRM pest/bundle model on their tabs.'
-        : 'Commission rules by rep type. The Commission Calculator uses these; a specific rep can still be overridden there.')),
+        : type === 'Sales Rep'
+          ? 'Sales Rep payscales \u2014 the Rookie / Veteran / Elite / Pro ladders (rate by retained revenue). Pick a rep to put them on a ladder or give them their own.'
+          : 'Commission rules by rep type. The Commission Calculator uses these; a specific rep can still be overridden there.')),
     tabs,
     body);
 }
