@@ -142,6 +142,53 @@ exports.handler = async (event) => {
       console.error('[revhawk-sync] monthly archive skipped:', String((snapE && snapE.message) || snapE));
     }
 
+    // ── Mirror the snapshot into public.crm_subscriptions (best-effort) ──
+    // Same rows the app reads, queryable in SQL (riddmarket reads them via
+    // market_feed.crm_subscriptions, which strips names/contact/balance).
+    // One row per subscription_id, replaced every run; rows absent from this
+    // run are deleted afterwards. Lives HERE, not in the main sync: building
+    // the rows on top of the main run's 90k-row heap OOM-killed it (Sep 17
+    // 2026, heartbeat frozen at 'snapshot-uploaded'). Streamed in 1000-row
+    // chunks so no second copy of the dataset is ever held.
+    try {
+      const _runAt = new Date().toISOString();
+      const F = ['subscription_id','customer_id','sold_date','sold_at','sold_by_id','sold_by','sold_by_type','subscription',
+        'subscription_status','initial_status','initial_service','initial_serviced_date','subscription_completed_services',
+        'subscription_cancellation_reason','subscription_date_canceled','subscription_source','lead_source','recurring_frequency',
+        'agreement_length','annual_recurring_value','subscription_contract_value','initial_price','customer_auto_pay','customer_flags',
+        'customer_missing','contract_state','contract_signed_at','county','state','zip_code','office_name','days_past_due',
+        'responsible_balance','first_name','last_name','phone','email'];
+      const _seen = new Set();
+      let chunk = [], n = 0;
+      const flush = async () => {
+        if (!chunk.length) return;
+        const { error } = await supabase.from('crm_subscriptions').upsert(chunk, { onConflict: 'subscription_id' });
+        if (error) throw new Error(error.message);
+        n += chunk.length; chunk = [];
+      };
+      for (const o of objects) {
+        const sid = o.subscription_id == null ? '' : String(o.subscription_id);
+        if (!sid || _seen.has(sid)) continue;
+        _seen.add(sid);
+        const r = {};
+        for (const k of F) { const v = o[k]; r[k] = (v === undefined || v === '') ? null : v; }
+        r.subscription_id = sid;
+        if (r.customer_id != null) r.customer_id = String(r.customer_id);
+        if (r.sold_by_id != null) r.sold_by_id = String(r.sold_by_id);
+        r.customer_missing = !!r.customer_missing;
+        r.synced_at = _runAt;
+        chunk.push(r);
+        if (chunk.length >= 1000) await flush();
+      }
+      await flush();
+      const { error: delErr } = await supabase.from('crm_subscriptions').delete().lt('synced_at', _runAt);
+      if (delErr) throw new Error('stale delete: ' + delErr.message);
+      await _hb({ stage: 'crm-mirrored', rows: n });
+      console.log('[derive-worker] crm_subscriptions mirrored: ' + n + ' rows');
+    } catch (me) {
+      console.error('[derive-worker] crm_subscriptions mirror failed (continuing):', String((me && me.message) || me));
+    }
+
     await _hb({ stage: 'finished', ok: true });
     return { statusCode: 200, body: JSON.stringify({ ok: true }) };
   } catch (e) {
