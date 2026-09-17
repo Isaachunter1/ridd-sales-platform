@@ -603,14 +603,37 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
     const hlStyle = isActive ? { color: 'var(--accent)', fontWeight: '800' } : {};
     const baseClass = (align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left') + ' px-2 py-2 font-semibold whitespace-nowrap ' + extraClass;
     const title = typeof opts === 'string' ? '' : (opts.title || '');
-    if (!sortableKey || !onSort) {
-      return el('th', { class: baseClass, title }, label + arrow);
-    }
-    return el('th', {
-      class: baseClass + ' cursor-pointer select-none hover:text-default transition',
-      style: hlStyle, title,
-      onclick: () => onSort(sortableKey),
-    }, label + arrow);
+    // Every header gets a short pop-up explainer (hover / tap) — per Isaac.
+    const help = typeof opts === 'string' ? '' : (opts.help || title || '');
+    const th = (!sortableKey || !onSort)
+      ? el('th', { class: baseClass + (help ? ' cursor-help' : '') }, label + arrow)
+      : el('th', {
+          class: baseClass + ' cursor-pointer select-none hover:text-default transition',
+          style: hlStyle,
+          onclick: () => onSort(sortableKey),
+        }, label + arrow);
+    if (help && typeof attachExplainer === 'function') attachExplainer(th, { title: String(label).replace(' ✓', ''), desc: help + (sortableKey && onSort ? ' · Click to sort.' : '') });
+    else if (title) th.title = title;
+    return th;
+  };
+  const H = {
+    customer: 'The customer, as entered on the sale. Click the name to open the sale details.',
+    number:   'FieldRoutes customer number. This is what links the sale to the CRM for the automatic checks.',
+    rep:      'The office rep who logged the sale and gets the commission.',
+    office:   'The branch the customer belongs to.',
+    service:  'The plan sold (e.g. Pest 4 = quarterly pest control).',
+    contract: 'Agreement length — 12, 18 or 24 months — or Renewal for an existing customer re-signing.',
+    source:   'Where the lead came from. Pay rate and renewal treatment depend on this.',
+    initial:  'Price of the initial service.',
+    monthly:  'Recurring monthly price after the initial.',
+    revenue:  'Contract revenue the sale is credited for (initial + recurring for the term). Commission, goals and the leaderboard all run on this number.',
+    sold:     'The date the sale was logged / signed.',
+    pif:      'Paid in Full — the customer paid the whole contract up front, so there is no backend hold and full commission pays out. Admins can toggle this.',
+    comm:     'Commission paid — stamped by payroll when this sale goes out on a pay run. Read-only; it cannot be ticked by hand.',
+    upfront:  'Charged Upfront — payment was collected at signing. Makes the sale commissionable on the sale date and feeds the Charge Upfront % tier. Admins can toggle this.',
+    status:   'Audit status. New sales sit in Pending until audited, then Approved, Cancelled, NSF, Rejected, and so on.',
+    audit:    'Who audited the sale.',
+    crm:      'Automatic checks against FieldRoutes: revenue matches, initial appointment scheduled, billing on file, agreement signed. Green = confirmed in the CRM.',
   };
 
   return el('div', { class: 'card overflow-hidden' },
@@ -618,34 +641,34 @@ function salesTable(rows, { isAdmin = false, sortKey, sortDir, onSort, showBacke
       el('table', { class: 'w-full text-[12px]' },
         el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted- bg-card2-' },
           el('tr', {},
-            headerCell('Customer Name', { sortableKey: 'customer_name', extraClass: 'pl-4' }),
-            headerCell('Customer #',    { sortableKey: 'customer_number' }),
-            headerCell('Office Rep',    { sortableKey: 'rep' }),
+            headerCell('Customer Name', { sortableKey: 'customer_name', extraClass: 'pl-4', help: H.customer }),
+            headerCell('Customer #',    { sortableKey: 'customer_number', help: H.number }),
+            headerCell('Office Rep',    { sortableKey: 'rep', help: H.rep }),
             // Backend-lock review doesn't need office / service / source /
             // initial / monthly — the reviewer keys off revenue + contract +
             // the report data. Hiding those keeps the table scannable.
-            !showBackend && headerCell('Office',      { sortableKey: 'office' }),
-            !showBackend && headerCell('Service Type',{ sortableKey: 'service_type' }),
-            headerCell('Contract Type', { sortableKey: 'contract' }),
-            !showBackend && headerCell('Source',      { sortableKey: 'source' }),
-            !showBackend && headerCell('Initial',     { sortableKey: 'initial_amount', align: 'right' }),
-            !showBackend && headerCell('Monthly',     { sortableKey: 'monthly_amount', align: 'right' }),
-            headerCell('Revenue',     { sortableKey: 'revenue_amount', align: 'right' }),
-            headerCell('Sold Date',   { sortableKey: 'sold_date' }),
+            !showBackend && headerCell('Office',      { sortableKey: 'office', help: H.office }),
+            !showBackend && headerCell('Service Type',{ sortableKey: 'service_type', help: H.service }),
+            headerCell('Contract Type', { sortableKey: 'contract', help: H.contract }),
+            !showBackend && headerCell('Source',      { sortableKey: 'source', help: H.source }),
+            !showBackend && headerCell('Initial',     { sortableKey: 'initial_amount', align: 'right', help: H.initial }),
+            !showBackend && headerCell('Monthly',     { sortableKey: 'monthly_amount', align: 'right', help: H.monthly }),
+            headerCell('Revenue',     { sortableKey: 'revenue_amount', align: 'right', help: H.revenue }),
+            headerCell('Sold Date',   { sortableKey: 'sold_date', help: H.sold }),
             headerCell('Bill Date',   { sortableKey: 'commission_date', title: 'Commissionable date — charged upfront: the sale date (unless pre-service cancel); otherwise the later of initial service completed and first payment received' }),
             // Three flags, sheet-style (per Isaac): PIF · COMM. (commission
             // paid out) · Upfront (payment collected at signing). Admins
             // toggle PIF / Upfront right here; COMM. is read-only — it is
             // stamped by payroll.
-            headerCell('PIF',     { extraClass: 'text-center', align: 'center' }),
-            headerCell('Comm.',   { extraClass: 'text-center', align: 'center' }),
-            headerCell('Upfront', { extraClass: 'text-center', align: 'center' }),
-            headerCell('Status',      { sortableKey: 'audit_status' }),
-            headerCell('Audit',       { sortableKey: 'audited_by' }),
+            headerCell('PIF',     { extraClass: 'text-center', align: 'center', help: H.pif }),
+            headerCell('Comm.',   { extraClass: 'text-center', align: 'center', help: H.comm }),
+            headerCell('Upfront', { extraClass: 'text-center', align: 'center', help: H.upfront }),
+            headerCell('Status',      { sortableKey: 'audit_status', help: H.status }),
+            headerCell('Audit',       { sortableKey: 'audited_by', help: H.audit }),
             // CRM revenue check + lifecycle chips — auto-verified against the
             // FieldRoutes warehouse (matched by customer #). Last so the
             // sheet-shaped columns read first.
-            headerCell('CRM ✓'),
+            headerCell('CRM ✓', { help: H.crm }),
             // Pending Backend Lock pill: surface the second-pass review pair.
             showBackend && headerCell('Audit 2'),
             showBackend && headerCell('Lock'),
@@ -920,7 +943,9 @@ function commissionableDate(s) {
 // boolean columns save straight to the sale; read-only ones just display.
 function saleFlagBox(sale, field, editable, tip) {
   const on = field === '_comm_paid' ? !!sale.payroll_processed_at : !!sale[field];
-  const box = el('input', { type: 'checkbox', checked: on, disabled: !editable, title: tip || '', class: 'accent-lime', style: { width: '15px', height: '15px', cursor: editable ? 'pointer' : 'default' } });
+  // Editable boxes (PIF / Upfront for admins) get an orange outline so they
+  // read as clickable; read-only ones (Comm., or non-admins) sit dimmed.
+  const box = el('input', { type: 'checkbox', checked: on, disabled: !editable, title: tip || '', class: 'accent-lime', style: { width: '16px', height: '16px', cursor: editable ? 'pointer' : 'not-allowed', borderColor: editable ? 'var(--accent)' : 'var(--border-2)', borderWidth: editable ? '2px' : '1px', opacity: editable ? '1' : '.55' } });
   if (editable) box.onchange = async (e) => {
     const v = !!e.target.checked;
     for (const list of [state.mySales, state.allSales]) { const x = list.find(r => r.id === sale.id); if (x) x[field] = v; }
