@@ -637,7 +637,11 @@ function viewIndicators() {
         for (let n = sp; n; n = n.offsetParent) spTopAbs += n.offsetTop || 0;
         const barTop    = parseFloat(getComputedStyle(bar).top) || 0;      // fixed bar's declared top
         const barBottom = barTop + bar.offsetHeight;
-        sp.style.height = Math.max(0, barBottom + 6 - spTopAbs) + 'px';      // content clears the bar at scroll-top
+        // Visual gap under the bar = the bar's own 12px inner padding, so the
+        // toolbar sits centred between the header and the first card (per
+        // Isaac). The page column already adds a 20px flex gap after the
+        // spacer, so subtract that back out.
+        sp.style.height = Math.max(0, barBottom + 12 - 20 - spTopAbs) + 'px';
       };
       setTimeout(() => {
         syncBarSpacer();
