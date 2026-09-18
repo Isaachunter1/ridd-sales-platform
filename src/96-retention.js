@@ -111,6 +111,51 @@ function retenTrailing12(book) {
   const counted = boy.filter(r => r._effCancel && r._effCancel >= st && r._effCancel <= en);
   return { rate: boy.length ? counted.length / boy.length : null, c: counted.length, boy: boy.length, st, en, rows: { boy, counted } };
 }
+// Branch picker on the Attrition Steps bar (per Isaac, Sep 2026 — moved up
+// out of step 3). Same state as before: state._retenWhatIf.branches holds
+// {name:false} for every branch that is OUT; everything is in by default.
+function retenBranchDropdown(g0) {
+  const counts = new Map(); g0.forEach(r => { const o = (r.office_name || '').trim() || 'Unknown'; counts.set(o, (counts.get(o) || 0) + 1); });
+  const names = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+  const off = retenBranchesOff();
+  const inN = names.filter(o => !off.has(o)).length;
+  const later = (fn) => requestAnimationFrame(() => setTimeout(fn, 0));
+  const setBranches = (br) => { const nw = { ...(state._retenWhatIf || {}) }; if (br) nw.branches = br; else delete nw.branches; state._retenWhatIf = nw; later(mountApp); };
+  const wrap = el('div', { class: 'relative shrink-0', onclick: (e) => e.stopPropagation() });
+  const label = off.size === 0 ? 'All branches' : inN === 1 ? names.find(o => !off.has(o)) : inN + ' of ' + names.length + ' branches';
+  const btn = el('button', {
+    class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold whitespace-nowrap transition hover:brightness-95',
+    style: { borderColor: off.size ? 'var(--accent)' : 'var(--border-2)', color: 'var(--text)', background: 'var(--card)' },
+    title: 'Which branches are in the retention book',
+    onclick: () => { state._retenBranchOpen = !state._retenBranchOpen; place(); panel.style.display = state._retenBranchOpen ? 'block' : 'none'; if (state._retenBranchOpen) clampDropdownPanel(panel); },
+  }, '🏢 ' + label + ' ▾');
+  // The steps card clips overflow, so the panel floats fixed under the button.
+  const place = () => { try { const r = btn.getBoundingClientRect(); panel.style.top = (r.bottom + 4) + 'px'; panel.style.right = Math.max(8, window.innerWidth - r.right) + 'px'; } catch { /* ignore */ } };
+  const panel = el('div', { class: 'rounded-xl border shadow-lg p-2', style: { position: 'fixed', zIndex: 60, display: state._retenBranchOpen ? 'block' : 'none', background: 'var(--card)', borderColor: 'var(--border-2)', minWidth: '240px', maxHeight: '60vh', overflowY: 'auto' } },
+    el('div', { class: 'flex items-center justify-between gap-2 px-1 pb-1.5 mb-1 border-b', style: { borderColor: 'var(--border)' } },
+      el('span', { class: 'text-[9px] uppercase tracking-widest font-bold', style: { color: 'var(--text-subtle)' } }, 'Branches in the book'),
+      el('span', { class: 'flex items-center gap-1' },
+        ...[['All in', () => setBranches(null)], ['None', () => { const br = {}; names.forEach(o => { br[o] = false; }); setBranches(br); }]].map(([l, fn]) => el('button', { class: 'rounded-md border px-1.5 py-0.5 text-[10px] font-bold', style: { borderColor: 'var(--border-2)', color: 'var(--text)' }, onclick: fn }, l)))),
+    ...names.map(o => {
+      const isOff = off.has(o);
+      const cb = el('input', { type: 'checkbox', checked: !isOff, style: { accentColor: 'var(--accent)' }, onchange: (e) => {
+        const br = { ...((state._retenWhatIf || {}).branches || {}) };
+        if (e.target.checked) delete br[o]; else br[o] = false;
+        setBranches(Object.keys(br).length ? br : null); } });
+      cb.checked = !isOff; cb.defaultChecked = !isOff;
+      return el('label', { class: 'flex items-center gap-2 text-[11px] cursor-pointer rounded px-1.5 py-1 hover:brightness-95' + (isOff ? '' : ' font-semibold'), style: { color: isOff ? 'var(--text-subtle)' : 'var(--text)' } },
+        cb, el('span', { class: 'flex-1 truncate' }, o), el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, (counts.get(o) || 0).toLocaleString()));
+    }));
+  if (state._retenBranchOpen) setTimeout(place, 0);
+  if (state._retenBranchOpen) setTimeout(() => document.addEventListener('mousedown', function closer(ev) {
+    if (!wrap.isConnected) { document.removeEventListener('mousedown', closer); return; }
+    if (wrap.contains(ev.target)) return;
+    panel.style.display = 'none'; state._retenBranchOpen = false;
+    document.removeEventListener('mousedown', closer);
+  }), 0);
+  wrap.append(btn, panel);
+  return wrap;
+}
 function retenMethodCard(pop, _retenEff, ground, infoBtn) {
   const year = new Date().getFullYear();
   const yStart = year + '-01-01', pStart = (year - 1) + '-01-01';
@@ -214,6 +259,7 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' YTD attrition'), el('div', { class: 'text-lg font-black' }, pct(cur.rate), official ? el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'official ' + pct(official.cur)) : null)),
         el('div', { class: 'text-right' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, year + ' projected attrition'), el('div', { class: 'text-lg font-black' }, pct(projected), el('span', { class: 'text-[10px] font-semibold ml-1', style: { color: 'var(--text-muted)' } }, 'seasonal pace'))),
         (() => { const t = retenTrailing12(book); const fn = drill('Trailing 12 months · counted cancels', t.rows.counted, 'counted as churn'); return el('div', { class: 'text-right', title: n(t.c) + ' cancels ' + t.st + ' → ' + t.en + ' ÷ ' + n(t.boy) + ' on the books a year ago' }, el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Trailing 12 months'), el('div', { class: 'text-lg font-black', style: fn ? { cursor: 'pointer' } : {}, onclick: fn ? (e) => { e.stopPropagation(); fn(); } : null }, pct(t.rate))); })(),
+        el('span', { class: 'inline-flex', style: { marginTop: '5px' } }, retenBranchDropdown(g0)),
         whatIf ? el('button', { class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold', style: { background: 'var(--accent)', color: 'var(--accent-text)', marginTop: '5px' }, onclick: (e) => { e.stopPropagation(); state._retenWhatIf = null; mountApp(); } }, 'Reset to official') : null,
         // Reconcile against a hand-built FieldRoutes export (CSV): matched /
         // only-in-app / only-in-file, each explained row by row.
@@ -246,33 +292,10 @@ function retenMethodCard(pop, _retenEff, ground, infoBtn) {
     ...scopeSteps.map(st => {
       const node = step(next(), st.title, (st.locked ? '' : APP) + st.detail, st.removed.length, st.locked ? null : st.key, null, st.removed, st.left);
       if (st.key === 'branches') {
-        // Checklist of every branch in the snapshot; ticked = counts.
-        const counts = new Map(); g0.forEach(r => { const o = (r.office_name || '').trim() || 'Unknown'; counts.set(o, (counts.get(o) || 0) + 1); });
+        // The checklist moved to the 🏢 dropdown on the bar above (per Isaac).
         const off = retenBranchesOff();
-        const saved = new Set();   // every branch is in by default here
-        const names = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
-        // Flip the box now, rebuild on the next frame — the click feels instant
-        // even though the whole tab recomputes on the new population.
-        const later = (fn) => requestAnimationFrame(() => setTimeout(fn, 0));
-        const listEl = el('div', { class: 'grid gap-x-4 gap-y-1 mt-2', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' } },
-          ...names.map(o => {
-            const isOff = off.has(o);
-            // Attribute AND property (the reasons list needed the same): a
-            // re-serialised node keeps only the attribute, a fresh one only the property.
-            const cb = el('input', { type: 'checkbox', checked: !isOff, style: { accentColor: 'var(--accent)' }, onclick: (e) => e.stopPropagation(), onchange: (e) => {
-              const nw = { ...(state._retenWhatIf || {}) }; const br = { ...(nw.branches || {}) };
-              const wantIn = e.target.checked;
-              if (wantIn) delete br[o]; else br[o] = false;
-              nw.branches = br; state._retenWhatIf = nw; later(mountApp); } });
-            cb.checked = !isOff; cb.defaultChecked = !isOff;
-            return el('label', { class: 'flex items-center gap-2 text-[11px] cursor-pointer rounded px-1' + (isOff ? '' : ' font-semibold'), style: isOff ? { color: 'var(--text-subtle)' } : { color: 'var(--text)' }, onclick: (e) => e.stopPropagation() },
-              cb, el('span', { class: 'flex-1 truncate' }, o, isOff ? el('span', { style: { color: 'var(--accent)' } }, ' *') : null),
-              el('span', { class: 'tabular-nums', style: { color: 'var(--text-subtle)' } }, n(counts.get(o))));
-          }));
-        const quick = el('div', { class: 'flex items-center gap-2 mt-2' },
-          ...[['All in', () => { const nw = { ...(state._retenWhatIf || {}) }; delete nw.branches; state._retenWhatIf = nw; later(mountApp); }],
-              ['None', () => { const nw = { ...(state._retenWhatIf || {}) }; const br = {}; names.forEach(o => { br[o] = false; }); nw.branches = br; state._retenWhatIf = nw; later(mountApp); }]].map(([l, fn]) => el('button', { class: 'rounded-lg px-2 py-0.5 text-[10px] font-bold', style: { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }, onclick: (e) => { e.stopPropagation(); fn(); } }, l)));
-        node.children[1].append(listEl, quick);
+        node.children[1].append(el('div', { class: 'text-[11px] mt-1', style: { color: 'var(--text-muted)' } },
+          off.size ? 'Out: ' + [...off].join(', ') + ' — change it in the branch dropdown above.' : 'Every branch is in — pick branches in the 🏢 dropdown above.'));
       }
       return node;
     }),
