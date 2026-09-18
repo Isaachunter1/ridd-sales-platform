@@ -353,6 +353,32 @@
   /* Text helpers driven by CSS vars */
   .text-default  { color: var(--text); }
   .text-muted-   { color: var(--text-muted); }
+
+  /* ── Board dashboards (per Isaac, Sep 2026): the three Sales dashboards
+     (Office Staff / D2D / Technicians) wear the TV Display's look — Deck
+     2.0 dark surfaces, ember figures, Anton headlines, mono eyebrows —
+     regardless of the app theme. Scoped by re-pointing the tokens. */
+  .board-dash {
+    --bg: #0A0B0D; --bg-subtle: #14161A; --card: #14161A; --card-2: #1E2128;
+    --border: #2B2F38; --border-2: #3A3F4A; --text: #F4F6F8; --text-muted: #9AA2B1; --text-subtle: #6E7583;
+    --input-bg: #1E2128; --input-border: #3A3F4A; --accent: #FF5F2E; --accent-hover: #FF7A50; --accent-text: #FFFFFF;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow: 0 1px 3px rgba(0,0,0,.5); --shadow-lg: 0 16px 40px -12px rgba(0,0,0,.6);
+    background: var(--bg); color: var(--text);
+    padding: 16px; margin: -8px; border-radius: 6px;
+  }
+  .board-dash .card { background: var(--card); border-color: var(--border); color: var(--text); }
+  .board-dash h1, .board-dash h2, .board-dash h3, .board-dash .font-display {
+    font-family: var(--font-display); font-weight: 400 !important; text-transform: uppercase; letter-spacing: .02em;
+  }
+  .board-dash .kpi-multi .font-display { color: var(--accent); }
+  .board-dash .text-\[9px\], .board-dash .text-\[10px\].uppercase, .board-dash .uppercase.tracking-widest, .board-dash .uppercase.tracking-wider {
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .18em;
+  }
+  .board-dash select, .board-dash input, .board-dash button.border { background: var(--card-2); color: var(--text); border-color: var(--border-2); }
+  .board-dash thead th { color: var(--text-muted); }
+  .board-dash tr.border-t, .board-dash .border-t, .board-dash .border-b, .board-dash .border-l, .board-dash .border-r, .board-dash .border { border-color: var(--border); }
+  @media (max-width: 640px) { .board-dash { padding: 10px; margin: -8px; border-radius: 0; } }
+
   .text-subtle-  { color: var(--text-subtle); }
   .bg-card-      { background: var(--card); }
   .bg-card2-     { background: var(--card-2); }
