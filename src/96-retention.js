@@ -889,11 +889,6 @@ function reportingWaterfall() {
           pace != null && el('div', { class: 'text-[9px] font-bold', style: { opacity: '.75', marginTop: '1px' } },
             '→ ' + (pace * 100).toFixed(2) + '% pace'));
       });
-      // Seasonality signal: the month's average churn across the shown years.
-      const vals = yearsShown.map(y => (y === curY && m > curM) ? null : rateOf(y, m)).filter(v => v && v.den >= 25);
-      const avg = vals.length ? vals.reduce((a, v) => a + v.rate, 0) / vals.length : null;
-      cells.push(el('td', { class: 'px-2 py-1.5 tabular-nums font-bold', style: avg == null ? {} : { background: heat(avg), color: '#323230' } },
-        avg == null ? '—' : (avg * 100).toFixed(2) + '%'));
       return el('tr', { class: 'border-t border-' },
         el('td', { class: 'px-2.5 py-1.5 font-semibold' }, MONTHS_S[m - 1]), ...cells);
     };
@@ -959,8 +954,7 @@ function reportingWaterfall() {
         el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' },
           el('tr', {},
             el('th', { class: 'text-left px-2.5 py-2 font-semibold' }, 'Month'),
-            ...yearsShown.map(y => el('th', { class: 'text-left px-2 py-2 font-semibold' }, String(y))),
-            el('th', { class: 'text-left px-2 py-2 font-semibold' }, 'Avg'))),
+            ...yearsShown.map(y => el('th', { class: 'text-left px-2 py-2 font-semibold' }, String(y))))),
         el('tbody', {}, ...Array.from({ length: 12 }, (_, i) => monthRow(i + 1)),
           // ── TOTAL row (per Isaac): the year's monthly rates added up (≈ the
           // annual attrition the months compound to) with the cancels behind it.
@@ -970,15 +964,12 @@ function reportingWaterfall() {
               for (let m = 1; m <= 12; m++) { if (y === curY && m > curM) break; const v = rateOf(y, m); if (!v) continue; n += v.n; rate += v.rate; months++; }
               return months ? { n, rate, months, partial: y === curY } : null;
             });
-            const full = tot.filter(t => t && !t.partial && t.months === 12);
-            const avg = full.length ? full.reduce((a, t) => a + t.rate, 0) / full.length : null;
             return el('tr', { class: 'border-t-2', style: { borderColor: 'var(--border-2)', background: 'var(--card-2)' } },
               el('td', { class: 'px-2.5 py-2 font-black' }, 'Total'),
               ...tot.map((t, i) => t ? el('td', { class: 'px-2 py-2 tabular-nums font-black', title: MONTHS_S[0] + '–' + MONTHS_S[t.months - 1] + ' ' + yearsShown[i] + ': ' + fmt.int(t.n) + ' cancels · monthly rates added up' + (t.partial ? ' (year to date)' : '') },
                 (t.rate * 100).toFixed(1) + '%', el('span', { class: 'text-[9px] ml-1', style: { opacity: '.65' } }, '(' + fmt.int(t.n) + ')'),
                 t.partial ? el('div', { class: 'text-[9px] font-bold', style: { opacity: '.6', marginTop: '1px' } }, 'YTD') : null)
-                : el('td', { class: 'px-2 py-2', style: { color: 'var(--text-subtle)' } }, '—')),
-              el('td', { class: 'px-2 py-2 tabular-nums font-black', title: 'Average of the full years shown' }, avg == null ? '—' : (avg * 100).toFixed(1) + '%'));
+                : el('td', { class: 'px-2 py-2', style: { color: 'var(--text-subtle)' } }, '—')));
           })())));
     // ── TIMELINE — one continuous monthly churn line across all history,
     // draggable: grab the chart and pull forwards/backwards through time. ──
