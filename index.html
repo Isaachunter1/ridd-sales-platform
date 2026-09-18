@@ -290,6 +290,14 @@
     .sales-mode-btn { min-width: 0; padding-left: 6px !important; padding-right: 6px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* The view-as pill fits a phone: label wraps, button doesn't. */
     body > div[style*="bottom: 18px"] { max-width: calc(100vw - 24px); }
+  /* Card headers (title left, note/controls right) wrap instead of squeezing the title */
+  .card > div.flex.justify-between:first-child { flex-wrap: wrap; row-gap: 4px; }
+  .card > div.flex.justify-between:first-child > h3 { white-space: nowrap; }
+  /* D2D dashboard stat cards: 2x2 / stacked on phones — dividers follow the rows */
+  .kpi-multi { row-gap: 14px; }
+  .kpi-multi > div { border-left: 0 !important; }
+  .kpi-multi-4 > div:nth-child(even) { border-left: 1px solid var(--border) !important; }
+  .kpi-multi-3 > div + div { border-top: 1px solid var(--border); padding-top: 12px; }
   }
   /* Manage Teams on phones (per Isaac): rows wrap to two lines — name + chips
      on top, last-active / status / tier / team underneath — so the list only
@@ -389,6 +397,10 @@
     border: 1px solid var(--input-border) !important;
   }
   input::placeholder, textarea::placeholder { color: var(--text-subtle) !important; }
+  /* The login door (design kit): hairline underline, never a box — wins over the global input rule above */
+  input.door-field { background: transparent !important; color: #000 !important; border: 0 !important; border-bottom: 1px solid rgba(0,0,0,.3) !important; border-radius: 0 !important; box-shadow: none !important; }
+  input.door-field:focus { border-bottom-color: #000 !important; box-shadow: none !important; }
+  input.door-field::placeholder { color: rgba(0,0,0,.35) !important; }
   /* Competitions landing (poster card) */
   html:has(body.comp-landing), body.comp-landing { background: var(--accent); }
   /* The frosted top bar would tint peach over the orange landing — keep it

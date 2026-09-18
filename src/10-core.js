@@ -3705,7 +3705,7 @@ function mountAuth(opts = {}) {
   const DOOR = {
     label: 'block text-[11px] uppercase',
     labelStyle: { fontFamily: "'IBM Plex Mono', ui-monospace, monospace", letterSpacing: '.22em', color: 'rgba(0,0,0,.7)' },
-    field: 'w-full mt-2 pb-2 text-base',
+    field: 'door-field w-full mt-2 pb-2 text-base',
     fieldStyle: { border: 0, borderBottom: '1px solid rgba(0,0,0,.3)', background: 'transparent', color: '#000', outline: 'none', borderRadius: 0, fontFamily: 'Archivo, ui-sans-serif, system-ui, sans-serif' },
   };
   const form = el('form', {
