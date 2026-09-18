@@ -364,7 +364,7 @@ function openTvBoard() {
                 sep(), el('span', { style: { fontFamily: VOICE, fontWeight: 600, fontSize: 'clamp(12px, .95vw, 15px)', color: T.ink } }, (Number(s.contract_months) > 1 ? Number(s.contract_months) + ' MO' : 'ONE-TIME')),
                 src ? sep() : null, src ? el('span', { style: { fontFamily: MONO, fontSize: '11px', color: T.dim, letterSpacing: '.04em' } }, src) : null),
               el('div', { style: { fontFamily: MONO, fontSize: '10px', color: T.dim, letterSpacing: '.06em', marginTop: '2px', whiteSpace: 'nowrap' } }, at ? when(at) : '—')),
-            figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', i === 0 && fresh ? T.ember : T.ink));
+            figure(money(s.revenue_amount), 'clamp(17px, 1.5vw, 24px)', T.ink));
         }) : [el('div', { style: { fontFamily: MONO, color: T.dim, fontSize: '13px' } }, 'Nothing yet.')]))], { flex: '1' });
     const body = el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: '18px', padding: '20px 36px 24px', flex: '1', minHeight: '0' } },
       board,
