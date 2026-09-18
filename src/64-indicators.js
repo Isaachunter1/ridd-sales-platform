@@ -1357,7 +1357,7 @@ function viewIndicators() {
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
             onchange: (e) => { state._indMobileBranch = e.target.value; mountApp(); },
           },
-            el('option', { value: 'ridd', selected: chosen === 'ridd' }, 'RIDD \u00b7 company'),
+            el('option', { value: 'ridd', selected: chosen === 'ridd' }, 'RIDD'),
             ...sortedBranches.map(b => el('option', { value: b, selected: chosen === b }, _lblB(b) + (b === homeBranch ? ' \u00b7 mine' : ''))),
             el('option', { value: 'all', selected: chosen === 'all' }, 'All branches')));
         if (chosen === 'ridd') sortedBranches = [];
@@ -1366,7 +1366,10 @@ function viewIndicators() {
       return el('div', { class: 'card overflow-hidden' },
         _branchSel,
         el('div', { class: 'scroll-x' },
-          el('table', { class: 'w-full text-[12px]' },
+          // Real table display (the phone CSS turns card tables into blocks
+          // so they can scroll — that also stops them filling the width once
+          // there's only one branch column, per Isaac).
+          el('table', { class: 'w-full text-[12px]', style: { display: 'table', width: '100%' } },
             el('thead', {},
               el('tr', {},
                 el('th', { class: 'text-left px-3 py-2 text-[10px] uppercase tracking-wider text-muted- font-semibold sticky left-0', style: { background: 'var(--card)', zIndex: 2 } },
