@@ -4102,8 +4102,10 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
                       : { background: 'transparent', color: 'var(--text)' },
                     onclick: (e) => { e.stopPropagation(); state._indicatorRepTierFilter = p.id; mountApp(); },
                   }, p.label))));
-              // Team (admin roster tool — hidden from reps) + Office selects
-              const teamSel = isAdminRole(state.profile?.role) ? (() => {
+              // Team select: admins see every team; partners / team leads get
+              // it too (per Isaac, Sep 2026) so they can look at their own team.
+              const _teamSelOk = isAdminRole(state.profile?.role) || (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role));
+              const teamSel = _teamSelOk ? (() => {
                 const teams = distinctTeams().filter(t => !isTeamExcluded(t));
                 const hasUnassigned = _activeUnassignedTeam;
                 return el('select', {
