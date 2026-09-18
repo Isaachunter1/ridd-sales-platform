@@ -252,7 +252,7 @@ function viewD2dDashboard() {
   // ── Hero: Today · This Week · This Month · This Year — ONE combined
   // card with four stats side by side (per Isaac, same look as the Inside
   // Sales KPI cards) instead of four separate tiles. ──
-  const kpiMulti = (stats, cols) => el('div', { class: 'card p-4 sm:p-5 grid ' + (cols === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-4') },
+  const kpiMulti = (stats, cols) => el('div', { class: 'card p-4 sm:p-5 grid kpi-multi ' + (cols === 3 ? 'kpi-multi-3 grid-cols-1 sm:grid-cols-3' : 'kpi-multi-4 grid-cols-2 sm:grid-cols-4') },
     ...stats.map(([label, value, sub], i) => el('div', {
       class: 'min-w-0 flex flex-col justify-center px-2 sm:px-4 text-center' + (i > 0 ? ' border-l' : ''),
       style: i > 0 ? { borderColor: 'var(--border)' } : {},
