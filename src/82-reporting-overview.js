@@ -384,39 +384,72 @@ function reportingOverview() {
   // Pulse drill (per Isaac): not a row list — WHICH BRANCHES made the day and
   // how: dollars, share, subs, average per sub, the biggest single account and
   // (for churn) the top cancel reason; the account list is one click deeper.
-  const openPulseBranchDrill = (title, rowsIn, valOf, unit, isChurn) => {
-    const by = new Map();
-    for (const r of rowsIn) { const k = (r.office_name || '').trim() || 'Unassigned'; if (!by.has(k)) by.set(k, { rows: [], total: 0, reasons: new Map(), svc: new Map() }); const g = by.get(k); g.rows.push(r); g.total += valOf(r);
-      if (isChurn) { const re = reportingCancelReasonOf(r) || 'Unspecified'; g.reasons.set(re, (g.reasons.get(re) || 0) + 1); }
-      const sv = String(r.subscription || '').trim() || '—'; g.svc.set(sv, (g.svc.get(sv) || 0) + 1); }
-    const grand = rowsIn.reduce((a, r) => a + valOf(r), 0);
-    const list = [...by.entries()].sort((a, b) => b[1].total - a[1].total);
-    const top = (m) => { let k = null, n = 0; for (const [kk, v] of m) if (v > n) { k = kk; n = v; } return k ? k + ' (' + n + ')' : '—'; };
+  // Daily pulse drill (per Isaac, Sep 2026): one modal for the whole day —
+  // Sold, Serviced and Churned side by side in a summary strip, then a
+  // by-branch table for whichever of the three is selected. Opens on the
+  // series that was clicked, switches without closing.
+  const openPulseDayDrill = (dayLabel, longDate, sets, initialKind) => {
+    const KINDS = {
+      sold: { label: 'Sold',     unit: 'contract value', col: 'Sold', color: 'var(--accent)', valOf: (r) => Number(r.subscription_contract_value) || 0, extra: 'Top service' },
+      svc:  { label: 'Serviced', unit: 'ARR',            col: 'ARR',  color: '#5F6C5B',       valOf: (r) => Number(r.annual_recurring_value) || 0,      extra: 'Top service' },
+      cxl:  { label: 'Churned',  unit: 'ARR',            col: 'ARR',  color: '#DC2626',       valOf: (r) => Number(r.annual_recurring_value) || 0,      extra: 'Top reason' },
+    };
+    const totalOf = (k) => (sets[k] || []).reduce((a, r) => a + KINDS[k].valOf(r), 0);
+    let kind = KINDS[initialKind] ? initialKind : 'sold';
     const overlay = el('div', { class: 'modal-overlay' });
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     const th = (t, right) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (right ? 'text-right' : 'text-left'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' } }, t);
     const td = (t, o = {}) => el('td', { class: 'px-3 py-2 whitespace-nowrap tabular-nums ' + (o.right ? 'text-right' : 'text-left') + (o.bold ? ' font-black' : '') }, t);
-    const row = (k, g, bold) => el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95' + (bold ? ' font-bold' : ''), style: { borderColor: bold ? 'var(--border-2)' : 'var(--border)', background: bold ? 'var(--card-2)' : '' }, title: 'Click for the accounts',
-      onclick: () => openReportingDrillModal({ chartTitle: 'Daily pulse · ' + title + ' · ' + k, sliceLabel: g.rows.length.toLocaleString() + ' subscription' + (g.rows.length === 1 ? '' : 's') + ' · ' + fmt.usd0(g.total), rows: g.rows, formatValue: fmt.usd0 }) },
-      td(k, { bold }),
-      td(fmt.usd0(g.total), { right: true, bold: true }),
-      td(grand ? (g.total / grand * 100).toFixed(1) + '%' : '—', { right: true }),
-      el('td', { class: 'px-3 py-2', style: { minWidth: '120px' } }, el('div', { style: { height: '6px', background: 'var(--card-2)' } }, el('div', { style: { height: '100%', width: (grand ? g.total / grand * 100 : 0) + '%', background: isChurn ? '#DC2626' : 'var(--accent)' } }))),
-      td(fmt.int(g.rows.length), { right: true }),
-      td(g.rows.length ? fmt.usd0(g.total / g.rows.length) : '—', { right: true }),
-      td(fmt.usd0(Math.max(0, ...g.rows.map(valOf))), { right: true }),
-      td(isChurn ? top(g.reasons) : top(g.svc)));
-    const all = { rows: rowsIn, total: grand, reasons: new Map(), svc: new Map() };
-    for (const [, g] of by) { for (const [k, v] of g.reasons) all.reasons.set(k, (all.reasons.get(k) || 0) + v); for (const [k, v] of g.svc) all.svc.set(k, (all.svc.get(k) || 0) + v); }
+    const top = (m) => { let k = null, n = 0; for (const [kk, v] of m) if (v > n) { k = kk; n = v; } return k ? k + ' (' + n + ')' : '—'; };
+    const body = el('div', { class: 'flex flex-col gap-3' });
+    const render = () => {
+      const K = KINDS[kind], rowsIn = sets[kind] || [], isChurn = kind === 'cxl';
+      const by = new Map();
+      for (const r of rowsIn) { const k = (r.office_name || '').trim() || 'Unassigned'; if (!by.has(k)) by.set(k, { rows: [], total: 0, reasons: new Map(), svc: new Map() }); const g = by.get(k); g.rows.push(r); g.total += K.valOf(r);
+        if (isChurn) { const re = reportingCancelReasonOf(r) || 'Unspecified'; g.reasons.set(re, (g.reasons.get(re) || 0) + 1); }
+        const sv = String(r.subscription || '').trim() || '—'; g.svc.set(sv, (g.svc.get(sv) || 0) + 1); }
+      const grand = rowsIn.reduce((a, r) => a + K.valOf(r), 0);
+      const list = [...by.entries()].sort((a, b) => b[1].total - a[1].total);
+      const all = { rows: rowsIn, total: grand, reasons: new Map(), svc: new Map() };
+      for (const [, g] of by) { for (const [k, v] of g.reasons) all.reasons.set(k, (all.reasons.get(k) || 0) + v); for (const [k, v] of g.svc) all.svc.set(k, (all.svc.get(k) || 0) + v); }
+      const row = (k, g, bold) => el('tr', { class: 'border-t cursor-pointer transition hover:brightness-95' + (bold ? ' font-bold' : ''), style: { borderColor: bold ? 'var(--border-2)' : 'var(--border)', background: bold ? 'var(--card-2)' : '' }, title: 'Click for the accounts',
+        onclick: () => openReportingDrillModal({ chartTitle: 'Daily pulse · ' + K.label + ' · ' + dayLabel + ' · ' + k, sliceLabel: g.rows.length.toLocaleString() + ' subscription' + (g.rows.length === 1 ? '' : 's') + ' · ' + fmt.usd0(g.total), rows: g.rows, formatValue: fmt.usd0 }) },
+        td(k, { bold }),
+        td(fmt.usd0(g.total), { right: true, bold: true }),
+        td(grand ? (g.total / grand * 100).toFixed(1) + '%' : '—', { right: true }),
+        el('td', { class: 'px-3 py-2', style: { minWidth: '120px' } }, el('div', { style: { height: '6px', background: 'var(--card-2)' } }, el('div', { style: { height: '100%', width: (grand ? g.total / grand * 100 : 0) + '%', background: K.color } }))),
+        td(fmt.int(g.rows.length), { right: true }),
+        td(g.rows.length ? fmt.usd0(g.total / g.rows.length) : '—', { right: true }),
+        td(fmt.usd0(Math.max(0, ...g.rows.map(K.valOf))), { right: true }),
+        td(isChurn ? top(g.reasons) : top(g.svc)));
+      // summary strip — the three series for the day, each one a switch
+      const tile = (k) => { const K2 = KINDS[k], n = (sets[k] || []).length, on = k === kind; return el('button', {
+        class: 'text-left rounded-lg px-3 py-2 transition hover:brightness-95 flex-1',
+        style: { minWidth: '140px', background: on ? 'var(--card-2)' : 'transparent', border: '1px solid ' + (on ? K2.color : 'var(--border)'), boxShadow: on ? 'inset 0 0 0 1px ' + K2.color : 'none' },
+        onclick: () => { kind = k; render(); } },
+        el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: K2.color } }, K2.label + (k === 'sold' ? ' · contract value' : ' · ARR')),
+        el('div', { class: 'text-lg font-black tabular-nums leading-tight' }, fmt.usd0(totalOf(k))),
+        el('div', { class: 'text-[10px] text-muted-' }, fmt.int(n) + ' subscription' + (n === 1 ? '' : 's'))); };
+      const net = totalOf('svc') - totalOf('cxl');
+      const netTile = el('div', { class: 'text-left rounded-lg px-3 py-2 flex-1', style: { minWidth: '140px', border: '1px dashed var(--border-2)' }, title: 'ARR that started service today minus ARR that cancelled today' },
+        el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Net ARR · serviced − churned'),
+        el('div', { class: 'text-lg font-black tabular-nums leading-tight', style: { color: net >= 0 ? '#5F6C5B' : '#DC2626' } }, (net < 0 ? '−' : '+') + fmt.usd0(Math.abs(net))),
+        el('div', { class: 'text-[10px] text-muted-' }, 'for the day'));
+      body.replaceChildren(
+        el('div', { class: 'flex gap-2 flex-wrap' }, tile('sold'), tile('svc'), tile('cxl'), netTile),
+        el('div', { class: 'text-[11px] text-muted-' }, K.label + ': ' + fmt.usd0(grand) + ' of ' + K.unit + ' across ' + fmt.int(rowsIn.length) + ' subscription' + (rowsIn.length === 1 ? '' : 's') + ' in ' + list.length + ' branch' + (list.length === 1 ? '' : 'es') + ' · click a branch for the accounts'),
+        !rowsIn.length ? el('div', { class: 'p-6 text-center text-xs text-muted-' }, 'Nothing ' + K.label.toLowerCase() + ' on this day.') :
+        el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
+          el('thead', {}, el('tr', {}, th('Branch'), th(K.col, true), th('Share', true), th(''), th('Subs', true), th('Avg / sub', true), th('Largest', true), th(K.extra))),
+          el('tbody', {}, ...list.map(([k, g]) => row(k, g, false)), row('RIDD · Total', all, true)))));
+    };
+    render();
     overlay.append(el('div', { class: 'card p-5 flex flex-col gap-3', style: { width: 'min(980px, 94vw)', maxHeight: '88vh', overflow: 'auto' } },
       el('div', { class: 'flex items-start justify-between gap-3' },
         el('div', {}, el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Daily pulse · by branch'),
-          el('div', { class: 'text-lg font-black' }, title),
-          el('div', { class: 'text-[11px] text-muted-' }, fmt.usd0(grand) + ' of ' + unit + ' across ' + fmt.int(rowsIn.length) + ' subscription' + (rowsIn.length === 1 ? '' : 's') + ' in ' + list.length + ' branch' + (list.length === 1 ? '' : 'es') + ' · click a branch for the accounts')),
-        el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '\u00d7')),
-      el('div', { class: 'scroll-x' }, el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
-        el('thead', {}, el('tr', {}, th('Branch'), th(unit === 'ARR' ? 'ARR' : 'Sold', true), th('Share', true), th(''), th('Subs', true), th('Avg / sub', true), th('Largest', true), th(isChurn ? 'Top reason' : 'Top service'))),
-        el('tbody', {}, ...list.map(([k, g]) => row(k, g, false)), row('RIDD · Total', all, true))))));
+          el('div', { class: 'text-lg font-black' }, longDate || dayLabel)),
+        el('button', { class: 'text-xl leading-none', onclick: () => overlay.remove() }, '×')),
+      body));
     document.body.append(overlay);
   };
   const pulseCard = (() => {
@@ -450,6 +483,8 @@ function reportingOverview() {
       if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
       const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
       const lbl = days.map(d => { const dt = new Date(d + 'T00:00'); return (dt.getMonth() + 1) + '/' + dt.getDate(); });
+      // Long-form date (per Isaac): "Wednesday, September 6th, 2026" — tooltip title and the drill header.
+      const longDate = (i) => { const dt = new Date(days[i] + 'T00:00'); const n = dt.getDate(); const sfx = (n % 10 === 1 && n !== 11) ? 'st' : (n % 10 === 2 && n !== 12) ? 'nd' : (n % 10 === 3 && n !== 13) ? 'rd' : 'th'; return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long' }) + ' ' + n + sfx + ', ' + dt.getFullYear(); };
       _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
         data: { labels: lbl, datasets: [
           { type: 'bar', label: 'Sold', data: sold, backgroundColor: C.sold, borderWidth: 0, order: 3 },
@@ -460,15 +495,13 @@ function reportingOverview() {
           onClick: (evt, els) => {
             if (!els || !els.length) return;
             const i = els[0].index, dsi = els[0].datasetIndex;
-            const set = dsi === 0 ? soldRows[i] : dsi === 1 ? svcRows[i] : cxlRows[i];
-            const what = dsi === 0 ? 'Sold' : dsi === 1 ? 'Serviced (first initial)' : 'Churned';
-            const valOf = dsi === 0 ? (r) => Number(r.subscription_contract_value) || 0 : (r) => Number(r.annual_recurring_value) || 0;
-            if (set.length) openPulseBranchDrill(what + ' · ' + lbl[i], set, valOf, dsi === 0 ? 'contract value' : 'ARR', dsi === 2);
+            if (!soldRows[i].length && !svcRows[i].length && !cxlRows[i].length) return;
+            openPulseDayDrill(lbl[i], longDate(i), { sold: soldRows[i], svc: svcRows[i], cxl: cxlRows[i] }, dsi === 0 ? 'sold' : dsi === 1 ? 'svc' : 'cxl');
           },
           plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } },
             tooltip: { callbacks: {
               // Long-form date in the tooltip title (per Isaac): "Wednesday, September 6th, 2026".
-              title: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; if (i < 0) return ''; const dt = new Date(days[i] + 'T00:00'); const n = dt.getDate(); const sfx = (n % 10 === 1 && n !== 11) ? 'st' : (n % 10 === 2 && n !== 12) ? 'nd' : (n % 10 === 3 && n !== 13) ? 'rd' : 'th'; return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long' }) + ' ' + n + sfx + ', ' + dt.getFullYear(); },
+              title: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; return i < 0 ? '' : longDate(i); },
               label: (c) => ' ' + c.dataset.label + ': $' + Math.round(c.parsed.y).toLocaleString() } } },
           scales: { x: { ticks: { color: txt, maxTicksLimit: span > 30 ? 15 : 31 }, grid: { display: false } },
                     y: { beginAtZero: true, ticks: { color: txt, callback: v => '$' + (v >= 1000 ? Math.round(v / 1000) + 'k' : v) }, grid: { color: grid } } } },
