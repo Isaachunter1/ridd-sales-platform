@@ -351,9 +351,85 @@ function reportingOverview() {
         ...chartDefs.filter(def => !usedChartIds.has(def.id)).map(def => makeCard(def, dataA, 'a')),
       );
 
+  // ── DAILY PULSE (per Isaac, Sep 2026): what the business did each day —
+  // revenue SOLD (contract value by sold date), NEW revenue SERVICED (ARV of
+  // subs whose initial service was completed that day) and revenue CHURNED
+  // (ARV of counted cancels by cancel date). Office scope follows the tab;
+  // the window is the card's own (7 / 30 / 90 days) so the Time range
+  // picker above doesn't collapse it. Bars = sold, lines = serviced / churned.
+  const pulseCard = (() => {
+    const span = [7, 30, 90].includes(Number(state._rtPulseSpan)) ? Number(state._rtPulseSpan) : 30;
+    const rows = reportingFilterByOffice(scope.visible, office);
+    const { isRealCancel } = reportingFilters();
+    const today = new Date();
+    const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const days = [];
+    for (let i = span - 1; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(iso(d)); }
+    const idx = new Map(days.map((d, i) => [d, i]));
+    const sold = new Array(span).fill(0), serviced = new Array(span).fill(0), churned = new Array(span).fill(0);
+    const soldRows = days.map(() => []), svcRows = days.map(() => []), cxlRows = days.map(() => []);
+    for (const r of rows) {
+      const sd = String(r.sold_date || '').slice(0, 10);
+      if (idx.has(sd)) { const i = idx.get(sd); sold[i] += Number(r.subscription_contract_value) || 0; soldRows[i].push(r); }
+      const initDone = String(r.initial_status || '').toLowerCase() === 'completed' || !!r.initial_serviced_date;
+      const svd = initDone ? String(r.initial_serviced_date || r.initial_service || '').slice(0, 10) : '';
+      if (svd && idx.has(svd)) { const i = idx.get(svd); serviced[i] += Number(r.annual_recurring_value) || 0; svcRows[i].push(r); }
+      const cd = String(r.subscription_date_canceled || '').slice(0, 10);
+      if (cd && idx.has(cd) && isRealCancel(r)) { const i = idx.get(cd); churned[i] += Number(r.annual_recurring_value) || 0; cxlRows[i].push(r); }
+    }
+    const sum = (a) => a.reduce((x, y) => x + y, 0);
+    const id = 'rptPulse' + (office !== 'all' ? '_' + String(office).replace(/\W/g, '') : '');
+    const cvsWrap = el('div', { style: { position: 'relative', height: '260px', width: '100%' } }, el('canvas', { id }));
+    const isDark = state.theme === 'dark';
+    const C = { sold: '#DF643A', svc: '#5F6C5B', cxl: '#DC2626' };
+    setTimeout(() => {
+      if (typeof Chart === 'undefined') return;
+      const cvsEl = document.getElementById(id); if (!cvsEl) return;
+      if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
+      const txt = isDark ? '#C9C9BE' : '#555', grid = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)';
+      const lbl = days.map(d => { const dt = new Date(d + 'T00:00'); return (dt.getMonth() + 1) + '/' + dt.getDate(); });
+      _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
+        data: { labels: lbl, datasets: [
+          { type: 'bar', label: 'Sold', data: sold, backgroundColor: C.sold, borderWidth: 0, order: 3 },
+          { type: 'line', label: 'Serviced (new ARR)', data: serviced, borderColor: C.svc, backgroundColor: C.svc, borderWidth: 2, tension: 0.3, pointRadius: 2, order: 1 },
+          { type: 'line', label: 'Churned (ARR)', data: churned, borderColor: C.cxl, backgroundColor: C.cxl, borderWidth: 2, tension: 0.3, pointRadius: 2, order: 2 },
+        ] },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          onClick: (evt, els) => {
+            if (!els || !els.length) return;
+            const i = els[0].index, dsi = els[0].datasetIndex;
+            const set = dsi === 0 ? soldRows[i] : dsi === 1 ? svcRows[i] : cxlRows[i];
+            const what = dsi === 0 ? 'Sold' : dsi === 1 ? 'Serviced (first initial)' : 'Churned';
+            if (set.length) openReportingDrillModal({ chartTitle: 'Daily pulse · ' + what + ' · ' + lbl[i], sliceLabel: set.length.toLocaleString() + ' subscription' + (set.length === 1 ? '' : 's'), rows: set, formatValue: fmt.usd0 });
+          },
+          plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } },
+            tooltip: { callbacks: { label: (c) => ' ' + c.dataset.label + ': $' + Math.round(c.parsed.y).toLocaleString() } } },
+          scales: { x: { ticks: { color: txt, maxTicksLimit: span > 30 ? 15 : 31 }, grid: { display: false } },
+                    y: { beginAtZero: true, ticks: { color: txt, callback: v => '$' + (v >= 1000 ? Math.round(v / 1000) + 'k' : v) }, grid: { color: grid } } } },
+      });
+    }, 50);
+    const stat = (label, v, color) => el('div', { class: 'text-right' },
+      el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
+      el('div', { class: 'text-base font-black tabular-nums', style: { color } }, fmt.usd0(v)));
+    return el('div', { class: 'card p-4' },
+      el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-2' },
+        el('div', {},
+          el('h3', { class: 'text-sm font-bold' }, 'Daily Pulse' + (office !== 'all' ? ' · ' + officeLabel(office) : '')),
+          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Each day: contract value SOLD (bars) · ARR of accounts that received their first service (green) · ARR that CHURNED (red). Click a bar or point for the accounts.')),
+        el('div', { class: 'flex items-center gap-4 flex-wrap' },
+          stat('Sold · ' + span + 'd', sum(sold), C.sold), stat('Serviced', sum(serviced), C.svc), stat('Churned', sum(churned), C.cxl),
+          el('select', {
+            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+            onchange: (e) => { state._rtPulseSpan = Number(e.target.value); mountApp(); },
+          }, ...[[7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days']].map(([v, l]) => el('option', { value: String(v), selected: span === v }, l))))),
+      cvsWrap);
+  })();
+
   return el('div', { class: 'flex flex-col gap-4' },
     filterBar,
     statsBlock,
+    pulseCard,
     columnsBlock,
     chartGrid,
   );
