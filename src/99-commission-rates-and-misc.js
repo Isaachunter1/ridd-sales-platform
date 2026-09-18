@@ -1875,9 +1875,6 @@ function adminReps() {
         onclick: () => { state._adminUserActiveFilter = t.id; mountApp(); },
       }, el('span', {}, t.label),
         el('span', { class: 'text-[10px] tabular-nums px-1.5 py-0.5 rounded', style: activeFilter === t.id ? { background: 'rgba(0,0,0,.15)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)' } }, t.count.toLocaleString())))),
-    _newUserBtn,
-    _filtersWrap,
-    _eyeWrap,
     el('input', {
       id: 'admin-user-search',
       class: 'rounded-xl border px-2.5 py-1 text-[11px] flex-1 min-w-0', style: { borderColor: 'var(--border-2)', minWidth: '180px' },
@@ -1897,7 +1894,9 @@ function adminReps() {
           if (inp) { inp.focus(); const n = inp.value.length; try { inp.setSelectionRange(n, n); } catch (err) { /* non-text input */ } }
         }, 200);
       },
-    })));
+    }),
+    // Right-hand cluster (per Isaac): search sits left, actions pinned right.
+    el('div', { class: 'flex items-center gap-2 shrink-0 ml-auto' }, _newUserBtn, _filtersWrap, _eyeWrap)));
 
   // ── Build the filtered, capped list for this tab ──
   let list = inTab;
