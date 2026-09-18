@@ -4644,7 +4644,7 @@ function openIndicatorRepCard(rep, allReps = []) {
                   onclick: c > 0 ? () => openChartDrill(['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays'][i], _salesOnDow(i)) : undefined,
                 },
                   el('div', { class: 'text-[9px] text-muted- font-semibold' }, dowLabels[i]),
-                  el('div', { class: 'text-[10px] tabular-nums font-semibold' }, c),
+                  el('div', { class: 'text-[10px] tabular-nums font-semibold', style: { minWidth: '0', maxWidth: '100%', overflow: 'hidden', textOverflow: 'clip' } }, c),
                 )),
               ),
             ),
@@ -4659,8 +4659,11 @@ function openIndicatorRepCard(rep, allReps = []) {
     for (let h = tr.firstHour; h <= tr.lastHour; h++) visible.push({ hour: h, count: tr.hours[h], revenue: tr.hoursRev[h] });
     const max = Math.max(1, ...visible.map(v => v.count));
     const accent = 'var(--accent)';
+    // Phones: 16+ hour columns can't each carry a 3-digit count, so the
+    // labels thin out (every other hour) and the counts ride the tap tooltip.
+    const _phoneH = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
 
-    return el('div', { class: 'rounded-lg border p-4 mb-5', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+    return el('div', { class: 'rounded-lg border p-4 mb-5', style: { borderColor: 'var(--border)', background: 'var(--card-2)', overflow: 'hidden' } },
       el('div', { class: 'flex items-center justify-between mb-3 flex-wrap gap-2' },
         el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Power Hour · Sales by Hour of Day'),
       ),
@@ -4690,12 +4693,13 @@ function openIndicatorRepCard(rep, allReps = []) {
               }),
             ),
             el('div', { class: 'flex gap-1 mt-1.5' },
-              ...visible.map(v => el('div', {
+              ...visible.map((v, i) => el('div', {
                 class: 'flex-1 flex flex-col items-center' + (v.count > 0 ? ' cursor-pointer' : ''),
+                style: { minWidth: '0', overflow: 'hidden' },
                 onclick: v.count > 0 ? () => openChartDrill(_fmtHourLabel(v.hour) + '–' + _fmtHourLabel((v.hour + 1) % 24), _salesAtHour(v.hour)) : undefined,
               },
-                el('div', { class: 'text-[9px] text-muted- font-semibold' }, _fmtHourLabel(v.hour)),
-                el('div', { class: 'text-[10px] tabular-nums font-semibold' }, v.count),
+                el('div', { class: 'text-[9px] text-muted- font-semibold', style: { fontSize: _phoneH ? '8px' : '' } }, (_phoneH && i % 2) ? '\u00a0' : _fmtHourLabel(v.hour)),
+                _phoneH ? null : el('div', { class: 'text-[10px] tabular-nums font-semibold' }, v.count),
               )),
             ),
           ),
@@ -4749,6 +4753,7 @@ function openIndicatorRepCard(rep, allReps = []) {
     // turn into giant squares — a 28-44px range keeps it scannable on both
     // narrow modals and full-width layouts.
     const gridCols = '36px repeat(' + hourCols.length + ', minmax(0, 1fr))';
+    const _phoneHm = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
     return el('div', { class: 'rounded-lg border p-4 mb-5', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
       el('div', { class: 'flex items-center justify-between mb-3 flex-wrap gap-2' },
         el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold' }, 'Time of day'),
@@ -4764,9 +4769,10 @@ function openIndicatorRepCard(rep, allReps = []) {
         // rows so labels line up with their column on every viewport width).
         el('div', { style: { display: 'grid', gridTemplateColumns: gridCols, gap: '2px' } },
           el('div', {}),
-          ...hourCols.map(h => el('div', {
+          ...hourCols.map((h, i) => el('div', {
             class: 'text-[9px] text-muted- font-semibold text-center',
-          }, _fmtHourLabel(h))),
+            style: { minWidth: '0', overflow: 'hidden', fontSize: _phoneHm ? '8px' : '' },
+          }, (_phoneHm && i % 2) ? '\u00a0' : _fmtHourLabel(h))),
         ),
         // Day rows
         ...dayLabels.map((dayLabel, dow) => el('div', {
@@ -5381,7 +5387,9 @@ function openRepProfileModal(repId) {
   const ytdSales = repSales.filter(s => !EXCLUDE.has(s.audit_status) && new Date(s.sold_date + 'T00:00') >= new Date(new Date().getFullYear(), 0, 1));
   const ytdRevenue = ytdSales.reduce((a, s) => a + Number(s.revenue_amount || 0), 0);
 
-  const modal = el('div', { class: 'card w-full max-w-2xl p-6 my-8 overflow-y-auto', style: { maxHeight: 'calc(100vh - 64px)' } },
+  // overflow-x clipped (per Isaac): a wide block inside must never let the
+  // whole card pan sideways on a phone.
+  const modal = el('div', { class: 'card w-full max-w-2xl p-6 my-8 overflow-y-auto', style: { maxHeight: 'calc(100vh - 64px)', overflowX: 'hidden' } },
     // Header
     el('div', { class: 'flex items-center justify-between mb-5' },
       el('button', { class: 'text-xs text-muted- hover:text-default transition', onclick: () => overlay.remove() }, '← Back'),
