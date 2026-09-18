@@ -3785,7 +3785,8 @@ function viewNrlaPublic() {
           box.append(eyebrow((running.length ? '03 / ' : '02 / ') + 'All competitions'), el('div', { class: 'flex flex-wrap items-stretch gap-2 mt-4' },
             el('select', {
               class: 'px-4 text-[13px] font-bold cursor-pointer',
-              style: { ...mono, borderRadius: '0', background: '#111', color: 'var(--accent)', border: '2px solid #111', minWidth: '240px', height: '46px' },
+              // Phones: the picker flexes so Open + ★ stay on the same row (per Isaac).
+              style: { ...mono, borderRadius: '0', background: '#111', color: 'var(--accent)', border: '2px solid #111', minWidth: '0', flex: '1 1 140px', maxWidth: '100%', height: '46px' },
               onchange: (e) => { state._compsLandingPick = e.target.value; mountApp(); },
             }, ...landingComps.map(c => el('option', { value: c.id, selected: c.id === pickId }, (isFav(c) ? '\u2605 ' : '') + c.name + (compRunningNow(c.id) ? ' \u00b7 live' : '')))),
             el('button', {

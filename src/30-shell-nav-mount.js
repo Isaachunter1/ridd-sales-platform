@@ -857,17 +857,8 @@ function mountApp() {
   // sticky implementation. Main gets a matching top-padding below so the
   // first view-content line starts under the header instead of being
   // hidden behind it.
-  const pageHeader = el('header', {
-    class: 'page-header px-4 sm:px-6 py-4',
-    style: { position: 'fixed', top: '0', left: '0', right: '0', zIndex: 30 },
-  },
-   el('div', { class: 'flex items-center justify-between gap-3 w-full max-w-[1600px] mx-auto' },
-    el('div', { class: 'flex items-center gap-3 relative min-w-0' },
-      gridBtn,
-      navMenu,
-      el('h1', { class: 'hb-topbar-title font-bold tracking-wider' }, TAB_TITLES[state.view] || (() => { const m = (window.RIDD_MODULES || []).find(x => x.id === state.view); return m ? String(m.title || m.label || m.id).toUpperCase() : ''; })()),
-      // Freshness stamp — lives up here with the title on every data tab.
-      (() => {
+  // Freshness stamp — sits on the RIGHT beside the gear (per Isaac).
+  const syncStamp = (() => {
         // 'dashboard' (Sales War Room) + 'sales' joined the list now that the
         // Inside Sales queue is CRM-fed — the stamp says how live it is.
         // Shown on EVERY tab (per Isaac) — the whole app rides the same
@@ -885,19 +876,29 @@ function mountApp() {
         return txt ? el('span', {
           class: 'block text-[11px] whitespace-nowrap cursor-pointer truncate min-w-0',
           onclick: pullErr ? (() => { try { refreshIndicatorsFromCloud(true); toast('Retrying\u2026', 'success'); } catch (e) { /* poll retries */ } }) : undefined,
-          style: { color: c || 'var(--text-muted)', marginLeft: '10px', alignSelf: 'center', fontWeight: lvl === 'red' ? '700' : '' },
+          style: { color: c || 'var(--text-muted)', marginRight: '6px', alignSelf: 'center', textAlign: 'right', fontWeight: lvl === 'red' ? '700' : '' },
           title: pullErr ? 'THIS DEVICE can\u2019t reach the server (' + state._indPullError.msg + ') — showing older data. Tap to retry.'
             : lvl === 'red' ? 'Data is over 4 hours old during selling hours — multiple syncs have failed. Check /api/sync-status and Netlify logs.'
             : lvl === 'amber' ? 'Data is older than the hourly sync cadence — a run may have failed (check Netlify logs)'
             : 'Syncs land hourly on the hour, 8am–11pm ET',
         },
-          _phone ? 'Sync ' : 'Last sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, txt),
+          _phone ? 'Last sync ' : 'Last sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, txt),
           pullErr ? (_phone ? ' \u00b7 OFFLINE' : ' \u00b7 CAN\u2019T REACH SERVER') : lvl === 'red' ? ' \u00b7 SYNC DOWN' : lvl === 'amber' ? ' \u00b7 overdue' : '') : null;
-      })(),
+      })();
+  const pageHeader = el('header', {
+    class: 'page-header px-4 sm:px-6 py-4',
+    style: { position: 'fixed', top: '0', left: '0', right: '0', zIndex: 30 },
+  },
+   el('div', { class: 'flex items-center justify-between gap-3 w-full max-w-[1600px] mx-auto' },
+    el('div', { class: 'flex items-center gap-3 relative min-w-0' },
+      gridBtn,
+      navMenu,
+      el('h1', { class: 'hb-topbar-title font-bold tracking-wider' }, TAB_TITLES[state.view] || (() => { const m = (window.RIDD_MODULES || []).find(x => x.id === state.view); return m ? String(m.title || m.label || m.id).toUpperCase() : ''; })()),
     ),
     // (Top-bar customer search retired — the Sales tab has its own search row, per Isaac.)
     el('div', { class: 'flex-1' }),
     el('div', { class: 'flex items-center gap-2' },
+      syncStamp,
       // (📣 Feedback · ✏️ Edit layout · 📺 TV · theme now live under the
       // ⚙ gear menu — the icon row was getting messy, per Isaac.)
       // Coach Mode icon — REMOVED from the top bar for now (per Isaac, Jul
