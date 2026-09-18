@@ -255,10 +255,45 @@ function viewTechs() {
     const sv = String(s.subscription || '').trim(); if (sv) t.svc[sv] = (t.svc[sv] || 0) + 1;
     t.rows.push(s);
   });
-  const board = [...byTech.values()].sort((a, b) => b.rev - a.rev);
-  board.forEach(t => { t.topSvc = Object.entries(t.svc).sort((x, y) => y[1] - x[1])[0]?.[0] || ''; });
-  const maxRev = board.length ? board[0].rev : 1;
   const _sig = (n) => String(n || '').toLowerCase().replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  // ── Route stats (per Isaac): jobs scheduled / completed / completion
+  // rate / production / reservices / interior / time on site, per tech in
+  // the range — from indicators/tech-stats.json.gz (hourly). Techs with a
+  // route but no upsell still make the board.
+  if (!state.techStats && typeof refreshTechStatsFromCloud === 'function') refreshTechStatsFromCloud();
+  const _ts = state.techStats || null;
+  const _startIso = range.start.toISOString().slice(0, 10), _endIso = range.end.toISOString().slice(0, 10);
+  const _todayIso = new Date().toISOString().slice(0, 10);
+  const routeByName = new Map();
+  (_ts ? _ts.rows : []).forEach(r => {
+    if (r.d < _startIso || r.d > _endIso) return;
+    const key = _sig(r.n);
+    const o = routeByName.get(key) || { name: r.n.replace(/\s+/g, ' ').trim(), office: (_ts.officeNames || {})[r.o] || '', sch: 0, done: 0, pend: 0, pastPend: 0, cxl: 0, prod: 0, prodn: 0, resvc: 0, init: 0, intr: 0, signed: 0, resched: 0, mins: 0, minsn: 0, days: new Set(), svc: {} };
+    o.sch += r.sch; o.done += r.done; o.pend += r.pend; if (r.d < _todayIso) o.pastPend += r.pend; o.cxl += r.cxl;
+    o.prod += r.prod; o.prodn += r.prodn; o.resvc += r.resvc; o.init += r.init; o.intr += r.intr; o.signed += r.signed; o.resched += r.resched;
+    if (r.mins != null) { o.mins += r.mins; o.minsn += r.minsn; }
+    if (r.done) o.days.add(r.d);
+    (r.svcs || []).forEach(sv => { o.svc[sv] = (o.svc[sv] || 0) + 1; });
+    routeByName.set(key, o);
+  });
+  routeByName.forEach((o, key) => {
+    let t = byTech.get([...byTech.keys()].find(k => _sig(k) === key));
+    if (!t) { t = { nm: o.name, n: 0, rev: 0, best: 0, office: o.office, svc: {}, rows: [] }; byTech.set(o.name, t); }
+    if (!t.office && o.office) t.office = o.office;
+    t.route = o;
+    if (!Object.keys(t.svc).length) t.svc = o.svc;
+  });
+  const board = [...byTech.values()].sort((a, b) => b.rev - a.rev || ((b.route ? b.route.prod : 0) - (a.route ? a.route.prod : 0)));
+  board.forEach(t => { t.topSvc = Object.entries(t.svc).sort((x, y) => y[1] - x[1])[0]?.[0] || ''; });
+  const maxRev = board.length ? Math.max(...board.map(t => t.rev)) || 1 : 1;
+  const R = [...routeByName.values()].reduce((a, o) => ({ sch: a.sch + o.sch, done: a.done + o.done, pastPend: a.pastPend + o.pastPend, prod: a.prod + o.prod, resvc: a.resvc + o.resvc, mins: a.mins + o.mins, minsn: a.minsn + o.minsn, techs: a.techs + (o.done ? 1 : 0) }), { sch: 0, done: 0, pastPend: 0, prod: 0, resvc: 0, mins: 0, minsn: 0, techs: 0 });
+  // Completion rate = completed ÷ (completed + still-pending jobs whose day
+  // has passed) — today's open jobs aren't misses yet.
+  const rateOf = (o) => { const base = o.done + (o.pastPend || 0); return base ? o.done / base : null; };
+  const pctS = (v) => v == null ? '—' : Math.round(v * 100) + '%';
+  const rateColor = (v) => v == null ? {} : v >= 0.95 ? { color: '#5F6C5B' } : v < 0.85 ? { color: '#DC2626' } : {};
+  const hasRoutes = routeByName.size > 0;
+  const tsAge = _ts && _ts.generatedAt ? Math.round((Date.now() - new Date(_ts.generatedAt).getTime()) / 60000) : null;
   const _profByName = new Map((state.allProfiles || []).filter(p => p && p.full_name).map(p => [_sig(p.full_name), p]));
   const meSig = _sig(state.profile?.full_name);
   const avatarFor = (nm, size) => {
@@ -300,11 +335,12 @@ function viewTechs() {
         el('div', { class: 'font-bold mt-2 truncate w-full' + (first ? ' text-base' : ' text-sm') }, t.nm),
         el('div', { class: 'text-[10px] text-muted- mt-0.5 truncate w-full' }, officeLabel(t.office) || '—'),
         el('div', { class: 'font-display tabular-nums mt-2 leading-none', style: { fontSize: first ? '30px' : '22px' } }, fmt.usd0(t.rev)),
-        el('div', { class: 'text-[11px] text-muted- tabular-nums mt-1' }, t.n + ' upsell' + (t.n === 1 ? '' : 's') + ' · ' + fmt.usd0(t.rev / t.n) + ' avg'));
+        el('div', { class: 'text-[11px] text-muted- tabular-nums mt-1' }, t.n + ' upsell' + (t.n === 1 ? '' : 's') + (t.n ? ' · ' + fmt.usd0(t.rev / t.n) + ' avg' : '')),
+        t.route ? el('div', { class: 'text-[10px] text-muted- tabular-nums mt-0.5' }, t.route.done + '/' + t.route.sch + ' jobs · ' + pctS(rateOf(t.route)) + (t.route.prod ? ' · ' + fmt.usd0(t.route.prod) + ' prod' : '')) : null);
     })));
   })() : null;
   const num = (v, cls, style) => el('td', { class: 'px-3 py-2.5 text-right tabular-nums whitespace-nowrap ' + (cls || ''), style: style || {} }, v);
-  const detailRow = (t) => el('tr', { style: { background: 'var(--card-2)' } }, el('td', { colspan: '7', class: 'px-4 py-2' },
+  const detailRow = (t) => el('tr', { style: { background: 'var(--card-2)' } }, el('td', { colspan: '13', class: 'px-4 py-2' },
     el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-1' }, t.nm + ' · ' + t.n + ' upsell' + (t.n === 1 ? '' : 's')),
     el('table', { class: 'w-full text-[12px]' },
       el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' }, el('tr', {},
@@ -329,8 +365,13 @@ function viewTechs() {
       rangeSel,
       configInfoBtn('Technicians data',
         'Live from FieldRoutes: every subscription with source "Upsell - Service Pro" (the technicians’ dedicated upsell source), refreshed by the hourly sync. Technicians ALSO log their upsells manually with the + button — the manual log is the commission record of the original deal, exactly like Inside Sales. Techs without app accounts still rank here under their CRM name.')),
+    hasRoutes ? el('div', { class: 'card p-4 sm:p-5 grid kpi-multi kpi-multi-4 grid-cols-2 sm:grid-cols-4', title: tsAge != null ? 'Route stats from FieldRoutes · refreshed ' + tsAge + ' min ago' : '' },
+      kpi('Jobs on Routes', fmt.int(R.sch), R.techs + ' tech' + (R.techs === 1 ? '' : 's') + ' completing'),
+      kpi('Completed', fmt.int(R.done), R.resvc ? R.resvc + ' reservice' + (R.resvc === 1 ? '' : 's') : ''),
+      kpi('Completion Rate', pctS(rateOf(R)), R.pastPend ? R.pastPend + ' still open past their day' : 'completed ÷ due'),
+      kpi('Production', fmt.usd0(R.prod), R.minsn ? Math.round(R.mins / R.minsn) + ' min avg on site' : '')) : null,
     el('div', { class: 'card p-4 sm:p-5 grid kpi-multi kpi-multi-4 grid-cols-2 sm:grid-cols-4' },
-      kpi('Upsells', fmt.int(inRange.length), board.length + ' tech' + (board.length === 1 ? '' : 's') + ' selling'),
+      kpi('Upsells', fmt.int(inRange.length), [...byTech.values()].filter(t => t.n > 0).length + ' tech' + ([...byTech.values()].filter(t => t.n > 0).length === 1 ? '' : 's') + ' selling'),
       kpi('Upsell Revenue', fmt.usd0(revenue)),
       kpi('Avg Upsell', inRange.length ? fmt.usd0(revenue / inRange.length) : '—'),
       kpi('Biggest Upsell', biggest ? fmt.usd0(Number(biggest.contractValue) || 0) : '—', biggest ? flipLastFirst(getCanonicalRepName(biggest.rep || '')) + ' · ' + String(biggest.subscription || '') : '')),
@@ -340,7 +381,7 @@ function viewTechs() {
         el('h2', { class: 'font-display text-lg' }, 'Service Pro Leaderboard'),
         el('span', { class: 'text-xs text-muted-' }, board.length + ' techs')),
       board.length === 0
-        ? el('div', { class: 'p-10 text-center text-sm text-muted-' }, 'No Service Pro upsells in this window yet — first one on the board takes #1.')
+        ? el('div', { class: 'p-10 text-center text-sm text-muted-' }, hasRoutes ? 'No routes or upsells in this window.' : 'No Service Pro upsells in this window yet — first one on the board takes #1.')
         : el('div', { class: phone ? '' : 'scroll-x', style: board.length > 6 ? { maxHeight: '440px', overflowY: 'auto' } : {} },
             el('table', { class: 'w-full text-[12px]' },
               el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '2' } },
@@ -349,9 +390,18 @@ function viewTechs() {
                   el('th', { class: 'text-left px-2 py-2' }, 'Technician'),
                   el('th', { class: 'text-right px-3 py-2' }, 'Upsells'),
                   el('th', { class: 'text-right px-3 py-2' }, 'Revenue'),
+                  ...(hasRoutes ? [
+                    el('th', { class: 'text-right px-3 py-2', title: 'Jobs on the tech’s routes in this range (scheduled + completed)' }, 'Jobs'),
+                    el('th', { class: 'text-right px-3 py-2', title: 'Completed · completion rate (today’s open jobs don’t count against it yet)' }, 'Done'),
+                  ] : []),
                   ...(phone ? [] : [
-                    el('th', { class: 'text-right px-3 py-2' }, 'Avg'),
-                    el('th', { class: 'text-right px-3 py-2' }, 'Biggest'),
+                    ...(hasRoutes ? [
+                      el('th', { class: 'text-right px-3 py-2', title: 'Production value of completed, productive jobs (reservices excluded)' }, 'Production'),
+                      el('th', { class: 'text-right px-3 py-2', title: 'Average minutes on site (check-in to check-out)' }, 'On Site'),
+                      el('th', { class: 'text-right px-3 py-2', title: 'Reservices completed' }, 'Resvc'),
+                      el('th', { class: 'text-right px-3 py-2', title: 'Completed jobs with the interior serviced' }, 'Interior'),
+                    ] : []),
+                    el('th', { class: 'text-right px-3 py-2' }, 'Avg Upsell'),
                     el('th', { class: 'text-left px-3 py-2' }, 'Top Service')]))),
               el('tbody', {},
                 ...board.slice(0, 50).flatMap((r, i) => {
@@ -367,13 +417,23 @@ function viewTechs() {
                       el('div', { class: 'min-w-0' },
                         el('div', { class: 'font-semibold whitespace-nowrap leading-tight' }, r.nm, isMe ? el('span', { class: 'text-[9px] font-bold uppercase tracking-wider ml-1.5 px-1.5 py-0.5 rounded', style: { background: 'var(--accent)', color: 'var(--accent-text)' } }, 'You') : null),
                         el('div', { class: 'text-[10px] text-muted- mt-0.5 whitespace-nowrap' }, officeLabel(r.office) || '—')))),
-                    num(fmt.int(r.n)),
+                    num(r.n ? fmt.int(r.n) : '—', r.n ? '' : 'text-muted-'),
                     el('td', { class: 'px-3 py-2 text-right tabular-nums whitespace-nowrap', style: { minWidth: '110px' } },
-                      el('div', { class: 'font-bold' }, fmt.usd0(r.rev)),
-                      el('div', { class: 'rounded-full mt-1 ml-auto', style: { height: '4px', width: Math.max(4, Math.round(r.rev / maxRev * 100)) + '%', background: 'var(--accent)', opacity: String(0.45 + 0.55 * (r.rev / maxRev)) } })),
+                      el('div', { class: r.rev ? 'font-bold' : 'text-muted-' }, r.rev ? fmt.usd0(r.rev) : '—'),
+                      r.rev ? el('div', { class: 'rounded-full mt-1 ml-auto', style: { height: '4px', width: Math.max(4, Math.round(r.rev / maxRev * 100)) + '%', background: 'var(--accent)', opacity: String(0.45 + 0.55 * (r.rev / maxRev)) } }) : null),
+                    ...(hasRoutes ? [
+                      num(r.route ? fmt.int(r.route.sch) : '—', r.route ? '' : 'text-muted-'),
+                      el('td', { class: 'px-3 py-2 text-right tabular-nums whitespace-nowrap' },
+                        r.route ? el('span', { class: 'font-semibold', style: rateColor(rateOf(r.route)) }, fmt.int(r.route.done) + ' · ' + pctS(rateOf(r.route))) : el('span', { class: 'text-muted-' }, '—')),
+                    ] : []),
                     ...(phone ? [] : [
-                      num(fmt.usd0(r.rev / r.n), 'text-muted-'),
-                      num(fmt.usd0(r.best), 'text-muted-'),
+                      ...(hasRoutes ? [
+                        num(r.route && r.route.prod ? fmt.usd0(r.route.prod) : '—', r.route && r.route.prod ? 'font-semibold' : 'text-muted-'),
+                        num(r.route && r.route.minsn ? Math.round(r.route.mins / r.route.minsn) + 'm' : '—', 'text-muted-'),
+                        num(r.route ? fmt.int(r.route.resvc) : '—', 'text-muted-'),
+                        num(r.route && r.route.done ? Math.round(r.route.intr / r.route.done * 100) + '%' : '—', 'text-muted-'),
+                      ] : []),
+                      num(r.n ? fmt.usd0(r.rev / r.n) : '—', 'text-muted-'),
                       el('td', { class: 'px-3 py-2 text-left text-muted- whitespace-nowrap overflow-hidden', style: { maxWidth: '200px', textOverflow: 'ellipsis' } }, r.topSvc || '—')])),
                     isOpen ? detailRow(r) : null].filter(Boolean);
                 }))))),

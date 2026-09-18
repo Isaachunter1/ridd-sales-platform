@@ -1608,3 +1608,6 @@ exports.handler = async (event) => {
     return { statusCode: 502, body: JSON.stringify({ ok: false, error: String((e && e.message) || e) }) };
   }
 };
+
+// Shared BigQuery plumbing for sibling workers (tech-stats-background).
+exports._bq = { getAccessToken, runQuery, PROJECT, DATASET };
