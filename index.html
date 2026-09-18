@@ -268,6 +268,16 @@
   button.rounded-xl.px-2\.5.py-1.text-\[11px\]:not(.w-full) {
     padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   }
+  /* Manage Teams on phones (per Isaac): rows wrap to two lines — name + chips
+     on top, last-active / status / tier / team underneath — so the list only
+     ever scrolls vertically. Never sideways. */
+  @media (max-width: 640px) {
+    #manage-reps-list { overflow-x: hidden !important; }
+    #manage-reps-list .mt-rep-row { flex-wrap: wrap; row-gap: 6px; padding-left: 12px !important; padding-right: 12px !important; }
+    #manage-reps-list .mt-rep-row > div:first-child { flex: 1 1 100%; min-width: 0; }
+    #manage-reps-list .mt-rep-controls { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-start; }
+    #manage-reps-list .mt-rep-controls select { max-width: 46%; }
+  }
   /* Pricing tab: phone = quote pinned on top, slick below (DOM order);
      desktop = slick column left, quote column right, quote sticky (per Isaac). */
   .pricing-layout { display: flex; flex-direction: column; max-width: 760px; }

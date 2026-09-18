@@ -712,7 +712,9 @@ function viewDashboard() {
             const projYear = seasonalPctBar > 0.02 ? bar.actual / seasonalPctBar : null;
             const monName = now2.toLocaleDateString('en-US', { month: 'short' });
             const _hit = (v, t) => v != null && t > 0 && v >= t;
-            const outlook = el('div', { class: 'flex items-center gap-x-3 gap-y-1 flex-wrap mt-1 text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } },
+            // Phones (per Isaac): the four outlook lines are too wordy — the
+            // bar, the %, the pace chip and the day goal carry the story there.
+            const outlook = el('div', { class: 'hidden sm:flex items-center gap-x-3 gap-y-1 flex-wrap mt-1 text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } },
               needMonth != null ? el('span', { title: fmt.usd0(Math.max(0, monTarget - mtdActual)) + ' left on ' + monName + ' (' + fmt.usd0(monTarget) + ' allocation, ' + fmt.usd0(mtdActual) + ' sold) ÷ ' + daysLeftM + ' selling days left this month' },
                 needMonth > 0 ? el('span', {}, 'Need ', el('b', { style: { color: bar.color } }, fmt.usd0(needMonth) + '/day'), ' rest of ' + monName) : el('span', {}, '✓ ' + monName + ' allocation hit')) : null,
               needYear != null ? el('span', { title: fmt.usd0(Math.max(0, bar.target - bar.actual)) + ' left on the annual goal ÷ ' + daysLeftY + ' selling days left this year' },

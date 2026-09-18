@@ -874,7 +874,7 @@ function manageTeamsPanel(opts) {
     );
 
     // Rep list (id is stable so we can preserve scroll position across re-renders)
-    const repList = el('div', { id: 'manage-reps-list', class: 'flex-1 overflow-y-auto' },
+    const repList = el('div', { id: 'manage-reps-list', class: 'flex-1 overflow-y-auto', style: { overflowX: 'hidden' } },
       ...(() => { const buildRow = (repName) => { const _ri = -1;
         // Divider between the untagged block on top and everyone else.
         const _divider = (_ri === state._mtUntaggedFirstCount && _ri > 0)
@@ -969,7 +969,7 @@ function manageTeamsPanel(opts) {
         const repType = repTypeOf(repName);
         return el('div', {
           'data-rep': repName.toLowerCase(),
-          class: 'flex items-center justify-between gap-3 px-5 py-2 border-b text-sm',
+          class: 'mt-rep-row flex items-center justify-between gap-3 px-5 py-2 border-b text-sm',
           style: {
             borderColor: 'var(--border)',
             opacity: isAlias ? '0.55' : (active ? '1' : '0.6'),
@@ -1011,7 +1011,7 @@ function manageTeamsPanel(opts) {
           ),
           // Aliased rows hide the editable controls — edits should
           // happen on the canonical rep instead.
-          el('div', { class: 'flex items-center gap-2 shrink-0' },
+          el('div', { class: 'mt-rep-controls flex items-center gap-2 shrink-0' },
             ...(isAlias
               ? [unmergeBtn]
               : [el('span', { class: 'text-[9px] whitespace-nowrap', style: { color: 'var(--text-subtle)' }, title: 'Last active — most recent sale in the dataset' }, 'Last active · ' + _fmtLast(_lastSaleOf(repName))),
