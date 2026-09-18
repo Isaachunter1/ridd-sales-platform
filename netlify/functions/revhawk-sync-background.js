@@ -245,6 +245,7 @@ SELECT
   SAFE_CAST(s.fieldRoutes_agreementLength AS INT64) AS agreement_length,
   SAFE_CAST(s.fieldRoutes_contractValue AS FLOAT64) AS subscription_contract_value,
   SAFE_CAST(s.fieldRoutes_initialServiceTotal AS FLOAT64) AS initial_price,
+  SAFE_CAST(s.fieldRoutes_recurringCharge AS FLOAT64) AS recurring_charge,
   s.fieldRoutes_frequency AS recurring_frequency,
   cust.phone AS phone,
   cust.email AS email,
