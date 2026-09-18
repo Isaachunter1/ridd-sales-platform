@@ -3686,6 +3686,144 @@ function canViewAggregate(reps) {
   if (!list.length) return false;
   return list.every(r => canViewRepDetails(r.name, r.team));
 }
+function _indAccountsTable(sales, sort, onSort, opts) {
+const showRep = !!(opts && opts.showRep);
+  // Sortable headers — click cycles desc → asc. State lives on the modal
+  // instance so it survives re-renders while the card is open.
+  const iso = (x) => (typeof dateSoldToIso === 'function' && dateSoldToIso(x.dateSold)) || '';
+  const SORTERS = {
+    customer:     (x) => (x.customer || '').toLowerCase(),
+    customerId:   (x) => Number(x.customerId) || 0,
+    subscription: (x) => (x.subscription || '').toLowerCase(),
+    value:        (x) => Number(x.contractValue) || 0,
+    autopay:      (x) => isAutoPayOn(x) ? 1 : 0,
+    status:       (x) => (x.status || '').toLowerCase(),
+    sold:         (x) => iso(x),
+    aged:         (x) => Number(x.age) || 0,
+    cancelDate:   (x) => x.cancelDate || '',
+    cancelReason: (x) => (x.cancelReason || '').toLowerCase(),
+    rep:          (x) => (typeof getCanonicalRepName === 'function' ? getCanonicalRepName(x.rep) : (x.rep || '')).toLowerCase(),
+  };
+  const keyFn = SORTERS[sort.key] || SORTERS.sold;
+  const dirMul = sort.dir === 'asc' ? 1 : -1;
+  const sorted = [...sales].sort((a, b) => {
+    const va = keyFn(a), vb = keyFn(b);
+    return (va < vb ? -1 : va > vb ? 1 : 0) * dirMul;
+  });
+  const hSort = (key, label, cls) => el('th', {
+    class: cls + ' cursor-pointer select-none hover:underline',
+    style: sort.key === key ? { color: 'var(--accent)', fontWeight: '800' } : {},
+    title: 'Sort by ' + label,
+    onclick: () => {
+      onSort({ key, dir: sort.key === key && sort.dir === 'desc' ? 'asc' : 'desc' });
+    },
+  }, label);
+  return el('div', { class: 'overflow-x-auto rounded border', style: { borderColor: 'var(--border)', background: 'var(--card)' } },
+    el('table', { class: 'w-full text-[11px]', style: { minWidth: '760px' } },
+      el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
+        el('tr', { style: { background: 'var(--card-2)' } },
+          showRep ? hSort('rep', 'Rep', 'text-left px-2 py-1.5 whitespace-nowrap') : null,
+          hSort('customer',     'Customer',      'text-left px-2 py-1.5 whitespace-nowrap'),
+          hSort('customerId',   'Cust ID',       'text-left px-2 py-1.5'),
+          hSort('subscription', 'Subscription',  'text-left px-2 py-1.5 whitespace-nowrap'),
+          hSort('value',        'Value',         'text-right px-2 py-1.5'),
+          hSort('autopay',      'Auto Pay',      'text-center px-2 py-1.5'),
+          hSort('status',       'Status',        'text-center px-2 py-1.5'),
+          hSort('sold',         'Sold',          'text-left px-2 py-1.5 whitespace-nowrap'),
+          hSort('aged',         'Aged',          'text-right px-2 py-1.5'),
+          hSort('cancelDate',   'Cancel Date',   'text-left px-2 py-1.5 whitespace-nowrap'),
+          hSort('cancelReason', 'Cancel Reason', 'text-left px-2 py-1.5'),
+        ),
+      ),
+      el('tbody', {},
+        ...sorted.map(s => {
+          // Tint counted cancels red so they stand out in the detail
+          // list; excluded rows (per the ROR toggle) stay neutral.
+          const cancelled = _repCancelCounts(s);
+          const on = isAutoPayOn(s);
+          return el('tr', {
+            class: 'border-t border-',
+            style: cancelled ? { background: 'rgba(220,38,38,.04)' } : {},
+          },
+            showRep ? el('td', { class: 'px-2 py-1.5 whitespace-nowrap text-muted-' }, (typeof getCanonicalRepName === 'function' ? getCanonicalRepName(s.rep) : s.rep) || '—') : null,
+            el('td', { class: 'px-2 py-1.5 font-medium whitespace-nowrap', title: s.customer || '' }, s.customer || '—'),
+            el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums' }, s.customerId || '—'),
+            el('td', { class: 'px-2 py-1.5 text-muted- max-w-[200px] truncate', title: s.subscription || '' }, s.subscription || '—'),
+            el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold' }, fmt.usd0(s.contractValue)),
+            el('td', { class: 'px-2 py-1.5 text-center' },
+              el('span', {
+                class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded',
+                style: on
+                  ? { background: 'rgba(223,100,58,.16)', color: '#DF643A' }
+                  : { background: 'rgba(220,38,38,.12)', color: '#B91C1C' },
+              }, on ? 'On' : 'Off'),
+            ),
+            el('td', { class: 'px-2 py-1.5 text-center' },
+              el('span', {
+                class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded',
+                style: cancelled
+                  ? { background: 'rgba(220,38,38,.12)', color: '#B91C1C' }
+                  : { background: 'rgba(223,100,58,.16)', color: '#DF643A' },
+              }, cancelled ? 'Cancelled' : 'Active'),
+            ),
+            el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || (s.dateSold || '—').split(' ')[0]),
+            // Days past due - the same field the Aging tile thresholds on,
+            // so the drill shows exactly how far gone each account is.
+            (() => {
+              const d = Number(s.age) || 0;
+              const hot = d >= ((typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7);
+              return el('td', { class: 'px-2 py-1.5 text-right tabular-nums' + (hot ? ' font-bold' : ''), style: hot ? { color: '#DC2626' } : { color: 'var(--text-muted)' } }, d > 0 ? d + 'd' : '—');
+            })(),
+            el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, s.cancelDate || '—'),
+            el('td', { class: 'px-2 py-1.5 text-muted-', style: { minWidth: '150px', maxWidth: '260px', whiteSpace: 'normal', lineHeight: '1.35' }, title: s.cancelReason || '' }, s.cancelReason || '—'),
+          );
+        }),
+      ),
+    ),
+  );
+}
+
+
+// Landing-card tile drill (partners / reps): a modal with the accounts behind
+// one tile, using the same sortable table as the player card's retention drills.
+function openLandingTileDrill(title, subtitle, rows, opts) {
+  let sort = { key: 'sold', dir: 'desc' };
+  const overlay = el('div', { class: 'modal-overlay', style: { zIndex: '1200' } });
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', key); };
+  const key = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', key);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const body = el('div', { style: { maxHeight: '70vh', overflowY: 'auto' } });
+  const paint = () => body.replaceChildren(rows.length
+    ? _indAccountsTable(rows, sort, (st) => { sort = st; paint(); }, opts)
+    : el('div', { class: 'p-6 text-center text-xs text-muted- italic' }, 'No accounts in this bucket.'));
+  paint();
+  const csv = () => {
+    try {
+      const cols = ['Rep', 'Customer', 'Cust ID', 'Subscription', 'Value', 'Auto Pay', 'Status', 'Sold', 'Aged', 'Cancel Date', 'Cancel Reason'];
+      const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      const lines = [cols.map(q).join(',')].concat(rows.map(s => [
+        (typeof getCanonicalRepName === 'function' ? getCanonicalRepName(s.rep) : s.rep) || '', s.customer || '', s.customerId || '', s.subscription || '',
+        Number(s.contractValue) || 0, isAutoPayOn(s) ? 'On' : 'Off', _repCancelCounts(s) ? 'Cancelled' : 'Active',
+        (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || s.dateSold || '', Number(s.age) || 0, s.cancelDate || '', s.cancelReason || '',
+      ].map(q).join(',')));
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      const a = el('a', { href: URL.createObjectURL(blob), download: title.replace(/[^a-z0-9]+/gi, '_').toLowerCase() + '.csv' });
+      document.body.append(a); a.click(); a.remove();
+    } catch (e) { toast('Export failed', 'error'); }
+  };
+  overlay.append(el('div', { class: 'card w-full max-w-5xl overflow-hidden flex flex-col', onclick: (e) => e.stopPropagation() },
+    el('div', { class: 'flex items-center justify-between gap-3 px-5 pt-4 pb-3 border-b', style: { borderColor: 'var(--border)' } },
+      el('div', { class: 'min-w-0' },
+        el('div', { class: 'text-[10px] uppercase tracking-widest font-bold', style: { color: 'var(--accent)' } }, title),
+        el('div', { class: 'text-[11px] mt-0.5 text-muted-' }, rows.length + ' account' + (rows.length === 1 ? '' : 's') + (subtitle ? ' \u00b7 ' + subtitle : ''))),
+      el('div', { class: 'flex items-center gap-2 shrink-0' },
+        el('button', { class: 'rounded-lg border px-2.5 py-1 text-[11px] font-bold', style: { borderColor: 'var(--border-2)' }, onclick: csv }, 'Export CSV'),
+        el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: close }, '\u00d7'))),
+    el('div', { class: 'p-3' }, body)));
+  document.body.append(overlay);
+}
+
 function openIndicatorRepCard(rep, allReps = []) {
   if (!rep) return;
   // PRIVACY GATE — admin: anyone · self: always · Rep - Partner: their own
@@ -4099,97 +4237,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   // every CSV-derived field so the user can investigate why each account
   // is active vs cancelled (cancel date, cancel reason, autopay, etc.).
   function accountsTable(sales) {
-    // Sortable headers — click cycles desc → asc. State lives on the modal
-    // instance so it survives re-renders while the card is open.
-    const iso = (x) => (typeof dateSoldToIso === 'function' && dateSoldToIso(x.dateSold)) || '';
-    const SORTERS = {
-      customer:     (x) => (x.customer || '').toLowerCase(),
-      customerId:   (x) => Number(x.customerId) || 0,
-      subscription: (x) => (x.subscription || '').toLowerCase(),
-      value:        (x) => Number(x.contractValue) || 0,
-      autopay:      (x) => isAutoPayOn(x) ? 1 : 0,
-      status:       (x) => (x.status || '').toLowerCase(),
-      sold:         (x) => iso(x),
-      aged:         (x) => Number(x.age) || 0,
-      cancelDate:   (x) => x.cancelDate || '',
-      cancelReason: (x) => (x.cancelReason || '').toLowerCase(),
-    };
-    const keyFn = SORTERS[_acctSort.key] || SORTERS.sold;
-    const dirMul = _acctSort.dir === 'asc' ? 1 : -1;
-    const sorted = [...sales].sort((a, b) => {
-      const va = keyFn(a), vb = keyFn(b);
-      return (va < vb ? -1 : va > vb ? 1 : 0) * dirMul;
-    });
-    const hSort = (key, label, cls) => el('th', {
-      class: cls + ' cursor-pointer select-none hover:underline',
-      style: _acctSort.key === key ? { color: 'var(--accent)', fontWeight: '800' } : {},
-      title: 'Sort by ' + label,
-      onclick: () => {
-        _acctSort = { key, dir: _acctSort.key === key && _acctSort.dir === 'desc' ? 'asc' : 'desc' };
-        renderBody();
-      },
-    }, label);
-    return el('div', { class: 'overflow-x-auto rounded border', style: { borderColor: 'var(--border)', background: 'var(--card)' } },
-      el('table', { class: 'w-full text-[11px]', style: { minWidth: '760px' } },
-        el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-' },
-          el('tr', { style: { background: 'var(--card-2)' } },
-            hSort('customer',     'Customer',      'text-left px-2 py-1.5 whitespace-nowrap'),
-            hSort('customerId',   'Cust ID',       'text-left px-2 py-1.5'),
-            hSort('subscription', 'Subscription',  'text-left px-2 py-1.5 whitespace-nowrap'),
-            hSort('value',        'Value',         'text-right px-2 py-1.5'),
-            hSort('autopay',      'Auto Pay',      'text-center px-2 py-1.5'),
-            hSort('status',       'Status',        'text-center px-2 py-1.5'),
-            hSort('sold',         'Sold',          'text-left px-2 py-1.5 whitespace-nowrap'),
-            hSort('aged',         'Aged',          'text-right px-2 py-1.5'),
-            hSort('cancelDate',   'Cancel Date',   'text-left px-2 py-1.5 whitespace-nowrap'),
-            hSort('cancelReason', 'Cancel Reason', 'text-left px-2 py-1.5'),
-          ),
-        ),
-        el('tbody', {},
-          ...sorted.map(s => {
-            // Tint counted cancels red so they stand out in the detail
-            // list; excluded rows (per the ROR toggle) stay neutral.
-            const cancelled = _repCancelCounts(s);
-            const on = isAutoPayOn(s);
-            return el('tr', {
-              class: 'border-t border-',
-              style: cancelled ? { background: 'rgba(220,38,38,.04)' } : {},
-            },
-              el('td', { class: 'px-2 py-1.5 font-medium whitespace-nowrap', title: s.customer || '' }, s.customer || '—'),
-              el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums' }, s.customerId || '—'),
-              el('td', { class: 'px-2 py-1.5 text-muted- max-w-[200px] truncate', title: s.subscription || '' }, s.subscription || '—'),
-              el('td', { class: 'px-2 py-1.5 text-right tabular-nums font-semibold' }, fmt.usd0(s.contractValue)),
-              el('td', { class: 'px-2 py-1.5 text-center' },
-                el('span', {
-                  class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded',
-                  style: on
-                    ? { background: 'rgba(223,100,58,.16)', color: '#DF643A' }
-                    : { background: 'rgba(220,38,38,.12)', color: '#B91C1C' },
-                }, on ? 'On' : 'Off'),
-              ),
-              el('td', { class: 'px-2 py-1.5 text-center' },
-                el('span', {
-                  class: 'text-[10px] font-semibold px-1.5 py-0.5 rounded',
-                  style: cancelled
-                    ? { background: 'rgba(220,38,38,.12)', color: '#B91C1C' }
-                    : { background: 'rgba(223,100,58,.16)', color: '#DF643A' },
-                }, cancelled ? 'Cancelled' : 'Active'),
-              ),
-              el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, (typeof dateSoldToIso === 'function' && dateSoldToIso(s.dateSold)) || (s.dateSold || '—').split(' ')[0]),
-              // Days past due - the same field the Aging tile thresholds on,
-              // so the drill shows exactly how far gone each account is.
-              (() => {
-                const d = Number(s.age) || 0;
-                const hot = d >= ((typeof reportingAgingDays === 'function') ? reportingAgingDays() : 7);
-                return el('td', { class: 'px-2 py-1.5 text-right tabular-nums' + (hot ? ' font-bold' : ''), style: hot ? { color: '#DC2626' } : { color: 'var(--text-muted)' } }, d > 0 ? d + 'd' : '—');
-              })(),
-              el('td', { class: 'px-2 py-1.5 text-muted- tabular-nums whitespace-nowrap' }, s.cancelDate || '—'),
-              el('td', { class: 'px-2 py-1.5 text-muted-', style: { minWidth: '150px', maxWidth: '260px', whiteSpace: 'normal', lineHeight: '1.35' }, title: s.cancelReason || '' }, s.cancelReason || '—'),
-            );
-          }),
-        ),
-      ),
-    );
+    return _indAccountsTable(sales, _acctSort, (st) => { _acctSort = st; renderBody(); });
   }
 
   function recordsLeaderboardBlock() {
