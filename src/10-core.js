@@ -480,6 +480,24 @@ async function syncIndicatorsToCloud() {
 }
 
 let _indCloudCheckedAt = 0;
+// ── Technician route stats (indicators/tech-stats.json.gz, hourly from
+// tech-stats-background): per tech per day — scheduled / completed /
+// production / reservices / interior / on-site minutes. Any signed-in user.
+let _techStatsCheckedAt = 0;
+async function refreshTechStatsFromCloud(force) {
+  if (DEMO || !state.profile || typeof DecompressionStream === 'undefined') return;
+  if (!force && Date.now() - _techStatsCheckedAt < 300000) return;
+  _techStatsCheckedAt = Date.now();
+  try {
+    const r = await _downloadSnapshotBlob('indicators/tech-stats.json.gz', null, { meta: true }).catch(() => null);
+    if (!r || !r.blob) return;
+    const text = await new Response(r.blob.stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    const payload = JSON.parse(text);
+    if (!payload || !Array.isArray(payload.rows)) return;
+    state.techStats = payload;
+    if (state.view === 'techs') mountApp();
+  } catch (e) { console.warn('[ridd] tech stats pull skipped', e); }
+}
 async function refreshIndicatorsFromCloud(force) {
   // Open to every signed-in user (was admin-only) — the rep-facing NRLA board
   // reads the same shared dataset. Reads only; config pushes stay admin-gated.

@@ -38,6 +38,10 @@
 [functions."fieldroutes-live-sync-scheduled"]
   schedule = "*/15 * * * *"
 
+# Technician route stats (per Isaac) — hourly at :20, 6am–11pm ET.
+[functions."tech-stats-scheduled"]
+  schedule = "20 * * * *"
+
 [functions."teamlead-digest-scheduled"]
   schedule = "45 * * * *"     # hourly at :45 — gates itself to 7:45pm ET inside (Netlify ignores range crons)
 
