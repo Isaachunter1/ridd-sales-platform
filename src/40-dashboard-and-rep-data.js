@@ -3874,7 +3874,7 @@ function openIndicatorRepCard(rep, allReps = []) {
   function statsGrid() {
     // auto-fit grid: 9 tiles flow 3-up on phones and up to 9-up on wide
     // desktops without needing a grid-cols-9 utility in the static CSS.
-    return el('div', { class: 'grid gap-2 sm:gap-3 mb-5', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
+    return el('div', { class: 'grid gap-2 sm:gap-3 mb-5', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))' } },
       ...scopedStats.map(stat => {
         const selected = drillKey === stat.key;
         return el('div', {
@@ -3892,8 +3892,10 @@ function openIndicatorRepCard(rep, allReps = []) {
           // Font scales down with value length so long figures (entity cards
           // pool big revenue + Production/Day pairs) never clip in the tile.
           el('div', {
-            class: (String(stat.value).length > 12 ? 'text-xs' : String(stat.value).length > 9 ? 'text-base' : 'text-lg')
-              + ' font-bold tabular-nums mt-1 whitespace-nowrap',
+            // Plex Mono is wide: 9 mono characters ("$1,091 / 2") overflowed a
+            // 100px tile at text-lg (per Isaac) — step down sooner.
+            class: (String(stat.value).length > 11 ? 'text-xs' : String(stat.value).length > 8 ? 'text-sm' : 'text-lg')
+              + ' font-bold tabular-nums mt-1 whitespace-nowrap overflow-hidden',
           }, stat.value),
         );
       }),
