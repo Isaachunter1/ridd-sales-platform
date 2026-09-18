@@ -114,6 +114,17 @@ function reportingOverview() {
           style: (state._rtArView || 'age') === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text-muted)' },
           onclick: () => { state._rtArView = v; mountApp(); },
         }, l))) },
+    // Customers Active, second donut (per Isaac, Sep 2026): how deep each
+    // active customer is (1 / 2 / 3+ active services) or where they are.
+    { id: 'custDepth',  title: 'Services per Customer',
+      subline: state._rtCustView === 'office' ? 'Distinct active customers by office' : 'Active customers by how many services they hold \u00b7 cross-sell depth',
+      totalLabel: 'Active customers', sliceKey: state._rtCustView === 'office' ? 'custOffice' : 'custDepth', preserveOrder: state._rtCustView !== 'office',
+      headerRight: () => el('div', { class: 'inline-flex shrink-0', style: { border: '1px solid var(--border-2)' } },
+        ...[['depth', 'Depth'], ['office', 'By office']].map(([v, l]) => el('button', {
+          class: 'px-2 py-0.5 text-[10px] font-bold transition hover:brightness-95',
+          style: (state._rtCustView || 'depth') === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text-muted)' },
+          onclick: () => { state._rtCustView = v; mountApp(); },
+        }, l))) },
     { id: 'tenure',     title: 'Customer Tenure',          subline: 'Subs by years since initial service',                    totalLabel: 'Subs',                sliceKey: 'tenure',    preserveOrder: true },
     { id: 'agreement',  title: 'Agreement Length Mix',     subline: 'Distribution by contract length (months)',               totalLabel: 'Subs w/ term',        sliceKey: 'agreement', preserveOrder: true },
     { id: 'cancels',    title: 'Cancellation Reasons',     subline: 'All canceled recurring subs',                            totalLabel: 'Cancellations',       sliceKey: 'cancels' },
@@ -271,7 +282,7 @@ function reportingOverview() {
   const COLUMN_CARDS = [
     { key: 'subs',      label: 'Subscriptions Serviced',  value: (_topFunnel ? _topFunnel.rows.length : (dataA.stats.servicedSubs != null ? dataA.stats.servicedSubs : dataA.stats.subs)).toLocaleString(), sub: 'received an initial service \u00b7 of ' + (_topFunnel ? _topFunnel.total : dataA.stats.subs).toLocaleString() + ' in FieldRoutes \u00b7 ' + dataA.stats.recurring.toLocaleString() + ' recurring', chartIds: ['sources', 'onetimeSubs', 'retiredSubs'] },
     { key: 'active',    label: 'Subscriptions Active',    value: (reportingActiveInclOneTime() ? dataA.stats.activeSubs : dataA.stats.activeRecurring).toLocaleString(), sub: reportingActiveInclOneTime() ? 'currently in service · incl. one-time' : 'currently in service · recurring', chartIds: ['activesubs', 'agreement'] },   // (Agreement Length Mix moved here from column 1, per Isaac)
-    { key: 'customers', label: 'Customers Active',        value: (dataA.stats.activeCustomers != null ? dataA.stats.activeCustomers : dataA.stats.uniqueCustomers).toLocaleString(), sub: (dataA.stats.distinctActiveServices != null ? dataA.stats.distinctActiveServices : dataA.stats.distinctServices) + ' active services', chartIds: ['tenure'] },   // (Active Customers donut retired, per Isaac)
+    { key: 'customers', label: 'Customers Active',        value: (dataA.stats.activeCustomers != null ? dataA.stats.activeCustomers : dataA.stats.uniqueCustomers).toLocaleString(), sub: (dataA.stats.distinctActiveServices != null ? dataA.stats.distinctActiveServices : dataA.stats.distinctServices) + ' active services', chartIds: ['custDepth', 'tenure'] },   // (Active Customers donut retired, per Isaac; Services per Customer added)
     { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice'] },   // (One-Time Revenue donut folded into the One-Time Subscriptions toggle)
     { key: 'cancels',   label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging'] },
   ];
@@ -404,8 +415,8 @@ function reportingOverview() {
   // series that was clicked, switches without closing.
   const openPulseDayDrill = (dayLabel, longDate, sets, initialKind) => {
     const KINDS = {
-      sold: { label: 'Sold',     unit: 'contract value', col: 'Sold', color: 'var(--accent)', valOf: (r) => Number(r.subscription_contract_value) || 0, extra: 'Top service' },
-      svc:  { label: 'Serviced', unit: 'ARR',            col: 'ARR',  color: '#5F6C5B',       valOf: (r) => Number(r.annual_recurring_value) || 0,      extra: 'Top service' },
+      sold: { label: 'Sold',     unit: 'contract value', col: 'Sold', color: '#16A34A', valOf: (r) => Number(r.subscription_contract_value) || 0, extra: 'Top service' },
+      svc:  { label: 'Serviced', unit: 'ARR',            col: 'ARR',  color: '#2F5D62',       valOf: (r) => Number(r.annual_recurring_value) || 0,      extra: 'Top service' },
       cxl:  { label: 'Churned',  unit: 'ARR',            col: 'ARR',  color: '#DC2626',       valOf: (r) => Number(r.annual_recurring_value) || 0,      extra: 'Top reason' },
     };
     const totalOf = (k) => (sets[k] || []).reduce((a, r) => a + KINDS[k].valOf(r), 0);
@@ -447,7 +458,7 @@ function reportingOverview() {
       const net = totalOf('svc') - totalOf('cxl');
       const netTile = el('div', { class: 'text-left rounded-lg px-3 py-2 flex-1', style: { minWidth: '140px', border: '1px dashed var(--border-2)' }, title: 'ARR that started service today minus ARR that cancelled today' },
         el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Net ARR · serviced − churned'),
-        el('div', { class: 'text-lg font-black tabular-nums leading-tight', style: { color: net >= 0 ? '#5F6C5B' : '#DC2626' } }, (net < 0 ? '−' : '+') + fmt.usd0(Math.abs(net))),
+        el('div', { class: 'text-lg font-black tabular-nums leading-tight', style: { color: net >= 0 ? '#16A34A' : '#DC2626' } }, (net < 0 ? '−' : '+') + fmt.usd0(Math.abs(net))),
         el('div', { class: 'text-[10px] text-muted-' }, 'for the day'));
       body.replaceChildren(
         el('div', { class: 'flex gap-2 flex-wrap' }, tile('sold'), tile('svc'), tile('cxl'), netTile),
@@ -467,10 +478,15 @@ function reportingOverview() {
     document.body.append(overlay);
   };
   const pulseCard = (() => {
-    const span = [7, 30, 90].includes(Number(state._rtPulseSpan)) ? Number(state._rtPulseSpan) : 30;
+    // Window: today / yesterday (one day, broken out by branch) or the last
+    // 7 / 30 / 90 days (one bar per day). Per Isaac, Sep 2026.
+    const spanRaw = state._rtPulseSpan;
+    const single = spanRaw === 'today' || spanRaw === 'yesterday';
+    const span = single ? 1 : ([7, 30, 90].includes(Number(spanRaw)) ? Number(spanRaw) : 30);
     const rows = reportingFilterByOffice(scope.visible, office);
     const { isRealCancel } = reportingFilters();
     const today = new Date();
+    if (spanRaw === 'yesterday') today.setDate(today.getDate() - 1);
     const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     const days = [];
     for (let i = span - 1; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push(iso(d)); }
@@ -490,7 +506,8 @@ function reportingOverview() {
     const id = 'rptPulse' + (office !== 'all' ? '_' + String(office).replace(/\W/g, '') : '');
     const cvsWrap = el('div', { style: { position: 'relative', height: '260px', width: '100%' } }, el('canvas', { id }));
     const isDark = state.theme === 'dark';
-    const C = { sold: '#DF643A', svc: '#5F6C5B', cxl: '#DC2626' };
+    // Sold is a positive number, so it reads green (per Isaac); serviced is the deep teal so the two don't blur.
+    const C = { sold: '#16A34A', svc: '#2F5D62', cxl: '#DC2626' };
     setTimeout(() => {
       if (typeof Chart === 'undefined') return;
       const cvsEl = document.getElementById(id); if (!cvsEl) return;
@@ -499,8 +516,25 @@ function reportingOverview() {
       const lbl = days.map(d => { const dt = new Date(d + 'T00:00'); return (dt.getMonth() + 1) + '/' + dt.getDate(); });
       // Long-form date (per Isaac): "Wednesday, September 6th, 2026" — tooltip title and the drill header.
       const longDate = (i) => { const dt = new Date(days[i] + 'T00:00'); const n = dt.getDate(); const sfx = (n % 10 === 1 && n !== 11) ? 'st' : (n % 10 === 2 && n !== 12) ? 'nd' : (n % 10 === 3 && n !== 13) ? 'rd' : 'th'; return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long' }) + ' ' + n + sfx + ', ' + dt.getFullYear(); };
+      // Single day: one grouped bar per branch (sold / serviced / churned)
+      // instead of a lone bar — the day's story is WHERE it happened.
+      let labels = lbl, dsSold = sold, dsSvc = serviced, dsCxl = churned;
+      if (single) {
+        const ofc = (r) => (r.office_name || '').trim() || 'Unassigned';
+        const agg = new Map();
+        const add = (set, k, valOf) => { for (const r of set) { const o = ofc(r); if (!agg.has(o)) agg.set(o, { sold: 0, svc: 0, cxl: 0 }); agg.get(o)[k] += valOf(r); } };
+        add(soldRows[0], 'sold', (r) => Number(r.subscription_contract_value) || 0);
+        add(svcRows[0], 'svc', (r) => Number(r.annual_recurring_value) || 0);
+        add(cxlRows[0], 'cxl', (r) => Number(r.annual_recurring_value) || 0);
+        const list = [...agg.entries()].sort((a, b) => (b[1].sold + b[1].svc) - (a[1].sold + a[1].svc));
+        labels = list.map(([k]) => k); dsSold = list.map(([, v]) => v.sold); dsSvc = list.map(([, v]) => v.svc); dsCxl = list.map(([, v]) => v.cxl);
+      }
       _chartInstances[id] = new Chart(cvsEl.getContext('2d'), {
-        data: { labels: lbl, datasets: [
+        data: { labels, datasets: single ? [
+          { type: 'bar', label: 'Sold', data: dsSold, backgroundColor: C.sold, borderWidth: 0 },
+          { type: 'bar', label: 'Serviced (new ARR)', data: dsSvc, backgroundColor: C.svc, borderWidth: 0 },
+          { type: 'bar', label: 'Churned (ARR)', data: dsCxl, backgroundColor: C.cxl, borderWidth: 0 },
+        ] : [
           { type: 'bar', label: 'Sold', data: sold, backgroundColor: C.sold, borderWidth: 0, order: 3 },
           { type: 'line', label: 'Serviced (new ARR)', data: serviced, borderColor: C.svc, backgroundColor: C.svc, borderWidth: 2, tension: 0.3, pointRadius: 2, order: 1 },
           { type: 'line', label: 'Churned (ARR)', data: churned, borderColor: C.cxl, backgroundColor: C.cxl, borderWidth: 2, tension: 0.3, pointRadius: 2, order: 2 },
@@ -508,14 +542,14 @@ function reportingOverview() {
         options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
           onClick: (evt, els) => {
             if (!els || !els.length) return;
-            const i = els[0].index, dsi = els[0].datasetIndex;
+            const i = single ? 0 : els[0].index, dsi = els[0].datasetIndex;
             if (!soldRows[i].length && !svcRows[i].length && !cxlRows[i].length) return;
             openPulseDayDrill(lbl[i], longDate(i), { sold: soldRows[i], svc: svcRows[i], cxl: cxlRows[i] }, dsi === 0 ? 'sold' : dsi === 1 ? 'svc' : 'cxl');
           },
           plugins: { legend: { position: 'bottom', labels: { color: txt, boxWidth: 10, font: { size: 10 } } },
             tooltip: { callbacks: {
               // Long-form date in the tooltip title (per Isaac): "Wednesday, September 6th, 2026".
-              title: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; return i < 0 ? '' : longDate(i); },
+              title: (items) => { const i = items && items[0] ? items[0].dataIndex : -1; return i < 0 ? '' : single ? (labels[i] + ' · ' + longDate(0)) : longDate(i); },
               label: (c) => ' ' + c.dataset.label + ': $' + Math.round(c.parsed.y).toLocaleString() } } },
           scales: { x: { ticks: { color: txt, maxTicksLimit: span > 30 ? 15 : 31 }, grid: { display: false } },
                     y: { beginAtZero: true, ticks: { color: txt, callback: v => '$' + (v >= 1000 ? Math.round(v / 1000) + 'k' : v) }, grid: { color: grid } } } },
@@ -528,14 +562,14 @@ function reportingOverview() {
       el('div', { class: 'flex items-center justify-between gap-3 flex-wrap mb-2' },
         el('div', {},
           el('h3', { class: 'text-sm font-bold' }, 'Daily Pulse' + (office !== 'all' ? ' · ' + officeLabel(office) : '')),
-          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } }, 'Each day: contract value SOLD (bars) · ARR of accounts that received their first service (green) · ARR that CHURNED (red). Click a bar or point for the accounts.')),
+          el('div', { class: 'text-[10px] mt-0.5', style: { color: 'var(--text-muted)' } }, (single ? 'By branch: contract value SOLD (green) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar for the day.' : 'Each day: contract value SOLD (green bars) · ARR of accounts that received their first service (teal) · ARR that CHURNED (red). Click a bar or point for the accounts.'))),
         el('div', { class: 'flex items-center gap-4 flex-wrap' },
-          stat('Sold · ' + span + 'd', sum(sold), C.sold), stat('Serviced', sum(serviced), C.svc), stat('Churned', sum(churned), C.cxl),
+          stat('Sold · ' + (single ? (spanRaw === 'today' ? 'today' : 'yesterday') : span + 'd'), sum(sold), C.sold), stat('Serviced', sum(serviced), C.svc), stat('Churned', sum(churned), C.cxl),
           el('select', {
             class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold cursor-pointer',
             style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-            onchange: (e) => { state._rtPulseSpan = Number(e.target.value); mountApp(); },
-          }, ...[[7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days']].map(([v, l]) => el('option', { value: String(v), selected: span === v }, l))))),
+            onchange: (e) => { const v = e.target.value; state._rtPulseSpan = (v === 'today' || v === 'yesterday') ? v : Number(v); mountApp(); },
+          }, ...[['today', 'Today'], ['yesterday', 'Yesterday'], [7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days']].map(([v, l]) => el('option', { value: String(v), selected: single ? spanRaw === v : span === v }, l))))),
       cvsWrap);
   })();
 
