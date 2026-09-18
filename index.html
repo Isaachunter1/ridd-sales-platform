@@ -995,6 +995,11 @@
      (w-2.5/h-2.5), missing row separators (divide-y), missing totals rule
      (border-b-2), dead spacing. Verified against the exact in-use list. ── */
   .-mt-1 { margin-top: -0.25rem; } .-mt-2 { margin-top: -0.5rem; }
+  .rounded-t-2xl { border-top-left-radius: 1rem; border-top-right-radius: 1rem; }
+  /* Renewals pipeline board: 4 stages on desktop, 2 on tablets, 1 per row on phones */
+  .renewal-board { display: grid; }
+  @media (min-width: 641px) and (max-width: 1023px) { .renewal-board { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
+  @media (max-width: 640px) { .renewal-board { grid-template-columns: 1fr !important; } .renewal-board > div > div:last-child { max-height: 50vh !important; } }
   @media (min-width:640px){ .sm\:py-6 { padding-top: 1.5rem; padding-bottom: 1.5rem; } }
   .-mx-2 { margin-left: -0.5rem; margin-right: -0.5rem; }
   .align-middle { vertical-align: middle; }
