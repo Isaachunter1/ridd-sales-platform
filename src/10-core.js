@@ -2017,6 +2017,7 @@ function loadPersistedDemoState() {
       if (Array.isArray(parsed.shiftSwapRequests)) state.shiftSwapRequests = parsed.shiftSwapRequests;
     }
     if (parsed.calendarDepartment) state.calendarDepartment = parsed.calendarDepartment;
+    if (parsed.calendarMinReps && typeof parsed.calendarMinReps === 'object') state.calendarMinReps = parsed.calendarMinReps;
     if (parsed.importMappings && typeof parsed.importMappings === 'object') state.importMappings = parsed.importMappings;
     if (Array.isArray(parsed.importHistory)) state.importHistory = parsed.importHistory;
     // Sources are seeded by loadDemoData(); persisted edits (add/hide) win
@@ -2068,6 +2069,7 @@ function saveDemoData() {
     shiftSwapRequests: state.shiftSwapRequests,
     calendarReset:    true,
     calendarDepartment: state.calendarDepartment,
+    calendarMinReps:  state.calendarMinReps || {},
     importMappings:   state.importMappings,
     importHistory:    cappedImport,
     sources:          state.sources,
@@ -3166,7 +3168,7 @@ async function loadLookups() {
 // is fingerprint-detected and pushed, debounced. Reps can write too: shift
 // swaps are rep actions.
 let _calCloudFp = null, _calPushT = null, _calLoaded = false;
-const _calFp = () => { try { return JSON.stringify([state.shifts, state.shiftSwapRequests]); } catch { return ''; } };
+const _calFp = () => { try { return JSON.stringify([state.shifts, state.shiftSwapRequests, state.calendarMinReps || {}]); } catch { return ''; } };
 async function loadCalendarFromCloud() {
   if (DEMO || !supabase || !state.profile) return;
   try {
@@ -3175,6 +3177,7 @@ async function loadCalendarFromCloud() {
     const d = (data && data.data) || null;
     if (d && Array.isArray(d.shifts)) state.shifts = d.shifts;
     if (d && Array.isArray(d.swaps))  state.shiftSwapRequests = d.swaps;
+    if (d && d.minReps && typeof d.minReps === 'object') state.calendarMinReps = d.minReps;
     _calCloudFp = _calFp();
     _calLoaded = true;     // pushes only start once the server copy is in — no stale clobbers
   } catch (e) { console.warn('[ridd] calendar cloud load skipped', e); }
@@ -3189,7 +3192,7 @@ function _calendarCloudAutoSync() {
     try {
       const { error } = await supabase.from('calendar_store').upsert({
         id: 1,
-        data: { shifts: state.shifts || [], swaps: state.shiftSwapRequests || [] },
+        data: { shifts: state.shifts || [], swaps: state.shiftSwapRequests || [], minReps: state.calendarMinReps || {} },
         updated_by: state.profile.id,
         updated_at: new Date().toISOString(),
       });

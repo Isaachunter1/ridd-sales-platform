@@ -18,6 +18,11 @@ function viewCalendar() {
   const deptShiftIds = new Set(deptShifts().map(s => s.id));
   const inDept = (r) => deptShiftIds.has(r.shift_id);
   const incoming = state.shiftSwapRequests.filter(r => r.to_rep_id === meId && r.status === 'pending' && inDept(r));
+  // Open shifts anyone can grab — dropped by someone else, still unclaimed,
+  // and not in the past.
+  const todayIsoO = isoDate(new Date());
+  const openShifts = state.shiftSwapRequests.filter(r => isOpenReq(r) && inDept(r) && r.from_rep_id !== meId
+    && (() => { const sh = state.shifts.find(x => x.id === r.shift_id); return sh && sh.date >= todayIsoO; })());
   const outgoing = state.shiftSwapRequests.filter(r => r.from_rep_id === meId && swapOpen(r) && inDept(r));
   // Accepted by the other rep — now a team lead / admin signs off before
   // the shift actually moves.
@@ -76,6 +81,14 @@ function viewCalendar() {
       el('div', { class: 'text-sm font-semibold ml-2', style: { color: 'var(--text)' } },
         calendarWindowLabel(anchor, state.calendarView)),
       el('div', { class: 'flex-1' }),
+      isAdmin && el('label', { class: 'flex items-center gap-1.5 text-[11px] text-muted-', title: 'Coverage floor \u2014 a day with fewer reps than this on a shift shows red in the month view' },
+        'Min / shift',
+        el('input', {
+          type: 'number', min: '0', step: '1', value: calendarMinReps() || '',
+          class: 'rounded-lg border px-2 py-1 text-[11px] w-14 tabular-nums',
+          style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
+          onchange: (e) => { if (!state.calendarMinReps) state.calendarMinReps = {}; state.calendarMinReps[currentDepartment()] = Math.max(0, parseInt(e.target.value) || 0); saveDemoData(); mountApp(); },
+        })),
       isAdmin && el('button', {
         class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
         style: { background: 'var(--accent)', color: 'var(--accent-text)' },
@@ -93,6 +106,11 @@ function viewCalendar() {
       el('p', { class: 'text-xs text-muted- mb-3' }, 'Both reps agreed. Approve to move the shift, or reject to leave it where it is.'),
       el('div', { class: 'flex flex-col gap-2' },
         ...approvals.map(req => swapRequestCard(req, repById, 'approve')))),
+    openShifts.length > 0 && el('div', { class: 'card p-4 border-l-4', style: { borderLeftColor: '#5F6C5B' } },
+      el('h3', { class: 'text-sm font-bold mb-1' }, `Open shifts (${openShifts.length})`),
+      el('p', { class: 'text-xs text-muted- mb-3' }, 'Someone can\u2019t make these. Pick one up and a team lead will confirm it.'),
+      el('div', { class: 'flex flex-col gap-2' },
+        ...openShifts.map(req => swapRequestCard(req, repById, 'open')))),
     incoming.length > 0 && el('div', { class: 'card p-4 border-l-4', style: { borderLeftColor: 'var(--accent)' } },
       el('h3', { class: 'text-sm font-bold mb-3' }, `Shift transfers waiting on you (${incoming.length})`),
       el('div', { class: 'flex flex-col gap-2' },
@@ -433,22 +451,32 @@ function renderMonthGrid(anchor, today, meId, repById) {
               .sort((a, b) => String(a.start || a.slot_start || '').localeCompare(String(b.start || b.slot_start || ''))
                 || calendarRepShort(a.rep_id, repById).localeCompare(calendarRepShort(b.rep_id, repById)));
             const CAP = 7;
-            const out = rows.slice(0, CAP).map(a => {
+            // Coverage: reps per slot vs the department floor.
+            const minReps = calendarMinReps();
+            const perSlot = {}; rows.forEach(a => { const k = calShiftTimes(a).slotId; perSlot[k] = (perSlot[k] || 0) + 1; });
+            const short = minReps > 0 && Object.keys(perSlot).length > 0 && Object.values(perSlot).some(n => n < minReps);
+            const out = [];
+            if (rows.length) out.push(el('div', { class: 'text-[9px] font-bold tabular-nums pointer-events-none',
+              style: { color: short ? '#DC2626' : 'var(--text-subtle)', position: 'absolute', top: '6px', right: isAdmin ? '28px' : '6px' }, title: short ? 'Below the ' + minReps + '-rep floor on a shift' : rows.length + ' on' }, (short ? '\u26a0 ' : '') + rows.length));
+            out.push(...rows.slice(0, CAP).map(a => {
               const c = calendarAgentColor(a.rep_id);
               const mine = a.rep_id === meId;
+              const openReq = openShiftReqFor(a.id);
               return el('button', {
                 'data-slot-bar': 'true',
                 class: 'cal-chip w-full text-left rounded-md px-1.5 py-1 text-[10px] font-semibold flex items-center gap-1 transition hover:brightness-95 overflow-hidden',
-                style: mine
+                style: openReq
+                  ? { background: 'transparent', color: '#A9441F', border: '1.5px dashed #DF643A' }
+                  : mine
                   ? { background: 'var(--accent)', color: 'var(--accent-text)' }
                   : { background: c + '14', color: 'var(--text)', borderLeft: '3px solid ' + c },
                 title: calendarRepShort(a.rep_id, repById) + ' \u00b7 ' + calShortTime(calShiftTimes(a).st) + ' \u2013 ' + calShortTime(calShiftTimes(a).en),
                 onclick: (e) => { e.stopPropagation(); if (_calPhone()) openDaySheet(iso); else openSlotModal(iso, calShiftTimes(a).slotId); },
               },
-                el('span', { class: 'cal-chip-name truncate' }, calendarRepShort(a.rep_id, repById)),
-                el('span', { class: 'cal-chip-time ml-auto tabular-nums shrink-0', style: { color: mine ? 'var(--accent-text)' : 'var(--text-muted)', fontWeight: '600' } },
+                el('span', { class: 'cal-chip-name truncate' }, (openReq ? 'OPEN \u00b7 ' : '') + calendarRepShort(a.rep_id, repById)),
+                el('span', { class: 'cal-chip-time ml-auto tabular-nums shrink-0', style: { color: mine && !openReq ? 'var(--accent-text)' : 'var(--text-muted)', fontWeight: '600' } },
                   calShortTime(calShiftTimes(a).st) + '\u2013' + calShortTime(calShiftTimes(a).en)));
-            });
+            }));
             if (rows.length > CAP) out.push(el('div', { class: 'text-[9px] text-muted- px-1 pointer-events-none' }, '+' + (rows.length - CAP) + ' more'));
             return out;
           })(),
@@ -460,6 +488,42 @@ function renderMonthGrid(anchor, today, meId, repById) {
 }
 
 // ── Swap request card (top-of-page Inbox / Outgoing lists) ────────────────
+// ── Open shifts (per Isaac, Sep 2026): a rep DROPS a shift they can't make
+// (a transfer request with no target rep), it shows as OPEN on the calendar,
+// any eligible rep PICKS IT UP, and a lead / admin approves — the same
+// approval path a rep-to-rep transfer already takes.
+function isOpenReq(r) { return !!r && r.status === 'pending' && !r.to_rep_id; }
+function openShiftReqFor(shiftId) { return state.shiftSwapRequests.find(r => r.shift_id === shiftId && isOpenReq(r)); }
+function dropShiftOpen(assignment, note, redraw) {
+  const meId = state.profile.id;
+  state.shiftSwapRequests.push({
+    id: 'swap-' + Date.now(),
+    shift_id: assignment.id,
+    from_rep_id: meId, to_rep_id: null,
+    status: 'pending', note: (note || '').trim(),
+    created_at: new Date().toISOString(), resolved_at: null,
+  });
+  saveDemoData();
+  toast('Shift is open — anyone on the team can pick it up', 'success');
+  if (redraw) redraw();
+}
+function pickUpOpenShift(req, redraw) {
+  const me = state.profile || {};
+  if (!isOpenReq(req)) { toast('That shift was already taken', 'warn'); return; }
+  req.to_rep_id = me.id;
+  req.picked_at = new Date().toISOString();
+  // Picking up IS accepting — leads approve; a lead picking up self-approves.
+  resolveSwap(req.id, 'accepted');
+  if (redraw) redraw();
+}
+// Department-level coverage floor (admin sets it once in the toolbar): a
+// day whose slot has fewer reps than this reads red in the month grid.
+function calendarMinReps() {
+  const m = state.calendarMinReps || {};
+  const v = Number(m[currentDepartment()]);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
 function swapRequestCard(req, repById, direction) {
   const shift = state.shifts.find(s => s.id === req.shift_id);
   const from  = repById[req.from_rep_id];
@@ -469,13 +533,19 @@ function swapRequestCard(req, repById, direction) {
   return el('div', { class: 'flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 border', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
     el('div', { class: 'flex-1 min-w-0' },
       el('div', { class: 'text-sm font-semibold' },
-        direction === 'incoming' ? `${from?.full_name || 'A rep'} → you`
+        direction === 'open' ? `${from?.full_name || 'A rep'} dropped this shift`
+          : direction === 'incoming' ? `${from?.full_name || 'A rep'} → you`
           : direction === 'approve' ? `${from?.full_name || 'A rep'} → ${to?.full_name || 'rep'}`
-          : `You → ${to?.full_name || 'rep'}`),
+          : `You → ${to?.full_name || 'anyone (open)'}`),
       el('div', { class: 'text-xs text-muted- mt-0.5' },
         `${dateLabel} · ${fmtTime(shift.start)}–${fmtTime(shift.end)}`),
       req.note && el('div', { class: 'text-xs mt-1 italic', style: { color: 'var(--text-muted)' } }, '"' + req.note + '"'),
     ),
+    direction === 'open' && el('button', {
+      class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
+      style: { background: 'var(--accent)', color: 'var(--accent-text)' },
+      onclick: () => { pickUpOpenShift(req); mountApp(); },
+    }, 'Pick up'),
     direction === 'incoming' && el('div', { class: 'flex gap-1.5' },
       el('button', {
         class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold',
@@ -1095,7 +1165,7 @@ function assignmentRow(a, slot, reps, repById, meId, isAdmin, redraw) {
       pendingReq && el('span', {
         class: 'text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded whitespace-nowrap',
         style: { background: 'rgba(223,100,58, 0.15)', color: '#A9441F' },
-      }, awaitingLead ? 'Lead approval' : pendingReq.from_rep_id === meId ? 'Waiting' : 'Incoming'),
+      }, awaitingLead ? 'Lead approval' : isOpenReq(pendingReq) ? 'Open' : pendingReq.from_rep_id === meId ? 'Waiting' : 'Incoming'),
     ),
   );
 
@@ -1133,6 +1203,11 @@ function assignmentRow(a, slot, reps, repById, meId, isAdmin, redraw) {
         btn('Reject', () => { resolveSwap(pendingReq.id, 'rejected'); redraw(); }),
       );
     }
+    if (pendingReq && isOpenReq(pendingReq)) {
+      actions.append(el('span', { class: 'text-xs flex-1', style: { color: '#A9441F' } }, 'Open \u2014 nobody has picked it up yet'));
+      if (!isMine) actions.append(btn('Pick up', () => pickUpOpenShift(pendingReq, redraw), 'primary'));
+      actions.append(btn('Cancel drop', () => { resolveSwap(pendingReq.id, 'cancelled'); redraw(); }));
+    }
     // Admin can also accept/decline if they happen to be the target of a swap
     if (pendingReq && pendingReq.status === 'pending' && pendingReq.to_rep_id === meId) {
       actions.append(
@@ -1143,13 +1218,17 @@ function assignmentRow(a, slot, reps, repById, meId, isAdmin, redraw) {
   } else {
     // ── Rep (non-admin): only request-transfer on your own row, and accept/decline on incoming ──
     if (isMine && !pendingReq) {
-      actions.append(btn('Request transfer', () => openTransferSheet(a, reps, redraw), 'primary'));
+      actions.append(
+        btn('Request transfer', () => openTransferSheet(a, reps, redraw), 'primary'),
+        btn('Drop \u00b7 open to anyone', () => { if (window.confirm('Open this shift up for anyone on the team to pick up?')) dropShiftOpen(a, '', redraw); }));
     } else if (isMine && pendingReq && pendingReq.from_rep_id === meId) {
       const toRep = repById[pendingReq.to_rep_id];
       actions.append(
-        el('span', { class: 'text-xs text-muted- flex-1' }, awaitingLead ? 'Waiting on team lead approval…' : 'Awaiting ' + (toRep?.full_name?.split(' ')[0] || 'rep') + '…'),
+        el('span', { class: 'text-xs text-muted- flex-1' }, awaitingLead ? 'Waiting on team lead approval\u2026' : isOpenReq(pendingReq) ? 'Open \u2014 waiting for someone to pick it up\u2026' : 'Awaiting ' + (toRep?.full_name?.split(' ')[0] || 'rep') + '\u2026'),
         btn('Cancel', () => { resolveSwap(pendingReq.id, 'cancelled'); redraw(); }),
       );
+    } else if (!isMine && pendingReq && isOpenReq(pendingReq)) {
+      actions.append(btn('Pick up this shift', () => pickUpOpenShift(pendingReq, redraw), 'primary'));
     } else if (!isMine && pendingReq && pendingReq.status === 'pending' && pendingReq.to_rep_id === meId) {
       actions.append(
         btn('Accept', () => { resolveSwap(pendingReq.id, 'accepted'); redraw(); }, 'primary'),
