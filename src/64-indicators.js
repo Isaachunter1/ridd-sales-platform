@@ -8566,6 +8566,60 @@ function _repFirstRunCard() {
 // "Attrition · excl. ROR + OTS" tile: cancelled ÷ serviced contract value
 // with 3-day RORs and one-time services removed from both sides. Runs on
 // the rep/team's full book (not just YTD) so it reads as a real rate.
+// Landing-card tiles: every tile drills to the accounts behind it (per
+// Isaac — partners want to see what's contributing). Click stops at the tile
+// so the card's own click (full player card) doesn't also fire.
+function _landingTile(who, showRep) {
+  return (label, value, rows, subtitle) => el('div', {
+    class: 'rounded-lg border p-2.5 text-center' + (rows ? ' cursor-pointer transition hover:brightness-95' : ''),
+    style: { borderColor: 'var(--border)', background: 'var(--card-2)' },
+    title: rows ? 'See the accounts behind ' + label : undefined,
+    onclick: rows ? (e) => { e.stopPropagation(); openLandingTileDrill(who + ' \u00b7 ' + label, subtitle || '', rows, { showRep }); } : undefined,
+  },
+    el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
+    el('div', { class: 'text-base font-bold tabular-nums mt-0.5' }, value));
+}
+function _landingTiles(tile, m) {
+  const yr = new Date().getFullYear();
+  const ytdLabel = yr + ' YTD';
+  const multi = m.ytd.filter(s => myBucketOf(s) === 'multi');
+  const twelve = m.ytd.filter(s => myBucketOf(s) === 'twelve');
+  const apayOn = m.ytd.filter(s => s.autoPay && s.autoPay !== 'No');
+  const cxl = m.ytd.filter(s => (typeof _repCancelCounts === 'function') ? _repCancelCounts(s) : !!s.cancelDate);
+  const attrRows = _landingAttritionRows(m.ytd);
+  return [
+    tile('Sales', fmt.int(m.count), m.ytd, ytdLabel),
+    tile('Revenue/Day', m.sellDays ? fmt.usd0(m.revenue / m.sellDays) : '\u2014', m.ytd, fmt.usd0(m.revenue) + ' over ' + m.sellDays + ' selling days'),
+    tile('Accts/Day', m.sellDays ? (m.count / m.sellDays).toFixed(1) : '\u2014', m.ytd, m.count + ' accounts over ' + m.sellDays + ' selling days'),
+    tile('ACV', m.count ? fmt.usd(m.revenue / m.count) : '\u2014', m.ytd, fmt.usd0(m.revenue) + ' \u00f7 ' + m.count + ' accounts'),
+    tile('Avg Pest', m.avgPest > 0 ? fmt.usd(m.avgPest) : '\u2014', m.pest, 'pest accounts (Sentricon, German roach, interior flea excluded) \u00b7 avg initial'),
+    tile('MY %', (m.myPct * 100).toFixed(1) + '%', multi, multi.length + ' multi-year of ' + (multi.length + twelve.length) + ' (multi + 12-month)'),
+    tile('Auto Pay', (m.apay * 100).toFixed(1) + '%', apayOn, apayOn.length + ' of ' + m.count + ' on autopay'),
+    tile('Attrition', m.attrPct == null ? '\u2014' : (m.attrPct * 100).toFixed(1) + '%', attrRows.cancelled, 'cancelled \u00f7 serviced by contract value, 3-day ROR + one-time excluded \u00b7 ' + attrRows.cancelled.length + ' of ' + attrRows.serviced.length + ' serviced'),
+    tile('Cancels', String(m.cancels), cxl, 'counted cancels (excluded reasons removed)'),
+  ];
+}
+function _landingAttritionRows(rows) {
+  const out = { serviced: [], cancelled: [] };
+  try {
+    const _svcR = (x) => (Number(x.services) || 0) > 0 || !!x.servicedDate;
+    const _actR = (x) => (x.status || '').toLowerCase() === 'active' || ((x.status || '') === '' && _subAliveNow(x) === true);
+    const _cxlR = (x) => !!x.cancelDate && !_actR(x);
+    const _ror = (x) => _is3DayROR(x) && !_isSoldNotStarted(x);
+    const _isOTS = (x) => {
+      if (/^\s*one[\s-]?time/i.test(String(x.subscription || ''))) return true;
+      const m = Number(x.contract);
+      return !(m > 1) && !/sentricon/i.test(String(x.subscription || ''));
+    };
+    for (const x of rows || []) {
+      if (!_svcR(x) || _ror(x) || _isOTS(x)) continue;
+      out.serviced.push(x);
+      if (_cxlR(x)) out.cancelled.push(x);
+    }
+  } catch { /* fall through */ }
+  return out;
+}
+
 function _landingAttritionPct(rows) {
   try {
     const _svcR = (x) => (Number(x.services) || 0) > 0 || !!x.servicedDate;
@@ -8622,11 +8676,7 @@ function repLandingPlayerCard(opts) {
     const initials = name.split(/[\s,]+/).filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase();
     const repObj = { name, office: ytd[0].office || '', team, tier: getRepTier(name), sales: all, revenue: all.reduce((a, s) => a + (Number(s.contractValue) || 0), 0) };
 
-    const tile = (label, value) => el('div', {
-      class: 'rounded-lg border p-2.5 text-center',
-      style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-      el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
-      el('div', { class: 'text-base font-bold tabular-nums mt-0.5' }, value));
+    const tile = _landingTile(name, false);
 
     return el('div', {
       class: 'card p-4 sm:p-5 cursor-pointer transition hover:brightness-95',
@@ -8650,15 +8700,7 @@ function repLandingPlayerCard(opts) {
         _hdrExtra,
         el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Player card →')),
       el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
-        tile('Sales', fmt.int(count)),
-        tile('Revenue/Day', sellDays ? fmt.usd0(revenue / sellDays) : '—'),
-        tile('Accts/Day', sellDays ? (count / sellDays).toFixed(1) : '—'),
-        tile('ACV', count ? fmt.usd(revenue / count) : '—'),
-        tile('Avg Pest', avgPest > 0 ? fmt.usd(avgPest) : '—'),
-        tile('MY %', (myPct * 100).toFixed(1) + '%'),
-        tile('Auto Pay', (apay * 100).toFixed(1) + '%'),
-        tile('Attrition', attrPct == null ? '—' : (attrPct * 100).toFixed(1) + '%'),
-        tile('Cancels', String(cancels)),
+        ..._landingTiles(tile, { ytd, count, revenue, sellDays, avgPest, pest, myPct, apay, attrPct, cancels }),
       ),
     );
   } catch (e) { console.warn('[ridd] rep landing card failed', e); return null; }
@@ -8696,9 +8738,7 @@ function teamLandingPlayerCards(opts) {
       const color = getTeamColor(team) || 'var(--accent)';
       const initials = String(team).split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase();
       const entity = { name: team, team, office: '', tier: '', sales: all, revenue: all.reduce((a, s) => a + (Number(s.contractValue) || 0), 0), _entity: 'team' };
-      const tile = (label, value) => el('div', { class: 'rounded-lg border p-2.5 text-center', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
-        el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
-        el('div', { class: 'text-base font-bold tabular-nums mt-0.5' }, value));
+      const tile = _landingTile(team + ' team', true);
       return el('div', {
         class: 'card p-4 sm:p-5 cursor-pointer transition hover:brightness-95',
         style: { borderLeftWidth: '4px', borderLeftColor: color },
@@ -8716,15 +8756,7 @@ function teamLandingPlayerCards(opts) {
           i === 0 ? _hdrExtra : null,
           el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Team card →')),
         el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
-          tile('Sales', fmt.int(count)),
-          tile('Revenue/Day', sellDays ? fmt.usd0(revenue / sellDays) : '—'),
-          tile('Accts/Day', sellDays ? (count / sellDays).toFixed(1) : '—'),
-          tile('ACV', count ? fmt.usd(revenue / count) : '—'),
-          tile('Avg Pest', avgPest > 0 ? fmt.usd(avgPest) : '—'),
-          tile('MY %', (myPct * 100).toFixed(1) + '%'),
-          tile('Auto Pay', (apay * 100).toFixed(1) + '%'),
-          tile('Attrition', attrPct == null ? '—' : (attrPct * 100).toFixed(1) + '%'),
-          tile('Cancels', String(cancels))));
+          ..._landingTiles(tile, { ytd, count, revenue, sellDays, avgPest, pest, myPct, apay, attrPct, cancels })));
     });
   } catch (e) { console.warn('[ridd] team landing card failed', e); return []; }
 }
