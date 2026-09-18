@@ -885,7 +885,7 @@ function reportingWaterfall() {
             + (pace != null ? ' so far — trending to ' + (pace * 100).toFixed(2) + '% at the current pace (~' + Math.round(pace * v.den) + ' cancels by month-end)' : '')
             + (topReasons(y, m) ? ' — ' + topReasons(y, m) : '') + '. Click for the full breakdown.',
           onclick: () => openAttritionDrill(pop, y, m),
-        }, (v.rate * 100).toFixed(2) + '%', el('span', { class: 'text-[9px] ml-1', style: { opacity: '.65' } }, '(' + v.n + ')'),
+        }, (v.rate * 100).toFixed(2) + '%', el('span', { class: 'text-[9px] ml-1 whitespace-nowrap', style: { opacity: '.65' } }, '(' + fmt.int(v.n) + ' of ' + fmt.int(v.den) + ')'),
           pace != null && el('div', { class: 'text-[9px] font-bold', style: { opacity: '.75', marginTop: '1px' } },
             '→ ' + (pace * 100).toFixed(2) + '% pace'));
       });
