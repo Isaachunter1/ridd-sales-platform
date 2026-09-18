@@ -1250,6 +1250,8 @@ function viewIndicators() {
     // Customize hide toggle; the stack below skips 'card' so it can't
     // render twice.
     _isPartner && !_focusedComp && userCan('ind_card') && !(_repLayoutPrefs().hidden || []).includes('card') && repLandingPlayerCard(),
+    // Partners / team leads: a card per team they reach, right under their own (per Isaac).
+    ...((_isPartner && !_focusedComp && userCan('ind_card') && ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)))) ? teamLandingPlayerCards() : []),
     // Sales reps: Your Performance Trends sits right under the player card,
     // ahead of the Indicators table + Power Ranking (per Isaac).
     _repSalesLayout && !_focusedComp && userCan('ind_yoy') && !(_repLayoutPrefs().hidden || []).includes('yoy') && indicatorYoYTrendChart(),
@@ -8631,6 +8633,68 @@ function repLandingPlayerCard() {
       ),
     );
   } catch (e) { console.warn('[ridd] rep landing card failed', e); return null; }
+}
+
+// Team player card (per Isaac, Sep 2026): partners live in their team's
+// numbers, so every team they reach (Settings → Users → Teams led, or their
+// own assignment) gets a card under their own — same tiles, same click-through
+// to a full player card (entity mode: every drill runs on the pooled sales).
+function teamLandingPlayerCards() {
+  try {
+    if (typeof myReachTeams !== 'function') return [];
+    const teams = [...myReachTeams()].filter(Boolean).slice(0, 4);
+    if (!teams.length) return [];
+    const yr = String(new Date().getFullYear());
+    const PEST_RE = /sentricon|german\s*roach|interior\s*flea/i;
+    const pool = (state._indicatorRawSales || []).filter(s => s && s.rep && frPendingServiced(s));
+    const teamOf = (s) => getRepTeam(getCanonicalRepName(s.rep)) || '';
+    return teams.map(team => {
+      const all = pool.filter(s => teamOf(s) === team);
+      const ytd = all.filter(s => { const iso = (typeof dateSoldToIso === 'function') ? dateSoldToIso(s.dateSold) : ''; return iso && iso.slice(0, 4) === yr; });
+      const revenue = ytd.reduce((a, s) => a + (Number(s.contractValue) || 0), 0);
+      const count = ytd.length;
+      const reps = new Set(ytd.map(s => getCanonicalRepName(s.rep))).size;
+      const sellDays = new Set(ytd.map(s => dateSoldToIso(s.dateSold)).filter(Boolean)).size;
+      const pest = ytd.filter(s => !PEST_RE.test(s.subscription || ''));
+      const avgPest = pest.length ? pest.reduce((a, s) => a + (Number(s.initialPrice) || 0), 0) / pest.length : 0;
+      const multi = ytd.filter(s => myBucketOf(s) === 'multi').length;
+      const twelve = ytd.filter(s => myBucketOf(s) === 'twelve').length;
+      const myPct = (multi + twelve) > 0 ? multi / (multi + twelve) : 0;
+      const apay = count ? ytd.filter(s => s.autoPay && s.autoPay !== 'No').length / count : 0;
+      const cancels = ytd.filter(s => (typeof _repCancelCounts === 'function') ? _repCancelCounts(s) : !!s.cancelDate).length;
+      const color = getTeamColor(team) || 'var(--accent)';
+      const initials = String(team).split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+      const entity = { name: team, team, office: '', tier: '', sales: all, revenue: all.reduce((a, s) => a + (Number(s.contractValue) || 0), 0), _entity: 'team' };
+      const tile = (label, value) => el('div', { class: 'rounded-lg border p-2.5 text-center', style: { borderColor: 'var(--border)', background: 'var(--card-2)' } },
+        el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-muted)' } }, label),
+        el('div', { class: 'text-base font-bold tabular-nums mt-0.5' }, value));
+      return el('div', {
+        class: 'card p-4 sm:p-5 cursor-pointer transition hover:brightness-95',
+        style: { borderLeftWidth: '4px', borderLeftColor: color },
+        onclick: () => openIndicatorRepCard(_scopeRep(entity, () => true), []),
+        title: 'Open the team’s player card — pooled records, accounts, drill-downs',
+      },
+        el('div', { class: 'flex items-center gap-3 mb-3' },
+          el('div', { class: 'w-12 h-12 rounded-full flex items-center justify-center text-base font-black shrink-0', style: { background: color, color: '#fff' } }, initials),
+          el('div', { class: 'min-w-0 flex-1' },
+            el('div', { class: 'flex items-center gap-2 flex-wrap' },
+              el('span', { class: 'text-lg font-bold truncate' }, team),
+              el('span', { class: 'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded', style: { background: color + '22', color } }, 'Team'),
+              el('span', { class: 'text-2xl leading-none font-black tabular-nums ml-1' }, fmt.usd0(revenue))),
+            el('div', { class: 'text-[11px] mt-0.5', style: { color: 'var(--text-muted)' } }, reps + ' rep' + (reps === 1 ? '' : 's') + ' with a sale this year')),
+          el('span', { class: 'text-[11px] font-bold shrink-0', style: { color: 'var(--accent)' } }, 'Team card →')),
+        el('div', { class: 'grid gap-2', style: { gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' } },
+          tile('Sales', fmt.int(count)),
+          tile('Revenue/Day', sellDays ? fmt.usd0(revenue / sellDays) : '—'),
+          tile('Accts/Day', sellDays ? (count / sellDays).toFixed(1) : '—'),
+          tile('ACV', count ? fmt.usd(revenue / count) : '—'),
+          tile('Avg Pest', avgPest > 0 ? fmt.usd(avgPest) : '—'),
+          tile('MY %', (myPct * 100).toFixed(1) + '%'),
+          tile('Auto Pay', (apay * 100).toFixed(1) + '%'),
+          tile('Days w/ a Sale', String(sellDays)),
+          tile('Cancels', String(cancels))));
+    });
+  } catch (e) { console.warn('[ridd] team landing card failed', e); return []; }
 }
 
 function repDrillPanel(rep, chartBuckets, titleNode) {
