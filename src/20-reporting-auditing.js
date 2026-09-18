@@ -209,7 +209,7 @@ function reportingAuditing() {
 
   // Everything on this tab is left-justified per request.
   const th = (lab) => el('th', { class: 'px-2.5 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap text-left', style: { background: 'var(--card-2)', color: 'var(--text-muted)' } }, lab);
-  const td = (val, opts = {}) => el('td', { class: 'px-2.5 py-1.5 tabular-nums text-xs whitespace-nowrap text-left' + (opts.bold ? ' font-bold' : ''), style: opts.sticky ? { background: opts.bg || 'var(--card)', position: 'sticky', left: 0, zIndex: 1, boxShadow: '1px 0 0 var(--border)' } : { background: opts.bg || 'transparent' } }, val);
+  const td = (val, opts = {}) => el('td', { class: 'px-3 py-1.5 tabular-nums text-xs whitespace-nowrap text-left' + (opts.bold ? ' font-bold' : ''), style: opts.sticky ? { background: opts.bg || 'var(--card)', position: 'sticky', left: 0, zIndex: 1, boxShadow: '1px 0 0 var(--border)' } : { background: opts.bg || 'transparent' } }, val);
   const money = (v) => v ? '$' + Math.round(v).toLocaleString() : '—';
 
   // Player-card drill-in: click any rep / team / branch row to see its full
@@ -443,9 +443,9 @@ function reportingAuditing() {
       const c = (typeof va === 'string' || typeof vb === 'string') ? String(va).localeCompare(String(vb)) : (va - vb);
       return sortState.dir === 'asc' ? c : -c;
     });
-    const scrolls = kind === 'rep' || _phoneAud;   // phones: every audit table scrolls sideways with the name column frozen
+    const scrolls = true;   // every audit table scrolls sideways with the name column frozen (per Isaac, Sep 2026 — fixed layout crushed the numbers together)
     const thSort = (c, i) => el('th', {
-      class: 'px-1.5 py-2 text-[9px] uppercase tracking-wide font-semibold text-left cursor-pointer select-none hover:text-default transition'
+      class: 'px-3 py-2 text-[9px] uppercase tracking-wide font-semibold text-left cursor-pointer select-none hover:text-default transition'
         + (scrolls ? ' whitespace-nowrap' : ''),
       style: { background: 'var(--card-2)', color: sortState.key === c.id ? 'var(--accent)' : 'var(--text-muted)', fontWeight: sortState.key === c.id ? '800' : undefined, ...(i === 0 ? { position: 'sticky', left: 0, zIndex: 2, boxShadow: '1px 0 0 var(--border)' } : {}) },
       title: c.tip || '',
