@@ -151,17 +151,7 @@ function viewScorecards() {
       interveneCount + ' intervene · ' + watchCount + ' watch',
       interveneCount > 0 ? '#B91C1C' : (watchCount > 0 ? '#A9441F' : null)),
   );
-  // 1:1 cadence rollup (per Isaac): who's overdue for a meeting, who's
-  // missing this month's review, how many action items are open.
-  if (typeof meetingCadence === 'function' && roster.length) {
-    const cads = roster.map(p => meetingCadence(p.id));
-    const noCoaching = cads.filter(c => !c.coachingThisMonth).length;
-    const openItems = cads.reduce((t, c) => t + c.openItems, 0);
-    summaryStrip.append(scorecardSummaryCard('1:1 Cadence', noCoaching ? noCoaching + ' still to meet' : 'Everyone met',
-      (roster.length - noCoaching) + ' of ' + roster.length + ' coached this month \u00b7 ' + openItems + ' open action item' + (openItems === 1 ? '' : 's'),
-      noCoaching ? '#B91C1C' : '#5F6C5B'));
-    summaryStrip.className = 'grid grid-cols-2 sm:grid-cols-5 gap-3';
-  }
+  // (1:1 Cadence summary card retired per Isaac, Sep 2026 — four cards only.)
   container.append(summaryStrip);
 
   // ── Agent grid ──────────────────────────────────────────────────
