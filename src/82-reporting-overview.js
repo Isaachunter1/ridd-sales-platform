@@ -98,8 +98,22 @@ function reportingOverview() {
     { id: 'rarrOffice', title: 'Recurring Annual Value by Office',  subline: 'Sum of Annual Recurring Value · active subs',           totalLabel: 'Active ARV',          formatValue: fmt.usd0, sliceKey: 'rarrOffice' },
     { id: 'customers',  title: 'Active Customers',         subline: 'Distinct customers with at least one active sub',       totalLabel: 'Active customers',    sliceKey: 'customers' },
     { id: 'activesubs', title: 'Active Subscriptions',     subline: 'Currently in service · by subscription type',           totalLabel: 'Active subs',         sliceKey: 'activeSubs' },
-    { id: 'aging',      title: 'Receivables Aging',        subline: (d) => 'Customer balances by age · $' + Math.round(d.stats.totalAR).toLocaleString() + ' total AR · ' + d.stats.pastDueCount.toLocaleString() + ' past due (31+ days)', totalLabel: 'Total AR',             formatValue: fmt.usd0, sliceKey: 'aging', preserveOrder: true },
-    { id: 'pastdue',    title: 'Past Due Balances by Office', subline: (d) => '$' + Math.round(d.stats.pastDueAmount).toLocaleString() + ' past due (31+ days) · ' + d.stats.pastDuePct.toFixed(1) + '% of AR',      totalLabel: 'Past due $',           formatValue: fmt.usd0, sliceKey: 'pastDueOffice' },
+    // Receivables — one card, two lenses (per Isaac, Sep 2026): every
+    // customer's real balance by AGE (Current → 90+), or the past-due
+    // portion (31+ days) by OFFICE. Same dollars either way; the office
+    // view is the aging donut minus its Current slice.
+    { id: 'aging',      title: 'Receivables',
+      subline: (d) => state._rtArView === 'office'
+        ? 'Past due (31+ days) by office \u00b7 $' + Math.round(d.stats.pastDueAmount).toLocaleString() + ' past due \u00b7 ' + d.stats.pastDuePct.toFixed(1) + '% of $' + Math.round(d.stats.totalAR).toLocaleString() + ' AR'
+        : 'Customer balances by age \u00b7 $' + Math.round(d.stats.totalAR).toLocaleString() + ' total AR \u00b7 ' + d.stats.pastDueCount.toLocaleString() + ' past due (31+ days)',
+      totalLabel: state._rtArView === 'office' ? 'Past due $' : 'Total AR', formatValue: fmt.usd0,
+      sliceKey: state._rtArView === 'office' ? 'pastDueOffice' : 'aging', preserveOrder: state._rtArView !== 'office',
+      headerRight: () => el('div', { class: 'inline-flex shrink-0', style: { border: '1px solid var(--border-2)' } },
+        ...[['age', 'By age'], ['office', 'By office']].map(([v, l]) => el('button', {
+          class: 'px-2 py-0.5 text-[10px] font-bold transition hover:brightness-95',
+          style: (state._rtArView || 'age') === v ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card)', color: 'var(--text-muted)' },
+          onclick: () => { state._rtArView = v; mountApp(); },
+        }, l))) },
     { id: 'tenure',     title: 'Customer Tenure',          subline: 'Subs by years since initial service',                    totalLabel: 'Subs',                sliceKey: 'tenure',    preserveOrder: true },
     { id: 'agreement',  title: 'Agreement Length Mix',     subline: 'Distribution by contract length (months)',               totalLabel: 'Subs w/ term',        sliceKey: 'agreement', preserveOrder: true },
     { id: 'cancels',    title: 'Cancellation Reasons',     subline: 'All canceled recurring subs',                            totalLabel: 'Cancellations',       sliceKey: 'cancels' },
@@ -259,7 +273,7 @@ function reportingOverview() {
     { key: 'active',    label: 'Subscriptions Active',    value: (reportingActiveInclOneTime() ? dataA.stats.activeSubs : dataA.stats.activeRecurring).toLocaleString(), sub: reportingActiveInclOneTime() ? 'currently in service · incl. one-time' : 'currently in service · recurring', chartIds: ['activesubs', 'agreement'] },   // (Agreement Length Mix moved here from column 1, per Isaac)
     { key: 'customers', label: 'Customers Active',        value: (dataA.stats.activeCustomers != null ? dataA.stats.activeCustomers : dataA.stats.uniqueCustomers).toLocaleString(), sub: (dataA.stats.distinctActiveServices != null ? dataA.stats.distinctActiveServices : dataA.stats.distinctServices) + ' active services', chartIds: ['tenure'] },   // (Active Customers donut retired, per Isaac)
     { key: 'arr',       label: 'Active ARR',              value: '$' + Math.round(dataA.stats.activeArr).toLocaleString(),   sub: 'from active recurring subs',                                        chartIds: ['rarr', 'rarrOffice'] },   // (One-Time Revenue donut folded into the One-Time Subscriptions toggle)
-    { key: 'cancels',   label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging', 'pastdue'] },
+    { key: 'cancels',   label: 'Subscriptions Cancelled', value: dataA.stats.realCancels.toLocaleString(),                   sub: dataA.stats.cancelRate.toFixed(2) + '% rate · recurring subs only',  chartIds: ['cancels', 'aging'] },
   ];
   // "Other active" customers = active customers whose active subs are all
   // non-recurring (one-time). Surfaced so the user can click in + fix any
