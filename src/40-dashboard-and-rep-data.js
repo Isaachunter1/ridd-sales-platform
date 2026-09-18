@@ -1056,9 +1056,11 @@ function viewDashboard() {
     // ─── Split: Today's Sales (30%) | Leaderboard (70%) ───
     // Mobile stacks LEADERBOARD first (per Isaac) — CSS order flips below
     // the lg breakpoint; desktop keeps feed-left / leaderboard-right.
-    el('div', { class: 'grid grid-cols-1 lg:grid-cols-[3fr_7fr] gap-4' },
-      el('div', { class: 'order-2 lg:order-1 min-w-0' }, todaysSalesPanel(windowSales, range)),
-      el('div', { class: 'order-1 lg:order-2 min-w-0' }, leaderboardSection(range)),
+    // Both cards stretch to the same height (per Isaac): the grid rows
+    // stretch, each card is a flex column, and the scroll region fills it.
+    el('div', { class: 'grid grid-cols-1 lg:grid-cols-[3fr_7fr] gap-4 items-stretch' },
+      el('div', { class: 'order-2 lg:order-1 min-w-0 flex flex-col' }, todaysSalesPanel(windowSales, range)),
+      el('div', { class: 'order-1 lg:order-2 min-w-0 flex flex-col' }, leaderboardSection(range)),
     ),
   );
 }
@@ -5576,13 +5578,13 @@ function todaysSalesPanel(windowSales, range) {
     return 'One-Time';
   };
 
-  return el('div', { class: 'card overflow-hidden flex flex-col' },
+  return el('div', { class: 'card overflow-hidden flex flex-col flex-1', style: { maxHeight: '480px' } },
     header,
     // ~10 rows visible, the rest scroll in place (per Isaac).
     // Fixed column layout so the feed never needs a sideways scroll (per
     // Isaac): Time / Contract / ACV get fixed widths, Rep + Service share
     // the rest and ellipsize.
-    el('div', { style: { maxHeight: '412px', overflowY: 'auto', overflowX: 'hidden' } },
+    el('div', { class: 'flex-1', style: { minHeight: '0', overflowY: 'auto', overflowX: 'hidden' } },
       el('table', { class: 'w-full text-[11px]', style: { tableLayout: 'fixed' } },
         el('colgroup', {},
           el('col', { style: { width: '58px' } }), el('col', { style: { width: '30%' } }), el('col', {}),
@@ -5677,7 +5679,7 @@ function leaderboardSection(range) {
   const sortIndicator = () => '';   // arrows retired app-wide — active header is highlighted instead
   const sortHl = (k) => state.dashLeaderSort === k ? { color: 'var(--accent)', fontWeight: '800' } : {};
 
-  return el('div', { class: 'card overflow-hidden' },
+  return el('div', { class: 'card overflow-hidden flex flex-col flex-1', style: { maxHeight: '480px' } },
     // Header with tabs
     el('div', { class: 'flex items-center justify-between px-4 py-3 flex-wrap gap-3 border-b border-' },
       el('h2', { class: 'text-base font-bold' }, 'Leaderboard'),
@@ -5770,7 +5772,7 @@ function leaderboardSection(range) {
           }, ...LB_COLS.map(c => el('option', { value: c.key, selected: pick.key === c.key }, c.label)))) : null,
         // Past ~6 reps the board scrolls inside a fixed-height box (per
         // Isaac) so the card stays the same size as the Latest Sales feed.
-        el('div', { class: phone ? '' : 'scroll-x', style: rows.length > 6 ? { maxHeight: '412px', overflowY: 'auto' } : {} },
+        el('div', { class: (phone ? '' : 'scroll-x ') + 'flex-1', style: { minHeight: '0', overflowY: 'auto' } },
           el('table', { class: 'w-full text-[12px]' },
             el('thead', { class: 'text-[9px] uppercase tracking-wider text-muted-', style: { position: 'sticky', top: '0', background: 'var(--card)', zIndex: '3' } },
               el('tr', {},
