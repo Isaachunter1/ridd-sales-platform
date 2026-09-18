@@ -641,7 +641,10 @@ function reportingWaterfall() {
 
     const overlay = el('div', { class: 'modal-overlay' });
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-    const stat = (label, val, sub) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl', style: { background: 'var(--card-2)', minWidth: '110px' } },
+    // Stat tiles drill to their accounts (per Isaac, Sep 2026).
+    const stat = (label, val, sub, drillRows) => el('div', { class: 'flex-1 px-3 py-2 rounded-xl' + (drillRows && drillRows.length ? ' cursor-pointer transition hover:brightness-95' : ''), style: { background: 'var(--card-2)', minWidth: '110px' },
+      title: drillRows && drillRows.length ? 'Click for the accounts' : '',
+      onclick: drillRows && drillRows.length ? () => openReportingDrillModal({ chartTitle: periodLabel + ' attrition · ' + label, sliceLabel: fmt.int(drillRows.length) + ' accounts · ' + money0(arrOf(drillRows)) + ' ARR', rows: drillRows, formatValue: (v) => fmt.usd0(v) }) : undefined },
       el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, label),
       el('div', { class: 'text-lg font-black tabular-nums' }, val),
       sub && el('div', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, sub));
@@ -724,22 +727,41 @@ function reportingWaterfall() {
           el('button', { class: 'text-2xl leading-none', style: { color: 'var(--text-muted)' }, onclick: () => overlay.remove() }, '×'))),
       el('div', { class: 'px-4 pb-4 overflow-y-auto' },
         el('div', { class: 'flex gap-2 flex-wrap mb-3' },
-          stat('B.O.Y. book', fmt.int(boyRows.length)),
-          stat('Churned', fmt.int(attr.length), (rate * 100).toFixed(2) + '% attrition'),
-          stat('ARR lost', money0(arrOf(attr))),
-          stat('Median lifetime', median.toFixed(1) + ' mo', Math.round(under12 * 100) + '% left within 12 mo'),
-          earlyLosses.length > 0 && stat('Early losses', fmt.int(earlyLosses.length), money0(arrOf(earlyLosses)) + ' ARR — sold & lost inside ' + periodLabel + ' · sales quality, NOT in the churn rate')),
+          stat('B.O.Y. book', fmt.int(boyRows.length), null, boyRows),
+          stat('Churned', fmt.int(attr.length), (rate * 100).toFixed(2) + '% attrition', attr),
+          stat('ARR lost', money0(arrOf(attr)), null, [...attr].sort((a, b) => (Number(b.annual_recurring_value) || 0) - (Number(a.annual_recurring_value) || 0))),
+          stat('Median lifetime', median.toFixed(1) + ' mo', Math.round(under12 * 100) + '% left within 12 mo', attr.filter(r => { const v = lifeMonths(r); return v != null && v < 12; })),
+          earlyLosses.length > 0 && stat('Early losses', fmt.int(earlyLosses.length), money0(arrOf(earlyLosses)) + ' ARR — sold & lost inside ' + periodLabel + ' · sales quality, NOT in the churn rate', earlyLosses)),
         el('div', { class: 'text-[10px] uppercase tracking-widest font-bold mb-1', style: { color: 'var(--text-subtle)' } }, 'By cancellation reason'),
-        ...byReason.map(reasonRow),
-        // Reasons that churned people LAST year but nobody this year — the
-        // wins deserve visibility too.
+        // Donut (per Isaac, Sep 2026) — replaces the bar list. Legend rows
+        // and slices both drill to the accounts behind that reason.
         (() => {
-          const gone = [...prevPtsByReason.entries()]
-            .filter(([k]) => !byReason.some(g => g.key === k))
-            .sort((a, b) => b[1] - a[1]).slice(0, 4);
-          if (!gone.length) return null;
-          return el('div', { class: 'mt-2 text-[10px]', style: { color: '#DF643A' } },
-            '✓ Zero churn this period from: ' + gone.map(([k, pts]) => k + ' (was ' + pts.toFixed(2) + ' pts in ' + prevLabel + ')').join(' · '));
+          if (!byReason.length) return el('div', { class: 'text-xs py-4 text-center', style: { color: 'var(--text-muted)' } }, 'No counted cancels in ' + periodLabel + '.');
+          const PAL = (typeof REPORTING_PALETTE !== 'undefined' && REPORTING_PALETTE.length) ? REPORTING_PALETTE : ['#DF643A', '#2F4F4F', '#A9441F', '#5F6C5B', '#DC2626', '#C9B79C', '#8B5E3C', '#6B8E9F'];
+          const colorOf = (i) => PAL[i % PAL.length];
+          const rowsOf = (key) => attr.filter(r => (reportingCancelReasonOf(r) || '—') === key);
+          const drillReason = (g) => openReportingDrillModal({ chartTitle: periodLabel + ' attrition · ' + g.key, sliceLabel: fmt.int(g.n) + ' accounts · ' + money0(g.arr) + ' ARR lost', rows: rowsOf(g.key), formatValue: (v) => fmt.usd0(v) });
+          const cid = 'attrReasonPie_' + Math.random().toString(36).slice(2, 8);
+          const cvs = el('canvas', { id: cid });
+          setTimeout(() => {
+            if (typeof Chart === 'undefined' || !document.getElementById(cid)) return;
+            new Chart(cvs.getContext('2d'), {
+              type: 'doughnut',
+              data: { labels: byReason.map(g => g.key), datasets: [{ data: byReason.map(g => g.n), backgroundColor: byReason.map((_, i) => colorOf(i)), borderWidth: 1, borderColor: state.theme === 'dark' ? '#0A0B0D' : '#FFFFFF' }] },
+              options: { responsive: true, maintainAspectRatio: false, cutout: '58%',
+                onClick: (evt, els) => { if (els && els.length) drillReason(byReason[els[0].index]); },
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => ' ' + fmt.int(c.parsed) + ' · ' + (attr.length ? (c.parsed / attr.length * 100).toFixed(1) : '0') + '% of churn' } } } },
+            });
+          }, 30);
+          const legendRow = (g, i) => { const avgLife = g.lives.length ? g.lives.reduce((a, b) => a + b, 0) / g.lives.length : null; return el('div', {
+            class: 'flex items-center gap-2 py-1 text-xs cursor-pointer transition hover:brightness-95 border-t border-', title: 'Click for the accounts', onclick: () => drillReason(g) },
+            el('span', { class: 'shrink-0', style: { width: '10px', height: '10px', background: colorOf(i), borderRadius: '2px' } }),
+            el('span', { class: 'font-semibold truncate flex-1' }, g.key),
+            el('span', { class: 'tabular-nums whitespace-nowrap text-[11px]', style: { color: 'var(--text-muted)' } }, fmt.int(g.n) + ' · ' + (attr.length ? (g.n / attr.length * 100).toFixed(1) : '0') + '%'),
+            el('span', { class: 'tabular-nums whitespace-nowrap text-[10px] hidden sm:inline', style: { color: 'var(--text-subtle)' } }, money0(g.arr) + (avgLife != null ? ' · ' + avgLife.toFixed(1) + ' mo' : ''))); };
+          return el('div', { class: 'flex flex-col sm:flex-row gap-4 items-center sm:items-start' },
+            el('div', { class: 'shrink-0', style: { position: 'relative', width: '220px', height: '220px' } }, cvs),
+            el('div', { class: 'flex-1 min-w-0 w-full' }, ...byReason.map(legendRow)));
         })(),
         el('div', { class: 'flex gap-5 flex-wrap mt-4' },
           miniTable('Top services', byService),
