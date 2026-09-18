@@ -655,7 +655,7 @@ function openReportingSliceStatsModal({ chartTitle, sliceLabel, rows, siblings, 
   document.body.append(overlay);
 }
 
-function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) {
+function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue, summary }) {
   const overlay = el('div', { class: 'modal-overlay' });
   const closeKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeKey); } };
   document.addEventListener('keydown', closeKey);
@@ -880,6 +880,9 @@ function openReportingDrillModal({ chartTitle, sliceLabel, rows, formatValue }) 
         }, '×'),
       ),
     ),
+    // Optional summary block (tiles / mini tables) between the header and
+    // the accounts table — the Attrition by Rep drill uses it.
+    summary ? el('div', { class: 'px-6 pb-4' }, summary) : null,
     rows.length === 0
       ? el('div', { class: 'p-12 text-center text-sm text-muted-' }, 'No rows in this slice.')
       : el('div', { class: 'overflow-auto flex-1', style: { borderTop: '1px solid var(--border)' } },
