@@ -1686,6 +1686,8 @@ function deletedCustIdSet() {
   // record in FieldRoutes any more (deleted in the CRM). Flagged by the sync
   // as customer_missing; excluded here unless an admin turns the rule off.
   if (reportingAutoExcludeOrphans()) for (const id of (state._orphanCustIds || [])) set.add(id);
+  // Nightly FieldRoutes scan: ids the CRM no longer returns (same switch).
+  if (reportingAutoExcludeOrphans()) for (const id of (state._crmDeletedIds || [])) set.add(id);
   return set;
 }
 function reportingAutoExcludeOrphans() {

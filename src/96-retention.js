@@ -60,6 +60,9 @@ function retenScopeSteps(rows) {
 function _retenScopeStepsBuild(rows) {
   const n = (v) => Number(v || 0).toLocaleString();
   const manual = new Set((state.indicatorDeletedCustIds || []).map(x => String(x).trim()).filter(Boolean));   // (folded into the orphan step — the manual list is empty today)
+  const crmDel = new Set((state._crmDeletedIds || []).map(String));
+  const crmMeta = state._crmDeletedMeta;
+  const crmStamp = crmMeta && crmMeta.scanned_at ? ' Last FieldRoutes check: ' + new Date(crmMeta.scanned_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '.' : ' FieldRoutes check has not run yet.';
   const cfgByName = new Map((state.reportingServiceConfig || []).map(c => [c.service_name, c]));
   const exclSrc = reportingExcludedSources();
   const off = _retenOfficial();
@@ -85,7 +88,7 @@ function _retenScopeStepsBuild(rows) {
   // Configuration rules run next, LOCKED (per Isaac, Sep 2026 — every
   // number on the Overview already has them applied, so the steps must
   // too or the two tabs drift). Change them in Reporting → Configurations.
-  run('orphans', 'Remove accounts deleted in FieldRoutes', '[Configurations rule] Subscriptions whose customer record no longer exists in FieldRoutes — the account was deleted in the CRM but the mirror never forgets a row. Detected automatically by the sync.', r => (reportingAutoExcludeOrphans() && !!r.customer_missing) || manual.has(String(r.customer_id != null ? r.customer_id : '')), true);
+  run('orphans', 'Remove accounts deleted in FieldRoutes', '[Configurations rule] Accounts deleted inside FieldRoutes — the mirror never forgets a row, so a nightly check asks FieldRoutes which customer ids still exist and anything it no longer returns lands here (plus subs with no customer record at all, and the manual list in Configurations).' + crmStamp, r => { const id = String(r.customer_id != null ? r.customer_id : ''); return (reportingAutoExcludeOrphans() && (!!r.customer_missing || crmDel.has(id))) || manual.has(id); }, true);
   run('hidden', 'Remove hidden service types', '[Configurations rule] Service types marked Hidden in Configurations → Service types (late fees, inspections, admin items…).', r => !!(cfgByName.get(r.subscription) || {}).is_hidden, true);
   run('sources', 'Remove excluded lead sources', '[Configurations rule] Lead sources switched off in Configurations' + (exclSrc.size ? ': ' + [...exclSrc].join(', ') : ' (none today)') + '.', r => exclSrc.has(reportingSourceOf(r)), true);
   // Always-on steps come first (per Isaac, Sep 2026): the locked ones the
