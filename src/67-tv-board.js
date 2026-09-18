@@ -93,10 +93,12 @@ function openTvBoard() {
     let ms = asUtc - offAt(asUtc); ms = asUtc - offAt(ms);
     return new Date(ms);
   };
-  // FieldRoutes stamps dateAdded on the COMPANY clock (Eastern), whichever
-  // office the account belongs to — a Destin sale read as Central came out
-  // an hour ahead of the room (per Isaac, Sep 18).
-  const CRM_TZ = 'America/New_York';
+  // FieldRoutes stamps dateAdded on the COMPANY clock, whichever office the
+  // account belongs to — and RIDD's company clock is MOUNTAIN. Verified
+  // Sep 18 2026 against the RevHawk mirror: for every office (Destin,
+  // Atlanta, Salt Lake…) dateAdded sits ~6 h behind the UTC insert time,
+  // i.e. UTC−6 = MDT. So no per-office zone here; Mountain in, Mountain out.
+  const CRM_TZ = 'America/Denver';
   const saleAt = (s) => {
     const snap = s.crm_subscription_id != null ? _snapBySub.get(String(s.crm_subscription_id)) : null;
     if (snap) { const d = _localToDate(snap.sold_at, CRM_TZ); if (d && !isNaN(d)) return d; }
@@ -119,7 +121,11 @@ function openTvBoard() {
     const isRenewal = (s) => (typeof reportingSourceClass === 'function' ? reportingSourceClass(sourceOf(s)) : (/^renewal\s*-/i.test(sourceOf(s)) ? 'renewal' : 'new')) === 'renewal';
     const renewRows = rows.filter(isRenewal), newRows = rows.filter(s => !isRenewal(s));
     const subs = rows.filter(s => !isOts(s));
-    const my = subs.map(s => (typeof myBucketOf === 'function') ? myBucketOf(s) : null).filter(Boolean);
+    // Multi-year % (per Isaac): anything sold by the house "RIDD Account"
+    // login is out of the ratio (shown in its own column on the drill).
+    const isHouse = (s) => /ridd\s*account/i.test(String(s._crmRep || '')) || (typeof FR_SYSTEM_NAME_RE !== 'undefined' && FR_SYSTEM_NAME_RE.test(String(s._crmRep || '')));
+    const subsMy = subs.filter(s => !isHouse(s));
+    const my = subsMy.map(s => (typeof myBucketOf === 'function') ? myBucketOf(s) : null).filter(Boolean);
     const multi = my.filter(b => b === 'multi').length;
     const ap = rows.filter(s => s._crm).length ? rows.filter(s => s._crm && s._crmAutoPay).length / rows.filter(s => s._crm).length : null;
     // Reps — CRM sellers without an app account rank under their CRM name.
@@ -150,7 +156,7 @@ function openTvBoard() {
       avgContract: rows.length ? rev(rows) / rows.length : 0,
       multiPct: my.length ? multi / my.length * 100 : 0, autoPay: ap, recMix: rows.length ? subs.length / rows.length * 100 : 0, reps, offices, latest, goal,
       splits: {
-        multi: { yes: subs.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'multi'), no: subs.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'twelve') },
+        multi: { yes: subsMy.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'multi'), no: subsMy.filter(s => (typeof myBucketOf === 'function' ? myBucketOf(s) : null) === 'twelve'), excluded: subs.filter(isHouse) },
         autopay: { yes: rows.filter(s => s._crm && s._crmAutoPay), no: rows.filter(s => s._crm && !s._crmAutoPay) },
         recmix: { yes: subs, no: rows.filter(s => isOts(s)) },
         // Price-point drills (per Isaac): initial ≥ $99 / under, recurring ≥ $59 / under, ACV ≥ $700 / under.
@@ -194,7 +200,7 @@ function openTvBoard() {
         hero ? el('div', {}) : el('div', { style: { fontFamily: HEAD, fontSize: '32px', letterSpacing: '.02em', textTransform: 'uppercase' } }, title),
         el('button', { style: { width: '36px', height: '36px', background: 'transparent', border: '1px solid ' + T.hair, color: T.dim, cursor: 'pointer', fontSize: '18px' }, onclick: () => back.remove() }, '\u00d7')),
       hero || null,
-      no ? el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px' } }, list(yesLabel, yes, true), list(noLabel, no, false))
+      no ? el('div', { style: { display: 'grid', gridTemplateColumns: metric && metric.third ? '1fr 1fr 1fr' : '1fr 1fr', gap: '28px' } }, list(yesLabel, yes, true), list(noLabel, no, false), metric && metric.third ? list(metric.third.label, metric.third.rows, false) : null)
          : list(yesLabel, [...yes].sort((a, b) => saleKey(b) - saleKey(a)), true)));
     overlay.append(back);
   };
@@ -276,7 +282,7 @@ function openTvBoard() {
         tile('Avg initial', money(d.avgInitial), 'subscriptions', () => openDrill('Avg initial · ' + money(d.avgInitial), 'Initial $99 and up', d.splits.initial.yes, 'Initial under $99', d.splits.initial.no, repNameOf, null, { of: (x) => Number(x.initial_amount) || 0, fmt: money })),
         tile('Avg recurring', money(d.avgMonthly), 'per month', () => openDrill('Avg recurring · ' + money(d.avgMonthly), 'Recurring $59 and up', d.splits.recurring.yes, 'Recurring under $59', d.splits.recurring.no, repNameOf, null, { of: (x) => Number(x.monthly_amount) || 0, fmt: (n) => money(n) + '/mo' })),
         tile('Avg ACV', money(d.avgContract), 'contract value per sale', () => openDrill('Avg ACV · ' + money(d.avgContract), 'ACV $700 and up', d.splits.acv.yes, 'ACV under $700', d.splits.acv.no, repNameOf)),
-        tile('Multi-year', pct(d.multiPct), '18 mo and up', () => openDrill('Multi-year · ' + pct(d.multiPct), 'Multi-year (18 mo+)', d.splits.multi.yes, '12-month', d.splits.multi.no, repNameOf, null, { of: (x) => Number(x.contract_months) || 0, fmt: (n) => n > 1 ? Math.round(n) + ' MO' : 'ONE-TIME', avg: false })),
+        tile('Multi-year', pct(d.multiPct), '18 mo and up', () => openDrill('Multi-year · ' + pct(d.multiPct), 'Multi-year (18 mo+)', d.splits.multi.yes, '12-month', d.splits.multi.no, repNameOf, null, { of: (x) => Number(x.contract_months) || 0, fmt: (n) => n > 1 ? Math.round(n) + ' MO' : 'ONE-TIME', avg: false, third: { label: 'Excluded · RIDD Account', rows: d.splits.multi.excluded } })),
         tile('Auto pay', d.autoPay == null ? '—' : pct(d.autoPay * 100), 'of CRM sales', () => openDrill('Auto pay · ' + (d.autoPay == null ? '—' : pct(d.autoPay * 100)), 'On auto pay', d.splits.autopay.yes, 'Not on auto pay', d.splits.autopay.no, repNameOf)),
         tile('Rec mix', pct(d.recMix), 'recurring subs of all sales', () => openDrill('Rec mix · ' + pct(d.recMix), 'Recurring subscriptions', d.splits.recmix.yes, 'One-time services', d.splits.recmix.no, repNameOf))));
 
@@ -365,6 +371,12 @@ function openTvBoard() {
   document.addEventListener('fullscreenchange', onFs);
   document.body.append(overlay);
   render();
+  // The sale clock comes from the CRM snapshot; on a TV that never opened
+  // Reporting it isn't in memory yet — pull it once so times are real, not
+  // the sync stamp.
+  if (state.reportingActiveUploadId && state.reportingSubscriptionsLoadedFor !== state.reportingActiveUploadId && typeof loadReportingSubscriptions === 'function') {
+    loadReportingSubscriptions(state.reportingActiveUploadId).then(rows => { if (rows && state.reportingActiveUploadId) { state.reportingSubscriptions = rows; state.reportingSubscriptionsLoadedFor = state.reportingActiveUploadId; _snapBySub.clear(); for (const r of rows) if (r.subscription_id != null && r.sold_at) _snapBySub.set(String(r.subscription_id), r); render(); } }).catch(() => {});
+  }
   // Refresh the CRM pool in the background so the board keeps up with the sync.
   const pullFresh = async () => {
     try { if (typeof refreshIndicatorsFromCloud === 'function') await refreshIndicatorsFromCloud(true); } catch (e) { /* poll retries */ }
