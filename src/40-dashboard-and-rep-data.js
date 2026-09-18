@@ -5046,6 +5046,18 @@ function openIndicatorRepCard(rep, allReps = []) {
     const group = (title, tiles) => el('div', {},
       el('div', { class: 'text-[10px] uppercase tracking-widest text-muted- font-semibold mb-2' }, title),
       el('div', { class: 'grid grid-cols-2 sm:grid-cols-3 gap-2' }, ...tiles));
+    // Attrition pair in ONE tile — excl. ROR + OTS on the left, incl. on the
+    // right — so the group is two cards wide and fills a phone row.
+    const attrTile = (excl, incl) => el('div', { class: 'rounded-xl p-3', style: { background: 'var(--card-2)' } },
+      el('div', { class: 'text-[9px] uppercase tracking-widest', style: { color: 'var(--text-subtle)' } }, 'Attrition'),
+      el('div', { class: 'grid grid-cols-2 gap-3 mt-0.5' },
+        el('div', {},
+          el('div', { class: 'text-xl font-black tabular-nums', style: { color: good } }, pctS(excl)),
+          el('div', { class: 'text-[10px] text-muted- mt-0.5' }, 'excl. 3-day ROR + one-time (removed from both sides)')),
+        el('div', {},
+          el('div', { class: 'text-xl font-black tabular-nums' }, pctS(incl)),
+          el('div', { class: 'text-[10px] text-muted- mt-0.5' }, 'incl. 3-day ROR + one-time'))),
+      el('div', { class: 'text-[10px] text-muted- mt-1' }, 'cancelled ÷ serviced'));
     const drillPanel = () => {
       if (!retDrill) return null;
       const rows = all.filter(retDrill.pred).sort((a, b) => (b.dateSold || '').localeCompare(a.dateSold || ''));
@@ -5083,8 +5095,8 @@ function openIndicatorRepCard(rep, allReps = []) {
         tile('Aging', money(agingRev), 'at-risk slice of Active', agingRev > 0 ? bad : null, drill('Aging', x => _svcR(x) && _isAging(x))),
       ]),
       group('Attrition · of serviced', [
-        tile('Attrition · excl. ROR + OTS', pctS(attrExclRor), 'cancelled ÷ serviced (3-day RORs + one-time services removed from both sides)', good),
-        tile('Attrition · incl. 3-day ROR', pctS(attrInclRor), 'cancelled ÷ serviced (incl. ROR + one-time)', 'var(--text)'),
+        // One card for both reads (per Isaac): excl. ROR + OTS beside incl.
+        attrTile(attrExclRor, attrInclRor),
         tile('If aging churns', pctS(cancelIfAging), '(cancelled + aging) ÷ serviced', '#A9441F'),
           // ('Active retention' tile removed per Isaac - it duplicated 1 - attrition and left the grid uneven.)
       ]),
