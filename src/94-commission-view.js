@@ -133,8 +133,11 @@ function commissionCalculator() {
     .filter(p => appRepIds.has(String(p.id)))
     .map(p => ({ employee_id: 'app:' + p.id, app_profile_id: p.id, isApp: true, type_label: 'Office Staff', fname: p.full_name || '', lname: '', email: p.email || '', office_name: '' }))
     .sort((a, b) => _frEmpName(a).localeCompare(_frEmpName(b)));
-  const reps = [...salesReps, ...officeStaff];
-  if (!reps.length) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No reps yet — run a sync (Sales Reps) or log Inside Sales in-app (Office Staff).');
+  // D2D Pay lists Sales Reps only (per Isaac) — Office Staff have their own
+  // Pay tab under the Office Staff group. (officeStaff kept for the roster
+  // reconcile below.)
+  const reps = [...salesReps];
+  if (!reps.length) return el('div', { class: 'card p-10 text-center text-sm text-muted-' }, 'No sales reps yet — run a sync to pull the FieldRoutes roster.');
 
   if (!state._commEmpId || !reps.find(e => e.employee_id === state._commEmpId)) state._commEmpId = reps[0].employee_id;
   const emp = reps.find(e => e.employee_id === state._commEmpId);
