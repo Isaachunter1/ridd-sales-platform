@@ -5692,12 +5692,25 @@ function leaderboardSection(range) {
             }, label),
           ),
         ),
-        // Rep filter — add/remove individual reps from the board.
+        // Phone metric picker rides in the header with the tabs (per Isaac).
+        (() => {
+          const ph = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
+          if (!ph) return null;
+          const opts = [['sales', 'Sales'], ['initial', 'Initial'], ['revenue', 'Revenue'], ['recurring', 'Rec. Rev'], ['ots', 'OTS Rev'], ['acv', 'ACV'], ['auto_pay', 'APay %'], ['my_pct', 'MY %'], ['rec_mix_pct', 'Rec Mix %']];
+          const cur = state._lbMobileCol || 'revenue';
+          return el('select', {
+            class: 'border px-2 text-[11px] font-semibold',
+            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)', height: '26px', borderRadius: '0' },
+            onchange: (e) => { state._lbMobileCol = e.target.value; mountApp(); },
+          }, ...opts.map(([k, l]) => el('option', { value: k, selected: cur === k }, l)));
+        })(),
+        // Rep filter — add/remove individual reps from the board. Same box
+        // as the pill group beside it (square, 26px tall).
         (() => {
           const on = lbOnly.size > 0;
           const btn = el('button', {
-            class: 'rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
-            style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', color: on ? 'var(--accent)' : 'var(--text-muted)' },
+            class: 'border px-2.5 text-[11px] font-semibold transition hover:brightness-95 whitespace-nowrap',
+            style: { borderColor: on ? 'var(--accent)' : 'var(--border-2)', color: on ? 'var(--accent)' : 'var(--text-muted)', height: '26px', borderRadius: '0', background: 'var(--card-2)' },
             title: 'Tick reps to show only them on this leaderboard',
             onclick: (e) => { e.stopPropagation(); state.dashLeaderFilterOpen = !state.dashLeaderFilterOpen; mountApp(); },
           }, on ? ('Reps ' + rows.length + '/' + rowsAll.length) : 'Reps');
@@ -5763,13 +5776,6 @@ function leaderboardSection(range) {
       }), { count: 0, revenue: 0, recurring: 0, ots: 0, initSum: 0, myW: 0, mixW: 0, apW: 0, apN: 0 });
       const stick = (left) => ({ position: 'sticky', left, background: 'var(--card-2)', zIndex: 1 });
       return el('div', {},
-        phone ? el('div', { class: 'flex items-center justify-end gap-2 px-4 py-2 border-b', style: { borderColor: 'var(--border)' } },
-          el('span', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Show'),
-          el('select', {
-            class: 'rounded-lg border px-2 py-1 text-[11px] font-semibold',
-            style: { borderColor: 'var(--border-2)', background: 'var(--card)', color: 'var(--text)' },
-            onchange: (e) => { state._lbMobileCol = e.target.value; mountApp(); },
-          }, ...LB_COLS.map(c => el('option', { value: c.key, selected: pick.key === c.key }, c.label)))) : null,
         // Past ~6 reps the board scrolls inside a fixed-height box (per
         // Isaac) so the card stays the same size as the Latest Sales feed.
         el('div', { class: (phone ? '' : 'scroll-x ') + 'flex-1', style: { minHeight: '0', overflowY: 'auto' } },
