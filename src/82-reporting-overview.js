@@ -350,7 +350,9 @@ function reportingOverview() {
     onchange: (e) => { state.reportingOverviewMetric = e.target.value; mountApp(); },
   }, ...COLUMN_CARDS.map(c => el('option', { value: c.key, selected: c.key === pickKey }, c.label + ' · ' + c.value)));
   // Phones only (per Isaac) — desktop keeps the five columns side by side.
-  const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
+  // Anything under 1024px (phones, tablets, a narrow window) — the five
+  // columns need ~1230px, so below that the card-dropdown is the layout.
+  const phone = (() => { try { return window.matchMedia('(max-width: 1023px)').matches; } catch { return false; } })();
   const columnsBlock = inCompare ? null : phone
     ? el('div', { class: 'flex flex-col gap-4' },
         popTile(picked, metricPick),
