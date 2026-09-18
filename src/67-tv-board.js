@@ -258,7 +258,7 @@ function openTvBoard() {
             eyebrow(d.goal > 0 ? d.range.label + ' goal ' + money(d.goal) : 'No goal set'),
             d.goal > 0 ? el('div', { style: { fontFamily: MONO, fontSize: '13px', color: goalPct >= 1 ? T.ember : T.ink, letterSpacing: '.06em' } }, Math.round(goalPct * 100) + '%' + (d.revenue >= d.goal ? '  ·  GOAL HIT' : '  ·  ' + money(d.goal - d.revenue) + ' to go')) : null),
           el('div', { style: { height: '6px', background: T.surface2, position: 'relative' } },
-            el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: ((goalPct || 0) * 100) + '%', background: goalPct >= 1 ? T.ember : T.ink, transition: 'width .6s ease' } })))], { cursor: 'pointer', onclick: () => { state._tvHeroOffices = true; render(); } }),
+            el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: ((goalPct || 0) * 100) + '%', background: T.ember, transition: 'width .6s ease' } })))], { cursor: 'pointer', onclick: () => { state._tvHeroOffices = true; render(); } }),
       el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gridAutoRows: '1fr', gap: '10px', minWidth: '0' } },
         tile('Avg initial', money(d.avgInitial), 'subscriptions', () => openDrill('Avg initial · ' + money(d.avgInitial), 'Initial $99 and up', d.splits.initial.yes, 'Initial under $99', d.splits.initial.no, repNameOf)),
         tile('Avg recurring', money(d.avgMonthly), 'per month', () => openDrill('Avg recurring · ' + money(d.avgMonthly), 'Recurring $59 and up', d.splits.recurring.yes, 'Recurring under $59', d.splits.recurring.no, repNameOf)),
