@@ -996,7 +996,8 @@ function mountApp() {
           item('feedback', 'Feedback', () => openFeedbackModal()),
           // TV Display (per Isaac, Sep 2026): the inside-sales floor board.
           // Admins + office-staff reps only (per Isaac) — it is the inside-sales floor board.
-          (typeof openTvBoard === 'function' && (isAdmin || (typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile)))) ? item('tv', 'TV Display', () => openTvBoard()) : null,
+          // Desktop only (per Isaac) — a wall board has no business on a phone.
+          (typeof openTvBoard === 'function' && !(() => { try { return window.matchMedia('(max-width: 900px)').matches; } catch (e) { return false; } })() && (isAdmin || (typeof isOfficeStaffProfile === 'function' && isOfficeStaffProfile(state.profile)))) ? item('tv', 'TV Display', () => openTvBoard()) : null,
           el('div', { style: { borderTop: '1px solid var(--border)', margin: '4px 2px' } }),
           item('power', 'Sign out', async () => {
             if (typeof DEMO !== 'undefined' && DEMO) { location.href = location.pathname; return; }
