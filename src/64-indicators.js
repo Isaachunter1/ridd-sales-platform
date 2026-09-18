@@ -1641,6 +1641,7 @@ function viewIndicators() {
             board: () => userCan('ind_board') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'rep-leaderboard') : [],
             records: () => userCan('ind_records') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'agg-records') : [],
             class:   () => userCan('ind_class') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'class-metrics') : [],
+            mix:     () => userCan('ind_mix') ? _repSections.filter(n => n && n.getAttribute && n.getAttribute('data-section') === 'sales-mix') : [],
           };
           const out = [];
           prefs.order.forEach(k => {
@@ -4543,7 +4544,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       onclick: () => { state._indicatorMixGroup = v; state._indicatorMixDrill = null; mountApp(); },
     }, l)));
   const groupNoun = mixGroup === 'office' ? 'Office' : mixGroup === 'team' ? 'Team' : 'Subscription';
-  sections.push(indicatorSubscriptionMixCard(subSales, {
+  const _mixCardNode = indicatorSubscriptionMixCard(subSales, {
     keyOf: drill ? null : mixGroup === 'office' ? officeKeyOf : mixGroup === 'team' ? teamKeyOf : null,
     firstCol: drill ? 'Subscription' : groupNoun,
     title: drill ? 'Sales Mix \u00b7 ' + drill.key : undefined,
@@ -4558,7 +4559,9 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         onclick: () => { state._indicatorMixDrill = null; mountApp(); },
       }, '\u2190 All ' + groupNoun.toLowerCase() + 's') : null,
       mixGroupTabs),
-  }));
+  });
+  _mixCardNode.setAttribute('data-section', 'sales-mix');   // partners pick it up by this tag
+  sections.push(_mixCardNode);
 
   return sections;
 }
@@ -6053,7 +6056,8 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     drillRepName = state._indicatorRepDrillDown;
     drillRep = drillRepName && repMap[drillRepName] ? repMap[drillRepName] : null;
   }
-  const _trendTitleNode = () => el('h3', { class: 'text-base font-bold' }, '📈 Your Performance Trends');
+  const _perfTitle = ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role))) ? '📈 Performance Trends' : '📈 Your Performance Trends';
+  const _trendTitleNode = () => el('h3', { class: 'text-base font-bold' }, _perfTitle);
   // Right-hand control cluster on the card's TITLE row — the Filters
   // dropdown is appended first (below), then buildTrendMiniGrid mounts the
   // metric picker + Compare toggle into it: Filters · Revenue · Compare.
@@ -6167,7 +6171,7 @@ function repTrendChartCard({ repsToChart, repMap, allReps, rawSales, chartBucket
     // of silently falling back to company-wide charts.
     (_trendRepOnly && !state._indicatorRepDrillDown)
       ? el('div', {},
-          el('h3', { class: 'text-base font-bold mb-2' }, '📈 Your Performance Trends'),
+          el('h3', { class: 'text-base font-bold mb-2' }, _perfTitle),
           el('div', { class: 'text-xs py-6 text-center', style: { color: 'var(--text-muted)' } },
             'No synced sales under your name yet — your trend charts appear as soon as your first accounts land in the sync.'))
       : drillPanel,

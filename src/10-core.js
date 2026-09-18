@@ -172,15 +172,16 @@ const PERM_DEFS = [
   { id: 'ind_trend',        label: 'Metric Trends',       group: 'Indicators sections' },
   { id: 'ind_records',      label: 'Records',       group: 'Indicators sections' },
   { id: 'ind_class',        label: 'Class Metrics', group: 'Indicators sections' },
+  { id: 'ind_mix',          label: 'Sales Mix table', group: 'Indicators sections' },
 ];
 const PERM_DEFAULTS = {
   rep_sales:       { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },   // no Indicators table / Power Ranking for sales reps (per Isaac, Sep 2026)
   rep_office:      { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
   rep_loyalty:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1 },
-  rep_partner:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
-  rep_team_lead:   { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
-  rep_office_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
-  rep_loyalty_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1 },
+  rep_partner:     { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1 },
+  rep_team_lead:   { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1 },
+  rep_office_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1 },
+  rep_loyalty_lead: { view_comps: 1, view_indicators: 1, ind_card: 1, ind_table: 1, ind_power_chart: 1, ind_board: 1, ind_yoy: 1, ind_trend: 1, ind_records: 1, ind_class: 1, ind_mix: 1 },
   auditor:         {},   // auditors live in the Sales queue — grant extras here as needed
 };
 // Effective permission role: legacy 'rep' resolves by CRM type.

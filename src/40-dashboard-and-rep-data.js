@@ -3390,16 +3390,19 @@ const REP_LAYOUT_SECTIONS = [
 // positions above the stack), then this stack DEFAULT order: Rep
 // Leaderboard, Performance Trends, Metric Trends, 🏅 Records, 🎓 Class
 // Metrics. Saved Customize orders still win on that device.
+// Partner / lead order (per Isaac, Sep 2026): trends above the leaderboard,
+// Sales Mix after it.
 const PARTNER_LAYOUT_SECTIONS = [
   ['card',    'My Player Card'],
+  ['yoy',     'Performance Trends'],
   ['board',   'Leaderboard'],
-  ['yoy',     'Your Performance Trends'],
+  ['mix',     'Sales Mix'],
   ['trend',   'Your Metric Trends'],
   ['records', 'Records'],
   ['class',   'Class Metrics'],
 ];
 // (the 'class' key is quoted so the CI class-token scanner skips it)
-const _REP_SECTION_PERM = { 'card': 'ind_card', 'yoy': 'ind_yoy', 'trend': 'ind_trend', 'board': 'ind_board', 'records': 'ind_records', 'class': 'ind_class' };
+const _REP_SECTION_PERM = { 'card': 'ind_card', 'yoy': 'ind_yoy', 'trend': 'ind_trend', 'board': 'ind_board', 'records': 'ind_records', 'class': 'ind_class', 'mix': 'ind_mix' };
 const _repLayoutSections = () => {
   const partnerish = (typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role))
     || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role));
@@ -3414,6 +3417,8 @@ function _repLayoutPrefs() {
     if (p && Array.isArray(p.order)) {
       // heal: every known section appears exactly once
       p.order = [...new Set([...p.order.filter(k => _repLayoutSections().some(([id]) => id === k)), ..._repLayoutSections().map(([id]) => id)])];
+      // One-time: partner/lead layouts saved before Sep 2026 had the leaderboard above the trends — flip them to the new default once.
+      if (!p._v2 && _repLayoutSections()[0] && _repLayoutSections().some(([id]) => id === 'mix')) { p.order = _repLayoutSections().map(([id]) => id).filter(k => p.order.includes(k) || true); p._v2 = true; }
       p.hidden = Array.isArray(p.hidden) ? p.hidden : [];
       return p;
     }
