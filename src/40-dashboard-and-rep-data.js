@@ -346,7 +346,8 @@ function viewDashboard() {
   const goalProgress = goal.amount > 0 ? Math.min(1, ytd[state.dashGoalTab] / goal.amount) : 0;
   const daysLeft = daysLeftInGoalPeriod(goal);
 
-  return el('div', { class: 'flex flex-col gap-5 w-full board-dash' },
+  // (Board look pulled off this dashboard per Isaac — it stays on D2D / Techs.)
+  return el('div', { class: 'flex flex-col gap-5 w-full' },
 
     // ─── Top row: + New Sale + date filter + office view ───
     el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar' },
