@@ -243,8 +243,20 @@ function viewSales() {
     _tile('Archived', source.filter(isCancelled)),
     _tile('History', source.filter(isHistory))) : null;
   const queueRow = el('div', { class: 'flex flex-col gap-3' }, totalsStrip, el('div', { class: 'flex items-center justify-between gap-3 flex-wrap' }, queueToggle));
+  // Phones (per Isaac): dropdowns share the top row (reps / sources /
+  // statuses fit three across), the search bar spans the row below.
+  const _phoneQ = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const filterBar = queueFilter !== 'history'
-    ? el('div', { class: 'flex flex-wrap gap-2 items-center' }, ...filterControls())
+    ? (_phoneQ ? (() => {
+        const ctl = filterControls().filter(Boolean);
+        const search = ctl.find(n => n.id === 'sales-queue-q');
+        const rest = ctl.filter(n => n !== search);
+        rest.forEach(n => { if (n.tagName === 'SELECT') { n.style.maxWidth = ''; n.style.minWidth = '0'; n.classList.add('flex-1'); } });
+        search.classList.remove('min-w-[200px]'); search.classList.add('w-full');
+        return el('div', { class: 'flex flex-col gap-2' },
+          el('div', { class: 'flex gap-2 items-center' }, ...rest),
+          search);
+      })() : el('div', { class: 'flex flex-wrap gap-2 items-center' }, ...filterControls()))
     : null;
 
   // History pill swaps in the (settled) history view inline — same toggle on

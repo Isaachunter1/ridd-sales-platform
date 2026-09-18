@@ -797,6 +797,11 @@
   }
   .rpt-subtabs-select { display:none; }
   @media (max-width: 640px) {
+    /* The page itself never pans sideways on phones (per Isaac): iOS ignores
+       overflow-x:hidden on body when content overflows, but clipping the
+       content column stops the document from ever being wider than the
+       screen. Wide tables still swipe inside their own .scroll-x. */
+    main { overflow-x: clip; }
     .desktop-only { display:none !important; }
     /* Reporting sub-tabs: strip on desktop, one dropdown on phones */
     .rpt-subtabs { display:none !important; }
