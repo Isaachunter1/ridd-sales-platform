@@ -525,12 +525,7 @@ function reportingAuditing() {
         onchange: (e) => { state.auditCustomEnd = e.target.value; mountApp(); },
       }),
       el('div', { class: 'flex-1' }),
-      el('button', {
-        class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
-        style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
-        title: 'Export every in-scope D2D account (audit status, flags, revenue) to Excel \u2014 incl. a sheet of accounts with no audit flag',
-        onclick: () => exportAuditingXlsx(scopedAccounts, rangeLabel),
-      }, '\u2b07'),
+      // (Export button removed per Isaac, Sep 2026 — exportAuditingXlsx kept for the console.)
       el('button', {
         class: 'rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95',
         style: { borderColor: 'var(--border-2)', color: 'var(--text)' },
