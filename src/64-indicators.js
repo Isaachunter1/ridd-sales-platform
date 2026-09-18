@@ -4568,11 +4568,19 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const _mixTC = (o) => String(o || '').split(' ').map(w => w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(' ');
   const officeKeyOf = (s) => _mixTC(s.office || 'Unknown');
   const teamKeyOf   = (s) => (typeof getRepTeam === 'function' && getRepTeam(s.rep)) || 'Unassigned';
+  // Partners / team leads (per Isaac, Sep 2026): the mix is THEIR team's —
+  // every view here (Subscriptions / Offices / Teams) reads from the sales
+  // of the team(s) they lead, not the whole company.
+  const _mixReach = (!isAdminRole(state.profile?.role)
+    && ((typeof isPartnerRole === 'function' && isPartnerRole(state.profile?.role)) || (typeof isOfficeLeadRole === 'function' && isOfficeLeadRole(state.profile?.role)))
+    && typeof myReachTeams === 'function') ? myReachTeams() : null;
+  const _mixScoped = (_mixReach && _mixReach.size) ? rawSales.filter(s => _mixReach.has(teamKeyOf(s))) : rawSales;
+  const _mixScopeLabel = (_mixReach && _mixReach.size) ? [..._mixReach].sort().join(' + ') : '';
   const drill = (state._indicatorMixDrill && state._indicatorMixDrill.group === mixGroup && mixGroup !== 'subscription')
     ? state._indicatorMixDrill : null;
   const subSales = drill
-    ? rawSales.filter(s => (mixGroup === 'office' ? officeKeyOf(s) : teamKeyOf(s)) === drill.key)
-    : rawSales;
+    ? _mixScoped.filter(s => (mixGroup === 'office' ? officeKeyOf(s) : teamKeyOf(s)) === drill.key)
+    : _mixScoped;
   const mixGroupTabs = el('div', { class: 'inline-flex rounded-lg border overflow-hidden', style: { borderColor: 'var(--border-2)' } },
     ...[['subscription', 'Subscriptions'], ['office', 'Offices'], ['team', 'Teams']].map(([v, l]) => el('button', {
       class: 'px-2.5 py-1 text-[11px] font-semibold transition',
@@ -4583,7 +4591,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
   const _mixCardNode = indicatorSubscriptionMixCard(subSales, {
     keyOf: drill ? null : mixGroup === 'office' ? officeKeyOf : mixGroup === 'team' ? teamKeyOf : null,
     firstCol: drill ? 'Subscription' : groupNoun,
-    title: drill ? 'Sales Mix \u00b7 ' + drill.key : undefined,
+    title: drill ? 'Sales Mix \u00b7 ' + drill.key : (_mixScopeLabel ? 'Sales Mix \u00b7 ' + _mixScopeLabel : undefined),
     onRowClick: (!drill && mixGroup !== 'subscription')
       ? (name) => { state._indicatorMixDrill = { group: mixGroup, key: name }; mountApp(); }
       : null,
