@@ -83,7 +83,7 @@ function reportingGeographic() {
 
   const _phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
   const metricToggle = el('div', { class: 'p-3 flex items-center gap-2 flex-wrap', style: { borderBottom: '1px solid var(--border)' } },
-    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Map metric'),
+    el('div', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Color map by'),
     // One dropdown everywhere (per Isaac, Sep 2026) — the seven-button row
     // is gone; the map can only color by one metric at a time anyway.
     el('select', {
@@ -94,7 +94,7 @@ function reportingGeographic() {
     el('div', { class: 'text-[10px] ml-auto', style: { color: 'var(--text-subtle)' } },
       (metricKey === 'attrition' || metricKey === 'retention') ? 'Uses 10+ sub floor per area · darker = '
           + (isRetention ? 'better retention' : 'higher attrition')
-        : (metricKey === 'service' ? 'Only ZIPs with 11+ service types are colored · click one for its top 10' : '')),
+        : (metricKey === 'service' ? 'Only ZIPs with 11+ service types are colored · click one for its top 10' : 'Hover any area for every metric at once')),
   );
 
   // Legend for the Top Service metric — top 15 services + their colors.
