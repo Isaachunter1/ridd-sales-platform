@@ -441,15 +441,25 @@ async function runQuery(token, sql) {
   let rows = j.rows || [];
   let pageToken = j.pageToken;
 
-  // Job may not be complete on the first call; poll the same job.
+  // Job may not be complete on the first call; poll the same job — but not
+  // forever: a job that sits PENDING (slot contention, a quota hold) used to
+  // spin here until Netlify's 15-minute kill, leaving no error behind. Cap
+  // the wait and fail loudly with the job id so the heartbeat says why.
+  if (globalThis.__syncStage) await globalThis.__syncStage('query-submitted:' + jobId);
+  const pollStart = Date.now();
+  let polls = 0;
   while (!j.jobComplete) {
+    if (Date.now() - pollStart > 8 * 60000) throw new Error('BigQuery job ' + jobId + ' still not complete after 8 min (' + polls + ' polls) — check the job in the GCP console / quotas');
     await new Promise((r) => setTimeout(r, 1000));
+    polls++;
+    if (polls % 30 === 0 && globalThis.__syncStage) await globalThis.__syncStage('query-waiting:' + polls + 's:' + jobId);
     res = await fetch(`${base}/queries/${jobId}?location=${location}&maxResults=20000`, { headers: auth });
     j = await res.json();
     if (!res.ok) throw new Error('BigQuery getResults failed: ' + JSON.stringify(j.error || j).slice(0, 400));
     rows = j.rows || rows;
     pageToken = j.pageToken;
   }
+  if (globalThis.__syncStage) await globalThis.__syncStage('query-complete:paging');
 
   while (pageToken) {
     res = await fetch(`${base}/queries/${jobId}?location=${location}&maxResults=20000&pageToken=${encodeURIComponent(pageToken)}`, { headers: auth });
@@ -505,7 +515,12 @@ exports.handler = async (event) => {
   try {
     const started = Date.now();
     const token = await getAccessToken();
+    await _stage('token-ok');
     await discoverOffices(token);   // new branches join OFFICE_NAMES before the big pull
+    await _stage('offices-discovered');
+    // Sep 17 2026: the worker sat at "started" for hours with no error — a
+    // stage between here and "queried" is what tells the next person WHERE.
+    globalThis.__syncStage = _stage;
     // MEMORY: BigQuery's raw REST rows (~90k × verbose {f:[{v:..}]} cells)
     // are 2-3× the size of the parsed objects and were pinned for the WHOLE
     // run — the function sat at ~800MB before the derive even started and
