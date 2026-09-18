@@ -871,7 +871,11 @@ function mountApp() {
         // Inside Sales queue is CRM-fed — the stamp says how live it is.
         // Shown on EVERY tab (per Isaac) — the whole app rides the same
         // hourly sync, so freshness is always relevant.
-        const txt = (typeof appSyncStampStr === 'function') ? appSyncStampStr() : '';
+        const _phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch { return false; } })();
+        // Phone (per Isaac): the title is wide, so the stamp is just the
+        // time ("12:31 PM") — full date + zone stays in the tooltip.
+        const txtFull = (typeof appSyncStampStr === 'function') ? appSyncStampStr() : '';
+        const txt = (_phone && txtFull) ? (txtFull.match(/\d{1,2}:\d{2}\s*[AP]M/i) || [txtFull])[0] : txtFull;
         // Device-unreachable beats server age: a rep whose downloads 403 or
         // time out must never read a green stamp over stale numbers.
         const pullErr = state._indPullError && (Date.now() - state._indPullError.at) < 3 * 3600000;
@@ -886,8 +890,8 @@ function mountApp() {
             : lvl === 'amber' ? 'Data is older than the hourly sync cadence — a run may have failed (check Netlify logs)'
             : 'Syncs land hourly on the hour, 8am–11pm ET',
         },
-          'Last sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, txt),
-          pullErr ? ' · CAN\u2019T REACH SERVER' : lvl === 'red' ? ' · SYNC DOWN' : lvl === 'amber' ? ' · overdue' : '') : null;
+          _phone ? 'Sync ' : 'Last sync: ', el('span', { class: 'font-semibold', style: { color: c || 'var(--text)' } }, txt),
+          pullErr ? (_phone ? ' \u00b7 OFFLINE' : ' \u00b7 CAN\u2019T REACH SERVER') : lvl === 'red' ? ' \u00b7 SYNC DOWN' : lvl === 'amber' ? ' \u00b7 overdue' : '') : null;
       })(),
     ),
     // (Top-bar customer search retired — the Sales tab has its own search row, per Isaac.)
