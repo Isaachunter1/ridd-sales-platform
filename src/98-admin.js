@@ -94,23 +94,20 @@ function adminPermissions() {
 function viewAdmin() {
   if (!state.adminSection) state.adminSection = 'users';
 
-  // Two groups: general Settings vs. the Inside Sales pieces that will overlap
-  // with reps logging accounts in-app (Goals/Sources/Pricing/Import), kept
-  // separate so the CSV-driven config doesn't get confused with them.
+  // One flat list, alphabetical (per Isaac, Sep 2026). Sources now lives
+  // inside Configurations; the old 'sources' section key still resolves.
+  if (state.adminSection === 'sources') state.adminSection = 'config';
   const groups = [
     { label: 'Settings', items: [
-      ['pricing', 'Commissions',    '💵'],
-      ['users',   'Users',          '👥'],
-      ['teams',   'Teams',          '🤝'],
-      ['config',  'Configurations', '🧮'],
-      ['perms',   'Permissions',    '🔐'],
-      ['comps',   'Competitions',   '🏆'],
       ['uploads', 'Admin',          '🗂'],
-    ] },
-    { label: 'Inside Sales Settings', items: [
+      ['pricing', 'Commissions',    '💵'],
+      ['comps',   'Competitions',   '🏆'],
+      ['config',  'Configurations', '🧮'],
       ['goals',   'Goals',          '🎯'],
-      ['sources', 'Sources',        '📣'],
+      ['perms',   'Permissions',    '🔐'],
       ['slack',   'Slack',          '💬'],
+      ['teams',   'Teams',          '🤝'],
+      ['users',   'Users',          '👥'],
     ] },
   ];
 
@@ -549,6 +546,8 @@ function adminConfigurations() {
     listCard('service', 'Service Types', svcCount, reportingServiceConfigPanel),
     listCard('source', 'Sources', '', reportingSourceConfigPanel),
     listCard('cancel', 'Cancel reasons', cxlCount, reportingCancelConfigPanel),
+    // The FieldRoutes source mirror (formerly its own Settings tab, per Isaac).
+    el('div', { class: 'card p-4' }, adminSources()),
   );
 }
 
