@@ -194,7 +194,7 @@ function _d2dIso(s) { return (typeof dateSoldToIso === 'function' && dateSoldToI
 function _d2dTodayIso() { return (typeof bizTodayIso === 'function') ? bizTodayIso() : new Date().toISOString().slice(0, 10); }
 
 function viewD2dDashboard() {
-  const wrap = el('div', { class: 'flex flex-col gap-4 w-full board-dash' });
+  const wrap = el('div', { class: 'flex flex-col gap-4 w-full' });
   const loading = _d2dKickIfEmpty();
   const raw = d2dRawSales();
   if (!raw.length) {
@@ -292,6 +292,37 @@ function viewD2dDashboard() {
       if (!(_subCancelledNow(s) && !_isExcludableCancel(s))) o.keptCv += Number(s.contractValue) || 0;
       byRep.set(nm, o);
     });
+    // D2D-specific stats (per Isaac — knockers care about rhythm, not just
+    // totals): days with a sale in the range, best single day, and the
+    // current selling streak (consecutive days with a sale ending today or
+    // yesterday; Sundays don't break it).
+    const _daysByRep = new Map();   // rep → Set of ISO days with a sale (all-time)
+    raw.forEach(x => { const nm = getCanonicalRepName(x.rep); const iso = _d2dIso(x); if (!nm || !iso) return; if (!_daysByRep.has(nm)) _daysByRep.set(nm, new Set()); _daysByRep.get(nm).add(iso); });
+    const _streakOf = (nm) => {
+      const days = _daysByRep.get(nm); if (!days) return 0;
+      let d = new Date(todayIso + 'T12:00:00');
+      if (!days.has(todayIso)) d.setDate(d.getDate() - 1);            // today still in progress
+      let n = 0;
+      for (let guard = 0; guard < 400; guard++) {
+        const iso = d.toISOString().slice(0, 10);
+        if (days.has(iso)) n++;
+        else if (d.getDay() !== 0) break;                              // a Sunday off doesn't end it
+        d.setDate(d.getDate() - 1);
+      }
+      return n;
+    };
+    rows.forEach(s => {
+      const nm = getCanonicalRepName(s.rep); const o = byRep.get(nm); if (!o) return;
+      const iso = _d2dIso(s); if (!iso) return;
+      if (!o.byDay) o.byDay = {};
+      o.byDay[iso] = (o.byDay[iso] || 0) + (Number(s.contractValue) || 0);
+    });
+    byRep.forEach(o => {
+      const vals = Object.values(o.byDay || {});
+      o.sellDays = vals.length;
+      o.bestDay = vals.length ? Math.max(...vals) : 0;
+      o.streak = _streakOf(o.name);
+    });
     // Sortable headers (per Isaac) — default revenue desc.
     if (!state._d2dLbSort) state._d2dLbSort = { key: 'cv', dir: 'desc' };
     const _sortKey = state._d2dLbSort.key, _sortDir = state._d2dLbSort.dir;
@@ -299,7 +330,8 @@ function viewD2dDashboard() {
       : k === 'n' ? o.n : k === 'cv' ? o.cv : k === 'acv' ? (o.n ? o.cv / o.n : 0)
       : k === 'my' ? ((o.multi + o.twelve) ? o.multi / (o.multi + o.twelve) : 0)
       : k === 'apay' ? (o.n ? o.apay / o.n : 0) : k === 'init' ? (o.n ? o.init / o.n : 0)
-      : k === 'pest' ? (o.pestN ? o.pestInit / o.pestN : 0) : k === 'lr' ? (o.n ? o.lastResort / o.n : 0) : k === 'ret' ? (o.cv ? o.keptCv / o.cv : 0) : 0;
+      : k === 'pest' ? (o.pestN ? o.pestInit / o.pestN : 0) : k === 'lr' ? (o.n ? o.lastResort / o.n : 0) : k === 'ret' ? (o.cv ? o.keptCv / o.cv : 0)
+      : k === 'streak' ? (o.streak || 0) : k === 'best' ? (o.bestDay || 0) : k === 'perday' ? (o.sellDays ? o.cv / o.sellDays : 0) : 0;
     const reps = [...byRep.values()].sort((a, b) => {
       const va = _metric(a, _sortKey), vb = _metric(b, _sortKey);
       const c = typeof va === 'string' ? va.localeCompare(vb) : (va - vb);
@@ -382,6 +414,13 @@ function viewD2dDashboard() {
           el('div', { class: 'font-bold' }, fmt.usd0(o.cv)),
           el('div', { class: 'rounded-full mt-1 ml-auto', style: { height: '4px', width: Math.max(4, Math.round(o.cv / maxCv * 100)) + '%', background: 'var(--accent)', opacity: String(0.45 + 0.55 * (o.cv / maxCv)) } })) },
       { key: 'acv',  label: 'ACV',          tot: (T) => num(fmt.usd0(T.n ? T.cv / T.n : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.n ? o.cv / o.n : 0), 'text-muted-') },
+      { key: 'streak', label: 'Streak',     title: 'Consecutive days with a sale, ending today or yesterday (Sundays off don\u2019t break it)',
+        tot: (T) => num(T.streakMax ? '\ud83d\udd25 ' + T.streakMax : '\u2014', 'font-bold'),
+        row: (o) => num(o.streak >= 2 ? '\ud83d\udd25 ' + o.streak : (o.streak === 1 ? '1' : '\u2014'), o.streak >= 3 ? 'font-bold' : 'text-muted-', o.streak >= 3 ? { color: 'var(--accent)' } : {}) },
+      ...(showDate ? [
+        { key: 'perday', label: '$ / Day',  title: 'Revenue \u00f7 days with a sale in this range', tot: (T) => num(fmt.usd0(T.sellDaysAll ? T.cv / T.sellDaysAll : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.sellDays ? o.cv / o.sellDays : 0), 'text-muted-') },
+        { key: 'best', label: 'Best Day',   title: 'Biggest single day in this range', tot: (T) => num(fmt.usd0(T.bestDayAll || 0), 'font-bold'), row: (o) => num(fmt.usd0(o.bestDay || 0), 'text-muted-') },
+      ] : []),
       { key: 'my',   label: 'MY %',         title: 'Multi-year mix — 18mo+ ÷ (12mo + 18mo+)', tot: (T) => num(pct(T.multi, T.multi + T.twelve), 'font-bold'), row: (o) => num(pct(o.multi, o.multi + o.twelve), 'text-muted-') },
       { key: 'apay', label: 'APay %',       tot: (T) => num(pct(T.apay, T.n), 'font-bold'), row: (o) => num(pct(o.apay, o.n), 'text-muted-') },
       { key: 'init', label: 'Avg Initial',  tot: (T) => num(fmt.usd0(T.n ? T.init / T.n : 0), 'font-bold'), row: (o) => num(fmt.usd0(o.n ? o.init / o.n : 0), 'text-muted-') },
@@ -392,8 +431,10 @@ function viewD2dDashboard() {
     const phone = (() => { try { return window.matchMedia('(max-width: 640px)').matches; } catch (e) { return false; } })();
     const pick = phone ? (LB.find(c => c.key === state._d2dLbMobileCol) || LB[1]) : null;
     const cols = pick ? [pick] : LB;
-    const T = reps.reduce((t, o) => ({ n: t.n + o.n, cv: t.cv + o.cv, apay: t.apay + o.apay, init: t.init + o.init, pestInit: t.pestInit + o.pestInit, pestN: t.pestN + o.pestN, multi: t.multi + o.multi, twelve: t.twelve + o.twelve, lastResort: t.lastResort + o.lastResort, keptCv: t.keptCv + o.keptCv }),
-      { n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0, keptCv: 0 });
+    const T = reps.reduce((t, o) => ({ n: t.n + o.n, cv: t.cv + o.cv, apay: t.apay + o.apay, init: t.init + o.init, pestInit: t.pestInit + o.pestInit, pestN: t.pestN + o.pestN, multi: t.multi + o.multi, twelve: t.twelve + o.twelve, lastResort: t.lastResort + o.lastResort, keptCv: t.keptCv + o.keptCv, streakMax: Math.max(t.streakMax, o.streak || 0) }),
+      { n: 0, cv: 0, apay: 0, init: 0, pestInit: 0, pestN: 0, multi: 0, twelve: 0, lastResort: 0, keptCv: 0, streakMax: 0 });
+    // Company-wide day stats for the total row.
+    (() => { const byDay = {}; rows.forEach(x => { const iso = _d2dIso(x); if (iso) byDay[iso] = (byDay[iso] || 0) + (Number(x.contractValue) || 0); }); const v = Object.values(byDay); T.sellDaysAll = v.length; T.bestDayAll = v.length ? Math.max(...v) : 0; })();
     const colSpan = 2 + cols.length;
     const accountsTd = (title, list, withRep) => { const td = accountsTable(title, list, withRep); td.setAttribute('colspan', String(colSpan)); return td; };
     const th = (h, k, title, extra) => el('th', {
@@ -512,7 +553,66 @@ function viewD2dDashboard() {
               })))));
     // (Sales feed dropped from this tab per Isaac — the leaderboard gets the full width.)
     void feedCard;
-    return el('div', { class: 'flex flex-col gap-4' }, recordsCard, lbCard);
+
+    // ── Podium: top 3 by revenue in the range (per Isaac — make it feel
+    // like a board, not a spreadsheet). #1 sits in the middle, bigger.
+    const topRev = [...reps].sort((a, b) => b.cv - a.cv).slice(0, 3);
+    const podium = topRev.length >= 2 ? (() => {
+      const order = topRev.length === 3 ? [topRev[1], topRev[0], topRev[2]] : [topRev[0], topRev[1]];
+      const tile = (o) => {
+        const rank = topRev.indexOf(o) + 1;
+        const team = getRepTeam(o.name) || '';
+        const tc = team ? getTeamColor(team) : null;
+        const first = rank === 1;
+        const av = _avatarFor(o.name, team);
+        av.style.width = first ? '64px' : '48px'; av.style.height = first ? '64px' : '48px'; av.style.fontSize = first ? '18px' : '14px';
+        av.classList.remove('w-8', 'h-8', 'text-[10px]');
+        return el('div', {
+          class: 'flex-1 min-w-0 rounded-xl border p-3 sm:p-5 flex flex-col items-center text-center cursor-pointer transition hover:brightness-95',
+          style: { borderColor: first ? 'var(--accent)' : 'var(--border)', background: first ? 'rgba(223,100,58,.07)' : 'var(--card-2)', alignSelf: first ? 'stretch' : 'flex-end' },
+          title: 'Show ' + o.name + '\u2019s accounts',
+          onclick: () => { state._d2dLbOpen = o.name; _rebuildBoards(); const lbEl = lbHost.querySelector('.card:last-child'); if (lbEl) lbEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
+        },
+          el('div', { class: 'font-display leading-none', style: { fontSize: first ? '28px' : '18px', color: first ? 'var(--accent)' : 'var(--text-muted)' } }, '#' + rank),
+          el('div', { class: 'mt-2' }, av),
+          el('div', { class: 'font-bold mt-2 truncate w-full' + (first ? ' text-base' : ' text-sm') }, o.name),
+          el('div', { class: 'flex items-center justify-center gap-1.5 text-[10px] text-muted- mt-0.5 truncate w-full' },
+            tc ? el('span', { style: { width: '7px', height: '7px', borderRadius: '50%', background: tc, display: 'inline-block', flexShrink: '0' } }) : null,
+            team || branchAlias(o.office || '').toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase())),
+          el('div', { class: 'font-display tabular-nums mt-2 leading-none', style: { fontSize: first ? '30px' : '22px' } }, fmt.usd0(o.cv)),
+          el('div', { class: 'text-[11px] text-muted- tabular-nums mt-1' }, o.n + ' acct' + (o.n === 1 ? '' : 's') + ' \u00b7 ' + fmt.usd0(o.n ? o.cv / o.n : 0) + ' ACV' + (o.streak >= 2 ? ' \u00b7 \ud83d\udd25 ' + o.streak : '')));
+      };
+      return el('div', { class: 'card p-4 sm:p-5' },
+        el('div', { class: 'flex items-end gap-3' }, ...order.map(tile)));
+    })() : null;
+
+    // ── Team standings for the range: revenue bar per team, reps with a
+    // sale, per-rep average — the number a knocker's team actually races.
+    const teamsCard = (() => {
+      const byTeam = new Map();
+      reps.forEach(o => { const t = getRepTeam(o.name) || ''; if (!t) return; const g = byTeam.get(t) || { team: t, cv: 0, n: 0, reps: 0 }; g.cv += o.cv; g.n += o.n; g.reps++; byTeam.set(t, g); });
+      const list = [...byTeam.values()].sort((a, b) => b.cv - a.cv);
+      if (list.length < 2) return null;
+      const max = list[0].cv || 1;
+      return el('div', { class: 'card overflow-hidden' },
+        el('div', { class: 'px-4 py-3 border-b flex items-center justify-between', style: { borderColor: 'var(--border)' } },
+          el('div', { class: 'font-display text-lg' }, 'Team Standings'),
+          el('span', { class: 'text-[11px] text-muted-' }, list.length + ' teams with a sale')),
+        el('div', { class: 'flex flex-col' }, ...list.slice(0, 12).map((g, i) => {
+          const c = getTeamColor(g.team) || 'var(--accent)';
+          return el('div', { class: 'flex items-center gap-3 px-4 py-2 border-t text-[12px]', style: { borderColor: 'var(--border)' } },
+            el('span', { class: 'w-5 tabular-nums font-bold' + (i === 0 ? '' : ' text-muted-'), style: i === 0 ? { color: 'var(--accent)' } : {} }, String(i + 1)),
+            el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: c, display: 'inline-block', flexShrink: '0' } }),
+            el('span', { class: 'font-semibold truncate', style: { width: '9rem' } }, g.team),
+            el('div', { class: 'flex-1 rounded-full', style: { height: '10px', background: 'var(--card-2)' } },
+              el('div', { class: 'rounded-full', style: { height: '100%', width: Math.max(2, Math.round(g.cv / max * 100)) + '%', background: c, opacity: '.85' } })),
+            el('span', { class: 'tabular-nums font-bold w-20 text-right' }, fmt.usd0(g.cv)),
+            el('span', { class: 'tabular-nums text-muted- w-28 text-right whitespace-nowrap hidden sm:inline' }, g.n + ' accts \u00b7 ' + g.reps + ' rep' + (g.reps === 1 ? '' : 's')),
+            el('span', { class: 'tabular-nums text-muted- w-16 text-right whitespace-nowrap hidden sm:inline', title: 'Revenue per rep with a sale' }, fmt.usd0(g.cv / g.reps) + '/rep'));
+        })));
+    })();
+
+    return el('div', { class: 'flex flex-col gap-4' }, recordsCard, podium, teamsCard, lbCard);
   };
   renderRange();
   lbHost.append(buildBoards());
