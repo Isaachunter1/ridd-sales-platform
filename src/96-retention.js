@@ -2194,10 +2194,18 @@ function reportingWaterfall() {
   // contract end and rode month-to-month instead. Columns = the counts the
   // rate is built from, so every number can be checked. Group by type or by
   // the year the renewal was sold. Sentricon excluded (never renews).
+  // -- Renewal Retention (per Isaac, Sep 2026: rebuilt as a survival
+  // waterfall). Lifetime "cancelled ÷ subs" punished the older cohorts, so
+  // every row now reads at the SAME horizons — % still active 3 / 6 / 9 /
+  // 12 / 18 / 24 months after the renewal was sold. Month-to-month rides
+  // the same horizons measured from contract end, so the comparison is
+  // fair. Sentricon excluded.
   const renewalRetentionCard = (() => {
     const MS_D = 86400000;
     const now = new Date();
     const grp = state._rtRenewGroup === 'year' ? 'year' : 'type';
+    const modeSubs = state._rtRenewMode === 'subs';
+    const HZ = [3, 6, 9, 12, 18, 24];
     const _aliveR = (r) => /active/i.test(String(r.subscription_status || ''));
     const _sentR = (r) => /sentricon/i.test(String(r.subscription || ''));
     const _endOf = (r) => {
@@ -2209,86 +2217,86 @@ function reportingWaterfall() {
     const _renReasonR = (r) => /^renewal\b/i.test(_normCancelReason(r.subscription_cancellation_reason));
     const _yearOf = (r) => { const d = r.sold_date ? new Date(r.sold_date) : null; return d && !isNaN(d) ? String(d.getFullYear()) : '—'; };
     const _typeOf = (r) => { const src = String(r.subscription_source || '').trim(); const m = src.match(/renewal\s*[-–]\s*(.+)$/i) || src.match(/^(.+?)\s+renewal$/i); return m ? m[1].trim() : (src || 'Renewal'); };
-    const mk = () => ({ subs: 0, active: 0, cxl: 0, arvKept: 0, arvLost: 0, lives: [], rows: [] });
+    const addMo = (d, m) => { const e = new Date(d); e.setMonth(e.getMonth() + m); return e; };
+    // entries: { r, start, cancel } — start = renewal sold date (or contract end for m2m)
+    const mk = () => ({ n: 0, entries: [] });
     const groups = new Map();
     const all = mk();
     const m2m = mk(); let m2mReached = 0, m2mRenewedAway = 0;
     for (const r of popA) {
       if (!((Number(r.subscription_completed_services) || 0) > 0)) continue;
       if (_sentR(r)) continue;
-      const arv = Number(r.annual_recurring_value) || 0;
       const cd = r.subscription_date_canceled ? new Date(r.subscription_date_canceled) : null;
       const alive = _aliveR(r);
+      const cancel = (cd && !alive && !isNaN(cd)) ? cd : null;
       if (reportingSourceClass(r.subscription_source) === 'renewal') {
+        const sd = r.sold_date ? new Date(r.sold_date) : null;
+        if (!sd || isNaN(sd)) continue;
         const k = grp === 'year' ? _yearOf(r) : _typeOf(r);
         if (!groups.has(k)) groups.set(k, mk());
-        for (const o of [groups.get(k), all]) {
-          o.subs++; o.rows.push(r);
-          if (cd && !alive) { o.cxl++; o.arvLost += arv; const sd = r.sold_date ? new Date(r.sold_date) : null; if (sd && !isNaN(sd) && cd >= sd) o.lives.push((cd - sd) / MS_D); }
-          else { o.active++; o.arvKept += arv; }
-        }
+        for (const o of [groups.get(k), all]) { o.n++; o.entries.push({ r, start: sd, cancel }); }
         continue;
       }
       const end = _endOf(r);
       if (!end || end > now) continue;                 // still in term / no real term
-      if (cd && !alive && cd <= end) continue;         // died in term - never reached the choice
+      if (cancel && cancel <= end) continue;           // died in term - never reached the choice
       m2mReached++;
-      if (cd && !alive && _renReasonR(r)) { m2mRenewedAway++; continue; }  // became a renewal sub
-      m2m.subs++; m2m.rows.push(r);
-      if (cd && !alive) { m2m.cxl++; m2m.arvLost += arv; m2m.lives.push(Math.max(0, (cd - end) / MS_D)); }
-      else { m2m.active++; m2m.arvKept += arv; }
+      if (cancel && _renReasonR(r)) { m2mRenewedAway++; continue; }  // became a renewal sub
+      m2m.n++; m2m.entries.push({ r, start: end, cancel });
     }
-    if (!all.subs && !m2mReached) return null;
-    const _medD = (a) => { if (!a.length) return null; const t = [...a].sort((x, y) => x - y); return t[Math.floor((t.length - 1) / 2)]; };
-    const moTxtR = (d) => d == null ? '—' : (d / 30.44).toFixed(1) + ' mo';
-    const rate = (o) => o.subs ? o.cxl / o.subs : null;
-    const heat = (a) => a == null ? undefined : 'hsl(' + Math.max(0, Math.min(120, (1 - a / 0.5) * 120)) + ', 70%, 88%)';   // 50% = full red
+    if (!all.n && !m2mReached) return null;
+    // Survival at horizon h: of the entries old enough to have reached h
+    // months, how many were still active at that mark.
+    const at = (o, h) => {
+      let elig = 0, kept = 0; const keptRows = [], lostRows = [];
+      for (const e of o.entries) {
+        const mark = addMo(e.start, h);
+        if (mark > now) continue;
+        elig++;
+        if (!e.cancel || e.cancel > mark) { kept++; keptRows.push(e.r); } else lostRows.push(e.r);
+      }
+      return { elig, kept, rate: elig ? kept / elig : null, keptRows, lostRows };
+    };
+    const heat = (rate) => rate == null ? undefined : 'hsl(' + Math.max(0, Math.min(120, ((rate - 0.5) / 0.5) * 120)) + ', 70%, 88%)';   // 100% kept = green, 50% = red
     const th = (t, o = {}) => el('th', { class: 'px-3 py-2 text-[10px] uppercase tracking-wider font-semibold whitespace-nowrap ' + (o.left ? 'text-left' : 'text-right'), style: { color: 'var(--text-muted)', background: 'var(--card-2)' }, title: o.help || '' }, t);
-    const td = (t, o = {}) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap ' + (o.left ? 'text-left font-semibold' : 'text-right') + (o.bold ? ' font-black' : ''), style: { color: o.muted ? 'var(--text-subtle)' : undefined, background: o.bg } }, t);
+    const td = (t, o = {}) => el('td', { class: 'px-3 py-2 tabular-nums whitespace-nowrap ' + (o.left ? 'text-left font-semibold' : 'text-right') + (o.bold ? ' font-black' : ''), style: { color: o.muted ? 'var(--text-subtle)' : undefined, background: o.bg, cursor: o.onclick ? 'pointer' : undefined }, onclick: o.onclick, title: o.title || '' }, t);
     const row = (label, o, opts = {}) => el('tr', {
-      class: 'border-t' + (o.rows.length ? ' cursor-pointer transition hover:brightness-95' : ''), style: { borderColor: opts.strong ? 'var(--border-2)' : 'var(--border)', background: opts.bg, borderTopWidth: opts.strong ? '2px' : undefined },
-      title: o.rows.length ? 'Click to inspect the accounts' : '',
-      onclick: o.rows.length ? () => openReportingDrillModal({ chartTitle: 'Renewal Retention · ' + label, sliceLabel: fmt.int(o.rows.length) + ' accounts', rows: o.rows, formatValue: (v) => fmt.usd0(v) }) : undefined,
-    },
-      td(label, { left: true, bold: opts.strong }),
-      td(fmt.int(o.subs), { bold: opts.strong }),
-      td(fmt.int(o.active)),
-      td(fmt.int(o.cxl)),
-      td(rate(o) == null ? '—' : (rate(o) * 100).toFixed(1) + '%', { bold: true, bg: heat(rate(o)) }),
-      td(fmt.usd0(o.arvKept)),
-      td(fmt.usd0(o.arvLost), { muted: true }),
-      td(moTxtR(_medD(o.lives)), { muted: true }));
-    const keys = [...groups.keys()].sort((x, y) => grp === 'year' ? String(y).localeCompare(String(x)) : groups.get(y).subs - groups.get(x).subs);
-    const delta = (rate(all) != null && rate(m2m) != null) ? rate(m2m) - rate(all) : null;
-    const grpBtn = (k, l) => el('button', {
+      class: 'border-t', style: { borderColor: opts.strong ? 'var(--border-2)' : 'var(--border)', background: opts.bg, borderTopWidth: opts.strong ? '2px' : undefined } },
+      td(label, { left: true, bold: opts.strong, onclick: o.entries.length ? () => openReportingDrillModal({ chartTitle: 'Renewal Retention · ' + label, sliceLabel: fmt.int(o.entries.length) + ' accounts', rows: o.entries.map(e => e.r), formatValue: (v) => fmt.usd0(v) }) : undefined, title: 'Click for every account in the row' }),
+      td(fmt.int(o.n), { bold: opts.strong }),
+      ...HZ.map(h => { const s2 = at(o, h); if (!s2.elig) return td('—', { muted: true });
+        return td(modeSubs ? fmt.int(s2.kept) : (s2.rate * 100).toFixed(1) + '%', { bold: !modeSubs, bg: modeSubs ? undefined : heat(s2.rate),
+          title: fmt.int(s2.kept) + ' of ' + fmt.int(s2.elig) + ' still active ' + h + ' months in · click for the ones that left',
+          onclick: s2.lostRows.length ? () => openReportingDrillModal({ chartTitle: 'Renewal Retention · ' + label + ' · gone by month ' + h, sliceLabel: fmt.int(s2.lostRows.length) + ' of ' + fmt.int(s2.elig) + ' cancelled inside ' + h + ' months', rows: s2.lostRows, formatValue: (v) => fmt.usd0(v) }) : undefined }); }));
+    const keys = [...groups.keys()].sort((x, y) => grp === 'year' ? String(y).localeCompare(String(x)) : groups.get(y).n - groups.get(x).n);
+    const a12 = at(all, 12), m12 = at(m2m, 12);
+    const delta = (a12.rate != null && m12.rate != null) ? a12.rate - m12.rate : null;
+    const btn = (on, l, fn) => el('button', {
       class: 'rounded-lg px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
-      style: grp === k ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
-      onclick: () => { state._rtRenewGroup = k; mountApp(); },
+      style: on ? { background: 'var(--accent)', color: 'var(--accent-text)' } : { background: 'var(--card-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' },
+      onclick: fn,
     }, l);
     return el('div', { class: 'card overflow-hidden' },
       el('div', { class: 'px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2', style: { borderColor: 'var(--border)' } },
         el('div', {},
           el('h3', { class: 'text-sm font-bold' }, 'Renewal Retention' + (office !== 'all' ? ' · ' + officeLabel(office) : '')),
-          el('div', { class: 'text-[11px] text-muted-' }, 'Renewed accounts (source = Renewal) by ' + (grp === 'year' ? 'the year the renewal was sold' : 'renewal type') + ', against accounts that reached contract end and rode month-to-month instead. Sentricon excluded. Attrition = cancelled ÷ subs; click a row for the accounts.')),
+          el('div', { class: 'text-[11px] text-muted-' }, 'Still active N months after the renewal was sold, by ' + (grp === 'year' ? 'the year it was sold' : 'renewal type') + ' · month-to-month reads from contract end on the same clock · only accounts old enough to reach each mark count · Sentricon excluded. Click a cell for the ones that left, the label for the whole row.')),
         el('div', { class: 'flex items-center gap-3 flex-wrap' },
-          delta != null ? el('div', { class: 'text-right', title: 'Month-to-month attrition minus renewed attrition' },
-            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Renewal advantage'),
-            el('div', { class: 'text-lg font-black tabular-nums', style: { color: delta > 0 ? '#DF643A' : '#DC2626' } }, (delta > 0 ? '−' : '+') + Math.abs(delta * 100).toFixed(1) + ' pts')) : null,
-          el('div', { class: 'flex items-center gap-1' }, grpBtn('type', 'By type'), grpBtn('year', 'By year')))),
+          delta != null ? el('div', { class: 'text-right', title: 'Renewed accounts still active at 12 months minus month-to-month accounts still active 12 months after contract end' },
+            el('div', { class: 'text-[9px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } }, 'Renewal advantage · 12 mo'),
+            el('div', { class: 'text-lg font-black tabular-nums', style: { color: delta >= 0 ? '#16A34A' : '#DC2626' } }, (delta >= 0 ? '+' : '−') + Math.abs(delta * 100).toFixed(1) + ' pts')) : null,
+          el('div', { class: 'flex items-center gap-1' }, btn(!modeSubs, '% kept', () => { state._rtRenewMode = 'pct'; mountApp(); }), btn(modeSubs, 'Subs left', () => { state._rtRenewMode = 'subs'; mountApp(); })),
+          el('div', { class: 'flex items-center gap-1' }, btn(grp === 'type', 'By type', () => { state._rtRenewGroup = 'type'; mountApp(); }), btn(grp === 'year', 'By year', () => { state._rtRenewGroup = 'year'; mountApp(); })))),
       el('div', { class: 'scroll-x' },
         el('table', { class: 'w-full text-xs', style: { borderCollapse: 'collapse' } },
           el('thead', {}, el('tr', {},
             th(grp === 'year' ? 'Renewal year' : 'Renewal type', { left: true }),
             th('Subs', { help: 'Renewal subscriptions with at least one completed service' }),
-            th('Active'), th('Cancelled'),
-            th('Attrition', { help: 'Cancelled ÷ subs' }),
-            th('ARR retained', { help: 'Annual recurring value of the active subs' }),
-            th('ARR lost', { help: 'Annual recurring value of the cancelled subs' }),
-            th('Median life', { help: 'Median time from renewal sale to cancel, cancelled subs only' }))),
+            ...HZ.map(h => th(h + ' mo', { help: (modeSubs ? 'Subs still active ' : '% still active ') + h + ' months after the renewal (or contract end for month-to-month)' })))),
           el('tbody', {},
             ...keys.map(k => row(grp === 'year' ? k : 'Renewal - ' + k, groups.get(k))),
             row('All renewals', all, { strong: true, bg: 'var(--card-2)' }),
-            el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: '8', style: { color: 'var(--text-subtle)' } }, 'Did not renew · ' + fmt.int(m2mReached) + ' reached contract end · ' + fmt.int(m2mRenewedAway) + ' renewed into a new sub · the rest rode month-to-month')),
+            el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } }, el('td', { class: 'px-3 pt-3 pb-1 text-[10px] uppercase tracking-widest font-semibold', colspan: String(2 + HZ.length), style: { color: 'var(--text-subtle)' } }, 'Did not renew · ' + fmt.int(m2mReached) + ' reached contract end · ' + fmt.int(m2mRenewedAway) + ' renewed into a new sub · the rest rode month-to-month')),
             row('Month-to-month', m2m, { strong: true })))));
   })();
 
