@@ -3232,7 +3232,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
         const headerCells = isGroupTable
           ? [
               el('th', { class: 'text-left pl-3 pr-2 py-1.5 w-8' }, '#'),
-              el('th', { class: 'text-left px-2 py-1.5' }, scope === 'branch' ? 'Branch' : scope === 'rep' ? 'Rep' : 'Team'),
+              el('th', { class: 'text-left px-2 py-1.5' }, scope === 'branch' ? 'Office' : scope === 'rep' ? 'Rep' : 'Team'),
               el('th', { class: 'text-left px-2 py-1.5' }, 'When'),
               el('th', { class: 'text-right pl-2 pr-3 py-1.5' }, cat === 'pra' ? 'PRA' : valueColLabel),
             ]
@@ -3257,7 +3257,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
       };
 
       const scopeLabel = scope === 'company' ? 'Company-wide records'
-                       : scope === 'branch'  ? 'Top branches per category'
+                       : scope === 'branch'  ? 'Top offices per category'
                        :                       'Top teams per category';
       const dayLabel    = 'Top 10 Days';
       const weekLabel   = 'Top 10 Weeks';
@@ -3363,7 +3363,7 @@ function indicatorRepSections(data, isRange, currentWeek, rangeBounds, allWeeksU
     const tbodyRows = [
       summaryRow('Company',    companyRollup, 'company', null),
       ...(expanded === 'company' ? [expansionRow('company')] : []),
-      summaryRow('Top Branch', branch,        'branch',  'branch'),
+      summaryRow('Top Office', branch,        'branch',  'branch'),
       ...(expanded === 'branch'  ? [expansionRow('branch')]  : []),
       summaryRow('Top Team',   team,          'team',    'team'),
       ...(expanded === 'team'    ? [expansionRow('team')]    : []),
