@@ -93,7 +93,7 @@ function reportingRepPerformance() {
         buildLeaderboard(dataB, scopeB, 'b'))
     : buildLeaderboard(dataA, scopeA, 'a');
 
-  return el('div', { class: 'flex flex-col gap-4' }, filterBar, leaderboards);
+  return el('div', { class: 'flex flex-col gap-4' }, reportingPinBar('reps', filterBar), leaderboards);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
