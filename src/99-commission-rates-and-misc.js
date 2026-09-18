@@ -2298,9 +2298,13 @@ function openUserEditor(existing = null, prefill = null) {
       // Commission: standard base rate is 7%. The "Commission Override" field
       // is a BUMP added on top of the base (e.g. 0.5 means 7.5% total).
       const BASE_COMMISSION = 0.07;
+      // Commission Bump left Edit User (per Isaac — it lives in Settings →
+      // Commissions → individual overrides now), so a save keeps whatever
+      // rate the profile already carries.
       const bumpRaw = data.commission_override?.trim();
       const bumpPct = bumpRaw === '' || bumpRaw == null ? 0 : parseFloat(bumpRaw);
-      const totalRate = BASE_COMMISSION + (bumpPct / 100);
+      const totalRate = ('commission_override' in data) ? BASE_COMMISSION + (bumpPct / 100)
+        : (existing?.upfront_commission_rate != null ? Number(existing.upfront_commission_rate) : BASE_COMMISSION);
       // Annual goal only applies to sellers (rep / admin_rep). Non-sellers
       // (admin / auditor) get 0 — the column is NOT NULL, and 0 is treated
       // as "no goal" by the leaderboard rendering.
@@ -2602,6 +2606,50 @@ function openUserEditor(existing = null, prefill = null) {
       '🕐 Last app login: ' + (existing.last_login_at
         ? new Date(existing.last_login_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
         : 'never')) : null,
+    (() => {
+      // User Role sits at the very top (per Isaac) — everything below keys
+      // off it. Legacy 'rep' accounts preselect Rep - Sales Rep here, so
+      // saving them migrates to an explicit role.
+      let seedRole = existing?.role || prefill?.role || 'rep_sales';
+      if (seedRole === 'rep') seedRole = 'rep_sales';
+      const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' },
+        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead'].map(v => el('option', { value: v, selected: seedRole === v }, ROLE_LABEL[v])),
+        el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep' },  'Admin + Sales'),
+        el('option', { value: 'admin',      selected: seedRole === 'admin' },      'Admin (no sales)'),
+        el('option', { value: 'auditor',    selected: seedRole === 'auditor' },    'Auditor'),
+      );
+      // (Commission Bump, Revenue Goal, Close Rate, Other Pay and Loyalty Pay
+      // left this modal per Isaac — pay lives in Settings → Commissions.)
+      const wrapper = document.createDocumentFragment();
+      wrapper.append(mk('User Role', roleSelect));
+      // ── Teams led — right under the role, only once Partner (or Team
+      // Lead) is picked. Drives leaderboard + player-card reach.
+      if (existing && existing.id) {
+        const teamsBox = el('div', { class: 'flex flex-wrap gap-1.5' });
+        const drawTeams = () => {
+          teamsBox.innerHTML = '';
+          const chosen = new Set(partnerTeamsOf(existing.id));
+          const names = allTeamNames();
+          if (!names.length) { teamsBox.append(el('span', { class: 'text-[11px] text-muted-' }, 'No teams set up yet (Indicators \u2192 Manage Teams).')); return; }
+          names.forEach(t => teamsBox.append(el('button', {
+            type: 'button',
+            class: 'rounded-full px-2.5 py-1 text-[11px] font-semibold border transition',
+            style: chosen.has(t) ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
+            onclick: () => { const c = new Set(partnerTeamsOf(existing.id)); if (c.has(t)) c.delete(t); else c.add(t); setPartnerTeams(existing.id, [...c]); drawTeams(); },
+          }, t)));
+        };
+        drawTeams();
+        const teamsSection = el('div', { class: 'flex flex-col gap-2' },
+          el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- block font-semibold' }, 'Teams led'),
+          el('p', { class: 'text-[11px] text-muted-' }, 'This partner sees a team card, team trends and the drill-down for every rep on these teams. Saves as you click.'),
+          teamsBox);
+        const _showTeams = () => { teamsSection.style.display = (roleSelect.value === 'rep_partner' || roleSelect.value === 'rep_team_lead') ? '' : 'none'; };
+        roleSelect.addEventListener('change', _showTeams);
+        _showTeams();
+        wrapper.append(teamsSection);
+      }
+      return wrapper;
+    })(),
     mk('Full Name', inp('full_name', { required: true, value: existing?.full_name || prefill?.full_name || '' })),
     mk('Email', inp('email', { type: 'email', required: true, value: existing?.email || prefill?.email || '' })),
     mk('Phone', inp('phone', { type: 'tel', value: existing?.phone || prefill?.phone || '', placeholder: 'From FieldRoutes' })),
@@ -2620,71 +2668,6 @@ function openUserEditor(existing = null, prefill = null) {
         minlength: '8',
       }),
     ),
-    (() => {
-      // No plain 'rep' option anymore — legacy 'rep' accounts preselect
-      // Rep - Sales Rep here, so saving them migrates to an explicit role.
-      let seedRole = existing?.role || prefill?.role || 'rep_sales';
-      if (seedRole === 'rep') seedRole = 'rep_sales';
-      const roleSelect = el('select', { name: 'role', class: 'w-full rounded-lg border px-2.5 py-1 text-[11px]' },
-        ...['rep_sales', 'rep_partner', 'rep_team_lead', 'rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead'].map(v => el('option', { value: v, selected: seedRole === v }, ROLE_LABEL[v])),
-        el('option', { value: 'admin_rep',  selected: seedRole === 'admin_rep' },  'Admin + Sales'),
-        el('option', { value: 'admin',      selected: seedRole === 'admin' },      'Admin (no sales)'),
-        el('option', { value: 'auditor',    selected: seedRole === 'auditor' },    'Auditor'),
-      );
-      // Seller-only fields — only 'rep' and 'admin_rep' sell, so hide
-      // Commission Bump and Annual Revenue Goal for 'admin' (no-sales)
-      // and 'auditor'.
-      // Close Rate moved to the Pay tab → Backend Pay section so admins can
-      // update it inline each quarter alongside the bonus it gates.
-      const commissionRow = el('label', { class: 'block text-sm' },
-        el('span', { class: 'text-[10px] uppercase tracking-widest text-muted- block mb-1.5 font-semibold' },
-          'Commission Bump ',
-          el('span', { class: 'normal-case text-muted- font-normal tracking-normal text-[10px]' }, '— above 7% base'),
-        ),
-        el('div', { class: 'relative' },
-          (() => {
-            const BASE = 0.07;
-            const currentBump = existing?.upfront_commission_rate
-              ? Math.round(((existing.upfront_commission_rate - BASE) * 100) * 10) / 10
-              : '';
-            return inp('commission_override', {
-              type: 'number', step: '0.5', min: 0, max: 20,
-              placeholder: 'e.g. 0.5',
-              value: currentBump === 0 ? '' : currentBump,
-              class: 'w-full rounded-lg border pl-3 pr-8 py-2 text-sm',
-            });
-          })(),
-          el('span', { class: 'absolute right-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '%'),
-        ),
-        el('div', { class: 'text-[10px] text-muted- mt-1' }, 'Blank = 7% standard · 0.5 bump = 7.5% total'),
-      );
-      const annualGoalRow = mk('Revenue Goal ($)', inp('annual_revenue_goal', {
-        type: 'number', min: 0, step: 1000,
-        // Editing an existing rep keeps their current goal; New User is blank
-        // so the admin sets it intentionally instead of inheriting a default.
-        value: existing?.annual_revenue_goal ?? '',
-        placeholder: 'e.g. 500000',
-      }));
-
-      const applyRoleVisibility = () => {
-        const seller = isSellerRole(roleSelect.value);
-        commissionRow.style.display = seller ? '' : 'none';
-        annualGoalRow.style.display = seller ? '' : 'none';
-      };
-      roleSelect.addEventListener('change', applyRoleVisibility);
-      // Apply once on first render so existing auditors open with the fields hidden.
-      setTimeout(applyRoleVisibility, 0);
-
-      // Return a fragment-like array that mk's parent appends inline
-      const wrapper = document.createDocumentFragment();
-      wrapper.append(
-        mk('User Role', roleSelect),
-        commissionRow,
-        annualGoalRow,
-      );
-      return wrapper;
-    })(),
-
     // ── Pay Stub personalization ──
     // Drives which rows show on the rep's Pay tab + the manual additives that
     // flow into Total Upfront Pay each period. Hidden for auditors (no stub).
@@ -2714,16 +2697,7 @@ function openUserEditor(existing = null, prefill = null) {
       // instead).
       const goldenPhoneRow    = mk('Golden Phone',    moneyInp('golden_phone_amount',    existing?.golden_phone_amount));
       const loyaltyRoyaltyRow = mk('Loyalty Royalty', moneyInp('loyalty_royalty_amount', existing?.loyalty_royalty_amount));
-      // Sheet SETTINGS-tab fields (per Isaac): close rate, other pay, loyalty pay.
-      const closeRateRow = mk('Close Rate (%)', el('div', { class: 'relative' },
-        inp('close_rate_pct', {
-          type: 'number', step: '1', min: 0, max: 100, placeholder: '50',
-          value: existing?.close_rate_target != null ? Math.round(Number(existing.close_rate_target) * 100) : '',
-          class: 'w-full rounded-lg border pl-3 pr-8 py-2 text-sm',
-        }),
-        el('span', { class: 'absolute right-3 top-1/2 -translate-y-1/2 text-muted- text-sm' }, '%')));
-      const otherPayRow   = mk('Other Pay',   moneyInp('other_pay_amount',   existing?.other_pay_amount));
-      const loyaltyPayRow = mk('Loyalty Pay', moneyInp('loyalty_pay_amount', existing?.loyalty_pay_amount));
+      // (Close Rate / Other Pay / Loyalty Pay moved to Settings → Commissions, per Isaac.)
 
       const OFFICE_ROLES = new Set(['rep_office', 'rep_office_lead', 'rep_loyalty', 'rep_loyalty_lead']);
       const grid = el('div', { class: 'flex flex-col gap-3' });
@@ -2735,7 +2709,7 @@ function openUserEditor(existing = null, prefill = null) {
         loyaltyRoyaltyRow.style.display = isLoyalty ? '' : 'none';
       };
       repTypeSelect.addEventListener('change', applyRepTypeVisibility);
-      grid.append(closeRateRow, otherPayRow, loyaltyPayRow, goldenPhoneRow, loyaltyRoyaltyRow);
+      grid.append(goldenPhoneRow, loyaltyRoyaltyRow);
 
       const section = el('div', { class: 'flex flex-col gap-3 pt-3 border-t', style: { borderColor: 'var(--border)' } },
         el('h4', { class: 'text-[11px] uppercase tracking-widest font-bold text-muted-' }, 'Pay Stub'),
@@ -2751,41 +2725,15 @@ function openUserEditor(existing = null, prefill = null) {
         const roleSel = form.querySelector('select[name="role"]');
         if (!roleSel) return;
         const checkRole = () => {
-          section.style.display = (roleSel.value === 'auditor' || roleSel.value === 'admin') ? 'none' : '';
+          // Sales reps have nothing left here (per Isaac) — only office-staff
+          // roles keep Rep Type + Golden Phone / Loyalty Royalty.
+          section.style.display = OFFICE_ROLES.has(roleSel.value) ? '' : 'none';
           applyRepTypeVisibility();   // Golden Phone visibility depends on the role too
         };
         roleSel.addEventListener('change', checkRole);
         checkRole();
       }, 0);
 
-      // ── Teams led (partners / team leads) — drives leaderboard + player
-      // card drill-down reach for everyone on those teams.
-      if (existing && existing.id) {
-        const teamsBox = el('div', { class: 'flex flex-wrap gap-1.5' });
-        const drawTeams = () => {
-          teamsBox.innerHTML = '';
-          const chosen = new Set(partnerTeamsOf(existing.id));
-          const names = allTeamNames();
-          if (!names.length) { teamsBox.append(el('span', { class: 'text-[11px] text-muted-' }, 'No teams set up yet (Indicators → Manage Teams).')); return; }
-          names.forEach(t => teamsBox.append(el('button', {
-            type: 'button',
-            class: 'rounded-full px-2.5 py-1 text-[11px] font-semibold border transition',
-            style: chosen.has(t) ? { background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'var(--accent)' } : { borderColor: 'var(--border-2)', color: 'var(--text-muted)' },
-            onclick: () => { const c = new Set(partnerTeamsOf(existing.id)); if (c.has(t)) c.delete(t); else c.add(t); setPartnerTeams(existing.id, [...c]); drawTeams(); },
-          }, t)));
-        };
-        drawTeams();
-        const teamsSection = el('div', { class: 'flex flex-col gap-2 pt-3 border-t', style: { borderColor: 'var(--border)' } },
-          el('h4', { class: 'text-[11px] uppercase tracking-widest font-bold text-muted-' }, 'Teams led'),
-          el('p', { class: 'text-[11px] text-muted-' }, 'Partners and team leads can open the player card / leaderboard drill-down for every rep on these teams (plus their own team from Manage Teams). Saves as you click.'),
-          teamsBox);
-        const _showTeams = () => {
-          const roleSel = form.querySelector('select[name="role"]');
-          teamsSection.style.display = roleSel && (roleSel.value === 'rep_partner' || roleSel.value === 'rep_team_lead') ? '' : 'none';
-        };
-        setTimeout(() => { const roleSel = form.querySelector('select[name="role"]'); if (roleSel) roleSel.addEventListener('change', _showTeams); _showTeams(); }, 0);
-        section.append(teamsSection);
-      }
       return section;
     })(),
   );

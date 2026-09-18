@@ -1561,6 +1561,39 @@ function adminPricingSimple() {
     }));
   };
   draw();
+  // ── Per-rep pay-stub amounts (moved here from Edit User, per Isaac):
+  // fixed additives stored straight on the profile, no company default.
+  const stubFields = [
+    ['other_pay_amount',       'Other Pay',       'Fixed extra pay added to Total Upfront Pay each period.'],
+    ['loyalty_pay_amount',     'Loyalty Pay',     'Fixed loyalty pay added each period.'],
+    ['golden_phone_amount',    'Golden Phone',    'Office-staff Golden Phone royalty (sales-rep typed users only).'],
+    ['loyalty_royalty_amount', 'Loyalty Royalty', 'Loyalty Royalty (loyalty-rep typed users only).'],
+  ];
+  const stubTable = rep ? (() => {
+    const saveField = async (k, v) => {
+      rep[k] = v == null ? 0 : v;
+      if (typeof DEMO !== 'undefined' && DEMO) { saveDemoData(); return; }
+      const { error } = await supabase.from('profiles').update({ [k]: rep[k] }).eq('id', rep.id);
+      if (error) toast('Could not save: ' + error.message, 'error');
+      else { try { logActivity('pay_override', { detail: rep.full_name + ': ' + k + ' = ' + rep[k] }); } catch (e) { /* optional */ } }
+    };
+    const closeIn = cellInput(
+      () => rep.close_rate_target == null ? null : Math.round(Number(rep.close_rate_target) * 1000) / 10,
+      (v) => { if (v != null) saveField('close_rate_target', Math.max(0, Math.min(100, v)) / 100); },
+      '%', 'This rep\u2019s actual close rate (hand-maintained each quarter; also editable on the Pay tab).');
+    return el('div', { class: 'card overflow-hidden' }, el('table', { class: 'w-full' },
+      el('thead', {}, el('tr', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } },
+        el('th', { class: 'px-3 py-2 text-left' }, 'Pay stub \u00b7 ' + rep.full_name),
+        el('th', { class: 'px-3 py-2 text-right' }, 'Amount'))),
+      el('tbody', {},
+        el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-3 py-1.5 text-[12px] font-semibold uppercase whitespace-nowrap' }, 'Close Rate'),
+          el('td', { class: 'px-3 py-1 text-right', style: { width: '150px' } }, closeIn)),
+        ...stubFields.map(([k, label, hint]) => el('tr', { class: 'border-t', style: { borderColor: 'var(--border)' } },
+          el('td', { class: 'px-3 py-1.5 text-[12px] font-semibold uppercase whitespace-nowrap', title: hint }, label),
+          el('td', { class: 'px-3 py-1 text-right', style: { width: '150px' } },
+            cellInput(() => (Number(rep[k]) || 0) === 0 ? null : Number(rep[k]), (v) => saveField(k, v), '$', hint, '$0.00')))))));
+  })() : null;
   const head = el('thead', {}, el('tr', { class: 'text-[10px] uppercase tracking-widest font-semibold', style: { color: 'var(--text-subtle)' } },
     el('th', { class: 'px-3 py-2 text-left' }, 'Metric'),
     el('th', { class: 'px-3 py-2 text-right' }, 'Default'),
@@ -1581,6 +1614,7 @@ function adminPricingSimple() {
   return el('div', { class: 'flex flex-col gap-3 max-w-3xl w-full commission-config' },
     picker,
     el('div', { class: 'card overflow-hidden' }, el('table', { class: 'w-full' }, head, body)),
+    stubTable,
     el('div', { class: 'text-[11px]', style: { color: 'var(--text-subtle)' } },
       rep ? 'Type in ' + rep.full_name + '’s column to override a metric (orange = custom). Clear it or hit × to fall back to the default. Blank cells show the default they inherit.'
           : 'Click a default to edit; saves when you tab or click away. Modifiers are points relative to Upfront %. Pick a rep above to give them different numbers.'));
