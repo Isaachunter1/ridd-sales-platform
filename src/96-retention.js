@@ -1845,11 +1845,23 @@ function reportingWaterfall() {
           el('span', { class: 'flex items-center gap-3' },
             el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#DC2626', display: 'inline-block' } }), 'collections cliff (mo 2–5)'),
             el('span', { class: 'flex items-center gap-1' }, el('span', { style: { width: '8px', height: '8px', background: '#A9441F', display: 'inline-block' } }), 'contract end (mo 11–13)')))),
-      el('div', { class: 'overflow-x-auto border-t', style: { borderColor: 'var(--border)' } },
-        el('table', { class: 'w-full text-xs' },
-          el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
-            thL('Cancellation Reason'), thL('Cancels', 1), thL('Median Life', 1), thL('Avg', 1), thL('Gone ≤90d', 1), thL('Gone ≤1yr', 1), thL('Avg ARV', 1))),
-          el('tbody', {}, ...rks.map(reasonRow)))));
+      // By-reason table is collapsed by default (per Isaac, Sep 2026) —
+      // click the bar to expand it under the chart.
+      (() => {
+        const openR = state._rtLifeReasonsOpen === true;
+        const bar = el('button', {
+          class: 'w-full flex items-center justify-between gap-3 px-4 py-2.5 border-t text-left transition hover:brightness-95',
+          style: { borderColor: 'var(--border)', background: 'var(--card-2)', color: 'var(--text)' },
+          onclick: () => { state._rtLifeReasonsOpen = !openR; mountApp(); },
+        },
+          el('span', { class: 'text-[10px] uppercase tracking-widest font-bold' }, (openR ? '▾ ' : '▸ ') + 'Lifetime by cancellation reason'),
+          el('span', { class: 'text-[10px] tabular-nums', style: { color: 'var(--text-muted)' } }, rks.length + ' reasons · ' + (openR ? 'click to collapse' : 'click to expand')));
+        return el('div', {}, bar, openR ? el('div', { class: 'overflow-x-auto border-t', style: { borderColor: 'var(--border)' } },
+          el('table', { class: 'w-full text-xs' },
+            el('thead', { class: 'text-[10px] uppercase tracking-wider text-muted-' }, el('tr', { style: { background: 'var(--card-2)' } },
+              thL('Cancellation Reason'), thL('Cancels', 1), thL('Median Life', 1), thL('Avg', 1), thL('Gone ≤90d', 1), thL('Gone ≤1yr', 1), thL('Avg ARV', 1))),
+            el('tbody', {}, ...rks.map(reasonRow)))) : null);
+      })());
   })();
 
   const renderSide = (data, pop, label, sideMark) => el('div', { class: 'flex flex-col gap-4' },
