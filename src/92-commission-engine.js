@@ -194,7 +194,7 @@ function _d2dIso(s) { return (typeof dateSoldToIso === 'function' && dateSoldToI
 function _d2dTodayIso() { return (typeof bizTodayIso === 'function') ? bizTodayIso() : new Date().toISOString().slice(0, 10); }
 
 function viewD2dDashboard() {
-  const wrap = el('div', { class: 'flex flex-col gap-4 w-full' });
+  const wrap = el('div', { class: 'flex flex-col gap-4 w-full board-dash' });
   const loading = _d2dKickIfEmpty();
   const raw = d2dRawSales();
   if (!raw.length) {

@@ -259,7 +259,7 @@ function viewTechs() {
     const src2 = state.sources.find(o => o.id === s.source_id);
     return src2 && TECH_UPSELL_SRC_RE.test(String(src2.name || ''));
   });
-  return el('div', { class: 'flex flex-col gap-5 w-full' },
+  return el('div', { class: 'flex flex-col gap-5 w-full board-dash' },
     el('div', { class: 'flex items-center gap-2 flex-wrap' },
       el('button', {
         class: 'flex-1 min-w-0 rounded-xl px-2.5 py-1 text-[11px] font-bold transition hover:brightness-95',
@@ -346,7 +346,7 @@ function viewDashboard() {
   const goalProgress = goal.amount > 0 ? Math.min(1, ytd[state.dashGoalTab] / goal.amount) : 0;
   const daysLeft = daysLeftInGoalPeriod(goal);
 
-  return el('div', { class: 'flex flex-col gap-5 w-full' },
+  return el('div', { class: 'flex flex-col gap-5 w-full board-dash' },
 
     // ─── Top row: + New Sale + date filter + office view ───
     el('div', { class: 'flex items-center gap-2 flex-wrap dash-toolbar' },
