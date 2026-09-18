@@ -9627,7 +9627,7 @@ function indicatorYoYTrendChart() {
                 const tierLab = tier === 'all' ? '' : tier === 'rookie' ? 'Rookies' : 'Vets';
                 const label = [scopeLab, tierLab].filter(Boolean).join(' · ') || 'Company';
                 const color = _yoySelScopes.length > 1 ? scopePalette0[(_tierSplit ? si * _yoySelTiers.length + _yoySelTiers.indexOf(tier) : si) % scopePalette0.length]
-                  : tier === 'rookie' ? '#DF643A' : tier === 'vet' ? '#818CF8' : '#DF643A';
+                  : tier === 'rookie' ? '#DF643A' : tier === 'vet' ? '#818CF8' : (_tierSplit ? '#323230' : '#DF643A');
                 const data = yearsPresent.map(y => { const _b = _bucketsOfIn(A, y, tier) || {}; return valOf(_b[1], y === prevY); });
                 lines.push({ label, data, borderColor: color, backgroundColor: 'rgba(223,100,58,.10)', fill: lines.length === 0 && kind !== 'pct' && _yoySelScopes.length * _yoySelTiers.length === 1, spanGaps: true, borderWidth: 3, tension: 0.25, pointRadius: 3.5, pointHoverRadius: 6 });
               });
@@ -9656,7 +9656,7 @@ function indicatorYoYTrendChart() {
                 const _ti = _yoySelTiers.indexOf(tier);
                 const color = _yoySelScopes.length > 1
                   ? scopePalette[(_tierSplit ? si * _yoySelTiers.length + _ti : si) % scopePalette.length]
-                  : tier === 'all' ? yColor : (tier === 'rookie' ? (isCur ? '#DF643A' : '#A9441F') : (isCur ? '#818CF8' : '#5F6C5B'));
+                  : tier === 'all' ? (_tierSplit && isCur ? '#323230' : yColor) : (tier === 'rookie' ? (isCur ? '#DF643A' : '#A9441F') : (isCur ? '#818CF8' : '#5F6C5B'));
                 const tierLab = tier === 'all' ? '' : tier === 'rookie' ? ' · Rookies' : ' · Vets';
                 const label = String(y) + tierLab + scopeLab;
                 const _b = _bucketsOfIn(A, y, tier) || {};
