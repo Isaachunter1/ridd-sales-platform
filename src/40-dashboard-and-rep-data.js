@@ -4895,7 +4895,11 @@ function openIndicatorRepCard(rep, allReps = []) {
     // Mobile: identity row first (with its own ×), controls wrap onto their
     // own full-width row below — the side-by-side desktop layout squeezed
     // the name into a one-word-per-line column on phones.
-    return el('div', { class: 'flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-5' },
+    // Sticky (per Isaac, Sep 2026): the rep's name stays pinned to the top
+    // of the card while the body scrolls, so any screenshot says who it is.
+    // The modal is the scroll container, so sticky works here; the negative
+    // margins let it span the card's padding edge to edge.
+    return el('div', { class: 'flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-5', style: { position: 'sticky', top: '-24px', zIndex: 20, background: 'var(--card)', margin: '-24px -24px 20px', padding: '16px 24px 12px', borderBottom: '1px solid var(--border)' } },
       el('div', { class: 'flex items-center gap-4 flex-1 min-w-0' },
         avatarNode((profileForRepName(rep.name) || {}).avatar_url || null, initials, 'w-16 h-16 text-lg'),
         el('div', { class: 'flex-1 min-w-0' },
