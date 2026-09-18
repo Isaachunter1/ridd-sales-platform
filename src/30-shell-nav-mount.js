@@ -705,6 +705,7 @@ function mountApp() {
   // defaults match the old hardcoded list exactly.
   const repCanSee = (v) => (v === 'nrla' && userCan('view_comps'))
     || (v === 'indicators' && userCan('view_indicators'))
+    || _visibleModules().some(m => m.id === v)             // registered modules (Pricing, riddmarket…) the module itself allows
     || (isTechType && TECH_TAB_KEYS.has(v))                // Technicians: Dashboard + Sales queue
     || (isSalesRepType && D2D_SALES_TAB_KEYS.has(v))       // Sales Reps: the D2D Sales group
     || (isOfficeStaff && INSIDE_SALES_TAB_KEYS.has(v));
